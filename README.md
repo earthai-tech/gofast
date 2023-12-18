@@ -39,7 +39,7 @@ Out[1]:
 ``` 
 We will try a fast manipulation of data in a few line of codes: 
 
-1. *Fast clean and sanitize raw data* 
+1. **Fast clean and sanitize raw data** 
 
 ``gofast`` has a capability to clean your data, strip the columns bad string characters, 
 drop your useless features (e.g., `name`, `num` and `lwi`)  in a one line of code as: 
@@ -49,7 +49,7 @@ drop your useless features (e.g., `name`, `num` and `lwi`)  in a one line of cod
 >>> cleaned_data.shape 
 Out[2]: (431, 9)
 ``` 
-1. *Separate numerical and categorical data in one line of code*
+1. **Split numerical and categorical data in one line of code**
  
 User does need to care about the columns, `gofast` does it for you thanks to 
 ``bi_selector``function by turning the `return_frames` argument to ``True``. By 
@@ -71,7 +71,7 @@ Out[4]:
 (['geol', 'sfi', 'east', 'power', 'type', 'magnitude', 'north'],
  ['shape', 'ohmS'])
 ```
-3. *Fast dual data imputation* 
+3. **Dual imputation** 
 
 ``gofast`` is able to impute at the same time, the numeric and categorical data 
 via the ``bi-impute`` strategy  in one line of code  as 
@@ -82,7 +82,7 @@ via the ``bi-impute`` strategy  in one line of code  as
 The data imputation can be controlled via the parameters `strategy`, `drop_features`, `missing_values`
 `fill_value`. By default, `the most_frequent` argument is used to impute the categorical features.
 
-3. *Create an automated pipeline with your data* 
+3. **Automated pipeline with your data** 
 
 ``gofast`` understands your data and create a fast pipeline for you. If the data contains
 missing values or too dirty, ``gofast`` sanitizes it before proceeding. Multiple lines 
@@ -114,7 +114,7 @@ Out[6]:
 <431x19 sparse matrix of type '<class 'numpy.float64'>'
 	with 3879 stored elements in Compressed Sparse Row format>
 ```
-5. *Manage smartly your target* 
+5. **Manage smartly your target**
 
 For a classification problem, ``gofast`` can efficiently manage your target by specifying  
 the class boundaries and labels names  Then ``gofast`` does it and returns categorized 
@@ -139,13 +139,13 @@ Out[8]:
 Out[9]: (array([0, 1, 2, 3]), array([  4, 291,  95,  41], dtype=int64))
 ``` 
 
-4. *Train multiple estimators at the same time* 
+4. **Train multiple estimators** 
 
 Do you want to train multiple estimators at the same time? Don't worry ``gofast`` 
-does it for you and save your results into a binary disk. Here is an example 
+does it for you and save your results into a binary disk. The ``GridSearchMultiple`` 
+is built to simplify your task. Here is an example:
 
 ```python 
->>> from sklearn.model_selection import train_test_split
 >>> from sklearn.svm import SVC, LinearSVC 
 >>> from sklearn.linear_model import SGDClassifier,LogisticRegression
 >>> from gofast.validation import GridSearchMultiple, displayFineTunedResults
@@ -165,18 +165,17 @@ does it for you and save your results into a binary disk. Here is an example
                 [dict()], # we just no provided parameter for demo
                 [dict()]
                 )
->>> #Now  we can call :class:`gofast.validation.GridSearchMultiple` for
->>> # training and self-validating as:
+>>> # Now train and self-validate all  with CV=4 via the RandomizedSearchCV
 >>> gobj = GridSearchMultiple(estimators = estimators, 
                        grid_params = grid_params ,
                        cv =4, 
                        scoring ='accuracy', 
-                       verbose =1,   #> 7 put more verbose 
+                       verbose =1,   # > 7 output more messages 
                        savejob=False ,  # set true to save job in binary disk file.
-                       kind='GridSearchCV')
+                       kind='RandomizedSearchCV')
 >>> gobj.fit(Xenc, yenc) # Starts the training
 >>> # Once the parameters are fined tuned, we can display the fined tuning 
->>> # results using displayFineTunedResults`` function
+>>> # results using ``displayFineTunedResults`` function
 >>> displayFineTunedResults (gobj.models.values_) 
 Out[10]:
 MODEL NAME = SVC
@@ -195,9 +194,9 @@ MODEL NAME = SGDClassifier
 BEST PARAM = {{}}
 BEST ESTIMATOR = SGDClassifier(random_state=42)
 ``` 
-6. *Plot feature importances* 
-``gofast`` helps for a fast visualization of the feature contributions. Here is 
-an example: 
+6. **Plot feature importances** 
+``gofast`` helps for a fast feature contributions visualization. Here is 
+an example using the ``sklearn.ensemble.RandomForestClassifier``: 
 
 ```python 
 >>> from sklearn.ensemble import RandomForestClassifier 
