@@ -584,7 +584,7 @@ def download_file(url, local_filename , dstpath =None ):
     local_filename = os.path.join( os.getcwd(), local_filename) 
     
     if dstpath: 
-         move_file_to_directory ( local_filename,  dstpath)
+         move_file ( local_filename,  dstpath)
          
     print("{:-^70}".format(" ok! "))
     
