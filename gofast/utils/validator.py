@@ -1037,14 +1037,18 @@ def set_array_back (X, *,  to_frame=False, columns = None, input_name ='X'):
         
     return X, columns 
  
-def is_frame (arr, /): 
+def is_frame (arr, /, df_only =False ): 
     """ Return bool wether array is a frame ( pd.Series or pd.DataFrame )
     
+    To verify whether `arr` is typically a dataframe, set ``df_only =True``. 
     Isolated part of :func:`~.array_to_frame` dedicated to X and y frame
     reconversion validation.
     """
-    return hasattr (arr, '__array__') and (
-        hasattr (arr, 'name') or hasattr (arr, 'columns') )
+    return ( hasattr (arr, '__array__') and (
+                (hasattr ( arr, 'name') or hasattr (arr, 'columns'))
+                ) if not df_only else ( 
+                hasattr (arr, '__array__') and hasattr(arr, 'columns'))
+            )
 
 def check_array(
     array,

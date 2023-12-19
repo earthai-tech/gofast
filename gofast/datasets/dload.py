@@ -7,7 +7,6 @@ load different data as a function
 =================================
 
 Inspired from the machine learning popular dataset loading 
-@author: Daniel
 """
 import os
 import scipy 

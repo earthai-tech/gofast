@@ -4549,7 +4549,7 @@ def normalizer ( arr, /, method ='naive'):
     arr = np.array(arr )
     
     if method in ( 'sklearn', 'scikit-learn', 'minmax', 'min-max'): 
-        from ..exlib import MinMaxScaler 
+        from sklearn.preprocessing import MinMaxScaler 
         arr = arr.reshape(-1, 1) if arr.ndim ==1 else arr 
         return  MinMaxScaler().fit_transform(arr ) 
     

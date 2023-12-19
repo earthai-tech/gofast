@@ -49,7 +49,7 @@ drop your useless features (e.g., `name`, `num` and `lwi`)  in a one line of cod
 >>> cleaned_data.shape 
 Out[2]: (431, 9)
 ``` 
-1. **Split numerical and categorical data in one line of code**
+2. **Split numerical and categorical data in one line of code**
  
 User does need to care about the columns, `gofast` does it for you thanks to 
 ``bi_selector``function by turning the `return_frames` argument to ``True``. By 
@@ -77,12 +77,12 @@ Out[4]:
 via the ``bi-impute`` strategy  in one line of code  as 
 
 ```python 
->>> data_imputed = gf.naive_imputer(cleaned_data,  mode= 'bi-impute')
+>>> data_imputed = gf.soft_imputer(cleaned_data,  mode= 'bi-impute')
 ``` 
 The data imputation can be controlled via the parameters `strategy`, `drop_features`, `missing_values`
 `fill_value`. By default, `the most_frequent` argument is used to impute the categorical features.
 
-3. **Automated pipeline with your data** 
+4. **Automated pipeline with your data** 
 
 ``gofast`` understands your data and create a fast pipeline for you. If the data contains
 missing values or too dirty, ``gofast`` sanitizes it before proceeding. Multiple lines 
@@ -90,7 +90,7 @@ of codes can henceforth be skipped. This is a proposed pipeline of ``gofast`` ac
 your dataset: 
 
 ```python 
->>> auto_pipeline = gf.make_naive_pipe (cleaned_data )
+>>> auto_pipeline = gf.make_pipe (cleaned_data )
 Out[5]: 
 FeatureUnion(transformer_list=[('num_pipeline',
                                 Pipeline(steps=[('selectorObj',
@@ -109,7 +109,7 @@ Rather to return an automated pipeline, users can outputed the transformed data 
 `` the argument of `transform ` parameter to ``True``   as 
 ```python 
 
->>> transformed_data = gf.make_naive_pipe ( cleaned_data, transform=True )
+>>> transformed_data = gf.make_pipe ( cleaned_data, transform=True )
 Out[6]: 
 <431x19 sparse matrix of type '<class 'numpy.float64'>'
 	with 3879 stored elements in Compressed Sparse Row format>
@@ -134,12 +134,12 @@ Out[8]:
 (array(['adult', 'child', 'teenager', 'young'], dtype=object),
  array([  4, 291,  95,  41], dtype=int64))
 >>> # we can rencoded the target data from `make_naive_pipe` as 
->>> Xenc, yenc= gf.make_naive_pipe ( cleaned_data, y = yc ,  transform=True )
+>>> Xenc, yenc= gf.make_pipe ( cleaned_data, y = yc ,  transform=True )
 >>> np.unique (yenc, return_counts= True) 
 Out[9]: (array([0, 1, 2, 3]), array([  4, 291,  95,  41], dtype=int64))
 ``` 
 
-4. **Train multiple estimators** 
+6. **Train multiple estimators** 
 
 Do you want to train multiple estimators at the same time? Don't worry ``gofast`` 
 does it for you and save your results into a binary disk. The ``GridSearchMultiple`` 
@@ -194,7 +194,8 @@ MODEL NAME = SGDClassifier
 BEST PARAM = {{}}
 BEST ESTIMATOR = SGDClassifier(random_state=42)
 ``` 
-6. **Plot feature importances** 
+7. **Plot feature importances** 
+
 ``gofast`` helps for a fast feature contributions visualization. Here is 
 an example using the ``sklearn.ensemble.RandomForestClassifier``: 
 
@@ -202,7 +203,7 @@ an example using the ``sklearn.ensemble.RandomForestClassifier``:
 >>> from sklearn.ensemble import RandomForestClassifier 
 >>> from gofast.plot import plot_rf_feature_importances 
 >>> # Try to scale the numeric data 
->>> num_scaled = gf.naive_scaler (data_imputed[num_features],)  
+>>> num_scaled = gf.soft_scaler (data_imputed[num_features],)  
 >>> plot_rf_feature_importances (RandomForestClassifier(), num_scaled, yenc) 
 ``` 
 

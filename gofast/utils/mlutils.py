@@ -99,45 +99,44 @@ from .validator import (
     _is_arraylike_1d, 
     check_consistent_length,
     assert_xy_in, 
+    is_frame, 
+    array_to_frame
     )
 from ._dependency import import_optional_dependency
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
 __all__=[ 
-    "evalModel",
-    "selectfeatures", 
-    "getGlobalScore", 
-    "split_train_test", 
-    "correlatedfeatures", 
-    "findCatandNumFeatures",
-    "evalModel", 
-    "cattarget", 
+    "evaluate_model",
+    "select_features", 
+    "get_global_score", 
+    "get_correlated_features", 
+    "find_features_in", 
+    "categorize_target", 
     "resampling", 
     "bin_counting", 
     "labels_validator", 
     "projection_validator", 
     "rename_labels_in" , 
-    "naive_imputer", 
-    "naive_scaler", 
+    "soft_imputer", 
+    "soft_scaler", 
     "select_feature_importances", 
-    "make_naive_pipe", 
+    "make_pipe", 
     "bi_selector", 
-    "correlatedfeatures", 
-    "exporttarget", 
-    "predict", 
-    "fetchGeoDATA", 
+    "get_target", 
+    "export_target",  
+    "stats_from_prediction", 
+    "fetch_tgz", 
     "fetchModel", 
     "fetch_model", 
     "load_data", 
     "split_train_test_by_id", 
     "split_train_test", 
-    "discretizeCategoriesforStratification", 
-    "stratifiedUsingDiscretedCategories", 
-    "dumpOrSerializeData", 
-    "loadDumpedOrSerializedData", 
-    "default_data_splitting", 
-    "findCatandNumFeatures", 
+    "discretize_categories", 
+    "stratify_categories", 
+    "serialize_data", 
+    "load_dumped_data", 
+    "naive_data_split", 
     ]
 
 
@@ -169,6 +168,191 @@ _estimators ={
      'extree': ['ExtraTreesClassifier', 'extree', 'xtree', 'xtr']
         }  
 #------
+
+def codify_variables (
+    arr, /, 
+    columns: list =None, 
+    func: F=None, 
+    categories: dict=None, 
+    get_dummies:bool=..., 
+    parse_cols:bool =..., 
+    return_mapper:bool=... 
+    ) -> DataFrame: 
+    """ Encode multiple categorical variables in a datase. 
+
+    Parameters 
+    -----------
+    arr: pd.DataFrame, ArrayLike, dict 
+       DataFrame or Arraylike. If simple array is passed, specify the 
+       columns argumment to create a dataframe. If a dictionnary 
+       is passed, it should be convert to a dataframe. 
+       
+    columns: list,
+       List of the columns to encode the labels 
+       
+    func: callable, 
+       Function to apply the label accordingly. Label must be included in 
+       the columns values.
+       
+    categories: dict, Optional 
+       Dictionnary of column names(`key`) and labels (`values`) to 
+       map the labels.  
+       
+    get_dummies: bool, default=False 
+      returns a new encoded DataFrame  with binary columns 
+      for each category within the specified categorical columns.
+
+    parse_cols: bool, default=False
+      If `columns` parameter is listed as string, `parse_cols` can defaultly 
+      constructs an iterable objects. 
+    
+    return_mapper: bool, default=False 
+       return the categorical codes that used for mapping variables. 
+       if `func` is applied, mapper returns an empty dict. 
+       
+    Return
+    -------
+    df: New encoded Dataframe 
+    
+    Examples
+    ----------
+    >>> from gofast.utils.mlutils import codify_variables 
+    >>> # Sample dataset with categorical variables
+    >>> data = {'Height': [152, 175, 162, 140, 170], 
+        'Color': ['Red', 'Blue', 'Green', 'Red', 'Blue'],
+        'Size': ['Small', 'Large', 'Medium', 'Medium', 'Small'],
+        'Shape': ['Circle', 'Square', 'Triangle', 'Circle', 'Triangle'], 
+        'Weight': [80, 75, 55, 61, 70]
+    }
+    # List of categorical columns to one-hot encode
+    categorical_columns = ['Color', 'Size', 'Shape']
+    >>> df_encoded = codify_variables (data)
+    >>> df_encoded.head(2) 
+    Out[1]: 
+       Height  Weight  Color  Size  Shape
+    0     152      80      2     2      0
+    1     175      75      0     0      1
+    >>> # nw return_map codes 
+    >>> df_encoded , map_codes =codify_variables (
+        data, return_cat_codes =True )
+    >>> map_codes 
+    Out[2]: 
+    {'Color': {2: 'Red', 0: 'Blue', 1: 'Green'},
+     'Size': {2: 'Small', 0: 'Large', 1: 'Medium'},
+     'Shape': {0: 'Circle', 1: 'Square', 2: 'Triangle'}}
+    >>> def cat_func (x ): 
+        # 2: 'Red', 0: 'Blue', 1: 'Green'
+        if x=='Red': 
+            return 2 
+        elif x=='Blue': 
+            return 0
+        elif x=='Green': 
+            return 1 
+        else: return x 
+    >>> df_encoded =codify_variables (data, func= cat_func)
+    >>> df_encoded.head(3) 
+    Out[3]: 
+       Height  Color    Size     Shape  Weight
+    0     152      2   Small    Circle      80
+    1     175      0   Large    Square      75
+    2     162      1  Medium  Triangle      55
+    >>> 
+    >>> # Perform one-hot encoding
+    >>> df_encoded = codify_variables (data, get_dummies=True )
+    >>> df_encoded.head(3)
+    Out[4]: 
+       Height  Weight  Color_Blue  ...  Shape_Circle  Shape_Square  Shape_Triangle
+    0     152      80           0  ...             1             0               0
+    1     175      75           1  ...             0             1               0
+    2     162      55           0  ...             0             0               1
+    [3 rows x 11 columns]
+    >>> codify_variables (data, categories ={'Size': ['Small', 'Large',  'Medium']})
+    Out[5]: 
+       Height  Color     Shape  Weight  Size
+    0     152    Red    Circle      80     0
+    1     175   Blue    Square      75     1
+    2     162  Green  Triangle      55     2
+    3     140    Red    Circle      61     2
+    4     170   Blue  Triangle      70     0
+    """
+    get_dummies, parse_cols, return_mapper = ellipsis2false(
+        get_dummies, parse_cols, return_mapper )
+    # convert arr if dict is given 
+    if isinstance (arr, dict): 
+        arr = pd.DataFrame (arr ) 
+    # can generated pseudo_dataframe 
+    # to perform the operation     
+    df = array_to_frame(arr, to_frame =True,columns =columns)
+    if columns is not None: 
+        columns = list( 
+            is_iterable(columns, exclude_string =True, transform =True, 
+                              parse_string= parse_cols 
+                              )
+                       )
+        df = select_features(df, features = columns )
+        
+    if get_dummies :
+        # Perform one-hot encoding
+        # We use the pd.get_dummies() function from the pandas library 
+        # to perform one-hot encoding on the specified columns
+        return pd.get_dummies(df, columns=columns)
+         
+    # ---work with category -------- 
+    # if categories is Note , get auto numeric and 
+    # categoric variablees 
+    num_columns, cat_columns = bi_selector (df ) 
+    #apply function if 
+    # function is given 
+    
+    if func is not None: 
+        # just get only the columns 
+        if not callable (func): 
+            raise TypeError("Expect an universal function."
+                            f" Got {type(func).__name__!r}")
+        if len(cat_columns)==0: 
+            # no categorical data func. 
+            msg =("No categorical data detected. To transform numeric"
+                " values to labels, use `gofast.utils.smart_label_classifier`"
+                " or `gofast.utils.categorize_target` instead.")
+            warnings.warn (msg) 
+            return df 
+        
+        for col in  cat_columns: 
+            df[col]= df[col].apply (func ) 
+
+        return df 
+    
+    map_codes ={} 
+    
+    if categories is None: 
+        categories ={}
+        for col in cat_columns: 
+            categories[col] = list(np.unique (df[col] ))
+            
+    # categories should be a mapping data 
+    if not isinstance ( categories, dict ): 
+        raise TypeError("Expect a dictionnary {`column name`:`labels`}"
+                        "to categorize data.")
+        
+    for col, values  in  categories.items():
+        if col not in df.columns:
+            print(col)
+            continue  
+        values = is_iterable(
+            values, exclude_string=True, transform =True )
+        df[col] = pd.Categorical (df[col], categories = values, ordered=True )
+        # df[col] = df[col].astype ('category')
+        val=df[col].cat.codes
+        temp_col = col + '_col'
+        df[temp_col] = val 
+        map_codes[col] =  dict(zip(df[col].cat.codes, df[col]))
+        # drop prevous col in the data frame 
+        df.drop ( columns =[col], inplace =True ) 
+        # rename the tem colum 
+        # to take back to pandas 
+        df.rename ( columns ={temp_col: col }, inplace =True ) 
+        
+    return (df, map_codes) if return_mapper else df 
 
 def resampling( 
     X, 
@@ -421,12 +605,13 @@ def bin_counting(
            Rong Jin.Exploitation and Exploration in a Performance Based Contextual 
            Advertising System. Proceedings of the 16th ACM SIGKDD International
            Conference on Knowledge Discovery and Data Mining (2010): 27–36
+           
     .. [3] Chen, Ye, Dmitry Pavlov, and John F. Canny. “Large-Scale Behavioral 
            Targeting. Proceedings of the 15th ACM SIGKDD International 
            Conference on Knowledge Discovery and Data Mining (2009): 209–218     
     """
-    # assert everything 
-    if not hasattr (data, '__array__') and not hasattr (data, 'columns'): 
+    # assert everything
+    if not is_frame (data, df_only =True ):
         raise TypeError(f"Expect dataframe. Got {type(data).__name__!r}")
     
     if not _is_numeric_dtype(data, to_array= True): 
@@ -452,7 +637,11 @@ def bin_counting(
     
     existfeatures(data, features =bin_columns + [tname] )
     d= data.copy() 
-   
+    # -convert all features dtype to float for consistency
+    # except the binary target 
+    feature_cols = is_in_if (d.columns , tname, return_diff= True ) 
+    d[feature_cols] = d[feature_cols].astype ( float)
+    # -------------------------------------------------
     for bin_column in bin_columns: 
         d, tc  = _single_counts(d , bin_column, tname, 
                            odds =odds, 
@@ -655,7 +844,7 @@ def laplace_smoothing (x, y, data =None ):
     
     # return P  
     
-def evalModel(
+def evaluate_model(
     model: F, 
     X:NDArray |DataFrame, 
     y: ArrayLike |Series, 
@@ -744,7 +933,7 @@ def evalModel(
     
     return  ypred, score  
 
-def correlatedfeatures(
+def get_correlated_features(
         df:DataFrame ,
         corr:str ='pearson', 
         threshold: float=.95 , 
@@ -780,8 +969,8 @@ def correlatedfeatures(
         
     Examples
     --------
-    >>> from gofast.utils.mlutils import correlatedcolumns 
-    >>> df_corr = correlatedcolumns (data , corr='spearman',
+    >>> from gofast.utils.mlutils import get_correlated_features 
+    >>> df_corr = get_correlated_features (data , corr='spearman',
                                      fmt=None, threshold=.95
                                      )
     """
@@ -801,8 +990,9 @@ def correlatedfeatures(
     if corr not in ('pearson', 'covariance', 'spearman'): 
         raise ValueError (
             f"Expect ['pearson'|'spearman'|'covariance'], got{corr!r} ")
-    # collect numerical values and exclude cat values 
-    df = selectfeatures(df, include ='number')
+    # collect numerical values and exclude cat values
+    
+    df = select_features(df, include ='number')
         
     # use pipe to chain different func applied to df 
     c_df = ( 
@@ -826,7 +1016,7 @@ def correlatedfeatures(
 
     return  c_df.style.format({corr :"{:2.f}"}) if fmt else c_df 
                       
-def exporttarget (df, tname, inplace = True): 
+def get_target (df, tname, inplace = True): 
     """ Extract target and modified data in place or not . 
     
     :param df: A dataframe with features including the target name `tname`
@@ -903,14 +1093,15 @@ def existfeatures (df, features, error='raise'):
     
     return isf  
     
-def selectfeatures (
-        df: DataFrame,
-        features: List[str] =None, 
-        include = None, 
-        exclude = None,
-        coerce: bool=False,
-        **kwd
-        ): 
+def select_features(
+    df: DataFrame,
+    features: List[str] =None, 
+    include = None, 
+    exclude = None,
+    coerce: bool=False,
+	parse_features: bool=False, 
+    **kwd
+    ): 
     """ Select features  and return new dataframe.  
     
     :param df: a dataframe for features selections 
@@ -923,12 +1114,17 @@ def selectfeatures (
     :param coerce: return the whole dataframe with transforming numeric columns.
         Be aware that no selection is done and no error is raises instead. 
         *default* is ``False``
+    :param parse_features:bool, parse the string and convert to an iterable object.
     :param kwd: additional keywords arguments from `pd.astype` function 
     
     :ref: https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.astype.html
     """
     
     if features is not None: 
+        features= list(is_iterable (
+            features, exclude_string=True, transform=True, 
+            parse_string = parse_features)
+            )
         existfeatures(df, features, error ='raise')
     # change the dataype 
     df = df.astype (float, errors ='ignore', **kwd) 
@@ -939,7 +1135,7 @@ def selectfeatures (
     # use coerce to no raise error and return data frame instead.
     return df if coerce else df.select_dtypes (include, exclude) 
     
-def getGlobalScore (
+def get_global_score (
         cvres : Dict[str, ArrayLike] 
         ) -> Tuple [ Dict[str, ArrayLike] ,  Dict[str, ArrayLike]  ]: 
     """ Retrieve the global mean and standard deviation score  from the 
@@ -951,7 +1147,6 @@ def getGlobalScore (
     :returns: tuple 
         ( mean_test_scores', 'std_test_scores') 
          scores on test_dcore and standard deviation scores 
-        
     """
     return  ( cvres.get('mean_test_score').mean() ,
              cvres.get('std_test_score').mean())  
@@ -1181,13 +1376,13 @@ def formatModelScore(
         
     print('-'*77)
     
-def predict(
-        y_true: ArrayLike,
-        y_pred: ArrayLike =None,
-        *, 
-        X_: Optional [NDArray]=None, 
-        clf:Optional [F[T]]=None,
-        verbose:int =0
+def stats_from_prediction(
+    y_true: ArrayLike,
+    y_pred: ArrayLike =None,
+    *, 
+    X_: Optional [NDArray]=None, 
+    clf:Optional [F[T]]=None,
+    verbose:int =0
 ) -> Tuple[float, float]: 
     """ Make a quick statistic after prediction. 
     
@@ -1254,8 +1449,6 @@ def predict(
 
     return clf_score, mse 
 
-
-
 def write_excel(
         listOfDfs: List[DataFrame],
         csv: bool =False , 
@@ -1284,7 +1477,7 @@ def write_excel(
                 df.to_excel(writer, index=False)
     
 
-def fetchGeoDATA (
+def fetch_tgz (
     data_url:str ,
     data_path:str ,
     tgz_filename:str 
@@ -1532,7 +1725,7 @@ def split_train_test_by_id(
         
     return data.loc[~in_test_set], data.loc[in_test_set]
 
-def discretizeCategoriesforStratification(
+def discretize_categories(
         data: Union [ArrayLike, DataFrame],
         in_cat:str =None,
         new_cat:Optional [str] = None, 
@@ -1556,16 +1749,15 @@ def discretizeCategoriesforStratification(
                              float(combined_cat_into), inplace =True )
     return data 
 
-def stratifiedUsingDiscretedCategories(
-        data: Union [ArrayLike, DataFrame],
-        cat_name:str , 
-        n_splits:int =1, 
-        test_size:float= 0.2, 
-        random_state:int = 42
-        )-> Tuple[ Sub[DataFrame[DType[T]]], Sub[DataFrame[DType[T]]]]: 
-    """ Stratified sampling based on new generated category  from 
-    :func:`~DiscretizeCategoriesforStratification`.
-    
+def stratify_categories(
+    data: Union [ArrayLike, DataFrame],
+    cat_name:str , 
+    n_splits:int =1, 
+    test_size:float= 0.2, 
+    random_state:int = 42
+    )-> Tuple[ Sub[DataFrame[DType[T]]], Sub[DataFrame[DType[T]]]]: 
+    """ Stratified sampling based on new generated category. 
+
     :param data: dataframe holding the new column of category 
     :param cat_name: new category name inserted into `data` 
     :param n_splits: number of splits 
@@ -1706,7 +1898,7 @@ def fetch_model(
 
     return pickedfname 
 
-def dumpOrSerializeData (
+def serialize_data (
         data , 
         filename=None, 
         savepath =None, 
@@ -1789,7 +1981,7 @@ def dumpOrSerializeData (
         print(f"Data {'serialization' if to=='pypickle' else 'dumping'}"
           f" complete,  save to {savepath!r}")
    
-def loadDumpedOrSerializedData (filename:str, verbose=0): 
+def load_dumped_data (filename:str, verbose=0): 
     """ Load dumped or serialized data from filename 
     
     :param filename: str or path-like object 
@@ -1954,10 +2146,10 @@ def _assert_sl_target (target,  df=None, obj=None):
             
     return target
 
-def get_target(
+def export_target(
     ar, /, 
     tname, 
-    drop_target =True , 
+    drop=True , 
     columns =None,
     as_frame=False 
     ): 
@@ -1974,7 +2166,7 @@ def get_target(
        the case of np.ndarray. If the list of indexes or names are given, 
        the return target should be in two dimensional array. 
        
-    drop_target: bool, default=True 
+    drop: bool, default=True 
        Remove the target array in the 2D array or dataframe in the case 
        the target exists and returns a data exluding the target array. 
        
@@ -2044,13 +2236,17 @@ def get_target(
                              )
         is_arr=True if not as_frame else False 
         
-    t, ar =exporttarget(ar, tname , inplace = drop_target ) 
+    t, ar =get_target(ar, tname , inplace = drop ) 
 
     return (t.values, ar.values ) if is_arr  else (t, ar) 
         
-def default_data_splitting(X, y=None, *,  test_size =0.2, target =None,
-                           random_state=42, fetch_target =False,
-                           **skws): 
+def naive_data_split(
+    X, y=None, *,  
+    test_size =0.2, 
+    target =None,
+    random_state=42, 
+    fetch_target =False,
+    **skws): 
     """ Splitting data function naively. 
     
     Split data into the training set and test set. If target `y` is not
@@ -2208,12 +2404,12 @@ def fetchModel(
         
     return data,       
 
-        
-def findCatandNumFeatures( 
-        df: DataFrame= None, 
-        features: List[str]= None,  
-        return_frames: bool= False 
-        ) -> Tuple[List[str] | DataFrame, List[str] |DataFrame]: 
+def find_features_in( 
+    df: DataFrame= None, 
+    features: List[str]= None,  
+    parse_features: bool=False, 
+    return_frames: bool= False, 
+    ) -> Tuple[List[str] | DataFrame, List[str] |DataFrame]: 
     """ 
     Retrieve the categorial or numerical features on whole features 
     of dataset. 
@@ -2233,7 +2429,9 @@ def findCatandNumFeatures(
     return_frames: bool, 
         if set to ``True``, it returns two separated dataframes (cat & num) 
         otherwise, it only returns the cat and num columns names. 
- 
+    parse_features: bool, default=False, 
+       Use default parsers to parse string items into an interable object. 
+       
     Returns
     ---------
     Tuple:  `cat_features` and  `num_features` names or frames 
@@ -2241,40 +2439,46 @@ def findCatandNumFeatures(
     Examples 
     ----------
     >>> from gofast.datasets import fetch_data 
-    >>>> from gofast.tools import findCatandNumFeatures
+    >>>> from gofast.utils.mlutils import find_features_in
     >>> data = fetch_data ('bagoue original').get('data=dfy2')
-    >>> cat, num = findCatandNumFeatures(data)
+    >>> cat, num = find_features_in(data)
     >>> cat, num 
     ... (['type', 'geol', 'shape', 'name', 'flow'],
      ['num', 'east', 'north', 'power', 'magnitude', 'sfi', 'ohmS', 'lwi'])
-    >>> cat, num = findCatandNumFeatures(
+    >>> cat, num = find_features_in(
         data, features = ['geol', 'ohmS', 'sfi'])
     ... (['geol'], ['ohmS', 'sfi'])
         
     """
-    
-    if features is None: 
+    if not is_frame (df, df_only =True ):
+        raise TypeError(
+            f"Expect a dataframe. Got {type(df).__name__!r}")
+    if features is not None: 
+        features = list( is_iterable(
+            features, exclude_string= True, transform =True, 
+            parse_string= parse_features) 
+                        )
+    if features is None: # get  the whole features 
         features = list(df.columns) 
         
     existfeatures(df, list(features))
     df = df[features].copy() 
     
     # get num features 
-    num = selectfeatures(df, include = 'number')
+    num = select_features(df, include = 'number')
     catnames = findDifferenceGenObject (df.columns, num.columns ) 
-
+    if catnames is None: catnames =[]
     return ( df[catnames], num) if return_frames else (
         list(catnames), list(num.columns)  )
    
-        
-def cattarget(
-        arr :ArrayLike |Series , /, 
-        func: F = None,  
-        labels: int | List[int] = None, 
-        rename_labels: Optional[str] = None, 
-        coerce:bool=False,
-        order:str='strict',
-        ): 
+def categorize_target(
+    arr :ArrayLike |Series , /, 
+    func: F = None,  
+    labels: int | List[int] = None, 
+    rename_labels: Optional[str] = None, 
+    coerce:bool=False,
+    order:str='strict',
+    ): 
     """ Categorize array to hold the given identifier labels. 
     
     Classifier numerical values according to the given label values. Labels 
@@ -2309,23 +2513,23 @@ def cattarget(
     Examples 
     --------
 
-    >>> from gofast.utils.mlutils import cattarget 
+    >>> from gofast.utils.mlutils import categorize_target 
     >>> def binfunc(v): 
             if v < 3 : return 0 
             else : return 1 
     >>> arr = np.arange (10 )
     >>> arr 
     ... array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
-    >>> target = cattarget(arr, func =binfunc)
+    >>> target = categorize_target(arr, func =binfunc)
     ... array([0, 0, 0, 1, 1, 1, 1, 1, 1, 1], dtype=int64)
-    >>> cattarget(arr, labels =3 )
+    >>> categorize_target(arr, labels =3 )
     ... array([0, 0, 0, 1, 1, 1, 2, 2, 2, 2])
     >>> array([2, 2, 2, 2, 1, 1, 1, 0, 0, 0]) 
-    >>> cattarget(arr, labels =3 , order =None )
+    >>> categorize_target(arr, labels =3 , order =None )
     ... array([0, 0, 0, 0, 1, 1, 1, 2, 2, 2])
-    >>> cattarget(arr[::-1], labels =3 , order =None )
+    >>> categorize_target(arr[::-1], labels =3 , order =None )
     ... array([0, 0, 0, 1, 1, 1, 2, 2, 2, 2]) # reverse does not change
-    >>> cattarget(arr, labels =[0 , 2,  4]  )
+    >>> categorize_target(arr, labels =[0 , 2,  4]  )
     ... array([0, 0, 0, 2, 2, 4, 4, 4, 4, 4])
 
     """
@@ -2354,7 +2558,8 @@ def cattarget(
 
     return arr  if is_arr else pd.Series (arr, name =name  )
 
-def rename_labels_in (arr, new_names, coerce = False): 
+def rename_labels_in (
+        arr, new_names, coerce = False): 
     """ Rename label by a new names 
     
     :param arr: arr: array-like |pandas.Series 
@@ -2849,7 +3054,7 @@ def bi_selector (d, /,  features =None, return_frames = False ):
     return  ( diff_features, features ) if not return_frames else  (
         d [diff_features] , d [features ] ) 
 
-def make_naive_pipe(
+def make_pipe(
     X, 
     y =None, *,   
     num_features = None, 
@@ -3310,7 +3515,7 @@ def select_feature_importances (
     return selector if return_selector else Xs 
 
  
-def naive_imputer (
+def soft_imputer (
     X, 
     y=None, 
     strategy = 'mean', 
@@ -3417,10 +3622,10 @@ def naive_imputer (
     --------
     >>> import numpy as np 
     >>> import pandas as pd 
-    >>> from gofast.utils.mlutils import naive_imputer 
+    >>> from gofast.utils.mlutils import soft_imputer 
     >>> X= np.random.randn ( 7, 4 ) 
     >>> X[3, :] =np.nan  ; X[:, 3][-4:]=np.nan 
-    >>> naive_imputer  (X)
+    >>> soft_imputer  (X)
     ... array([[ 1.34783528,  0.53276798, -1.57704281,  0.43455785],
                [ 0.36843174, -0.27132106, -0.38509441, -0.29371997],
                [-1.68974996,  0.15268509, -2.54446498,  0.18939122],
@@ -3433,7 +3638,7 @@ def naive_imputer (
     >>> frame['b']=['pineaple', '', 'cabbage', 'watermelon', 'onion', 
                     'cabbage', 'onion']
     >>> frame['c']=['lion', '', 'cat', 'cat', 'dog', '', 'mouse']
-    >>> naive_imputer(frame, kind ='bi-impute')
+    >>> soft_imputer(frame, kind ='bi-impute')
     ...             b      c         a         d
         0    pineaple   lion  1.347835  0.434558
         1     cabbage    cat  0.368432 -0.293720
@@ -3496,7 +3701,10 @@ def naive_imputer (
        mode =None 
     if mode is not None: 
         mode = str(mode).lower().strip () 
-        if mode.find ('bi')>=0: 
+        if ( mode.find ('bi-')>=0
+            or mode.find( 'bii')>=0 
+            or mode.find('bim')>=0
+            ): 
             mode='bi-impute'
             
         assert mode in {'bi-impute'} , (
@@ -3559,7 +3767,7 @@ def naive_imputer (
     return Xi
 
     
-def naive_scaler(
+def soft_scaler(
     X,
     y =None, *, 
     kind= StandardScaler, 
