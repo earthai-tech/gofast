@@ -584,7 +584,7 @@ def download_file(url, local_filename , dstpath =None ):
     local_filename = os.path.join( os.getcwd(), local_filename) 
     
     if dstpath: 
-         move_file_to_directory ( local_filename,  dstpath)
+         move_file ( local_filename,  dstpath)
          
     print("{:-^70}".format(" ok! "))
     
@@ -640,12 +640,12 @@ def download_file2(url, local_filename, dstpath =None ):
     local_filename = os.path.join( os.getcwd(), local_filename) 
     
     if dstpath: 
-         move_file_to_directory ( local_filename,  dstpath)
+         move_file ( local_filename,  dstpath)
          
     return local_filename
 
 
-def move_file_to_directory(file_path, directory):
+def move_file(file_path, directory):
     """ Move file to a directory. 
     
     Create a directory if not exists. 
@@ -659,10 +659,10 @@ def move_file_to_directory(file_path, directory):
     
     Example 
     ---------
-    >>> from gofast.utils.baseutils import move_file_to_directory
+    >>> from gofast.utils.baseutils import move_file
     >>> file_path = 'path/to/your/file.txt'  # Replace with your file's path
     >>> directory = 'path/to/your/directory'  # Replace with your directory's path
-    >>> move_file_to_directory(file_path, directory)
+    >>> move_file(file_path, directory)
     """
     # Create the directory if it doesn't exist
     if not os.path.exists(directory):

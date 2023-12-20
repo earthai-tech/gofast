@@ -1037,14 +1037,18 @@ def set_array_back (X, *,  to_frame=False, columns = None, input_name ='X'):
         
     return X, columns 
  
-def is_frame (arr, /): 
+def is_frame (arr, /, df_only =False ): 
     """ Return bool wether array is a frame ( pd.Series or pd.DataFrame )
     
+    To verify whether `arr` is typically a dataframe, set ``df_only =True``. 
     Isolated part of :func:`~.array_to_frame` dedicated to X and y frame
     reconversion validation.
     """
-    return hasattr (arr, '__array__') and (
-        hasattr (arr, 'name') or hasattr (arr, 'columns') )
+    return ( hasattr (arr, '__array__') and (
+                (hasattr ( arr, 'name') or hasattr (arr, 'columns'))
+                ) if not df_only else ( 
+                hasattr (arr, '__array__') and hasattr(arr, 'columns'))
+            )
 
 def check_array(
     array,
@@ -1558,6 +1562,56 @@ def check_y(y,
             )
        
     return y
+
+def build_data_if (
+    data: dict | np.ndarray |pd.DataFrame, /, 
+    columns =None,  
+    to_frame=True,  
+    input_name ='Data', 
+    force=False, 
+    **kws
+    ): 
+    """ Contruct data from dict or array if necessary informations are given
+    
+    Paramaters 
+    -------------
+    data: dict, Array-like 
+        Array to convert to frame. 
+    columns: str or list of str 
+        Series name or columns names for pandas.Series and DataFrame. 
+        
+    to_frame: str, default=False
+        If ``True`` , reconvert the array to frame using the columns orthewise 
+        no-action is performed and return the same array.
+    input_name : str, default="Data"
+        The data name used to construct the error message. 
+        
+    raise_warning : bool, default=True
+        If True then raise a warning if conversion is required.
+        If ``ignore``, warnings silence mode is triggered.
+    raise_exception : bool, default=False
+        If True then raise an exception if array is not symmetric.
+        
+    force:bool, default=False
+        Force conversion array to a frame is columns is not supplied.
+        Use the combinaison, `input_name` and `X.shape[1]` range.
+
+    """
+    if isinstance ( data, dict ) : 
+        data = pd.DataFrame ( data)
+    elif isinstance ( data, ( list, tuple)): 
+        data = np.array(data )
+        if columns is None and to_frame: 
+            raise ValueError(
+                f"Expect columns to be supplied. Got {type(data).__name__!r}")
+
+    return array_to_frame(
+        data, columns = columns, 
+        to_frame =to_frame, 
+        input_name=input_name,
+        force =force, 
+        **kws
+        )
 
 def array_to_frame(
     X, 

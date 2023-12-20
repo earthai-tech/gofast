@@ -3,7 +3,7 @@ validation sub-package focuses on  training and validation phases. It also compo
 of a set of grid-search tricks from model hyperparameters fine-tuning and 
 the pretrained models fetching from :mod:`~gofast.validation` and 
 """
-from .validation import ( 
+from .search import ( 
     BaseEvaluation, 
     GridSearch, 
     GridSearchMultiple,
@@ -17,7 +17,11 @@ from .validation import (
     naive_evaluation, 
 
     )
-
+from .optimize import ( 
+    parallelize_estimators, 
+    optimize_hyperparameters 
+    
+    ) 
 __all__=[
     "BaseEvaluation", 
     "GridSearch", 
@@ -29,5 +33,7 @@ __all__=[
     "displayCVTables", 
     "displayFineTunedResults", 
     "displayModelMaxDetails", 
-    "naive_evaluation", 
+    "naive_evaluation",
+    "parallelize_estimators", 
+    "optimize_hyperparameters", 
     ]

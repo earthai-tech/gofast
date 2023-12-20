@@ -2134,8 +2134,7 @@ def compute_errors (
     return err if not return_confidence else ( err_lower, err_upper)  
 
 
-
-def qc(
+def quality_control(
     ar, 
      /, 
     tol: float= .5 , 

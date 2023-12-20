@@ -7,7 +7,6 @@ load different data as a function
 =================================
 
 Inspired from the machine learning popular dataset loading 
-@author: Daniel
 """
 import os
 import scipy 
@@ -155,15 +154,14 @@ Parameters
 return_X_y : bool, default=False
     If True, returns ``(data, target)`` instead of a Bowlspace object. See
     below for more information about the `data` and `target` object.
-    .. versionadded:: 0.1.2
-    
+
 as_frame : bool, default=False
     If True, the data is a pandas DataFrame including columns with
     appropriate dtypes (numeric). The target is
     a pandas DataFrame or Series depending on the number of target columns.
     If `return_X_y` is True, then (`data`, `target`) will be pandas
     DataFrames or Series as described below.
-    .. versionadded:: 0.1.3
+
 split_X_y: bool, default=False,
     If True, the data is splitted to hold the training set (X, y)  and the 
     testing set (Xt, yt) with the according to the test size ratio.  
@@ -184,13 +182,9 @@ key: str, default='h502'
     Kind of logging data to fetch. Can also be the borehole ["h2601", "*"]. 
     If ``key='*'``, all the data is aggregated on a single frame of borehole. 
     
-    .. versionadded:: 0.2.3. 
-       Add 08 new boreholes data from logging, strata, layer thicknesses and 
-       rock_names. 
-       
 drop_observations: bool, default='False'
     Drop the ``remark`` column in the logging data if set to ``True``.  
-    .. versionadded:: 0.1.5
+
     
 Returns
 ---------
@@ -208,18 +202,18 @@ data : :class:`~gofast.utils.Boxspace`
     frame: DataFrame 
         Only present when `as_frame=True`. DataFrame with `data` and
         `target`.
-        .. versionadded:: 0.1.1
+
     DESCR: str
         The full description of the dataset.
     filename: str
         The path to the location of the data.
-        .. versionadded:: 0.1.2
+
 data, target: tuple if ``return_X_y`` is True
     A tuple of two ndarray. The first containing a 2D array of shape
     (n_samples, n_features) with each row representing one sample and
     each column representing the features. The second ndarray of shape
     (n_samples,) containing the target samples.
-    .. versionadded:: 0.1.2
+
 X, Xt, y, yt: Tuple if ``split_X_y`` is True 
     A tuple of two ndarray (X, Xt). The first containing a 2D array of:
         
@@ -457,10 +451,7 @@ years: str, default="2022"
    space between years like ``years ="2015 2022"``. The star ``*`` argument 
    can be used for selecting all years data. 
    
-   .. versionadded:: 0.2.7 
-      Years of Nanshan land subsidence data collected are added. Use key 
-      `ls` and `years` for retrieving the subsidence data of each year. 
-      
+
 samples: int,optional 
    Ratio or number of items from axis to fetch in the data. fetch all data if 
    `samples` is ``None``.  
@@ -476,10 +467,7 @@ shuffle: bool, default =False,
 drop_display_rate: bool, default=True 
   Display the rate is used for image visualization. To increase the image 
   pixels. 
-  
-  .. versionadded: 0.2.7 
-    Drop rate for pixels increasing during visualization of land 
-    subsidence. 
+
 
 Returns
 ---------
@@ -657,7 +645,6 @@ data: :class:`~gofast.utils.box.Boxspace`
     frame: DataFrame of shape (150, 5)
         Only present when `as_frame=True`. DataFrame with `data` and
         `target`.
-        .. versionadded:: 0.1.2
     DESCR: str
         The full description of the dataset.
     filename: str
@@ -742,14 +729,13 @@ Parameters
 return_X_y : bool, default=False
     If True, returns ``(data, target)`` instead of a BowlSpace object. See
     below for more information about the `data` and `target` object.
-    .. versionadded:: 0.1.2
+
 as_frame : bool, default=False
     If True, the data is a pandas DataFrame including columns with
     appropriate dtypes (numeric). The target is
     a pandas DataFrame or Series depending on the number of target columns.
     If `return_X_y` is True, then (`data`, `target`) will be pandas
     DataFrames or Series as described below.
-    .. versionadded:: 0.1.2
 (tag, data_names): None
     `tag` and `data_names` do nothing. just for API purpose and to allow 
     fetching the same data uing the func:`~gofast.data.fetch_data` since the 
@@ -771,25 +757,25 @@ data : :class:`~gofast.utils.Boxspace`
     frame: DataFrame of shape (150, 5)
         Only present when `as_frame=True`. DataFrame with `data` and
         `target`.
-        .. versionadded:: 0.1.2
+
     DESCR: str
         The full description of the dataset.
     filename: str
         The path to the location of the data.
-        .. versionadded:: 0.1.2
+
 (data, target) : tuple if ``return_X_y`` is True
     A tuple of two ndarray. The first containing a 2D array of shape
     (n_samples, n_features) with each row representing one sample and
     each column representing the features. The second ndarray of shape
     (n_samples,) containing the target samples.
-    .. versionadded:: 0.1.2
+
     
 Notes
 -----
-    .. versionchanged:: 0.1.1
-        Fixed two wrong data points according to Fisher's paper.
-        The new version is the same as in R, but not as in the UCI
-        Machine Learning Repository.
+Fixed two wrong data points according to Fisher's paper.
+The new version is the same as in R, but not as in the UCI
+Machine Learning Repository.
+
 Examples
 --------
 Let's say you are interested in the samples 10, 25, and 50, and want to
@@ -802,126 +788,7 @@ array([0, 0, 1])
 ['setosa', 'versicolor', 'virginica']
 """    
     
-def load_edis (
-        *,  return_data=False, as_frame =False, key =None, tag =None, 
-        samples =None,  data_names =None, **kws): 
-    valid_keys ={"edi", "longitude", "latitude", "site","id", "name", "*"} 
-    key = key or "edi" 
     
-    # assertion error if key does not exist. 
-    msg = (f"Invalid key {key!r}. Expects {tuple ( valid_keys)}")
-
-    try: 
-        feature_names = is_in_if(valid_keys, [str(k).lower() 
-                                              for k in str2columns( key )]
-                           )
-    except ValueError as e: 
-        raise ValueError (str(e) + f" {msg}")
-        
-    data_file ='e.h5'
-    with resources.path (DMODULE , data_file) as p : 
-        data_file = p 
-    
-    data = pd.read_hdf(data_file, key = "data")
-
-    if key =='*': 
-        feature_names = list(valid_keys)
-        feature_names.remove (key)
-
-    data = data [feature_names ]
-    samples = samples or len(data ) 
-    
-    try : 
-        samples = int (samples)
-    except TypeError  as e : 
-        raise TypeError (
-            f"Expect integer for samples. Got {samples}. {str(e)}")
-    finally: 
-        if samples > len(data) :
-            samples = len(data) 
-    
-    data = data.iloc [:samples, :] 
-    
-    if return_data or as_frame : 
-        return ( data.values if data.shape[1] !=1 else reshape (data.values) 
-                ) if return_data else data 
-
-    return Boxspace(
-        data=data.values,
-        frame=data,
-        #XXX Add description 
-        DESCR= '', # fdescr,
-        feature_names=feature_names,
-        filename=data_file,
-        data_module=DMODULE,
-    )
-      
-load_edis.__doc__="""\
-Load SEG-Electrical Data Interchange (EDI) object 
-
-EDI data is a sample of data collected in Huayuan county in China. 
-
-Parameters 
-------------
-return_data : bool, default=False
-    If True, returns ``data`` in array-like 1D instead of a Boxspace object.
-    Note that the data is only a  collection of EDI-objects from 
-    :class:`gofast.edi.Edi`
-
-as_frame : bool, default=False
-    If True, the data is a pandas DataFrame including columns with
-    appropriate dtypes (numeric). 
-    
-samples: int, default=None 
-    The sample of data to retrieve.  
-    
-(tag, data_names): None
-    `tag` and `data_names` do nothing. just for API purpose and to allow 
-    fetching the same data uing the func:`~gofast.datasets.fetch_data` since the 
-    latter already holds `tag` and `data_names` as parameters.     
-  
-key: str, {'site', 'edi', 'latitude', '*', 'longitude'},  default='edi'
-    Kind of EDI-data to fetch. If the star is given, fetch all the data on a 
-    single frame 
-    
-Returns
--------
-data : :class:`~gofast.utils.Boxspace`
-    Dictionary-like object, with the following attributes.
-    data : {ndarray, dataframe} of shape (50, 4)
-        The data matrix. If `as_frame=True`, `data` will be a pandas
-        DataFrame.
-    feature_names: list
-        The names of the dataset columns.
-
-    frame: DataFrame of shape (50, 4)
-        Only present when `as_frame=True`. DataFrame with `data` and
-        no `target`.
-        .. versionadded:: 0.1.2
-    DESCR: str
-        The full description of the dataset.
-    filename: str
-        The path to the location of the data.
-        .. versionadded:: 0.1.2
-Examples 
-----------
->>> from gofast.datasets.dload import load_edis 
->>> load_edis ().frame [:3]
-                edi
-0  Edi( verbose=0 )
-1  Edi( verbose=0 )
-2  Edi( verbose=0 )
->>> load_edis (as_frame =True, key='longitude latitude', samples = 7) 
-    latitude   longitude
-0  26.051390  110.485833
-1  26.051794  110.486153
-2  26.052198  110.486473
-3  26.052602  110.486793
-4  26.053006  110.487113
-5  26.053410  110.487433
-6  26.053815  110.487753
-""" 
-        
 def load_mxs (
     *,  return_X_y=False, 
     as_frame =False, 
@@ -1261,8 +1128,12 @@ def load_bagoue(
         return  (X, Xt, y, yt ) if cf else (
             X.values, Xt.values, y.values , yt.values )
     
-    if return_X_y or as_frame:
-        return to_numeric_dtypes(data) if as_frame else data , target
+
+    if as_frame and not return_X_y: 
+        return frame 
+
+    if return_X_y:
+        return data, target
     
     frame = to_numeric_dtypes (
         pd.concat ([pd.DataFrame (data, columns =feature_names),
@@ -1292,14 +1163,14 @@ return_X_y : bool, default=False
     If True, returns ``(data, target)`` instead of a 
     :class:`~gofast.utils.box.Boxspace` object. See below for more information 
     about the `data` and `target` object.
-    .. versionadded:: 0.1.2
+
 as_frame : bool, default=False
     If True, the data is a pandas DataFrame including columns with
     appropriate dtypes (numeric). The target is
     a pandas DataFrame or Series depending on the number of target columns.
     If `return_X_y` is True, then (`data`, `target`) will be pandas
     DataFrames or Series as described below.
-    .. versionadded:: 0.1.1
+
 split_X_y: bool, default=False,
     If True, the data is splitted to hold the training set (X, y)  and the 
     testing set (Xt, yt) with the according to the test size ratio.  
@@ -1327,18 +1198,18 @@ data: :class:`~gofast.utils.box.Boxspace`
     frame: DataFrame of shape (150, 5)
         Only present when `as_frame=True`. DataFrame with `data` and
         `target`.
-        .. versionadded:: 0.1.2
+
     DESCR: str
         The full description of the dataset.
     filename: str
         The path to the location of the data.
-        .. versionadded:: 0.1.2
+
 data, target: tuple if ``return_X_y`` is True
     A tuple of two ndarray. The first containing a 2D array of shape
     (n_samples, n_features) with each row representing one sample and
     each column representing the features. The second ndarray of shape
     (n_samples,) containing the target samples.
-    .. versionadded:: 0.1.2
+
 X, Xt, y, yt: Tuple if ``split_X_y`` is True 
     A tuple of two ndarray (X, Xt). The first containing a 2D array of:
         
