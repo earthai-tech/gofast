@@ -76,6 +76,8 @@ from .mlutils import (
     serialize_data, 
     load_dumped_data, 
     naive_data_split, 
+    laplace_smoothing, 
+    features_in, 
     
     ) 
 __all__=[
@@ -136,7 +138,6 @@ __all__=[
     'soft_scaler', 
     'select_feature_importances',
     'make_pipe',
-    'bi_selector',
     'classify_k',
     'label_importance', 
     'remove_outliers', 
@@ -160,8 +161,11 @@ __all__=[
     "bin_counting",
     "adaptive_moving_average", 
     "butterworth_filter",
-    "plot_l_curve"
-        ]
+    "plot_l_curve", 
+    "laplace_smoothing", 
+    "features_in"
+    
+    ]
 
 
 

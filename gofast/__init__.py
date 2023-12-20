@@ -103,17 +103,12 @@ from .utils import (
     reshape, 
     to_numeric_dtypes, 
     smart_label_classifier,
+    select_features, 
+    soft_imputer, 
+    soft_scaler,  
+    make_pipe, 
+    bi_selector, 
     )
-try : 
-    from .utils import ( 
-        selectfeatures, 
-        naive_imputer, 
-        naive_scaler,  
-        make_naive_pipe, 
-        bi_selector, 
-        )
-except ImportError :
-    pass 
 
 def setup_module(module):
     """Fixture for the tests to assure globally controllable seeding of RNGs"""
@@ -166,10 +161,10 @@ __all__ = [
     'reshape', 
     'to_numeric_dtypes', 
     'smart_label_classifier',
-    'selectfeatures', 
-    'naive_imputer', 
-    'naive_scaler',  
-    'make_naive_pipe', 
+    'select_features', 
+    'soft_imputer', 
+    'soft_scaler',  
+    'make_pipe', 
     'bi_selector', 
     ]
 

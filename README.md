@@ -28,7 +28,7 @@ of dirty numerical and categorical variables including useless features:
 
 ```python  
 >>> import gofast as gf 
->>> X, y = gf.fetch_data ('bagoue', as_frame =True)
+>>> X, y = gf.fetch_data ('bagoue', as_frame =True, return_X_y=True )
 >>> X.head(2) 
 Out[1]: 
    num name      east  ...         ohmS        lwi                    geol

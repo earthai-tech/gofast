@@ -50,7 +50,8 @@ from gofast.datasets.dload import load_hlogs
 
 # get the data for a test 
 def _prepare_dataset ( return_encoded_data =False, return_raw=False ): 
-    X, y = load_bagoue (as_frame =True )
+    X, y = load_bagoue (as_frame =True, return_X_y= True  )
+    
     if return_raw: 
         return X, y 
     # prepared data 
@@ -58,20 +59,22 @@ def _prepare_dataset ( return_encoded_data =False, return_raw=False ):
     cleaned_data = cleaner (X , columns = 'name num lwi', mode ='drop')
     num_features, cat_features= bi_selector (cleaned_data)
     # categorizing the labels 
-    yc = smart_label_classifier (y , values = [1, 3, ], 
-                                     labels =['FR0', 'FR1', 'FR2',] 
+    yc = smart_label_classifier (y , values = [1, 3], 
+                                     labels =['FR0', 'FR1', 'FR2'] 
                                      ) 
     print(yc.unique()) 
     # let visualize the number of counts 
     print( np.unique (yc, return_counts=True )) 
     data_imputed = soft_imputer(cleaned_data,  mode= 'bi-impute')
     num_scaled = soft_scaler (data_imputed[num_features],) 
+    # print(num_scaled)
+    # print(cleaned_data)
     # we can rencoded the target data from `make_naive_pipe` as 
     Xenc, yenc= make_pipe ( cleaned_data, y = yc ,  transform=True )
     print( np.unique (yenc, return_counts= True) ) 
-    
     if return_encoded_data : 
         return Xenc, yenc 
+    
     return num_scaled, yenc 
     
 # prepared data 
@@ -277,6 +280,81 @@ def test_bin_counting () :
     # 0.0    18       43          61  0.295082  0.704918  0.418605  2.388889
     # 1.0     9       20          29  0.310345  0.689655  0.450000  2.222222      
 
+def store_data  (as_frame =False,  task='None', return_X_y=False ): 
+    def bin_func ( x): 
+        if x ==1 or x==2: 
+            return 1 
+        else: return 0 
+    # ybin = categorize_target( y, func = func_clas)
+        
+    def func_ (x): 
+        if x<=1: return 0 
+        elif x >1 and x<=3: 
+            return 1 
+        else: return 2 
+        
+        
+    X, y = load_bagoue (as_frame =True , return_X_y= True )
+    
+    if str(task).lower().find('bin')>=0: 
+        y = categorize_target ( y, func= bin_func)
+        # y = np.array (y )
+        # y [y <=1] = 0;  y [y > 0]=1 
+        if as_frame : 
+            y = pd.Series ( y, name ='flow') 
+    else: 
+        y= categorize_target ( y, func= func_)
+        
+    # else: 
+    # y = smart_label_classifier (y , values = [1, 3, 10 ], 
+    #                                   labels =['FR0', 'FR1', 'FR2', 'FR3'] 
+    #                                   ) 
+    
+    # prepared data 
+    # 1-clean data 
+   # (array(['FR0', 'FR1', 'FR2'], dtype=object), array([291,  95,  45], dtype=int64))
+   # (array([0, 1, 2]), array([291,  95,  45], dtype=int64))
+    
+    cleaned_data = cleaner (X , columns = 'name num lwi', mode ='drop')
+    #$print(cleaned_data.columns)
+    num_features, cat_features= bi_selector (cleaned_data)
+    # categorizing the labels 
+   
+    # print(yc.unique()) 
+    # # let visualize the number of counts 
+    # print( np.unique (yc, return_counts=True )) 
+    data_imputed = soft_imputer(cleaned_data,  mode= 'bi-impute')
+    num_scaled = soft_scaler (data_imputed[num_features],) 
+    #print(num_scaled.columns)
+    # we can rencoded the target data from `make_naive_pipe` as 
+    pipe= make_pipe ( cleaned_data, y = y  )
+    Xenc, yenc= make_pipe ( cleaned_data, y = y ,  transform=True )
+
+    Xr, _= _prepare_dataset(return_raw= True ) 
+
+    Xr = cleaner ( Xr, columns = 'name num lwi', mode ='drop' )
+    # get the categorical variables 
+    num_var , cat_var = bi_selector ( Xr )
+    
+    Xcoded = codify_variables (Xr, columns = cat_var )
+    # get the categ
+    Xnew = pd.concat ((X[num_var], Xcoded), axis = 1 )
+    Xanalysed= pd.concat ( (num_scaled, Xcoded), axis=1 )
+    
+    
+    #X_train, X_test, y_train, y_test = train_test_split()
+    
+    data = {"preprocessed": ( num_scaled, y ), 
+      "encoded": (Xenc, yenc),
+      "codified": ( Xnew, y ), 
+      "analysed": (Xanalysed, y  ), 
+      "pipe": pipe, 
+          }
+    # import joblib 
+    # joblib.dump ( data , filename ='b.pkl')
+    
+    return data 
+
 if __name__=='__main__': 
     # test_evaluate_model()
     # test_select_features() 
@@ -286,4 +364,5 @@ if __name__=='__main__':
     # test_bi_selector () 
     # test_categorize_data () 
     # test_resampling()
-    test_bin_counting ()
+    # test_bin_counting ()
+    doc = store_data ()

@@ -10,13 +10,12 @@ Fetch data set from the local machine. If data does not exist, retrieve it
 from the remote (repository or zenodo record ) 
 """
 import re
+import joblib
 from importlib import resources 
+import pandas as pd 
 from .io import DMODULE 
 from ..utils.funcutils import ( 
     smart_format 
-    )
-from ..utils.mlutils import  ( 
-    loadDumpedOrSerializedData, 
     )
 from ..exceptions import DatasetError
 from .._gofastlog import gofastlog
@@ -27,14 +26,11 @@ _logger = gofastlog().get_gofast_logger(__name__)
 __all__=['_fetch_data']
 
 _BTAGS = ( 
-    'semi', 
     'preprocessed', 
     'fitted',
-    'stratified', 
     'analysed', 
-    'pca',
-    'reduced', 
-    'test',
+    'encoded', 
+    'codifided', 
     'pipe',
     'prepared'
     )
@@ -55,18 +51,25 @@ for key in _BTAGS :
 try : 
     with resources.path (DMODULE, 'b.pkl') as p : 
         data_file = str(p) # for consistency
-        _BAG = loadDumpedOrSerializedData(data_file)[0] 
+        _BAG = joblib.load (data_file)
 
-except : pass 
+except :
+    pass 
 
 def _fetch_data(tag, data_names=[] , **kws): 
     # PKGS ="gofast.etc"
-    r=None
+    Xy=None 
     tag = str(tag)
+    is_test_in = True if tag.lower().find('test')>=0 else False 
+    
     if _tag_checker(tag.lower()): 
         pm = 'analysed'
     elif _tag_checker(tag.lower(), ('mid','semi', 'preprocess', 'fit')):
-        pm='semi'
+        pm='preprocessed'
+    elif _tag_checker(tag.lower(), ('codif','categorized', 'prepared')): 
+        pm ='codified'
+    elif _tag_checker(tag.lower(), ('sparse','csr', 'encoded')):
+        pm='encoded'
     else : 
         pm =regex.search (tag)
         if pm is None: 
@@ -79,49 +82,51 @@ def _fetch_data(tag, data_names=[] , **kws):
         pm= pm.group() 
     
     try: 
-        if pm =='prepared': 
-            with resources.path (DMODULE, 'Xy.pkl') as pkl : 
-                pkl_file = str(pkl)
+        with resources.path (DMODULE, 'b.pkl') as p : 
+            data_file = str(p) # for consistency
+            _BAG = joblib.load (data_file)
+
+        Xy= _BAG.get(pm)
         
-            r = loadingdefaultSerializedData (
-                pkl_file,  (_BAG.get('_Xp'), _BAG.get('_yp')),
-                dtype='training' 
-                    )
-        elif pm =='test': 
-            with resources.path (DMODULE, 'XTyT.pkl') as pkl : 
-                pkl_file = str(pkl)
-            r, = loadingdefaultSerializedData (
-                pkl_file, ( _BAG.get('_XT'),  _BAG.get('_yT')), 
-                dtype='test' ),
+        return_X_y= kws.pop('return_X_y', False)
+        kind=kws.pop('kind', None ) 
+        
+        if str(kind).lower().strip().find ("bin")>=0: 
+            # create a binary target 
+            X, y = Xy 
+            y = y.apply ( lambda v: 1 if v !=0 else v, convert_dtype =True )
+            # rebuild the tuple 
+            Xy =(X, y)
+  
+        if pm in ('encoded', 'pipe'): 
+            return Xy 
+        
+        if is_test_in: 
+            random_state = kws.pop('random_state', None )
+            test_size = kws.pop('test_size', .3 )
+            split_X_y = kws.pop("split_X_y", False ) 
+            # tag=None , data_names=None, **kws
+            from sklearn.model_selection import train_test_split 
+            
+            X, y = Xy 
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y , test_size = test_size ,random_state =random_state )
+            
+            if split_X_y: 
+                return X_train, X_test, y_train, y_test
+            
+            return X_test, y_test 
+            
     except : 
             _logger.error (_msg[pm])
-           
-    return r 
+            
+    if not return_X_y:
+        X, y = Xy 
+        Xy = pd.concat ((X, y), axis =1 ) 
 
-def loadingdefaultSerializedData (f, d0, dtype ='test'): 
-    """ Retreive Bagoue data from dumped or Serialized file.
-    
-    :param f: str or Path-Like obj 
-        Dumped or Serialized default data 
-    :param d0: tuple 
-        Return default returns wich is the data from config 
-        <./datasets/_config.py > 
-    :param dtype:str 
-        Type of data to retreive.
-    """
-    
-    load_source ='serialized'
-    try : 
-         X, y= loadDumpedOrSerializedData(f)
-    except : 
-        _logger.error(f"Fetch data from {load_source!r} source failed. "
-                        " Use local 'config' source instead ...")
-        load_source='config'
-        X, y =d0
+    return Xy
 
-    return X, y
-
-def _tag_checker (param, tag_id= ('analys', 'pca', 'dim','reduc') 
+def _tag_checker (param, tag_id= ('analys', "scal") 
                       # out = 'analysed'
                       ):
     for ix in tag_id: 

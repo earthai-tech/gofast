@@ -5123,7 +5123,9 @@ def cleaner (
                       inplace =inplace,  
                        **kws 
                        ) 
-    
+    # re-verify integrity 
+    # for consistency
+    data = to_numeric_dtypes(data )
     return np.array ( data ) if objtype =='ar' else data 
  
 def rename_files (

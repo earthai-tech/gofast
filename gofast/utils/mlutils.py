@@ -100,7 +100,8 @@ from .validator import (
     check_consistent_length,
     assert_xy_in, 
     is_frame, 
-    array_to_frame
+    array_to_frame, 
+    build_data_if
     )
 from ._dependency import import_optional_dependency
 
@@ -130,13 +131,15 @@ __all__=[
     "fetchModel", 
     "fetch_model", 
     "load_data", 
+    "features_in", 
     "split_train_test_by_id", 
     "split_train_test", 
     "discretize_categories", 
     "stratify_categories", 
     "serialize_data", 
     "load_dumped_data", 
-    "naive_data_split", 
+    "naive_data_split",
+    "laplace_smoothing"
     ]
 
 
@@ -752,8 +755,70 @@ def _bin_counting (counts, tname, odds="N+" ):
 
     return counts, bin_counts  
  
+
+def laplace_smoothing(
+    data, /,  
+    alpha=1,
+    columns=None, 
+    as_frame=False, 
+    ):
+    """
+    Apply Laplace Smoothing to a dataset.
+
+    Parameters
+    ----------
+    data : ndarray
+        An array-like object containing categorical data. Each column 
+        represents a feature, and each row represents a data sample.
+    alpha : float, optional
+        The smoothing parameter, often referred to as 'alpha'. This is 
+        added to the count for each category in each feature. 
+        Default is 1 (Laplace Smoothing).
+    
+    columns: list, 
+       Columns to construct the data. 
+    as_frame: bool, default=False, 
+       To convert data as a frame before proceeding. 
+       
+    Returns
+    -------
+    smoothed_probs : ndarray
+        An array of the same shape as `data` containing the smoothed 
+        probabilities for each category in each feature.
+
+    Notes
+    -----
+    This implementation assumes that the input data is categorical 
+    and encoded as non-negative integers, which are indices of categories.
+
+    Examples
+    --------
+    >>> data = np.array([[0, 1], [1, 0], [1, 1]])
+    >>> laplace_smoothing(data, alpha=1)
+    array([[0.4 , 0.6 ],
+           [0.6 , 0.4 ],
+           [0.6 , 0.6 ]])
+    """
+    data = build_data_if(data, columns= columns, to_frame =as_frame ) 
+    # Count the occurrences of each category in each feature
+    n_samples, n_features = data.shape
+    feature_counts = [np.bincount(data[:, i], minlength=np.max(data[:, i]) + 1)
+                      for i in range(n_features)]
+
+    # Apply Laplace smoothing
+    smoothed_counts = [counts + alpha for counts in feature_counts]
+    total_counts = [counts.sum() for counts in smoothed_counts]
+
+    # Calculate probabilities
+    smoothed_probs = np.array([counts / total for counts, total in
+                               zip(smoothed_counts, total_counts)])
+    
+    # Transpose and return the probabilities corresponding to each data point
+    return smoothed_probs.T[data]
+
+
 #XXX TODO
-def laplace_smoothing (x, y, data =None ): 
+def _laplace_smoothing (x, y, data =None ): 
     """ Laplace smooting to conditional probabilities calculations to ensure 
     that none of the probabilities is 0.
     
@@ -1051,6 +1116,13 @@ def get_target (df, tname, inplace = True):
     
     return t, df
 
+def features_in (data, / ,  features, error ='raise'): 
+    """ Control whether the feature exists in the data
+    
+    :param data: dict, 
+    """ 
+    return existfeatures(build_data_if(data), features, error = error )
+
 def existfeatures (df, features, error='raise'): 
     """Control whether the features exist or not  
     
@@ -1094,17 +1166,19 @@ def existfeatures (df, features, error='raise'):
     return isf  
     
 def select_features(
-    df: DataFrame,
+    data: DataFrame,
     features: List[str] =None, 
     include = None, 
     exclude = None,
-    coerce: bool=False,
-	parse_features: bool=False, 
+    coerce: bool=...,
+    columns: list=None, 
+    verify_integrity:bool=..., 
+	parse_features: bool=..., 
     **kwd
     ): 
     """ Select features  and return new dataframe.  
     
-    :param df: a dataframe for features selections 
+    :param data: a dataframe for features selections 
     :param features: list of features to select. List of features must be in the 
         dataframe otherwise an error occurs. 
     :param include: the type of data to retrieve in the dataframe `df`. Can  
@@ -1114,26 +1188,61 @@ def select_features(
     :param coerce: return the whole dataframe with transforming numeric columns.
         Be aware that no selection is done and no error is raises instead. 
         *default* is ``False``
+    :param columns: list, needs columns to construst a dataframe if data is 
+        passed as Numpy object array.
+    :param verify_integrity: bool, Control the data type and rebuilt the data 
+       to the right type.
     :param parse_features:bool, parse the string and convert to an iterable object.
     :param kwd: additional keywords arguments from `pd.astype` function 
     
     :ref: https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.astype.html
-    """
     
+    :examples: 
+        >>> from gofast.utils.mlutils import select_features 
+        >>> data = {"Color": ['Blue', 'Red', 'Green'], 
+                    "Name": ['Mary', "Daniel", "Augustine"], 
+                    "Price ($)": ['200', "300", "100"]
+                    }
+        >>> select_features (data, include='number')
+        Out[230]: 
+        Empty DataFrame
+        Columns: []
+        Index: [0, 1, 2]
+        >>> select_features (data, include='number', verify_integrity =True )
+        Out[232]: 
+            Price ($)
+        0       200.0
+        1       300.0
+        2       100.0
+        >>> select_features (data, features =['Color', 'Price ($)'], )
+        Out[234]: 
+           color  Price ($)
+        0   Blue        200
+        1    Red        300
+        2  Green        100
+    """
+    coerce, verify_integrity, parse_features= ellipsis2false( 
+        coerce, verify_integrity, parse_features)
+    
+    data = build_data_if(data, columns = columns, )
+  
+    if verify_integrity: 
+        data = to_numeric_dtypes(data )
+        
     if features is not None: 
         features= list(is_iterable (
             features, exclude_string=True, transform=True, 
             parse_string = parse_features)
             )
-        existfeatures(df, features, error ='raise')
+        existfeatures(data, features, error ='raise')
     # change the dataype 
-    df = df.astype (float, errors ='ignore', **kwd) 
+    data = data.astype (float, errors ='ignore', **kwd) 
     # assert whether the features are in the data columns
     if features is not None: 
-        return df [features] 
+        return data [features] 
     # raise ValueError: at least one of include or exclude must be nonempty
     # use coerce to no raise error and return data frame instead.
-    return df if coerce else df.select_dtypes (include, exclude) 
+    return data if coerce else data.select_dtypes (include, exclude) 
     
 def get_global_score (
         cvres : Dict[str, ArrayLike] 
@@ -3126,8 +3235,8 @@ def make_pipe(
         
     for_pca:bool, default=False, 
         Transform data for principal component ( PCA) analysis. If set to 
-        ``True``, :class:`gofast.exlib.sklearn.OrdinalEncoder`` is used insted 
-        of :class:`gofast.exlib.sklearn.OneHotEncoder``. 
+        ``True``, :class:`sklearn.preprocessing.OrdinalEncoder`` is used insted 
+        of :class:sklearn.preprocessing.OneHotEncoder``. 
         
     transform: bool, default=False, 
         Tranform data inplace rather than returning the naive pipeline. 
@@ -3244,7 +3353,8 @@ def make_pipe(
 
     num_pipe=Pipeline(npipe)
     
-    if for_pca : encoding=  ('OrdinalEncoder',OrdinalEncoder())
+    if for_pca : 
+        encoding=  ('OrdinalEncoder',OrdinalEncoder())
     else:  encoding =  (
         'OneHotEncoder', OneHotEncoder())
         
