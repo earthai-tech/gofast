@@ -978,7 +978,7 @@ def format_notes(text:str , cover_str: str ='~', inline=70, **kws):
         between the first index to the inline text 
     :Example: 
         
-        >>> from gofast.utils import funcutils as func 
+        >>> from gofast.tools import funcutils as func 
         >>> text ='Automatic Option is set to ``True``.'\
             ' Composite estimator building is triggered.' 
         >>>  func.format_notes(text= text ,
@@ -1102,7 +1102,7 @@ def _remove_str_word (char, word_to_remove, deep_remove=False):
         
     Examples
     ---------
-    >>> from gofast.utils import funcutils as func
+    >>> from gofast.tools import funcutils as func
     >>> ch ='AMTAVG 7.76: "K1.fld", Dated 99-01-01,AMTAVG, 
     ...    Processed 11 Jul 17 AMTAVG'
     >>> ss=func._remove_str_word(char=ch, word_to_remove='AMTAVG', 
@@ -1141,7 +1141,7 @@ def stn_check_split_type(data_lines):
     :rtype: str
     
     :Example: 
-        >>> from gofast.utils  import funcutils as func
+        >>> from gofast.tools  import funcutils as func
         >>> path =  data/ K6.stn
         >>> with open (path, 'r', encoding='utf8') as f : 
         ...                     data= f.readlines()
@@ -3508,7 +3508,7 @@ def to_hdf5(d, /, fn, objname =None, close =True,  **hdf5_kws):
     ------------
     >>> import os 
     >>> from gofast.tools.funcutils import sanitize_frame_cols, to_hdf5 
-    >>> from gofast.utils import read_data 
+    >>> from gofast.tools import read_data 
     >>> data = read_data('data/boreholes/H502.xlsx') 
     >>> sanitize_frame_cols (data, fill_pattern='_', inplace =True ) 
     >>> store_path = os.path.join('gofast/datasets/data', 'h') # 'h' is the name of the data 

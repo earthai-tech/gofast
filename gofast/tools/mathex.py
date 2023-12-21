@@ -582,7 +582,7 @@ def scalePosition(
         
     Examples
     --------
-    >>> from gofast.utils import erpSelector, scalePosition 
+    >>> from gofast.tools import erpSelector, scalePosition 
     >>> df = erpSelector('data/erp/l10_gbalo.xlsx') 
     >>> df.columns 
     ... Index(['station', 'resistivity', 'longitude', 'latitude', 'easting',
@@ -2470,7 +2470,7 @@ def get_bearing (latlon1, latlon2,  to_deg = True ):
         
     Examples 
     ---------
-    >>> from gofast.utils import get_bearing 
+    >>> from gofast.tools import get_bearing 
     >>> latlon1 = (28.41196763902007, 109.3328724432221) # (lat, lon) point 1
     >>> latlon2= (28.38756530909265, 109.36931920880758) # (lat, lon) point 2
     >>> get_bearing (latlon1, latlon2 )
