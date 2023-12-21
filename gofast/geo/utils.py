@@ -32,7 +32,7 @@ from .._typing import (
 from ..exceptions import ( 
     StrataError, DepthError )
 from ..property import Config 
-from .funcutils import ( 
+from ..tools.funcutils import ( 
     _assert_all_types, 
     smart_format, 
     station_id, 
@@ -58,18 +58,18 @@ _logger = gofastlog().get_gofast_logger(__name__ )
 
 
 def make_coords(
-     reflong: str | Tuple[float], 
-     reflat: str | Tuple[float], 
-     nsites: int ,  
-     *,  
-     r: int =45.,
-     utm_zone: Optional[str] =None,   
-     step: Optional[str|float] ='1km', 
-     order: str = '+', 
-     todms: bool =False, 
-     is_utm: bool  =False,
-     raise_warning: bool=True, 
-     **kws
+    reflong: str | Tuple[float], 
+    reflat: str | Tuple[float], 
+    nsites: int ,  
+    *,  
+    r: int =45.,
+    utm_zone: Optional[str] =None,   
+    step: Optional[str|float] ='1km', 
+    order: str = '+', 
+    todms: bool =False, 
+    is_utm: bool  =False,
+    raise_warning: bool=True, 
+    **kws
     ): 
     """ Generate multiple stations coordinates (longitudes, latitudes)
     from a reference station/site.

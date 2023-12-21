@@ -28,6 +28,7 @@ import inspect
 import warnings 
 import numpy as np
 import pandas as pd 
+
 from .._docstring import ( 
     _core_docs, 
     DocstringComponents 
@@ -54,11 +55,11 @@ from ..exceptions import (
     StrataError, 
     AquiferGroupError
     )
-from .box import ( 
+from ..tools.box import ( 
     _Group, 
     Boxspace
     )
-from .funcutils import  (
+from ..tools.funcutils import  (
     _assert_all_types, 
     _isin ,
     is_iterable,
@@ -70,7 +71,7 @@ from .funcutils import  (
     listing_items_format, 
     to_numeric_dtypes, 
     )
-from .validator import ( 
+from ..tools.validator import ( 
     _is_arraylike_1d,
     _is_numeric_dtype, 
     _check_consistency_size, 
