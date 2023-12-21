@@ -142,7 +142,7 @@ Out[9]: (array([0, 1, 2, 3]), array([  4, 291,  95,  41], dtype=int64))
 Do you want to train multiple estimators in parallel(at the same time) ? Don't worry ``gofast`` 
 does it for you and save your results into a binary disk. The ``parallelize_estimators`` 
 function is built to simplify your task. Here is an example:
-```
+```python
 >>> from gofast.datasets import load_iris 
 >>> from gofast.models.optimize import parallelize_estimators 
 >>> X, y = load_iris(return_X_y=True)
