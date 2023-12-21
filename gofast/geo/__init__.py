@@ -4,6 +4,11 @@ from .utils import (
     smart_thickness_ranker , 
     build_random_thickness, 
     plot_stratalog, 
+    make_coords, 
+    refine_locations, 
+    get_azimuth, 
+    get_bearing, 
+    get_s_thicknesses, 
     )
 
 from .hydroutils import ( 
@@ -24,7 +29,11 @@ from .hydroutils import (
     )
 
 __all__= [
-        
+        'make_coords', 
+        'refine_locations', 
+        'get_azimuth', 
+        'get_bearing', 
+        'get_s_thicknesses', 
         'smart_thickness_ranker' , 
         'build_random_thickness', 
         'plot_stratalog', 

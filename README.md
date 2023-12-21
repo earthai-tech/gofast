@@ -39,8 +39,8 @@ We will try a fast manipulation of data in a few line of codes:
 
 1. **Fast clean and sanitize raw data** 
 
-``gofast`` has a capability to clean your data, strip the columns bad string characters, 
-drop your useless features (e.g., `name`, `num` and `lwi`)  in a one line of code as: 
+``gofast`` has a capability to clean your data, strip the column bad string characters, 
+drop your useless features (e.g., `name`, `num` and `lwi`)  in a one line of code: 
 
 ```python
 >>> cleaned_data = gf.cleaner (X , columns = 'name num lwi', mode ='drop')
@@ -49,9 +49,9 @@ Out[2]: (431, 9)
 ``` 
 2. **Split numerical and categorical data in one line of code**
  
-User does need to care about the columns, `gofast` does it for you thanks to 
-``bi_selector``function by turning the `return_frames` argument to ``True``. By 
-default, it returns the distinct numerical and categorical feature names   as: 
+User does not need to care about the columns, `gofast` does it for you thanks to 
+``bi_selector`` function by turning the `return_frames` argument to ``True``. By 
+default, it returns the distinct numerical and categorical feature names  as: 
 
 ```python 
 >>> num_features, cat_features= gf.bi_selector (cleaned_data)
@@ -60,8 +60,8 @@ Out[3]:
  ['shape', 'type', 'geol'])
  
 ```
-If features are explicitly given through the argument of parameters `features`, ``gofast`` 
-returns your remained features accordingly. Here is an example: 
+If features are explicitly passed through the argument of parameter `features`, ``gofast`` 
+returns the remained features accordingly. Here is an example: 
 
 ```python 
 >>> remained_features, my_features = gf.bi_selector ( cleaned_data, features ='shape ohmS')
@@ -103,7 +103,7 @@ FeatureUnion(transformer_list=[('num_pipeline',
                                                 ('OneHotEncoder',
                                                  OneHotEncoder())]))])
 ```  
-Rather to return an automated pipeline, users can outputed the transformed data by setting 
+Rather than returning an automated pipeline, users can outputed the transformed data by setting 
 `` the argument of `transform ` parameter to ``True``   as 
 ```python 
 
@@ -115,8 +115,8 @@ Out[6]:
 5. **Manage smartly your target**
 
 For a classification problem, ``gofast`` can efficiently manage your target by specifying  
-the class boundaries and labels names  Then ``gofast`` does it and returns categorized 
-targets via the ``smart_label_classifier`` function accordingly. Here is an example
+the class boundaries and labels names. Then ``gofast`` performs operations and returns categorized 
+targets thanks to the ``smart_label_classifier`` function. Here is an example
 ```python 
 >>> import numpy as np 
 >>> from sklearn.ensemble import RandomForestClassifier
@@ -139,59 +139,22 @@ Out[9]: (array([0, 1, 2, 3]), array([  4, 291,  95,  41], dtype=int64))
 
 6. **Train multiple estimators** 
 
-Do you want to train multiple estimators at the same time? Don't worry ``gofast`` 
-does it for you and save your results into a binary disk. The ``GridSearchMultiple`` 
-is built to simplify your task. Here is an example:
+Do you want to train multiple estimators in parallel(at the same time) ? Don't worry ``gofast`` 
+does it for you and save your results into a binary disk. The ``parallelize_estimators`` 
+function is built to simplify your task. Here is an example:
+```
+>>> from gofast.datasets import load_iris 
+>>> from gofast.models.optimize import parallelize_estimators 
+>>> X, y = load_iris(return_X_y=True)
+>>> estimators = [SVC(), DecisionTreeClassifier()]
+>>> param_grids = [{'C': [1, 10], 'kernel': ['linear', 'rbf']}, 
+                   {'max_depth': [3, 5, None], 'criterion': ['gini', 'entropy']}
+                   ]
+>>> parallelize_estimators(estimators, param_grids, X, y, optimizer ='GridSearchCV', 
+                       pack_models = True )
+Optimizing Estimators: 100%|###################| 2/2 [00:04<00:00,  2.45s/it]                 
+```
 
-```python 
->>> from sklearn.svm import SVC, LinearSVC 
->>> from sklearn.linear_model import SGDClassifier,LogisticRegression
->>> from gofast.validation import GridSearchMultiple, displayFineTunedResults
->>> # As example, we can build 04 estimators and provide their 
->>> # grid parameters range for fine-tuning as :
->>> random_state=42
->>> logreg_clf = LogisticRegression(random_state =random_state)
->>> linear_svc_clf = LinearSVC(random_state =random_state)
->>> sgd_clf = SGDClassifier(random_state = random_state)
->>> svc_clf = SVC(random_state =random_state) 
->>> estimators =(svc_clf,linear_svc_clf, logreg_clf, sgd_clf )
->>> grid_params= ([dict(C=[1e-2, 1e-1, 1, 10, 100], 
-                        gamma=[5, 2, 1, 1e-1, 1e-2, 1e-3],kernel=['rbf']), 
-                   dict(kernel=['poly'],degree=[1, 3,5, 7], coef0=[1, 2, 3],
-                        C= [1e-2, 1e-1, 1, 10, 100])],
-                [dict(C=[1e-2, 1e-1, 1, 10, 100], loss=['hinge'])], 
-                [dict()], # we just no provided parameter for demo
-                [dict()]
-                )
->>> # Now train and self-validate all  with CV=4 via the RandomizedSearchCV
->>> gobj = GridSearchMultiple(estimators = estimators, 
-                       grid_params = grid_params ,
-                       cv =4, 
-                       scoring ='accuracy', 
-                       verbose =1,   # > 7 output more messages 
-                       savejob=False ,  # set true to save job in binary disk file.
-                       kind='RandomizedSearchCV')
->>> gobj.fit(Xenc, yenc) # Starts the training
->>> # Once the parameters are fined tuned, we can display the fined tuning 
->>> # results using ``displayFineTunedResults`` function
->>> displayFineTunedResults (gobj.models.values_) 
-Out[10]:
-MODEL NAME = SVC
-BEST PARAM = {{'C': 100, 'gamma': 0.01, 'kernel': 'rbf'}}
-BEST ESTIMATOR = SVC(C=100, gamma=0.01, random_state=42)
-
-MODEL NAME = LinearSVC
-BEST PARAM = {{'C': 100, 'loss': 'hinge'}}
-BEST ESTIMATOR = LinearSVC(C=100, loss='hinge', random_state=42)
-
-MODEL NAME = LogisticRegression
-BEST PARAM = {{}}
-BEST ESTIMATOR = LogisticRegression(random_state=42)
-
-MODEL NAME = SGDClassifier
-BEST PARAM = {{}}
-BEST ESTIMATOR = SGDClassifier(random_state=42)
-``` 
 7. **Plot feature importances** 
 
 ``gofast`` helps for a fast feature contributions visualization. Here is 

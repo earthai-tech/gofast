@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
 from .plot import ( 
-    pobj,
     biPlot, 
     EvalPlot, 
     plotLearningInspection, 
@@ -16,7 +15,7 @@ from .plot import (
     plot_model_scores, 
     plot2d,
     )
-from .plotutils import ( 
+from .utils import ( 
     plot_mlxtend_heatmap , 
     plot_mlxtend_matrix, 
     plot_cost_vs_epochs, 
@@ -34,9 +33,13 @@ from .plotutils import (
     plot_voronoi, 
     plot_roc_curves, 
     plot_l_curve, 
+    plot_taylor_diagram, 
+    plot_cv, 
+    plot_confidence, 
+    plot_confidence_ellipse, 
+    plot_text, 
     )
 __all__= [
-    "pobj",
     "biPlot", 
     "EvalPlot", 
     "QuickPlot" , 
@@ -70,5 +73,10 @@ __all__= [
     'plot_voronoi', 
     'plot_roc_curves', 
     'plot_l_curve', 
+    'plot_taylor_diagram', 
+    'plot_cv', 
+    'plot_confidence', 
+    'plot_confidence_ellipse', 
+    'plot_text', 
 
     ]

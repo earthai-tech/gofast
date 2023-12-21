@@ -104,7 +104,7 @@ def read_data (
         load text file.  
     np.load 
        Load uncompressed or compressed numpy `.npy` and `.npz` formats. 
-    watex.utils.baseutils.save_or_load: 
+    watex.tools.baseutils.save_or_load: 
         Save or load numpy arrays.
        
     """
@@ -211,7 +211,7 @@ def array2hdf5 (
     Examples 
     ----------
     >>> import numpy as np 
-    >>> from gofast.utils.baseutils import array2hdf5
+    >>> from gofast.tools.baseutils import array2hdf5
     >>> data = np.random.randn (100, 27 ) 
     >>> array2hdf5 ('test.h5', data   )
     >>> load_data = array2hdf5 ( 'test.h5', data, task ='load')
@@ -255,7 +255,7 @@ def lowertify (*values, strip = True, return_origin: bool =... ):
     :return: value in lowercase and original value. 
     
     :Example: 
-        >>> from gofast.utils.baseutils import lowertify 
+        >>> from gofast.tools.baseutils import lowertify 
         >>> lowertify ( 'KIND')
         Out[19]: ('kind',)
         >>> lowertify ( "KIND", return_origin =True )
@@ -335,7 +335,7 @@ def save_or_load(
     Examples 
     ----------
     >>> import numpy as np 
-    >>> from gofast.utils.baseutils import save_or_load 
+    >>> from gofast.tools.baseutils import save_or_load 
     >>> data = np.random.randn (2, 7)
     >>> # save to txt 
     >>> save_or_load ( "test.txt" , data)
@@ -566,7 +566,7 @@ def download_file(url, local_filename , dstpath =None ):
        
     Example 
     ---------
-    >>> from gofast.utils.baseutils import download_file
+    >>> from gofast.tools.baseutils import download_file
     >>> url = 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/gofast/datasets/data/h.h5'
     >>> local_filename = 'h.h5'
     >>> download_file(url, local_filename, test_directory)    
@@ -609,7 +609,7 @@ def download_file2(url, local_filename, dstpath =None ):
        None if the `dstpath` is supplied and `local_filename` otherwise. 
     Example
     --------
-    >>> from gofast.utils.baseutils import download_file2
+    >>> from gofast.tools.baseutils import download_file2
     >>> url = 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/gofast/datasets/data/h.h5'
     >>> local_filename = 'h.h5'
     >>> download_file(url, local_filename)
@@ -659,7 +659,7 @@ def move_file(file_path, directory):
     
     Example 
     ---------
-    >>> from gofast.utils.baseutils import move_file
+    >>> from gofast.tools.baseutils import move_file
     >>> file_path = 'path/to/your/file.txt'  # Replace with your file's path
     >>> directory = 'path/to/your/directory'  # Replace with your directory's path
     >>> move_file(file_path, directory)
@@ -681,7 +681,7 @@ def check_file_exists(package, resource):
     :return: Boolean indicating if the resource exists.
     
     :example: 
-        >>> from gofast.utils.baseutils import check_file_exists
+        >>> from gofast.tools.baseutils import check_file_exists
         >>> package_name = 'gofast.datasets.data'  # Replace with your package name
         >>> file_name = 'h.h5'    # Replace with your file name
 

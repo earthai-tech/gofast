@@ -74,7 +74,7 @@ def assert_xy_coordinate_system (x, y ):
     --------
     >>> import numpy as np 
     >>> np.random.seed (42 ) 
-    >>> from gofast.utils.gistools import assert_xy_coordinate_system
+    >>> from gofast.geo.gisutils import assert_xy_coordinate_system
     >>> x, y = np.random.rand(7 ), np.arange (7 )
     >>> assert_xy_coordinate_system (x, y)
     'll'
@@ -143,7 +143,7 @@ def convert_position_str2float(position_str):
                           
     Example
     -------------
-    >>> import gofast.utils.gis_tools as gis_tools
+    >>> import gofast.tools.gis_tools as gis_tools
     >>> gis_tools.convert_position_str2float('-118:34:56.3')
     """
     
@@ -245,7 +245,7 @@ def convert_position_float2str(position):
                           
     Example
     -------------
-    >>> import gofast.utils.gis_tools as gis_tools
+    >>> import gofast.tools.gis_tools as gis_tools
     >>> gis_tools.convert_position_float2str(-118.34563)
         
     """
@@ -711,7 +711,7 @@ _ellipsoid = [
 # 1984 Technical Report. Part I and II. Washington, DC: Defense Mapping Agency
 
 # @deprecated("This function may be removed in later release."
-#             " gofast.utils.gistools.project_point_ll2utm() should be "
+#             " gofast.geo.gisutils.project_point_ll2utm() should be "
 #             "used instead.")
 def ll_to_utm(reference_ellipsoid, lat, lon):
     """
@@ -968,7 +968,7 @@ def utm_wgs84_conv(lat, lon):
 
 @gdal_data_check
 @deprecated("This function may be removed in later release."
-            " gofast.utils.gistools.project_point_utm2ll() should be "
+            " gofast.geo.gisutils.project_point_utm2ll() should be "
             "used instead.")
 def transform_utm_to_ll(easting, northing, zone,
                         reference_ellipsoid='WGS84'):
@@ -997,7 +997,7 @@ def transform_utm_to_ll(easting, northing, zone,
 
 @gdal_data_check
 @deprecated("This function may be removed in later release. "
-            "gofast.utils.gistools.project_point_ll2utm() should be "
+            "gofast.geo.gisutils.project_point_ll2utm() should be "
             "used instead.")
 def transform_ll_to_utm(lon, lat, reference_ellipsoid='WGS84'):
     """

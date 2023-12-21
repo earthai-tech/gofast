@@ -68,9 +68,9 @@ from .._typing import (
     DataFrame, 
     Series
     )
-from ..utils.mathex import linkage_matrix 
-from ..utils.baseutils import _is_readable 
-from ..utils.funcutils import ( 
+from ..tools.mathex import linkage_matrix 
+from ..tools.baseutils import _is_readable 
+from ..tools.funcutils import ( 
     is_iterable,
     reshape, 
     to_numeric_dtypes, 
@@ -79,7 +79,7 @@ from ..utils.funcutils import (
     str2columns, 
     make_ids
     )
-from ..utils.mlutils import ( 
+from ..tools.mlutils import ( 
     exporttarget , 
     selectfeatures, 
     cattarget, 
@@ -91,7 +91,7 @@ from .plotutils import (
     make_mpl_properties, 
     
     )
-from ..utils.validator import ( 
+from ..tools.validator import ( 
     _check_consistency_size, 
     get_estimator_name , 
     array_to_frame, 
@@ -270,7 +270,7 @@ class EvalPlot(BasePlot):
             and features N
 
         fit_params: dict Additional keywords arguments from 
-            :func:gofast.utils.coreutils._is_readable`
+            :func:gofast.tools.coreutils._is_readable`
            
         Return
         -------
@@ -330,7 +330,7 @@ class EvalPlot(BasePlot):
             Keyword arguments passed to :class:`sklearn.impute.SimpleImputer` 
             for imputing the missing data; default strategy is 'most_frequent'
             or keywords arguments passed to
-            :func:gofast.utils.funcutils.to_numeric_dtypes`
+            :func:gofast.tools.funcutils.to_numeric_dtypes`
             
         Return
         -------
@@ -1141,7 +1141,7 @@ class EvalPlot(BasePlot):
         Examples
         --------
         >>> from gofast.datasets import fetch_data
-        >>> from gofast.utils.mlutils import cattarget 
+        >>> from gofast.tools.mlutils import cattarget 
         >>> from gofast.exlib.sklearn import SVC 
         >>> from gofast.view.mlplot import EvalPlot
         >>> X, y = fetch_data ('bagoue', return_X_y=True, as_frame =True)
@@ -1726,7 +1726,7 @@ def plotModel(
     >>> from gofast.exlib.sklearn  import SVC 
     >>> from gofast.datasets import fetch_data 
     >>> from gofast.view import plotModel 
-    >>> from gofast.utils.mlutils import split_train_test_by_id
+    >>> from gofast.tools.mlutils import split_train_test_by_id
     >>> X, y = fetch_data('bagoue analysis' ) 
     >>> _, Xtest = split_train_test_by_id(X, 
                                           test_ratio=.3 ,  # 30% in test set 
@@ -2289,7 +2289,7 @@ def plotDendroheat(
         
     method : str, optional, default is {'complete'}
         The linkage algorithm to use. See the ``Linkage Methods`` section below
-        for full descriptions in :func:`gofast.utils.exmath.linkage_matrix`
+        for full descriptions in :func:`gofast.tools.exmath.linkage_matrix`
         
     labels : ndarray, optional
         By default, ``labels`` is None so the index of the original observation
@@ -2452,7 +2452,7 @@ def plotDendrogram (
         
     method : str, optional, default is {'complete'}
         The linkage algorithm to use. See the ``Linkage Methods`` section below
-        for full descriptions in :func:`gofast.utils.exmath.linkage_matrix`
+        for full descriptions in :func:`gofast.tools.exmath.linkage_matrix`
         
     labels : ndarray, optional
         By default, ``labels`` is None so the index of the original observation
@@ -2729,7 +2729,7 @@ def _plotSilhouette (X, labels, metric ='euclidean', **kwds ):
   
     See also 
     ---------
-    gofast.utils.plotutils.plot_silhouette: Plot naive silhouette 
+    gofast.tools.plotutils.plot_silhouette: Plot naive silhouette 
     
     Notes
     ------ 

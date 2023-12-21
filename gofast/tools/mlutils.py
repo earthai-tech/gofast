@@ -219,7 +219,7 @@ def codify_variables (
     
     Examples
     ----------
-    >>> from gofast.utils.mlutils import codify_variables 
+    >>> from gofast.tools.mlutils import codify_variables 
     >>> # Sample dataset with categorical variables
     >>> data = {'Height': [152, 175, 162, 140, 170], 
         'Color': ['Red', 'Blue', 'Green', 'Red', 'Blue'],
@@ -315,8 +315,8 @@ def codify_variables (
         if len(cat_columns)==0: 
             # no categorical data func. 
             msg =("No categorical data detected. To transform numeric"
-                " values to labels, use `gofast.utils.smart_label_classifier`"
-                " or `gofast.utils.categorize_target` instead.")
+                " values to labels, use `gofast.tools.smart_label_classifier`"
+                " or `gofast.tools.categorize_target` instead.")
             warnings.warn (msg) 
             return df 
         
@@ -451,7 +451,7 @@ def resampling(
     Examples 
     --------- 
     >>> import gofast as gf 
-    >>> from gofast.utils.mlutils import resampling 
+    >>> from gofast.tools.mlutils import resampling 
     >>> data, target = gf.fetch_data ('bagoue analysed', as_frame =True) 
     >>> data.shape, target.shape 
     >>> data_us, target_us = resampling (data, target, kind ='under',
@@ -553,7 +553,7 @@ def bin_counting(
     Examples 
     ---------
     >>> import gofast as gf 
-    >>> from gofast.utils.mlutils import bin_counting 
+    >>> from gofast.tools.mlutils import bin_counting 
     >>> X, y = gf.fetch_data ('bagoue analysed', as_frame =True) 
     >>> # target binarize 
     >>> y [y <=1] = 0;  y [y > 0]=1 
@@ -869,7 +869,7 @@ def _laplace_smoothing (x, y, data =None ):
         
     Examples 
     -----------
-    >>> from gofast.utils.mlutils import laplace_smoothing
+    >>> from gofast.tools.mlutils import laplace_smoothing
     >>> corpus = [('apple', 'fruit'), ('orange', 'fruit'), 
                   ('apple', 'fruit'), ('car', 'object'), 
                   ('bike', 'object')]
@@ -1034,7 +1034,7 @@ def get_correlated_features(
         
     Examples
     --------
-    >>> from gofast.utils.mlutils import get_correlated_features 
+    >>> from gofast.tools.mlutils import get_correlated_features 
     >>> df_corr = get_correlated_features (data , corr='spearman',
                                      fmt=None, threshold=.95
                                      )
@@ -1094,7 +1094,7 @@ def get_target (df, tname, inplace = True):
     
     :example: 
     >>> from gofast.datasets import fetch_data '
-    >>> from gofast.utils.mlutils import exporttarget 
+    >>> from gofast.tools.mlutils import exporttarget 
     >>> data0 = fetch_data ('bagoue original').get('data=dfy1') 
     >>> # no modification 
     >>> target, data_no = exporttarget (data0 , 'sfi', False )
@@ -1198,7 +1198,7 @@ def select_features(
     :ref: https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.astype.html
     
     :examples: 
-        >>> from gofast.utils.mlutils import select_features 
+        >>> from gofast.tools.mlutils import select_features 
         >>> data = {"Color": ['Blue', 'Red', 'Green'], 
                     "Name": ['Mary', "Daniel", "Augustine"], 
                     "Price ($)": ['200', "300", "100"]
@@ -1291,7 +1291,7 @@ def formatGenericObj(generic_obj :Iterable[T])-> T:
     
     :Example: 
         
-        >>> from gofast.utils.mlutils import formatGenericObj 
+        >>> from gofast.tools.mlutils import formatGenericObj 
         >>> formatGenericObj ({'ohmS', 'lwi', 'power', 'id', 
         ...                         'sfi', 'magnitude'})
         
@@ -1315,7 +1315,7 @@ def findIntersectionGenObject(
     
     :Example: 
         
-        >>> from gofast.utils.mlutils import findIntersectionGenObject
+        >>> from gofast.tools.mlutils import findIntersectionGenObject
         >>> findIntersectionGenObject(
         ...    ['ohmS', 'lwi', 'power', 'id', 'sfi', 'magnitude'], 
         ...    {'ohmS', 'lwi', 'power'})
@@ -1342,7 +1342,7 @@ def findDifferenceGenObject(gen_obj1: Iterable[Any],
     
     :Example: 
         
-        >>> from gofast.utils.mlutils import findDifferenceGenObject
+        >>> from gofast.tools.mlutils import findDifferenceGenObject
         >>> findDifferenceGenObject(
         ...    ['ohmS', 'lwi', 'power', 'id', 'sfi', 'magnitude'], 
         ...    {'ohmS', 'lwi', 'power'})
@@ -1411,7 +1411,7 @@ def controlExistingEstimator(
     
     :Example: 
         
-        >>> from gofast.utils.mlutils import controlExistingEstimator 
+        >>> from gofast.tools.mlutils import controlExistingEstimator 
         >>> test_est =controlExistingEstimator('svm')
         ('svc', 'SupportVectorClassifier')
         
@@ -1455,7 +1455,7 @@ def formatModelScore(
     
     :Example: 
         
-        >>> from gofast.utils.mlutils import formatModelScore 
+        >>> from gofast.tools.mlutils import formatModelScore 
         >>>  formatModelScore({'DecisionTreeClassifier':0.26, 
                       'BaggingClassifier':0.13}
         )
@@ -1626,7 +1626,7 @@ def fetchTGZDatafromURL (
     :param filename: `tgz` filename. 
     
     :example: 
-    >>> from gofast.utils.mlutils import fetchTGZDatafromURL
+    >>> from gofast.tools.mlutils import fetchTGZDatafromURL
     >>> DOWNLOAD_ROOT = 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/'
     >>> # from Zenodo: 'https://zenodo.org/record/5560937#.YWQBOnzithE'
     >>> DATA_PATH = 'data/__tar.tgz'  # 'BagoueCIV__dataset__main/__tar.tgz_files__'
@@ -1677,7 +1677,7 @@ def fetchSingleTGZData(
         Name of of the new file to replace the fetched file.
     :return: Location of the fetched file
     :Example: 
-        >>> from gofast.utils.mlutils import fetchSingleTGZData
+        >>> from gofast.tools.mlutils import fetchSingleTGZData
         >>> fetchSingleTGZData('data/__tar.tgz/fmain.bagciv.data.tar.gz', 
                                rename_outfile='main.bagciv.data.csv')
     """
@@ -2031,7 +2031,7 @@ def serialize_data (
     :Example:
         
         >>> import numpy as np
-        >>> from gofast.utils.mlutils import dumpOrSerializeData
+        >>> from gofast.tools.mlutils import dumpOrSerializeData
         >>>  data=(np.array([0, 1, 3]),np.array([0.2, 4]))
         >>> dumpOrSerializeData(data, filename ='__XTyT.pkl', to='pickle', 
                                 savepath='gofast/datasets')
@@ -2100,7 +2100,7 @@ def load_dumped_data (filename:str, verbose=0):
         
     :Example:
         
-        >>> from gofast.utils.mlutils import loadDumpedOrSerializedData
+        >>> from gofast.tools.mlutils import loadDumpedOrSerializedData
         >>> loadDumpedOrSerializedData(filename ='Watex/datasets/__XTyT.pkl')
     """
     
@@ -2180,7 +2180,7 @@ def _assert_sl_target (target,  df=None, obj=None):
     
     :Example: 
         
-        >>> from gofast.utils.mlutils import _assert_sl_target
+        >>> from gofast.tools.mlutils import _assert_sl_target
         >>> from gofast.datasets import fetch_data
         >>> data = fetch_data('Bagoue original').get('data=df')  
         >>> _assert_sl_target (target =12, obj=prepareObj, df=data)
@@ -2297,7 +2297,7 @@ def export_target(
     ---------
     >>>> import numpy as np 
     >>> import pandas as pd 
-    >>> from gofast.utils.mtutils import get_target 
+    >>> from gofast.tools.mtutils import get_target 
     >>> ar = np.random.randn ( 3,  3 )
     >>> df0 = pd.DataFrame ( ar, columns = ['x1', 'x2', 'tname'])
     >>> df= df0.copy() 
@@ -2548,7 +2548,7 @@ def find_features_in(
     Examples 
     ----------
     >>> from gofast.datasets import fetch_data 
-    >>>> from gofast.utils.mlutils import find_features_in
+    >>>> from gofast.tools.mlutils import find_features_in
     >>> data = fetch_data ('bagoue original').get('data=dfy2')
     >>> cat, num = find_features_in(data)
     >>> cat, num 
@@ -2622,7 +2622,7 @@ def categorize_target(
     Examples 
     --------
 
-    >>> from gofast.utils.mlutils import categorize_target 
+    >>> from gofast.tools.mlutils import categorize_target 
     >>> def binfunc(v): 
             if v < 3 : return 0 
             else : return 1 
@@ -2735,7 +2735,7 @@ def rename_labels_in (
 
     
 def _cattarget (ar , labels , order=None): 
-    """ A shadow function of :func:`gofast.utils.mlutils.cattarget`. 
+    """ A shadow function of :func:`gofast.tools.mlutils.cattarget`. 
     
     :param ar: array-like of numerical values 
     :param labels: int or list of int, 
@@ -3043,7 +3043,7 @@ def labels_validator (t, /, labels, return_bool = False):
         
     :example: 
     >>> from gofast.datasets import fetch_data 
-    >>> from gofast.utils.mlutils import cattarget, labels_validator 
+    >>> from gofast.tools.mlutils import cattarget, labels_validator 
     >>> _, y = fetch_data ('bagoue', return_X_y=True, as_frame=True) 
     >>> # binarize target y into [0 , 1]
     >>> ybin = cattarget(y, labels=2 )
@@ -3113,7 +3113,7 @@ def bi_selector (d, /,  features =None, return_frames = False ):
             
     Example 
     --------
-    >>> from gofast.utils.mlutils import bi_selector 
+    >>> from gofast.tools.mlutils import bi_selector 
     >>> from gofast.datasets import load_hlogs 
     >>> data = load_hlogs().frame # get the frame 
     >>> data.columns 
@@ -3252,7 +3252,7 @@ def make_pipe(
         
     Examples 
     ---------
-    >>> from gofast.utils.mlutils import make_naive_pipe 
+    >>> from gofast.tools.mlutils import make_naive_pipe 
     >>> from gofast.datasets import load_hlogs 
     
     (1) Make a naive simple pipeline  with RobustScaler, StandardScaler 
@@ -3549,7 +3549,7 @@ def select_feature_importances (
         
     Examples
     --------
-    >>> from gofast.utils.mlutils import select_feature_importances
+    >>> from gofast.tools.mlutils import select_feature_importances
     >>> from gofast.exlib.sklearn import LogisticRegression
     >>> X0 = [[ 0.87, -1.34,  0.31 ],
     ...      [-2.79, -0.02, -0.85 ],
@@ -3732,7 +3732,7 @@ def soft_imputer (
     --------
     >>> import numpy as np 
     >>> import pandas as pd 
-    >>> from gofast.utils.mlutils import soft_imputer 
+    >>> from gofast.tools.mlutils import soft_imputer 
     >>> X= np.random.randn ( 7, 4 ) 
     >>> X[3, :] =np.nan  ; X[:, 3][-4:]=np.nan 
     >>> soft_imputer  (X)
@@ -3950,7 +3950,7 @@ def soft_scaler(
     ----------
     >>> import numpy as np  
     >>> import pandas as pd 
-    >>> from gofast.utils.mlutils import naive_scaler 
+    >>> from gofast.tools.mlutils import naive_scaler 
     >>> X= np.random.randn (7 , 3 ) 
     >>> X_std = naive_scaler (X ) 
     ... array([[ 0.17439644,  1.55683005,  0.24115109],

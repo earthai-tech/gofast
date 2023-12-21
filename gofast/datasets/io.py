@@ -13,9 +13,9 @@ import pandas as pd
 from pathlib import Path 
 from importlib import resources
 from collections import namedtuple
-from ..utils.box import Boxspace 
-from ..utils.baseutils import _is_readable 
-from ..utils.funcutils import random_state_validator , is_iterable
+from ..tools.box import Boxspace 
+from ..tools.baseutils import _is_readable 
+from ..tools.funcutils import random_state_validator , is_iterable
 
 DMODULE = "gofast.datasets.data" ; DESCR = "gofast.datasets.descr"
 
@@ -345,7 +345,7 @@ allowed_extensions : list of str, default=None
 
 Returns
 -------
-data : :class:`~gofast.utils.Boxspace`
+data : :class:`~gofast.tools.Boxspace`
     Dictionary-like object, with the following attributes.
     data : list of str
       Only present when `load_content=True`.

@@ -25,13 +25,13 @@ from six.moves import urllib
 from .._typing import (
     Optional, 
     )
-from ..utils.funcutils import (
+from ..tools.funcutils import (
     is_installing 
 )
 from ..exceptions import (
     ExtractionError 
 )
-from ..utils.mlutils import (
+from ..tools.mlutils import (
     fetchSingleTGZData, 
     subprocess_module_installation
     )

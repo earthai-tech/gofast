@@ -10,7 +10,7 @@ from sklearn.datasets import load_iris
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 
-from gofast.validation.optimize import parallelize_estimators 
+from gofast.models.optimize import parallelize_estimators 
 
 X, y = load_iris(return_X_y=True)
 
@@ -26,5 +26,5 @@ def test_parallelize_estimators ( optimizer = 'RSCV', pack_models =False ):
 
 if __name__=='__main__': 
     
-    o= test_parallelize_estimators(optimizer ='RSCV', pack_models= True)
+    o= test_parallelize_estimators(optimizer ='GSCV', pack_models= True)
     

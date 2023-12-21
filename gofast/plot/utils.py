@@ -34,20 +34,20 @@ from sklearn.metrics import (
     roc_curve, 
     roc_auc_score, 
     )
-from sklearn.model_selection import learning_curve 
-
+from sklearn.model_selection import (
+    learning_curve, KFold)
 from ..exceptions import ( 
     TipError, 
     PlotError, 
     )
-from ..utils.funcutils import  ( 
+from ..tools.funcutils import  ( 
     _assert_all_types,
     is_iterable, 
     make_obj_consistent_if, 
     str2columns, 
     is_in_if, 
     )
-from ..utils.validator import  ( 
+from ..tools.validator import  ( 
     _check_array_in  , 
     _is_cross_validated,
     assert_xy_in, 
@@ -57,7 +57,7 @@ from ..utils.validator import  (
     check_consistent_length, 
     check_is_fitted , 
     )
-from ..utils._dependency import import_optional_dependency 
+from ..tools._dependency import import_optional_dependency 
 
 try : 
     from yellowbrick.classifier import ConfusionMatrix 
@@ -111,9 +111,134 @@ D_STYLES = [
 ]
 #----
 
+def plot_cv(
+    model_fn, X, y, 
+    n_splits=5, 
+    epochs=10, 
+    metric='accuracy'
+    ):
+    """
+    Performs cross-validation and plots the 
+    performance of each fold.
 
-def make_plot_colors(d , / , colors:str | list[str]=None , axis:int = 0, 
-                     seed:int  =None, chunk:bool =... ): 
+    Parameters
+    ----------
+    model_fn : function
+        A function that returns a compiled neural network model.
+
+    X : np.ndarray
+        Training features.
+
+    y : np.ndarray
+        Training labels.
+
+    n_splits : int, optional
+        Number of splits for cross-validation.
+
+    epochs : int, optional
+        Number of epochs for training.
+
+    metric : str, optional
+        The performance metric to plot ('accuracy', 'loss', etc.).
+
+    """
+    kf = KFold(n_splits=n_splits)
+    fold_performance = []
+
+    for fold, (train_index, val_index) in enumerate(kf.split(X), 1):
+        # Split data
+        X_train, X_val = X[train_index], X[val_index]
+        y_train, y_val = y[train_index], y[val_index]
+
+        # Create a new instance of the model
+        model = model_fn()
+
+        # Train the model
+        history = model.fit(
+            X_train, y_train, validation_data=(X_val, y_val),
+            epochs=epochs, verbose=0)
+
+        # Store the metrics for this fold
+        fold_performance.append(history.history[metric])
+
+    # Plot the results
+    plt.figure(figsize=(12, 6))
+    for i, performance in enumerate(fold_performance, 1):
+        plt.plot(performance, label=f'Fold {i}')
+
+    plt.title(f'Cross-Validation {metric.capitalize()}')
+    plt.xlabel('Epochs')
+    plt.ylabel(metric.capitalize())
+    plt.legend()
+    plt.show()
+
+def plot_taylor_diagram(
+        models, reference, model_names=None
+        ):
+    """
+    Plots a Taylor Diagram, which is used to display a statistical 
+    comparison of models.
+
+    Parameters
+    ----------
+    models : list of np.ndarray
+        A list of arrays, each containing the predictions of a 
+        different model.
+        Each model's predictions should be the same length as 
+        the reference array.
+
+    reference : np.ndarray
+        An array containing the reference data against which the 
+        models are compared.
+        This should have the same length as each model's predictions.
+
+    model_names : list of str, optional
+        A list of names for each model. This list should be the same
+        length as the 'models' list.
+        If not provided, models will be labeled as Model 1, Model 2, etc.
+
+    """
+
+    # Calculate statistics for each model
+    correlations = [np.corrcoef(model, reference)[0, 1] for model in models]
+    standard_deviations = [np.std(model) for model in models]
+    reference_std = np.std(reference)
+
+    # Create polar plot
+    fig = plt.figure(figsize=(10, 8))
+    ax1 = fig.add_subplot(111, polar=True)
+
+    # Convert correlations to angular coordinates in radians
+    angles = np.arccos(correlations)
+    radii = standard_deviations
+
+    # Plot each model
+    for i in range(len(models)):
+        ax1.plot([angles[i], angles[i]], [0, radii[i]], 
+                 label=f'{model_names[i]}' if model_names else f'Model {i+1}')
+        ax1.plot(angles[i], radii[i], 'o')
+
+    # Add reference standard deviation
+    ax1.plot([0, 0], [0, reference_std], label='Reference')
+    ax1.plot(0, reference_std, 'o')
+
+    # Set labels and title
+    ax1.set_thetamax(180)
+    ax1.set_theta_direction(-1)
+    ax1.set_theta_zero_location('W')
+    ax1.set_rlabel_position(90)
+    ax1.set_xlabel('Standard Deviation')
+    ax1.set_ylabel('Correlation')
+    ax1.set_title('Taylor Diagram')
+
+    plt.legend()
+    plt.show()
+    
+def make_plot_colors(
+    d , / , 
+    colors:str | list[str]=None , axis:int = 0, 
+    seed:int  =None, chunk:bool =... 
+    ): 
     """ Select colors according to the data size along axis 
     
     Parameters 
@@ -154,7 +279,7 @@ def make_plot_colors(d , / , colors:str | list[str]=None , axis:int = 0,
     Examples 
     --------
     >>> import numpy as np 
-    >>> from gofast.utils.plotutils import make_plot_colors
+    >>> from gofast.tools.utils import make_plot_colors
     >>> ar = np.random.randn (7, 2) 
     >>> make_plot_colors (ar )
     ['g', 'gray', 'y', 'blue', 'orange', 'purple', 'lime']
@@ -287,7 +412,7 @@ def plot_silhouette (X, labels, metric ='euclidean',savefig =None , **kwds ):
     >>> import numpy as np 
     >>> from gofast.exlib.sklearn import KMeans 
     >>> from gofast.datasets import load_iris 
-    >>> from gofast.utils.plotutils import plot_silhouette
+    >>> from gofast.tools.utils import plot_silhouette
     >>> d= load_iris ()
     >>> X= d.data [:, 0][:, np.newaxis] # take the first axis 
     >>> km= KMeans (n_clusters =3 , init='k-means++', n_init =10 , 
@@ -387,7 +512,7 @@ def plot_sbs_feature_selection (
     >>> from gofast.exlib.sklearn import KNeighborsClassifier , train_test_split
     >>> from gofast.datasets import fetch_data
     >>> from gofast.base import SequentialBackwardSelection
-    >>> from gofast.utils.plotutils import plot_sbs_feature_selection
+    >>> from gofast.tools.utils import plot_sbs_feature_selection
     >>> X, y = fetch_data('bagoue analysed') # data already standardized
     >>> Xtrain, Xt, ytrain,  yt = train_test_split(X, y)
     >>> knn = KNeighborsClassifier(n_neighbors=5)
@@ -493,7 +618,7 @@ def plot_regularization_path (
     
     Examples
     --------
-    >>> from gofast.utils.plotutils import plot_regularization_path 
+    >>> from gofast.tools.utils import plot_regularization_path 
     >>> from gofast.datasets import fetch_data
     >>> X, y = fetch_data ('bagoue analysed' ) # data aleardy standardized
     >>> plot_regularization_path (X, y ) 
@@ -610,7 +735,7 @@ def plot_rf_feature_importances (
     ---------
     >>> from gofast.datasets import fetch_data
     >>> from sklearn.ensemble import RandomForestClassifier 
-    >>> from gofast.plot.plotutils import plot_rf_feature_importances 
+    >>> from gofast.plot.utils import plot_rf_feature_importances 
     >>> X, y = fetch_data ('bagoue analysed' ) 
     >>> plot_rf_feature_importances (
         RandomForestClassifier(), X=X, y=y , sns_style=True)
@@ -685,7 +810,7 @@ def plot_confusion_matrix (yt, y_pred, view =True, ax=None, annot=True,  **kws )
     >>> from gofast.datasets import fetch_data
     >>> from gofast.exlib.sklearn import train_test_split 
     >>> from gofast.models import pModels 
-    >>> from gofast.utils.plotutils import plot_confusion_matrix
+    >>> from gofast.tools.utils import plot_confusion_matrix
     >>> # split the  data . Note that fetch_data output X and y 
     >>> X, Xt, y, yt  = train_test_split (* fetch_data ('bagoue analysed'),
                                           test_size =.25  )  
@@ -792,7 +917,7 @@ def plot_yb_confusion_matrix (
     >>> from gofast.datasets import fetch_data
     >>> from gofast.exlib.sklearn import train_test_split 
     >>> from gofast.models import pModels 
-    >>> from gofast.utils.plotutils import plot_yb_confusion_matrix
+    >>> from gofast.tools.utils import plot_yb_confusion_matrix
     >>> # split the  data . Note that fetch_data output X and y 
     >>> X, Xt, y, yt  = train_test_split (* fetch_data ('bagoue analysed'),
                                           test_size =.25  )  
@@ -897,7 +1022,7 @@ def plot_confusion_matrices (
     >>> from gofast.datasets import fetch_data
     >>> from gofast.exlib.sklearn import train_test_split 
     >>> from gofast.models.premodels import p
-    >>> from gofast.utils.plotutils import plot_confusion_matrices 
+    >>> from gofast.tools.utils import plot_confusion_matrices 
     >>> # split the  data . Note that fetch_data output X and y 
     >>> X, Xt, y, yt  = train_test_split (* fetch_data ('bagoue analysed'), test_size =.25  )  
     >>> # compose the models 
@@ -1045,7 +1170,7 @@ def plot_learning_curves(
     
     >>> from gofast.models.premodels import p 
     >>> from gofast.datasets import fetch_data 
-    >>> from gofast.utils.plotutils import plot_learning_curves
+    >>> from gofast.tools.utils import plot_learning_curves
     >>> X, y = fetch_data ('bagoue prepared') # yields a sparse matrix 
     >>> # let collect 04 estimators already cross-validated from SVMs
     >>> models = [ p.SVM.linear , p.SVM.rbf , p.SVM.sigmoid , p.SVM.poly ]
@@ -1153,7 +1278,7 @@ def plot_naive_dendrogram (
         :func:`scipy.cluster.hierarchy.dendrogram`
     :Examples: 
         >>> from gofast.datasets import fetch_data 
-        >>> from gofast.utils.plotutils import plot_naive_dendrogram
+        >>> from gofast.tools.utils import plot_naive_dendrogram
         >>> X, _= fetch_data('Bagoue analysed') # data is already scaled 
         >>> # get the two features 'power' and  'magnitude'
         >>> data = X[['power', 'magnitude']]
@@ -1245,7 +1370,7 @@ def plot_pca_components (
     (1)-> with PCA object 
     
     >>> from gofast.datasets import fetch_data
-    >>> from gofast.utils.plotutils import plot_pca_components
+    >>> from gofast.tools.utils import plot_pca_components
     >>> from gofast.analysis import nPCA 
     >>> X, _= fetch_data('bagoue pca') 
     >>> pca = nPCA (X, n_components=2, return_X =False)# to return object 
@@ -1310,7 +1435,7 @@ def plot_clusters (
         
     :Example: 
     >>> from gofast.exlib.sklearn import KMeans, MinMaxScaler
-    >>> from gofast.utils.plotutils import plot_clusters
+    >>> from gofast.tools.utils import plot_clusters
     >>> from gofast.datasets import fetch_data 
     >>> h= fetch_data('hlogs').frame 
     >>> # collect two features 'resistivity' and gamma-gamma logging values
@@ -1421,7 +1546,7 @@ def plot_elbow (
     Example
     ---------
     >>> from gofast.datasets import load_hlogs 
-    >>> from gofast.utils.plotutils import plot_elbow 
+    >>> from gofast.tools.utils import plot_elbow 
     >>> # get the only resistivy and gamma-gama values for example
     >>> res_gamma = load_hlogs ().frame[['resistivity', 'gamma_gamma']]  
     >>> plot_elbow(res_gamma, n_clusters=11)
@@ -1456,7 +1581,7 @@ def _plot_elbow (distorsions: list  , n_clusters:int ,fig_size = (10 , 4 ),
     >>> import numpy as np 
     >>> from sklearn.cluster import KMeans 
     >>> from gofast.datasets import load_iris 
-    >>> from gofast.utils.plotutils import plot_elbow
+    >>> from gofast.tools.utils import plot_elbow
     >>> d= load_iris ()
     >>> X= d.data [:, 0][:, np.newaxis] # take the first axis 
     >>> # compute distorsiosn for KMeans range 
@@ -1510,7 +1635,7 @@ def plot_cost_vs_epochs(regs, *,  fig_size = (10 , 4 ), marker ='o',
 
     >>> from gofast.datasets import load_iris 
     >>> from gofast.base import AdalineGradientDescent
-    >>> from gofast.utils.plotutils import plot_cost_vs_epochs
+    >>> from gofast.tools.utils import plot_cost_vs_epochs
     >>> X, y = load_iris (return_X_y= True )
     >>> ada1 = AdalineGradientDescent (n_iter= 10 , eta= .01 ).fit(X, y) 
     >>> ada2 = AdalineGradientDescent (n_iter=10 , eta =.0001 ).fit(X, y)
@@ -1555,7 +1680,7 @@ def plot_mlxtend_heatmap (df, columns =None, savefig=None,  **kws):
     :example: 
         
     >>> from gofast.datasets import load_hlogs 
-    >>> from gofast.utils.plotutils import plot_mlxtend_heatmap
+    >>> from gofast.tools.utils import plot_mlxtend_heatmap
     >>> h=load_hlogs()
     >>> features = ['gamma_gamma', 'sp',
                 'natural_gamma', 'resistivity']
@@ -1590,7 +1715,7 @@ def plot_mlxtend_matrix(df, columns =None, fig_size = (10 , 8 ),
     :return: :func:`mlxtend.plotting.scatterplotmatrix` axes object 
     :example: 
     >>> from gofast.datasets import load_hlogs 
-    >>> from gofast.utils.plotutils import plot_mlxtend_matrix
+    >>> from gofast.tools.utils import plot_mlxtend_matrix
     >>> import pandas as pd 
     >>> import numpy as np 
     >>> h=load_hlogs()
@@ -1721,7 +1846,7 @@ def make_mpl_properties(n ,prop ='color'):
         only 'colors', 'marker' or 'line'.
     :return: list of property items with size equals to `n`.
     :Example: 
-        >>> from gofast.utils.plotutils import make_mpl_properties
+        >>> from gofast.tools.utils import make_mpl_properties
         >>> make_mpl_properties (10 )
         ... ['g',
              'gray',
@@ -1982,7 +2107,7 @@ def plotvec2(a,b):
     :Example: 
         
         >>> import numpy as np 
-        >>> from gofast.utils.plotutils import plotvec2
+        >>> from gofast.tools.utils import plotvec2
         >>> a=np.array([1,0])
         >>> b=np.array([0,1])
         >>> Plotvec2(a,b)
@@ -2107,7 +2232,7 @@ def get_color_palette (RGB_color_palette):
      
     :Example: 
         
-        >>> from gofast.utils.plotutils import get_color_palette 
+        >>> from gofast.tools.utils import get_color_palette 
         >>> get_color_palette (RGB_color_palette ='R128B128')
     """  
     
@@ -2312,7 +2437,7 @@ def _skip_log10_columns ( X, column2skip, pattern =None , inplace =True):
         
     :example: 
        >>> from gofast.datasets import load_hlogs 
-       >>> from gofast.utils.plotutils import _skip_log10_columns 
+       >>> from gofast.tools.utils import _skip_log10_columns 
        >>> X0, _= load_hlogs (as_frame =True ) 
        >>> # let visualize the  first3 values of `sp` and `resistivity` keys 
        >>> X0['sp'][:3] , X0['resistivity'][:3]  
@@ -2828,7 +2953,7 @@ def plot_voronoi(
     ---------
     >>> from sklearn.datasets import make_moons
     >>> from sklearn.cluster import KMeans 
-    >>> from gofast.utils.plotutils import plot_voronoi
+    >>> from gofast.tools.utils import plot_voronoi
     >>> X, y = make_moons(n_samples=2000, noise=0.2)
     >>> km = KMeans (n_init ='auto').fit(X, y ) 
     >>> plot_voronoi ( X, y , cluster_centers = km.cluster_centers_) 
@@ -2935,7 +3060,7 @@ def plot_roc_curves (
     
     Examples 
     --------
-    >>> from gofast.utils.plotutils import plot_roc_curves 
+    >>> from gofast.tools.utils import plot_roc_curves 
     >>> from sklearn.datasets import make_moons 
     >>> from gofast.exlib import ( train_test_split, KNeighborsClassifier, SVC ,
     XGBClassifier, LogisticRegression ) 
@@ -3137,7 +3262,7 @@ def plot_l_curve(
          
     Examples
     ---------
-    >>> from gofast.utils.plotutils import plot_l_curve
+    >>> from gofast.tools.utils import plot_l_curve
     >>> # Test the function with the provided data points and 
     >>> # highlighting point (50, 3.12)
     >>> roughness_data = [0, 50, 100, 150, 200, 250, 300, 350]

@@ -9,24 +9,29 @@ stratigraphic details for log construction.
 from __future__ import annotations 
 import os
 import re 
+import inspect
 import itertools
 import warnings
 import copy 
 import numpy as np
 import pandas as pd 
+from scipy.optimize import curve_fit
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as GridSpec
 
-from .._gofastlog import gofastlog 
 from .._typing import ( 
     List, 
     Tuple, 
     ArrayLike, 
-    Any
+    Any, 
+    Optional, 
+    F, 
+    DataFrame, 
+    Series
     )
 from ..exceptions import ( 
     StrataError, DepthError )
 from ..property import Config 
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as GridSpec
 from .funcutils import ( 
     _assert_all_types, 
     smart_format, 
@@ -34,10 +39,605 @@ from .funcutils import (
     convert_value_in, 
     str2columns, 
     is_iterable, 
-    ellipsis2false, 
+    ellipsis2false,
+    reshape, 
     )
-from .exmath import find_closest 
+from ..tools.mathex import find_closest 
+from ..tools.validator import assert_xy_in , check_y 
+from .gisutils import ( 
+    assert_lat_value, 
+    assert_lon_value, 
+    utm_to_ll, 
+    project_point_utm2ll, 
+    convert_position_float2str,
+    convert_position_str2float, 
+    HAS_GDAL, 
+    )
+from .._gofastlog import gofastlog 
 _logger = gofastlog().get_gofast_logger(__name__ )
+
+
+def make_coords(
+     reflong: str | Tuple[float], 
+     reflat: str | Tuple[float], 
+     nsites: int ,  
+     *,  
+     r: int =45.,
+     utm_zone: Optional[str] =None,   
+     step: Optional[str|float] ='1km', 
+     order: str = '+', 
+     todms: bool =False, 
+     is_utm: bool  =False,
+     raise_warning: bool=True, 
+     **kws
+    ): 
+    """ Generate multiple stations coordinates (longitudes, latitudes)
+    from a reference station/site.
+    
+    One degree of latitude equals approximately 364,000 feet (69 miles), 
+    one minute equals 6,068 feet (1.15 miles), and one-second equals 101 feet.
+    One-degree of longitude equals 288,200 feet (54.6 miles), one minute equals
+    4,800 feet (0.91 mile) , and one second equals 80 feet. Illustration showing
+    longitude convergence. (1 feet ~=0.3048 meter)
+    
+    Parameters 
+    ----------
+    reflong: float or string or list of [start, stop]
+        Reference longitude  in degree decimal or in DD:MM:SS for the first 
+        site considered as the origin of the landmark.
+        
+    reflat: float or string or list of [start, stop]
+        Reference latitude in degree decimal or in DD:MM:SS for the reference  
+        site considered as the landmark origin. If value is given in a list, 
+        it can contain the start point and the stop point. 
+        
+    nsites: int or float 
+        Number of site to generate the coordinates onto. 
+        
+    r: float or int 
+        The rotate angle in degrees. Rotate the angle features the direction
+        of the projection line. Default value is ``45`` degrees. 
+        
+    step: float or str 
+        Offset or the distance of seperation between different sites in meters. 
+        If the value is given as string type, except the ``km``, it should be 
+        considered as a ``m`` value. Only meters and kilometers are accepables.
+        
+    order: str 
+        Direction of the projection line. By default the projected line is 
+        in ascending order i.e. from SW to NE with angle `r` set to ``45``
+        degrees. Could be ``-`` for descending order. Any other value should 
+        be in ascending order. 
+    
+    is_utm: bool, 
+        Consider the first two positional arguments as UTM coordinate values. 
+        This is an alternative way to assume `reflong` and `reflat` are UTM 
+        coordinates 'easting'and 'northing` by default. If `utm2deg` is ``False``, 
+        any value greater than 180 degrees for longitude and 90 degrees for 
+        latitude will raise an error. Default is ``False``.
+        
+    utm_zone: string (##N or ##S)
+        utm zone in the form of number and North or South hemisphere, 10S or 03N
+        Must be given if `utm2deg` is set to ``True``. 
+                      
+    todms: bool 
+        Convert the degree decimal values into the DD:MM:SS. Default is ``False``. 
+        
+    raise_warning: bool, default=True, 
+        Raises warnings if GDAL is not set or the coordinates accurately status.
+    
+    kws: dict, 
+        Additional keywords of :func:`.gistools.project_point_utm2ll`. 
+        
+    Returns 
+    -------
+        Tuple of  generated projected coordinates longitudes and latitudes
+        either in degree decimals or DD:MM:SS
+        
+    Notes 
+    ------
+    The distances vary. A degree, minute, or second of latitude remains 
+    fairly constant from the equator to the poles; however a degree, minute,
+    or second of longitude can vary greatly as one approaches the poles
+    and the meridians converge.
+        
+    References 
+    ----------
+    https://math.answers.com/Q/How_do_you_convert_degrees_to_meters
+    
+    Examples 
+    --------
+    >>> from gofast.geo.utils import make_coords 
+    >>> rlons, rlats = make_coords('110:29:09.00', '26:03:05.00', 
+    ...                                     nsites = 7, todms=True)
+    >>> rlons
+    ... array(['110:29:09.00', '110:29:35.77', '110:30:02.54', '110:30:29.30',
+           '110:30:56.07', '110:31:22.84', '110:31:49.61'], dtype='<U12')
+    >>> rlats 
+    ... array(['26:03:05.00', '26:03:38.81', '26:04:12.62', '26:04:46.43',
+           '26:05:20.23', '26:05:54.04', '26:06:27.85'], dtype='<U11')
+    >>> rlons, rlats = make_coords ((116.7, 119.90) , (44.2 , 40.95),
+                                            nsites = 238, step =20. ,
+                                            order = '-', r= 125)
+    >>> rlons 
+    ... array(['119:54:00.00', '119:53:11.39', '119:52:22.78', '119:51:34.18',
+           '119:50:45.57', '119:49:56.96', '119:49:08.35', '119:48:19.75',
+           ...
+           '116:46:03.04', '116:45:14.43', '116:44:25.82', '116:43:37.22',
+           '116:42:48.61', '116:42:00.00'], dtype='<U12')
+    >>> rlats 
+    ... array(['40:57:00.00', '40:57:49.37', '40:58:38.73', '40:59:28.10',
+           '41:00:17.47', '41:01:06.84', '41:01:56.20', '41:02:45.57',
+           ...
+       '44:07:53.16', '44:08:42.53', '44:09:31.90', '44:10:21.27',
+       '44:11:10.63', '44:12:00.00'], dtype='<U11')
+    
+    """  
+    def assert_ll(coord):
+        """ Assert coordinate when the type of the value is string."""
+        try: coord= float(coord)
+        except ValueError: 
+            if ':' not in coord: 
+                raise ValueError(f'Could not convert value to float: {coord!r}')
+            else : 
+                coord = convert_position_str2float(coord)
+        return coord
+    
+    xinf, yinf = None, None 
+    
+    nsites = int(_assert_all_types(nsites,int, float)) 
+    if isinstance (reflong, (list, tuple, np.ndarray)): 
+        reflong , xinf, *_ = reflong 
+    if isinstance (reflat, (list, tuple, np.ndarray)): 
+        reflat , yinf, *_ = reflat 
+    step=str(step).lower() 
+    if step.find('km')>=0: # convert to meter 
+        step = float(step.replace('km', '')) *1e3 
+    elif step.find('m')>=0: step = float(step.replace('m', '')) 
+    step = float(step) # for consistency 
+    
+    if str(order).lower() in ('descending', 'down', '-'): order = '-'
+    else: order ='+'
+    # compute length of line using the reflong and reflat
+    # the origin of the landmark is x0, y0= reflong, reflat
+    x0= assert_ll(reflong) if is_utm else assert_ll(
+        assert_lon_value(reflong))
+    y0= assert_ll(reflat) if is_utm else assert_ll(
+        assert_lat_value(reflat))
+    
+    xinf = xinf or x0  + (np.sin(np.deg2rad(r)) * step * nsites
+                          ) / (364e3 *.3048) 
+    yinf = yinf or y0 + (np.cos(np.deg2rad(r)) * step * nsites
+                         ) /(2882e2 *.3048)
+    
+    reflon_ar = np.linspace(x0 , xinf, nsites ) 
+    reflat_ar = np.linspace(y0, yinf, nsites)
+    #--------------------------------------------------------------------------
+    # r0 = np.sqrt(((x0-xinf)*364e3 *.3048)**2 + ((y0 -yinf)*2882e2 *.3048)**2)
+    # print('recover distance = ', r0/nsites )
+    #--------------------------------------------------------------------------
+    if is_utm : 
+        if utm_zone is None: 
+            raise TypeError("Please provide your UTM zone e.g.'10S' or '03N' !")
+        lon = np.zeros_like(reflon_ar) 
+        lat = lon.copy() 
+        
+        for kk , (lo, la) in enumerate (zip( reflon_ar, reflat_ar)): 
+            try : 
+                with warnings.catch_warnings(): # ignore multiple warnings 
+                    warnings.simplefilter('ignore')
+                    lat[kk], lon[kk] = project_point_utm2ll(
+                        easting= la, northing=lo, utm_zone=utm_zone, **kws)
+            except : 
+                lat[kk], lon[kk] = utm_to_ll(
+                    23, northing=lo, easting=la, zone=utm_zone)
+                
+        if not HAS_GDAL : 
+            if raise_warning:
+                warnings.warn("It seems GDAL is not set! will use the equations"
+                              " from USGS Bulletin 1532. Be aware, the positionning" 
+                              " is less accurate than using GDAL.")
+        
+        if raise_warning:
+            warnings.warn("By default,'easting/northing' are assumed to"
+                          " fit the 'longitude/latitude' respectively.") 
+        
+        reflat_ar, reflon_ar = lat , lon 
+    
+    if todms:
+       reflat_ar = np.array(list(
+           map(lambda l: convert_position_float2str(float(l)), reflat_ar)))
+       reflon_ar = np.array(list(
+           map(lambda l: convert_position_float2str(float(l)), reflon_ar)))
+       
+    return (reflon_ar , reflat_ar ) if order =='+' else (
+        reflon_ar[::-1] , reflat_ar[::-1] )  
+
+def refine_locations(
+    ydata: ArrayLike | Series | DataFrame ,
+    xdata: ArrayLike| Series = None, 
+    func : Optional [F] = None ,
+    c_order: Optional[int|str] = 0,
+    show: bool =False, 
+    **kws): 
+    """ Correct data location or position and return new corrected location 
+    
+    Parameters 
+    ----------
+    ydata: array_like, series or dataframe
+        The dependent data, a length M array - nominally ``f(xdata, ...)``.
+        
+    xdata: array_like or object
+        The independent variable where the data is measured. Should usually 
+        be an M-length sequence or an (k,M)-shaped array for functions with
+        k predictors, but can actually be any object. If ``None``, `xdata` is 
+        generated by default using the length of the given `ydata`.
+        
+    func: callable 
+        The model function, ``f(x, ...)``. It must take the independent variable 
+        as the first argument and the parameters to fit as separate remaining
+        arguments. The default `func` is ``linear`` function i.e  for ``f(x)= ax +b``. 
+        where `a` is slope and `b` is the intercept value. Setting your own 
+        function for better fitting is recommended. 
+        
+    c_order: int or str
+        The index or the column name if ``ydata`` is given as a dataframe to 
+        select the right column for scaling.
+    show: bool 
+        Quick visualization of data distribution. 
+
+    kws: dict 
+        Additional keyword argument from  `scipy.optimize_curvefit` parameters. 
+        Refer to `scipy.optimize.curve_fit`_.  
+        
+    Returns 
+    --------
+    - ydata - array -like - Data scaled 
+    - popt - array-like Optimal values for the parameters so that the sum of 
+        the squared residuals of ``f(xdata, *popt) - ydata`` is minimized.
+    - pcov - array like The estimated covariance of popt. The diagonals provide
+        the variance of the parameter estimate. To compute one standard deviation 
+        errors on the parameters use ``perr = np.sqrt(np.diag(pcov))``. How the
+        sigma parameter affects the estimated covariance depends on absolute_sigma 
+        argument, as described above. If the Jacobian matrix at the solution
+        doesnt have a full rank, then lm method returns a matrix filled with
+        np.inf, on the other hand 'trf' and 'dogbox' methods use Moore-Penrose
+        pseudoinverse to compute the covariance matrix.
+        
+    Examples
+    --------
+    >>> from gofast.geo.utils refine_locations 
+    >>> df = erpSelector('data/erp/l10_gbalo.xlsx') 
+    >>> df.columns 
+    ... Index(['station', 'resistivity', 'longitude', 'latitude', 'easting',
+           'northing'],
+          dtype='object')
+    >>> # correcting northing coordinates from easting data 
+    >>> northing_corrected, popt, pcov = refine_locations(ydata =df.northing , 
+                                               xdata = df.easting, show=True)
+    >>> len(df.northing.values) , len(northing_corrected)
+    ... (20, 20)
+    >>> popt  # by default popt =(slope:a ,intercept: b)
+    ...  array([1.01151734e+00, 2.93731377e+05])
+    >>> # corrected easting coordinates using the default x.
+    >>> easting_corrected, *_= scalePosition(ydata =df.easting , show=True)
+    >>> df.easting.values 
+    ... array([790284, 790281, 790277, 790270, 790265, 790260, 790254, 790248,
+    ...       790243, 790237, 790231, 790224, 790218, 790211, 790206, 790200,
+    ...       790194, 790187, 790181, 790175], dtype=int64)
+    >>> easting_corrected
+    ... array([790288.18571705, 790282.30300999, 790276.42030293, 790270.53759587,
+    ...       790264.6548888 , 790258.77218174, 790252.88947468, 790247.00676762,
+    ...       790241.12406056, 790235.2413535 , 790229.35864644, 790223.47593938,
+    ...       790217.59323232, 790211.71052526, 790205.8278182 , 790199.94511114,
+    ...       790194.06240407, 790188.17969701, 790182.29698995, 790176.41428289])
+    """
+    def linfunc (x, a, b): 
+        """ Set the simple linear function"""
+        return a * x + b 
+        
+    if str(func).lower() in ('none' , 'linear'): 
+        func = linfunc 
+    elif not hasattr(func, '__call__') or not inspect.isfunction (func): 
+        raise TypeError(
+            f'`func` argument is a callable not {type(func).__name__!r}')
+        
+    ydata = _assert_all_types(ydata, list, tuple, np.ndarray,
+                              pd.Series, pd.DataFrame  )
+    c_order = _assert_all_types(c_order, int, float, str)
+    try : c_order = int(c_order) 
+    except: pass 
+
+    if isinstance(ydata, pd.DataFrame): 
+        if c_order ==0: 
+            warnings.warn("The first column of the data should be considered"
+                          " as the `y` target.")
+        if c_order is None: 
+            raise TypeError('Dataframe is given. The `c_order` argument should '
+                            'be defined for column selection. Use column name'
+                            ' instead')
+        if isinstance(c_order, str): 
+            # check whether the value is on the column name
+            if c_order.lower() not in list(map( 
+                    lambda x :x.lower(), ydata.columns)): 
+                raise ValueError (
+                    f'c_order {c_order!r} not found in {list(ydata.columns)}'
+                    ' Use the index instead.')
+                # if c_order exists find the index and get the 
+                # right column name 
+            ix_c = list(map( lambda x :x.lower(), ydata.columns)
+                        ).index(c_order.lower())
+            ydata = ydata.iloc [:, ix_c] # series 
+        elif isinstance (c_order, (int, float)): 
+            c_order =int(c_order) 
+            if c_order >= len(ydata.columns): 
+                raise ValueError(
+                    f"`c_order`'{c_order}' should be less than the number of " 
+                    f"given columns '{len(ydata.columns)}'. Use column name instead.")
+            ydata= ydata.iloc[:, c_order]
+                  
+    ydata = check_y (np.array(ydata)  , input_name= "ydata")
+    
+    if xdata is None: 
+        xdata = np.linspace(0, 4, len(ydata))
+        
+    xdata = check_y (xdata , input_name= "Xdata")
+    
+    if len(xdata) != len(ydata): 
+        raise ValueError(" `x` and `y` arrays must have the same length."
+                        "'{len(xdata)}' and '{len(ydata)}' are given.")
+        
+    popt, pcov = curve_fit(func, xdata, ydata, **kws)
+    ydata_new = func(xdata, *popt)
+    
+    if show:
+        plt.plot(xdata, ydata, 'b-', label='data')
+        plt.plot(xdata, func(xdata, *popt), 'r-',
+             label='fit: a=%5.3f, b=%5.3f' % tuple(popt))
+        plt.xlabel('x')
+        plt.ylabel('y')
+        plt.legend()
+        plt.show()
+        
+    return ydata_new, popt, pcov
+
+def get_azimuth (
+    xlon: str | ArrayLike, 
+    ylat: str| ArrayLike, 
+    *, 
+    data: DataFrame =None, 
+    utm_zone:str=None, 
+    projection:str='ll', 
+    isdeg:bool=True, 
+    mode:str='soft', 
+    extrapolate:bool =...,
+    view:bool=..., 
+    ): 
+    """Compute azimuth from coordinate locations ( latitude,  longitude). 
+    
+    If `easting` and `northing` are given rather than `longitude` and  
+    `latitude`, the projection should explicitely set to ``UTM`` to perform 
+    the ideal conversion. However if mode is set to `soft` (default), the type
+    of projection is automatically detected . Note that when UTM coordinates 
+    are provided, `xlon` and `ylat` fit ``easting`` and ``northing`` 
+    respectively.
+    
+    Parameters
+    -----------
+    xlon, ylat : Arraylike 1d or str, str 
+       ArrayLike of easting/longitude and arraylike of nothing/latitude. They 
+       should be one dimensional. In principle if data is supplied, they must 
+       be series.  If `xlon` and `ylat` are given as string values, the 
+       `data` must be supplied. xlon and ylat names must be included in the  
+       dataframe otherwise an error raises. 
+       
+    data: pd.DataFrame, 
+       Data containing x and y names. Need to be supplied when x and y 
+       are given as string names. 
+       
+    utm_zone: Optional, string
+       zone number and 'S' or 'N' e.g. '55S'. Default to the centre point
+       of coordinates points in the survey area. It should be a string (##N or ##S)
+       in the form of number and North or South hemisphere, 10S or 03N
+       
+    projection: str, ['utm'|'ll'] 
+       The coordinate system in which the data points for the profile is collected. 
+       when `mode='soft'`,  the auto-detection will be triggered and find the 
+       suitable coordinate system. However, it is recommended to explicitly 
+       provide projection when data is in UTM coordinates. 
+       Note that if `x` and `y` are composed of value greater than 180 degrees 
+       for longitude and 90 degrees for latitude, and method is still in 
+       the ``soft` mode, it should be considered as  longitude-latitude ``UTM``
+       coordinates system. 
+       
+    isdeg: bool, default=True 
+      By default xlon and xlat are in degree coordinates. If both arguments 
+      are given in radians, set to ``False`` instead. 
+      
+    mode: str , ['soft'|'strict']
+      ``strict`` mode does not convert any coordinates system to other at least
+      it is explicitly set to `projection` whereas the `soft` does.
+      
+    extrapolate: bool, default=False 
+      In principle, the azimuth is compute between two points. Thus, the number
+      of values computed for :math:`N` stations should  be  :math:`N-1`. To fit
+      values to match the number of size of the array, `extrapolate` should be 
+      ``True``. In that case, the first station holds a <<fake>> azimuth as 
+      the closer value computed from interpolation of all azimuths. 
+      
+    view: bool, default=False, 
+       Quick view of the azimuth. It is usefull especially when 
+       extrapolate is set to ``True``. 
+       
+    Return 
+    --------
+    azim: ArrayLike 
+       Azimuth computed from locations. 
+       
+    Examples 
+    ----------
+    >>> import watex as wx 
+    >>> from watex.utils.exmath import get_azimuth 
+    >>> # generate a data from ERP 
+    >>> data = wx.make_erp (n_stations =7 ).frame 
+    >>> get_azimuth ( data.longitude, data.latitude)
+    array([54.575, 54.575, 54.575, 54.575, 54.575, 54.575])
+    >>> get_azimuth ( data.longitude, data.latitude, view =True, extrapolate=True)
+    array([54.57500007, 54.575     , 54.575     , 54.575     , 54.575     ,
+           54.575     , 54.575     ])
+    
+    """
+    from ..site import Location 
+    
+    mode = str(mode).lower() 
+    projection= str(projection).lower()
+    extrapolate, view = ellipsis2false (extrapolate, view)
+
+    xlon , ylat = assert_xy_in(xlon , ylat , data = data )
+    
+    if ( 
+            xlon.max() > 180.  and ylat.max() > 90.  
+            and projection=='ll' 
+            and mode=='soft'
+            ): 
+        warnings.warn("xlon and ylat arguments are greater than 180 degrees."
+                     " we assume the coordinates are UTM. Set explicitly"
+                     " projection to ``UTM`` to avoid this warning.")
+        projection='utm'
+        
+    if projection=='utm':
+        if utm_zone is None: 
+            raise TypeError ("utm_zone cannot be None when projection is UTM.")
+            
+        ylat , xlon = Location.to_latlon_in(
+            xlon, ylat, utm_zone= utm_zone)
+        
+    if len(xlon) ==1 or len(ylat)==1: 
+        msg = "Azimuth computation expects at least two points. Got 1"
+        if mode=='soft': 
+            warnings.warn(msg) 
+            return 0. 
+        
+        raise TypeError(msg )
+    # convert to radian 
+    if isdeg: 
+        xlon = np.deg2rad (xlon ) ; ylat = np.deg2rad ( ylat)
+    
+    dx = map (lambda ii: np.cos ( ylat[ii]) * np.sin( ylat [ii+1 ]) - 
+        np.sin(ylat[ii]) * np.cos( ylat[ii+1]) * np.cos (xlon[ii+1]- xlon[ii]), 
+        range (len(xlon)-1)
+        )
+    dy = map( lambda ii: np.cos (ylat[ii+1])* np.sin( xlon[ii+1]- xlon[ii]), 
+                   range ( len(xlon)-1)
+                   )
+    # to deg 
+    z = np.around ( np.rad2deg ( np.arctan2(list(dx) , list(dy) ) ), 3)  
+    azim = z.copy() 
+    if extrapolate: 
+        # use mean azimum of the total area zone and 
+        # recompute the position by interpolation 
+        azim = np.hstack ( ( [z.mean(), z ]))
+        # reset the interpolare value at the first position
+        with warnings.catch_warnings():
+            #warnings.filterwarnings(action='ignore', category=OptimizeWarning)
+            warnings.simplefilter("ignore")
+            azim [0] = refine_locations(azim )[0][0] 
+        
+    if view: 
+        x = np.arange ( len(azim )) 
+        fig,  ax = plt.subplots (1, 1, figsize = (10, 4))
+        # add Nan to the first position of z 
+        z = np.hstack (([np.nan], z )) if extrapolate else z 
+       
+        ax.plot (x, 
+                 azim, 
+                 c='#0A4CEE',
+                 marker = 'o', 
+                 label ='extra-azimuth'
+                 ) 
+        
+        ax.plot (x, 
+                z, 
+                'ok-', 
+                label ='raw azimuth'
+                )
+        ax.legend ( ) 
+        ax.set_xlabel ('x')
+        ax.set_ylabel ('y') 
+
+    return azim
+
+
+
+def get_bearing (latlon1, latlon2,  to_deg = True ): 
+    """
+    Calculate the bearing between two points. 
+     
+    A bearing can be defined as  a direction of one point relative 
+    to another point, usually given as an angle measured clockwise 
+    from north.
+    The formula of the bearing :math:`\beta` between two points 1(lat1 , lon1)
+    and 2(lat2, lon2) is expressed as below: 
+        
+    .. math:: 
+        \beta = atan2(sin(y_2-y_1)*cos(x_2), cos(x_1)*sin(x_2)  \
+                      sin(x_1)*cos(x_2)*cos(y_2-y_1))
+     
+    where: 
+       
+       - :math:`x_1`(lat1): the latitude of the first coordinate
+       - :math:`y_1`(lon1): the longitude of the first coordinate
+       - :math:`x_2`(lat2) : the latitude of the second coordinate
+       - :math:`y_2`(lon2): the longitude of the second coordinate
+    
+    Parameters 
+    ----------- 
+    latlon: Tuple ( latitude, longitude) 
+       A latitude and longitude coordinates of the first point in degree. 
+    latlon2: Tuple ( latitude, longitude) 
+       A latitude and longitude of coordinates of the second point in degree.  
+       
+    to_deg: bool, default=True 
+       Convert the bearing from radians to degree. 
+      
+    Returns 
+    ---------
+    b: Value of bearing in degree ( default). 
+    
+    See More 
+    ----------
+    See more details by clicking in the link below: 
+        https://mapscaping.com/how-to-calculate-bearing-between-two-coordinates/
+        
+    Examples 
+    ---------
+    >>> from watex.utils import get_bearing 
+    >>> latlon1 = (28.41196763902007, 109.3328724432221) # (lat, lon) point 1
+    >>> latlon2= (28.38756530909265, 109.36931920880758) # (lat, lon) point 2
+    >>> get_bearing (latlon1, latlon2 )
+    127.26739270447973 # in degree 
+    """
+    latlon1 = reshape ( np.array ( latlon1, dtype = np.float64)) 
+    latlon2 = reshape ( np.array ( latlon2, dtype = np.float64)) 
+    
+    if len(latlon1) <2 or len(latlon2) <2 : 
+        raise ValueError("Wrong coordinates values. Need two coordinates"
+                         " (latitude and longitude) of points 1 and 2.")
+    lat1 = np.deg2rad (latlon1[0]) ; lon1 = np.deg2rad(latlon1[1])
+    lat2 = np.deg2rad (latlon2[0]) ; lon2 = np.deg2rad(latlon2[1])
+    
+    b = np.arctan2 (
+        np.sin(lon2 - lon1 )* np.cos (lat2), 
+        np.cos (lat1) * np.sin(lat2) - np.sin (lat1) * np.cos (lat2) * np.cos (lon2 - lon1)
+                    )
+    if to_deg: 
+        # convert bearing to degree and make sure it 
+        # is positive between 360 degree 
+        b = ( np.rad2deg ( b) + 360 )% 360 
+        
+    return b 
+
+
 
 
 def find_similar_structures(
@@ -64,7 +664,7 @@ def find_similar_structures(
     
     Examples
     ---------
-    >>> from gofast.utils.geotools import find_similar_structures
+    >>> from watex.utils.geotools import find_similar_structures
     >>> find_similar_structures (2 , 10, 100 , return_values =True)
     Out[206]: 
     (['sedimentary rocks', 'metamorphic rocks', 'clay'], [1.0, 10.0, 100.0])
@@ -205,7 +805,7 @@ def smart_thickness_ranker (
         
     Examples 
     --------
-    >>> from gofast.utils.geotools import smart_thickness_ranker
+    >>> from watex.utils.geotools import smart_thickness_ranker
     >>> smart_thickness_ranker ("10 15 70 125")
     (array([ 0., 10., 25., 95.]), array([ 10.,  25.,  95., 220.]))
     >>> smart_thickness_ranker ("10 15 70 125", depth =300, 
@@ -365,7 +965,7 @@ def get_thick_from_values(
       
     Examples
     ---------
-    >>> from gofast.utils.geotools import _parse_only_thick 
+    >>> from watex.utils.geotools import _parse_only_thick 
     >>> _parse_only_thick ([12 , 20, 26, 50 ], depth = 205 )
     Out[63]: 
     (array([  0.,  12.,  32.,  58., 108.]),
@@ -479,7 +1079,7 @@ def get_thick_from_range(
     
     Examples
     ----------
-    >>> from gofast.utils.geotools import get_thick_from_range 
+    >>> from watex.utils.geotools import get_thick_from_range 
     >>> get_thick_from_range ('20-33 58:125', sep =':-') 
     Out[88]:
     ([array([20., 33.]), array([ 58., 125.])], [13.0, 67.0])
@@ -550,7 +1150,7 @@ def _make_thick_range ( v ,/,  sep='-:' , tostr=True )-> str| list :
       
     Examples
     ---------
-    >>> from gofast.utils.geotools import _make_thick_range 
+    >>> from watex.utils.geotools import _make_thick_range 
     >>> _make_thick_range ("99 0-15 15.2-18.8 55 40.0-70.7")
     Out[97]: '0-99.0 0-15 15.2-18.8 18.8-73.8 40.0-70.7'
     >>> _make_thick_range ("99 0-15 15.2-18.8 55 40.0-70.7", tostr=False)
@@ -636,7 +1236,7 @@ def _thick_range_asserter (
 
     Examples 
     ----------
-    >>> from gofast.utils.geotools import _thick_range_asserter
+    >>> from watex.utils.geotools import _thick_range_asserter
     >>> _thick_range_asserter ( thickness=[10 , 20 ], 
                                depth_range=[ [ 0, 10], [10, 30 ]], 
                                litteral_string=[ "0-10" , "10-30" ] 
@@ -766,7 +1366,7 @@ def build_random_thickness(
       
     Examples
     ---------
-    >>> from gofast.utils.geotools import build_random_thickness 
+    >>> from watex.utils.geotools import build_random_thickness 
     >>> build_random_thickness (7, 10, random_state =42  )
     array([0.41865079, 0.31785714, 1.0234127 , 1.12420635, 0.51944444,
            0.92261905, 0.6202381 , 0.8218254 , 0.72103175, 1.225     ])
@@ -918,8 +1518,8 @@ def fit_rocks(logS_array, lns_, tres_):
             
     :Example: 
         
-        >>> import gofast.utils.geotools as GU
-        >>> import gofast.geology.core as GC 
+        >>> import watex.utils.geotools as GU
+        >>> import watex.geology.core as GC 
         >>> obj= GC.quick_read_geomodel()
         >>> pslns , pstres,  ps_lnstres= GU.make_strata(obj)
         >>> logS1 =obj.nmSites[0] # station S0
@@ -951,8 +1551,8 @@ def assert_station(id, nm =None):
     :param nm: matrix of new stratiraphy model built. 
     :return: Index at specific station
     :Example:
-        >>> import gofast.utils.geotools as GU
-        >>> import gofast.geology.core as GC 
+        >>> import watex.utils.geotools as GU
+        >>> import watex.geology.core as GC 
         >>> obj= GC.quick_read_geomodel()
         >>> GU.assert_station(id=47, nm=geoObj.nmSites)
         ...46
@@ -983,7 +1583,7 @@ def find_distinct_items_and_indexes(items, cumsum =False ):
         - cumsum: cumulative sum of numerical items
         
     :Example: 
-        >>> import gofast.utils.geotools as GU
+        >>> import watex.utils.geotools as GU
         >>> test_values = [2,2, 5, 8, 8, 8, 10, 12, 1, 1, 2, 3, 3,4, 4, 6]
         >>> ditems, dindexes, cumsum = GU.find_distinct_items_and_indexes(
             test_values, cumsum =True)
@@ -1033,7 +1633,7 @@ def grouped_items( items, dindexes, force =True ):
     :return: distinct items grouped 
     
     :Example:  
-        >>> import gofast.utils.geotools as GU
+        >>> import watex.utils.geotools as GU
         >>> test_values = [2,2, 5, 8, 8, 8, 10, 12, 1, 1, 2, 3, 3,4, 4, 6]
         >>> dindexes,* _ = GU.find_distinct_items_and_indexes(
             test_values, cumsum =False)
@@ -1092,7 +1692,7 @@ def fit_stratum_property (fittedrocks , z , site_tres):
         
     :Example: 
         
-        >>> import gofast.geology.core as GC
+        >>> import watex.geology.core as GC
         >>> obj= GC.quick_read_geomodel()
         >>> logS1 = obj.nmSites[:, 0] 
         >>> sg, stg, zg, zcg= fit_stratum_property (
@@ -1130,7 +1730,7 @@ def get_s_thicknesses(grouped_z, grouped_s, display_s =True, station=None):
             
     :Example: 
         
-        >>> import gofast.geology.core as GC
+        >>> import watex.geology.core as GC
         >>> obj= GC.quick_read_geomodel()
         >>> sg, _, zg, _= fit_stratum_property (obj.fitted_rocks,
         ...                                    obj.z, obj.nmSites[:, 0]  )
@@ -1220,7 +1820,7 @@ def _sanitize_db_items (value, force =True ):
     
     :Example:
         
-        >>> import gofast.utils.geotools as GU
+        >>> import watex.utils.geotools as GU
         >>> test=['(1.0, 0.5019607843137255, 1.0)','(+o++.)',
         ...          '(0.25, .0, 0.98)', '(0.23, .0, 1.)']
         >>> GU._sanitize_db_items (test)
@@ -1424,7 +2024,7 @@ def plot_stratalog(
         
     Examples 
     ---------
-    >>> import gofast.utils.geotools as GU   
+    >>> import watex.utils.geotools as GU   
     >>> layers= ['$(i)$', 'granite', '$(i)$', 'granite']
     >>> thicknesses= [59.0, 150.0, 590.0, 200.0]
     >>> hatch =['//.', '.--', '+++.', 'oo+.']
@@ -1543,7 +2143,7 @@ def _assert_list_len_and_item_type(lista, listb, typea=None, typeb=None):
         - idem of `listb`
         
     :Example: 
-        >>> import gofast.utils.geotools as GU
+        >>> import watex.utils.geotools as GU
         >>> thicknesses= [59.0, 150.0, 590.0, 200.0]
         >>> hatch =['//.', '.--', '+++.', 'oo+.']
         >>> GU._assert_list_len_and_item_type(thicknesses, hatch,
@@ -1606,7 +2206,7 @@ def set_default_hatch_color_values(hatch, color, dhatch='.--',
             -if ``False`` color =[(0.5019607843137255, 0.0, 1.0)]
             - if ``True`` color = (0.5019607843137255, 0.0, 1.0)
     :Example: 
-        >>> from gofast.utils.geotools as  GU.
+        >>> from watex.utils.geotools as  GU.
         >>> hatch =['//.', 'none', '+++.', None]
         >>> color =[(0.5019607843137255, 0.0, 1.0), None, (0.8, 0.6, 1.),'lime']
         >>> GU.set_default_hatch_color_values(hatch, color))
@@ -1742,7 +2342,7 @@ def map_top (top, data, end=None):
         default values giving values. 
         
     :Example:
-        >>> import gofast.utils.geotools as GU
+        >>> import watex.utils.geotools as GU
         >>> ex= [ 59.0, 150.0, 590.0, 200.0] # layers thicknesses 
         >>> GU.map_top(60, ex)
         ... ((3, [60, 999.0], [149.0, 590.0, 200.0]), 'coverall = 100.0 %')
@@ -1803,7 +2403,7 @@ def smart_zoom(v):
     :return: ratio float value of iteration list value including the 
         the value range (top and the bottom values).
     :Example: 
-        >>> import gofast.utils.geotools as GU
+        >>> import watex.utils.geotools as GU
         >>> GU.smart_zoom ('1/4')
         ... 0.25
         >>> GU.smart_zoom ([60, 20])
@@ -1886,7 +2486,7 @@ def frame_top_to_bottom (top, bottom, data ):
             instead of raising errors. 
             
     :Example: 
-        >>> import gofast.utils.geotools as GU
+        >>> import watex.utils.geotools as GU
         >>> layer_thicknesses = [ 59.0, 150.0, 590.0, 200.0]
         >>> top , bottom = 10, 120 # in meters 
         >>> GU.frame_top_to_bottom( top = top, bottom =bottom,
@@ -1967,7 +2567,7 @@ def zoom_processing(zoom, data, layers =None,
             the name of exact layers at the depth.
     
     :Example: 
-        >>> import gofast.utils.geotools as GU
+        >>> import watex.utils.geotools as GU
         >>> layers= ['$(i)$', 'granite', '$(i)$', 'granite']
         >>> thicknesses= [59.0, 150.0, 590.0, 200.0]
         >>> hatch =['//.', 'none', '+++.', None]
@@ -2090,7 +2690,7 @@ def display_ginfos(
     :param infos: Iterable object to display. 
     :param header: Change the `header` to other names. 
     :Example: 
-        >>> from gofast.geology.stratigraphic import display_infos
+        >>> from watex.geology.stratigraphic import display_infos
         >>> ipts= ['river water', 'fracture zone', 'granite', 'gravel',
              'sedimentary rocks', 'massive sulphide', 'igneous rocks', 
              'gravel', 'sedimentary rocks']

@@ -17,7 +17,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split 
 from sklearn.decomposition import PCA 
 from .._docstring import _core_docs 
-from ..utils.funcutils import _assert_all_types 
+from ..tools.funcutils import _assert_all_types 
 # ---
 __all__=[
     "extract_pca", 
@@ -169,7 +169,7 @@ def feature_transformation (
     X_transf = X.dot(w)
     
     if view: 
-        from ..utils.plotutils import make_mpl_properties
+        from ..tools.plotutils import make_mpl_properties
         if y is None: 
             raise TypeError("Missing the target `y`")
         # markers = tuple (D_MARKERS [:len(np.unique (y))])
@@ -231,7 +231,7 @@ Examples
 
 def _decision_region (X, y, clf, resolution =.02 , ax =None ): 
     """ visuzalize the decision region """
-    from ..utils.plotutils import make_mpl_properties
+    from ..tools.plotutils import make_mpl_properties
     # setup marker generator and colors map 
     colors = tuple (make_mpl_properties(len(np.unique (y))))
     markers = tuple (make_mpl_properties (

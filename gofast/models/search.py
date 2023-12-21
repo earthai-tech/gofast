@@ -29,7 +29,6 @@ from sklearn.pipeline import Pipeline
 
 from .._typing import (
     List,
-    Tuple,
     F, 
     ArrayLike, 
     NDArray, 
@@ -43,7 +42,7 @@ from ..exceptions import (
     EstimatorError, 
     NotFittedError, 
     ) 
-from ..utils.funcutils import ( 
+from ..tools.funcutils import ( 
     _assert_all_types, 
     get_params, 
     savejob, 
@@ -51,27 +50,22 @@ from ..utils.funcutils import (
     pretty_printer, 
 
     )
-from ..utils.box import Boxspace 
-from ..utils.validator import ( 
+from ..tools.box import Boxspace 
+from ..tools.validator import ( 
     check_X_y, check_array, 
     check_consistent_length, 
     get_estimator_name
     )
 
+from .utils import ( 
+    get_scorers, 
+    naive_evaluation
+    ) 
+
 _logger = gofastlog().get_gofast_logger(__name__)
 
-__all__=[
-    "BaseEvaluation", 
-    "GridSearch", 
-    "GridSearchMultiple", 
-    "get_best_kPCA_params", 
-    "get_scorers", 
-    "getGlobalScores", 
-    "getSplitBestScores", 
-    "displayCVTables", 
-    "displayFineTunedResults", 
-    "displayModelMaxDetails", 
-    "naive_evaluation"
+__all__=["BaseEvaluation", "GridSearch", "GridSearchMultiple",
+         "get_best_kPCA_params", 
     ]
 
 _param_docs = DocstringComponents.from_nested_components(
@@ -260,8 +254,8 @@ Examples
 -----------
 >>> from pprint import pprint 
 >>> from gofast.datasets import fetch_data 
->>> from gofast.models.validation import GridSearch
->>> from gofast.exlib.sklearn import RandomForestClassifier
+>>> from gofast.models.search import GridSearch
+>>> from sklearn.ensemble import RandomForestClassifier
 >>> X_prepared, y_prepared =fetch_data ('bagoue prepared')
 >>> grid_params = [ dict(
 ...        n_estimators=[3, 10, 30], max_features=[2, 4, 6, 8]), 
@@ -474,7 +468,7 @@ grid_kws: dict,
     
 Examples
 --------
->>> from gofast.validation import GridSearchMultiple , displayFineTunedResults
+>>> from gofast.search import GridSearchMultiple , displayFineTunedResults
 >>> from sklearn.svm import SVC, LinearSVC 
 >>> from sklearn.linear_model import SGDClassifier,LogisticRegression
 >>> X, y  = gf.fetch_data ('bagoue prepared') 
@@ -911,7 +905,7 @@ param_grid: list
 
 grid_kws: dict, 
     Additional keywords arguments passed to Grid parameters from 
-    :class:`~gofast.models.validation.GridSearch`
+    :class:`~gofast.models.search.GridSearch`
 
 Examples
 ---------
@@ -937,306 +931,4 @@ Examples
     params=_param_docs,
     )
    
-def getGlobalScores (
-        cvres : Dict[str, ArrayLike] 
-        ) -> Tuple [float]: 
-    """ Retrieve the global mean and standard deviation score  from the 
-    cross validation containers. 
-    
-    Parameters
-    ------------
-    cvres: dict of (str, Array-like) 
-        cross validation results after training the models of number 
-        of parameters equals to N. The `str` fits the each parameter stored 
-        during the cross-validation while the value is stored in Numpy array.
-    
-    Returns 
-    ---------
-    ( mean_test_scores', 'std_test_scores') 
-         scores on CV test data and standard deviation 
-        
-    """
-    return  ( cvres.get('mean_test_score').mean() ,
-             cvres.get('std_test_score').mean()) 
-
-def getSplitBestScores(cvres:Dict[str, ArrayLike], 
-                       split:int=0)->Dict[str, float]: 
-    """ Get the best score at each split from cross-validation results
-    
-    Parameters 
-    -----------
-    cvres: dict of (str, Array-like) 
-        cross validation results after training the models of number 
-        of parameters equals to N. The `str` fits the each parameter stored 
-        during the cross-validation while the value is stored in Numpy array.
-    split: int, default=1 
-        The number of split to fetch parameters. 
-        The number of split must be  the number of cross-validation (cv) 
-        minus one.
-        
-    Returns
-    -------
-    bests: Dict, 
-        Dictionnary of the best parameters at the corresponding `split` 
-        in the cross-validation. 
-        
-    """
-    #if split ==0: split =1 
-    # get the split score 
-    split_score = cvres[f'split{split}_test_score'] 
-    # take the max score of the split 
-    max_sc = split_score.max() 
-    ix_max = split_score.argmax()
-    mean_score= split_score.mean()
-    # get parm and mean score 
-    bests ={'param': cvres['params'][ix_max], 
-        'accuracy_score':cvres['mean_test_score'][ix_max], 
-        'std_score':cvres['std_test_score'][ix_max],
-        f"CV{split}_score": max_sc , 
-        f"CV{split}_mean_score": mean_score,
-        }
-    return bests 
-
-def displayModelMaxDetails(cvres:Dict[str, ArrayLike], cv:int =4):
-    """ Display the max details of each stored model from cross-validation.
-    
-    Parameters 
-    -----------
-    cvres: dict of (str, Array-like) 
-        cross validation results after training the models of number 
-        of parameters equals to N. The `str` fits the each parameter stored 
-        during the cross-validation while the value is stored in Numpy array.
-    cv: int, default=1 
-        The number of KFlod during the fine-tuning models parameters. 
-
-    """
-    for k in range (cv):
-        print(f'split = {k}:')
-        b= getSplitBestScores(cvres, split =k)
-        print( b)
-
-    globalmeansc , globalstdsc= getGlobalScores(cvres)
-    print("Global split scores:")
-    print('mean=', globalmeansc , 'std=',globalstdsc)
-
-
-def displayFineTunedResults ( cvmodels: list[F] ): 
-    """Display fined -tuning results 
-    
-    Parameters 
-    -----------
-    cvmnodels: list
-        list of fined-tuned models.
-    """
-    bsi_bestestimators = [model.best_estimator_ for model in cvmodels ]
-    mnames = ( get_estimator_name(n) for n in bsi_bestestimators)
-    bsi_bestparams = [model.best_params_ for model in cvmodels]
-
-    for nam, param , estimator in zip(mnames, bsi_bestparams, 
-                                      bsi_bestestimators): 
-        print("MODEL NAME =", nam)
-        print('BEST PARAM =', param)
-        print('BEST ESTIMATOR =', estimator)
-        print()
-
-def displayCVTables(cvres:Dict[str, ArrayLike],  cvmodels:list[F] ): 
-    """ Display the cross-validation results from all models at each 
-    k-fold. 
-    
-    Parameters 
-    -----------
-    cvres: dict of (str, Array-like) 
-        cross validation results after training the models of number 
-        of parameters equals to N. The `str` fits the each parameter stored 
-        during the cross-validation while the value is stored in Numpy array.
-    cvmnodels: list
-        list of fined-tuned models.
-        
-    Examples 
-    ---------
-    >>> from gofast.datasets import fetch_data
-    >>> from gofast.models import GridSearchMultiple, displayCVTables
-    >>> X, y  = fetch_data ('bagoue prepared') 
-    >>> gobj =GridSearchMultiple(estimators = estimators, 
-                                 grid_params = grid_params ,
-                                 cv =4, scoring ='accuracy', 
-                                 verbose =1,  savejob=False , 
-                                 kind='GridSearchCV')
-    >>> gobj.fit(X, y) 
-    >>> displayCVTables (cvmodels=[gobj.models.SVC] ,
-                         cvres= [gobj.models.SVC.cv_results_ ])
-    ... 
-    """
-    modelnames = (get_estimator_name(model.best_estimator_ ) 
-                  for model in cvmodels  )
-    for name,  mdetail, model in zip(modelnames, cvres, cvmodels): 
-        print(name, ':')
-        displayModelMaxDetails(cvres=mdetail)
-        
-        print('BestParams: ', model.best_params_)
-        try:
-            print("Best scores:", model.best_score_)
-        except: pass 
-        finally: print()
-        
-        
-def get_scorers (*, scorer:str=None, check_scorer:bool=False, 
-                 error:str='ignore')-> Tuple[str] | bool: 
-    """ Fetch the list of available metrics from scikit-learn or verify 
-    whether the scorer exist in that list of metrics. 
-    This is prior necessary before  the model evaluation. 
-    
-    :param scorer: str, 
-        Must be an metrics for model evaluation. Refer to :mod:`sklearn.metrics`
-    :param check_scorer:bool, default=False
-        Returns bool if ``True`` whether the scorer exists in the list of 
-        the metrics for the model evaluation. Note that `scorer`can not be 
-        ``None`` if `check_scorer` is set to ``True``.
-    :param error: str, ['raise', 'ignore']
-        raise a `ValueError` if `scorer` not found in the list of metrics 
-        and `check_scorer `is ``True``. 
-        
-    :returns: 
-        scorers: bool, tuple 
-            ``True`` if scorer is in the list of metrics provided that 
-            ` scorer` is not ``None``, or the tuple of scikit-metrics. 
-            :mod:`sklearn.metrics`
-    """
-    from sklearn import metrics
-    try:
-        scorers = tuple(metrics.SCORERS.keys()) 
-    except: scorers = tuple (metrics.get_scorer_names()) 
-    
-    if check_scorer and scorer is None: 
-        raise ValueError ("Can't check the scorer while the scorer is None."
-                          " Provide the name of the scorer or get the list of"
-                          " scorer by setting 'check_scorer' to 'False'")
-    if scorer is not None and check_scorer: 
-        scorers = scorer in scorers 
-        if not scorers and error =='raise': 
-            raise ValueError(
-                f"Wrong scorer={scorer!r}. Supports only scorers:"
-                f" {tuple(metrics.SCORERS.keys())}")
-            
-    return scorers 
-              
-def naive_evaluation(
-        clf: F,
-        X:NDArray,
-        y:ArrayLike,
-        cv:int =7,
-        scoring:str  ='accuracy', 
-        display: str ='off', 
-        **kws
-        ): 
-    scores = cross_val_score(clf , X, y, cv = cv, scoring=scoring, **kws)
-                         
-    if display is True or display =='on':
-        print('clf=:', clf.__class__.__name__)
-        print('scores=:', scores )
-        print('scores.mean=:', scores.mean())
-    
-    return scores , scores.mean()
-
-naive_evaluation.__doc__="""\
-Quick scores evaluation using cross validation. 
-
-Parameters
-----------
-clf: callable 
-    Classifer for testing default data. 
-X: ndarray
-    trainset data 
-    
-y: array_like 
-    label data 
-cv: int 
-    KFold for data validation.
-    
-scoring: str 
-    type of error visualization. 
-    
-display: str or bool, 
-    show the show on the stdout
-kws: dict, 
-    Additional keywords arguments passed to 
-    :func:`gofast.exlib.slearn.cross_val_score`.
-Returns 
----------
-scores, mean_core: array_like, float 
-    scaore after evaluation and mean of the score
-    
-Examples 
----------
->>> import gofast as gf 
->>> from gofast.models.validation import naive_evaluation
->>> X,  y = gf.fetch_data ('bagoue data prepared') 
->>> clf = gf.sklearn.DecisionTreeClassifier() 
->>> naive_evaluation(clf, X, y , cv =4 , display ='on' )
-clf=: DecisionTreeClassifier
-scores=: [0.6279 0.7674 0.7093 0.593 ]
-scores.mean=: 0.6744186046511629
-Out[57]: (array([0.6279, 0.7674, 0.7093, 0.593 ]), 0.6744186046511629)
-"""
-# deprecated in scikit-learn 0.21 to 0.23 
-# from sklearn.externals import joblib 
-# import sklearn.externals    
-# from abc import ABC,abstractmethod#  ABCMeta  
-
-# class AttributeCkecker(ABC): 
-#     """ Check attributes and inherits from module `abc` 
-#     for Data validators. 
-    
-#     Validate DataType mainly `X` train or test sets and `y` labels or
-#     and any others params types.
-    
-#     """
-#     def __set_name__(self, owner, name): 
-#         try: 
-#             self.private_name = '_' + name 
-#         except AttributeError: 
-#             warnings.warn('Object {owner!r} has not attribute {name!r}')
-            
-#     def __get__(self, obj, objtype =None):
-#         return getattr(obj, self.private_name) 
-    
-#     def __set__(self, obj, value):
-#         self.validate(value)
-#         setattr(obj, self.private_name, value) 
-        
-#     @abstractmethod 
-#     def validate(self, value): 
-#         pass 
-
-# class checkData (AttributeCkecker): 
-#     """ Descriptor to check data type `X` or `y` or else."""
-#     def __init__(self, Xdtypes):
-#         self.Xdtypes =eval(Xdtypes)
-
-#     def validate(self, value) :
-#         """ Validate `X` and `y` type."""
-#         if not isinstance(value, self.Xdtypes):
-#             raise TypeError(
-#                 f'Expected {value!r} to be one of {self.Xdtypes!r} type.')
-            
-# class checkValueType_ (AttributeCkecker): 
-#     """ Descriptor to assert parameters values. Default assertion is 
-#     ``int`` or ``float``"""
-#     def __init__(self, type_):
-#         self.six =type_ 
-        
-#     def validate(self, value):
-#         """ Validate `cv`, `s_ix` parameters type"""
-#         if not isinstance(value,  self.six ): 
-#             raise ValueError(f'Expected {self.six} not {type(value)!r}')
    
-# class  checkClass (AttributeCkecker): 
-#     def __init__(self, klass):
-#         self.klass = klass 
-       
-#     def validate(self, value): 
-#         """ Validate the base estimator whether is a class or not. """
-#         if not inspect.isclass(value): 
-#             raise TypeError('Estimator might be a class object '
-#                             f'not {type(value)!r}.')  
-    

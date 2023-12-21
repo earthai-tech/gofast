@@ -49,7 +49,7 @@ class export_data:
         @functools.wraps(self._func)
         def wrapper_func ( *args, **kwds): 
             """ Decorated function for writting data."""
-            from .utils.funcutils import move_cfile 
+            from .tools.funcutils import move_cfile 
             dfs,fname, file_format, savepath, nameof, kws = self._func (
                 *args, **kwds)
             #if format is None 
@@ -106,7 +106,7 @@ class export_data:
         Path to directory to save file. Default is current directory 
         """
         from .property import Config
-        from .utils.funcutils import key_search
+        from .tools.funcutils import key_search
         
         # check whether data is on list or tuples 
         if not isinstance ( dfs, ( list, tuple)): 
@@ -560,7 +560,7 @@ class gdal_data_check(object):
                                       format(os.environ['GDAL_DATA']))
 
                 try:
-                    from .utils._dependency import import_optional_dependency
+                    from .tools._dependency import import_optional_dependency
                     import_optional_dependency ('osgeo')
                     # from osgeo import osr
                     # from osgeo.ogr import OGRERR_NONE
@@ -1900,7 +1900,7 @@ def available_if(check):
 
     Examples
     --------
-    >>> from sklearn.utils.metaestimators import available_if
+    >>> from sklearn.tools.metaestimators import available_if
     >>> class HelloIfEven:
     ...    def __init__(self, x):
     ...        self.x = x

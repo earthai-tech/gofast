@@ -25,7 +25,7 @@ class Boxspace(dict):
     
     Examples
     --------
-    >>> from gofast.utils.box import Boxspace 
+    >>> from gofast.tools.box import Boxspace 
     >>> bs = Boxspace(pkg='gofast',  objective ='give water', version ='0.1.dev')
     >>> bs['pkg']
     ... 'gofast'
@@ -96,7 +96,7 @@ class _Group:
     --------
     >>> from gofast.utils import naive_imputer, read_data , reshape 
     >>> from gofast.datasets import load_hlogs 
-    >>> from gofast.utils.hydroutils import classify_k, find_aquifer_groups 
+    >>> from gofast.tools.hydroutils import classify_k, find_aquifer_groups 
     >>> b= load_hlogs () #just taking the target names
     >>> data = read_data ('data/boreholes/hf.csv') # read complete data
     >>> y = data [b.target_names]
@@ -250,14 +250,14 @@ def data2Box(
        
     Examples
     --------- 
-    >>> from gofast.utils.box import data2Box 
+    >>> from gofast.tools.box import data2Box 
     >>> o = data2Box ([2, 3, 4], name = 'borehole')
     >>> o.borehole0
     {'0': 2}
     >>> o = data2Box ({"x": [2, 3, 4], "y":[8, 7, 5]}, name = 'borehole')
     >>> o.borehole0.y
     8
-    >>> from gofast.utils.box import data2Box 
+    >>> from gofast.tools.box import data2Box 
     >>> o = data2Box ([2, 3, 4], name = 'borehole', columns ='id') 
     >>> o.borehole0.id
     2
