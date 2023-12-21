@@ -86,7 +86,7 @@ tag: str, ['bagoue', 'hlogs', 'nlogs', ]
 
 Returns
 -------
-dict, X, y : frame of :class:`~gofast.utils.box.Boxspace` object 
+dict, X, y : frame of :class:`~gofast.tools.box.Boxspace` object 
     If tag is following by suffix in the case of 'bagoue' area, it returns:
         - `data`: Original data 
         - `X`, `y` : Stratified train set and training target 
@@ -156,7 +156,7 @@ def _parse_tags (tag, multi_kind_dataset ='bagoue'):
             tag = t[0].lower() # skip the second word 
     return tag 
 
-from ..utils.funcutils import listing_items_format
+from ..tools.funcutils import listing_items_format
 
 _l=[ "{:<7}: {:<7}()".format(s.upper() , 'load_'+s ) for s in _DTAGS ] 
 _LST = listing_items_format(

@@ -19,10 +19,10 @@ from sklearn.model_selection import (
     RandomizedSearchCV, 
     )
 
-from ..utils.funcutils import smart_format, ellipsis2false 
-from ..utils.validator import get_estimator_name 
-from ..utils._dependency import import_optional_dependency 
-from ..utils.box import Boxspace 
+from ..tools.funcutils import smart_format, ellipsis2false 
+from ..tools.validator import get_estimator_name 
+from ..tools._dependency import import_optional_dependency 
+from ..tools.box import Boxspace 
 
 opt_dict = { 
     'RandomizedSearchCV': [ 'RSCV', 'RandomizedSearchCV'], 
@@ -171,7 +171,7 @@ def parallelize_estimators(
        
     Returns
     -------
-    o: gofast.utils.boxspace
+    o: gofast.tools.boxspace
         The function saves the best estimator and parameters, and 
         cv results for each input estimator to disk
         returns object where `best_params_`, `best_estimators_` and `cv_results_`

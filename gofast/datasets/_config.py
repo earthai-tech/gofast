@@ -14,7 +14,7 @@ import joblib
 from importlib import resources 
 import pandas as pd 
 from .io import DMODULE 
-from ..utils.funcutils import ( 
+from ..tools.funcutils import ( 
     smart_format 
     )
 from ..exceptions import DatasetError

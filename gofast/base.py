@@ -40,16 +40,16 @@ from .exlib.preprocessing import (
     LabelEncoder, 
 )
 from .exceptions import NotFittedError
-from .utils.baseutils import _is_readable 
-from .utils.funcutils import (
+from .tools.baseutils import _is_readable 
+from .tools.funcutils import (
     _assert_all_types,  
     repr_callable_obj, 
     smart_strobj_recognition, 
     smart_format ,
     sanitize_frame_cols
     )
-from .utils._dependency import import_optional_dependency
-from .utils.validator import ( 
+from .tools._dependency import import_optional_dependency
+from .tools.validator import ( 
     array_to_frame, 
     check_array, 
     check_X_y, 
@@ -320,7 +320,7 @@ class Data:
             Columns or features to keep in the datasets
 
         kwd: dict, 
-        additional keywords arguments from :func:`gofast.utils.mlutils.selectfeatures`
+        additional keywords arguments from :func:`gofast.tools.mlutils.selectfeatures`
  
         Returns 
         ---------

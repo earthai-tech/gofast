@@ -72,7 +72,7 @@ def assert_xy_in (
     ---------
     >>> import numpy as np 
     >>> import pandas as pd 
-    >>> from gofast.utils.validator import assert_xy_in 
+    >>> from gofast.tools.validator import assert_xy_in 
     >>> x, y = np.random.rand(7 ), np.arange (7 ) 
     >>> data = pd.DataFrame ({'x': x, 'y':y} ) 
     >>> assert_xy_in (x='x', y='y', data = data ) 
@@ -564,7 +564,7 @@ def has_fit_parameter(estimator, parameter):
     Examples
     --------
     >>> from sklearn.svm import SVC
-    >>> from sklearn.utils.validation import has_fit_parameter
+    >>> from sklearn.tools.validation import has_fit_parameter
     >>> has_fit_parameter(SVC(), "sample_weight")
     True
     """
@@ -1656,7 +1656,7 @@ def array_to_frame(
     Example
     ---------
     >>> from gofast.datasets import fetch_data  
-    >>> from gofast.utils.validator import array_to_frame 
+    >>> from gofast.tools.validator import array_to_frame 
     >>> data = fetch_data ('hlogs').frame 
     >>> array_to_frame (data.k.values , 
                         to_frame= True, columns =None, input_name= 'y',
@@ -1878,7 +1878,7 @@ def _assert_all_finite(
         f"{input_name} does not accept missing values encoded as NaN"
         " natively. Alternatively, it is possible to preprocess the data,"
         " for instance by using the imputer transformer like the ufunc"
-        " 'naive_imputer' in 'gofast.utils.mlutils.naive_imputer'."
+        " 'naive_imputer' in 'gofast.tools.mlutils.naive_imputer'."
         )
     
     xp, _ = get_namespace(X)
@@ -2016,5 +2016,5 @@ class DataConversionWarning(UserWarning):
           implementation's data-type expectations;
         - passes an input whose shape can be interpreted ambiguously.
     .. versionchanged:: 0.18
-       Moved from sklearn.utils.validation.
+       Moved from sklearn.tools.validation.
     """

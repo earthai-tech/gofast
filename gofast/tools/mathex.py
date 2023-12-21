@@ -155,7 +155,7 @@ def get_azimuth (
     Examples 
     ----------
     >>> import gofast as gf 
-    >>> from gofast.utils.exmath import get_azimuth 
+    >>> from gofast.tools.exmath import get_azimuth 
     >>> # generate a data from ERP 
     >>> data = gf.make_erp (n_stations =7 ).frame 
     >>> get_azimuth ( data.longitude, data.latitude)
@@ -474,7 +474,7 @@ def interpolate2d (
     Examples 
     ---------
     >>> from gofast.methods.em import EM 
-    >>> from gofast.utils.exmath import interpolate2d 
+    >>> from gofast.tools.exmath import interpolate2d 
     >>> # make 2d matrix of frequency
     >>> emObj = EM().fit(r'data/edis')
     >>> freq2d = emObj.make2d (out = 'freq')
@@ -582,7 +582,7 @@ def scalePosition(
         
     Examples
     --------
-    >>> from gofast.utils import erpSelector, scalePosition 
+    >>> from gofast.tools import erpSelector, scalePosition 
     >>> df = erpSelector('data/erp/l10_gbalo.xlsx') 
     >>> df.columns 
     ... Index(['station', 'resistivity', 'longitude', 'latitude', 'easting',
@@ -701,7 +701,7 @@ def detect_station_position (
     :Example: 
         
         >>> import numpy as np 
-        >>> from gofast.utils.exmath import detect_station_position 
+        >>> from gofast.tools.exmath import detect_station_position 
         >>> pos = np.arange(0 , 50 , 10 )
         >>> detect_station_position (s ='S30', p = pos)
         ... (3, 30.0)
@@ -812,7 +812,7 @@ def plot_ (
     :param fbtw: bool, default=False, 
         Mostly used for |VES| data. If ``True``, filled the computed 
         fractured zone using the parameters computed from 
-        :func:`~.gofast.utils.exmath.ohmicArea`. 
+        :func:`~.gofast.tools.exmath.ohmicArea`. 
     :param fig_title_kws: dict, 
         Additional keywords argument passed in dictionnary to customize 
         the figure title. 
@@ -825,7 +825,7 @@ def plot_ (
     
     :Example: 
         >>> import numpy as np 
-        >>> from gofast.utils.exmath import plot_ 
+        >>> from gofast.tools.exmath import plot_ 
         >>> x, y = np.arange(0 , 60, 10) ,np.abs( np.random.randn (6)) 
         >>> KWS = dict (xlabel ='Stations positions', ylabel= 'resistivity(ohm.m)', 
                     rlabel = 'raw cuve', rotate = 45 ) 
@@ -1133,7 +1133,7 @@ def smooth1d(
     Examples 
     ---------
     >>> import numpy as np 
-    >>> from gofast.utils.exmath import smooth1d 
+    >>> from gofast.tools.exmath import smooth1d 
     >>> # add Guassian Noise 
     >>> np.random.seed (42)
     >>> ar = np.random.randn (20 ) * 20 + np.random.normal ( 20 )
@@ -1266,7 +1266,7 @@ def smoothing (
     Examples 
     ---------
     >>> import numpy as np 
-    >>> from gofast.utils.exmath import smoothing
+    >>> from gofast.tools.exmath import smoothing
     >>> # add Guassian Noises 
     >>> np.random.seed (42)
     >>> ar = np.random.randn (20, 7 ) * 20 + np.random.normal ( 20, 7 )
@@ -1434,7 +1434,7 @@ def interpolate1d (
     --------
     >>> import numpy as np 
     >>> import matplotlib.pyplot as plt 
-    >>> from gofast.utils.exmath  import interpolate1d,
+    >>> from gofast.tools.exmath  import interpolate1d,
     >>> z = np.random.randn(17) *10 # assume 17 freq for 17 values of tensor Z 
     >>> z [[7, 10, 16]] =np.nan # replace some indexes by NaN values 
     >>> zit = interpolate1d (z, kind ='linear')
@@ -1565,7 +1565,7 @@ def moving_average (
     Examples
     --------- 
     >>> import numpy as np ; import matplotlib.pyplot as plt 
-    >>> from gofast.utils.exmath  import moving_average 
+    >>> from gofast.tools.exmath  import moving_average 
     >>> data = np.random.randn (37) 
     >>> # add gaussion noise to the data 
     >>> data = 2 * np.sin( data)  + np.random.normal (0, 1 , len(data))
@@ -1991,7 +1991,7 @@ def savgol_filter(x, window_length, polyorder, deriv=0, delta=1.0,
 
     Examples
     --------
-    >>> from gofast.utils.exmath import savgol_filter
+    >>> from gofast.tools.exmath import savgol_filter
     >>> np.set_printoptions(precision=2)  # For compact display.
     >>> x = np.array([2, 2, 5, 2, 1, 0, 1, 4, 9])
 
@@ -2106,7 +2106,7 @@ def compute_errors (
     Examples
     ---------
     >>> from gofast.datasets import load_huayuan 
-    >>> from gofast.utils.exmath import compute_errors
+    >>> from gofast.tools.exmath import compute_errors
     >>> emobj=load_huayuan ().emo
     >>> compute_errors (emobj.freqs_ ) 
     .. Out[104]: 14397.794665683341
@@ -2278,7 +2278,7 @@ def get_distance(
     Examples 
     --------- 
     >>> import numpy as np 
-    >>> from gofast.utils.exmath import get_distance 
+    >>> from gofast.tools.exmath import get_distance 
     >>> x = np.random.rand (7) *10 
     >>> y = np.abs ( np.random.randn (7) * 12 ) 
     >>> get_distance (x, y) 
@@ -2351,12 +2351,12 @@ def scale_positions (
        
     See Also 
     ---------
-    gofast.utils.exmath.get_bearing: 
+    gofast.tools.exmath.get_bearing: 
         Compute the  direction of one point relative to another point. 
       
     Examples
     ---------
-    >>> from gofast.utils.exmath import scale_positions 
+    >>> from gofast.tools.exmath import scale_positions 
     >>> east = [336698.731, 336714.574, 336730.305] 
     >>> north = [3143970.128, 3143957.934, 3143945.76]
     >>> east_c , north_c= scale_positions (east, north, step =20, view =True  ) 
@@ -2470,7 +2470,7 @@ def get_bearing (latlon1, latlon2,  to_deg = True ):
         
     Examples 
     ---------
-    >>> from gofast.utils import get_bearing 
+    >>> from gofast.tools import get_bearing 
     >>> latlon1 = (28.41196763902007, 109.3328724432221) # (lat, lon) point 1
     >>> latlon2= (28.38756530909265, 109.36931920880758) # (lat, lon) point 2
     >>> get_bearing (latlon1, latlon2 )
@@ -2513,7 +2513,7 @@ def find_closest( arr, /, values ):
     Examples
     -----------
     >>> import numpy as np 
-    >>> from gofast.utils.exmath import find_closest
+    >>> from gofast.tools.exmath import find_closest
     >>> find_closest (  [ 2 , 3, 4, 5] , ( 2.6 , 5.6 )  )
     array([3., 5.])
     >>> find_closest (  np.array ([[2 , 3], [ 4, 5]]), ( 2.6 , 5.6 ) )
@@ -2582,7 +2582,7 @@ def gradient_descent(
     Examples 
     -----------
     >>> import numpy as np 
-    >>> from gofast.utils.exmath import gradient_descent
+    >>> from gofast.tools.exmath import gradient_descent
     >>> z= np.array([0, 6, 13, 20, 29 ,39, 49, 59, 69, 89, 109, 129, 
                      149, 179])
     >>> res= np.array( [1.59268,1.59268,2.64917,3.30592,3.76168,
@@ -2691,7 +2691,7 @@ def adaptive_moving_average(data, /, window_size_factor=0.1):
     Example 
     ---------
     >>> import matplotlib.pyplot as plt
-    >>> from gofast.utils.exmath import adaptive_moving_average 
+    >>> from gofast.tools.exmath import adaptive_moving_average 
     >>> # Sample magnetotelluric data (replace this with your own data)
     >>> # Example data: a sine wave with noise
     >>> time = np.linspace(0, 10, 1000)  # Replace with your actual time values
@@ -2768,7 +2768,7 @@ def torres_verdin_filter(
     Example
     --------
     >>> import matplotlib.pyplot as plt 
-    >>> from gofast.utils.exmath import torres_verdin_filter 
+    >>> from gofast.tools.exmath import torres_verdin_filter 
     >>> data = np.random.randn(100)  
     >>> ama = torres_verdin_filter(data)
     >>> plt.plot (range (len(data)), data, 'k', range(len(data)), ama, '-or')

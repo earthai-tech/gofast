@@ -16,18 +16,16 @@ from importlib.resources import files
 import pandas as pd 
 from .io import (csv_data_loader, _to_dataframe, DMODULE, 
     description_loader, DESCR, RemoteDataURL ) 
-from ..utils.baseutils import read_data, download_file2 , check_file_exists   
-from ..utils.mlutils import split_train_test_by_id, existfeatures
-from ..utils.funcutils import ( 
+from ..tools.baseutils import read_data, download_file2 , check_file_exists   
+from ..tools.mlutils import split_train_test_by_id, existfeatures
+from ..tools.funcutils import ( 
     to_numeric_dtypes , 
-    smart_format, str2columns, 
-    is_in_if, 
-    reshape, 
+    smart_format, 
     key_checker, 
     random_sampling,
     assert_ratio, 
     )
-from ..utils.box import Boxspace
+from ..tools.box import Boxspace
 
 __all__= [ "load_iris",  "load_hlogs", "load_mxs", "load_nlogs"]
 
@@ -188,7 +186,7 @@ drop_observations: bool, default='False'
     
 Returns
 ---------
-data : :class:`~gofast.utils.Boxspace`
+data : :class:`~gofast.tools.Boxspace`
     Dictionary-like object, with the following attributes.
     data : {ndarray, dataframe} 
         The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
@@ -471,7 +469,7 @@ drop_display_rate: bool, default=True
 
 Returns
 ---------
-data : :class:`~gofast.utils.Boxspace`
+data : :class:`~gofast.tools.Boxspace`
     Dictionary-like object, with the following attributes.
     data : {ndarray, dataframe} 
         The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
@@ -485,18 +483,17 @@ data : :class:`~gofast.utils.Boxspace`
     frame: DataFrame 
         Only present when `as_frame=True`. DataFrame with `data` and
         `target`.
-        .. versionadded:: 0.1.1
     DESCR: str
         The full description of the dataset.
     filename: str
         The path to the location of the data.
-        .. versionadded:: 0.1.2
+
 data, target: tuple if ``return_X_y`` is True
     A tuple of two ndarray. The first containing a 2D array of shape
     (n_samples, n_features) with each row representing one sample and
     each column representing the features. The second ndarray of shape
     (n_samples,) containing the target samples.
-    .. versionadded:: 0.1.2
+
 X, Xt, y, yt: Tuple if ``split_X_y`` is True 
     A tuple of two ndarray (X, Xt). The first containing a 2D array of:
         
@@ -608,7 +605,7 @@ Parameters
 ----------
 return_X_y : bool, default=False
     If True, returns ``(data, target)`` instead of a 
-    :class:`~gofast.utils.box.Boxspace` object. See below for more information 
+    :class:`~gofast.tools.box.Boxspace` object. See below for more information 
     about the `data` and `target` object.
     .. versionadded:: 0.1.2
 as_frame : bool, default=False
@@ -631,7 +628,7 @@ tag, data_names: None
 
 Returns
 -------
-data: :class:`~gofast.utils.box.Boxspace`
+data: :class:`~gofast.tools.box.Boxspace`
     Dictionary-like object, with the following attributes.
     data : {ndarray, dataframe} of shape (150, 4)
         The data matrix. If `as_frame=True`, `data` will be a pandas DataFrame.
@@ -742,7 +739,7 @@ as_frame : bool, default=False
     latter already holds `tag` and `data_names` as parameters. 
 Returns
 -------
-data : :class:`~gofast.utils.Boxspace`
+data : :class:`~gofast.tools.Boxspace`
     Dictionary-like object, with the following attributes.
     data : {ndarray, dataframe} of shape (150, 4)
         The data matrix. If `as_frame=True`, `data` will be a pandas
@@ -988,7 +985,7 @@ test_ratio: float, default is 0.2 i.e. 20% (X, y)
     
 Returns
 ---------
-data : :class:`~gofast.utils.Boxspace`
+data : :class:`~gofast.tools.Boxspace`
     Dictionary-like object, with the following attributes.
     data : {ndarray, dataframe} 
         The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
@@ -1161,7 +1158,7 @@ Parameters
 ----------
 return_X_y : bool, default=False
     If True, returns ``(data, target)`` instead of a 
-    :class:`~gofast.utils.box.Boxspace` object. See below for more information 
+    :class:`~gofast.tools.box.Boxspace` object. See below for more information 
     about the `data` and `target` object.
 
 as_frame : bool, default=False
@@ -1184,7 +1181,7 @@ tag, data_names: None
 
 Returns
 -------
-data: :class:`~gofast.utils.box.Boxspace`
+data: :class:`~gofast.tools.box.Boxspace`
     Dictionary-like object, with the following attributes.
     data : {ndarray, dataframe} of shape (150, 4)
         The data matrix. If `as_frame=True`, `data` will be a pandas DataFrame.

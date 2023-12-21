@@ -41,11 +41,11 @@ from sklearn.metrics import (
 from sklearn.model_selection import ( 
     cross_val_predict 
     )
-from .utils.validator import ( 
+from .tools.validator import ( 
     get_estimator_name, 
     _is_numeric_dtype 
     ) 
-from .utils.funcutils import ( 
+from .tools.funcutils import ( 
     is_iterable, 
     _assert_all_types 
     )
@@ -771,7 +771,7 @@ conf_mx_kws: dict
 Examples
 --------
 >>> from sklearn.svm import SVC 
->>> from gofast.utils.metrics import Metrics 
+>>> from gofast.tools.metrics import Metrics 
 >>> from gofast.datasets import fetch_data 
 >>> X,y = fetch_data('Bagoue dataset prepared') 
 >>> svc_clf = SVC(C=100, gamma=1e-2, kernel='rbf',

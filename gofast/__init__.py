@@ -2,6 +2,15 @@
 # Licence:BSD-3-Clause
 # Author: L. Kouadio <etanoyau@gmail.com>
 
+"""
+  ____   ___   _____   _  __ _   _____   _______ 
+ / ___| / _ \ |  ___| | |  | | /  ___| |__   __|
+| |  _ | | | | | |_   | |__| | \___  \    | |   
+| |_| || |_| | |  _|  |  __  |  ___) |   | |   
+ \____| \___/  |_|    |_|  |_| |____/    |_|  
+====================================================
+   _**Accelerate Your Machine Learning Workflow**_ 
+"""
 from __future__ import annotations 
 import os 
 import sys 
@@ -65,7 +74,7 @@ if __GOFAST_SETUP__:
 else:
     from . import _distributor_init  # noqa: F401
     from . import _build  # noqa: F401
-    from .utils._show_versions import show_versions
+    from .tools._show_versions import show_versions
 #https://github.com/pandas-dev/pandas
 # Let users know if they're missing any of our hard dependencies
 _main_dependencies = ("numpy", "scipy", "sklearn", "matplotlib", 
@@ -97,7 +106,7 @@ from .datasets import (
     fetch_data, 
     ) 
 
-from .utils import ( 
+from .tools import ( 
     read_data,
     cleaner, 
     reshape, 

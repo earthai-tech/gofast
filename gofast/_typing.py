@@ -74,7 +74,7 @@ type of arguments.
         
         >>> import numpy as np 
         >>> from gofast.typing import TypeVar, DType, Array , Sub
-        >>> from gofast.utils.exmath import _define_conductive_zone
+        >>> from gofast.tools.exmath import _define_conductive_zone
         >>> T= TypeVar ('T', float)
         >>> erp_array: Array[T, DType[T]] = np.random.randn (21) # whole line 
         >>> select_zone, _ = _define_conductive_zone (erp = erp_array , auto =True)
@@ -105,7 +105,7 @@ type of arguments.
             -  We use the following fonction to to extract the specific
                 part of whole survey line `surveyL`:: 
                     
-                    >>> from gofast.utils.mathex import define_conductive_zone
+                    >>> from gofast.tools.mathex import define_conductive_zone
                     >>> subpos,_ = define_conductive_zone (surveyL, s='S10') 
                     
             -  Now, we check the instance value `subpos` as subset array of 

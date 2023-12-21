@@ -28,6 +28,7 @@ import inspect
 import warnings 
 import numpy as np
 import pandas as pd 
+
 from .._docstring import ( 
     _core_docs, 
     DocstringComponents 
@@ -54,11 +55,11 @@ from ..exceptions import (
     StrataError, 
     AquiferGroupError
     )
-from .box import ( 
+from ..tools.box import ( 
     _Group, 
     Boxspace
     )
-from .funcutils import  (
+from ..tools.funcutils import  (
     _assert_all_types, 
     _isin ,
     is_iterable,
@@ -70,7 +71,7 @@ from .funcutils import  (
     listing_items_format, 
     to_numeric_dtypes, 
     )
-from .validator import ( 
+from ..tools.validator import ( 
     _is_arraylike_1d,
     _is_numeric_dtype, 
     _check_consistency_size, 
@@ -194,7 +195,7 @@ def make_MXS_labels (
             >>> # with no trailer 
             >>> MXS_labels= [0, 4, 5, 3] # 1 and 2 have been changed to [4, 5]
             
-    return_obj: :class:`gofast.utils.box.Boxspace`
+    return_obj: :class:`gofast.tools.box.Boxspace`
         If ``True``, returns a MXS object with usefull attributes such as: 
             - mxs_classes_ = the MXS class labels 
             - mxs_labels_=  the array-like of MXS labels. It also includes some
@@ -223,7 +224,7 @@ def make_MXS_labels (
         
     Returns 
     ---------
-    MXS: array-like 1d or :class:`~gofast.utils.box.Boxspace`
+    MXS: array-like 1d or :class:`~gofast.tools.box.Boxspace`
         array like of MXS labels or MXS object containing the 
         usefull attributes. 
     
@@ -235,8 +236,8 @@ def make_MXS_labels (
     Examples
     ---------
     >>> from gofast.datasets import load_hlogs
-    >>> from gofast.utils import read_data 
-    >>> from gofast.utils.hydroutils import classify_k, make_MXS_labels
+    >>> from gofast.tools import read_data 
+    >>> from gofast.geo.hydroutils import classify_k, make_MXS_labels
     >>> data = load_hlogs ().frame 
     >>> # map data.k to categorize k values 
     >>> ymap = classify_k(data.k , default_func =True) 
@@ -593,9 +594,9 @@ Examples
 ----------
 (1) Use the real aquifer group collected in the area 
 
->>> from gofast.utils import naive_imputer, read_data, reshape 
+>>> from gofast.tools import naive_imputer, read_data, reshape 
 >>> from gofast.datasets import load_hlogs 
->>> from gofast.utils.hydroutils import classify_k, find_aquifer_groups 
+>>> from gofast.geo.hydroutils import classify_k, find_aquifer_groups 
 >>> b= load_hlogs () #just taking the target names
 >>> data = read_data ('data/boreholes/hf.csv') # read complete data
 >>> y = data [b.target_names]
@@ -717,7 +718,7 @@ def label_importance (
     Examples 
     -----------
     >>> from gofast.datasets import load_hlogs
-    >>> from gofast.utils.hydroutils import label_importance, classify_k 
+    >>> from gofast.geo.hydroutils import label_importance, classify_k 
     >>> array_k = load_hlogs().frame.k 
     >>> # categorize k_labels using default categorization 
     >>> array_k = classify_k (array_k, default_func =True )
@@ -733,7 +734,7 @@ def label_importance (
     >>> # let take the example of 11 boreholes, note that the 'hf.csv'
     >>> # data use for demo is not  not avaibale in the package for confidency 
     >>> # just use for demonstration 
-    >>> from gofast.utils import read_data 
+    >>> from gofast.tools import read_data 
     >>> cdata = read_data ('data/boreholes/hf.csv') 
     >>> array_k = cdata.k ; array_aq= cdata.aquifer_group 
     >>> np.unique (array_k) # give the labels in k
@@ -895,8 +896,8 @@ def find_similar_labels (
     
     Example 
     ----------
-    >>> from gofast.utils import read_data 
-    >>> from gofast.utils.hydroutils import find_similar_labels, classify_k
+    >>> from gofast.tools import read_data 
+    >>> from gofast.geo.hydroutils import find_similar_labels, classify_k
     >>> data = read_data ('data/boreholes/hf.csv')
     >>> ymap = classify_k(data.k , default_func =True) 
     >>> # Note that for the demo we use the group of aquifer columns, however
@@ -973,7 +974,7 @@ def _similarity_rules (lg,  threshold =.5 ):
         - A generator object from :func:`_similarity_rules`
         
     :example:
-    >>> from gofast.utils.hydroutils import _similarity_rules 
+    >>> from gofast.geo.hydroutils import _similarity_rules 
     >>> groups = ((1,{'V': 0.32,'IV': 0.266,'II': 0.236,'III': 0.158,
        'IV&V': 0.01,'II&III': 0.005,'III&IV': 0.005}),
      (2, {'III': 0.274, 'II': 0.26, 'V': 0.26, 'IV': 0.178, 'III&IV': 0.027}),
@@ -1023,7 +1024,7 @@ def _get_y_from_valid_indexes (
        
     :example: 
         >>> import numpy as np 
-        >>> from gofast.utils.hydroutils import _get_y_from_valid_indexes 
+        >>> from gofast.geo.hydroutils import _get_y_from_valid_indexes 
         >>> y_true = np.array ([ np.nan, 1, 1, 2, 3, 2, 3, 1, 3, np.nan])
         >>> y_pred = np.array ([0, 0, 0, 1, 2, 2, 4, 5, 1, 4])
         >>> # for includ label is set to 'False'
@@ -1128,7 +1129,7 @@ def select_base_stratum (
     Example 
     --------
     >>> from gofast.datasets import load_hlogs 
-    >>> from gofast.utils.hydroutils import select_base_stratum 
+    >>> from gofast.geo.hydroutils import select_base_stratum 
     >>> data = load_hlogs().frame # get only the frame 
     >>> select_base_stratum(data, sname ='strata_name')
     ... 'siltstone'
@@ -1256,7 +1257,7 @@ def get_compressed_vector(
     Example
     -------
     >>> from gofast.datasets import load_hlogs 
-    >>> from gofast.utils.hydroutils import get_compressed_vector 
+    >>> from gofast.geo.hydroutils import get_compressed_vector 
     >>> data = load_hlogs().frame # get only the frame  
     >>> get_compressed_vector (data, sname='strata_name')[:4]
     ... hole_number           H502
@@ -1376,7 +1377,7 @@ def get_sections_from_depth  (z, z_range, return_index =False ) :
     Example
     --------
     >>> from gofast.datasets import load_hlogs 
-    >>> from gofast.utils.hydroutils import get_sections_from_depth
+    >>> from gofast.geo.hydroutils import get_sections_from_depth
     >>> data= load_hlogs().frame  
     >>> # get real sections from depth 16.25 to 125.83 m
     >>> get_sections_from_depth ( data.depth_top, ( 16.25, 125.83))
@@ -1495,7 +1496,7 @@ error: str, default='raise'
     other value of `error` will set error to `raise`. 
 kws: dict, 
     Additional keywords arguments passed  to  
-    :func:`~gofast.utils.hydroutils.get_aquifer_sections`.
+    :func:`~gofast.geo.hydroutils.get_aquifer_sections`.
     
 Returns 
 --------
@@ -1507,9 +1508,9 @@ up, low :list of upper and lower section values of aquifer.
 
 See Also 
 ----------
-gofast.utils.hydroutils.get_aquifer_section: compute single section
+gofast.geo.hydroutils.get_aquifer_section: compute single section
 
-gofast.utils.hydroutils.get_aquifer_sections: compute multiple sections 
+gofast.geo.hydroutils.get_aquifer_sections: compute multiple sections 
  
 
 Example
@@ -1619,7 +1620,7 @@ return_data: bool, default=False,
        
 kws: dict, 
     Additional keywords arguments passed  to  
-    :func:`~gofast.utils.hydroutils.get_aquifer_sections`.
+    :func:`~gofast.geo.hydroutils.get_aquifer_sections`.
     
 Returns 
 --------
@@ -1631,13 +1632,13 @@ up, low :list of upper and lower section values of aquifer.
 
 See Also 
 ----------
-gofast.utils.hydroutils.get_aquifer_sections: 
+gofast.geo.hydroutils.get_aquifer_sections: 
     compute multiples aquifer sections
 
 Example
 -------   
 >>> from gofast.datasets import load_hlogs 
->>> from gofast.utils.hydroutils import get_aquifer_sections
+>>> from gofast.geo.hydroutils import get_aquifer_sections
 >>> data = load_hlogs ().frame 
 >>> get_aquifer_sections (data, data , zname ='depth', kname ='k' ) 
 ... [[197.12, 369.71], [197.12, 369.71]]
@@ -1662,7 +1663,7 @@ def _get_invalid_indexes  ( d, /, valid_indexes, in_arange =False ):
         Returns invalid indexes onto a list 
     Example 
     -----------
-    >>> from gofast.utils.hydroutils import _get_invalid_indexes
+    >>> from gofast.geo.hydroutils import _get_invalid_indexes
     >>> import numpy as np 
     >>> idx = np.arange (50) 
     >>> _get_invalid_indexes (idx , (3, 11 ))
@@ -1724,7 +1725,7 @@ def get_xs_xr_splits (
     Example
     --------
     >>> from gofast.datasets import load_hlogs 
-    >>> from gofast.utils.hydroutils import get_xs_xr_splits 
+    >>> from gofast.geo.hydroutils import get_xs_xr_splits 
     >>> data = load_hlogs ().frame 
     >>> xs, xr = get_xs_xr_splits (data, 3.11, section_indexes = (17, 20 ) )
     """
@@ -1932,7 +1933,7 @@ df_new: List of pandas.dataframes
 Example 
 --------
 >>> from gofast.datasets import load_hlogs
->>> from gofast.utils.hydroutils import reduce_samples 
+>>> from gofast.geo.hydroutils import reduce_samples 
 >>> data = load_hlogs ().frame # get the frames 
 >>> # add explicitly the aquifer section indices 
 >>> dfnew= reduce_samples (data.copy(), sname='strata_name', 
@@ -2028,7 +2029,7 @@ def is_valid_depth (z, /, zname =None , return_z = False):
     Example 
     --------
     >>> from gofast.datasets import load_hlogs 
-    >>> from gofast.utils.hydroutils import is_valid_depth 
+    >>> from gofast.geo.hydroutils import is_valid_depth 
     >>> d= load_hlogs () 
     >>> X= d.frame 
     >>> is_valid_depth(X, zname='depth') # is dataframe , need to pass 'zname'
@@ -2195,7 +2196,7 @@ up, low :list of upper and lower section values of aquifer.
 Example
 -------
 >>> from gofast.datasets import load_hlogs 
->>> from gofast.utils.hydroutils import get_aquifer_section 
+>>> from gofast.geo.hydroutils import get_aquifer_section 
 >>> data = load_hlogs ().frame # return all data including the 'depth' values 
 >>> get_aquifer_section (data , zname ='depth', kname ='k')
 ... [197.12, 369.71] # section starts from 197.12 -> 369.71 m 
@@ -2270,7 +2271,7 @@ def classify_k (
     --------
     >>> import numpy as np 
     >>> from gofast.datasets import load_hlogs 
-    >>> from gofast.utils.hydroutils import classify_k 
+    >>> from gofast.geo.hydroutils import classify_k 
     >>> _, y0 = load_hlogs (as_frame =True) 
     >>> # let visualize four nonzeros values in y0 
     >>> y0.k.values [ ~np.isnan (y0.k ) ][:4]
@@ -2508,7 +2509,7 @@ def exportdf (
     Export dataframe ``df``  to `refout` files. 
     
     `refout` file can be Excell sheet file or '.json' file. To get more details 
-    about the `writef` decorator , see :doc:`gofast.utils.decorator.writef`. 
+    about the `writef` decorator , see :doc:`gofast.tools.decorator.writef`. 
     
     :param refout: 
         Output filename. If not given will be created refering to the 
@@ -2530,7 +2531,7 @@ def exportdf (
             'Once ``df`` arguments in decorator :`class:~decorator.writef`'
             ' is selected. The main type of file ready to be written MUST be '
             'a pd.DataFrame format. If not an error raises. Please refer to '
-            ':doc:`~.utils.decorator.writef` for more details.')
+            ':doc:`~.tools.decorator.writef` for more details.')
         
         raise FileHandlingError(
             'No dataframe detected. Please provided your dataFrame.')
@@ -2585,7 +2586,7 @@ def categorize_target(
     Examples 
     --------
 
-    >>> from gofast.utils.mlutils import cattarget 
+    >>> from gofast.tools.mlutils import cattarget 
     >>> def binfunc(v): 
             if v < 3 : return 0 
             else : return 1 
@@ -2697,7 +2698,7 @@ def rename_labels_in (arr, new_names, coerce = False):
 
     
 def _cattarget (ar , labels , order=None): 
-    """ A shadow function of :func:`gofast.utils.funcutils.cattarget`. 
+    """ A shadow function of :func:`gofast.tools.funcutils.cattarget`. 
     
     :param ar: array-like of numerical values 
     :param labels: int or list of int, 
@@ -2798,7 +2799,7 @@ def validate_labels (t, /, labels, return_bool = False):
         
     :example: 
     >>> from gofast.datasets import fetch_data 
-    >>> from gofast.utils.mlutils import cattarget, labels_validator 
+    >>> from gofast.tools.mlutils import cattarget, labels_validator 
     >>> _, y = fetch_data ('bagoue', return_X_y=True, as_frame=True) 
     >>> # binarize target y into [0 , 1]
     >>> ybin = cattarget(y, labels=2 )
@@ -2935,7 +2936,7 @@ def _name_mxs_labels(*s , sep ='', prefix =""):
         
     Example
     --------
-    >>> from gofast.utils.hydroutils import _name_mxs_labels 
+    >>> from gofast.geo.hydroutils import _name_mxs_labels 
     >>> _name_mxs_labels ( (1, 2) , (2, 4 ), (3, 7 )) 
     ... [12, 24, 37]
     >>> _name_mxs_labels ( (1, 2) , (2, 4 ), (3, 7 ), prefix ='k') 
@@ -2987,7 +2988,7 @@ def _MXS_if_no(context,  /,  y_true , y_pred , cmsg ='', trailer = "*"):
             
     :example: 
         >>> import numpy as np 
-        >>> from gofast.utils.hydroutils import _MXS_if_no
+        >>> from gofast.geo.hydroutils import _MXS_if_no
         >>> y_true = np.arange (5) 
         >>> y_pred = np.arange (1, 6) 
         >>> _, d, *_= _MXS_if_no ('no', y_true =y_true , y_pred =y_pred )
@@ -3066,7 +3067,7 @@ def _create_mxs_pseudo_labels(
             dictionnary composed of the NGA labels that are not in `group_labels`
             and whose their labels have been renamed. 
     :example: 
-        >>> from gofast.utils.hydroutils import _create_mxs_pseudo_labels 
+        >>> from gofast.geo.hydroutils import _create_mxs_pseudo_labels 
         >>> import numpy as np 
         >>> y_true = np.arange (5) 
         >>> y_pred = np.arange (1, 6) 

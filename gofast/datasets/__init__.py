@@ -13,6 +13,20 @@ from .sets import (
     fetch_data, 
     DATASET
     )
+from .create import ( 
+    make_elogging, 
+    make_erp, 
+    make_ert, 
+    make_gadget_sales, 
+    make_medical_diagnostic, 
+    make_mining, 
+    make_retail_store, 
+    make_tem, 
+    make_well_logging, 
+    make_sounding, 
+    make_african_demo, 
+    make_agronomy, 
+    )
 __all__=[ 
          "load_bagoue",
          "load_iris",
@@ -20,5 +34,17 @@ __all__=[
          "load_nlogs", 
          "load_mxs", 
          "fetch_data",
-         "DATASET"
+         "make_elogging", 
+         "make_erp", 
+         "make_ert", 
+         "make_gadget_sales", 
+         "make_medical_diagnostic", 
+         "make_mining", 
+         "make_retail_store", 
+         "make_tem", 
+         "make_well_logging", 
+         "make_sounding", 
+         "make_african_demo", 
+         "make_agronomy",
+         "DATASET", 
          ]

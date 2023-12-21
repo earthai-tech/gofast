@@ -31,19 +31,19 @@ from sklearn.base import (
 from ._gofastlog import gofastlog 
 from ._typing import F 
 from .exceptions import EstimatorError
-from .utils.funcutils import ( 
+from .tools.funcutils import ( 
     _assert_all_types, 
     parse_attrs , 
     to_numeric_dtypes,
     assert_ratio 
     )
-from .utils.mlutils import (  
+from .tools.mlutils import (  
     discretizeCategoriesforStratification, 
     stratifiedUsingDiscretedCategories, 
     existfeatures 
     )
 
-from .utils.validator import get_estimator_name 
+from .tools.validator import get_estimator_name 
 
 __docformat__='restructuredtext'
 
@@ -90,7 +90,7 @@ class KMeansFeaturizer:
     >>> # (1) Use a common dataset 
     >>> import matplotlib.pyplot as plt 
     >>> from sklearn.datasets import make_moons
-    >>> from gofast.utils.plotutils import plot_voronoi 
+    >>> from gofast.tools.plotutils import plot_voronoi 
     >>> from gofast.datasets import load_mxs 
     >>> X, y = make_moons(n_samples=5000, noise=0.2)
     >>> kmf_hint = KMeansFeaturizer(n_clusters=50, target_scale=10).fit(X,y)
@@ -436,7 +436,7 @@ class StratifiedUsingBaseCategory( BaseEstimator, TransformerMixin ):
      a significant biais of sampling survey. For instance:: 
         
         >>> from gofast.transformers import StratifiedUsingBaseCategory 
-        >>> from gofast.utils.mlutils import load_data 
+        >>> from gofast.tools.mlutils import load_data 
         >>> df = load_data('data/geo_fdata')
         >>> stratifiedObj = StratifiedUsingBaseCategory(base_column='geol')
         >>> stratifiedObj.fit_transform(X=df)
@@ -620,7 +620,7 @@ class CategorizeFeatures(BaseEstimator, TransformerMixin ):
     Examples
     --------
     >>> from gofast.transformers import  CategorizeFeatures
-    >>> from gofast.utils.mlutils import load_data 
+    >>> from gofast.tools.mlutils import load_data 
     >>> df= mlfunc.load_data('data/geo_fdata')
     >>> catObj = CategorizeFeatures(
         num_columns_properties=num_columns_porperties )
@@ -1089,7 +1089,7 @@ class DataFrameSelector(BaseEstimator, TransformerMixin):
     Examples 
     ---------
     >>> from gofast.transformers import DataFrameSelector 
-    >>> from gofast.utils.mlutils import load_data   
+    >>> from gofast.tools.mlutils import load_data   
     >>> df = mlfunc.load_data('data/geo_fdata')
     >>> XObj = DataFrameSelector(attribute_names=['power','magnitude','sfi'],
     ...                          select_type=None)
@@ -1246,7 +1246,7 @@ class FrameUnion (BaseEstimator, TransformerMixin) :
     Example
     ------- 
     >>> from gofast.datasets import fetch_data 
-    >>> from gofast.utils.transformers import FrameUnion
+    >>> from gofast.tools.transformers import FrameUnion
     >>> X_= fetch_data ('Bagoue original').get('data=dfy1')
     >>> frameObj = FrameUnion(X_, encoding =OneHotEncoder)
     >>> X= frameObj.fit_transform(X_)

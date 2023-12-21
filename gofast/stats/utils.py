@@ -20,11 +20,11 @@ from .._typing import (
     DataFrame, 
     ArrayLike 
     )
-from ..utils.validator import ( 
+from ..tools.validator import ( 
     build_data_if , 
     assert_xy_in 
     )
-from ..utils.funcutils import ( 
+from ..tools.funcutils import ( 
     to_numeric_dtypes ,
     ellipsis2false 
     )

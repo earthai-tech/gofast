@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 
-from .base import ( 
+from .utils import ( 
     mean,
     median,
     mode,
@@ -22,7 +22,6 @@ from .base import (
     kmeans,
     
     )
-
 from .proba import (  
     normal_pdf,
     normal_cdf, 

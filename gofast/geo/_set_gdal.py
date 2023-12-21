@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """
-Created on Wed Oct 26 16:46:43 2022
 @author: Daniel
 """
 import re 

@@ -39,7 +39,7 @@ as_frame : bool, default=False
     If True, the data is a pandas DataFrame including columns with
     appropriate types (numeric). The target is
     a pandas DataFrame or Series depending on the number of target columns.
-    If `as_frame` is False, then returning a :class:`~gofast.utils.Boxspace`
+    If `as_frame` is False, then returning a :class:`~gofast.tools.Boxspace`
     dictionary-like object, with the following attributes:
     - data : {{ndarray, dataframe}} of shape {shape}
         The data matrix. If `as_frame=True`, `data` will be a pandas
@@ -68,12 +68,12 @@ as_frame : bool, default=False
 tag, data_names: None, 
     Always None for API consistency 
 kws: dict, 
-    Keywords arguments pass to :func:`~gofast.utils.coreutils._is_readable` 
+    Keywords arguments pass to :func:`~gofast.tools.coreutils._is_readable` 
     function for parsing data. 
     
 Returns 
 --------
-data : :class:`~gofast.utils.Boxspace`
+data : :class:`~gofast.tools.Boxspace`
     Dictionary-like object, with the following attributes.
     data : {{ndarray, dataframe}} 
         The data matrix. If `as_frame=True`, `data` will be a pandas
