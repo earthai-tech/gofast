@@ -125,7 +125,7 @@ FeatureUnion(transformer_list=[('num_pipeline',
                                                  OneHotEncoder())]))])
 ```  
 Rather than returning an automated pipeline, user can get the transformed data in 
-on line of code by setting `` the argument of `transform ` parameter to ``True``as 
+on line of code by setting the argument of `transform ` parameter to ``True`` as 
 ```python 
 
 >>> transformed_data = gf.make_pipe ( cleaned_data, transform=True )
@@ -165,7 +165,7 @@ function is built to simplify your task. To understand why ``gofast`` deserves i
 let try to evaluate three estimators (`SVC`, `DecisionTreeClassifier` and `LogisticRegression`)
 on a simple IRIS dataset. Then we compare the time elapsed with naive and the parallelize approach 
 proposed by ``gofast``. Let do this!
-```
+```python
 >>> import time 
 >>> from sklearn.svm import SVC 
 >>> from sklearn.model_selection import GridSearchCV
