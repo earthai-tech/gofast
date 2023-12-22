@@ -3082,7 +3082,8 @@ def labels_validator (t, /, labels, return_bool = False):
         
     return isvalid if return_bool else  labels 
         
-def bi_selector (d, /,  features =None, return_frames = False ):
+def bi_selector (d, /,  features =None, return_frames = False,
+                 parse_features:bool=... ):
     """ Auto-differentiates the numerical from categorical attributes.
     
     This is usefull to select the categorial features from the numerical 
@@ -3153,11 +3154,14 @@ def bi_selector (d, /,  features =None, return_frames = False ):
     ... ['hole_id', 'strata_name', 'rock_name', 'aquifer_group', 
          'pumping_level']
     """
+    parse_features, = ellipsis2false(parse_features )
     _assert_all_types( d, pd.DataFrame, objname=" unfunc'bi-selector'")
     if features is None: 
         d, diff_features, features = to_numeric_dtypes(
             d,  return_feature_types= True ) 
     if features is not None: 
+        features = is_iterable(features, exclude_string= True, transform =True, 
+                               parse_string=parse_features )
         diff_features = is_in_if( d.columns, items =features, return_diff= True )
         if diff_features is None: diff_features =[]
     return  ( diff_features, features ) if not return_frames else  (

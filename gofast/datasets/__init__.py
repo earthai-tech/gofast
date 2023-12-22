@@ -13,7 +13,7 @@ from .sets import (
     fetch_data, 
     DATASET
     )
-from .create import ( 
+from ._create import ( 
     make_elogging, 
     make_erp, 
     make_ert, 
@@ -25,7 +25,9 @@ from .create import (
     make_well_logging, 
     make_sounding, 
     make_african_demo, 
-    make_agronomy, 
+    make_agronomy,
+    make_cc_factors, 
+    make_water_demand, 
     )
 __all__=[ 
          "load_bagoue",
@@ -45,6 +47,8 @@ __all__=[
          "make_well_logging", 
          "make_sounding", 
          "make_african_demo", 
+         "make_cc_factors",
          "make_agronomy",
+         "make_water_demand", 
          "DATASET", 
          ]

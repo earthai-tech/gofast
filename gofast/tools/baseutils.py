@@ -763,8 +763,66 @@ def _is_readable (
 
     return f 
     
+def scrape_web_data(
+    url, element, 
+    class_name=None
+    ):
+    """
+    Scrape data from a web page.
 
+    Parameters
+    ----------
+    url : str
+        The URL of the web page to scrape.
+
+    element : str
+        The HTML element to search for.
+
+    class_name : str, optional
+        The class attribute of the HTML element to 
+        narrow down the search.
     
+    Returns
+    -------
+    list of bs4.element.Tag
+        A list of BeautifulSoup Tag objects that match the search query.
+
+    Examples
+    --------
+    >>> url = 'https://example.com'
+    >>> element = 'div'
+    >>> class_name = 'content'
+    >>> data = scrape_web_data(url, element, class_name)
+    >>> for item in data:
+    >>>     print(item.text)
+    # Assuming the function scrape_web_data is defined as above.
+
+    >>> url = 'https://example.com/articles'
+    >>> element = 'h1'
+    >>> data = scrape_web_data(url, element)
+
+    >>> for header in data:
+           print(header.text)  # prints the text of each <h1> tag
+
+    """
+    
+    import_optional_dependency('requests' ) 
+    extra= (" Needs `BeautifulSoup` from `bs4` package" )
+    import_optional_dependency('bs4', extra = extra  ) 
+    import requests
+    from bs4 import BeautifulSoup
+
+    response = requests.get(url)
+    if response.status_code == 200:
+        html_content = response.text
+        soup = BeautifulSoup(html_content, 'html.parser')
+        if class_name:
+            elements = soup.find_all(element, class_=class_name)
+        else:
+            elements = soup.find_all(element)
+        return elements
+    else:
+        response.raise_for_status()  
     
     
     

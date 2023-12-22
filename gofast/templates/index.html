@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoFast: Accelerate Your Machine Learning Workflow</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* Custom CSS for styling */
+        body {
+            padding-top: 50px;
+        }
+        .header {
+            background: #007bff;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        /* ... other styles ... */
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>GoFast</h1>
+        <p>Accelerate Your Machine Learning Workflow</p>
+    </div>
+
+    <div class="container">
+        <h2>Submit Your Information</h2>
+        <form id="dataForm" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="name">Name:</label>
+                <input type="text" class="form-control" id="name" name="name" required>
+            </div>
+            <div class="form-group">
+                <label for="email">Email:</label>
+                <input type="email" class="form-control" id="email" name="email" required>
+            </div>
+            <div class="form-group">
+                <label for="file">Upload File:</label>
+                <input type="file" class="form-control" id="file" name="file">
+            </div>
+            <button type="submit" class="btn btn-primary">Submit</button>
+        </form>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            $("#dataForm").on("submit", function(event) {
+                event.preventDefault();
+                let formData = new FormData(this);
+                $.ajax({
+                    type: "POST",
+                    url: "/submit",
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function(response) {
+                        console.log(response);
+                        alert("Data submitted successfully.");
+                    },
+                    error: function(xhr, status, error) {
+                        console.error(error);
+                        alert("An error occurred.");
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>

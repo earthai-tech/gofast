@@ -13,9 +13,10 @@ import random
 from datetime import timedelta
 
 from ..tools.box import Boxspace 
-from ..tools.funcutils import ellipsis2false , assert_ratio
+from ..tools.funcutils import ( 
+    ellipsis2false , assert_ratio, is_iterable, 
+    is_in_if ) 
 from sklearn.model_selection import train_test_split 
-
 
 def make_african_demo(*, 
     start_year=1960, end_year=2020, 
@@ -25,6 +26,7 @@ def make_african_demo(*,
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
+    noises: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -151,14 +153,18 @@ def make_african_demo(*,
                'GDP_PerCapita'
                ]
     demography_dataset = pd.DataFrame(data, columns=columns)
-
+  
+    tnames = list( is_iterable(
+        tnames or 'GDP_PerCapita', exclude_string= True, transform =True ) ) 
+    
     demography_dataset = _manage_data(
         demography_dataset,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
         tnames=tnames, 
-        test_size=test_size, 
+        test_size=test_size,
+        noises= noises, 
         seed=seed
         ) 
 
@@ -176,6 +182,7 @@ def make_agronomy(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
+    noises: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -325,8 +332,11 @@ def make_agronomy(
                'PesticideAmount_kg_per_hectare', 
                'CropYield_kg_per_hectare'
                ]
+    
     agronomy_dataset = pd.DataFrame(data, columns=columns)
-
+    tnames = list( is_iterable(
+        tnames or 'CropYield_kg_per_hectare',exclude_string= True,
+        transform =True ) ) 
     agronomy_dataset = _manage_data(
         agronomy_dataset,
         as_frame=as_frame, 
@@ -334,6 +344,7 @@ def make_agronomy(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
+        noises= noises, 
         seed=seed
         ) 
     return agronomy_dataset
@@ -346,6 +357,7 @@ def make_mining(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
+    noises: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -539,15 +551,18 @@ def make_mining(
         'EquipmentAge_years': equipment_ages,
         'DailyProduction_tonnes': daily_productions
     })
-
+    tnames = list (is_iterable ( 
+        tnames or 'DailyProduction_tonnes',exclude_string= True, transform =True )
+        )
     mining_dataset = _manage_data(
         mining_dataset,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
         tnames=tnames, 
-        test_size=test_size, 
-        seed=seed
+        test_size=test_size,
+        noises= noises, 
+        seed=seed, 
         ) 
     return mining_dataset
 
@@ -560,6 +575,7 @@ def make_sounding(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
+    noises: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -697,6 +713,9 @@ def make_sounding(
         'SeismicVelocity_m_s': velocities
     })
 
+    tnames = list (is_iterable ( 
+        tnames or 'Resistivity_OhmMeter',exclude_string= True, transform =True )
+        )
     return _manage_data(
         sounding_data,
         as_frame=as_frame, 
@@ -704,6 +723,7 @@ def make_sounding(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
+        noises= noises, 
         seed=seed
         ) 
 
@@ -714,6 +734,7 @@ def make_medical_diagnostic(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
+    noises: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -817,7 +838,7 @@ def make_medical_diagnostic(
     
     # Demographic information
     ages = np.random.randint(0, 100, samples)
-    genders = np.random.choice(['Male', 'Female', 'Other'], samples)
+    genders = np.random.choice(['Male', 'Female'], samples)
     ethnicities = np.random.choice(['Ethnicity1', 'Ethnicity2', 
                                     'Ethnicity3', 'Ethnicity4'], samples)
     weights = np.random.uniform(50, 120, samples)  # in kilograms
@@ -866,13 +887,18 @@ def make_medical_diagnostic(
         # ...
         # Add additional columns for other features
     })
+    tnames = list (is_iterable (tnames or [
+        'HistoryOfDiabetes','HistoryOfHypertension','HistoryOfHeartDisease'],
+        exclude_string= True, transform =True )
+        )
     return _manage_data(
         medical_dataset,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
         tnames=tnames, 
-        test_size=test_size, 
+        test_size=test_size,
+        noises= noises, 
         seed=seed
         ) 
 
@@ -886,6 +912,7 @@ def make_well_logging(*,
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
+    noises: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -1008,6 +1035,10 @@ def make_well_logging(*,
         'NeutronPorosity_Percent': neutron_porosity,
         'Density_g_cm3': density
     })
+    tnames = list (is_iterable ( 
+        tnames or 'NeutronPorosity_Percent', exclude_string= True,
+        transform =True )
+        )
 
     return _manage_data(
         well_logging_dataset,
@@ -1016,6 +1047,7 @@ def make_well_logging(*,
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
+        noises= noises, 
         seed=seed
         ) 
 
@@ -1029,6 +1061,7 @@ def make_ert(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
+    noises: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -1160,7 +1193,9 @@ def make_ert(
         'BatteryVoltage_V': battery_voltage,
         'EquipmentType': equipment_type
     })
-
+    tnames = list (is_iterable ( 
+        tnames or 'Resistivity_OhmMeter', exclude_string= True, transform =True )
+        )
     return _manage_data(
         ert_dataset,
         as_frame=as_frame, 
@@ -1168,6 +1203,7 @@ def make_ert(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
+        noises= noises, 
         seed=seed
         ) 
 
@@ -1184,6 +1220,7 @@ def make_tem(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
+    noises: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -1314,14 +1351,17 @@ def make_tem(
         'TEM_Measurement': measurements,
         'EquipmentType': equipment
     })
-
+    tnames = list (is_iterable ( 
+        tnames or 'TEM_Measurement', exclude_string= True, transform =True )
+        )
     return _manage_data(
         tem_survey_data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
         tnames=tnames, 
-        test_size=test_size, 
+        test_size=test_size,
+        noises= noises, 
         seed=seed
         ) 
 
@@ -1335,6 +1375,7 @@ def make_erp(*,
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
+    noises: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -1475,7 +1516,9 @@ def make_erp(*,
         'Step': steps,
         'Resistivity': resistivities
     })
-
+    tnames = list (is_iterable ( 
+        tnames or 'Resistivity', exclude_string= True, transform =True )
+        )
     return _manage_data(
         data,
         as_frame=as_frame, 
@@ -1483,6 +1526,7 @@ def make_erp(*,
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
+        noises= noises, 
         seed=seed
         ) 
 
@@ -1498,6 +1542,7 @@ def make_elogging(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
+    noises: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -1623,6 +1668,9 @@ def make_elogging(
                              'Message': messages})
     log_data.sort_values(by='Timestamp', inplace=True)
     
+    tnames = list (is_iterable ( 
+        tnames or 'LogLevel', exclude_string= True, transform =True )
+        )
     return _manage_data(
         log_data,
         as_frame=as_frame, 
@@ -1630,22 +1678,24 @@ def make_elogging(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
+        noises= noises, 
         seed=seed
         ) 
 
 
 def make_gadget_sales(*, 
-        start_date='2021-12-26', 
-        end_date='2022-01-10', 
-        samples=500, 
-        as_frame:bool =..., 
-        return_X_y:bool = ..., 
-        split_X_y:bool= ..., 
-        tnames:list=None,  
-        test_size:float =.3, 
-        seed:int | np.random.RandomState = None, 
-        **kws
-        ):
+    start_date='2021-12-26', 
+    end_date='2022-01-10', 
+    samples=500, 
+    as_frame:bool =..., 
+    return_X_y:bool = ..., 
+    split_X_y:bool= ..., 
+    tnames:list=None,  
+    test_size:float =.3, 
+    noises: float=None, 
+    seed:int | np.random.RandomState = None, 
+    **kws
+    ):
     """
     Generates a dataset of gadget sales data for girls and boys after the 
     Christmas holiday.
@@ -1769,6 +1819,10 @@ def make_gadget_sales(*,
                                'Gadget': gadgets, 'Gender': gender, 
                                'UnitsSold': units_sold})
     sales_data.sort_values(by='SaleDate', inplace=True)
+    
+    tnames = list (is_iterable ( 
+        tnames or 'UnitsSold', exclude_string= True, transform =True )
+        )
     return _manage_data(
         sales_data,
         as_frame=as_frame, 
@@ -1776,6 +1830,7 @@ def make_gadget_sales(*,
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
+        noises= noises, 
         seed=seed
         ) 
 
@@ -1787,6 +1842,7 @@ def make_retail_store(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
+    noises: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -1922,15 +1978,356 @@ def make_retail_store(
         'LikelyToRespond': target
     })
 
+    tnames = list (is_iterable ( 
+        tnames or 'Income', exclude_string= True, transform =True )
+        )
     return _manage_data(
         data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
         tnames=tnames, 
+        test_size=test_size,
+        noises= noises, 
+        seed=seed
+        ) 
+
+def make_cc_factors(
+    *, samples=1000,  
+    noises=.1, 
+    as_frame:bool =..., 
+    return_X_y:bool = ..., 
+    split_X_y:bool= ..., 
+    tnames:list=None,  
+    test_size:float =.3, 
+    seed:int | np.random.RandomState = None, 
+    **kws
+    ):
+    """
+    Generate a synthetic climate change dataset with the most influential 
+    features.
+
+    Parameters
+    ----------
+    samples : int, default=1000.
+        Number of samples in the dataset.
+
+    noises : float, default='10%'
+        Probability of a value being missing in the dataset, by default 0.1.
+
+    as_frame : bool, default=False
+        If True, the data is a pandas DataFrame including columns with
+        appropriate dtypes (numeric). The target is
+        a pandas DataFrame or Series depending on the number of target columns.
+        If `return_X_y` is True, then (`data`, `target`) will be pandas
+        DataFrames or Series as described below.
+
+    return_X_y : bool, default=False
+        If True, returns ``(data, target)`` instead of a Bowlspace object. See
+        below for more information about the `data` and `target` object.
+        
+    split_X_y: bool, default=False,
+        If True, the data is splitted to hold the training set (X, y)  and the 
+        testing set (Xt, yt) with the according to the test size ratio. 
+        
+    tnames: str, optional 
+        the name of the target to retreive. If ``None`` the default target columns 
+        are collected and may be a multioutput `y`. For a singular classification 
+        or regression problem, it is recommended to indicate the name of the target 
+        that is needed for the learning task. 
+        
+    test_size: float, default is {{.3}} i.e. 30% (X, y)
+        The ratio to split the data into training (X, y)  and testing (Xt, yt) set 
+        respectively. 
+        
+    seed: int, array-like, BitGenerator, np.random.RandomState, \
+        np.random.Generator, optional
+       If int, array-like, or BitGenerator, seed for random number generator. 
+       If np.random.RandomState or np.random.Generator, use as given.
+       
+    Returns
+    -------
+    pandas.DataFrame if ``as_frame=True`` and ``return_X_y=False``
+        A DataFrame representing the climate change dataset.
+    data : :class:`~gofast.tools.box.Boxspace` object
+        Dictionary-like object, with the following attributes.
+        data : {ndarray, dataframe} 
+            The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
+        target: {ndarray, Series} 
+            The classification target. If `as_frame=True`, `target` will be
+            a pandas Series.
+        feature_names: list
+            The names of the dataset columns.
+        target_names: list
+            The names of target classes.
+        frame: DataFrame 
+            Only present when `as_frame=True`. DataFrame with `data` and
+            `target`.
+    data, target: tuple if `return_X_y` is ``True``
+        A tuple of two ndarray. The first containing a 2D array of shape
+        (n_samples, n_features) with each row representing one sample and
+        each column representing the features. The second ndarray of shape
+        (n_samples,) containing the target samples.
+
+    X, Xt, y, yt: Tuple if `split_X_y` is ``True`` 
+        A tuple of two ndarray (X, Xt). The first containing a 2D array of:
+            
+        .. math:: 
+            
+            \\text{shape}(X, y) =  1-  \\text{test_ratio} *\
+                (n_{samples}, n_{features}) *100
+            
+            \\text{shape}(Xt, yt)= \\text{test_ratio} * \
+                (n_{samples}, n_{features}) *100
+        
+        where each row representing one sample and each column representing the 
+        features. The second ndarray of shape(n_samples,) containing the target 
+        samples.  
+        
+    Examples 
+    --------
+    >>> # Parameters for the dataset
+    >>> num_data_points = 1000
+    >>> # Generating the climate change dataset with missing values
+    >>> climate_change_data = generate_climate_change_dataset(num_data_points)
+    >>> # Display information about the generated dataset
+    >>> print(f"Dataset shape: {climate_change_data.shape}")
+    >>> print(f"Sample data:\n{climate_change_data[:5]}")
+    """
+
+    # Features influencing climate change
+    features= {
+        "GHG": "Greenhouse Gas Emissions (CO2, Methane, Nitrous Oxide)",
+        "Def&Land": "Deforestation and Land Use Changes",
+        "FossilFuels": "Burning of Fossil Fuels (Coal, Oil, Natural Gas)",
+        "IndustProc": "Industrial Processes and Manufacturing",
+        "Agri&Livestock": "Agriculture and Livestock Farming (Methane from Cattle)",
+        "Transport": "Transportation (Road, Air, Maritime)",
+        "EnergyProd": "Energy Production and Consumption",
+        "Urban&Infra": "Urbanization and Infrastructure Development",
+        "WasteMgmt": "Waste Management and Landfills",
+        "MeltPolar": "Melting of Polar Ice Caps and Glaciers",
+        "ChgLandAlbedo": "Changes in Land Surface Albedo",
+        "SolarIrr": "Solar Irradiance and Variability",
+        "Aerosols": "Aerosols and Particulate Matter in the Atmosphere",
+        "OzoneDepl": "Ozone Depletion in the Stratosphere",
+        "ChgOceanCirc": "Changes in Ocean Circulation and Currents",
+        "OceanAcid": "Ocean Acidification due to CO2 Absorption",
+        "Permafrost": "Permafrost Thawing and Release of Methane",
+        "ChgAtmWater": "Changes in Atmospheric Water Vapor",
+        "LandDeg&SoilErosion": "Land Degradation and Soil Erosion",
+        "HumanAct&Biodiv": "Human Activities Impacting Biodiversity",
+        "NatDisasters": "Natural Disasters (Floods, Hurricanes, Wildfires)",
+        "Feedbacks": "Feedback Mechanisms (Positive/Negative Climate Feedbacks)"
+    }
+    # Random seed for reproducibility
+    np.random.seed(seed)
+    
+    # # Generate synthetic data for the features
+    # data = np.random.rand(samples, len(features))
+
+    # # Introduce missing values randomly (replace some values with NaN)
+    # num_missing = int(np.round(samples * len(features) * missing_percentage))
+    # indices_to_replace = np.random.choice(range(samples * len(features)), 
+    #                                       num_missing, replace=False)
+    # data_flattened = data.flatten()
+    # data_flattened[indices_to_replace] = np.nan
+    # data = data_flattened.reshape((samples, len(features)))
+
+    # df = pd.DataFrame ( data , columns = features )
+    noises = assert_ratio(noises)
+    data = np.random.randn(samples, len(features)) * 10  # Random data generation
+    missing_mask = np.random.random(size=data.shape) < noises
+    data[missing_mask] = np.nan  # Introduce missing values based on the probability
+    
+    # Generating a Pandas DataFrame
+    cc_data = pd.DataFrame(data, columns=list( features.keys()))
+    
+    tnames = list (is_iterable ( 
+        tnames or 'Feedbacks', 
+        exclude_string= True, transform =True )
+        )
+    cc_data = add_noises_to(cc_data, noises = noises )
+    
+    return _manage_data(
+        cc_data,
+        as_frame=as_frame, 
+        return_X_y= return_X_y, 
+        split_X_y=split_X_y, 
+        tnames=tnames, 
+        features_descr=features, 
         test_size=test_size, 
         seed=seed
         ) 
+
+
+def make_water_demand(
+    *, samples=700, 
+    as_frame =..., 
+    return_X_y = ..., 
+    noises:float=None, 
+    split_X_y= ..., 
+    tnames=None,  
+    test_size =.3, 
+    seed = None, 
+    ):
+    """
+    Generate a synthetic water demand needs dataset.
+
+    Parameters
+    ----------
+    samples : int, default=700
+        Number of samples or data points in the dataset.
+
+    noises : float, Optional
+        Probability of a value being missing in the dataset.
+
+    as_frame : bool, default=False
+        If True, the data is a pandas DataFrame including columns with
+        appropriate dtypes (numeric). The target is
+        a pandas DataFrame or Series depending on the number of target columns.
+        If `return_X_y` is True, then (`data`, `target`) will be pandas
+        DataFrames or Series as described below.
+
+    return_X_y : bool, default=False
+        If True, returns ``(data, target)`` instead of a Bowlspace object. See
+        below for more information about the `data` and `target` object.
+        
+    split_X_y: bool, default=False,
+        If True, the data is splitted to hold the training set (X, y)  and the 
+        testing set (Xt, yt) with the according to the test size ratio. 
+        
+    tnames: str, optional 
+        the name of the target to retreive. If ``None`` the default target columns 
+        are collected and may be a multioutput `y`. For a singular classification 
+        or regression problem, it is recommended to indicate the name of the target 
+        that is needed for the learning task. 
+        
+    test_size: float, default is {{.3}} i.e. 30% (X, y)
+        The ratio to split the data into training (X, y)  and testing (Xt, yt) set 
+        respectively. 
+        
+    seed: int, array-like, BitGenerator, np.random.RandomState, \
+        np.random.Generator, optional
+       If int, array-like, or BitGenerator, seed for random number generator. 
+       If np.random.RandomState or np.random.Generator, use as given.
+       
+    Returns
+    -------
+    pandas.DataFrame if ``as_frame=True`` and ``return_X_y=False``
+        A DataFrame representing the water demand needs dataset.
+    data : :class:`~gofast.tools.box.Boxspace` object
+        Dictionary-like object, with the following attributes.
+        data : {ndarray, dataframe} 
+            The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
+        target: {ndarray, Series} 
+            The classification target. If `as_frame=True`, `target` will be
+            a pandas Series.
+        feature_names: list
+            The names of the dataset columns.
+        target_names: list
+            The names of target classes.
+        frame: DataFrame 
+            Only present when `as_frame=True`. DataFrame with `data` and
+            `target`.
+    data, target: tuple if `return_X_y` is ``True``
+        A tuple of two ndarray. The first containing a 2D array of shape
+        (n_samples, n_features) with each row representing one sample and
+        each column representing the features. The second ndarray of shape
+        (n_samples,) containing the target samples.
+
+    X, Xt, y, yt: Tuple if `split_X_y` is ``True`` 
+        A tuple of two ndarray (X, Xt). The first containing a 2D array of:
+            
+        .. math:: 
+            
+            \\text{shape}(X, y) =  1-  \\text{test_ratio} *\
+                (n_{samples}, n_{features}) *100
+            
+            \\text{shape}(Xt, yt)= \\text{test_ratio} * \
+                (n_{samples}, n_{features}) *100
+        
+        where each row representing one sample and each column representing the 
+        features. The second ndarray of shape(n_samples,) containing the target 
+        samples.  
+        
+     Examples
+     --------
+     >>> from gofast.datasets import make_water_demand 
+     >>> b = make_water_demand ()
+     >>> b.frame
+     Out[80]: 
+          Agri Demand  ...         SDG6_Challenge
+     0      25.098231  ...        Water Pollution
+     1      34.665733  ...         Water Scarcity
+     2      20.573921  ...  Ecosystem Degradation
+     3      72.900736  ...         Lack of Access
+     4      55.853812  ...  Ecosystem Degradation
+     ..           ...  ...                    ...
+     695    48.090530  ...         Water Scarcity
+     696    97.867586  ...                    NaN
+     697    89.923326  ...  Ecosystem Degradation
+     698          NaN  ...         Water Scarcity
+     699          NaN  ...         Lack of Access
+
+     [700 rows x 39 columns]
+    """
+    # Random seed for reproducibility
+    np.random.seed(seed)
+    
+    # Initialize an empty dictionary to store data for each feature
+    data_dict = {}
+
+    # Generate synthetic data for water needs features
+    for feature in WATER_QUAN_NEEDS.keys():
+        data_dict[feature] = np.random.uniform(0, 100, samples)
+
+    # Generate synthetic data for categorical features
+    WATER_QUAL_NEEDS ["Economic Status"]= np.random.uniform(
+        1000, 50000, samples).round(2)
+
+    for feature, possible_values in WATER_QUAL_NEEDS.items():
+        # first skip when feature is Region to compute later 
+        if feature =='Region': 
+            continue 
+        
+        data_dict[feature] = np.random.choice(possible_values, samples)
+
+    # now get the feature Ehnicity and found 
+    # random region where the language is spoken 
+    data_dict["Ethnicity"]
+    regions =[]
+    for language  in data_dict["Ethnicity"]: 
+        ethnicity_lang_value = np.random.choice (
+            WATER_QUAL_NEEDS["Region"][language], 1 )[0]
+        regions.append ( ethnicity_lang_value ) 
+    # then create the data "REgion 
+    data_dict ["Region"] = regions 
+
+    # Generate synthetic data for SDG6 challenges
+    sdg6_challenges = list(SDG6_CHALLENGES.keys())
+    data_dict["SDG6_Challenge"] = np.random.choice(sdg6_challenges, samples)
+
+    # Create a DataFrame from the data dictionary
+    water_data  = pd.DataFrame(data_dict)
+
+    tnames = list (is_iterable ( 
+        tnames or 'Drinking', 
+        exclude_string= True, transform =True )
+        )
+    
+    return _manage_data(
+        water_data,
+        as_frame=as_frame, 
+        return_X_y= return_X_y, 
+        split_X_y=split_X_y, 
+        tnames=tnames, 
+        descr= { **WATER_QUAN_NEEDS, **WATER_QUAL_NEEDS,**SDG6_CHALLENGES}, 
+        test_size=test_size, 
+        noises = noises, 
+        seed=seed
+        ) 
+
 
 def _manage_data(
     data, /, 
@@ -1939,6 +2336,7 @@ def _manage_data(
     split_X_y= ..., 
     tnames=None,  
     test_size =.3, 
+    noises=None, 
     seed = None, 
     **kws
      ): 
@@ -2022,32 +2420,252 @@ def _manage_data(
     as_frame, return_X_y, split_X_y = ellipsis2false(
         as_frame, return_X_y, split_X_y )
     
+    frame = data.copy() 
     if return_X_y : 
         y = data [tnames] 
-        data.pop( tnames, inplace =True )
+        data.drop( columns = tnames, inplace =True )
         
-    feature_names = list(data.columns)
+    feature_names = (is_in_if(list( frame.columns), tnames, return_diff =True )
+                     if tnames else list(frame.columns ))
     
+    # Noises only in the data not in target  
+    data = add_noises_to(data, noises = noises )
+    if not as_frame: 
+        data = np.array (data )
+        y = np.array(y ) 
+            
     if split_X_y: 
         return train_test_split ( 
             data, y , test_size =assert_ratio (test_size),
             random_state=seed) 
+
+    if return_X_y : 
+        return data, y 
     
-    if not as_frame: 
-        data = np.array (data )
-        y = np.array(y ) 
-        
-        
-    if as_frame: 
-        return ( data, y)  if return_X_y else data 
+    if as_frame:
+        frame [feature_names] = add_noises_to(
+            frame [feature_names], noises =noises )
+        return frame
     
     return Boxspace(
-        data=data.values,
-        target=data[tnames].values,
-        frame=data,
+        data=data,
+        target=frame[tnames].values ,
+        frame=frame,
         tnames=tnames,
         target_names = tnames,
         feature_names=feature_names,
         )
     return
         
+def add_noises_to(data, /, noises=.1):
+    """
+    Adds NaN values to a pandas DataFrame.
+
+    Parameters
+    ----------
+    dataframe : pandas.DataFrame
+        The DataFrame to which NaN values will be added.
+    noises : float, default='10%'
+        The percentage of values to be replaced with NaN in each column. 
+        This must be a number between 0 and 1. Default is 0.1 (10%).
+
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame with NaN values added.
+
+    Examples
+    --------
+    >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': ['x', 'y', 'z']})
+    >>> new_df = add_nan_to_dataframe(df, nan_percentage=0.2)
+    """
+    if noises is None: 
+        return data 
+    noises = assert_ratio(noises)
+    # Copy the dataframe to avoid changing the original data
+    df_with_nan = data.copy()
+
+    # Calculate the number of NaNs to add in each column based on the percentage
+    nan_count_per_column = int(noises * len(df_with_nan))
+
+    for column in df_with_nan.columns:
+        # Randomly pick indices to replace with NaN
+        nan_indices = random.sample(range(len(df_with_nan)), nan_count_per_column)
+        df_with_nan.loc[nan_indices, column] = np.nan
+
+    return df_with_nan
+
+
+# Features representing water needs
+WATER_QUAN_NEEDS= {
+    "Agri Demand": "Agricultural Water Demand",
+    "Indus Demand": "Industrial Water Demand",
+    "Domestic Demand": "Domestic Water Demand",
+    "Municipal Demand": "Municipal Water Demand",
+    "Livestock Needs": "Livestock Water Needs",
+    "Irrigation Req": "Irrigation Water Requirements",
+    "Hydropower Gen": "Hydropower Generation",
+    "Aquaculture Usage": "Aquaculture Water Usage",
+    "Mining Consumption": "Mining Water Consumption",
+    "Thermal Plant Consumption": "Thermal Power Plant Water Consumption",
+    "Ecosystems": "Water for Ecosystems",
+    "Forestry": "Water for Forestry",
+    "Recreation": "Water for Recreation",
+    "Urban Dev": "Water for Urban Development",
+    "Drinking": "Water for Drinking",
+    "Sanitation": "Water for Sanitation",
+    "Food Processing": "Water for Food Processing",
+    "Textile Industry": "Water for Textile Industry",
+    "Paper Industry": "Water for Paper Industry",
+    "Chemical Industry": "Water for Chemical Industry",
+    "Pharma Industry": "Water for Pharmaceutical Industry",
+    "Construction": "Water for Construction",
+    "Energy Production": "Water for Energy Production",
+    "Oil Refining": "Water for Oil Refining",
+    "Metals Production": "Water for Metals Production",
+    "Auto Manufacturing": "Water for Automobile Manufacturing",
+    "Electronics Manufacturing": "Water for Electronics Manufacturing",
+    "Plastics Manufacturing": "Water for Plastics Manufacturing",
+    "Leather Industry": "Water for Leather Industry",
+    "Beverage Industry": "Water for Beverage Industry",
+    "Pulp & Paper Industry": "Water for Pulp and Paper Industry",
+    "Sugar Industry": "Water for Sugar Industry",
+    "Cement Industry": "Water for Cement Industry",
+    "Fertilizer Industry": "Water for Fertilizer Industry",
+}
+
+# Define categorical feature values
+WATER_QUAL_NEEDS= {
+    "Water Quality": ["Excellent",
+                      "Good", 
+                      "Fair", 
+                      "Poor", 
+                      "Very Poor",
+                      "Toxic", 
+                      "Polluted", 
+                      "Eutrophic", 
+                      "Saline",
+                      "Acidic/Alkaline"
+                      ],
+    "Ethnicity": [
+        "Mandarin Chinese", 
+        "Spanish", 
+        "French", 
+        "Arabic", 
+        "Hindi",
+        "Bengali", 
+        "Russian", 
+        "Portuguese",
+        "Japanese",
+        "Swahili", 
+        "Hausa",
+        "Yoruba",
+        "Zulu", "Amharic",
+        "Agni",
+        "Baoule", 
+        "Bron",
+        "Asante"
+        ],
+    "Region": {
+        "English": [
+            "United States", 
+            "United Kingdom",
+            "Canada",
+            "Australia", 
+            "South Africa"
+                    ],
+        "Mandarin Chinese": [
+            "China (Mainland China)",
+            "Taiwan",
+            "Singapore", 
+            "Malaysia", 
+            "Indonesia"
+             ],
+        "Spanish": [
+            "Mexico",
+            "United States (primarily in areas with a large Hispanic population)",
+            "Spain", 
+            "Colombia",
+            "Argentina"
+                    ],
+        "French": [
+        "France",
+        "Democratic Republic of the Congo",
+        "Canada (particularly in Quebec)", 
+        "Belgium",
+        "Cote d'Ivoire (Ivory Coast)"
+                   ],
+        "Arabic": [
+            "Egypt", 
+            "Saudi Arabia", 
+            "Algeria", 
+            "Morocco", 
+            "Sudan"
+                   ],
+        "Hindi": [
+            "India",
+            "Nepal",
+            "Fiji",
+            "Trinidad and Tobago",
+            "Guyana"
+                  ],
+        "Bengali": [
+            "Bangladesh",
+            "India (particularly in the state of West Bengal)",
+            "West Bengal (India) is a major region."
+            ],
+        "Russian": [
+            "Russia (primarily in the European part)",
+            "Kazakhstan", 
+            "Ukraine",
+            "Belarus",
+            "Kyrgyzstan"
+                    ],
+        "Portuguese": [
+            "Brazil", 
+            "Portugal",
+            "Mozambique", 
+            "Angola",
+            "Guinea-Bissau"
+                       ],
+        "Japanese": [
+            "Japan (natively spoken)",
+            "Brazil (has a significant Japanese-speaking community)",
+            "Hawaii, USA (also has a Japanese-speaking community)",
+            "Peru (small Japanese-speaking community)",
+            "Canada (particularly in Vancouver and Toronto)"
+                     ],
+        "Swahili": [
+            "Kenya", 
+            "Tanzania",
+            "Uganda", 
+            "Rwanda", 
+            "Burundi",
+            "Democratic Republic of Congo"
+                    ],
+        "Hausa": [
+            "Nigeria","Niger"
+                  ],
+        "Yoruba": [
+            "Nigeria","Benin", "Togo"
+                   ],
+        "Zulu": ["South Africa (particularly in the KwaZulu-Natal province)"
+                 ],
+        "Amharic": ["Ethiopia"],
+        "Agni": ["Cote d’Ivoire"],
+        "Baoule": ["Cote d’Ivoire"],
+        "Bron": ["Cote d'Ivoire","Ghana"],
+        "Asante": ["Ghana", "Cote d'Ivoire"],
+        },
+        # Random GDP per capita values
+    "Economic Status": [], # will define later  # np.random.uniform(1000, 50000, num_samples).round(2),  
+}
+
+# SDG6 Challenges dictionary with shorthand keys
+SDG6_CHALLENGES = {
+    "Lack of Access": "Access",
+    "Water Scarcity": "Scarcity",
+    "Water Pollution": "Pollution",
+    "Ecosystem Degradation": "Ecosystems",
+    "Governance Issues": "Governance",
+}

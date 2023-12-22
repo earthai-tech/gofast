@@ -21,17 +21,19 @@
 
 ## Demo 
 
-For demonstration, we will use a composite dataset stored in the software. The data is composed 
-of dirty numerical and categorical variables including useless features: 
+For demonstration, we use a composite dataset named `medical_diagnostic` stored in the software. 
+The data is composed of a mixte numerical and categorical variables with multioutput target `y` by default:
+For the example, we keep the  `HistoryOfDiabetes` as a unique output target and drop the rest.
 
 ```python  
 >>> import gofast as gf 
->>> X, y = gf.fetch_data ('bagoue', as_frame =True, return_X_y=True )
+>>> from gofast.datasets import make_medical_diagnostic 
+>>> X, y = make_medical_diagnostic (as_frame =True, return_X_y=True , tnames='HistoryOfDiabetes')
 >>> X.head(2) 
 Out[1]: 
-   num name      east  ...         ohmS        lwi                    geol
-0  1.0   b1  790496.0  ...  1666.165142  32.023585  VOLCANO-SEDIM. SCHISTS
-1  2.0   b2  791227.0  ...  1135.551531  21.406531                GRANITES
+   Age  Gender  ... Cholesterol_mg_dL  Hemoglobin_g_dL
+0   57  Female  ...        213.919645        13.191829
+1    6    Male  ...        163.111149        12.932728
 
 [2 rows x 12 columns]
 ``` 
@@ -40,78 +42,100 @@ We will try a fast manipulation of data in a few line of codes:
 1. **Fast clean and sanitize raw data** 
 
 ``gofast`` has a capability to clean your data, strip the column bad string characters, 
-drop your useless features (e.g., `name`, `num` and `lwi`)  in a one line of code: 
+drop your useless features in a one line of code. To drop  `'HistoryOfHypertension'` and
+`'HistoryOfHeartDisease'`, we can process as : 
 
 ```python
->>> cleaned_data = gf.cleaner (X , columns = 'name num lwi', mode ='drop')
+>>> cleaned_data = gf.cleaner (X , columns = 'HistoryOfHypertension HistoryOfHeartDisease', mode ='drop')
 >>> cleaned_data.shape 
-Out[2]: (431, 9)
+Out[2]: (1000, 12)
 ``` 
 2. **Split numerical and categorical data in one line of code**
  
 User does not need to care about the columns, `gofast` does it for you thanks to 
-``bi_selector`` function by turning the `return_frames` argument to ``True``. By 
-default, it returns the distinct numerical and categorical feature names  as: 
+the ``bi_selector`` function by turning the `return_frames` argument to ``True``. By 
+default, the function returns the distinct numerical and categorical feature names as: 
 
 ```python 
->>> num_features, cat_features= gf.bi_selector (cleaned_data)
+>>> num_features, cat_features= gf.bi_selector (cleaned_data, return_frames=False)
 Out[3]: 
-(['sfi', 'east', 'ohmS', 'power', 'magnitude', 'north'],
- ['shape', 'type', 'geol'])
+(['Hemoglobin_g_dL',
+  'SystolicBP',
+  'Age',
+  'Temperature_C',
+  'DiastolicBP',
+  'BloodSugar_mg_dL',
+  'Cholesterol_mg_dL',
+  'HeartRate',
+  'Weight_kg',
+  'Height_cm'],
+ ['Gender', 'Ethnicity'])
  
 ```
 If features are explicitly passed through the argument of parameter `features`, ``gofast`` 
 returns the remained features accordingly. Here is an example: 
 
 ```python 
->>> remained_features, my_features = gf.bi_selector ( cleaned_data, features ='shape ohmS')
+>>> remained_features, my_features = gf.bi_selector ( cleaned_data, features ='HeartRate DiastolicBP', 
+                                                     parse_features=True )
 Out[4]: 
-(['geol', 'sfi', 'east', 'power', 'type', 'magnitude', 'north'],
- ['shape', 'ohmS'])
+(['Ethnicity',
+  'Hemoglobin_g_dL',
+  'SystolicBP',
+  'Age',
+  'Temperature_C',
+  'BloodSugar_mg_dL',
+  'Cholesterol_mg_dL',
+  'Gender',
+  'Weight_kg',
+  'Height_cm'],
+ ['HeartRate', 'DiastolicBP'])
 ```
 3. **Dual imputation** 
 
 ``gofast`` is able to impute at the same time, the numeric and categorical data 
-via the ``bi-impute`` strategy  in one line of code  as 
+via the ``bi-impute`` strategy  in a one snippet code as 
 
 ```python 
 >>> data_imputed = gf.soft_imputer(cleaned_data,  mode= 'bi-impute')
 ``` 
-The data imputation can be controlled via the parameters `strategy`, `drop_features`, `missing_values`
+The data imputation can be controlled via the parameters `strategy`, `drop_features`, `missing_values` or
 `fill_value`. By default, `the most_frequent` argument is used to impute the categorical features.
 
-4. **Automated pipeline with your data** 
+4. ** Data-based automate pipeline** 
 
 ``gofast`` understands your data and create a fast pipeline for you. If the data contains
 missing values or too dirty, ``gofast`` sanitizes it before proceeding. Multiple lines 
-of codes can henceforth be skipped. This is a proposed pipeline of ``gofast`` according to 
-your dataset: 
-
+of codes can  be skipped henceforth. Here is a proposed pipeline of ``gofast`` based
+on medical diagnostic dataset: 
 ```python 
 >>> auto_pipeline = gf.make_pipe (cleaned_data )
 Out[5]: 
 FeatureUnion(transformer_list=[('num_pipeline',
                                 Pipeline(steps=[('selectorObj',
-                                                 DataFrameSelector(attribute_names=['sfi', 'east', 'ohmS', 'power', 'magnitude', 'north'])),
+                                                 DataFrameSelector(attribute_names=['Hemoglobin_g_dL', 'SystolicBP', 'Age', 'Temperature_C', 'DiastolicBP', 'BloodSugar_mg_dL', 'Cholesterol_mg_dL', 'HeartRate', 'Weight_kg', 'Height_cm'])),
                                                 ('imputerObj',
                                                  SimpleImputer(strategy='median')),
                                                 ('scalerObj',
                                                  StandardScaler())])),
                                ('cat_pipeline',
                                 Pipeline(steps=[('selectorObj',
-                                                 DataFrameSelector(attribute_names=['shape', 'type', 'geol'])),
+                                                 DataFrameSelector(attribute_names=['Gender', 'Ethnicity'])),
                                                 ('OneHotEncoder',
                                                  OneHotEncoder())]))])
 ```  
-Rather than returning an automated pipeline, users can outputed the transformed data by setting 
-`` the argument of `transform ` parameter to ``True``   as 
+Rather than returning an automated pipeline, user can get the transformed data in 
+on line of code by setting `` the argument of `transform ` parameter to ``True``as 
 ```python 
 
 >>> transformed_data = gf.make_pipe ( cleaned_data, transform=True )
 Out[6]: 
-<431x19 sparse matrix of type '<class 'numpy.float64'>'
-	with 3879 stored elements in Compressed Sparse Row format>
+<1000x16 sparse matrix of type '<class 'numpy.float64'>'
+	with 12000 stored elements in Compressed Sparse Row format>
 ```
+``Gofast`` provides many other parameters essential for the user to control its dataset
+before the data transformation. 
+ 
 5. **Manage smartly your target**
 
 For a classification problem, ``gofast`` can efficiently manage your target by specifying  
@@ -119,46 +143,100 @@ the class boundaries and labels names. Then ``gofast`` performs operations and r
 targets thanks to the ``smart_label_classifier`` function. Here is an example
 ```python 
 >>> import numpy as np 
->>> from sklearn.ensemble import RandomForestClassifier
 >>> # categorizing the labels 
->>> yc = gf.smart_label_classifier (y , values = [1, 3, 10 ], 
+>>> np.random.seed(42) # reproduce the same target 
+>>> person_ages= np.random.randint ( 1, 120 , 100 )
+>>> ages_classes = gf.smart_label_classifier (person_ages , values = [10, 18, 25 ], 
                                  labels =['child', 'teenager', 'young', 'adult'] 
                                  ) 
->>> yc.unique() 
-Out[7]: array(['teenager', 'child', 'young', 'adult'], dtype=object)
+>>> # boundaries: <=10: child; (10, 18]: teenager; (18, 25]: young and >25:adults 
 >>> # let visualize the number of counts 
->>> np.unique (yc, return_counts=True )
-Out[8]: 
+>>> np.unique (ages_classes, return_counts=True )
+Out[7]: 
 (array(['adult', 'child', 'teenager', 'young'], dtype=object),
- array([  4, 291,  95,  41], dtype=int64))
->>> # we can rencoded the target data from `make_naive_pipe` as 
->>> Xenc, yenc= gf.make_pipe ( cleaned_data, y = yc ,  transform=True )
->>> np.unique (yenc, return_counts= True) 
-Out[9]: (array([0, 1, 2, 3]), array([  4, 291,  95,  41], dtype=int64))
+ array([76, 13,  5,  6], dtype=int64))
 ``` 
 
 6. **Train multiple estimators** 
 
 Do you want to train multiple estimators in parallel(at the same time) ? Don't worry ``gofast`` 
 does it for you and save your results into a binary disk. The ``parallelize_estimators`` 
-function is built to simplify your task. Here is an example:
-```python
->>> from gofast.datasets import load_iris 
+function is built to simplify your task. To understand why ``gofast`` deserves its name, 
+let try to evaluate three estimators (`SVC`, `DecisionTreeClassifier` and `LogisticRegression`)
+on a simple IRIS dataset. Then we compare the time elapsed with naive and the parallelize approach 
+proposed by ``gofast``. Let do this!
+```
+>>> import time 
+>>> from sklearn.svm import SVC 
+>>> from sklearn.model_selection import GridSearchCV
+>>> from sklearn.tree import DecisionTreeClassifier
+>>> from sklearn.linear_model import LogisticRegression
+>>> from gofast.datasets import load_iris
+
 >>> from gofast.models.optimize import parallelize_estimators 
+>>> from gofast.tools.validator import get_estimator_name
+>>> # load the dataset 
 >>> X, y = load_iris(return_X_y=True)
->>> estimators = [SVC(), DecisionTreeClassifier()]
->>> param_grids = [{'C': [1, 10], 'kernel': ['linear', 'rbf']}, 
-                   {'max_depth': [3, 5, None], 'criterion': ['gini', 'entropy']}
-                   ]
+>>> # construct the estimators or classifiers in our case.
+>>> estimators = [SVC(), DecisionTreeClassifier(), LogisticRegression ()]
+>>> # let get the names of estimators 
+>>> names =[ get_estimator_name( estimator) for estimator in estimators ]
+>>> # Define grid of parameters for GridSearchCV
+>>> param_grids = [{ # for SVM
+                     'C': [1, 10], 'kernel': ['linear', 'rbf']
+                     }, 
+                   {  # for DecisionTreeClassifier
+                   'max_depth': [3, 5, None], 'criterion': ['gini', 'entropy']
+                   }, 
+                   { # for Logistic Regression
+                   'C': [0.1, 1.0, 10.0], 'penalty': ['l1', 'l2'],'solver': ['liblinear']
+                   }]
+>>> 
+>>> # (1) Naive approach 
+>>> 
+>>> # Loop over each classifier and measure training time
+>>> for name, classifier, param_grid  in zip ( names, estimators, param_grids) :
+        print(f"Training {name}...")
+        start_time = time.time()  # Start time
+
+        # Define grid of parameters for GridSearchCV
+
+        # Perform GridSearchCV
+        grid_search = GridSearchCV(estimator=classifier, param_grid=param_grid, cv=5)
+        grid_search.fit(X, y)
+
+        end_time = time.time()  # End time
+        elapsed_time = end_time - start_time  # Calculate elapsed time
+
+        print(f"Training {name} took {elapsed_time:.2f} seconds\n")
+Out[8]:
+Training SVC...
+Training SVC took 0.15 seconds
+
+Training DecisionTreeClassifier...
+Training DecisionTreeClassifier took 0.17 seconds
+
+Training LogisticRegression...
+Training LogisticRegression took 0.13 seconds
+>>> 
+>>> # (2)  Parallelize approach
+>>> 
 >>> parallelize_estimators(estimators, param_grids, X, y, optimizer ='GridSearchCV', 
                        pack_models = True )
-Optimizing Estimators: 100%|###################| 2/2 [00:04<00:00,  2.45s/it]                 
+Optimizing Estimators: 100%|###################| 3/3 [00:00<00:00, 33.22it/s] 
+>>>          
 ```
+When we check the time for three classifiers, the parellized approach (`elapsed time =00s`) is 
+much faster than the naive  approach (`elapsed time =0.45s`). Commonly, after performing 
+several tests with a complex and large dataset on different computers with different processors units,
+the ``gofast`` parallelized approach remains around ten times much faster than the 
+naive search.  
 
 7. **Plot feature importances** 
 
-``gofast`` helps for a fast feature contributions visualization. Here is 
-an example using the ``sklearn.ensemble.RandomForestClassifier``: 
+``gofast`` provides some useful viualisation utilities. For instance, the feature contributions 
+with  the ``RandomForestClassifier`` can be displayed via the ``plot_rf_feature_importances``. 
+Here is an example:
 
 ```python 
 >>> from sklearn.ensemble import RandomForestClassifier 
@@ -167,9 +245,13 @@ an example using the ``sklearn.ensemble.RandomForestClassifier``:
 >>> num_scaled = gf.soft_scaler (data_imputed[num_features],)  
 >>> plot_rf_feature_importances (RandomForestClassifier(), num_scaled, yenc) 
 ``` 
+There are several other tools provided by ``gofast`` that can effectively help users  to 
+fast handling intricate dataset, manipulating features, training models, and perfoming 
+anlyses and maths operations. 
 
 ## Note 
- **gofast** is still under development, the first version should be released soon. 
+
+**gofast** is still under development and should be available for the community soon.
  
  
 ## Contributions 
