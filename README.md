@@ -172,6 +172,7 @@ proposed by ``gofast``. Let do this!
 >>> from sklearn.tree import DecisionTreeClassifier
 >>> from sklearn.linear_model import LogisticRegression
 >>> from gofast.datasets import load_iris
+
 >>> from gofast.models.optimize import parallelize_estimators 
 >>> from gofast.tools.validator import get_estimator_name
 >>> # load the dataset 
