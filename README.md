@@ -22,7 +22,7 @@
 ## Demo 
 
 For demonstration, we use a composite dataset named `medical_diagnostic` stored in the software. 
-The data is composed of a mixte numerical and categorical variables with multioutput target `y` by default:
+The data is composed of a mixte of numerical and categorical variables with multioutput target `y` by default.
 For the example, we keep the  `HistoryOfDiabetes` as a unique output target and drop the rest.
 
 ```python  
@@ -37,12 +37,12 @@ Out[1]:
 
 [2 rows x 12 columns]
 ``` 
-We will try a fast manipulation of data in a few line of codes: 
+We will try a fast manipulation of data in a few lines of codes: 
 
 1. **Fast clean and sanitize raw data** 
 
-``gofast`` has a capability to clean your data, strip the column bad string characters, 
-drop your useless features in a one line of code. To drop  `'HistoryOfHypertension'` and
+``gofast``can clean your data, strip the column bad string characters, 
+and drop your useless features in one line of code. To drop  `'HistoryOfHypertension'` and
 `'HistoryOfHeartDisease'`, we can process as : 
 
 ```python
@@ -52,7 +52,7 @@ Out[2]: (1000, 12)
 ``` 
 2. **Split numerical and categorical data in one line of code**
  
-User does not need to care about the columns, `gofast` does it for you thanks to 
+The user does not need to care about the columns, `gofast` does it for you thanks to 
 the ``bi_selector`` function by turning the `return_frames` argument to ``True``. By 
 default, the function returns the distinct numerical and categorical feature names as: 
 
@@ -93,21 +93,21 @@ Out[4]:
 ```
 3. **Dual imputation** 
 
-``gofast`` is able to impute at the same time, the numeric and categorical data 
+``gofast``can impute at the same time, the numeric and categorical data 
 via the ``bi-impute`` strategy  in a one snippet code as 
 
 ```python 
 >>> data_imputed = gf.soft_imputer(cleaned_data,  mode= 'bi-impute')
 ``` 
-The data imputation can be controlled via the parameters `strategy`, `drop_features`, `missing_values` or
+The data imputation can be controlled via the parameters `strategy`, `drop_features`, `missing_values`, or
 `fill_value`. By default, `the most_frequent` argument is used to impute the categorical features.
 
 4. ** Data-based automate pipeline** 
 
-``gofast`` understands your data and create a fast pipeline for you. If the data contains
-missing values or too dirty, ``gofast`` sanitizes it before proceeding. Multiple lines 
+``gofast`` understands your data and creates a fast pipeline for you. If the data contains
+missing values or is too dirty, ``gofast`` sanitizes it before proceeding. Multiple lines 
 of codes can  be skipped henceforth. Here is a proposed pipeline of ``gofast`` based
-on medical diagnostic dataset: 
+on a medical diagnostic dataset: 
 ```python 
 >>> auto_pipeline = gf.make_pipe (cleaned_data )
 Out[5]: 
@@ -124,8 +124,8 @@ FeatureUnion(transformer_list=[('num_pipeline',
                                                 ('OneHotEncoder',
                                                  OneHotEncoder())]))])
 ```  
-Rather than returning an automated pipeline, user can get the transformed data in 
-on line of code by setting the argument of `transform ` parameter to ``True`` as 
+Rather than returning an automated pipeline, the user can get the transformed data in 
+one line of code by setting the argument of the `transform` parameter to ``True`` as 
 ```python 
 
 >>> transformed_data = gf.make_pipe ( cleaned_data, transform=True )
@@ -139,7 +139,7 @@ before the data transformation.
 5. **Manage smartly your target**
 
 For a classification problem, ``gofast`` can efficiently manage your target by specifying  
-the class boundaries and labels names. Then ``gofast`` performs operations and returns categorized 
+the class boundaries and label names. Then ``gofast`` performs operations and returns categorized 
 targets thanks to the ``smart_label_classifier`` function. Here is an example
 ```python 
 >>> import numpy as np 
@@ -159,12 +159,12 @@ Out[7]:
 
 6. **Train multiple estimators** 
 
-Do you want to train multiple estimators in parallel(at the same time) ? Don't worry ``gofast`` 
-does it for you and save your results into a binary disk. The ``parallelize_estimators`` 
+Do you want to train multiple estimators in parallel(at the same time)? Don't worry ``gofast`` 
+does it for you and saves your results into a binary disk. The ``parallelize_estimators`` 
 function is built to simplify your task. To understand why ``gofast`` deserves its name, 
-let try to evaluate three estimators (`SVC`, `DecisionTreeClassifier` and `LogisticRegression`)
-on a simple IRIS dataset. Then we compare the time elapsed with naive and the parallelize approach 
-proposed by ``gofast``. Let do this!
+let's try to evaluate three estimators (`SVC`, `DecisionTreeClassifier` and `LogisticRegression`)
+on a simple IRIS dataset. Then we compare the time elapsed with naive and the parallelized approach 
+proposed by ``gofast``. Let's do this!
 ```python
 >>> import time 
 >>> from sklearn.svm import SVC 
@@ -226,15 +226,15 @@ Training LogisticRegression took 0.13 seconds
 Optimizing Estimators: 100%|###################| 3/3 [00:00<00:00, 33.22it/s] 
 >>>          
 ```
-When we check the time for three classifiers, the parellized approach (`elapsed time =00s`) is 
+When we check the time for three classifiers, the parallelized approach (`elapsed time =00s`) is 
 much faster than the naive  approach (`elapsed time =0.45s`). Commonly, after performing 
-several tests with a complex and large dataset on different computers with different processors units,
-the ``gofast`` parallelized approach remains around ten times much faster than the 
+several tests with a complex and large dataset on different computers with different processor units,
+the ``gofast`` parallelized approach remains around ten times faster than the 
 naive search.  
 
 7. **Plot feature importances** 
 
-``gofast`` provides some useful viualisation utilities. For instance, the feature contributions 
+``gofast`` provides some useful visualization utilities. For instance, the feature contributions 
 with  the ``RandomForestClassifier`` can be displayed via the ``plot_rf_feature_importances``. 
 Here is an example:
 
@@ -256,4 +256,4 @@ anlyses and maths operations.
  
 ## Contributions 
 
-_Join us in making machine learning workflows faster and more efficient. With gofast, you're not just processing data; you're accelerating towards breakthroughs and innovations._
+_Join us in making machine learning workflows faster and more efficient. With gofast, you're not just processing data; you're accelerating toward breakthroughs and innovations._
