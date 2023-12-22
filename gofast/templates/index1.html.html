@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>User Data Form</title>
+</head>
+<body>
+    <form id="dataForm">
+        <label for="name">Name:</label><br>
+        <input type="text" id="name" name="name" required><br>
+
+        <label for="email">Email:</label><br>
+        <input type="email" id="email" name="email" required><br>
+
+        <input type="submit" value="Submit">
+    </form>
+
+    <script>
+        document.getElementById("dataForm").onsubmit = async function(event) {
+            event.preventDefault();
+            let formData = new FormData(event.target);
+            let response = await fetch('/submit', {
+                method: 'POST',
+                body: formData
+            });
+            if (response.ok) {
+                console.log("Data submitted successfully.");
+            } else {
+                console.error("Error in submission.");
+            }
+        };
+    </script>
+</body>
+</html>

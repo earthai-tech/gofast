@@ -2,17 +2,19 @@
 #   Licence:BSD 3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-Gives some efficient tools for data manipulation and transformation.
+Gives some efficient tools for data manipulation 
+and transformation.
 """
 from __future__ import division, annotations  
 
+import os
 import inspect
 import warnings 
 import numpy as np 
 import pandas as pd 
-from scipy import sparse 
+from scipy import sparse
+import matplotlib.pyplot as plt  
 # from pandas.api.types import is_integer_dtype
-
 from sklearn.model_selection import ( 
     train_test_split, 
     StratifiedShuffleSplit
@@ -23,11 +25,27 @@ from sklearn.preprocessing import (
     MinMaxScaler,
     OrdinalEncoder,
     OneHotEncoder, 
+    PolynomialFeatures
     )
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_selection import SelectFromModel
+from sklearn.decomposition import PCA
+from sklearn.impute import SimpleImputer
 from sklearn.base import ( 
     BaseEstimator,
     TransformerMixin 
 )
+try : 
+    from skimage.transform import resize
+    from skimage.color import rgb2gray
+    from skimage.filters import sobel, canny
+    from skimage.exposure import equalize_hist
+except : pass
+try:
+    from statsmodels.tsa.seasonal import seasonal_decompose
+except : pass 
+
 from ._gofastlog import gofastlog 
 from ._typing import F 
 from .exceptions import EstimatorError
@@ -38,27 +56,64 @@ from .tools.funcutils import (
     assert_ratio 
     )
 from .tools.mlutils import (  
-    discretizeCategoriesforStratification, 
-    stratifiedUsingDiscretedCategories, 
+    discretize_categories, 
+    stratify_categories, 
     existfeatures 
     )
 
 from .tools.validator import get_estimator_name 
+from .tools._dependency import import_optional_dependency 
+
+EMSG = (
+        "`scikit-image` is needed"
+        " for this transformer. Note"
+        " `skimage`is the shorthand "
+        "of `scikit-image`."
+        )
 
 __docformat__='restructuredtext'
-
 _logger = gofastlog().get_gofast_logger(__name__)
-
 
 __all__= ['KMeansFeaturizer',
           'StratifiedWithCategoryAdder',
           'StratifiedUsingBaseCategory', 
+          'CategorizeFeatures', 
           'FrameUnion', 
           'DataFrameSelector',
           'CombinedAttributesAdder', 
-          'featurize_X'
+          'featurize_X', 
+          'TextFeatureExtractor', 
+          'DateFeatureExtractor', 
+          'FeatureSelectorByModel', 
+          'PolynomialFeatureCombiner', 
+          'DimensionalityReducer', 
+          'CategoricalEncoder', 
+          'FeatureScaler', 
+          'MissingValueImputer', 
+          'ColumnSelector', 
+          'LogTransformer', 
+          'TimeSeriesFeatureExtractor',
+          'CategoryFrequencyEncoder', 
+          'DateTimeCyclicalEncoder', 
+          'LagFeatureGenerator', 
+          'DifferencingTransformer', 
+          'MovingAverageTransformer', 
+          'CumulativeSumTransformer', 
+          'SeasonalDecomposeTransformer', 
+          'FourierFeaturesTransformer', 
+          'TrendFeatureExtractor', 
+          'ImageResizer', 
+          'ImageNormalizer', 
+          'ImageToGrayscale', 
+          'ImageAugmenter', 
+          'ImageChannelSelector', 
+          'ImageFeatureExtractor', 
+          'ImageEdgeDetector', 
+          'ImageHistogramEqualizer', 
+          'ImagePCAColorAugmenter', 
+          'ImageBatchLoader', 
+          
           ]
-
 
 class KMeansFeaturizer:
     """Transforms numeric data into k-means cluster memberships.
@@ -333,12 +388,12 @@ class StratifiedWithCategoryAdder( BaseEstimator, TransformerMixin ):
         if self.base_num_feature is not None:
             in_c= 'temf_'
             # discretize the new added category from the threshold value
-            X = discretizeCategoriesforStratification(
-                                             X,
-                                            in_cat=self.base_num_feature, 
-                                             new_cat=in_c, 
-                                             divby =self.threshold_operator,
-                                             higherclass = self.max_category
+            X = discretize_categories(
+                                     X,
+                                    in_cat=self.base_num_feature, 
+                                     new_cat=in_c, 
+                                     divby =self.threshold_operator,
+                                     higherclass = self.max_category
                  )
 
             self.base_items_ = list(
@@ -530,7 +585,7 @@ class StratifiedUsingBaseCategory( BaseEstimator, TransformerMixin ):
         
         if self.base_flag_: 
             strat_train_set, strat_test_set = \
-                stratifiedUsingDiscretedCategories(X, self.base_column)
+                stratify_categories(X, self.base_column)
                 
             # get statistic from `basecolumn category proportions into the 
             # the whole dataset, in the testset generated using purely random 
@@ -703,7 +758,7 @@ class CategorizeFeatures(BaseEstimator, TransformerMixin ):
                 X=X.reshape((X.shape[0]),)
                 # X_dtype ='unik__'
              
-#XXX NEED A FIX 
+         #XXX NEED A FIX 
         # if X_dtype =='unik__': 
         #        X =  categorize_flow(X, self.in_values_[0],
         #                             classes=self.out_values_[0] )
@@ -1568,6 +1623,1030 @@ def featurize_X (
         
     return  tuple (kmf_data ) + (model, ) \
         if return_model else tuple(kmf_data )
+
+
+
+class TextFeatureExtractor(BaseEstimator, TransformerMixin):
+    """
+    Transform text data into TF-IDF features.
+
+    Parameters
+    ----------
+    max_features : int, default=1000
+        Maximum number of features to extract with TF-IDF.
+
+    Attributes
+    ----------
+    vectorizer : TfidfVectorizer
+        Vectorizer used for converting text data into TF-IDF features.
+
+    Examples
+    --------
+    >>> text_data = ['sample text data', 'another sample text']
+    >>> extractor = TextFeatureExtractor(max_features=500)
+    >>> features = extractor.fit_transform(text_data)
+    """
+
+    def __init__(self, max_features=1000):
+        self.vectorizer = TfidfVectorizer(max_features=max_features)
+        
+    def fit(self, X, y=None):
+        self.vectorizer.fit(X)
+        return self
+    
+    def transform(self, X, y=None):
+        return self.vectorizer.transform(X)
+
+
+class DateFeatureExtractor(BaseEstimator, TransformerMixin):
+    """
+    Extract year, month, and day features from date columns.
+
+    Parameters
+    ----------
+    date_format : str, default="%Y-%m-%d"
+        The date format to use for parsing date columns.
+
+    Examples
+    --------
+    >>> date_data = pd.DataFrame({'date': ['2021-01-01', '2021-02-01']})
+    >>> extractor = DateFeatureExtractor()
+    >>> features = extractor.fit_transform(date_data)
+    """
+
+    def __init__(self, date_format="%Y-%m-%d"):
+        self.date_format = date_format
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X, y=None):
+        new_X = X.copy()
+        for col in X.columns:
+            new_X[col + '_year'] = pd.to_datetime(X[col], format=self.date_format).dt.year
+            new_X[col + '_month'] = pd.to_datetime(X[col], format=self.date_format).dt.month
+            new_X[col + '_day'] = pd.to_datetime(X[col], format=self.date_format).dt.day
+        return new_X
+
+
+class FeatureSelectorByModel(BaseEstimator, TransformerMixin):
+    """
+    Select features based on importance weights of a model.
+
+    Parameters
+    ----------
+    estimator : estimator object, default=RandomForestClassifier()
+        The base estimator from which the transformer is built.
+
+    threshold : string, float, optional, default='mean'
+        The threshold value to use for feature selection.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import make_classification
+    >>> X, y = make_classification()
+    >>> selector = FeatureSelectorByModel()
+    >>> X_reduced = selector.fit_transform(X, y)
+    """
+
+    def __init__(self, estimator=None, threshold='mean'):
+        if estimator is None:
+            estimator = RandomForestClassifier()
+        self.selector = SelectFromModel(estimator, threshold=threshold)
+        
+    def fit(self, X, y):
+        self.selector.fit(X, y)
+        return self
+    
+    def transform(self, X, y=None):
+        return self.selector.transform(X)
+
+
+class PolynomialFeatureCombiner(BaseEstimator, TransformerMixin):
+    """
+    Generate polynomial and interaction features.
+
+    Parameters
+    ----------
+    degree : int, default=2
+        The degree of the polynomial features.
+
+    interaction_only : bool, default=False
+        If True, only interaction features are produced.
+
+    Examples
+    --------
+    >>> X = np.arange(6).reshape(3, 2)
+    >>> combiner = PolynomialFeatureCombiner(degree=2)
+    >>> X_poly = combiner.fit_transform(X)
+    """
+
+    def __init__(self, degree=2, interaction_only=False):
+        self.poly = PolynomialFeatures(degree=degree, interaction_only=interaction_only)
+        
+    def fit(self, X, y=None):
+        self.poly.fit(X)
+        return self
+    
+    def transform(self, X, y=None):
+        return self.poly.transform(X)
+
+class DimensionalityReducer(BaseEstimator, TransformerMixin):
+    """
+    Reduce dimensionality of the data using PCA.
+
+    Parameters
+    ----------
+    n_components : int, float, None or str
+        Number of components to keep. If n_components is not set, all components are kept.
+
+    Examples
+    --------
+    >>> X = np.array([[0, 0], [1, 1], [2, 2]])
+    >>> reducer = DimensionalityReducer(n_components=1)
+    >>> X_reduced = reducer.fit_transform(X)
+    """
+
+    def __init__(self, n_components=0.95):
+        self.reducer = PCA(n_components=n_components)
+        
+    def fit(self, X, y=None):
+        self.reducer.fit(X)
+        return self
+    
+    def transform(self, X, y=None):
+        return self.reducer.transform(X)
+
+class CategoricalEncoder(BaseEstimator, TransformerMixin):
+    """
+    Encode categorical features as a one-hot numeric array.
+
+    Parameters
+    ----------
+    drop : {'first', 'if_binary', None}, default='first'
+        Specifies a methodology to use to drop one of the categories per feature.
+
+    Attributes
+    ----------
+    encoder_ : OneHotEncoder object
+        The fitted OneHotEncoder instance.
+
+    Examples
+    --------
+    >>> from sklearn.preprocessing import OneHotEncoder
+    >>> enc = CategoricalEncoder()
+    >>> X = [['Male', 1], ['Female', 3], ['Female', 2]]
+    >>> enc.fit(X)
+    >>> enc.transform([['Female', 1], ['Male', 4]]).toarray()
+    """
+
+    def __init__(self, drop='first'):
+        self.encoder = OneHotEncoder(drop=drop)
+        
+    def fit(self, X, y=None):
+        self.encoder.fit(X)
+        return self
+    
+    def transform(self, X, y=None):
+        return self.encoder.transform(X)
+        
+class CategoricalEncoder2(BaseEstimator, TransformerMixin):
+    """
+    Encode categorical features as a one-hot numeric array.
+
+    This transformer should be applied to categorical features in a dataset before
+    applying it to a machine learning model.
+
+    Parameters
+    ----------
+    categorical_features : list of str
+        List of column names to be considered as categorical features.
+
+    drop : {'first', 'if_binary', None}, default=None
+        Specifies a methodology to use to drop one of the categories per feature.
+
+    Attributes
+    ----------
+    encoders_ : dict of {str: OneHotEncoder}
+        Dictionary containing the OneHotEncoders for each categorical feature.
+
+    Examples
+    --------
+    >>> from sklearn.compose import ColumnTransformer
+    >>> transformer = ColumnTransformer(transformers=[
+    ...     ('cat', CategoricalEncoder(categorical_features=['color', 'brand']), ['color', 'brand'])
+    ... ])
+    >>> X = pd.DataFrame({'color': ['red', 'blue', 'green'], 'brand': ['ford', 'toyota', 'bmw']})
+    >>> transformer.fit_transform(X)
+    """
+    def __init__(self, categorical_features, drop=None):
+        self.categorical_features = categorical_features
+        self.drop = drop
+        self.encoders_ = {feature: OneHotEncoder(drop=drop) for feature in categorical_features}
+        
+    def fit(self, X, y=None):
+        for feature in self.categorical_features:
+            self.encoders_[feature].fit(X[[feature]])
+        return self
+    
+    def transform(self, X, y=None):
+        outputs = []
+        for feature in self.categorical_features:
+            outputs.append(self.encoders_[feature].transform(X[[feature]]))
+        return np.hstack(outputs)
+
+class FeatureScaler2(BaseEstimator, TransformerMixin):
+    """
+    Standardize features by removing the mean and scaling to unit variance.
+
+    This transformer should be applied to numeric features in a dataset before
+    applying it to a machine learning model.
+
+    Parameters
+    ----------
+    numeric_features : list of str
+        List of column names to be considered as numeric features.
+
+    Attributes
+    ----------
+    scaler_ : StandardScaler
+        The instance of StandardScaler used for scaling.
+
+    Examples
+    --------
+    >>> from sklearn.pipeline import Pipeline
+    >>> numeric_features = ['age', 'income']
+    >>> pipeline = Pipeline(steps=[
+    ...     ('scaler', FeatureScaler(numeric_features=numeric_features))
+    ... ])
+    >>> X = pd.DataFrame({'age': [25, 35, 50], 'income': [50000, 80000, 120000]})
+    >>> pipeline.fit_transform(X)
+    """
+    def __init__(self, numeric_features):
+        self.numeric_features = numeric_features
+        self.scaler_ = StandardScaler()
+        
+    def fit(self, X, y=None):
+        self.scaler_.fit(X[self.numeric_features])
+        return self
+    
+    def transform(self, X, y=None):
+        X_scaled = X.copy()
+        X_scaled[self.numeric_features] = self.scaler_.transform(X[self.numeric_features])
+        return X_scaled
+
+
+class FeatureScaler(BaseEstimator, TransformerMixin):
+    """
+    Standardize features by removing the mean and scaling to unit variance.
+
+    Attributes
+    ----------
+    scaler_ : StandardScaler object
+        The fitted StandardScaler instance.
+
+    Examples
+    --------
+    >>> from sklearn.preprocessing import StandardScaler
+    >>> scaler = FeatureScaler()
+    >>> X = [[0, 15], [1, -10]]
+    >>> scaler.fit(X)
+    >>> scaler.transform(X)
+    """
+
+    def __init__(self):
+        self.scaler = StandardScaler()
+        
+    def fit(self, X, y=None):
+        self.scaler.fit(X)
+        return self
+    
+    def transform(self, X, y=None):
+        return self.scaler.transform(X)
+
+class MissingValueImputer(BaseEstimator, TransformerMixin):
+    """
+    Imputation transformer for completing missing values.
+
+    Parameters
+    ----------
+    strategy : str, default='mean'
+        The imputation strategy. If "mean", then replace missing values using the mean 
+        along each column. Can also be "median" or "most_frequent".
+
+    Attributes
+    ----------
+    imputer_ : SimpleImputer object
+        The fitted SimpleImputer instance.
+
+    Examples
+    --------
+    >>> from sklearn.impute import SimpleImputer
+    >>> imputer = MissingValueImputer(strategy='mean')
+    >>> X = [[1, 2], [np.nan, 3], [7, 6]]
+    >>> imputer.fit(X)
+    >>> imputer.transform(X)
+    """
+
+    def __init__(self, strategy='mean'):
+        self.imputer = SimpleImputer(strategy=strategy)
+        
+    def fit(self, X, y=None):
+        self.imputer.fit(X)
+        return self
+    
+    def transform(self, X, y=None):
+        return self.imputer.transform(X)
+
+class MissingValueImputer2(BaseEstimator, TransformerMixin):
+    """
+    Imputation transformer for completing missing values.
+
+    This transformer can be applied to both numeric and categorical features in a
+    dataset to impute missing values using the mean or the most frequent value.
+
+    Parameters
+    ----------
+    strategy : str, default='mean'
+        The imputation strategy. If "mean", then replace missing values using the mean 
+        along each column. Can also be "median" or "most_frequent".
+
+    Attributes
+    ----------
+    imputer_ : SimpleImputer
+        The instance of SimpleImputer used for imputation.
+
+    Examples
+    --------
+    >>> from sklearn.pipeline import Pipeline
+    >>> imputer = MissingValueImputer(strategy='mean')
+    >>> X = pd.DataFrame({'age': [25, np.nan, 50], 'income': [50000, 80000, np.nan]})
+    >>> imputer.fit_transform(X)
+    """
+    def __init__(self, strategy='mean'):
+        self.strategy = strategy
+        self.imputer_ = SimpleImputer(strategy=strategy)
+        
+    def fit(self, X, y=None):
+        self.imputer_.fit(X)
+        return self
+    
+    def transform(self, X, y=None):
+        return self.imputer_.transform(X)
+
+class ColumnSelector(BaseEstimator, TransformerMixin):
+    """
+    Transformer to select columns from a DataFrame for processing.
+
+    Parameters
+    ----------
+    column_names : list of str
+        List of column names to select.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> selector = ColumnSelector(column_names=['A', 'B'])
+    >>> X = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6], 'C': [7, 8, 9]})
+    >>> selector.fit_transform(X)
+    """
+
+    def __init__(self, column_names):
+        self.column_names = column_names
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X, y=None):
+        if isinstance(X, pd.DataFrame):
+            return X[self.column_names]
+        else:
+            raise TypeError("Input must be a pandas DataFrame")
+
+class ColumnSelector2(BaseEstimator, TransformerMixin):
+    """
+    Transformer to select columns from a DataFrame for processing.
+
+    Parameters
+    ----------
+    column_names : list of str
+        List of column names to select.
+
+    Examples
+    --------
+    >>> selector = ColumnSelector(column_names=['age', 'income'])
+    >>> X = pd.DataFrame({'age': [25, 35, 50], 'income': [50000, 80000, 120000], 
+                          'gender': ['male', 'female', 'male']})
+    >>> selector.fit_transform(X)
+    """
+    def __init__(self, column_names):
+        self.column_names = column_names
+        
+    def fit(self, X, y=None):
+        #check whether colun names exists 
+        from .tools.mlutils import existfeatures 
+        existfeatures(X, self.column_names)
+        return self
+    
+    def transform(self, X, y=None):
+        return X[self.column_names]
+
+
+
+class LogTransformer(BaseEstimator, TransformerMixin):
+    """
+    Apply a natural logarithm transformation to numeric features.
+
+    Use this transformer on skewed numeric features to reduce 
+    their skewness.
+
+    Parameters
+    ----------
+    numeric_features : list of str
+        List of column names to be considered as numeric features
+        for log transformation.
+
+    epsilon : float, default=1e-6
+        A small constant to add to input data to avoid taking log of zero.
+
+    Examples
+    --------
+    >>> transformer = LogTransformer(numeric_features=['income'],
+                                     epsilon=1e-6)
+    >>> X = pd.DataFrame({'income': [50000, 80000, 120000]})
+    >>> transformer.fit_transform(X)
+    """
+    def __init__(self, numeric_features, epsilon=1e-6):
+        self.numeric_features = numeric_features
+        self.epsilon = epsilon
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X, y=None):
+        X_transformed = X.copy()
+        for feature in self.numeric_features:
+            X_transformed[feature] = np.log(X_transformed[feature] + self.epsilon)
+        return X_transformed
+
+class TimeSeriesFeatureExtractor(BaseEstimator, TransformerMixin):
+    """
+    Extract common statistical features from time series data for each column.
+
+    Parameters
+    ----------
+    rolling_window : int
+        The size of the moving window to compute the rolling statistics.
+
+    Examples
+    --------
+    >>> from sklearn.pipeline import Pipeline
+    >>> extractor = TimeSeriesFeatureExtractor(rolling_window=5)
+    >>> X = pd.DataFrame({'time_series': np.random.rand(100)})
+    >>> features = extractor.fit_transform(X)
+    """
+    def __init__(self, rolling_window):
+        self.rolling_window = rolling_window
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X, y=None):
+        # Rolling statistical features
+        return X.rolling(window=self.rolling_window).agg(
+            ['mean', 'std', 'min', 'max', 'median'])
+
+class CategoryFrequencyEncoder(BaseEstimator, TransformerMixin):
+    """
+    Encode categorical variables based on the frequency of each category.
+
+    Parameters
+    ----------
+    categorical_features : list of str
+        List of column names to be considered as categorical features.
+
+    Examples
+    --------
+    >>> encoder = CategoryFrequencyEncoder(categorical_features=['brand'])
+    >>> X = pd.DataFrame({'brand': ['apple', 'apple', 'samsung', 'samsung',
+                                    'nokia']})
+    >>> encoded_features = encoder.fit_transform(X)
+    """
+    def __init__(self, categorical_features):
+        self.categorical_features = categorical_features
+        self.frequency_maps_ = None
+        
+    def fit(self, X, y=None):
+        self.frequency_maps_ = {
+            feature: X[feature].value_counts(normalize=True).to_dict() 
+            for feature in self.categorical_features
+        }
+        return self
+    
+    def transform(self, X, y=None):
+        X_transformed = X.copy()
+        for feature in self.categorical_features:
+            X_transformed[feature] = X[feature].map(self.frequency_maps_[feature])
+        return X_transformed
+
+class DateTimeCyclicalEncoder(BaseEstimator, TransformerMixin):
+    """
+    Encode datetime columns as cyclical features using sine and cosine
+    transformations.
+
+    Parameters
+    ----------
+    datetime_features : list of str
+        List of datetime column names to be encoded as cyclical.
+
+    Examples
+    --------
+    >>> encoder = DateTimeCyclicalEncoder(datetime_features=['timestamp'])
+    >>> X = pd.DataFrame({'timestamp': pd.date_range(start='1/1/2018', 
+                                                     periods=24, freq='H')})
+    >>> encoded_features = encoder.fit_transform(X)
+    """
+    def __init__(self, datetime_features):
+        self.datetime_features = datetime_features
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X, y=None):
+        X_transformed = X.copy()
+        for feature in self.datetime_features:
+            dt_col = pd.to_datetime(X_transformed[feature])
+            X_transformed[feature + '_sin_hour'] = np.sin(
+                2 * np.pi * dt_col.dt.hour / 24)
+            X_transformed[feature + '_cos_hour'] = np.cos(
+                2 * np.pi * dt_col.dt.hour / 24)
+        return X_transformed
+
+class LagFeatureGenerator(BaseEstimator, TransformerMixin):
+    """
+    Generate lag features for time series data to help capture 
+    temporal dependencies.
+
+    Parameters
+    ----------
+    lags : int or list of ints
+        The number of lag periods to create features for.
+
+    Examples
+    --------
+    >>> generator = LagFeatureGenerator(lags=3)
+    >>> X = pd.DataFrame({'value': np.arange(100)})
+    >>> lag_features = generator.fit_transform(X)
+    """
+    def __init__(self, lags):
+        self.lags = lags if isinstance(lags, list) else [lags]
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X, y=None):
+        X_transformed = X.copy()
+        for lag in self.lags:
+            X_transformed[f'lag_{lag}'] = X_transformed.shift(lag)
+        return X_transformed
+
+class DifferencingTransformer(BaseEstimator, TransformerMixin):
+    """
+    Apply differencing to time series data to make it stationary.
+
+    Parameters
+    ----------
+    periods : int, default=1
+        Number of periods to shift for calculating the difference.
+
+    Examples
+    --------
+    >>> transformer = DifferencingTransformer(periods=1)
+    >>> X = pd.DataFrame({'value': np.cumsum(np.random.randn(100))})
+    >>> stationary_data = transformer.fit_transform(X)
+    """
+    def __init__(self, periods=1):
+        self.periods = periods
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X, y=None):
+        return X.diff(periods=self.periods)
+
+class MovingAverageTransformer(BaseEstimator, TransformerMixin):
+    """
+    Compute moving average for time series data.
+
+    Parameters
+    ----------
+    window : int
+        Size of the moving window.
+
+    Examples
+    --------
+    >>> transformer = MovingAverageTransformer(window=5)
+    >>> X = pd.DataFrame({'value': np.random.randn(100)})
+    >>> moving_avg = transformer.fit_transform(X)
+    """
+    def __init__(self, window):
+        self.window = window
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X, y=None):
+        return X.rolling(window=self.window).mean()
+
+
+class CumulativeSumTransformer(BaseEstimator, TransformerMixin):
+    """
+    Compute the cumulative sum for each column in the data.
+
+    Parameters
+    ----------
+    None
+
+    Examples
+    --------
+    >>> transformer = CumulativeSumTransformer()
+    >>> X = pd.DataFrame({'value': np.random.randn(100)})
+    >>> cum_sum = transformer.fit_transform(X)
+    """
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X, y=None):
+        return X.cumsum()
+
+class SeasonalDecomposeTransformer(BaseEstimator, TransformerMixin):
+    """
+    Decompose time series data into seasonal, trend, and residual components.
+
+    Parameters
+    ----------
+    model : str, default='additive'
+        Type of seasonal component. Can be 'additive' or 'multiplicative'.
+
+    freq : int, default=1
+        Frequency of the time series.
+
+    Examples
+    --------
+    >>> transformer = SeasonalDecomposeTransformer(model='additive', freq=12)
+    >>> X = pd.DataFrame({'value': np.random.randn(100)})
+    >>> decomposed = transformer.fit_transform(X)
+    """
+    import_optional_dependency("statsmodels")
+    
+    def __init__(self, model='additive', freq=1):
+        self.model = model
+        self.freq = freq
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X, y=None):
+        result = seasonal_decompose(X, model=self.model, freq=self.freq)
+        return pd.concat([result.seasonal, result.trend, result.resid], axis=1)
+
+class FourierFeaturesTransformer(BaseEstimator, TransformerMixin):
+    """
+    Generate Fourier series terms as features for capturing cyclical 
+    patterns in time series data.
+
+    Parameters
+    ----------
+    periods : list of int
+        List of periods to generate Fourier features for.
+
+    Examples
+    --------
+    >>> transformer = FourierFeaturesTransformer(periods=[12, 24])
+    >>> X = pd.DataFrame({'time': np.arange(100)})
+    >>> fourier_features = transformer.fit_transform(X)
+    """
+    def __init__(self, periods):
+        self.periods = periods
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X, y=None):
+        X_transformed = pd.DataFrame(index=X.index)
+        for period in self.periods:
+            X_transformed[f'sin_{period}'] = np.sin(
+                2 * np.pi * X.index / period)
+            X_transformed[f'cos_{period}'] = np.cos(
+                2 * np.pi * X.index / period)
+        return X_transformed
+
+class TrendFeatureExtractor(BaseEstimator, TransformerMixin):
+    """
+    Extract linear trend features from time series data.
+
+    Parameters
+    ----------
+    order : int, default=1
+        The order of the trend polynomial to fit.
+
+    Examples
+    --------
+    >>> transformer = TrendFeatureExtractor(order=1)
+    >>> X = pd.DataFrame({'time': np.arange(100), 
+                          'value': np.random.randn(100)})
+    >>> trend_features = transformer.fit_transform(X[['time']])
+    """
+    def __init__(self, order=1):
+        self.order = order
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X, y=None):
+        trends = np.polyfit(X.index, X.values, deg=self.order)
+        trend_poly = np.poly1d(trends)
+        return pd.DataFrame(trend_poly(X.index), index=X.index,
+                            columns=[f'trend_{self.order}'])
+
+class ImageResizer(BaseEstimator, TransformerMixin):
+    """
+    Resize images to a specified size.
+
+    Parameters
+    ----------
+    output_size : tuple of int
+        The desired output size as (width, height).
+
+    Examples
+    --------
+    >>> from skimage.transform import resize
+    >>> resizer = ImageResizer(output_size=(128, 128))
+    >>> image = np.random.rand(256, 256, 3)
+    >>> resized_image = resizer.transform(image)
+    """
+    import_optional_dependency ('skimage', extra = EMSG )
+    def __init__(self, output_size):
+        self.output_size = output_size
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X):
+        return resize(X, self.output_size, anti_aliasing=True)
+
+class ImageNormalizer(BaseEstimator, TransformerMixin):
+    """
+    Normalize images by scaling pixel values to the range [0, 1].
+
+    Parameters
+    ----------
+    None
+
+    Examples
+    --------
+    >>> normalizer = ImageNormalizer()
+    >>> image = np.random.randint(0, 255, (256, 256, 3), 
+                                  dtype=np.uint8)
+    >>> normalized_image = normalizer.transform(image)
+    """
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X):
+        return X / 255.0
+
+class ImageToGrayscale(BaseEstimator, TransformerMixin):
+    """
+    Convert images to grayscale.
+
+    Parameters
+    ----------
+    keep_dims : bool, default=False
+        If True, keeps the third dimension as 1 (e.g., 
+                                                 (height, width, 1)).
+
+    Examples
+    --------
+    >>> from skimage.color import rgb2gray
+    >>> converter = ImageToGrayscale(keep_dims=True)
+    >>> image = np.random.rand(256, 256, 3)
+    >>> grayscale_image = converter.transform(image)
+    """
+    import_optional_dependency ('skimage', extra = EMSG )
+    def __init__(self, keep_dims=False):
+        self.keep_dims = keep_dims
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X):
+        grayscale = rgb2gray(X)
+        if self.keep_dims:
+            grayscale = grayscale[:, :, np.newaxis]
+        return grayscale
+
+class ImageAugmenter(BaseEstimator, TransformerMixin):
+    """
+    Apply random transformations to images for augmentation.
+
+    Parameters
+    ----------
+    augmentation_funcs : list of callable
+        A list of functions that apply transformations to images.
+
+    Examples
+    --------
+    >>> from imgaug import augmenters as iaa
+    >>> augmenter = ImageAugmenter(augmentation_funcs=[
+        iaa.Fliplr(0.5), iaa.GaussianBlur(sigma=(0, 3.0))])
+    >>> image = np.random.rand(256, 256, 3)
+    >>> augmented_image = augmenter.transform(image)
+    """
+    def __init__(self, augmentation_funcs):
+        self.augmentation_funcs = augmentation_funcs
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X):
+        for func in self.augmentation_funcs:
+            X = func(images=X)
+        return X
+
+class ImageChannelSelector(BaseEstimator, TransformerMixin):
+    """
+    Select specific channels from images.
+
+    Parameters
+    ----------
+    channels : list of int
+        The indices of the channels to select.
+
+    Examples
+    --------
+    # Selects the first two channels.
+    >>> selector = ImageChannelSelector(channels=[0, 1])  
+    >>> image = np.random.rand(256, 256, 3)
+    >>> selected_channels = selector.transform(image)
+    """
+    def __init__(self, channels):
+        self.channels = channels
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X):
+        return X[:, :, self.channels]
+
+class ImageFeatureExtractor(BaseEstimator, TransformerMixin):
+    """
+    Extract features from images using a pre-trained model.
+
+    Parameters
+    ----------
+    model : callable
+        The pre-trained model to use for feature extraction.
+
+    Examples
+    --------
+    >>> from tensorflow.keras.applications import VGG16
+    >>> from tensorflow.keras.models import Model
+    >>> base_model = VGG16(weights='imagenet', include_top=False)
+    >>> model = Model(inputs=base_model.input, 
+                      outputs=base_model.get_layer('block3_pool').output)
+    >>> extractor = ImageFeatureExtractor(model=model)
+    >>> image = np.random.rand(224, 224, 3)
+    >>> features = extractor.transform(image)
+    """
+    def __init__(self, model):
+        self.model = model
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X):
+        return self.model.predict(X)
+
+class ImageEdgeDetector(BaseEstimator, TransformerMixin):
+    """
+    Detect edges in images using a specified method.
+
+    Parameters
+    ----------
+    method : str, default='sobel'
+        The method to use for edge detection. Options include 'sobel',
+        'canny', and others.
+
+    Examples
+    --------
+    >>> from skimage.filters import sobel
+    >>> detector = ImageEdgeDetector(method='sobel')
+    >>> image = np.random.rand(256, 256)
+    >>> edges = detector.transform(image)
+    """
+    import_optional_dependency ('skimage', extra = EMSG )
+    def __init__(self, method='sobel'):
+        self.method = method
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X):
+        if self.method == 'sobel':
+            return sobel(X)
+        elif self.method == 'canny':
+            return canny(X)
+        else:
+            raise ValueError("Unsupported edge detection method.")
+
+class ImageHistogramEqualizer(BaseEstimator, TransformerMixin):
+    """
+    Apply histogram equalization to images to improve contrast.
+
+    Parameters
+    ----------
+    None
+
+    Examples
+    --------
+    >>> from skimage.exposure import equalize_hist
+    >>> equalizer = ImageHistogramEqualizer()
+    >>> image = np.random.rand(256, 256)
+    >>> equalized_image = equalizer.transform(image)
+    """
+    import_optional_dependency ('skimage', extra = EMSG )
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X):
+        return equalize_hist(X)
+
+class ImagePCAColorAugmenter(BaseEstimator, TransformerMixin):
+    """
+    Apply PCA color augmentation as described in the AlexNet paper.
+
+    Parameters
+    ----------
+    alpha_std : float
+        Standard deviation of the normal distribution used for PCA noise.
+
+    Examples
+    --------
+    >>> augmenter = ImagePCAColorAugmenter(alpha_std=0.1)
+    >>> image = np.random.rand(256, 256, 3)
+    >>> pca_augmented_image = augmenter.transform(image)
+    """
+    def __init__(self, alpha_std):
+        self.alpha_std = alpha_std
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X):
+        orig_shape = X.shape
+        X = X.reshape(-1, 3)
+        X_centered = X - X.mean(axis=0)
+        U, S, Vt = np.linalg.svd(X_centered, full_matrices=False)
+        X_pca = U.dot(np.diag(S)).dot(Vt)  # PCA transformation
+        alpha = np.random.normal(0, self.alpha_std, size=3)
+        X_augmented = X_pca + Vt.T.dot(alpha)
+        return X_augmented.reshape(orig_shape)
+
+class ImageBatchLoader(BaseEstimator, TransformerMixin):
+    """
+    Load images in batches from a directory, useful when
+    dealing with large datasets.
+
+    Parameters
+    ----------
+    batch_size : int
+        Number of images to load per batch.
+
+    directory : str
+        Path to the directory containing images.
+
+    Examples
+    --------
+    >>> loader = ImageBatchLoader(batch_size=32, directory='path/to/images')
+    >>> for batch in loader.transform():
+    >>>     process(batch)
+    """
+    import_optional_dependency ('skimage', extra = EMSG )
+    def __init__(self, batch_size, directory):
+        self.batch_size = batch_size
+        self.directory = directory
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X=None, y=None):
+        image_files = [os.path.join(self.directory, fname) 
+                       for fname in sorted(os.listdir(self.directory))]
+        for i in range(0, len(image_files), self.batch_size):
+            batch_files = image_files[i:i + self.batch_size]
+            batch_images = [plt.imread(file) for file in batch_files]
+            yield np.array(batch_images)
 
 
 
