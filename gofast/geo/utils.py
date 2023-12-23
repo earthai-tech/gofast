@@ -1712,7 +1712,7 @@ def fit_stratum_property (fittedrocks , z , site_tres):
     
     return strata_grouped, site_tres_grouped, z_grouped , zcumsum_grouped
 
-def get_s_thicknesses(grouped_z, grouped_s, display_s =True, station=None):
+def get_stratum_thickness(grouped_z, grouped_s, display_s =True, station=None):
     """ Compute the thickness of each stratum from the grouped strata from 
     the top to the bottom.
     
@@ -1734,7 +1734,7 @@ def get_s_thicknesses(grouped_z, grouped_s, display_s =True, station=None):
         >>> obj= GC.quick_read_geomodel()
         >>> sg, _, zg, _= fit_stratum_property (obj.fitted_rocks,
         ...                                    obj.z, obj.nmSites[:, 0]  )
-        >>> get_s_thicknesses( zg, sg)
+        >>> get_stratum_thickness( zg, sg)
         ... ([13.0, 16.0, 260.0, 240.0, 470.0],
         ...     ['*i', 'igneous rocks', 'granite', 'igneous rocks', 'granite'],
         ...     'coverall =100%')
