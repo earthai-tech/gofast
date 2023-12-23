@@ -102,7 +102,7 @@ via the ``bi-impute`` strategy  in a one snippet code as
 The data imputation can be controlled via the parameters `strategy`, `drop_features`, `missing_values`, or
 `fill_value`. By default, `the most_frequent` argument is used to impute the categorical features.
 
-4. ** Data-based automate pipeline** 
+4. **Data-based automate pipeline** 
 
 ``gofast`` understands your data and creates a fast pipeline for you. If the data contains
 missing values or is too dirty, ``gofast`` sanitizes it before proceeding. Multiple lines 
