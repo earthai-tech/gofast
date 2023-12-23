@@ -87,7 +87,7 @@ __all__=[
     "ndcg_at_k", 
     "mean_reciprocal_rank", 
     "average_precision",
-    "jaccard_similarity_coefficient"
+    "jaccard_similarity_coeff"
     
     ]
 
@@ -1762,7 +1762,7 @@ def average_precision(y_true, y_pred):
 
     return np.sum(precision_at_k * y_true_sorted) / np.sum(y_true_sorted)
 
-def jaccard_similarity_coefficient(y_true, y_pred):
+def jaccard_similarity_coeff(y_true, y_pred):
     """
     Compute the Jaccard Similarity Coefficient for binary 
     classification.
