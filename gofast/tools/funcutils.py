@@ -78,6 +78,96 @@ except ImportError:
     interp_import = False
     
 # xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+def inspect_data ( 
+    arr: NDArray|DataFrame, *, 
+    columns: List[str, ...]=None, 
+    missing_values: float=np.nan, 
+    sanitize_columns: bool=..., 
+    regex: re|str=None, 
+    fill_pattern: str='_', 
+    drop_nan_columns: bool=True, 
+    how: str='all', 
+    reset_index: bool=..., 
+    drop_index: bool=True, 
+    ): 
+    """ Verify the integrity of the data. 
+
+    Fonction tries to understand the data, convert as possible the numeric 
+    data if not converted yet and return correct numeric and categorical 
+    data. 
+   
+    This is useful because sometimes, data contain the numeric values while 
+    the values are not sanitize to get the numeric data types. 
+   
+    Parameters 
+    -----------
+    arr: Ndarray or Dataframe, shape (m_samples, n_features)
+        Array of dataframe to create, to sanitize or to auto-detect
+        feature categories ( numerical or categorical).
+        
+    columns: list of str, optional 
+        Usefull to create a dataframe when array is given. Be aware to fit the 
+        number of array columns (shape[1])
+        
+    missing_values: float, default='NaN' 
+        Replace the missing or empty string if exist in the dataframe.
+        
+    sanitize_columns: bool, default=False, 
+       remove undesirable character in the data columns using the default
+       argument of `regex` parameters. 
+       
+    regex: `re` object,
+        Regular expresion object used to polish the data columns.
+        the default is:: 
+            
+        >>> import re 
+        >>> re.compile (r'[_#&.)(*@!_,;\s-]\s*', flags=re.IGNORECASE)
+          
+    fill_pattern: str, default='' 
+        Pattern to replace the non-alphabetic character in each item of 
+        columns.  
+        
+    drop_nan_columns: bool, default=True 
+       Remove all columns filled by NaN values. 
+        
+    how: str, default='all'
+       Drop also the NaN row data. The row data which is composed entirely  
+       with NaN or Null values.
+       
+    reset_index: bool, default=False 
+       Reset the index of the dataframe. 
+       
+    drop_index: bool, default=True, 
+       Drop index in the dataframe after reseting. 
+             
+    Returns 
+    --------
+    df : Dataframe of values casted to numeric types 
+        also return `nf` and `cf`  if `return_feature_types` is set
+        to``True``.
+        
+    See Also 
+    ---------
+    gofast.tools.funcutils.to_numeric_dtypes: 
+        Inspect, pop or return categorical and numeric features. 
+        
+   
+    """
+   
+    return to_numeric_dtypes ( 
+        arr =arr, 
+        columns=columns, 
+        missing_values=missing_values,  
+        sanitize_columns=sanitize_columns, 
+        regex=regex, 
+        fill_pattern=fill_pattern, 
+        drop_nan_columns=drop_nan_columns, 
+        how=how, 
+        reset_index=reset_index, 
+        drop_index=drop_index,  
+        )
+
 def to_numeric_dtypes (
     arr: NDArray|DataFrame, *, 
     columns: List[str, ...]=None, 
