@@ -2,6 +2,7 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 #  cluster_bases.pyx 
+# cython: boundscheck=False, wraparound=False, nonecheck=False
 """
 # python setup.py build_ext --inplace
 # cluster_bases.pyx
@@ -10,6 +11,7 @@
 import numpy as np
 cimport numpy as np
 from libc.math cimport sqrt
+cimport numpy as cnp
 
 cdef double euclidean_distance(double[:] x, double[:] y):
     """
@@ -34,7 +36,45 @@ cdef double euclidean_distance(double[:] x, double[:] y):
         sum_sq += (x[i] - y[i]) ** 2
     return sqrt(sum_sq)
 
-cdef update_centroids(double[:,:] data, int[:] labels, int n_clusters, double[:,:] centroids):
+cpdef update_centroids(cnp.ndarray data, cnp.ndarray labels, int n_clusters):
+    """
+    Update the centroids based on the current assignment of data points.
+
+    Parameters
+    ----------
+    data : ndarray
+        An array where each row is a data point and each column is a feature.
+    labels : ndarray
+        An array of integer labels assigning each data point to a cluster.
+    n_clusters : int
+        The number of clusters.
+
+    Returns
+    -------
+    new_centroids : ndarray
+        Updated centroids for each cluster.
+    """
+    cdef int n_features = data.shape[1]
+    cdef cnp.ndarray new_centroids = np.zeros((n_clusters, n_features),
+                                              dtype=np.float64)
+    cdef cnp.ndarray counts = np.zeros(n_clusters, dtype=np.intc)
+
+    cdef int i, label
+
+    for i in range(data.shape[0]):
+        label = labels[i]
+        counts[label] += 1
+        new_centroids[label] += data[i]
+
+    for i in range(n_clusters):
+        if counts[i] > 0:
+            new_centroids[i] /= counts[i]
+
+    return new_centroids
+
+
+cdef centroids_updating(double[:,:] data, int[:] labels, int n_clusters,
+                       double[:,:] centroids):
     """
     Update the centroids based on the current assignment of data points.
 
@@ -94,7 +134,7 @@ cpdef naive_k_means(double[:,:] data, int n_clusters, int max_iter=100):
     data = np.random.rand(100, 2)
     n_clusters = 3
     
-    labels, centroids = k_means_clustering(data, n_clusters)
+    labels, centroids = naive_k_means(data, n_clusters)
     print("Labels:", labels)
     print("Centroids:", centroids
 

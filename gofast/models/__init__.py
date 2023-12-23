@@ -17,7 +17,8 @@ from .utils import (
     get_split_best_scores, 
     display_cv_tables, 
     display_fine_tuned_results, 
-    display_model_max_details 
+    display_model_max_details, 
+    shrink_covariance_cv_score
     ) 
 from .optimize import ( 
     parallelize_estimators, 
@@ -38,4 +39,5 @@ __all__=[
     "naive_evaluation",
     "parallelize_estimators", 
     "optimize_hyperparameters", 
+    "shrink_covariance_cv_score", 
     ]
