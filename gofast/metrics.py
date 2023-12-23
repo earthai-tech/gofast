@@ -13,6 +13,7 @@ from __future__ import annotations
 import copy
 import warnings  
 import numpy as np 
+from scipy.stats import spearmanr
 from sklearn import metrics 
 
 from ._docstring import ( 
@@ -43,7 +44,9 @@ from sklearn.model_selection import (
     )
 from .tools.validator import ( 
     get_estimator_name, 
-    _is_numeric_dtype 
+    _is_numeric_dtype,
+    check_consistent_length, 
+    check_y 
     ) 
 from .tools.funcutils import ( 
     is_iterable, 
@@ -52,12 +55,41 @@ from .tools.funcutils import (
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
-__all__=['precision_recall_tradeoff',
-         'ROC_curve',
-         'confusion_matrix', 
-         "get_metrics", 
-         "get_eval_scores"
-         ]
+__all__=[
+    "precision_recall_tradeoff",
+    "roc_curve_",
+    "confusion_matrix_", 
+    "get_eval_scores", 
+    "mean_squared_log_error",
+    "balanced_accuracy",
+    "information_value", 
+    "mean_absolute_error",
+    "mean_squared_error", 
+    "root_mean_squared_error",
+    "r_squared", 
+    "mean_absolute_percentage_error", 
+    "explained_variance_score", 
+    "median_absolute_error",
+    "max_error",
+    "mean_squared_log_error",
+    "mean_poisson_deviance", 
+    "mean_gamma_deviance",
+    "mean_absolute_deviation", 
+    "dice_similarity_coeff", 
+    "gini_coeff",
+    "hamming_loss", 
+    "fowlkes_mallows_index",
+    "rmse_log_error", 
+    "mean_percentage_error",
+    "percentage_bias", 
+    "spearmans_rank_correlation",
+    "precision_at_k", 
+    "ndcg_at_k", 
+    "mean_reciprocal_rank", 
+    "average_precision",
+    "jaccard_similarity_coeff"
+    
+    ]
 
 #----add metrics docs 
 _metrics_params =dict (
@@ -87,6 +119,87 @@ _param_docs = DocstringComponents.from_nested_components(
     metric=DocstringComponents(_metrics_params ), 
     )
 
+def mean_squared_log_error(y_true, y_pred):
+    r"""
+    Compute the Mean Squared Logarithmic Error.
+
+    It's like Mean Squared Error, but penalizes underestimates more than 
+    overestimates.
+    
+    Useful in regression tasks, especially in cases where the target 
+    variable is a count or when focusing on relative errors.
+    
+    Parameters
+    ----------
+    y_true : array-like
+        True values.
+    y_pred : array-like
+        Predicted values.
+
+    Returns
+    -------
+    float
+        Mean Squared Logarithmic Error.
+
+    Examples
+    --------
+    >>> y_true = [3, 5, 2.5, 7]
+    >>> y_pred = [2.5, 5, 4, 8]
+    >>> mean_squared_log_error(y_true, y_pred)
+    0.03973
+
+    Notes
+    -----
+    MSLE = \frac{1}{n} \sum_{i=1}^n (\log(y_{\text{true},i} + 1) - \log(y_{\text{pred},i} + 1))^2
+    
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    return np.mean((np.log1p(y_true) - np.log1p(y_pred)) ** 2)
+
+
+def balanced_accuracy(y_true, y_pred):
+    r"""
+    Compute the Balanced Accuracy in binary classification.
+    
+    Measures the performance of a classification model in cases where classes 
+    are imbalanced.
+    
+    Particularly valuable in medical diagnoses, fraud detection, or any other 
+    classification task where imbalanced classes are common.
+    
+
+    Parameters
+    ----------
+    y_true : array-like
+        True binary labels.
+    y_pred : array-like
+        Predicted binary labels.
+
+    Returns
+    -------
+    float
+        Balanced Accuracy.
+
+    Examples
+    --------
+    >>> y_true = [0, 1, 0, 1, 1]
+    >>> y_pred = [1, 1, 0, 0, 1]
+    >>> balanced_accuracy(y_true, y_pred)
+    0.75
+
+    Notes
+    -----
+    BA = \frac{TPR + TNR}{2}
+    
+    where TPR is True Positive Rate and TNR is True Negative Rate.
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    cm = cfsmx(y_true, y_pred)
+    sensitivity = cm[1, 1] / (cm[1, 1] + cm[1, 0])
+    specificity = cm[0, 0] / (cm[0, 0] + cm[0, 1])
+    return (sensitivity + specificity) / 2
 
 def information_value (Xp:ArrayLike, /,  Np:ArrayLike, Sp:ArrayLike, *, 
                        return_tot :bool = ... ): 
@@ -620,7 +733,7 @@ Examples
     params =_param_docs
 )
     
-def ROC_curve( 
+def roc_curve_( 
     roc_kws:dict =None, 
     **tradeoff_kws
 )-> object: 
@@ -636,7 +749,7 @@ def ROC_curve(
 
     return obj 
 
-ROC_curve.__doc__ ="""\
+roc_curve_.__doc__ ="""\
 The Receiving Operating Characteric (ROC) curve is another common
 tool  used with binary classifiers. 
 
@@ -680,6 +793,12 @@ obj: object, an instancied metric tying object
         * `y` classified 
     and can be retrieved for plot purpose.    
     
+Note 
+-------
+:func:`~roc_curve_` returns a ROC object for plotting purpose. ``_`` is used 
+to differentiate it with the `roc_curve` metric provided by scikit-learn.
+To get the `roc_curve` score, use  ``obj.<obj.roc_auc_score>`` instead.
+
 Examples
 --------
 >>> from gofast.exlib import SGDClassifier
@@ -696,7 +815,7 @@ Examples
     params =_param_docs
 )   
 
-def confusion_matrix(
+def confusion_matrix_(
     clf:F, 
     X:NDArray, 
     y:ArrayLike,
@@ -737,7 +856,7 @@ def confusion_matrix(
         
     return obj  
   
-confusion_matrix.__doc__ ="""\
+confusion_matrix_.__doc__ ="""\
 Evaluate the preformance of the model or classifier by counting 
 the number of the times instances of class A are classified in class B. 
 
@@ -768,6 +887,23 @@ crossvalp_kws: dict
 conf_mx_kws: dict 
     Additional confusion matrix keywords arguments.
 
+Returns 
+---------
+obj: object, an instancied metric tying object 
+    The metric object hold the following attributes additional to the return
+    attributes from :func:~.confusion_matrix_`:: 
+        * `conf_mx` returns the score computed between `y_true` and `y_pred`. 
+        * `norm_conf_mx` returns the normalized values. 
+    and can be retrieved for plot purpose.    
+    
+Note 
+-------
+:func:`~confusion_matrix_` returns a ROC object for plotting purpose. ``_`` 
+is used to differentiate it with the `confusion_matrix` metric provided 
+by scikit-learn. To get the `confusion_matrix` score, use  
+``obj.<obj.conf_mx>`` instead.
+
+
 Examples
 --------
 >>> from sklearn.svm import SVC 
@@ -784,22 +920,896 @@ Examples
 """.format(
     params =_param_docs
 )
-# Get all param values and set attributes 
-# func_sig = inspect.signature(confusion_matrix_)
-# PARAMS_VALUES = {k: v.default
-#     for k, v in func_sig.parameters.items()
-#     if v.default is not  inspect.Parameter.empty
-#     }
-# # add positional params 
-# for pname, pval in zip( ['X', 'y', 'clf'], [X, y, clf]): 
-#     PARAMS_VALUES[pname]=pval 
+
+
+def mean_absolute_error(y_true, y_pred):
+    """
+    Calculate the Mean Absolute Error (MAE).
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        Ground truth (correct) target values.
+    y_pred : array-like of shape (n_samples,)
+        Estimated target values.
+
+    Returns
+    -------
+    float
+        The MAE value.
+
+    Formula (ASciimath):
+    -------------------
+    MAE = (1 / n) * Σ |y_true - y_pred|
+
+    Example:
+    --------
+    >>> y_true = np.array([3, 5, 2, 7])
+    >>> y_pred = np.array([2, 6, 3, 8])
+    >>> mean_absolute_error(y_true, y_pred)
+    1.0
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    return np.mean(np.abs(y_true - y_pred))
+
+
+def mean_squared_error(y_true, y_pred):
+    """
+    Calculate the Mean Squared Error (MSE).
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        Ground truth (correct) target values.
+    y_pred : array-like of shape (n_samples,)
+        Estimated target values.
+
+    Returns
+    -------
+    float
+        The MSE value.
+
+    Formula (ASciimath):
+    -------------------
+    MSE = (1 / n) * Σ (y_true - y_pred)^2
+
+    Example:
+    --------
+    >>> y_true = np.array([3, 5, 2, 7])
+    >>> y_pred = np.array([2, 6, 3, 8])
+    >>> mean_squared_error(y_true, y_pred)
+    1.25
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    return np.mean((y_true - y_pred) ** 2)
+
+
+def root_mean_squared_error(y_true, y_pred):
+    """
+    Calculate the Root Mean Squared Error (RMSE).
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        Ground truth (correct) target values.
+    y_pred : array-like of shape (n_samples,)
+        Estimated target values.
+
+    Returns
+    -------
+    float
+        The RMSE value.
+
+    Formula (ASciimath):
+    -------------------
+    RMSE = √(MSE)
+
+    Example:
+    --------
+    >>> y_true = np.array([3, 5, 2, 7])
+    >>> y_pred = np.array([2, 6, 3, 8])
+    >>> root_mean_squared_error(y_true, y_pred)
+    1.118033988749895
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    return np.sqrt(mean_squared_error(y_true, y_pred))
+
     
-# PARAMS_VALUES2 = {k: v
-#     for k, v in func_sig.parameters.items()
-#     if (v.default is inspect.Parameter.empty and k !='self')
-#     }
-# parameters = [p.name for p in func_sig.parameters.values()
-       # if p.name != 'self' and p.kind != p.VAR_KEYWORD] 
-# mObj = Metrics() #confusion_matrix_ 
-# for key in PARAMS_VALUES.keys(): 
-#     setattr(mObj , key, PARAMS_VALUES[key] )
+def r_squared(y_true, y_pred):
+    r"""
+    Calculate the Coefficient of Determination (R-squared).
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        Ground truth (correct) target values.
+    y_pred : array-like of shape (n_samples,)
+        Estimated target values.
+
+    Returns
+    -------
+    float
+        The R-squared value.
+
+    Formula (ASciimath):
+    -------------------
+    R^2 = 1 - (Σ (y_true - y_pred)^2) / (Σ (y_true - mean(y_true))^2)
+
+    Example:
+    --------
+    >>> y_true = np.array([3, 5, 2, 7])
+    >>> y_pred = np.array([2, 6, 3, 8])
+    >>> r_squared(y_true, y_pred)
+    0.4210526315789472
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred )
+    ssr = np.sum((y_true - y_pred) ** 2)
+    sst = np.sum((y_true - np.mean(y_true)) ** 2)
+    return 1 - (ssr / sst)
+
+     
+def mean_absolute_percentage_error(y_true, y_pred):
+    r"""
+    Calculate the Mean Absolute Percentage Error (MAPE).
+    
+    Measures the average of the percentage errors by which forecasts of a 
+    model differ from actual values of the quantity being forecasted.
+    
+    Applicability: Common in various forecasting models, particularly in finance
+    and operations management.
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        Ground truth (correct) target values.
+    y_pred : array-like of shape (n_samples,)
+        Estimated target values.
+
+    Returns
+    -------
+    float
+        The MAPE value.
+
+    Formula (ASciimath):
+    -------------------
+    MAPE = (1 / n) * Σ |(y_true - y_pred) / y_true| * 100
+
+    Example:
+    --------
+    >>> y_true = np.array([3, 5, 2, 7])
+    >>> y_pred = np.array([2, 6, 3, 8])
+    >>> mean_absolute_percentage_error(y_true, y_pred)
+    26.190476190476193
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+
+
+def explained_variance_score(y_true, y_pred):
+    """
+    Calculate the Explained Variance Score.
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        Ground truth (correct) target values.
+    y_pred : array-like of shape (n_samples,)
+        Estimated target values.
+
+    Returns
+    -------
+    float
+        The Explained Variance Score.
+
+    Formula (ASciimath):
+    -------------------
+    Explained Variance Score = 1 - (Var(y_true - y_pred) / Var(y_true))
+
+    Example:
+    --------
+    >>> y_true = np.array([3, 5, 2, 7])
+    >>> y_pred = np.array([2, 6, 3, 8])
+    >>> explained_variance_score(y_true, y_pred)
+    0.576923076923077
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    return 1 - (np.var(y_true - y_pred) / np.var(y_true))
+
+
+def median_absolute_error(y_true, y_pred):
+    """
+    Calculate the Median Absolute Error (MedAE).
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        Ground truth (correct) target values.
+    y_pred : array-like of shape (n_samples,)
+        Estimated target values.
+
+    Returns
+    -------
+    float
+        The Median Absolute Error (MedAE).
+
+    Formula (ASciimath):
+    -------------------
+    MedAE = median(|y_true - y_pred|)
+
+    Example:
+    --------
+    >>> y_true = np.array([3, 5, 2, 7])
+    >>> y_pred = np.array([2, 6, 3, 8])
+    >>> median_absolute_error(y_true, y_pred)
+    0.5
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    return np.median(np.abs(y_true - y_pred))
+
+
+def max_error(y_true, y_pred):
+    """
+    Calculate the Maximum Error.
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        Ground truth (correct) target values.
+    y_pred : array-like of shape (n_samples,)
+        Estimated target values.
+
+    Returns
+    -------
+    float
+        The Maximum Error.
+
+    Formula (ASciimath):
+    -------------------
+    Max Error = max(|y_true - y_pred|)
+
+    Example:
+    --------
+    >>> y_true = np.array([3, 5, 2, 7])
+    >>> y_pred = np.array([2, 6, 3, 8])
+    >>> max_error(y_true, y_pred)
+    1
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    return np.max(np.abs(y_true - y_pred))
+
+
+def mean_poisson_deviance(y_true, y_pred):
+    """
+    Calculate the Mean Poisson Deviance.
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        Ground truth (correct) target values.
+    y_pred : array-like of shape (n_samples,)
+        Estimated target values.
+
+    Returns
+    -------
+    float
+        The Mean Poisson Deviance.
+
+    Formula (ASciimath):
+    -------------------
+    Mean Poisson Deviance = (1 / n) * Σ (2 * (y_pred - y_true * log(y_pred / y_true)))
+
+    Example:
+    --------
+    >>> y_true = np.array([3, 5, 2, 7])
+    >>> y_pred = np.array([2, 6, 3, 8])
+    >>> mean_poisson_deviance(y_true, y_pred)
+    0.3504668404698445
+    """
+
+    return np.mean(2 * (y_pred - y_true * np.log(y_pred / y_true)))
+
+
+def mean_gamma_deviance(y_true, y_pred):
+    """
+    Calculate the Mean Gamma Deviance.
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        Ground truth (correct) target values.
+    y_pred : array-like of shape (n_samples,)
+        Estimated target values.
+
+    Returns
+    -------
+    float
+        The Mean Gamma Deviance.
+
+    Formula (ASciimath):
+    -------------------
+    Mean Gamma Deviance = (1 / n) * Σ (2 * (log(y_true / y_pred) - (y_true / y_pred)))
+
+    Example:
+    --------
+    >>> y_true = np.array([3, 5, 2, 7])
+    >>> y_pred = np.array([2, 6, 3, 8])
+    >>> mean_gamma_deviance(y_true, y_pred)
+    0.09310805868940843
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    return np.mean(2 * (np.log(y_true / y_pred) - (y_true / y_pred)))
+
+
+def mean_absolute_deviation(data):
+    """
+    Compute the Mean Absolute Deviation of a dataset.
+
+    Parameters
+    ----------
+    data : array-like
+        The data for which the mean absolute deviation is to be computed.
+
+    Returns
+    -------
+    float
+        The mean absolute deviation of the data.
+
+    Examples
+    --------
+    >>> data = [1, 2, 3, 4, 5]
+    >>> mean_absolute_deviation(data)
+    1.2
+
+    Notes
+    -----
+    MAD = \frac{1}{n} \sum_{i=1}^n |x_i - \bar{x}|
+    where \bar{x} is the mean of the data, and n is the number of observations.
+    """
+    data = np.asarray(data)
+    mean = np.mean(data)
+    return np.mean(np.abs(data - mean))
+
+  
+def dice_similarity_coeff(y_true, y_pred):
+    """
+    Compute the Dice Similarity Coefficient between two boolean 1D arrays.
+
+    Measures the similarity between two sets, often used in image segmentation 
+    and binary classification tasks.
+    
+    Particularly useful in medical image analysis for comparing the pixel-wise 
+    agreement between a ground truth segmentation and a predicted segmentation.
+
+    Parameters
+    ----------
+    y_true : array-like of bool
+        True labels of the data.
+    y_pred : array-like of bool
+        Predicted labels of the data.
+
+    Returns
+    -------
+    float
+        Dice Similarity Coefficient.
+
+    Examples
+    --------
+    >>> y_true = [True, False, True, False, True]
+    >>> y_pred = [True, True, True, False, False]
+    >>> dice_similarity_coefficient(y_true, y_pred)
+    0.6
+
+    Notes
+    -----
+    DSC = 2 * (|y_true ∩ y_pred|) / (|y_true| + |y_pred|)
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    intersection = np.sum(y_true & y_pred)
+    return 2. * intersection / (np.sum(y_true) + np.sum(y_pred))
+
+def gini_coeff(y_true, y_pred):
+    """
+    Compute the Gini Coefficient, a measure of inequality among values.
+
+    A measure of statistical dispersion intended to represent the income or 
+    wealth distribution of a nation's residents.
+    
+    Widely used in economics for inequality measurement, but also applicable 
+    in machine learning for assessing inequality in error distribution
+    
+    Parameters
+    ----------
+    y_true : array-like
+        Observed values.
+    y_pred : array-like
+        Predicted values.
+
+    Returns
+    -------
+    float
+        Gini Coefficient.
+
+    Examples
+    --------
+    >>> y_true = [1, 2, 3, 4, 5]
+    >>> y_pred = [2, 2, 3, 4, 4]
+    >>> gini_coefficient(y_true, y_pred)
+    0.2
+
+    Notes
+    -----
+    G = \frac{\sum_i \sum_j |y_{\text{true},i} - y_{\text{pred},j}|}{2n\sum_i y_{\text{true},i}}
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    abs_diff = np.abs(np.subtract.outer(y_true, y_pred))
+    return np.sum(abs_diff) / (2 * len(y_true) * np.sum(y_true))
+
+def hamming_loss(y_true, y_pred):
+    """
+    Compute the Hamming loss, the fraction of labels that are 
+    incorrectly predicted.
+
+    Measures the fraction of wrong labels to the total number of labels.
+    Useful in multi-label classification problems, such as text 
+    categorization or image classification where each instance might 
+    have multiple labels.
+
+    Parameters
+    ----------
+    y_true : array-like
+        True labels of the data.
+    y_pred : array-like
+        Predicted labels of the data.
+
+    Returns
+    -------
+    float
+        Hamming loss.
+
+    Examples
+    --------
+    >>> y_true = [1, 2, 3, 4]
+    >>> y_pred = [2, 2, 3, 4]
+    >>> hamming_loss(y_true, y_pred)
+    0.25
+
+    Notes
+    -----
+    HL = \frac{1}{n} \sum_{i=1}^n 1(y_{\text{true},i} \neq y_{\text{pred},i})
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    return np.mean(y_true != y_pred)
+
+def fowlkes_mallows_index(y_true, y_pred):
+    """
+    Compute the Fowlkes-Mallows Index for clustering 
+    performance.
+    
+    A measure of similarity between two sets of clusters.
+    
+    Used in clustering and image segmentation to evaluate the similarity 
+    between the actual and predicted clusters.
+
+    Parameters
+    ----------
+    y_true : array-like
+        True cluster labels.
+    y_pred : array-like
+        Predicted cluster labels.
+
+    Returns
+    -------
+    float
+        Fowlkes-Mallows Index.
+
+    Examples
+    --------
+    >>> y_true = [1, 1, 2, 2, 3, 3]
+    >>> y_pred = [1, 1, 1, 2, 3, 3]
+    >>> fowlkes_mallows_index(y_true, y_pred)
+    0.7717
+
+    Notes
+    -----
+    FMI = \sqrt{\frac{TP}{TP + FP} \times \frac{TP}{TP + FN}}
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    cm = cfsmx(y_true, y_pred)
+    tp = np.sum(np.diag(cm))  # True Positives
+    fp = np.sum(cm, axis=0) - np.diag(cm)  # False Positives
+    fn = np.sum(cm, axis=1) - np.diag(cm)  # False Negatives
+    return np.sqrt(np.sum(tp / (tp + fp)) * np.sum(tp / (tp + fn)))
+
+def rmse_log_error(y_true, y_pred):
+    """
+    Compute the Root Mean Squared Logarithmic Error.
+
+    Provides a measure of accuracy in predicting quantitative data where 
+    the emphasis is on the relative rather than the absolute difference.
+    
+    Often used in forecasting and regression problems, especially when 
+    dealing with exponential growth, like in population studies or viral 
+    growth modeling.
+    
+    Parameters
+    ----------
+    y_true : array-like
+        True values.
+    y_pred : array-like
+        Predicted values.
+
+    Returns
+    -------
+    float
+        Root Mean Squared Logarithmic Error.
+
+    Examples
+    --------
+    >>> y_true = [3, 5, 2.5, 7]
+    >>> y_pred = [2.5, 5, 4, 8]
+    >>> root_mean_squared_log_error(y_true, y_pred)
+    0.1993
+
+    Notes
+    -----
+    RMSLE = \sqrt{\frac{1}{n} \sum_{i=1}^n (\log(y_{\text{pred},i} + 1) - \log(y_{\text{true},i} + 1))^2}
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    return np.sqrt(np.mean((np.log1p(y_pred) - np.log1p(y_true)) ** 2))
+
+def mean_percentage_error(y_true, y_pred):
+    """
+    Compute the Mean Percentage Error.
+    
+    Measures the average of the percentage errors by which forecasts of a 
+    model differ from actual values of the quantity being forecasted.
+    
+    Applicability: Common in various forecasting models, particularly in 
+    finance and operations management.
+    
+
+    Parameters
+    ----------
+    y_true : array-like
+        True values.
+    y_pred : array-like
+        Predicted values.
+
+    Returns
+    -------
+    float
+        Mean Percentage Error.
+
+    Examples
+    --------
+    >>> y_true = [100, 200, 300]
+    >>> y_pred = [110, 190, 295]
+    >>> mean_percentage_error(y_true, y_pred)
+    -1.6667
+
+    Notes
+    -----
+    MPE = \frac{100}{n} \sum_{i=1}^n \frac{y_{\text{pred},i} - y_{\text{true},i}}{y_{\text{true},i}}
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    return np.mean((y_pred - y_true) / y_true) * 100
+
+
+def percentage_bias(y_true, y_pred):
+    """
+    Compute the Percentage Bias between true and predicted values.
+
+    Indicates the average tendency of the predictions to overestimate or 
+    underestimate against actual values.
+    
+    Used in forecasting models, such as in weather forecasting,
+    economic forecasting, or any model where the direction 
+    of bias is crucial.
+    
+    Parameters
+    ----------
+    y_true : array-like
+        True values.
+    y_pred : array-like
+        Predicted values.
+
+    Returns
+    -------
+    float
+        The percentage bias of the predictions.
+
+    Examples
+    --------
+    >>> y_true = [100, 150, 200, 250, 300]
+    >>> y_pred = [110, 140, 210, 230, 310]
+    >>> percentage_bias(y_true, y_pred)
+    1.3333
+
+    Notes
+    -----
+    Percentage Bias = \frac{100}{n} \sum_{i=1}^n \frac{y_{\text{pred},i} - y_{\text{true},i}}{y_{\text{true},i}}
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    return 100 * np.sum((y_pred - y_true) / y_true) / len(y_true)
+
+def spearmans_rank_correlation(y_true, y_pred):
+    """
+    Compute Spearman's Rank Correlation Coefficient, a nonparametric 
+    measure of rank correlation.
+
+    Parameters
+    ----------
+    y_true : array-like
+        True rankings.
+    y_pred : array-like
+        Predicted rankings.
+
+    Returns
+    -------
+    float
+        Spearman's Rank Correlation Coefficient.
+
+    Examples
+    --------
+    >>> y_true = [1, 2, 3, 4, 5]
+    >>> y_pred = [5, 6, 7, 8, 7]
+    >>> spearmans_rank_correlation(y_true, y_pred)
+    0.8208
+
+    Notes
+    -----
+    \rho = 1 - \frac{6 \sum d_i^2}{n(n^2 - 1)}
+    where d_i is the difference between the two ranks of each observation, 
+    and n is the number of observations.
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    return spearmanr(y_true, y_pred)[0]
+
+def precision_at_k(y_true, y_pred, k):
+    """
+    Compute Precision at K for ranking problems.
+    
+    Measures the proportion of relevant items found in the top-k recommendations.
+    
+    Widely used in information retrieval and recommendation systems, like in 
+    search engine result ranking or movie recommendation.
+    
+    Parameters
+    ----------
+    y_true : list of list of int
+        List of lists containing the true relevant items.
+    y_pred : list of list of int
+        List of lists containing the top-k predicted items.
+    k : int
+        The rank at which precision is evaluated.
+
+    Returns
+    -------
+    float
+        Precision at K.
+
+    Examples
+    --------
+    >>> y_true = [[1, 2], [1, 2, 3]]
+    >>> y_pred = [[2, 3, 4], [2, 3, 5]]
+    >>> k = 2
+    >>> precision_at_k(y_true, y_pred, k)
+    0.75
+
+    Notes
+    -----
+    P@K = \frac{1}{|U|} \sum_{u=1}^{|U|} \frac{|{ \text{relevant items at k for user } u } \cap { \text{recommended items at k for user } u }|}{k}
+    """
+    assert len(y_true) == len(y_pred),(
+        "Length of true and predicted lists must be equal.")
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    precision_scores = []
+    for true, pred in zip(y_true, y_pred):
+        num_relevant = len(set(true) & set(pred[:k]))
+        precision_scores.append(num_relevant / k)
+    
+    return np.mean(precision_scores)
+
+def ndcg_at_k(y_true, y_pred, k):
+    """
+    Compute Normalized Discounted Cumulative Gain at K for 
+    ranking problems.
+    
+    Evaluates the quality of rankings by considering the position of the 
+    relevant items.
+    
+    Crucial in search engines, recommender systems, and any other system 
+    where the order of predictions is important.
+
+    Parameters
+    ----------
+    y_true : list of list of int
+        List of lists containing the true relevant items with their grades.
+    y_pred : list of list of int
+        List of lists containing the predicted items.
+    k : int
+        The rank at which NDCG is evaluated.
+
+    Returns
+    -------
+    float
+        NDCG at K.
+
+    Examples
+    --------
+    >>> y_true = [[3, 2, 3], [2, 1, 2]]
+    >>> y_pred = [[1, 2, 3], [1, 2, 3]]
+    >>> k = 3
+    >>> ndcg_at_k(y_true, y_pred, k)
+    0.9203
+
+    Notes
+    -----
+    DCG@K = \sum_{i=1}^k \frac{2^{rel_i} - 1}{\log_2(i + 1)}
+    NDCG@K = \frac{DCG@K}{IDCG@K}
+    where rel_i is the relevance of the item at position i.
+    """
+    def dcg_at_k(rel, k):
+        rel = np.asfarray(rel)[:k]
+        discounts = np.log2(np.arange(2, rel.size + 2))
+        return np.sum(rel / discounts)
+    
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    ndcg_scores = []
+    for true, pred in zip(y_true, y_pred):
+        idcg = dcg_at_k(sorted(true, reverse=True), k)
+        dcg = dcg_at_k([true[pred.index(d)] if d in pred else 0 for d in pred], k)
+        ndcg_scores.append(dcg / idcg if idcg > 0 else 0)
+    
+    return np.mean(ndcg_scores)
+
+def mean_reciprocal_rank(y_true, y_pred):
+    """
+    Compute Mean Reciprocal Rank for ranking problems.
+
+    Averages the reciprocal ranks of the first correct answer in a list of 
+    predictions.
+    
+    Applicability: Commonly used in information retrieval and natural 
+    language processing, particularly for evaluating query response 
+    systems
+    
+    Parameters
+    ----------
+    y_true : list of int
+        List containing the true relevant item.
+    y_pred : list of list of int
+        List of lists containing the predicted ranked items.
+
+    Returns
+    -------
+    float
+        Mean Reciprocal Rank.
+
+    Examples
+    --------
+    >>> y_true = [1, 2]
+    >>> y_pred = [[1, 2, 3], [1, 3, 2]]
+    >>> mean_reciprocal_rank(y_true, y_pred)
+    0.75
+
+    Notes
+    -----
+    MRR = \frac{1}{|Q|} \sum_{i=1}^{|Q|} \frac{1}{\text{rank of first relevant item for query } i}
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    reciprocal_ranks = []
+    for true, preds in zip(y_true, y_pred):
+        rank = next((1 / (i + 1) for i, pred in enumerate(preds) if pred == true), 0)
+        reciprocal_ranks.append(rank)
+    
+    return np.mean(reciprocal_ranks)
+
+def average_precision(y_true, y_pred):
+    """
+    Compute Average Precision for binary classification problems.
+
+    Measures the average precision of a classifier at different threshold 
+    levels.
+    
+    Widely used in binary classification tasks and ranking problems in 
+    information retrieval, like document retrieval and object 
+    detection in images.
+    
+    Parameters
+    ----------
+    y_true : array-like
+        True binary labels.
+    y_pred : array-like
+        Predicted probabilities.
+
+    Returns
+    -------
+    float
+        Average Precision.
+
+    Examples
+    --------
+    >>> y_true = [0, 1, 0, 1]
+    >>> y_pred = [0.1, 0.4, 0.35, 0.8]
+    >>> average_precision(y_true, y_pred)
+    0.8333
+
+    Notes
+    -----
+    AP = \sum_{k=1}^n P(k) \Delta r(k)
+    where P(k) is the precision at cutoff k, and \Delta r(k) is the change in recall from items k-1 to k.
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    sorted_indices = np.argsort(y_pred)[::-1]
+    y_true_sorted = np.asarray(y_true)[sorted_indices]
+
+    tp = np.cumsum(y_true_sorted)
+    fp = np.cumsum(~y_true_sorted)
+    precision_at_k = tp / (tp + fp)
+
+    return np.sum(precision_at_k * y_true_sorted) / np.sum(y_true_sorted)
+
+def jaccard_similarity_coeff(y_true, y_pred):
+    """
+    Compute the Jaccard Similarity Coefficient for binary 
+    classification.
+    
+    Measures the similarity and diversity of sample sets.
+    
+    Useful in many fields including ecology, gene sequencing analysis, and 
+    also in machine learning for evaluating the accuracy of clustering.
+    
+    Parameters
+    ----------
+    y_true : array-like
+        True binary labels.
+    y_pred : array-like
+        Predicted binary labels.
+
+    Returns
+    -------
+    float
+        Jaccard Similarity Coefficient.
+
+    Examples
+    --------
+    >>> y_true = [1, 1, 0, 0]
+    >>> y_pred = [1, 0, 0, 1]
+    >>> jaccard_similarity_coefficient(y_true, y_pred)
+    0.3333
+
+    Notes
+    -----
+    J = \frac{|y_{\text{true}} \cap y_{\text{pred}}|}{|y_{\text{true}} \cup y_{\text{pred}}|}
+    """
+    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    
+    intersection = np.logical_and(y_true, y_pred)
+    union = np.logical_or(y_true, y_pred)
+    return intersection.sum() / float(union.sum())
+
+def _ensure_y_is_valid (*y_arrays,  **kws ): 
+    """Ensure y  ( true and pred) are valids  and have consistency length"""
+    y_true, y_pred = y_arrays 
+    y_true = check_y ( y_true , **kws ) 
+    y_pred = check_y ( y_pred, **kws  ) 
+    
+    check_consistent_length(y_true , y_pred ) 
+    
+    return y_true, y_pred 
+
+    
+    

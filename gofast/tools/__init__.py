@@ -41,7 +41,8 @@ from .funcutils import (
     twinning, 
     random_sampling, 
     replace_data, 
-    storeOrwritehdf5
+    storeOrwritehdf5, 
+    inspect_data, 
     )
 
 from .mlutils import ( 
@@ -81,6 +82,7 @@ from .mlutils import (
     
     ) 
 __all__=[
+    'inspect_data', 
     'read_data',
     'array2hdf5', 
     'save_or_load', 
@@ -106,7 +108,6 @@ __all__=[
     'select_features', 
     'get_global_score', 
     'split_train_test', 
-    'get_correlated_features', 
     'find_features_in', 
     'categorize_target', 
     'resampling', 
@@ -133,10 +134,8 @@ __all__=[
     'serialize_data', 
     'load_dumped_data', 
     'naive_data_split', 
-    'read_data', 
     'soft_imputer', 
     'soft_scaler', 
-    'select_feature_importances',
     'make_pipe',
     'classify_k',
     'label_importance', 

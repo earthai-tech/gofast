@@ -20,14 +20,14 @@ from .._docstring import _core_docs
 from ..tools.funcutils import _assert_all_types 
 # ---
 __all__=[
-    "extract_pca", 
-    "decision_region", 
-    "feature_transformation", 
-    "total_variance_ratio" , 
+    "get_eigen_components", 
+    "plot_decision_regions", 
+    "transform_to_principal_components", 
+    "get_total_variance_ratio" , 
     "linear_discriminant_analysis"
     ]
 
-def extract_pca (X): 
+def get_eigen_components (X): 
     # standize the features 
     sc = StandardScaler() 
     X= sc.fit_transform(X)
@@ -36,9 +36,12 @@ def extract_pca (X):
     eigen_vals, eigen_vecs = np.linalg.eig (cov_mat)
     return eigen_vals, eigen_vecs, X
 
-extract_pca.__doc__="""\
+get_eigen_components.__doc__="""\
 A naive approach to extract PCA from training set X 
  
+Extracting both eigenvalues and eigenvectors, key components in many 
+linear algebra and data analysis applications.
+
 Parameters 
 ----------
 {params.X}
@@ -84,8 +87,8 @@ returns real eigh eigenvalues
 """.format(params = _core_docs["params"]
 )
     
-def total_variance_ratio (X, view =False): 
-    eigen_vals, eigen_vcs, _ = extract_pca(X)
+def get_total_variance_ratio (X, view =False): 
+    eigen_vals, eigen_vcs, _ = get_eigen_components(X)
     tot =sum(eigen_vals)
     # sorting the eigen values by decreasing 
     # order to rank the eigen_vectors
@@ -105,7 +108,7 @@ def total_variance_ratio (X, view =False):
     
     return cum_var_exp 
     
-total_variance_ratio.__doc__ ="""\
+get_total_variance_ratio.__doc__ ="""\
 Compute the total variance ratio. 
 
 Is the ratio of an eigenvalues :math:`\\lambda_j`, as simply the fraction of 
@@ -135,20 +138,20 @@ cum_var_exp : array-like
 Examples 
 ----------
 >>> from gofast.analysis import total_variance_ratio 
->>> # Use the X value in the example of `extract_pca` function   
+>>> # Use the X value in the example of `extract_eigen_components` function   
 >>> cum_var = total_variance_ratio(X, view=True)
 >>> cum_var
 ... array([0.26091916, 0.44042728, 0.57625294, 0.69786032, 0.80479823,
        0.89379712, 0.97474381, 1.        ])
 """
 
-def feature_transformation (
+def transform_to_principal_components (
         X, y=None, n_components =2, positive_class=1, view =False):
     
     # select k vectors which correspond to the k largest 
     # eigenvalues , where k is the dimesionality of the new  
     # subspace (k<=d) 
-    eigen_vals, eigen_vecs, X = extract_pca(X)
+    eigen_vals, eigen_vecs, X = get_eigen_components(X)
     # -> sorting the eigen values by decreasing order 
     eigen_pairs = [ (np.abs(eigen_vals[i]) , eigen_vecs[:, i]) 
                    for i in range(len(eigen_vals))]
@@ -195,9 +198,9 @@ def feature_transformation (
         
     return X_transf 
 
-feature_transformation.__doc__="""\
+transform_to_principal_components.__doc__="""\
 Transform  X into  new principal components after decomposing 
-the covariances matrices.    
+the covariance matrices.    
     
 Parameters 
 -----------
@@ -262,7 +265,7 @@ def _decision_region (X, y, clf, resolution =.02 , ax =None ):
                      ) 
     return ax 
         
-def decision_region (
+def plot_decision_regions (
         X, y, clf, Xt =None, yt=None, random_state = 42, test_size = .3 , 
         scaling =True, split =False,  n_components =2 , view ='X',
         resolution =.02, return_expl_variance_ratio =False, return_axe =False, 
@@ -310,7 +313,7 @@ def decision_region (
     
     return ax if return_axe else X_pca 
 
-decision_region.__doc__="""\
+plot_decision_regions.__doc__="""\
 View decision regions for the training data reduced to two 
 principal component axes. 
 
@@ -322,59 +325,57 @@ Parameters
 {params.yt}
 {params.clf}
 
-random_state: int, default {{42}}
-    state of shuffling the data
-test_size: float < 1 , default {{.3}}
-    the size to keep remainder data into the test set . 
-split: bool, False 
-    Split (X,y) data into a training and test sets(Xt, yt). Here, it value is 
-    triggered to ``True``, we assume (X, y) previously given are all the whole 
-    dataset with target `y`. 
-n_components: int, float 2 , default {{2}}
-    the number of principal component to retrieve. If value is given as a 
-    ratio for instance '.95' i.e. the ratio of keeping variance is 95% and the 
-    `n_components can be get using the attributes scikit-learn getter as
-    `<estimator>.n_components_`
-view: str , ['X', 'Xt', None]
-    the kind of vizualization. 'X', 'Xt' mean the training and test set decision
-    region visualization respectively. If set to ``None``(default), the view 
-    are muted. 
-    
-resolution: float, default{{.02}}
-    level of the extension of numpy meshgrip to tighting layout the plot. 
-return_expl_variance_ratio: bool, default is {{False}}
-    returns the PCA variance ratio explaines of all principal components. 
-    
-return_axes: bool, default=False, 
-    Return matplotlib object axe 
-ax: Matplotlib.Axes object, optional 
-    If not supplied, it is created.
-    
-kws: dict 
-    Additional keywords arguments passed to  the scikit-learn function 
-    :func:`sklearn.model_selection.train_test_split`
-    
-Returns 
----------
-nd-array | arraylike (return_expl_variance_ratio=True) 
-    X PCA training set transformed or PCA explained variance ratio.  
-    
-Examples
----------
->>> from gofast.datasets import fetch_data 
->>> from gofast.exlib.sklearn import SimpleImputer, LogisticRegression  
->>> from gofast.analysis.decomposition import decision_region 
->>> data= fetch_data("bagoue original").get('data=dfy1') # encoded flow categories 
->>> y = data.flow ; X= data.drop(columns='flow') 
->>> # select the numerical features 
->>> X =selectfeatures(X, include ='number')
->>> # imputed the missing data 
->>> X = SimpleImputer().fit_transform(X)
->>> lr_clf = LogisticRegression(multi_class ='ovr', random_state =1, solver ='lbfgs') 
->>> Xpca= decision_region(X, y, clf=lr_clf, split = True, view ='Xt') # test set view
->>> Xpca[0] 
-... array([-1.02925449,  1.42195127])
+random_state : int, default={{42}}
+    Seed for shuffling the data.
+test_size : float, default=0.3
+    Size of the test set when splitting the data.
+split : bool, default=False
+    If True, assume that (X, y) contains the entire dataset, and split it 
+    into training and test sets.
+n_components : int or float, default={{2}}
+    Number of principal components to retain. If a float in the range 
+    (0.0, 1.0) is provided,
+    it specifies the minimum explained variance ratio. 
+    Use <estimator>.n_components_ to access it.
+view : {{'X', 'Xt', None}}, default={{None}}
+    Type of visualization. 'X' and 'Xt' correspond to decision regions 
+    for the training and test sets, respectively.
+    If None, visualization is turned off.
+resolution : float, default={{0.02}}
+    Granularity of the meshgrid for plotting decision regions.
+return_expl_variance_ratio : bool, default=False
+    If True, returns the explained variance ratio of all principal components.
+return_axes : bool, default=False
+    If True, returns the Matplotlib Axes object.
+ax : Matplotlib.Axes object, optional
+    Custom Matplotlib Axes object. If not provided, one will be created.
+kws : dict, optional
+    Additional keyword arguments passed to the scikit-learn function
+    sklearn.model_selection.train_test_split.
 
+Returns
+-------
+X_pca : ndarray or array-like
+    PCA-transformed training set or explained variance ratios if return_expl_variance_ratio is True.
+ax : Matplotlib.Axes, optional
+    Matplotlib Axes object if return_axes is True.
+
+Examples
+--------
+>>> from gofast.datasets import fetch_data
+>>> from gofast.exlib.sklearn import SimpleImputer, LogisticRegression
+>>> from gofast.analysis.decomposition import decision_region
+>>> data = fetch_data("bagoue original").get('data=dfy1')  # Encoded flow categories
+>>> y = data.flow
+>>> X = data.drop(columns='flow')
+>>> # Select numerical features
+>>> X = select_features(X, include='number')
+>>> # Impute missing data
+>>> X = SimpleImputer().fit_transform(X)
+>>> lr_clf = LogisticRegression(multi_class='ovr', random_state=1, solver='lbfgs')
+>>> X_pca = decision_region(X, y, clf=lr_clf, split=True, view='Xt')  # Test set view
+>>> X_pca[0]
+array([-1.02925449,  1.42195127])
 """.format(params = _core_docs["params"]
 )
 
@@ -383,7 +384,7 @@ def linear_discriminant_analysis (
  ): 
     n_components = int (_assert_all_types (n_components, int, float ))
     # standardize the features 
-    eigen_vals, eigen_vcs, X = extract_pca(X)
+    eigen_vals, eigen_vcs, X = get_eigen_components(X)
     # compute the mean vectors which will use to 
     # construct the within classes scatter matrix 
     np.set_printoptions(precision=4) 

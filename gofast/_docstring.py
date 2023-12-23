@@ -17,83 +17,67 @@ __all__=[
     ]
 
 __doc__="""\
-A DC-Electrical resistivity profiling data collected from {survey_name} during
-the National Drinking Water Supply Program (PNAEP) occurs in 2014 in 
-`Cote d'Ivoire <https://en.wikipedia.org/wiki/Ivory_Coast>`__  and an example 
-of the data arrangement is the following: 
 
-=====   =========   =========   =======     
-pk      east        north       rho         
-=====   =========   =========   =======    
-0       382741      896203      79        	
-10      382743      896193      62
-20      382747      896184      51
-...     ...         ...         ...         
-980     382705	    894887	    55
-990     382704	    895879	    58
-=====   =========   =========   =======    
- 
-Parameters 
------------
+DC-Electrical resistivity profiling data collected during the National Drinking
+ Water Supply Program (PNAEP) in Cote d'Ivoire in 2014.
+
+Parameters
+----------
 as_frame : bool, default=False
-    If True, the data is a pandas DataFrame including columns with
-    appropriate types (numeric). The target is
-    a pandas DataFrame or Series depending on the number of target columns.
-    If `as_frame` is False, then returning a :class:`~gofast.tools.Boxspace`
-    dictionary-like object, with the following attributes:
+    If True, the data is returned as a pandas DataFrame. The target is also 
+    returned as a pandas DataFrame or Series based on the number of target columns.
+    If False, a :class:`~gofast.tools.Boxspace` dictionary-like object is 
+    returned with the following attributes:
     - data : {{ndarray, dataframe}} of shape {shape}
-        The data matrix. If `as_frame=True`, `data` will be a pandas
-        DataFrame.
-    - resistivity: {{array-like}} of shape ({shape[0]},)
-        The resistivity of the sounding point. 
-    - station: {{array-like}}of shape ({shape[0]},)
-        The motion distance of each station that increasing in meters.
-        can be considered as the station point for data collection.
-    - northing: {{array-like}} of shape ({shape[0]},)
-        The northing coordinates in UTM in meters at each station where 
-        the data is collected. 
-    - easting: {{array-like}} of shape ({shape[0]},)
-        The easting coordinates in UTM are in meters at each station where the 
-        data is collected. 
-    - latitude: {{array-like}} of shape ({shape[0]},)
+        The data matrix. If `as_frame=True`, `data` will be a pandas DataFrame.
+    - resistivity : {{array-like}} of shape ({shape[0]},)
+        The resistivity of the sounding point.
+    - station : {{array-like}} of shape ({shape[0]},)
+        The motion distance of each station in meters, used as the station 
+        point for data collection.
+    - northing : {{array-like}} of shape ({shape[0]},)
+        The northing coordinates in UTM in meters at each station where the 
+        data is collected.
+    - easting : {{array-like}} of shape ({shape[0]},)
+        The easting coordinates in UTM in meters at each station where the 
+        data is collected.
+    - latitude : {{array-like}} of shape ({shape[0]},)
         The latitude coordinates in degree decimals or 'DD:MM.SS' at each 
         station where the data is collected.
-    - longitude: {{array-like}} of shape ({shape[0]},)
+    - longitude : {{array-like}} of shape ({shape[0]},)
         The longitude coordinates in degree decimals or 'DD:MM.SS' at each 
-        the station where the data is collected.
-    - DESCR: str
+        station where the data is collected.
+    - DESCR : str
         The full description of the dataset.
-    - filename: str
+    - filename : str
         The path to the location of the data.
-tag, data_names: None, 
-    Always None for API consistency 
-kws: dict, 
-    Keywords arguments pass to :func:`~gofast.tools.coreutils._is_readable` 
-    function for parsing data. 
-    
-Returns 
---------
+tag, data_names : None
+    Always None for API consistency.
+kws : dict
+    Keyword arguments passed to :func:`~gofast.tools.baseutils._is_readable` 
+    function for parsing data.
+
+Returns
+-------
 data : :class:`~gofast.tools.Boxspace`
-    Dictionary-like object, with the following attributes.
-    data : {{ndarray, dataframe}} 
-        The data matrix. If `as_frame=True`, `data` will be a pandas
-        DataFrame.
+    Dictionary-like object with the following attributes:
+    - data : {{ndarray, dataframe}}
+        The data matrix. If `as_frame=True`, `data` will be a pandas DataFrame.
 
 Notes
-------
-The array configuration is Schlumberger and the max depth investigation is 
-{max_depth} meters for :math:`AB/2` (current electrodes). The  profiling step
-:math:`AB` is fixed to {AB_distance}  meters whereas :math:`MN/2`  also fixed to
-(potential electrodes) to {MN_distance}meters. The total number of station data 
-collected is {profiling_number}.
-`station`, `easting`, and `northing` are in meters and `rho` columns are 
-in ohm. meters as apparent resistivity values.  
-Furthermore, if the UTM coordinate (easting and northing) data is given as well 
-as the UTM_zone, the latitude and longitude data are auto-computed and 
-vice versa. The user does need to provide both coordinates data types
-( UTM or DD:MM.SS)
-
+-----
+The array configuration is Schlumberger, and the maximum depth of 
+investigation is {max_depth} meters for :math:`AB/2` (current electrodes). 
+The profiling step :math:`AB` is fixed at {AB_distance} meters, while :math:`MN/2` 
+(potential electrodes) is also fixed at {MN_distance} meters. The total number 
+of station data collected is {profiling_number}.
+`station`, `easting`, and `northing` are in meters, and `rho` columns 
+represent apparent resistivity values in ohm meters.
+If UTM coordinate (easting and northing) data is provided along with the 
+UTM_zone, the latitude and longitude data will be auto-computed and vice 
+versa. Users do not need to provide both coordinate data types (UTM or DD:MM.SS).
 """
+
 
 refglossary =type ('refglossary', (), dict (
     __doc__="""\

@@ -1,0 +1,11 @@
+*_files/
+generated/
+glr_examples/
+_build/
+__XTyT.pkl
+__Xy.pkl
+api/
+modules/
+index0.rst
+_latex/
+example_thumbs/tankesse_test.mp4

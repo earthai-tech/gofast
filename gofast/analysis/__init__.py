@@ -3,49 +3,56 @@
 Analysis sub-package is used for basic feature extraction, transformation and 
 matrices covariance computations (:mod:`~gofast.analysis.decomposition`). 
 It also includes some dimensional reduction (:mod:`~gofast.analysis.dimensionality`) 
-and factor analysis from :mod:`~gofast.analysis.factor`. 
+and factor analysis from :mod:`~gofast.analysis.factors`. 
 """
 from .dimensionality import (   
-    get_component_with_most_variance,
-    plot_projection, 
-    find_features_importances, 
-    nPCA, 
-    kPCA, 
-    LLE, 
-    iPCA, 
+    nPCA, kPCA, LLE, iPCA, 
+    get_most_variance_component,
+    project_ndim_vs_explained_variance, 
     )
 from .decomposition import ( 
-    extract_pca, 
-    decision_region, 
-    feature_transformation, 
-    total_variance_ratio , 
+    get_eigen_components, 
+    plot_decision_regions, 
+    transform_to_principal_components, 
+    get_total_variance_ratio , 
     linear_discriminant_analysis
     )
-from .factor import ( 
-    LW_score, 
-    shrunk_cov_score, 
-    compute_scores, 
-    pcavsfa, 
+from .factors import ( 
+    ledoit_wolf_score, 
+    compare_pca_fa_scores, 
     make_scedastic_data, 
+    rotated_factor, 
+    principal_axis_factoring, 
+    varimax_rotation, 
+    oblimin_rotation, 
+    get_pca_fa_scores, 
+    samples_hotellings_t_square, 
+    promax_rotation, 
+    spectral_fa, 
     )
 
 __all__= [ 
     "nPCA", 
     "kPCA", 
     "LLE", 
-    "iPCA",  
-    "get_component_with_most_variance",
-    "plot_projection", 
-    "find_features_importances",  
-    "extract_pca", 
-    "decision_region", 
-    "feature_transformation", 
-    "total_variance_ratio" ,
+    "iPCA", 
+    "get_most_variance_component",
+    "project_ndim_vs_explained_variance", 
+    "get_eigen_components", 
+    "plot_decision_regions", 
+    "transform_to_principal_components", 
+    "get_total_variance_ratio" , 
     "linear_discriminant_analysis", 
-    "LW_score", 
-    "shrunk_cov_score", 
-    "compute_scores", 
-    "pcavsfa", 
+    "ledoit_wolf_score",  
+    "compare_pca_fa_scores", 
     "make_scedastic_data", 
+    "rotated_factor", 
+    "principal_axis_factoring", 
+    "varimax_rotation", 
+    "oblimin_rotation", 
+    "get_pca_fa_scores", 
+    "samples_hotellings_t_square", 
+    "promax_rotation", 
+    "spectral_fa", 
     ]
 

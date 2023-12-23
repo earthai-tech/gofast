@@ -4,9 +4,10 @@
 
 from __future__ import annotations 
 
-
+import numpy as np 
+from sklearn.covariance import ShrunkCovariance
 from sklearn.model_selection import ( 
-    cross_val_score,
+    cross_val_score, GridSearchCV 
     )
 from .._typing import (
     Tuple,
@@ -273,4 +274,25 @@ clf=: DecisionTreeClassifier
 scores=: [0.6279 0.7674 0.7093 0.593 ]
 scores.mean=: 0.6744186046511629
 Out[57]: (array([0.6279, 0.7674, 0.7093, 0.593 ]), 0.6744186046511629)
+"""
+
+def shrink_covariance_cv_score(X, skrink_space =( -2, 0, 30 )):
+    shrinkages = np.logspace(*skrink_space)  # Fit the models
+    cv = GridSearchCV(ShrunkCovariance(), {'shrinkage': shrinkages})
+    return np.mean(cross_val_score(cv.fit(X).best_estimator_, X))
+
+shrink_covariance_cv_score.__doc__="""\
+shrunk the covariance scores from validating X using 
+GridSearchCV.
+ 
+Parameters 
+-----------
+X : array_like, pandas.DataFrame 
+    Input data where rows represent samples and 
+    columns represent features.
+
+Returns
+-----------
+score: score of covariance estimator (best ) with shrinkage
+
 """

@@ -54,8 +54,8 @@ from ..exceptions import (
     )
 from ..metrics import ( 
     precision_recall_tradeoff, 
-    ROC_curve, 
-    confusion_matrix
+    roc_curve_, 
+    confusion_matrix_
     )
 from ..property import BasePlot 
 from .._typing import ( 
@@ -963,7 +963,7 @@ class EvalPlot(BasePlot):
             func:`gofast.exlib.sklearn.precision_recall_tradeoff`
             
         roc_kws: dict 
-            roc_curve additional keywords arguments.
+            roc_curve_ additional keywords arguments.
             
         Return
         -------
@@ -1034,7 +1034,7 @@ class EvalPlot(BasePlot):
         # reconvert to tuple values 
         clfs =[tuple(pnclf) for pnclf in clfs]
         # build multiples classifiers objects 
-        rocObjs =[ROC_curve(
+        rocObjs =[roc_curve_(
             clf=_clf,X=self.X,y=self.y, cv =self.cv, 
             label=label, method =meth, cvp_kws=cvp_kws,**roc_kws) 
             for (name, _clf, meth) in clfs
@@ -1202,7 +1202,7 @@ class EvalPlot(BasePlot):
         labels = self.litteral_classes or labels 
 
         # get yticks one it is a classification prof
-        confObj =confusion_matrix(clf=clf,
+        confObj =confusion_matrix_(clf=clf,
                                 X=self.X,
                                 y=y,
                                 cv=self.cv,
