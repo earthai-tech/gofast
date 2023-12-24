@@ -11,6 +11,7 @@ import shutil
 from six.moves import urllib 
 import pathlib
 import warnings 
+from joblib import Parallel, delayed
 import numpy as np 
 import pandas as pd 
 
@@ -28,11 +29,12 @@ from .funcutils import (
     smart_format,
     sPath, 
     to_numeric_dtypes, 
+    assert_ratio
     )
 from ._dependency import ( 
     import_optional_dependency 
     )
-from .validator import array_to_frame 
+from .validator import array_to_frame
 
 def read_data (
     f: str|pathlib.PurePath, 
@@ -590,7 +592,7 @@ def download_file(url, local_filename , dstpath =None ):
     
     return None if dstpath else local_filename
 
-def download_file2(url, local_filename, dstpath =None ):
+def fancier_downloader(url, local_filename, dstpath =None ):
     """ Download remote file with a bar progression. 
     
     Parameters 
@@ -609,7 +611,7 @@ def download_file2(url, local_filename, dstpath =None ):
        None if the `dstpath` is supplied and `local_filename` otherwise. 
     Example
     --------
-    >>> from gofast.tools.baseutils import download_file2
+    >>> from gofast.tools.baseutils import fancier_downloader
     >>> url = 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/gofast/datasets/data/h.h5'
     >>> local_filename = 'h.h5'
     >>> download_file(url, local_filename)
@@ -825,8 +827,139 @@ def scrape_web_data(
         response.raise_for_status()  
     
     
+def audit_data(
+    data, 
+    /, 
+    dropna_threshold=0.5, 
+    categorical_threshold=10, 
+    standardize=True
+    ):
+    """
+    Cleans and formats a dataset for analysis. 
+    This includes handling missing values,
+    converting data types, and standardizing numerical columns.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The dataset to be cleaned and formatted.
+
+    dropna_threshold : float, optional
+        The threshold for dropping columns with missing values. 
+        Columns with a fraction of missing values greater than 
+        this threshold will be dropped.
+        Default is 0.5 (50%).
+
+    categorical_threshold : int, optional
+        The maximum number of unique values in a column for it to 
+        be considered categorical.
+        Columns with unique values fewer than or equal to this 
+        number will be converted to 
+        categorical type. Default is 10.
+
+    standardize : bool, optional
+        If True, standardize numerical columns to have a mean of 0 
+        and a standard deviation of 1.
+        Default is True.
+
+    Returns
+    -------
+    pd.DataFrame
+        The cleaned and formatted dataset.
+
+    Example
+    -------
+    >>> data = pd.DataFrame({
+    >>>     'A': [1, 2, np.nan, 4, 5],
+    >>>     'B': ['x', 'y', 'z', 'x', 'y'],
+    >>>     'C': [1, 2, 3, 4, 5]
+    >>> })
+    >>> clean_data = audit_data(data)
+
+    """
+    data = to_numeric_dtypes(data )
+    dropna_threshold= assert_ratio(dropna_threshold)
     
+    # Drop columns with too many missing values
+    data = data.dropna(thresh=int(
+        dropna_threshold * len(data)), axis=1)
+
+    # Fill missing values
+    for col in data.columns:
+        if data[col].dtype == 'object':
+            # For categorical columns, fill with the mode
+            data[col] = data[col].fillna(data[col].mode()[0])
+        else:
+            # For numerical columns, fill with the median
+            data[col] = data[col].fillna(data[col].median())
+
+    # Convert columns to categorical if they have fewer
+    # unique values than the threshold
+    for col in data.columns:
+        if data[col].dtype == 'object' or data[col].nunique(
+                ) <= categorical_threshold:
+            data[col] = data[col].astype('category')
+
+    # Standardize numerical columns
+    if standardize:
+        num_cols = data.select_dtypes(include=['number']).columns
+        data[num_cols] = (
+            data[num_cols] - data[num_cols].mean()) / data[num_cols].std()
+
+    return data
     
+def speed_rowwise_process(
+    data, /, 
+    func, 
+    n_jobs=-1
+    ):
+    """
+    Processes a large dataset by applying a complex function to each row. 
+    
+    Function utilizes parallel processing to optimize for speed.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The large dataset to be processed. Assumes the 
+        dataset is a Pandas DataFrame.
+
+    func : function
+        A complex function to apply to each row of the dataset. 
+        This function should take a row of the DataFrame as 
+        input and return a processed row.
+
+    n_jobs : int, optional
+        The number of jobs to run in parallel. -1 means using 
+        all processors. Default is -1.
+
+    Returns
+    -------
+    pd.DataFrame
+        The processed dataset.
+
+    Example
+    -------
+    >>> def complex_calculation(row):
+    >>>     # Example of a complex row-wise calculation
+    >>>     return row * 2  # This is a simple placeholder for demonstration.
+    >>>
+    >>> large_data = pd.DataFrame(np.random.rand(10000, 10))
+    >>> processed_data = speed_rowwise_process(large_data, complex_calculation)
+
+    """
+    # Function to apply `func` to each row in parallel
+    def process_row(row):
+        return func(row)
+
+    # Using Joblib's Parallel and delayed to apply the function in parallel
+    results = Parallel(n_jobs=n_jobs)(delayed(process_row)(row) 
+                                      for row in data.itertuples(index=False))
+
+    # Converting results back to DataFrame
+    processed_data = pd.DataFrame(results, columns=data.columns)
+
+    return processed_data
     
     
     

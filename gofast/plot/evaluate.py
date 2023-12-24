@@ -3,102 +3,51 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """
-:mod:`~gofast.view.mlplot` is a set of plot templates for visualising and 
+:mod:`~gofast.plot.evaluate ` is a set of plot templates for visualising and 
 inspecting the learning models.  It gives a quick depiction for users for 
-models visualization and evaluation with : :class:`~gofast.view.EvalPlot`
+models visualization and evaluation with : :class:`~gofast.plot.EvalPlotter`
 """
 from __future__ import annotations 
 import re
 import warnings
 import inspect 
-from abc import ABCMeta 
 import copy 
 import numpy as np 
 import pandas as pd
 import seaborn as sns 
-from scipy.cluster.hierarchy import dendrogram 
-
 import matplotlib as mpl 
 import matplotlib.pyplot  as plt
 import matplotlib.ticker as mticker
+from abc import ABCMeta 
+from scipy.cluster.hierarchy import dendrogram 
 from matplotlib import cm 
 from matplotlib.colors import BoundaryNorm
 
-from .._gofastlog import gofastlog
-from .._docstring import ( 
-    _core_docs, 
-    _baseplot_params, 
-    DocstringComponents, 
-    )
-from ..analysis.dimensionality import nPCA
-from ..decorators import  docSanitizer 
-from sklearn.model_selection import ( 
-    learning_curve , 
-    train_test_split, 
-    )
-from sklearn.metrics import ( 
-    mean_squared_error, 
-    silhouette_samples
-    ) 
-from sklearn.preprocessing import  ( 
-    StandardScaler, 
-    MinMaxScaler, 
-    ) 
+from sklearn.model_selection import learning_curve , train_test_split
+from sklearn.metrics import mean_squared_error, silhouette_samples
+from sklearn.preprocessing import StandardScaler, MinMaxScaler 
 from sklearn.cluster import KMeans 
 from sklearn.impute import   SimpleImputer
-from ..exceptions import ( 
-    NotFittedError , 
-    LearningError, 
-    EstimatorError, 
-    PlotError
-    )
-from ..metrics import ( 
-    precision_recall_tradeoff, 
-    roc_curve_, 
-    confusion_matrix_
-    )
+
+from .._gofastlog import gofastlog
+from .._docstring import _core_docs, _baseplot_params, DocstringComponents
+from .._typing import  (Optional, Tuple, F, List, ArrayLike, NDArray, 
+                        DataFrame,  Series )
+from ..analysis.dimensionality import nPCA
+from ..decorators import  docSanitizer 
+from ..exceptions import NotFittedError, LearningError, EstimatorError, PlotError
+from ..metrics import precision_recall_tradeoff, roc_curve_, confusion_matrix_
 from ..property import BasePlot 
-from .._typing import ( 
-    Optional, 
-    Tuple, 
-    F,
-    List,
-    ArrayLike, 
-    NDArray,
-    DataFrame, 
-    Series
-    )
-from ..tools.mathex import linkage_matrix 
 from ..tools.baseutils import _is_readable 
-from ..tools.funcutils import ( 
-    is_iterable,
-    reshape, 
-    to_numeric_dtypes, 
-    smart_strobj_recognition, 
-    repr_callable_obj , 
-    str2columns, 
-    make_ids
-    )
-from ..tools.mlutils import ( 
-    exporttarget , 
-    selectfeatures, 
-    cattarget, 
-    projection_validator, 
-    )
-from .plotutils import (
-    _get_xticks_formatage, 
-    # _format_ticks, 
-    make_mpl_properties, 
-    
-    )
-from ..tools.validator import ( 
-    _check_consistency_size, 
-    get_estimator_name , 
-    array_to_frame, 
-    check_array, 
-    check_X_y, 
-    check_y,
-    )
+from ..tools.funcutils import ( is_iterable, reshape, to_numeric_dtypes, 
+                              smart_strobj_recognition, repr_callable_obj ,
+                              str2columns, make_ids )
+from ..tools.mathex import linkage_matrix 
+from ..tools.mlutils import ( export_target , select_features, 
+                            categorize_target, projection_validator )
+from ..tools.validator import ( _check_consistency_size,  get_estimator_name , 
+                              array_to_frame, check_array, check_X_y, check_y )
+from .plotutils import _get_xticks_formatage,  make_mpl_properties
 
 _logger=gofastlog.get_gofast_logger(__name__)
 
@@ -108,11 +57,11 @@ _logger=gofastlog.get_gofast_logger(__name__)
 _eval_params = dict( 
     objective="""
 objective: str, default=None, 
-    The purpose of dataset; what probem do we intend to solve ?  
-    Originally the package was designed for flow rate prediction. Thus,  
-    if the `objective` is set to ``flow``, plot will behave like the flow 
-    rate prediction purpose and in that case, some condition of target   
-    values need to be fullfilled.  Furthermore, if the objective 
+    The purpose of dataset; what probem do we intend to solve ? 
+    This parameter is mostly useful for geoscientists to handle their datasets.
+    For instance, if the `objective` is set to ``flow``, `EvalPlotter` expects 
+    the flow rate prediction purpose. In that case, some condition 
+    of target values need to be fullfilled.  Moreover, if the objective 
     is set to ``flow``, `label_values`` as well as the `litteral_classes`
     parameters need to be supplied to right encode the target according 
     to the hydraulic system requirement during the campaign for drinking 
@@ -171,18 +120,18 @@ _param_docs = DocstringComponents.from_nested_components(
     evdoc=DocstringComponents(_eval_params), 
     )
 #-------
-class EvalPlot(BasePlot): 
+class EvalPlotter(BasePlot): 
     def __init__(self, 
-                 tname:str =None, 
-                 encode_labels: bool=False,
-                 scale: str = None, 
-                 cv: int =None, 
-                 objective:str=None, 
-                 prefix: str=None, 
-                 label_values:List[int]=None, 
-                 litteral_classes: List[str]=None, 
-                 **kws 
-                 ): 
+        tname:str =None, 
+        encode_labels: bool=False,
+        scale: str = None, 
+        cv: int =None, 
+        objective:str=None, 
+        prefix: str=None, 
+        label_values:List[int]=None, 
+        litteral_classes: List[str]=None, 
+        **kws 
+        ): 
         self._logging= gofastlog().get_gofast_logger(self.__class__.__name__)
         
         self.tname=tname
@@ -274,7 +223,7 @@ class EvalPlot(BasePlot):
            
         Return
         -------
-        ``self``: `EvalPlot` instance 
+        ``self``: `EvalPlotter` instance 
             returns ``self`` for easy method chaining.
         """
         data = fit_params.pop('data', None)
@@ -285,7 +234,7 @@ class EvalPlot(BasePlot):
             
         if self.data_ is not None:
             if self.tname is not None: 
-                self.target_, X  = exporttarget(
+                self.target_, X  = export_target(
                     self.data_ , self.tname, inplace= True ) 
             y = reshape (self.target_.values ) # for consistency 
             
@@ -297,7 +246,7 @@ class EvalPlot(BasePlot):
         # if 'X' is not a dataframe
         X= array_to_frame(X, to_frame= True, input_name="X", force =True )
         X = to_numeric_dtypes(X , columns = columns )
-        X = selectfeatures( X, include ='number')
+        X = select_features( X, include ='number')
         
         if len ( X.columns) ==0 : 
             raise TypeError(
@@ -423,7 +372,7 @@ class EvalPlot(BasePlot):
         
         values = values or self.label_values 
         if values is not None: 
-            y =  cattarget(y , labels = values, 
+            y =  categorize_target(y , labels = values, 
                            rename_labels= classes or self.litteral_classes
                            )
         else: 
@@ -448,7 +397,7 @@ class EvalPlot(BasePlot):
             pc2_label:str='Axis 2',
             plot_dict:dict= None,
             **pca_kws
-    )->'EvalPlot': 
+    )->'EvalPlotter': 
         """ Plot PCA component analysis using :class:`~.sklearn.decomposition`. 
         
         PCA identifies the axis that accounts for the largest amount of 
@@ -494,7 +443,7 @@ class EvalPlot(BasePlot):
 
         Return
         -------
-        ``self``: `EvalPlot` instance
+        ``self``: `EvalPlotter` instance
             ``self`` for easy method chaining.
              
         Notes 
@@ -503,7 +452,7 @@ class EvalPlot(BasePlot):
         named `pc1_label` for axis 1 and `pc2_label` for axis 2. If you want 
         to plot the first component `pc1` vs the third components`pc2` set 
         the `pc2_label` to `Axis 3` and set the `n_components` to 3 that is 
-        the max reduced columns to retrieve, otherwise an users warning will 
+        the max reduced columns to retrieve, otherwise a userwarning will 
         be displayed.  Commonly Algorithm should automatically detect the 
         digit ``3`` in the litteral `pc1_labels` including Axis (e.g. 'Axis 3`)
         and will consider as  the third component `pc3 `. The same process is 
@@ -513,14 +462,14 @@ class EvalPlot(BasePlot):
         Examples 
         ---------
         >>> from gofast.datasets import load_bagoue 
-        >>> from gofast.view.mlplot import EvalPlot 
-        >>> X , y = load_bagoue(as_frame =True )
-        >>> b=EvalPlot(tname ='flow', encode_labels=True ,
+        >>> from gofast.plot.evaluate  import EvalPlotter 
+        >>> X , y = load_bagoue(as_frame =True, return_X_y=True )
+        >>> b=EvalPlotter(tname ='flow', encode_labels=True ,
                           scale = True )
         >>> b.fit_transform (X, y)
         >>> b.plotPCA (n_components= 2 )
         ... 
-        >>> # pc1 and pc2 labels > n_components -> raises user warnings
+        >>> # pc1 and pc2 labels > n_components -> raises userwarning
         >>> b.plotPCA (n_components= 2 , biplot=False, pc1_label='Axis 3',
                        pc2_label='axis 4')
         ... UserWarning: Number of components and axes might be consistent;
@@ -528,7 +477,7 @@ class EvalPlot(BasePlot):
         >>> b.plotPCA (n_components= 8 , biplot=False, pc1_label='Axis3',
                        pc2_label='axis4')
             # works fine since n_components are greater to the number of axes
-        ... EvalPlot(tname= None, objective= None, scale= True, ... , 
+        ... EvalPlotter(tname= None, objective= None, scale= True, ... , 
                      sns_height= 4.0, sns_aspect= 0.7, verbose= 0)
         """
         self.inspect 
@@ -603,19 +552,17 @@ class EvalPlot(BasePlot):
             cmp_= np.concatenate((pca.components_[pca1_ix, :], 
                                   pca.components_[pca2_ix, :]))
             try: 
-                biPlot(self, self.X, np.transpose(cmp_), y,
+                plot_unified_pca( np.transpose(cmp_), self.X, y,
                         classes=classes, 
                         colors=y_palettes )
             except : 
                 # plot defaults configurations  
-                biPlot(self, X_reduced[:,:2],
-                        np.transpose(pca.components_[0:2, :]),
-                        y, 
+                plot_unified_pca( np.transpose(pca.components_[0:2, :]),
+                        X_reduced[:,:2],y, 
                         classes=classes, 
                         colors=y_palettes )
-                plt.show()
-            else : 
-                plt.show()
+     
+            plt.show()
             
             return  
         # concatenate reduced dataframe + y_target
@@ -730,7 +677,7 @@ class EvalPlot(BasePlot):
         method:Optional[str]=None,
         cvp_kws =None,
         **prt_kws
-    )->'EvalPlot': 
+    )->'EvalPlotter': 
         """ 
         Precision/recall (PR) and tradeoff plots. 
         
@@ -769,7 +716,7 @@ class EvalPlot(BasePlot):
             
         Return
         -------
-        ``self``: `EvalPlot` instance
+        ``self``: `EvalPlotter` instance
             ``self`` for easy method chaining.
              
         Examples
@@ -777,17 +724,17 @@ class EvalPlot(BasePlot):
         >>> from gofast.exlib.sklearn import SGDClassifier
         >>> from gofast.datasets.dload import load_bagoue 
         >>> from gofast.utils import cattarget 
-        >>> from gofast.view.mlplot import EvalPlot 
+        >>> from gofast.plot.evaluate  import EvalPlotter 
         >>> X , y = load_bagoue(as_frame =True )
         >>> sgd_clf = SGDClassifier(random_state= 42) # our estimator 
-        >>> b= EvalPlot(scale = True , encode_labels=True)
+        >>> b= EvalPlotter(scale = True , encode_labels=True)
         >>> b.fit_transform(X, y)
         >>> # binarize the label b.y 
         >>> ybin = cattarget(b.y, labels= 2 ) # can also use labels =[0, 1]
         >>> b.y = ybin 
         >>> # plot the Precision-recall tradeoff  
         >>> b.plotPR(sgd_clf , label =1) # class=1
-        ... EvalPlot(tname= None, objective= None, scale= True, ... , 
+        ... EvalPlotter(tname= None, objective= None, scale= True, ... , 
                      sns_height= 4.0, sns_aspect= 0.7, verbose= 0)
 
         """
@@ -914,7 +861,7 @@ class EvalPlot(BasePlot):
         method: Optional[str]=None,
         cvp_kws:dict=None,
         **roc_kws
-        )-> 'EvalPlot':
+        )-> 'EvalPlotter':
         """
         Plot receiving operating characteric (ROC) classifiers. 
         
@@ -967,7 +914,7 @@ class EvalPlot(BasePlot):
             
         Return
         -------
-        ``self``: `EvalPlot` instance
+        ``self``: `EvalPlotter` instance
             ``self`` for easy method chaining.
             
         Examples 
@@ -979,22 +926,22 @@ class EvalPlot(BasePlot):
                                              )
         >>> from gofast.datasets.dload import load_bagoue 
         >>> from gofast.utils import cattarget 
-        >>> from gofast.view.mlplot import EvalPlot 
+        >>> from gofast.plot.evaluate  import EvalPlotter 
         >>> X , y = load_bagoue(as_frame =True )
         >>> sgd_clf = SGDClassifier(random_state= 42) # our estimator 
-        >>> b= EvalPlot(scale = True , encode_labels=True)
+        >>> b= EvalPlotter(scale = True , encode_labels=True)
         >>> b.fit_transform(X, y)
         >>> # binarize the label b.y 
         >>> ybin = cattarget(b.y, labels= 2 ) # can also use labels =[0, 1]
         >>> b.y = ybin 
         >>> # plot the ROC 
         >>> b.plotROC(sgd_clf , label =1) # class=1
-        ... EvalPlot(tname= None, objective= None, scale= True, ... , 
+        ... EvalPlotter(tname= None, objective= None, scale= True, ... , 
                      sns_height= 4.0, sns_aspect= 0.7, verbose= 0)
         
         (2)-> Plot ROC for multiple classifiers 
       
-        >>> b= EvalPlot(scale = True , encode_labels=True, 
+        >>> b= EvalPlotter(scale = True , encode_labels=True, 
                         lw =3., lc=(.9, 0, .8), font_size=7 )
         >>> sgd_clf = SGDClassifier(random_state= 42)
         >>> forest_clf =RandomForestClassifier(random_state=42)
@@ -1005,7 +952,7 @@ class EvalPlot(BasePlot):
         >>> clfs =[('sgd', sgd_clf, "decision_function" ), 
                ('forest', forest_clf, "predict_proba")]
         >>> b.plotROC (clfs =clfs , label =1 )
-        ... EvalPlot(tname= None, objective= None, scale= True, ... , 
+        ... EvalPlotter(tname= None, objective= None, scale= True, ... , 
                      sns_height= 4.0, sns_aspect= 0.7, verbose= 0)
         
         """
@@ -1101,7 +1048,7 @@ class EvalPlot(BasePlot):
         labels:List[int]=None, 
         matshow_kws: dict=None, 
         **conf_mx_kws
-        )-> 'EvalPlot': 
+        )-> 'EvalPlotter': 
         """ Plot confusion matrix for error evaluation.
         
         A representation of the confusion matrix for error visualization. If 
@@ -1135,7 +1082,7 @@ class EvalPlot(BasePlot):
             
         Return
         -------
-        ``self``: `EvalPlot` instance
+        ``self``: `EvalPlotter` instance
             ``self`` for easy method chaining.
 
         Examples
@@ -1143,10 +1090,10 @@ class EvalPlot(BasePlot):
         >>> from gofast.datasets import fetch_data
         >>> from gofast.tools.mlutils import cattarget 
         >>> from gofast.exlib.sklearn import SVC 
-        >>> from gofast.view.mlplot import EvalPlot
+        >>> from gofast.plot.evaluate  import EvalPlotter
         >>> X, y = fetch_data ('bagoue', return_X_y=True, as_frame =True)
         >>> # partition the target into 4 clusters-> just for demo 
-        >>> b= EvalPlot(scale =True, label_values = 4 ) 
+        >>> b= EvalPlotter(scale =True, label_values = 4 ) 
         >>> b.fit_transform (X, y) 
         >>> # prepare our estimator 
         >>> svc_clf = SVC(C=100, gamma=1e-2, kernel='rbf', random_state =42)
@@ -1284,7 +1231,7 @@ class EvalPlot(BasePlot):
             f'{appender}{"" if rv is None else "?"}'
             )        
 
-EvalPlot.__doc__ ="""\
+EvalPlotter.__doc__ ="""\
 Metrics, dimensionality and model evaluatation plots.  
 
 Inherited from :class:`BasePlot`. Dimensional reduction and metric 
@@ -1294,7 +1241,7 @@ plots. The class works only with numerical features.
     
     Contineous target values for plotting classification metrics is 
     discouraged. However, We encourage user to prepare its dataset 
-    before using the :class:`EvalPlot` methods. This is recommended to have 
+    before using the :class:`EvalPlotter` methods. This is recommended to have 
     full control of the expected results. Indeed, the most metrics plot 
     implemented here works with supervised methods especially deals 
     with the classification problems. So, the convenient way is for  
@@ -1302,7 +1249,7 @@ plots. The class works only with numerical features.
     If not the case, as the examples of demonstration  under each method 
     implementation, we first need to categorize the continue labels. 
     The choice is twofolds: either providing individual class label 
-    as a list of integers using the method :meth:`EvalPlot._cat_codes_y` 
+    as a list of integers using the method :meth:`EvalPlotter._cat_codes_y` 
     or by specifying the number of clusters that the target must hold. 
     Commonly the latter choice is usefull for a test or academic 
     purpose. In practice into a real dataset, it is discouraged 
@@ -1435,8 +1382,8 @@ chunked during the fit methods.
 
 # xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 # create a shadow class to hold the font and matplotlib properties
-# from 'EvalPlot` and giving an option for saving figure
-_b= EvalPlot () 
+# from 'EvalPlotter` and giving an option for saving figure
+_b= EvalPlotter () 
 pobj = type ('Plot', (BasePlot, ), {**_b.__dict__} ) 
 setattr(pobj, 'save', _b.save )
 # redefine the pobj doc 
@@ -1457,7 +1404,7 @@ attributes object. For instance::
     
 """
 # xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-def plotProjection(
+def plot_loc_projection(
     X: DataFrame | NDArray, 
     Xt: DataFrame | NDArray =None, *, 
     columns: List[str] =None, 
@@ -1505,7 +1452,7 @@ def plotProjection(
     Examples
     --------
     >>> from gofast.datasets import fetch_data 
-    >>> from gofast.view.mlplot import plotProjection 
+    >>> from gofast.plot.evaluate  import plot_loc_projection 
     >>> # Discard all the non-numeric data 
     >>> # then inut numerical data 
     >>> from gofast.utils import to_numeric_dtypes, naive_imputer
@@ -1531,7 +1478,7 @@ def plotProjection(
                      rotate_xlabel =90.,
                      fs =3.,
                      s =None )
-    >>> plotProjection( X, Xt , columns= ['east', 'north'], 
+    >>> plot_loc_projection( X, Xt , columns= ['east', 'north'], 
                         trainlabel='train location', 
                         testlabel='test location', **plot_kws
                        )
@@ -1643,7 +1590,7 @@ def plotProjection(
     pobj.save(fig)
 
               
-def plotModel(
+def plot_model(
     yt: ArrayLike |Series, 
     ypred:ArrayLike |Series=None,
     *, 
@@ -1725,7 +1672,7 @@ def plotModel(
             
     >>> from gofast.exlib.sklearn  import SVC 
     >>> from gofast.datasets import fetch_data 
-    >>> from gofast.view import plotModel 
+    >>> from gofast.plot import  plot_model 
     >>> from gofast.tools.mlutils import split_train_test_by_id
     >>> X, y = fetch_data('bagoue analysis' ) 
     >>> _, Xtest = split_train_test_by_id(X, 
@@ -1762,7 +1709,7 @@ def plotModel(
                         's' :20 ,                  
                         'rotate_xlabel':90
                    }
-    >>> plotModel(yt= ytest ,
+    >>> plot_model(yt= ytest ,
                    Xt=Xtest , 
                    predict =True , # predict the result (estimator fit)
                    clf=svc_clf ,  
@@ -2023,7 +1970,7 @@ Returns
 Examples 
 --------- 
 >>> from gofast.datasets import fetch_data 
->>> from gofast.view.mlplot import plot_reg_scoring 
+>>> from gofast.plot.evaluate  import plot_reg_scoring 
 >>> # Note that for the demo, we import SVC rather than LinearSVR since the 
 >>> # problem of Bagoue dataset is a classification rather than regression.
 >>> # if use regression instead, a convergence problem will occurs. 
@@ -2207,7 +2154,7 @@ Examples
 ---------
 (1) -> Score is appended to the model 
 >>> from gofast.exlib.sklearn import SVC 
->>> from gofast.view.mlplot import plot_model_scores
+>>> from gofast.plot.evaluate  import plot_model_scores
 >>> import numpy as np 
 >>> svc_model = SVC() 
 >>> fake_scores = np.random.permutation (np.arange (0, 1,  .05))
@@ -2238,7 +2185,7 @@ Examples
                }
 >>> plot_model_scores([svc_model],scores =[fake_scores] , **base_plot_params ) 
 """
-def plotDendroheat(
+def plot_dendroheat(
     df: DataFrame |NDArray, 
     columns: List[str] =None, 
     labels:Optional[List[str]] =None,
@@ -2314,18 +2261,18 @@ def plotDendroheat(
     ---------
     >>> # (1) -> Use random data
     >>> import numpy as np 
-    >>> from gofast.view.mlplot import plotDendroheat
+    >>> from gofast.plot.evaluate  import plot_dendroheat
     >>> np.random.seed(123) 
     >>> variables =['X', 'Y', 'Z'] ; labels =['ID_0', 'ID_1', 'ID_2',
                                              'ID_3', 'ID_4']
     >>> X= np.random.random_sample ([5,3]) *10 
     >>> df =pd.DataFrame (X, columns =variables, index =labels)
-    >>> plotDendroheat (df)
+    >>> plot_dendroheat (df)
     >>> # (2) -> Use Bagoue data 
     >>> from gofast.datasets import load_bagoue  
     >>> X, y = load_bagoue (as_frame=True )
     >>> X =X[['magnitude', 'power', 'sfi']].astype(float) # convert to float
-    >>> plotDendroheat (X )
+    >>> plot_dendroheat (X )
     
     
     """
@@ -2404,7 +2351,7 @@ def plotDendroheat(
     plt.show () 
     
     
-def plotDendrogram (
+def plot_dendrogram (
     df:DataFrame, 
     columns:List[str] =None, 
     labels: ArrayLike =None,
@@ -2505,10 +2452,10 @@ def plotDendrogram (
     Examples 
     ----------
     >>> from gofast.datasets import load_iris 
-    >>> from gofast.view import plotDendrogram
+    >>> from gofast.plot import  plot_dendrogram
     >>> data = load_iris () 
     >>> X =data.data[:, :2] 
-    >>> plotDendrogram (X, columns =['X1', 'X2' ] ) 
+    >>> plot_dendrogram (X, columns =['X1', 'X2' ] ) 
 
     """
     if hasattr (df, 'columns') and columns is not None: 
@@ -2538,7 +2485,7 @@ def plotDendrogram (
     
     return r if return_r else None 
 
-def plotSilhouette (
+def plot_silhouette (
     X:NDArray |DataFrame, 
     labels:ArrayLike=None, 
     prefit:bool=True, 
@@ -2642,12 +2589,12 @@ def plotSilhouette (
     Examples 
     --------
     >>> from gofast.datasets import load_hlogs 
-    >>> from gofast.view.mlplot import plotSilhouette
+    >>> from gofast.plot.evaluate  import plot_silhouette
     >>> # use resistivity and gamma for this demo
     >>> X_res_gamma = load_hlogs().frame[['resistivity', 'gamma_gamma']]  
     
     (1) Plot silhouette with 'prefit' set to 'False' 
-    >>> plotSilhouette (X_res_gamma, prefit =False)
+    >>> plot_silhouette (X_res_gamma, prefit =False)
     
     """
     if  ( 
@@ -2684,10 +2631,10 @@ def plotSilhouette (
                         ) 
         labels = km.fit_predict(X ) 
         
-    return _plotSilhouette(X, labels, metric = metric , **kwd)
+    return _plot_silhouette(X, labels, metric = metric , **kwd)
     
     
-def _plotSilhouette (X, labels, metric ='euclidean', **kwds ):
+def _plot_silhouette (X, labels, metric ='euclidean', **kwds ):
     r"""Plot quantifying the quality  of clustering silhouette 
     
     Parameters 
@@ -2716,7 +2663,7 @@ def _plotSilhouette (X, labels, metric ='euclidean', **kwds ):
     >>> import numpy as np 
     >>> from gofast.exlib.sklearn import KMeans 
     >>> from gofast.datasets import load_iris 
-    >>> from gofast.view.mlplot import plotSilhouette
+    >>> from gofast.plot.evaluate  import plot_silhouette
     >>> d= load_iris ()
     >>> X= d.data [:, 0][:, np.newaxis] # take the first axis 
     >>> km= KMeans (n_clusters =3 , init='k-means++', n_init =10 , 
@@ -2725,7 +2672,7 @@ def _plotSilhouette (X, labels, metric ='euclidean', **kwds ):
                     random_state =0 
                     )
     >>> y_km = km.fit_predict(X) 
-    >>> plotSilhouette (X, y_km)
+    >>> plot_silhouette (X, y_km)
   
     See also 
     ---------
@@ -2786,7 +2733,7 @@ def _plotSilhouette (X, labels, metric ='euclidean', **kwds ):
 
     plt.show() 
     
-def plotLearningInspections (
+def plot_learning_inspections (
     models:List[object] , 
     X:NDArray, y:ArrayLike,  
     fig_size:Tuple[int] = ( 22, 18 ) , 
@@ -2838,7 +2785,7 @@ def plotLearningInspections (
        List of model names if changes are needed. If ``None``, model names 
        are used by default. 
     kws: dict, 
-        Additional keywords argument passed to :func:`plotLearningInspection`. 
+        Additional keywords argument passed to :func:`plot_learning_inspection`. 
         
     Returns
     ----------
@@ -2846,18 +2793,18 @@ def plotLearningInspections (
     
     See also 
     ---------
-    plotLearningInspection:  Inspect single model 
+    plot_learning_inspection:  Inspect single model 
     
     Examples 
     ---------
     >>> from gofast.datasets import fetch_data
     >>> from gofast.models.premodels import p 
-    >>> from gofast.view.mlplot import plotLearningInspections 
+    >>> from gofast.plot.evaluate  import plot_learning_inspections 
     >>> # import sparse  matrix from Bagoue dataset 
     >>> X, y = fetch_data ('bagoue prepared') 
     >>> # import the two pretrained models from SVM 
     >>> models = [p.SVM.rbf.best_estimator_ , p.SVM.poly.best_estimator_]
-    >>> plotLearningInspections (models , X, y, ylim=(0.7, 1.01) )
+    >>> plot_learning_inspections (models , X, y, ylim=(0.7, 1.01) )
     
     """
     models = is_iterable(models, exclude_string= True, transform =True )
@@ -2870,8 +2817,8 @@ def plotLearningInspections (
     cv = cv or 4  
     #set figure and subplots 
     if len(models)==1:
-        msg = ( f"{plotLearningInspection.__module__}."
-               f"{plotLearningInspection.__qualname__}"
+        msg = ( f"{plot_learning_inspection.__module__}."
+               f"{plot_learning_inspection.__qualname__}"
                ) 
         raise PlotError ("For a single model inspection, use the"
                          f" function {msg!r} instead."
@@ -2887,7 +2834,7 @@ def plotLearningInspections (
         axes =[axes ] 
     for kk, model in enumerate ( models ) : 
         title = titles[kk] or  get_estimator_name (model )
-        plotLearningInspection(model, X=X , y=y, axes = axes [:, kk], 
+        plot_learning_inspection(model, X=X , y=y, axes = axes [:, kk], 
                                title =title, 
                                **kws)
         
@@ -2895,7 +2842,7 @@ def plotLearningInspections (
         fig.savefig (savefig , dpi = 300 )
     plt.show () if savefig is None else plt.close () 
     
-def plotLearningInspection(
+def plot_learning_inspection(
     model,  
     X,  
     y, 
@@ -2978,11 +2925,11 @@ def plotLearningInspection(
     ----------
     >>> from gofast.datasets import fetch_data
     >>> from gofast.models import p 
-    >>> from gofast.view.mlplot import plotLearningInspection 
+    >>> from gofast.plot.evaluate  import plot_learning_inspection 
     >>> # import sparse  matrix from Bagoue datasets 
     >>> X, y = fetch_data ('bagoue prepared') 
     >>> # import the  pretrained Radial Basis Function (RBF) from SVM 
-    >>> plotLearningInspection (p.SVM.rbf.best_estimator_  , X, y )
+    >>> plot_learning_inspection (p.SVM.rbf.best_estimator_  , X, y )
     
     """ 
     train_sizes = train_sizes or np.linspace(0.1, 1.0, 5)
@@ -3097,7 +3044,7 @@ def plotLearningInspection(
     axes[2].set_title(f"Performance of {title_name}")
 
     return axes
-#XXX
+
 def plot_matshow(
     arr, / , labelx:List[str] =None, labely:List[str]=None, 
     matshow_kws=None, **baseplot_kws
@@ -3191,7 +3138,7 @@ label: list of str, optional
 Examples
 ---------
 >>> import numpy as np
->>> from gofast.view.mlplot import plot_matshow 
+>>> from gofast.plot.evaluate  import plot_matshow 
 >>> matshow_kwargs ={
     'aspect': 'auto',
     'interpolation': None,
@@ -3221,14 +3168,14 @@ Examples
 
 """
   
-def biPlot(
-    self, 
-    Xr: NDArray,
+def plot_unified_pca(
     components:NDArray,
+    Xr: NDArray,
     y: ArrayLike,
     classes: ArrayLike=None,
     markers:List [str]=None, 
     colors: List [str ]=None, 
+    **baseplot_kws, 
  ):
     """
     The biplot is the best way to visualize all-in-one following a PCA analysis.
@@ -3238,27 +3185,17 @@ def biPlot(
 
     Parameters  
     -----------
-    self: :class:`gofast.property.BasePlot`. 
-        Matplotlib property from `BasePlot` instances. Default `BasePlot`  
-        instance is given as a `pobj` instance and can be loaded for plotting 
-        purpose as:: 
-            
-            >>> from gofast.view import pobj 
-        
-        To change some default plot properties like line width or style, both 
-        can be set before running the script as follow :: 
-            
-            >>> pobj.lw = 2. ; pobj.ls=':' # and so on 
-            
-    Xr: NDArray of transformed X. 
-        the PCA projected data scores on n-given components.The reduced  
-        dimension of train set 'X' with maximum ratio as sorted eigenvectors 
-        from first to the last component. 
     components: NDArray, shape (n_components, n_eigenvectors ), 
         the eigenvectors of the PCA. The shape in axis must much the number 
         of component computed using PCA. If the `Xr` shape 1 equals to the 
         shape 0 of the component matrix `components`, it will be transposed 
-        to fit `Xr` shape 1. 
+        to fit `Xr` shape 1.
+        
+    Xr: NDArray of transformed X. 
+        the PCA projected data scores on n-given components.The reduced  
+        dimension of train set 'X' with maximum ratio as sorted eigenvectors 
+        from first to the last component. 
+ 
     y: Array-like, 
         the target composing the class labels.
     classes: list or int, 
@@ -3267,18 +3204,21 @@ def biPlot(
         Matplotlib list of markers for plotting  classes.
     colors: str, 
         Matplotlib list of colors to customize plots 
-    
+        
+    baseplot: dict, :class:`gofast.property.BasePlot`. 
+        Matplotlib property from `BasePlot` instances. 
+
     Examples 
     ---------
     >>> from gofast.analysis import nPCA
     >>> from gofast.datasets import fetch_data
-    >>> from gofast.view import biPlot, pobj  # pobj is Baseplot instance 
+    >>> from gofast.plot import  plot_unified_pca, pobj_obj  #  is Baseplot instance 
     >>> X, y = fetch_data ('bagoue pca' )  # fetch pca data 
     >>> pca= nPCA (X, n_components= 2 , return_X= False ) # return PCA object 
     >>> components = pca.components_ [:2, :] # for two components 
-    >>> biPlot (pobj, pca.X, components , y ) # pca.X is the reduced dim X 
+    >>> plot_unified_pca ( components , pca.X, y ) # pca.X is the reduced dim X 
     >>> # to change for instance line width (lw) or style (ls) 
-    >>> # just use the baseplotobject (pobj)
+    >>> # just use the baseplotobject (pobj_obj)
     
     References 
     -----------
@@ -3288,6 +3228,10 @@ def biPlot(
     .. _Serafeim Loukas: https://towardsdatascience.com/...-python-7c274582c37e
     
     """
+    #xxxxxxxxx update base plot keyword arguments
+    for k  in list(baseplot_kws.keys()): 
+        setattr (pobj , k, baseplot_kws[k])
+        
     Xr = check_array(
         Xr, 
         to_frame= False, 
@@ -3308,8 +3252,8 @@ def biPlot(
         components = components.T 
     n = components.shape[0] # number of variables
     
-    fig = plt.figure(figsize=self.fig_size, #(10,8),
-               dpi=self.fig_dpi #100
+    fig = plt.figure(figsize=pobj.fig_size, #(10,8),
+               dpi=pobj.fig_dpi #100
                )
     if classes is None: 
         classes = np.unique(y)
@@ -3334,22 +3278,22 @@ def biPlot(
         # plot as arrows the variable scores 
         # (each variable has a score for PC1 and one for PC2)
         plt.arrow(0, 0, components[i,0], components[i,1], 
-                  color = self.lc, #'k', 
-                  alpha = self.alpha, #0.9,
-                  linestyle = self.ls, # '-',
-                  linewidth = self.lw, #1.5,
+                  color = pobj.lc, #'k', 
+                  alpha = pobj.alpha, #0.9,
+                  linestyle = pobj.ls, # '-',
+                  linewidth = pobj.lw, #1.5,
                   overhang=0.2)
         plt.text(components[i,0]* 1.15, components[i,1] * 1.15, 
                  "Var"+str(i+1),
                  color = 'k', 
                  ha = 'center',
                  va = 'center',
-                 fontsize= self.font_size
+                 fontsize= pobj.font_size
                  )
-    plt.tick_params(axis ='both', labelsize = self.font_size)
+    plt.tick_params(axis ='both', labelsize = pobj.font_size)
     
-    plt.xlabel(self.xlabel or "PC1",size=self.font_size)
-    plt.ylabel(self.ylabel or "PC2",size=self.font_size)
+    plt.xlabel(pobj.xlabel or "PC1",size=pobj.font_size)
+    plt.ylabel(pobj.ylabel or "PC2",size=pobj.font_size)
     limx= int(xs.max()) + 1
     limy= int(ys.max()) + 1
     plt.xlim([-limx,limx])
@@ -3357,10 +3301,10 @@ def biPlot(
     plt.grid()
     plt.tick_params(axis='both',
                     which='both', 
-                    labelsize=self.font_size
+                    labelsize=pobj.font_size
                     )
     
-    self.save(fig)
+    pobj.save(fig)
     # if self.savefig is not None: 
     #     savefigure (plt, self.savefig, dpi = self.fig_dpi )
     
@@ -3606,9 +3550,9 @@ def plot2d(
     >>> data = np.random.randn ( 15, 20 )
     >>> data_nan = data.copy() 
     >>> data_nan [2, 1] = np.nan; data_nan[4, 2]= np.nan;  data_nan[6, 3]=np.nan
-    >>> gofast.view.mlplot.plot2d (data )
+    >>> gofast.plot.evaluate .plot2d (data )
     <AxesSubplot:xlabel='Distance(m)', ylabel='log10(Frequency)[Hz]'>
-    >>> gofast.view.mlplot.plot2d (data_nan ,  plt_style = 'imshow', 
+    >>> gofast.plot.evaluate .plot2d (data_nan ,  plt_style = 'imshow', 
                                   fig_size = (10, 4))
     """
     #xxxxxxxxx update base plot keyword arguments

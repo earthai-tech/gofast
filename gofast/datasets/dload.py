@@ -16,7 +16,7 @@ from importlib.resources import files
 import pandas as pd 
 from .io import (csv_data_loader, _to_dataframe, DMODULE, 
     description_loader, DESCR, RemoteDataURL ) 
-from ..tools.baseutils import read_data, download_file2 , check_file_exists   
+from ..tools.baseutils import read_data, fancier_downloader , check_file_exists   
 from ..tools.mlutils import split_train_test_by_id, existfeatures
 from ..tools.funcutils import ( 
     to_numeric_dtypes , 
@@ -64,7 +64,7 @@ def load_hlogs (
         # save it to the path 
         package_path = str(files(DMODULE).joinpath(data_file))
         URL= os.path.join( RemoteDataURL, data_file) 
-        download_file2 (URL,data_file, dstpath = os.path.dirname (package_path)
+        fancier_downloader (URL,data_file, dstpath = os.path.dirname (package_path)
                        )
     #-------------------------------------------------------------- 
     with resources.path (DMODULE , data_file) as p : 
@@ -300,7 +300,7 @@ def load_nlogs (
         # save it to the path 
         package_path = str(files(DMODULE).joinpath(data_file))
         URL= os.path.join( RemoteDataURL, data_file) 
-        download_file2 (URL,data_file, dstpath = os.path.dirname (package_path)
+        fancier_downloader (URL,data_file, dstpath = os.path.dirname (package_path)
                        )
     #-------------------------------------------------------------- 
     with resources.path (DMODULE, data_file) as p : 

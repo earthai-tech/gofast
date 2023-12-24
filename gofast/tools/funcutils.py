@@ -5480,7 +5480,7 @@ def get_xy_coordinates (d, / , as_frame = False, drop_xy = False,
     return  xy , d , xynames 
        
 
-def twinning(
+def pair_data(
     *d: DataFrame,  
     on:str | List[str] = None, 
     parse_on:bool=False, 
@@ -5540,7 +5540,7 @@ def twinning(
     Examples 
     ----------
     >>> import gofast as gf 
-    >>> from gofast.tools.funcutils import twinning 
+    >>> from gofast.tools.funcutils import pair_data 
     >>> data = gf.make_erp (seed =42 , n_stations =12, as_frame =True ) 
     >>> table1 = gf.DCProfiling ().fit(data).summary()
     >>> table1 
@@ -5562,15 +5562,15 @@ def twinning(
              AB    MN   arrangememt  ... nareas   longitude  latitude
     area                             ...                             
     None  200.0  20.0  schlumberger  ...      1  110.486111  26.05174
-    >>> twinning (table1, table.table_,  ) 
+    >>> pair_data (table1, table.table_,  ) 
            dipole   longitude  latitude  ...  nareas   longitude  latitude
     line1    10.0  110.486111  26.05174  ...     NaN         NaN       NaN
     None      NaN         NaN       NaN  ...     1.0  110.486111  26.05174
-    >>> twinning (table1, table.table_, on =['longitude', 'latitude'] ) 
+    >>> pair_data (table1, table.table_, on =['longitude', 'latitude'] ) 
     Empty DataFrame 
     >>> # comments: Empty dataframe appears because, decimal is too large 
     >>> # then it considers values longitude and latitude differents 
-    >>> twinning (table1, table.table_, on =['longitude', 'latitude'], decimals =5 ) 
+    >>> pair_data (table1, table.table_, on =['longitude', 'latitude'], decimals =5 ) 
         dipole  longitude  latitude  ...  max_depth  ohmic_area  nareas
     0      10  110.48611  26.05174  ...      109.0  690.063003       1
     >>> # Now is able to find existing dataframe with identical closer coordinates. 

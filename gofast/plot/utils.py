@@ -371,7 +371,7 @@ def make_plot_colors(
     return colors[:axis_length] if chunk else colors 
 
 
-def plot_silhouette (X, labels, metric ='euclidean',savefig =None , **kwds ):
+def plot_base_silhouette (X, labels, metric ='euclidean',savefig =None , **kwds ):
     r"""Plot quantifying the quality  of clustering silhouette 
     
     Parameters 
@@ -412,7 +412,7 @@ def plot_silhouette (X, labels, metric ='euclidean',savefig =None , **kwds ):
     >>> import numpy as np 
     >>> from gofast.exlib.sklearn import KMeans 
     >>> from gofast.datasets import load_iris 
-    >>> from gofast.tools.utils import plot_silhouette
+    >>> from gofast.tools.utils import plot_base_silhouette
     >>> d= load_iris ()
     >>> X= d.data [:, 0][:, np.newaxis] # take the first axis 
     >>> km= KMeans (n_clusters =3 , init='k-means++', n_init =10 , 
@@ -421,7 +421,7 @@ def plot_silhouette (X, labels, metric ='euclidean',savefig =None , **kwds ):
                     random_state =0 
                     )
     >>> y_km = km.fit_predict(X) 
-    >>> plot_silhouette (X, y_km)
+    >>> plot_base_silhouette (X, y_km)
 
     """
     X, labels = check_X_y(
@@ -1257,7 +1257,7 @@ def plot_learning_curves(
         
     plt.close () if savefig is not None else plt.show() 
         
-def plot_naive_dendrogram (
+def plot_base_dendrogram (
         X, 
         *ybounds, 
         fig_size = (12, 5 ), 
@@ -1278,14 +1278,14 @@ def plot_naive_dendrogram (
         :func:`scipy.cluster.hierarchy.dendrogram`
     :Examples: 
         >>> from gofast.datasets import fetch_data 
-        >>> from gofast.tools.utils import plot_naive_dendrogram
+        >>> from gofast.tools.utils import plot_base_dendrogram
         >>> X, _= fetch_data('Bagoue analysed') # data is already scaled 
         >>> # get the two features 'power' and  'magnitude'
         >>> data = X[['power', 'magnitude']]
-        >>> plot_naive_dendrogram(data ) 
+        >>> plot_base_dendrogram(data ) 
         >>> # add the horizontal line of the cluster at ybounds = (20 , 20 )
         >>> # for a single cluster (cluser 1)
-        >>> plot_naive_dendrogram(data , 20, 20 ) 
+        >>> plot_base_dendrogram(data , 20, 20 ) 
    
     """
     # assert ybounds agument if given

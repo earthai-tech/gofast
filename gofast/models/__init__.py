@@ -24,7 +24,12 @@ from .optimize import (
     parallelize_estimators, 
     optimize_hyperparameters 
     ) 
-
+from .deep_search import ( 
+    base_tuning, 
+    robust_tuning, 
+    neural_tuning,
+    deep_tuning,
+    )
 __all__=[
     "BaseEvaluation", 
     "GridSearch", 
@@ -40,4 +45,8 @@ __all__=[
     "parallelize_estimators", 
     "optimize_hyperparameters", 
     "shrink_covariance_cv_score", 
+    "base_tuning", 
+    "robust_tuning", 
+    "neural_tuning",
+    "deep_tuning",
     ]

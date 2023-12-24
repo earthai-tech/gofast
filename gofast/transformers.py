@@ -53,7 +53,8 @@ from .tools.funcutils import (
     _assert_all_types, 
     parse_attrs , 
     to_numeric_dtypes,
-    assert_ratio 
+    assert_ratio, 
+    ellipsis2false
     )
 from .tools.mlutils import (  
     discretize_categories, 
@@ -81,7 +82,7 @@ __all__= ['KMeansFeaturizer',
           'FrameUnion', 
           'DataFrameSelector',
           'CombinedAttributesAdder', 
-          'featurize_X', 
+          'FeaturizeX', 
           'TextFeatureExtractor', 
           'DateFeatureExtractor', 
           'FeatureSelectorByModel', 
@@ -1434,7 +1435,177 @@ class FrameUnion (BaseEstimator, TransformerMixin) :
             
         return X
         
-def featurize_X (
+class FeaturizeX(BaseEstimator, TransformerMixin ): 
+    """
+    Featurize X with the cluster based on the KMeans featurization
+    
+    Parameters 
+    -----------
+    X : {array-like, sparse matrix} of shape (n_samples, n_features)
+        Training vector, where `n_samples` is the number of samples and
+        `n_features` is the number of features. 
+        Note that when `n_components` is set, sparse matrix for `X` is not 
+        acceptable. 
+
+    y : array-like of shape (n_samples,)
+        Target vector relative to X.
+        
+    n_clusters: int, default=7
+       Number of initial clusters
+       
+    target_scale: float, default=5.0 
+       Apply appropriate scaling and include it in the input data to k-means.
+       
+    n_components: int, optional
+       Number of components for reduced down the predictor X. It uses the PCA 
+       to reduce down dimension to the importance features. 
+       
+    model: :class:`KMeansFeaturizer`. 
+       KMeasFeaturizer model. Model can be provided to featurize the 
+       test data separated from the train data. 
+       
+    random_state: int, Optional 
+       State for shuffling the data 
+       
+    split_X_y: bool, default=False, 
+       Split the X, y into train data and test data  according to the test 
+       size 
+       
+    test_ratio: int, default=0.2 
+       ratio to keep for a test data. 
+       
+    shuffle: bool, default=True
+       Suffling the data set. 
+       
+    return_model: bool, default =False 
+       If ``True`` return the KMeans featurization mode and the transformed X.
+       
+    to_sparse: bool, default=False 
+       Convert X data to sparse matrix, by default the sparse matrix is 
+       coordinates matrix (COO) 
+       
+    sparsity:str, default='coo'
+       Kind of sparse matrix use to convert `X`. It can be ['csr'|'coo']. Any 
+       other values with return a coordinates matrix unless `to_sparse` is 
+       turned to ``False``. 
+ 
+    Returns 
+    -------- 
+    X : NDArray shape (m_samples, n_features +1) or \
+        shape (m_samples, n_sparse_features)
+        Returns transformed array X NDArray of m_features plus the clusters
+        features from KMF featurization procedures. The `n_sparse_features`
+        is created if `to_sparse` is set to ``True``. 
+
+       
+    Note
+    -----
+    Everytimes ``return_model=True``, KMF model (:class:`KMeansFeaturizer`) 
+    is appended to the return results. 
+    
+    Examples 
+    --------
+    >>> import numpy as np 
+    >>> from gofast.transformers import FeaturizeX 
+    >>> X = np.random.randn (12 , 7 ) ; y = np.arange(12 )
+    >>> y[ y < 6 ]= 0 ; y [y >0 ]= 1  # for binary data 
+    >>> Xtransf = FeaturizeX (to_sparse =False).fit_transform(X)
+    >>> X.shape, Xtransf.shape 
+    ((12, 7), (12, 8))
+    >>> Xtransf = FeaturizeX (to_sparse =True ).fit_transform(X,y )
+    >>> Xtransf
+    (<12x8 sparse matrix of type '<class 'numpy.float64'>'
+     	with 93 stored elements in COOrdinate format>,
+     array([0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1]))
+
+    """
+    def __init__(self, 
+        n_clusters:int=7, 
+        target_scale:float= 5 ,
+        random_state:F|int=None, 
+        n_components: int=None,  
+        model: F =None, 
+        test_ratio:float|str= .2 , 
+        shuffle:bool=True, 
+        to_sparse: bool=..., 
+        sparsity:str ='coo'  
+        ): 
+        
+        self.n_clusters =n_clusters 
+        self.target_scale = target_scale 
+        self.random_state= random_state 
+        self.n_components = n_components 
+        self.model=model 
+        self.test_ratio=test_ratio 
+        self.shuffle=shuffle 
+        self.to_sparse=to_sparse 
+        self.sparsity=sparsity 
+        
+    def fit( self, X, y =None): 
+        
+        """
+        Parameters 
+        -----------
+        X : {array-like, sparse matrix} of shape (n_samples, n_features)
+            Training vector, where `n_samples` is the number of samples and
+            `n_features` is the number of features. 
+            Note that when `n_components` is set, sparse matrix for `X` is not 
+            acceptable. 
+
+        y : array-like of shape (n_samples,)
+            Target vector relative to X.
+        
+        Return 
+        ---------
+        self: For chaining methods. 
+        
+        """
+        
+        return self 
+    
+    def transform (self, X, y=None ): 
+        """ 
+        Parameters 
+        -----------
+        X : {array-like, sparse matrix} of shape (n_samples, n_features)
+            Training vector, where `n_samples` is the number of samples and
+            `n_features` is the number of features. 
+            Note that when `n_components` is set, sparse matrix for `X` is not 
+            acceptable. 
+
+        y : array-like of shape (n_samples,)
+            Target vector relative to X.
+        
+        Returns 
+        -------- 
+        X : NDArray shape (m_samples, n_features +1) or \
+            shape (m_samples, n_sparse_features)
+            Returns transformed array X NDArray of m_features plus the clusters
+            features from KMF featurization procedures. The `n_sparse_features`
+            is created if `to_sparse` is set to ``True``. 
+
+        """
+        
+        ( Xtransf,
+         * _ 
+            ) =  _featurize_X(
+                X, 
+                y =y, 
+                n_cluster = self.n_clusters, 
+                target_scale=self.target_scale, 
+                random_state= self.random_state,
+                n_components = self.n_components, 
+                model=self.model,
+                test_ratio=self.test_ratio,
+                shuffle=self.shuffle,
+                to_sparse=self.to_sparse,
+                sparsity=self.sparsity,
+            )
+        
+        return Xtransf 
+        
+    
+def _featurize_X (
     X, 
     y =None, *, 
     n_clusters:int=7, 
@@ -1503,8 +1674,6 @@ def featurize_X (
        other values with return a coordinates matrix unless `to_sparse` is 
        turned to ``False``. 
  
-       .. versionadded:: 0.2.4 
- 
     Returns 
     -------- 
     X, y : NDArray shape (m_samples, n_features +1) or \
@@ -1554,11 +1723,8 @@ def featurize_X (
     """ 
     # set False to value use 
     # ellipsis...
-    if return_model is ...:
-        return_model =False 
-    if to_sparse is ...:
-        to_sparse =False 
-    
+    return_model, to_sparse  =ellipsis2false(return_model, to_sparse )
+
     # if sparse convert X  to sparse matrix 
     if to_sparse: 
         sparsity= str(sparsity).lower().strip() 

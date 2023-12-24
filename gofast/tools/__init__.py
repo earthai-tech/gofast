@@ -7,13 +7,15 @@ additional functionalities are performed with :mod:`~gofast.utils.mlutils` and
 :mod:`~gofast.utils.funcutils` respectively. 
 """
 
-from .baseutils import ( 
+from .baseutils import (
+    audit_data, 
     read_data,
     get_remote_data, 
     array2hdf5, 
     save_or_load, 
     request_data, 
-    download_file2, 
+    fancier_downloader,
+    speed_rowwise_process, 
     )
 from .mathex import ( 
     interpolate1d, 
@@ -38,7 +40,7 @@ from .funcutils import (
     savejob, 
     random_selector, 
     interpolate_grid, 
-    twinning, 
+    pair_data, 
     random_sampling, 
     replace_data, 
     storeOrwritehdf5, 
@@ -82,19 +84,21 @@ from .mlutils import (
     
     ) 
 __all__=[
+    'audit_data', 
     'inspect_data', 
     'read_data',
     'array2hdf5', 
     'save_or_load', 
     'request_data', 
     'get_remote_data', 
-    'download_file2', 
+    'fancier_downloader', 
     'interpolate1d', 
     'interpolate2d',
     'scaley', 
     'select_features', 
     'get_global_score',  
     'split_train_test', 
+    'speed_rowwise_process', 
     'get_correlated_features', 
     'find_features_in',
     'codify_variables', 
@@ -150,7 +154,7 @@ __all__=[
     'interpolate_grid',
     'smooth1d', 
     'smoothing', 
-    'twinning', 
+    'pair_data', 
     'random_sampling', 
     'plot_voronoi', 
     'plot_roc_curves', 

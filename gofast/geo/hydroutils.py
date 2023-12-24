@@ -20,19 +20,13 @@ import random
 import copy 
 import math
 import itertools
-from collections import  ( 
-    Counter , 
-    defaultdict
-    )
 import inspect
 import warnings 
 import numpy as np
 import pandas as pd 
+from collections import Counter, defaultdict
 
-from .._docstring import ( 
-    _core_docs, 
-    DocstringComponents 
-    )
+from .._docstring import _core_docs,  DocstringComponents 
 from .._typing import (
     List, 
     Tuple, 
@@ -43,11 +37,7 @@ from .._typing import (
     ArrayLike, 
     F
     ) 
-from ..decorators import ( 
-    catmapflow2, 
-    writef, 
-    deprecated
-    )
+from ..decorators import writef, deprecated
 from ..exceptions import ( 
     FileHandlingError, 
     DepthError, 
@@ -55,10 +45,7 @@ from ..exceptions import (
     StrataError, 
     AquiferGroupError
     )
-from ..tools.box import ( 
-    _Group, 
-    Boxspace
-    )
+from ..tools.box import _Group, Boxspace
 from ..tools.funcutils import  (
     _assert_all_types, 
     _isin ,
@@ -86,7 +73,7 @@ __all__=[
     "get_aquifer_sections", 
     "get_unique_section", 
     "get_compressed_vector", 
-    "get_hole_partitions", 
+    "partition_holes", 
     "reduce_samples" , 
     "get_sections_from_depth", 
     "check_flow_objectivity", 
@@ -100,7 +87,6 @@ __all__=[
     "validate_labels", 
     "rename_labels_in", 
     "transmissibility", 
-    "categorize_target", 
     ]
 #-----------------------
 _param_docs = DocstringComponents.from_nested_components(
@@ -1684,7 +1670,7 @@ def _get_invalid_indexes  ( d, /, valid_indexes, in_arange =False ):
     
     return invix 
   
-def get_hole_partitions(
+def partition_holes(
     data, 
     /,
     z_range = None, 
@@ -1725,9 +1711,9 @@ def get_hole_partitions(
     Example
     --------
     >>> from gofast.datasets import load_hlogs 
-    >>> from gofast.geo.hydroutils import get_hole_partitions 
+    >>> from gofast.geo.hydroutils import partition_holes 
     >>> data = load_hlogs ().frame 
-    >>> xs, xr = get_hole_partitions (data, 3.11, section_indexes = (17, 20 ) )
+    >>> xs, xr = partition_holes (data, 3.11, section_indexes = (17, 20 ) )
     """
     xs, xr = None, None
     
@@ -1811,7 +1797,7 @@ def reduce_samples (
         
     Xs, Xr =[], []
     for df in dfs : 
-        xs, xr = get_hole_partitions (df, section_indexes= section_indexes)
+        xs, xr = partition_holes (df, section_indexes= section_indexes)
         Xs.append(xs) ; Xr.append(xr)
         
     d_new=[]
