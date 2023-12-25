@@ -8,25 +8,45 @@ import inspect
 import itertools
 import numpy as np
 from collections import defaultdict
+from scipy import stats
 
-from sklearn.base import BaseEstimator, ClassifierMixin, clone 
+from sklearn.base import BaseEstimator, ClassifierMixin, clone, RegressorMixin
 from sklearn.metrics import recall_score, precision_score
 from sklearn.metrics import accuracy_score,  roc_auc_score
 from sklearn.model_selection import  train_test_split
 from sklearn.pipeline import _name_estimators
 from sklearn.preprocessing import LabelEncoder
+from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
+from sklearn.ensemble import GradientBoostingRegressor, GradientBoostingClassifier
 
 from ._docstring import DocstringComponents,_core_docs
 from ._gofastlog import  gofastlog
 from ._typing import List, DataFrame 
-from .exceptions import NotFittedError
-from .tools.funcutils import _assert_all_types, smart_format
+from .exceptions import NotFittedError, EstimatorError 
+from .tools.funcutils import _assert_all_types, smart_format, is_iterable
 from .tools.validator import check_X_y, get_estimator_name
     
 
-__all__=[ "AdalineGradientDescent", "AdalineStochasticGradientDescent",
-    "SequentialBackwardSelection","MajorityVoteClassifier", "GreedyPerceptron", 
-    ]
+__all__=[
+    'AdalineGradientDescent',
+    'AdalineStochasticGradientDescent',
+    'BasePerceptron',
+    'BoostedDecisionTreeClassifier',
+    'BoostedRegressionTree',
+    'HammersteinWienerRegressor',
+    'HammersteinWienerEnsemble',
+    'HybridBRTEnsembleClassifier',
+    'HybridBoostedRegressionTree',
+    'MajorityVoteClassifier',
+    'NeuroFuzzyEnsemble',
+    'RegressionTreeBasedClassifier',
+    'RegressionTreeEnsemble',
+    'SequentialBackwardSelection',
+    'SimpleAverageClassifier',
+    'SimpleAverageRegressor',
+    'WeightedAverageClassifier',
+    'WeightedAverageRegressor'
+	 ]
 
 # +++ add base documentations +++
 _base_params = dict ( 
@@ -455,7 +475,7 @@ class SequentialBackwardSelection (_Base ):
         
         return self.__class__.__name__ + str(tup).replace("'", "") 
     
-class GreedyPerceptron (_Base): 
+class BasePerceptron (_Base): 
     r""" Perceptron classifier 
     
     Inspired from Rosenblatt concept of perceptron rules. Indeed, Rosenblatt 
@@ -1382,7 +1402,1314 @@ class AdalineGradientDescent (_Base):
                      self.get_params().items() )
         
         return self.__class__.__name__ + str(tup).replace("'", "") 
+    
+
+class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
+    """
+    Hammerstein-Wiener Estimator for dynamic system identification.
+
+    This estimator models a dynamic system where the output is a nonlinear
+    function of past inputs and outputs. It consists of a Hammerstein model
+    (nonlinear input followed by a linear dynamic block) and a Wiener model
+    (linear dynamic block followed by a nonlinear output).
+
+    Parameters
+    ----------
+    nonlinearity_in : callable, default=hyperbolictangent ``tanh``
+        Nonlinear function at the input.
+    nonlinearity_out : callable, default=hyperbolictangent ``tanh``
+        Nonlinear function at the output.
+    linear_model : object
+        Linear model for the dynamic block. Should support fit and predict methods.
+    memory_depth : int
+        The number of past time steps to include in the model.
+
+    Attributes
+    ----------
+    fitted_ : bool
+        True if the model has been fitted.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LinearRegression
+    >>> hw = HammersteinWienerRegressor(
+    ...     nonlinearity_in=np.tanh,
+    ...     nonlinearity_out=np.tanh,
+    ...     linear_model=LinearRegression(),
+    ...     memory_depth=5
+    ... )
+    >>> X, y = np.random.rand(100, 1), np.random.rand(100)
+    >>> hw.fit(X, y)
+    >>> y_pred = hw.predict(X)
+
+    Notes
+    -----
+    The Hammerstein-Wiener model can be mathematically represented as:
+    y(t) = g₂( Σ aᵢ * y(t-i) + Σ bⱼ * g₁(u(t-j)) )
+    where g₁ and g₂ are the input and output nonlinear functions, respectively,
+    aᵢ and bⱼ are the coefficients of the linear dynamic model, and u(t) and y(t)
+    are the input and output of the system at time t.
+    """
+
+    def __init__(self,
+        linear_model, 
+        nonlinearity_in= np.tanh, 
+        nonlinearity_out=np.tanh, 
+        memory_depth=5
+                 ):
+        self.nonlinearity_in = nonlinearity_in
+        self.nonlinearity_out = nonlinearity_out
+        self.linear_model = linear_model
+        self.memory_depth = memory_depth
+        self.fitted_ = False
+
+    def _preprocess_data(self, X):
+        """
+        Preprocess the input data by applying the input nonlinearity and
+        incorporating memory depth.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input data.
+
+        Returns
+        -------
+        X_transformed : array-like
+            The transformed input data.
+        """
+        # Apply the input nonlinearity
+        X_transformed = self.nonlinearity_in(X)
+
+        # Incorporate memory depth
+        n_samples, n_features = X_transformed.shape
+        X_lagged = np.zeros((n_samples - self.memory_depth, 
+                             self.memory_depth * n_features))
+        for i in range(self.memory_depth, n_samples):
+            X_lagged[i - self.memory_depth, :] = ( 
+                X_transformed[i - self.memory_depth:i, :].flatten()
+                )
+
+        return X_lagged
+
+    def fit(self, X, y):
+        """
+        Fit the Hammerstein-Wiener model to the data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data input.
+        y : array-like of shape (n_samples,)
+            Target values.
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
+        X_lagged = self._preprocess_data(X)
+        y = y[self.memory_depth:]
+
+        # Fit the linear model
+        self.linear_model.fit(X_lagged, y)
+        self.fitted_ = True
+        return self
+
+    def predict(self, X):
+        """
+        Predict using the Hammerstein-Wiener model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Samples to predict for.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            Predicted values.
+        """
+        if not self.fitted_:
+            raise NotFittedError("This HammersteinWienerEstimator instance is not fitted yet.")
+
+        X_lagged = self._preprocess_data(X)
+
+        # Predict using the linear model
+        y_linear = self.linear_model.predict(X_lagged)
+
+        # Apply the output nonlinearity
+        y_pred = self.nonlinearity_out(y_linear)
+        return y_pred
+  
+class SimpleAverageRegressor(BaseEstimator, RegressorMixin):
+    """
+    Simple Average Ensemble for regression tasks.
+
+    This ensemble model averages the predictions of multiple base 
+    regression models.  It is a straightforward approach to reduce 
+    the variance of individual model predictions by averaging their results.
+    
+    `SimpleAverageEnsemble` class accepts a list of base estimators and 
+    averages their predictions. Each base estimator must be compatible 
+    with scikit-learn, i.e., they should have fit and predict methods. 
+    This ensemble model can be particularly effective when combining models 
+    of different types (e.g., linear models, tree-based models) as it can 
+    balance out their individual strengths and weaknesses.
+
+    Parameters
+    ----------
+    base_estimators : list of objects
+        List of base regression estimators. Each estimator in the list should
+        support fit and predict methods.
+
+    Attributes
+    ----------
+    fitted_ : bool
+        True if the model has been fitted.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LinearRegression
+    >>> from sklearn.tree import DecisionTreeRegressor
+    >>> ensemble = SimpleAverageRegressor([
+    ...     LinearRegression(),
+    ...     DecisionTreeRegressor()
+    ... ])
+    >>> X, y = np.random.rand(100, 1), np.random.rand(100)
+    >>> ensemble.fit(X, y)
+    >>> y_pred = ensemble.predict(X)
+
+    Notes
+    -----
+    The predictions of the Simple Average Ensemble are given by:
+    y_pred = (1 / N) * Σ y_pred_i
+    where N is the number of base estimators and y_pred_i is the prediction
+    of the i-th base estimator.
+    """
+
+    def __init__(self, base_estimators):
+        self.base_estimators = base_estimators
+        self.fitted_ = False
+
+    def fit(self, X, y):
+        """
+        Fit the Simple Average Ensemble model to the data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data input.
+        y : array-like of shape (n_samples,)
+            Target values.
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
+        for estimator in self.base_estimators:
+            estimator.fit(X, y)
+        self.fitted_ = True
+        return self
+
+    def predict(self, X):
+        """
+        Predict using the Simple Average Ensemble model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Samples to predict for.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            Predicted values, averaged across all base estimators.
+        """
+        if not self.fitted_:
+            raise NotFittedError("This SimpleAverageEnsemble instance is not fitted yet.")
+
+        predictions = [estimator.predict(X) for estimator in self.base_estimators]
+        return np.mean(predictions, axis=0)
+
+
+class WeightedAverageRegressor(BaseEstimator, RegressorMixin):
+    """
+    Weighted Average Ensemble for regression tasks.
+
+    This ensemble model calculates the weighted average of the predictions of
+    multiple base regression models. Each model's prediction is multiplied by 
+    a weight, allowing for differential contributions of each model to the 
+    final prediction.
+
+     In this `WeightedAverageEnsemble` class, each base estimator's prediction is 
+     multiplied by its corresponding weight. The weights parameter should be 
+     an array-like object where each weight corresponds to a base estimator 
+     in base_estimators. The weights can be determined based on the individual 
+     performance of the base models or set according to domain knowledge or 
+     other criteria.
+     
+     The model can effectively balance the contributions of various models, 
+     potentially leading to better overall performance than a simple average 
+     ensemble, especially when the base models have significantly different 
+     levels of accuracy or are suited to different parts of the input space.
+     
+    Parameters
+    ----------
+    base_estimators : list of objects
+        List of base regression estimators. Each estimator in the list should
+        support fit and predict methods.
+    weights : array-like of shape (n_estimators,)
+        Weights for each estimator in the base_estimators list.
+
+    Attributes
+    ----------
+    fitted_ : bool
+        True if the model has been fitted.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LinearRegression
+    >>> from sklearn.tree import DecisionTreeRegressor
+    >>> ensemble = WeightedAverageRegressor([
+    ...     LinearRegression(),
+    ...     DecisionTreeRegressor()
+    ... ], [0.7, 0.3])
+    >>> X, y = np.random.rand(100, 1), np.random.rand(100)
+    >>> ensemble.fit(X, y)
+    >>> y_pred = ensemble.predict(X)
+
+    Notes
+    -----
+    The weighted average predictions of the ensemble are given by:
+    y_pred = Σ (w_i * y_pred_i)
+    where w_i is the weight of the i-th base estimator and y_pred_i is its prediction.
+    """
+
+    def __init__(self, base_estimators, weights):
+        self.base_estimators = base_estimators
+        self.weights = weights
+        self.fitted_ = False
+
+    def fit(self, X, y):
+        """
+        Fit the Weighted Average Ensemble model to the data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data input.
+        y : array-like of shape (n_samples,)
+            Target values.
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
+        for estimator in self.base_estimators:
+            estimator.fit(X, y)
+        self.fitted_ = True
         
+        return self
+
+    def predict(self, X):
+        """
+        Predict using the Weighted Average Ensemble model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Samples to predict for.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            Weighted predicted values, averaged across all base estimators.
+        """
+        if not self.fitted_:
+            raise NotFittedError(
+                "This WeightedAverageEnsemble instance is not fitted yet.")
+
+        predictions = np.array([estimator.predict(X) for estimator 
+                                in self.base_estimators])
+        weighted_predictions = np.average(predictions, axis=0, 
+                                          weights=self.weights)
+        return weighted_predictions
+    
+
+class HammersteinWienerEnsemble(BaseEstimator, RegressorMixin):
+    """
+    Hammerstein-Wiener Ensemble (HWE) for regression tasks.
+
+    This ensemble model combines multiple Hammerstein-Wiener models, each of 
+    which is a dynamic system model where the output is a nonlinear function 
+    of past inputs and outputs. The ensemble averages the predictions of 
+    these models.
+
+    HammersteinWienerEnsemble class assumes that each Hammerstein-Wiener model
+    (HammersteinWienerEstimator) is already implemented with its fit and 
+    predict methods. The ensemble model fits each Hammerstein-Wiener estimator 
+    on the training data and then averages their predictions.
+
+    This approach can potentially improve the performance by capturing different 
+    aspects or dynamics of the data with each Hammerstein-Wiener model, and then 
+    combining these to form a more robust overall prediction. However, the 
+    effectiveness of this ensemble would heavily depend on the diversity and 
+    individual accuracy of the included Hammerstein-Wiener models.
+    Parameters
+    ----------
+    hw_estimators : list of HammersteinWienerEstimator objects
+        List of Hammerstein-Wiener model estimators.
+
+    Attributes
+    ----------
+    fitted_ : bool
+        True if the ensemble model has been fitted.
+
+    Examples
+    --------
+    >>> hw1 = HammersteinWienerRegressor(nonlinearity_in=np.tanh, 
+                                         nonlinearity_out=np.tanh, 
+                                         linear_model=LinearRegression(),
+                                         memory_depth=5)
+    >>> hw2 = HammersteinWienerRegressor(nonlinearity_in=np.sin, 
+                                         nonlinearity_out=np.sin, 
+                                         linear_model=LinearRegression(),
+                                         memory_depth=5)
+    >>> ensemble = HammersteinWienerEnsemble([hw1, hw2])
+    >>> X, y = np.random.rand(100, 1), np.random.rand(100)
+    >>> ensemble.fit(X, y)
+    >>> y_pred = ensemble.predict(X)
+
+    Notes
+    -----
+    The Hammerstein-Wiener Ensemble model averages the predictions of multiple
+    Hammerstein-Wiener estimators to obtain a final prediction.
+    """
+
+    def __init__(self, hw_estimators):
+        self.hw_estimators = hw_estimators
+        self.fitted_ = False
+
+    def fit(self, X, y):
+        """
+        Fit the Hammerstein-Wiener Ensemble model to the data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data input.
+        y : array-like of shape (n_samples,)
+            Target values.
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
+        self.hw_estimators = is_iterable(
+            self.hw_estimators, exclude_string=True, transform =True) 
+        estimator_names = [ get_estimator_name(estimator) for estimator in 
+                           self.hw_estimators ]
+        if list( set (estimator_names)) [0] !="HammersteinWiener": 
+            raise EstimatorError("Expect `HammersteinWiener` estimators."
+                                 f" Got {smart_format(estimator_names)}")
+            
+        for estimator in self.hw_estimators:
+            estimator.fit(X, y)
+        self.fitted_ = True
+        return self
+
+    def predict(self, X):
+        """
+        Predict using the Hammerstein-Wiener Ensemble model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Samples to predict for.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            Predicted values, averaged across all Hammerstein-Wiener estimators.
+        """
+        if not self.fitted_:
+            raise NotFittedError(
+                "This HammersteinWienerEnsemble instance is not fitted yet.")
+
+        predictions = np.array([estimator.predict(X) for estimator in self.hw_estimators])
+        return np.mean(predictions, axis=0)
+
+
+class NeuroFuzzyEnsemble(BaseEstimator, RegressorMixin):
+    """
+    Neuro-Fuzzy Ensemble for regression tasks.
+
+    This ensemble model combines multiple neuro-fuzzy models, which integrate
+    neural network learning capabilities with fuzzy logic's qualitative reasoning.
+    The ensemble averages the predictions of these models.
+
+    In this NeuroFuzzyEnsemble class, each NeuroFuzzyModel is assumed to be 
+    a pre-defined class that encapsulates a neuro-fuzzy system with fit and 
+    predict methods. The ensemble model fits each neuro-fuzzy estimator on 
+    the training data and then averages their predictions.
+    
+    Parameters
+    ----------
+    nf_estimators : list of NeuroFuzzyModel objects
+        List of neuro-fuzzy model estimators.
+
+    Attributes
+    ----------
+    fitted_ : bool
+        True if the ensemble model has been fitted.
+
+    Examples
+    --------
+    >>> nf1 = NeuroFuzzyModel(...)
+    >>> nf2 = NeuroFuzzyModel(...)
+    >>> ensemble = NeuroFuzzyEnsemble([nf1, nf2])
+    >>> X, y = np.random.rand(100, 1), np.random.rand(100)
+    >>> ensemble.fit(X, y)
+    >>> y_pred = ensemble.predict(X)
+
+    Notes
+    -----
+    The Neuro-Fuzzy Ensemble model averages the predictions of multiple
+    neuro-fuzzy estimators to obtain a final prediction. Neuro-fuzzy models
+    are expected to capture complex relationships in data by combining the
+    fuzzy qualitative approach with the learning ability of neural networks.
+    """
+
+    def __init__(self, nf_estimators):
+        self.nf_estimators = nf_estimators
+        self.fitted_ = False
+
+    def fit(self, X, y):
+        """
+        Fit the Neuro-Fuzzy Ensemble model to the data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data input.
+        y : array-like of shape (n_samples,)
+            Target values.
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
+        for estimator in self.nf_estimators:
+            estimator.fit(X, y)
+        self.fitted_ = True
+        return self
+
+    def predict(self, X):
+        """
+        Predict using the Neuro-Fuzzy Ensemble model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Samples to predict for.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            Predicted values, averaged across all Neuro-Fuzzy estimators.
+        """
+        if not self.fitted_:
+            raise NotFittedError("This NeuroFuzzyEnsemble instance is not fitted yet.")
+
+        predictions = np.array([estimator.predict(X) for estimator in self.nf_estimators])
+        return np.mean(predictions, axis=0)
+
+class BoostedRegressionTree(BaseEstimator, RegressorMixin):
+    """
+    Enhanced Boosted Regression Tree (BRT) for regression tasks.
+
+    This model is an advanced implementation of the Boosted Regression 
+    Tree algorithm, featuring tree pruning, handling different loss functions,
+    and incorporating strategies to prevent overfitting.
+    
+    ``Different Loss Functions``: supports different loss functions 
+    ('linear', 'square', 'exponential'). The derivative of the loss function 
+    is used to update the residuals.
+    
+    ``Stochastic Boosting``: The model includes an option for stochastic 
+    boosting, controlled by the subsample parameter, which dictates the 
+    fraction of samples used for fitting each base learner. This can 
+    help in reducing overfitting.
+    
+   ``Tree Pruning``: While explicit tree pruning isn't detailed here, it can 
+   be managed via the max_depth parameter. Additional pruning techniques can 
+   be implemented within the DecisionTreeRegressor fitting process.
+
+    Parameters
+    ----------
+    n_estimators : int
+        The number of trees in the ensemble.
+    learning_rate : float
+        The rate at which the boosting algorithm adapts from previous 
+        trees' errors.
+    max_depth : int
+        The maximum depth of each regression tree.
+    loss : str
+        The loss function to use. Supported values are 'linear', 
+        'square', and 'exponential'.
+    subsample : float
+        The fraction of samples to be used for fitting each individual base 
+        learner .If smaller than 1.0, it enables stochastic boosting.
+
+    Attributes
+    ----------
+    estimators_ : list of DecisionTreeRegressor
+        The collection of fitted sub-estimators.
+
+    Examples
+    --------
+    >>> brt = BoostedRegressionTree(n_estimators=100, learning_rate=0.1, 
+                                    max_depth=3, loss='linear', subsample=0.8)
+    >>> X, y = np.random.rand(100, 4), np.random.rand(100)
+    >>> brt.fit(X, y)
+    >>> y_pred = brt.predict(X)
+
+    Notes
+    -----
+    The Boosted Regression Tree model is built iteratively. It includes 
+    advanced features such as different loss functions and stochastic boosting
+    to improve model performance and reduce the risk of overfitting.
+    Mathematically, if Fₖ(x) is the prediction of the ensemble at iteration k, 
+    then the next model is trained on the residual r = y - Fₖ(x), and the 
+    ensemble prediction is updated as Fₖ₊₁(x) = Fₖ(x) + learning_rate * hₖ₊₁(x),
+    where hₖ₊₁(x) is the prediction of the new tree.
+    """
+
+    def __init__(
+        self, 
+        n_estimators=100, 
+        learning_rate=0.1, 
+        max_depth=3,
+        loss='linear', 
+        subsample=1.0
+        ):
+        self.n_estimators = n_estimators
+        self.learning_rate = learning_rate
+        self.max_depth = max_depth
+        self.loss = loss
+        self.subsample = subsample
+        self.estimators_ = []
+
+    def _loss_derivative(self, y, y_pred):
+        """
+        Compute the derivative of the loss function.
+
+        Parameters
+        ----------
+        y : array-like of shape (n_samples,)
+            True values.
+        y_pred : array-like of shape (n_samples,)
+            Predicted values.
+
+        Returns
+        -------
+        loss_derivative : array-like of shape (n_samples,)
+        """
+        if self.loss == 'linear':
+            return y - y_pred
+        elif self.loss == 'square':
+            return (y - y_pred) * 2
+        elif self.loss == 'exponential':
+            return np.exp(y_pred - y)
+        else:
+            raise ValueError("Unsupported loss function")
+
+    def fit(self, X, y):
+        """
+        Fit the Boosted Regression Tree model to the data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The training input samples.
+        y : array-like of shape (n_samples,)
+            The target values (real numbers).
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
+        n_samples = X.shape[0]
+        residual = y.copy()
+
+        for _ in range(self.n_estimators):
+            tree = DecisionTreeRegressor(max_depth=self.max_depth)
+
+            # Stochastic boosting (sub-sampling)
+            sample_size = int(self.subsample * n_samples)
+            indices = np.random.choice(n_samples, sample_size, replace=False)
+            X_subset, residual_subset = X[indices], residual[indices]
+
+            tree.fit(X_subset, residual_subset)
+            prediction = tree.predict(X)
+
+            # Update residuals
+            residual -= self.learning_rate * self._loss_derivative(y, prediction)
+
+            self.estimators_.append(tree)
+
+        return self
+
+    def predict(self, X):
+        """
+        Predict using the Boosted Regression Tree model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            The predicted values.
+        """
+        y_pred = np.zeros(X.shape[0])
+
+        for tree in self.estimators_:
+            y_pred += self.learning_rate * tree.predict(X)
+
+        return y_pred
+
+
+class RegressionTreeEnsemble(BaseEstimator, RegressorMixin):
+    """
+    Regression Tree Ensemble for regression tasks.
+
+    This ensemble model combines multiple Regression Trees. Each 
+    tree in the ensemble contributes to the final prediction, which is 
+    typically the average of the predictions made by each tree.
+
+    RegressionTreeEnsemble class fits multiple DecisionTreeRegressor 
+    models on the entire dataset and averages their predictions for the 
+    final output. The n_estimators parameter controls the number of trees 
+    in the ensemble, and max_depth controls the depth of each tree. 
+    The random_state can be set for reproducibility.
+    
+    Parameters
+    ----------
+    n_estimators : int
+        The number of trees in the ensemble.
+    max_depth : int
+        The maximum depth of each regression tree.
+    random_state : int
+        Controls the randomness of the estimator.
+
+    Attributes
+    ----------
+    estimators_ : list of DecisionTreeRegressor
+        The collection of fitted sub-estimators.
+
+    Examples
+    --------
+    >>> rte = RegressionTreeEnsemble(n_estimators=100, max_depth=3, random_state=42)
+    >>> X, y = np.random.rand(100, 4), np.random.rand(100)
+    >>> rte.fit(X, y)
+    >>> y_pred = rte.predict(X)
+
+    Notes
+    -----
+    The Regression Tree Ensemble is built by fitting multiple Regression Tree models.
+    Each tree is trained on the entire dataset, and their predictions are averaged.
+    """
+
+    def __init__(self, n_estimators=100, max_depth=3, random_state=None):
+        self.n_estimators = n_estimators
+        self.max_depth = max_depth
+        self.random_state = random_state
+        self.estimators_ = []
+
+    def fit(self, X, y):
+        """
+        Fit the Regression Tree Ensemble model to the data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The training input samples.
+        y : array-like of shape (n_samples,)
+            The target values (real numbers).
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
+        for _ in range(self.n_estimators):
+            tree = DecisionTreeRegressor(max_depth=self.max_depth,
+                                         random_state=self.random_state)
+            tree.fit(X, y)
+            self.estimators_.append(tree)
+
+        return self
+
+    def predict(self, X):
+        """
+        Predict using the Regression Tree Ensemble model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            The predicted values.
+        """
+        predictions = np.array([tree.predict(X) for tree in self.estimators_])
+        return np.mean(predictions, axis=0)
+
+
+class HybridBoostedRegressionTree(BaseEstimator, RegressorMixin):
+    """
+    Hybrid Boosted Regression Tree (BRT) Ensemble for regression tasks.
+
+    This ensemble model combines multiple Boosted Regression Tree models,
+    each of which is an ensemble in itself, created using the 
+    principles of boosting.
+
+    HybridBoostedRegressionTreeEnsemble class, the n_estimators parameter 
+    controls the number of individual Boosted Regression Trees in the ensemble,
+    and brt_params is a dictionary of parameters to be passed to each Boosted 
+    Regression Tree model. The GradientBoostingRegressor from scikit-learn 
+    is used as the individual BRT model. This class's fit method trains 
+    each BRT model on the entire dataset, and the predict method averages 
+    their predictions for the final output.
+    
+    Parameters
+    ----------
+    n_estimators : int
+        The number of Boosted Regression Tree models in the ensemble.
+    brt_params : dict
+        Parameters to be passed to each Boosted Regression Tree model.
+
+    Attributes
+    ----------
+    brt_ensembles_ : list of GradientBoostingRegressor
+        The collection of fitted Boosted Regression Tree ensembles.
+
+    Examples
+    --------
+    >>> brt_params = {'n_estimators': 50, 'max_depth': 3, 'learning_rate': 0.1}
+    >>> hybrid_brt = HybridBoostedRegressionTree(
+        n_estimators=10, brt_params=brt_params)
+    >>> X, y = np.random.rand(100, 4), np.random.rand(100)
+    >>> hybrid_brt.fit(X, y)
+    >>> y_pred = hybrid_brt.predict(X)
+
+    Notes
+    -----
+    The Hybrid Boosted Regression Tree Ensemble model aims to combine the strengths of
+    boosting with ensemble learning. Each member of the ensemble is a complete Boosted
+    Regression Tree model, trained to focus on different aspects of the data.
+    """
+
+    def __init__(self, n_estimators=10, brt_params=None):
+        self.n_estimators = n_estimators
+        self.brt_params = brt_params or {}
+        self.brt_ensembles_ = []
+
+    def fit(self, X, y):
+        """
+        Fit the Hybrid Boosted Regression Tree Ensemble model to the data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The training input samples.
+        y : array-like of shape (n_samples,)
+            The target values (real numbers).
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
+        for _ in range(self.n_estimators):
+            brt = GradientBoostingRegressor(**self.brt_params)
+            brt.fit(X, y)
+            self.brt_ensembles_.append(brt)
+
+        return self
+
+    def predict(self, X):
+        """
+        Predict using the Hybrid Boosted Regression Tree Ensemble model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            The predicted values.
+        """
+        predictions = np.array([brt.predict(X) for brt in self.brt_ensembles_])
+        return np.mean(predictions, axis=0)
+
+
+class BoostedDecisionTreeClassifier(BaseEstimator, ClassifierMixin):
+    """
+    Boosted Decision Tree Classifier.
+
+    BoostedDecisionTreeClassifier applies boosting techniques to Decision Tree 
+    classifiers. Its implementation, each tree in the ensemble is a
+    DecisionTreeClassifier. The model is trained iteratively, where each 
+    tree tries to correct the mistakes of the previous trees in the ensemble. 
+    The final prediction is determined by a thresholding mechanism applied 
+    to the cumulative prediction of all trees. The learning_rate controls 
+    the contribution of each tree to the final prediction.
+
+    Parameters
+    ----------
+    n_estimators : int
+        The number of trees in the ensemble.
+    max_depth : int
+        The maximum depth of each decision tree.
+    learning_rate : float
+        The rate at which the boosting algorithm adapts from 
+        previous trees' errors.
+
+    Attributes
+    ----------
+    estimators_ : list of DecisionTreeClassifier
+        The collection of fitted sub-estimators.
+
+    Examples
+    --------
+    >>> bdtc = BoostedDecisionTreeClassifier(n_estimators=100, 
+                                             max_depth=3, learning_rate=0.1)
+    >>> X, y = np.random.rand(100, 4), np.random.randint(0, 2, 100)
+    >>> bdtc.fit(X, y)
+    >>> y_pred = bdtc.predict(X)
+    """
+
+    def __init__(self, n_estimators=100, max_depth=3, learning_rate=0.1):
+        self.n_estimators = n_estimators
+        self.max_depth = max_depth
+        self.learning_rate = learning_rate
+        self.estimators_ = []
+
+    def fit(self, X, y):
+        """
+        Fit the Boosted Decision Tree Classifier model to the data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The training input samples.
+        y : array-like of shape (n_samples,)
+            The target class labels.
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
+        residual = y.copy()
+        for _ in range(self.n_estimators):
+            tree = DecisionTreeClassifier(max_depth=self.max_depth)
+            tree.fit(X, residual)
+            prediction = tree.predict(X)
+            # Update residuals
+            residual -= self.learning_rate * (prediction - residual)
+
+            self.estimators_.append(tree)
+
+        return self
+
+    def predict(self, X):
+        """
+        Predict using the Boosted Decision Tree Classifier model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            The predicted class labels.
+        """
+        cumulative_prediction = np.zeros(X.shape[0])
+
+        for tree in self.estimators_:
+            cumulative_prediction += self.learning_rate * tree.predict(X)
+
+        # Thresholding to convert to binary classification
+        return np.where(cumulative_prediction > 0.5, 1, 0)
+
+class RegressionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
+    """
+    Regression Tree Ensemble Classifier.
+
+    This classifier is an ensemble of decision trees. It aggregates 
+    predictions from multiple decision tree classifiers, typically using
+    majority voting for the final classification.
+
+    RegressionTreeBasedClassifier class, the fit method trains multiple 
+    DecisionTreeClassifier models on the entire dataset, and the predict 
+    method aggregates their predictions using majority voting to determine 
+    the final class labels. The n_estimators parameter controls the number 
+    of trees in the ensemble, and max_depth controls the depth of each tree. 
+    The random_state parameter can be set for reproducibility of results.
+    
+    Parameters
+    ----------
+    n_estimators : int
+        The number of trees in the ensemble.
+    max_depth : int
+        The maximum depth of each decision tree.
+    random_state : int
+        Controls the randomness of the estimator.
+
+    Attributes
+    ----------
+    estimators_ : list of DecisionTreeClassifier
+        The collection of fitted sub-estimators.
+
+    Examples
+    --------
+    >>> rtec = RegressionTreeBasedClassifier(n_estimators=100, max_depth=3,
+                                                random_state=42)
+    >>> X, y = np.random.rand(100, 4), np.random.randint(0, 2, 100)
+    >>> rtec.fit(X, y)
+    >>> y_pred = rtec.predict(X)
+    """
+
+    def __init__(self, n_estimators=100, max_depth=3, random_state=None):
+        self.n_estimators = n_estimators
+        self.max_depth = max_depth
+        self.random_state = random_state
+        self.estimators_ = []
+
+    def fit(self, X, y):
+        """
+        Fit the Regression Tree Ensemble Classifier model to the data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The training input samples.
+        y : array-like of shape (n_samples,)
+            The target class labels.
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
+        for _ in range(self.n_estimators):
+            tree = DecisionTreeClassifier(max_depth=self.max_depth, 
+                                          random_state=self.random_state)
+            tree.fit(X, y)
+            self.estimators_.append(tree)
+
+        return self
+
+    def predict(self, X):
+        """
+        Predict using the Regression Tree Ensemble Classifier model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            The predicted class labels.
+        """
+        predictions = np.array([tree.predict(X) for tree in self.estimators_])
+        # Majority voting
+        y_pred = stats.mode(predictions, axis=0).mode[0]
+        return y_pred
+
+
+class HybridBRTEnsembleClassifier(BaseEstimator, ClassifierMixin):
+    """
+    Hybrid Boosted Regression Tree Ensemble Classifier.
+
+    This classifier combines multiple Boosted Decision Tree classifiers. 
+    Each member of the
+    ensemble is a complete Boosted Decision Tree model, with boosting 
+    applied to decision trees.
+
+    In `HybridBRTEnsembleClassifier`, each GradientBoostingClassifier in 
+    `gb_ensembles_` represents an individual Boosted Decision Tree model. 
+    The fit method trains each Boosted Decision Tree model on the entire 
+    dataset, and the predict method uses majority voting among all the 
+    models to determine the final class labels. The gb_params parameter 
+    allows customization of the individual Gradient Boosting models.
+    
+    Parameters
+    ----------
+    n_estimators : int
+        The number of Boosted Decision Tree models in the ensemble.
+    gb_params : dict
+        Parameters to be passed to each GradientBoostingClassifier model.
+
+    Attributes
+    ----------
+    gb_ensembles_ : list of GradientBoostingClassifier
+        The collection of fitted Boosted Decision Tree ensembles.
+
+    Examples
+    --------
+    >>> gb_params = {'n_estimators': 50, 'max_depth': 3, 'learning_rate': 0.1}
+    >>> hybrid_gb = HybridBRTEnsembleClassifier(n_estimators=10,
+                                              gb_params=gb_params)
+    >>> X, y = np.random.rand(100, 4), np.random.randint(0, 2, 100)
+    >>> hybrid_gb.fit(X, y)
+    >>> y_pred = hybrid_gb.predict(X)
+    """
+
+    def __init__(self, n_estimators=10, gb_params=None):
+        self.n_estimators = n_estimators
+        self.gb_params = gb_params or {}
+        self.gb_ensembles_ = []
+
+    def fit(self, X, y):
+        """
+        Fit the Hybrid Boosted Regression Tree Ensemble Classifier model to the data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The training input samples.
+        y : array-like of shape (n_samples,)
+            The target class labels.
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
+        for _ in range(self.n_estimators):
+            gb = GradientBoostingClassifier(**self.gb_params)
+            gb.fit(X, y)
+            self.gb_ensembles_.append(gb)
+
+        return self
+
+    def predict(self, X):
+        """
+        Predict using the Hybrid Boosted Regression Tree Ensemble Classifier model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            The predicted class labels.
+        """
+        predictions = np.array([gb.predict(X) for gb in self.gb_ensembles_])
+        # Majority voting for classification
+        y_pred = stats.mode(predictions, axis=0).mode[0]
+        return y_pred
+
+class WeightedAverageClassifier(BaseEstimator, ClassifierMixin):
+    """
+    Weighted Average Ensemble Classifier.
+
+    This classifier averages the predictions of multiple base classifiers,
+    each weighted by its assigned importance. The ensemble prediction for each class
+    is the weighted average of the predicted probabilities from all classifiers.
+
+    ``WeightedAverageEnsembleClassifier`` class, base_classifiers are the 
+    individual classifiers in the ensemble, and weights are their 
+    corresponding importance weights. The fit method trains each 
+    classifier in the ensemble, and the predict method calculates the 
+    weighted average of the predicted probabilities from all classifiers
+    to determine the final class labels.
+    
+    This implementation assumes that each base classifier can output 
+    class probabilities (i.e., has a predict_proba method), which is 
+    common in many scikit-learn classifiers. The effectiveness of this 
+    ensemble classifier depends on the diversity and performance of the 
+    base classifiers, as well as the appropriateness of their assigned 
+    weights. Fine-tuning these elements is crucial for optimal performance.
+    
+    Parameters
+    ----------
+    base_classifiers : list of objects
+        List of base classifiers. Each classifier should support `fit`, 
+        `predict`, and `predict_proba` methods.
+    weights : array-like of shape (n_classifiers,)
+        Weights for each classifier in the base_classifiers list.
+
+    Attributes
+    ----------
+    classifiers_ : list of fitted classifiers
+        The collection of fitted base classifiers.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LogisticRegression
+    >>> from sklearn.tree import DecisionTreeClassifier
+    >>> ensemble = WeightedAverageClassifier(
+    ...     base_classifiers=[LogisticRegression(), DecisionTreeClassifier()],
+    ...     weights=[0.7, 0.3]
+    ... )
+    >>> X, y = np.random.rand(100, 4), np.random.randint(0, 2, 100)
+    >>> ensemble.fit(X, y)
+    >>> y_pred = ensemble.predict(X)
+    """
+
+    def __init__(self, base_classifiers, weights):
+        self.base_classifiers = base_classifiers
+        self.weights = weights
+        self.classifiers_ = []
+
+    def fit(self, X, y):
+        """
+        Fit the Weighted Average Ensemble Classifier model to the data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The training input samples.
+        y : array-like of shape (n_samples,)
+            The target class labels.
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
+        for clf in self.base_classifiers:
+            fitted_clf = clf.fit(X, y)
+            self.classifiers_.append(fitted_clf)
+
+        return self
+
+    def predict(self, X):
+        """
+        Predict using the Weighted Average Ensemble Classifier model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            The predicted class labels.
+        """
+        weighted_sum = np.zeros((X.shape[0], len(np.unique(self.classifiers_[0].classes_))))
+
+        for clf, weight in zip(self.classifiers_, self.weights):
+            probabilities = clf.predict_proba(X)
+            weighted_sum += weight * probabilities
+
+        return np.argmax(weighted_sum, axis=1)
+
+class SimpleAverageClassifier(BaseEstimator, ClassifierMixin):
+    """
+    Simple Average Ensemble Classifier.
+
+    This classifier averages the predictions of multiple base classifiers.
+    The ensemble prediction for each class is the simple average of the predicted
+    probabilities from all classifiers.
+
+    ``SimpleAverageEnsembleClassifier`` class, base_classifiers are the 
+    individual classifiers in the ensemble. The fit method trains each 
+    classifier in the ensemble, and the predict method calculates the 
+    simple average of the predicted probabilities from all classifiers to 
+    determine the final class labels.
+    
+    Parameters
+    ----------
+    base_classifiers : list of objects
+        List of base classifiers. Each classifier should support `fit`,
+        `predict`, and `predict_proba` methods.
+
+    Attributes
+    ----------
+    classifiers_ : list of fitted classifiers
+        The collection of fitted base classifiers.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LogisticRegression
+    >>> from sklearn.tree import DecisionTreeClassifier
+    >>> ensemble = SimpleAverageClassifier(
+    ...     base_classifiers=[LogisticRegression(), DecisionTreeClassifier()]
+    ... )
+    >>> X, y = np.random.rand(100, 4), np.random.randint(0, 2, 100)
+    >>> ensemble.fit(X, y)
+    >>> y_pred = ensemble.predict(X)
+    """
+
+    def __init__(self, base_classifiers):
+        self.base_classifiers = base_classifiers
+        self.classifiers_ = []
+
+    def fit(self, X, y):
+        """
+        Fit the Simple Average Ensemble Classifier model to the data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The training input samples.
+        y : array-like of shape (n_samples,)
+            The target class labels.
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
+        for clf in self.base_classifiers:
+            fitted_clf = clf.fit(X, y)
+            self.classifiers_.append(fitted_clf)
+
+        return self
+
+    def predict(self, X):
+        """
+        Predict using the Simple Average Ensemble Classifier model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            The predicted class labels.
+        """
+        avg_proba = np.mean([clf.predict_proba(X) for clf in self.classifiers_], axis=0)
+        y_pred = np.argmax(avg_proba, axis=1)
+        return y_pred
+
 def get_params (obj: object 
                 ) -> dict: 
     """
@@ -1441,81 +2768,4 @@ def get_params (obj: object
     return PARAMS_VALUES
 
 
-def _existfeatures (df, features, error='raise'): 
-    """Control whether the features exists or not  
-    
-    :param df: a dataframe for features selections 
-    :param features: list of features to select. Lits of features must be in the 
-        dataframe otherwise an error occurs. 
-    :param error: str - raise if the features don't exist in the dataframe. 
-        *default* is ``raise`` and ``ignore`` otherwise. 
-        
-    :return: bool 
-        assert whether the features exists 
-    """
-    isf = False  
-    
-    error= 'raise' if error.lower().strip().find('raise')>= 0  else 'ignore' 
-
-    if isinstance(features, str): 
-        features =[features]
-        
-    features = _assert_all_types(features, list, tuple, np.ndarray)
-    set_f =  set (features).intersection (set(df.columns))
-    if len(set_f)!= len(features): 
-        nfeat= len(features) 
-        msg = f"Feature{'s' if nfeat >1 else ''}"
-        if len(set_f)==0:
-            if error =='raise':
-                raise ValueError (f"{msg} {smart_format(features)} "
-                                  f"{'does not' if nfeat <2 else 'dont'}"
-                                  " exist in the dataframe")
-            isf = False 
-        # get the difference 
-        diff = set (features).difference(set_f) if len(
-            features)> len(set_f) else set_f.difference (set(features))
-        nfeat= len(diff)
-        if error =='raise':
-            raise ValueError(f"{msg} {smart_format(diff)} not found in"
-                             " the dataframe.")
-        isf = False  
-    else : isf = True 
-    
-    return isf  
-    
-def _selectfeatures (
-        df: DataFrame,
-        features: List[str] =None, 
-        include = None, 
-        exclude = None,
-        coerce: bool=False,
-        **kwd
-        ): 
-    """ Select features  and return new dataframe.  
-    
-    :param df: a dataframe for features selections 
-    :param features: list of features to select. Lits of features must be in the 
-        dataframe otherwise an error occurs. 
-    :param include: the type of data to retrieved in the dataframe `df`. Can  
-        be ``number``. 
-    :param exclude: type of the data to exclude in the dataframe `df`. Can be 
-        ``number`` i.e. only non-digits data will be keep in the data return.
-    :param coerce: return the whole dataframe with transforming numeric columns.
-        Be aware that no selection is done and no error is raises instead. 
-        *default* is ``False``
-    :param kwd: additional keywords arguments from `pd.astype` function 
-    
-    :ref: https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.astype.html
-    """
-    
-    if features is not None: 
-        _existfeatures(df, features, error ='raise')
-    # change the dataype 
-    df = df.astype (float, errors ='ignore', **kwd) 
-    # assert whether the features are in the data columns
-    if features is not None: 
-        return df [features] 
-    # raise ValueError: at least one of include or exclude must be nonempty
-    # use coerce to no raise error and return data frame instead.
-    return df if coerce else df.select_dtypes (include, exclude) 
 

@@ -16,6 +16,103 @@ from scipy.stats import norm
 from scipy.stats import binom
 from scipy.stats import poisson
 
+from ..tools._dependency import import_optional_dependency 
+
+
+def stochastic_volatility_model(arr, /, ):
+    """
+    Stochastic Volatility Model using PyMC3.
+
+    A stochastic volatility model captures the phenomenon of heteroskedasticity
+    (non-constant volatility) in time-series data, such as financial returns.
+
+    Parameters
+    ----------
+    arr : array_like
+        Time-series data representing returns.
+
+    Returns
+    -------
+    model : pymc3.Model
+        A PyMC3 model object ready for sampling.
+
+    Formula
+    -------
+    The model typically includes:
+    - y[t] ~ N(0, exp(2 * v[t]))
+    - v[t] ~ N(v[t-1], sigma^2)
+    Where y[t] is the observed value at time t, and v[t] is the log volatility.
+
+    Example
+    -------
+    >>> import numpy as np
+    >>> returns = np.random.normal(0, 1, 100)
+    >>> model = stochastic_volatility_model(returns)
+    """
+    import_optional_dependency('pymc3')
+    import pymc3 as pm
+    with pm.Model() as model:
+        sigma = pm.Exponential('sigma', 1.0)
+        v = pm.GaussianRandomWalk('v', sigma=sigma, shape=len(arr))
+        pm.Normal('y', mu=0, sd=pm.math.exp(v), observed=arr) # y
+        
+    return model
+
+
+def hierarchical_linear_model(X, y, groups):
+    """
+    Hierarchical Linear Model using PyMC3.
+
+    Multilevel models are regression models in which parameters are set up to
+    vary at more than one level, often used for grouped or hierarchical data.
+
+    Parameters
+    ----------
+    X : array_like
+        Predictor variables.
+    y : array_like
+        Response variable.
+    groups : array_like
+        Grouping variable indicating the hierarchy.
+
+    Returns
+    -------
+    model : pymc3.Model
+        A PyMC3 model object ready for sampling.
+
+    Formula
+    -------
+    The hierarchical linear model can be expressed as:
+    - y[i] ~ N(X[i] * beta[group[i]], sigma[group[i]])
+    - beta[group[i]] ~ N(mu_beta, sigma_beta)
+    Where y[i] is the observed value, X[i] is the predictor for observation i,
+    and beta[group[i]] is the group-specific coefficient.
+
+    Example
+    -------
+    >>> import numpy as np
+    >>> X = np.random.normal(size=(100, 3))
+    >>> y = np.random.normal(size=100)
+    >>> groups = np.random.randint(0, 5, 100)
+    >>> model = hierarchical_linear_model(X, y, groups)
+    """
+    import_optional_dependency('pymc3')
+    import pymc3 as pm
+    with pm.Model() as model:
+        # Group-specific parameters
+        mu_beta = pm.Normal('mu_beta', mu=0, sd=10, shape=X.shape[1])
+        sigma_beta = pm.HalfNormal('sigma_beta', 10)
+        sigma = pm.HalfNormal('sigma', sd=10, shape=len(np.unique(groups)))
+
+        # Model error
+        pm.Normal('y_est', mu=pm.math.dot(X, mu_beta[groups]),
+                          sd=sigma[groups], observed=y) # y_est
+        
+        # Group-specific slopes and intercepts
+        pm.Normal('beta', mu=mu_beta, sd=sigma_beta,
+                         shape=(len(np.unique(groups)), X.shape[1])) # beta 
+    return model
+
 def normal_pdf(data, mean, std_dev):
     """
     Compute the Probability Density Function (PDF) for 

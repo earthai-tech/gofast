@@ -45,7 +45,7 @@ from ..exceptions import (
 from ..tools.funcutils import ( 
     _assert_all_types, 
     get_params, 
-    savejob, 
+    save_job, 
     listing_items_format, 
     pretty_printer, 
 
@@ -94,6 +94,8 @@ class GridSearch:
         cv:int =4,
         kind:str ='GridSearchCV',
         scoring:str = 'nmse',
+        savejob:bool=False, 
+        filename:str=None, 
         verbose:int=0, 
         **grid_kws
         ): 
@@ -212,7 +214,12 @@ class GridSearch:
             setattr(self,'feature_importances_', None )
         else : 
             setattr(self,'feature_importances_', attr_value)
- 
+        
+        self.data_=  dict( get_estimator_name (self.base_estimator) = params_values)  
+        if self.savejob: 
+            filename = filename or get_estimator_name ( self.base_estimator)+ '.results'
+            save_job ( job= self.data_ , savefile = self.filename ) 
+
         return self
     
 GridSearch.__doc__="""\
@@ -242,6 +249,16 @@ pipeline: Callable or :class:`~sklearn.pipeline.Pipeline` object
 prefit: bool, default=False, 
     If ``False``, does not need to compute the cross validation score once 
     again and ``True`` otherwise.
+    
+savejob: bool, default=False
+    Save your model parameters to external file using 'joblib' or Python 
+    persistent 'pickle' module. Default sorted to 'joblib' format. 
+    
+filename: str, 
+    Name of the file to collect the cross-validation results. It is composed 
+    of a dictionnary of the best parameters and  the results of CV. If name is 
+    not given, it shoul be created using the estimator name. 
+
 {params.core.cv}
     The default is ``4``.
 kind:str, default='GridSearchCV' or '1'
@@ -400,7 +417,7 @@ class GridSearchMultiple:
         if self.savejob:
             msg += ('\Serialize the dict of fine-tuned '
                     f'parameters to `{self.filename}`.')
-            savejob (job= self.data_ , savefile = self.filename )
+            save_job (job= self.data_ , savefile = self.filename )
             _logger.info(f'Dumping models `{self.filename}`!')
             
             if self.verbose: 
@@ -461,6 +478,11 @@ savejob: bool, default=False
     Save your model parameters to external file using 'joblib' or Python 
     persistent 'pickle' module. Default sorted to 'joblib' format. 
     
+filename: str, 
+    Name of the file to collect the cross-validation results. It is composed 
+    of a dictionnary of the best parameters and  the results of CV. If name is 
+    not given, it shoul be created using the estimator name. 
+
 {params.core.verbose} 
 
 grid_kws: dict, 

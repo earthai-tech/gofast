@@ -5,7 +5,47 @@
 API Reference
 ===============
 
-The :code:`GoFast` library provides a range of utilities designed to accelerate machine learning workflows. This API reference provides detailed documentation for all the modules, classes, and functions within :code:`GoFast`.
+Overview
+--------
+The GoFast API is a comprehensive machine learning and data analysis toolbox 
+designed to accelerate the development of data-driven applications. It offers a 
+wide range of subpackages, each targeting specific aspects of data handling, 
+analysis, and model development.
+
+Subpackages
+-----------
+- **analysis**: Tools for in-depth data analysis, including exploratory data analysis and feature selection.
+- **base**: Core classes and functions that form the foundation of the GoFast toolkit.
+- **datasets**: A collection of datasets for experimentation, benchmarking, and practice.
+- **estimators**: Advanced machine learning estimators for both regression and classification tasks.
+- **geo**: Geospatial data handling and analysis functions, useful for geographic data processing.
+- **metrics**: Evaluation metrics and performance measures for assessing models.
+- **models**: Pre-built models and architectures for a variety of machine learning applications.
+- **plot**: Visualization tools to create informative and interactive plots and charts.
+- **stats**: Statistical functions and tests to analyze data and derive meaningful insights.
+- **tools**: Utility functions and helpers that streamline common tasks and data manipulations.
+- **transformers**: Data transformation and preprocessing tools for preparing datasets for analysis.
+
+
+Usage
+-------
+To utilize the functionalities offered by the GoFast API, import the required subpackage:
+
+.. code-block:: python
+
+   import gofast as gf 
+   from gofast.tools import speed_rowwise_process
+   from gofast.estimators import HammersteinWienerRegressor
+
+Each subpackage is designed with a user-friendly interface, ensuring easy access and integration 
+into data science workflows. Whether you are conducting exploratory data analysis, building complex 
+machine learning models, or creating insightful visualizations, the GoFast API provides the necessary 
+tools and functions to streamline your work.
+
+
+The :code:`GoFast` library provides a range of utilities designed to accelerate 
+machine learning workflows. This API reference provides detailed documentation for all the modules, 
+classes, and functions within :code:`GoFast`.
 
 .. toctree::
    :maxdepth: 2
@@ -22,6 +62,7 @@ The :code:`GoFast` library provides a range of utilities designed to accelerate 
    gofast.plot 
    gofast.stats 
 
+.. _analysis_ref:
 
 :mod:`gofast.analysis`: Analyses 
 ====================================
@@ -67,13 +108,14 @@ pattern recognition.
 	analysis.transform_to_principal_components
 	analysis.varimax_rotation  
 
+.. _base_ref:
 
 :mod:`gofast.base`: Base Data Operations 
 ==========================================
 
-The `gofast.base` module includes data classes for loading and manipulations single or many dataframes 
-at the same time. :mod:`~gofast.base` provides core data operations and utilities, 
-forming the backbone of the toolbox. It encompasses essential functionalities for 
+The `gofast.base` module includes data classes for loading and manipulations single  
+or many dataframes at the same time. :mod:`~gofast.base` provides core data operations 
+and utilities, forming the backbone of the toolbox. It encompasses essential functionalities for 
 data manipulation and transformation, serving as a foundation for a wide range of 
 data-centric tasks and workflows.
  
@@ -95,6 +137,8 @@ data-centric tasks and workflows.
    base.MergeableFrames
    base.Missing
 
+
+.. _datasets_ref:
 
 :mod:`gofast.datasets`: Datasets 
 ==================================
@@ -132,12 +176,60 @@ expedite research and analysis.
    datasets.make_ert 
    datasets.make_gadget_sales 
    datasets.make_medical_diagnostic 
-   datasets.make_mining
+   datasets.make_mining_ops
    datasets.make_retail_store 
    datasets.make_tem 
    datasets.make_water_demand
    datasets.make_well_logging 
 
+
+.. _estimators_ref:
+
+:mod:`gofast.estimators`: Estimators 
+======================================
+
+The :mod:`gofast.estimators` module is a comprehensive collection of 
+advanced machine learning estimators designed for both regression and 
+classification tasks. It extends beyond traditional models to include 
+innovative and hybrid approaches, blending various machine learning techniques 
+to address complex data patterns and diverse problem sets.
+
+.. automodule:: gofast.estimators
+   :no-members:
+   :no-inherited-members:
+
+**User guide:** See the :ref:`estimators <estimators>` section for further details.
+
+
+Classes
+~~~~~~~~~~~~
+
+.. currentmodule:: gofast
+
+.. autosummary::
+   :toctree: generated/
+   :template: class.rst
+
+   estimators.AdalineGradientDescent
+   estimators.AdalineStochasticGradientDescent
+   estimators.BasePerceptron
+   estimators.BoostedDecisionTreeClassifier
+   estimators.BoostedRegressionTree
+   estimators.HammersteinWienerEnsemble
+   estimators.HammersteinWienerRegressor
+   estimators.HybridBRTEnsembleClassifier
+   estimators.HybridBoostedRegressionTree
+   estimators.MajorityVoteClassifier
+   estimators.NeuroFuzzyEnsemble
+   estimators.RegressionTreeBasedClassifier
+   estimators.RegressionTreeEnsemble
+   estimators.SequentialBackwardSelection
+   estimators.SimpleAverageClassifier
+   estimators.SimpleAverageRegressor
+   estimators.WeightedAverageClassifier
+   estimators.WeightedAverageRegressor
+   
+   
 :mod:`gofast.geo`: Geosciences
 ================================
 
@@ -206,6 +298,8 @@ Functions
    geo.label_importance
 
 
+.. _models_ref:
+
 gofast.models
 ===============
 
@@ -255,6 +349,8 @@ Functions
    models.neural_tuning
    models.deep_tuning
 
+
+.. _metrics_ref:
 
 gofast.metrics
 ================
@@ -308,15 +404,16 @@ and machine learning tasks.
    metrics.average_precision
    metrics.jaccard_similarity_coeff
 
+.. _tools_ref:
+
 gofast.tools
 =============
 
 Utility functions supporting various operations within :code:`GoFast`.
 :mod:`gofast.tools` module provides a set of common and new utilities for fast preprocessing 
-data and handle a large dataset. The list of the tools are not exhaustive. 
-The module encompasses a range of powerful and efficient tools 
-designed to enhance various aspects of data processing, analysis, 
-and visualization, streamlining workflows and improving productivity.
+data and handle a large dataset. The module encompasses a range of powerful and efficient tools 
+designed to enhance various aspects of data processing, analysis, and visualization, 
+streamlining workflows and improving productivity. The list of the tools are not exhaustive. 
 
 .. automodule:: gofast.tools
    :no-members:
@@ -360,7 +457,7 @@ and visualization, streamlining workflows and improving productivity.
    tools.labels_validator
    tools.laplace_smoothing
    tools.linkage_matrix
-   tools.load_data
+   tools.load_csv
    tools.load_dumped_data
    tools.make_pipe
    tools.moving_average
@@ -379,8 +476,9 @@ and visualization, streamlining workflows and improving productivity.
    tools.resampling
    tools.reshape
    tools.save_or_load
-   tools.savejob
-   tools.scaley
+   tools.save_job
+   tools.savgol_filter
+   tools.scale_y
    tools.select_feature_importances
    tools.select_features
    tools.serialize_data
@@ -399,6 +497,8 @@ and visualization, streamlining workflows and improving productivity.
    tools.stratify_categories
    tools.to_numeric_dtypes
 
+
+.. _plot_ref:
 
 :mod:`gofast.plot`: Visualization 
 ==================================
@@ -562,7 +662,68 @@ that aid in data exploration, analysis, and presentation.
    plot.utils.plot_confidence
    plot.utils.plot_confidence_ellipse
    plot.utils.plot_text
-   
+
+.. _stats_ref:
+
+gofast.stats
+====================
+
+The :mod:`gofast.stats` sub-package offers a comprehensive suite of 
+statistical functions and tools tailored for high-performance data analysis.
+This module is designed to facilitate efficient and accurate statistical 
+computations, providing users with a broad range of functionalities from 
+basic descriptive statistics to advanced probabilistic modeling. For more-in-depth, 
+user may visit other powerful libraries such as ``scipy.stats``, ``statsmodels``, etc.
+
+.. automodule:: gofast.stats
+   :no-members:
+   :no-inherited-members:
+
+.. currentmodule:: gofast
+
+.. autosummary::
+   :toctree: generated/
+   :template: function.rst
+
+   stats.mean
+   stats.median
+   stats.mode 
+   stats.variance
+   stats.std_dev
+   stats.get_range
+   stats.quartiles
+   stats.correlation
+   stats.iqr 
+   stats.z_scores
+   stats.descr_stats_summary
+   stats.skewness 
+   stats.kurtosis
+   stats.t_test_independent
+   stats.linear_regression
+   stats.chi_squared_test
+   stats.anova_test
+   stats.kmeans
+   stats.normal_pdf
+   stats.normal_cdf
+   stats.binomial_pmf
+   stats.poisson_logpmf
+   stats.uniform_sampling
+   stats.stochastic_volatility_model
+   stats.hierarchical_linear_model
+   stats.harmonic_mean
+   stats.weighted_median
+   stats.bootstrap 
+   stats.kaplan_meier_analysis 
+   stats.get_gini_coeffs
+   stats.multidim_scaling
+   stats.dca_analysis
+   stats.spectral_clustering
+   stats.levene_test
+   stats.kolmogorov_smirnov_test
+   stats.cronbach_alpha
+  
+.. _transformers_ref:
+
 gofast.transformers
 ====================
 

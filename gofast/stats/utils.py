@@ -13,8 +13,9 @@ import numpy as np
 from scipy import stats
 import pandas as pd
 
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans,SpectralClustering
 from sklearn.linear_model import LinearRegression
+from sklearn.manifold import MDS
 
 from .._typing import ( 
     DataFrame, 
@@ -29,6 +30,7 @@ from ..tools.funcutils import (
     ellipsis2false 
     )
 
+from ..tools._dependency import import_optional_dependency 
 
 def mean(
     data: ArrayLike | DataFrame , 
@@ -615,3 +617,396 @@ def kmeans(
     km = KMeans(n_clusters=n_clusters, **kws )
     km.fit(data)
     return km, km.labels_
+
+
+def harmonic_mean(data):
+    """
+    Calculate the harmonic mean of a data set.
+
+    The harmonic mean is the reciprocal of the arithmetic mean of the reciprocals
+    of the data points. It is a measure of central tendency and is used especially
+    for rates and ratios.
+
+    Parameters
+    ----------
+    data : array_like
+        An array, any object exposing the array interface, containing
+        data for which the harmonic mean is desired. Must be greater than 0.
+
+    Returns
+    -------
+    h_mean : float
+        The harmonic mean of the data set.
+
+    Raises
+    ------
+    ValueError
+        If any data point is less than or equal to zero.
+
+    Examples
+    --------
+    >>> harmonic_mean([1, 2, 4])
+    1.7142857142857142
+
+    >>> harmonic_mean([1, 0, 2])
+    ValueError: Data points must be greater than 0.
+
+    >>> harmonic_mean(np.array([2.5, 3.0, 10.0]))
+    3.5294117647058822
+    """
+    data = np.asarray(data)  # Ensure input is array-like
+    if np.any(data <= 0):
+        raise ValueError("Data points must be greater than 0.")
+
+    return len(data) / np.sum(1.0 / data)
+
+def weighted_median(data, weights):
+    """
+    Compute the weighted median of a data set.
+
+    The weighted median is a median where each value in the data set
+    is assigned a weight. It is the value such that the sum of the weights
+    is equal on both sides of the sorted list.
+
+    Parameters
+    ----------
+    data : array_like
+        Data for which the weighted median is desired.
+    weights : array_like
+        Weights for each element in `data`.
+
+    Returns
+    -------
+    w_median : float
+        The weighted median of the data set.
+
+    Example
+    -------
+    >>> weighted_median([1, 2, 3], [3, 1, 2])
+    2.0
+    """
+    data, weights = np.array(data), np.array(weights)
+    sorted_indices = np.argsort(data)
+    sorted_data, sorted_weights = ( 
+        data[sorted_indices], weights[sorted_indices]) 
+    cumulative_weights = np.cumsum(sorted_weights)
+    median_idx = np.where(
+        cumulative_weights >= 0.5 * np.sum(sorted_weights))[0][0]
+    return sorted_data[median_idx]
+
+def bootstrap(data, /,  n=1000, func=np.mean):
+    """
+    Perform bootstrapping to estimate the distribution of a statistic.
+
+    Bootstrapping is a resampling technique used to estimate statistics
+    on a population by sampling a dataset with replacement.
+
+    Parameters
+    ----------
+    data : array_like
+        The data to bootstrap.
+    n : int, optional
+        Number of bootstrap samples to generate.
+    func : callable, optional
+        The statistic to compute from the resampled data.
+
+    Returns
+    -------
+    bootstrapped_stats : ndarray
+        Array of bootstrapped statistic values.
+
+    Example
+    -------
+    >>> np.random.seed(0)
+    >>> bootstrap(np.arange(10), n=100, func=np.mean)
+    array([4.5, 4.7, 4.9, ..., 4.4, 4.6, 4.8])
+    """
+    bootstrapped_stats = []
+    for _ in range(n):
+        sample = np.random.choice(data, size=len(data), replace=True)
+        stat = func(sample)
+        bootstrapped_stats.append(stat)
+        
+    return np.array(bootstrapped_stats)
+
+def kaplan_meier_analysis(durations, event_observed, **kws):
+    """
+    Perform Kaplan-Meier Survival Analysis.
+
+    Kaplan-Meier Survival Analysis is used to estimate the survival function
+    from lifetime data. It is a non-parametric statistic.
+
+    Parameters
+    ----------
+    durations : array_like
+        Observed lifetimes (durations).
+    event_observed : array_like
+        Boolean array where 1 if the event is observed and 0 is censored.
+
+    kws: dict, 
+       Additional keyword arguments passed to 
+       :class:`lifelines.KaplanMeierFitter`.
+       
+    Returns
+    -------
+    kmf : KaplanMeierFitter
+        Fitted Kaplan-Meier estimator.
+
+    Example
+    -------
+    >>> durations = [5, 6, 6, 2.5, 4, 4]
+    >>> event_observed = [1, 0, 0, 1, 1, 1]
+    >>> kmf = kaplan_meier_analysis(durations, event_observed)
+    >>> kmf.plot_survival_function()
+    """
+    import_optional_dependency ('lifelines')
+    from lifelines import KaplanMeierFitter
+    
+    kmf = KaplanMeierFitter(**kws)
+    kmf.fit(durations, event_observed=event_observed)
+    return kmf
+
+def get_gini_coeffs(data, /, ):
+    """
+    Calculate the Gini coefficient of a data set.
+
+    The Gini coefficient is a measure of inequality of a distribution.
+    It is defined as a ratio with values between 0 and 1, where 0
+    corresponds to perfect equality and 1 to perfect inequality.
+
+    Parameters
+    ----------
+    data : array_like
+        Data set for which to calculate the Gini coefficient.
+
+    Returns
+    -------
+    gini : float
+        The Gini coefficient.
+
+    Example
+    -------
+    >>> gini_coefficient([1, 2, 3, 4, 5])
+    0.26666666666666666
+    """
+    # The array is sorted, the index is used for cumulating sums.
+    data = np.sort(np.array(data))
+    n = data.size
+    index = np.arange(1, n+1)
+    # The Gini coefficient is then the ratio of two areas.
+    return (np.sum((2 * index - n - 1) * data)) / (n * np.sum(data))
+
+def multidim_scaling(data, /,  n_components=2, **kws):
+    """
+    Perform Multidimensional Scaling (MDS).
+
+    MDS is a means of visualizing the level of similarity of individual cases
+    of a dataset in a lower-dimensional space.
+
+    Parameters
+    ----------
+    data : array_like
+        Data set for MDS.
+    n_components : int, optional
+        Number of dimensions in which to immerse the dissimilarities.
+
+    kws: dict, 
+       Additional keyword arguments passed to 
+       :class:`sklearn.manifold.MDS 
+    Returns
+    -------
+    mds_result : ndarray
+        Coordinates of the data in the MDS space.
+
+    Example
+    -------
+    >>> from sklearn.datasets import load_iris
+    >>> iris = load_iris()
+    >>> mds_coordinates = multidim_scaling(iris.data, n_components=2)
+    >>> mds_coordinates.shape
+    (150, 2)
+    """
+    
+    mds = MDS(n_components=n_components, **kws)
+    return mds.fit_transform(data)
+
+
+def dca_analysis(data, /, ):
+    """
+    Perform Detrended Correspondence Analysis (DCA).
+
+    DCA is widely used in ecology to find the main factors or gradients
+    in large, species-rich but usually sparse data matrices.
+
+    Parameters
+    ----------
+    data : array_like
+        Data set for DCA.
+
+    Returns
+    -------
+    dca_result : OrdinationResults
+        Results of DCA, including axis scores and explained variance.
+
+    Example
+    -------
+    >>> import pandas as pd
+    >>> data = pd.DataFrame({'species1': [1, 0, 3], 'species2': [0, 4, 1]})
+    >>> dca_result = dca_analysis(data)
+    >>> print(dca_result.axes)
+    """
+    import_optional_dependency('skbio')
+    from skbio.stats.ordination import detrended_correspondence_analysis
+    
+    return detrended_correspondence_analysis(data)
+
+def spectral_clustering(
+    data, /, 
+    n_clusters=2, 
+    assign_labels='discretize',
+    random_state=0, 
+    **kws 
+    ):
+    """
+    Perform Spectral Clustering.
+
+    Spectral Clustering uses the spectrum of the similarity matrix of the data
+    to perform dimensionality reduction before clustering. It's particularly
+    useful when the structure of the individual clusters is highly non-convex.
+
+    Parameters
+    ----------
+    data : array_like
+        Data set for clustering.
+    n_clusters : int, optional
+        The number of clusters to form.
+        
+    assign_labels : {'kmeans', 'discretize', 'cluster_qr'}, default='kmeans'
+        The strategy for assigning labels in the embedding space. There are two
+        ways to assign labels after the Laplacian embedding. k-means is a
+        popular choice, but it can be sensitive to initialization.
+        Discretization is another approach which is less sensitive to random
+        initialization [3]_.
+        The cluster_qr method [5]_ directly extract clusters from eigenvectors
+        in spectral clustering. In contrast to k-means and discretization, cluster_qr
+        has no tuning parameters and runs no iterations, yet may outperform
+        k-means and discretization in terms of both quality and speed.
+        
+    random_state : int, RandomState instance, default=None
+        A pseudo random number generator used for the initialization
+        of the lobpcg eigenvectors decomposition when `eigen_solver ==
+        'amg'`, and for the K-Means initialization. Use an int to make
+        the results deterministic across calls (See
+        :term:`Glossary <random_state>`).
+
+        .. note::
+            When using `eigen_solver == 'amg'`,
+            it is necessary to also fix the global numpy seed with
+            `np.random.seed(int)` to get deterministic results. See
+            https://github.com/pyamg/pyamg/issues/139 for further
+            information.
+            
+    kws: dict, 
+       Additional keywords argument of 
+       :class:`sklearn.cluster.SpectralClustering`
+       
+    Returns
+    -------
+    labels : ndarray
+        Labels of each point.
+
+    Example
+    -------
+    >>> from sklearn.datasets import make_moons
+    >>> X, _ = make_moons(n_samples=200, noise=0.05, random_state=0)
+    >>> labels = spectral_clustering(X, n_clusters=2)
+    >>> np.unique(labels)
+    array([0, 1])
+    """
+    clustering = SpectralClustering(n_clusters=n_clusters, 
+                                    assign_labels=assign_labels,
+                                    random_state=random_state, 
+                                    **kws)
+    return clustering.fit_predict(data)
+
+
+
+def levene_test(*args):
+    """
+    Perform Levene's test for equal variances.
+
+    Levene's test assesses the homogeneity of variance in different samples.
+
+    Parameters
+    ----------
+    *args : array_like
+        The sample data, possibly with different lengths.
+
+    Returns
+    -------
+    statistic : float
+        The test statistic.
+    p_value : float
+        The p-value for the test.
+
+    Example
+    -------
+    >>> levene_test([1, 2, 3], [4, 5, 6], [7, 8, 9])
+    (0.0, 1.0)
+    """
+    return stats.levene(*args)
+
+def kolmogorov_smirnov_test(sample1, sample2):
+    """
+    Perform the Kolmogorov-Smirnov test for goodness of fit.
+
+    This test compares the distributions of two independent samples.
+
+    Parameters
+    ----------
+    sample1, sample2 : array_like
+        Two arrays of sample observations assumed to be drawn from a continuous
+        distribution.
+
+    Returns
+    -------
+    statistic : float
+        KS statistic.
+    p_value : float
+        Two-tailed p-value.
+
+    Example
+    -------
+    >>> kolmogorov_smirnov_test([1, 2, 3, 4], [1, 2, 3, 5])
+    (0.25, 0.9999999999999999)
+    """
+    return stats.ks_2samp(sample1, sample2)
+
+def cronbach_alpha(items_scores):
+    """
+    Calculate Cronbach's Alpha for a set of test items.
+
+    Cronbach's Alpha is a measure of internal consistency, that is, how closely
+    related a set of items are as a group.
+
+    Parameters
+    ----------
+    items_scores : array_like
+        A 2D array where rows are items and columns are scoring for each item.
+
+    Returns
+    -------
+    alpha : float
+        Cronbach's Alpha.
+
+    Example
+    -------
+    >>> scores = [[2, 3, 4], [4, 4, 5], [3, 5, 4]]
+    >>> cronbach_alpha(scores)
+    0.8964214570007954
+    """
+    items_scores = np.asarray(items_scores)
+    item_variances = items_scores.var(axis=1, ddof=1)
+    total_variance = items_scores.sum(axis=0).var(ddof=1)
+    n_items = items_scores.shape[0]
+    return (n_items / (n_items - 1)) * (1 - item_variances.sum() / total_variance)
