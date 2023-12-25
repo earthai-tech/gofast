@@ -214,9 +214,9 @@ optimization tricks for speed and efficiency. The subpackages include a suite of
 specialized tools for various aspects of machine learning and model 
 optimization. It encompasses the :mod:`gofast.models.search` module 
 for model validation, the :mod:`gofast.models.optimize` module for
- model optimization, :mod:gofast.models.utils` module for versatile tasks, 
- and the :mod:`gofast.models.depp_search` module for fine-tuning 
- hyperparameters in machine learning and neural networks.
+model optimization, :mod:gofast.models.utils` module for versatile tasks, 
+and the :mod:`gofast.models.depp_search` module for fine-tuning 
+hyperparameters in machine learning and neural networks.
  
 
 Classes
