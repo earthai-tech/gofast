@@ -20,6 +20,17 @@ from .utils import (
     chi_squared_test,
     anova_test,
     kmeans,
+    harmonic_mean, 
+    weighted_median, 
+    bootstrap, 
+    kaplan_meier_analysis, 
+    get_gini_coeffs, 
+    multidim_scaling, 
+    dca_analysis, 
+    spectral_clustering, 
+    levene_test, 
+    kolmogorov_smirnov_test, 
+    cronbach_alpha, 
     
     )
 from .proba import (  
@@ -27,11 +38,12 @@ from .proba import (
     normal_cdf, 
     binomial_pmf, 
     poisson_logpmf, 
-    uniform_sampling
+    uniform_sampling, 
+    stochastic_volatility_model, 
+    hierarchical_linear_model, 
     )
 
 __all__=[ 
-    
     'mean',
     'median',
     'mode',
@@ -54,6 +66,18 @@ __all__=[
     'normal_cdf', 
     'binomial_pmf', 
     'poisson_logpmf', 
-    'uniform_sampling'
-    
+    'uniform_sampling', 
+    'stochastic_volatility_model', 
+    'hierarchical_linear_model',
+    'harmonic_mean', 
+    'weighted_median', 
+    'bootstrap', 
+    'kaplan_meier_analysis', 
+    'get_gini_coeffs', 
+    'multidim_scaling', 
+    'dca_analysis', 
+    'spectral_clustering', 
+    'levene_test', 
+    'kolmogorov_smirnov_test', 
+    'cronbach_alpha', 
     ]

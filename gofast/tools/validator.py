@@ -1567,7 +1567,7 @@ def build_data_if (
     data: dict | np.ndarray |pd.DataFrame, /, 
     columns =None,  
     to_frame=True,  
-    input_name ='Data', 
+    input_name ='data', 
     force=False, 
     **kws
     ): 
@@ -1581,8 +1581,10 @@ def build_data_if (
         Series name or columns names for pandas.Series and DataFrame. 
         
     to_frame: str, default=False
-        If ``True`` , reconvert the array to frame using the columns orthewise 
-        no-action is performed and return the same array.
+        If ``True`` , reconvert the array to frame using the a naive columns
+        name built from the `input_name` ortherwise no-action is performed 
+        and return the same array.
+        
     input_name : str, default="Data"
         The data name used to construct the error message. 
         
@@ -1596,14 +1598,25 @@ def build_data_if (
         Force conversion array to a frame is columns is not supplied.
         Use the combinaison, `input_name` and `X.shape[1]` range.
 
+    Return 
+    --------
+    dataframe constructed. 
+    
     """
     if isinstance ( data, dict ) : 
         data = pd.DataFrame ( data)
+        columns = list( data.columns)  
     elif isinstance ( data, ( list, tuple)): 
         data = np.array(data )
-        if columns is None and to_frame: 
-            raise ValueError(
-                f"Expect columns to be supplied. Got {type(data).__name__!r}")
+    
+    if not is_frame ( data, df_only=True ): 
+        if not to_frame: 
+            raise TypeError("Expect a dataframe while columns is missing.")
+        if to_frame and not force: 
+            raise TypeError(
+                "Expect columns to build the data frame or set"
+                " `force` to ``True`` to create a temporary frame:"
+               f" Got {type(data).__name__!r}.")
 
     return array_to_frame(
         data, columns = columns, 
