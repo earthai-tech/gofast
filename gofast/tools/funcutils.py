@@ -79,94 +79,109 @@ except ImportError:
     
 # xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
-def inspect_data ( 
-    arr: NDArray|DataFrame, *, 
-    columns: List[str, ...]=None, 
-    missing_values: float=np.nan, 
-    sanitize_columns: bool=..., 
-    regex: re|str=None, 
-    fill_pattern: str='_', 
-    drop_nan_columns: bool=True, 
-    how: str='all', 
-    reset_index: bool=..., 
-    drop_index: bool=True, 
-    ): 
-    """ Verify the integrity of the data. 
+def is_classification_task(
+    *y, max_unique_values=10
+    ):
+    """
+    Check whether the given arrays are for a classification task.
 
-    Fonction tries to understand the data, convert as possible the numeric 
-    data if not converted yet and return correct numeric and categorical 
-    data. 
-   
-    This is useful because sometimes, data contain the numeric values while 
-    the values are not sanitize to get the numeric data types. 
-   
+    This function assumes that if all values in the provided arrays are 
+    integers and the number of unique values is within the specified
+    threshold, it is a classification task.
+
+    Parameters
+    ----------
+    *y : list or numpy.array
+        A variable number of arrays representing actual values, 
+        predicted values, etc.
+    max_unique_values : int, optional
+        The maximum number of unique values to consider the task 
+        as classification. 
+        Default is 10.
+
+    Returns
+    -------
+    bool
+        True if the provided arrays are for a classification task, 
+        False otherwise.
+
+    Examples
+    --------
+    >>> from gofast.tools.funcutils import is_classification_task 
+    >>> y_true = [0, 1, 1, 0, 1]
+    >>> y_pred = [0, 1, 0, 0, 1]
+    >>> is_classification_task(y_true, y_pred)
+    True
+    """
+    max_unique_values = int (
+        _assert_all_types(max_unique_values, 
+                          int, float, objname="Max Unique values")
+                             )
+    # Combine all arrays for analysis
+    combined = np.concatenate(y)
+
+    # Check if all elements are integers
+    if ( 
+            not all(isinstance(x, int) for x in combined) 
+            and not combined.dtype.kind in 'iu'
+            ):
+        return False
+
+    # Check the number of unique elements
+    unique_values = np.unique(combined)
+    # check Arbitrary threshold for number of classes
+    if len(unique_values) > max_unique_values:
+        return False
+
+    return True
+
+def fancy_printer(result, /, report_name='Data Quality Check Report'):
+    """ 
+    This _fancy_print function within the check_data_quality function 
+    iterates over the results dictionary and prints each category 
+    (like missing data, outliers, etc.) in a formatted manner. It only 
+    displays categories with findings, making the output more concise and 
+    focused on the areas that need attention. The use of .title() 
+    and .replace('_', ' ') methods enhances the readability of the 
+    category names.
+
     Parameters 
     -----------
-    arr: Ndarray or Dataframe, shape (m_samples, n_features)
-        Array of dataframe to create, to sanitize or to auto-detect
-        feature categories ( numerical or categorical).
-        
-    columns: list of str, optional 
-        Usefull to create a dataframe when array is given. Be aware to fit the 
-        number of array columns (shape[1])
-        
-    missing_values: float, default='NaN' 
-        Replace the missing or empty string if exist in the dataframe.
-        
-    sanitize_columns: bool, default=False, 
-       remove undesirable character in the data columns using the default
-       argument of `regex` parameters. 
+    result: dict,
+       the result to print. Must contain a dictionnary. 
+    report_name: str, 
+       A report to fancy printer. 
        
-    regex: `re` object,
-        Regular expresion object used to polish the data columns.
-        the default is:: 
-            
-        >>> import re 
-        >>> re.compile (r'[_#&.)(*@!_,;\s-]\s*', flags=re.IGNORECASE)
-          
-    fill_pattern: str, default='' 
-        Pattern to replace the non-alphabetic character in each item of 
-        columns.  
-        
-    drop_nan_columns: bool, default=True 
-       Remove all columns filled by NaN values. 
-        
-    how: str, default='all'
-       Drop also the NaN row data. The row data which is composed entirely  
-       with NaN or Null values.
-       
-    reset_index: bool, default=False 
-       Reset the index of the dataframe. 
-       
-    drop_index: bool, default=True, 
-       Drop index in the dataframe after reseting. 
-             
-    Returns 
-    --------
-    df : Dataframe of values casted to numeric types 
-        also return `nf` and `cf`  if `return_feature_types` is set
-        to``True``.
-        
-    See Also 
-    ---------
-    gofast.tools.funcutils.to_numeric_dtypes: 
-        Inspect, pop or return categorical and numeric features. 
-        
-   
     """
-   
-    return to_numeric_dtypes ( 
-        arr =arr, 
-        columns=columns, 
-        missing_values=missing_values,  
-        sanitize_columns=sanitize_columns, 
-        regex=regex, 
-        fill_pattern=fill_pattern, 
-        drop_nan_columns=drop_nan_columns, 
-        how=how, 
-        reset_index=reset_index, 
-        drop_index=drop_index,  
-        )
+    if not isinstance ( result, dict): 
+        raise TypeError("fancy_printer accepts only a dictionnary type."
+                        f" Got {type(result).__name__!r}")
+        
+    print(f"\n{report_name}:\n")
+
+    for key, value in result.items():
+        if value:  # Only display categories with findings
+            print(f"--- {key.replace('_', ' ').title()} ---")
+            print("Column            | Details")
+            print("-" * 40)  # Table header separator
+
+            try : 
+                
+                for sub_key, sub_value in value.items():
+                    # Ensuring column name and details fit into the table format
+                    formatted_key = (sub_key[:15] + '..') if len(
+                        sub_key) > 17 else sub_key
+                    formatted_value = str(sub_value)[:20] + (
+                        '..' if len(str(sub_value)) > 22 else '')
+                    print(f"{formatted_key:<17} | {formatted_value}")
+            except : 
+                formatted_key = (key[:15] + '..') if len(key) > 17 else key
+                formatted_value = f"{value:.2f}"
+                print(f"{formatted_key:<17} | {formatted_value}")
+
+            print("\n")
+        else:
+            print(f"--- No {key.replace('_', ' ').title()} Found ---\n")
 
 def to_numeric_dtypes (
     arr: NDArray|DataFrame, *, 
@@ -1798,7 +1813,7 @@ def load_serialized_data (filename, verbose=0):
     
     return data
 
-def savejob(
+def save_job(
     job , 
     savefile ,* ,  
     protocol =None,  
@@ -5480,7 +5495,7 @@ def get_xy_coordinates (d, / , as_frame = False, drop_xy = False,
     return  xy , d , xynames 
        
 
-def twinning(
+def pair_data(
     *d: DataFrame,  
     on:str | List[str] = None, 
     parse_on:bool=False, 
@@ -5540,7 +5555,7 @@ def twinning(
     Examples 
     ----------
     >>> import gofast as gf 
-    >>> from gofast.tools.funcutils import twinning 
+    >>> from gofast.tools.funcutils import pair_data 
     >>> data = gf.make_erp (seed =42 , n_stations =12, as_frame =True ) 
     >>> table1 = gf.DCProfiling ().fit(data).summary()
     >>> table1 
@@ -5562,15 +5577,15 @@ def twinning(
              AB    MN   arrangememt  ... nareas   longitude  latitude
     area                             ...                             
     None  200.0  20.0  schlumberger  ...      1  110.486111  26.05174
-    >>> twinning (table1, table.table_,  ) 
+    >>> pair_data (table1, table.table_,  ) 
            dipole   longitude  latitude  ...  nareas   longitude  latitude
     line1    10.0  110.486111  26.05174  ...     NaN         NaN       NaN
     None      NaN         NaN       NaN  ...     1.0  110.486111  26.05174
-    >>> twinning (table1, table.table_, on =['longitude', 'latitude'] ) 
+    >>> pair_data (table1, table.table_, on =['longitude', 'latitude'] ) 
     Empty DataFrame 
     >>> # comments: Empty dataframe appears because, decimal is too large 
     >>> # then it considers values longitude and latitude differents 
-    >>> twinning (table1, table.table_, on =['longitude', 'latitude'], decimals =5 ) 
+    >>> pair_data (table1, table.table_, on =['longitude', 'latitude'], decimals =5 ) 
         dipole  longitude  latitude  ...  max_depth  ohmic_area  nareas
     0      10  110.48611  26.05174  ...      109.0  690.063003       1
     >>> # Now is able to find existing dataframe with identical closer coordinates. 
@@ -6441,7 +6456,7 @@ def numstr2dms (
         else ':'.join([deg, mm, sec]) 
 
     
-def storeOrwritehdf5 (
+def store_or_write_hdf5 (
     d, /, 
     key:str= None, 
     mode:str='a',  
@@ -6538,7 +6553,7 @@ def storeOrwritehdf5 (
   
     Examples
     --------
-    >>> from gofast.tools.funcutils import storeOrwritehdf5
+    >>> from gofast.tools.funcutils import store_or_write_hdf5
     >>> from gofast.datasets import load_bagoue 
     >>> data = load_bagoue().frame 
     >>> data.geol[:5]
@@ -6548,7 +6563,7 @@ def storeOrwritehdf5 (
     3                  GRANITES
     4          GEOSYN. GRANITES
     Name: geol, dtype: object
-    >>> data = storeOrwritehdf5 ( data, sanitize_columns = True)
+    >>> data = store_or_write_hdf5 ( data, sanitize_columns = True)
     >>> data[['type', 'geol', 'shape']] # put all to lowercase
       type                    geol shape
     0   cp  volcano-sedim. schists     w
@@ -6564,7 +6579,7 @@ def storeOrwritehdf5 (
     3    0.763676
     4    0.068501
     Name: sfi, dtype: float64
-    >>> d = storeOrwritehdf5 ( data,  func = test_func, args =(7,), applyto='sfi')
+    >>> d = store_or_write_hdf5 ( data,  func = test_func, args =(7,), applyto='sfi')
     >>> d.sfi[:5] 
     0    2.722360
     1    9.380889
@@ -6572,7 +6587,7 @@ def storeOrwritehdf5 (
     3    5.345733
     4    0.479507
     Name: sfi, dtype: float64
-    >>> storeOrwritehdf5 ( data,  func = test_func, args =(7,),
+    >>> store_or_write_hdf5 ( data,  func = test_func, args =(7,),
                           applyto='sfi', to_percent=True).sfi[:5]
     0    0.027224
     1    0.093809
@@ -6581,10 +6596,10 @@ def storeOrwritehdf5 (
     4    0.004795
     Name: sfi, dtype: float64
     >>> # write data to hdf5 and outputs to current directory 
-    >>> storeOrwritehdf5 ( d, key='test0', path_or_buf= 'test_data.h5', 
+    >>> store_or_write_hdf5 ( d, key='test0', path_or_buf= 'test_data.h5', 
                           kind ='store')
     >>> # export data to csv 
-    >>> storeOrwritehdf5 ( d, key='test0', path_or_buf= 'test_data', 
+    >>> store_or_write_hdf5 ( d, key='test0', path_or_buf= 'test_data', 
                           kind ='export')
     """
     kind= key_search (str(kind), default_keys=(
@@ -6668,7 +6683,94 @@ def ellipsis2false( *parameters , default_value: Any=False ):
     return tuple ( ( default_value  if param is  ... else param  
                     for param in parameters) )  
    
+def inspect_data ( 
+    arr: NDArray|DataFrame, *, 
+    columns: List[str, ...]=None, 
+    missing_values: float=np.nan, 
+    sanitize_columns: bool=..., 
+    regex: re|str=None, 
+    fill_pattern: str='_', 
+    drop_nan_columns: bool=True, 
+    how: str='all', 
+    reset_index: bool=..., 
+    drop_index: bool=True, 
+    ): 
+    """ Verify the integrity of the data. 
 
+    Fonction tries to understand the data, convert as possible the numeric 
+    data if not converted yet and return correct numeric and categorical 
+    data. 
+   
+    This is useful because sometimes, data contain the numeric values while 
+    the values are not sanitize to get the numeric data types. 
+   
+    Parameters 
+    -----------
+    arr: Ndarray or Dataframe, shape (m_samples, n_features)
+        Array of dataframe to create, to sanitize or to auto-detect
+        feature categories ( numerical or categorical).
+        
+    columns: list of str, optional 
+        Usefull to create a dataframe when array is given. Be aware to fit the 
+        number of array columns (shape[1])
+        
+    missing_values: float, default='NaN' 
+        Replace the missing or empty string if exist in the dataframe.
+        
+    sanitize_columns: bool, default=False, 
+       remove undesirable character in the data columns using the default
+       argument of `regex` parameters. 
+       
+    regex: `re` object,
+        Regular expresion object used to polish the data columns.
+        the default is:: 
+            
+        >>> import re 
+        >>> re.compile (r'[_#&.)(*@!_,;\s-]\s*', flags=re.IGNORECASE)
+          
+    fill_pattern: str, default='' 
+        Pattern to replace the non-alphabetic character in each item of 
+        columns.  
+        
+    drop_nan_columns: bool, default=True 
+       Remove all columns filled by NaN values. 
+        
+    how: str, default='all'
+       Drop also the NaN row data. The row data which is composed entirely  
+       with NaN or Null values.
+       
+    reset_index: bool, default=False 
+       Reset the index of the dataframe. 
+       
+    drop_index: bool, default=True, 
+       Drop index in the dataframe after reseting. 
+             
+    Returns 
+    --------
+    df : Dataframe of values casted to numeric types 
+        also return `nf` and `cf`  if `return_feature_types` is set
+        to``True``.
+        
+    See Also 
+    ---------
+    gofast.tools.funcutils.to_numeric_dtypes: 
+        Inspect, pop or return categorical and numeric features. 
+        
+   
+    """
+   
+    return to_numeric_dtypes ( 
+        arr =arr, 
+        columns=columns, 
+        missing_values=missing_values,  
+        sanitize_columns=sanitize_columns, 
+        regex=regex, 
+        fill_pattern=fill_pattern, 
+        drop_nan_columns=drop_nan_columns, 
+        how=how, 
+        reset_index=reset_index, 
+        drop_index=drop_index,  
+        )
 
 
     

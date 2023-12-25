@@ -20,19 +20,13 @@ import random
 import copy 
 import math
 import itertools
-from collections import  ( 
-    Counter , 
-    defaultdict
-    )
 import inspect
 import warnings 
 import numpy as np
 import pandas as pd 
+from collections import Counter, defaultdict
 
-from .._docstring import ( 
-    _core_docs, 
-    DocstringComponents 
-    )
+from .._docstring import _core_docs,  DocstringComponents 
 from .._typing import (
     List, 
     Tuple, 
@@ -43,11 +37,7 @@ from .._typing import (
     ArrayLike, 
     F
     ) 
-from ..decorators import ( 
-    catmapflow2, 
-    writef, 
-    deprecated
-    )
+from ..decorators import writef, deprecated
 from ..exceptions import ( 
     FileHandlingError, 
     DepthError, 
@@ -55,10 +45,7 @@ from ..exceptions import (
     StrataError, 
     AquiferGroupError
     )
-from ..tools.box import ( 
-    _Group, 
-    Boxspace
-    )
+from ..tools.box import _Group, Boxspace
 from ..tools.funcutils import  (
     _assert_all_types, 
     _isin ,
@@ -86,12 +73,12 @@ __all__=[
     "get_aquifer_sections", 
     "get_unique_section", 
     "get_compressed_vector", 
-    "get_xs_xr_splits", 
+    "partition_holes", 
     "reduce_samples" , 
     "get_sections_from_depth", 
     "check_flow_objectivity", 
-    "make_MXS_labels", 
-    "predict_NGA_labels", 
+    "make_mxs_labels", 
+    "predict_nga_labels", 
     "find_aquifer_groups", 
     "find_similar_labels", 
     "classify_k", 
@@ -100,14 +87,13 @@ __all__=[
     "validate_labels", 
     "rename_labels_in", 
     "transmissibility", 
-    "categorize_target", 
     ]
 #-----------------------
 _param_docs = DocstringComponents.from_nested_components(
     core=_core_docs["params"], 
     )
 #------------------------
-def make_MXS_labels (
+def make_mxs_labels (
     y_true, 
     y_pred, 
     threshold= None, 
@@ -230,21 +216,21 @@ def make_MXS_labels (
     
     See Also
     ---------
-    predict_NGA_labels: Predicts Naive group of Aquifers  labels. 
+    predict_nga_labels: Predicts Naive group of Aquifers  labels. 
     
     
     Examples
     ---------
     >>> from gofast.datasets import load_hlogs
     >>> from gofast.tools import read_data 
-    >>> from gofast.geo.hydroutils import classify_k, make_MXS_labels
+    >>> from gofast.geo.hydroutils import classify_k, make_mxs_labels
     >>> data = load_hlogs ().frame 
     >>> # map data.k to categorize k values 
     >>> ymap = classify_k(data.k , default_func =True) 
-    >>> y_mxs = make_MXS_labels (ymap, data.aquifer_group)
+    >>> y_mxs = make_mxs_labels (ymap, data.aquifer_group)
     >>> y_mxs[14:24] 
     ...  array(['I', 'I', 2, 2, 2, 2, 2, 2, 2, 2], dtype=object)
-    >>> mxs_obj = make_MXS_labels (ymap, data.aquifer_group, return_obj=True )
+    >>> mxs_obj = make_mxs_labels (ymap, data.aquifer_group, return_obj=True )
     >>> mxs_obj.mxs_labels_[14: 24]
     ... array(['I', 'I', 2, 2, 2, 2, 2, 2, 2, 2], dtype=object)
     >>> # now we did the same task using the private data 'hf.csv'
@@ -252,7 +238,7 @@ def make_MXS_labels (
     >>> # the aquifer groups like a fake NGA 
     >>> data = read_data ('data/boreholes/hf.csv') 
     >>> ymap =  classify_k(data.k , default_func =True)  
-    >>> y_mxs= make_MXS_labels (ymap, data.aquifer_group)
+    >>> y_mxs= make_mxs_labels (ymap, data.aquifer_group)
     >>> np.unique (y_mxs)
     ... array(['1', '1V', '2', '2III', '3', 'I', 'II', 'III&IV', 'IV'],
           dtype='<U6')
@@ -369,7 +355,7 @@ def make_MXS_labels (
         
     return MXS 
 
-def predict_NGA_labels( 
+def predict_nga_labels( 
         X, / , n_clusters , random_state =0 , keep_label_0 = False, 
         n_init="auto",return_cluster_centers =False,  **kws 
         ): 
@@ -692,7 +678,7 @@ def label_importance (
 
     arr_aq: array_like 1d 
         True labels of the groups of aquifers or predicted naive group of 
-         aquifer (NGA labels). See :func:`~.predict_NGA_labels`.
+         aquifer (NGA labels). See :func:`~.predict_nga_labels`.
          
     method: str ['naive', 'strict'], default='naive'
         The kind of strategy to compute the representativity of a label 
@@ -902,7 +888,7 @@ def find_similar_labels (
     >>> ymap = classify_k(data.k , default_func =True) 
     >>> # Note that for the demo we use the group of aquifer columns, however
     >>> # in pratical example, y_pred must be a predicted NGA labels. This 
-    >>> # is possible using the function <predict_NGA_labels> 
+    >>> # is possible using the function <predict_nga_labels> 
     >>> sim = find_similar_labels(y_true= ymap, y_pred=data.aquifer_group)
     >>> sim 
     ... ((1, 'V'), (2, 'III'), (3, 'V'))
@@ -1684,14 +1670,14 @@ def _get_invalid_indexes  ( d, /, valid_indexes, in_arange =False ):
     
     return invix 
   
-def get_xs_xr_splits (
+def partition_holes(
     data, 
     /,
     z_range = None, 
     zname = None, 
     section_indexes:Tuple[int, int]=None, 
     )-> Tuple [DataFrame ]:
-    """Split data into matrix :math:`X_s` with sample :math:`ms` (unwanted data ) 
+    """Split hole data into matrix :math:`X_s` with sample :math:`ms` (unwanted data ) 
     and :math:`X_r` of samples :math:`m_r`( valid aquifer data )
     
     Parameters 
@@ -1725,9 +1711,9 @@ def get_xs_xr_splits (
     Example
     --------
     >>> from gofast.datasets import load_hlogs 
-    >>> from gofast.geo.hydroutils import get_xs_xr_splits 
+    >>> from gofast.geo.hydroutils import partition_holes 
     >>> data = load_hlogs ().frame 
-    >>> xs, xr = get_xs_xr_splits (data, 3.11, section_indexes = (17, 20 ) )
+    >>> xs, xr = partition_holes (data, 3.11, section_indexes = (17, 20 ) )
     """
     xs, xr = None, None
     
@@ -1811,7 +1797,7 @@ def reduce_samples (
         
     Xs, Xr =[], []
     for df in dfs : 
-        xs, xr = get_xs_xr_splits (df, section_indexes= section_indexes)
+        xs, xr = partition_holes (df, section_indexes= section_indexes)
         Xs.append(xs) ; Xr.append(xr)
         
     d_new=[]

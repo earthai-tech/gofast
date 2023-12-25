@@ -56,12 +56,14 @@ from .funcutils import (
     concat_array_from_list, 
     remove_outliers, 
     find_close_position,
+    to_numeric_dtypes, 
     ellipsis2false, 
+    fancy_printer,
     smart_format,
     is_iterable, 
     reshape,
     fillNaN, 
-    spi,       
+    spi,     
 )
 from .validator import ( 
     _is_arraylike_1d, 
@@ -69,7 +71,8 @@ from .validator import (
     check_consistency_size,
     check_y,
     check_array,
-    assert_xy_in
+    assert_xy_in, 
+    build_data_if
     )
 
 try: import scipy.stats as spstats
@@ -155,7 +158,7 @@ def get_azimuth (
     Examples 
     ----------
     >>> import gofast as gf 
-    >>> from gofast.tools.exmath import get_azimuth 
+    >>> from gofast.tools.mathex  import get_azimuth 
     >>> # generate a data from ERP 
     >>> data = gf.make_erp (n_stations =7 ).frame 
     >>> get_azimuth ( data.longitude, data.latitude)
@@ -474,7 +477,7 @@ def interpolate2d (
     Examples 
     ---------
     >>> from gofast.methods.em import EM 
-    >>> from gofast.tools.exmath import interpolate2d 
+    >>> from gofast.tools.mathex  import interpolate2d 
     >>> # make 2d matrix of frequency
     >>> emObj = EM().fit(r'data/edis')
     >>> freq2d = emObj.make2d (out = 'freq')
@@ -701,7 +704,7 @@ def detect_station_position (
     :Example: 
         
         >>> import numpy as np 
-        >>> from gofast.tools.exmath import detect_station_position 
+        >>> from gofast.tools.mathex  import detect_station_position 
         >>> pos = np.arange(0 , 50 , 10 )
         >>> detect_station_position (s ='S30', p = pos)
         ... (3, 30.0)
@@ -812,7 +815,7 @@ def plot_ (
     :param fbtw: bool, default=False, 
         Mostly used for |VES| data. If ``True``, filled the computed 
         fractured zone using the parameters computed from 
-        :func:`~.gofast.tools.exmath.ohmicArea`. 
+        :func:`~.gofast.tools.mathex .ohmicArea`. 
     :param fig_title_kws: dict, 
         Additional keywords argument passed in dictionnary to customize 
         the figure title. 
@@ -825,7 +828,7 @@ def plot_ (
     
     :Example: 
         >>> import numpy as np 
-        >>> from gofast.tools.exmath import plot_ 
+        >>> from gofast.tools.mathex  import plot_ 
         >>> x, y = np.arange(0 , 60, 10) ,np.abs( np.random.randn (6)) 
         >>> KWS = dict (xlabel ='Stations positions', ylabel= 'resistivity(ohm.m)', 
                     rlabel = 'raw cuve', rotate = 45 ) 
@@ -1002,7 +1005,7 @@ def get_station_number (
 #FR2: #3B70F2 # (59, 112, 242) #repl rgb(52, 54, 99)
 #FR3: #0A4CEE # (10, 76, 238)
 
-def scaley(
+def scale_y(
         y: ArrayLike , 
         x: ArrayLike =None, 
         deg: int = None,  
@@ -1133,7 +1136,7 @@ def smooth1d(
     Examples 
     ---------
     >>> import numpy as np 
-    >>> from gofast.tools.exmath import smooth1d 
+    >>> from gofast.tools.mathex  import smooth1d 
     >>> # add Guassian Noise 
     >>> np.random.seed (42)
     >>> ar = np.random.randn (20 ) * 20 + np.random.normal ( 20 )
@@ -1173,7 +1176,7 @@ def smooth1d(
     # if extrapolation give negative  values
     # whether to keep as it was or convert to positive values. 
     # note that converting to positive values is 
-    arr, *_  = scaley ( arr ) 
+    arr, *_  = scale_y ( arr ) 
     # if extrapolation gives negative values
     # convert to positive values or keep it intact. 
     # note that converting to positive values is 
@@ -1266,7 +1269,7 @@ def smoothing (
     Examples 
     ---------
     >>> import numpy as np 
-    >>> from gofast.tools.exmath import smoothing
+    >>> from gofast.tools.mathex  import smoothing
     >>> # add Guassian Noises 
     >>> np.random.seed (42)
     >>> ar = np.random.randn (20, 7 ) * 20 + np.random.normal ( 20, 7 )
@@ -1434,7 +1437,7 @@ def interpolate1d (
     --------
     >>> import numpy as np 
     >>> import matplotlib.pyplot as plt 
-    >>> from gofast.tools.exmath  import interpolate1d,
+    >>> from gofast.tools.mathex   import interpolate1d,
     >>> z = np.random.randn(17) *10 # assume 17 freq for 17 values of tensor Z 
     >>> z [[7, 10, 16]] =np.nan # replace some indexes by NaN values 
     >>> zit = interpolate1d (z, kind ='linear')
@@ -1497,7 +1500,7 @@ def interpolate1d (
             t_arr = fillNaN(t_arr, method = method)
             t_arr= reshape(t_arr)
             
-        yc, *_= scaley (t_arr)
+        yc, *_= scale_y (t_arr)
         # replace the at NaN positions value in  t_arr 
         # with their corresponding scaled values 
         arr_new [np.isnan(arr_new)]= yc[np.isnan(arr_new)]
@@ -1565,7 +1568,7 @@ def moving_average (
     Examples
     --------- 
     >>> import numpy as np ; import matplotlib.pyplot as plt 
-    >>> from gofast.tools.exmath  import moving_average 
+    >>> from gofast.tools.mathex   import moving_average 
     >>> data = np.random.randn (37) 
     >>> # add gaussion noise to the data 
     >>> data = 2 * np.sin( data)  + np.random.normal (0, 1 , len(data))
@@ -1893,7 +1896,6 @@ def _fit_edge(x, window_start, window_stop, interp_start, interp_stop,
     y_edge = axis_slice(y, start=interp_start, stop=interp_stop, axis=axis)
     y_edge[...] = values
 
-
 def _fit_edges_polyfit(x, window_length, polyorder, deriv, delta, axis, y):
     """
     Use polynomial interpolation of x at the low and high ends of the axis
@@ -1907,7 +1909,6 @@ def _fit_edges_polyfit(x, window_length, polyorder, deriv, delta, axis, y):
     n = x.shape[axis]
     _fit_edge(x, n - window_length, n, n - halflen, n, axis,
               polyorder, deriv, delta, y)
-
 
 def savgol_filter(x, window_length, polyorder, deriv=0, delta=1.0,
                   axis=-1, mode='interp', cval=0.0):
@@ -1991,7 +1992,7 @@ def savgol_filter(x, window_length, polyorder, deriv=0, delta=1.0,
 
     Examples
     --------
-    >>> from gofast.tools.exmath import savgol_filter
+    >>> from gofast.tools.mathex  import savgol_filter
     >>> np.set_printoptions(precision=2)  # For compact display.
     >>> x = np.array([2, 2, 5, 2, 1, 0, 1, 4, 9])
 
@@ -2037,14 +2038,12 @@ def savgol_filter(x, window_length, polyorder, deriv=0, delta=1.0,
 
     return y        
 
-  
-#XXX OPTIMIZE 
 def compute_errors (
-        arr, /, 
-        error ='std', 
-        axis = 0, 
-        return_confidence=False 
-        ): 
+    arr, /, 
+    error ='std', 
+    axis = 0, 
+    return_confidence=False 
+    ): 
     """ Compute Errors ( Standard Deviation ) and standard errors. 
     
     Standard error and standard deviation are both measures of variability:
@@ -2105,36 +2104,63 @@ def compute_errors (
        
     Examples
     ---------
-    >>> from gofast.datasets import load_huayuan 
-    >>> from gofast.tools.exmath import compute_errors
-    >>> emobj=load_huayuan ().emo
-    >>> compute_errors (emobj.freqs_ ) 
-    .. Out[104]: 14397.794665683341
-    >>> freq2d = emobj.make2d ('freq') 
-    >>> compute_errors (freq2d ) [:7]
-    array([14397.79466568, 14397.79466568, 14397.79466568, 14397.79466568,
-           14397.79466568, 14397.79466568, 14397.79466568])
-    >>> compute_errors (freq2d , error ='se') [:7]
-    array([1959.29168624, 1959.29168624, 1959.29168624, 1959.29168624,
-           1959.29168624, 1959.29168624, 1959.29168624])
-    
+    >>> from gofast.tools.mathex  import compute_errors
+    >>> from gofast.datasets import make_mining_ops 
+    >>> mdata = make_mining_ops ( samples =20, as_frame=True, noises="20%")
+    >>> compute_scores (mdata)
+    Easting_m                    301.216454
+    Northing_m                   301.284073
+    Depth_m                      145.343063
+    OreConcentration_Percent       5.908375
+    DrillDiameter_mm              50.019249
+    BlastHoleDepth_m               3.568771
+    ExplosiveAmount_kg           142.908481
+    EquipmentAge_years             4.537603
+    DailyProduction_tonnes      2464.819019
+    dtype: float64
+    >>> compute_errors ( mdata, return_confidence= True)
+    (Easting_m                   -100.015509
+     Northing_m                  -181.088446
+     Depth_m                      -67.948155
+     OreConcentration_Percent      -3.316211
+     DrillDiameter_mm              25.820805
+     BlastHoleDepth_m               1.733541
+     ExplosiveAmount_kg             3.505198
+     EquipmentAge_years            -1.581202
+     DailyProduction_tonnes      1058.839261
+     dtype: float64,
+     Easting_m                    1080.752992
+     Northing_m                    999.945119
+     Depth_m                       501.796651
+     OreConcentration_Percent       19.844618
+     DrillDiameter_mm              221.896260
+     BlastHoleDepth_m               15.723123
+     ExplosiveAmount_kg            563.706443
+     EquipmentAge_years             16.206202
+     DailyProduction_tonnes      10720.929814
+     dtype: float64)
     """
     error = _validate_name_in(error , defaults =('error', 'se'),
                               deep =True, expect_name ='se')
-
+    # keep only the numeric values.
+    if hasattr (arr, '__array__') and hasattr(arr, 'columns'): 
+        arr = to_numeric_dtypes ( arr, pop_cat_features =True )
+        
+    if not _is_numeric_dtype(arr): 
+        raise TypeError("Numeric array is expected for operations.")
     err= np.std (arr) if arr.ndim ==1 else np.std (arr, axis= axis )
                   
     err_lower =  err_upper = None 
     if error =='se': 
         N = len(arr) if arr.ndim ==1 else arr.shape [axis ]
         err =  err / np.sqrt(N)
-        if return_confidence: 
-            err_lower = arr.mean() - ( 1.96 * err ) 
-            err_upper = arr.mean() + ( 1.96 * err )
+    if return_confidence: 
+        err_lower = arr.mean() - ( 1.96 * err ) 
+        err_upper = arr.mean() + ( 1.96 * err )
     return err if not return_confidence else ( err_lower, err_upper)  
 
 
-def quality_control(
+def quality_control2(
     ar, 
      /, 
     tol: float= .5 , 
@@ -2243,6 +2269,180 @@ def quality_control(
         )
     return data
  
+
+def quality_control(
+    data, missing_threshold=0.05, outlier_method='IQR', 
+    value_ranges=None, unique_value_columns=None, 
+    string_patterns=None, verbose:bool= ..., polish_and_return:bool=..., 
+    columns=None, 
+    **kwd 
+    ):
+    """
+    Perform comprehensive data quality checks on a pandas DataFrame.
+
+    In addition to checking, this function now cleans and sanitizes the 
+    DataFrame based on identified issues if ``return_cleaned_data=True``. 
+    
+    This function now includes steps to:
+
+    Drop columns with a high percentage of missing data.
+    Remove outliers using either the IQR or Z-score methods.
+    For other checks like value ranges, unique value columns, and 
+    string patterns, appropriate cleaning steps would depend heavily on the 
+    context and requirements of the specific dataset. 
+    
+
+    
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame on which to perform data quality checks.
+    missing_threshold : float, optional
+        The threshold for missing data percentage to flag a column
+        (default is 0.05, i.e., 5%).
+    outlier_method : str, optional
+        Method to detect outliers. Options are 'IQR' for Interquartile Range 
+        (default) and 'Z-score'.
+    value_ranges : dict, optional
+        A dictionary where keys are column names and values are tuples 
+        specifying the acceptable (min, max) range for values in that column.
+    unique_value_columns : list, optional
+        A list of column names that are expected to have unique values.
+    string_patterns : dict, optional
+        A dictionary where keys are column names and values are regex patterns 
+        that values in the column should match.
+        
+    polish_and_return : bool, optional
+        If True, the function will clean and sanitize the data based on the checks
+        and return the polished DataFrame. Default is False.
+        
+    Returns
+    -------
+    dict
+        A dictionary with keys 'missing_data', 'outliers', 'data_types',
+        'value_range_violations', 'unique_value_violations', and 
+        'string_pattern_violations', containing information about various data 
+        quality issues.
+
+    pandas.DataFrame or dict
+        If polish_and_return is True, returns the cleaned and sanitized DataFrame.
+        Otherwise, returns a dictionary with data quality check results.
+        
+    Note 
+    ------
+    Remember that data cleaning and sanitization can significantly alter 
+    your dataset. It's essential to understand the implications of each 
+    step and adjust the thresholds and methods according to your data 
+    analysis goals.
+        
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.tools.mathex  import quality_control 
+    >>> data = {'A': [1, 2, 3, None, 5], 'B': [1, 2, 100, 3, 4], 
+                'C': ['abc', 'def', '123', 'xyz', 'ab']}
+    >>> data = pd.DataFrame(data)
+    >>> quality_control(data, value_ranges={'A': (0, 10)}, unique_value_columns=['B'], 
+    ...                    string_patterns={'C': r'^[a-zA-Z]+$'})
+    {
+        'missing_data': {'A': 20.0},
+        'outliers': {'B': [100]},
+        'data_types': {'A': dtype('float64'), 'B': dtype('int64'), 'C': dtype('O')},
+        'value_range_violations': {'A': [None]},
+        'unique_value_violations': {'B': [1, 2, 3, 4]},
+        'string_pattern_violations': {'C': ['123']}
+    }
+
+    """
+    result = {
+        'missing_data': {}, 
+        'outliers': {}, 
+        'data_types': {},
+        'value_range_violations': {},
+        'unique_value_violations': {},
+        'string_pattern_violations': {}
+    }
+    polish_and_return, verbose = ellipsis2false(polish_and_return, verbose)
+    data = build_data_if (data, columns = columns , to_frame=True,  **kwd )
+    # for safety and not
+    # make a copy for a new data 
+    data_ = copy.deepcopy(data ) 
+    
+    # Handling missing data by dropping columns with 
+    # too many missing values if polish_and_return is true. 
+    
+    for col in data.columns:
+        missing_percentage = data[col].isna().mean()
+        if missing_percentage > missing_threshold:
+            if polish_and_return: 
+                data_.drop(col, axis=1, inplace=True)  
+            # data.drop(col, axis=1, inplace=True)  # Drop column
+            result['missing_data'][col] = missing_percentage * 100
+      
+    # Detect  and Handling outliers
+    for col in data.select_dtypes(include=[np.number]).columns:
+        if outlier_method == 'IQR':
+            Q1 = data[col].quantile(0.25)
+            Q3 = data[col].quantile(0.75)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - 1.5 * IQR
+            upper_bound = Q3 + 1.5 * IQR
+            
+            outliers = data[col][(
+                data[col] < lower_bound) | (data[col] > upper_bound)]
+            
+            if polish_and_return: # Remove outliers
+                data_ = data_[
+                    (data_[col] >= lower_bound) & (data_[col] <= upper_bound)]  
+            
+        elif outlier_method == 'Z-score':
+            z_score = np.abs((data[col] - data[col].mean()) / data[col].std())
+            
+            outliers = data[col][z_score > 3]
+            
+            if polish_and_return: 
+                data_ = data_[z_score <= 3]  # Remove outliers
+
+        if not outliers.empty:
+            result['outliers'][col] = outliers.tolist()
+            
+    # Value range validation
+    if value_ranges:
+        for col, (min_val, max_val) in value_ranges.items():
+            if col in data.columns:
+                invalid_values = data[col][(data[col] < min_val) | (data[col] > max_val)]
+                if not invalid_values.empty:
+                    result['value_range_violations'][col] = invalid_values.tolist()
+
+    # Unique value check
+    if unique_value_columns:
+        for col in unique_value_columns:
+            if col in data.columns and data[col].duplicated().any():
+                ( result['unique_value_violations'][col]
+                 ) = data[col][data[col].duplicated()].tolist()
+
+    # String pattern validation
+    if string_patterns:
+        for col, pattern in string_patterns.items():
+            if col in data.columns and data[col].dtype == 'object':
+                invalid_strings = data[col][~data[col].astype(
+                    str).str.match(pattern)]
+                if not invalid_strings.empty:
+                    ( result['string_pattern_violations'][col]
+                     )  = invalid_strings.tolist()
+                    
+    # Data type information
+    for col in data.columns:
+        result['data_types'][col] = data[col].dtype
+
+    # [Fancy print function as before...]
+    if verbose: 
+        fancy_printer(result)
+    
+    return data_ if polish_and_return else result
+
+
+
 def get_distance(
     x: ArrayLike, 
     y:ArrayLike , *, 
@@ -2278,7 +2478,7 @@ def get_distance(
     Examples 
     --------- 
     >>> import numpy as np 
-    >>> from gofast.tools.exmath import get_distance 
+    >>> from gofast.tools.mathex  import get_distance 
     >>> x = np.random.rand (7) *10 
     >>> y = np.abs ( np.random.randn (7) * 12 ) 
     >>> get_distance (x, y) 
@@ -2351,12 +2551,12 @@ def scale_positions (
        
     See Also 
     ---------
-    gofast.tools.exmath.get_bearing: 
+    gofast.tools.mathex .get_bearing: 
         Compute the  direction of one point relative to another point. 
       
     Examples
     ---------
-    >>> from gofast.tools.exmath import scale_positions 
+    >>> from gofast.tools.mathex  import scale_positions 
     >>> east = [336698.731, 336714.574, 336730.305] 
     >>> north = [3143970.128, 3143957.934, 3143945.76]
     >>> east_c , north_c= scale_positions (east, north, step =20, view =True  ) 
@@ -2513,7 +2713,7 @@ def find_closest( arr, /, values ):
     Examples
     -----------
     >>> import numpy as np 
-    >>> from gofast.tools.exmath import find_closest
+    >>> from gofast.tools.mathex  import find_closest
     >>> find_closest (  [ 2 , 3, 4, 5] , ( 2.6 , 5.6 )  )
     array([3., 5.])
     >>> find_closest (  np.array ([[2 , 3], [ 4, 5]]), ( 2.6 , 5.6 ) )
@@ -2582,7 +2782,7 @@ def gradient_descent(
     Examples 
     -----------
     >>> import numpy as np 
-    >>> from gofast.tools.exmath import gradient_descent
+    >>> from gofast.tools.mathex  import gradient_descent
     >>> z= np.array([0, 6, 13, 20, 29 ,39, 49, 59, 69, 89, 109, 129, 
                      149, 179])
     >>> res= np.array( [1.59268,1.59268,2.64917,3.30592,3.76168,
@@ -2691,7 +2891,7 @@ def adaptive_moving_average(data, /, window_size_factor=0.1):
     Example 
     ---------
     >>> import matplotlib.pyplot as plt
-    >>> from gofast.tools.exmath import adaptive_moving_average 
+    >>> from gofast.tools.mathex  import adaptive_moving_average 
     >>> # Sample magnetotelluric data (replace this with your own data)
     >>> # Example data: a sine wave with noise
     >>> time = np.linspace(0, 10, 1000)  # Replace with your actual time values
@@ -2768,7 +2968,7 @@ def torres_verdin_filter(
     Example
     --------
     >>> import matplotlib.pyplot as plt 
-    >>> from gofast.tools.exmath import torres_verdin_filter 
+    >>> from gofast.tools.mathex  import torres_verdin_filter 
     >>> data = np.random.randn(100)  
     >>> ama = torres_verdin_filter(data)
     >>> plt.plot (range (len(data)), data, 'k', range(len(data)), ama, '-or')
@@ -2826,10 +3026,169 @@ def torres_verdin_filter(
     return arr 
 
 
+def binning_statistic(
+    data, categorical_column, 
+    value_column, 
+    statistic='mean'
+    ):
+    """
+    Compute a statistic for each category in a categorical column of a dataset.
+
+    This function categorizes the data into bins based on a categorical variable and then
+    applies a statistical function to the values of another column for each category.
+
+    Parameters
+    ----------
+    data : DataFrame
+        Pandas DataFrame containing the dataset.
+    categorical_column : str
+        Name of the column in `data` which contains the categorical variable.
+    value_column : str
+        Name of the column in `data` from which the statistic will be calculated.
+    statistic : str, optional
+        The statistic to compute (default is 'mean'). Other options include 'sum', 'count',
+        'median', 'min', 'max', etc.
+
+    Returns
+    -------
+    result : DataFrame
+        A DataFrame with each category and the corresponding computed statistic.
+
+    Examples
+    --------
+    >>> df = pd.DataFrame({
+    ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'C'],
+    ...     'Value': [1, 2, 3, 4, 5, 6, 7]
+    ... })
+    >>> binning_statistic(df, 'Category', 'Value', statistic='mean')
+       Category  Mean_Value
+    0        A         3.33
+    1        B         3.50
+    2        C         5.50
+    """
+    if statistic not in ['mean', 'sum', 'count', 'median', 'min', 'max']:
+        raise ValueError(
+            "Unsupported statistic. Please choose from 'mean',"
+            " 'sum', 'count', 'median', 'min', 'max'.")
+
+    grouped_data = data.groupby(categorical_column)[value_column]
+
+    if statistic == 'mean':
+        result = grouped_data.mean().reset_index(name=f'Mean_{value_column}')
+    elif statistic == 'sum':
+        result = grouped_data.sum().reset_index(name=f'Sum_{value_column}')
+    elif statistic == 'count':
+        result = grouped_data.count().reset_index(name=f'Count_{value_column}')
+    elif statistic == 'median':
+        result = grouped_data.median().reset_index(name=f'Median_{value_column}')
+    elif statistic == 'min':
+        result = grouped_data.min().reset_index(name=f'Min_{value_column}')
+    elif statistic == 'max':
+        result = grouped_data.max().reset_index(name=f'Max_{value_column}')
+
+    return result
 
 
-   
-    
+def bin_counting(data, /, categorical_column= None):
+    """
+    Count occurrences of each category in a given categorical 
+    column of a dataset.
+
+    This function computes the frequency of each unique category 
+    in the specified
+    categorical column of a pandas DataFrame.
+
+    Parameters
+    ----------
+    data : DataFrame
+        Pandas DataFrame containing the dataset.
+    categorical_column : str
+        Name of the column in `data` which contains the categorical variable.
+
+    Returns
+    -------
+    counts : DataFrame
+        A DataFrame with each category and the corresponding count.
+
+    Examples
+    --------
+    >>> df = pd.DataFrame({
+    ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'C']
+    ... })
+    >>> bin_counting(df, 'Category')
+       Category  Count
+    0        A      3
+    1        B      2
+    2        C      2
+    """
+    if categorical_column not in data.columns:
+        raise ValueError(f"Column '{categorical_column}' not found in the dataframe.")
+
+    counts = data[categorical_column].value_counts().reset_index()
+    counts.columns = [categorical_column, 'Count']
+    return counts
+
+
+def binning_statistic2(
+    data, /, categorical_column, 
+    target_column, 
+    statistic='mean'
+    ):
+    """
+    Compute a statistic for each category in a categorical 
+    column based on a binary target.
+
+    This function calculates statistics like mean, sum, or proportion 
+    for a binary target variable, grouped by categories in a 
+    specified column.
+
+    Parameters
+    ----------
+    data : DataFrame
+        Pandas DataFrame containing the dataset.
+    categorical_column : str
+        Name of the column in `data` which contains the categorical variable.
+    target_column : str
+        Name of the column in `data` which contains the binary target variable.
+    statistic : str, optional
+        The statistic to compute for the binary target (default is 'mean').
+        Other options include 'sum' and 'proportion'.
+
+    Returns
+    -------
+    result : DataFrame
+        A DataFrame with each category and the corresponding 
+        computed statistic.
+
+    Examples
+    --------
+    >>> df = pd.DataFrame({
+    ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'C'],
+    ...     'Target': [1, 0, 1, 0, 1, 0, 1]
+    ... })
+    >>> binning_statistic(df, 'Category', 'Target', statistic='mean')
+       Category  Mean_Target
+    0        A     0.666667
+    1        B     0.500000
+    2        C     0.500000
+    """
+    if statistic not in ['mean', 'sum', 'proportion']:
+        raise ValueError("Unsupported statistic. Please choose from "
+                         "'mean', 'sum', 'proportion'.")
+
+    grouped_data = data.groupby(categorical_column)[target_column]
+
+    if statistic == 'mean':
+        result = grouped_data.mean().reset_index(name=f'Mean_{target_column}')
+    elif statistic == 'sum':
+        result = grouped_data.sum().reset_index(name=f'Sum_{target_column}')
+    elif statistic == 'proportion':
+        total_count = data[target_column].count()
+        proportion = grouped_data.sum() / total_count
+        result = proportion.reset_index(name=f'Proportion_{target_column}')
+
+    return result
+
    
     
    

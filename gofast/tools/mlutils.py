@@ -22,6 +22,30 @@ from collections import Counter
 import numpy as np 
 import pandas as pd 
 
+from sklearn.feature_selection import SelectFromModel  
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import ( 
+    confusion_matrix,
+    classification_report ,
+    mean_squared_error, 
+    f1_score,
+    accuracy_score,
+    precision_recall_curve, 
+    precision_score,
+    recall_score, 
+    roc_auc_score, 
+    roc_curve, 
+    mean_absolute_error, 
+    )
+
+from sklearn.model_selection import train_test_split, StratifiedShuffleSplit 
+from sklearn.pipeline import Pipeline, FeatureUnion
+from sklearn.preprocessing import (OneHotEncoder,RobustScaler ,OrdinalEncoder, 
+    StandardScaler,MinMaxScaler,  LabelBinarizer,LabelEncoder,Normalizer) 
+
+from ..exceptions import ParameterNumberError, EstimatorError, DatasetError
+from ..decorators import deprecated 
+from ._dependency import import_optional_dependency
 from .._gofastlog import gofastlog
 from .._typing import (
     List,
@@ -40,47 +64,6 @@ from .._typing import (
     Series,
     Sub                 
 )
-from ..exceptions import ( 
-    ParameterNumberError , 
-    EstimatorError, 
-    DatasetError
-)
-from sklearn.feature_selection import ( 
-    SelectFromModel 
-) 
-from sklearn.impute import SimpleImputer
-from sklearn.metrics import ( 
-    confusion_matrix,
-    classification_report ,
-    mean_squared_error, 
-    f1_score,
-    accuracy_score,
-    precision_recall_curve, 
-    precision_score,
-    recall_score, 
-    roc_auc_score, 
-    roc_curve, 
-)  
-from sklearn.model_selection import ( 
-    train_test_split , 
-    StratifiedShuffleSplit , 
-)
-from sklearn.pipeline import (
-    Pipeline, 
-    FeatureUnion, 
-)
-
-from sklearn.preprocessing import (
-    OneHotEncoder,
-    RobustScaler ,
-    OrdinalEncoder, 
-    StandardScaler,
-    MinMaxScaler, 
-    LabelBinarizer,
-    LabelEncoder,
-    Normalizer
-) 
-
 from .funcutils import (
     _assert_all_types, 
     _isin, 
@@ -89,8 +72,11 @@ from .funcutils import (
     str2columns, 
     is_iterable, 
     is_in_if, 
+    is_classification_task,
     to_numeric_dtypes, 
-    ellipsis2false, 
+    ellipsis2false,
+    fancy_printer,
+
 )
 from .validator import ( 
     get_estimator_name , 
@@ -103,7 +89,6 @@ from .validator import (
     array_to_frame, 
     build_data_if
     )
-from ._dependency import import_optional_dependency
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -128,9 +113,8 @@ __all__=[
     "export_target",  
     "stats_from_prediction", 
     "fetch_tgz", 
-    "fetchModel", 
     "fetch_model", 
-    "load_data", 
+    "load_csv", 
     "features_in", 
     "split_train_test_by_id", 
     "split_train_test", 
@@ -1485,78 +1469,65 @@ def formatModelScore(
         
     print('-'*77)
     
-def stats_from_prediction(
-    y_true: ArrayLike,
-    y_pred: ArrayLike =None,
-    *, 
-    X_: Optional [NDArray]=None, 
-    clf:Optional [F[T]]=None,
-    verbose:int =0
-) -> Tuple[float, float]: 
-    """ Make a quick statistic after prediction. 
-    
-    :param y_true: array-like 
-        y value (label) to predict
-    :param y_pred: array_like
-        y value predicted
-    :pram X: ndarray(nexamples, nfeatures)
-        Training data sets 
-    :param X_: ndarray(nexamples, nfeatures)
-        test sets 
-    :param clf: callable
-        Estimator or classifier object. 
-    :param XT_: ndarray
-    :param verbose:int, level=0 
-        Control the verbosity. More than 1 more message
-    :param from_c: str 
-        Column to visualize statistic. Be sure the colum exist into the
-        test sets. If not raise errors.
+
+def stats_from_prediction(y_true, y_pred, verbose=False):
     """
-    
-    clf_name =''
-    if y_pred is None: 
-        if clf is None: 
-            warnings.warn('None estimator found! Could not predict `y` ')
-            _logger.error('NoneType `clf` <estimator> could not'
-                                ' predict `y`.')
-            raise ValueError('None estimator detected!'
-                             ' could not predict `y`.') 
-        # check whether is 
-        is_clf = hasattr(clf, '__call__')
-        if is_clf : clf_name = clf.__name__
-        if not is_clf :
-            # try whether is ABCMeta class 
-            try : 
-                is_clf = hasattr(clf.__class__, '__call__')
-            except : 
-                raise TypeError(f"{clf!r} is not a model estimator. "
-                                 " Could not use for prediction.")
-            clf_name = clf.__class__.__name__
-            # check estimator 
-        if X_ is None: 
-            raise TypeError('NoneType can not used for prediction.'
-                            ' Need a test set `X`.')
-        clf.fit(X_, y_true)
-        y_pred = clf.predict(X_)
-        
-    if len(y_true) !=len(y_pred): 
-        raise TypeError("`y_true` and `y_pred` must have the same length." 
-                        f" {len(y_true)!r} and {len(y_pred)!r} were given"
-                        " respectively.")
-        
-    # get the model score apres prediction 
-    clf_score = round(sum(y_true ==y_pred)/len(y_true), 4)
-    dms = f"Overall model {clf_name!r} score ={clf_score *100 } % "
+    Generate statistical summaries and accuracy metrics from actual values (y_true)
+    and predicted values (y_pred).
 
-    conf_mx =confusion_matrix(y_true, y_pred)
-    if verbose >1:
-        dms +=f"\n Confusion matrix= \n {conf_mx}"
-    mse = mean_squared_error(y_true, y_pred )
+    Parameters
+    ----------
+    y_true : list or numpy.array
+        Actual values.
+    y_pred : list or numpy.array
+        Predicted values.
+    verbose : bool, optional
+        If True, print the statistical summary and accuracy metrics.
+        Default is False.
 
-    dms += f"\n MSE error = {mse}."
-    pprint(dms)
+    Returns
+    -------
+    dict
+        A dictionary containing statistical measures such 
+        as MAE, MSE, RMSE, 
+        and accuracy (if applicable).
 
-    return clf_score, mse 
+    Examples
+    --------
+    >>> from gofast.tools.mlutils import stats_from_prediction 
+    >>> y_true = [0, 1, 1, 0, 1]
+    >>> y_pred = [0, 1, 0, 0, 1]
+    >>> stats_from_prediction(y_true, y_pred, verbose=True)
+    """
+    # Calculating statistics
+    check_consistent_length(y_true, y_pred )
+    stats = {
+        'mean': np.mean(y_pred),
+        'median': np.median(y_pred),
+        'std_dev': np.std(y_pred),
+        'min': np.min(y_pred),
+        'max': np.max(y_pred)
+    }
+    # add the metric stats 
+    stats =dict ({
+            'MAE': mean_absolute_error(y_true, y_pred),
+            'MSE': mean_squared_error(y_true, y_pred),
+            'RMSE': np.sqrt(mean_squared_error(y_true, y_pred)),
+        }, **stats, 
+        )
+
+    # Adding accuracy for classification tasks
+    # Check if y_true and y_pred are categories task 
+    if is_classification_task(y_true, y_pred ): 
+    # if all(map(lambda x: x in [0, 1], y_true + y_pred)): #binary 
+        stats['Accuracy'] = accuracy_score(y_true, y_pred)
+
+    # Printing the results if verbose is True
+    if verbose:
+        fancy_printer(stats, "Prediction Statistics Summary" )
+
+    return stats
+
 
 def write_excel(
         listOfDfs: List[DataFrame],
@@ -1609,7 +1580,7 @@ def fetch_tgz (
     data_tgz.extractall(path = data_path )
     data_tgz.close()
     
-def fetchTGZDatafromURL (
+def fetch_tgz_from_url (
     data_url:str , 
     data_path:str ,
     tgz_file, 
@@ -1626,20 +1597,18 @@ def fetchTGZDatafromURL (
     :param filename: `tgz` filename. 
     
     :example: 
-    >>> from gofast.tools.mlutils import fetchTGZDatafromURL
-    >>> DOWNLOAD_ROOT = 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/'
+    >>> from gofast.tools.mlutils import fetch_tgz_from_url
+    >>> DOWNLOAD_ROOT = 'https://raw.githubusercontent.com/WEgeophysics/watex/master/'
     >>> # from Zenodo: 'https://zenodo.org/record/5560937#.YWQBOnzithE'
     >>> DATA_PATH = 'data/__tar.tgz'  # 'BagoueCIV__dataset__main/__tar.tgz_files__'
     >>> TGZ_FILENAME = '/fmain.bagciv.data.tar.gz'
     >>> CSV_FILENAME = '/__tar.tgz_files__/___fmain.bagciv.data.csv'
-    >>> fetchTGZDatafromURL (data_url= DATA_URL,
-                            data_path=DATA_PATH,
+    >>> fetch_tgz_from_url (data_url= DATA_URL,data_path=DATA_PATH,
                             tgz_filename=TGZ_FILENAME
                             ) 
     """
     f= None
     if data_url is not None: 
-        
         tgz_path = os.path.join(data_path, tgz_file.replace('/', ''))
         try: 
             urllib.request.urlretrieve(data_url, tgz_path)
@@ -1655,15 +1624,12 @@ def fetchTGZDatafromURL (
         return False 
     
     if file_to_retreive is not None: 
-        f= fetchSingleTGZData(filename=file_to_retreive, **kws)
+        f= fetch_tgz_locally(filename=file_to_retreive, **kws)
         
     return f
 
-def fetchSingleTGZData(
-        tgz_file: str , 
-        filename: str ='___fmain.bagciv.data.csv',
-        savefile: str ='data/geo_fdata',
-        rename_outfile: Optional [str]=None 
+def fetch_tgz_locally(tgz_file: str , filename: str ,
+        savefile: str ='tgz',rename_outfile: Optional [str]=None 
         ) -> str :
     """ Fetch single file from archived tar file and rename a file if possible.
     
@@ -1678,7 +1644,7 @@ def fetchSingleTGZData(
     :return: Location of the fetched file
     :Example: 
         >>> from gofast.tools.mlutils import fetchSingleTGZData
-        >>> fetchSingleTGZData('data/__tar.tgz/fmain.bagciv.data.tar.gz', 
+        >>> fetch_tgz_locally('data/__tar.tgz/fmain.bagciv.data.tar.gz', 
                                rename_outfile='main.bagciv.data.csv')
     """
      # get the extension of the fetched file 
@@ -1719,16 +1685,14 @@ def fetchSingleTGZData(
         
     return os.path.join(savefile, rename_outfile)
     
-def load_data (
-        data: str = None,
-        delimiter: str  =None ,
-        **kws
+def load_csv ( data: str = None, delimiter: str  =None ,**kws
         )-> DataFrame:
-    """ Load csv file to a frame. 
+    """ Load csv file and convert to a frame. 
     
     :param data_path: path to data csv file 
     :param delimiter: str, item for data  delimitations. 
-    :param kws: dict, additional keywords arguments passed to :class:`pandas.read_csv`
+    :param kws: dict, additional keywords arguments passed 
+        to :class:`pandas.read_csv`
     :return: pandas dataframe 
     
     """ 
@@ -2423,7 +2387,8 @@ def naive_data_split(
     
     return  X, XT, y, yT
 
-#XXX FIX IT
+@deprecated ("Deprecated function. It should be removed soon in"
+             " the next realease...")
 def fetchModel(
     file: str,
     *, 
@@ -3390,66 +3355,8 @@ def make_pipe(
         full_pipeline.fit_transform (X), y ) 
              ) if transform else full_pipeline
        
-#XXX TODO: terminate func move to the metric module
-def _stats (
-    X_, 
-    y_true,*, 
-    y_pred, # noqa
-    from_c ='geol', 
-    drop_columns =None, 
-    columns=None 
-    )  : 
-    """ Present a short static"""
-
-    if from_c not in X_.columns: 
-        raise TypeError(f"{from_c!r} not found in columns "
-                        "name ={list(X_.columns)}")
+  
         
-    if columns is not None:
-        if not isinstance(columns, (tuple, list, np.ndarray)): 
-            raise TypeError(f'Columns should be a list not {type(columns)}')
-        
-    is_dataframe = isinstance(X_, pd.DataFrame)
-    if is_dataframe: 
-        if drop_columns is not None: 
-            X_.drop(drop_columns, axis =1)
-            
-    if not is_dataframe : 
-        len_X = X_.shape[1]
-        if columns is not None: 
-            if len_X != len(columns):
-                raise TypeError(
-                    "Columns and test set must have the same length"
-                    f" But `{len(columns)}` and `{len_X}` were given "
-                    "respectively.")
-                
-            X_= pd.DataFrame (data = X_, columns =columns)
-            
-    # get the values counts on the array and convert into a columns 
-    if isinstance(y_pred, pd.Series): 
-        y_pred = y_pred.values 
-        # initialize array with full of zeros
-    # get the values counts of the columns to analyse 'geol' for instance
-    s=  X_[from_c].value_counts() # getarray of values 
-    #s_values = s.values 
-    # create a pseudo serie and get the values counts of each elements
-    # and get the values counts
-
-    y_actual=pd.Series(y_true, index = X_.index, name ='y_true')
-    y_predicted =pd.Series(y_pred, index =X_.index, name ='y_pred')
-    pdf = pd.concat([X_[from_c],y_actual,y_predicted ], axis=1)
- 
-    analysis_array = np.zeros((len(s.index), len(np.unique(y_true))))
-    for ii, index in enumerate(s.index): 
-        for kk, val in enumerate( np.unique(y_true)): 
-            geol = pdf.loc[(pdf[from_c]==index)]
-            geols=geol.loc[(geol['y_true']==geol['y_pred'])]
-            geolss=geols.loc[(geols['y_pred']==val)]             
-            analysis_array [ii, kk]=len(geolss)/s.loc[index]
-
-    return analysis_array     
-        
-
 def select_feature_importances (
     clf, 
     X, 

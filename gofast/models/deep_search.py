@@ -30,7 +30,7 @@ try:
 except BaseException as e : 
     warnings.warn(str(e) )
 
-def fine_tune_model(
+def base_tuning(
         model, train_data, 
         val_data, test_data, 
         learning_rates, 
@@ -103,7 +103,7 @@ def fine_tune_model(
     
     return best_model, best_accuracy, test_accuracy
 
-def complex_fine_tune_model(
+def robust_tuning(
     model_fn, dataset, 
     param_grid, n_splits=5, 
     epochs=50, patience=5, 
@@ -192,7 +192,7 @@ def complex_fine_tune_model(
 
     return best_model, best_params, best_score
 
-def fine_tune_model2(
+def neural_tuning(
         model, train_data, 
         val_data, test_data, 
         learning_rates, 
@@ -249,7 +249,7 @@ def fine_tune_model2(
     >>> batch_sizes = [32, 64]
     >>> epochs = 10
     >>> optimizer = Adam
-    >>> best_model, best_accuracy, test_accuracy = fine_tune_model(
+    >>> best_model, best_accuracy, test_accuracy = fair_robust_tuning(
         model, train_data, val_data, test_data, learning_rates, 
         batch_sizes, epochs, optimizer)
 
@@ -271,7 +271,7 @@ def fine_tune_model2(
     test_accuracy = best_model.evaluate(test_data[0], test_data[1], verbose=0)[1]
     return best_model, best_accuracy, test_accuracy
 
-def complex_fine_tune_model2(
+def deep_tuning(
         model_fn, 
         dataset, 
         param_grid, 
@@ -329,7 +329,7 @@ def complex_fine_tune_model2(
     >>>     return model
     >>> dataset = (np.random.rand(100, 10), np.random.rand(100))
     >>> param_grid = {'learning_rate': [0.01, 0.001], 'batch_size': [32, 64]}
-    >>> best_model, best_params, best_score = complex_fine_tune_model(
+    >>> best_model, best_params, best_score = deep_tuning(
         model_fn, dataset, param_grid)
 
     """
@@ -363,126 +363,5 @@ def complex_fine_tune_model2(
     return best_model, best_params, best_score
 
 
-def clean_and_format_dataset(
-    dataset, 
-    dropna_threshold=0.5, 
-    categorical_threshold=10, 
-    standardize=True
-    ):
-    """
-    Cleans and formats a dataset for analysis. 
-    This includes handling missing values,
-    converting data types, and standardizing numerical columns.
-
-    Parameters
-    ----------
-    dataset : pd.DataFrame
-        The dataset to be cleaned and formatted.
-
-    dropna_threshold : float, optional
-        The threshold for dropping columns with missing values. 
-        Columns with a fraction of missing values greater than 
-        this threshold will be dropped.
-        Default is 0.5 (50%).
-
-    categorical_threshold : int, optional
-        The maximum number of unique values in a column for it to 
-        be considered categorical.
-        Columns with unique values fewer than or equal to this 
-        number will be converted to 
-        categorical type. Default is 10.
-
-    standardize : bool, optional
-        If True, standardize numerical columns to have a mean of 0 
-        and a standard deviation of 1.
-        Default is True.
-
-    Returns
-    -------
-    pd.DataFrame
-        The cleaned and formatted dataset.
-
-    Example
-    -------
-    >>> data = pd.DataFrame({
-    >>>     'A': [1, 2, np.nan, 4, 5],
-    >>>     'B': ['x', 'y', 'z', 'x', 'y'],
-    >>>     'C': [1, 2, 3, 4, 5]
-    >>> })
-    >>> clean_data = clean_and_format_dataset(data)
-
-    """
-    # Drop columns with too many missing values
-    dataset = dataset.dropna(thresh=int(
-        dropna_threshold * len(dataset)), axis=1)
-
-    # Fill missing values
-    for col in dataset.columns:
-        if dataset[col].dtype == 'object':
-            # For categorical columns, fill with the mode
-            dataset[col] = dataset[col].fillna(dataset[col].mode()[0])
-        else:
-            # For numerical columns, fill with the median
-            dataset[col] = dataset[col].fillna(dataset[col].median())
-
-    # Convert columns to categorical if they have fewer unique values than the threshold
-    for col in dataset.columns:
-        if dataset[col].dtype == 'object' or dataset[col].nunique() <= categorical_threshold:
-            dataset[col] = dataset[col].astype('category')
-
-    # Standardize numerical columns
-    if standardize:
-        num_cols = dataset.select_dtypes(include=['number']).columns
-        dataset[num_cols] = (
-            dataset[num_cols] - dataset[num_cols].mean()) / dataset[num_cols].std()
-
-    return dataset
 
 
-def process_large_dataset(data, func, n_jobs=-1):
-    """
-    Processes a large dataset by applying a complex function to each row, 
-    utilizing parallel processing to optimize for speed.
-
-    Parameters
-    ----------
-    data : pd.DataFrame
-        The large dataset to be processed. Assumes the 
-        dataset is a Pandas DataFrame.
-
-    func : function
-        A complex function to apply to each row of the dataset. 
-        This function should take a row of the DataFrame as 
-        input and return a processed row.
-
-    n_jobs : int, optional
-        The number of jobs to run in parallel. -1 means using 
-        all processors. Default is -1.
-
-    Returns
-    -------
-    pd.DataFrame
-        The processed dataset.
-
-    Example
-    -------
-    >>> def complex_calculation(row):
-    >>>     # Example of a complex row-wise calculation
-    >>>     return row * 2  # This is a simple placeholder for demonstration.
-    >>>
-    >>> large_data = pd.DataFrame(np.random.rand(10000, 10))
-    >>> processed_data = process_large_dataset(large_data, complex_calculation)
-
-    """
-    # Function to apply `func` to each row in parallel
-    def process_row(row):
-        return func(row)
-
-    # Using Joblib's Parallel and delayed to apply the function in parallel
-    results = Parallel(n_jobs=n_jobs)(delayed(process_row)(row) 
-                                      for row in data.itertuples(index=False))
-
-    # Converting results back to DataFrame
-    processed_data = pd.DataFrame(results, columns=data.columns)
-
-    return processed_data

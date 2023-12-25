@@ -349,7 +349,7 @@ def make_agronomy(
         ) 
     return agronomy_dataset
 
-def make_mining(
+def make_mining_ops(
     *, 
     samples=1000, 
     as_frame:bool =..., 
@@ -362,7 +362,7 @@ def make_mining(
     **kws
     ):
     """
-    Generates a complex dataset for mining operations.
+    Generates a dataset for mining operations.
     
     This function generates a DataFrame with a mix of simulated data that 
     reflects various aspects of a mining operation. The features include 
