@@ -5,7 +5,47 @@
 API Reference
 ===============
 
-The :code:`GoFast` library provides a range of utilities designed to accelerate machine learning workflows. This API reference provides detailed documentation for all the modules, classes, and functions within :code:`GoFast`.
+Overview
+--------
+The GoFast API is a comprehensive machine learning and data analysis toolbox 
+designed to accelerate the development of data-driven applications. It offers a 
+wide range of subpackages, each targeting specific aspects of data handling, 
+analysis, and model development.
+
+Subpackages
+-----------
+- **analysis**: Tools for in-depth data analysis, including exploratory data analysis and feature selection.
+- **base**: Core classes and functions that form the foundation of the GoFast toolkit.
+- **datasets**: A collection of datasets for experimentation, benchmarking, and practice.
+- **estimators**: Advanced machine learning estimators for both regression and classification tasks.
+- **geo**: Geospatial data handling and analysis functions, useful for geographic data processing.
+- **metrics**: Evaluation metrics and performance measures for assessing models.
+- **models**: Pre-built models and architectures for a variety of machine learning applications.
+- **plot**: Visualization tools to create informative and interactive plots and charts.
+- **stats**: Statistical functions and tests to analyze data and derive meaningful insights.
+- **tools**: Utility functions and helpers that streamline common tasks and data manipulations.
+- **transformers**: Data transformation and preprocessing tools for preparing datasets for analysis.
+
+
+Usage
+-------
+To utilize the functionalities offered by the GoFast API, import the required subpackage:
+
+.. code-block:: python
+
+   import gofast as gf 
+   from gofast.tools import speed_rowwise_process
+   from gofast.estimators import HammersteinWienerRegressor
+
+Each subpackage is designed with a user-friendly interface, ensuring easy access and integration 
+into data science workflows. Whether you are conducting exploratory data analysis, building complex 
+machine learning models, or creating insightful visualizations, the GoFast API provides the necessary 
+tools and functions to streamline your work.
+
+
+The :code:`GoFast` library provides a range of utilities designed to accelerate 
+machine learning workflows. This API reference provides detailed documentation for all the modules, 
+classes, and functions within :code:`GoFast`.
 
 .. toctree::
    :maxdepth: 2
