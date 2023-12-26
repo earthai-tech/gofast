@@ -222,11 +222,13 @@ Classes
    estimators.GradientDescentRegressor
    estimators.HammersteinWienerEnsemble
    estimators.HammersteinWienerRegressor
-   estimators.HybridBRTEnsembleClassifier
-   estimators.HybridBRTRegressor
+   estimators.HybridBoostedTreeClassifier
+   estimators.HybridBoostedTreeRegressor
+   estimators.HybridBoostedTreeEnsembleClassifier
+   estimators.HybridBoostedTreeEnsembleRegressor
    estimators.MajorityVoteClassifier
    estimators.NeuroFuzzyEnsemble
-   estimators.RegressionTreeBasedClassifier
+   estimators.TreeBasedClassifier
    estimators.RegressionTreeEnsemble
    estimators.SequentialBackwardSelection
    estimators.SimpleAverageClassifier

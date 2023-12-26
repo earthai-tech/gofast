@@ -735,7 +735,7 @@ def make_sounding(
         seed=seed
         ) 
 
-def make_medical_diagnostic(
+def make_medical_diagnosis(
     *,samples=1000, 
     as_frame:bool =..., 
     return_X_y:bool = ..., 
@@ -836,9 +836,9 @@ def make_medical_diagnostic(
         
     Example
     -------
-    >>> from gofast.datasets import make_medical_diagnostic
+    >>> from gofast.datasets import make_medical_diagnosis
     >>> samples = 1000
-    >>> medical_data = make_medical_diagnostic(samples)
+    >>> medical_data = make_medical_diagnosis(samples)
     >>> print(medical_data.head())
 
     """
