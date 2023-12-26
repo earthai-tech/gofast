@@ -98,7 +98,6 @@ def get_version(module: types.ModuleType) -> str:
         version = version.split()[0]
     return version
 
-
 def import_optional_dependency(
     name: str,
     extra: str = "",

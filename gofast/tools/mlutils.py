@@ -163,9 +163,9 @@ def codify_variables (
     categories: dict=None, 
     get_dummies:bool=..., 
     parse_cols:bool =..., 
-    return_mapper:bool=... 
+    return_cat_codes:bool=... 
     ) -> DataFrame: 
-    """ Encode multiple categorical variables in a datase. 
+    """ Encode multiple categorical variables in a dataset. 
 
     Parameters 
     -----------
@@ -193,7 +193,7 @@ def codify_variables (
       If `columns` parameter is listed as string, `parse_cols` can defaultly 
       constructs an iterable objects. 
     
-    return_mapper: bool, default=False 
+    return_cat_codes: bool, default=False 
        return the categorical codes that used for mapping variables. 
        if `func` is applied, mapper returns an empty dict. 
        
@@ -262,14 +262,14 @@ def codify_variables (
     3     140    Red    Circle      61     2
     4     170   Blue  Triangle      70     0
     """
-    get_dummies, parse_cols, return_mapper = ellipsis2false(
-        get_dummies, parse_cols, return_mapper )
-    # convert arr if dict is given 
-    if isinstance (arr, dict): 
-        arr = pd.DataFrame (arr ) 
-    # can generated pseudo_dataframe 
-    # to perform the operation     
-    df = array_to_frame(arr, to_frame =True,columns =columns)
+    get_dummies, parse_cols, return_cat_codes = ellipsis2false(
+        get_dummies, parse_cols, return_cat_codes )
+    # build dataframe if arr is passed rather 
+    # than a dataframe 
+    df = build_data_if( arr, to_frame =True, force=True, input_name ='col',
+                        raise_warning='silence'  )
+    # now check integrity 
+    df = to_numeric_dtypes( df )
     if columns is not None: 
         columns = list( 
             is_iterable(columns, exclude_string =True, transform =True, 
@@ -278,12 +278,15 @@ def codify_variables (
                        )
         df = select_features(df, features = columns )
         
+    map_codes ={}     
     if get_dummies :
         # Perform one-hot encoding
         # We use the pd.get_dummies() function from the pandas library 
         # to perform one-hot encoding on the specified columns
-        return pd.get_dummies(df, columns=columns)
-         
+        return ( ( pd.get_dummies(df, columns=columns) , map_codes )
+                  if return_cat_codes else ( 
+                          pd.get_dummies(df, columns=columns) ) 
+                )
     # ---work with category -------- 
     # if categories is Note , get auto numeric and 
     # categoric variablees 
@@ -307,10 +310,8 @@ def codify_variables (
         for col in  cat_columns: 
             df[col]= df[col].apply (func ) 
 
-        return df 
-    
-    map_codes ={} 
-    
+        return (df, map_codes) if return_cat_codes else df 
+ 
     if categories is None: 
         categories ={}
         for col in cat_columns: 
@@ -339,7 +340,7 @@ def codify_variables (
         # to take back to pandas 
         df.rename ( columns ={temp_col: col }, inplace =True ) 
         
-    return (df, map_codes) if return_mapper else df 
+    return (df, map_codes) if return_cat_codes else df 
 
 def resampling( 
     X, 
