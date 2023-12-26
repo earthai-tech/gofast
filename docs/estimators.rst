@@ -115,4 +115,5 @@ HammersteinWienerClassifier
 
    from gofast.estimators import HammersteinWienerClassifier
    hw_classifier = HammersteinWienerClassifier()
-   hw_classifier.fit(X_train, y_train
+   hw_classifier.fit(X_train, y_train) 
+   y_pred= hw_classifier.predict(X_test)

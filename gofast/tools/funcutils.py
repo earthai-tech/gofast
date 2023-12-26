@@ -26,7 +26,8 @@ import itertools
 import subprocess 
 from zipfile import ZipFile
 from six.moves import urllib 
- 
+from collections.abc import Sequence
+
 import numpy as np 
 import pandas as pd 
 import matplotlib.pyplot as plt
@@ -78,6 +79,64 @@ except ImportError:
     interp_import = False
     
 # xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+    
+def get_params (obj: object 
+                ) -> dict: 
+    """
+    Get object parameters. 
+    
+    Object can be callable or instances 
+    
+    :param obj: object , can be callable or instance 
+    
+    :return: dict of parameters values 
+    
+    :examples: 
+    >>> from sklearn.svm import SVC 
+    >>> from gofast.base import get_params 
+    >>> sigmoid= SVC (
+        **{
+            'C': 512.0,
+            'coef0': 0,
+            'degree': 1,
+            'gamma': 0.001953125,
+            'kernel': 'sigmoid',
+            'tol': 1.0 
+            }
+        )
+    >>> pvalues = get_params( sigmoid)
+    >>> {'decision_function_shape': 'ovr',
+         'break_ties': False,
+         'kernel': 'sigmoid',
+         'degree': 1,
+         'gamma': 0.001953125,
+         'coef0': 0,
+         'tol': 1.0,
+         'C': 512.0,
+         'nu': 0.0,
+         'epsilon': 0.0,
+         'shrinking': True,
+         'probability': False,
+         'cache_size': 200,
+         'class_weight': None,
+         'verbose': False,
+         'max_iter': -1,
+         'random_state': None
+     }
+    """
+    if hasattr (obj, '__call__'): 
+        cls_or_func_signature = inspect.signature(obj)
+        PARAMS_VALUES = {k: None if v.default is (inspect.Parameter.empty 
+                         or ...) else v.default 
+                    for k, v in cls_or_func_signature.parameters.items()
+                    # if v.default is not inspect.Parameter.empty
+                    }
+    elif hasattr(obj, '__dict__'): 
+        PARAMS_VALUES = {k:v  for k, v in obj.__dict__.items() 
+                         if not (k.endswith('_') or k.startswith('_'))}
+    
+    return PARAMS_VALUES
 
 def is_classification_task(
     *y, max_unique_values=10
@@ -232,8 +291,6 @@ def to_numeric_dtypes (
        remove undesirable character in the data columns using the default
        argument of `regex` parameters. 
        
-       .. versionadded:: 0.1.9
-       
     regex: `re` object,
         Regular expresion object used to polish the data columns.
         the default is:: 
@@ -241,7 +298,6 @@ def to_numeric_dtypes (
         >>> import re 
         >>> re.compile (r'[_#&.)(*@!_,;\s-]\s*', flags=re.IGNORECASE)
           
-       .. versionadded:: 0.1.9
        
     fill_pattern: str, default='' 
         Pattern to replace the non-alphabetic character in each item of 
@@ -249,25 +305,17 @@ def to_numeric_dtypes (
         
     drop_nan_columns: bool, default=True 
        Remove all columns filled by NaN values. 
-        
-       .. versionadded: 0.2.4
-          By default, it auto-removes columns with all NaN values. To 
-          deactive this functionality, set it to ``False``. 
-         
+
     how: str, default='all'
        Drop also the NaN row data. The row data which is composed entirely  
        with NaN or Null values.
        
     reset_index: bool, default=False 
        Reset the index of the dataframe. 
-       
-       .. versionadded: 0.2.4
-       
+
     drop_index: bool, default=True, 
        Drop index in the dataframe after reseting. 
-       
-       .. versionadded: 0.2.4
-       
+
     verbose: bool, default=False, 
         outputs a message by listing the categorial items dropped from 
         the dataframe if exists. 
@@ -2344,64 +2392,6 @@ def fillNaN(arr, method ='ff'):
     
     return (ffill(arr) if method =='ff' else bfill(arr)
             ) if method in ('bf', 'ff') else arr    
-    
-    
-def get_params (obj: object 
-               ) -> Dict: 
-    """
-    Get object parameters. 
-    
-    Object can be callable or instances 
-    
-    :param obj: object , can be callable or instance 
-    
-    :return: dict of parameters values 
-    
-    :examples: 
-        >>> from sklearn.svm import SVC 
-        >>> from gofast.tools.funcutils import get_params 
-        >>> sigmoid= SVC (
-            **{
-                'C': 512.0,
-                'coef0': 0,
-                'degree': 1,
-                'gamma': 0.001953125,
-                'kernel': 'sigmoid',
-                'tol': 1.0 
-                }
-            )
-        >>> pvalues = get_params( sigmoid)
-        >>> {'decision_function_shape': 'ovr',
-             'break_ties': False,
-             'kernel': 'sigmoid',
-             'degree': 1,
-             'gamma': 0.001953125,
-             'coef0': 0,
-             'tol': 1.0,
-             'C': 512.0,
-             'nu': 0.0,
-             'epsilon': 0.0,
-             'shrinking': True,
-             'probability': False,
-             'cache_size': 200,
-             'class_weight': None,
-             'verbose': False,
-             'max_iter': -1,
-             'random_state': None
-         }
-    """
-    if hasattr (obj, '__call__'): 
-        cls_or_func_signature = inspect.signature(obj)
-        PARAMS_VALUES = {k: None if v.default is (inspect.Parameter.empty 
-                         or ...) else v.default 
-                    for k, v in cls_or_func_signature.parameters.items()
-                    # if v.default is not inspect.Parameter.empty
-                    }
-    elif hasattr(obj, '__dict__'): 
-        PARAMS_VALUES = {k:v  for k, v in obj.__dict__.items() 
-                         if not (k.endswith('_') or k.startswith('_'))}
-    
-    return PARAMS_VALUES
 
 
 def fit_ll(ediObjs, by ='index', method ='strict', distance='cartesian' ): 
@@ -6772,8 +6762,95 @@ def inspect_data (
         drop_index=drop_index,  
         )
 
+def type_of_target(y):
+    """
+    Determine the type of data indicated by the target variable.
 
-    
+    Parameters
+    ----------
+    y : array-like
+        Target values. 
+
+    Returns
+    -------
+    target_type : string
+        Type of target data, such as 'binary', 'multiclass', 'continuous', etc.
+
+    Examples
+    --------
+    >>> type_of_target([0, 1, 1, 0])
+    'binary'
+    >>> type_of_target([0.5, 1.5, 2.5])
+    'continuous'
+    >>> type_of_target([[1, 0], [0, 1]])
+    'multilabel-indicator'
+    """
+    # Check if y is an array-like
+    if not isinstance(y, (np.ndarray, list, pd.Series, Sequence)):
+        raise ValueError("Expected array-like (array or list), got %s" % type(y))
+
+    # Check for valid number type
+    if not all(isinstance(i, (int, float, np.integer, np.floating)) 
+               for i in np.array(y).flatten()):
+        raise ValueError("Input must be a numeric array-like")
+
+    # Continuous data
+    if any(isinstance(i, float) for i in np.array(y).flatten()):
+        return 'continuous'
+
+    # Binary or multiclass
+    unique_values = np.unique(y)
+    if len(unique_values) == 2:
+        return 'binary'
+    elif len(unique_values) > 2 and np.ndim(y) == 1:
+        return 'multiclass'
+
+    # Multilabel indicator
+    if isinstance(y[0], (np.ndarray, list, Sequence)) and len(y[0]) > 1:
+        return 'multilabel-indicator'
+
+    return 'unknown'
+
+def add_noises_to(data, /, noises=.1):
+    """
+    Adds NaN values to a pandas DataFrame.
+
+    Parameters
+    ----------
+    dataframe : pandas.DataFrame
+        The DataFrame to which NaN values will be added.
+    noises : float, default='10%'
+        The percentage of values to be replaced with NaN in each column. 
+        This must be a number between 0 and 1. Default is 0.1 (10%).
+
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame with NaN values added.
+
+    Examples
+    --------
+    >>> from gofast.tools.funcutils import add_noises_to
+    >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': ['x', 'y', 'z']})
+    >>> new_df = add_nan_to_dataframe(df, noises=0.2)
+    """
+    if noises is None: 
+        return data 
+    noises = assert_ratio(noises)
+    # Copy the dataframe to avoid changing the original data
+    df_with_nan = data.copy()
+
+    # Calculate the number of NaNs to add in each column 
+    # based on the percentage
+    nan_count_per_column = int(noises * len(df_with_nan))
+
+    for column in df_with_nan.columns:
+        # Randomly pick indices to replace with NaN
+        nan_indices = np.random.sample(range(len(df_with_nan)),
+                                       nan_count_per_column)
+        df_with_nan.loc[nan_indices, column] = np.nan
+
+    return df_with_nan
  
     
     

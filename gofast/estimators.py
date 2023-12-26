@@ -5,43 +5,42 @@
 from __future__ import annotations 
 import re  
 import inspect 
-import itertools
 import numpy as np
 from collections import defaultdict
 from scipy import stats
 
 from sklearn.base import BaseEstimator, ClassifierMixin, clone, RegressorMixin
-from sklearn.metrics import recall_score, precision_score
-from sklearn.metrics import accuracy_score,  roc_auc_score
-from sklearn.model_selection import  train_test_split
-from sklearn.pipeline import _name_estimators
-from sklearn.preprocessing import LabelEncoder
-from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
 from sklearn.ensemble import GradientBoostingRegressor, GradientBoostingClassifier
+from sklearn.pipeline import _name_estimators
+from sklearn.preprocessing import LabelEncoder, LabelBinarizer
+from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
+from sklearn.utils import shuffle
+try:from sklearn.utils import type_of_target
+except: from .tools.funcutils import type_of_target 
 
 from ._docstring import DocstringComponents,_core_docs
 from ._gofastlog import  gofastlog
-from ._typing import List, DataFrame 
 from .exceptions import NotFittedError, EstimatorError 
-from .tools.funcutils import _assert_all_types, smart_format, is_iterable
-from .tools.validator import check_X_y, get_estimator_name
+from .tools.funcutils import smart_format, is_iterable
+from .tools.validator import check_X_y, get_estimator_name, check_array 
     
 
 __all__=[
-    'AdalineGradientDescent',
-    'AdalineStochasticGradientDescent',
+    'AdalineClassifier', 
+    'AdalineRegressor', 
+    'AdalineMixte',
+    'AdalineStochasticClassifier',
     'BasePerceptron',
-    'BoostedDecisionTreeClassifier',
+    'BoostedClassifierTree',
     'BoostedRegressionTree',
     'HammersteinWienerRegressor',
     'HammersteinWienerEnsemble',
     'HybridBRTEnsembleClassifier',
-    'HybridBoostedRegressionTree',
+    'HybridBRTRegressor',
     'MajorityVoteClassifier',
     'NeuroFuzzyEnsemble',
     'RegressionTreeBasedClassifier',
     'RegressionTreeEnsemble',
-    'SequentialBackwardSelection',
     'SimpleAverageClassifier',
     'SimpleAverageRegressor',
     'WeightedAverageClassifier',
@@ -115,367 +114,8 @@ _param_docs = DocstringComponents.from_nested_components(
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
-class _Base:
-    """Base class for all classes in gofast for parameters retrievals
 
-    Notes
-    -----
-    All class defined should specify all the parameters that can be set
-    at the class level in their ``__init__`` as explicit keyword
-    arguments (no ``*args`` or ``**kwargs``).
-    """
-
-    @classmethod
-    def _get_param_names(cls):
-        """Get parameter names for the estimator"""
-        # fetch the constructor or the original constructor before
-        # deprecation wrapping if any
-        init = getattr(cls.__init__, "deprecated_original", cls.__init__)
-        if init is object.__init__:
-            # No explicit constructor to introspect
-            return []
-
-        # introspect the constructor arguments to find the model parameters
-        # to represent
-        init_signature = inspect.signature(init)
-        # Consider the constructor parameters excluding 'self'
-        parameters = [
-            p
-            for p in init_signature.parameters.values()
-            if p.name != "self" and p.kind != p.VAR_KEYWORD
-        ]
-        for p in parameters:
-            if p.kind == p.VAR_POSITIONAL:
-                raise RuntimeError(
-                    "gofast classes should always "
-                    "specify their parameters in the signature"
-                    " of their __init__ (no varargs)."
-                    " %s with constructor %s doesn't "
-                    " follow this convention." % (cls, init_signature)
-                )
-        # Extract and sort argument names excluding 'self'
-        return sorted([p.name for p in parameters])
-
-    def get_params(self, deep=True):
-        """
-        Get parameters for this estimator.
-
-        Parameters
-        ----------
-        deep : bool, default=True
-            If True, will return the parameters for this class and
-            contained subobjects.
-
-        Returns
-        -------
-        params : dict
-            Parameter names mapped to their values.
-        """
-        out = dict()
-        for key in self._get_param_names():
-            value = getattr(self, key)
-            if deep and hasattr(value, "get_params"):
-                deep_items = value.get_params().items()
-                out.update((key + "__" + k, val) for k, val in deep_items)
-            out[key] = value
-        return out
-
-    def set_params(self, **params):
-        """Set the parameters of this estimator.
-
-        The method works on simple classes as well as on nested objects
-        (such as :class:`~sklearn.pipeline.Pipeline`). The latter have
-        parameters of the form ``<component>__<parameter>`` so that it's
-        possible to update each component of a nested object.
-
-        Parameters
-        ----------
-        **params : dict
-            Estimator parameters.
-
-        Returns
-        -------
-        self : estimator instance
-            Estimator instance.
-        """
-        if not params:
-            # Simple optimization to gain speed (inspect is slow)
-            return self
-        valid_params = self.get_params(deep=True)
-
-        nested_params = defaultdict(dict)  # grouped by prefix
-        for key, value in params.items():
-            key, delim, sub_key = key.partition("__")
-            if key not in valid_params:
-                local_valid_params = self._get_param_names()
-                raise ValueError(
-                    f"Invalid parameter {key!r} for estimator {self}. "
-                    f"Valid parameters are: {local_valid_params!r}."
-                )
-
-            if delim:
-                nested_params[key][sub_key] = value
-            else:
-                setattr(self, key, value)
-                valid_params[key] = value
-
-        for key, sub_params in nested_params.items():
-            valid_params[key].set_params(**sub_params)
-
-        return self
-    
-
-class SequentialBackwardSelection (_Base ):
-    r"""
-    Sequential Backward Selection (SBS) is a feature selection algorithm which 
-    aims to reduce dimensionality of the initial feature subspace with a 
-    minimum decay  in the performance of the classifier to improve upon 
-    computationan efficiency. In certains cases, SBS can even improve the 
-    predictive power of the model if a model suffers from overfitting. 
-    
-    The idea behind the SBS is simple: it sequentially removes features 
-    from the full feature subset until the new feature subspace contains the 
-    desired number of features. In order to determine which feature is to be 
-    removed at each stage, the criterion fonction :math:`J` is needed for 
-    minimization [1]_. 
-    Indeed, the criterion calculated from the criteria function can simply be 
-    the difference in performance of the classifier before and after the 
-    removal of this particular feature. Then, the feature to be remove at each 
-    stage can simply be the defined as the feature that maximizes this 
-    criterion; or in more simple terms, at each stage, the feature that causes 
-    the least performance is eliminated loss after removal. Based on the 
-    preceding definition of SBS, the algorithm can be outlibe with a few steps:
-        
-        - Initialize the algorithm with :math:`k=d`, where :math:`d` is the 
-            dimensionality of the full feature space, :math:`X_d`. 
-        - Determine the feature :math:`x^{-}`,that maximizes the criterion: 
-            :math:`x^{-}= argmax J(X_k-x)`, where :math:`x\in X_k`. 
-        - Remove the feature :math:`x^{-}` from the feature set 
-            :math:`X_{k+1}= X_k -x^{-}; k=k-1`.
-        -Terminate if :math:`k` equals to the number of desired features; 
-            otherwise go to the step 2. [2]_ 
-            
-    Parameters 
-    -----------
-    estimator: callable or instanciated object,
-        callable or instance object that has a fit method. 
-    k_features: int, default=1 
-        the number of features from where starting the selection. It must be 
-        less than the number of feature in the training set, otherwise it 
-        does not make sense. 
-    scoring: callable or str , default='accuracy'
-        metric for scoring. availabe metric are 'precision', 'recall', 
-        'roc_auc' or 'accuracy'. Any other metric with raise an errors. 
-    test_size : float or int, default=None
-        If float, should be between 0.0 and 1.0 and represent the proportion
-        of the dataset to include in the test split. If int, represents the
-        absolute number of test samples. If None, the value is set to the
-        complement of the train size. If ``train_size`` is also None, it will
-        be set to 0.25. 
-        
-    random_state : int, RandomState instance or None, default=None
-        Controls the shuffling applied to the data before applying the split.
-        Pass an int for reproducible output across multiple function calls.
-
-    References 
-    -----------
-    .. [1] Raschka, S., Mirjalili, V., 2019. Python Machine Learning, 3rd ed. Packt.
-    .. [2] Ferri F., Pudil F., Hatef M., and Kittler J., Comparative study of 
-        the techniques for Large-scale feature selection, pages 403-413, 1994.
-    
-    Attributes 
-    -----------
-    feature_names_in_ : ndarray of shape (`n_features_in_`,)
-        Names of features seen during :term:`fit`. Defined only when `X`
-        has feature names that are all strings.
-        
-    indices_: tuple of dimensionnality X
-        Collect the indices of subset of the best validated models 
-        
-    subsets_: list, 
-        list of `indices_` 
-        
-    scores_: list, 
-        Collection of the scores of the best model got during the
-        cross-validating 
-        
-    k_score_: float, 
-        The score of the desired feature. 
-        
-    Examples
-    --------
-    >>> from gofast.exlib.sklearn import KNeighborsClassifier , train_test_split
-    >>> from gofast.datasets import fetch_data
-    >>> from gofast.base import SequentialBackwardSelection
-    >>> X, y = fetch_data('bagoue analysed') # data already standardized
-    >>> Xtrain, Xt, ytrain,  yt = train_test_split(X, y)
-    >>> knn = KNeighborsClassifier(n_neighbors=5)
-    >>> sbs= SequentialBackwardSelection (knn)
-    >>> sbs.fit(Xtrain, ytrain )
-
-    """
-    _scorers = dict (accuracy = accuracy_score , recall = recall_score , 
-                   precision = precision_score, roc_auc= roc_auc_score 
-                   )
-    def __init__ (self, estimator=None , k_features=1 , 
-                  scoring ='accuracy', test_size = .25 , 
-                  random_state = 42 ): 
-        self.estimator=estimator 
-        self.k_features=k_features 
-        self.scoring=scoring 
-        self.test_size=test_size
-        self.random_state=random_state 
-        
-    def fit(self, X, y) :
-        """  Fit the training data 
-        
-        Note that SBS splits the datasets into a test and training insite the 
-        fit function. :math:`X` is still fed to the algorithm. Indeed, SBS 
-        will then create a new training subsets for testing (validation) and 
-        training , which is why this test set is also called the validation 
-        dataset. This approach is necessary to prevent our original test set 
-        to becoming part of the training data. 
-        
-        Parameters 
-        ----------
-        X:  Ndarray ( M x N matrix where ``M=m-samples``, & ``N=n-features``)
-            Training set; Denotes data that is observed at training and 
-            prediction time, used as independent variables in learning. 
-            When a matrix, each sample may be represented by a feature vector, 
-            or a vector of precomputed (dis)similarity with each training 
-            sample. :code:`X` may also not be a matrix, and may require a 
-            feature extractor or a pairwise metric to turn it into one  before 
-            learning a model.
-        y: array-like, shape (M, ) ``M=m-samples``, 
-            train target; Denotes data that may be observed at training time 
-            as the dependent variable in learning, but which is unavailable 
-            at prediction time, and is usually the target of prediction. 
-        
-        Returns 
-        --------
-        self: `SequentialBackwardSelection` instance 
-            returns ``self`` for easy method chaining.
-        
-        """
-        X, y = check_X_y(
-            X, 
-            y, 
-            estimator = get_estimator_name(self ), 
-            to_frame= True, 
-            )
-        
-        self._check_sbs_args(X)
-        
-        if hasattr(X, 'columns'): 
-            self.feature_names_in = list(X.columns )
-            X = X.values 
-            
-        Xtr, Xt,  ytr, yt = train_test_split(X, y , test_size=self.test_size, 
-                                            random_state=self.random_state 
-                                            )
-        dim = Xtr.shape [1] 
-        self.indices_= tuple (range (dim))
-        self.subsets_= [self.indices_]
-        score = self._compute_score(Xtr, Xt,  ytr, yt, self.indices_)
-        self.scores_=[score]
-        # compute the score for p indices in 
-        # list indices in dimensions 
-        while dim > self.k_features: 
-            scores , subsets = [], []
-            for p in itertools.combinations(self.indices_, r=dim-1):
-                score = self._compute_score(Xtr, Xt,  ytr, yt, p)
-                scores.append (score) 
-                subsets.append (p)
-            
-            best = np.argmax (scores) 
-            self.indices_= subsets [best]
-            self.subsets_.append(self.indices_)
-            dim -=1 # go back for -1 
-            
-            self.scores_.append (scores[best])
-            
-        # set  the k_feature score 
-        self.k_score_= self.scores_[-1]
-        
-        return self 
-        
-    def transform (self, X): 
-        """ Transform the training set 
-        
-        Parameters 
-        ----------
-        X:  Ndarray ( M x N matrix where ``M=m-samples``, & ``N=n-features``)
-            Training set; Denotes data that is observed at training and 
-            prediction time, used as independent variables in learning. 
-            When a matrix, each sample may be represented by a feature vector, 
-            or a vector of precomputed (dis)similarity with each training 
-            sample. :code:`X` may also not be a matrix, and may require a 
-            feature extractor or a pairwise metric to turn it into one  before 
-            learning a model.
-        Returns 
-        -------
-        X:  Ndarray ( M x N matrix where ``M=m-samples``, & ``N=n-features``)
-            New transformed training set with selected features columns 
-        
-        """
-        if not hasattr (self, 'indices_'): 
-            raise NotFittedError(
-                "Can't call transform with estimator not fitted yet."
-                " Fit estimator by calling the 'fit' method with appropriate"
-                " arguments.")
-        return X[:, self.indices_]
-    
-    def _compute_score (self, Xtr, Xt,  ytr, yt, indices):
-        """ Compute score from splitting `X` and indices """
-        self.estimator.fit(Xtr[:, indices], ytr)
-        y_pred = self.estimator.predict (Xt [:, indices])
-        score = self.scoring (yt, y_pred)
-        
-        return score 
-
-    def _check_sbs_args (self, X): 
-        """ Assert SBS main arguments  """
-        
-        if not hasattr(self.estimator, 'fit'): 
-            raise TypeError ("Estimator must have a 'fit' method.")
-        try : 
-            self.k_features = int (self.k_features)
-        except  Exception as err: 
-            raise TypeError ("Expect an integer for number of feature k,"
-                             f" got {type(self.k_features).__name__!r}"
-                             ) from err
-        if self.k_features > X.shape [1] :
-            raise ValueError ("Too many number of features."
-                              f" Expect max-features={X.shape[1]}")
-        if  ( 
-            callable(self.scoring) 
-            or inspect.isfunction ( self.scoring )
-            ): 
-            self.scoring = self.scoring.__name__.replace ('_score', '')
-        
-        if self.scoring not in self._scorers.keys(): 
-            raise ValueError (
-                f"Accept only scorers {list (self._scorers.keys())}"
-                f"for scoring, not {self.scoring!r}")
-            
-        self.scoring = self._scorers[self.scoring] 
-        
-        self.scorer_name_ = self.scoring.__name__.replace (
-            '_score', '').title ()
-        
-    def __repr__(self): 
-        """ Represent the  Sequential Backward Selection class """
-        get_params = self.get_params()  
-        get_params.pop('scoring')
-        if hasattr (self, 'scorer_name_'): 
-            get_params ['scoring'] =self.scorer_name_ 
-        
-        tup = tuple (f"{key}={val}".replace ("'", '') for key, val in 
-                     get_params.items() )
-        
-        return self.__class__.__name__ + str(tup).replace("'", "") 
-    
-class BasePerceptron (_Base): 
+class BasePerceptron (BaseEstimator, ClassifierMixin): 
     r""" Perceptron classifier 
     
     Inspired from Rosenblatt concept of perceptron rules. Indeed, Rosenblatt 
@@ -527,7 +167,7 @@ class BasePerceptron (_Base):
     
     """
     def __init__(self, eta:float = .01 , n_iter: int = 50 , 
-                 random_state:int = 42 ) :
+                 random_state:int = None ) :
         super().__init__()
         self.eta=eta 
         self.n_iter=n_iter 
@@ -603,11 +243,28 @@ class BasePerceptron (_Base):
         ypred: predicted class label after the unit step  (1, or -1)
 
         """      
-        if not hasattr (self, 'w_'): 
-            raise NotFittedError("Can't call 'predict' method with estimator"
-                                 " not fitted yet. Fit estimator by calling"
-                                 " the 'fit' method first.")
+        self.inspect 
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
         return np.where (self.net_input(X) >=.0 , 1 , -1 )
+    
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'w_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1 
     
     def __repr__(self): 
         """ Represent the output class """
@@ -814,6 +471,12 @@ class MajorityVoteClassifier (BaseEstimator, ClassifierMixin ):
         """
         self.inspect 
         
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
         if self.vote =='proba': 
             maj_vote = np.argmax (self.predict_proba(X), axis =1 )
         if self.vote =='label': 
@@ -916,8 +579,125 @@ class MajorityVoteClassifier (BaseEstimator, ClassifierMixin ):
                             .format(len(self.clfs), len(self.weights))
                             )
             
+
+class AdalineStochasticRegressor(BaseEstimator, RegressorMixin):
+    """
+    Adaline Stochastic Gradient Descent Regressor.
+
+    This regressor uses the Adaline algorithm with Stochastic Gradient Descent
+    for linear regression tasks.
+
+    AdalineStochasticRegressor updates the model weights for each training 
+    instance within each epoch. The shuffle parameter, when set to True, 
+    ensures that the training data is shuffled before each epoch to prevent 
+    cycles. The cost is computed as the average of the squared errors for 
+    each instance, providing a measure of the model's performance during 
+    training
+    
+    In Stochastic Gradient Descent, the weights are updated incrementally for
+    each training instance.
+
+    Parameters
+    ----------
+    eta : float
+        Learning rate (between 0.0 and 1.0)
+    n_iter : int
+        Number of passes over the training dataset (epochs).
+    shuffle : bool
+        Whether to shuffle training data before each epoch.
+
+    Attributes
+    ----------
+    w_ : 1d-array
+        Weights after fitting.
+    cost_ : list
+        Average cost per epoch.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import load_boston
+    >>> from sklearn.model_selection import train_test_split
+    >>> boston = load_boston()
+    >>> X = boston.data
+    >>> y = boston.target
+    >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
+    >>> ada_sgd_reg = AdalineStochasticRegressor(eta=0.0001, n_iter=1000)
+    >>> ada_sgd_reg.fit(X_train, y_train)
+    >>> y_pred = ada_sgd_reg.predict(X_test)
+    >>> print('Mean Squared Error:', np.mean((y_pred - y_test) ** 2))
+    """
+
+    def __init__(self, eta=0.0001, n_iter=10, shuffle=True,
+                 random_state=None ):
+        self.eta = eta
+        self.n_iter = n_iter
+        self.shuffle = shuffle
+        self.random_state=random_state 
+
+    def fit(self, X, y):
+        """Fit training data.
+
+        Parameters
+        ----------
+        X : {array-like}, shape = [n_samples, n_features]
+            Training vectors, where n_samples is the number of samples and
+            n_features is the number of features.
+        y : array-like, shape = [n_samples]
+            Target values.
+
+        Returns
+        -------
+        self : object
+        """
+        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
+        rgen = np.random.RandomState(self.random_state)
+        self.w_ = rgen.normal(loc=0. , scale =.01 , size = 1 + X.shape[1])
+        # self.w_ = np.zeros(1 + X.shape[1])
+        self.cost_ = []
+
+        for i in range(self.n_iter):
+            if self.shuffle:
+                X, y = shuffle(X, y)
+            cost = []
+            for xi, target in zip(X, y):
+                error = target - self.predict(xi)
+                self.w_[1:] += self.eta * xi * error
+                self.w_[0] += self.eta * error
+                cost.append(error**2 / 2.0)
+            self.cost_.append(np.mean(cost))
+        return self
+
+    def net_input(self, X):
+        """Calculate net input"""
+        return np.dot(X, self.w_[1:]) + self.w_[0]
+
+    def predict(self, X):
+        """Return continuous output"""
+        self.inspect 
         
-class AdalineStochasticGradientDescent (_Base) :
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
+        return self.net_input(X)
+
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'w_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1 
+    
+class AdalineStochasticClassifier (BaseEstimator, ClassifierMixin) :
     r""" Adaptative Linear Neuron Classifier  with batch  (stochastic) 
     gradient descent 
     
@@ -967,13 +747,12 @@ class AdalineStochasticGradientDescent (_Base) :
             
     """
     def __init__(self, eta:float = .01 , n_iter: int = 50 , shuffle=True, 
-                 random_state:int = 42 ) :
+                 random_state:int = None ) :
         super().__init__()
         self.eta=eta 
         self.n_iter=n_iter 
         self.shuffle=shuffle 
         self.random_state=random_state 
-        
         self.w_initialized =False 
         
     def fit(self , X, y ): 
@@ -1203,6 +982,13 @@ class AdalineStochasticGradientDescent (_Base) :
         -------
         ypred: predicted class label after the unit step  (1, or -1)
         """
+        self.inspect 
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
         return np.where (self.activation(self.net_input(X))>=0. , 1, -1)
     
     def __repr__(self): 
@@ -1212,9 +998,254 @@ class AdalineStochasticGradientDescent (_Base) :
                      self.get_params().items() )
         
         return self.__class__.__name__ + str(tup).replace("'", "") 
+
+
+class AdalineRegressor(BaseEstimator, RegressorMixin):
+    """
+    Adaline Gradient Descent regressor.
+
+    This regressor follows the principles of Adaptive Linear Neurons,
+    using the gradient descent optimization algorithm for regression tasks.
+
+    In `AdalineRegressor`, the predict method returns a 
+    continuous output, and the example at the bottom demonstrates how 
+    to use this regressor with the Diabetes dataset. The performance is 
+    evaluated using the mean squared error, which is a common metric 
+    for regression tasks. Remember, this is a simple implementation, and 
+    real-world applications might require additional features or fine-tuning.
     
-class AdalineGradientDescent (_Base): 
-    r"""Adaptative Linear Neuron Classifier 
+    The update rule for weights w is given by:
+    
+    .. math::
+        w := w + \eta \sum_i (y^{(i)} - \phi(z^{(i)}))x^{(i)}
+
+    where:
+    - \( \eta \) is the learning rate
+    - \( y^{(i)} \) is the true value
+    - \( \phi(z^{(i)}) \) is the predicted value
+    - \( x^{(i)} \) is the feature vector
+
+    Parameters
+    ----------
+    eta : float
+        Learning rate (between 0.0 and 1.0)
+    n_iter : int
+        Passes over the training dataset.
+
+    Attributes
+    ----------
+    w_ : 1d-array
+        Weights after fitting.
+    errors_ : list
+        Sum of squared errors in every epoch.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import load_diabetes
+    >>> from sklearn.model_selection import train_test_split
+    >>> diabetes = load_diabetes()
+    >>> X = diabetes.data
+    >>> y = diabetes.target
+    >>> X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.3, random_state=0)
+    >>> ada = AdalineRegressor(eta=0.01, n_iter=50)
+    >>> ada.fit(X_train, y_train)
+    >>> y_pred = ada.predict(X_test)
+    >>> print('Mean Squared Error:', np.mean((y_pred - y_test) ** 2))
+    """
+
+    def __init__(self, eta=0.01, n_iter=50, random_state =None):
+        self.eta = eta
+        self.n_iter = n_iter
+        self.random_state=random_state 
+
+    def fit(self, X, y):
+        """Fit training data.
+
+        Parameters
+        ----------
+        X : {array-like}, shape = [n_samples, n_features]
+            Training vectors, where n_samples is the number of samples and
+            n_features is the number of features.
+        y : array-like, shape = [n_samples]
+            Target values.
+
+        Returns
+        -------
+        self : object
+        """
+        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
+        rgen = np.random.RandomState(self.random_state)
+        self.w_ = rgen.normal(loc=0. , scale =.01 , size = 1 + X.shape[1]
+                              )
+        # self.w_ = np.zeros(1 + X.shape[1])
+        self.errors_ = []
+
+        for _ in range(self.n_iter):
+            errors = 0
+            for xi, target in zip(X, y):
+                error = target - self.predict(xi)
+                update = self.eta * error
+                self.w_[1:] += update * xi
+                self.w_[0] += update
+                errors += error ** 2
+            self.errors_.append(errors)
+        return self
+
+    def net_input(self, X):
+        """Calculate net input"""
+        return np.dot(X, self.w_[1:]) + self.w_[0]
+
+    def predict(self, X):
+        """Return continuous output"""
+        self.inspect 
+        
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            # ensure_2d=False
+            )
+        return self.net_input(X)
+    
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'w_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1 
+
+class AdalineClassifier(BaseEstimator, ClassifierMixin):
+    """
+    Adaline Gradient Descent classifier.
+
+    This classifier follows the principles of Adaptive Linear Neurons,
+    using the gradient descent optimization algorithm.
+
+    Adaline classifier using gradient descent. The fit method updates 
+    the weights based on the training data, and the predict method 
+    classifies new samples. The example usage at the bottom demonstrates 
+    how to use this classifier with the Iris dataset for a binary 
+    classification problem. Remember that this is a simple implementation 
+    and might need adjustments or improvements for real-world applications.
+    
+    The update rule for weights w is given by:
+    
+    .. math::
+        w := w + \eta \sum_i (y^{(i)} - \phi(z^{(i)}))x^{(i)}
+
+    where:
+    - \( \eta \) is the learning rate
+    - \( y^{(i)} \) is the true label
+    - \( \phi(z^{(i)}) \) is the predicted label
+    - \( x^{(i)} \) is the feature vector
+
+    Parameters
+    ----------
+    eta : float
+        Learning rate (between 0.0 and 1.0)
+    n_iter : int
+        Passes over the training dataset.
+
+    Attributes
+    ----------
+    w_ : 1d-array
+        Weights after fitting.
+    errors_ : list
+        Number of misclassifications in every epoch.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import load_iris
+    >>> from sklearn.model_selection import train_test_split
+    >>> iris = load_iris()
+    >>> X = iris.data[:, :2]
+    >>> y = iris.target
+    >>> X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.3, random_state=0)
+    >>> ada = AdalineClassifier(eta=0.01, n_iter=50)
+    >>> ada.fit(X_train, y_train)
+    >>> y_pred = ada.predict(X_test)
+    >>> print('Accuracy:', np.mean(y_pred == y_test))
+    """
+
+    def __init__(self, eta=0.01, n_iter=50, random_state=None ):
+        self.eta = eta
+        self.n_iter = n_iter
+        self.random_state=random_state  
+        
+    def fit(self, X, y):
+        """Fit training data.
+
+        Parameters
+        ----------
+        X : {array-like}, shape = [n_samples, n_features]
+            Training vectors, where n_samples is the number of samples and
+            n_features is the number of features.
+        y : array-like, shape = [n_samples]
+            Target values.
+
+        Returns
+        -------
+        self : object
+        """
+        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
+        rgen = np.random.RandomState(self.random_state)
+        self.w_ = rgen.normal(loc=0. , scale =.01 , size = 1 + X.shape[1]
+                              )
+        # self.w_ = np.zeros(1 + X.shape[1])
+        self.errors_ = []
+
+        for _ in range(self.n_iter):
+            errors = 0
+            for xi, target in zip(X, y):
+                update = self.eta * (target - self.predict(xi))
+                self.w_[1:] += update * xi
+                self.w_[0] += update
+                errors += int(update != 0.0)
+            self.errors_.append(errors)
+        return self
+
+    def net_input(self, X):
+        """Calculate net input"""
+        return np.dot(X, self.w_[1:]) + self.w_[0]
+
+    def predict(self, X):
+        """Return class label after unit step"""
+        self.inspect 
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
+        return np.where(self.net_input(X) >= 0.0, 1, -1)
+
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'w_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1 
+
+class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin): 
+    r"""Mixe Adaptative Linear Neuron performs dual for 
+    regression and classifier tasks. 
     
     ADAptative LInear NEuron (Adaline) was published by Bernard Widrow and 
     his doctoral studentTeed Hoff only a few uears after Rosenblatt's 
@@ -1261,6 +1292,27 @@ class AdalineGradientDescent (_Base):
         "Memistors", Technical reports Number, 1553-2,B Windrow and al., 
         standford Electron labs, Standford, CA,October 1960. 
         
+    Examples 
+    ---------
+    >>> # For regression
+    >>> from sklearn.datasets import load_boston
+    >>> boston = load_boston()
+    >>> X = boston.data
+    >>> y = boston.target
+    >>> model = AdalineMixte(eta=0.0001, n_iter=1000)
+    >>> model.fit(X, y)
+    >>> y_pred = model.predict(X)
+    >>> print('Mean Squared Error:', np.mean((y_pred - y) ** 2))
+
+    >>> # For classification
+    >>> from sklearn.datasets import load_iris
+    >>> iris = load_iris()
+    >>> X = iris.data
+    >>> y = iris.target
+    >>> model = AdalineMixte(eta=0.0001, n_iter=1000)
+    >>> model.fit(X, y)
+    >>> y_pred = model.predict(X)
+    >>> print('Accuracy:', np.mean(y_pred == y))
     """
     def __init__(self, eta:float = .01 , n_iter: int = 50 , 
                  random_state:int = 42 ) :
@@ -1298,6 +1350,8 @@ class AdalineGradientDescent (_Base):
             estimator = get_estimator_name(self), 
             )
         
+        self.task_type = type_of_target(y)
+        
         rgen = np.random.RandomState(self.random_state)
         
         self.w_ = rgen.normal(loc=0. , scale =.01 , size = 1 + X.shape[1]
@@ -1310,7 +1364,12 @@ class AdalineGradientDescent (_Base):
             errors =  ( y -  output ) 
             self.w_[1:] += self.eta * X.T.dot(errors)
             self.w_[0] += self.eta * errors.sum() 
-            cost = (errors **2 ).sum() / 2. 
+            
+            if self.task_type == "continuous":
+                cost = (errors**2).sum() / 2.0
+            else:
+                cost = errors[errors != 0].size
+            # cost = (errors **2 ).sum() / 2. 
             self.cost_.append(cost) 
         
         return self 
@@ -1346,8 +1405,7 @@ class AdalineGradientDescent (_Base):
 
         Returns
         -------
-       weight net inputs 
-
+        weight net inputs 
         """
         self.inspect 
         return np.dot (X, self.w_[1:]) + self.w_[0] 
@@ -1393,7 +1451,19 @@ class AdalineGradientDescent (_Base):
         -------
         ypred: predicted class label after the unit step  (1, or -1)
         """
-        return np.where (self.activation(self.net_input(X))>=0. , 1, -1)
+        self.inspect 
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
+        
+        if self.task_type == "continuous":
+            return self.net_input(X)
+        else:
+            #return np.where(self.net_input(X) >= 0.0, 1, -1)
+            return np.where (self.activation(self.net_input(X))>=0. , 1, -1)
     
     def __repr__(self): 
         """ Represent the output class """
@@ -1412,6 +1482,22 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
     function of past inputs and outputs. It consists of a Hammerstein model
     (nonlinear input followed by a linear dynamic block) and a Wiener model
     (linear dynamic block followed by a nonlinear output).
+    
+    The Hammerstein-Wiener model is a nonlinear dynamic model that can be 
+    mathematically represented as follows:
+
+    .. math::
+        y(t) = g_2\\left( \\sum_{i} a_i y(t-i) + \\sum_{j} b_j g_1(u(t-j)) \\right)
+
+    where:
+    - \( g_1 \) and \( g_2 \) are the input and output nonlinear functions,
+      respectively.
+    - \( a_i \) and \( b_j \) are the coefficients of the linear dynamic model.
+    - \( u(t) \) and \( y(t) \) are the input and output of the system at 
+      time \( t \).
+
+    This model is used in various applications, including control systems 
+    and signal processing.
 
     Parameters
     ----------
@@ -1442,13 +1528,6 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
     >>> hw.fit(X, y)
     >>> y_pred = hw.predict(X)
 
-    Notes
-    -----
-    The Hammerstein-Wiener model can be mathematically represented as:
-    y(t) = g₂( Σ aᵢ * y(t-i) + Σ bⱼ * g₁(u(t-j)) )
-    where g₁ and g₂ are the input and output nonlinear functions, respectively,
-    aᵢ and bⱼ are the coefficients of the linear dynamic model, and u(t) and y(t)
-    are the input and output of the system at time t.
     """
 
     def __init__(self,
@@ -1461,7 +1540,7 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
         self.nonlinearity_out = nonlinearity_out
         self.linear_model = linear_model
         self.memory_depth = memory_depth
-        self.fitted_ = False
+
 
     def _preprocess_data(self, X):
         """
@@ -1508,12 +1587,14 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
         self : object
             Returns self.
         """
+        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
         X_lagged = self._preprocess_data(X)
         y = y[self.memory_depth:]
 
         # Fit the linear model
         self.linear_model.fit(X_lagged, y)
         self.fitted_ = True
+        
         return self
 
     def predict(self, X):
@@ -1530,9 +1611,13 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
         y_pred : array-like of shape (n_samples,)
             Predicted values.
         """
-        if not self.fitted_:
-            raise NotFittedError("This HammersteinWienerEstimator instance is not fitted yet.")
-
+        self.inspect 
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
         X_lagged = self._preprocess_data(X)
 
         # Predict using the linear model
@@ -1541,7 +1626,248 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
         # Apply the output nonlinearity
         y_pred = self.nonlinearity_out(y_linear)
         return y_pred
-  
+
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'fitted_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1 
+
+class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
+    """
+    Gradient Descent Classifier for binary and multi-class 
+    classification tasks.
+
+    This classifier uses the One-vs-Rest (OvR) strategy for multi-class 
+    classification,training a separate binary classifier for each class.
+
+    GradientDescentClassifier uses the One-vs-Rest strategy to train a binary 
+    classifier for each class. The fit method trains these classifiers, and 
+    the predict method uses them to predict the class with the highest 
+    probability for each sample. 
+    
+    Parameters
+    ----------
+    eta : float
+        Learning rate (between 0.0 and 1.0)
+    n_iter : int
+        Number of passes over the training dataset (epochs).
+    shuffle : bool
+        Whether to shuffle training data before each epoch to prevent cycles.
+
+    Attributes
+    ----------
+    w_ : 2d-array
+        Weights after fitting. Each row corresponds to a binary classifier.
+    classes_ : array
+        Class labels.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import load_iris
+    >>> from sklearn.model_selection import train_test_split
+    >>> iris = load_iris()
+    >>> X = iris.data
+    >>> y = iris.target
+    >>> gd_clf = GradientDescentClassifier(eta=0.01, n_iter=50)
+    >>> gd_clf.fit(X, y)
+    >>> y_pred = gd_clf.predict(X)
+    >>> print('Accuracy:', np.mean(y_pred == y))
+    """
+
+    def __init__(self, eta=0.01, n_iter=50, shuffle=True):
+        self.eta = eta
+        self.n_iter = n_iter
+        self.shuffle = shuffle
+
+    def fit(self, X, y):
+        """Fit training data.
+
+        Parameters
+        ----------
+        X : {array-like}, shape = [n_samples, n_features]
+            Training vectors.
+        y : array-like, shape = [n_samples]
+            Target values (class labels).
+
+        Returns
+        -------
+        self : object
+        """
+        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
+        self.classes_ = np.unique(y)
+        self.w_ = np.zeros((self.classes_.size, X.shape[1] + 1))
+        self.label_binarizer_ = LabelBinarizer().fit(y)
+        Y_bin = self.label_binarizer_.transform(y)
+
+        for i, class_ in enumerate(self.classes_):
+            y_bin = Y_bin[:, i]
+            for _ in range(self.n_iter):
+                if self.shuffle:
+                    X, y_bin = shuffle(X, y_bin)
+                errors = y_bin - self._predict_proba(X, class_)
+                self.w_[i, 1:] += self.eta * X.T.dot(errors)
+                self.w_[i, 0] += self.eta * errors.sum()
+
+        return self
+
+    def net_input(self, X, class_):
+        """Calculate net input for a specific class"""
+        w = self.w_[class_]
+        return np.dot(X, w[1:]) + w[0]
+
+    def _predict_proba(self, X, class_):
+        """Predict class probabilities for a specific class"""
+        return np.where(self.net_input(X, class_) >= 0.0, 1, 0)
+
+    def predict(self, X):
+        """Predict class labels for samples in X"""
+        self.inspect 
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
+        probas = np.array([self.net_input(X, class_)
+                           for class_ in range(len(self.classes_))]).T
+        return self.classes_[np.argmax(probas, axis=1)]
+
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'w_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1 
+
+class GradientDescentRegressor(BaseEstimator, RegressorMixin):
+    """
+    Gradient Descent Regressor.
+
+    This regressor uses the gradient descent optimization algorithm for
+    linear regression tasks.
+
+    GradientDescentRegressor class uses a linear combination of features 
+    for predictions and minimizes the cost function using gradient descent. 
+    The fit method updates the weights by calculating the gradient of the 
+    cost function and adjusting the weights accordingly. 
+    
+    The weight update rule in gradient descent is given by:
+
+    .. math::
+        w := w + \eta \sum_i (y^{(i)} - \phi(z^{(i)}))x^{(i)}
+
+    where:
+    - \( \eta \) is the learning rate
+    - \( y^{(i)} \) is the true value
+    - \( \phi(z^{(i)}) \) is the predicted value
+    - \( x^{(i)} \) is the feature vector
+
+    Parameters
+    ----------
+    eta : float
+        Learning rate (between 0.0 and 1.0)
+    n_iter : int
+        Passes over the training dataset.
+
+    Attributes
+    ----------
+    w_ : 1d-array
+        Weights after fitting.
+    cost_ : list
+        Value of the cost function at each epoch.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import load_boston
+    >>> from sklearn.model_selection import train_test_split
+    >>> boston = load_boston()
+    >>> X = boston.data
+    >>> y = boston.target
+    >>> X_train, X_test, y_train, y_test = train_test_split(
+        X, y,test_size=0.3, random_state=0)
+    >>> gd_reg = GradientDescentRegressor(eta=0.0001, n_iter=1000)
+    >>> gd_reg.fit(X_train, y_train)
+    >>> y_pred = gd_reg.predict(X_test)
+    >>> print('Mean Squared Error:', np.mean((y_pred - y_test) ** 2))
+    """
+
+    def __init__(self, eta=0.0001, n_iter=1000, random_state =None):
+        self.eta = eta
+        self.n_iter = n_iter
+        self.random_state = random_state 
+
+    def fit(self, X, y):
+        """Fit training data.
+
+        Parameters
+        ----------
+        X : {array-like}, shape = [n_samples, n_features]
+            Training vectors, where n_samples is the number of samples and
+            n_features is the number of features.
+        y : array-like, shape = [n_samples]
+            Target values.
+
+        Returns
+        -------
+        self : object
+        """
+        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
+        self.w_ = np.zeros(1 + X.shape[1])
+        self.cost_ = []
+
+        for i in range(self.n_iter):
+            errors = y - self.predict(X)
+            self.w_[1:] += self.eta * X.T.dot(errors)
+            self.w_[0] += self.eta * errors.sum()
+            cost = (errors**2).sum() / 2.0
+            self.cost_.append(cost)
+        return self
+
+    def net_input(self, X):
+        """Calculate net input"""
+        return np.dot(X, self.w_[1:]) + self.w_[0]
+
+    def predict(self, X):
+        """Return continuous output"""
+        self.inspect 
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
+        return self.net_input(X)
+
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'w_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1 
+ 
 class SimpleAverageRegressor(BaseEstimator, RegressorMixin):
     """
     Simple Average Ensemble for regression tasks.
@@ -1556,6 +1882,19 @@ class SimpleAverageRegressor(BaseEstimator, RegressorMixin):
     This ensemble model can be particularly effective when combining models 
     of different types (e.g., linear models, tree-based models) as it can 
     balance out their individual strengths and weaknesses.
+    
+    The predictions of the Simple Average Ensemble are given by the following 
+    mathematical formula:
+
+    .. math::
+        y_{\\text{pred}} = \\frac{1}{N} \\sum_{i} y_{\\text{pred}_i}
+
+    where:
+    - \( N \) is the number of base estimators.
+    - \( y_{\\text{pred}_i} \) is the prediction of the i-th base estimator.
+
+    This ensemble method averages the predictions of several base estimators 
+    to improve robustness over a single estimator.
 
     Parameters
     ----------
@@ -1580,17 +1919,10 @@ class SimpleAverageRegressor(BaseEstimator, RegressorMixin):
     >>> ensemble.fit(X, y)
     >>> y_pred = ensemble.predict(X)
 
-    Notes
-    -----
-    The predictions of the Simple Average Ensemble are given by:
-    y_pred = (1 / N) * Σ y_pred_i
-    where N is the number of base estimators and y_pred_i is the prediction
-    of the i-th base estimator.
     """
 
     def __init__(self, base_estimators):
         self.base_estimators = base_estimators
-        self.fitted_ = False
 
     def fit(self, X, y):
         """
@@ -1608,6 +1940,7 @@ class SimpleAverageRegressor(BaseEstimator, RegressorMixin):
         self : object
             Returns self.
         """
+        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
         for estimator in self.base_estimators:
             estimator.fit(X, y)
         self.fitted_ = True
@@ -1627,12 +1960,30 @@ class SimpleAverageRegressor(BaseEstimator, RegressorMixin):
         y_pred : array-like of shape (n_samples,)
             Predicted values, averaged across all base estimators.
         """
-        if not self.fitted_:
-            raise NotFittedError("This SimpleAverageEnsemble instance is not fitted yet.")
+        self.inspect 
 
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
         predictions = [estimator.predict(X) for estimator in self.base_estimators]
         return np.mean(predictions, axis=0)
 
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'fitted_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1 
 
 class WeightedAverageRegressor(BaseEstimator, RegressorMixin):
     """
@@ -1643,18 +1994,31 @@ class WeightedAverageRegressor(BaseEstimator, RegressorMixin):
     a weight, allowing for differential contributions of each model to the 
     final prediction.
 
-     In this `WeightedAverageEnsemble` class, each base estimator's prediction is 
-     multiplied by its corresponding weight. The weights parameter should be 
-     an array-like object where each weight corresponds to a base estimator 
-     in base_estimators. The weights can be determined based on the individual 
-     performance of the base models or set according to domain knowledge or 
-     other criteria.
+    In this `WeightedAverageEnsemble` class, each base estimator's prediction is 
+    multiplied by its corresponding weight. The weights parameter should be 
+    an array-like object where each weight corresponds to a base estimator 
+    in base_estimators. The weights can be determined based on the individual 
+    performance of the base models or set according to domain knowledge or 
+    other criteria.
      
-     The model can effectively balance the contributions of various models, 
-     potentially leading to better overall performance than a simple average 
-     ensemble, especially when the base models have significantly different 
-     levels of accuracy or are suited to different parts of the input space.
+    The model can effectively balance the contributions of various models, 
+    potentially leading to better overall performance than a simple average 
+    ensemble, especially when the base models have significantly different 
+    levels of accuracy or are suited to different parts of the input space.
      
+    The weighted average predictions of the ensemble are given by the following
+    mathematical formula:
+    
+    .. math::
+        y_{\\text{pred}} = \\sum_{i} (w_i \\times y_{\\text{pred}_i})
+    
+    where:
+    - \( w_i \) is the weight of the i-th base estimator.
+    - \( y_{\\text{pred}_i} \) is the prediction of the i-th base estimator.
+    
+    This ensemble method combines the predictions of several base estimators with assigned
+    weights to improve robustness and performance over single estimators or simple averages.
+
     Parameters
     ----------
     base_estimators : list of objects
@@ -1680,17 +2044,12 @@ class WeightedAverageRegressor(BaseEstimator, RegressorMixin):
     >>> ensemble.fit(X, y)
     >>> y_pred = ensemble.predict(X)
 
-    Notes
-    -----
-    The weighted average predictions of the ensemble are given by:
-    y_pred = Σ (w_i * y_pred_i)
-    where w_i is the weight of the i-th base estimator and y_pred_i is its prediction.
     """
 
     def __init__(self, base_estimators, weights):
         self.base_estimators = base_estimators
         self.weights = weights
-        self.fitted_ = False
+
 
     def fit(self, X, y):
         """
@@ -1708,6 +2067,7 @@ class WeightedAverageRegressor(BaseEstimator, RegressorMixin):
         self : object
             Returns self.
         """
+        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
         for estimator in self.base_estimators:
             estimator.fit(X, y)
         self.fitted_ = True
@@ -1728,16 +2088,34 @@ class WeightedAverageRegressor(BaseEstimator, RegressorMixin):
         y_pred : array-like of shape (n_samples,)
             Weighted predicted values, averaged across all base estimators.
         """
-        if not self.fitted_:
-            raise NotFittedError(
-                "This WeightedAverageEnsemble instance is not fitted yet.")
+        self.inspect 
 
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
+                
         predictions = np.array([estimator.predict(X) for estimator 
                                 in self.base_estimators])
         weighted_predictions = np.average(predictions, axis=0, 
                                           weights=self.weights)
         return weighted_predictions
     
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'fitted_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1 
 
 class HammersteinWienerEnsemble(BaseEstimator, RegressorMixin):
     """
@@ -1758,6 +2136,7 @@ class HammersteinWienerEnsemble(BaseEstimator, RegressorMixin):
     combining these to form a more robust overall prediction. However, the 
     effectiveness of this ensemble would heavily depend on the diversity and 
     individual accuracy of the included Hammerstein-Wiener models.
+    
     Parameters
     ----------
     hw_estimators : list of HammersteinWienerEstimator objects
@@ -1791,7 +2170,6 @@ class HammersteinWienerEnsemble(BaseEstimator, RegressorMixin):
 
     def __init__(self, hw_estimators):
         self.hw_estimators = hw_estimators
-        self.fitted_ = False
 
     def fit(self, X, y):
         """
@@ -1809,6 +2187,7 @@ class HammersteinWienerEnsemble(BaseEstimator, RegressorMixin):
         self : object
             Returns self.
         """
+        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
         self.hw_estimators = is_iterable(
             self.hw_estimators, exclude_string=True, transform =True) 
         estimator_names = [ get_estimator_name(estimator) for estimator in 
@@ -1836,14 +2215,32 @@ class HammersteinWienerEnsemble(BaseEstimator, RegressorMixin):
         y_pred : array-like of shape (n_samples,)
             Predicted values, averaged across all Hammerstein-Wiener estimators.
         """
-        if not self.fitted_:
-            raise NotFittedError(
-                "This HammersteinWienerEnsemble instance is not fitted yet.")
+        self.inspect 
 
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
+                
         predictions = np.array([estimator.predict(X) for estimator in self.hw_estimators])
         return np.mean(predictions, axis=0)
 
-
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'fitted_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1 
+    
 class NeuroFuzzyEnsemble(BaseEstimator, RegressorMixin):
     """
     Neuro-Fuzzy Ensemble for regression tasks.
@@ -1886,7 +2283,6 @@ class NeuroFuzzyEnsemble(BaseEstimator, RegressorMixin):
 
     def __init__(self, nf_estimators):
         self.nf_estimators = nf_estimators
-        self.fitted_ = False
 
     def fit(self, X, y):
         """
@@ -1904,6 +2300,7 @@ class NeuroFuzzyEnsemble(BaseEstimator, RegressorMixin):
         self : object
             Returns self.
         """
+        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
         for estimator in self.nf_estimators:
             estimator.fit(X, y)
         self.fitted_ = True
@@ -1923,11 +2320,30 @@ class NeuroFuzzyEnsemble(BaseEstimator, RegressorMixin):
         y_pred : array-like of shape (n_samples,)
             Predicted values, averaged across all Neuro-Fuzzy estimators.
         """
-        if not self.fitted_:
-            raise NotFittedError("This NeuroFuzzyEnsemble instance is not fitted yet.")
+        self.inspect 
+        
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
 
-        predictions = np.array([estimator.predict(X) for estimator in self.nf_estimators])
+        predictions = np.array([estimator.predict(X)
+                                for estimator in self.nf_estimators])
         return np.mean(predictions, axis=0)
+    
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'fitted_'): 
+            raise NotFittedError(msg.format(obj=self))
+        return 1 
 
 class BoostedRegressionTree(BaseEstimator, RegressorMixin):
     """
@@ -1946,10 +2362,30 @@ class BoostedRegressionTree(BaseEstimator, RegressorMixin):
     fraction of samples used for fitting each base learner. This can 
     help in reducing overfitting.
     
-   ``Tree Pruning``: While explicit tree pruning isn't detailed here, it can 
-   be managed via the max_depth parameter. Additional pruning techniques can 
-   be implemented within the DecisionTreeRegressor fitting process.
+    ``Tree Pruning``: While explicit tree pruning isn't detailed here, it can 
+    be managed via the max_depth parameter. Additional pruning techniques can 
+    be implemented within the DecisionTreeRegressor fitting process.
 
+    Mathematically, the process is represented as follows:
+
+    .. math::
+        F_{k}(x) = \\text{Prediction of the ensemble at iteration } k.
+
+        r = y - F_{k}(x) \\text{ (Residual calculation)}
+
+        F_{k+1}(x) = F_{k}(x) + \\text{learning_rate} \\times h_{k+1}(x)
+
+    where:
+    - \( F_{k}(x) \) is the prediction of the ensemble at iteration k.
+    - \( r \) is the residual.
+    - \( F_{k+1}(x) \) is the updated ensemble prediction.
+    - \( h_{k+1}(x) \) is the prediction of the new tree added at iteration k+1.
+    - 'learning_rate' is a hyperparameter controlling the contribution of each 
+       tree.
+
+    This method incrementally builds the ensemble, focusing on areas where 
+    previous models have performed poorly.
+   
     Parameters
     ----------
     n_estimators : int
@@ -1984,10 +2420,7 @@ class BoostedRegressionTree(BaseEstimator, RegressorMixin):
     The Boosted Regression Tree model is built iteratively. It includes 
     advanced features such as different loss functions and stochastic boosting
     to improve model performance and reduce the risk of overfitting.
-    Mathematically, if Fₖ(x) is the prediction of the ensemble at iteration k, 
-    then the next model is trained on the residual r = y - Fₖ(x), and the 
-    ensemble prediction is updated as Fₖ₊₁(x) = Fₖ(x) + learning_rate * hₖ₊₁(x),
-    where hₖ₊₁(x) is the prediction of the new tree.
+
     """
 
     def __init__(
@@ -2003,8 +2436,7 @@ class BoostedRegressionTree(BaseEstimator, RegressorMixin):
         self.max_depth = max_depth
         self.loss = loss
         self.subsample = subsample
-        self.estimators_ = []
-
+        
     def _loss_derivative(self, y, y_pred):
         """
         Compute the derivative of the loss function.
@@ -2045,9 +2477,11 @@ class BoostedRegressionTree(BaseEstimator, RegressorMixin):
         self : object
             Returns self.
         """
+        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
         n_samples = X.shape[0]
         residual = y.copy()
-
+        
+        self.estimators_ = []
         for _ in range(self.n_estimators):
             tree = DecisionTreeRegressor(max_depth=self.max_depth)
 
@@ -2080,6 +2514,15 @@ class BoostedRegressionTree(BaseEstimator, RegressorMixin):
         y_pred : array-like of shape (n_samples,)
             The predicted values.
         """
+        self.inspect 
+        
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
+        
         y_pred = np.zeros(X.shape[0])
 
         for tree in self.estimators_:
@@ -2088,6 +2531,20 @@ class BoostedRegressionTree(BaseEstimator, RegressorMixin):
         return y_pred
 
 
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'estimators_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1 
+    
 class RegressionTreeEnsemble(BaseEstimator, RegressorMixin):
     """
     Regression Tree Ensemble for regression tasks.
@@ -2118,23 +2575,24 @@ class RegressionTreeEnsemble(BaseEstimator, RegressorMixin):
 
     Examples
     --------
-    >>> rte = RegressionTreeEnsemble(n_estimators=100, max_depth=3, random_state=42)
+    >>> rte = RegressionTreeEnsemble(
+        n_estimators=100, max_depth=3, random_state=42)
     >>> X, y = np.random.rand(100, 4), np.random.rand(100)
     >>> rte.fit(X, y)
     >>> y_pred = rte.predict(X)
 
     Notes
     -----
-    The Regression Tree Ensemble is built by fitting multiple Regression Tree models.
-    Each tree is trained on the entire dataset, and their predictions are averaged.
+    The Regression Tree Ensemble is built by fitting multiple Regression 
+    Tree models. Each tree is trained on the entire dataset, and their 
+    predictions are averaged.
     """
 
     def __init__(self, n_estimators=100, max_depth=3, random_state=None):
         self.n_estimators = n_estimators
         self.max_depth = max_depth
         self.random_state = random_state
-        self.estimators_ = []
-
+        
     def fit(self, X, y):
         """
         Fit the Regression Tree Ensemble model to the data.
@@ -2151,6 +2609,8 @@ class RegressionTreeEnsemble(BaseEstimator, RegressorMixin):
         self : object
             Returns self.
         """
+        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
+        self.estimators_ = []
         for _ in range(self.n_estimators):
             tree = DecisionTreeRegressor(max_depth=self.max_depth,
                                          random_state=self.random_state)
@@ -2173,11 +2633,33 @@ class RegressionTreeEnsemble(BaseEstimator, RegressorMixin):
         y_pred : array-like of shape (n_samples,)
             The predicted values.
         """
+        self.inspect 
+        
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
+        
         predictions = np.array([tree.predict(X) for tree in self.estimators_])
         return np.mean(predictions, axis=0)
 
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'estimators_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1 
 
-class HybridBoostedRegressionTree(BaseEstimator, RegressorMixin):
+class HybridBRTRegressor(BaseEstimator, RegressorMixin):
     """
     Hybrid Boosted Regression Tree (BRT) Ensemble for regression tasks.
 
@@ -2185,7 +2667,7 @@ class HybridBoostedRegressionTree(BaseEstimator, RegressorMixin):
     each of which is an ensemble in itself, created using the 
     principles of boosting.
 
-    HybridBoostedRegressionTreeEnsemble class, the n_estimators parameter 
+    HybridBRTRegressorEnsemble class, the n_estimators parameter 
     controls the number of individual Boosted Regression Trees in the ensemble,
     and brt_params is a dictionary of parameters to be passed to each Boosted 
     Regression Tree model. The GradientBoostingRegressor from scikit-learn 
@@ -2208,7 +2690,7 @@ class HybridBoostedRegressionTree(BaseEstimator, RegressorMixin):
     Examples
     --------
     >>> brt_params = {'n_estimators': 50, 'max_depth': 3, 'learning_rate': 0.1}
-    >>> hybrid_brt = HybridBoostedRegressionTree(
+    >>> hybrid_brt = HybridBRTRegressor(
         n_estimators=10, brt_params=brt_params)
     >>> X, y = np.random.rand(100, 4), np.random.rand(100)
     >>> hybrid_brt.fit(X, y)
@@ -2216,15 +2698,15 @@ class HybridBoostedRegressionTree(BaseEstimator, RegressorMixin):
 
     Notes
     -----
-    The Hybrid Boosted Regression Tree Ensemble model aims to combine the strengths of
-    boosting with ensemble learning. Each member of the ensemble is a complete Boosted
-    Regression Tree model, trained to focus on different aspects of the data.
+    The Hybrid Boosted Regression Tree Ensemble model aims to combine the 
+    strengths of boosting with ensemble learning. Each member of the ensemble 
+    is a complete Boosted Regression Tree model, trained to focus on 
+    different aspects of the data.
     """
 
     def __init__(self, n_estimators=10, brt_params=None):
         self.n_estimators = n_estimators
         self.brt_params = brt_params or {}
-        self.brt_ensembles_ = []
 
     def fit(self, X, y):
         """
@@ -2242,6 +2724,8 @@ class HybridBoostedRegressionTree(BaseEstimator, RegressorMixin):
         self : object
             Returns self.
         """
+        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
+        self.brt_ensembles_ = []
         for _ in range(self.n_estimators):
             brt = GradientBoostingRegressor(**self.brt_params)
             brt.fit(X, y)
@@ -2263,15 +2747,37 @@ class HybridBoostedRegressionTree(BaseEstimator, RegressorMixin):
         y_pred : array-like of shape (n_samples,)
             The predicted values.
         """
+        self.inspect 
+        
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
+        
         predictions = np.array([brt.predict(X) for brt in self.brt_ensembles_])
         return np.mean(predictions, axis=0)
 
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'brt_ensembles_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1 
 
-class BoostedDecisionTreeClassifier(BaseEstimator, ClassifierMixin):
+class BoostedClassifierTree(BaseEstimator, ClassifierMixin):
     """
     Boosted Decision Tree Classifier.
 
-    BoostedDecisionTreeClassifier applies boosting techniques to Decision Tree 
+    BoostedClassifierTree applies boosting techniques to Decision Tree 
     classifiers. Its implementation, each tree in the ensemble is a
     DecisionTreeClassifier. The model is trained iteratively, where each 
     tree tries to correct the mistakes of the previous trees in the ensemble. 
@@ -2296,7 +2802,7 @@ class BoostedDecisionTreeClassifier(BaseEstimator, ClassifierMixin):
 
     Examples
     --------
-    >>> bdtc = BoostedDecisionTreeClassifier(n_estimators=100, 
+    >>> bdtc = BoostedClassifierTree(n_estimators=100, 
                                              max_depth=3, learning_rate=0.1)
     >>> X, y = np.random.rand(100, 4), np.random.randint(0, 2, 100)
     >>> bdtc.fit(X, y)
@@ -2307,8 +2813,7 @@ class BoostedDecisionTreeClassifier(BaseEstimator, ClassifierMixin):
         self.n_estimators = n_estimators
         self.max_depth = max_depth
         self.learning_rate = learning_rate
-        self.estimators_ = []
-
+        
     def fit(self, X, y):
         """
         Fit the Boosted Decision Tree Classifier model to the data.
@@ -2325,7 +2830,8 @@ class BoostedDecisionTreeClassifier(BaseEstimator, ClassifierMixin):
         self : object
             Returns self.
         """
-        residual = y.copy()
+        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
+        residual = y.copy(); self.estimators_ = []
         for _ in range(self.n_estimators):
             tree = DecisionTreeClassifier(max_depth=self.max_depth)
             tree.fit(X, residual)
@@ -2351,6 +2857,15 @@ class BoostedDecisionTreeClassifier(BaseEstimator, ClassifierMixin):
         y_pred : array-like of shape (n_samples,)
             The predicted class labels.
         """
+        self.inspect 
+        
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
+        
         cumulative_prediction = np.zeros(X.shape[0])
 
         for tree in self.estimators_:
@@ -2358,6 +2873,20 @@ class BoostedDecisionTreeClassifier(BaseEstimator, ClassifierMixin):
 
         # Thresholding to convert to binary classification
         return np.where(cumulative_prediction > 0.5, 1, 0)
+    
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'estimators_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1 
 
 class RegressionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
     """
@@ -2401,8 +2930,7 @@ class RegressionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
         self.n_estimators = n_estimators
         self.max_depth = max_depth
         self.random_state = random_state
-        self.estimators_ = []
-
+        
     def fit(self, X, y):
         """
         Fit the Regression Tree Ensemble Classifier model to the data.
@@ -2419,6 +2947,8 @@ class RegressionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
         self : object
             Returns self.
         """
+        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
+        self.estimators_ = []
         for _ in range(self.n_estimators):
             tree = DecisionTreeClassifier(max_depth=self.max_depth, 
                                           random_state=self.random_state)
@@ -2441,12 +2971,33 @@ class RegressionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
         y_pred : array-like of shape (n_samples,)
             The predicted class labels.
         """
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
+        
+        self.inspect 
         predictions = np.array([tree.predict(X) for tree in self.estimators_])
         # Majority voting
         y_pred = stats.mode(predictions, axis=0).mode[0]
         return y_pred
 
-
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'estimators_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1 
+    
 class HybridBRTEnsembleClassifier(BaseEstimator, ClassifierMixin):
     """
     Hybrid Boosted Regression Tree Ensemble Classifier.
@@ -2488,11 +3039,12 @@ class HybridBRTEnsembleClassifier(BaseEstimator, ClassifierMixin):
     def __init__(self, n_estimators=10, gb_params=None):
         self.n_estimators = n_estimators
         self.gb_params = gb_params or {}
-        self.gb_ensembles_ = []
+        
 
     def fit(self, X, y):
         """
-        Fit the Hybrid Boosted Regression Tree Ensemble Classifier model to the data.
+        Fit the Hybrid Boosted Regression Tree Ensemble Classifier 
+        model to the data.
 
         Parameters
         ----------
@@ -2506,6 +3058,8 @@ class HybridBRTEnsembleClassifier(BaseEstimator, ClassifierMixin):
         self : object
             Returns self.
         """
+        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
+        self.gb_ensembles_ = []
         for _ in range(self.n_estimators):
             gb = GradientBoostingClassifier(**self.gb_params)
             gb.fit(X, y)
@@ -2515,7 +3069,8 @@ class HybridBRTEnsembleClassifier(BaseEstimator, ClassifierMixin):
 
     def predict(self, X):
         """
-        Predict using the Hybrid Boosted Regression Tree Ensemble Classifier model.
+        Predict using the Hybrid Boosted Regression Tree Ensemble 
+        Classifier model.
 
         Parameters
         ----------
@@ -2527,11 +3082,34 @@ class HybridBRTEnsembleClassifier(BaseEstimator, ClassifierMixin):
         y_pred : array-like of shape (n_samples,)
             The predicted class labels.
         """
+        self.inspect
+        
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
+        
         predictions = np.array([gb.predict(X) for gb in self.gb_ensembles_])
         # Majority voting for classification
         y_pred = stats.mode(predictions, axis=0).mode[0]
         return y_pred
-
+    
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'gb_ensembles_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1 
+    
 class WeightedAverageClassifier(BaseEstimator, ClassifierMixin):
     """
     Weighted Average Ensemble Classifier.
@@ -2583,7 +3161,7 @@ class WeightedAverageClassifier(BaseEstimator, ClassifierMixin):
     def __init__(self, base_classifiers, weights):
         self.base_classifiers = base_classifiers
         self.weights = weights
-        self.classifiers_ = []
+        
 
     def fit(self, X, y):
         """
@@ -2601,6 +3179,8 @@ class WeightedAverageClassifier(BaseEstimator, ClassifierMixin):
         self : object
             Returns self.
         """
+        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
+        self.classifiers_ = []
         for clf in self.base_classifiers:
             fitted_clf = clf.fit(X, y)
             self.classifiers_.append(fitted_clf)
@@ -2621,7 +3201,17 @@ class WeightedAverageClassifier(BaseEstimator, ClassifierMixin):
         y_pred : array-like of shape (n_samples,)
             The predicted class labels.
         """
-        weighted_sum = np.zeros((X.shape[0], len(np.unique(self.classifiers_[0].classes_))))
+        self.inspect 
+        
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
+        
+        weighted_sum = np.zeros(
+            (X.shape[0], len(np.unique(self.classifiers_[0].classes_))))
 
         for clf, weight in zip(self.classifiers_, self.weights):
             probabilities = clf.predict_proba(X)
@@ -2629,6 +3219,20 @@ class WeightedAverageClassifier(BaseEstimator, ClassifierMixin):
 
         return np.argmax(weighted_sum, axis=1)
 
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'classifiers_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1 
+    
 class SimpleAverageClassifier(BaseEstimator, ClassifierMixin):
     """
     Simple Average Ensemble Classifier.
@@ -2668,7 +3272,7 @@ class SimpleAverageClassifier(BaseEstimator, ClassifierMixin):
 
     def __init__(self, base_classifiers):
         self.base_classifiers = base_classifiers
-        self.classifiers_ = []
+        
 
     def fit(self, X, y):
         """
@@ -2686,6 +3290,8 @@ class SimpleAverageClassifier(BaseEstimator, ClassifierMixin):
         self : object
             Returns self.
         """
+        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
+        self.classifiers_ = []
         for clf in self.base_classifiers:
             fitted_clf = clf.fit(X, y)
             self.classifiers_.append(fitted_clf)
@@ -2706,66 +3312,143 @@ class SimpleAverageClassifier(BaseEstimator, ClassifierMixin):
         y_pred : array-like of shape (n_samples,)
             The predicted class labels.
         """
+        self.inspect 
+        
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
+        
         avg_proba = np.mean([clf.predict_proba(X) for clf in self.classifiers_], axis=0)
         y_pred = np.argmax(avg_proba, axis=1)
         return y_pred
 
-def get_params (obj: object 
-                ) -> dict: 
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'classifiers_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1 
+
+class StandardEstimator:
+    """Base class for all classes in gofast for parameters retrievals
+
+    Notes
+    -----
+    All class defined should specify all the parameters that can be set
+    at the class level in their ``__init__`` as explicit keyword
+    arguments (no ``*args`` or ``**kwargs``).
     """
-    Get object parameters. 
-    
-    Object can be callable or instances 
-    
-    :param obj: object , can be callable or instance 
-    
-    :return: dict of parameters values 
-    
-    :examples: 
-    >>> from sklearn.svm import SVC 
-    >>> from gofast.base import get_params 
-    >>> sigmoid= SVC (
-        **{
-            'C': 512.0,
-            'coef0': 0,
-            'degree': 1,
-            'gamma': 0.001953125,
-            'kernel': 'sigmoid',
-            'tol': 1.0 
-            }
-        )
-    >>> pvalues = get_params( sigmoid)
-    >>> {'decision_function_shape': 'ovr',
-         'break_ties': False,
-         'kernel': 'sigmoid',
-         'degree': 1,
-         'gamma': 0.001953125,
-         'coef0': 0,
-         'tol': 1.0,
-         'C': 512.0,
-         'nu': 0.0,
-         'epsilon': 0.0,
-         'shrinking': True,
-         'probability': False,
-         'cache_size': 200,
-         'class_weight': None,
-         'verbose': False,
-         'max_iter': -1,
-         'random_state': None
-     }
-    """
-    if hasattr (obj, '__call__'): 
-        cls_or_func_signature = inspect.signature(obj)
-        PARAMS_VALUES = {k: None if v.default is (inspect.Parameter.empty 
-                         or ...) else v.default 
-                    for k, v in cls_or_func_signature.parameters.items()
-                    # if v.default is not inspect.Parameter.empty
-                    }
-    elif hasattr(obj, '__dict__'): 
-        PARAMS_VALUES = {k:v  for k, v in obj.__dict__.items() 
-                         if not (k.endswith('_') or k.startswith('_'))}
-    
-    return PARAMS_VALUES
+
+    @classmethod
+    def _get_param_names(cls):
+        """Get parameter names for the estimator"""
+        # fetch the constructor or the original constructor before
+        # deprecation wrapping if any
+        init = getattr(cls.__init__, "deprecated_original", cls.__init__)
+        if init is object.__init__:
+            # No explicit constructor to introspect
+            return []
+
+        # introspect the constructor arguments to find the model parameters
+        # to represent
+        init_signature = inspect.signature(init)
+        # Consider the constructor parameters excluding 'self'
+        parameters = [
+            p
+            for p in init_signature.parameters.values()
+            if p.name != "self" and p.kind != p.VAR_KEYWORD
+        ]
+        for p in parameters:
+            if p.kind == p.VAR_POSITIONAL:
+                raise RuntimeError(
+                    "gofast classes should always "
+                    "specify their parameters in the signature"
+                    " of their __init__ (no varargs)."
+                    " %s with constructor %s doesn't "
+                    " follow this convention." % (cls, init_signature)
+                )
+        # Extract and sort argument names excluding 'self'
+        return sorted([p.name for p in parameters])
+
+    def get_params(self, deep=True):
+        """
+        Get parameters for this estimator.
+
+        Parameters
+        ----------
+        deep : bool, default=True
+            If True, will return the parameters for this class and
+            contained subobjects.
+
+        Returns
+        -------
+        params : dict
+            Parameter names mapped to their values.
+        """
+        out = dict()
+        for key in self._get_param_names():
+            value = getattr(self, key)
+            if deep and hasattr(value, "get_params"):
+                deep_items = value.get_params().items()
+                out.update((key + "__" + k, val) for k, val in deep_items)
+            out[key] = value
+        return out
+
+    def set_params(self, **params):
+        """Set the parameters of this estimator.
+
+        The method works on simple classes as well as on nested objects
+        (such as :class:`~sklearn.pipeline.Pipeline`). The latter have
+        parameters of the form ``<component>__<parameter>`` so that it's
+        possible to update each component of a nested object.
+
+        Parameters
+        ----------
+        **params : dict
+            Estimator parameters.
+
+        Returns
+        -------
+        self : estimator instance
+            Estimator instance.
+        """
+        if not params:
+            # Simple optimization to gain speed (inspect is slow)
+            return self
+        valid_params = self.get_params(deep=True)
+
+        nested_params = defaultdict(dict)  # grouped by prefix
+        for key, value in params.items():
+            key, delim, sub_key = key.partition("__")
+            if key not in valid_params:
+                local_valid_params = self._get_param_names()
+                raise ValueError(
+                    f"Invalid parameter {key!r} for estimator {self}. "
+                    f"Valid parameters are: {local_valid_params!r}."
+                )
+
+            if delim:
+                nested_params[key][sub_key] = value
+            else:
+                setattr(self, key, value)
+                valid_params[key] = value
+
+        for key, sub_params in nested_params.items():
+            valid_params[key].set_params(**sub_params)
+
+        return self
+  
+
 
 
 

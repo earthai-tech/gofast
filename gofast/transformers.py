@@ -9,17 +9,16 @@ from __future__ import division, annotations
 
 import os
 import inspect
+import itertools 
 import warnings 
 import numpy as np 
 import pandas as pd 
 from scipy import sparse
 import matplotlib.pyplot as plt  
 # from pandas.api.types import is_integer_dtype
-from sklearn.model_selection import ( 
-    train_test_split, 
-    StratifiedShuffleSplit
-    ) 
+from sklearn.base import BaseEstimator,TransformerMixin 
 from sklearn.cluster import KMeans 
+from sklearn.decomposition import PCA
 from sklearn.preprocessing import ( 
     StandardScaler,
     MinMaxScaler,
@@ -30,12 +29,10 @@ from sklearn.preprocessing import (
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import SelectFromModel
-from sklearn.decomposition import PCA
 from sklearn.impute import SimpleImputer
-from sklearn.base import ( 
-    BaseEstimator,
-    TransformerMixin 
-)
+from sklearn.metrics import recall_score, precision_score
+from sklearn.metrics import accuracy_score,  roc_auc_score
+from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
 try : 
     from skimage.transform import resize
     from skimage.color import rgb2gray
@@ -48,7 +45,7 @@ except : pass
 
 from ._gofastlog import gofastlog 
 from ._typing import F 
-from .exceptions import EstimatorError
+from .exceptions import EstimatorError, NotFittedError 
 from .tools.funcutils import ( 
     _assert_all_types, 
     parse_attrs , 
@@ -56,14 +53,11 @@ from .tools.funcutils import (
     assert_ratio, 
     ellipsis2false
     )
-from .tools.mlutils import (  
-    discretize_categories, 
-    stratify_categories, 
-    existfeatures 
-    )
-
-from .tools.validator import get_estimator_name 
+from .tools.mlutils import (discretize_categories, stratify_categories, 
+    existfeatures )
 from .tools._dependency import import_optional_dependency 
+from .tools.validator import ( get_estimator_name, check_X_y,
+                              _is_arraylike_1d, build_data_if)
 
 EMSG = (
         "`scikit-image` is needed"
@@ -75,7 +69,8 @@ EMSG = (
 __docformat__='restructuredtext'
 _logger = gofastlog().get_gofast_logger(__name__)
 
-__all__= ['KMeansFeaturizer',
+__all__= ['SequentialBackwardSelection',
+          'KMeansFeaturizer',
           'StratifiedWithCategoryAdder',
           'StratifiedUsingBaseCategory', 
           'CategorizeFeatures', 
@@ -113,10 +108,259 @@ __all__= ['KMeansFeaturizer',
           'ImageHistogramEqualizer', 
           'ImagePCAColorAugmenter', 
           'ImageBatchLoader', 
-          
           ]
 
-class KMeansFeaturizer:
+class SequentialBackwardSelection (BaseEstimator, TransformerMixin ):
+    r"""
+    Sequential Backward Selection (SBS) is a feature selection algorithm which 
+    aims to reduce dimensionality of the initial feature subspace with a 
+    minimum decay  in the performance of the classifier to improve upon 
+    computationan efficiency. In certains cases, SBS can even improve the 
+    predictive power of the model if a model suffers from overfitting. 
+    
+    The idea behind the SBS is simple: it sequentially removes features 
+    from the full feature subset until the new feature subspace contains the 
+    desired number of features. In order to determine which feature is to be 
+    removed at each stage, the criterion fonction :math:`J` is needed for 
+    minimization [1]_. 
+    Indeed, the criterion calculated from the criteria function can simply be 
+    the difference in performance of the classifier before and after the 
+    removal of this particular feature. Then, the feature to be remove at each 
+    stage can simply be the defined as the feature that maximizes this 
+    criterion; or in more simple terms, at each stage, the feature that causes 
+    the least performance is eliminated loss after removal. Based on the 
+    preceding definition of SBS, the algorithm can be outlibe with a few steps:
+        
+        - Initialize the algorithm with :math:`k=d`, where :math:`d` is the 
+            dimensionality of the full feature space, :math:`X_d`. 
+        - Determine the feature :math:`x^{-}`,that maximizes the criterion: 
+            :math:`x^{-}= argmax J(X_k-x)`, where :math:`x\in X_k`. 
+        - Remove the feature :math:`x^{-}` from the feature set 
+            :math:`X_{k+1}= X_k -x^{-}; k=k-1`.
+        -Terminate if :math:`k` equals to the number of desired features; 
+            otherwise go to the step 2. [2]_ 
+            
+    Parameters 
+    -----------
+    estimator: callable or instanciated object,
+        callable or instance object that has a fit method. 
+    k_features: int, default=1 
+        the number of features from where starting the selection. It must be 
+        less than the number of feature in the training set, otherwise it 
+        does not make sense. 
+    scoring: callable or str , default='accuracy'
+        metric for scoring. availabe metric are 'precision', 'recall', 
+        'roc_auc' or 'accuracy'. Any other metric with raise an errors. 
+    test_size : float or int, default=None
+        If float, should be between 0.0 and 1.0 and represent the proportion
+        of the dataset to include in the test split. If int, represents the
+        absolute number of test samples. If None, the value is set to the
+        complement of the train size. If ``train_size`` is also None, it will
+        be set to 0.25. 
+        
+    random_state : int, RandomState instance or None, default=None
+        Controls the shuffling applied to the data before applying the split.
+        Pass an int for reproducible output across multiple function calls.
+
+    References 
+    -----------
+    .. [1] Raschka, S., Mirjalili, V., 2019. Python Machine Learning, 3rd ed. Packt.
+    .. [2] Ferri F., Pudil F., Hatef M., and Kittler J., Comparative study of 
+        the techniques for Large-scale feature selection, pages 403-413, 1994.
+    
+    Attributes 
+    -----------
+    feature_names_in_ : ndarray of shape (`n_features_in_`,)
+        Names of features seen during :term:`fit`. Defined only when `X`
+        has feature names that are all strings.
+        
+    indices_: tuple of dimensionnality X
+        Collect the indices of subset of the best validated models 
+        
+    subsets_: list, 
+        list of `indices_` 
+        
+    scores_: list, 
+        Collection of the scores of the best model got during the
+        cross-validating 
+        
+    k_score_: float, 
+        The score of the desired feature. 
+        
+    Examples
+    --------
+    >>> from gofast.exlib.sklearn import KNeighborsClassifier , train_test_split
+    >>> from gofast.datasets import fetch_data
+    >>> from gofast.base import SequentialBackwardSelection
+    >>> X, y = fetch_data('bagoue analysed') # data already standardized
+    >>> Xtrain, Xt, ytrain,  yt = train_test_split(X, y)
+    >>> knn = KNeighborsClassifier(n_neighbors=5)
+    >>> sbs= SequentialBackwardSelection (knn)
+    >>> sbs.fit(Xtrain, ytrain )
+
+    """
+    _scorers = dict (accuracy = accuracy_score , recall = recall_score , 
+                   precision = precision_score, roc_auc= roc_auc_score 
+                   )
+    def __init__ (self, estimator=None , k_features=1 , 
+                  scoring ='accuracy', test_size = .25 , 
+                  random_state = 42 ): 
+        self.estimator=estimator 
+        self.k_features=k_features 
+        self.scoring=scoring 
+        self.test_size=test_size
+        self.random_state=random_state 
+        
+    def fit(self, X, y) :
+        """  Fit the training data 
+        
+        Note that SBS splits the datasets into a test and training insite the 
+        fit function. :math:`X` is still fed to the algorithm. Indeed, SBS 
+        will then create a new training subsets for testing (validation) and 
+        training , which is why this test set is also called the validation 
+        dataset. This approach is necessary to prevent our original test set 
+        to becoming part of the training data. 
+        
+        Parameters 
+        ----------
+        X:  Ndarray ( M x N matrix where ``M=m-samples``, & ``N=n-features``)
+            Training set; Denotes data that is observed at training and 
+            prediction time, used as independent variables in learning. 
+            When a matrix, each sample may be represented by a feature vector, 
+            or a vector of precomputed (dis)similarity with each training 
+            sample. :code:`X` may also not be a matrix, and may require a 
+            feature extractor or a pairwise metric to turn it into one  before 
+            learning a model.
+        y: array-like, shape (M, ) ``M=m-samples``, 
+            train target; Denotes data that may be observed at training time 
+            as the dependent variable in learning, but which is unavailable 
+            at prediction time, and is usually the target of prediction. 
+        
+        Returns 
+        --------
+        self: `SequentialBackwardSelection` instance 
+            returns ``self`` for easy method chaining.
+        
+        """
+        X, y = check_X_y(
+            X, 
+            y, 
+            estimator = get_estimator_name(self ), 
+            to_frame= True, 
+            )
+        
+        self._check_sbs_args(X)
+        
+        if hasattr(X, 'columns'): 
+            self.feature_names_in = list(X.columns )
+            X = X.values 
+            
+        Xtr, Xt,  ytr, yt = train_test_split(X, y , test_size=self.test_size, 
+                                            random_state=self.random_state 
+                                            )
+        dim = Xtr.shape [1] 
+        self.indices_= tuple (range (dim))
+        self.subsets_= [self.indices_]
+        score = self._compute_score(Xtr, Xt,  ytr, yt, self.indices_)
+        self.scores_=[score]
+        # compute the score for p indices in 
+        # list indices in dimensions 
+        while dim > self.k_features: 
+            scores , subsets = [], []
+            for p in itertools.combinations(self.indices_, r=dim-1):
+                score = self._compute_score(Xtr, Xt,  ytr, yt, p)
+                scores.append (score) 
+                subsets.append (p)
+            
+            best = np.argmax (scores) 
+            self.indices_= subsets [best]
+            self.subsets_.append(self.indices_)
+            dim -=1 # go back for -1 
+            
+            self.scores_.append (scores[best])
+            
+        # set  the k_feature score 
+        self.k_score_= self.scores_[-1]
+        
+        return self 
+        
+    def transform (self, X): 
+        """ Transform the training set 
+        
+        Parameters 
+        ----------
+        X:  Ndarray ( M x N matrix where ``M=m-samples``, & ``N=n-features``)
+            Training set; Denotes data that is observed at training and 
+            prediction time, used as independent variables in learning. 
+            When a matrix, each sample may be represented by a feature vector, 
+            or a vector of precomputed (dis)similarity with each training 
+            sample. :code:`X` may also not be a matrix, and may require a 
+            feature extractor or a pairwise metric to turn it into one  before 
+            learning a model.
+        Returns 
+        -------
+        X:  Ndarray ( M x N matrix where ``M=m-samples``, & ``N=n-features``)
+            New transformed training set with selected features columns 
+        
+        """
+        if not hasattr (self, 'indices_'): 
+            raise NotFittedError(
+                "Can't call transform with estimator not fitted yet."
+                " Fit estimator by calling the 'fit' method with appropriate"
+                " arguments.")
+        return X[:, self.indices_]
+    
+    def _compute_score (self, Xtr, Xt,  ytr, yt, indices):
+        """ Compute score from splitting `X` and indices """
+        self.estimator.fit(Xtr[:, indices], ytr)
+        y_pred = self.estimator.predict (Xt [:, indices])
+        score = self.scoring (yt, y_pred)
+        
+        return score 
+
+    def _check_sbs_args (self, X): 
+        """ Assert SBS main arguments  """
+        
+        if not hasattr(self.estimator, 'fit'): 
+            raise TypeError ("Estimator must have a 'fit' method.")
+        try : 
+            self.k_features = int (self.k_features)
+        except  Exception as err: 
+            raise TypeError ("Expect an integer for number of feature k,"
+                             f" got {type(self.k_features).__name__!r}"
+                             ) from err
+        if self.k_features > X.shape [1] :
+            raise ValueError ("Too many number of features."
+                              f" Expect max-features={X.shape[1]}")
+        if  ( 
+            callable(self.scoring) 
+            or inspect.isfunction ( self.scoring )
+            ): 
+            self.scoring = self.scoring.__name__.replace ('_score', '')
+        
+        if self.scoring not in self._scorers.keys(): 
+            raise ValueError (
+                f"Accept only scorers {list (self._scorers.keys())}"
+                f"for scoring, not {self.scoring!r}")
+            
+        self.scoring = self._scorers[self.scoring] 
+        
+        self.scorer_name_ = self.scoring.__name__.replace (
+            '_score', '').title ()
+        
+    def __repr__(self): 
+        """ Represent the  Sequential Backward Selection class """
+        get_params = self.get_params()  
+        get_params.pop('scoring')
+        if hasattr (self, 'scorer_name_'): 
+            get_params ['scoring'] =self.scorer_name_ 
+        
+        tup = tuple (f"{key}={val}".replace ("'", '') for key, val in 
+                     get_params.items() )
+        
+        return self.__class__.__name__ + str(tup).replace("'", "") 
+    
+class KMeansFeaturizer(BaseEstimator, TransformerMixin):
     """Transforms numeric data into k-means cluster memberships.
      
     This transformer runs k-means on the input data and converts each data point
@@ -625,77 +869,68 @@ class CategorizeFeatures(BaseEstimator, TransformerMixin ):
     """ Transform numerical features into categorical features and return 
     a new array transformed. 
     
-    Arguments 
-    ----------
-    *num_columns_properties*: list 
-        list composed ofnumerical `features name`, list of 
-        `features boundaries` with their `categorized names`.
-            
-    Notes
-    ------
-    From the boundaries values including, features values can be transformed.
-    `num_columns_properties` is composed of:
-        
-    - `feature name` or index equals to 'flow`' or index of flow ='12' 
-    - `features boundaries` equals to ``[0., 1., 3]`` may correspond to:
-        
-        - 0: features flow values with equal to 0. By default the begining 
-            value like 0 is unranged.
-        - 0-1: replace values ranged between 0 and 1. 
-        - 1-3:replace values ranged between 1-3 
-        - >3 : get all values greater than 3. by default categorize values 
-            greater than  the last  values. 
-        If the default classification is not suitable, create your own range
-            values like ``[[0-1], [1-3], 3] (1)``
-            
-    - `categorized names`: Be sure that if the value is provided as  without 
-        ranging like (1). The number of `categorized values` must be 
-        the size of the `features boundaries` +1. For instance, we try to 
-        replace all numerical values in column `flow` by ::
-            
-            -FR0 : all fllow egal to 0. 
-            -FR1: flow between 0-1 
-            -FR2: flow between 1-3 
-            -FR3: flow greater than 3. 
-        As you can see the `features boundaries` [0., 1., 3]size is equal 
-        to `categorized name`['FR0', 'FR1', 'FR2', 'FR3'] size +1. 
-            
-    Usage
-    ------
-    Can categorize multiples features by setting each component explained 
-    above as list of tuples. For instance we try to replace the both 
-    numerical features `power` and `flow` in the dataframe by their 
-    corresponding `features` boundaries. Here is how to set  the 
-    `num_columns_properties` :: 
-        
-        num_columns_porperties =[
-            ('flow', ([0, 1, 3], ['FR0', 'FR1', 'FR2', 'FR3'])),
-            ('power', ([10, 30, 100], ['pw0', 'pw1', 'pw2', 'pw4']))
-            ]
-            
+    Parameters  
+    ------------
+    columns: list,
+       List of the columns to encode the labels 
+       
+    func: callable, 
+       Function to apply the label accordingly. Label must be included in 
+       the columns values.
+       
+    categories: dict, Optional 
+       Dictionnary of column names(`key`) and labels (`values`) to 
+       map the labels.  
+       
+    get_dummies: bool, default=False 
+      returns a new encoded DataFrame  with binary columns 
+      for each category within the specified categorical columns.
+
+    parse_cols: bool, default=False
+      If `columns` parameter is listed as string, `parse_cols` can defaultly 
+      constructs an iterable objects. 
+    
+    return_cat_codes: bool, default=False 
+       return the categorical codes that used for mapping variables. 
+       if `func` is applied, mapper returns an empty dict. 
+       
+    
     Examples
     --------
-    >>> from gofast.transformers import  CategorizeFeatures
-    >>> from gofast.tools.mlutils import load_data 
-    >>> df= mlfunc.load_data('data/geo_fdata')
-    >>> catObj = CategorizeFeatures(
-        num_columns_properties=num_columns_porperties )
-    >>> X= catObj.fit_transform(df)
-    >>> catObj.in_values_
-    >>> catObj.out_values_
-    
+    >>> from gofast.datasets import make_mining_ops 
+    >>> from gofast.transformers import CategorizeFeatures
+    >>> X = make_mining_ops (samples =20, as_frame =True ) 
+    >>> cf = CategorizeFeatures (columns =['OreType', 'EquipmentType']) 
+    >>> Xtransformed = cf.fit_transform (X)
+    >>> Xtransformed.head(7) 
+       OreType  EquipmentType
+    0        1              3
+    1        0              3
+    2        1              3
+    3        1              3
+    4        0              0
+    5        1              0
+    6        2              2
+    >>> cf.cat_codes_
+    {'OreType': {1: 'Type2', 0: 'Type1', 2: 'Type3'},
+     'EquipmentType': {3: 'Truck', 0: 'Drill', 2: 'Loader', 1: 'Excavator'}}
     """
     
-    def __init__(self, num_columns_properties=None): 
+    def __init__(
+        self, 
+        columns: list =None, 
+        func: F=None, 
+        categories: dict=None, 
+        get_dummies:bool=..., 
+        parse_cols:bool =..., 
+        ): 
         self._logging= gofastlog().get_gofast_logger(self.__class__.__name__)
-        
-        self.num_columns_properties=num_columns_properties  
-        
-        self.base_columns_=None
-        self.in_values_ = None
-        self.out_values_ = None
-        self.base_columns_ix_=None 
-  
+        self.columns =columns 
+        self.func=func
+        self.categories=categories 
+        self.get_dummies =get_dummies 
+        self.parse_cols=parse_cols 
+ 
     def fit(self, X, y=None):
         """ 
         Parameters 
@@ -710,9 +945,7 @@ class CategorizeFeatures(BaseEstimator, TransformerMixin ):
             feature extractor or a pairwise metric to turn it into one  before 
             learning a model.
         y: array-like, shape (M, ) ``M=m-samples``, 
-            train target; Denotes data that may be observed at training time 
-            as the dependent variable in learning, but which is unavailable 
-            at prediction time, and is usually the target of prediction. 
+            y is passed for API purpose. It does nothing.  
             
         Returns 
         --------
@@ -727,103 +960,31 @@ class CategorizeFeatures(BaseEstimator, TransformerMixin ):
         from scikit_learn.
         
         """
-        
-        self.base_columns_ = [n_[0] for  n_ in self.num_columns_properties]
-        self.in_values_ = [n_[1][0] for  n_ in self.num_columns_properties]
-        self.out_values_ = [n_[1][1] for  n_ in self.num_columns_properties]
-        # X_dtype =''
-        if isinstance(self.base_columns_, (list, tuple)): 
-            self.base_columns_ =np.array(self.base_columns_)
-            
-        if np.array(self.base_columns_).dtype in ['int', 'float']: 
-            self.base_columns_.astype(np.int32)
-            
-            #in the case indexes are provided 
-            self.base_columns_ix_ = self.base_columns_ 
-            
-        # check whether X is unique array or array_like.
-        try: 
-            X.shape[1]
-        except IndexError: 
-            if isinstance(X, pd.Series):
-            # if X.__class__.__name__ =='Series': 
-                X= X.values 
-            # X_dtype = 'unik__'
-            
-        except RuntimeError : 
-            # handle other possible errors.
-            # X_dtype = 'unik__'
-            pass
-        else : 
-            if X.shape[1]==1: 
-                X=X.reshape((X.shape[0]),)
-                # X_dtype ='unik__'
-             
-         #XXX NEED A FIX 
-        # if X_dtype =='unik__': 
-        #        X =  categorize_flow(X, self.in_values_[0],
-        #                             classes=self.out_values_[0] )
-        #        self.base_columns_ix_ =(0,)
-               
-        #        return X
-        # now 
-        if isinstance(X, pd.DataFrame): 
-            X= self.ascertain_mumerical_values(X)    
-            
-        # if self.base_columns_ix_ is not None: 
-        #     for ii, ix_ in enumerate(self.base_columns_ix_): 
-        #         X[:, ix_]=categorize_flow(X[:, ix_], 
-        #                                   self.in_values_[ii],
-        #                                   classes=self.out_values_[ii]
-        #                                   )
-                
-        self.base_columns_ =tuple(self.base_columns_)
-        self.in_values_ = tuple(self.in_values_)
-        self.out_values_ = tuple(self.out_values_)
-        self.base_columns_ix_ = tuple(self.base_columns_ix_)
+        # now work with categorize data 
+        # -------------------------------------------
+        from .tools.mlutils import codify_variables 
+        # -------------------------------------------
+        if _is_arraylike_1d(X): 
+            raise ValueError ("One-dimensional or Series is not allowed."
+                              " Use sklearn.preprocessing.LabelEncoder or "
+                              " gofast.tools.smart_label_classier to encode"
+                              " variables.")
+        X = build_data_if(X, to_frame =True, force =True,
+                          raise_warning="silence", input_name='col')
+        X, self.num_columns_, self.cat_columns_ = to_numeric_dtypes(
+            X, return_feature_types=True
+            )
+        X, self.cat_codes_ = codify_variables( 
+            X ,
+            columns = self.columns, 
+            func =self.func, 
+            categories=self.categories, 
+            get_dummies=self.get_dummies,
+            return_cat_codes=True
+            )
         
         return X 
     
-    def ascertain_mumerical_values(self, X, y=None): 
-        """ Retreive indexes from mumerical attributes and return a dataframe
-        values especially if `X` is dataframe else returns values of array."""
-        
-        # ascertain dataframe whether there is an categorial values. 
-        try:
-            # if isinstance(X, pd.DataFrame)
-            list_of_numerical_cols= X.select_dtypes(
-                exclude=['object']).columns.tolist()
-    
-        except AttributeError: 
-            # if 'numpy.ndarray' object has no attribute 'select_dtypes'
-            list_of_numerical_cols= []
-            
-        t_=[]
-        # return X if no numeruical columns found
-        if len(list_of_numerical_cols) ==0 : 
-            self._logging.info('`None`numerical columns detected.')
-            warnings.warn('None numerical columns detected.It seems')
-            
-            return X.values 
-        
-        for bcol in self.base_columns_:
-            for dfcols in list_of_numerical_cols: 
-                if dfcols.lower() == bcol.lower(): 
-                    t_.append(dfcols)
-                    break 
-           
-        if len(t_) ==0: 
-            self._logging.info(
-                f'Numerical features `{self.base_columns_}`not found in'\
-                '`{list_of_numerical_cols}`')
-               
-            return  X.values 
-        
-        # get base columns index 
-        self.base_columns_ix_ =[ int(X.columns.get_loc(col_n))
-                                for col_n in self.base_columns_]
-        
-        return X.values 
 
 class CombinedAttributesAdder(BaseEstimator, TransformerMixin ):
     """ Combined attributes from litteral string operators, indexes or names. 
@@ -2463,16 +2624,17 @@ class SeasonalDecomposeTransformer(BaseEstimator, TransformerMixin):
     >>> X = pd.DataFrame({'value': np.random.randn(100)})
     >>> decomposed = transformer.fit_transform(X)
     """
-    import_optional_dependency("statsmodels")
-    
+
     def __init__(self, model='additive', freq=1):
         self.model = model
         self.freq = freq
         
     def fit(self, X, y=None):
+        import_optional_dependency("statsmodels")
         return self
     
     def transform(self, X, y=None):
+        
         result = seasonal_decompose(X, model=self.model, freq=self.freq)
         return pd.concat([result.seasonal, result.trend, result.resid], axis=1)
 
@@ -2551,11 +2713,12 @@ class ImageResizer(BaseEstimator, TransformerMixin):
     >>> image = np.random.rand(256, 256, 3)
     >>> resized_image = resizer.transform(image)
     """
-    import_optional_dependency ('skimage', extra = EMSG )
+    
     def __init__(self, output_size):
         self.output_size = output_size
         
     def fit(self, X, y=None):
+        import_optional_dependency ('skimage', extra = EMSG )
         return self
     
     def transform(self, X):
@@ -2599,11 +2762,12 @@ class ImageToGrayscale(BaseEstimator, TransformerMixin):
     >>> image = np.random.rand(256, 256, 3)
     >>> grayscale_image = converter.transform(image)
     """
-    import_optional_dependency ('skimage', extra = EMSG )
+    
     def __init__(self, keep_dims=False):
         self.keep_dims = keep_dims
         
     def fit(self, X, y=None):
+        import_optional_dependency ('skimage', extra = EMSG )
         return self
     
     def transform(self, X):
@@ -2711,11 +2875,12 @@ class ImageEdgeDetector(BaseEstimator, TransformerMixin):
     >>> image = np.random.rand(256, 256)
     >>> edges = detector.transform(image)
     """
-    import_optional_dependency ('skimage', extra = EMSG )
+    
     def __init__(self, method='sobel'):
         self.method = method
         
     def fit(self, X, y=None):
+        import_optional_dependency ('skimage', extra = EMSG )
         return self
     
     def transform(self, X):
@@ -2741,11 +2906,12 @@ class ImageHistogramEqualizer(BaseEstimator, TransformerMixin):
     >>> image = np.random.rand(256, 256)
     >>> equalized_image = equalizer.transform(image)
     """
-    import_optional_dependency ('skimage', extra = EMSG )
+    
     def fit(self, X, y=None):
         return self
     
     def transform(self, X):
+        import_optional_dependency ('skimage', extra = EMSG )
         return equalize_hist(X)
 
 class ImagePCAColorAugmenter(BaseEstimator, TransformerMixin):
@@ -2798,12 +2964,13 @@ class ImageBatchLoader(BaseEstimator, TransformerMixin):
     >>> for batch in loader.transform():
     >>>     process(batch)
     """
-    import_optional_dependency ('skimage', extra = EMSG )
+    
     def __init__(self, batch_size, directory):
         self.batch_size = batch_size
         self.directory = directory
         
     def fit(self, X, y=None):
+        import_optional_dependency ('skimage', extra = EMSG )
         return self
     
     def transform(self, X=None, y=None):

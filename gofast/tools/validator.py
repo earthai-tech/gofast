@@ -1403,7 +1403,6 @@ def check_X_y(
         If a CSR, CSC, COO or BSR sparse matrix is supplied and accepted by
         accept_sparse, accept_large_sparse will cause it to be accepted only
         if its indices are stored with a 32-bit dtype.
-        .. versionadded:: 0.20
     dtype : 'numeric', type, list of type or None, default='numeric'
         Data type of result. If None, the dtype of the input is preserved.
         If "numeric", dtype is preserved unless array.dtype is object.
@@ -1449,6 +1448,7 @@ def check_X_y(
         algorithms.
     estimator : str or estimator instance, default=None
         If passed, include the name of the estimator in warning messages.
+        
     Returns
     -------
     X_converted : object

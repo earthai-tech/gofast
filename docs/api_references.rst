@@ -33,15 +33,15 @@ To utilize the functionalities offered by the GoFast API, import the required su
 
 .. code-block:: python
 
-   import gofast as gf 
-   from gofast.tools import speed_rowwise_process
-   from gofast.estimators import HammersteinWienerRegressor
+   import gofast as gf  # or
+   from gofast.tools import speed_rowwise_process #or
+   from gofast.estimators import HammersteinWienerRegressor #or 
+   from gofast.models.optimize import parallelize_estimators
 
-Each subpackage is designed with a user-friendly interface, ensuring easy access and integration 
+Each sub-package is designed with a user-friendly interface, ensuring easy access and integration 
 into data science workflows. Whether you are conducting exploratory data analysis, building complex 
 machine learning models, or creating insightful visualizations, the GoFast API provides the necessary 
 tools and functions to streamline your work.
-
 
 The :code:`GoFast` library provides a range of utilities designed to accelerate 
 machine learning workflows. This API reference provides detailed documentation for all the modules, 
@@ -168,8 +168,8 @@ expedite research and analysis.
    datasets.load_nlogs 
    datasets.load_mxs 
    datasets.make_sounding 
-   datasets.make_african_demo 
-   datasets.make_agronomy
+   datasets.make_african_demo_info 
+   datasets.make_agronomy_feedback
    datasets.make_cc_factors
    datasets.make_elogging 
    datasets.make_erp 
@@ -210,15 +210,20 @@ Classes
    :toctree: generated/
    :template: class.rst
 
-   estimators.AdalineGradientDescent
-   estimators.AdalineStochasticGradientDescent
+   estimators.AdalineClassifier
+   estimators.AdalineRegressor
+   estimators.AdalineMixte
+   estimators.AdalineStochasticClassifier
+   estimators.AdalineStochasticRegressor
    estimators.BasePerceptron
-   estimators.BoostedDecisionTreeClassifier
+   estimators.BoostedClassifierTree
    estimators.BoostedRegressionTree
+   estimators.GradientDescentClassifier
+   estimators.GradientDescentRegressor
    estimators.HammersteinWienerEnsemble
    estimators.HammersteinWienerRegressor
    estimators.HybridBRTEnsembleClassifier
-   estimators.HybridBoostedRegressionTree
+   estimators.HybridBRTRegressor
    estimators.MajorityVoteClassifier
    estimators.NeuroFuzzyEnsemble
    estimators.RegressionTreeBasedClassifier
@@ -503,7 +508,7 @@ streamlining workflows and improving productivity. The list of the tools are not
 :mod:`gofast.plot`: Visualization 
 ==================================
 
-"The 'Visualizations' module combines 'Exploratory Plots' and 
+mod:`gofast.plot` sub-package combines 'Exploratory Plots' and 
 'Evaluation Plots' along with versatile 'Plot Utilities.' This 
 module empowers users to explore, analyze, and evaluate data 
 efficiently through insightful visual representations to enhance 
@@ -740,8 +745,9 @@ users to prepare their datasets for machine learning and analysis.
 
 .. autosummary::
    :toctree: generated/
-   :template: function.rst
+   :template: class.rst
 
+   transformers.SequentialBackwardSelection
    transformers.KMeansFeaturizer
    transformers.StratifiedWithCategoryAdder
    transformers.StratifiedUsingBaseCategory 
