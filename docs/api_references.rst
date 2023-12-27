@@ -178,6 +178,7 @@ expedite research and analysis.
    datasets.make_medical_diagnostic 
    datasets.make_mining_ops
    datasets.make_retail_store 
+   datasets.make_social_media_comments
    datasets.make_tem 
    datasets.make_water_demand
    datasets.make_well_logging 
@@ -534,9 +535,10 @@ Classes
    :toctree: generated/
    :template: class.rst
 
-   view.EasyPlotter
-   view.EvalPlotter
-   view.QuestPlotter
+   plot.EasyPlotter
+   plot.EvalPlotter
+   plot.MetricPlotter
+   plot.QuestPlotter
 
 Methods
 ~~~~~~~~~~~~
@@ -605,10 +607,25 @@ optimization process.
    :toctree: generated/
    :template: function.rst
 
-    view.EvalPlotter.plotPCA
-	view.EvalPlotter.plotPR
-	view.EvalPlotter.plotROC
-	view.EvalPlotter.plotConfusionMatrix
+    plot.EvalPlotter.plotPCA
+	plot.EvalPlotter.plotPR
+	plot.EvalPlotter.plotROC
+	plot.EvalPlotter.plotRobustPCA
+	plot.EvalPlotter.plotConfusionMatrix
+	plot.MetricPlotter.plot_confusion_matrix
+	plot.MetricPlotter.plot_roc_curve
+	plot.MetricPlotter.plot_precision_recall_curve
+	plot.MetricPlotter.plot_learning_curve
+	plot.MetricPlotter.plot_silhouette
+	plot.MetricPlotter.plot_lift_curve
+	plot.MetricPlotter.plot_cumulative_gain
+	plot.MetricPlotter.plot_precision_recall_per_class
+	plot.MetricPlotter.plot_actual_vs_predicted
+	plot.MetricPlotter.plot_feature_importance
+	plot.MetricPlotter.plot_heatmap
+	plot.MetricPlotter.plot_box
+	plot.MetricPlotter.plot_histogram
+	plot.MetricPlotter.plot_2d
 	
 Functions
 ~~~~~~~~~~~~
@@ -751,9 +768,13 @@ users to prepare their datasets for machine learning and analysis.
    :toctree: generated/
    :template: class.rst
 
+   transformers.AttributesCombinator
    transformers.SequentialBackwardSelection
    transformers.KMeansFeaturizer
-   transformers.StratifiedWithCategoryAdder
+   transformers.StratifyFromBaseFeature
+   transformers.BaseColumnSelector 
+   transformers.BaseCategoricalEncoder 
+   transformers.BaseFeatureScaler 
    transformers.CategoryBaseStratifier 
    transformers.CategorizeFeatures
    transformers.FrameUnion

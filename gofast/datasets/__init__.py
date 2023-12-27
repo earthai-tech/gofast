@@ -26,6 +26,7 @@ from ._create import (
     make_sounding, 
     make_african_demo, 
     make_agronomy_feedback,
+    make_social_media_comments,
     make_cc_factors, 
     make_water_demand, 
     )
@@ -49,6 +50,7 @@ __all__=[
          "make_african_demo", 
          "make_cc_factors",
          "make_agronomy_feedback",
+         "make_social_media_comments", 
          "make_water_demand", 
          "DATASET", 
          ]

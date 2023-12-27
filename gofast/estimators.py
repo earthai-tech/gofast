@@ -1648,7 +1648,6 @@ class AdalineClassifier(BaseEstimator, ClassifierMixin):
 
     """
 
-
     def __init__(self, eta=0.01, n_iter=50, random_state=None ):
         self.eta = eta
         self.n_iter = n_iter

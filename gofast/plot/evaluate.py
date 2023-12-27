@@ -25,10 +25,13 @@ from matplotlib.colors import BoundaryNorm
 
 from sklearn.model_selection import learning_curve , train_test_split
 from sklearn.metrics import mean_squared_error, silhouette_samples
-from sklearn.preprocessing import StandardScaler, MinMaxScaler 
+from sklearn.metrics import  silhouette_score
+from sklearn.metrics import confusion_matrix, roc_curve, auc, precision_recall_curve
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, label_binarize
 from sklearn.cluster import KMeans 
 from sklearn.impute import   SimpleImputer
-
+try: from scikitplot.metrics import plot_cumulative_gain, plot_lift_curve
+except: pass 
 from .._gofastlog import gofastlog
 from .._docstring import _core_docs, _baseplot_params, DocstringComponents
 from .._typing import  (Optional, Tuple, _F, List, ArrayLike, NDArray, 
@@ -38,6 +41,7 @@ from ..decorators import  docSanitizer
 from ..exceptions import NotFittedError, LearningError, EstimatorError, PlotError
 from ..metrics import precision_recall_tradeoff, roc_curve_, confusion_matrix_
 from ..property import BasePlot 
+from ..tools._dependency import import_optional_dependency 
 from ..tools.baseutils import _is_readable 
 from ..tools.funcutils import ( is_iterable, reshape, to_numeric_dtypes, 
                               smart_strobj_recognition, repr_callable_obj ,
@@ -120,6 +124,540 @@ _param_docs = DocstringComponents.from_nested_components(
     evdoc=DocstringComponents(_eval_params), 
     )
 #-------
+
+class MetricPlotter (BasePlot):
+    def __init__(self, line_style='-',
+                 line_width=2, 
+                 color_map='viridis'):
+        """
+        Initializes the PlotClass with custom plot styles.
+
+        Parameters
+        ----------
+        line_style : str, optional
+            The line style for the plots (default is '-').
+        line_width : int, optional
+            The line width for the plots (default is 2).
+        color_map : str, optional
+            The color map for the plots (default is 'viridis').
+        """
+        self.line_style = line_style
+        self.line_width = line_width
+        self.color_map = color_map
+
+    def plot_confusion_matrix(self, y_true, y_pred, class_names):
+        """
+        Plots a confusion matrix.
+
+        Parameters
+        ----------
+        y_true : array-like
+            True class labels.
+        y_pred : array-like
+            Predicted class labels by the model.
+        class_names : list
+            A list of class names in the order they are encoded.
+        """
+        cm = confusion_matrix(y_true, y_pred)
+        fig, ax = plt.subplots()
+        im = ax.imshow(cm, interpolation='nearest', cmap=self.color_map)
+        ax.figure.colorbar(im, ax=ax)
+        ax.set(xticks=np.arange(cm.shape[1]),
+               yticks=np.arange(cm.shape[0]),
+               xticklabels=class_names, yticklabels=class_names,
+               title='Confusion Matrix',
+               ylabel='True label',
+               xlabel='Predicted label')
+
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
+                 rotation_mode="anchor")
+
+        fmt = 'd'
+        thresh = cm.max() / 2.
+        for i in range(cm.shape[0]):
+            for j in range(cm.shape[1]):
+                ax.text(j, i, format(cm[i, j], fmt),
+                        ha="center", va="center",
+                        color="white" if cm[i, j] > thresh else "black")
+        fig.tight_layout()
+
+    def plot_roc_curve(self, y_true, y_scores):
+        """
+        Plots a Receiver Operating Characteristic (ROC) curve.
+
+        Parameters
+        ----------
+        y_true : array-like
+            True binary class labels.
+        y_scores : array-like
+            Target scores, probability estimates of the positive class.
+        """
+        fpr, tpr, _ = roc_curve(y_true, y_scores)
+        roc_auc = auc(fpr, tpr)
+
+        plt.figure()
+        plt.plot(fpr, tpr, color='darkorange', lw=self.line_width,
+                 linestyle=self.line_style,
+                 label=f'ROC curve (area = {roc_auc:.2f})')
+        plt.plot([0, 1], [0, 1], color='navy', lw=self.line_width,
+                 linestyle='--')
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.title('Receiver Operating Characteristic')
+        plt.legend(loc="lower right")
+        plt.show()
+
+    def plot_precision_recall_curve(self, y_true, y_scores):
+        """
+        Plots a precision-recall curve.
+
+        Parameters
+        ----------
+        y_true : array-like
+            True binary class labels.
+        y_scores : array-like
+            Target scores, probability estimates of the positive class.
+        """
+        precision, recall, _ = precision_recall_curve(y_true, y_scores)
+
+        plt.figure()
+        plt.plot(recall, precision, color='blue', lw=self.line_width,
+                 linestyle=self.line_style)
+        plt.xlabel('Recall')
+        plt.ylabel('Precision')
+        plt.title('Precision-Recall curve')
+        plt.show()
+
+    def plot_learning_curve(self, estimator, X, y, cv):
+        """
+        Plots a learning curve.
+
+        Parameters
+        ----------
+        estimator : object
+            An estimator instance implementing 'fit' and 'predict'.
+        X : array-like, shape (n_samples, n_features)
+            Training vector, where n_samples is the number of samples and
+            n_features is the number of features.
+        y : array-like, shape (n_samples,)
+            Target relative to X for classification or regression.
+        cv : int, cross-validation generator or an iterable
+            Determines the cross-validation splitting strategy.
+        """
+        train_sizes, train_scores, test_scores = learning_curve(estimator, X, y, cv=cv)
+        train_scores_mean = np.mean(train_scores, axis=1)
+        train_scores_std = np.std(train_scores, axis=1)
+        test_scores_mean = np.mean(test_scores, axis=1)
+        test_scores_std = np.std(test_scores, axis=1)
+
+        plt.figure()
+        plt.fill_between(train_sizes, train_scores_mean - train_scores_std,
+                         train_scores_mean + train_scores_std, alpha=0.1, color="r")
+        plt.fill_between(train_sizes, test_scores_mean - test_scores_std,
+                         test_scores_mean + test_scores_std, alpha=0.1, color="g")
+        plt.plot(train_sizes, train_scores_mean, 'o-', color="r", lw=self.line_width,
+                 linestyle=self.line_style, label="Training score")
+        plt.plot(train_sizes, test_scores_mean, 'o-', color="g", lw=self.line_width,
+                 linestyle=self.line_style, label="Cross-validation score")
+
+        plt.xlabel("Training examples")
+        plt.ylabel("Score")
+        plt.title("Learning Curve")
+        plt.legend(loc="best")
+        plt.show()
+    
+    def plot_2d(self, X, x_feature, y_feature, groups=None,
+                xlabel=None, ylabel=None, title=None):
+      """
+      Plots a two-dimensional graph of two features from the dataset.
+
+      Parameters
+      ----------
+      X : DataFrame or ndarray
+          The dataset containing the features to be plotted.
+
+      x_feature : str or int
+          The name or index of the feature to be plotted on the x-axis.
+
+      y_feature : str or int
+          The name or index of the feature to be plotted on the y-axis.
+
+      groups : Series or array-like, optional
+          Group labels for the data points; used to color the points in 
+          the plot. Default is None.
+
+      xlabel : str, optional
+          The label for the x-axis. Default is the name of x_feature.
+
+      ylabel : str, optional
+          The label for the y-axis. Default is the name of y_feature.
+
+      title : str, optional
+          The title of the plot. Default is None.
+
+      Returns
+      -------
+      None
+      """
+      if isinstance(X, pd.DataFrame):
+          x_values = X[x_feature]
+          y_values = X[y_feature]
+      else:  # ndarray
+          x_values = X[:, x_feature]
+          y_values = X[:, y_feature]
+
+      plt.figure()
+      scatter = plt.scatter(x_values, y_values, c=groups,
+                            cmap=self.color_map, edgecolor='k')
+      
+      if groups is not None:
+          plt.legend(*scatter.legend_elements(), title="Groups")
+
+      plt.xlabel(xlabel if xlabel else x_feature)
+      plt.ylabel(ylabel if ylabel else y_feature)
+      plt.title(title if title else f'{x_feature} vs {y_feature}')
+      plt.grid(True)
+      plt.show()
+
+
+    def plot_histogram(self, data, feature, bins=30, xlabel=None,
+                       ylabel='Frequency', title=None):
+        """
+        Plots a histogram for a given feature.
+
+        Parameters
+        ----------
+        data : DataFrame or ndarray
+            The dataset containing the feature.
+
+        feature : str or int
+            The feature for which to plot the histogram. A column name 
+            if 'data' is a DataFrame,or an index if 'data' is an ndarray.
+
+        bins : int, optional
+            The number of bins to use for the histogram.
+
+        xlabel : str, optional
+            The label for the x-axis. Defaults to the feature name.
+
+        ylabel : str, optional
+            The label for the y-axis. Defaults to 'Frequency'.
+
+        title : str, optional
+            The title of the plot. Defaults to a generic title.
+        """
+        plt.figure()
+        if isinstance(data, pd.DataFrame):
+            plt.hist(data[feature], bins=bins, color='skyblue',
+                     edgecolor='black')
+            xlabel = xlabel if xlabel else feature
+        else:  # ndarray
+            plt.hist(data[:, feature], bins=bins, color='skyblue',
+                     edgecolor='black')
+            xlabel = xlabel if xlabel else f'Feature {feature}'
+
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.title(title if title else f'Histogram of {xlabel}')
+        plt.show()
+
+    def plot_box(self, data, feature, by=None, xlabel=None,
+                 ylabel=None, title=None):
+        """
+        Plots a box plot for a given feature, optionally grouped by
+        another feature.
+
+        Parameters
+        ----------
+        data : DataFrame
+            The dataset containing the features.
+
+        feature : str
+            The feature for which to plot the box plot.
+
+        by : str, optional
+            A feature by which to group the data.
+
+        xlabel : str, optional
+            The label for the x-axis. Defaults to the grouping feature name.
+
+        ylabel : str, optional
+            The label for the y-axis. Defaults to the plotted feature name.
+
+        title : str, optional
+            The title of the plot. Defaults to a generic title.
+        """
+        plt.figure()
+        data.boxplot(column=feature, by=by)
+        plt.xlabel(xlabel if xlabel else (by if by else ''))
+        plt.ylabel(ylabel if ylabel else feature)
+        plt.title(title if title else f'Box Plot of {feature}')
+        if by:
+            plt.suptitle('')
+        plt.show()
+
+    def plot_heatmap(self, data, xlabel=None, ylabel=None, title='Heatmap'):
+        """
+        Plots a heatmap, useful for visualizing correlations or 2D data.
+
+        Parameters
+        ----------
+        data : DataFrame or ndarray
+            The 2D dataset to plot.
+
+        xlabel : str, optional
+            The label for the x-axis.
+
+        ylabel : str, optional
+            The label for the y-axis.
+
+        title : str, optional
+            The title of the plot. Defaults to 'Heatmap'.
+        """
+        plt.figure()
+        sns.heatmap(data, annot=True, fmt=".2f", cmap=self.color_map)
+        plt.xlabel(xlabel if xlabel else '')
+        plt.ylabel(ylabel if ylabel else '')
+        plt.title(title)
+        plt.show()
+
+    def plot_feature_importance(self, feature_names, importances,
+                                title='Feature Importances'):
+        """
+        Plots a bar chart of feature importances.
+
+        Parameters
+        ----------
+        feature_names : list
+            List of names of the features.
+        importances : list or array
+            The importance scores of the features.
+        title : str, optional
+            The title of the plot. Defaults to 'Feature Importances'.
+        """
+        indices = np.argsort(importances)[::-1]
+        sorted_names = [feature_names[i] for i in indices]
+        sorted_importances = importances[indices]
+
+        plt.figure()
+        plt.bar(range(len(importances)), sorted_importances, align='center')
+        plt.xticks(range(len(importances)), sorted_names, rotation=45, ha='right')
+        plt.title(title)
+        plt.show()
+
+    def plot_actual_vs_predicted(self, y_actual, y_predicted,
+                                 title='Actual vs Predicted'):
+        """
+        Plots a scatter plot to compare actual and predicted values.
+
+        Parameters
+        ----------
+        y_actual : array-like
+            The actual target values.
+        y_predicted : array-like
+            The predicted target values.
+        title : str, optional
+            The title of the plot. Defaults to 'Actual vs Predicted'.
+        """
+        plt.figure()
+        plt.scatter(y_actual, y_predicted, edgecolor='k', alpha=0.7)
+        plt.xlabel('Actual Values')
+        plt.ylabel('Predicted Values')
+        plt.title(title)
+        plt.plot([y_actual.min(), y_actual.max()], [y_actual.min(),
+                                                    y_actual.max()], 'k--', lw=2)
+        plt.show()
+
+    def plot_precision_recall_per_class(
+            self, y_true, y_scores,n_classes,
+            title='Precision-Recall per Class'):
+        """
+        Plots precision-recall curves for each class in multi-class
+        classification.
+
+        Parameters
+        ----------
+        y_true : array-like
+            True class labels in one-hot encoded format.
+        y_scores : array-like
+            Target scores (probabilities or decision function) for each class.
+        n_classes : int
+            The number of classes.
+        title : str, optional
+            The title of the plot. Defaults to 'Precision-Recall per Class'.
+        """
+        
+        y_true_bin = label_binarize(y_true, classes=range(n_classes))
+
+        plt.figure()
+        for i in range(n_classes):
+            precision, recall, _ = precision_recall_curve(y_true_bin[:, i], y_scores[:, i])
+            plt.plot(recall, precision, lw=2, label=f'Class {i}')
+
+        plt.xlabel('Recall')
+        plt.ylabel('Precision')
+        plt.title(title)
+        plt.legend(loc='best')
+        plt.show()
+
+    def plot_cumulative_gain(self, y_true, y_probas, title='Cumulative Gains Curve'):
+        """
+        Plots a cumulative gain curve for a binary classification model.
+
+        Parameters
+        ----------
+        y_true : array-like
+            True binary class labels.
+        y_probas : array-like
+            Probability estimates of the positive class.
+
+        title : str, optional
+            The title of the plot. Defaults to 'Cumulative Gains Curve'.
+        """
+        import_optional_dependency ('scikitplot')
+        plt.figure()
+        plot_cumulative_gain(y_true, y_probas)
+        plt.title(title)
+        plt.show()
+
+    def plot_lift_curve(self, y_true, y_probas, title='Lift Curve'):
+        """
+        Plots a lift curve for a binary classification model.
+
+        Parameters
+        ----------
+        y_true : array-like
+            True binary class labels.
+        y_probas : array-like
+            Probability estimates of the positive class.
+
+        title : str, optional
+            The title of the plot. Defaults to 'Lift Curve'.
+        """
+        import_optional_dependency ('scikitplot')
+        plt.figure()
+        plot_lift_curve(y_true, y_probas)
+        plt.title(title)
+        plt.show()
+
+    def plot_silhouette(
+            self, X, cluster_labels, n_clusters, title='Silhouette Plot'):
+        """
+        Plots a silhouette plot for the cluster labels of the dataset.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Feature matrix.
+        
+        cluster_labels : array-like of shape (n_samples,)
+            Cluster labels for each point.
+
+        n_clusters : int
+            The number of clusters.
+
+        title : str, optional
+            The title of the plot. Defaults to 'Silhouette Plot'.
+        """
+        silhouette_avg = silhouette_score(X, cluster_labels)
+        sample_silhouette_values = silhouette_samples(X, cluster_labels)
+
+        plt.figure()
+        y_lower = 10
+        for i in range(n_clusters):
+            ith_cluster_silhouette_values = sample_silhouette_values[cluster_labels == i]
+            ith_cluster_silhouette_values.sort()
+
+            size_cluster_i = ith_cluster_silhouette_values.shape[0]
+            y_upper = y_lower + size_cluster_i
+
+            color = cm.nipy_spectral(float(i) / n_clusters)
+            plt.fill_betweenx(np.arange(y_lower, y_upper), 0,
+                              ith_cluster_silhouette_values,
+                              facecolor=color, 
+                              edgecolor=color, alpha=0.7)
+            y_lower = y_upper + 10
+
+        plt.title(title)
+        plt.xlabel("Silhouette coefficient values")
+        plt.ylabel("Cluster label")
+
+        plt.axvline(x=silhouette_avg, color="red", linestyle="--")
+        plt.yticks([])
+        plt.show()
+        
+MetricPlotter.__doc__="""\
+A class to visualize the results of machine learning models.
+
+This class provides methods to plot confusion matrices, ROC curves,
+precision-recall curves, and learning curves.
+
+Methods
+-------
+plot_confusion_matrix(y_true, y_pred, class_names)
+    Plots a confusion matrix.
+
+plot_roc_curve(y_true, y_scores)
+    Plots a Receiver Operating Characteristic (ROC) curve.
+
+plot_precision_recall_curve(y_true, y_scores)
+    Plots a precision-recall curve.
+
+plot_learning_curve(estimator, X, y, cv)
+    Plots a learning curve.
+    
+Attributes
+----------
+line_style : str
+    The line style for the plots.
+line_width : int
+    The line width for the plots.
+color_map : str
+    The color map for the plots.
+    
+Examples
+--------
+>>> from gofast,plot import MetricPlotter 
+>>> plotter = MetricPlotter()
+>>> import seaborn as sns
+>>> iris = sns.load_dataset('iris')
+>>> # Plotting examples
+>>> plotter.plot_histogram(iris, 'sepal_length', 
+                           title='Sepal Length Distribution')
+>>> plotter.plot_box(iris, 'sepal_width', by='species', 
+                     title='Sepal Width by Species')
+
+>>> plotter.plot_heatmap(iris.corr(), title='Iris Feature Correlations')
+>>> feature_names = ['feature1', 'feature2', 'feature3']
+>>> importances = np.random.rand(3)
+>>> plotter.plot_feature_importance(feature_names, importances)
+>>> y_actual = np.random.rand(100)
+>>> y_predicted = np.random.rand(100)
+>>> plotter.plot_actual_vs_predicted(y_actual, y_predicted)
+>>> # Assuming multi-class classification with 3 classes
+>>> y_true = np.random.randint(0, 3, 100)
+>>> y_scores = np.random.rand(100, 3)
+>>> plotter.plot_precision_recall_per_class(
+    y_true, y_scores, n_classes=3)
+
+>>> # Example data for cumulative gain and lift curve
+>>> y_true = np.array([0, 1, 1, 0])
+>>> y_probas = np.array([[0.7, 0.3], [0.4, 0.6], [0.6, 0.4], [0.8, 0.2]])
+
+>>> plotter.plot_cumulative_gain(y_true, y_probas)
+>>> plotter.plot_lift_curve(y_true, y_probas)
+
+>>> # Example data for silhouette plot
+>>> from sklearn.cluster import KMeans
+>>> from sklearn.datasets import make_blobs
+
+>>> X, y = make_blobs(n_samples=300, n_features=2, centers=4, 
+                      cluster_std=1.0, random_state=10)
+>>> kmeans = KMeans(n_clusters=4, random_state=10).fit(X)
+>>> cluster_labels = kmeans.labels_
+>>> plotter.plot_silhouette(X, cluster_labels, n_clusters=4)
+"""
+
 class EvalPlotter(BasePlot): 
     def __init__(self, 
         tname:str =None, 
@@ -386,6 +924,172 @@ class EvalPlotter(BasePlot):
             
         return y , classes 
 
+    def plotRobustPCA(self, X, n_components=None, n_axes=2, biplot=False,
+                pc1_label='Axis 1',
+                pc2_label='Axis 2', plot_dict=None, **pca_kws):
+        """
+        Plots PCA component analysis using sklearn's PCA implementation.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The training input samples.
+
+        n_components : int or float, optional
+            Number of dimensions to preserve. If a float between 0 and 1,
+            it represents the ratio of variance to preserve. If None (default),
+            95% of variance is preserved.
+
+        n_axes : int, default=2
+            Number of principal components to plot. Defaults to 2.
+
+        biplot : bool, default=False
+            If True, plots PCA feature importance (pc1 and pc2) and visualizes
+            the level of variance and direction of components for different variables.
+
+        pc1_label : str, default='Axis 1'
+            Label for the first principal component axis.
+
+        pc2_label : str, default='Axis 2'
+            Label for the second principal component axis.
+
+        plot_dict : dict, optional
+            Dictionary of plot properties like colors and marker sizes.
+
+        pca_kws : dict
+            Additional keyword arguments passed to sklearn's PCA.
+
+        Returns
+        -------
+        EvalPlotter
+            The instance itself for method chaining.
+        """
+
+        # Setup and perform PCA analysis
+        pca = nPCA(n_components=n_components, **pca_kws)
+        X_pca = pca.fit_transform(X)
+        n_axes = min(n_axes, X_pca.shape[1])
+
+        # Extract labels for PCA axes
+        pca_axes_labels = self._extract_pca_labels([pc1_label, pc2_label], n_axes)
+
+        # Plotting
+        self._setup_plot(plot_dict)
+        if biplot:
+            self._plot_biplot(X_pca, pca, pca_axes_labels)
+        else:
+            self._plot_pca_components(X_pca, pca, pca_axes_labels, plot_dict)
+
+        return self
+
+    def _extract_pca_labels(self, labels, n_axes):
+        """
+        Extract numeric labels from PCA axis labels.
+
+        Parameters
+        ----------
+        labels : list
+            List of PCA axis labels.
+
+        n_axes : int
+            Number of PCA axes to consider.
+
+        Returns
+        -------
+        list
+            Numeric labels for PCA axes.
+        """
+        numeric_labels = []
+        for label in labels:
+            try:
+                num = int(re.findall(r'\d+', label)[0])
+                numeric_labels.append(min(num - 1, n_axes - 1))
+            except IndexError:
+                numeric_labels.append(0)
+        return numeric_labels
+
+    def _setup_plot(self, plot_dict):
+        """
+        Sets up plot properties from the provided dictionary.
+
+        Parameters
+        ----------
+        plot_dict : dict
+            Dictionary of plot properties.
+
+        Returns
+        -------
+        None
+        """
+        # Default plot configurations
+        default_dict = {'y_colors': ['b', 'g', 'r', 'c', 'm', 'y', 'k'], 's': 100}
+        self.plot_config = {**default_dict, **(plot_dict or {})}
+
+    def _plot_biplot(self, X_pca, pca, pca_axes_labels):
+        """
+        Plots a biplot for PCA analysis.
+
+        Parameters
+        ----------
+        X_pca : array-like
+            PCA transformed data.
+
+        pca : PCA
+            PCA object after fitting.
+
+        pca_axes_labels : list
+            List of numeric labels for PCA axes.
+
+        Returns
+        -------
+        None
+        """
+        # Additional implementation for biplot
+        mpl.rcParams.update(mpl.rcParamsDefault) 
+        # reset ggplot style
+        # Call the biplot function for only the first 2 PCs
+        cmp_= np.concatenate((pca.components_[pca1_ix, :], 
+                              pca.components_[pca2_ix, :]))
+        try: 
+            plot_unified_pca( np.transpose(cmp_), self.X, y,
+                    classes=classes, 
+                    colors=y_palettes )
+        except : 
+            # plot defaults configurations  
+            plot_unified_pca( np.transpose(pca.components_[0:2, :]),
+                    X_reduced[:,:2],y, 
+                    classes=classes, 
+                    colors=y_palettes )
+ 
+        plt.show()
+        
+        return  
+        pass
+
+    def _plot_pca_components(self, X_pca, pca, pca_axes_labels, plot_dict):
+        """
+        Plots the specified PCA components.
+
+        Parameters
+        ----------
+        X_pca : array-like
+            PCA transformed data.
+
+        pca : PCA
+            PCA object after fitting.
+
+        pca_axes_labels : list
+            List of numeric labels for PCA axes.
+
+        plot_dict : dict
+            Dictionary of plot properties.
+
+        Returns
+        -------
+        None
+        """
+        # Additional implementation for PCA component plotting
+        pass
 
     def plotPCA(
             self,

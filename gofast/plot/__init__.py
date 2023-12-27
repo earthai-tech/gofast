@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from .evaluate import  EvalPlotter 
+from .evaluate import  EvalPlotter, MetricPlotter 
 from .evaluate import ( 
     plot_unified_pca, 
     plot_learning_inspection, 
@@ -13,7 +13,7 @@ from .evaluate import (
     plot_reg_scoring, 
     plot_matshow, 
     plot_model_scores,
-    plot2d  
+    plot2d,  
     pobj as plot_obj
     )
 from .explore import EasyPlotter, QuestPlotter
@@ -43,6 +43,7 @@ from .utils import (
     )
 
 __all__= [
+    "MetricPlotter", 
     "plot_unified_pca", 
     "EvalPlotter", 
     "EasyPlotter" , 

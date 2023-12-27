@@ -61,11 +61,15 @@ _logger = gofastlog().get_gofast_logger(__name__)
 
 __all__= ['SequentialBackwardSelection',
           'KMeansFeaturizer',
-          'StratifiedWithCategoryAdder',
+          'AttributesCombinator', 
+          'StratifyFromBaseFeature',
           'CategoryBaseStratifier', 
           'CategorizeFeatures', 
           'FrameUnion', 
           'DataFrameSelector',
+          'BaseColumnSelector', 
+          'BaseCategoricalEncoder', 
+          'BaseFeatureScaler', 
           'CombinedAttributesAdder', 
           'FeaturizeX', 
           'TextFeatureExtractor', 
@@ -520,13 +524,8 @@ class KMeansFeaturizer(BaseEstimator, TransformerMixin):
             ) 
         return  outm.format(self.__class__.__name__)
     
-# import numpy as np
-# import pandas as pd
-# from sklearn.base import BaseEstimator, TransformerMixin
-# from sklearn.model_selection import StratifiedShuffleSplit, train_test_split
-# from gofast.log import gofastlog  # Assuming gofastlog is a module in 'gofast'
 
-class StratifiedWithCategoryAdder(BaseEstimator, TransformerMixin):
+class StratifyFromBaseFeature(BaseEstimator, TransformerMixin):
     """
     Stratifies a dataset by categorizing a numerical attribute and returns 
     stratified training and testing sets.
@@ -535,7 +534,7 @@ class StratifiedWithCategoryAdder(BaseEstimator, TransformerMixin):
 
     Parameters:
     ----------
-    base_num_feature : str, optional
+    base_feature : str, optional
         Numerical feature to be categorized for stratification.
 
     threshold_operator : float, default=1.0
@@ -562,7 +561,24 @@ class StratifiedWithCategoryAdder(BaseEstimator, TransformerMixin):
     ----------
     statistics_ : DataFrame or None
         Statistics about the categorization and stratification process.
+    base_class_: list 
+       List composed of the base feature class labels. 
+       
+    Example
+    --------
+    >>> from gofast.transformers import StratifyFromBaseFeature
+    >>> st= StratifyFromBaseFeature('flow') 
+    >>> a, b = st.fit_transform(data)
+    >>> st.statistics_
+    Out[17]: 
+                 Overall (total)    Random  ...  Rand. error (%)  Strat. error (%)
+    class_label                             ...                                   
+    1.0                 0.320186  0.310345  ...        -3.073463          0.516408
+    0.0                 0.354988  0.356322  ...         0.375629          0.375629
+    3.0                 0.141531  0.183908  ...        29.941587         -2.543810
+    2.0                 0.183295  0.149425  ...       -18.478103          0.334643
 
+    [4 rows x 5 columns]
     Notes:
     ------
     The `statistics_` attribute helps evaluate the distribution of the newly
@@ -570,18 +586,17 @@ class StratifiedWithCategoryAdder(BaseEstimator, TransformerMixin):
     stratification.
     """
 
-    def __init__(self, base_num_feature=None, threshold_operator=1.0,
+    def __init__(self, base_feature=None, threshold_operator=1.0,
                  max_category=3, return_train=False, n_splits=1,
                  test_size=0.2, random_state=42):
         self.logger = gofastlog().get_gofast_logger(self.__class__.__name__)
-        self.base_num_feature = base_num_feature
+        self.base_feature = base_feature
         self.threshold_operator = threshold_operator
         self.max_category = max_category
         self.return_train = return_train
         self.n_splits = n_splits
         self.test_size = test_size
         self.random_state = random_state
-        self.statistics_ = None
 
     def fit(self, X, y=None):
         """Fits the transformer to X for sklearn's Transformer API compatibility.
@@ -617,15 +632,20 @@ class StratifiedWithCategoryAdder(BaseEstimator, TransformerMixin):
         tuple of DataFrames
             Stratified training and testing sets.
         """
-        if self.base_num_feature is None:
+        train_set, test_set = train_test_split(X, test_size=self.test_size,
+                                               random_state=self.random_state)
+        if self.base_feature is None:
             self.logger.info('Base numerical feature not provided. '
                              'Using random sampling.')
-            return train_test_split(X, test_size=self.test_size, 
+            return train_test_split(X, test_size=self.test_size,
                                     random_state=self.random_state)
 
         X = self._categorize_feature(X)
+        # split after categorizing the base feature 
+        train_set, test_set = train_test_split(
+            X, test_size=self.test_size,random_state=self.random_state)
         strat_train_set, strat_test_set = self._stratify_dataset(X)
-        self._calculate_statistics(X)
+        self._calculate_statistics(X, test_set, strat_test_set) 
         self._cleanup_temp_columns(X, strat_train_set, strat_test_set)
 
         return (strat_train_set, strat_test_set
@@ -633,7 +653,12 @@ class StratifiedWithCategoryAdder(BaseEstimator, TransformerMixin):
 
     def _categorize_feature(self, X):
         """Categorizes the numerical feature."""
-        # Implement logic to categorize 'base_num_feature' here
+        # Implement logic to categorize 'base_feature' here
+        X = discretize_categories(X, in_cat=self.base_feature, 
+            new_cat="class_label", divby =self.threshold_operator,
+            higherclass = self.max_category
+             )
+        self.base_class_=  list(X["class_label"].value_counts().index.values)
         return X
 
     def _stratify_dataset(self, X):
@@ -644,197 +669,40 @@ class StratifiedWithCategoryAdder(BaseEstimator, TransformerMixin):
         for train_index, test_index in split.split(X, X['temp_feature']):
             return X.loc[train_index], X.loc[test_index]
 
-    def _calculate_statistics(self, X):
-        """Calculates statistics for the stratification process."""
+    def _calculate_statistics(self, X, *test_dataframes ):
+        """Calculates statistics for the stratification process.
         
+        Parameters 
+        -----------
+        X : DataFrame
+            The input DataFrame to be stratified.
+        *test_dataframes: DataFrames 
+           Test data before and after the stratification.  
+        """
+        test_set, strat_test_set = test_dataframes 
         # Implement logic to calculate statistics here
-
+        random_stats= test_set["class_label"].value_counts()/ len(test_set)
+        stratified_stats = strat_test_set["class_label"].value_counts()/len(
+            strat_test_set) 
+        total = X["class_label"].value_counts() /len(X)
+        stats = {
+             "class_label":  np.array (self.base_class_), 
+             "Overall (total)":total, 
+             "Random": random_stats, 
+             "Stratified": stratified_stats,  
+             "Rand. error (%)":  (random_stats /total -1) *100, 
+             "Strat. error (%)":  (stratified_stats /total -1) *100, 
+         }
+        self.statistics_ = pd.DataFrame ( stats )
+        # set a pandas dataframe for inspections attributes `statistics`.
+        self.statistics_.set_index("class_label", inplace=True)
+        
     def _cleanup_temp_columns(self, X, *dataframes):
         """Removes temporary columns used for stratification."""
-        temp_columns = ['temp_feature']  # Add any temporary columns used
+        temp_columns = ["class_label"]  # Add any temporary columns used
         for df in dataframes:
             df.drop(temp_columns, axis=1, inplace=True)
         X.drop(temp_columns, axis=1, inplace=True)
-        
-class StratifiedWithCategoryAdder2( BaseEstimator, TransformerMixin ): 
-    """
-    Stratified sampling transformer based on new generated category 
-    from numerical attributes and return stratified trainset and test set.
-    
-    Parameters  
-    ---------- 
-    base_num_feature: str, 
-        Numerical features to categorize. 
-        
-    threshold_operator: float, 
-        The coefficient to divised the numerical features value to 
-        normalize the data 
-        
-    max_category: Maximum value fits a max category to gather all 
-        value greather than.
-        
-    return_train: bool, 
-        Return the whole stratified trainset if set to ``True``.
-        usefull when the dataset is not enough. It is convenient to 
-        train all the whole trainset rather than a small amount of 
-        stratified data. Sometimes all the stratified data are 
-        not the similar equal one to another especially when the dataset 
-        is not enough.
-        
-    Another way to stratify dataset is to get insights from the dataset and 
-    to add a new category as additional mileage. From this new attributes,
-    data could be stratified after categorizing numerical features. 
-    Once data is tratified, the new category will be drop and return the 
-    train set and testset stratified. For instance::  
-        
-        >>> from gofast.transformers import StratifiedWithCategoryAdder
-        >>> stratifiedNumObj= StratifiedWithCatogoryAdder('flow')
-        >>> stratifiedNumObj.fit_transform(X=df)
-        >>> stats2 = stratifiedNumObj.statistics_
-        
-    Usage
-    ------
-    In this example, we firstly categorize the `flow` attribute using 
-    the ceilvalue (see :func:`~discretizeCategoriesforStratification`) 
-    and groupby other values greater than the ``max_category`` value to the 
-    ``max_category`` andput in the temporary features. From this features 
-    the categorization is performed and stratified the trainset and 
-    the test set.
-        
-    Notes 
-    ------
-    If `base_num_feature` is not given, dataset will be stratified using 
-    random sampling.
-        
-    """
-    
-    def __init__(
-        self,
-        base_num_feature=None,
-        threshold_operator = 1.,
-        return_train=False,
-        max_category=3,
-        n_splits=1, 
-        test_size=0.2, 
-        random_state=42
-        ):
-        
-        self._logging= gofastlog().get_gofast_logger(self.__class__.__name__)
-        
-        self.base_num_feature= base_num_feature
-        self.return_train= return_train
-        self.threshold_operator=  threshold_operator
-        self.max_category = max_category 
-        self.n_splits = n_splits 
-        self.test_size = test_size 
-        self.random_state = random_state 
-        
-        self.base_items_ =None 
-        self.statistics_=None 
-        
-    def fit(self, X, y=None): 
-        """
-        Does nothin just for scikit-learn API purpose. 
-        """
-        return self
-    
-    def transform(self, X, y=None):
-        """Transform data and populate inspections attributes 
-            from hyperparameters.
-            
-         Parameters
-         ----------
-         X : {array-like, sparse matrix} of shape (n_samples, n_features)
-             New data to predict.
-
-         y: Ignored
-            Keep just for API purpose. 
-
-         Returns
-         -------
-         X : {array-like, sparse matrix} of shape (n_samples, n_features)
-             New data transformed.   
-        """
-
-        if self.base_num_feature is not None:
-            in_c= 'temf_'
-            # discretize the new added category from the threshold value
-            X = discretize_categories(
-                                     X,
-                                    in_cat=self.base_num_feature, 
-                                     new_cat=in_c, 
-                                     divby =self.threshold_operator,
-                                     higherclass = self.max_category
-                 )
-
-            self.base_items_ = list(
-            X[in_c].value_counts().index.values)
-        
-            split = StratifiedShuffleSplit(n_splits =self.n_splits,
-                                           test_size =self.test_size, 
-                                           random_state =self.random_state)
-            
-            for train_index, test_index  in split.split(X, X[in_c]): 
-                strat_train_set = X.loc[train_index]
-                strat_test_set = X.loc[test_index] 
-                #keep a copy of all stratified trainset.
-                strat_train_set_copy = X.loc[ np.delete(X.index, test_index)]
-                
-        train_set, test_set = train_test_split( X, test_size = self.test_size,
-                                   random_state= self.random_state)
-        
-        if self.base_num_feature is None or self.n_splits==0:
-            
-            self._logging.info('Stratification not applied! Train and test sets'
-                               'were purely generated using random sampling.')
-            
-            return train_set , test_set 
-            
-        if self.base_num_feature is not None:
-            # get statistic from `in_c` category proportions into the 
-            # the overall dataset 
-            o_ =X[in_c].value_counts() /len(X)
-            r_ = test_set[in_c].value_counts()\
-                /len(test_set)
-            s_ = strat_test_set[in_c].value_counts()\
-                /len( strat_test_set)
-            r_error , s_error = ((r_/ o_)-1)*100, ((s_/ o_)-1)*100
-            
-            self.statistics_ = np.c_[np.array(self.base_items_), 
-                                     o_,
-                                     r_,
-                                     s_, 
-                                     r_error,
-                                     s_error
-                                     ]
-      
-            self.statistics_ = pd.DataFrame(data = self.statistics_,
-                                columns =[in_c, 
-                                          'Overall',
-                                          'Random', 
-                                          'Stratified', 
-                                          'Rand. %error',
-                                          'strat. %error'
-                                          ])
-            
-            # set a pandas dataframe for inspections attributes `statistics`.
-            self.statistics_.set_index(in_c, inplace=True)
-            
-            # remove the add category into the set 
-            for set in(strat_train_set_copy, strat_train_set, strat_test_set): 
-                set.drop([in_c], axis=1, inplace =True)
-                
-            if self.return_train: 
-                strat_train_set = strat_train_set_copy 
-               
-            # force to remove the temporary features for splitting in 
-            # the original dataset
-
-            if in_c in X.columns: 
-                X.drop([in_c], axis =1, inplace=True)
-               
-            return strat_train_set, strat_test_set 
-        
         
 class CategoryBaseStratifier(BaseEstimator, TransformerMixin):
     """
@@ -930,7 +798,6 @@ class CategoryBaseStratifier(BaseEstimator, TransformerMixin):
             The stratified training and testing sets.
         """
         # Implement stratification logic here (e.g., using pd.cut)
-        # Example:
         strat_train_set, strat_test_set = stratify_categories(X, self.base_column)
         return strat_train_set, strat_test_set
 
@@ -1581,7 +1448,7 @@ class DataFrameSelector(BaseEstimator, TransformerMixin):
 
     Attributes:
     -----------
-    columns_ : list
+    features_ : list
         The final list of column names to be selected after considering 
         the input 'columns' and 'select_type'.
 
@@ -1614,10 +1481,10 @@ class DataFrameSelector(BaseEstimator, TransformerMixin):
     """
     def __init__(
         self, 
-        columns=None, 
-        select_type=None, 
-        parse_cols=False, 
-        return_frame=False
+        columns:list=None, 
+        select_type:str=None, 
+        parse_cols:bool=..., 
+        return_frame:bool=...
         ):
         self.columns = columns 
         self.select_type = select_type
@@ -1712,7 +1579,6 @@ class DataFrameSelector(BaseEstimator, TransformerMixin):
         return X if self.return_frame else np.array(X)
 
     
- 
 class FrameUnion(BaseEstimator, TransformerMixin):
     """
     Unified categorical and numerical feature processing.

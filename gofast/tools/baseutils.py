@@ -10,11 +10,14 @@ import copy
 import shutil 
 from six.moves import urllib 
 import pathlib
+import subprocess
+import threading
+import time
 import warnings 
 from joblib import Parallel, delayed
 import numpy as np 
 import pandas as pd 
-
+from tqdm import tqdm
 from .._typing import ( 
     Any, 
     List, 
@@ -961,7 +964,68 @@ def speed_rowwise_process(
 
     return processed_data
     
+
+def run_shell_command(command, progress_bar_duration=30):
+    """
+    Run a shell command with an indeterminate progress bar.
+
+    This function will display a progress bar for a predefined duration while 
+    the package installation command runs in a separate thread. The progress 
+    bar is purely for visual effect and does not reflect the actual 
+    progress of the installation.
+
+    Keep in mind:
     
+    This function assumes that you have tqdm installed (pip install tqdm).
+    The actual progress of the installation isn't tracked; the progress bar 
+    is merely for aesthetics.
+    The function assumes the command is a blocking one 
+    (like most pip install commands) and waits for it to complete.
+    Adjust progress_bar_duration based on how long you expect the installation
+    to take. If the installation finishes before the progress bar, the bar
+    will stop early. If the installation takes longer, the bar will complete, 
+    but the function will continue to wait until the installation is done.
+    
+    Parameters:
+    -----------
+    command : list
+        The command to run, provided as a list of strings.
+
+    progress_bar_duration : int
+        The maximum duration to display the progress bar for, in seconds.
+        Defaults to 30 seconds.
+
+    Returns:
+    --------
+    None
+    
+    Example 
+    -------
+    >>> from gofast.tools.baseutils import run_shell_command 
+    >>> run_with_progress_bar(["pip", "install", "some-package"])
+    """
+    def run_command(command):
+        subprocess.run(command, check=True)
+
+    def show_progress_bar(duration):
+        with tqdm(total=duration, desc="Installing", 
+                  bar_format="{l_bar}{bar}", ncols=100, ascii=True)  as pbar:
+            for i in range(duration):
+                time.sleep(1)
+                pbar.update(1)
+
+    # Start running the command
+    thread = threading.Thread(target=run_command, args=(command,))
+    thread.start()
+
+    # Start the progress bar
+    show_progress_bar(progress_bar_duration)
+
+    # Wait for the command to finish
+    thread.join()
+
+
+
     
     
     

@@ -12,6 +12,8 @@ import numpy as np
 import random
 from datetime import timedelta
 from sklearn.model_selection import train_test_split 
+from ..tools._dependency import import_optional_dependency 
+from ..tools.baseutils import run_shell_command 
 from ..tools.box import Boxspace 
 from ..tools.funcutils import ( 
     ellipsis2false ,
@@ -21,6 +23,146 @@ from ..tools.funcutils import (
     _assert_all_types, 
     add_noises_to
     ) 
+
+def make_social_media_comments(
+    *, samples=1000, 
+    as_frame:bool =..., 
+    return_X_y:bool = ..., 
+    split_X_y:bool= ..., 
+    tnames:list=None,  
+    test_size:float =.3, 
+    noises: float=None, 
+    seed:int | np.random.RandomState = None, 
+    **kws 
+    ):
+    """
+    Generate a synthetic dataset of social media comments.
+
+    This function creates a DataFrame containing simulated social media 
+    comments, including features like comment text, timestamp, 
+    username, and number of likes.
+
+    Parameters
+    ----------
+    n : int, optional
+        The number of comments to generate. Default is 1000.
+
+    as_frame : bool, default=False
+        If True, the data is returned as a pandas DataFrame with appropriately 
+        typed columns (numeric). The target is returned as a pandas DataFrame 
+        or Series, depending on the number of target columns.
+        If `return_X_y` is True, then both `data` and `target` are returned 
+        as pandas DataFrames or Series.
+    
+    return_X_y : bool, default=False
+        If True, returns `(data, target)` instead of a Bowlspace object. 
+        See the "Returns" section below for more information about the 
+        `data` and `target` objects.
+    
+    split_X_y : bool, default=False
+        If True, the dataset is split into training (X, y) and testing (Xt, yt)
+        sets according to the specified test size ratio.
+    
+    tnames : str, optional
+        The name of the target column to retrieve. If `None`, the default 
+        target columns are used, which may result in a multioutput `y`. For 
+        single-output tasks in classification or regression, it's recommended 
+        to specify the target name.
+    
+    test_size : float, default=0.3
+        The proportion of the dataset to be used as the test set. The default
+        is 0.3, meaning 30% of the data is used for testing.
+        
+    noises : float, Optional
+        The percentage of values to be replaced with NaN in each column. 
+        This must be a number between 0 and 1. Default is None.
+        
+    seed : int, array-like, BitGenerator, np.random.RandomState,\
+        np.random.Generator, optional
+        Seed for the random number generator. Accepts an integer, array-like, 
+        or BitGenerator for seeding.
+        If an instance of np.random.RandomState or np.random.Generator 
+        is provided, it will be used as is.
+    
+    Returns
+    -------
+    DataFrame
+        Returns a pandas DataFrame containing the demographic dataset if 
+        `as_frame=True` and `return_X_y=False`.
+        DataFrame
+            A pandas DataFrame with the following columns:
+            - 'username': The username of the commenter.
+            - 'comment': The text of the comment.
+            - 'timestamp': The timestamp of the comment.
+            - 'likes': The number of likes on the comment.
+            
+    data : :class:`~gofast.tools.box.Boxspace` object
+        A dictionary-like object with the following attributes:
+        data : ndarray or DataFrame
+            The data matrix. If `as_frame=True`, `data` is a pandas DataFrame.
+        target : ndarray or Series
+            The classification target. If `as_frame=True`, `target` is a 
+            pandas Series.
+        feature_names : list
+            Names of the dataset columns.
+        target_names : list
+            Names of the target classes.
+        frame : DataFrame
+            Present only when `as_frame=True`. DataFrame with `data` and 
+            `target`.
+    data, target : tuple
+        A tuple of two ndarrays if `return_X_y` is True. The first ndarray
+        is 2D with shape
+        `(n_samples, n_features)`, representing samples and features. The
+        second ndarray has shape`(n_samples,)`, containing target values.
+    
+    X, Xt, y, yt : tuple
+        A tuple of four ndarrays (X, Xt, y, yt) if `split_X_y` is True. The 
+        shapes of these arrays are determined by the test_size ratio as 
+        follows:
+        
+        .. math::
+            \\text{shape}(X, y) = (1 - \\text{test_size}) \\times (n_{samples}, n_{features})
+            \\text{shape}(Xt, yt) = \\text{test_size} \\times (n_{samples}, n_{features})
+    
+        Each row represents a sample and each column represents a feature. 
+        
+    Examples
+    --------
+    >>> df = make_social_media_comments(n=100, seed=42)
+    >>> print(df.head())
+    """
+    if seed is not None:
+        np.random.seed(seed)
+    try: 
+        import_optional_dependency('faker')
+    except: 
+        run_shell_command(["pip", "install", "faker"])
+    # recheck whether faker is well installed
+    import_optional_dependency('Faker')
+    from faker import Faker
+    fake = Faker()
+    Faker.seed(seed)
+
+    data = {
+        'username': [fake.user_name() for _ in range(samples)],
+        'comment': [fake.sentence() for _ in range(samples)],
+        'timestamp': [fake.date_time_this_year() for _ in range(samples)],
+        'likes': np.random.randint(0, 1000, samples)
+    }
+    tnames = list( is_iterable(
+        tnames or 'comment', exclude_string= True, transform =True ) ) 
+    return _manage_data(
+        data,
+        as_frame=as_frame, 
+        return_X_y= return_X_y, 
+        split_X_y=split_X_y, 
+        tnames=tnames, 
+        test_size=test_size,
+        noises= noises, 
+        seed=seed
+        ) 
+
 
 def make_african_demo(*, 
     start_year=1960,
@@ -48,82 +190,83 @@ def make_african_demo(*,
     Parameters
     ----------
     start_year : int
-        The starting year for the dataset (e.g., 1960).
-
+        The starting year for the dataset, e.g., 1960.
+    
     end_year : int
         The ending year for the dataset.
-
+    
     countries : int or list of str
-        A list of African countries to include in the dataset.
-
+        A single integer or a list of country names from Africa to be included 
+        in the dataset.
+    
     as_frame : bool, default=False
-        If True, the data is a pandas DataFrame including columns with
-        appropriate dtypes (numeric). The target is
-        a pandas DataFrame or Series depending on the number of target columns.
-        If `return_X_y` is True, then (`data`, `target`) will be pandas
-        DataFrames or Series as described below.
-
+        If True, the data is returned as a pandas DataFrame with appropriately 
+        typed columns (numeric). The target is returned as a pandas DataFrame 
+        or Series, depending on the number of target columns.
+        If `return_X_y` is True, then both `data` and `target` are returned 
+        as pandas DataFrames or Series.
+    
     return_X_y : bool, default=False
-        If True, returns ``(data, target)`` instead of a Bowlspace object. See
-        below for more information about the `data` and `target` object.
-        
-    split_X_y: bool, default=False,
-        If True, the data is splitted to hold the training set (X, y)  and the 
-        testing set (Xt, yt) with the according to the test size ratio. 
-        
-    tnames: str, optional 
-        the name of the target to retreive. If ``None`` the default target columns 
-        are collected and may be a multioutput `y`. For a singular classification 
-        or regression problem, it is recommended to indicate the name of the target 
-        that is needed for the learning task. 
-        
-    test_size: float, default is {{.3}} i.e. 30% (X, y)
-        The ratio to split the data into training (X, y)  and testing (Xt, yt) set 
-        respectively. 
-        
-    seed: int, array-like, BitGenerator, np.random.RandomState, \
+        If True, returns `(data, target)` instead of a Bowlspace object. 
+        See the "Returns" section below for more information about the 
+        `data` and `target` objects.
+    
+    split_X_y : bool, default=False
+        If True, the dataset is split into training (X, y) and testing (Xt, yt)
+        sets according to the specified test size ratio.
+    
+    tnames : str, optional
+        The name of the target column to retrieve. If `None`, the default 
+        target columns are used, which may result in a multioutput `y`. For 
+        single-output tasks in classification or regression, it's recommended 
+        to specify the target name.
+    
+    test_size : float, default=0.3
+        The proportion of the dataset to be used as the test set. The default
+        is 0.3, meaning 30% of the data is used for testing.
+    
+    seed : int, array-like, BitGenerator, np.random.RandomState,\
         np.random.Generator, optional
-       If int, array-like, or BitGenerator, seed for random number generator. 
-       If np.random.RandomState or np.random.Generator, use as given.
-       
+        Seed for the random number generator. Accepts an integer, array-like, 
+        or BitGenerator for seeding.
+        If an instance of np.random.RandomState or np.random.Generator 
+        is provided, it will be used as is.
+    
     Returns
     -------
-    pd.DataFrame if ``as_frame=True`` and ``return_X_y=False``
-        A DataFrame containing the generated demographic dataset.
+    DataFrame
+        Returns a pandas DataFrame containing the demographic dataset if 
+        `as_frame=True` and `return_X_y=False`.
     data : :class:`~gofast.tools.box.Boxspace` object
-        Dictionary-like object, with the following attributes.
-        data : {ndarray, dataframe} 
-            The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
-        target: {ndarray, Series} 
-            The classification target. If `as_frame=True`, `target` will be
-            a pandas Series.
-        feature_names: list
-            The names of the dataset columns.
-        target_names: list
-            The names of target classes.
-        frame: DataFrame 
-            Only present when `as_frame=True`. DataFrame with `data` and
+        A dictionary-like object with the following attributes:
+        data : ndarray or DataFrame
+            The data matrix. If `as_frame=True`, `data` is a pandas DataFrame.
+        target : ndarray or Series
+            The classification target. If `as_frame=True`, `target` is a 
+            pandas Series.
+        feature_names : list
+            Names of the dataset columns.
+        target_names : list
+            Names of the target classes.
+        frame : DataFrame
+            Present only when `as_frame=True`. DataFrame with `data` and 
             `target`.
-    data, target: tuple if `return_X_y` is ``True``
-        A tuple of two ndarray. The first containing a 2D array of shape
-        (n_samples, n_features) with each row representing one sample and
-        each column representing the features. The second ndarray of shape
-        (n_samples,) containing the target samples.
-
-    X, Xt, y, yt: Tuple if `split_X_y` is ``True`` 
-        A tuple of two ndarray (X, Xt). The first containing a 2D array of:
-            
-        .. math:: 
-            
-            \\text{shape}(X, y) =  1-  \\text{test_ratio} *\
-                (n_{samples}, n_{features}) *100
-            
-            \\text{shape}(Xt, yt)= \\text{test_ratio} * \
-                (n_{samples}, n_{features}) *100
+    data, target : tuple
+        A tuple of two ndarrays if `return_X_y` is True. The first ndarray
+        is 2D with shape
+        `(n_samples, n_features)`, representing samples and features. The
+        second ndarray has shape`(n_samples,)`, containing target values.
+    
+    X, Xt, y, yt : tuple
+        A tuple of four ndarrays (X, Xt, y, yt) if `split_X_y` is True. The 
+        shapes of these arrays are determined by the test_size ratio as 
+        follows:
         
-        where each row representing one sample and each column representing the 
-        features. The second ndarray of shape(n_samples,) containing the target 
-        samples.
+        .. math::
+            \\text{shape}(X, y) = (1 - \\text{test_size}) \\times (n_{samples}, n_{features})
+            \\text{shape}(Xt, yt) = \\text{test_size} \\times (n_{samples}, n_{features})
+    
+        Each row represents a sample and each column represents a feature. 
         
     Example
     -------
@@ -2393,7 +2536,11 @@ def _manage_data(
         
     test_size: float, default is {{.3}} i.e. 30% (X, y)
         The ratio to split the data into training (X, y)  and testing (Xt, yt) set 
-        respectively. 
+        respectively
+        . 
+    noises : float, Optional
+        The percentage of values to be replaced with NaN in each column. 
+        This must be a number between 0 and 1. Default is None.
         
     seed: int, array-like, BitGenerator, np.random.RandomState, \
         np.random.Generator, optional
