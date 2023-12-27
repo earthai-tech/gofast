@@ -697,55 +697,94 @@ class AdalineStochasticRegressor(BaseEstimator, RegressorMixin):
             )
         return 1 
     
-class AdalineStochasticClassifier (BaseEstimator, ClassifierMixin) :
-    r""" Adaptative Linear Neuron Classifier  with batch  (stochastic) 
-    gradient descent 
-    
-    A stochastic gradient descent is a popular alternative algorithm which is  
-    sometimes also called iterative or online gradient descent [1]_. It updates
-    the weights based on the sum of accumulated errors over all training 
-    examples :math:`x^{(i)}`: 
-        
-    .. math:: 
-        
-        \delta w: \sum{i} (y^{(i)} -\phi( z^{(i)}))x^(i)
-            
-    the weights are updated incremetally for each training examples: 
-        
-    .. math:: 
-        
-        \eta(y^{(i)} - \phi(z^{(i)})) x^{(i)}
-            
-    Parameters 
-    -----------
-    eta: float, 
-        Learning rate between (0. and 1.) 
-    n_iter: int, 
-        number of iteration passes over the training set 
-    suffle: bool, 
-        shuffle training data every epoch if True to prevent cycles. 
-
-    random_state: int, default is 42
-        random number generator seed for random weight initialization.
-        
-    Attributes 
-    ----------
-    w_: Array-like, 
-        Weight after fitting 
-    cost_: list 
-        Sum of squares cost function (updates ) in each epoch
-        
-    See also 
-    ---------
-    AdelineGradientDescent: :class:`~gofast.base.AdalineGradientDescent` 
-    
-    References 
-    -----------
-    .. [1] Windrow and al., 1960. An Adaptative "Adaline" Neuron Using Chemical
-        "Memistors", Technical reports Number, 1553-2,B Windrow and al., 
-        standford Electron labs, Standford, CA,October 1960. 
-            
+class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
     """
+    Adaptive Linear Neuron Classifier with Stochastic Gradient Descent.
+
+    This classifier implements a stochastic gradient descent algorithm for 
+    adaptive linear neurons. Stochastic Gradient Descent (SGD) is an efficient 
+    approach to discriminative learning of linear classifiers under convex loss 
+    functions such as (linear) Support Vector Machines and Logistic Regression. 
+    SGD has been successfully applied to large-scale and sparse machine learning 
+    problems often encountered in text classification and natural language 
+    processing.
+
+    The principle behind SGD is to update the model parameters (weights) 
+    incrementally for each training example. In the context of this classifier, 
+    the weight update is performed as follows:
+
+    .. math::
+
+        \Delta w = \sum_{i} (y^{(i)} - \phi(z^{(i)})) x^{(i)}
+
+    Here, \( \Delta w \) represents the change in weights, \( y^{(i)} \) is the 
+    true label, \( \phi(z^{(i)}) \) is the predicted label, and \( x^{(i)} \) is 
+    the input feature vector.
+
+    The weights are updated incrementally for each training example:
+
+    .. math::
+
+        w := w + \eta (y^{(i)} - \phi(z^{(i)})) x^{(i)}
+
+    where \( \eta \) is the learning rate.
+
+    Parameters
+    ----------
+    eta : float, optional (default=0.01)
+        The learning rate, determining the step size at each iteration while 
+        moving toward a minimum of a loss function. The value must be between 
+        0.0 and 1.0.
+
+    n_iter : int, optional (default=10)
+        The number of passes over the training data (aka epochs).
+
+    shuffle : bool, optional (default=True)
+        Whether to shuffle the training data before each epoch. Shuffling helps 
+        in preventing cycles and ensures that individual samples are encountered 
+        in different orders.
+
+    random_state : int, optional (default=42)
+        The seed of the pseudo random number generator to use when shuffling the 
+        data and initializing the weights.
+
+    Attributes
+    ----------
+    w_ : array-like, shape (n_features,)
+        Weights assigned to the features after fitting the model.
+
+    cost_ : list
+        The sum of squared errors (cost) accumulated over the training epochs. 
+        This can be used to evaluate how the model's performance has improved 
+        over time.
+
+    Notes
+    -----
+    Stochastic Gradient Descent is sensitive to feature scaling, so it is 
+    highly recommended to scale your data. For example, use 
+    `sklearn.preprocessing.StandardScaler` for standardization.
+
+    References
+    ----------
+    [1] Widrow, B., Hoff, M.E., 1960. Adaptive switching circuits. IRE WESCON 
+        Convention Record, New York, 96-104.
+
+    Examples
+    --------
+    >>> from gofast.estimators import AdalineStochasticClassifier
+    >>> X = [[0., 0.], [1., 1.]]
+    >>> y = [0, 1]
+    >>> clf = AdalineStochasticClassifier(eta=0.01, n_iter=10)
+    >>> clf.fit(X, y)
+    AdalineStochasticClassifier(eta=0.01, n_iter=10)
+
+    See Also
+    --------
+    AdalineGradientDescent : Gradient Descent variant of Adaline.
+    SGDClassifier : Scikit-learn's SGD classifier.
+
+    """
+
     def __init__(self, eta:float = .01 , n_iter: int = 50 , shuffle=True, 
                  random_state:int = None ) :
         super().__init__()
