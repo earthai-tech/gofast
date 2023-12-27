@@ -12,7 +12,7 @@ from sklearn.utils.multiclass import type_of_target
 
 from .._typing import (
     Tuple,
-    F, 
+    _F, 
     ArrayLike, 
     NDArray, 
     Dict,
@@ -193,7 +193,7 @@ def display_model_max_details(cvres:Dict[str, ArrayLike], cv:int =4):
     print('mean=', globalmeansc , 'std=',globalstdsc)
 
 
-def display_fine_tuned_results ( cvmodels: list[F] ): 
+def display_fine_tuned_results ( cvmodels: list[_F] ): 
     """Display fined -tuning results 
     
     Parameters 
@@ -212,7 +212,7 @@ def display_fine_tuned_results ( cvmodels: list[F] ):
         print('BEST ESTIMATOR =', estimator)
         print()
 
-def display_cv_tables(cvres:Dict[str, ArrayLike],  cvmodels:list[F] ): 
+def display_cv_tables(cvres:Dict[str, ArrayLike],  cvmodels:list[_F] ): 
     """ Display the cross-validation results from all models at each 
     k-fold. 
     
@@ -294,7 +294,7 @@ def get_scorers (*, scorer:str=None, check_scorer:bool=False,
     return scorers 
               
 def naive_evaluation(
-        clf: F,
+        clf: _F,
         X:NDArray,
         y:ArrayLike,
         cv:int =7,

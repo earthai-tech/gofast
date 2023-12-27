@@ -24,73 +24,30 @@ import pandas as pd
 
 from sklearn.feature_selection import SelectFromModel  
 from sklearn.impute import SimpleImputer
-from sklearn.metrics import ( 
-    confusion_matrix,
-    classification_report ,
-    mean_squared_error, 
-    f1_score,
-    accuracy_score,
-    precision_recall_curve, 
-    precision_score,
-    recall_score, 
-    roc_auc_score, 
-    roc_curve, 
-    mean_absolute_error, 
-    )
-
+from sklearn.metrics import confusion_matrix, classification_report 
+from sklearn.metrics import mean_squared_error, f1_score, accuracy_score
+from sklearn.metrics import precision_recall_curve, precision_score, recall_score
+from sklearn.metrics import roc_auc_score, roc_curve, mean_absolute_error 
 from sklearn.model_selection import train_test_split, StratifiedShuffleSplit 
 from sklearn.pipeline import Pipeline, FeatureUnion
-from sklearn.preprocessing import (OneHotEncoder,RobustScaler ,OrdinalEncoder, 
-    StandardScaler,MinMaxScaler,  LabelBinarizer,LabelEncoder,Normalizer) 
+from sklearn.preprocessing import OneHotEncoder,RobustScaler ,OrdinalEncoder 
+from sklearn.preprocessing import StandardScaler,MinMaxScaler,  LabelBinarizer
+from sklearn.preprocessing import LabelEncoder,Normalizer 
 
-from ..exceptions import ParameterNumberError, EstimatorError, DatasetError
-from ..decorators import deprecated 
-from ._dependency import import_optional_dependency
 from .._gofastlog import gofastlog
-from .._typing import (
-    List,
-    Tuple, 
-    Any,
-    Dict, 
-    Optional,
-    Union, 
-    Iterable ,
-    T,
-    F, 
-    ArrayLike, 
-    NDArray,
-    DType, 
-    DataFrame, 
-    Series,
-    Sub                 
-)
-from .funcutils import (
-    _assert_all_types, 
-    _isin, 
-    savepath_, 
-    smart_format, 
-    str2columns, 
-    is_iterable, 
-    is_in_if, 
-    is_classification_task,
-    to_numeric_dtypes, 
-    ellipsis2false,
-    fancy_printer,
-
-)
-from .validator import ( 
-    get_estimator_name , 
-    check_array, 
-    _is_numeric_dtype, 
-    _is_arraylike_1d, 
-    check_consistent_length,
-    assert_xy_in, 
-    is_frame, 
-    array_to_frame, 
-    build_data_if
-    )
-
+from .._typing import List, Tuple, Any, Dict,  Optional,Union, Iterable,Series 
+from .._typing import _T, _F, _Sub,  ArrayLike, NDArray,DType, DataFrame  
+from ._dependency import import_optional_dependency
+from ..exceptions import ParameterNumberError, EstimatorError, DatasetError
+from ..decorators import deprecated              
+from .funcutils import _assert_all_types, _isin,  is_in_if,  ellipsis2false
+from .funcutils import savepath_, smart_format, str2columns, is_iterable
+from .funcutils import  is_classification_task, to_numeric_dtypes, fancy_printer
+from .validator import get_estimator_name, check_array, check_consistent_length
+from .validator import  _is_numeric_dtype,  _is_arraylike_1d, assert_xy_in 
+from .validator import  is_frame, build_data_if
 _logger = gofastlog().get_gofast_logger(__name__)
+
 
 __all__=[ 
     "evaluate_model",
@@ -159,7 +116,7 @@ _estimators ={
 def codify_variables (
     arr, /, 
     columns: list =None, 
-    func: F=None, 
+    func: _F=None, 
     categories: dict=None, 
     get_dummies:bool=..., 
     parse_cols:bool =..., 
@@ -594,7 +551,7 @@ def bin_counting(
            Advertising System. Proceedings of the 16th ACM SIGKDD International
            Conference on Knowledge Discovery and Data Mining (2010): 27–36
            
-    .. [3] Chen, Ye, Dmitry Pavlov, and John F. Canny. “Large-Scale Behavioral 
+    .. [3] Chen, Ye, Dmitry Pavlov, and John _F. Canny. “Large-Scale Behavioral 
            Targeting. Proceedings of the 15th ACM SIGKDD International 
            Conference on Knowledge Discovery and Data Mining (2009): 209–218     
     """
@@ -707,7 +664,7 @@ def _target_counting(d, / ,  bin_column, tname ):
     neg_action = pd.Series(d[d[tname] < 1][bin_column].value_counts(),
     name=f'no_{tname}')
      
-    counts = pd.DataFrame([pos_action,neg_action]).T.fillna('0')
+    counts = pd.DataFrame([pos_action,neg_action])._T.fillna('0')
     counts[f'total_{tname}'] = counts[tname].astype('int64') +\
     counts[f'no_{tname}'].astype('int64')
     
@@ -799,7 +756,7 @@ def laplace_smoothing(
                                zip(smoothed_counts, total_counts)])
     
     # Transpose and return the probabilities corresponding to each data point
-    return smoothed_probs.T[data]
+    return smoothed_probs._T[data]
 
 
 #XXX TODO
@@ -895,12 +852,12 @@ def _laplace_smoothing (x, y, data =None ):
     # return P  
     
 def evaluate_model(
-    model: F, 
+    model: _F, 
     X:NDArray |DataFrame, 
     y: ArrayLike |Series, 
     Xt:NDArray |DataFrame, 
     yt:ArrayLike |Series=None, 
-    scorer:str | F = 'accuracy',
+    scorer:str | _F = 'accuracy',
     eval:bool =False,
     **kws
     ): 
@@ -1267,7 +1224,7 @@ def cfexist(features_to: List[ArrayLike],
         return True
     else: return False 
 
-def formatGenericObj(generic_obj :Iterable[T])-> T: 
+def formatGenericObj(generic_obj :Iterable[_T])-> _T: 
     """
     Format a generic object using the number of composed items. 
 
@@ -1346,8 +1303,8 @@ def findDifferenceGenObject(gen_obj1: Iterable[Any],
  
     return set(gen_obj1).difference(set(gen_obj2))
     
-def featureExistError(superv_features: Iterable[T], 
-                      features:Iterable[T]) -> None:
+def featureExistError(superv_features: Iterable[_T], 
+                      features:Iterable[_T]) -> None:
     """
     Catching feature existence errors.
     
@@ -1385,7 +1342,7 @@ def featureExistError(superv_features: Iterable[T],
             format(list(features)))
         
 def controlExistingEstimator(
-        estimator_name: str , raise_err =False ) -> Union [Dict[str, T], None]: 
+        estimator_name: str , raise_err =False ) -> Union [Dict[str, _T], None]: 
     """ 
     When estimator name is provided by user , will chech the prefix 
     corresponding
@@ -1706,9 +1663,9 @@ def load_csv ( data: str = None, delimiter: str  =None ,**kws
 
 
 def split_train_test (
-        df:DataFrame[DType[T]],
+        df:DataFrame[DType[_T]],
         test_ratio:float 
-        )-> Tuple [DataFrame[DType[T]]]: 
+        )-> Tuple [DataFrame[DType[_T]]]: 
     """ A naive dataset split into train and test sets from a ratio and return 
     a shuffled train set and test set.
         
@@ -1738,7 +1695,7 @@ def split_train_test (
 def test_set_check_id (
         identifier:int, 
         test_ratio: float , 
-        hash:F[T]
+        hash:_F[_T]
         ) -> bool: 
     """ 
     Get the test set id and set the corresponding unique identifier. 
@@ -1766,8 +1723,8 @@ def split_train_test_by_id(
     test_ratio:float,
     id_column:Optional[List[int]]=None,
     keep_colindex:bool=True, 
-    hash : F =hashlib.md5
-    )-> Tuple[ Sub[DataFrame[DType[T]]], Sub[DataFrame[DType[T]]]] : 
+    hash : _F =hashlib.md5
+    )-> Tuple[ _Sub[DataFrame[DType[_T]]], _Sub[DataFrame[DType[_T]]]] : 
     """
     Ensure that data will remain consistent accross multiple runs, even if 
     dataset is refreshed. 
@@ -1829,7 +1786,7 @@ def stratify_categories(
     n_splits:int =1, 
     test_size:float= 0.2, 
     random_state:int = 42
-    )-> Tuple[ Sub[DataFrame[DType[T]]], Sub[DataFrame[DType[T]]]]: 
+    )-> Tuple[ _Sub[DataFrame[DType[_T]]], _Sub[DataFrame[DType[_T]]]]: 
     """ Stratified sampling based on new generated category. 
 
     :param data: dataframe holding the new column of category 
@@ -2548,7 +2505,7 @@ def find_features_in(
    
 def categorize_target(
     arr :ArrayLike |Series , /, 
-    func: F = None,  
+    func: _F = None,  
     labels: int | List[int] = None, 
     rename_labels: Optional[str] = None, 
     coerce:bool=False,
@@ -3318,7 +3275,7 @@ def make_pipe(
     
     if len(num_features)!=0 : 
        npipe.insert (
-            0,  ('selectorObj', DataFrameSelector(attribute_names= num_features))
+            0,  ('selectorObj', DataFrameSelector(columns= num_features))
             )
 
     num_pipe=Pipeline(npipe)
@@ -3333,7 +3290,7 @@ def make_pipe(
         ]
     if len(cat_features)!=0: 
         cpipe.insert (
-            0, ('selectorObj', DataFrameSelector(attribute_names= cat_features))
+            0, ('selectorObj', DataFrameSelector(columns= cat_features))
             )
 
     cat_pipe = Pipeline(cpipe)

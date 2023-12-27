@@ -40,11 +40,11 @@ from .._typing import (
     Iterable,
     Any,
     ArrayLike,
-    F,
-    T,
+    _F,
+    _T,
     List ,
     DataFrame, 
-    Sub,
+    _Sub,
     NDArray, 
     Text, 
     )
@@ -885,7 +885,7 @@ def smart_strobj_recognition(
 
     return  rv 
 
-def repr_callable_obj(obj: F  , skip = None ): 
+def repr_callable_obj(obj: _F  , skip = None ): 
     """ Represent callable objects. 
     
     Format class, function and instances objects. 
@@ -995,7 +995,7 @@ def read_from_excelsheets(erp_file: str = None ) -> List[DataFrame]:
       
     """
     
-    allfls:Dict [str, Dict [T, List[T]] ] = pd.read_excel(
+    allfls:Dict [str, Dict [_T, List[_T]] ] = pd.read_excel(
         erp_file, sheet_name=None)
     
     list_of_df =[os.path.basename(os.path.splitext(erp_file)[0])]
@@ -1063,7 +1063,7 @@ def smart_format(iter_obj, choice ='and'):
         str_litteral += f" {choice} {iter_obj[-1]!r}"
     return str_litteral
 
-def make_introspection(Obj: object , subObj: Sub[object])->None: 
+def make_introspection(Obj: object , subObj: _Sub[object])->None: 
     """ Make introspection by using the attributes of instance created to 
     populate the new classes created.
     
@@ -1584,7 +1584,7 @@ def read_main (csv_fn , pf , delimiter =':',
 
 def _isin (
         arr: ArrayLike | List [float] ,
-        subarr: Sub [ArrayLike] |Sub[List[float]] | float, 
+        subarr: _Sub [ArrayLike] |_Sub[List[float]] | float, 
         return_mask:bool=False, 
 ) -> bool : 
     """ Check whether the subset array `subcz` is in  `cz` array. 
@@ -3224,7 +3224,7 @@ def get_config_fname_from_varname(data,
     return config_fname
 
 def pretty_printer(
-        clfs: List[F],  
+        clfs: List[_F],  
         clf_score:List[float]=None, 
         scoring: Optional[str] =None,
         **kws
@@ -3460,7 +3460,7 @@ def str2columns (text, /, regex=None , pattern = None):
     return text 
        
 def sanitize_frame_cols(
-        d, /, func:F = None , regex=None, pattern:str = None, 
+        d, /, func:_F = None , regex=None, pattern:str = None, 
         fill_pattern:str =None, inplace:bool =False 
         ):
     """ Remove an indesirable characters and returns new columns 
@@ -3476,7 +3476,7 @@ def sanitize_frame_cols(
         and the name respectively will be polished and returns the same 
         dataframe.
         
-    func: F, callable 
+    func: _F, callable 
        Universal function used to clean the columns 
        
     regex: `re` object,
@@ -3810,7 +3810,7 @@ def is_in_if (o: iter, /, items: str | iter, error = 'raise',
   
 def map_specific_columns ( 
         X: DataFrame, 
-        ufunc:F , 
+        ufunc:_F , 
         columns_to_skip:List[str]=None,   
         pattern:str=None, 
         inplace:bool= False, 
@@ -4073,7 +4073,7 @@ def count_func (path , verbose = 0 ):
 
 def smart_label_classifier (
         arr: ArrayLike, /, values: float | List[float]= None , labels =None, 
-        order ='soft', func: F=None, raise_warn=True): 
+        order ='soft', func: _F=None, raise_warn=True): 
     """ map smartly the numeric array into a class labels from a map function 
     or a given fixed values. 
     
@@ -4984,7 +4984,7 @@ def interpolate_grid (
     >>> import numpy as np
     >>> from gofast.tools.funcutils import interpolate_grid 
     >>> x = [28, np.nan, 50, 60] ; y = [np.nan, 1000, 2000, 3000]
-    >>> xy = np.vstack ((x, y)).T
+    >>> xy = np.vstack ((x, y))._T
     >>> xyi = interpolate_grid (xy, view=True ) 
     >>> xyi 
     array([[  28.        ,   28.        ],
@@ -5139,7 +5139,7 @@ def cleaner (
     columns:List[str]= None,
     inplace:bool = False, 
     labels: List[int|str] =None, 
-    func : F= None, 
+    func : _F= None, 
     mode:str ='clean', 
     **kws
     )->DataFrame | NDArray | None : 
@@ -5164,7 +5164,7 @@ def cleaner (
       Index or column labels to drop. A tuple will be used as a single 
       label and not treated as a list-like.
 
-    func: F, callable 
+    func: _F, callable 
         Universal function used to clean the columns. If performs only when 
         `mode` is on ``clean`` option. 
         
@@ -5232,7 +5232,7 @@ def rename_files (
     prefix:bool =True, 
     keep_copy:bool=True, 
     trailer:str='_', 
-    sortby: re |F=None, 
+    sortby: re |_F=None, 
     **kws 
     ): 
     """Rename files in directory.
@@ -5705,7 +5705,7 @@ def read_worksheets(*data):
     -----------
     >>> import os 
     >>> from gofast.tools.funcutils import read_worksheets 
-    >>> sheet_file= r'F:\repositories\gofast\data\erp\sheets\gbalo.xlsx'
+    >>> sheet_file= r'_F:\repositories\gofast\data\erp\sheets\gbalo.xlsx'
     >>> data, snames =  read_worksheets (sheet_file )
     >>> snames 
     ['l11', 'l10', 'l02'] 
@@ -6347,7 +6347,7 @@ def repeat_item_insertion(text, /, pos, item ='', fill_value=''):
 def numstr2dms (
     sdigit: str, /, 
     sanitize: bool=True, 
-    func: F=None, 
+    func: _F=None, 
     args: tuple=(),  
     regex: re=None,   
     pattern: str=None, 
@@ -6457,7 +6457,7 @@ def store_or_write_hdf5 (
     index: bool=..., 
     columns: str |List[Any, ...]=None, 
     sanitize_columns:bool=...,  
-    func: F= None, 
+    func: _F= None, 
     args: tuple=(), 
     applyto: str|List[Any, ...]=None, 
     **func_kwds, 

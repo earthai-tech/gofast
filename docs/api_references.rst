@@ -211,30 +211,33 @@ Classes
    :template: class.rst
 
    estimators.AdalineClassifier
-   estimators.AdalineRegressor
    estimators.AdalineMixte
-   estimators.AdalineStochasticClassifier
+   estimators.AdalineRegressor
    estimators.AdalineStochasticRegressor
+   estimators.AdalineStochasticClassifier
    estimators.BasePerceptron
-   estimators.BoostedClassifierTree
+   estimators.BenchmarkRegressor 
+   estimators.BenchmarkClassifier 
    estimators.BoostedRegressionTree
+   estimators.BoostedClassifierTree
+   estimators.DecisionTreeBasedRegressor
+   estimators.DecisionTreeBasedClassifier
    estimators.GradientDescentClassifier
    estimators.GradientDescentRegressor
-   estimators.HammersteinWienerEnsemble
+   estimators.HammersteinWienerClassifier
    estimators.HammersteinWienerRegressor
+   estimators.HBTEnsembleRegressor
+   estimators.HBTEnsembleClassifier
+   estimators.HWEnsembleClassifier
+   estimators.HWEnsembleRegressor
    estimators.HybridBoostedTreeClassifier
    estimators.HybridBoostedTreeRegressor
-   estimators.HybridBoostedTreeEnsembleClassifier
-   estimators.HybridBoostedTreeEnsembleRegressor
    estimators.MajorityVoteClassifier
    estimators.NeuroFuzzyEnsemble
-   estimators.TreeBasedClassifier
-   estimators.RegressionTreeEnsemble
-   estimators.SequentialBackwardSelection
-   estimators.SimpleAverageClassifier
    estimators.SimpleAverageRegressor
-   estimators.WeightedAverageClassifier
+   estimators.SimpleAverageClassifier
    estimators.WeightedAverageRegressor
+   estimators.WeightedAverageClassifier
    
    
 :mod:`gofast.geo`: Geosciences
@@ -751,7 +754,7 @@ users to prepare their datasets for machine learning and analysis.
    transformers.SequentialBackwardSelection
    transformers.KMeansFeaturizer
    transformers.StratifiedWithCategoryAdder
-   transformers.StratifiedUsingBaseCategory 
+   transformers.CategoryBaseStratifier 
    transformers.CategorizeFeatures
    transformers.FrameUnion
    transformers.DataFrameSelector

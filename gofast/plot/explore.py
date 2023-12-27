@@ -32,8 +32,7 @@ from .._typing import (
     ArrayLike, 
     DataFrame, 
     Series,
-    F, 
-    EDIO
+    _F, 
 )
 from ..decorators import temp2d 
 from ..exceptions import PlotError, FeatureError, NotFittedError
@@ -2232,7 +2231,7 @@ class EasyPlotter (BasePlot):
     def plotDiscussingFeatures(
         self, features, *, 
         map_kws: Optional[dict]=None, 
-        map_func: Optional[F] = None, 
+        map_func: Optional[_F] = None, 
         **sns_kws)-> None: 
         """
         Provides the features names at least 04 and discuss with 

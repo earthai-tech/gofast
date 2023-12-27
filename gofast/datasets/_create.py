@@ -137,7 +137,13 @@ def make_african_demo(*,
     """ 
     # Random seed for reproducibility
     np.random.seed(seed); data = []
-    countries = _get_item_from ( countries,AFRICAN_COUNTRIES, 7  )
+    # check the given data 
+    start_year = int (_assert_all_types(start_year, int, float, str, 
+                      objname="'start_name' parameter "))
+    end_year = int (_assert_all_types(end_year, int, float, str, 
+                      objname="'start_name' parameter "))
+    
+    countries = _get_item_from ( countries, AFRICAN_COUNTRIES, 7  )
     for year in range(start_year, end_year + 1):
         for country in countries:
             population = np.random.randint(1e6, 2e8)  # Random population
@@ -297,8 +303,8 @@ def make_agronomy_feedback(
                 objname='The number of specimens (crop and pesticides)')
         )
     
-    pesticide_types = random.sample(COMMON_PESTICIDES, n_specimens)
-    crop_types = random.sample(COMMON_CROPS, n_specimens)
+    pesticide_types = random.choice(COMMON_PESTICIDES, n_specimens)
+    crop_types = random.choice(COMMON_CROPS, n_specimens)
     data = []
     for entry_id in range(samples):
         for year in range(num_years):
@@ -2503,7 +2509,7 @@ def _get_item_from ( spec , /,  default_items, default_number = 7 ):
         spec =default_number 
         
     if isinstance ( spec, ( int, float)): 
-        spec = np.random.sample (
+        spec = np.random.choice (
             default_items, default_number if int(spec)==0 else int (spec) )
     
     spec = is_iterable ( spec, exclude_string= True, transform =True )

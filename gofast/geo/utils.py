@@ -25,7 +25,7 @@ from .._typing import (
     ArrayLike, 
     Any, 
     Optional, 
-    F, 
+    _F, 
     DataFrame, 
     Series
     )
@@ -256,7 +256,7 @@ def make_coords(
 def refine_locations(
     ydata: ArrayLike | Series | DataFrame ,
     xdata: ArrayLike| Series = None, 
-    func : Optional [F] = None ,
+    func : Optional [_F] = None ,
     c_order: Optional[int|str] = 0,
     show: bool =False, 
     **kws): 
