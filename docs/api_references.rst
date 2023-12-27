@@ -222,11 +222,13 @@ Classes
    estimators.GradientDescentRegressor
    estimators.HammersteinWienerEnsemble
    estimators.HammersteinWienerRegressor
-   estimators.HybridBRTEnsembleClassifier
-   estimators.HybridBRTRegressor
+   estimators.HybridBoostedTreeClassifier
+   estimators.HybridBoostedTreeRegressor
+   estimators.HybridBoostedTreeEnsembleClassifier
+   estimators.HybridBoostedTreeEnsembleRegressor
    estimators.MajorityVoteClassifier
    estimators.NeuroFuzzyEnsemble
-   estimators.RegressionTreeBasedClassifier
+   estimators.TreeBasedClassifier
    estimators.RegressionTreeEnsemble
    estimators.SequentialBackwardSelection
    estimators.SimpleAverageClassifier
@@ -279,29 +281,28 @@ Functions
    :toctree: generated/
    :template: function.rst
    
-   geo.make_coords 
-   geo.refine_locations 
+   geo.build_random_thickness 
+   geo.classify_k
+   geo.find_aquifer_groups
+   geo.find_similar_labels
    geo.get_azimuth
    geo.get_bearing
    geo.get_stratum_thickness
-   geo.smart_thickness_ranker 
-   geo.build_random_thickness 
-   geo.select_base_stratum 
    geo.get_aquifer_section 
    geo.get_aquifer_sections
    geo.get_unique_section
    geo.get_compressed_vector 
-   geo.reduce_samples
    geo.get_sections_from_depth
+   geo.label_importance
+   geo.make_coords 
    geo.make_mxs_labels
    geo.partition_holes
    geo.plot_stratalog
    geo.predict_nga_labels
-   geo.find_aquifer_groups
-   geo.find_similar_labels
-   geo.classify_k 
-   geo.label_importance
-
+   geo.reduce_samples
+   geo.refine_locations 
+   geo.select_base_stratum 
+   geo.smart_thickness_ranker 
 
 .. _models_ref:
 
@@ -498,7 +499,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.split_train_test
    tools.split_train_test_by_id
    tools.stats_from_prediction
-   tools.storeOrwritehdf5
+   tools.store_or_write_hdf5
    tools.stratify_categories
    tools.to_numeric_dtypes
 

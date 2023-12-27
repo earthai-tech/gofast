@@ -11,6 +11,7 @@ from scipy import stats
 
 from sklearn.base import BaseEstimator, ClassifierMixin, clone, RegressorMixin
 from sklearn.ensemble import GradientBoostingRegressor, GradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import _name_estimators
 from sklearn.preprocessing import LabelEncoder, LabelBinarizer
 from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
@@ -34,12 +35,12 @@ __all__=[
     'BoostedClassifierTree',
     'BoostedRegressionTree',
     'HammersteinWienerRegressor',
-    'HammersteinWienerEnsemble',
-    'HybridBRTEnsembleClassifier',
-    'HybridBRTRegressor',
+    'HammersteinWienerEnsembleRegressor',
+    'HybridBoostedTreeEnsembleClassifier',
+    'HybridBoostedTreeRegressor',
     'MajorityVoteClassifier',
     'NeuroFuzzyEnsemble',
-    'RegressionTreeBasedClassifier',
+    'TreeBasedClassifier',
     'RegressionTreeEnsemble',
     'SimpleAverageClassifier',
     'SimpleAverageRegressor',
@@ -1302,9 +1303,9 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
     In Adaline, this linear activation function :math:`\phi(z)` is simply 
     the identifu function of the net input so that:
         
-        .. math:: 
-            
-            \phi (w^Tx)= w^Tx 
+    .. math:: 
+        
+        \phi (w^Tx)= w^Tx 
     
     while the linear activation function is used for learning the weights. 
     
@@ -1392,7 +1393,6 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
         self.task_type = type_of_target(y)
         
         rgen = np.random.RandomState(self.random_state)
-        
         self.w_ = rgen.normal(loc=0. , scale =.01 , size = 1 + X.shape[1]
                               )
         self.cost_ =list()    
@@ -1513,6 +1513,194 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
         return self.__class__.__name__ + str(tup).replace("'", "") 
     
 
+class HammersteinWienerClassifier(BaseEstimator, ClassifierMixin):
+    """
+    Hammerstein-Wiener Classifier for classification tasks.
+
+    This classifier models a dynamic system where the output is a classification
+    decision based on past inputs. It consists of a Hammerstein model
+    (nonlinear input followed by a linear dynamic block) and a Wiener model
+    (linear dynamic block followed by a nonlinear output).
+    
+    For multi-class classification, the logistic regression model used in the 
+    classifier should be capable of handling multiple classes. In scikit-learn,
+    LogisticRegression can be used for multi-class classification by setting the 
+    multi_class parameter to 'multinomial' for a softmax regression approach.
+
+    The Hammerstein-Wiener model for classification is mathematically represented as:
+
+    .. math::
+        y(t) = g_2\\left( \\text{classifier}\\left( \\sum_{i=1}^{n} g_1(X_{t-i}) \\right) \\right)
+
+    where:
+    - \( g_1 \) is the input nonlinear function.
+    - \( g_2 \) is the output nonlinear function, typically a logistic function for classification.
+    - The classifier represents a linear classifier model (e.g., logistic regression).
+    - \( X_{t-i} \) represents the input features at time step \( t-i \).
+
+    Parameters
+    ----------
+    classifier : object, default=LogisticRegression()
+        Linear classifier model for the dynamic block. Should support fit and predict methods.
+    nonlinearity_in : callable, default=np.tanh
+        Nonlinear function applied to inputs.
+    nonlinearity_out : callable, default=lambda x: 1 / (1 + np.exp(-x))
+        Nonlinear function applied to the output of the classifier.
+    memory_depth : int, default=5
+        The number of past time steps to include in the model.
+
+    Attributes
+    ----------
+    fitted_ : bool
+        True if the model has been fitted.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LogisticRegression
+    >>> hw = HammersteinWienerClassifier(
+    ...     classifier=LogisticRegression(),
+    ...     nonlinearity_in=np.tanh,
+    ...     nonlinearity_out=lambda x: 1 / (1 + np.exp(-x)),
+    ...     memory_depth=5
+    ... )
+    >>> X, y = np.random.rand(100, 1), np.random.randint(0, 2, 100)
+    >>> hw.fit(X, y)
+    >>> y_pred = hw.predict(X)
+
+    """
+
+    def __init__(self, 
+                 classifier=LogisticRegression(), 
+                 nonlinearity_in=np.tanh, 
+                 nonlinearity_out=lambda x: 1 / (1 + np.exp(-x)), 
+                 memory_depth=5):
+        self.classifier = classifier
+        self.nonlinearity_in = nonlinearity_in
+        self.nonlinearity_out = nonlinearity_out
+        self.memory_depth = memory_depth
+
+    def _preprocess_data(self, X):
+        """
+        Preprocess the input data by applying the input nonlinearity and
+        incorporating memory depth.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input data.
+
+        Returns
+        -------
+        X_transformed : array-like
+            The transformed input data.
+        """
+        X_transformed = self.nonlinearity_in(X)
+
+        n_samples, n_features = X_transformed.shape
+        X_lagged = np.zeros((n_samples - self.memory_depth, 
+                             self.memory_depth * n_features))
+        for i in range(self.memory_depth, n_samples):
+            X_lagged[i - self.memory_depth, :] = X_transformed[i - self.memory_depth:i, :].flatten()
+
+        return X_lagged
+
+    def fit(self, X, y):
+        """
+        Fit the Hammerstein-Wiener model to the data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data input.
+        y : array-like of shape (n_samples,)
+            Target classification labels.
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
+        X, y = check_X_y(X, y, estimator=get_estimator_name(self))
+        
+        if self.classfifer =='LogisticRegression': 
+            if type_of_target(y)=='binary': 
+                self.classifier = LogisticRegression()
+                if self.nonlinearity_out=='sigmoid': 
+                    self.nonlinearity_out = lambda x: 1 / (1 + np.exp(-x))
+            else: 
+                self.classifier=LogisticRegression(multi_class='multinomial')
+                
+        X_lagged = self._preprocess_data(X)
+        y = y[self.memory_depth:]
+
+        self.classifier.fit(X_lagged, y)
+        self.fitted_ = True
+        return self
+
+    def predict(self, X):
+        """
+        Predict using the Hammerstein-Wiener model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Samples to predict for.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            Predicted classification labels.
+        """
+        self.inspect
+        X = check_array(X)
+        X_lagged = self._preprocess_data(X)
+
+        y_linear = self.classifier.predict(X_lagged)
+        y_pred = self.nonlinearity_out(y_linear)
+        return y_pred
+
+    def predict_proba(self, X):
+        """
+        Probability estimates for the Hammerstein-Wiener model.
+
+        The returned estimates for all classes are ordered by the
+        label of classes.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Samples to predict for.
+
+        Returns
+        -------
+        proba : array-like of shape (n_samples, n_classes)
+            Probability of the sample for each class in the model.
+        """
+        self.inspect
+        X = check_array(X)
+        X_lagged = self._preprocess_data(X)
+
+        # Get the probability estimates from the linear classifier
+        proba_linear = self.classifier.predict_proba(X_lagged)
+
+        # Apply the output nonlinearity (if necessary)
+        return np.apply_along_axis(self.nonlinearity_out, 1, proba_linear)
+
+
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'fitted_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1
+
 class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
     """
     Hammerstein-Wiener Estimator for dynamic system identification.
@@ -1574,7 +1762,7 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
         nonlinearity_in= np.tanh, 
         nonlinearity_out=np.tanh, 
         memory_depth=5
-                 ):
+        ):
         self.nonlinearity_in = nonlinearity_in
         self.nonlinearity_out = nonlinearity_out
         self.linear_model = linear_model
@@ -2156,7 +2344,128 @@ class WeightedAverageRegressor(BaseEstimator, RegressorMixin):
             )
         return 1 
 
-class HammersteinWienerEnsemble(BaseEstimator, RegressorMixin):
+
+
+class HammersteinWienerEnsembleClassifier(BaseEstimator, ClassifierMixin):
+    """
+    Hammerstein-Wiener Ensemble Classifier.
+
+    This classifier combines the Hammerstein-Wiener model with ensemble 
+    learning.
+
+    Parameters
+    ----------
+    n_estimators : int
+        The number of base classifiers in the ensemble.
+    learning_rate : float
+        The learning rate for gradient boosting (between 0.0 and 1.0).
+
+    Attributes
+    ----------
+    base_classifiers_ : list
+        List of base classifiers.
+    weights_ : list
+        Weight of each base classifier.
+
+    Math Formulas
+    -------------
+    The Hammerstein-Wiener Ensemble Classifier combines the Hammerstein-Wiener model
+    with ensemble learning. It uses the following formulas:
+
+    1. Hammerstein-Wiener Model:
+       \[ y(t) = g_2( \sum a_i * y(t-i) + \sum b_j * g_1(u(t-j)) ) \]
+
+    2. Weight Calculation for Base Classifiers:
+       \[ \text{Weight} = \text{learning\_rate} \cdot \frac{1}{1 + \text{Weighted Error}} \]
+
+    where:
+    - \( y(t) \) is the predicted label
+    - \( g_1 \) and \( g_2 \) are nonlinear functions
+    - \( a_i \) and \( b_j \) are coefficients of the linear dynamic model
+    - \( u(t) \) is the input
+    - \( \text{learning\_rate} \) is the learning rate for gradient boosting
+
+    Examples
+    --------
+    >>> # Define your own data and labels
+    >>> X = np.array(...)  # Input data
+    >>> y = np.array(...)  # Target labels
+
+    >>> from sklearn.model_selection import train_test_split
+
+    >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
+
+    >>> hammerstein_wiener_classifier = HammersteinWienerEnsembleClassifier(n_estimators=50, learning_rate=0.01)
+    >>> hammerstein_wiener_classifier.fit(X_train, y_train)
+    >>> y_pred = hammerstein_wiener_classifier.predict(X_test)
+    >>> accuracy = np.mean(y_pred == y_test)
+    >>> print('Accuracy:', accuracy)
+    """
+
+    def __init__(self, n_estimators=50, learning_rate=0.1):
+        self.n_estimators = n_estimators
+        self.learning_rate = learning_rate
+
+    def fit(self, X, y):
+        """Fit training data.
+
+        Parameters
+        ----------
+        X : {array-like}, shape = [n_samples, n_features]
+            Training vectors, where n_samples is the number of samples and
+            n_features is the number of features.
+        y : array-like, shape = [n_samples]
+            Target values.
+
+        Returns
+        -------
+        self : object
+        """
+        self.base_classifiers_ = []
+        self.weights_ = []
+        y_pred = np.zeros(len(y))
+
+        for _ in range(self.n_estimators):
+            # Create and fit a base classifier (you can replace this with your specific base classifier)
+            base_classifier = HammersteinWienerClassifier()
+            base_classifier.fit(X, y)
+            
+            # Calculate weighted error
+            weighted_error = np.sum((y - base_classifier.predict(X)) ** 2)
+            
+            # Calculate weight for this base classifier
+            weight = self.learning_rate / (1 + weighted_error)
+            
+            # Update predictions
+            y_pred += weight * base_classifier.predict(X)
+            
+            # Store the base classifier and its weight
+            self.base_classifiers_.append(base_classifier)
+            self.weights_.append(weight)
+        
+        return self
+
+    def predict(self, X):
+        """Return class labels.
+
+        Parameters
+        ----------
+        X : {array-like}, shape = [n_samples, n_features]
+            Samples.
+
+        Returns
+        -------
+        y_pred : array-like, shape = [n_samples]
+            Predicted class labels.
+        """
+        y_pred = np.zeros(X.shape[0])
+        for i, base_classifier in enumerate(self.base_classifiers_):
+            y_pred += self.weights_[i] * base_classifier.predict(X)
+        
+        return np.where(y_pred >= 0.0, 1, -1)
+
+
+class HammersteinWienerEnsembleRegressor(BaseEstimator, RegressorMixin):
     """
     Hammerstein-Wiener Ensemble (HWE) for regression tasks.
 
@@ -2165,7 +2474,7 @@ class HammersteinWienerEnsemble(BaseEstimator, RegressorMixin):
     of past inputs and outputs. The ensemble averages the predictions of 
     these models.
 
-    HammersteinWienerEnsemble class assumes that each Hammerstein-Wiener model
+    HammersteinWienerEnsembleRegressor class assumes that each Hammerstein-Wiener model
     (HammersteinWienerEstimator) is already implemented with its fit and 
     predict methods. The ensemble model fits each Hammerstein-Wiener estimator 
     on the training data and then averages their predictions.
@@ -2196,7 +2505,7 @@ class HammersteinWienerEnsemble(BaseEstimator, RegressorMixin):
                                          nonlinearity_out=np.sin, 
                                          linear_model=LinearRegression(),
                                          memory_depth=5)
-    >>> ensemble = HammersteinWienerEnsemble([hw1, hw2])
+    >>> ensemble = HammersteinWienerEnsembleRegressor([hw1, hw2])
     >>> X, y = np.random.rand(100, 1), np.random.rand(100)
     >>> ensemble.fit(X, y)
     >>> y_pred = ensemble.predict(X)
@@ -2231,8 +2540,8 @@ class HammersteinWienerEnsemble(BaseEstimator, RegressorMixin):
             self.hw_estimators, exclude_string=True, transform =True) 
         estimator_names = [ get_estimator_name(estimator) for estimator in 
                            self.hw_estimators ]
-        if list( set (estimator_names)) [0] !="HammersteinWiener": 
-            raise EstimatorError("Expect `HammersteinWiener` estimators."
+        if list( set (estimator_names)) [0] !="HammersteinWienerRegressor": 
+            raise EstimatorError("Expect `HammersteinWienerRegressor` estimators."
                                  f" Got {smart_format(estimator_names)}")
             
         for estimator in self.hw_estimators:
@@ -2698,7 +3007,289 @@ class RegressionTreeEnsemble(BaseEstimator, RegressorMixin):
             )
         return 1 
 
-class HybridBRTRegressor(BaseEstimator, RegressorMixin):
+
+class HybridBoostedTreeEnsembleRegressor(BaseEstimator, RegressorMixin):
+    """
+    Hybrid Booster Tree Ensemble Regressor.
+
+    This regressor combines decision trees with gradient boosting for ensemble learning.
+
+    Parameters
+    ----------
+    n_estimators : int
+        The number of decision trees in the ensemble.
+    learning_rate : float
+        The learning rate for gradient boosting (between 0.0 and 1.0).
+    max_depth : int
+        The maximum depth of individual decision trees.
+
+    Attributes
+    ----------
+    base_estimators_ : list
+        List of DecisionTreeRegressors (base learners).
+    weights_ : list
+        Weight of each base learner.
+
+    Math Formulas
+    -------------
+    The Hybrid Booster Tree Ensemble Regressor combines decision trees with gradient boosting. 
+    It uses the following formulas:
+
+    1. Residual Calculation:
+       \[ \text{Residual} = y - F_k(x) \]
+
+    2. Weighted Error Calculation:
+       \[ \text{Weighted Error} = \sum_{i=1}^{n} (w_i \cdot \text{Residual}_i)^2 \]
+
+    3. Weight Calculation for Base Learners:
+       \[ \text{Weight} = \text{learning\_rate} \cdot \frac{1}{1 + \text{Weighted Error}} \]
+
+    4. Update Predictions:
+       \[ F_{k+1}(x) = F_k(x) + \text{Weight} \cdot \text{Residual} \]
+
+    where:
+    - \( n \) is the number of samples
+    - \( w_i \) is the weight of each sample
+    - \( y \) is the true target values
+    - \( F_k(x) \) is the ensemble prediction at iteration \( k \)
+    - \(\text{learning\_rate}\) is the learning rate for gradient boosting
+
+    Examples
+    --------
+    >>> from sklearn.datasets import load_boston
+    >>> from sklearn.model_selection import train_test_split
+
+    >>> boston = load_boston()
+    >>> X = boston.data
+    >>> y = boston.target
+    >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
+
+    >>> hybrid_regressor = HybridBoostedTreeEnsembleRegressor(n_estimators=50, learning_rate=0.01, max_depth=3)
+    >>> hybrid_regressor.fit(X_train, y_train)
+    >>> y_pred = hybrid_regressor.predict(X_test)
+    >>> mse = np.mean((y_pred - y_test) ** 2)
+    >>> print('Mean Squared Error:', mse)
+    """
+
+    def __init__(self, n_estimators=50, learning_rate=0.1, max_depth=3):
+        self.n_estimators = n_estimators
+        self.learning_rate = learning_rate
+        self.max_depth = max_depth
+
+    def fit(self, X, y):
+        """Fit training data.
+
+        Parameters
+        ----------
+        X : {array-like}, shape = [n_samples, n_features]
+            Training vectors, where n_samples is the number of samples and
+            n_features is the number of features.
+        y : array-like, shape = [n_samples]
+            Target values.
+
+        Returns
+        -------
+        self : object
+        """
+        self.base_estimators_ = []
+        self.weights_ = []
+        F_k = np.zeros(len(y))
+
+        for _ in range(self.n_estimators):
+            # Calculate residuals
+            residual = y - F_k
+            
+            # Fit a decision tree on the residuals
+            base_estimator = DecisionTreeRegressor(max_depth=self.max_depth)
+            base_estimator.fit(X, residual)
+            
+            # Calculate weighted error
+            weighted_error = np.sum((residual - base_estimator.predict(X)) ** 2)
+            
+            # Calculate weight for this base estimator
+            weight = self.learning_rate / (1 + weighted_error)
+            
+            # Update predictions
+            F_k += weight * base_estimator.predict(X)
+            
+            # Store the base estimator and its weight
+            self.base_estimators_.append(base_estimator)
+            self.weights_.append(weight)
+        
+        return self
+
+    def predict(self, X):
+        """Return regression predictions.
+
+        Parameters
+        ----------
+        X : {array-like}, shape = [n_samples, n_features]
+            Samples.
+
+        Returns
+        -------
+        y_pred : array-like, shape = [n_samples]
+            Predicted target values.
+        """
+        y_pred = np.zeros(X.shape[0])
+        for i, base_estimator in enumerate(self.base_estimators_):
+            y_pred += self.weights_[i] * base_estimator.predict(X)
+        
+        return y_pred
+
+
+class HybridBoostedTreeClassifier(BaseEstimator, ClassifierMixin):
+    """
+    Hybrid Boosted Tree Classifier.
+
+    This classifier combines decision trees with gradient boosting for 
+    ensemble learning.
+
+    HybridBoostedTreeClassifier combines decision trees with gradient boosting 
+    and allows you to specify the number of estimators (trees), learning rate, 
+    and maximum depth of individual decision trees. It's suitable for binary 
+    classification tasks.
+    
+    Parameters
+    ----------
+    n_estimators : int
+        The number of decision trees in the ensemble.
+    learning_rate : float
+        The learning rate for gradient boosting (between 0.0 and 1.0).
+    max_depth : int
+        The maximum depth of individual decision trees.
+
+    Attributes
+    ----------
+    base_estimators_ : list
+        List of DecisionTreeClassifiers (base learners).
+    weights_ : list
+        Weight of each base learner.
+
+    Math Formulas
+    -------------
+    The Hybrid Boosted Tree Classifier combines decision trees with gradient boosting. 
+    It uses the following formulas:
+
+    1. Weighted Error Calculation:
+       \[ \text{Weighted Error} = \sum_{i=1}^{n} (w_i \cdot (y_i \neq y_{\text{pred}_i})) \]
+
+    2. Weight Calculation for Base Learners:
+       \[ \text{Weight} = \text{learning\_rate} \cdot \log\left(\frac{1 - \text{Weighted Error}}{\text{Weighted Error}}\right) \]
+
+    3. Update Sample Weights:
+       \[ \text{Sample\_Weights} = \exp(-\text{Weight} \cdot y \cdot y_{\text{pred}}) \]
+
+    where:
+    - \( n \) is the number of samples
+    - \( w_i \) is the weight of each sample
+    - \( y_i \) is the true label
+    - \( y_{\text{pred}_i} \) is the predicted label
+    - \(\text{learning\_rate}\) is the learning rate for gradient boosting
+
+    Examples
+    --------
+    >>> from sklearn.datasets import load_iris
+    >>> from sklearn.model_selection import train_test_split
+
+    >>> iris = load_iris()
+    >>> X = iris.data[:, :2]
+    >>> y = (iris.target != 0) * 1  # Converting to binary classification problem
+    >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
+
+    >>> hybrid_boosted_tree = HybridBoostedTreeClassifier(n_estimators=50, learning_rate=0.01, max_depth=3)
+    >>> hybrid_boosted_tree.fit(X_train, y_train)
+    >>> y_pred = hybrid_boosted_tree.predict(X_test)
+    >>> accuracy = np.mean(y_pred == y_test)
+    >>> print('Accuracy:', accuracy)
+    """
+
+    def __init__(self, n_estimators=50, learning_rate=0.1, max_depth=3):
+        self.n_estimators = n_estimators
+        self.learning_rate = learning_rate
+        self.max_depth = max_depth
+
+    def fit(self, X, y):
+        """Fit training data.
+
+        Parameters
+        ----------
+        X : {array-like}, shape = [n_samples, n_features]
+            Training vectors, where n_samples is the number of samples and
+            n_features is the number of features.
+        y : array-like, shape = [n_samples]
+            Target values.
+
+        Returns
+        -------
+        self : object
+        """
+        self.base_estimators_ = []
+        self.weights_ = []
+
+        for _ in range(self.n_estimators):
+            # Fit a decision tree on the weighted dataset
+            base_estimator = DecisionTreeClassifier(max_depth=self.max_depth)
+            base_estimator.fit(X, y, sample_weight=self._compute_sample_weights(y))
+            
+            # Calculate weighted error
+            y_pred = base_estimator.predict(X)
+            weighted_error = np.sum(self._compute_sample_weights(y) * (y != y_pred))
+            
+            # Calculate weight for this base estimator
+            weight = self.learning_rate * np.log((1 - weighted_error) / weighted_error)
+            
+            # Update sample weights
+            weight = self._update_sample_weights(y, y_pred, weight)
+            
+            # Store the base estimator and its weight
+            self.base_estimators_.append(base_estimator)
+            self.weights_.append(weight)
+        
+        return self
+
+    def predict(self, X):
+        """Return class labels.
+
+        Parameters
+        ----------
+        X : {array-like}, shape = [n_samples, n_features]
+            Samples.
+
+        Returns
+        -------
+        y_pred : array-like, shape = [n_samples]
+            Predicted class labels.
+        """
+        self.inspect  
+        y_pred = np.zeros(X.shape[0])
+        for i, base_estimator in enumerate(self.base_estimators_):
+            y_pred += self.weights_[i] * base_estimator.predict(X)
+        
+        return np.sign(y_pred)
+
+    def _compute_sample_weights(self, y):
+        """Compute sample weights."""
+        return np.ones_like(y) / len(y)
+
+    def _update_sample_weights(self, y, y_pred, weight):
+        """Update sample weights."""
+        return np.exp(-weight * y * y_pred)
+        
+    @property 
+    def inspect (self): 
+        """ Inspect object whether is fitted or not"""
+        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, 'weights_'): 
+            raise NotFittedError(msg.format(
+                obj=self)
+            )
+        return 1
+class HybridBoostedTreeRegressor(BaseEstimator, RegressorMixin):
     """
     Hybrid Boosted Regression Tree (BRT) Ensemble for regression tasks.
 
@@ -2706,7 +3297,7 @@ class HybridBRTRegressor(BaseEstimator, RegressorMixin):
     each of which is an ensemble in itself, created using the 
     principles of boosting.
 
-    HybridBRTRegressorEnsemble class, the n_estimators parameter 
+    HybridBoostedTreeRegressorEnsemble class, the n_estimators parameter 
     controls the number of individual Boosted Regression Trees in the ensemble,
     and brt_params is a dictionary of parameters to be passed to each Boosted 
     Regression Tree model. The GradientBoostingRegressor from scikit-learn 
@@ -2729,7 +3320,7 @@ class HybridBRTRegressor(BaseEstimator, RegressorMixin):
     Examples
     --------
     >>> brt_params = {'n_estimators': 50, 'max_depth': 3, 'learning_rate': 0.1}
-    >>> hybrid_brt = HybridBRTRegressor(
+    >>> hybrid_brt = HybridBoostedTreeRegressor(
         n_estimators=10, brt_params=brt_params)
     >>> X, y = np.random.rand(100, 4), np.random.rand(100)
     >>> hybrid_brt.fit(X, y)
@@ -2927,7 +3518,7 @@ class BoostedClassifierTree(BaseEstimator, ClassifierMixin):
             )
         return 1 
 
-class RegressionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
+class TreeBasedClassifier(BaseEstimator, ClassifierMixin):
     """
     Regression Tree Ensemble Classifier.
 
@@ -2935,7 +3526,7 @@ class RegressionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
     predictions from multiple decision tree classifiers, typically using
     majority voting for the final classification.
 
-    RegressionTreeBasedClassifier class, the fit method trains multiple 
+    TreeBasedClassifier class, the fit method trains multiple 
     DecisionTreeClassifier models on the entire dataset, and the predict 
     method aggregates their predictions using majority voting to determine 
     the final class labels. The n_estimators parameter controls the number 
@@ -2958,7 +3549,7 @@ class RegressionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
 
     Examples
     --------
-    >>> rtec = RegressionTreeBasedClassifier(n_estimators=100, max_depth=3,
+    >>> rtec = TreeBasedClassifier(n_estimators=100, max_depth=3,
                                                 random_state=42)
     >>> X, y = np.random.rand(100, 4), np.random.randint(0, 2, 100)
     >>> rtec.fit(X, y)
@@ -3037,7 +3628,7 @@ class RegressionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
             )
         return 1 
     
-class HybridBRTEnsembleClassifier(BaseEstimator, ClassifierMixin):
+class HybridBoostedTreeEnsembleClassifier(BaseEstimator, ClassifierMixin):
     """
     Hybrid Boosted Regression Tree Ensemble Classifier.
 
@@ -3046,7 +3637,7 @@ class HybridBRTEnsembleClassifier(BaseEstimator, ClassifierMixin):
     ensemble is a complete Boosted Decision Tree model, with boosting 
     applied to decision trees.
 
-    In `HybridBRTEnsembleClassifier`, each GradientBoostingClassifier in 
+    In `HybridBoostedTreeEnsembleClassifier`, each GradientBoostingClassifier in 
     `gb_ensembles_` represents an individual Boosted Decision Tree model. 
     The fit method trains each Boosted Decision Tree model on the entire 
     dataset, and the predict method uses majority voting among all the 
@@ -3068,7 +3659,7 @@ class HybridBRTEnsembleClassifier(BaseEstimator, ClassifierMixin):
     Examples
     --------
     >>> gb_params = {'n_estimators': 50, 'max_depth': 3, 'learning_rate': 0.1}
-    >>> hybrid_gb = HybridBRTEnsembleClassifier(n_estimators=10,
+    >>> hybrid_gb = HybridBoostedTreeEnsembleClassifier(n_estimators=10,
                                               gb_params=gb_params)
     >>> X, y = np.random.rand(100, 4), np.random.randint(0, 2, 100)
     >>> hybrid_gb.fit(X, y)
@@ -3427,7 +4018,7 @@ class StandardEstimator:
         ----------
         deep : bool, default=True
             If True, will return the parameters for this class and
-            contained subobjects.
+            contained sub-objects.
 
         Returns
         -------
