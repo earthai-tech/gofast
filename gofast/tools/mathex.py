@@ -35,8 +35,8 @@ from ..exceptions import (
     SiteError, 
     )
 from .._typing import (
-    T, 
-    F,
+    _T, 
+    _F,
     List, 
     Tuple,
     Union,
@@ -44,7 +44,7 @@ from .._typing import (
     NDArray,
     DType,
     Optional,
-    SP, 
+    _SP, 
     Series, 
     DataFrame,
 )
@@ -376,13 +376,13 @@ def linkage_matrix(
 
       .. math::
 
-         d(u,v) = \sqrt{\frac{|v|+|s|}{T}d(v,s)^2 \\
-                      + \frac{|v|+|t|}{T}d(v,t)^2 \\
-                      - \frac{|v|}{T}d(s,t)^2}
+         d(u,v) = \sqrt{\frac{|v|+|s|}{_T}d(v,s)^2 \\
+                      + \frac{|v|+|t|}{_T}d(v,t)^2 \\
+                      - \frac{|v|}{_T}d(s,t)^2}
 
       where :math:`u` is the newly joined cluster consisting of
       clusters :math:`s` and :math:`t`, :math:`v` is an unused
-      cluster in the forest, :math:`T=|v|+|s|+|t|`, and
+      cluster in the forest, :math:`_T=|v|+|s|+|t|`, and
       :math:`|*|` is the cardinality of its argument. This is also
       known as the incremental algorithm.
 
@@ -533,9 +533,9 @@ def interpolate2d (
 @refAppender(refglossary.__doc__)
 @docSanitizer()    
 def scalePosition(
-        ydata: ArrayLike | SP | Series | DataFrame ,
+        ydata: ArrayLike | _SP | Series | DataFrame ,
         xdata: ArrayLike| Series = None, 
-        func : Optional [F] = None ,
+        func : Optional [_F] = None ,
         c_order: Optional[int|str] = 0,
         show: bool =False, 
         **kws): 
@@ -684,7 +684,7 @@ def scalePosition(
 
 def detect_station_position (
         s : Union[str, int] ,
-        p: SP, 
+        p: _SP, 
 ) -> Tuple [int, float]: 
     """ Detect station position and return the index in positions
     
@@ -954,7 +954,7 @@ def quickplot (arr: ArrayLike | List[float], dl:float  =10)-> None:
  
 
 def convert_distance_to_m(
-        value:T ,
+        value:_T ,
         converter:float =1e3,
         unit:str ='km'
 )-> float: 
@@ -1009,8 +1009,8 @@ def scale_y(
         y: ArrayLike , 
         x: ArrayLike =None, 
         deg: int = None,  
-        func:F =None
-        )-> Tuple[ArrayLike, ArrayLike, F]: 
+        func:_F =None
+        )-> Tuple[ArrayLike, ArrayLike, _F]: 
     """ Scaling value using a fitting curve. 
     
     Create polyfit function from a specifc data points `x` to correct `y` 
@@ -1343,14 +1343,14 @@ def smoothing (
     
   
 def interpolate1d (
-        arr:ArrayLike[DType[T]], 
+        arr:ArrayLike[DType[_T]], 
         kind:str = 'slinear', 
         method:str=None, 
         order:Optional[int] = None, 
         fill_value:str ='extrapolate',
         limit:Tuple[float] =None, 
         **kws
-    )-> ArrayLike[DType[T]]:
+    )-> ArrayLike[DType[_T]]:
     """ Interpolate array containing invalid values `NaN`
     
     Usefull function to interpolate the missing frequency values in the 
@@ -1515,13 +1515,13 @@ def interpolate1d (
    
 
 def moving_average (
-    y:ArrayLike[DType[T]],
+    y:ArrayLike[DType[_T]],
     *, 
     window_size:int  = 3 , 
     method:str  ='sma',
     mode:str  ='same', 
     alpha: int  =.5 
-)-> ArrayLike[DType[T]]: 
+)-> ArrayLike[DType[_T]]: 
     """ A moving average is  used with time series data to smooth out
     short-term fluctuations and highlight longer-term trends or cycles.
     
@@ -2775,7 +2775,7 @@ def gradient_descent(
        to ``1``
     Returns 
     ---------
-    - `F`: New model values with the best `W` parameters found.
+    - `_F`: New model values with the best `W` parameters found.
     - `W`: vector containing the parameters fits 
     - `cost_history`: Containing the error at each Itiretaions. 
         
@@ -2823,14 +2823,14 @@ def gradient_descent(
     for ii in range(n_epochs): 
         with np.errstate(all='ignore'): # rather than divide='warn'
             #https://numpy.org/devdocs/reference/generated/numpy.errstate.html
-            W= W - (Z.T.dot(Z.dot(W)-s)/ Z.shape[0]) * alpha 
+            W= W - (Z._T.dot(Z.dot(W)-s)/ Z.shape[0]) * alpha 
             cost_history[ii]= (1/ 2* Z.shape[0]) * np.sum((Z.dot(W) -s)**2)
        
-    # Model function F= Z.W where `Z` id composed of vertical nodes 
+    # Model function _F= Z.W where `Z` id composed of vertical nodes 
     # values and `bias` columns and `W` is weights numbers.
-    F= Z.dot(W) # model(Z=Z, W=W)     # generate the new model with the best weights 
+    _F= Z.dot(W) # model(Z=Z, W=W)     # generate the new model with the best weights 
              
-    return F,W, cost_history
+    return _F,W, cost_history
 
 def _kind_of_model(degree, x, y) :
     """ 
@@ -2867,7 +2867,7 @@ def _kind_of_model(degree, x, y) :
         x= concat_array_from_list(c, concat_axis=1)
         x= np.concatenate((x, np.ones((x.shape[0], 1))), axis =1)
 
-    else: x= np.vstack((x, np.ones(x.shape))).T # initialize z to V*2
+    else: x= np.vstack((x, np.ones(x.shape)))._T # initialize z to V*2
 
     w= init_weights(x=x, y=y)
     return x, w  # Return the matrix x and the weights vector w 
@@ -3011,13 +3011,13 @@ def torres_verdin_filter(
                            " specified. Otherwise axis=0 is used .")
             axis =0
         if axis ==0: 
-            arr = arr.T 
+            arr = arr._T 
         for ii in range( len(arr )) : 
             arr [ii] = _filtering_1d_array (
                 arr [ii ], wf = weight_factor, b = beta ) 
         # then transpose again 
         if axis ==0: 
-            arr = arr.T 
+            arr = arr._T 
     else: 
         arr = _filtering_1d_array ( arr, wf = weight_factor, b=beta  )
         

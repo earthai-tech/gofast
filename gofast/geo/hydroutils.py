@@ -31,11 +31,11 @@ from .._typing import (
     List, 
     Tuple, 
     Optional, 
-    Union, T,
+    Union, _T,
     Series, 
     DataFrame, 
     ArrayLike, 
-    F
+    _F
     ) 
 from ..decorators import writef, deprecated
 from ..exceptions import ( 
@@ -2213,7 +2213,7 @@ def _kp (k, /,  kr= (.01 , .07 ), string = False ) :
                 label + str(v) if not math.isnan (v) else np.nan ) 
 
 def classify_k (
-        o:DataFrame| Series | ArrayLike, /,  func: callable|F= None , 
+        o:DataFrame| Series | ArrayLike, /,  func: callable|_F= None , 
         kname:str=None, inplace:bool =False, string:str =False, 
         default_func:bool=False  
         ):
@@ -2297,10 +2297,10 @@ def classify_k (
 
 #XXXTODO compute t parameters 
 def transmissibility (s, d, time, ): 
-    """Transmissibility T represents the ability of aquifer's water conductivity.
+    """Transmissibility _T represents the ability of aquifer's water conductivity.
     
     It is the numeric equivalent of the product of hydraulic conductivity times
-    aquifer's thickness (T = KM), which means it is the seepage flow under the
+    aquifer's thickness (_T = KM), which means it is the seepage flow under the
     condition of unit hydraulic gradient, unit time, and unit width
     
     """
@@ -2378,10 +2378,10 @@ def check_flow_objectivity ( y ,/,  values, classes  ) :
  
 @catmapflow2(cat_classes=['FR0', 'FR1', 'FR2', 'FR3'])#, 'FR4'] )
 def categorize_flow(
-        target: Series | ArrayLike[T] ,
+        target: Series | ArrayLike[_T] ,
         flow_values: List [float],
         **kwargs
-    ) -> Tuple[ List[float], T, List[str]]: 
+    ) -> Tuple[ List[float], _T, List[str]]: 
     """ 
     Categorize `flow` into different classes. If the optional
     `flow_classes`  argument is given, it should be erased the
@@ -2442,7 +2442,7 @@ def categorize_flow(
         Prediction from Geo‐Electrical Features using Support Vector Machines. 
         Water Resour. Res. :doi:`10.1029/2021wr031623`
         
-    .. [2] Kra, K.J., Koffi, Y.S.K., Alla, K.A. & Kouadio, A.F. (2016) Projets 
+    .. [2] Kra, K.J., Koffi, Y.S.K., Alla, K.A. & Kouadio, A._F. (2016) Projets 
         d’émergence post-crise et disparité territoriale en Côte d’Ivoire. 
         Les Cah. du CELHTO, 2, 608–624.
         
@@ -2532,7 +2532,7 @@ def exportdf (
 
 def categorize_target(
         arr :ArrayLike |Series , /, 
-        func: F = None,  
+        func: _F = None,  
         labels: int | List[int] = None, 
         rename_labels: Optional[str] = None, 
         coerce:bool=False,

@@ -33,15 +33,15 @@ To utilize the functionalities offered by the GoFast API, import the required su
 
 .. code-block:: python
 
-   import gofast as gf 
-   from gofast.tools import speed_rowwise_process
-   from gofast.estimators import HammersteinWienerRegressor
+   import gofast as gf  # or
+   from gofast.tools import speed_rowwise_process #or
+   from gofast.estimators import HammersteinWienerRegressor #or 
+   from gofast.models.optimize import parallelize_estimators
 
-Each subpackage is designed with a user-friendly interface, ensuring easy access and integration 
+Each sub-package is designed with a user-friendly interface, ensuring easy access and integration 
 into data science workflows. Whether you are conducting exploratory data analysis, building complex 
 machine learning models, or creating insightful visualizations, the GoFast API provides the necessary 
 tools and functions to streamline your work.
-
 
 The :code:`GoFast` library provides a range of utilities designed to accelerate 
 machine learning workflows. This API reference provides detailed documentation for all the modules, 
@@ -168,8 +168,8 @@ expedite research and analysis.
    datasets.load_nlogs 
    datasets.load_mxs 
    datasets.make_sounding 
-   datasets.make_african_demo 
-   datasets.make_agronomy
+   datasets.make_african_demo_info 
+   datasets.make_agronomy_feedback
    datasets.make_cc_factors
    datasets.make_elogging 
    datasets.make_erp 
@@ -210,24 +210,34 @@ Classes
    :toctree: generated/
    :template: class.rst
 
-   estimators.AdalineGradientDescent
-   estimators.AdalineStochasticGradientDescent
+   estimators.AdalineClassifier
+   estimators.AdalineMixte
+   estimators.AdalineRegressor
+   estimators.AdalineStochasticRegressor
+   estimators.AdalineStochasticClassifier
    estimators.BasePerceptron
-   estimators.BoostedDecisionTreeClassifier
+   estimators.BenchmarkRegressor 
+   estimators.BenchmarkClassifier 
    estimators.BoostedRegressionTree
-   estimators.HammersteinWienerEnsemble
+   estimators.BoostedClassifierTree
+   estimators.DecisionTreeBasedRegressor
+   estimators.DecisionTreeBasedClassifier
+   estimators.GradientDescentClassifier
+   estimators.GradientDescentRegressor
+   estimators.HammersteinWienerClassifier
    estimators.HammersteinWienerRegressor
-   estimators.HybridBRTEnsembleClassifier
-   estimators.HybridBoostedRegressionTree
+   estimators.HBTEnsembleRegressor
+   estimators.HBTEnsembleClassifier
+   estimators.HWEnsembleClassifier
+   estimators.HWEnsembleRegressor
+   estimators.HybridBoostedTreeClassifier
+   estimators.HybridBoostedTreeRegressor
    estimators.MajorityVoteClassifier
    estimators.NeuroFuzzyEnsemble
-   estimators.RegressionTreeBasedClassifier
-   estimators.RegressionTreeEnsemble
-   estimators.SequentialBackwardSelection
-   estimators.SimpleAverageClassifier
    estimators.SimpleAverageRegressor
-   estimators.WeightedAverageClassifier
+   estimators.SimpleAverageClassifier
    estimators.WeightedAverageRegressor
+   estimators.WeightedAverageClassifier
    
    
 :mod:`gofast.geo`: Geosciences
@@ -274,29 +284,28 @@ Functions
    :toctree: generated/
    :template: function.rst
    
-   geo.make_coords 
-   geo.refine_locations 
+   geo.build_random_thickness 
+   geo.classify_k
+   geo.find_aquifer_groups
+   geo.find_similar_labels
    geo.get_azimuth
    geo.get_bearing
    geo.get_stratum_thickness
-   geo.smart_thickness_ranker 
-   geo.build_random_thickness 
-   geo.select_base_stratum 
    geo.get_aquifer_section 
    geo.get_aquifer_sections
    geo.get_unique_section
    geo.get_compressed_vector 
-   geo.reduce_samples
    geo.get_sections_from_depth
+   geo.label_importance
+   geo.make_coords 
    geo.make_mxs_labels
    geo.partition_holes
    geo.plot_stratalog
    geo.predict_nga_labels
-   geo.find_aquifer_groups
-   geo.find_similar_labels
-   geo.classify_k 
-   geo.label_importance
-
+   geo.reduce_samples
+   geo.refine_locations 
+   geo.select_base_stratum 
+   geo.smart_thickness_ranker 
 
 .. _models_ref:
 
@@ -493,7 +502,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.split_train_test
    tools.split_train_test_by_id
    tools.stats_from_prediction
-   tools.storeOrwritehdf5
+   tools.store_or_write_hdf5
    tools.stratify_categories
    tools.to_numeric_dtypes
 
@@ -503,7 +512,7 @@ streamlining workflows and improving productivity. The list of the tools are not
 :mod:`gofast.plot`: Visualization 
 ==================================
 
-"The 'Visualizations' module combines 'Exploratory Plots' and 
+mod:`gofast.plot` sub-package combines 'Exploratory Plots' and 
 'Evaluation Plots' along with versatile 'Plot Utilities.' This 
 module empowers users to explore, analyze, and evaluate data 
 efficiently through insightful visual representations to enhance 
@@ -740,11 +749,12 @@ users to prepare their datasets for machine learning and analysis.
 
 .. autosummary::
    :toctree: generated/
-   :template: function.rst
+   :template: class.rst
 
+   transformers.SequentialBackwardSelection
    transformers.KMeansFeaturizer
    transformers.StratifiedWithCategoryAdder
-   transformers.StratifiedUsingBaseCategory 
+   transformers.CategoryBaseStratifier 
    transformers.CategorizeFeatures
    transformers.FrameUnion
    transformers.DataFrameSelector

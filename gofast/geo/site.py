@@ -17,7 +17,7 @@ from ._gofastlog import gofastlog
 from ._typing import ( 
     Optional, 
     ArrayLike,
-    F
+    _F
     )
 from .exceptions import ( 
     SiteError, 
@@ -431,7 +431,7 @@ class Profile:
         return xx, yy 
     
     @staticmethod 
-    def f_ (ar , /,  func: str | F  = 'dms->ll'): 
+    def f_ (ar , /,  func: str | _F  = 'dms->ll'): 
         """
         Converter position function from dms to longitude/latitude degree 
         decimal or vice versa.

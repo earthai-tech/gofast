@@ -26,7 +26,7 @@ from ._typing import (
     Optional, 
     ArrayLike , 
     NDArray,
-    F
+    _F
     )
 from .exceptions import LearningError 
 from sklearn.metrics import (  
@@ -370,7 +370,7 @@ average : {{'micro', 'macro', 'samples', 'weighted', 'binary'}} or None, \
         Calculate metrics for each label, and find their average weighted
         by support (the number of true instances for each label). This
         alters 'macro' to account for label imbalance; it can result in an
-        F-score that is not between precision and recall. Weighted recall
+        _F-score that is not between precision and recall. Weighted recall
         is equal to accuracy.
     ``'samples'``:
         Calculate metrics for each instance, and find their average (only
@@ -456,7 +456,7 @@ scheme below:
 References
 ----------
 
-.. [1] Provost, F., Domingos, P. (2000). Well-trained PETs: Improving
+.. [1] Provost, _F., Domingos, P. (2000). Well-trained PETs: Improving
        probability estimation trees (Section 6.2), CeDER Working Paper
        #IS-00-04, Stern School of Business, New York University.
 
@@ -560,7 +560,7 @@ def _assert_metrics_args(y, label):
                          .format(label))
   
 def precision_recall_tradeoff(
-    clf:F, 
+    clf:_F, 
     X:NDArray,
     y:ArrayLike,
     *,
@@ -816,7 +816,7 @@ Examples
 )   
 
 def confusion_matrix_(
-    clf:F, 
+    clf:_F, 
     X:NDArray, 
     y:ArrayLike,
     *, 

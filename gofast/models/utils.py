@@ -6,24 +6,24 @@ from __future__ import annotations
 
 import numpy as np 
 from sklearn.covariance import ShrunkCovariance
-from sklearn.model_selection import ( 
-    cross_val_score, GridSearchCV 
-    )
+from sklearn.model_selection import cross_val_score, GridSearchCV 
+from sklearn.svm import SVC, SVR
+from sklearn.utils.multiclass import type_of_target
+
 from .._typing import (
     Tuple,
-    F, 
+    _F, 
     ArrayLike, 
     NDArray, 
     Dict,
     )
 
-from ..tools.validator import ( 
-    get_estimator_name
-    )
+from ..tools.validator import get_estimator_name, check_X_y 
 from .._gofastlog import gofastlog
 _logger = gofastlog().get_gofast_logger(__name__)
 
 __all__= [
+    'find_best_C', 
     'get_cv_mean_std_scores',  
     'get_split_best_scores', 
     'display_model_max_details',
@@ -33,6 +33,82 @@ __all__= [
     'get_scorers', 
     'naive_evaluation'
   ]
+
+
+def find_best_C(X, y, C_range, cv=5, scoring='accuracy', 
+                scoring_reg='neg_mean_squared_error'):
+    """
+    Find the best C regularization parameter for an SVM, automatically determining
+    whether the task is classification or regression based on the target variable.
+
+     Mathematically, the formula can be expressed as: 
+
+     .. math::
+         \\text{Regularization Path: } C_i \\in \\{C_1, C_2, ..., C_n\\}
+         \\text{For each } C_i:\\
+             \\text{Evaluate } \\frac{1}{k} \\sum_{i=1}^{k} \\text{scoring}(\\text{SVM}(C_i, \\text{fold}_i))
+         \\text{Select } C = \\arg\\max_{C_i} \\text{mean cross-validated score}
+         
+    Parameters
+    ----------
+    X : array-like, shape (n_samples, n_features)
+        Training vectors, where n_samples is the number of samples and 
+        n_features is the number of features.
+    y : array-like, shape (n_samples,)
+        Target values, used to determine if the task is classification or 
+        regression.
+    C_range : array-like
+        The range of C values to explore.
+    cv : int, default=5
+        Number of folds in cross-validation.
+    scoring : str, default='accuracy'
+        A string to determine the cross-validation scoring metric 
+        for classification.
+    scoring_reg : str, default='neg_mean_squared_error'
+        A string to determine the cross-validation scoring metric 
+        for regression.
+
+    Returns
+    -------
+    best_C : float
+        The best C parameter found in C_range.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import load_iris
+    >>> iris = load_iris()
+    >>> X, y = iris.data, iris.target
+    >>> C_range = np.logspace(-4, 4, 20)
+    >>> best_C = find_best_C(X, y, C_range)
+    >>> print(f"Best C value: {best_C}")
+    """
+
+    X, y = check_X_y(
+        X, 
+        y, 
+        to_frame= True, 
+        )
+    task_type = type_of_target(y)
+    best_score = ( 0 if task_type == 'binary' or task_type == 'multiclass'
+                  else float('inf') )
+    best_C = None
+
+    for C in C_range:
+        if task_type == 'binary' or task_type == 'multiclass':
+            model = SVC(C=C)
+            score_function = scoring
+        else:  # regression
+            model = SVR(C=C)
+            score_function = scoring_reg
+
+        scores = cross_val_score(model, X, y, cv=cv, scoring=score_function)
+        mean_score = np.mean(scores)
+        if (task_type == 'binary' or task_type == 'multiclass' and mean_score > best_score) or \
+           (task_type != 'binary' and task_type != 'multiclass' and mean_score < best_score):
+            best_score = mean_score
+            best_C = C
+
+    return best_C
 
 def get_cv_mean_std_scores (
         cvres : Dict[str, ArrayLike] 
@@ -117,7 +193,7 @@ def display_model_max_details(cvres:Dict[str, ArrayLike], cv:int =4):
     print('mean=', globalmeansc , 'std=',globalstdsc)
 
 
-def display_fine_tuned_results ( cvmodels: list[F] ): 
+def display_fine_tuned_results ( cvmodels: list[_F] ): 
     """Display fined -tuning results 
     
     Parameters 
@@ -136,7 +212,7 @@ def display_fine_tuned_results ( cvmodels: list[F] ):
         print('BEST ESTIMATOR =', estimator)
         print()
 
-def display_cv_tables(cvres:Dict[str, ArrayLike],  cvmodels:list[F] ): 
+def display_cv_tables(cvres:Dict[str, ArrayLike],  cvmodels:list[_F] ): 
     """ Display the cross-validation results from all models at each 
     k-fold. 
     
@@ -218,7 +294,7 @@ def get_scorers (*, scorer:str=None, check_scorer:bool=False,
     return scorers 
               
 def naive_evaluation(
-        clf: F,
+        clf: _F,
         X:NDArray,
         y:ArrayLike,
         cv:int =7,

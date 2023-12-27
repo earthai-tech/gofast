@@ -23,8 +23,8 @@ from ._typing import (
     Iterable,
     Optional,
     Callable,
-    T,
-    F
+    _T,
+    _F
 )
 from ._gofastlog import gofastlog
 _logger = gofastlog.get_gofast_logger(__name__)
@@ -1151,7 +1151,7 @@ class predplot:
             self.obs_line = ('off', 'Obs')
             
     
-    def __call__(self, func:Callable[..., T]):
+    def __call__(self, func:Callable[..., _T]):
         """ Call the function to be decorated """
         
         @functools.wraps(func)
@@ -1240,7 +1240,7 @@ class pfi:
                                                  } )
         self.fig_title =kwargs.pop('fig_title', 'matplotlib.axes.Axes.barh Example')
         
-    def __call__(self, func:Callable[..., T]): 
+    def __call__(self, func:Callable[..., _T]): 
  
         @functools.wraps(func)
         def feat_importance_dec (*args, **kwargs): 
@@ -1292,7 +1292,7 @@ class pfi:
             ax1.set_yticklabels(data_columns[tree_importance_sorted_idx])
             ax1.set_yticks(tree_indices)
             ax1.set_ylim((0, len(clf.feature_importances_)))
-            ax2.boxplot(result.importances[perm_sorted_idx].T *100,
+            ax2.boxplot(result.importances[perm_sorted_idx]._T *100,
                         labels=data_columns[perm_sorted_idx], **self.box_kws)
             
             ax1.set_xlabel(**{k:v +' before shuffling (%)' 
@@ -1544,7 +1544,7 @@ class docAppender:
             )
     
     def __init__ (self,
-                  func0: Callable[[F], F] ,
+                  func0: Callable[[_F], _F] ,
                   from_: str ='Parameters',
                  to: str ='Returns',
                  insertfrom: str = 'Parameters',

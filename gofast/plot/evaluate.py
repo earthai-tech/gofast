@@ -31,7 +31,7 @@ from sklearn.impute import   SimpleImputer
 
 from .._gofastlog import gofastlog
 from .._docstring import _core_docs, _baseplot_params, DocstringComponents
-from .._typing import  (Optional, Tuple, F, List, ArrayLike, NDArray, 
+from .._typing import  (Optional, Tuple, _F, List, ArrayLike, NDArray, 
                         DataFrame,  Series )
 from ..analysis.dimensionality import nPCA
 from ..decorators import  docSanitizer 
@@ -671,7 +671,7 @@ class EvalPlotter(BasePlot):
     @docSanitizer()       
     def plotPR(
         self,
-        clf:F,
+        clf:_F,
         label:int|str,
         kind:Optional[str]=None,
         method:Optional[str]=None,
@@ -1042,7 +1042,7 @@ class EvalPlotter(BasePlot):
     @docSanitizer()
     def plotConfusionMatrix(
         self, 
-        clf:F, 
+        clf:_F, 
         *, 
         kind:str =None, 
         labels:List[int]=None, 
@@ -1594,7 +1594,7 @@ def plot_model(
     yt: ArrayLike |Series, 
     ypred:ArrayLike |Series=None,
     *, 
-    clf:F=None, 
+    clf:_F=None, 
     Xt:DataFrame|NDArray=None, 
     predict:bool =False, 
     prefix:Optional[bool]=None, 
@@ -1999,7 +1999,7 @@ the validation set and the test dataset. See more in [2]_.
 
 References 
 ------------
-.. [1] Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., 
+.. [1] Pedregosa, _F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., 
     Grisel, O., Blondel, M., et al. (2011) Scikit-learn: Machine learning in 
     Python. J. Mach. Learn. Res., 12, 2825–2830.
 .. [2] Raschka, S. & Mirjalili, V. (2019) Python Machine Learning. 

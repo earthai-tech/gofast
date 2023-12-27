@@ -3,7 +3,7 @@
 #   Author: LKouadio
 """
 Created on Thu Dec 21 14:43:09 2023
-@author: Daniel
+@author: a.k.a Daniel
 """
 from __future__ import annotations 
 
@@ -11,16 +11,21 @@ import pandas as pd
 import numpy as np
 import random
 from datetime import timedelta
-
+from sklearn.model_selection import train_test_split 
 from ..tools.box import Boxspace 
 from ..tools.funcutils import ( 
-    ellipsis2false , assert_ratio, is_iterable, 
-    is_in_if ) 
-from sklearn.model_selection import train_test_split 
+    ellipsis2false ,
+    assert_ratio,
+    is_iterable, 
+    is_in_if , 
+    _assert_all_types, 
+    add_noises_to
+    ) 
 
 def make_african_demo(*, 
-    start_year=1960, end_year=2020, 
-    countries= ['Nigeria', 'Egypt', 'South Africa'], 
+    start_year=1960,
+    end_year=2020, 
+    countries= None, 
     as_frame:bool =..., 
     return_X_y:bool = ..., 
     split_X_y:bool= ..., 
@@ -31,7 +36,7 @@ def make_african_demo(*,
     **kws
     ):
     """
-    Generates a complex dataset for African demography from 1960 to the present.
+    Generates a dataset for African demography from 1960 to the present.
 
     This function generates a DataFrame with demographic data for specified 
     African countries from a start year to an end year. It randomly 
@@ -48,7 +53,7 @@ def make_african_demo(*,
     end_year : int
         The ending year for the dataset.
 
-    countries : list of str
+    countries : int or list of str
         A list of African countries to include in the dataset.
 
     as_frame : bool, default=False
@@ -122,17 +127,23 @@ def make_african_demo(*,
         
     Example
     -------
+    >>> from gofast.datasets import make_african_demo
     >>> start_year = 1960
     >>> end_year = 2020
     >>> countries = ['Nigeria', 'Egypt', 'South Africa']
     >>> demography_data = make_african_demo(start_year, end_year, countries)
     >>> print(demography_data.head())
 
-    """
+    """ 
     # Random seed for reproducibility
-    np.random.seed(seed)
+    np.random.seed(seed); data = []
+    # check the given data 
+    start_year = int (_assert_all_types(start_year, int, float, str, 
+                      objname="'start_name' parameter "))
+    end_year = int (_assert_all_types(end_year, int, float, str, 
+                      objname="'start_name' parameter "))
     
-    data = []
+    countries = _get_item_from ( countries, AFRICAN_COUNTRIES, 7  )
     for year in range(start_year, end_year + 1):
         for country in countries:
             population = np.random.randint(1e6, 2e8)  # Random population
@@ -152,13 +163,13 @@ def make_african_demo(*,
                'UrbanizationRate', 
                'GDP_PerCapita'
                ]
-    demography_dataset = pd.DataFrame(data, columns=columns)
+    demo_data = pd.DataFrame(data, columns=columns)
   
     tnames = list( is_iterable(
         tnames or 'GDP_PerCapita', exclude_string= True, transform =True ) ) 
     
-    demography_dataset = _manage_data(
-        demography_dataset,
+    demo_data = _manage_data(
+        demo_data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
@@ -168,15 +179,13 @@ def make_african_demo(*,
         seed=seed
         ) 
 
-    return demography_dataset
+    return demo_data
 
-
-def make_agronomy(
+def make_agronomy_feedback(
     *, 
     samples=100, 
     num_years=5, 
-    crop_types=('Wheat', 'Corn', 'Rice'), 
-    pesticide_types= ('Herbicide', 'Insecticide', 'Fungicide'), 
+    n_specimens:int =7, 
     as_frame:bool =..., 
     return_X_y:bool = ..., 
     split_X_y:bool= ..., 
@@ -187,7 +196,7 @@ def make_agronomy(
     **kws
     ):
     """
-    Generates a complex agronomy dataset including information about 
+    Generates an agronomy dataset including information about 
     crop cultivation and pesticide usage.
 
     This function generates a DataFrame with data for multiple farms over 
@@ -206,12 +215,10 @@ def make_agronomy(
     num_years : int
         The number of years for which data is generated.
 
-    crop_types : list of str
-        A list of different types of crops.
-
-    pesticide_types : list of str
-        A list of different types of pesticides.
-
+    n_specimens: int, 
+       Number of differnt crop and pesticide types to include in the 
+       dataset.
+ 
     as_frame : bool, default=False
         If True, the data is a pandas DataFrame including columns with
         appropriate dtypes (numeric). The target is
@@ -283,18 +290,21 @@ def make_agronomy(
         
     Example
     -------
+    >>> from gofast.datasets import make_agronomy_feedback
     >>> samples = 100
     >>> num_years = 5
-    >>> crop_types = ['Wheat', 'Corn', 'Rice']
-    >>> pesticide_types = ['Herbicide', 'Insecticide', 'Fungicide']
-    >>> agronomy_data = make_agronomy(samples, num_years, crop_types,
-                                      pesticide_types)
+    >>> agronomy_data = make_agronomy_feedback(samples, num_years, n_specimens=3)
     >>> print(agronomy_data.head())
 
     """
     # Random seed for reproducibility
     np.random.seed(seed)
+    n_specimens = int(_assert_all_types(n_specimens, int, float,
+                objname='The number of specimens (crop and pesticides)')
+        )
     
+    pesticide_types = random.choice(COMMON_PESTICIDES, n_specimens)
+    crop_types = random.choice(COMMON_CROPS, n_specimens)
     data = []
     for entry_id in range(samples):
         for year in range(num_years):
@@ -504,8 +514,9 @@ def make_mining_ops(
         
     Example
     -------
+    >>> from gofast.datasets import make_mining_ops
     >>> samples = 1000
-    >>> mining_data = make_mining(samples)
+    >>> mining_data = make_mining_ops(samples)
     >>> print(mining_data.head())
 
     """
@@ -518,26 +529,24 @@ def make_mining_ops(
     depths = np.random.uniform(0, 500, samples)  # in meters
 
     # Mineralogical data
-    ore_types = np.random.choice(['Type1', 'Type2', 'Type3'], samples)
+    ore_types = np.random.choice(ORE_TYPE.keys(), samples)
     ore_concentrations = np.random.uniform(0.1, 20, samples)  # percentage
 
     # Drilling and blasting data
     drill_diameters = np.random.uniform(50, 200, samples)  # in mm
     blast_hole_depths = np.random.uniform(3, 15, samples)  # in meters
-    explosive_types = np.random.choice(
-        ['Explosive1', 'Explosive2', 'Explosive3'], samples)
+    explosive_types = np.random.choice(EXPLOSIVE_TYPE.keys(), samples)
     explosive_amounts = np.random.uniform(10, 500, samples)  # in kg
 
     # Equipment details
-    equipment_types = np.random.choice(
-        ['Excavator', 'Drill', 'Loader', 'Truck'], samples)
+    equipment_types = np.random.choice(EQUIPMENT_TYPE, samples)
     equipment_ages = np.random.randint(0, 15, samples)  # in years
 
     # Production figures
     daily_productions = np.random.uniform(1000, 10000, samples)  # in tonnes
 
     # Construct the DataFrame
-    mining_dataset = pd.DataFrame({
+    mining_data = pd.DataFrame({
         'Easting_m': eastings,
         'Northing_m': northings,
         'Depth_m': depths,
@@ -554,8 +563,13 @@ def make_mining_ops(
     tnames = list (is_iterable ( 
         tnames or 'DailyProduction_tonnes',exclude_string= True, transform =True )
         )
-    mining_dataset = _manage_data(
-        mining_dataset,
+    # map to make it a little bit real.
+    for typ, rtype  in zip ( ("OreType", "ExplosiveType"), 
+                       (ORE_TYPE, EXPLOSIVE_TYPE )) : 
+        mining_data[typ] = mining_data[typ].map (rtype) 
+        
+    mining_data = _manage_data(
+        mining_data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
@@ -564,8 +578,7 @@ def make_mining_ops(
         noises= noises, 
         seed=seed, 
         ) 
-    return mining_dataset
-
+    return mining_data
 
 def make_sounding(
     *, samples=100, 
@@ -677,6 +690,7 @@ def make_sounding(
         
     Example
     -------
+    >>> from gofast.datasets import make_sounding
     >>> samples = 100
     >>> num_layers = 5
     >>> sounding_data = make_sounding(samples, num_layers)
@@ -727,7 +741,7 @@ def make_sounding(
         seed=seed
         ) 
 
-def make_medical_diagnostic(
+def make_medical_diagnosis(
     *,samples=1000, 
     as_frame:bool =..., 
     return_X_y:bool = ..., 
@@ -828,8 +842,9 @@ def make_medical_diagnostic(
         
     Example
     -------
+    >>> from gofast.datasets import make_medical_diagnosis
     >>> samples = 1000
-    >>> medical_data = make_medical_diagnostic(samples)
+    >>> medical_data = make_medical_diagnosis(samples)
     >>> print(medical_data.head())
 
     """
@@ -839,8 +854,8 @@ def make_medical_diagnostic(
     # Demographic information
     ages = np.random.randint(0, 100, samples)
     genders = np.random.choice(['Male', 'Female'], samples)
-    ethnicities = np.random.choice(['Ethnicity1', 'Ethnicity2', 
-                                    'Ethnicity3', 'Ethnicity4'], samples)
+    
+    ethnicities = np.random.choice(WATER_QUAL_NEEDS['Ethnicity'], samples)
     weights = np.random.uniform(50, 120, samples)  # in kilograms
     heights = np.random.uniform(150, 200, samples)  # in centimeters
 
@@ -1009,6 +1024,7 @@ def make_well_logging(*,
         
     Example
     -------
+    >>> from gofast.datasets import make_well_logging
     >>> depth_start = 0.0
     >>> depth_end = 200.0
     >>> depth_interval = 0.5
@@ -1164,6 +1180,7 @@ def make_ert(
 
     Example
     -------
+    >>> from gofast.datasets import make_ert
     >>> samples = 100
     >>> equipment_type = 'SuperSting R8'
     >>> ert_data = make_ert(samples, equipment_type)
@@ -1316,6 +1333,7 @@ def make_tem(
         
     Example
     -------
+    >>> from gofast.datasets import make_tem
     >>> samples = 500
     >>> lat_range = (34.00, 36.00)
     >>> lon_range = (-118.50, -117.00)
@@ -1478,6 +1496,7 @@ def make_erp(*,
         
     Example
     -------
+    >>> from gofast.datasets import make_erp
     >>> samples = 1000
     >>> lat_range = (34.00, 36.00)
     >>> lon_range = (-118.50, -117.00)
@@ -1636,6 +1655,7 @@ def make_elogging(
         
     Example
     -------
+    >>> from gofast.datasets import make_elogging
     >>> start_date = '2021-01-01'
     >>> end_date = '2021-01-31'
     >>> samples = 100
@@ -1790,6 +1810,7 @@ def make_gadget_sales(*,
         
     Example
     -------
+    >>> from gofast.datasets import make_gadget_sales
     >>> start_date = '2021-12-26'
     >>> end_date = '2022-01-10'
     >>> samples = 100
@@ -1939,6 +1960,7 @@ def make_retail_store(
         samples.
     Example
     -------
+    >>> from gofast.datasets import make_retail_store
     >>> samples = 1000
     >>> dataset = make_retail_store(samples)
     >>> print(dataset.head())
@@ -2086,10 +2108,11 @@ def make_cc_factors(
         
     Examples 
     --------
+    >>> from gofast.datasets import make_cc_factors
     >>> # Parameters for the dataset
     >>> num_data_points = 1000
     >>> # Generating the climate change dataset with missing values
-    >>> climate_change_data = generate_climate_change_dataset(num_data_points)
+    >>> climate_change_data = make_cc_factors(num_data_points)
     >>> # Display information about the generated dataset
     >>> print(f"Dataset shape: {climate_change_data.shape}")
     >>> print(f"Sample data:\n{climate_change_data[:5]}")
@@ -2327,7 +2350,7 @@ def make_water_demand(
         noises = noises, 
         seed=seed
         ) 
-
+# --func -utilities -----  
 
 def _manage_data(
     data, /, 
@@ -2455,47 +2478,46 @@ def _manage_data(
         target_names = tnames,
         feature_names=feature_names,
         )
-    return
-        
-def add_noises_to(data, /, noises=.1):
-    """
-    Adds NaN values to a pandas DataFrame.
-
-    Parameters
-    ----------
-    dataframe : pandas.DataFrame
-        The DataFrame to which NaN values will be added.
-    noises : float, default='10%'
-        The percentage of values to be replaced with NaN in each column. 
-        This must be a number between 0 and 1. Default is 0.1 (10%).
-
-    Returns
+ 
+def _get_item_from ( spec , /,  default_items, default_number = 7 ): 
+    """ Accept either interger or a list. 
+    
+    If integer is passed, number of items is randomly chosen. if 
+    `spec` is given as a list of objects, then do anything.
+    
+    Parameters 
+    -----------
+    spec: int, list 
+        number of specimens or speciments to fecth 
+    default_items: list 
+       Global list that contains the items. 
+       
+    default_number: int, 
+        Randomly select the number of specimens if `spec` is ``None``. 
+        If ``None`` then take the length of all default items in 
+        `default_items`. 
+    Return
     -------
-    pandas.DataFrame
-        A DataFrame with NaN values added.
-
-    Examples
-    --------
-    >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': ['x', 'y', 'z']})
-    >>> new_df = add_nan_to_dataframe(df, nan_percentage=0.2)
+    spec: list 
+       List of items retrieved according to the `spec`. 
+       
     """
-    if noises is None: 
-        return data 
-    noises = assert_ratio(noises)
-    # Copy the dataframe to avoid changing the original data
-    df_with_nan = data.copy()
+    if default_number is None: 
+        default_number= len(default_items )
+        
+    if spec is None: 
+        spec =default_number 
+        
+    if isinstance ( spec, ( int, float)): 
+        spec = np.random.choice (
+            default_items, default_number if int(spec)==0 else int (spec) )
+    
+    spec = is_iterable ( spec, exclude_string= True, transform =True )
+    
+    return spec 
+    
 
-    # Calculate the number of NaNs to add in each column based on the percentage
-    nan_count_per_column = int(noises * len(df_with_nan))
-
-    for column in df_with_nan.columns:
-        # Randomly pick indices to replace with NaN
-        nan_indices = random.sample(range(len(df_with_nan)), nan_count_per_column)
-        df_with_nan.loc[nan_indices, column] = np.nan
-
-    return df_with_nan
-
-
+# --------------------------------GLOBAL DATA ---------------------------------
 # Features representing water needs
 WATER_QUAN_NEEDS= {
     "Agri Demand": "Agricultural Water Demand",
@@ -2548,6 +2570,7 @@ WATER_QUAL_NEEDS= {
                       "Acidic/Alkaline"
                       ],
     "Ethnicity": [
+        "English", 
         "Mandarin Chinese", 
         "Spanish", 
         "French", 
@@ -2560,7 +2583,8 @@ WATER_QUAL_NEEDS= {
         "Swahili", 
         "Hausa",
         "Yoruba",
-        "Zulu", "Amharic",
+        "Zulu", 
+        "Amharic",
         "Agni",
         "Baoule", 
         "Bron",
@@ -2589,11 +2613,11 @@ WATER_QUAL_NEEDS= {
             "Argentina"
                     ],
         "French": [
-        "France",
-        "Democratic Republic of the Congo",
-        "Canada (particularly in Quebec)", 
-        "Belgium",
-        "Cote d'Ivoire (Ivory Coast)"
+            "France",
+            "Democratic Republic of the Congo",
+            "Canada (particularly in Quebec)", 
+            "Belgium",
+            "Cote d'Ivoire (Ivory Coast)"
                    ],
         "Arabic": [
             "Egypt", 
@@ -2652,13 +2676,14 @@ WATER_QUAL_NEEDS= {
         "Zulu": ["South Africa (particularly in the KwaZulu-Natal province)"
                  ],
         "Amharic": ["Ethiopia"],
-        "Agni": ["Cote d’Ivoire"],
-        "Baoule": ["Cote d’Ivoire"],
+        "Agni": ["Cote d'Ivoire"],
+        "Baoule": ["Cote d'Ivoire"],
         "Bron": ["Cote d'Ivoire","Ghana"],
         "Asante": ["Ghana", "Cote d'Ivoire"],
         },
         # Random GDP per capita values
-    "Economic Status": [], # will define later  # np.random.uniform(1000, 50000, num_samples).round(2),  
+        # np.random.uniform(1000, 50000, num_samples).round(2),
+    "Economic Status": [], # will define later    
 }
 
 # SDG6 Challenges dictionary with shorthand keys
@@ -2669,3 +2694,316 @@ SDG6_CHALLENGES = {
     "Ecosystem Degradation": "Ecosystems",
     "Governance Issues": "Governance",
 }
+
+ORE_TYPE = {
+    'Type1': 'Gold Ore',
+    'Type2': 'Iron Ore',
+    'Type3': 'Copper Ore',
+    'Type4': 'Silver Ore',
+    'Type5': 'Lead Ore',
+    'Type6': 'Zinc Ore',
+    'Type7': 'Nickel Ore',
+    'Type8': 'Tin Ore',
+    'Type9': 'Bauxite',
+    'Type10': 'Cobalt Ore',
+    'Type11': 'Chromite',
+    'Type12': 'Uranium Ore',
+    'Type13': 'Manganese Ore',
+    'Type14': 'Platinum Ore',
+    'Type15': 'Tantalum Ore',
+    'Type16': 'Vanadium Ore',
+    'Type17': 'Molybdenum Ore',
+    'Type18': 'Titanium Ore',
+    'Type19': 'Lithium Ore',
+    'Type20': 'Tungsten Ore',
+    'Type21': 'Antimony Ore',
+    'Type22': 'Mercury Ore',
+    'Type23': 'Sulfur Ore',
+    'Type24': 'Graphite Ore',
+    'Type25': 'Diamond Ore',
+    'Type26': 'Rare Earth Element Ores',
+    'Type27': 'Phosphate Ore',
+    'Type28': 'Gypsum Ore',
+    'Type29': 'Fluorite Ore',
+    'Type30': 'Barite Ore',
+    'Type31': 'Asbestos Ore',
+    'Type32': 'Boron Ore',
+    'Type33': 'Potash Ore'
+}
+
+EXPLOSIVE_TYPE = {
+    'Explosive1': 'ANFO (Ammonium Nitrate Fuel Oil)',
+    'Explosive2': 'Water Gel Explosives',
+    'Explosive3': 'Emulsion Explosives',
+    'Explosive4': 'Dynamite',
+    'Explosive5': 'Nitroglycerin',
+    'Explosive6': 'Slurry Explosives',
+    'Explosive7': 'Binary Explosives',
+    'Explosive8': 'Boosters',
+    'Explosive9': 'Detonating Cord',
+    'Explosive10': 'C-4 (Plastic Explosive)',
+    'Explosive11': 'Ammonium Nitrate',
+    'Explosive12': 'Black Powder',
+    'Explosive13': 'TNT (Trinitrotoluene)',
+    'Explosive14': 'RDX (Cyclotrimethylenetrinitramine)',
+    'Explosive15': 'PETN (Pentaerythritol Tetranitrate)',
+    'Explosive16': 'ANFO Prills',
+    'Explosive17': 'Cast Boosters',
+    'Explosive18': 'Ammonium Nitrate Emulsion',
+    'Explosive19': 'Nitrocellulose',
+    'Explosive20': 'Aluminized Explosives',
+    'Explosive21': 'Pentolite',
+    'Explosive22': 'Semtex',
+    'Explosive23': 'Nitroguanidine',
+    'Explosive24': 'HMX (Cyclotetramethylenetetranitramine)',
+    'Explosive25': 'Amatol',
+    'Explosive26': 'Tetryl',
+    'Explosive27': 'Composition B',
+    'Explosive28': 'Water Gels with Sensitizers',
+    'Explosive29': 'Nitrate Mixture Explosives',
+    'Explosive30': 'Perchlorate Explosives',
+    'Explosive31': 'Detonators (Non-Electric)',
+    'Explosive32': 'Electric Detonators',
+    'Explosive33': 'Electronic Detonators'
+}
+
+EQUIPMENT_TYPE = [
+    'Excavator', 
+    'Drill', 
+    'Loader', 
+    'Truck',
+    "Articulated Haulers",
+    "Asphalt Pavers",
+    "Backhoe Loaders",
+    "Blasthole Drills",
+    "Bulldozers",
+    "Cable Shovels",
+    "Continuous Miners",
+    "Conveyor Systems",
+    "Crushing Equipment",
+    "Draglines",
+    "Drilling Rigs",
+    "Dump Trucks",
+    "Electric Rope Shovels",
+    "Excavators",
+    "Exploration Drills",
+    "Feller Bunchers",
+    "Forwarders",
+    "Graders",
+    "Harvesters",
+    "Hydraulic Mining Shovels",
+    "Jaw Crushers",
+    "Loaders",
+    "Material Handlers",
+    "Milling Equipment",
+    "Motor Graders",
+    "Off-Highway Trucks",
+    "Pipelayers",
+    "Road Reclaimers",
+    "Rock Drills",
+    "Rotary Drills",
+    "Scrapers",
+    "Skid Steer Loaders",
+    "Telehandlers",
+    "Track Loaders",
+    "Tracked Dozers",
+    "Underground Mining Loaders",
+    "Underground Mining Trucks",
+    "Wheel Dozers",
+    "Wheel Excavators",
+    "Wheel Loaders",
+    "Wheel Tractor-Scrapers",
+    "Hydraulic Hammer",
+    "Jumbos and Drifters",
+    "Longwall Miners",
+    "Roof Bolters",
+    "Scooptrams",
+    "Shotcrete Machines",
+    "Shuttle Cars",
+    "Stackers",
+    "Reclaimers",
+    "Screening Plants",
+    "Haul Trucks",
+    "Feeders",
+    "Gyratory Crushers",
+    "Cone Crushers",
+    "Impact Crushers",
+    "Hammer Mills",
+    "Sizers"
+]
+
+
+COMMON_CROPS = [
+    "Wheat", 
+    "Rice",
+    "Corn",
+    "Barley", 
+    "Soybeans",
+    "Oats",
+    "Rye",
+    "Millet",
+    "Sorghum",
+    "Canola",
+    "Sunflower",
+    "Cotton",
+    "Sugar Cane", 
+    "Sugar Beet",
+    "Potatoes",
+    "Tomatoes",
+    "Onions", 
+    "Cabbage",
+    "Carrots",
+    "Lettuce",
+    "Spinach", 
+    "Broccoli", 
+    "Garlic",
+    "Cucumbers", 
+    "Pumpkins",
+    "Peppers",
+    "Eggplants",
+    "Zucchini", 
+    "Squash",
+    "Peas",
+    "Green Beans",
+    "Lentils", 
+    "Chickpeas",
+    "Almonds", 
+    "Walnuts",
+    "Peanuts", 
+    "Cashews", 
+    "Pistachios", 
+    "Apples",
+    "Oranges",
+    "Bananas", 
+    "Grapes",
+    "Strawberries",
+    "Blueberries",
+    "Raspberries",
+    "Blackberries",
+    "Cherries", 
+    "Peaches",
+    "Pears", 
+    "Plums",
+    "Pineapples",
+    "Mangoes",
+    "Avocados"
+]
+
+COMMON_PESTICIDES = [
+    'Herbicide',
+    'Insecticide',
+    'Fungicide'
+    "Glyphosate", 
+    "Atrazine",
+    "2,4-Dichlorophenoxyacetic acid (2,4-D)", 
+    "Dicamba",
+    "Paraquat", 
+    "Chlorpyrifos",
+    "Metolachlor",
+    "Imidacloprid",
+    "Thiamethoxam", 
+    "Clothianidin", 
+    "Acetamiprid", 
+    "Fipronil",
+    "Bacillus thuringiensis (Bt)",
+    "Neonicotinoids",
+    "Pyrethroids",
+    "Carbamates",
+    "Organophosphates",
+    "Sulfonylureas",
+    "Roundup",
+    "Liberty",
+    "Malathion",
+    "Diazinon", 
+    "DDT", 
+    "Methoxychlor",
+    "Aldrin", 
+    "Dieldrin", 
+    "Endrin",
+    "Chlordane",
+    "Heptachlor", 
+    "Hexachlorobenzene",
+    "Mirex", 
+    "Toxaphene",
+    "Captan", 
+    "Chlorothalonil", 
+    "Mancozeb",
+    "Maneb", 
+    "Zineb",
+    "Copper Sulphate",
+    "Streptomycin",
+    "Tetracycline", 
+    "Difenoconazole", 
+    "Propiconazole",
+    "Cyproconazole", 
+    "Azoxystrobin",
+    "Chlorantraniliprole",
+    "Abamectin", 
+    "Spinosad", 
+    "Bifenthrin",
+    "Cyfluthrin", 
+    "Deltamethrin", 
+    "Permethrin", 
+    "Cypermethrin",
+    "Metam Sodium",
+    "Methyl Bromide",
+    "Chloropicrin",
+    "Vapam"
+]
+AFRICAN_COUNTRIES= [
+    "Algeria",
+    "Angola",
+    "Benin", 
+    "Botswana",
+    "Burkina Faso",
+    "Burundi",
+    "Cabo Verde", 
+    "Cameroon",
+    "Central African Republic", 
+    "Chad",
+    "Comoros", 
+    "Congo",
+    "Congo Democratic Republic", 
+    "Cote d'Ivoire",
+    "Djibouti",
+    "Egypt", 
+    "Equatorial Guinea", 
+    "Eritrea", 
+    "Eswatini",
+    "Ethiopia",
+    "Gabon",
+    "Gambia", 
+    "Ghana",
+    "Guinea",
+    "Guinea-Bissau",
+    "Kenya", 
+    "Lesotho",
+    "Liberia",
+    "Libya",
+    "Madagascar",
+    "Malawi", 
+    "Mali",
+    "Mauritania",
+    "Mauritius",
+    "Morocco", 
+    "Mozambique",
+    "Namibia",
+    "Niger",
+    "Nigeria",
+    "Rwanda", 
+    "Sao Tome and Principe",
+    "Senegal", 
+    "Seychelles",
+    "Sierra Leone",
+    "Somalia",
+    "South Africa",
+    "South Sudan",
+    "Sudan", 
+    "Tanzania",
+    "Togo", 
+    "Tunisia", 
+    "Uganda",
+    "Zambia",
+    "Zimbabwe"
+]
+

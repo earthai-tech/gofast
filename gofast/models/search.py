@@ -29,7 +29,7 @@ from sklearn.pipeline import Pipeline
 
 from .._typing import (
     List,
-    F, 
+    _F, 
     ArrayLike, 
     NDArray, 
     Dict,
@@ -89,7 +89,7 @@ class GridSearch:
         )
     def __init__(
         self,
-        base_estimator:F,
+        base_estimator:_F,
         grid_params:Dict[str,Any],
         cv:int =4,
         kind:str ='GridSearchCV',
@@ -291,7 +291,7 @@ Examples
 class GridSearchMultiple:
     def __init__ (
         self, 
-        estimators: F, 
+        estimators: _F, 
         scoring:str,  
         grid_params: Dict[str, Any],
         *, 
@@ -554,9 +554,9 @@ the metrics used to evaluate model errors. Can be any others metrics  in
 class BaseEvaluation: 
     def __init__(
         self, 
-        estimator: F,
+        estimator: _F,
         cv: int = 4,  
-        pipeline: List[F]= None, 
+        pipeline: List[_F]= None, 
         prefit:bool=False, 
         scoring: str ='nmse',
         random_state: int=42, 
@@ -859,7 +859,7 @@ def get_best_kPCA_params(
     *,
     y: ArrayLike | Series=None,
     param_grid: Dict[str, Any] =None, 
-    clf: F =None,
+    clf: _F =None,
     cv: int =7,
     **grid_kws
     )-> Dict[str, Any]: 
