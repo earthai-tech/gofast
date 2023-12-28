@@ -39,7 +39,7 @@ from .._typing import  _F, Optional, Tuple, List, ArrayLike, NDArray
 from .._typing import DataFrame,  Series 
 from ..analysis.dimensionality import nPCA
 from ..decorators import  docSanitizer 
-from ..exceptions import NotFittedError, LearningError, EstimatorError, PlotError
+from ..exceptions import NotFittedError, EstimatorError, PlotError
 from ..metrics import precision_recall_tradeoff, roc_curve_, confusion_matrix_
 from ..property import BasePlot 
 from ..tools._dependency import import_optional_dependency 
@@ -127,9 +127,8 @@ _param_docs = DocstringComponents.from_nested_components(
 #-------
 
 class MetricPlotter (BasePlot):
-    def __init__(self, line_style='-',
-                 line_width=2, 
-                 color_map='viridis'):
+    def __init__(self, line_style='-',line_width=2, color_map='viridis',
+                 **kws):
         """
         Initializes the PlotClass with custom plot styles.
 
@@ -145,7 +144,8 @@ class MetricPlotter (BasePlot):
         self.line_style = line_style
         self.line_width = line_width
         self.color_map = color_map
-
+        super().__init__(**kws) 
+        
     def plot_confusion_matrix(self, y_true, y_pred, class_names):
         """
         Plots a confusion matrix.
@@ -1410,11 +1410,8 @@ class EvalPlotter(BasePlot):
                 alpha=self.galpha)
         ax.legend(**self.leg_kws)
 
-import matplotlib.pyplot as plt
-from gofast.metrics import roc_curve_
-
-class EvalPlotter:
-    # Assuming other necessary attributes and methods exist in this class
+# import matplotlib.pyplot as plt
+# from gofast.metrics import roc_curve_
 
     def plotROC(self, clfs, label, method=None, cvp_kws=None, **roc_kws):
         """
@@ -1466,14 +1463,14 @@ class EvalPlotter:
         """
         # Prepare classifier tuples
         if not isinstance(clfs, list):
-            clfs = [(clf.__class__.__name__, clfs, method)]
+            clfs = [(clfs.__class__.__name__, clfs, method)]
 
         # Generate ROC curves for each classifier
         roc_curves = [self._generate_roc_curve(
             clf, label, meth, cvp_kws, roc_kws) for name, clf, meth in clfs]
 
         # Plotting
-        fig, ax = self._setup_plot()
+        fig, ax = self._setup_roc_plot()
         self._draw_roc_curves(ax, roc_curves, clfs)
         self._finalize_plot(ax, 'False Positive Rate', 'True Positive Rate')
         
@@ -1484,7 +1481,7 @@ class EvalPlotter:
         return roc_curve_(clf, self.X, self.y, cv=self.cv, label=label,
                           method=method, cvp_kws=cvp_kws, **roc_kws)
 
-    def _setup_plot(self):
+    def _setup_roc_plot(self):
         """ Sets up the ROC plot. """
         fig, ax = plt.subplots(figsize=self.fig_size)
         ax.plot([0, 1], [0, 1], ls='--', color='k')
@@ -1505,12 +1502,7 @@ class EvalPlotter:
         ax.legend(loc='lower right')
         plt.show()
 
-    def save(self, fig):
-        """ Saves the plot figure. """
-        # Implement the save logic if needed
-        pass
-
-    def plotROC(
+    def plotROC2(
         self, 
         clfs,
         label: int |str, 

@@ -80,7 +80,46 @@ except ImportError:
     
 # xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
+def format_to_datetime(data,/,  date_col):
+    """
+    Reformats a specified column in a DataFrame to Pandas 
+    datetime format.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame containing the column to be reformatted.
+    date_col : str
+        The name of the column to be converted to datetime format.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame with the specified column in datetime format, 
+        or the original
+        DataFrame if conversion is not possible.
+    Example 
+    --------
+    >>> from gofast.tools import format_to_datetime
+    >>> df = pd.DataFrame({
+        'Date': ['2021-01-01', '01/02/2021', '03-Jan-2021', '2021.04.01', '05 May 2021'],
+        'Value': [1, 2, 3, 4, 5]
+    })
+    >>> df = format_to_datetime(df, 'Date')
+    >>> print(df.dtypes)
+    """
+    if date_col not in data.columns:
+        print(f"Column '{date_col}' not found in DataFrame.")
+        return data
+    try:
+        data[date_col] = pd.to_datetime(data[date_col])
+        print(f"Column '{date_col}' successfully converted to datetime format.")
+    except ValueError as e:
+        print(f"Error converting '{date_col}' to datetime format: {e}")
     
+    return data
+
+
 def get_params (obj: object 
                 ) -> dict: 
     """
