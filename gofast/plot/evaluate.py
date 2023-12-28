@@ -32,26 +32,27 @@ from sklearn.cluster import KMeans
 from sklearn.impute import   SimpleImputer
 try: from scikitplot.metrics import plot_cumulative_gain, plot_lift_curve
 except: pass 
+
 from .._gofastlog import gofastlog
 from .._docstring import _core_docs, _baseplot_params, DocstringComponents
-from .._typing import  (Optional, Tuple, _F, List, ArrayLike, NDArray, 
-                        DataFrame,  Series )
+from .._typing import  _F, Optional, Tuple, List, ArrayLike, NDArray 
+from .._typing import DataFrame,  Series 
 from ..analysis.dimensionality import nPCA
 from ..decorators import  docSanitizer 
 from ..exceptions import NotFittedError, LearningError, EstimatorError, PlotError
 from ..metrics import precision_recall_tradeoff, roc_curve_, confusion_matrix_
 from ..property import BasePlot 
 from ..tools._dependency import import_optional_dependency 
-from ..tools.baseutils import _is_readable 
-from ..tools.funcutils import ( is_iterable, reshape, to_numeric_dtypes, 
-                              smart_strobj_recognition, repr_callable_obj ,
-                              str2columns, make_ids )
+from ..tools.funcutils import is_iterable, to_numeric_dtypes 
+from ..tools.funcutils import  smart_strobj_recognition, repr_callable_obj 
+from ..tools.funcutils import  str2columns, make_ids, type_of_target 
 from ..tools.mathex import linkage_matrix 
-from ..tools.mlutils import ( export_target , select_features, 
-                            categorize_target, projection_validator )
-from ..tools.validator import ( _check_consistency_size,  get_estimator_name , 
-                              array_to_frame, check_array, check_X_y, check_y )
-from .plotutils import _get_xticks_formatage,  make_mpl_properties
+from ..tools.mlutils import export_target 
+from ..tools.mlutils import categorize_target, projection_validator 
+from ..tools.validator import  _check_consistency_size,  get_estimator_name  
+from ..tools.validator import build_data_if,  check_array, check_X_y, check_y 
+from ..tools.validator import _is_numeric_dtype , check_consistent_length
+from .utils import _get_xticks_formatage,  make_mpl_properties
 
 _logger=gofastlog.get_gofast_logger(__name__)
 
@@ -680,13 +681,10 @@ class EvalPlotter(BasePlot):
         self.encode_labels=encode_labels 
         self.litteral_classes=litteral_classes 
         self.label_values=label_values 
-        # precision(p) and recall(r) 
-        # properties
         self.rs =kws.pop('rs', '--')
         self.ps =kws.pop('ps', '-')
         self.rc =kws.pop('rc', (.6, .6, .6))
         self.pc =kws.pop('pc', 'k')
-        # predicted properties 
         self.yp_lc =kws.pop('yp_lc', 'k') 
         self.yp_marker= kws.pop('yp_marker', 'o')
         self.yp_marker_edgecolor = kws.pop('yp_markeredgecolor', 'r')
@@ -696,13 +694,7 @@ class EvalPlotter(BasePlot):
         self.yp_marker_edgewidth= kws.pop('yp_markeredgewidth', 2.)
         
         super().__init__(**kws) 
-        
-        self.data_ =None 
-        self.X=None 
-        self.y= None 
-        self.target_=None 
-        
-     
+
     @property 
     def inspect(self): 
         """ Inspect data and trigger plot after checking the data entry. 
@@ -714,9 +706,7 @@ class EvalPlotter(BasePlot):
                )
         
         if self.X is None: 
-            raise NotFittedError(msg.format(
-                expobj=self)
-            )
+            raise NotFittedError(msg.format(expobj=self))
         return 1 
      
     def save (self, fig): 
@@ -728,8 +718,7 @@ class EvalPlotter(BasePlot):
                          )
         plt.show() if self.savefig is None else plt.close () 
         
-    def fit(self, X: NDArray |DataFrame =None, y:ArrayLike =None, 
-            **fit_params ): 
+    def fit(self, X, y=None,  **fit_params ): 
         """
         Fit data and populate the attributes for plotting purposes. 
         
@@ -751,51 +740,67 @@ class EvalPlotter(BasePlot):
             train target; Denotes data that may be observed at training time 
             as the dependent variable in learning, but which is unavailable 
             at prediction time, and is usually the target of prediction. 
-            
-        data: Filepath or Dataframe or shape (M, N) from 
-            :class:`pandas.DataFrame`. Dataframe containing samples M  
-            and features N
 
         fit_params: dict Additional keywords arguments from 
-            :func:gofast.tools.coreutils._is_readable`
+            :func:gofast.tools.validator.build_data_if
            
         Return
         -------
         ``self``: `EvalPlotter` instance 
             returns ``self`` for easy method chaining.
         """
-        data = fit_params.pop('data', None)
         columns = fit_params.pop ('columns', None)
+        prefix = fit_params.pop('prefix', None)
         
-        if data is not None: 
-            self.data_ = _is_readable(data)
-            
-        if self.data_ is not None:
-            if self.tname is not None: 
-                self.target_, X  = export_target(
-                    self.data_ , self.tname, inplace= True ) 
-            y = reshape (self.target_.values ) # for consistency 
-            
-        if X is None:
-            raise TypeError(
-                "X array must not be None, or pass a filepath or "
-                "dataframe object as keyword data argument to set 'X'.")
-        # Create a pseudo frame"
-        # if 'X' is not a dataframe
-        X= array_to_frame(X, to_frame= True, input_name="X", force =True )
-        X = to_numeric_dtypes(X , columns = columns )
-        X = select_features( X, include ='number')
-        
+        X= build_data_if ( X, to_frame=True, force=True, input_name='X', 
+                          columns = columns, raise_warning='silence')
+        X, y = self._target_manager ( X, y , prefix )
+        self.X  = to_numeric_dtypes(X , pop_cat_features= True )
         if len ( X.columns) ==0 : 
             raise TypeError(
-                " The module {self.__class__.__name__!r } expects dataframe "
-                " 'X' with numerical features only. ")
-            
-        self.X = X 
-        self.y = np.array (y) 
+                f"{self.__class__.__name__!r} expects numeric data frame only.")
         
         return self 
     
+    def _target_manager ( self, X, y , prefix =None, ): 
+        """ Manage the target  and return X and y 
+        
+        Parameters 
+        -----------
+        X : pd.DataFrame 
+           DataFrame that probably contain the flow 
+           
+        y: pd.Series 
+           target to categorize. 
+           
+        prefix: str, Optional 
+           The label to prefix the label values. 
+           
+        Return 
+        --------
+        X, y: DataFrame X and target y 
+        
+        """
+        if self.tname: 
+            if y is not None: y = pd.Series ( y, name = self.tname )
+            else: y , X = export_target(X, tname= self.tname, drop=False )
+                
+        if y is None : 
+            return X, y 
+        
+        check_consistent_length ( X, y )
+        if not _is_numeric_dtype(y): 
+            if not self.encode_labels : 
+                warnings.warn("Non-numeric target is detected while" 
+                              " `encode_labels` is not set. This behaviour"
+                              " will raise an error in future.", FutureWarning) 
+                self.litteral_classes = np.unique ( y )
+            
+        if self.encode_labels: 
+            self.encode_y( y,  prefix =prefix )
+
+        return X, self.y  
+  
     def transform (self, X, **t_params): 
         """ Transform the data and imputs the numerical features. 
         
@@ -825,14 +830,15 @@ class EvalPlotter(BasePlot):
             The transformed array or dataframe with numerical features 
             
         """
-        self.X = X 
         self.inspect 
+        X 
+
         strategy = t_params.pop('strategy', 'most_frequent')
-        columns = list(self.X.columns )
+        columns = list(X.columns )
 
         imp = SimpleImputer(strategy = strategy,  **t_params ) 
         # create new dataframe 
-        X= imp.fit_transform(self.X )
+        X= imp.fit_transform(X )
         if self.scale: 
             if str(self.scale).find ('minmax') >=0 : 
                 sc = MinMaxScaler() 
@@ -843,7 +849,7 @@ class EvalPlotter(BasePlot):
             
         self.X = pd.DataFrame( X , columns = columns ) 
         
-        return self.X 
+        return self.X  
     
     def fit_transform (self, X, y= None , **fit_params ): 
         """ Fit and transform at once. 
@@ -869,8 +875,7 @@ class EvalPlotter(BasePlot):
         
         return self.X 
    
-     
-    def _cat_codes_y (self, prefix:str =None ,values:List[int]=None, 
+    def encode_y ( self, y=None,  prefix:str =None ,values:List[int]=None, 
                       classes: List[str]=None,  objective:str =None ): 
         """ Encode y to hold the categorical values. 
         
@@ -896,37 +901,31 @@ class EvalPlotter(BasePlot):
             Array of encoded labels and list of unique class label identifiers 
             
         """
-
-        y =copy.deepcopy(self.y) 
-        
-        if y is None : 
-            warnings.warn("Expect a target array. Missing y(target)"
-                          " is not allowed.")
-            raise TypeError (" NoneType 'y' (target) can be categorized.")
-
-        if self.target_ is not None: 
-            y = self.target_ 
-        else: y = pd.Series (y, name='none')
-        
+        if ( y is None 
+            and self.y is not None
+            ): 
+            y = copy.deepcopy ( self.y ) 
+            
+        if y is None: 
+            raise TypeError (" Missing target y")
+        y = pd.Series (y, name=self.tname or 'none')
         values = values or self.label_values 
         if values is not None: 
             y =  categorize_target(y , labels = values, 
                            rename_labels= classes or self.litteral_classes
                            )
-        else: 
-            y = y.astype('category').cat.codes
+        else:y = y.astype('category').cat.codes
             
-        # add prefix 
-        y = y.map(lambda o: prefix + str(o) 
-                            ) if prefix else y 
+        # add prefix and  update litteral classes and y 
+        y = y.map(lambda o: prefix + str(o) ) if prefix else y 
+        self.litteral_classes = np.unique (y) 
+        self.y = y 
             
-        classes = np.unique (y)
-            
-        return y , classes 
+        return y,  self.litteral_classes  
 
-    def plotRobustPCA(self, X, n_components=None, n_axes=2, biplot=False,
-                pc1_label='Axis 1',
-                pc2_label='Axis 2', plot_dict=None, **pca_kws):
+    def plotRobustPCA(self,  n_components=None, n_axes=2, biplot=False,
+            pc1_label='Axis 1',pc2_label='Axis 2', plot_dict=None,
+            **pca_kws):
         """
         Plots PCA component analysis using sklearn's PCA implementation.
 
@@ -963,17 +962,32 @@ class EvalPlotter(BasePlot):
         -------
         EvalPlotter
             The instance itself for method chaining.
+        Examples 
+        ---------
+        >>> from gofast.plot import EvalPlotter 
+        >>> from gofast.datasets import load_bagoue
+        >>> X , y = load_bagoue(as_frame =True, return_X_y=True )
+        >>> p =EvalPlotter(tname ='flow', scale = True, encode_labels=True )
+        >>> _=p.fit_transform (X)
+        >>> p.plotRobustPCA (n_components=2 ) 
+        
+        >>> p.plotRobustPCA(n_components=4. pc1_label='Axis2', pc2_label='Axis4')
+        
+        >>> p.plotRobustPCA (n_components=2, biplot=True)
+        
         """
-
-        # Setup and perform PCA analysis
-        pca = nPCA(n_components=n_components, **pca_kws)
-        X_pca = pca.fit_transform(X)
-        n_axes = min(n_axes, X_pca.shape[1])
-
+        self.inspect 
+        # Setup and perform PCA analysis and return pca object.
+        pca = nPCA(self.X, n_components=n_components, return_X=False, **pca_kws)
+        X_pca = pca.X # pca.fit_transform(X)
+        # n_axes = min(n_axes, X_pca.shape[1])
+        # get number of axes 
+        n_axes= X_pca.shape[1]
         # Extract labels for PCA axes
         pca_axes_labels = self._extract_pca_labels([pc1_label, pc2_label], n_axes)
-
         # Plotting
+        D_COLORS = make_mpl_properties(1e3)
+        plot_dict = plot_dict or  {'y_colors': D_COLORS,'s':100.}
         self._setup_plot(plot_dict)
         if biplot:
             self._plot_biplot(X_pca, pca, pca_axes_labels)
@@ -1003,9 +1017,14 @@ class EvalPlotter(BasePlot):
         for label in labels:
             try:
                 num = int(re.findall(r'\d+', label)[0])
-                numeric_labels.append(min(num - 1, n_axes - 1))
+                numeric_labels.append ( num -1 )
+                # numeric_labels.append(min(num - 1, n_axes - 1))
             except IndexError:
                 numeric_labels.append(0)
+        if max( numeric_labels)>= n_axes: 
+            msg =(f"Wrong number of axes. Expect {n_axes} components."
+                  f" Got {max( numeric_labels) +1 }")
+            raise ValueError(msg)
         return numeric_labels
 
     def _setup_plot(self, plot_dict):
@@ -1044,29 +1063,28 @@ class EvalPlotter(BasePlot):
         -------
         None
         """
+        if self.y is None: 
+            raise TypeError("Biplot expects the target y")
+        axis1, axis2 = pca_axes_labels 
         # Additional implementation for biplot
         mpl.rcParams.update(mpl.rcParamsDefault) 
         # reset ggplot style
-        # Call the biplot function for only the first 2 PCs
-        cmp_= np.concatenate((pca.components_[pca1_ix, :], 
-                              pca.components_[pca2_ix, :]))
+        components = np.concatenate(
+            (pca.components_[axis1, :], pca.components_[axis2, :]))
         try: 
-            plot_unified_pca( np.transpose(cmp_), self.X, y,
-                    classes=classes, 
-                    colors=y_palettes )
+            plot_unified_pca( np.transpose(components), X_pca, y=self.y,
+                classes=self.litteral_classes, colors=self.plot_config ['y_colors'] )
         except : 
-            # plot defaults configurations  
-            plot_unified_pca( np.transpose(pca.components_[0:2, :]),
-                    X_reduced[:,:2],y, 
-                    classes=classes, 
-                    colors=y_palettes )
+            # plot defaults configurations if 
+            # something wrong 
+            plot_unified_pca(np.transpose(pca.components_[0:2, :]),X_pca[:,:2],
+                             y=self.y, classes=self.litteral_classes, 
+                             colors=self.plot_config ['y_colors'] 
+                         )
  
         plt.show()
-        
-        return  
-        pass
 
-    def _plot_pca_components(self, X_pca, pca, pca_axes_labels, plot_dict):
+    def _plot_pca_components(self, X_pca, pca, pca_axes_labels, plot_dict ):
         """
         Plots the specified PCA components.
 
@@ -1074,490 +1092,424 @@ class EvalPlotter(BasePlot):
         ----------
         X_pca : array-like
             PCA transformed data.
-
         pca : PCA
             PCA object after fitting.
+        pca_axes_labels : list
+            List of numeric labels for PCA axes.
+        plot_dict : dict
+            Dictionary of plot properties.
+        y : array-like, optional
+            Target labels for coloring the data points.
+        """
+        pca_data = self._prepare_pca_data(X_pca, pca_axes_labels, self.y)
+        feature_names, ratios = self._extract_feature_components(pca, pca_axes_labels)
+        fig, ax = self._create_figure()
+        self._scatter_plot(ax, pca_data, feature_names, plot_dict)
+        self._style_plot(ax, pca_data, feature_names, ratios)
 
+        plt.show()
+
+    def _extract_feature_components(self, pca, pca_axes_labels):
+        """
+        Extracts feature names and their explained variance ratios.
+
+        Parameters
+        ----------
+        pca : PCA
+            PCA object after fitting.
         pca_axes_labels : list
             List of numeric labels for PCA axes.
 
-        plot_dict : dict
-            Dictionary of plot properties.
+        Returns
+        -------
+        tuple
+            A tuple containing feature names and their explained variance ratios.
+        """
+        importances = pca.feature_importances_
+        names = [importances[i][1][0] for i in pca_axes_labels]
+        ratios = [round(abs(importances[i][2][0]) * 100, 2) for i in pca_axes_labels]
+
+        return names, ratios
+
+    def _prepare_pca_data(self, X_pca, pca_axes_labels, y):
+        """
+        Prepares the PCA data for plotting.
+
+        Parameters
+        ----------
+        X_pca : array-like
+            PCA transformed data.
+        pca_axes_labels : list
+            List of numeric labels for PCA axes.
+        y : array-like, optional
+            Target labels for coloring the data points.
 
         Returns
         -------
+        DataFrame
+            A DataFrame containing the PCA data and target labels.
+        """
+        pca_cols = [f'Axis {i + 1}' for i in pca_axes_labels]
+        pca_data = pd.DataFrame(X_pca[:, pca_axes_labels], columns=pca_cols)
+
+        if y is not None:
+            pca_data[self.tname] = y
+
+        return pca_data
+
+    def _create_figure(self):
+        """
+        Creates a figure for the plot.
+
+        Returns
+        -------
+        tuple
+            A tuple containing the figure and axes objects.
+        """
+        fig = plt.figure(figsize=self.fig_size)
+        ax = fig.add_subplot(1, 1, 1)
+
+        return fig, ax
+
+    def _scatter_plot(self, ax, pca_data, feature_names, plot_dict):
+        """
+        Plots scatter points on the axes.
+
+        Parameters
+        ----------
+        ax : Axes
+            The axes object to plot on.
+        pca_data : DataFrame
+            DataFrame containing PCA data.
+        feature_names : list
+            List of feature names.
+        plot_dict : dict
+            Dictionary of plot properties.
+        """
+        # now update the feature components 
+        # and replace to the exis in pca_data 
+        pca_data.columns = ( 
+            ( feature_names +[self.tname])  if self.y is not None 
+            else feature_names ) 
+        for target, color in zip(self.litteral_classes, self.plot_config['y_colors']):
+            ax.scatter(pca_data.loc[pca_data[self.tname] == target, feature_names[0]],
+                       pca_data.loc[pca_data[self.tname] == target, feature_names[1]],
+                       color=color, s=plot_dict['s'])
+
+    def _style_plot(self, ax, pca_data, feature_names, ratios):
+        """
+        Styles the plot with labels, lines, and grids.
+
+        Parameters
+        ----------
+        ax : Axes
+            The axes object to style.
+        feature_names : list
+            List of feature names.
+        ratios : list
+            List of explained variance ratios.
+        """
+        ax.set_xlabel(f'{feature_names[0]} ({ratios[0]}%)', fontsize=self.font_size * self.fs)
+        ax.set_ylabel(f'{feature_names[1]} ({ratios[1]}%)', fontsize=self.font_size * self.fs)
+        ax.set_title('PCA', fontsize=(self.font_size + 1) * self.fs)
+        ax.grid(color=self.lc, linestyle=self.ls, linewidth=self.lw/10)
+
+        # Add circle and lines.If components are the same weights
+        # convert error as a warnings. 
+        try: 
+            max_lim = np.ceil(max(abs(pca_data[feature_names[0]]).max(),
+                                  abs(pca_data[feature_names[1]]).max()))
+        except BaseException as e: 
+            raise ValueError(str(e) + " Please your PCA axes labels.")
+ 
+        circle = plt.Circle((0, 0), max_lim, color='blue', fill=False)
+        ax.add_artist(circle)
+        ax.add_line(plt.Line2D((0, 0), (-max_lim, max_lim), 
+                               color=self.lc, linewidth=self.lw, linestyle=self.ls))
+        ax.add_line(plt.Line2D((-max_lim, max_lim), (0, 0),
+                               color=self.lc, linewidth=self.lw, linestyle=self.ls))
+        
+    def plotBasePCA(self, labels=None, title='PCA Plot', figsize=(8, 6)):
+        """
+        Plots a 2D PCA of the given dataset.
+
+        Parameters:
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The data to perform PCA on.
+
+        labels : array-like of shape (n_samples,), optional
+            Labels for each data point, used for coloring.
+
+        title : str, optional
+            Title of the plot.
+
+        figsize : tuple, optional
+            Size of the figure.
+
+        Returns:
+        -------
         None
         """
-        # Additional implementation for PCA component plotting
+        self.inspect 
+        # Standardizing the features
+        if self.scale: 
+            self.X  = StandardScaler().fit_transform(self.X)
+        # Perform PCA
+        pca = nPCA(self.X, n_components=2, return_X =False )
+        principal_components = pca.X
+
+        # Create a DataFrame for the PCA results
+        pca_df = pd.DataFrame(data=principal_components, columns=['PC1', 'PC2'])
+
+        # Plot initialization
+        plt.figure(figsize=figsize)
+        ax = plt.subplot(1, 1, 1)
+
+        # Scatter plot for each label
+        if labels is not None:
+            unique_labels = np.unique(labels)
+            for label in unique_labels:
+                indices = labels == label
+                ax.scatter(pca_df.loc[indices, 'PC1'],
+                           pca_df.loc[indices, 'PC2'], 
+                           label=label, marker = self.marker, 
+                           markeredgecolor= self.marker_edgecolor, 
+                           makeredgewidth=self.marker_edgewidth, 
+                           markerfacecolor=self.maker_facecolor, 
+                           )
+        else:
+            ax.scatter(pca_df['PC1'], pca_df['PC2'])
+
+        # Add bold lines at 0 for x-axis and y-axis
+        ax.axhline(y=0, color='black', linewidth=self.lw, linestyle=self.ls)
+        ax.axvline(x=0, color='black', linewidth=self.lw , linestyle=self.ls, )
+        
+        # Plot styling
+        ax.set_xlabel(f'Principal Component 1 ({pca.explained_variance_ratio_[0]:.2f} variance)')
+        ax.set_ylabel(f'Principal Component 2 ({pca.explained_variance_ratio_[1]:.2f} variance)')
+        ax.set_title(title)
+        ax.grid(True)
+        if labels is not None:
+            ax.legend()
+        plt.show()
+
+    def plotPR(self, clf, label=None, kind='threshold', 
+               method=None, cvp_kws=None, **prt_kws)-> 'EvalPlotter':
+        """ 
+        Plots Precision-Recall (PR) or Precision-Recall tradeoff.
+
+        This method computes scores based on the decision function or probability
+        predictions of a classifier and plots either the precision-recall curve
+        or precision-recall tradeoff.
+
+        Parameters
+        ----------
+        clf : callable
+            A classifier estimator that supports binary targets and implements 
+            either `decision_function` or `predict_proba` methods.
+
+        label : int or str, default=1 
+            Specific class label for evaluating precision and recall tradeoff.
+            The default is the positive class label {1}
+
+        kind : str, optional
+            Type of plot. 'threshold' for precision-recall tradeoff plot (default)
+            or 'recall' for precision vs recall plot.
+
+        method : str, optional
+            Method to retrieve scores for each instance. Options are 'decision_function'
+            or 'predict_proba'. Defaults to 'decision_function'.
+
+        cvp_kws : dict, optional
+            Additional keyword arguments for sklearn's `cross_val_predict`.
+
+        prt_kws : dict
+            Additional keyword arguments for `precision_recall_tradeoff`.
+
+        Returns
+        -------
+        EvalPlotter
+            The instance itself for method chaining.
+
+        Raises
+        ------
+        ValueError
+            If `kind` is not 'threshold' or 'recall'.
+        
+        TypeError
+            If target 'y' is missing or labels are not encoded.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import SGDClassifier
+        >>> from gofast.datasets import load_bagoue
+        >>> from gofast.tools import categorize_target
+        >>> from gofast.plot.evaluate import EvalPlotter
+
+        >>> X, y = load_bagoue(as_frame=True, return_X_y=True)
+        >>> sgd_clf = SGDClassifier(random_state=42)
+        >>> plotter = EvalPlotter(scale=True, encode_labels=True)
+        >>> plotter.fit_transform(X, y)
+        >>> ybin = categorize_target(plotter.y, labels=2)
+        >>> plotter.y = ybin
+        >>> plotter.plotPR(sgd_clf, label=1)
+        """
+        self.inspect 
+        label= label or 1 # positive 
+        if self.y is None or type_of_target(self.y )!='binary':  
+            raise TypeError("Precision-recall requires encoded binary labels.")
+
+        kind = kind.lower().strip()
+        if kind not in ('threshold', 'recall'):
+            raise ValueError(f"Invalid kind '{kind}'. Expected"
+                             " 'threshold' or 'recall'.")
+        # Retrieve precision-recall tradeoff data
+        prtObj = precision_recall_tradeoff(clf, self.X, self.y, cv=self.cv, 
+                       label=label, method=method, cvp_kws=cvp_kws, **prt_kws)
+
+        # Plotting setup
+        fig, ax = plt.subplots(figsize=self.fig_size)
+        xlabel, ylabel = self._set_axis_labels(kind)
+
+        # Plot based on the selected kind
+        self._plot_curve(ax, prtObj, kind)
+
+        # Styling and saving the plot
+        self._style_pr_plot(ax, xlabel, ylabel, kind)
+        self.save(fig)
+        return self
+
+    def _set_axis_labels(self, kind):
+        """ Set the x-axis and y-axis labels based on the plot kind. """
+        if kind == 'threshold':
+            return 'Threshold', 'Score'
+        elif kind == 'recall':
+            return 'Recall', 'Precision'
+
+    def _plot_curve(self, ax, prtObj, kind):
+        """ Plot the curve based on the kind (threshold/recall). """
+        if kind == 'threshold':
+            ax.plot(prtObj.thresholds, prtObj.precisions[:-1], 'b-',
+                    label='Precision', **self.plt_kws)
+            ax.plot(prtObj.thresholds, prtObj.recalls[:-1], 'g-',
+                    label='Recall', **self.plt_kws)
+        elif kind == 'recall':
+            ax.plot(prtObj.recalls[:-1], prtObj.precisions[:-1], 'r-',
+                    label='Precision vs Recall', **self.plt_kws)
+
+    def _style_pr_plot(self, ax, xlabel, ylabel, kind):
+        """ Apply styles to the plot. """
+        ax.set_xlabel(xlabel, fontsize=0.5 * self.font_size * self.fs)
+        ax.set_ylabel(ylabel, fontsize=0.5 * self.font_size * self.fs)
+        ax.tick_params(axis='both', labelsize=0.5 * self.font_size * self.fs)
+        ax.set_ylim([0, 1])
+        ax.set_xlim([0, 1] if kind == 'recall' else None)
+        ax.grid(self.show_grid, axis=self.gaxis, which=self.gwhich, 
+                color=self.gc, linestyle=self.gls, linewidth=self.glw, 
+                alpha=self.galpha)
+        ax.legend(**self.leg_kws)
+
+import matplotlib.pyplot as plt
+from gofast.metrics import roc_curve_
+
+class EvalPlotter:
+    # Assuming other necessary attributes and methods exist in this class
+
+    def plotROC(self, clfs, label, method=None, cvp_kws=None, **roc_kws):
+        """
+        Plots Receiver Operating Characteristic (ROC) curves for classifiers.
+
+        This method supports plotting ROC curves for multiple classifiers. If 
+        multiple classifiers are provided, each should be a tuple of the form 
+        (name, classifier, method).
+
+        Parameters
+        ----------
+        clfs : callable or list of tuples
+            Classifier or a list of tuples where each tuple contains:
+            - name: Name of the classifier.
+            - classifier: Classifier instance.
+            - method: 'decision_function' or 'predict_proba'.
+            
+        label : int or str
+            The class label to evaluate.
+
+        method : str, optional
+            Default method to get scores if not specified in classifier tuples.
+
+        cvp_kws : dict, optional
+            Additional arguments for cross-validation prediction.
+
+        roc_kws : dict
+            Additional arguments for ROC curve computation.
+
+        Returns
+        -------
+        EvalPlotter
+            The instance itself for method chaining.
+
+        Examples
+        --------
+        # Single classifier
+        >>> from sklearn.linear_model import SGDClassifier
+        >>> plotter = EvalPlotter()
+        >>> plotter.plotROC(SGDClassifier(random_state=42), label=1)
+
+        # Multiple classifiers
+        >>> from sklearn.ensemble import RandomForestClassifier
+        >>> classifiers = [
+                ('SGD', SGDClassifier(), 'decision_function'),
+                ('Forest', RandomForestClassifier(), 'predict_proba')
+            ]
+        >>> plotter.plotROC(classifiers, label=1)
+        """
+        # Prepare classifier tuples
+        if not isinstance(clfs, list):
+            clfs = [(clf.__class__.__name__, clfs, method)]
+
+        # Generate ROC curves for each classifier
+        roc_curves = [self._generate_roc_curve(
+            clf, label, meth, cvp_kws, roc_kws) for name, clf, meth in clfs]
+
+        # Plotting
+        fig, ax = self._setup_plot()
+        self._draw_roc_curves(ax, roc_curves, clfs)
+        self._finalize_plot(ax, 'False Positive Rate', 'True Positive Rate')
+        
+        return self
+
+    def _generate_roc_curve(self, clf, label, method, cvp_kws, roc_kws):
+        """ Generates ROC curve data for a given classifier. """
+        return roc_curve_(clf, self.X, self.y, cv=self.cv, label=label,
+                          method=method, cvp_kws=cvp_kws, **roc_kws)
+
+    def _setup_plot(self):
+        """ Sets up the ROC plot. """
+        fig, ax = plt.subplots(figsize=self.fig_size)
+        ax.plot([0, 1], [0, 1], ls='--', color='k')
+        return fig, ax
+
+    def _draw_roc_curves(self, ax, roc_curves, clfs):
+        """ Draws ROC curves on the axes. """
+        for (name, _clf, _), roc_data in zip(clfs, roc_curves):
+            ax.plot(roc_data.fpr, roc_data.tpr, label=f'{name} (AUC={roc_data.roc_auc_score:.4f})')
+
+    def _finalize_plot(self, ax, xlabel, ylabel):
+        """ Finalizes styling and layout of the plot. """
+        ax.set_xlim([0, 1])
+        ax.set_ylim([0, 1])
+        ax.set_xlabel(xlabel, fontsize=0.5 * self.font_size * self.fs)
+        ax.set_ylabel(ylabel, fontsize=0.5 * self.font_size * self.fs)
+        ax.tick_params(axis='both', labelsize=0.5 * self.font_size * self.fs)
+        ax.legend(loc='lower right')
+        plt.show()
+
+    def save(self, fig):
+        """ Saves the plot figure. """
+        # Implement the save logic if needed
         pass
 
-    def plotPCA(
-            self,
-            n_components:int =None, 
-            *, 
-            n_axes: int= None, #2,
-            biplot:bool =False, 
-            pc1_label:str ='Axis 1',
-            pc2_label:str='Axis 2',
-            plot_dict:dict= None,
-            **pca_kws
-    )->'EvalPlotter': 
-        """ Plot PCA component analysis using :class:`~.sklearn.decomposition`. 
-        
-        PCA identifies the axis that accounts for the largest amount of 
-        variance in the train set `X`. It also finds a second axis orthogonal 
-        to the first one, that accounts for the largest amount of remaining 
-        variance.
-        
-        Parameters 
-        -----------
-        n_components: Number of dimension to preserve. If`n_components` 
-                is ranged between float 0. to 1., it indicates the number of 
-                variance ratio to preserve. If ``None`` as default value 
-                the number of variance to preserve is ``95%``.
-                
-        n_axes: Number of importance components to retrieve the 
-            variance ratio. Default is ``2``. The first two importance 
-            components with most variance ratio.
-            
-        biplot: bool, 
-            biplot plots PCA features importance (pc1 and pc2) and visualize 
-            the level of variance and direction of components for different 
-            variables. Refer to `Serafeim Loukas`_
-            
-        pc1_label:str, default ='Axis 1'
-            the first component with most variance held in 'Axis 1'. Can be 
-            modified to any other axis for instance 'Axis 3' to replace the 
-            component in 'Axis 1' to the one in `Axis 3` and so one. This will 
-            allow to visualize the position of each level of variance 
-            for each variable. 
-            
-        pc2_label:str, default ='Axis 2',
-            the second component with most variance held in 'Axis 2'. Can be 
-            modified to any other axis for instance 'Axis 6' to replace the 
-            component in 'Axis 2' to the one in `Axis 6` and so one. 
-         
-        plot_dict: dict, 
-            dictionnary of font and properties for markers for each sample 
-            corresponding to the `label_values`.
-        
-        pca_kws: dict, 
-            additional  keyword arguments passed to 
-            :class:`gofast.analysis.dimensionality.nPCA`
-
-        Return
-        -------
-        ``self``: `EvalPlotter` instance
-            ``self`` for easy method chaining.
-             
-        Notes 
-        -------
-        By default, `nPCA` methods plots the first two principal components 
-        named `pc1_label` for axis 1 and `pc2_label` for axis 2. If you want 
-        to plot the first component `pc1` vs the third components`pc2` set 
-        the `pc2_label` to `Axis 3` and set the `n_components` to 3 that is 
-        the max reduced columns to retrieve, otherwise a userwarning will 
-        be displayed.  Commonly Algorithm should automatically detect the 
-        digit ``3`` in the litteral `pc1_labels` including Axis (e.g. 'Axis 3`)
-        and will consider as  the third component `pc3 `. The same process is 
-        available for other axis. 
-        
-        
-        Examples 
-        ---------
-        >>> from gofast.datasets import load_bagoue 
-        >>> from gofast.plot.evaluate  import EvalPlotter 
-        >>> X , y = load_bagoue(as_frame =True, return_X_y=True )
-        >>> b=EvalPlotter(tname ='flow', encode_labels=True ,
-                          scale = True )
-        >>> b.fit_transform (X, y)
-        >>> b.plotPCA (n_components= 2 )
-        ... 
-        >>> # pc1 and pc2 labels > n_components -> raises userwarning
-        >>> b.plotPCA (n_components= 2 , biplot=False, pc1_label='Axis 3',
-                       pc2_label='axis 4')
-        ... UserWarning: Number of components and axes might be consistent;
-            '2'and '4 are given; default two components are used.
-        >>> b.plotPCA (n_components= 8 , biplot=False, pc1_label='Axis3',
-                       pc2_label='axis4')
-            # works fine since n_components are greater to the number of axes
-        ... EvalPlotter(tname= None, objective= None, scale= True, ... , 
-                     sns_height= 4.0, sns_aspect= 0.7, verbose= 0)
-        """
-        self.inspect 
-        
-        classes , y  = self.litteral_classes, self.y 
-        classes = classes or np.unique (y)
-        
-        if plot_dict is None: 
-            D_COLORS = make_mpl_properties(1e3)
-            plot_dict ={'y_colors': D_COLORS,
-                        's':100.}
-            
-        if self.encode_labels: 
-            y, classes = self._cat_codes_y(
-                self.prefix, self.label_values, self.litteral_classes, 
-                self.objective 
-                )
-        # go for PCA analysis 
-        pca= nPCA(self.X, n_components, n_axes =n_axes, return_X= False, 
-                            **pca_kws)
-        feature_importances_ = pca.feature_importances_
-        X_reduced = pca.X 
-        # for consistency
-        # Get axis for plots from pca_labels
-        n_axes = n_axes or pca.n_axes 
-        
-        try: 
-            lbls =[int(re.findall("\d+", str_axes)[0]) 
-                   for str_axes in [pc1_label, pc2_label]]
-        except : 
-            # remove if dot '.'exists by replacing by
-            lbls =[s.replace('.','s') for s in [pc1_label, pc2_label]]
-            lbls=[int ( ''.join(filter(str.isdigit, js) ) ) for js in lbls]
-        else:
-            pca1_ix, pca2_ix = [i-1 for i in lbls]
-            if pca1_ix <0 or pca2_ix<0: 
-                pca1_ix =0
-                pca2_ix = pca1_ix+1
- 
-            if (pca1_ix >= n_axes) or  (pca2_ix >= n_axes)  : 
-                warnings.warn(
-                    "Number of components and axes might be"
-                    f" consistent; '{n_axes!r}'and '{max(lbls)!r}"
-                    " are given; default two components are used."
-                                )
-                pca1_ix =0
-                pca2_ix = pca1_ix+1
-                pc1_label , pc2_label = 'Axis 1', 'Axis 2'
-                
-            # if pca1_ix  or pca2
-            X_= np.c_[X_reduced[:, pca1_ix],
-                      X_reduced[:, pca2_ix]]
-            
-        # prepared defaults colors and defaults markers 
-        y_palettes = plot_dict ['y_colors']
-        if classes  is not None:
-            if len(y_palettes) > len(classes): 
-                # reduce the last colors 
-                y_palettes =y_palettes[:len(classes)]
-            if len(y_palettes) < len(classes): 
-                # add black colors  by default
-                y_palettes += ['k' for k in range(
-                    len(classes) - len(y_palettes))]
-            
-            
-        # --Plot Biplot
-        if biplot: 
-            
-            mpl.rcParams.update(mpl.rcParamsDefault) 
-            # reset ggplot style
-            # Call the biplot function for only the first 2 PCs
-            cmp_= np.concatenate((pca.components_[pca1_ix, :], 
-                                  pca.components_[pca2_ix, :]))
-            try: 
-                plot_unified_pca( np.transpose(cmp_), self.X, y,
-                        classes=classes, 
-                        colors=y_palettes )
-            except : 
-                # plot defaults configurations  
-                plot_unified_pca( np.transpose(pca.components_[0:2, :]),
-                        X_reduced[:,:2],y, 
-                        classes=classes, 
-                        colors=y_palettes )
-     
-            plt.show()
-            
-            return  
-        # concatenate reduced dataframe + y_target
-        try: 
-            df_pca =pd.concat([
-                    pd.DataFrame(X_,columns =[pc1_label, pc2_label]),
-                    pd.Series(y, name=self.tname)],
-                axis =1)
-        except TypeError: 
-            # force plot using the defauts first two componnets if 
-            # something goes wrong
-             df_pca =pd.concat([
-                    pd.DataFrame(X_reduced[:,:2],
-                                 columns =[pc1_label, pc2_label]),
-                    pd.Series(y, name=self.tname)],
-                axis =1)
-             pca1_ix , pca2_ix =0,1
-      
-        # Extract the name of the first components 
-        # and second components
-        pca_axis_1 = feature_importances_[pca1_ix][1][0] 
-        pca_axis_2 = feature_importances_[pca2_ix][1][0]
-        # Extract the name of the  values of the first 
-        # component and second components in percentage.
-        pca_axis_1_ratio = np.around(
-            abs(feature_importances_[pca1_ix][2][0]),2) *1e2
-        pca_axis_2_ratio = np.around(
-            abs(feature_importances_[pca2_ix][2][0]),2) *1e2
-     
-        # create figure obj 
-        fig = plt.figure(figsize = self.fig_size)
-        ax = fig.add_subplot(1,1,1)
-        
-        y_label = df_pca.iloc [:, -1].name # get the name of label
-        
-        for target , color in zip(classes, y_palettes): 
-            ix = df_pca[y_label] ==target
-            ax.scatter(df_pca.loc[ix, pc1_label], 
-                       df_pca.loc[ix, pc2_label], 
-                       c= color, 
-                       s= plot_dict['s'])
-            
-        # get the max values, set the center plot  and set the
-        # of the circle bounds.
-        max_lim = np.ceil(abs(max([X_reduced[:, pca1_ix].max(),
-                                   X_reduced[:, pca2_ix].max()])))
-        
-        cercle = plt.Circle((0,0),
-                            max_lim,
-                            color='blue',
-                            fill=False)
-        ax.add_artist(cercle)
-        ax.set_ylim([-max_lim, max_lim])
-        ax.set_xlim([-max_lim, max_lim])
-        
-        linev =plt.Line2D ((0, 0), (-max_lim, max_lim),
-                           color = self.lc, 
-                           linewidth = self.lw,
-                           linestyle = self.ls,
-                           marker = self.marker,
-                           markeredgecolor = self.marker_edgecolor,
-                           markeredgewidth = self.marker_edgewidth,
-                           markerfacecolor = self.marker_facecolor ,
-                           markersize = self.ms * self.fs
-                           )
-        
-        lineh =plt.Line2D ((-max_lim, max_lim), (0, 0),
-                           color = self.lc, 
-                           linewidth = self.lw,
-                           linestyle = self.ls ,
-                           marker = self.marker,
-                           markeredgecolor = self.marker_edgecolor,
-                           markeredgewidth = self.marker_edgewidth,
-                           markerfacecolor = self.marker_facecolor,
-                           markersize = self.ms * self.fs
-                           )
-        
-        #Create string label from pca_axis_1
-        x_axis_str = pc1_label +':'+ str(pca_axis_1) +' ({}%)'.format(
-            pca_axis_1_ratio )
-        y_axis_str = pc2_label +':' + str(pca_axis_2) +' ({}%)'.format(
-            pca_axis_2_ratio )
-        
-        ax.set_xlabel( x_axis_str,
-                      color='k', 
-                      fontsize = self.font_size * self.fs
-                      )
-        ax.set_ylabel(y_axis_str,
-                      color='k',
-                      fontsize = self.font_size * self.fs
-                      )
-        ax.set_title('PCA', 
-                     fontsize = (self.font_size +1) * self.fs)
-        ax.add_artist(linev)
-        ax.add_artist(lineh)
-        ax.legend(classes)
-        ax.grid(color=self.lc,
-                linestyle=self.ls,
-                linewidth=self.lw/10
-                )
-        
-        self.save(fig)
-    
-        return self 
-
-    @docSanitizer()       
-    def plotPR(
-        self,
-        clf:_F,
-        label:int|str,
-        kind:Optional[str]=None,
-        method:Optional[str]=None,
-        cvp_kws =None,
-        **prt_kws
-    )->'EvalPlotter': 
-        """ 
-        Precision/recall (PR) and tradeoff plots. 
-        
-        PR computes a score based on the decision function and plot the result
-        as a score vs threshold. 
-        
-        Parameters
-        -----------
-        clf :callable, always as a function, classifier estimator
-            A supervised predictor with a finite set of discrete possible 
-            output values. A classifier must supports modeling some of binary, 
-            targets. It must store a classes attribute after fitting.
-        label: int, 
-            Specific class to evaluate the tradeoff of precision 
-            and recall. `label`  needs to be specified and a value within the 
-            target.     
-            
-        kind: str, ['threshold|'recall'], default='threshold' 
-            kind of PR plot. If kind is 'recall', method plots the precision 
-            VS the recall scores, otherwiwe the PR tradeoff is plotted against 
-            the 'threshold.'
-            
-        method: str
-            Method to get scores from each instance in the trainset. 
-            Could be ``decison_funcion`` or ``predict_proba``. When using the  
-            scikit-Learn classifier, it generally has one of the method. 
-            Default is ``decision_function``.   
-        
-        cvp_kws: dict, optional
-            The :func:`sklearn.model_selection.cross_val_predict` keywords 
-            additional arguments 
-            
-        prt_kws:dict, 
-            Additional keyword arguments passed to 
-            func:`gofast.exlib.sklearn.precision_recall_tradeoff`
-            
-        Return
-        -------
-        ``self``: `EvalPlotter` instance
-            ``self`` for easy method chaining.
-             
-        Examples
-        ---------
-        >>> from gofast.exlib.sklearn import SGDClassifier
-        >>> from gofast.datasets.dload import load_bagoue 
-        >>> from gofast.utils import cattarget 
-        >>> from gofast.plot.evaluate  import EvalPlotter 
-        >>> X , y = load_bagoue(as_frame =True )
-        >>> sgd_clf = SGDClassifier(random_state= 42) # our estimator 
-        >>> b= EvalPlotter(scale = True , encode_labels=True)
-        >>> b.fit_transform(X, y)
-        >>> # binarize the label b.y 
-        >>> ybin = cattarget(b.y, labels= 2 ) # can also use labels =[0, 1]
-        >>> b.y = ybin 
-        >>> # plot the Precision-recall tradeoff  
-        >>> b.plotPR(sgd_clf , label =1) # class=1
-        ... EvalPlotter(tname= None, objective= None, scale= True, ... , 
-                     sns_height= 4.0, sns_aspect= 0.7, verbose= 0)
-
-        """
-        msg = ("Precision recall metric works for classification "
-                "task; labels must be encoded refering to a particular"
-                " class; set 'encode_labels' param to 'True' and "
-                "provided a list of class integer unique identifier."
-                      )
-        
-        kind = kind or 'threshold'
-        kind=str(kind).lower().strip() 
-        
-        if kind.lower().find('thres')>=0: 
-            kind = 'threshold' 
-        elif kind.lower().find('rec')>=0: 
-            kind = 'recall'
-            
-        if kind not in ('threshold', 'recall'): 
-            raise ValueError ("Invalid kind={0!r}. Expect {1!r} or {2!r}".
-                              format(kind, *('threshold', 'recall'))
-                )
-    
-        self.inspect 
-        # call precision 
-        if self.y is None: 
-            warnings.warn("Precision-recall deals with supervising learning"
-                          " methods which expects a target to be categorized."
-                          " Missing target is not allowed.")
-            raise TypeError("Missing target 'y' is not allowed. Can not used"
-                            " the 'precision-recall' metric.")
-            
-        if not self.encode_labels : 
-            warnings.warn(
-                msg + " Refer to <https://en.wikipedia.org/wiki/Machine_learning>"
-                " for deep understanding."    
-                )
-            raise LearningError (msg)
-            
-        prtObj = precision_recall_tradeoff( 
-            clf, self.X,  self.y, cv =self.cv, 
-            label=label, method =method, 
-            cvp_kws=cvp_kws,
-            **prt_kws)
-        
-        # create figure obj 
-        fig = plt.figure(figsize = self.fig_size)
-        ax = fig.add_subplot(1,1,1)
-
-        # for consistency set xlabel and ylabel 
-        xlabel = None 
-        ylabel = None 
-        if kind=='threshold': 
-            ax.plot(prtObj.thresholds,
-                    prtObj.precisions[:-1], 
-                    color = self.pc, 
-                    linewidth = self.lw,
-                    linestyle = self.ps, 
-                    label = 'Precision',
-                    **self.plt_kws )
-            ax.plot(prtObj.thresholds,
-                   prtObj.recalls[:-1], 
-                   color = self.rc, 
-                   linewidth = self.lw,
-                   linestyle = self.rs , 
-                   label = 'Recall',
-                   **self.plt_kws)
-            
-            xlabel = self.xlabel or 'Threshold'
-            ylabel =self.ylabel or 'Score'
-
-
-        elif kind =='recall': 
-            ax.plot(prtObj.recalls[:-1],
-                    prtObj.precisions[:-1], 
-                    color = self.lc, 
-                    linewidth = self.lw,
-                    linestyle = self.ls , 
-                    label = 'Precision vs Recall',
-                    **self.plt_kws )
-        
-            
-            xlabel = self.xlabel or 'Recall'
-            ylabel =self.ylabel or 'Precision'
- 
-            self.xlim =[0,1]
-            
-        ax.set_xlabel( xlabel,
-                      fontsize= .5 * self.font_size * self.fs )
-        ax.set_ylabel (ylabel,
-                       fontsize= .5 * self.font_size * self.fs)
-        ax.tick_params(axis='both', 
-                       labelsize=.5 * self.font_size * self.fs)
-        
-        if self.show_grid is True : 
-           if self.gwhich =='minor': 
-                 ax.minorticks_on() 
-           ax.grid(self.show_grid,
-                   axis=self.gaxis,
-                   which = self.gwhich, 
-                   color = self.gc,
-                   linestyle=self.gls,
-                   linewidth=self.glw, 
-                   alpha = self.galpha
-                   )
-           
-        if len(self.leg_kws) ==0 or 'loc' not in self.leg_kws.keys():
-             self.leg_kws['loc']='upper left'
-        
-        ax.legend(**self.leg_kws)
-        
-        if self.ylim is None: self.ylim = [0, 1]
-        ax.set_ylim (self.ylim)
-        if kind =='recall':
-            ax.set_xlim (self.xlim)
-
-        self.save(fig)
-            
-        return self 
-    
     def plotROC(
         self, 
         clfs,
@@ -1917,7 +1869,7 @@ class EvalPlotter(BasePlot):
   
     def __repr__(self):
         """ Pretty format for programmer guidance following the API... """
-        return repr_callable_obj  (self, skip = ('y', 'X') ) 
+        return repr_callable_obj  (self, skip = ('y', 'X', 'y_colors', 'plot_config') ) 
        
     def __getattr__(self, name):
         if name.endswith ('_'): 
@@ -1953,7 +1905,7 @@ plots. The class works only with numerical features.
     If not the case, as the examples of demonstration  under each method 
     implementation, we first need to categorize the continue labels. 
     The choice is twofolds: either providing individual class label 
-    as a list of integers using the method :meth:`EvalPlotter._cat_codes_y` 
+    as a list of integers using the method :meth:`EvalPlotter.encode_y` 
     or by specifying the number of clusters that the target must hold. 
     Commonly the latter choice is usefull for a test or academic 
     purpose. In practice into a real dataset, it is discouraged 
@@ -3975,7 +3927,7 @@ def plot_unified_pca(
     
     for s,l in enumerate(classes):
         plt.scatter(xs[y==l],ys[y==l], 
-                    c = colors[s], 
+                    color = colors[s], 
                     marker=markers[s]
                     ) 
     for i in range(n):

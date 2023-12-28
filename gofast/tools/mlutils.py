@@ -2223,7 +2223,7 @@ def export_target(
     >>> ar = np.random.randn ( 3,  3 )
     >>> df0 = pd.DataFrame ( ar, columns = ['x1', 'x2', 'tname'])
     >>> df= df0.copy() 
-    >>> get_target (df, 'tname', drop_target= False )
+    >>> get_target (df, 'tname', drop= False )
     (      tname
      0 -0.542861
      1  0.781198,
@@ -2239,7 +2239,7 @@ def export_target(
      1 -1.156182)
     >>> df = df0.copy() 
     >>> # when array is passed 
-    >>> get_target (df.values , '2', drop_target= False )
+    >>> get_target (df.values , '2', drop= False )
     (array([[-0.54286148],
             [ 0.7811981 ]]),
      array([[-1.42406091, -0.49331988, -0.54286148],

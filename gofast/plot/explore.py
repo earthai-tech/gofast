@@ -12,56 +12,26 @@ from __future__ import annotations
 import re 
 import copy
 import warnings
-import itertools
 import numpy as np 
 import  matplotlib.pyplot  as plt
 import matplotlib.ticker as mticker
-from matplotlib.gridspec import GridSpec 
 import pandas as pd 
 from pandas.plotting import radviz , parallel_coordinates
 import seaborn as sns 
 
-from .._docstring import ( 
-         DocstringComponents,_core_docs,_baseplot_params)
+from .._docstring import  DocstringComponents,_core_docs,_baseplot_params
 from .._gofastlog import gofastlog  
-from .._typing import (
-    Any , 
-    List,
-    Dict,
-    Optional,
-    ArrayLike, 
-    DataFrame, 
-    Series,
-    _F, 
-)
-from ..decorators import temp2d 
+from .._typing import _F, Any, List,Dict,Optional,ArrayLike, DataFrame, Series  
 from ..exceptions import PlotError, FeatureError, NotFittedError
 from ..property import BasePlot
 from ..tools._dependency import import_optional_dependency 
 from ..tools.baseutils import _is_readable
-from ..tools.funcutils import ( 
-    _assert_all_types , 
-    _validate_name_in, 
-    _isin, 
-    repr_callable_obj, 
-    smart_strobj_recognition, 
-    remove_outliers, 
-    smart_format,
-    reshape, 
-    shrunkformat, 
-    is_iterable, 
-    station_id, 
-    make_ids,
-    )
-from ..tools.mathex import moving_average 
-from ..tools.mlutils import (
-    existfeatures,
-    formatGenericObj, 
-    select_features , 
-    export_target 
-    )
+from ..tools.funcutils import _assert_all_types , _isin,  repr_callable_obj 
+from ..tools.funcutils import smart_strobj_recognition, smart_format, reshape
+from ..tools.funcutils import  shrunkformat
+from ..tools.mlutils import existfeatures, formatGenericObj
+from ..tools.mlutils import select_features , export_target 
 from ..tools.validator import check_X_y 
-from .utils import make_mpl_properties, plot_errorbar
 try: 
     import missingno as msno 
 except : pass 
@@ -402,12 +372,12 @@ class QuestPlotter (BasePlot):
         
         return self 
 
-    def plotPairwiseFeatures
-            self ,  
-            corr:str = 'pearson', 
-            pkg:str ='sns', 
-            **kws
-            )-> 'QuestPlotter': 
+    def plotPairwiseFeatures(
+        self ,  
+        corr:str = 'pearson', 
+        pkg:str ='sns', 
+        **kws
+        )-> 'QuestPlotter': 
         """ Create pairwise comparizons between features. 
         
         Plots shows a ['pearson'|'spearman'|'covariance'] correlation. 

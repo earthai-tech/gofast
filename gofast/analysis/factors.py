@@ -22,7 +22,7 @@ and factor analysis in detail.
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import linalg
-from scipy.stats import statsf
+import scipy.stats as statsf
 # from scipy.linalg import cholesky
 
 from sklearn.decomposition import PCA, FactorAnalysis 
