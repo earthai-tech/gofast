@@ -109,7 +109,8 @@ class TimeSeriesPlotter (BasePlot) :
     ...     'Date': pd.date_range(start='2021-01-01', periods=5, freq='D'),
     ...     'Value': [1, 2, 3, 4, 5]
     ... })
-    >>> plotter = TimeSeriesPlotter(df, 'Date', 'Value')
+    >>> plotter = TimeSeriesPlotter()
+    >>> plotter.fit(df, 'Date', 'Value')
     >>> plotter.line_plot()
     """
     def __init__(self,  **kws):
