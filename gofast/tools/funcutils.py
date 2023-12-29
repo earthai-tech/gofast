@@ -20,6 +20,7 @@ import pickle
 import shutil
 import numbers 
 import inspect
+import random 
 import datetime  
 import warnings
 import itertools
@@ -6862,7 +6863,7 @@ def type_of_target(y):
 
     return 'unknown'
 
-def add_noises_to(data, /, noises=.1):
+def add_noises_to(data, /, noise=.1, seed =None ):
     """
     Adds NaN values to a pandas DataFrame.
 
@@ -6870,10 +6871,13 @@ def add_noises_to(data, /, noises=.1):
     ----------
     dataframe : pandas.DataFrame
         The DataFrame to which NaN values will be added.
-    noises : float, default='10%'
+    noise : float, default='10%'
         The percentage of values to be replaced with NaN in each column. 
         This must be a number between 0 and 1. Default is 0.1 (10%).
-
+    seed: int, array-like, BitGenerator, np.random.RandomState, \
+        np.random.Generator, optional
+       If int, array-like, or BitGenerator, seed for random number generator. 
+       If np.random.RandomState or np.random.Generator, use as given.
     Returns
     -------
     pandas.DataFrame
@@ -6885,20 +6889,20 @@ def add_noises_to(data, /, noises=.1):
     >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': ['x', 'y', 'z']})
     >>> new_df = add_nan_to_dataframe(df, noises=0.2)
     """
-    if noises is None: 
+    random.seed (seed)
+    if noise is None: 
         return data 
-    noises = assert_ratio(noises)
+    noise = assert_ratio(noise)
     # Copy the dataframe to avoid changing the original data
     df_with_nan = data.copy()
 
     # Calculate the number of NaNs to add in each column 
     # based on the percentage
-    nan_count_per_column = int(noises * len(df_with_nan))
+    nan_count_per_column = int(noise * len(df_with_nan))
 
     for column in df_with_nan.columns:
         # Randomly pick indices to replace with NaN
-        nan_indices = np.random.sample(range(len(df_with_nan)),
-                                       nan_count_per_column)
+        nan_indices = random.sample(range(len(df_with_nan)),nan_count_per_column)
         df_with_nan.loc[nan_indices, column] = np.nan
 
     return df_with_nan

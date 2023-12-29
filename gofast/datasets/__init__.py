@@ -29,6 +29,8 @@ from ._create import (
     make_social_media_comments,
     make_cc_factors, 
     make_water_demand, 
+    make_regression, 
+    make_classification
     )
 __all__=[ 
          "load_bagoue",
@@ -52,5 +54,7 @@ __all__=[
          "make_agronomy_feedback",
          "make_social_media_comments", 
          "make_water_demand", 
+         "make_regression", 
+         "make_classification",
          "DATASET", 
          ]

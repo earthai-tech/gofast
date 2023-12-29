@@ -22,12 +22,13 @@ from ..tools.funcutils import (
     is_in_if , 
     _assert_all_types, 
     add_noises_to, 
-    smart_format, 
+    smart_format,
+    reshape, 
     ) 
 
-def make_classification(*, 
+def make_classification(
     n_samples=70,
-    n_features=7, 
+    n_features=7, *,
     n_classes=2,
     n_labels=1,
     noise=0.1, 
@@ -38,7 +39,7 @@ def make_classification(*,
     return_X_y=False, 
     split_X_y=False, 
     test_size=0.3, 
-    target_indices=None, 
+    nan_percentage=None, 
     seed=None, 
     **kws 
     ):
@@ -84,15 +85,18 @@ def make_classification(*,
         `test_size`.
     test_size : float, default=0.3
         Proportion of the dataset to include in the test split.
-    target_indices : list or None, default=None
-        Indices of target features to be extracted. If specified, these 
-        columns are removed from the returned 'X' and included in 'y'.
+    nan_percentage : float or None, default=None
+        The percentage of values to be replaced with NaN in each column. 
+        This must be a number between 0 and 1.
     seed : int, np.random.RandomState instance, or None, default=None
         Determines random number generation for dataset creation. Pass an int for
         reproducible output.
 
     Returns
     -------
+    obj: gofast.tools.Boxspace 
+        The object that contains data details: frame, data, target etc. if 
+        `return_X_y` and `split_X_y` and `as_frame` are ``False``.
     X, y : ndarray of shape (n_samples, n_features) or DataFrame
         The generated samples and target values. If `as_frame` is True, 
         returns a DataFrame.
@@ -135,25 +139,28 @@ def make_classification(*,
     if scale is not None:
         X, y = _apply_scaling(X, y, method=str(scale).lower() )
 
-    # Split dataset and return
-    if split_X_y:
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=test_size, random_state=seed)
-        return (X_train, X_test, y_train, y_test) if return_X_y else (X, y)
-
-    # Return DataFrame if requested
-    if as_frame:
-        df = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
+    data = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
+    
+    if n_labels==1: 
+        data['target']=reshape (y[:, 0])
+    else: 
         for i in range(n_labels):
-            df[f'target_{i}'] = y[:, i]
-            
-        return df
-     # return (X, y) if return_X_y else np.hstack((X, y.reshape(-1, 1)))
-    return (X, y) if return_X_y else np.hstack((X, y))
+            data[f'target_{i}'] = y [:, i]       
+    tnames = 'target' if n_labels ==1 else [f'target_{i}'for i in range(n_labels)]
+    return _manage_data(
+        data,
+        as_frame=as_frame, 
+        tnames=tnames, 
+        return_X_y= return_X_y, 
+        split_X_y=split_X_y, 
+        test_size=test_size, 
+        noise=nan_percentage, 
+        seed=seed
+        ) 
 
-def make_regression(*, 
+def make_regression( 
     n_samples=70,
-    n_features=7, 
+    n_features=7, *, 
     noise=0.1, 
     bias=0.0, 
     scale=None, 
@@ -163,6 +170,7 @@ def make_regression(*,
     split_X_y=False, 
     test_size=0.3, 
     target_indices=None, 
+    nan_percentage=None, 
     seed=None, 
     **kws 
     ):
@@ -202,12 +210,18 @@ def make_regression(*,
     target_indices : list or None, default=None
         Indices of target features to be extracted. If specified, these 
         columns are removed from the returned 'X' and included in 'y'.
+    nan_percentage : float, Optional
+        The percentage of values to be replaced with NaN in each column. 
+        This must be a number between 0 and 1. Default is None.
     seed : int, np.random.RandomState instance, or None, default=None
         Determines random number generation for dataset creation. Pass an 
         int for reproducible output.
 
     Returns
     -------
+    obj: gofast.tools.Boxspace 
+        The object that contains data details: frame, data, target etc, if 
+        `return_X_y` and `split_X_y` and `as_frame` are ``False``.
     X : ndarray of shape (n_samples, n_features)
         The input samples.
     y : ndarray of shape (n_samples,)
@@ -242,32 +256,36 @@ def make_regression(*,
     np.random.seed(seed)  # Ensures reproducibility
     X = np.random.randn(n_samples, n_features)
     coef = np.random.randn(n_features)
-    
-    y=None
     # Generate regression data based on the specified type
     regression_type = str(regression_type).lower()
-    X = _generate_regression_output(X, coef, bias, noise, regression_type)
-
+    y = _generate_regression_output(X, coef, bias, noise, regression_type)
+    
     target_indices = target_indices or -1 
     target_indices = is_iterable (target_indices, transform=True) 
-    if return_X_y or split_X_y : 
+    if len(target_indices)!=1:
+        # concat it 
+        X = np.hstack (( X, y.reshape( -1,1)))
+         # remove target if multilabels
         X, y = remove_target_from_array ( X, target_indices=target_indices )
-    
-    # Apply scaling if specified
+        
+    # Apply scaling if specified    
     if scale is not None:
-        scale = str(scale).lower() 
-        X, y = _apply_scaling(X, y, method=scale)
-    
-    data= pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
-    data['target'] = y
+       scale = str(scale).lower() 
+       X, y = _apply_scaling(X, y, method=scale)   
+        
+    tnames = 'target' if len(target_indices) ==1 else [
+        f'target_{i}'for i in range(len(target_indices) )]   
+    data = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
+    data[tnames]=y
     
     return _manage_data(
-        X,
+        data,
         as_frame=as_frame, 
+        tnames=tnames, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
         test_size=test_size,
-        noise= noise, 
+        noise=nan_percentage, 
         seed=seed
         ) 
 
@@ -571,8 +589,7 @@ def make_african_demo(*,
 
     return demo_data
 
-def make_agronomy_feedback(
-    *, 
+def make_agronomy_feedback(*, 
     samples=100, 
     num_years=5, 
     n_specimens:int =7, 
@@ -683,7 +700,7 @@ def make_agronomy_feedback(
     >>> from gofast.datasets import make_agronomy_feedback
     >>> samples = 100
     >>> num_years = 5
-    >>> agronomy_data = make_agronomy_feedback(samples, num_years, n_specimens=3)
+    >>> agronomy_data = make_agronomy_feedback(samples, num_years=num_years, n_specimens=3)
     >>> print(agronomy_data.head())
 
     """
@@ -693,8 +710,8 @@ def make_agronomy_feedback(
                 objname='The number of specimens (crop and pesticides)')
         )
     
-    pesticide_types = random.choice(COMMON_PESTICIDES, n_specimens)
-    crop_types = random.choice(COMMON_CROPS, n_specimens)
+    pesticide_types = random.sample(COMMON_PESTICIDES, n_specimens)
+    crop_types = random.sample(COMMON_CROPS, n_specimens)
     data = []
     for entry_id in range(samples):
         for year in range(num_years):
@@ -2703,7 +2720,6 @@ def make_water_demand(
         # first skip when feature is Region to compute later 
         if feature =='Region': 
             continue 
-        
         data_dict[feature] = np.random.choice(possible_values, samples)
 
     # now get the feature Ehnicity and found 
@@ -2728,7 +2744,6 @@ def make_water_demand(
         tnames or 'Drinking', 
         exclude_string= True, transform =True )
         )
-    
     return _manage_data(
         water_data,
         as_frame=as_frame, 
@@ -2749,6 +2764,7 @@ def _generate_regression_output(X, coef, bias, noise, regression_type):
     from ..tools.mathex import linear_regression, quadratic_regression
     from ..tools.mathex import exponential_regression,logarithmic_regression
     from ..tools.mathex import sinusoidal_regression, cubic_regression
+    from ..tools.mathex import step_regression
     
     available_reg_types = [ 'linear', 'quadratic', 'cubic','exponential', 
                            'logarithmic', 'sinusoidal', 'step' ]
@@ -2772,8 +2788,8 @@ def _apply_scaling(X, y, method):
     scale_dict = {'standard':standard_scaler ,
     'minmax':minmax_scaler , 'normalize':normalize }
     if method not in  (scale_dict.keys()): 
-        raise ValueError (f"Invalid scale method '{method}'.Expected"
-                          f" {smart_format(scale_dict.keys(), 'or'}")
+        raise ValueError (f"Invalid scale method '{method}'. Expected"
+                          f"{smart_format(scale_dict.keys(),'or')}")
     return scale_dict[method] ( X, y=y )
 
 def _manage_data(
@@ -2880,7 +2896,7 @@ def _manage_data(
                      if tnames else list(frame.columns ))
     
     # Noises only in the data not in target  
-    data = add_noises_to(data, noise = noise )
+    data = add_noises_to(data, noise = noise , seed=seed )
     if not as_frame: 
         data = np.array (data )
         y = np.array(y ) 
@@ -2893,9 +2909,9 @@ def _manage_data(
     if return_X_y : 
         return data, y 
     
+    frame [feature_names] = add_noises_to( 
+        frame [feature_names], noise =noise, seed=seed  )
     if as_frame:
-        frame [feature_names] = add_noises_to(
-            frame [feature_names], noise =noise )
         return frame
     
     return Boxspace(

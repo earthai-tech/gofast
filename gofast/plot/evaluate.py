@@ -265,185 +265,6 @@ class MetricPlotter (BasePlot):
         plt.title("Learning Curve")
         plt.legend(loc="best")
         plt.show()
-    
-    def plot_2d(self, X, x_feature, y_feature, groups=None,
-                xlabel=None, ylabel=None, title=None):
-      """
-      Plots a two-dimensional graph of two features from the dataset.
-
-      Parameters
-      ----------
-      X : DataFrame or ndarray
-          The dataset containing the features to be plotted.
-
-      x_feature : str or int
-          The name or index of the feature to be plotted on the x-axis.
-
-      y_feature : str or int
-          The name or index of the feature to be plotted on the y-axis.
-
-      groups : Series or array-like, optional
-          Group labels for the data points; used to color the points in 
-          the plot. Default is None.
-
-      xlabel : str, optional
-          The label for the x-axis. Default is the name of x_feature.
-
-      ylabel : str, optional
-          The label for the y-axis. Default is the name of y_feature.
-
-      title : str, optional
-          The title of the plot. Default is None.
-
-      Returns
-      -------
-      None
-      """
-      if isinstance(X, pd.DataFrame):
-          x_values = X[x_feature]
-          y_values = X[y_feature]
-      else:  # ndarray
-          x_values = X[:, x_feature]
-          y_values = X[:, y_feature]
-
-      plt.figure()
-      scatter = plt.scatter(x_values, y_values, c=groups,
-                            cmap=self.color_map, edgecolor='k')
-      
-      if groups is not None:
-          plt.legend(*scatter.legend_elements(), title="Groups")
-
-      plt.xlabel(xlabel if xlabel else x_feature)
-      plt.ylabel(ylabel if ylabel else y_feature)
-      plt.title(title if title else f'{x_feature} vs {y_feature}')
-      plt.grid(True)
-      plt.show()
-
-
-    def plot_histogram(self, data, feature, bins=30, xlabel=None,
-                       ylabel='Frequency', title=None):
-        """
-        Plots a histogram for a given feature.
-
-        Parameters
-        ----------
-        data : DataFrame or ndarray
-            The dataset containing the feature.
-
-        feature : str or int
-            The feature for which to plot the histogram. A column name 
-            if 'data' is a DataFrame,or an index if 'data' is an ndarray.
-
-        bins : int, optional
-            The number of bins to use for the histogram.
-
-        xlabel : str, optional
-            The label for the x-axis. Defaults to the feature name.
-
-        ylabel : str, optional
-            The label for the y-axis. Defaults to 'Frequency'.
-
-        title : str, optional
-            The title of the plot. Defaults to a generic title.
-        """
-        plt.figure()
-        if isinstance(data, pd.DataFrame):
-            plt.hist(data[feature], bins=bins, color='skyblue',
-                     edgecolor='black')
-            xlabel = xlabel if xlabel else feature
-        else:  # ndarray
-            plt.hist(data[:, feature], bins=bins, color='skyblue',
-                     edgecolor='black')
-            xlabel = xlabel if xlabel else f'Feature {feature}'
-
-        plt.xlabel(xlabel)
-        plt.ylabel(ylabel)
-        plt.title(title if title else f'Histogram of {xlabel}')
-        plt.show()
-
-    def plot_box(self, data, feature, by=None, xlabel=None,
-                 ylabel=None, title=None):
-        """
-        Plots a box plot for a given feature, optionally grouped by
-        another feature.
-
-        Parameters
-        ----------
-        data : DataFrame
-            The dataset containing the features.
-
-        feature : str
-            The feature for which to plot the box plot.
-
-        by : str, optional
-            A feature by which to group the data.
-
-        xlabel : str, optional
-            The label for the x-axis. Defaults to the grouping feature name.
-
-        ylabel : str, optional
-            The label for the y-axis. Defaults to the plotted feature name.
-
-        title : str, optional
-            The title of the plot. Defaults to a generic title.
-        """
-        plt.figure()
-        data.boxplot(column=feature, by=by)
-        plt.xlabel(xlabel if xlabel else (by if by else ''))
-        plt.ylabel(ylabel if ylabel else feature)
-        plt.title(title if title else f'Box Plot of {feature}')
-        if by:
-            plt.suptitle('')
-        plt.show()
-
-    def plot_heatmap(self, data, xlabel=None, ylabel=None, title='Heatmap'):
-        """
-        Plots a heatmap, useful for visualizing correlations or 2D data.
-
-        Parameters
-        ----------
-        data : DataFrame or ndarray
-            The 2D dataset to plot.
-
-        xlabel : str, optional
-            The label for the x-axis.
-
-        ylabel : str, optional
-            The label for the y-axis.
-
-        title : str, optional
-            The title of the plot. Defaults to 'Heatmap'.
-        """
-        plt.figure()
-        sns.heatmap(data, annot=True, fmt=".2f", cmap=self.color_map)
-        plt.xlabel(xlabel if xlabel else '')
-        plt.ylabel(ylabel if ylabel else '')
-        plt.title(title)
-        plt.show()
-
-    def plot_feature_importance(self, feature_names, importances,
-                                title='Feature Importances'):
-        """
-        Plots a bar chart of feature importances.
-
-        Parameters
-        ----------
-        feature_names : list
-            List of names of the features.
-        importances : list or array
-            The importance scores of the features.
-        title : str, optional
-            The title of the plot. Defaults to 'Feature Importances'.
-        """
-        indices = np.argsort(importances)[::-1]
-        sorted_names = [feature_names[i] for i in indices]
-        sorted_importances = importances[indices]
-
-        plt.figure()
-        plt.bar(range(len(importances)), sorted_importances, align='center')
-        plt.xticks(range(len(importances)), sorted_names, rotation=45, ha='right')
-        plt.title(title)
-        plt.show()
 
     def plot_actual_vs_predicted(self, y_actual, y_predicted,
                                  title='Actual vs Predicted'):
@@ -761,6 +582,184 @@ class EvalPlotter(BasePlot):
         
         return self 
     
+    def plot_2d(self, X, x_feature, y_feature, groups=None,
+                xlabel=None, ylabel=None, title=None):
+      """
+      Plots a two-dimensional graph of two features from the dataset.
+
+      Parameters
+      ----------
+      X : DataFrame or ndarray
+          The dataset containing the features to be plotted.
+
+      x_feature : str or int
+          The name or index of the feature to be plotted on the x-axis.
+
+      y_feature : str or int
+          The name or index of the feature to be plotted on the y-axis.
+
+      groups : Series or array-like, optional
+          Group labels for the data points; used to color the points in 
+          the plot. Default is None.
+
+      xlabel : str, optional
+          The label for the x-axis. Default is the name of x_feature.
+
+      ylabel : str, optional
+          The label for the y-axis. Default is the name of y_feature.
+
+      title : str, optional
+          The title of the plot. Default is None.
+
+      Returns
+      -------
+      None
+      """
+      if isinstance(X, pd.DataFrame):
+          x_values = X[x_feature]
+          y_values = X[y_feature]
+      else:  # ndarray
+          x_values = X[:, x_feature]
+          y_values = X[:, y_feature]
+
+      plt.figure()
+      scatter = plt.scatter(x_values, y_values, c=groups,
+                            cmap=self.color_map, edgecolor='k')
+      
+      if groups is not None:
+          plt.legend(*scatter.legend_elements(), title="Groups")
+
+      plt.xlabel(xlabel if xlabel else x_feature)
+      plt.ylabel(ylabel if ylabel else y_feature)
+      plt.title(title if title else f'{x_feature} vs {y_feature}')
+      plt.grid(True)
+      plt.show()
+
+
+    def plot_histogram(self, data, feature, bins=30, xlabel=None,
+                       ylabel='Frequency', title=None):
+        """
+        Plots a histogram for a given feature.
+
+        Parameters
+        ----------
+        data : DataFrame or ndarray
+            The dataset containing the feature.
+
+        feature : str or int
+            The feature for which to plot the histogram. A column name 
+            if 'data' is a DataFrame,or an index if 'data' is an ndarray.
+
+        bins : int, optional
+            The number of bins to use for the histogram.
+
+        xlabel : str, optional
+            The label for the x-axis. Defaults to the feature name.
+
+        ylabel : str, optional
+            The label for the y-axis. Defaults to 'Frequency'.
+
+        title : str, optional
+            The title of the plot. Defaults to a generic title.
+        """
+        plt.figure()
+        if isinstance(data, pd.DataFrame):
+            plt.hist(data[feature], bins=bins, color='skyblue',
+                     edgecolor='black')
+            xlabel = xlabel if xlabel else feature
+        else:  # ndarray
+            plt.hist(data[:, feature], bins=bins, color='skyblue',
+                     edgecolor='black')
+            xlabel = xlabel if xlabel else f'Feature {feature}'
+
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.title(title if title else f'Histogram of {xlabel}')
+        plt.show()
+
+    def plot_box(self, data, feature, by=None, xlabel=None,
+                 ylabel=None, title=None):
+        """
+        Plots a box plot for a given feature, optionally grouped by
+        another feature.
+
+        Parameters
+        ----------
+        data : DataFrame
+            The dataset containing the features.
+
+        feature : str
+            The feature for which to plot the box plot.
+
+        by : str, optional
+            A feature by which to group the data.
+
+        xlabel : str, optional
+            The label for the x-axis. Defaults to the grouping feature name.
+
+        ylabel : str, optional
+            The label for the y-axis. Defaults to the plotted feature name.
+
+        title : str, optional
+            The title of the plot. Defaults to a generic title.
+        """
+        plt.figure()
+        data.boxplot(column=feature, by=by)
+        plt.xlabel(xlabel if xlabel else (by if by else ''))
+        plt.ylabel(ylabel if ylabel else feature)
+        plt.title(title if title else f'Box Plot of {feature}')
+        if by:
+            plt.suptitle('')
+        plt.show()
+
+    def plot_heatmap(self, data, xlabel=None, ylabel=None, title='Heatmap'):
+        """
+        Plots a heatmap, useful for visualizing correlations or 2D data.
+
+        Parameters
+        ----------
+        data : DataFrame or ndarray
+            The 2D dataset to plot.
+
+        xlabel : str, optional
+            The label for the x-axis.
+
+        ylabel : str, optional
+            The label for the y-axis.
+
+        title : str, optional
+            The title of the plot. Defaults to 'Heatmap'.
+        """
+        plt.figure()
+        sns.heatmap(data, annot=True, fmt=".2f", cmap=self.color_map)
+        plt.xlabel(xlabel if xlabel else '')
+        plt.ylabel(ylabel if ylabel else '')
+        plt.title(title)
+        plt.show()
+
+    def plot_feature_importance(self, feature_names, importances,
+                                title='Feature Importances'):
+        """
+        Plots a bar chart of feature importances.
+
+        Parameters
+        ----------
+        feature_names : list
+            List of names of the features.
+        importances : list or array
+            The importance scores of the features.
+        title : str, optional
+            The title of the plot. Defaults to 'Feature Importances'.
+        """
+        indices = np.argsort(importances)[::-1]
+        sorted_names = [feature_names[i] for i in indices]
+        sorted_importances = importances[indices]
+
+        plt.figure()
+        plt.bar(range(len(importances)), sorted_importances, align='center')
+        plt.xticks(range(len(importances)), sorted_names, rotation=45, ha='right')
+        plt.title(title)
+        plt.show()
     def _target_manager ( self, X, y , prefix =None, ): 
         """ Manage the target  and return X and y 
         

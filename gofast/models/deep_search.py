@@ -331,7 +331,6 @@ def deep_tuning(
     >>> param_grid = {'learning_rate': [0.01, 0.001], 'batch_size': [32, 64]}
     >>> best_model, best_params, best_score = deep_tuning(
         model_fn, dataset, param_grid)
-
     """
     X, y = dataset
     kf = KFold(n_splits=n_splits)

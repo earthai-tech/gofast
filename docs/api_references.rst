@@ -171,12 +171,14 @@ expedite research and analysis.
    datasets.make_african_demo_info 
    datasets.make_agronomy_feedback
    datasets.make_cc_factors
+   datasets.make_classification
    datasets.make_elogging 
    datasets.make_erp 
    datasets.make_ert 
    datasets.make_gadget_sales 
    datasets.make_medical_diagnostic 
    datasets.make_mining_ops
+   datasets.make_regression
    datasets.make_retail_store 
    datasets.make_social_media_comments
    datasets.make_tem 
@@ -221,6 +223,7 @@ Classes
    estimators.BenchmarkClassifier 
    estimators.BoostedRegressionTree
    estimators.BoostedClassifierTree
+   estimators.DecisionStumpRegressor
    estimators.DecisionTreeBasedRegressor
    estimators.DecisionTreeBasedClassifier
    estimators.GradientDescentClassifier
@@ -440,13 +443,17 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.audit_data
    tools.bi_selector
    tools.bin_counting
+   tools.binning_statistic
    tools.butterworth_filter
    tools.categorize_target
+   tools.category_count
    tools.cleaner
    tools.codify_variables
+   tools.cubic_regression
    tools.discretize_categories
    tools.evaluate_model
    tools.evaluate_model
+   tools.exponential_regression
    tools.export_target
    tools.fancier_downloader
    tools.features_in
@@ -466,15 +473,20 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.label_importance
    tools.labels_validator
    tools.laplace_smoothing
+   tools.linear_regression
    tools.linkage_matrix
    tools.load_csv
    tools.load_dumped_data
+   tools.logarithmic_regression
    tools.make_pipe
+   tools.minmax_scaler
    tools.moving_average
    tools.naive_data_split
+   tools.normalize
    tools.normalizer
    tools.pair_data
    tools.projection_validator
+   tools.quadratic_regression
    tools.quality_control
    tools.random_sampling
    tools.random_selector
@@ -492,9 +504,11 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.select_feature_importances
    tools.select_features
    tools.serialize_data
+   tools.sinusoidal_regression
    tools.smart_label_classifier
    tools.smooth1d
    tools.smoothing
+   tools.soft_bin_stats
    tools.soft_imputer
    tools.soft_scaler
    tools.speed_rowwise_process
@@ -502,12 +516,13 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.split_train_test
    tools.split_train_test
    tools.split_train_test_by_id
+   tools.standard_scaler
    tools.stats_from_prediction
+   tools.step_regression
    tools.store_or_write_hdf5
    tools.stratify_categories
    tools.to_numeric_dtypes
-
-
+ 
 .. _plot_ref:
 
 :mod:`gofast.plot`: Visualization 
