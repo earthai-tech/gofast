@@ -732,8 +732,18 @@ class CategoryBaseStratifier(BaseEstimator, TransformerMixin):
 
     Examples:
     --------
-    [Add usage examples here]
+    >>> from gofast.datasets import load_bagoue 
+    >>> from gofast.transformers import CategoryBaseStratifier
+    >>> X = load_bagoue ( as_frame=True) 
+    >>> cobj = CategoryBaseStratifier(base_column='shape')
+    >>> Xtrain_stratified, X_test_stratified= cobj.fit_transform ( X ) 
+    >>> X_test_stratified.head(2) 
+    Out[67]: 
+           num  name      east  ...    lwi                    geol  flow
+    121  122.0  b122  756473.0  ...  32.54  VOLCANO-SEDIM. SCHISTS   1.0
+    207  208.0  b208  792785.0  ...  29.80  VOLCANO-SEDIM. SCHISTS   1.0
 
+    [2 rows x 13 columns]
     Notes:
     ------
     The `statistics_` attribute provides insights into the distribution of the 
@@ -746,7 +756,7 @@ class CategoryBaseStratifier(BaseEstimator, TransformerMixin):
         self.base_column = base_column
         self.test_size = test_size
         self.random_state = random_state
-        self.statistics_ = None
+
 
     def fit(self, X, y=None):
         """Does nothing, exists for compatibility with sklearn's Transformer API."""
@@ -797,8 +807,10 @@ class CategoryBaseStratifier(BaseEstimator, TransformerMixin):
         tuple of DataFrames
             The stratified training and testing sets.
         """
-        # Implement stratification logic here (e.g., using pd.cut)
-        strat_train_set, strat_test_set = stratify_categories(X, self.base_column)
+        # stratification logic here (e.g., using pd.cut)
+        strat_train_set, strat_test_set = stratify_categories(
+            X, self.base_column, test_size = self.test_size, 
+            random_state = self.random_state )
         return strat_train_set, strat_test_set
 
     def _calculate_statistics(self, X, strat_test_set):
@@ -814,7 +826,8 @@ class CategoryBaseStratifier(BaseEstimator, TransformerMixin):
             The stratified testing set.
         """
         overall_distribution = X[self.base_column].value_counts() / len(X)
-        stratified_distribution = strat_test_set[self.base_column].value_counts() / len(strat_test_set)
+        stratified_distribution = strat_test_set[self.base_column].value_counts(
+            ) / len(strat_test_set)
         error = ((stratified_distribution / overall_distribution) - 1) * 100
 
         self.statistics_ = pd.DataFrame({
@@ -852,7 +865,6 @@ class CategorizeFeatures(BaseEstimator, TransformerMixin ):
     return_cat_codes: bool, default=False 
        return the categorical codes that used for mapping variables. 
        if `func` is applied, mapper returns an empty dict. 
-       
     
     Examples
     --------

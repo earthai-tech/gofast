@@ -38,14 +38,13 @@ from .._docstring import _core_docs, _baseplot_params, DocstringComponents
 from .._typing import  _F, Optional, Tuple, List, ArrayLike, NDArray 
 from .._typing import DataFrame,  Series 
 from ..analysis.dimensionality import nPCA
-from ..decorators import  docSanitizer 
 from ..exceptions import NotFittedError, EstimatorError, PlotError
 from ..metrics import precision_recall_tradeoff, roc_curve_, confusion_matrix_
 from ..property import BasePlot 
 from ..tools._dependency import import_optional_dependency 
-from ..tools.funcutils import is_iterable, to_numeric_dtypes 
+from ..tools.funcutils import  to_numeric_dtypes, fancier_repr_formatter 
 from ..tools.funcutils import  smart_strobj_recognition, repr_callable_obj 
-from ..tools.funcutils import  str2columns, make_ids, type_of_target 
+from ..tools.funcutils import  str2columns, make_ids, type_of_target, is_iterable 
 from ..tools.mathex import linkage_matrix 
 from ..tools.mlutils import export_target 
 from ..tools.mlutils import categorize_target, projection_validator 
@@ -1410,8 +1409,6 @@ class EvalPlotter(BasePlot):
                 alpha=self.galpha)
         ax.legend(**self.leg_kws)
 
-# import matplotlib.pyplot as plt
-# from gofast.metrics import roc_curve_
 
     def plotROC(self, clfs, label, method=None, cvp_kws=None, **roc_kws):
         """
@@ -1687,223 +1684,225 @@ class EvalPlotter(BasePlot):
         
         return self 
 
-    @docSanitizer()
     def plotConfusionMatrix(
-        self, 
-        clf:_F, 
-        *, 
-        kind:str =None, 
-        labels:List[int]=None, 
-        matshow_kws: dict=None, 
-        **conf_mx_kws
-        )-> 'EvalPlotter': 
-        """ Plot confusion matrix for error evaluation.
-        
-        A representation of the confusion matrix for error visualization. If 
-        kind is set ``map``, plot will give the number of confused 
-        instances/items. However when `kind` is set to ``error``, the number 
-        of items confused is explained as a percentage. 
-        
-        Parameters 
-        -----------
-        clf :callable, always as a function, classifier estimator
-            A supervised predictor with a finite set of discrete possible 
-            output values. A classifier must supports modeling some of binary, 
-            targets. It must store a classes attribute after fitting.
-            
-        labels: int, or list of int, optional
-            Specific class to evaluate the tradeoff of precision 
-            and recall. `label`  needs to be specified and a value within the 
-            target.     
-            
-         plottype: str 
-            can be `map` or `error` to visualize the matshow of prediction 
-            and errors  respectively.
-            
-        matshow_kws: dict 
-            matplotlib additional keywords arguments. 
-            
-        conf_mx_kws: dict 
-            Additional confusion matrix keywords arguments.
-        ylabel: list 
-            list of labels names  to hold the name of each categories.
-            
-        Return
+        self, clf, *, 
+        kind=None, labels=None,
+        matshow_kws=None, 
+        **conf_mx_kws):
+        """
+        Plots a confusion matrix for a classifier.
+
+        This method visualizes the confusion matrix, either showing the count of 
+        instances per class (map) or the error rates (error).
+
+        Parameters
+        ----------
+        clf : callable
+            Classifier estimator used to compute the confusion matrix. Must support
+            binary or multiclass targets and have a 'fit' method.
+
+        kind : str, optional
+            Type of plot. 'map' to show the count of instances (default), or 'error'
+            to show the error rates.
+
+        labels : list of int, optional
+            List of class labels to include in the confusion matrix. If None, all 
+            classes in `y` are used.
+
+        matshow_kws : dict, optional
+            Additional keyword arguments for `matplotlib.pyplot.matshow`.
+
+        conf_mx_kws : dict
+            Additional keyword arguments for the confusion matrix computation.
+
+        Returns
         -------
-        ``self``: `EvalPlotter` instance
-            ``self`` for easy method chaining.
+        EvalPlotter
+            The instance itself for method chaining.
 
         Examples
         --------
-        >>> from gofast.datasets import fetch_data
-        >>> from gofast.tools.mlutils import cattarget 
-        >>> from gofast.exlib.sklearn import SVC 
-        >>> from gofast.plot.evaluate  import EvalPlotter
+        >>> from sklearn.svm import SVC
+        >>> from gofast.plot.evaluate import EvalPlotter
         >>> X, y = fetch_data ('bagoue', return_X_y=True, as_frame =True)
         >>> # partition the target into 4 clusters-> just for demo 
-        >>> b= EvalPlotter(scale =True, label_values = 4 ) 
-        >>> b.fit_transform (X, y) 
+        >>> plotter= EvalPlotter(scale =True, label_values = 4 ) 
+        >>> plotter.fit_transform (X, y) 
         >>> # prepare our estimator 
         >>> svc_clf = SVC(C=100, gamma=1e-2, kernel='rbf', random_state =42)
         >>> matshow_kwargs ={
-                'aspect': 'auto', # 'auto'equal
-                'interpolation': None, 
-               'cmap':'jet }                   
+        ...        'aspect': 'auto', # 'auto'equal
+        ...        'interpolation': None, 
+        ...       'cmap':'jet }                   
         >>> plot_kws ={'lw':3, 
-               'lc':(.9, 0, .8), 
-               'font_size':15., 
-                'cb_format':None,
-                'xlabel': 'Predicted classes',
-                'ylabel': 'Actual classes',
-                'font_weight':None,
-                'tp_labelbottom':False,
-                'tp_labeltop':True,
-                'tp_bottom': False
-                }
-        >>> b.plotConfusionMatrix(clf=svc_clf, 
-                                  matshow_kws = matshow_kwargs, 
-                                  **plot_kws)
-        >>> svc_clf = SVC(C=100, gamma=1e-2, kernel='rbf', 
-        ...                  random_state =42) 
+        ...       'lc':(.9, 0, .8), 
+        ...       'font_size':15., 
+        ...        'cb_format':None,
+        ...        'xlabel': 'Predicted classes',
+        ...        'ylabel': 'Actual classes',
+        ...        'font_weight':None,
+        ...        'tp_labelbottom':False,
+        ...        'tp_labeltop':True,
+        ...        'tp_bottom': False
+        ...        }
+        >>> plotter.plotConfusionMatrix(clf=svc_clf, matshow_kws = matshow_kwargs, 
+        ...                          **plot_kws)
+        >>> svc_clf = SVC(C=100, gamma=1e-2, kernel='rbf', random_state =42) 
         >>> # replace the integer identifier with litteral string 
-        >>> b.litteral_classes = ['FR0', 'FR1', 'FR2', 'FR3']
-        >>> b.plotConfusionMatrix(svc_clf, matshow_kws=matshow_kwargs, 
-                                  kind='error', **plot_kws) 
-        
+        >>> plotter.litteral_classes = ['FR0', 'FR1', 'FR2', 'FR3']
+        >>> plotter.plotConfusionMatrix(svc_clf, matshow_kws=matshow_kwargs, 
+        ...                          kind='error', **plot_kws) 
         """
         self.inspect
-        
-        kind = str (kind).lower().strip() 
-        if kind.find ('error')>=0 or kind.find('fill diagonal')>=0 : 
-            kind ='error'
-        else: kind ='map'
-        
-        matshow_kws= matshow_kws or dict() 
-        # gives a gray color to matshow
-        # if is given as matshow keywords arguments 
-        # then remove it 
-        _check_cmap = 'cmap' in matshow_kws.keys()
-        if not _check_cmap or len(matshow_kws)==0: 
-            matshow_kws['cmap']= plt.cm.gray
-        
+
+        kind = kind.lower().strip() if kind else 'map'
+        matshow_kws = matshow_kws or {'cmap': plt.cm.gray}
+
         labels = labels or self.label_values 
-        y = self.y 
-        if labels is not None: 
-            # labels = labels_validator(self.y, labels)
-            y, labels =self._cat_codes_y(values = labels, 
-                                         ) 
-        # for plotting purpose, change the labels to hold 
-        # the string litteral class names. 
-        labels = self.litteral_classes or labels 
+        y = self.y if labels is None else self.encode_y(values=labels)[0]
+        labels = self.litteral_classes or labels
 
-        # get yticks one it is a classification prof
-        confObj =confusion_matrix_(clf=clf,
-                                X=self.X,
-                                y=y,
-                                cv=self.cv,
-                                # **conf_mx_kws
-                                )
-    
-         # create figure obj 
-        fig = plt.figure(figsize = self.fig_size)
-        ax = fig.add_subplot(1,1,1)
-        
-        if kind =='map' : 
-            cax = ax.matshow(confObj.conf_mx,  
-                        **matshow_kws)
-            if self.cb_label is None: 
-                self.cb_label='Items confused'
-                    
-        if kind in ('error', 'fill diagonal'): 
-            cax = ax.matshow(confObj.norm_conf_mx, 
-                         **matshow_kws) 
-            self.cb_label = self.cb_label or 'Error'
-      
-        cbax= fig.colorbar(cax, **self.cb_props)
-        ax.set_xlabel( self.xlabel,
-              fontsize= self.font_size )
-        
-        if labels is not None: 
-            xticks_loc = list(ax.get_xticks())
-            yticks_loc = list(ax.get_yticks())
-            ax.xaxis.set_major_locator(mticker.FixedLocator(xticks_loc))
-            ax.xaxis.set_major_formatter(mticker.FixedFormatter(
-                [''] + list (labels)))
-            ax.yaxis.set_major_locator(mticker.FixedLocator(yticks_loc))
-            ax.yaxis.set_major_formatter(mticker.FixedFormatter(
-                [''] + list (labels)))
-        self.ylabel = self.ylabel or 'Actual classes'
-        self.xlabel = self.xlabel or 'Predicted classes'
-        ax.set_ylabel (self.ylabel,
-                       fontsize= self.font_size *3 )
-        ax.set_xlabel (self.xlabel,
-                       fontsize= self.font_size *3 )
-        ax.tick_params(axis=self.tp_axis, 
-                        labelsize= self.font_size *3 , 
-                        bottom=self.tp_bottom, 
-                        top=self.tp_top, 
-                        labelbottom=self.tp_labelbottom, 
-                        labeltop=self.tp_labeltop
-                        )
-        if self.tp_labeltop: 
-            ax.xaxis.set_label_position('top')
-        cbax.ax.tick_params(labelsize=self.font_size * 3 ) 
-        cbax.set_label(label=self.cb_label,
-                       size=self.font_size * 3 ,
-                       weight=self.font_weight)
-        
-        plt.xticks(rotation = self.rotate_xlabel)
-        plt.yticks(rotation = self.rotate_ylabel)
+        # Compute confusion matrix
+        confObj = confusion_matrix_(clf, self.X, y, cv=self.cv, **conf_mx_kws)
 
-        self.save(fig)
+        # Plotting
+        fig, ax = plt.subplots(figsize=self.fig_size)
+        if kind == 'map':
+            cax = ax.matshow(confObj.conf_mx, **matshow_kws)
+            cb_label = 'Items Confused'
+        elif kind == 'error':
+            cax = ax.matshow(confObj.norm_conf_mx, **matshow_kws)
+            cb_label = 'Error Rate'
+
+        self._style_matshow_plot(ax, cax, labels, cb_label, fig)
         
         return self
-  
+
+    def _style_matshow_plot(self, ax, cax, labels, cb_label, fig):
+        """ Styles the matshow plot with labels, colorbar, and ticks. """
+        cbax = fig.colorbar(cax)
+        ax.set_xlabel(self.xlabel or 'Predicted Classes', fontsize=self.font_size)
+        ax.set_ylabel(self.ylabel or 'Actual Classes', fontsize=self.font_size)
+
+        if labels:
+            ax.set_xticklabels([''] + list(labels))
+            ax.set_yticklabels([''] + list(labels))
+            plt.xticks(rotation=45)
+            plt.yticks(rotation=45)
+
+        cbax.ax.tick_params(labelsize=self.font_size)
+        cbax.set_label(cb_label, size=self.font_size)
+
+        self.save(fig)
+
     def __repr__(self):
         """ Pretty format for programmer guidance following the API... """
-        return repr_callable_obj  (self, skip = ('y', 'X', 'y_colors', 'plot_config') ) 
+        return fancier_repr_formatter(self ) 
        
     def __getattr__(self, name):
-        if name.endswith ('_'): 
-            if name not in self.__dict__.keys(): 
-                if name in ('data_', 'X_'): 
-                    raise NotFittedError (
-                        f'Fit the {self.__class__.__name__!r} object first'
-                        )
-                
+        """
+        Custom attribute accessor to provide informative error messages.
+
+        This method is called if the attribute accessed is not found in the
+        usual places (`__dict__` and the class tree). It checks for common 
+        attribute patterns and raises informative errors if the attribute is 
+        missing or if the object is not fitted yet.
+
+        Parameters
+        ----------
+        name : str
+            The name of the attribute being accessed.
+
+        Raises
+        ------
+        NotFittedError
+            If the attribute indicates a requirement for a prior fit method call.
+
+        AttributeError
+            If the attribute is not found, potentially suggesting a similar attribute.
+
+        Returns
+        -------
+        Any
+            The value of the attribute, if found through smart recognition.
+        """
+        if name.endswith('_'):
+            # Special handling for attributes that are typically set after fitting
+            if name not in self.__dict__:
+                if name in ('data_', 'X_'):
+                    raise NotFittedError(
+                        f"Attribute '{name}' not found.Please fit the"
+                        f" {self.__class__.__name__} object first.")
+
+        # Attempt to find a similar attribute name for a more informative error
+        similar_attr = self._find_similar_attribute(name)
+        suggestion = f". Did you mean '{similar_attr}'?" if similar_attr else ""
+
+        raise AttributeError(f"'{self.__class__.__name__}' object has "
+                             f"no attribute '{name}'{suggestion}")
+
+    def _find_similar_attribute(self, name):
+        """
+        Attempts to find a similar attribute name in the object's dictionary.
+
+        Parameters
+        ----------
+        name : str
+            The name of the attribute to find a similar match for.
+
+        Returns
+        -------
+        str or None
+            A similar attribute name if found, otherwise None.
+        """
+        # Implement the logic for finding a similar attribute name
+        # For example, using a string comparison or a fuzzy search
         rv = smart_strobj_recognition(name, self.__dict__, deep =True)
-        appender  = "" if rv is None else f'. Do you mean {rv!r}'
-        
-        raise AttributeError (
-            f'{self.__class__.__name__!r} object has no attribute {name!r}'
-            f'{appender}{"" if rv is None else "?"}'
-            )        
+        return rv 
+
 
 EvalPlotter.__doc__ ="""\
-Metrics, dimensionality and model evaluatation plots.  
+A Tool for Visualization of Metrics and Dimensionality Reduction 
+in Model Evaluation. 
 
-Inherited from :class:`BasePlot`. Dimensional reduction and metric 
-plots. The class works only with numerical features. 
+This class, inheriting from `BasePlot`, focuses on plotting for dimensional 
+reduction and metrics analysis. It is specifically designed to work with 
+numerical features.
 
-.. admonition:: Discouraged
-    
-    Contineous target values for plotting classification metrics is 
-    discouraged. However, We encourage user to prepare its dataset 
-    before using the :class:`EvalPlotter` methods. This is recommended to have 
-    full control of the expected results. Indeed, the most metrics plot 
-    implemented here works with supervised methods especially deals 
-    with the classification problems. So, the convenient way is for  
-    users to discretize/categorize (class labels) before the `fit`. 
-    If not the case, as the examples of demonstration  under each method 
-    implementation, we first need to categorize the continue labels. 
-    The choice is twofolds: either providing individual class label 
-    as a list of integers using the method :meth:`EvalPlotter.encode_y` 
-    or by specifying the number of clusters that the target must hold. 
-    Commonly the latter choice is usefull for a test or academic 
-    purpose. In practice into a real dataset, it is discouraged 
-    to use this kind of target partition since, it is far away of the 
-    reality and will yield unexpected misinterpretation. 
-    
+Important Notes:
+----------------
+- The `EvalPlotter` class is optimized for use in classification problems and 
+thus works best with supervised learning methods that involve discrete class 
+labels. 
+
+- Continuous target values for classification metrics are not recommended. 
+  Users are strongly advised to preprocess their datasets to ensure optimal 
+  compatibility and effectiveness of the `EvalPlotter` methods.
+
+- For classification metrics, the target values should be discretized or 
+  categorized into class labels before using the `fit` method. Users can 
+  do this by either:
+    1. Providing individual class labels as a list of integers through the 
+       `EvalPlotter.encode_y` method.
+    2. Specifying the number of desired clusters for the target labels. 
+
+- While the latter option might be suitable for testing or academic purposes, 
+  it is generally discouraged in practical applications. Automatically 
+  partitioning targets into clusters may not reflect real-world data 
+  distributions and can lead to misleading interpretations.
+
+Example Usage:
+--------------
+Each method in `EvalPlotter` is accompanied by demonstrative examples, 
+highlighting how to preprocess continuous labels for classification metrics.
+
+Remember:
+---------
+In practical scenarios, especially with real datasets, it is crucial to 
+use realistically categorized targets to avoid misinterpretations and ensure 
+that the evaluation metrics align closely with the true nature of the problem 
+at hand.    
+
 Parameters 
 -----------
 {params.core.X}

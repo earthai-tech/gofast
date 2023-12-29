@@ -34,19 +34,20 @@ import matplotlib.pyplot as plt
 
 from .._gofastlog import gofastlog
 from .._typing import ( 
+    _F,
+    _T,
+    _Sub,
     Tuple,
     Dict,
     Optional,
     Iterable,
     Any,
     ArrayLike,
-    _F,
-    _T,
     List ,
     DataFrame, 
-    _Sub,
     NDArray, 
     Text, 
+    Union
     )
 from ._dependency import import_optional_dependency
 _logger = gofastlog.get_gofast_logger(__name__)
@@ -79,6 +80,103 @@ except ImportError:
     interp_import = False
     
 # xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+def inspect_data(
+    arr: NDArray | DataFrame, *,
+    columns: Optional[List[str]] = None,
+    missing_values: Any = np.nan,
+    sanitize_columns: bool = ...,
+    regex: Optional[re.Pattern] = None,
+    fill_pattern: str = '_',
+    drop_nan_columns: bool = True,
+    how: str = 'all',
+    reset_index: bool = ...,
+    drop_index: bool = True,
+):
+    """
+    Inspects and preprocesses data to ensure numeric and categorical values 
+    are correctly identified and formatted.
+
+    This function helps to ensure the integrity of the data by detecting 
+    numeric values that are not properly formatted and sanitizing column names 
+    if necessary. It can also handle missing values and drop columns or 
+    rows based on NaN values.
+
+    Parameters
+    ----------
+    arr : NDArray or DataFrame
+        The array or DataFrame to process. Shape is expected to be
+        (m_samples, n_features).
+    
+    columns : list of str, optional
+        Column names to use when creating a DataFrame from an array. The 
+        length should match the number of columns in `arr`. Only necessary 
+        when `arr` is an NDArray.
+    
+    missing_values : any, default=np.nan
+        The placeholder for missing values in the data. These will be 
+        replaced accordingly.
+    
+    sanitize_columns : bool, default=False
+        Determines whether to sanitize column names using the provided 
+        `regex` pattern.
+    
+    regex : re.Pattern or str, optional
+        Regular expression pattern used to clean up column names. Default 
+        pattern if not provided:
+        re.compile(r'[_#&.)(*@!_,;\\s-]\\s*', flags=re.IGNORECASE)
+    
+    fill_pattern : str, default='_'
+        String pattern used to replace non-alphanumeric characters in 
+        column names.
+    
+    drop_nan_columns : bool, default=True
+        If True, columns entirely filled with NaN values will be dropped 
+        from the DataFrame.
+    
+    how : str, default='all'
+        Determines how to drop rows based on NaN values. 'all' drops rows 
+        where all values are NaN.
+    
+    reset_index : bool, default=False
+        If True, resets the index of the DataFrame after processing.
+    
+    drop_index : bool, default=True
+        If True and `reset_index` is also True, the original index is dropped.
+
+    Returns
+    -------
+    DataFrame
+        A DataFrame with numeric values correctly cast and with appropriate 
+        preprocessing applied.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.tools.funcutils import inspect_data
+    >>> arr = np.array([[1, 2, np.nan], [4, 5, 6]], dtype=object)
+    >>> df = inspect_data(arr, columns=['A', 'B', 'C'])
+    >>> print(df)
+
+    See Also
+    --------
+    gofast.tools.funcutils.to_numeric_dtypes:
+        Function to cast DataFrame columns to numeric dtypes, separating 
+        numeric and categorical features.
+
+    """
+    return to_numeric_dtypes(
+        arr=arr,
+        columns=columns,
+        missing_values=missing_values,
+        sanitize_columns=sanitize_columns,
+        regex=regex,
+        fill_pattern=fill_pattern,
+        drop_nan_columns=drop_nan_columns,
+        how=how,
+        reset_index=reset_index,
+        drop_index=drop_index,
+    )
 
 def format_to_datetime(data,/,  date_col):
     """
@@ -281,96 +379,93 @@ def fancy_printer(result, /, report_name='Data Quality Check Report'):
         else:
             print(f"--- No {key.replace('_', ' ').title()} Found ---\n")
 
-def to_numeric_dtypes (
-    arr: NDArray|DataFrame, *, 
-    columns: List[str, ...]=None, 
-    return_feature_types: bool=... , 
-    missing_values: float=np.nan, 
-    pop_cat_features: bool=..., 
-    sanitize_columns: bool=..., 
-    regex: re|str=None, 
-    fill_pattern: str='_', 
-    drop_nan_columns: bool=True, 
-    how: str='all', 
-    reset_index: bool=..., 
-    drop_index: bool=True, 
-    verbose: bool=...,
-    )-> DataFrame : 
-    """ Convert array to dataframe and coerce arguments to appropriate dtypes. 
+def to_numeric_dtypes(
+    arr: Union[NDArray, DataFrame], *, 
+    columns: Optional[List[str]] = None, 
+    return_feature_types: bool = ..., 
+    missing_values: float = np.nan, 
+    pop_cat_features: bool = ..., 
+    sanitize_columns: bool = ..., 
+    regex: Optional[re.Pattern] = None, 
+    fill_pattern: str = '_', 
+    drop_nan_columns: bool = True, 
+    how: str = 'all', 
+    reset_index: bool = ..., 
+    drop_index: bool = True, 
+    verbose: bool = ...
+) -> Union[DataFrame, Tuple[DataFrame, List[str], List[str]]]:
+    """
+    Converts an array to a DataFrame and coerces values to appropriate 
+    data types.
+
+    This function is designed to process data arrays or DataFrames, ensuring
+    numeric and categorical features are correctly identified and formatted. 
+    It provides options to manipulate the data, including column sanitization, 
+    handling of missing values, and dropping NaN-filled columns.
+
+    Parameters
+    ----------
+    arr : NDArray or DataFrame
+        The data to be processed, either as an array or a DataFrame.
     
-    Function includes additional tools to manipulate the transformed data 
-    such as: 
+    columns : list of str, optional
+        Column names for creating a DataFrame from an array. 
+        Length should match the number of columns in `arr`.
     
-    - `pop_cat_features` to remove the categorical attributes, 
-    - `sanitize_columns` to clean the columns of the dataframe by removing 
-      the undesirable characters, 
-    - `drop_nan_columns` to drop all the columns and/or rows that contains 
-      full NaN, ...
- 
-    Parameters 
-    -----------
-    arr: Ndarray or Dataframe, shape (m_samples, n_features)
-        Array of dataframe to create, to sanitize or to auto-detect
-        feature categories ( numerical or categorical).
-        
-    columns: list of str, optional 
-        Usefull to create a dataframe when array is given. Be aware to fit the 
-        number of array columns (shape[1])
-        
-    return_feature_types: bool, default=False, 
-        return the list of numerical and categorial features.
+    return_feature_types : bool, default=False
+        If True, returns a tuple with the DataFrame, numeric, and categorical 
+        features.
     
-    missing_values: float, default='NaN' 
-        Replace the missing or empty string if exist in the dataframe.
+    missing_values : float, default=np.nan
+        Value used to replace missing or empty strings in the DataFrame.
+    
+    pop_cat_features : bool, default=False
+        If True, removes categorical features from the DataFrame.
+    
+    sanitize_columns : bool, default=False
+        If True, cleans the DataFrame columns using the specified `regex` 
+        pattern.
+    
+    regex : re.Pattern or str, optional
+        Regular expression pattern for column sanitization. the default is:: 
         
-    pop_cat_features:bool, default=False, 
-        remove the categorial features  from the DataFrame.
-        
-    sanitize_columns: bool, default=False, 
-       remove undesirable character in the data columns using the default
-       argument of `regex` parameters. 
-       
-    regex: `re` object,
-        Regular expresion object used to polish the data columns.
-        the default is:: 
-            
         >>> import re 
         >>> re.compile (r'[_#&.)(*@!_,;\s-]\s*', flags=re.IGNORECASE)
-          
-       
-    fill_pattern: str, default='' 
-        Pattern to replace the non-alphabetic character in each item of 
-        columns.  
-        
-    drop_nan_columns: bool, default=True 
-       Remove all columns filled by NaN values. 
-
-    how: str, default='all'
-       Drop also the NaN row data. The row data which is composed entirely  
-       with NaN or Null values.
-       
-    reset_index: bool, default=False 
-       Reset the index of the dataframe. 
-
-    drop_index: bool, default=True, 
-       Drop index in the dataframe after reseting. 
-
-    verbose: bool, default=False, 
-        outputs a message by listing the categorial items dropped from 
-        the dataframe if exists. 
-        
-    Returns 
-    --------
-    df or (df, nf, cf): Dataframe of values casted to numeric types 
-        also return `nf` and `cf`  if `return_feature_types` is set
-        to``True``.
     
+    fill_pattern : str, default='_'
+        String pattern used to replace non-alphanumeric characters in 
+        column names.
+    
+    drop_nan_columns : bool, default=True
+        If True, drops columns filled entirely with NaN values.
+    
+    how : str, default='all'
+        Determines row dropping strategy based on NaN values.
+    
+    reset_index : bool, default=False
+        If True, resets the index of the DataFrame after processing.
+    
+    drop_index : bool, default=True
+        If True, drops the original index when resetting the DataFrame index.
+    
+    verbose : bool, default=False
+        If True, prints additional information during processing.
+
+    Returns
+    -------
+    DataFrame or tuple of DataFrame, List[str], List[str]
+        The processed DataFrame. If `return_feature_types` is True, returns a 
+        tuple with the DataFrame, list of numeric feature names (`nf`), 
+        and list of categorical feature names (`cf`).
+
     Examples
-    ---------
+    --------
     >>> from gofast.datasets.dload import load_bagoue
     >>> from gofast.tools.funcutils import to_numeric_dtypes
-    >>> X, y = load_bagoue (as_frame =True ) 
-    >>> X0 =X[['shape', 'power', 'magnitude']]
+    >>> X= load_bagoue(as_frame=True)
+    >>> X0 = X[['shape', 'power', 'magnitude']]
+    >>> df, nf, cf = to_numeric_dtypes(X0, return_feature_types=True)
+    >>> print(df.dtypes, nf, cf)
     >>> X0.dtypes 
     ... shape        object
         power        object
@@ -382,16 +477,22 @@ def to_numeric_dtypes (
         power        float64
         magnitude    float64
         dtype: object
-        
     """
+
     from .validator import _is_numeric_dtype
-    
     # pass ellipsis argument to False 
-    ( sanitize_columns, reset_index, verbose, return_feature_types, 
-     pop_cat_features ) = ellipsis2false(
-        sanitize_columns, reset_index, verbose, return_feature_types, 
-        pop_cat_features
-        )
+    ( sanitize_columns, 
+        reset_index, 
+        verbose,
+        return_feature_types, 
+        pop_cat_features, 
+        ) = ellipsis2false(
+            sanitize_columns, 
+            reset_index, 
+            verbose,
+            return_feature_types, 
+            pop_cat_features
+            )
    
     if not is_iterable (arr, exclude_string=True): 
         raise TypeError(f"Expect array. Got {type (arr).__name__!r}")
@@ -462,7 +563,6 @@ def to_numeric_dtypes (
         return df 
     
     return (df, nf, cf) if return_feature_types else df 
-
 
 def listing_items_format ( 
         lst, /, begintext ='', endtext='' , bullet='-', 
@@ -650,11 +750,13 @@ def url_checker (url: str , install:bool = False,
     return isr 
 
     
-def shrunkformat (text: str | Iterable[Any] , 
-                  chunksize: int =7 , insert_at: str = None, 
-                  sep =None, 
-                 ) : 
-    """ format class and add ellipsis when classes are greater than maxview 
+def shrunkformat (
+    text: str | Iterable[Any], 
+    chunksize: int =7 ,
+    insert_at: str = None, 
+    sep =None, 
+    ) : 
+    """ Format class and add ellipsis when classes are greater than maxview 
     
     :param text: str - a text to shrunk and format. Can also be an iterable
         object. 
@@ -732,14 +834,13 @@ def shrunkformat (text: str | Iterable[Any] ,
                   flags=re.IGNORECASE 
                   ) 
     
-
 def is_installing (
-        module: str , 
-        upgrade: bool=True , 
-        action: bool=True, 
-        DEVNULL: bool=False,
-        verbose: int=0,
-        **subpkws
+    module: str , 
+    upgrade: bool=True , 
+    action: bool=True, 
+    DEVNULL: bool=False,
+    verbose: int=0,
+    **subpkws
     )-> bool: 
     """ Install or uninstall a module/package using the subprocess 
     under the hood.
@@ -6711,95 +6812,6 @@ def ellipsis2false( *parameters , default_value: Any=False ):
     """
     return tuple ( ( default_value  if param is  ... else param  
                     for param in parameters) )  
-   
-def inspect_data ( 
-    arr: NDArray|DataFrame, *, 
-    columns: List[str, ...]=None, 
-    missing_values: float=np.nan, 
-    sanitize_columns: bool=..., 
-    regex: re|str=None, 
-    fill_pattern: str='_', 
-    drop_nan_columns: bool=True, 
-    how: str='all', 
-    reset_index: bool=..., 
-    drop_index: bool=True, 
-    ): 
-    """ Verify the integrity of the data. 
-
-    Fonction tries to understand the data, convert as possible the numeric 
-    data if not converted yet and return correct numeric and categorical 
-    data. 
-   
-    This is useful because sometimes, data contain the numeric values while 
-    the values are not sanitize to get the numeric data types. 
-   
-    Parameters 
-    -----------
-    arr: Ndarray or Dataframe, shape (m_samples, n_features)
-        Array of dataframe to create, to sanitize or to auto-detect
-        feature categories ( numerical or categorical).
-        
-    columns: list of str, optional 
-        Usefull to create a dataframe when array is given. Be aware to fit the 
-        number of array columns (shape[1])
-        
-    missing_values: float, default='NaN' 
-        Replace the missing or empty string if exist in the dataframe.
-        
-    sanitize_columns: bool, default=False, 
-       remove undesirable character in the data columns using the default
-       argument of `regex` parameters. 
-       
-    regex: `re` object,
-        Regular expresion object used to polish the data columns.
-        the default is:: 
-            
-        >>> import re 
-        >>> re.compile (r'[_#&.)(*@!_,;\s-]\s*', flags=re.IGNORECASE)
-          
-    fill_pattern: str, default='' 
-        Pattern to replace the non-alphabetic character in each item of 
-        columns.  
-        
-    drop_nan_columns: bool, default=True 
-       Remove all columns filled by NaN values. 
-        
-    how: str, default='all'
-       Drop also the NaN row data. The row data which is composed entirely  
-       with NaN or Null values.
-       
-    reset_index: bool, default=False 
-       Reset the index of the dataframe. 
-       
-    drop_index: bool, default=True, 
-       Drop index in the dataframe after reseting. 
-             
-    Returns 
-    --------
-    df : Dataframe of values casted to numeric types 
-        also return `nf` and `cf`  if `return_feature_types` is set
-        to``True``.
-        
-    See Also 
-    ---------
-    gofast.tools.funcutils.to_numeric_dtypes: 
-        Inspect, pop or return categorical and numeric features. 
-        
-   
-    """
-   
-    return to_numeric_dtypes ( 
-        arr =arr, 
-        columns=columns, 
-        missing_values=missing_values,  
-        sanitize_columns=sanitize_columns, 
-        regex=regex, 
-        fill_pattern=fill_pattern, 
-        drop_nan_columns=drop_nan_columns, 
-        how=how, 
-        reset_index=reset_index, 
-        drop_index=drop_index,  
-        )
 
 def type_of_target(y):
     """
@@ -6891,9 +6903,122 @@ def add_noises_to(data, /, noises=.1):
 
     return df_with_nan
  
+def fancier_repr_formatter(obj, max_attrs=7):
+    """
+    Generates a formatted string representation for any class object.
+
+    Parameters:
+    ----------
+    obj : object
+        The object for which the string representation is generated.
+
+    max_attrs : int, optional
+        Maximum number of attributes to display in the representation.
+
+    Returns:
+    -------
+    str
+        A string representation of the object.
+
+    Examples:
+    --------
+    >>> from gofast.tools.funcutils import fancier_repr_formatter
+    >>> class MyClass:
+    >>>     def __init__(self, a, b, c):
+    >>>         self.a = a
+    >>>         self.b = b
+    >>>         self.c = c
+    >>> obj = MyClass(1, [1, 2, 3], 'hello')
+    >>> print(fancier_repr_formatter(obj))
+    MyClass(a=1, c='hello', ...)
+    """
+    attrs = [(name, getattr(obj, name)) for name in dir(obj)
+             if not name.startswith('_') and
+             (isinstance(getattr(obj, name), str) or
+              not hasattr(getattr(obj, name), '__iter__'))]
+
+    displayed_attrs = attrs[:min(len(attrs), max_attrs)]
+    attr_str = ', '.join([f'{name}={value!r}' for name, value in displayed_attrs])
+
+    # Add ellipsis if there are more attributes than max_attrs
+    if len(attrs) > max_attrs:
+        attr_str += ', ...'
+
+    return f'{obj.__class__.__name__}({attr_str})'
+
     
+def generic_getattr(obj, name, default_value=None):
+    """
+    A generic attribute accessor for any class instance.
+
+    This function attempts to retrieve an attribute from the given object.
+    If the attribute is not found, it provides a meaningful error message.
+
+    Parameters:
+    ----------
+    obj : object
+        The object from which to retrieve the attribute.
+
+    name : str
+        The name of the attribute to retrieve.
+
+    default_value : any, optional
+        A default value to return if the attribute is not found. If None,
+        an AttributeError will be raised.
+
+    Returns:
+    -------
+    any
+        The value of the retrieved attribute or the default value.
+
+    Raises:
+    ------
+    AttributeError
+        If the attribute is not found and no default value is provided.
+
+    Examples:
+    --------
+    >>> from gofast.tools.funcutils import generic_getattr
+    >>> class MyClass:
+    >>>     def __init__(self, a, b):
+    >>>         self.a = a
+    >>>         self.b = b
+    >>> obj = MyClass(1, 2)
+    >>> print(generic_getattr(obj, 'a'))  # Prints: 1
+    >>> print(generic_getattr(obj, 'c', 'default'))  # Prints: 'default'
+    """
+    if hasattr(obj, name):
+        return getattr(obj, name)
     
-    
+    if default_value is not None:
+        return default_value
+
+    # Attempt to find a similar attribute name for a more informative error
+    similar_attr = _find_similar_attribute(obj, name)
+    suggestion = f". Did you mean '{similar_attr}'?" if similar_attr else ""
+
+    raise AttributeError(f"'{obj.__class__.__name__}' object has no "
+                         f"attribute '{name}'{suggestion}")
+
+def _find_similar_attribute(obj, name):
+    """
+    Attempts to find a similar attribute name in the object's dictionary.
+
+    Parameters
+    ----------
+    obj : object
+        The object whose attributes are being checked.
+    name : str
+        The name of the attribute to find a similar match for.
+
+    Returns
+    -------
+    str or None
+        A similar attribute name if found, otherwise None.
+    """
+    rv = smart_strobj_recognition(name, obj.__dict__, deep =True)
+    return rv 
+ 
     
     
     

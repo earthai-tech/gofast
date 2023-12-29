@@ -13,7 +13,7 @@ import random
 from datetime import timedelta
 from sklearn.model_selection import train_test_split 
 from ..tools._dependency import import_optional_dependency 
-from ..tools.baseutils import run_shell_command 
+from ..tools.baseutils import run_shell_command, remove_target_from_array
 from ..tools.box import Boxspace 
 from ..tools.funcutils import ( 
     ellipsis2false ,
@@ -21,8 +21,255 @@ from ..tools.funcutils import (
     is_iterable, 
     is_in_if , 
     _assert_all_types, 
-    add_noises_to
+    add_noises_to, 
+    smart_format, 
     ) 
+
+def make_classification(*, 
+    n_samples=70,
+    n_features=7, 
+    n_classes=2,
+    n_labels=1,
+    noise=0.1, 
+    bias=0.0, 
+    scale=None, 
+    class_sep=1.0,
+    as_frame=False, 
+    return_X_y=False, 
+    split_X_y=False, 
+    test_size=0.3, 
+    target_indices=None, 
+    seed=None, 
+    **kws 
+    ):
+    """
+    Generate synthetic classification data for testing classification 
+    algorithms. 
+    
+    Funtion supports multilabel classification task.
+
+    `make_classification` is designed to create datasets suitable for evaluating 
+    and testing different classification algorithms. It allows control over the 
+    number of classes, features, and offers various options for data scaling.
+
+    Parameters
+    ----------
+    n_samples : int, default=70
+        Number of samples to generate in the dataset.
+    n_features : int, default=7
+        Number of features for each sample.
+    n_classes : int, default=2
+        Number of distinct classes or labels in the dataset.
+    n_labels : int, default=1
+        Number of labels per instance for multilabel classification.
+        For n_labels > 1, the output y will be a 2D array with multiple 
+        labels per instance.
+    noise : float, default=0.1
+        Standard deviation of Gaussian noise added to the output.
+    bias : float, default=0.0
+        Bias term to be added to the output.
+    scale : str or None, default=None
+        Method used to scale the dataset. Options are 'standard', 'minmax',
+        and 'normalize'.
+        If None, no scaling is applied.
+    class_sep : float, default=1.0
+        Factor multiplying the hypercube size. Larger values spread out 
+        the classes.
+    as_frame : bool, default=False
+        If True, the data is returned as a pandas DataFrame.
+    return_X_y : bool, default=False
+        If True, returns (data, target) instead of a single array.
+    split_X_y : bool, default=False
+        If True, the dataset is split into training and testing sets based on
+        `test_size`.
+    test_size : float, default=0.3
+        Proportion of the dataset to include in the test split.
+    target_indices : list or None, default=None
+        Indices of target features to be extracted. If specified, these 
+        columns are removed from the returned 'X' and included in 'y'.
+    seed : int, np.random.RandomState instance, or None, default=None
+        Determines random number generation for dataset creation. Pass an int for
+        reproducible output.
+
+    Returns
+    -------
+    X, y : ndarray of shape (n_samples, n_features) or DataFrame
+        The generated samples and target values. If `as_frame` is True, 
+        returns a DataFrame.
+        
+    Scaling Methods 
+    ------------------
+    - Standard Scaler:
+        z = \frac{x - \mu}{\sigma}
+      where \mu is the mean and \sigma is the standard deviation.
+    - MinMax Scaler:
+        z = \frac{x - \min(x)}{\max(x) - \min(x)}
+    - Normalize:
+        z = \frac{x}{||x||}
+      where ||x|| is the Euclidean norm (L2 norm).
+      
+    Examples
+    --------
+    >>> X, y = make_classification(n_samples=100, n_features=2, scale='standard', 
+                                   n_classes=3, class_sep=2.0)
+    >>> X.shape, y.shape
+    ((100, 2), (100,))
+
+    Notes
+    -----
+    This function is useful for creating artificial datasets for classification 
+    tasks. It allows the simulation of datasets with varying degrees of class 
+    separability, making it suitable for testing the robustness of 
+    classification models.
+    """
+    # Set random seed for reproducibility
+    rng = np.random.RandomState(seed) if seed is not None else np.random
+    # Generate random features
+    X = rng.normal(size=(n_samples, n_features)) * class_sep
+    # Generate random labels for multilabel classification
+    y = rng.randint(0, n_classes, size=(n_samples, n_labels))
+    # Add noise and bias
+    X += noise * rng.normal(size=X.shape) + bias
+
+    # Apply scaling if specified
+    if scale is not None:
+        X, y = _apply_scaling(X, y, method=str(scale).lower() )
+
+    # Split dataset and return
+    if split_X_y:
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=test_size, random_state=seed)
+        return (X_train, X_test, y_train, y_test) if return_X_y else (X, y)
+
+    # Return DataFrame if requested
+    if as_frame:
+        df = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
+        for i in range(n_labels):
+            df[f'target_{i}'] = y[:, i]
+            
+        return df
+     # return (X, y) if return_X_y else np.hstack((X, y.reshape(-1, 1)))
+    return (X, y) if return_X_y else np.hstack((X, y))
+
+def make_regression(*, 
+    n_samples=70,
+    n_features=7, 
+    noise=0.1, 
+    bias=0.0, 
+    scale=None, 
+    regression_type='linear', 
+    as_frame=False, 
+    return_X_y=False, 
+    split_X_y=False, 
+    test_size=0.3, 
+    target_indices=None, 
+    seed=None, 
+    **kws 
+    ):
+    """
+    Generate regression data with customizable scaling and regression patterns.
+
+    This function is designed to create datasets that are ideal for evaluating
+    and testing different regression algorithms. It offers various options 
+    for the regression pattern, scaling of data, and data formatting.
+
+    Parameters
+    ----------
+    n_samples : int, default=70
+        Number of samples to generate in the dataset.
+    n_features : int, default=7
+        Number of features for each sample.
+    noise : float, default=0.1
+        Standard deviation of Gaussian noise added to the output.
+    bias : float, default=0.0
+        Bias term to be added to the output.
+    scale : str or None, default=None
+        Method used to scale the dataset. Options are 'standard', 'minmax', 
+        and 'normalize'.If None, no scaling is applied.
+    regression_type : str, default='linear'
+        Type of regression pattern to simulate. Options include 'linear', 
+        'quadratic', 'cubic', 'exponential', 'logarithmic', 'sinusoidal',
+        and 'step'.
+    as_frame : bool, default=False
+        If True, the data is returned as a pandas DataFrame.
+    return_X_y : bool, default=False
+        If True, returns (data, target) instead of a single array.
+    split_X_y : bool, default=False
+        If True, the dataset is split into training and testing sets based 
+        on `test_size`.
+    test_size : float, default=0.3
+        Proportion of the dataset to include in the test split.
+    target_indices : list or None, default=None
+        Indices of target features to be extracted. If specified, these 
+        columns are removed from the returned 'X' and included in 'y'.
+    seed : int, np.random.RandomState instance, or None, default=None
+        Determines random number generation for dataset creation. Pass an 
+        int for reproducible output.
+
+    Returns
+    -------
+    X : ndarray of shape (n_samples, n_features)
+        The input samples.
+    y : ndarray of shape (n_samples,)
+        The output values.
+
+    Scaling Methods 
+    ------------------
+    - Standard Scaler:
+        z = \frac{x - \mu}{\sigma}
+      where \mu is the mean and \sigma is the standard deviation.
+    - MinMax Scaler:
+        z = \frac{x - \min(x)}{\max(x) - \min(x)}
+    - Normalize:
+        z = \frac{x}{||x||}
+      where ||x|| is the Euclidean norm (L2 norm).
+
+    Examples
+    --------
+    >>> from gofast.datasets import make_regression
+    >>> X, y = make_regression(n_samples=100, n_features=2, scale='standard', 
+                               regression_type='quadratic')
+    >>> X.shape, y.shape
+    ((100, 2), (100,))
+
+    Notes
+    -----
+    This function is useful for testing regression models by generating data 
+    with known properties. Different regression types allow simulation of 
+    various real-world scenarios. The scaling options help in preparing data 
+    that mimics different data distributions.
+    """
+    np.random.seed(seed)  # Ensures reproducibility
+    X = np.random.randn(n_samples, n_features)
+    coef = np.random.randn(n_features)
+    
+    y=None
+    # Generate regression data based on the specified type
+    regression_type = str(regression_type).lower()
+    X = _generate_regression_output(X, coef, bias, noise, regression_type)
+
+    target_indices = target_indices or -1 
+    target_indices = is_iterable (target_indices, transform=True) 
+    if return_X_y or split_X_y : 
+        X, y = remove_target_from_array ( X, target_indices=target_indices )
+    
+    # Apply scaling if specified
+    if scale is not None:
+        scale = str(scale).lower() 
+        X, y = _apply_scaling(X, y, method=scale)
+    
+    data= pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
+    data['target'] = y
+    
+    return _manage_data(
+        X,
+        as_frame=as_frame, 
+        return_X_y= return_X_y, 
+        split_X_y=split_X_y, 
+        test_size=test_size,
+        noise= noise, 
+        seed=seed
+        ) 
 
 def make_social_media_comments(
     *, samples=1000, 
@@ -31,7 +278,7 @@ def make_social_media_comments(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws 
     ):
@@ -44,7 +291,7 @@ def make_social_media_comments(
 
     Parameters
     ----------
-    n : int, optional
+    samples : int, optional
         The number of comments to generate. Default is 1000.
 
     as_frame : bool, default=False
@@ -73,7 +320,7 @@ def make_social_media_comments(
         The proportion of the dataset to be used as the test set. The default
         is 0.3, meaning 30% of the data is used for testing.
         
-    noises : float, Optional
+    noise : float, Optional
         The percentage of values to be replaced with NaN in each column. 
         This must be a number between 0 and 1. Default is None.
         
@@ -159,7 +406,7 @@ def make_social_media_comments(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size,
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
@@ -173,7 +420,7 @@ def make_african_demo(*,
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -318,7 +565,7 @@ def make_african_demo(*,
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size,
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
@@ -334,7 +581,7 @@ def make_agronomy_feedback(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -497,7 +744,7 @@ def make_agronomy_feedback(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
     return agronomy_dataset
@@ -510,7 +757,7 @@ def make_mining_ops(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -718,7 +965,7 @@ def make_mining_ops(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size,
-        noises= noises, 
+        noise= noise, 
         seed=seed, 
         ) 
     return mining_data
@@ -731,7 +978,7 @@ def make_sounding(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -880,7 +1127,7 @@ def make_sounding(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
@@ -891,7 +1138,7 @@ def make_medical_diagnosis(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -1056,7 +1303,7 @@ def make_medical_diagnosis(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size,
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
@@ -1070,7 +1317,7 @@ def make_well_logging(*,
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -1206,7 +1453,7 @@ def make_well_logging(*,
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
@@ -1220,7 +1467,7 @@ def make_ert(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -1363,7 +1610,7 @@ def make_ert(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
@@ -1380,7 +1627,7 @@ def make_tem(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -1522,7 +1769,7 @@ def make_tem(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size,
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
@@ -1536,7 +1783,7 @@ def make_erp(*,
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -1688,7 +1935,7 @@ def make_erp(*,
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
@@ -1704,7 +1951,7 @@ def make_elogging(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -1841,7 +2088,7 @@ def make_elogging(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
@@ -1855,7 +2102,7 @@ def make_gadget_sales(*,
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -1994,7 +2241,7 @@ def make_gadget_sales(*,
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
@@ -2006,7 +2253,7 @@ def make_retail_store(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -2153,13 +2400,13 @@ def make_retail_store(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size,
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
 def make_cc_factors(
     *, samples=1000,  
-    noises=.1, 
+    noise=.1, 
     as_frame:bool =..., 
     return_X_y:bool = ..., 
     split_X_y:bool= ..., 
@@ -2177,7 +2424,7 @@ def make_cc_factors(
     samples : int, default=1000.
         Number of samples in the dataset.
 
-    noises : float, default='10%'
+    noise : float, default='10%'
         Probability of a value being missing in the dataset, by default 0.1.
 
     as_frame : bool, default=False
@@ -2301,9 +2548,9 @@ def make_cc_factors(
     # data = data_flattened.reshape((samples, len(features)))
 
     # df = pd.DataFrame ( data , columns = features )
-    noises = assert_ratio(noises)
+    noise = assert_ratio(noise)
     data = np.random.randn(samples, len(features)) * 10  # Random data generation
-    missing_mask = np.random.random(size=data.shape) < noises
+    missing_mask = np.random.random(size=data.shape) < noise
     data[missing_mask] = np.nan  # Introduce missing values based on the probability
     
     # Generating a Pandas DataFrame
@@ -2313,7 +2560,7 @@ def make_cc_factors(
         tnames or 'Feedbacks', 
         exclude_string= True, transform =True )
         )
-    cc_data = add_noises_to(cc_data, noises = noises )
+    cc_data = add_noises_to(cc_data, noise = noise )
     
     return _manage_data(
         cc_data,
@@ -2331,7 +2578,7 @@ def make_water_demand(
     *, samples=700, 
     as_frame =..., 
     return_X_y = ..., 
-    noises:float=None, 
+    noise:float=None, 
     split_X_y= ..., 
     tnames=None,  
     test_size =.3, 
@@ -2345,7 +2592,7 @@ def make_water_demand(
     samples : int, default=700
         Number of samples or data points in the dataset.
 
-    noises : float, Optional
+    noise : float, Optional
         Probability of a value being missing in the dataset.
 
     as_frame : bool, default=False
@@ -2490,10 +2737,44 @@ def make_water_demand(
         tnames=tnames, 
         descr= { **WATER_QUAN_NEEDS, **WATER_QUAL_NEEDS,**SDG6_CHALLENGES}, 
         test_size=test_size, 
-        noises = noises, 
+        noise = noise, 
         seed=seed
-        ) 
+        )
+ 
 # --func -utilities -----  
+def _generate_regression_output(X, coef, bias, noise, regression_type):
+    """
+    Generates the regression output based on the specified regression type.
+    """
+    from ..tools.mathex import linear_regression, quadratic_regression
+    from ..tools.mathex import exponential_regression,logarithmic_regression
+    from ..tools.mathex import sinusoidal_regression, cubic_regression
+    
+    available_reg_types = [ 'linear', 'quadratic', 'cubic','exponential', 
+                           'logarithmic', 'sinusoidal', 'step' ]
+    regression_dict =  dict ( zip ( available_reg_types, [ 
+        linear_regression, quadratic_regression, cubic_regression, 
+        exponential_regression,logarithmic_regression, sinusoidal_regression,
+        step_regression] ))
+                          
+    if regression_type not in available_reg_types: 
+        raise ValueError(f"Invalid regression_type '{regression_type}'. Expected"
+                         f" {smart_format(available_reg_types, 'or')}.")
+
+    return regression_dict[regression_type](X, coef=coef , bias=bias, noise=noise )
+        
+def _apply_scaling(X, y, method):
+    """
+    Applies the specified scaling method to the data.
+    """
+    from ..tools.mathex import standard_scaler, minmax_scaler, normalize
+    
+    scale_dict = {'standard':standard_scaler ,
+    'minmax':minmax_scaler , 'normalize':normalize }
+    if method not in  (scale_dict.keys()): 
+        raise ValueError (f"Invalid scale method '{method}'.Expected"
+                          f" {smart_format(scale_dict.keys(), 'or'}")
+    return scale_dict[method] ( X, y=y )
 
 def _manage_data(
     data, /, 
@@ -2502,7 +2783,7 @@ def _manage_data(
     split_X_y= ..., 
     tnames=None,  
     test_size =.3, 
-    noises=None, 
+    noise=None, 
     seed = None, 
     **kws
      ): 
@@ -2538,7 +2819,7 @@ def _manage_data(
         The ratio to split the data into training (X, y)  and testing (Xt, yt) set 
         respectively
         . 
-    noises : float, Optional
+    noise : float, Optional
         The percentage of values to be replaced with NaN in each column. 
         This must be a number between 0 and 1. Default is None.
         
@@ -2599,7 +2880,7 @@ def _manage_data(
                      if tnames else list(frame.columns ))
     
     # Noises only in the data not in target  
-    data = add_noises_to(data, noises = noises )
+    data = add_noises_to(data, noise = noise )
     if not as_frame: 
         data = np.array (data )
         y = np.array(y ) 
@@ -2614,7 +2895,7 @@ def _manage_data(
     
     if as_frame:
         frame [feature_names] = add_noises_to(
-            frame [feature_names], noises =noises )
+            frame [feature_names], noise =noise )
         return frame
     
     return Boxspace(

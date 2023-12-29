@@ -39,6 +39,55 @@ from ._dependency import (
     )
 from .validator import array_to_frame
 
+def remove_target_from_array(arr, target_indices):
+    """
+    Remove specified columns from a 2D array based on target indices.
+
+    This function extracts columns at specified indices from a 2D array, 
+    returning the modified array without these columns and a separate array 
+    containing the extracted columns. It raises an error if any of the indices
+    are out of bounds.
+
+    Parameters
+    ----------
+    arr : ndarray
+        A 2D numpy array from which columns are to be removed.
+    target_indices : list or ndarray
+        Indices of the columns in `arr` that need to be extracted and removed.
+
+    Returns
+    -------
+    modified_arr : ndarray
+        The array obtained after removing the specified columns.
+    target_arr : ndarray
+        An array consisting of the columns extracted from `arr`.
+
+    Raises
+    ------
+    ValueError
+        If any of the target indices are out of the range of the array dimensions.
+
+    Examples
+    --------
+    >>> arr = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+    >>> target_indices = [1, 2]
+    >>> modified_arr, target_arr = remove_target_from_array(arr, target_indices)
+    >>> modified_arr
+    array([[1],
+           [4],
+           [7]])
+    >>> target_arr
+    array([[2, 3],
+           [5, 6],
+           [7, 8]])
+    """
+    if any(idx >= arr.shape[1] for idx in target_indices):
+        raise ValueError("One or more indices are out of the array's bounds.")
+
+    target_arr = arr[:, target_indices]
+    modified_arr = np.delete(arr, target_indices, axis=1)
+    return modified_arr, target_arr
+
 def read_data (
     f: str|pathlib.PurePath, 
     sanitize: bool= ..., 

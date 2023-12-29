@@ -82,6 +82,394 @@ _logger =gofastlog.get_gofast_logger(__name__)
 
 mu0 = 4 * np.pi * 1e-7 
 
+def linear_regression(X, coef, bias=0., noise=0.):
+    """
+    linear regression.
+    
+    Generate output for linear regression, modeling a relationship between
+    features and a response using a linear approach.
+
+    Linear regression is one of the simplest forms of regression, useful for
+    understanding relationships between variables and for making predictions.
+    It's widely used in various fields like economics, biology, and engineering.
+
+    Parameters
+    ----------
+    X : ndarray
+        The input samples with shape (n_samples, n_features).
+    coef : ndarray
+        The coefficients for the linear regression with shape (n_features,).
+    bias : float
+        The bias term in the linear equation.
+    noise : float
+        The standard deviation of the Gaussian noise added to the output.
+
+    Returns
+    -------
+    y : ndarray
+        The output values for linear regression with shape (n_samples,).
+
+    Formula
+    -------
+    y = X \cdot coef + bias + noise
+    
+    Applications
+    ------------
+    - Trend analysis in time series data.
+    - Predictive modeling in business and finance.
+    - Estimating relationships in scientific experiments.
+    """
+    return np.dot(X, coef) + bias + noise * np.random.randn(X.shape[0])
+
+def quadratic_regression(X, coef, bias=0., noise=0.):
+    """
+    Quadratic regression.
+
+    Generate output for quadratic regression, which models a parabolic 
+    relationship between the dependent variable and independent variables.
+
+    Quadratic regression is suitable for datasets with a non-linear trend. It's 
+    often used in areas where the rate of change increases or decreases rapidly.
+
+    Applications
+    ------------
+    - Modeling acceleration or deceleration patterns in physics.
+    - Growth rate analysis in biology and economics.
+    - Prediction in financial markets with parabolic trends.
+    
+    Parameters
+    ----------
+    X : ndarray
+        The input samples with shape (n_samples, n_features).
+    coef : ndarray
+        The coefficients for the linear regression with shape (n_features,).
+    bias : float
+        The bias term in the linear equation.
+    noise : float
+        The standard deviation of the Gaussian noise added to the output.
+        
+    Formula
+    -------
+    y = (X^2) \cdot coef + bias + noise
+    """
+    return np.dot(X**2, coef) + bias + noise * np.random.randn(X.shape[0])
+
+def cubic_regression(X, coef, bias=0., noise=0.):
+    """
+    Cubic regression.
+
+    Generate output for cubic regression, fitting a cubic polynomial to the data.
+
+    Cubic regression provides a more flexible curve than quadratic models and is 
+    beneficial in studying more complex relationships, especially where inflection 
+    points are present.
+
+    Applications
+    ------------
+    - Analyzing drug response curves in pharmacology.
+    - Studying the growth patterns of organisms or populations.
+    - Complex trend analysis in economic data.
+    
+    Parameters
+    ----------
+    X : ndarray
+        The input samples with shape (n_samples, n_features).
+    coef : ndarray
+        The coefficients for the linear regression with shape (n_features,).
+    bias : float
+        The bias term in the linear equation.
+    noise : float
+        The standard deviation of the Gaussian noise added to the output.
+
+    Formula
+    -------
+    y = (X^3) \cdot coef + bias + noise
+    """
+    return np.dot(X**3, coef) + bias + noise * np.random.randn(X.shape[0])
+
+def exponential_regression(X, coef, bias=0., noise=0.):
+    """
+    Exponential regression.
+
+    Generate output for exponential regression, ideal for modeling growth or decay.
+
+    Exponential regression is used when data grows or decays at a constant
+    percentage rate. It's crucial in fields like biology for population growth 
+    studies or in finance for compound interest calculations.
+
+    Applications
+    ------------
+    - Modeling population growth or decline.
+    - Financial modeling for compound interest.
+    - Radioactive decay in physics.
+    Parameters
+    ----------
+    X : ndarray
+        The input samples with shape (n_samples, n_features).
+    coef : ndarray
+        The coefficients for the linear regression with shape (n_features,).
+    bias : float
+        The bias term in the linear equation.
+    noise : float
+        The standard deviation of the Gaussian noise added to the output.
+
+    Formula
+    -------
+    y = exp(X \cdot coef) + bias + noise
+    """
+    return np.exp(np.dot(X, coef)) + bias + noise * np.random.randn(X.shape[0])
+
+def logarithmic_regression(X, coef, bias=0., noise=0.):
+    """
+    Logarithmic regression.
+
+    Generate output for logarithmic regression, suitable for modeling processes 
+    that rapidly increase or decrease and then level off.
+
+    Logarithmic regression is particularly useful in situations where the rate of
+    change decreases over time. It's often used in scientific data analysis.
+
+    Applications
+    ------------
+    - Analyzing diminishing returns in economics.
+    - Growth rate analysis in biological processes.
+    - Signal processing and sound intensity measurements.
+    
+    Parameters
+    ----------
+    X : ndarray
+        The input samples with shape (n_samples, n_features).
+    coef : ndarray
+        The coefficients for the linear regression with shape (n_features,).
+    bias : float
+        The bias term in the linear equation.
+    noise : float
+        The standard deviation of the Gaussian noise added to the output.
+
+    Formula
+    -------
+    y = log(X) \cdot coef + bias + noise
+    """
+    return np.dot(np.log(X), coef) + bias + noise * np.random.randn(X.shape[0])
+
+def sinusoidal_regression(X, coef, bias=0., noise=0.):
+    """
+    Sinusoidal regression.
+
+    Generate output for sinusoidal regression, fitting a sinusoidal model to the data.
+
+    This type of regression is useful for modeling cyclical patterns and is commonly
+    used in fields like meteorology, seasonal studies, and signal processing.
+
+    Applications
+    ------------
+    - Seasonal pattern analysis in climatology.
+    - Modeling cyclical trends in economics.
+    - Signal analysis in electrical engineering.
+    
+    Parameters
+    ----------
+    X : ndarray
+        The input samples with shape (n_samples, n_features).
+    coef : ndarray
+        The coefficients for the linear regression with shape (n_features,).
+    bias : float
+        The bias term in the linear equation.
+    noise : float
+        The standard deviation of the Gaussian noise added to the output.
+
+    Formula
+    -------
+    y = sin(X \cdot coef) + bias + noise
+    """
+    return np.sin(np.dot(X, coef)) + bias + noise * np.random.randn(X.shape[0])
+
+def step_regression(X, coef, bias=0., noise=0.):
+    """
+    Step regression.
+
+    Step regression is valuable for modeling scenarios where the dependent variable
+    changes abruptly at specific thresholds. It's used in quality control and market
+    segmentation analysis.
+
+    Applications
+    ------------
+    - Quality assessment in manufacturing processes.
+    - Customer segmentation in marketing.
+    - Modeling sudden changes in environmental data.
+    
+    Parameters
+    ----------
+    X : ndarray
+        The input samples with shape (n_samples, n_features).
+    coef : ndarray
+        The coefficients for the linear regression with shape (n_features,).
+    bias : float
+        The bias term in the linear equation.
+    noise : float
+        The standard deviation of the Gaussian noise added to the output.
+
+
+    Formula
+    -------
+    y = step_function(X \cdot coef) + bias + noise
+
+    Note: step_function returns 1 if x >= 0, else 0.
+    """
+    step_function = np.vectorize(lambda x: 1 if x >= 0 else 0)
+    return step_function(np.dot(X, coef)) + bias + noise * np.random.randn(X.shape[0])
+
+def standard_scaler(X, y=None):
+    """
+    Scales features to have zero mean and unit variance.
+
+    Standard scaling is vital in many machine learning algorithms that are 
+    sensitive to the scale of input features. It's commonly used in algorithms
+    like Support Vector Machines and k-Nearest Neighbors.
+
+    Applications
+    ------------
+    - Data preprocessing for machine learning models.
+    - Feature normalization in image processing.
+    - Standardizing variables in statistical analysis.
+    
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        The input samples.
+    y : ndarray of shape (n_samples,), optional
+        The output values. If provided, it will be scaled as well.
+
+    Returns
+    -------
+    X_scaled : ndarray
+        Scaled version of X.
+    y_scaled : ndarray, optional
+        Scaled version of y, if y is provided.
+
+    Formula
+    -------
+    For each feature, the Standard Scaler performs the following operation:
+        z = \frac{x - \mu}{\sigma}
+    where \mu is the mean and \sigma is the standard deviation of the feature.
+
+    Examples
+    --------
+    >>> X = np.array([[1, 2], [3, 4], [5, 6]])
+    >>> X_scaled = standard_scaler(X)
+    """
+    X_mean = X.mean(axis=0)
+    X_std = X.std(axis=0)
+    X_scaled = (X - X_mean) / X_std
+
+    if y is not None:
+        y_mean = y.mean()
+        y_std = y.std()
+        y_scaled = (y - y_mean) / y_std
+        return X_scaled, y_scaled
+
+    return X_scaled
+
+def minmax_scaler(X, y=None):
+    """
+    Scales each feature to a given range, typically [0, 1].
+
+    MinMax scaling is often used when the algorithm requires a bounded interval. 
+    It's particularly useful in neural networks and image processing where values 
+    need to be normalized.
+
+    Applications
+    ------------
+    - Data normalization for neural networks.
+    - Preprocessing data in computer vision tasks.
+    - Scaling features for optimization problems.
+    
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        The input samples.
+    y : ndarray of shape (n_samples,), optional
+        The output values. If provided, it will be scaled as well.
+
+    Returns
+    -------
+    X_scaled : ndarray
+        Scaled version of X.
+    y_scaled : ndarray, optional
+        Scaled version of y, if y is provided.
+
+    Formula
+    -------
+    The MinMax Scaler performs the following operation for each feature:
+        z = \frac{x - \min(x)}{\max(x) - \min(x)}
+
+    Examples
+    --------
+    >>> X = np.array([[1, 2], [3, 4], [5, 6]])
+    >>> X_scaled = minmax_scaler(X)
+    """
+    X_min = X.min(axis=0)
+    X_max = X.max(axis=0)
+    X_scaled = (X - X_min) / (X_max - X_min)
+
+    if y is not None:
+        y_min = y.min()
+        y_max = y.max()
+        y_scaled = (y - y_min) / (y_max - y_min)
+        return X_scaled, y_scaled
+
+    return X_scaled
+
+def normalize(X, y=None):
+    """
+    Scales individual samples to have unit norm.
+
+    Normalization is critical for distance-based algorithms like k-Nearest 
+    Neighbors and clustering algorithms. It ensures that each feature 
+    contributes proportionately to the final distance.
+
+    Applications
+    ------------
+    - Preprocessing for clustering algorithms.
+    - Normalizing data in natural language processing.
+    - Feature scaling in bioinformatics.
+    
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        The input samples.
+    y : ndarray of shape (n_samples,), optional
+        The output values. If provided, it will be normalized as well.
+
+    Returns
+    -------
+    X_normalized : ndarray
+        Normalized version of X.
+    y_normalized : ndarray, optional
+        Normalized version of y, if y is provided.
+
+    Formula
+    -------
+    The Normalize method scales each sample as follows:
+        z = \frac{x}{||x||}
+    where ||x|| is the Euclidean norm (L2 norm) of the sample.
+
+    Examples
+    --------
+    >>> X = np.array([[1, 2], [3, 4], [5, 6]])
+    >>> X_normalized = normalize(X)
+    """
+    X_norm = np.linalg.norm(X, axis=1, keepdims=True)
+    X_normalized = X / X_norm
+
+    if y is not None:
+        y_norm = np.linalg.norm(y, axis=0, keepdims=True)
+        y_normalized = y / y_norm
+        return X_normalized, y_normalized
+
+    return X_normalized
+
+
 def get_azimuth (
     xlon: str | ArrayLike, 
     ylat: str| ArrayLike, 
@@ -3025,7 +3413,6 @@ def torres_verdin_filter(
     
     return arr 
 
-
 def binning_statistic(
     data, categorical_column, 
     value_column, 
@@ -3046,8 +3433,8 @@ def binning_statistic(
     value_column : str
         Name of the column in `data` from which the statistic will be calculated.
     statistic : str, optional
-        The statistic to compute (default is 'mean'). Other options include 'sum', 'count',
-        'median', 'min', 'max', etc.
+        The statistic to compute (default is 'mean'). Other options include 
+        'sum', 'count','median', 'min', 'max', etc.
 
     Returns
     -------
@@ -3066,10 +3453,11 @@ def binning_statistic(
     1        B         3.50
     2        C         5.50
     """
-    if statistic not in ['mean', 'sum', 'count', 'median', 'min', 'max']:
+    if statistic not in ('mean', 'sum', 'count', 'median', 'min',
+                         'max', 'proportion'):
         raise ValueError(
             "Unsupported statistic. Please choose from 'mean',"
-            " 'sum', 'count', 'median', 'min', 'max'.")
+            " 'sum', 'count', 'median', 'min', 'max', 'proportion'.")
 
     grouped_data = data.groupby(categorical_column)[value_column]
 
@@ -3085,11 +3473,14 @@ def binning_statistic(
         result = grouped_data.min().reset_index(name=f'Min_{value_column}')
     elif statistic == 'max':
         result = grouped_data.max().reset_index(name=f'Max_{value_column}')
-
+    elif statistic == 'proportion':
+        total_count = data[value_column].count()
+        proportion = grouped_data.sum() / total_count
+        result = proportion.reset_index(name=f'Proportion_{value_column}')
+        
     return result
 
-
-def bin_counting(data, /, categorical_column= None):
+def category_count(data, /, categorical_column= None):
     """
     Count occurrences of each category in a given categorical 
     column of a dataset.
@@ -3115,7 +3506,7 @@ def bin_counting(data, /, categorical_column= None):
     >>> df = pd.DataFrame({
     ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'C']
     ... })
-    >>> bin_counting(df, 'Category')
+    >>> category_count(df, 'Category')
        Category  Count
     0        A      3
     1        B      2
@@ -3128,11 +3519,11 @@ def bin_counting(data, /, categorical_column= None):
     counts.columns = [categorical_column, 'Count']
     return counts
 
-
-def binning_statistic2(
+def soft_bin_stat(
     data, /, categorical_column, 
     target_column, 
-    statistic='mean'
+    statistic='mean', 
+    update=False, 
     ):
     """
     Compute a statistic for each category in a categorical 
@@ -3162,11 +3553,12 @@ def binning_statistic2(
 
     Examples
     --------
+    >>> from gofast.tools.mathex import soft_bin_stat
     >>> df = pd.DataFrame({
     ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'C'],
     ...     'Target': [1, 0, 1, 0, 1, 0, 1]
     ... })
-    >>> binning_statistic(df, 'Category', 'Target', statistic='mean')
+    >>> soft_bin_stat(df, 'Category', 'Target', statistic='mean')
        Category  Mean_Target
     0        A     0.666667
     1        B     0.500000
@@ -3187,10 +3579,9 @@ def binning_statistic2(
         proportion = grouped_data.sum() / total_count
         result = proportion.reset_index(name=f'Proportion_{target_column}')
 
+
     return result
 
-   
-    
    
     
    

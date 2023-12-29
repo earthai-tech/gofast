@@ -2059,11 +2059,13 @@ class HammersteinWienerClassifier(BaseEstimator, ClassifierMixin):
     """
 
 
-    def __init__(self, 
-                 classifier="LogisticRegression", 
-                 nonlinearity_in=np.tanh, 
-                 nonlinearity_out="sigmoid", 
-                 memory_depth=5):
+    def __init__(
+        self, 
+        classifier="LogisticRegression", 
+        nonlinearity_in=np.tanh, 
+        nonlinearity_out="sigmoid", 
+        memory_depth=5
+        ):
         self.classifier = classifier
         self.nonlinearity_in = nonlinearity_in
         self.nonlinearity_out = nonlinearity_out

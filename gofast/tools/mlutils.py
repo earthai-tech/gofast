@@ -1793,8 +1793,8 @@ def stratify_categories(
     :param cat_name: new category name inserted into `data` 
     :param n_splits: number of splits 
     """
-    
-    split = StratifiedShuffleSplit(n_splits, test_size, random_state)
+    split = StratifiedShuffleSplit(n_splits, test_size = test_size, 
+                                   random_state=random_state)
     for train_index, test_index in split.split(data, data[cat_name]): 
         strat_train_set = data.loc[train_index]
         strat_test_set = data.loc[test_index] 
