@@ -928,7 +928,8 @@ class EvalPlotter(BasePlot):
         self.X = to_numeric_dtypes(X, pop_cat_features=True)
         if len(X.columns) == 0: 
             raise TypeError(f"{self.__class__.__name__!r} expects numeric data frame only.")
-        
+            
+        self.y = copy.deepcopy(y)
         return self
 
     def plot2d(self, x_feature, y_feature, groups=None, xlabel=None, 
