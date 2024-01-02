@@ -216,8 +216,8 @@ Classes
    estimators.AdalineClassifier
    estimators.AdalineMixte
    estimators.AdalineRegressor
-   estimators.AdalineStochasticRegressor
    estimators.AdalineStochasticClassifier
+   estimators.AdalineStochasticRegressor
    estimators.BasePerceptron
    estimators.BenchmarkRegressor 
    estimators.BenchmarkClassifier 
@@ -230,19 +230,18 @@ Classes
    estimators.GradientDescentRegressor
    estimators.HammersteinWienerClassifier
    estimators.HammersteinWienerRegressor
-   estimators.HBTEnsembleRegressor
    estimators.HBTEnsembleClassifier
+   estimators.HBTEnsembleRegressor
    estimators.HWEnsembleClassifier
    estimators.HWEnsembleRegressor
    estimators.HybridBoostedTreeClassifier
    estimators.HybridBoostedTreeRegressor
    estimators.MajorityVoteClassifier
    estimators.NeuroFuzzyEnsemble
-   estimators.SimpleAverageRegressor
    estimators.SimpleAverageClassifier
-   estimators.WeightedAverageRegressor
+   estimators.SimpleAverageRegressor
    estimators.WeightedAverageClassifier
-   
+   estimators.WeightedAverageRegressor
    
 :mod:`gofast.geo`: Geosciences
 ================================
@@ -513,8 +512,6 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.soft_scaler
    tools.speed_rowwise_process
    tools.split_train_test
-   tools.split_train_test
-   tools.split_train_test
    tools.split_train_test_by_id
    tools.standard_scaler
    tools.stats_from_prediction
@@ -554,6 +551,7 @@ Classes
    plot.EvalPlotter
    plot.MetricPlotter
    plot.QuestPlotter
+   plot.TimeSeriesPlotter
 
 Methods
 ~~~~~~~~~~~~
