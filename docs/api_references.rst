@@ -528,7 +528,7 @@ data analysis and decision-making.
 Classes
 ~~~~~~~~~
 
-.. currentmodule:: watex
+.. currentmodule:: gofast
 
 
 .. autosummary::
