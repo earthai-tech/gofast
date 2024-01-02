@@ -30,8 +30,6 @@ from sklearn.metrics import confusion_matrix, roc_curve, auc, precision_recall_c
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, label_binarize
 from sklearn.cluster import KMeans 
 from sklearn.impute import   SimpleImputer
-try: from scikitplot.metrics import plot_cumulative_gain, plot_lift_curve
-except: pass 
 
 from .._gofastlog import gofastlog
 from .._docstring import _core_docs, _baseplot_params, DocstringComponents
@@ -43,87 +41,18 @@ from ..metrics import precision_recall_tradeoff, roc_curve_, confusion_matrix_
 from ..property import BasePlot 
 from ..tools._dependency import import_optional_dependency 
 from ..tools.funcutils import  to_numeric_dtypes, fancier_repr_formatter 
-from ..tools.funcutils import  smart_strobj_recognition, repr_callable_obj 
+from ..tools.funcutils import  smart_strobj_recognition, reshape 
 from ..tools.funcutils import  str2columns, make_ids, type_of_target, is_iterable 
 from ..tools.mathex import linkage_matrix 
-from ..tools.mlutils import export_target 
-from ..tools.mlutils import categorize_target, projection_validator 
+from ..tools.mlutils import categorize_target, projection_validator, export_target  
 from ..tools.validator import  _check_consistency_size,  get_estimator_name  
 from ..tools.validator import build_data_if,  check_array, check_X_y, check_y 
 from ..tools.validator import _is_numeric_dtype , check_consistent_length
+from ..tools.validator import assert_xy_in 
+
 from .utils import _get_xticks_formatage,  make_mpl_properties
 
 _logger=gofastlog.get_gofast_logger(__name__)
-
-#-----
-# Add specific params to Evaldocs 
-
-_eval_params = dict( 
-    objective="""
-objective: str, default=None, 
-    The purpose of dataset; what probem do we intend to solve ? 
-    This parameter is mostly useful for geoscientists to handle their datasets.
-    For instance, if the `objective` is set to ``flow``, `EvalPlotter` expects 
-    the flow rate prediction purpose. In that case, some condition 
-    of target values need to be fullfilled.  Moreover, if the objective 
-    is set to ``flow``, `label_values`` as well as the `litteral_classes`
-    parameters need to be supplied to right encode the target according 
-    to the hydraulic system requirement during the campaign for drinking 
-    water supply. For any other purpose for the dataset, keep the objective  
-    to ``None``. Default is ``None``.    
-    """, 
-    yp_ls="""
-yp_ls: str, default='-', 
-    Line style of `Predicted` label. Can be [ '-' | '.' | ':' ] 
-    """, 
-    yp_lw="""
-yp_lw: str, default= 3
-    Line weight of the `Predicted` plot
-    """,
-    yp_lc ="""
-yp_lc: str or :func:`matplotlib.cm`, default= 'k'
-    Line color of the `Prediction` plot. *default* is ``k``
-    """, 
-    yp_marker="""
-yp_marker: str or :func:`matplotlib.markers`, default ='o'
-    Style of marker in  of `Prediction` points. 
-    """, 
-    yp_markerfacecolor="""
-yp_markerfacecolor: str or :func:`matplotlib.cm`, default='k'
-    Facecolor of the `Predicted` label marker.
-    """, 
-    yp_markeredgecolor="""
-yp_markeredgecolor: stror :func:`matplotlib.cm`,  default= 'r' 
-    Edgecolor of the `Predicted` label marker.
-    """, 
-    yp_markeredgewidth="""
-yp_markeredgewidth: int, default=2
-    Width of the `Predicted`label marker.
-    """, 
-    rs="""
-rs: str, default='--'
-    Line style of `Recall` metric 
-    """, 
-    ps="""
-ps: str, default='-'
-    Line style of `Precision `metric
-    """, 
-    rc="""
-rc: str, default=(.6,.6,.6)
-    Recall metric colors 
-    """, 
-    pc="""
-pc: str or :func:`matplotlib.cm`, default='k'
-    Precision colors from Matplotlib colormaps. 
-    """
-    )
-
-_param_docs = DocstringComponents.from_nested_components(
-    core=_core_docs["params"], 
-    base=DocstringComponents(_baseplot_params), 
-    evdoc=DocstringComponents(_eval_params), 
-    )
-#-------
 
 class MetricPlotter (BasePlot):
     def __init__(self, line_style='-',line_width=2, color_map='viridis',
@@ -144,34 +73,154 @@ class MetricPlotter (BasePlot):
         self.line_width = line_width
         self.color_map = color_map
         super().__init__(**kws) 
-        
-    def plot_confusion_matrix(self, y_true, y_pred, class_names):
+     
+    def fit(self, y_true=None, y_pred=None, *, data=None):
         """
-        Plots a confusion matrix.
-
+        Fit the model with the true and predicted values for further 
+        evaluation.
+    
+        This method is used to set the true and predicted values for a 
+        model's output. It allows for further evaluation or comparison 
+        between the predicted and actual results. The method accepts either 
+        separate true and predicted values, or a combined data structure 
+        from which these values will be extracted.
+    
         Parameters
         ----------
-        y_true : array-like
-            True class labels.
-        y_pred : array-like
-            Predicted class labels by the model.
-        class_names : list
-            A list of class names in the order they are encoded.
+        y_true : array-like, str, optional
+            True values of the target variable. If 'data' is provided and 
+            'y_true' is None, 'y_true' will be extracted from 'data'.
+        y_pred : array-like, str, optional
+            Predicted values from the model. If 'data' is provided and 
+            'y_pred' is None, 'y_pred' will be extracted from 'data'.
+        data : pandas.DataFrame, array-like, tuple, optional
+            A combined data structure containing both true and predicted values. 
+            If provided, 'y_true' and 'y_pred' are expected to be None or
+            will be ignored.
+    
+        Raises
+        ------
+        ValueError
+            If 'y_true' or 'y_pred' are not numeric arrays.
+    
+        Returns
+        -------
+        self : object
+            Returns the instance itself.
+    
+        Examples
+        --------
+        >>> from gofast.plot import MetricPlotter
+        >>> plotter = MetricPlotter()
+        >>> y_true = [1, 2, 3, 4]
+        >>> y_pred = [1.1, 2.1, 3.1, 4.1]
+        >>> plotter.fit(y_true, y_pred)
+        # Alternatively, using a combined data structure
+        >>> data = ([1, 2, 3, 4], [1.1, 2.1, 3.1, 4.1])
+        >>> plotter.fit(data=data)
+        
+        Notes
+        -----
+        This method is primarily used in the context of model evaluation, 
+        where the true and predicted values are compared to assess the 
+        performance of a regression model. Ensure that 'y_true' and 'y_pred' 
+        are numeric and have compatible shapes.
         """
-        cm = confusion_matrix(y_true, y_pred)
+        # get y values if data is passed. 
+        if data is not None: 
+            if isinstance ( data, (tuple, list)): 
+                y_true, y_pred = data 
+            elif ( 
+                    isinstance ( data, np.ndarray) 
+                    and data.shape[1]==2
+                    ): 
+                y_true, y_pred = np.hsplit(data, 2 )
+                y_true = reshape (y_true) ; y_pred = reshape ( y_pred ) 
+       
+        y_true, y_pred = assert_xy_in(y_true, y_pred, data= data )
+        if ( 
+                not _is_numeric_dtype(y_true , to_array=True) 
+                or not _is_numeric_dtype(y_pred, to_array=True)
+                ): 
+            raise ValueError("y_true and y_pred must be numeric arrays. Got"
+                             f" {type(y_true).__name__!r} and"
+                             f" {type(y_pred).__name__!r} respectively." )
+        self.y_true = y_true 
+        self.y_pred =y_pred
+        
+        return self 
+    
+    def plotConfusionMatrix(self, class_names):
+        """
+        Plot a confusion matrix to visualize the performance of a 
+        classification model.
+    
+        This method creates and displays a confusion matrix, which is a useful tool 
+        for understanding how well a classification model is performing and where it 
+        might be making errors. Each cell in the matrix represents the counts of 
+        predictions in each predicted versus actual target class.
+    
+        Parameters
+        ----------
+        class_names : list of str
+            A list of class names corresponding to each unique target label. 
+            The order of class names should align with the encoded class 
+            indices used by the model. These names are used to label the 
+            matrix axes for better readability.
+    
+        Notes
+        -----
+        - The confusion matrix is calculated using the true and predicted 
+          values provided in the model evaluator.
+        - The matrix is colored for easier interpretation, with a color bar 
+          included for reference.
+        - Cell values represent the count of instances for each predicted 
+          versus true class combination.
+        - The diagonal cells correspond to correct predictions, while 
+          off-diagonal cells indicate misclassifications.
+    
+        Examples
+        --------
+        >>> from gofast.plot import MetricPlotter
+        >>> evaluator = MetricPlotter().fit(y_true, y_pred)
+        >>> class_names = ['Class A', 'Class B', 'Class C']
+        >>> evaluator.plotConfusionMatrix(class_names)
+        # This will display a confusion matrix plot with the specified 
+        class names.
+    
+        Raises
+        ------
+        ValueError
+            If 'class_names' does not match the number of unique classes in 
+            'y_true'.
+    
+        Returns
+        -------
+        self : object
+            Returns the instance itself after rendering the plot.
+        """
+        self.inspect 
+        # Validate class_names length
+        if len(class_names) != len(np.unique(self.y_true)):
+            raise ValueError("Length of class_names does not match the number"
+                             " of classes in y_true.")
+    
+        # Compute confusion matrix and plot it
+        cm = confusion_matrix(self.y_true, self.y_pred)
         fig, ax = plt.subplots()
         im = ax.imshow(cm, interpolation='nearest', cmap=self.color_map)
         ax.figure.colorbar(im, ax=ax)
+        # Set axis labels and titles
         ax.set(xticks=np.arange(cm.shape[1]),
                yticks=np.arange(cm.shape[0]),
                xticklabels=class_names, yticklabels=class_names,
                title='Confusion Matrix',
                ylabel='True label',
                xlabel='Predicted label')
-
-        plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
+        # Rotate x labels for readability
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right", 
                  rotation_mode="anchor")
-
+        # Annotate cells with counts
         fmt = 'd'
         thresh = cm.max() / 2.
         for i in range(cm.shape[0]):
@@ -180,21 +229,65 @@ class MetricPlotter (BasePlot):
                         ha="center", va="center",
                         color="white" if cm[i, j] > thresh else "black")
         fig.tight_layout()
+    
+        return self
 
-    def plot_roc_curve(self, y_true, y_scores):
+    def plotRocCurve(self, y_scores=None):
         """
-        Plots a Receiver Operating Characteristic (ROC) curve.
-
+        Plot a Receiver Operating Characteristic (ROC) curve for the model.
+    
+        This method visualizes the performance of a binary classifier by 
+        plotting the ROC curve. The ROC curve illustrates the diagnostic 
+        ability of the classifier by plotting the True Positive Rate (TPR) 
+        against the False Positive Rate (FPR) at various threshold settings. 
+        The area under the curve (AUC) provides a single metric to summarize 
+        the curve's overall performance.
+    
+        The method requires the model to be fitted using the `fit` method 
+        beforehand, where `y_true` (true binary class labels) and `y_pred` 
+        (predicted probabilities or decision function scores for the positive class)
+        are provided.
+    
         Parameters
         ----------
-        y_true : array-like
-            True binary class labels.
-        y_scores : array-like
-            Target scores, probability estimates of the positive class.
+        y_scores : array-like, optional
+            Target scores or probability estimates of the positive class. 
+            These can be either probability estimates of the positive class, 
+            confidence values, or non-thresholded measure of decisions. If None,
+            the scores provided during the fitting process (self.y_pred) are 
+            used.
+    
+        Notes
+        -----
+        - The method assumes binary classification. Ensure that the target 
+          values are appropriately encoded for binary classification (0 and 1).
+        - The ROC curve and AUC are commonly used for evaluating classifiers in 
+          binary classification tasks.
+    
+        Examples
+        --------
+        >>> from gofast.plot import MetricPlotter
+        >>> from sklearn.metrics import roc_curve, auc
+        >>> metric_plotter = MetricPlotter()
+        >>> y_true = [0, 1, 0, 1]
+        >>> y_pred = [0.1, 0.4, 0.35, 0.8]
+        >>> metric_plotter.fit(y_true, y_pred)
+        >>> metric_plotter.plotRocCurve()
+    
+        Returns
+        -------
+        self : object
+            Returns the instance itself after rendering the plot.
         """
-        fpr, tpr, _ = roc_curve(y_true, y_scores)
+        self.inspect 
+        # Ensure y_scores is set, defaulting to self.y_pred
+        y_scores = y_scores if y_scores is not None else self.y_pred
+    
+        # Compute ROC curve and ROC area
+        fpr, tpr, _ = roc_curve(self.y_true, y_scores)
         roc_auc = auc(fpr, tpr)
-
+    
+        # Plotting ROC curve
         plt.figure()
         plt.plot(fpr, tpr, color='darkorange', lw=self.line_width,
                  linestyle=self.line_style,
@@ -206,20 +299,53 @@ class MetricPlotter (BasePlot):
         plt.title('Receiver Operating Characteristic')
         plt.legend(loc="lower right")
         plt.show()
+        
+        return self
 
-    def plot_precision_recall_curve(self, y_true, y_scores):
+    def plotPrecisionRecallCurve(self, y_scores=None):
         """
-        Plots a precision-recall curve.
-
+        Plot a precision-recall curve to evaluate the model's performance.
+    
+        This method visualizes the trade-off between precision and recall for
+        different thresholds, which is a key aspect in understanding the 
+        performance of a binary classifier. A high area under the curve 
+        represents both high recall and high precision.
+    
         Parameters
         ----------
-        y_true : array-like
-            True binary class labels.
-        y_scores : array-like
-            Target scores, probability estimates of the positive class.
+        y_scores : array-like, optional
+            Target scores or probability estimates of the positive class.
+            If None, uses the scores provided during the fitting process.
+    
+        Notes
+        -----
+        - Assumes the model has been fitted with true labels (y_true) and
+          predicted probabilities or decision function scores (y_pred).
+        - Precision-recall curves are most appropriate for imbalanced datasets.
+    
+        Examples
+        --------
+        >>> from gofast.plot import MetricPlotter
+        >>> metric_plotter = MetricPlotter()
+        >>> y_true = [0, 1, 0, 1]
+        >>> y_pred = [0.1, 0.4, 0.35, 0.8]
+        >>> metric_plotter.fit(y_true, y_pred)
+        >>> metric_plotter.plotPrecisionRecallCurve()
+    
+        Returns
+        -------
+        self : object
+            Returns the instance itself after rendering the plot.
+            
         """
-        precision, recall, _ = precision_recall_curve(y_true, y_scores)
-
+        self.inspect 
+        # Ensure y_scores is set, defaulting to self.y_pred
+        y_scores = y_scores if y_scores is not None else self.y_pred
+    
+        # Compute precision and recall
+        precision, recall, _ = precision_recall_curve(self.y_true, y_scores)
+    
+        # Plotting Precision-Recall curve
         plt.figure()
         plt.plot(recall, precision, color='blue', lw=self.line_width,
                  linestyle=self.line_style)
@@ -227,185 +353,387 @@ class MetricPlotter (BasePlot):
         plt.ylabel('Precision')
         plt.title('Precision-Recall curve')
         plt.show()
+        
+        return self
 
-    def plot_learning_curve(self, estimator, X, y, cv):
+    def plotActualVSPredicted(self, title='Actual vs Predicted'):
         """
-        Plots a learning curve.
-
+        Plot a scatter plot to compare actual and predicted values.
+    
+        This method visualizes the relationship between actual and predicted 
+        values for a regression model, using a scatter plot. This plot is 
+        helpful for assessing the accuracy of predictions. Points along the 
+        diagonal line indicate perfect predictions.
+    
         Parameters
         ----------
-        estimator : object
-            An estimator instance implementing 'fit' and 'predict'.
-        X : array-like, shape (n_samples, n_features)
-            Training vector, where n_samples is the number of samples and
-            n_features is the number of features.
-        y : array-like, shape (n_samples,)
-            Target relative to X for classification or regression.
-        cv : int, cross-validation generator or an iterable
-            Determines the cross-validation splitting strategy.
-        """
-        train_sizes, train_scores, test_scores = learning_curve(estimator, X, y, cv=cv)
-        train_scores_mean = np.mean(train_scores, axis=1)
-        train_scores_std = np.std(train_scores, axis=1)
-        test_scores_mean = np.mean(test_scores, axis=1)
-        test_scores_std = np.std(test_scores, axis=1)
-
-        plt.figure()
-        plt.fill_between(train_sizes, train_scores_mean - train_scores_std,
-                         train_scores_mean + train_scores_std, alpha=0.1, color="r")
-        plt.fill_between(train_sizes, test_scores_mean - test_scores_std,
-                         test_scores_mean + test_scores_std, alpha=0.1, color="g")
-        plt.plot(train_sizes, train_scores_mean, 'o-', color="r", lw=self.line_width,
-                 linestyle=self.line_style, label="Training score")
-        plt.plot(train_sizes, test_scores_mean, 'o-', color="g", lw=self.line_width,
-                 linestyle=self.line_style, label="Cross-validation score")
-
-        plt.xlabel("Training examples")
-        plt.ylabel("Score")
-        plt.title("Learning Curve")
-        plt.legend(loc="best")
-        plt.show()
-
-    def plot_actual_vs_predicted(self, y_actual, y_predicted,
-                                 title='Actual vs Predicted'):
-        """
-        Plots a scatter plot to compare actual and predicted values.
-
-        Parameters
-        ----------
-        y_actual : array-like
-            The actual target values.
-        y_predicted : array-like
-            The predicted target values.
         title : str, optional
             The title of the plot. Defaults to 'Actual vs Predicted'.
+    
+        Notes
+        -----
+        - Assumes that the model has been fitted with actual values (y_true) 
+          and predicted values (y_pred).
+        - A diagonal line (y=x) is plotted as a reference for perfect predictions.
+    
+        Examples
+        --------
+        >>> from gofast.plot import MetricPlotter
+        >>> metric_plotter = MetricPlotter()
+        >>> y_true = [1, 2, 3, 4]
+        >>> y_pred = [1.1, 2.1, 3.1, 4.1]
+        >>> metric_plotter.fit(y_true, y_pred)
+        >>> metric_plotter.plotActualVSPredicted()
+    
+        Returns
+        -------
+        self : object
+            Returns the instance itself after rendering the plot.
+        
         """
+        self.inspect 
         plt.figure()
-        plt.scatter(y_actual, y_predicted, edgecolor='k', alpha=0.7)
+        plt.scatter(self.y_true, self.y_pred, edgecolor='k', alpha=0.7)
         plt.xlabel('Actual Values')
         plt.ylabel('Predicted Values')
         plt.title(title)
-        plt.plot([y_actual.min(), y_actual.max()], [y_actual.min(),
-                                                    y_actual.max()], 'k--', lw=2)
+        # Plotting diagonal line for reference
+        plt.plot([self.y_true.min(), self.y_true.max()],
+                 [self.y_true.min(), self.y_true.max()], 'k--', lw=2)
         plt.show()
 
-    def plot_precision_recall_per_class(
-            self, y_true, y_scores,n_classes,
-            title='Precision-Recall per Class'):
-        """
-        Plots precision-recall curves for each class in multi-class
-        classification.
+        return self 
 
+    def plotPrecisionRecallPerClass(
+        self,  
+        n_classes,
+        y_scores=None,
+        title='Precision-Recall per Class'
+        ):
+        """
+        Plot precision-recall curves for each class in multi-class classification.
+    
+        This method generates precision-recall curves for each class, enabling 
+        the evaluation of classifier performance on a class-by-class basis in 
+        multi-class settings. It is particularly useful for understanding 
+        class-specific behavior in imbalanced datasets.
+    
         Parameters
         ----------
-        y_true : array-like
-            True class labels in one-hot encoded format.
-        y_scores : array-like
-            Target scores (probabilities or decision function) for each class.
         n_classes : int
-            The number of classes.
+            The number of classes in the classification task.
+        y_scores : array-like, optional
+            Target scores (probabilities or decision function) for each class. 
+            If None, uses the scores provided during the fitting process.
         title : str, optional
             The title of the plot. Defaults to 'Precision-Recall per Class'.
+    
+        Notes
+        -----
+        - Assumes the model has been fitted with true labels (y_true) in one-hot 
+          encoded format and predicted probabilities or scores (y_pred).
+        - Each curve in the plot corresponds to a different class, allowing for 
+          comparison of precision-recall trade-offs across classes.
+    
+        Examples
+        --------
+        >>> from gofast.plot import MetricPlotter
+        >>> from sklearn.preprocessing import label_binarize
+        >>> metric_plotter = MetricPlotter()
+        >>> y_true = [0, 1, 2, 0, 1]
+        >>> y_pred = np.array([[0.1, 0.2, 0.7], [0.8, 0.1, 0.1], ...])
+        >>> n_classes = 3
+        >>> metric_plotter.fit(y_true, y_pred)
+        >>> metric_plotter.plotPrecisionRecallPerClass(n_classes)
+    
+        Returns
+        -------
+        self : object
+            Returns the instance itself after rendering the plot.
         """
-        
-        y_true_bin = label_binarize(y_true, classes=range(n_classes))
-
+        self.inspect 
+        y_scores = y_scores if y_scores is not None else self.y_pred
+        y_true_bin = label_binarize(self.y_true, classes=range(n_classes))
+    
         plt.figure()
         for i in range(n_classes):
-            precision, recall, _ = precision_recall_curve(y_true_bin[:, i], y_scores[:, i])
+            precision, recall, _ = precision_recall_curve(y_true_bin[:, i], 
+                                                          y_scores[:, i])
             plt.plot(recall, precision, lw=2, label=f'Class {i}')
-
+    
         plt.xlabel('Recall')
         plt.ylabel('Precision')
         plt.title(title)
         plt.legend(loc='best')
         plt.show()
+    
+        return self
 
-    def plot_cumulative_gain(self, y_true, y_probas, title='Cumulative Gains Curve'):
+    def plotCumulativeGain(
+        self, 
+        y_probas=None, 
+        title='Cumulative Gains Curve'
+        ):
         """
-        Plots a cumulative gain curve for a binary classification model.
-
+        Plot a cumulative gain curve for a binary classification model.
+    
+        The cumulative gain curve illustrates the effectiveness of the binary 
+        classifier by plotting the percentage of positive instances captured 
+        against the proportion of the total number of cases. This curve is 
+        helpful in assessing how well the classifier ranks instances.
+    
         Parameters
         ----------
-        y_true : array-like
-            True binary class labels.
-        y_probas : array-like
-            Probability estimates of the positive class.
-
+        y_probas : array-like, optional
+            Probability estimates of the positive class, typically as output 
+            by a classifier. If None, uses the probabilities provided during 
+            the fitting process.
         title : str, optional
             The title of the plot. Defaults to 'Cumulative Gains Curve'.
+    
+        Notes
+        -----
+        - Assumes the model has been fitted with true labels (y_true) and 
+          predicted probabilities (y_pred).
+        - This plot is particularly useful for evaluating the performance of 
+          models in terms of how effectively they identify positive instances.
+    
+        Examples
+        --------
+        >>> from gofast.plot import MetricPlotter
+        >>> metric_plotter = MetricPlotter()
+        >>> y_true = [0, 1, 0, 1]
+        >>> y_probas = [0.1, 0.9, 0.2, 0.8]
+        >>> metric_plotter.fit(y_true, y_probas)
+        >>> metric_plotter.plotCumulativeGain()
+    
+        Returns
+        -------
+        self : object
+            Returns the instance itself after rendering the plot.
         """
-        import_optional_dependency ('scikitplot')
+        self.inspect 
+        y_probas = y_probas if y_probas is not None else self.y_pred 
+        import_optional_dependency('scikitplot')
+        from scikitplot.metrics import plot_cumulative_gain
+        
         plt.figure()
-        plot_cumulative_gain(y_true, y_probas)
+        plot_cumulative_gain(self.y_true, y_probas)
         plt.title(title)
         plt.show()
+    
+        return self
 
-    def plot_lift_curve(self, y_true, y_probas, title='Lift Curve'):
+    def plotLiftCurve(self, y_probas=None, title='Lift Curve'):
         """
-        Plots a lift curve for a binary classification model.
-
+        Plot a lift curve for a binary classification model.
+    
+        The lift curve is a visual tool for assessing the performance of a binary 
+        classifier. It shows how much more likely we are to receive positive responses 
+        than if we contacted a random sample of customers. It is used to evaluate the 
+        effectiveness of a classification model by comparing the proportion of positive 
+        instances targeted by a certain proportion of cases to the proportion if 
+        targeting was random.
+    
         Parameters
         ----------
-        y_true : array-like
-            True binary class labels.
-        y_probas : array-like
-            Probability estimates of the positive class.
-
+        y_probas : array-like, optional
+            Probability estimates of the positive class. These should be the predicted 
+            probabilities of the positive class from the model. If None, the method uses 
+            the probabilities provided during the fitting process.
         title : str, optional
             The title of the plot. Defaults to 'Lift Curve'.
+    
+        Notes
+        -----
+        - Assumes the model has been fitted with true labels (y_true) and predicted 
+          probabilities (y_pred).
+        - The lift curve is particularly useful in marketing and sales to evaluate 
+          the efficiency of a classification model in identifying positive instances 
+          over random selection.
+    
+        Examples
+        --------
+        >>> from gofast.plot import MetricPlotter
+        >>> metric_plotter = MetricPlotter()
+        >>> y_true = [0, 1, 0, 1]
+        >>> y_probas = [0.1, 0.9, 0.2, 0.8]
+        >>> metric_plotter.fit(y_true, y_probas)
+        >>> metric_plotter.plotLiftCurve()
+    
+        Returns
+        -------
+        self : object
+            Returns the instance itself after rendering the plot.
         """
-        import_optional_dependency ('scikitplot')
+        self.inspect 
+        y_probas = y_probas if y_probas is not None else self.y_pred
+        import_optional_dependency('scikitplot')
+        from scikitplot.metrics import  plot_lift_curve
         plt.figure()
-        plot_lift_curve(y_true, y_probas)
+        plot_lift_curve(self.y_true, y_probas)
         plt.title(title)
         plt.show()
+    
+        return self
 
-    def plot_silhouette(
-            self, X, cluster_labels, n_clusters, title='Silhouette Plot'):
+
+    def plotSilhouette(
+        self, 
+        X, 
+        cluster_labels, 
+        n_clusters, 
+        title='Silhouette Plot'
+        ):
         """
-        Plots a silhouette plot for the cluster labels of the dataset.
-
+        Plot a silhouette plot for the cluster labels of a dataset.
+    
+        A silhouette plot visually represents how close each point in one cluster 
+        is to points in the neighboring clusters, thus providing a way to assess 
+        the separation distance between the resulting clusters. It's a useful 
+        tool to evaluate the quality of cluster assignments.
+    
         Parameters
         ----------
         X : array-like of shape (n_samples, n_features)
-            Feature matrix.
-        
+            The feature matrix of the dataset.
         cluster_labels : array-like of shape (n_samples,)
-            Cluster labels for each point.
-
+            Cluster labels for each data point.
         n_clusters : int
-            The number of clusters.
-
+            The number of clusters in the dataset.
         title : str, optional
             The title of the plot. Defaults to 'Silhouette Plot'.
+    
+        Notes
+        -----
+        - The silhouette coefficient for a sample is a measure of how similar that 
+          sample is to samples in its own cluster compared to samples in other clusters.
+        - The silhouette values range from -1 to +1, where a high value indicates 
+          that the object is well matched to its own cluster and poorly matched to 
+          neighboring clusters.
+    
+        Examples
+        --------
+        >>> from gofast.plot import MetricPlotter
+        >>> from sklearn.cluster import KMeans
+        >>> from sklearn.datasets import make_blobs
+        >>> X, _ = make_blobs(n_samples=150, n_features=2, centers=3, random_state=42)
+        >>> kmeans = KMeans(n_clusters=3, random_state=42).fit(X)
+        >>> cluster_labels = kmeans.labels_
+        >>> metric_plotter = MetricPlotter()
+        >>> metric_plotter.plotSilhouette(X, cluster_labels, 3)
+    
+        Returns
+        -------
+        None
+            The method renders the silhouette plot but does not return any value.
         """
         silhouette_avg = silhouette_score(X, cluster_labels)
         sample_silhouette_values = silhouette_samples(X, cluster_labels)
-
+    
         plt.figure()
         y_lower = 10
         for i in range(n_clusters):
-            ith_cluster_silhouette_values = sample_silhouette_values[cluster_labels == i]
+            ith_cluster_silhouette_values = \
+                sample_silhouette_values[cluster_labels == i]
             ith_cluster_silhouette_values.sort()
-
+    
             size_cluster_i = ith_cluster_silhouette_values.shape[0]
             y_upper = y_lower + size_cluster_i
-
+    
             color = cm.nipy_spectral(float(i) / n_clusters)
             plt.fill_betweenx(np.arange(y_lower, y_upper), 0,
                               ith_cluster_silhouette_values,
-                              facecolor=color, 
-                              edgecolor=color, alpha=0.7)
+                              facecolor=color, edgecolor=color, alpha=0.7)
             y_lower = y_upper + 10
-
+    
         plt.title(title)
         plt.xlabel("Silhouette coefficient values")
         plt.ylabel("Cluster label")
-
+    
         plt.axvline(x=silhouette_avg, color="red", linestyle="--")
         plt.yticks([])
         plt.show()
+    
+    @property 
+    def inspect(self): 
+        """ Inspect data and trigger plot after checking the data entry. 
+        Raises `NotFittedError` if `ExPlot` is not fitted yet."""
+        
+        msg = ( "{expobj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if self.y_true is None: 
+            raise NotFittedError(msg.format(expobj=self))
+        return 1
+    
+    def __repr__(self):
+        """ Pretty format for programmer guidance following the API... """
+        return fancier_repr_formatter(self ) 
+       
+    def __getattr__(self, name):
+        """
+        Custom attribute accessor to provide informative error messages.
+
+        This method is called if the attribute accessed is not found in the
+        usual places (`__dict__` and the class tree). It checks for common 
+        attribute patterns and raises informative errors if the attribute is 
+        missing or if the object is not fitted yet.
+
+        Parameters
+        ----------
+        name : str
+            The name of the attribute being accessed.
+
+        Raises
+        ------
+        NotFittedError
+            If the attribute indicates a requirement for a prior fit method call.
+
+        AttributeError
+            If the attribute is not found, potentially suggesting a similar attribute.
+
+        Returns
+        -------
+        Any
+            The value of the attribute, if found through smart recognition.
+        """
+        if name.endswith('_'):
+            # Special handling for attributes that are typically set after fitting
+            if name not in self.__dict__:
+                if name in ('data_', 'X_'):
+                    raise NotFittedError(
+                        f"Attribute '{name}' not found.Please fit the"
+                        f" {self.__class__.__name__} object first.")
+
+        # Attempt to find a similar attribute name for a more informative error
+        similar_attr = self._find_similar_attribute(name)
+        suggestion = f". Did you mean '{similar_attr}'?" if similar_attr else ""
+
+        raise AttributeError(f"'{self.__class__.__name__}' object has "
+                             f"no attribute '{name}'{suggestion}")
+
+    def _find_similar_attribute(self, name):
+        """
+        Attempts to find a similar attribute name in the object's dictionary.
+
+        Parameters
+        ----------
+        name : str
+            The name of the attribute to find a similar match for.
+
+        Returns
+        -------
+        str or None
+            A similar attribute name if found, otherwise None.
+        """
+        # Implement the logic for finding a similar attribute name
+        # For example, using a string comparison or a fuzzy search
+        rv = smart_strobj_recognition(name, self.__dict__, deep =True)
+        return rv 
+    
         
 MetricPlotter.__doc__="""\
 A class to visualize the results of machine learning models.
@@ -491,8 +819,6 @@ class EvalPlotter(BasePlot):
         litteral_classes: List[str]=None, 
         **kws 
         ): 
-        self._logging= gofastlog().get_gofast_logger(self.__class__.__name__)
-        
         self.tname=tname
         self.objective=objective
         self.scale=scale
@@ -538,228 +864,408 @@ class EvalPlotter(BasePlot):
                          )
         plt.show() if self.savefig is None else plt.close () 
         
-    def fit(self, X, y=None,  **fit_params ): 
+    def fit(self, X, y=None, **fit_params):
         """
-        Fit data and populate the attributes for plotting purposes. 
-        
-        There is no conventional procedure for checking if a method is fitted. 
-        However, an class that is not fitted should raise 
-        :class:`gofast.exceptions.NotFittedError` when a method is called.
-        
-        Parameters
-        ------------
-        X:  Ndarray ( M x N matrix where ``M=m-samples``, & ``N=n-features``)
-            Training set; Denotes data that is observed at training and 
-            prediction time, used as independent variables in learning. 
-            When a matrix, each sample may be represented by a feature vector, 
-            or a vector of precomputed (dis)similarity with each training 
-            sample. :code:`X` may also not be a matrix, and may require a 
-            feature extractor or a pairwise metric to turn it into one  before 
-            learning a model.
-        y: array-like, shape (M, ) ``M=m-samples``, 
-            train target; Denotes data that may be observed at training time 
-            as the dependent variable in learning, but which is unavailable 
-            at prediction time, and is usually the target of prediction. 
-
-        fit_params: dict Additional keywords arguments from 
-            :func:gofast.tools.validator.build_data_if
-           
-        Return
-        -------
-        ``self``: `EvalPlotter` instance 
-            returns ``self`` for easy method chaining.
-        """
-        columns = fit_params.pop ('columns', None)
-        prefix = fit_params.pop('prefix', None)
-        
-        X= build_data_if ( X, to_frame=True, force=True, input_name='X', 
-                          columns = columns, raise_warning='silence')
-        X, y = self._target_manager ( X, y , prefix )
-        self.X  = to_numeric_dtypes(X , pop_cat_features= True )
-        if len ( X.columns) ==0 : 
-            raise TypeError(
-                f"{self.__class__.__name__!r} expects numeric data frame only.")
-        
-        return self 
+        Fit data and prepare the EvalPlotter instance for plotting.
     
-    def plot_2d(self, X, x_feature, y_feature, groups=None,
-                xlabel=None, ylabel=None, title=None):
-      """
-      Plots a two-dimensional graph of two features from the dataset.
-
-      Parameters
-      ----------
-      X : DataFrame or ndarray
-          The dataset containing the features to be plotted.
-
-      x_feature : str or int
-          The name or index of the feature to be plotted on the x-axis.
-
-      y_feature : str or int
-          The name or index of the feature to be plotted on the y-axis.
-
-      groups : Series or array-like, optional
-          Group labels for the data points; used to color the points in 
-          the plot. Default is None.
-
-      xlabel : str, optional
-          The label for the x-axis. Default is the name of x_feature.
-
-      ylabel : str, optional
-          The label for the y-axis. Default is the name of y_feature.
-
-      title : str, optional
-          The title of the plot. Default is None.
-
-      Returns
-      -------
-      None
-      """
-      if isinstance(X, pd.DataFrame):
-          x_values = X[x_feature]
-          y_values = X[y_feature]
-      else:  # ndarray
-          x_values = X[:, x_feature]
-          y_values = X[:, y_feature]
-
-      plt.figure()
-      scatter = plt.scatter(x_values, y_values, c=groups,
-                            cmap=self.color_map, edgecolor='k')
-      
-      if groups is not None:
-          plt.legend(*scatter.legend_elements(), title="Groups")
-
-      plt.xlabel(xlabel if xlabel else x_feature)
-      plt.ylabel(ylabel if ylabel else y_feature)
-      plt.title(title if title else f'{x_feature} vs {y_feature}')
-      plt.grid(True)
-      plt.show()
-
-
-    def plot_histogram(self, data, feature, bins=30, xlabel=None,
-                       ylabel='Frequency', title=None):
-        """
-        Plots a histogram for a given feature.
-
+        This method prepares the EvalPlotter instance with data for subsequent 
+        plotting operations. It ensures that the data is in the correct format 
+        and that only numerical features are retained for plotting. The method 
+        handles preprocessing steps like converting data to a DataFrame and 
+        managing target variables.
+    
         Parameters
         ----------
-        data : DataFrame or ndarray
-            The dataset containing the feature.
-
-        feature : str or int
-            The feature for which to plot the histogram. A column name 
-            if 'data' is a DataFrame,or an index if 'data' is an ndarray.
-
-        bins : int, optional
-            The number of bins to use for the histogram.
-
-        xlabel : str, optional
-            The label for the x-axis. Defaults to the feature name.
-
-        ylabel : str, optional
-            The label for the y-axis. Defaults to 'Frequency'.
-
-        title : str, optional
-            The title of the plot. Defaults to a generic title.
+        X : ndarray or DataFrame, shape (M, N)
+            The training set, where `M` is the number of samples and `N` is the 
+            number of features. `X` can be a matrix of feature vectors or a 
+            vector of precomputed (dis)similarities. Non-matrix data requires a 
+            feature extractor or a pairwise metric for transformation.
+        y : array-like, shape (M,), optional
+            The training target values, where `M` is the number of samples. `y` 
+            represents the dependent variable in learning, typically used for 
+            supervised tasks.
+        fit_params : dict, optional
+            Additional keyword arguments for data preprocessing. Supported keys:
+            - 'columns': List of column names if `X` is an ndarray.
+            - 'prefix': Prefix for encoding categorical target variables.
+    
+        Raises
+        ------
+        NotFittedError
+            If methods requiring a fitted model are called before fitting.
+        TypeError
+            If the processed `X` does not contain any numeric data.
+    
+        Returns
+        -------
+        self : EvalPlotter
+            The fitted EvalPlotter instance for method chaining.
+    
+        Examples
+        --------
+        >>> from gofast.plot import EvalPlotter
+        >>> X, y = some_data_loader()
+        >>> plotter = EvalPlotter()
+        >>> plotter.fit(X, y)
+    
+        Notes
+        -----
+        - EvalPlotter is designed for plotting metrics and evaluations, 
+          hence it requires numeric data.
+        - Categorical data in `X` is removed during fitting.
+    
         """
+        columns = fit_params.pop('columns', None)
+        prefix = fit_params.pop('prefix', None)
+        
+        # Ensuring data is in DataFrame format and managing target variables
+        X = build_data_if(X, to_frame=True, force=True, input_name='X', 
+                          columns=columns, raise_warning='silence')
+        X, y = self._target_manager(X, y, prefix)
+        
+        # Retaining only numeric data for plotting
+        self.X = to_numeric_dtypes(X, pop_cat_features=True)
+        if len(X.columns) == 0: 
+            raise TypeError(f"{self.__class__.__name__!r} expects numeric data frame only.")
+        
+        return self
+
+    def plot2d(self, x_feature, y_feature, groups=None, xlabel=None, 
+               ylabel=None, title=None):
+        """
+        Plot a two-dimensional graph of two features from the dataset.
+    
+        This method visualizes the relationship between two selected features 
+        from the fitted dataset. It provides options for grouping and labeling 
+        the data points, making it useful for exploratory data analysis.
+    
+        Parameters
+        ----------
+        x_feature : str or int
+            The name or index of the feature to be plotted on the x-axis. 
+            Specifies the horizontal dimension of the plot.
+        y_feature : str or int
+            The name or index of the feature to be plotted on the y-axis. 
+            Specifies the vertical dimension of the plot.
+        groups : Series or array-like, optional
+            Group labels for the data points, used for coloring. 
+            If provided, the plot will display data points in different 
+            colors based on their group labels. Default is None.
+        xlabel : str, optional
+            Label for the x-axis. If None, uses `x_feature` as the label.
+        ylabel : str, optional
+            Label for the y-axis. If None, uses `y_feature` as the label.
+        title : str, optional
+            Title of the plot. If None, defaults to 'x_feature vs y_feature'.
+    
+        Notes
+        -----
+        - Assumes the EvalPlotter instance is already fitted with the dataset (`X`).
+        - The method checks if `X` is a DataFrame or ndarray and retrieves the 
+          specified features accordingly.
+        - This method is particularly useful for visualizing the correlation or 
+          patterns between two variables.
+    
+        Returns
+        -------
+        self : EvalPlotter
+            Returns the instance itself after rendering the plot.
+    
+        Examples
+        --------
+        >>> from gofast.plot import EvalPlotter
+        >>> plotter = EvalPlotter()
+        >>> X = ... # Load or create a DataFrame or ndarray
+        >>> plotter.fit(X)
+        >>> plotter.plot2d('feature1', 'feature2', groups='class_label',
+                           xlabel='Feature 1', ylabel='Feature 2', 
+                           title='Feature 1 vs Feature 2')
+    
+        """
+        self.inspect  # Check if EvalPlotter is fitted
+
+        # Extract feature values for plotting
+        if isinstance(self.X, pd.DataFrame):
+            x_values = self.X[x_feature]
+            y_values = self.X[y_feature]
+        else:  # ndarray
+            x_values = self.X[:, x_feature]
+            y_values = self.X[:, y_feature]
+    
         plt.figure()
+        scatter = plt.scatter(x_values, y_values, c=groups,
+                              cmap=self.color_map, edgecolor='k')
+        
+        # Adding legend for groups if provided
+        if groups is not None:
+            plt.legend(*scatter.legend_elements(), title="Groups")
+    
+        # Setting labels and title
+        plt.xlabel(xlabel if xlabel else x_feature)
+        plt.ylabel(ylabel if ylabel else y_feature)
+        plt.title(title if title else f'{x_feature} vs {y_feature}')
+        plt.grid(True)
+        plt.show()
+    
+        return self
+
+    def plotHistogram(self, feature, data=None, bins=30, xlabel=None,
+                      ylabel='Frequency', title=None):
+        """
+        Plot a histogram for a specified feature in the dataset.
+    
+        This method creates a histogram to visualize the distribution of a 
+        selected feature. It allows for customization of the number of bins, 
+        axis labels, and plot title, making it a flexible tool for 
+        exploratory data analysis.
+    
+        Parameters
+        ----------
+        feature : str or int
+            The feature for which to plot the histogram. If 'data' is a DataFrame, 
+            'feature' should be a column name; if 'data' is an ndarray, 'feature' 
+            should be an index.
+        data : DataFrame or ndarray, optional
+            The dataset containing the feature. If None, uses the dataset provided 
+            during the fitting process.
+        bins : int, optional
+            The number of bins for the histogram. More bins result in a finer 
+            resolution. Default is 30.
+        xlabel : str, optional
+            Label for the x-axis. If None, defaults to the name or index of the feature.
+        ylabel : str, optional
+            Label for the y-axis. Default is 'Frequency'.
+        title : str, optional
+            Title of the histogram. If None, defaults to a generic title based on 
+            the feature.
+    
+        Notes
+        -----
+        - Histograms are useful for getting a sense of the data distribution 
+          of a single variable.
+        - Assumes the EvalPlotter instance is already fitted with the dataset (`X`).
+    
+        Returns
+        -------
+        self : EvalPlotter
+            Returns the instance itself after rendering the plot.
+    
+        Examples
+        --------
+        >>> from gofast.plot import EvalPlotter
+        >>> plotter = EvalPlotter()
+        >>> X = ... # Load or create a DataFrame or ndarray
+        >>> plotter.fit(X)
+        >>> plotter.plotHistogram('feature1', bins=20, xlabel='Feature 1 Value',
+                                  ylabel='Count', title='Distribution of Feature 1')
+    
+        """
+        self.inspect  # Check if EvalPlotter is fitted
+    
+        data = data if data is not None else self.X
+        plt.figure()
+    
+        # Plotting histogram based on data type
         if isinstance(data, pd.DataFrame):
-            plt.hist(data[feature], bins=bins, color='skyblue',
-                     edgecolor='black')
+            plt.hist(data[feature], bins=bins, color='skyblue', edgecolor='black')
             xlabel = xlabel if xlabel else feature
         else:  # ndarray
-            plt.hist(data[:, feature], bins=bins, color='skyblue',
-                     edgecolor='black')
+            plt.hist(data[:, feature], bins=bins, color='skyblue', edgecolor='black')
             xlabel = xlabel if xlabel else f'Feature {feature}'
-
+    
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)
         plt.title(title if title else f'Histogram of {xlabel}')
         plt.show()
+    
+        return self
 
-    def plot_box(self, data, feature, by=None, xlabel=None,
-                 ylabel=None, title=None):
+    
+    def plotBox(self, feature, data=None, 
+                by=None, xlabel=None, ylabel=None, title=None):
         """
-        Plots a box plot for a given feature, optionally grouped by
+        Plot a box plot for a specified feature, optionally grouped by 
         another feature.
-
+    
+        This method creates a box plot to visualize the distribution of a selected 
+        feature. When used with the 'by' parameter, it allows for comparison 
+        across different groups, making it a valuable tool for examining 
+        statistical measures like median, quartiles, and outliers.
+    
         Parameters
         ----------
-        data : DataFrame
-            The dataset containing the features.
-
         feature : str
-            The feature for which to plot the box plot.
-
+            The feature for which to plot the box plot. Represents the data 
+            to be summarized and displayed in the box plot.
+        data : DataFrame, optional
+            The dataset containing the features. If None, uses the dataset 
+            provided during the fitting process.
         by : str, optional
-            A feature by which to group the data.
-
+            A feature by which to group the data. If provided, creates separate 
+            box plots for each group.
         xlabel : str, optional
-            The label for the x-axis. Defaults to the grouping feature name.
-
+            Label for the x-axis. If None, defaults to the grouping feature name.
         ylabel : str, optional
-            The label for the y-axis. Defaults to the plotted feature name.
-
+            Label for the y-axis. If None, defaults to the plotted feature name.
         title : str, optional
-            The title of the plot. Defaults to a generic title.
+            Title of the box plot. If None, defaults to 'Box Plot of [feature]'.
+    
+        Notes
+        -----
+        - Box plots are useful for visualizing the spread and skewness of data, 
+          as well as identifying potential outliers.
+        - Assumes the EvalPlotter instance is already fitted with the dataset (`X`).
+    
+        Returns
+        -------
+        self : EvalPlotter
+            Returns the instance itself after rendering the plot.
+    
+        Examples
+        --------
+        >>> from gofast.plot import EvalPlotter
+        >>> plotter = EvalPlotter()
+        >>> X = ... # Load or create a DataFrame
+        >>> plotter.fit(X)
+        >>> plotter.plotBox('feature1', by='group_feature',
+                            xlabel='Group', ylabel='Feature Value',
+                            title='Feature 1 Distribution by Group')
         """
+        self.inspect  # Check if EvalPlotter is fitted
+    
+        data = data if data is not None else self.X
         plt.figure()
         data.boxplot(column=feature, by=by)
+    
+        # Setting labels and title
         plt.xlabel(xlabel if xlabel else (by if by else ''))
         plt.ylabel(ylabel if ylabel else feature)
         plt.title(title if title else f'Box Plot of {feature}')
         if by:
-            plt.suptitle('')
+            plt.suptitle('')  # Remove default suptitle if 'by' is used
+    
         plt.show()
-
-    def plot_heatmap(self, data, xlabel=None, ylabel=None, title='Heatmap'):
+        
+        return self 
+ 
+    def plotHeatmap(
+        self,
+        xlabel=None, 
+        ylabel=None, 
+        data=None, 
+        title='Heatmap'
+        ):
         """
-        Plots a heatmap, useful for visualizing correlations or 2D data.
-
+        Plot a heatmap for visualizing correlations or 2-dimensional data.
+    
+        Heatmaps are effective for displaying the magnitude of values in a 2D matrix 
+        format, using colors to represent different ranges of values. They are 
+        commonly used for exploring correlations between variables or for visualizing 
+        data matrices.
+    
         Parameters
         ----------
-        data : DataFrame or ndarray
-            The 2D dataset to plot.
-
+        data : DataFrame or ndarray, optional
+            The 2D dataset to be visualized in the heatmap. If None, uses the dataset 
+            provided during the fitting process.
         xlabel : str, optional
-            The label for the x-axis.
-
+            Label for the x-axis. Provides context about the columns in the heatmap.
         ylabel : str, optional
-            The label for the y-axis.
-
+            Label for the y-axis. Provides context about the rows in the heatmap.
         title : str, optional
-            The title of the plot. Defaults to 'Heatmap'.
+            Title of the heatmap. Default is 'Heatmap'.
+    
+        Notes
+        -----
+        - If 'data' is not specified, the method uses the dataset attached to the 
+          EvalPlotter instance.
+        - The method uses seaborn's heatmap function for visualization, providing 
+          annotations and a color map for better readability.
+    
+        Returns
+        -------
+        self : EvalPlotter
+            Returns the instance itself after rendering the plot.
+    
+        Examples
+        --------
+        >>> from gofast.plot import EvalPlotter
+        >>> plotter = EvalPlotter()
+        >>> X = ... # Load or create a DataFrame or ndarray
+        >>> plotter.fit(X)
+        >>> plotter.plotHeatmap(xlabel='Features', ylabel='Samples', 
+                                title='Data Heatmap')
+    
         """
+        data = data if data is not None else self.X
         plt.figure()
         sns.heatmap(data, annot=True, fmt=".2f", cmap=self.color_map)
         plt.xlabel(xlabel if xlabel else '')
         plt.ylabel(ylabel if ylabel else '')
         plt.title(title)
         plt.show()
+        
+        return self 
 
-    def plot_feature_importance(self, feature_names, importances,
-                                title='Feature Importances'):
+    def plotFeatureImportance(
+        self, 
+        feature_names, 
+        importances, 
+        title='Feature Importances'
+        ):
         """
-        Plots a bar chart of feature importances.
-
+        Plot a bar chart to visualize the importance scores of features.
+    
+        This method provides a visual representation of the importance or contribution 
+        of each feature in a model. It is particularly useful for understanding the 
+        impact of different features on model predictions.
+    
         Parameters
         ----------
         feature_names : list
-            List of names of the features.
+            Names of the features in the dataset. This list should align with 
+            the 'importances' array, where each name corresponds to the 
+            respective feature's importance score.
         importances : list or array
-            The importance scores of the features.
+            Importance scores of the features. These scores indicate the relative 
+            importance or contribution of each feature to the model's predictions.
         title : str, optional
-            The title of the plot. Defaults to 'Feature Importances'.
+            Title of the bar chart. Default is 'Feature Importances'.
+    
+        Notes
+        -----
+        - The method sorts features based on their importance scores in descending 
+          order for a clearer visual comparison.
+        - It is commonly used with tree-based models like Random Forest and Gradient 
+          Boosting, where feature importance is a built-in attribute.
+    
+        Returns
+        -------
+        None
+            The method renders the bar chart but does not return any value.
+    
+        Examples
+        --------
+        >>> from gofast.plot import EvalPlotter
+        >>> plotter = EvalPlotter()
+        >>> feature_names = ['feature1', 'feature2', 'feature3']
+        >>> importances = [0.2, 0.5, 0.3]  # Example importance scores
+        >>> plotter.plotFeatureImportance(feature_names, importances,
+                                          title='Model Feature Importances')
+    
         """
+        # Sorting the features based on importance
         indices = np.argsort(importances)[::-1]
         sorted_names = [feature_names[i] for i in indices]
         sorted_importances = importances[indices]
-
+    
         plt.figure()
         plt.bar(range(len(importances)), sorted_importances, align='center')
         plt.xticks(range(len(importances)), sorted_names, rotation=45, ha='right')
         plt.title(title)
         plt.show()
+
     def _target_manager ( self, X, y , prefix =None, ): 
         """ Manage the target  and return X and y 
         
@@ -1457,6 +1963,7 @@ class EvalPlotter(BasePlot):
             ]
         >>> plotter.plotROC(classifiers, label=1)
         """
+        self.inspect 
         # Prepare classifier tuples
         if not isinstance(clfs, list):
             clfs = [(clfs.__class__.__name__, clfs, method)]
@@ -1498,191 +2005,149 @@ class EvalPlotter(BasePlot):
         ax.legend(loc='lower right')
         plt.show()
 
-    def plotROC2(
-        self, 
-        clfs,
-        label: int |str, 
-        method: Optional[str]=None,
-        cvp_kws:dict=None,
-        **roc_kws
-        )-> 'EvalPlotter':
+    def plotROC2(self, clfs, label, method=None, cvp_kws=None,
+                 **roc_kws) -> 'EvalPlotter':
         """
-        Plot receiving operating characteric (ROC) classifiers. 
-        
-        Can plot multiple classifiers at once. If multiple classifiers are 
-        given, each classifier must be a tuple of  
-        ``( <name>, classifier>, <method>)``. For instance, to plot the both 
-        :class:`sklearn.ensemble.RandomForestClassifier` and 
-        :class:`sklearn.linear_model.SGDClassifier` classifiers, they must be
-        ranged as follow::
-            
-             clfs =[
-                 ('sgd', SGDClassifier(), "decision_function" ),
-                 ('forest', RandomForestClassifier(), "predict_proba") 
-                 ]
-        It is important to know whether the method 'predict_proba' is valid for 
-        the scikit-learn classifier, we want to plot its ROC curve. 
-        
-        Parameters 
-        -----------
-        clfs :callables, always as a function, classifier estimators
-            A supervised predictor with a finite set of discrete possible 
-            output values. A classifier must supports modeling some of binary, 
-            targets. It must store a classes attribute after fitting.
-        label: int, 
-            Specific class to evaluate the tradeoff of precision 
-            and recall. `label`  needs to be specified and a value within the 
-            target.     
-            
-        kind: str, ['threshold|'recall'], default='threshold' 
-            kind of PR plot. If kind is 'recall', method plots the precision 
-            VS the recall scores, otherwiwe the PR tradeoff is plotted against 
-            the 'threshold.'
-            
-        method: str
-            Method to get scores from each instance in the trainset. 
-            Could be ``decison_funcion`` or ``predict_proba``. When using the  
-            scikit-Learn classifier, it generally has one of the method. 
-            Default is ``decision_function``.   
-        
-        cvp_kws: dict, optional
-            The :func:`sklearn.model_selection.cross_val_predict` keywords 
-            additional arguments 
-            
-        prt_kws:dict, 
-            Additional keyword arguments passed to 
-            func:`gofast.exlib.sklearn.precision_recall_tradeoff`
-            
-        roc_kws: dict 
-            roc_curve_ additional keywords arguments.
-            
-        Return
+        Plot Receiver Operating Characteristic (ROC) curves for multiple classifiers.
+    
+        This method allows the visualization of the ROC curves for one or more 
+        classifiers. Each classifier's ROC curve is plotted to assess and compare 
+        their performance in terms of the trade-off between the true positive rate 
+        (sensitivity) and the false positive rate (1 - specificity).
+    
+        Parameters
+        ----------
+        clfs : list of tuples or a single classifier
+            Classifiers to be evaluated. Each classifier is provided as a tuple: 
+            (classifier name, classifier instance, scoring method). 
+            For a single classifier, it can be directly passed without a tuple.
+        label : int or str
+            The class label to focus on for generating the ROC curve.
+        method : str, optional
+            The scoring method to obtain scores from classifiers. Typical options 
+            include 'decision_function' or 'predict_proba'.
+        cvp_kws : dict, optional
+            Additional keyword arguments to be passed to cross_val_predict function.
+        roc_kws : dict
+            Additional arguments for the roc_curve function.
+    
+        Returns
         -------
-        ``self``: `EvalPlotter` instance
-            ``self`` for easy method chaining.
-            
-        Examples 
+        EvalPlotter
+            The instance itself for method chaining.
+    
+        Examples
         --------
-        (1) Plot ROC for single classifier 
-        
-        >>> from gofast.exlib.sklearn import ( SGDClassifier, 
-                                             RandomForestClassifier
-                                             )
-        >>> from gofast.datasets.dload import load_bagoue 
-        >>> from gofast.utils import cattarget 
-        >>> from gofast.plot.evaluate  import EvalPlotter 
-        >>> X , y = load_bagoue(as_frame =True )
-        >>> sgd_clf = SGDClassifier(random_state= 42) # our estimator 
-        >>> b= EvalPlotter(scale = True , encode_labels=True)
-        >>> b.fit_transform(X, y)
-        >>> # binarize the label b.y 
-        >>> ybin = cattarget(b.y, labels= 2 ) # can also use labels =[0, 1]
-        >>> b.y = ybin 
-        >>> # plot the ROC 
-        >>> b.plotROC(sgd_clf , label =1) # class=1
-        ... EvalPlotter(tname= None, objective= None, scale= True, ... , 
-                     sns_height= 4.0, sns_aspect= 0.7, verbose= 0)
-        
-        (2)-> Plot ROC for multiple classifiers 
-      
-        >>> b= EvalPlotter(scale = True , encode_labels=True, 
-                        lw =3., lc=(.9, 0, .8), font_size=7 )
-        >>> sgd_clf = SGDClassifier(random_state= 42)
-        >>> forest_clf =RandomForestClassifier(random_state=42)
-        >>> b.fit_transform(X, y)
-        >>> # binarize the label b.y 
-        >>> ybin = cattarget(b.y, labels= 2 ) # can also use labels =[0, 1]
-        >>> b.y = ybin 
-        >>> clfs =[('sgd', sgd_clf, "decision_function" ), 
-               ('forest', forest_clf, "predict_proba")]
-        >>> b.plotROC (clfs =clfs , label =1 )
-        ... EvalPlotter(tname= None, objective= None, scale= True, ... , 
-                     sns_height= 4.0, sns_aspect= 0.7, verbose= 0)
-        
+        >>> from gofast.plot.evaluate import EvalPlotter
+        >>> from sklearn.ensemble import RandomForestClassifier
+        >>> from sklearn.linear_model import SGDClassifier
+        >>> from sklearn.datasets import load_bagoue
+    
+        >>> X, y = load_bagoue(as_frame=True)
+        >>> sgd_clf = SGDClassifier(random_state=42)
+        >>> forest_clf = RandomForestClassifier(random_state=42)
+        >>> plotter = EvalPlotter(scale=True, encode_labels=True)
+        >>> plotter.fit_transform(X, y)
+    
+        # Plot ROC for multiple classifiers
+        >>> classifiers = [
+                ('SGD', sgd_clf, 'decision_function'),
+                ('Random Forest', forest_clf, 'predict_proba')
+            ]
+        >>> plotter.plotROC2(clfs=classifiers, label=1)
+    
         """
-       
-        # if method not given as tuple
-        if not isinstance(clfs, (list, tuple)):
-            try : 
-                clfs =[(clfs.__name__, clfs, method)]
-            except AttributeError: 
-                # type `clf` is ABCMeta 
-                 clfs =[(clfs.__class__.__name__, clfs, method)]
-                 
-        # loop and set the tuple of  (clfname , clfvalue, clfmethod)
-        # anc convert to list to support item assignments
-        clfs = [list(pnclf) for pnclf in clfs]
-        for i, (clfn, _clf, _) in enumerate(clfs) :
-        
-            if  clfn is None  or clfn =='': 
-                try: 
-                    clfn = _clf.__name__
-                except AttributeError: 
-                    # when type `clf` is ABCMeta 
-                    clfn= _clf.__class__.__name__
-                clfs[i][0] = clfn 
-                
-        # reconvert to tuple values 
-        clfs =[tuple(pnclf) for pnclf in clfs]
-        # build multiples classifiers objects 
-        rocObjs =[roc_curve_(
-            clf=_clf,X=self.X,y=self.y, cv =self.cv, 
-            label=label, method =meth, cvp_kws=cvp_kws,**roc_kws) 
-            for (name, _clf, meth) in clfs
-                  ]
-        # create figure obj 
-        fig = plt.figure(figsize = self.fig_size)
-        ax = fig.add_subplot(1,1,1)
-        
-        D_COLORS = make_mpl_properties(len(clfs))
-        D_STYLES= make_mpl_properties(len(clfs), prop= 'line')
-        D_COLORS[0] = self.lc
-        D_STYLES[0]= self.ls
+        self.inspect 
+        # Prepare classifiers
+        clfs = self._prepare_classifiers(clfs, method)
+    
+        # Plotting
+        fig, ax = self._initiate_plot()
+        for clf_name, clf, clf_method in clfs:
+            roc_obj = self._compute_roc(clf, clf_method, label, cvp_kws, **roc_kws)
+            self._draw_roc_curve(ax, roc_obj, clf_name)
+    
+        self._finalize_plot2(ax, 'False Positive Rate', 'True Positive Rate', 
+                            grid=True, legend_loc='lower right')
+        return self
+    
+    def _prepare_classifiers(self, clfs, default_method):
+        # Converts single classifier to a list of tuples format
+        # and ensures all classifiers are in the correct format
+        if not isinstance(clfs, list):
+            clfs = [(getattr(clfs, '__name__', clfs.__class__.__name__),
+                     clfs, default_method)]
+        return [(name or clf.__class__.__name__, clf, method or default_method)
+                for name, clf, method in clfs]
+    
+    def _initiate_plot(self):
+        fig = plt.figure(figsize=self.fig_size)
+        ax = fig.add_subplot(1, 1, 1)
+        return fig, ax
+    
+    def _compute_roc(self, clf, method, label, cvp_kws, **roc_kws):
+        # Computes ROC curve for a given classifier
+        roc_obj = roc_curve_(clf, self.X, self.y, cv=self.cv, label=label,
+                             method=method, cvp_kws=cvp_kws, **roc_kws)
+        return roc_obj
+    
+    def _draw_roc_curve(self, ax, roc_obj, clf_name):
+        # Draws the ROC curve on the provided axes
+        ax.plot(roc_obj.fpr, roc_obj.tpr,
+                label=f'{clf_name} (AUC={roc_obj.roc_auc_score:.4f})', 
+                linewidth=self.lw, linestyle=self.ls)
+    
+    def _finalize_plot2(self, ax, xlabel, ylabel, grid=False, legend_loc=None):
+        # Finalize the plot by setting labels, grid, and legend
+        ax.set_xlabel(xlabel, fontsize=self.font_size)
+        ax.set_ylabel(ylabel, fontsize=self.font_size)
+        ax.legend(loc=legend_loc)
+        if grid:
+            ax.grid(True)
+        plt.show()
 
-        for ii, (name, _clf, _)  in enumerate( clfs): 
-            ax.plot(rocObjs[ii].fpr, 
-                    rocObjs[ii].tpr, 
-                    label =name + ' (AUC={:.4f})'.format(
-                        rocObjs[ii].roc_auc_score), 
-                    color =D_COLORS[ii],
-                    linestyle = D_STYLES[ii] , 
-                    linewidth = self.lw
-                    )
-            
-        xlabel = self.xlabel or 'False Positive Rate'
-        ylabel = self.ylabel or 'True Positive Rate'
-        
-        self.xlim =[0,1]
-        self.ylim =[0,1]
-        ax.plot(self.xlim, self.ylim, ls= '--', color ='k')
-        ax.set_xlim (self.xlim)
-        ax.set_ylim (self.ylim)
-        ax.set_xlabel( xlabel,
-                      fontsize= .5 * self.font_size * self.fs )
-        ax.set_ylabel (ylabel,
-                       fontsize= .5 * self.font_size * self.fs)
-        ax.tick_params(axis='both', 
-                       labelsize=.5 * self.font_size * self.fs)
-        
-        if self.show_grid is True : 
-           if self.gwhich =='minor': 
-                 ax.minorticks_on() 
-           ax.grid(self.show_grid,
-                   axis=self.gaxis,
-                   which = self.gwhich, 
-                   color = self.gc,
-                   linestyle=self.gls,
-                   linewidth=self.glw, 
-                   alpha = self.galpha
-                   )
-        if len(self.leg_kws) ==0 or 'loc' not in self.leg_kws.keys():
-             self.leg_kws['loc']='lower right'
-        ax.legend(**self.leg_kws)
-        
-        self.save(fig)
-        
-        return self 
+    
+    def plotLearningCurve(self, model, *,  cv=4):
+        """
+        Plots a learning curve.
 
+        Parameters
+        ----------
+        estimator : object
+            An estimator instance implementing 'fit' and 'predict'.
+        X : array-like, shape (n_samples, n_features)
+            Training vector, where n_samples is the number of samples and
+            n_features is the number of features.
+        y : array-like, shape (n_samples,)
+            Target relative to X for classification or regression.
+        cv : int, cross-validation generator or an iterable
+            Determines the cross-validation splitting strategy.
+        """
+        self.inspect 
+        
+        train_sizes, train_scores, test_scores = learning_curve(
+            model, self.X, self.y, cv=cv)
+        train_scores_mean = np.mean(train_scores, axis=1)
+        train_scores_std = np.std(train_scores, axis=1)
+        test_scores_mean = np.mean(test_scores, axis=1)
+        test_scores_std = np.std(test_scores, axis=1)
+
+        plt.figure()
+        plt.fill_between(train_sizes, train_scores_mean - train_scores_std,
+                         train_scores_mean + train_scores_std, alpha=0.1, color="r")
+        plt.fill_between(train_sizes, test_scores_mean - test_scores_std,
+                         test_scores_mean + test_scores_std, alpha=0.1, color="g")
+        plt.plot(train_sizes, train_scores_mean, 'o-', color="r", lw=self.line_width,
+                 linestyle=self.line_style, label="Training score")
+        plt.plot(train_sizes, test_scores_mean, 'o-', color="g", lw=self.line_width,
+                 linestyle=self.line_style, label="Cross-validation score")
+
+        plt.xlabel("Training examples")
+        plt.ylabel("Score")
+        plt.title("Learning Curve")
+        plt.legend(loc="best")
+        plt.show()
+        
     def plotConfusionMatrix(
         self, clf, *, 
         kind=None, labels=None,
@@ -1859,6 +2324,73 @@ class EvalPlotter(BasePlot):
         rv = smart_strobj_recognition(name, self.__dict__, deep =True)
         return rv 
 
+#------------------------------------------------------------------------------
+# Add specific params to Evaldocs 
+_eval_params = dict( 
+    objective="""
+objective: str, default=None, 
+    The purpose of dataset; what probem do we intend to solve ? 
+    This parameter is mostly useful for geoscientists to handle their datasets.
+    For instance, if the `objective` is set to ``flow``, `EvalPlotter` expects 
+    the flow rate prediction purpose. In that case, some condition 
+    of target values need to be fullfilled.  Moreover, if the objective 
+    is set to ``flow``, `label_values`` as well as the `litteral_classes`
+    parameters need to be supplied to right encode the target according 
+    to the hydraulic system requirement during the campaign for drinking 
+    water supply. For any other purpose for the dataset, keep the objective  
+    to ``None``. Default is ``None``.    
+    """, 
+    yp_ls="""
+yp_ls: str, default='-', 
+    Line style of `Predicted` label. Can be [ '-' | '.' | ':' ] 
+    """, 
+    yp_lw="""
+yp_lw: str, default= 3
+    Line weight of the `Predicted` plot
+    """,
+    yp_lc ="""
+yp_lc: str or :func:`matplotlib.cm`, default= 'k'
+    Line color of the `Prediction` plot. *default* is ``k``
+    """, 
+    yp_marker="""
+yp_marker: str or :func:`matplotlib.markers`, default ='o'
+    Style of marker in  of `Prediction` points. 
+    """, 
+    yp_markerfacecolor="""
+yp_markerfacecolor: str or :func:`matplotlib.cm`, default='k'
+    Facecolor of the `Predicted` label marker.
+    """, 
+    yp_markeredgecolor="""
+yp_markeredgecolor: stror :func:`matplotlib.cm`,  default= 'r' 
+    Edgecolor of the `Predicted` label marker.
+    """, 
+    yp_markeredgewidth="""
+yp_markeredgewidth: int, default=2
+    Width of the `Predicted`label marker.
+    """, 
+    rs="""
+rs: str, default='--'
+    Line style of `Recall` metric 
+    """, 
+    ps="""
+ps: str, default='-'
+    Line style of `Precision `metric
+    """, 
+    rc="""
+rc: str, default=(.6,.6,.6)
+    Recall metric colors 
+    """, 
+    pc="""
+pc: str or :func:`matplotlib.cm`, default='k'
+    Precision colors from Matplotlib colormaps. 
+    """
+    )
+_param_docs = DocstringComponents.from_nested_components(
+    core=_core_docs["params"], 
+    base=DocstringComponents(_baseplot_params), 
+    evdoc=DocstringComponents(_eval_params), 
+    )
+#------------------------------------------------------------------------------
 
 EvalPlotter.__doc__ ="""\
 A Tool for Visualization of Metrics and Dimensionality Reduction 
@@ -4365,7 +4897,7 @@ def plot2d(
     
     return axe        
 
-        
+      
         
         
         

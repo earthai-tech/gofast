@@ -625,20 +625,21 @@ optimization process.
 	plot.EvalPlotter.plotROC
 	plot.EvalPlotter.plotRobustPCA
 	plot.EvalPlotter.plotConfusionMatrix
-	plot.MetricPlotter.plot_confusion_matrix
-	plot.MetricPlotter.plot_roc_curve
-	plot.MetricPlotter.plot_precision_recall_curve
-	plot.MetricPlotter.plot_learning_curve
-	plot.MetricPlotter.plot_silhouette
-	plot.MetricPlotter.plot_lift_curve
-	plot.MetricPlotter.plot_cumulative_gain
-	plot.MetricPlotter.plot_precision_recall_per_class
-	plot.MetricPlotter.plot_actual_vs_predicted
-	plot.MetricPlotter.plot_feature_importance
-	plot.MetricPlotter.plot_heatmap
-	plot.MetricPlotter.plot_box
-	plot.MetricPlotter.plot_histogram
-	plot.MetricPlotter.plot_2d
+	plot.EvalPlotter.plotFeatureImportance
+	plot.EvalPlotter.plotHeatmap
+	plot.EvalPlotter.plotBox
+	plot.EvalPlotter.plotHistogram
+	plot.EvalPlotter.plot2d
+	plot.MetricPlotter.plotConfusionMatrix
+	plot.MetricPlotter.plotRocCurve
+	plot.MetricPlotter.plotPrecisionRecallCurve
+	plot.MetricPlotter.plotLearningCurve
+	plot.MetricPlotter.plotSilhouette
+	plot.MetricPlotter.plotLiftCurve
+	plot.MetricPlotter.plotCumulativeGain
+	plot.MetricPlotter.plotPrecisionRecallPerClass
+	plot.MetricPlotter.plotActualVSPredicted
+
 	
 Functions
 ~~~~~~~~~~~~
