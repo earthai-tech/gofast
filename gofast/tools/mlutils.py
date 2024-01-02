@@ -44,7 +44,7 @@ from .funcutils import _assert_all_types, _isin,  is_in_if,  ellipsis2false
 from .funcutils import savepath_, smart_format, str2columns, is_iterable
 from .funcutils import  is_classification_task, to_numeric_dtypes, fancy_printer
 from .validator import get_estimator_name, check_array, check_consistent_length
-from .validator import  _is_numeric_dtype,  _is_arraylike_1d, assert_xy_in 
+from .validator import  _is_numeric_dtype,  _is_arraylike_1d 
 from .validator import  is_frame, build_data_if
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -603,7 +603,6 @@ def bin_counting(
 
     return d
 
-
 def _single_counts ( 
         d,/,  bin_column, tname, odds = "N+",
         tolog= False, return_counts = False ): 
@@ -697,6 +696,128 @@ def _bin_counting (counts, tname, odds="N+" ):
 
     return counts, bin_counts  
  
+def laplace_smoothing_word(word, class_, /, word_counts, class_counts, V):
+    """
+    Apply Laplace smoothing to estimate the conditional probability of a 
+    word given a class.
+
+    Laplace smoothing (add-one smoothing) is used to handle the issue of 
+    zero probability in categorical data, particularly in the context of 
+    text classification with Naive Bayes.
+
+    The mathematical formula for Laplace smoothing is:
+    
+    .. math:: 
+        P(w|c) = \frac{\text{count}(w, c) + 1}{\text{count}(c) + |V|}
+
+    where `count(w, c)` is the count of word `w` in class `c`, `count(c)` is 
+    the total count of all words in class `c`, and `|V|` is the size of the 
+    vocabulary.
+
+    Parameters
+    ----------
+    word : str
+        The word for which the probability is to be computed.
+    class_ : str
+        The class for which the probability is to be computed.
+    word_counts : dict
+        A dictionary containing word counts for each class. The keys should 
+        be tuples of the form (word, class).
+    class_counts : dict
+        A dictionary containing the total count of words for each class.
+    V : int
+        The size of the vocabulary, i.e., the number of unique words in 
+        the dataset.
+
+    Returns
+    -------
+    float
+        The Laplace-smoothed probability of the word given the class.
+
+    Example
+    -------
+    >>> word_counts = {('dog', 'animal'): 3, ('cat', 'animal'):
+                       2, ('car', 'non-animal'): 4}
+    >>> class_counts = {'animal': 5, 'non-animal': 4}
+    >>> V = len(set([w for (w, c) in word_counts.keys()]))
+    >>> laplace_smoothing('dog', 'animal', word_counts, class_counts, V)
+    0.4444444444444444
+    
+    References
+    ----------
+    - C.D. Manning, P. Raghavan, and H. Schütze, "Introduction to Information Retrieval",
+      Cambridge University Press, 2008.
+    - A detailed explanation of Laplace Smoothing can be found in Chapter 13 of 
+      "Introduction to Information Retrieval" by Manning et al.
+
+    Notes
+    -----
+    This function is particularly useful in text classification tasks where the
+    dataset may contain a large number of unique words, and some words may not 
+    appear in the training data for every class.
+    """
+    word_class_count = word_counts.get((word, class_), 0)
+    class_word_count = class_counts.get(class_, 0)
+    probability = (word_class_count + 1) / (class_word_count + V)
+    return probability
+
+def laplace_smoothing_categorical(
+        data, /, feature_col, class_col, V=None):
+    """
+    Apply Laplace smoothing to estimate conditional probabilities of 
+    categorical features given a class in a dataset.
+
+    This function calculates the Laplace-smoothed probabilities for each 
+    category of a specified feature given each class.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The dataset containing categorical features and a class label.
+    feature_col : str
+        The column name in the dataset representing the feature for which 
+        probabilities are to be calculated.
+    class_col : str
+        The column name in the dataset representing the class label.
+    V : int or None, optional
+        The size of the vocabulary (i.e., the number of unique categories 
+                                    in the feature).
+        If None, it will be calculated based on the provided feature column.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing the Laplace-smoothed probabilities for each 
+        category of the feature across each class.
+
+    Example
+    -------
+    >>> data = pd.DataFrame({'feature': ['cat', 'dog', 'cat', 'bird'],
+                             'class': ['A', 'A', 'B', 'B']})
+    >>> probabilities = laplace_smoothing_categorical(data, 'feature', 'class')
+    >>> print(probabilities)
+
+    Notes
+    -----
+    This function is useful for handling categorical data in classification
+    tasks, especially when the dataset may contain categories that do not 
+    appear in the training data for every class.
+    """
+    if V is None:
+        V = data[feature_col].nunique()
+
+    class_counts = data[class_col].value_counts()
+    probability_table = pd.DataFrame()
+
+    # Iterating over each class to calculate probabilities
+    for class_value in data[class_col].unique():
+        class_subset = data[data[class_col] == class_value]
+        feature_counts = class_subset[feature_col].value_counts()
+        probabilities = (feature_counts + 1) / (class_counts[class_value] + V)
+        probabilities.name = class_value
+        probability_table = probability_table.append(probabilities)
+
+    return probability_table.fillna(1 / V)
 
 def laplace_smoothing(
     data, /,  
@@ -728,6 +849,13 @@ def laplace_smoothing(
         An array of the same shape as `data` containing the smoothed 
         probabilities for each category in each feature.
 
+    References
+    ----------
+    - C.D. Manning, P. Raghavan, and H. Schütze, "Introduction to Information Retrieval",
+      Cambridge University Press, 2008.
+    - A detailed explanation of Laplace Smoothing can be found in Chapter 13 of 
+      "Introduction to Information Retrieval" by Manning et al.
+      
     Notes
     -----
     This implementation assumes that the input data is categorical 
@@ -757,100 +885,7 @@ def laplace_smoothing(
     
     # Transpose and return the probabilities corresponding to each data point
     return smoothed_probs._T[data]
-
-
-#XXX TODO
-def _laplace_smoothing (x, y, data =None ): 
-    """ Laplace smooting to conditional probabilities calculations to ensure 
-    that none of the probabilities is 0.
-    
-    Laplace smoothing (also known as add-one smoothing) is a method used i
-    n the domain of probability and statistics to smooth categorical data. 
-    It's especially useful in text classification problems when a word from 
-    the test data has never been seen in the training data.
-    
-    
-    The formula for Laplace smoothing in this context is: 
-        
-    .. math:: 
-        
-        P ( w|c) = \frac{count( w, c)+1}{count(c)+\abs{V}}
-        
-    where :math:`w` and :math:`c` are the word and class respectively. Thus  
-    the :math:`count(w|c)` represents the number of times the word appears in 
-    documents of the given class. :math:`count(c)` is the total number of 
-    words in the class. :math:`|V|` is the size is the size of the 
-    vocabulary (i.e., total number of unique words in the training data).
-    
-    Parameters 
-    -----------
-    
-    x, y : Arraylike 1d or str, str  
-       One dimensional arrays. In principle if data is supplied, they must 
-       constitute series.  If `x` and `y` are given as string values, the 
-       `data` must be supplied. x and y names must be included in the  
-       dataframe otherwise an error raises.
-       
-       :math:`x` and :math:`y` are word :math:`w` and the given class :math:`c` 
-       respectively. 
-       
-    data: pd.DataFrame, 
-       Data containing x and y names. Need to be supplied when x and y 
-       are given as string names. 
-       
-    corpus: Tuple 
-        a list of (word, class) tuple
-    
-    word: 
-        the word for which the probability is to be estimated
-    given_class: 
-        the class under consideration
-    Returns 
-    ---------
-        P(word|class) with Laplace smoothing
-        
-    Examples 
-    -----------
-    >>> from gofast.tools.mlutils import laplace_smoothing
-    >>> corpus = [('apple', 'fruit'), ('orange', 'fruit'), 
-                  ('apple', 'fruit'), ('car', 'object'), 
-                  ('bike', 'object')]
-    >>> laplace_smoothing
-    >>> # This will be higher than 0, even if "apple" is not in the corpus.
-    >>> laplace_smoothing(corpus, word='apple', given_class = 'fruit'))  
-    >>> # This will be greater than 0 due to the smoothing.
-    >>> laplace_smoothing(corpus, word ='banana', given_class = 'fruit'))  
-    """
-    
-    x, y = assert_xy_in(x=x , y = y , data = data ) 
-    
-    # corpus = list ( zip ( x, y )) 
-    
-    def _laplace_smoothing ( corpus, word, given_class): 
-        # Create a set to store unique words (vocabulary)
-        vocabulary = set([word for word, _ in corpus])
-        # Total number of unique words
-        V = len(vocabulary)
-        
-        # Count the number of times the word appears 
-        # in documents of the given class
-        word_class_count = sum(1 for w, c in corpus 
-                               if w == word and c == given_class)
-        # Count the total number of words in the class
-        class_count = sum(1 for _, c in corpus if c == given_class)
-    
-        # Apply the Laplace smoothing formula
-        prob = (word_class_count + 1) / (class_count + V)
-        
-        return prob 
-    
-    # get the list of categorical values in the x 
-    # cvalues = np.unique ( x, dtype = x.dtype ) 
-    
-    # dict_c_prob = {c: _laplace_smoothing  ( corpus, c, )}
-    
-    # return P  
-    
+  
 def evaluate_model(
     model: _F, 
     X:NDArray |DataFrame, 

@@ -3582,9 +3582,93 @@ def soft_bin_stat(
 
     return result
 
-   
+def gradient_boosting_regressor(
+        X, y, n_estimators=100, learning_rate=0.1, max_depth=1):
+    """
+    Implement a simple version of Gradient Boosting Regressor.
+
+    Gradient Boosting builds an additive model in a forward stage-wise fashion. 
+    At each stage, regression trees are fit on the negative gradient of the loss function.
+
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        The input samples.
+    y : ndarray of shape (n_samples,)
+        The target values (real numbers).
+    n_estimators : int, default=100
+        The number of boosting stages to be run.
+    learning_rate : float, default=0.1
+        Learning rate shrinks the contribution of each tree by `learning_rate`.
+    max_depth : int, default=1
+        The maximum depth of the individual regression estimators.
+
+    Returns
+    -------
+    y_pred : ndarray of shape (n_samples,)
+        The predicted values.
+
+    Mathematical Formula
+    --------------------
+    Given a differentiable loss function L(y, F(x)), the general idea is 
+    to iteratively construct additive models as follows:
     
-   
+    .. math:: 
+        F_{m}(x) = F_{m-1}(x) + \\gamma_{m} h_{m}(x)
+
+    where F_{m} is the model at iteration m, \\gamma_{m} is the step size,
+    and h_{m} is the weak learner.
+
+    Notes
+    -----
+    Gradient Boosting is widely used in machine learning for regression and 
+    classification problems. It's effective in scenarios where data is not 
+    linearly separable.
+
+    References
+    ----------
+    - J. H. Friedman, "Greedy Function Approximation: A Gradient Boosting Machine," 1999.
+    - T. Hastie, R. Tibshirani, and J. Friedman, "The Elements of Statistical Learning," Springer, 2009.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import make_regression
+    >>> X, y = make_regression(n_samples=100, n_features=1, noise=10)
+    >>> y_pred = gradient_boosting_regressor(X, y, n_estimators=100,
+                                             learning_rate=0.1)
+    >>> print(y_pred[:5])
+    """
+    from ..estimators import DecisionStumpRegressor
+    # Initialize model
+    F_m = np.zeros(len(y))
+    # for m in range(n_estimators):
+        # Compute negative gradient
+        # residual = -(y - F_m)
+
+        # # Fit a regression tree to the negative gradient
+        # tree = DecisionTreeRegressor(max_depth=max_depth)
+        # tree.fit(X, residual)
+
+        # # Update the model
+        # F_m += learning_rate * tree.predict(X)
+
+    for m in range(n_estimators):
+        # Compute negative gradient
+        residual = -(y - F_m)
+    
+        # Fit a decision stump to the negative gradient
+        stump = DecisionStumpRegressor()
+        stump.fit(X, residual)
+    
+        # Update the model
+        F_m += learning_rate * stump.predict(X)
+    
+
+    return F_m
+
+
+
+
     
    
     

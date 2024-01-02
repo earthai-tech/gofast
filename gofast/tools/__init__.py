@@ -29,7 +29,20 @@ from .mathex import (
     smoothing, 
     quality_control, 
     adaptive_moving_average, 
-    savgol_filter, 
+    savgol_filter,
+    linear_regression,
+    quadratic_regression,
+    exponential_regression,
+    logarithmic_regression,
+    sinusoidal_regression,
+    cubic_regression,
+    step_regression, 
+    standard_scaler, 
+    minmax_scaler, 
+    normalize, 
+    category_count, 
+    soft_bin_stat, 
+    binning_statistic, 
     )
 from .funcutils import ( 
     reshape, 
@@ -81,6 +94,8 @@ from .mlutils import (
     naive_data_split, 
     laplace_smoothing, 
     features_in, 
+    laplace_smoothing_categorical, 
+    laplace_smoothing_word
     
     ) 
 __all__=[
@@ -166,7 +181,22 @@ __all__=[
     "butterworth_filter",
     "plot_l_curve", 
     "laplace_smoothing", 
-    "features_in"
+    "features_in", 
+    "linear_regression",
+    "quadratic_regression",
+    "exponential_regression",
+    "logarithmic_regression",
+    "sinusoidal_regression",
+    "cubic_regression",
+    "step_regression", 
+    "standard_scaler", 
+    "minmax_scaler", 
+    "normalize", 
+    "category_count", 
+    "soft_bin_stat", 
+    "binning_statistic",
+    "laplace_smoothing_categorical", 
+    "laplace_smoothing_word",
     
     ]
 

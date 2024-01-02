@@ -39,6 +39,7 @@ __all__=[
    "BenchmarkClassifier", 
    "BoostedRegressionTree",
    "BoostedClassifierTree",
+   "DecisionStumpRegressor",
    "DecisionTreeBasedRegressor",
    "DecisionTreeBasedClassifier",
    "GradientDescentClassifier",
@@ -59,7 +60,199 @@ __all__=[
    "WeightedAverageClassifier",
  ]
 
+class DecisionStumpRegressor:
+    """
+    A simple decision stump regressor for use in gradient boosting.
 
+    This class implements a basic decision stump, which is a decision tree 
+    with only one decision node and two leaves. The stump splits the data 
+    based on the feature and threshold that minimizes the error.
+    
+    Mathematical Formulation
+    ------------------------
+    For each feature, the stump examines all possible thresholds
+    (unique values of the feature). The MSE for a split at a given 
+    threshold t is calculated as follows:
+
+    .. math::
+        MSE = \sum_{i \in left(t)} (y_i - \overline{y}_{left})^2 +\\
+            \sum_{i \in  right(t)} (y_i - \overline{y}_{right})^2
+
+    where `left(t)` and `right(t)` are the sets of indices of samples that fall 
+    to the left and right of the threshold t, respectively. `\overline{y}_{left}` 
+    and `\overline{y}_{right}` are the mean values of the target variable for 
+    the samples in each of these two sets.
+
+    The algorithm selects the feature and threshold that yield the lowest MSE.
+
+    Attributes
+    ----------
+    split_feature_ : int
+        Index of the feature used for the split.
+    split_value_ : float
+        Threshold value used for the split.
+    left_value_ : float
+        The value predicted for samples where the feature value is less than 
+        or equal to the split value.
+    right_value_ : float
+        The value predicted for samples where the feature value is greater
+        than the split value.
+
+    Methods
+    -------
+    fit(X, y)
+        Fits the decision stump to the data.
+    predict(X)
+        Predicts the target values for the given data.
+    decision_function(X)
+       Compute the raw decision scores for the given input data.
+       
+    Examples
+    --------
+    >>> from sklearn.datasets import make_regression
+    >>> X, y = make_regression(n_samples=100, n_features=1, noise=10)
+    >>> stump = DecisionStumpRegressor()
+    >>> stump.fit(X, y)
+    >>> predictions = stump.predict(X)
+    """
+
+    def __init__(self ):
+        self.split_feature=None
+        self.split_value=None
+        self.left_value=None
+        self.right_value=None
+        
+    def fit(self, X, y):
+        """
+        Fits the decision stump to the data.
+
+        The method iterates over all features and their unique values to 
+        find the split 
+        that minimizes the mean squared error.
+
+        Parameters
+        ----------
+        X : ndarray of shape (n_samples, n_features)
+            The input samples.
+        y : ndarray of shape (n_samples,)
+            The target values.
+
+        Return 
+        -------
+        self: object 
+           Return self.
+        Notes
+        -----
+        The decision stump is a weak learner and is primarily used in
+        ensemble methods like AdaBoost and Gradient Boosting.
+        """
+        min_error = float('inf')
+        for feature in range(X.shape[1]):
+            possible_values = np.unique(X[:, feature])
+            for value in possible_values:
+                # Create a split and calculate the mean value for each leaf
+                left_mask = X[:, feature] <= value
+                right_mask = X[:, feature] > value
+                left_value = np.mean(y[left_mask]) if np.any(left_mask) else 0
+                right_value = np.mean(y[right_mask]) if np.any(right_mask) else 0
+
+                # Calculate the total error for this split
+                error = np.sum((y[left_mask] - left_value) ** 2
+                               ) + np.sum((y[right_mask] - right_value) ** 2)
+
+                # Update the stump's split if this split is better
+                if error < min_error:
+                    min_error = error
+                    self.split_feature = feature
+                    self.split_value= value
+                    self.left_value= left_value
+                    self.right_value= right_value
+                    
+        self.fitted_=True 
+        
+        return self 
+       
+    def predict(self, X):
+        """
+        Predict target values for the given input data using the trained 
+        decision stump.
+
+        The prediction is based on the split learned during the fitting 
+        process. Each sample in X is assigned a value based on which side 
+        of the split it falls on.
+
+        Parameters
+        ----------
+        X : ndarray of shape (n_samples, n_features)
+            The input samples for which predictions are to be made.
+
+        Returns
+        -------
+        y_pred : ndarray of shape (n_samples,)
+            The predicted target values for each sample in X.
+
+        Examples
+        --------
+        >>> from sklearn.datasets import make_regression
+        >>> X, y = make_regression(n_samples=100, n_features=1, noise=10)
+        >>> stump = DecisionStumpRegressor()
+        >>> stump.fit(X, y)
+        >>> predictions = stump.predict(X)
+        >>> print(predictions[:5])
+
+        Notes
+        -----
+        The `predict` method should be called only after the `fit` method has 
+        been called. It uses the `split_feature`, `split_value`, `left_value`,
+        and `right_value` attributes set by the `fit` method to make predictions.
+        """
+        check_is_fitted(self, "fitted_")
+        # Determine which side of the split each sample falls on
+        left_mask = X[:, self.split_feature] <= self.split_value
+        y_pred = np.zeros(X.shape[0])
+        y_pred[left_mask] = self.left_value
+        y_pred[~left_mask] = self.right_value
+        return y_pred
+
+    def decision_function(self, X):
+        """
+        Compute the raw decision scores for the given input data.
+
+        The decision function calculates the continuous value for each sample in X
+        based on the trained decision stump. It reflects the model's degree of 
+        certainty about the classification.
+
+        Parameters
+        ----------
+        X : ndarray of shape (n_samples, n_features)
+            The input samples for which decision scores are to be computed.
+
+        Returns
+        -------
+        decision_scores : ndarray of shape (n_samples,)
+            The raw decision scores for each sample in X.
+
+        Examples
+        --------
+        >>> from sklearn.datasets import make_regression
+        >>> X, y = make_regression(n_samples=100, n_features=1, noise=10)
+        >>> stump = DecisionStumpRegressor()
+        >>> stump.fit(X, y)
+        >>> decision_scores = stump.decision_function(X)
+        >>> print(decision_scores[:5])
+
+        Notes
+        -----
+        This method should be called after the model has been fitted. It uses the
+        attributes set during the `fit` method (i.e., `split_feature`, `split_value`,
+        `left_value`, `right_value`) to compute the decision scores.
+        """
+        check_is_fitted(self, "fitted_")
+        # Calculate the decision scores based on the split
+        decision_scores = np.where(X[:, self.split_feature] <= self.split_value,
+                                   self.left_value, self.right_value)
+        return decision_scores
+    
 class BenchmarkRegressor(BaseEstimator, RegressorMixin):
     """
     Benchmark Regressor for combining various regression estimators.
@@ -213,7 +406,6 @@ class BenchmarkRegressor(BaseEstimator, RegressorMixin):
         check_is_fitted (self, 'stacked_model_')
         return self.stacked_model_.score(X, y)
     
-
 class BenchmarkClassifier(BaseEstimator, ClassifierMixin):
     """
     Benchmark Classifier for combining various classification estimators.
@@ -5111,6 +5303,320 @@ class StandardEstimator:
 
         return self
   
+class _GradientBoostingRegressor:
+    """
+    A simple gradient boosting regressor for regression tasks.
+
+    Gradient Boosting builds an additive model in a forward stage-wise fashion. 
+    At each stage, regression trees are fit on the negative gradient of the loss function.
+
+    Parameters
+    ----------
+    n_estimators : int, optional (default=100)
+        The number of boosting stages to be run. This is essentially the 
+        number of decision trees in the ensemble.
+
+    learning_rate : float, optional (default=1.0)
+        Learning rate shrinks the contribution of each tree. There is a 
+        trade-off between learning_rate and n_estimators.
+        
+    max_depth : int, default=1
+        The maximum depth of the individual regression estimators.
+        
+    Attributes
+    ----------
+    estimators_ : list of DecisionStumpRegressor
+        The collection of fitted sub-estimators.
+
+    Methods
+    -------
+    fit(X, y)
+        Fit the gradient boosting model to the training data.
+    predict(X)
+        Predict continuous target values for samples in X.
+    decision_function(X)
+        Compute the raw decision scores for the input data.
+
+    Mathematical Formula
+    --------------------
+    Given a differentiable loss function L(y, F(x)), the model is 
+    constructed as follows:
+    
+    .. math:: 
+        F_{m}(x) = F_{m-1}(x) + \\gamma_{m} h_{m}(x)
+
+    where F_{m} is the model at iteration m, \\gamma_{m} is the step size, 
+    and h_{m} is the weak learner.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import make_regression
+    >>> X, y = make_regression(n_samples=100, n_features=1, noise=10)
+    >>> model = GradientBoostingRegressor(n_estimators=100, learning_rate=0.1)
+    >>> model.fit(X, y)
+    >>> print(model.predict(X)[:5])
+    >>> print(model.decision_function(X)[:5])
+
+    References
+    ----------
+    - J. H. Friedman, "Greedy Function Approximation: A Gradient Boosting Machine," 1999.
+    - T. Hastie, R. Tibshirani, and J. Friedman, "The Elements of Statistical Learning," Springer, 2009.
+
+    See Also
+    --------
+    DecisionTreeRegressor, RandomForestRegressor, AdaBoostRegressor
+
+    Applications
+    ------------
+    Gradient Boosting Regressor is commonly used in various regression tasks where the relationship 
+    between features and target variable is complex and non-linear. It is particularly effective 
+    in predictive modeling and risk assessment applications.
+    """
+
+    def __init__(self, n_estimators=100, learning_rate=1.0, max_depth=1):
+        self.n_estimators = n_estimators
+        self.learning_rate = learning_rate
+        self.max_depth=max_depth
+
+    def fit(self, X, y):
+        """
+        Fit the gradient boosting regressor to the training data.
+
+        The method sequentially adds decision stumps to the ensemble, each one 
+        correcting its predecessor. The fitting process involves finding the best 
+        stump at each stage that reduces the overall prediction error.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples used for training. Each row in X is a sample and each 
+            column is a feature.
+
+        y : array-like of shape (n_samples,)
+            The target values (continuous). The regression targets are continuous 
+            values which the model will attempt to predict.
+
+        Raises
+        ------
+        ValueError
+            If input arrays X and y have incompatible shapes.
+
+        Notes
+        -----
+        - The fit process involves computing pseudo-residuals which are the gradients 
+          of the loss function with respect to the model's predictions. These are used 
+          as targets for the subsequent weak learner.
+        - The model complexity increases with each stage, controlled by the learning rate.
+
+        Examples
+        --------
+        >>> from sklearn.datasets import make_regression
+        >>> X, y = make_regression(n_samples=100, n_features=1, noise=10)
+        >>> reg = GradientBoostingRegressor(n_estimators=50, learning_rate=0.1)
+        >>> reg.fit(X, y)
+        """
+        if X.shape[0] != y.shape[0]:
+            raise ValueError("Mismatched number of samples between X and y")
+
+        # Initialize the prediction to zero
+        F_m = np.zeros(y.shape)
+
+        for m in range(self.n_estimators):
+            # Compute residuals
+            residuals = y - F_m
+
+            # # Fit a regression tree to the negative gradient
+            tree = DecisionTreeRegressor(max_depth=self.max_depth)
+            tree.fit(X, residuals)
+
+            # Update the model predictions
+            F_m += self.learning_rate * tree.predict(X)
+
+            # Store the fitted estimator
+            self.estimators_.append(tree)
+
+        return self
+
+    def predict(self, X):
+        """
+        Predict continuous target values for samples in X.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            The predicted target values.
+        """
+        F_m = sum(self.learning_rate * estimator.predict(X)
+                  for estimator in self.estimators_)
+        return F_m
+
+    def decision_function(self, X):
+        """
+        Compute the raw decision scores for the input data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input samples.
+
+        Returns
+        -------
+        decision_scores : array-like of shape (n_samples,)
+            The raw decision scores for each sample.
+        """
+        return sum(self.learning_rate * estimator.predict(X)
+                   for estimator in self.estimators_)
+    
+class _GradientBoostingClassifier:
+    """
+    A simple gradient boosting classifier for binary classification.
+
+    Gradient boosting is a machine learning technique for regression and 
+    classification problems, which produces a prediction model in the form 
+    of an ensemble of weak prediction models, typically decision trees. It 
+    builds the model in a stage-wise fashion like other boosting methods do, 
+    and it generalizes them by allowing optimization of an arbitrary 
+    differentiable loss function.
+
+    Attributes
+    ----------
+    n_estimators : int
+        The number of boosting stages to be run.
+    learning_rate : float
+        Learning rate shrinks the contribution of each tree.
+    estimators_ : list of DecisionStumpRegressor
+        The collection of fitted sub-estimators.
+
+    Methods
+    -------
+    fit(X, y)
+        Build the gradient boosting model from the training set (X, y).
+    predict(X)
+        Predict class labels for samples in X.
+    predict_proba(X)
+        Predict class probabilities for X.
+
+    Mathematical Formula
+    --------------------
+    The model is built in a stage-wise fashion as follows:
+    .. math:: 
+        F_{m}(x) = F_{m-1}(x) + \\gamma_{m} h_{m}(x)
+
+    where F_{m} is the model at iteration m, \\gamma_{m} is the step size, 
+    and h_{m} is the weak learner.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import make_classification
+    >>> X, y = make_classification(n_samples=100, n_features=20, n_classes=2)
+    >>> model = GradientBoostingClassifier(n_estimators=100, learning_rate=0.1)
+    >>> model.fit(X, y)
+    >>> print(model.predict(X)[:5])
+    >>> print(model.predict_proba(X)[:5])
+
+    References
+    ----------
+    - J. H. Friedman, "Greedy Function Approximation: A Gradient Boosting Machine," 1999.
+    - T. Hastie, R. Tibshirani, and J. Friedman, "The Elements of Statistical
+    Learning," Springer, 2009.
+
+    Applications
+    ------------
+    Gradient Boosting can be used for both regression and classification problems. 
+    It's particularly effective in scenarios where the relationship between 
+    the input features and target variable is complex and non-linear. It's 
+    widely used in applications like risk modeling, classification of objects,
+    and ranking problems.
+    """
+
+    def __init__(self, n_estimators=100, learning_rate=1.0):
+        self.n_estimators = n_estimators
+        self.learning_rate = learning_rate
+        self.estimators_ = []
+
+    def fit(self, X, y):
+        """
+        Fit the gradient boosting classifier.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The training input samples.
+        y : array-like of shape (n_samples,)
+            The target values (class labels).
+        """
+        # Convert labels to 0 and 1
+        y = np.where(y == np.unique(y)[0], -1, 1)
+
+        F_m = np.zeros(len(y))
+
+        for m in range(self.n_estimators):
+            # Compute pseudo-residuals
+            residuals = -1 * y * self._sigmoid(-y * F_m)
+
+            # Fit a decision stump to the pseudo-residuals
+            stump = DecisionStumpRegressor()
+            stump.fit(X, residuals)
+
+            # Update the model
+            F_m += self.learning_rate * stump.predict(X)
+            self.estimators_.append(stump)
+
+    def predict_proba(self, X):
+        """
+        Predict class probabilities for X.
+
+        The predicted class probabilities are the model's confidence
+        scores for the positive class.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input samples.
+
+        Returns
+        -------
+        proba : array-like of shape (n_samples, 2)
+            The class probabilities for the input samples. The columns 
+            correspond to the negative and positive classes, respectively.
+            
+        Examples 
+        ----------
+        from sklearn.datasets import make_classification
+        X, y = make_classification(n_samples=100, n_features=20, n_classes=2)
+        model = GradientBoostingClassifier(n_estimators=100, learning_rate=0.1)
+        model.fit(X, y)
+        print(model.predict_proba(X)[:5])
+        """
+        F_m = sum(self.learning_rate * estimator.predict(X) for estimator in self.estimators_)
+        proba_positive_class = self._sigmoid(F_m)
+        return np.vstack((1 - proba_positive_class, proba_positive_class)).T
+
+    def _sigmoid(self, z):
+        """Compute the sigmoid function."""
+        return 1 / (1 + np.exp(-z))
+
+    def predict(self, X):
+        """
+        Predict class labels for samples in X.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            The predicted class labels.
+        """
+        F_m = sum(self.learning_rate * estimator.predict(X) for estimator in self.estimators_)
+        return np.where(self._sigmoid(F_m) > 0.5, 1, 0)
 
 
 
