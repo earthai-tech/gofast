@@ -922,14 +922,13 @@ class EvalPlotter(BasePlot):
         # Ensuring data is in DataFrame format and managing target variables
         X = build_data_if(X, to_frame=True, force=True, input_name='X', 
                           columns=columns, raise_warning='silence')
-        X, y = self._target_manager(X, y, prefix)
+        X, self.y = self._target_manager(X, y, prefix)
         
         # Retaining only numeric data for plotting
         self.X = to_numeric_dtypes(X, pop_cat_features=True)
         if len(X.columns) == 0: 
             raise TypeError(f"{self.__class__.__name__!r} expects numeric data frame only.")
             
-        self.y = copy.deepcopy(y)
         return self
 
     def plot2d(self, x_feature, y_feature, groups=None, xlabel=None, 
@@ -1304,7 +1303,7 @@ class EvalPlotter(BasePlot):
         if self.encode_labels: 
             self.encode_y( y,  prefix =prefix )
 
-        return X, self.y  
+        return X, y  
   
     def transform (self, X, **t_params): 
         """ Transform the data and imputs the numerical features. 
