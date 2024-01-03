@@ -28,91 +28,6 @@ from ..tools.funcutils import format_to_datetime
 from ..tools._dependency import import_optional_dependency 
 
 class TimeSeriesPlotter (BasePlot) :
-    """
-    A class for visualizing time series data in a Pandas DataFrame.
-
-    This class provides various methods for plotting time series data,
-    offering a range of visualizations to analyze and present the data effectively.
-
-    Parameters
-    ----------
-    data : pandas.DataFrame
-        The DataFrame containing time series data.
-    date_col : str
-        The name of the column in `data` that contains the date or time information.
-    value_col : str
-        The name of the column in `data` that contains the values to be plotted.
-
-    Attributes
-    ----------
-    data : pandas.DataFrame
-        The DataFrame provided by the user.
-    date_col : str
-        The column in `data` representing the time aspect.
-    value_col : str
-        The column in `data` representing the numerical values.
-
-    Methods
-    -------
-    line_plot(...)
-        Generates a line plot of the time series data.
-    histogram(...)
-        Generates a histogram of the values in the time series.
-    box_plot(...)
-        Generates a box plot of the time series data.
-    area_plot(...)
-        Generates an area plot of the time series data.
-    heatmap_correlation(...)
-        Generates a heatmap showing correlations between columns in the data.
-    lag_plot(...)
-        Generates a lag plot to analyze autocorrelation in the time series.
-    rolling_mean_std(...)
-        Plots the rolling mean and standard deviation.
-    autocorrelation_plot(...)
-        Generates an autocorrelation plot for the time series.
-    pacf_plot(...)
-        Generates a partial autocorrelation plot for the time series.
-    decomposition_plot(...)
-        Decomposes the time series into trend, seasonal, and residual components.
-    scatter_plot(...)
-        Generates a scatter plot of the time series data.
-    violin_plot(...)
-        Generates a violin plot of the time series data.
-    cumulative_distribution_plot(...)
-        Generates a cumulative distribution plot of the time series data.
-    stacked_bar_plot(...)
-        Generates a stacked bar plot of the time series data.
-    pie_chart(...)
-        Generates a pie chart of the distribution of values.
-    hexbin_plot(...)
-        Generates a hexbin plot of the time series data.
-    kde_plot(...)
-        Generates a kernel density estimate plot of the time series data.
-    step_plot(...)
-        Generates a step plot of the time series data.
-    error_bar_plot(...)
-        Generates an error bar plot of the time series data.
-    stacked_line_plot(...)
-        Generates a stacked line plot of the time series data.
-    waterfall_plot(...)
-        Generates a waterfall plot of the time series data.
-    bubble_plot(...)
-        Generates a bubble plot of the time series data.
-    sunburst_plot(...)
-        Generates a sunburst plot of hierarchical data.
-    radar_chart(...)
-        Generates a radar chart for multivariate data comparison.
-
-    Examples
-    --------
-    >>> df = pd.DataFrame({
-    ...     'Date': pd.date_range(start='2021-01-01', periods=5, freq='D'),
-    ...     'Value': [1, 2, 3, 4, 5]
-    ... })
-    >>> plotter = TimeSeriesPlotter()
-    >>> plotter.fit(df, 'Date', 'Value')
-    >>> plotter.line_plot()
-    """
     def __init__(self,  **kws):
         
         super().__init__(**kws) 
@@ -883,7 +798,92 @@ class TimeSeriesPlotter (BasePlot) :
         if self.value_col is None: 
             raise NotFittedError(msg.format(expobj=self))
         return 1 
-    
+ 
+TimeSeriesPlotter.__doc__="""\
+A class for visualizing time series data in a Pandas DataFrame.
+
+This class provides various methods for plotting time series data,
+offering a range of visualizations to analyze and present the data effectively.
+
+Parameters
+----------
+data : pandas.DataFrame
+    The DataFrame containing time series data.
+date_col : str
+    The name of the column in `data` that contains the date or time information.
+value_col : str
+    The name of the column in `data` that contains the values to be plotted.
+
+Attributes
+----------
+data : pandas.DataFrame
+    The DataFrame provided by the user.
+date_col : str
+    The column in `data` representing the time aspect.
+value_col : str
+    The column in `data` representing the numerical values.
+
+Methods
+-------
+line_plot(...)
+    Generates a line plot of the time series data.
+histogram(...)
+    Generates a histogram of the values in the time series.
+box_plot(...)
+    Generates a box plot of the time series data.
+area_plot(...)
+    Generates an area plot of the time series data.
+heatmap_correlation(...)
+    Generates a heatmap showing correlations between columns in the data.
+lag_plot(...)
+    Generates a lag plot to analyze autocorrelation in the time series.
+rolling_mean_std(...)
+    Plots the rolling mean and standard deviation.
+autocorrelation_plot(...)
+    Generates an autocorrelation plot for the time series.
+pacf_plot(...)
+    Generates a partial autocorrelation plot for the time series.
+decomposition_plot(...)
+    Decomposes the time series into trend, seasonal, and residual components.
+scatter_plot(...)
+    Generates a scatter plot of the time series data.
+violin_plot(...)
+    Generates a violin plot of the time series data.
+cumulative_distribution_plot(...)
+    Generates a cumulative distribution plot of the time series data.
+stacked_bar_plot(...)
+    Generates a stacked bar plot of the time series data.
+pie_chart(...)
+    Generates a pie chart of the distribution of values.
+hexbin_plot(...)
+    Generates a hexbin plot of the time series data.
+kde_plot(...)
+    Generates a kernel density estimate plot of the time series data.
+step_plot(...)
+    Generates a step plot of the time series data.
+error_bar_plot(...)
+    Generates an error bar plot of the time series data.
+stacked_line_plot(...)
+    Generates a stacked line plot of the time series data.
+waterfall_plot(...)
+    Generates a waterfall plot of the time series data.
+bubble_plot(...)
+    Generates a bubble plot of the time series data.
+sunburst_plot(...)
+    Generates a sunburst plot of hierarchical data.
+radar_chart(...)
+    Generates a radar chart for multivariate data comparison.
+
+Examples
+--------
+>>> df = pd.DataFrame({
+...     'Date': pd.date_range(start='2021-01-01', periods=5, freq='D'),
+...     'Value': [1, 2, 3, 4, 5]
+... })
+>>> plotter = TimeSeriesPlotter()
+>>> plotter.fit(df, 'Date', 'Value')
+>>> plotter.line_plot()
+"""
 if __name__ == "__main__":
     
     dates = pd.date_range(start="2020-01-01", end="2020-12-31", freq='M')

@@ -15,7 +15,8 @@ from .baseutils import (
     save_or_load, 
     request_data, 
     fancier_downloader,
-    speed_rowwise_process, 
+    speed_rowwise_process,
+    unified_storage, 
     )
 from .mathex import ( 
     interpolate1d, 
@@ -78,6 +79,8 @@ from .mlutils import (
     soft_scaler, 
     select_feature_importances, 
     make_pipe, 
+    build_data_preprocessor, 
+    load_saved_model, 
     bi_selector, 
     get_target, 
     export_target,  
@@ -91,7 +94,7 @@ from .mlutils import (
     stratify_categories, 
     serialize_data, 
     load_dumped_data, 
-    naive_data_split, 
+    soft_data_split, 
     laplace_smoothing, 
     features_in, 
     laplace_smoothing_categorical, 
@@ -139,6 +142,7 @@ __all__=[
     'soft_scaler', 
     'select_feature_importances', 
     'make_pipe', 
+    'build_data_preprocessor', 
     'bi_selector', 
     'get_target', 
     'export_target',  
@@ -152,7 +156,7 @@ __all__=[
     'stratify_categories', 
     'serialize_data', 
     'load_dumped_data', 
-    'naive_data_split', 
+    'soft_data_split', 
     'soft_imputer', 
     'soft_scaler', 
     'make_pipe',
@@ -178,6 +182,7 @@ __all__=[
     "resampling", 
     "bin_counting",
     "adaptive_moving_average", 
+    "load_saved_model", 
     "butterworth_filter",
     "plot_l_curve", 
     "laplace_smoothing", 
@@ -197,6 +202,7 @@ __all__=[
     "binning_statistic",
     "laplace_smoothing_categorical", 
     "laplace_smoothing_word",
+    "unified_storage", 
     
     ]
 

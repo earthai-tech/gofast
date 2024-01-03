@@ -9,68 +9,365 @@ import warnings
 from pprint import pprint 
 import numpy as np 
 
-from .._docstring import ( 
-    DocstringComponents, 
-    _core_docs 
-    ) 
-from .._gofastlog import gofastlog
-
-from sklearn.metrics import ( 
-    mean_squared_error,
-    )
-
+from sklearn.base import BaseEstimator, clone
 from sklearn.linear_model import LogisticRegression 
-from sklearn.model_selection import ( 
-    RandomizedSearchCV,
-    GridSearchCV, 
-    cross_val_score,
-    )
-from sklearn.pipeline import Pipeline 
+from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import RandomizedSearchCV, GridSearchCV, KFold
+from sklearn.model_selection import cross_val_score, StratifiedKFold, LeaveOneOut
+from sklearn.pipeline import Pipeline  
 
-from .._typing import (
-    List,
-    _F, 
-    ArrayLike, 
-    NDArray, 
-    Dict,
-    Any, 
-    DataFrame, 
-    Series,
-    
-    )
-from ..exceptions import ( 
-    EstimatorError, 
-    NotFittedError, 
-    ) 
-from ..tools.funcutils import ( 
-    _assert_all_types, 
-    get_params, 
-    save_job, 
-    listing_items_format, 
-    pretty_printer, 
-
-    )
+from .._docstring import DocstringComponents, _core_docs 
+from .._gofastlog import gofastlog
+from .._typing import _F, List,ArrayLike, NDArray, Dict, Any 
+from .._typing import DataFrame, Series,Optional, Union
+from ..exceptions import EstimatorError, NotFittedError
 from ..tools.box import Boxspace 
-from ..tools.validator import ( 
-    check_X_y, check_array, 
-    check_consistent_length, 
-    get_estimator_name
-    )
+from ..tools.funcutils import _assert_all_types, get_params, save_job
+from ..tools.funcutils import listing_items_format, pretty_printer
+from ..tools.validator import check_X_y, check_array, check_consistent_length 
+from ..tools.validator import get_estimator_name
 
-from .utils import ( 
-    get_scorers, 
-    naive_evaluation
-    ) 
-
+from .utils import get_scorers, naive_evaluation
+ 
 _logger = gofastlog().get_gofast_logger(__name__)
 
 __all__=["BaseEvaluation", "GridSearch", "GridSearchMultiple",
-         "get_best_kPCA_params", 
+         "get_best_kPCA_params", "CrossValidator", 
     ]
 
 _param_docs = DocstringComponents.from_nested_components(
     core=_core_docs["params"], 
     )
+
+class CrossValidator:
+    """
+    A class for handling cross-validation of machine learning models.
+
+    This class provides functionalities for performing cross-validation on
+    various classifiers or regressors using different scoring strategies.
+
+    Attributes
+    ----------
+    clf : BaseEstimator
+        The machine learning model to be used for cross-validation.
+    cv : int, optional
+        The number of folds for cross-validation (default is 5).
+    scoring : str, optional
+        The scoring strategy to evaluate the model (default is 'accuracy').
+    results : Optional[Tuple[np.ndarray, float]]
+        Stored results of the cross-validation, including scores and mean score.
+
+    Methods
+    -------
+    fit(X, y=None):
+        Fits the model to the data (X, y) and performs cross-validation.
+    calculate_mean_score():
+        Calculates and returns the mean of the cross-validation scores.
+    display_results():
+        Prints the cross-validation scores and their mean.
+        
+    Examples
+    ---------
+    >>> from gofast.models.search import CrossValidator
+    >>> from sklearn.tree import DecisionTreeClassifier
+    >>> clf = DecisionTreeClassifier()
+    >>> cross_validator = CrossValidator(clf, cv=5, scoring='accuracy')
+    >>> X, y = # Load your dataset here
+    >>> cross_validator.fit(X, y)
+    >>> cross_validator.displayResults()
+    """
+
+    def __init__(
+            self, clf: BaseEstimator,
+            cv: int = 5, 
+            scoring: str = 'accuracy'
+            ):
+        """
+        Initializes the CrossValidator with a classifier and evaluation parameters.
+        """
+        self.clf = clf
+        self.cv = cv
+        self.scoring = scoring
+
+    def fit(self, X: Union[ArrayLike, list],
+            y: Optional[Union[ArrayLike, list]] = None):
+        """
+        Fits the model to the data (X, y) and performs cross-validation.
+
+        Parameters
+        ----------
+        X : np.ndarray or list
+            The feature dataset for training the model.
+        y : np.ndarray or list, optional
+            The target labels for the dataset (default is None).
+
+        Raises
+        ------
+        ValueError
+            If the target labels `y` are not provided for supervised 
+            learning models.
+        """
+        if y is None and issubclass(self.clf.__class__, BaseEstimator):
+            raise ValueError("Target labels `y` must be provided for"
+                             " supervised learning models.")
+        
+        scores = cross_val_score(self.clf, X, y, cv=self.cv, scoring=self.scoring)
+        mean_score = scores.mean()
+        self.results_ = (scores, mean_score)
+
+        return self 
+    
+    def calculateMeanScore(self) -> float:
+        """
+        Calculate and return the mean score from the cross-validation results.
+
+        Returns
+        -------
+        float
+            Mean of the cross-validation scores.
+
+        Raises
+        ------
+        ValueError
+            If cross-validation has not been performed yet.
+        """
+        self.inspect 
+        if self.results_ is None:
+            raise ValueError("Cross-validation has not been performed yet.")
+        return self.results_[1]
+    
+        return self 
+
+    def displayResults(self):
+        """
+        Display the cross-validation scores and their mean.
+
+        Raises
+        ------
+        ValueError
+            If cross-validation has not been performed yet.
+        """
+        self.inspect 
+        if self.results_ is None:
+            raise ValueError("Cross-validation has not been performed yet.")
+        
+        scores, mean_score = self.results_
+        clf_name = self.clf.__class__.__name__
+        print(f'Classifier/Regressor: {clf_name}')
+        print(f'Cross-validation scores: {scores}')
+        print(f'Mean score: {mean_score:.4f}')
+
+    def setCVStrategy(self, cv_strategy: Union[int, str, object], 
+                        n_splits: int = 5, random_state: int = None):
+        """
+        Sets the cross-validation strategy for the model.
+
+        Parameters
+        ----------
+        cv_strategy : int, str, or cross-validation generator object
+            The cross-validation strategy to be used. If an integer is provided,
+            KFold is assumed with that many splits. If a string is provided,
+            it must be one of 'kfold', 'stratified', or 'leaveoneout'.
+            Alternatively, a custom cross-validation generator object can be provided.
+        n_splits : int, optional
+            The number of splits for KFold or StratifiedKFold (default is 5).
+        random_state : int, optional
+            Random state for reproducibility (default is None).
+        
+        Returns
+        -------
+        cv : cross-validation generator object
+            The configured cross-validation generator instance.
+            
+        Notes
+        -----
+        - 'kfold': KFold divides all the samples into 'n_splits' number of groups,
+           called folds, of equal sizes (if possible). Each fold is then used as
+           a validation set once while the remaining folds form the training set.
+        - 'stratified': StratifiedKFold is a variation of KFold that returns
+           stratified folds. Each set contains approximately the same percentage
+           of samples of each target class as the complete set.
+        - 'leaveoneout': LeaveOneOut (LOO) is a simple cross-validation. Each
+           learning set is created by taking all the samples except one, the test
+           set being the sample left out.
+           
+        Raises
+        ------
+        ValueError
+            If an invalid cross-validation strategy or type is provided.
+            
+        Examples 
+        ---------
+        >>> from sklearn.tree import DecisionTreeClassifier
+        >>> clf = DecisionTreeClassifier()
+        >>> cross_validator = CrossValidator(clf, cv=5, scoring='accuracy')
+        >>> cross_validator.setCVStrategy('stratified', n_splits=5)
+        >>> X, y = # Load your dataset here
+        >>> cross_validator.fit(X, y)
+        >>> cross_validator.display_results()
+        """
+        if isinstance(cv_strategy, int):
+            self.cv = KFold(n_splits=cv_strategy, random_state=random_state, shuffle=True)
+        elif isinstance(cv_strategy, str):
+            cv_strategy = cv_strategy.lower()
+            if cv_strategy == 'kfold':
+                self.cv = KFold(n_splits=n_splits, random_state=random_state, shuffle=True)
+            elif cv_strategy == 'stratified':
+                self.cv = StratifiedKFold(n_splits=n_splits, random_state=random_state, 
+                                          shuffle=True)
+            elif cv_strategy == 'leaveoneout':
+                self.cv = LeaveOneOut()
+            else:
+                raise ValueError(f"Invalid cross-validation strategy: {cv_strategy}")
+        elif hasattr(cv_strategy, 'split'):
+            self.cv = cv_strategy
+        else:
+            raise ValueError("cv_strategy must be an integer, a string,"
+                             " or a cross-validation generator object.")
+        
+        return self.cv 
+
+    def applyCVStrategy(
+        self, 
+        X: ArrayLike, 
+        y: ArrayLike, 
+        metrics: Optional[Dict[str, _F[[ArrayLike, ArrayLike], float]]] = None, 
+        display_results: bool = False
+        ):
+        """
+        Applies the configured cross-validation strategy to the given dataset
+        and evaluates the model.
+
+        This method performs cross-validation using the strategy set by the
+        `setCVStrategy` method. It fits the model on each training set and
+        evaluates it on each corresponding test set. The results, including
+        scores and other metrics, are stored in the `cv_results_` attribute.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data to be used for cross-validation.
+        y : array-like of shape (n_samples,)
+            Target values corresponding to X.
+        metrics : dict, optional
+            A dictionary where keys are metric names and values are functions
+            that compute the metric. Each function should accept two arguments:
+            true labels and predicted labels. Default is None.
+            
+        display_results : bool, optional
+            Whether to print the cross-validation results. Default is False.
+
+        Stores
+        -------
+        cv_results_ : dict
+            Dictionary containing the results of cross-validation. This includes
+            scores for each fold, mean score, and standard deviation.
+
+        Notes
+        -----
+        - KFold: Suitable for large datasets and is not stratified.
+        - StratifiedKFold: Suitable for imbalanced datasets, as it preserves
+          the percentage of samples for each class.
+        - LeaveOneOut: Suitable for small datasets but computationally expensive.
+        - Ensure that the cross-validation strategy is appropriately chosen
+          for your dataset and problem. For example, StratifiedKFold is more
+          suited for datasets with imbalanced class distributions.
+        - The metrics functions should match the signature of sklearn.metrics
+          functions, i.e., they accept two arguments: y_true and y_pred.
+          
+        Raises
+        ------
+        ValueError
+            If the cross-validation strategy has not been set prior to calling
+            this method.
+            
+        Examples
+        --------
+        >>> from sklearn.tree import DecisionTreeClassifier
+        >>> from sklearn.datasets import load_iris
+        >>> X, y = load_iris(return_X_y=True)
+        >>> clf = DecisionTreeClassifier()
+        >>> cross_validator = CrossValidator(clf)
+        >>> cross_validator.setCVStrategy('kfold', n_splits=5)
+        >>> cross_validator.applyCVStrategy(X, y, display_results=True)
+        >>> from sklearn.metrics import accuracy_score, precision_score
+        >>> additional_metrics = {
+        ...     'accuracy': accuracy_score,
+        ...     'precision': precision_score
+        ... }
+        >>> cross_validator.applyCVStrategy(X, y, metrics=additional_metrics)
+        """
+        if not hasattr(self, 'cv'):
+            raise ValueError("Cross-validation strategy not set."
+                             " Please call setCVStrategy first.")
+
+        self.cv_results_ = {'scores': [], 'additional_metrics': {}}
+        if metrics:
+            for metric in metrics:
+                self.cv_results_['additional_metrics'][metric] = []
+
+        for train_index, test_index in self.cv.split(X, y):
+            X_train, X_test = X[train_index], X[test_index]
+            y_train, y_test = y[train_index], y[test_index]
+
+            model_clone = clone(self.model)
+            model_clone.fit(X_train, y_train)
+            y_pred = model_clone.predict(X_test)
+
+            score = model_clone.score(X_test, y_test)
+            self.cv_results_['scores'].append(score)
+
+            if metrics:
+                for metric_name, metric_func in metrics.items():
+                    metric_score = metric_func(y_test, y_pred)
+                    self.cv_results_['additional_metrics'][metric_name].append(metric_score)
+
+        self.cv_results_['mean_score'] = np.mean(self.cv_results_['scores'])
+        self.cv_results_['std_dev'] = np.std(self.cv_results_['scores'])
+
+        if metrics:
+            for metric in self.cv_results_['additional_metrics']:
+                mean_metric = np.mean(self.cv_results_['additional_metrics'][metric])
+                self.cv_results_['additional_metrics'][metric] = mean_metric
+
+        if display_results:
+            self._display_results()
+
+        return self
+
+    def _display_results(self):
+        """
+       Displays the results of cross-validation.
+
+        This method prints the mean score, standard deviation, and individual
+        fold scores from the cross-validation.
+
+        Raises
+        ------
+        ValueError
+            If this method is called before applying cross-validation.
+        """
+        if not hasattr(self, 'cv_results_'):
+            raise ValueError("Cross-validation not applied. Please call apply_cv_strategy.")
+
+        print(f"CV Mean Score: {self.cv_results_['mean_score']:.3f}")
+        print(f"CV Standard Deviation: {self.cv_results_['std_dev']:.3f}")
+        print("Scores per fold: ", self.cv_results_['scores'])
+
+
+    @property 
+    def inspect(self): 
+        """ Inspect data and trigger plot after checking the data entry. 
+        Raises `NotFittedError` if `ExPlot` is not fitted yet."""
+        
+        msg = ( "{expobj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, "results_" ): 
+            raise NotFittedError(msg.format(expobj=self))
+        return 1 
 
 class GridSearch: 
     __slots__=(
@@ -110,6 +407,7 @@ class GridSearch:
         self.grid_kws = grid_kws 
         self._kind = kind 
         self.verbose=verbose
+        self.filename=filename
 
     @property 
     def base_estimator (self): 
@@ -215,9 +513,9 @@ class GridSearch:
         else : 
             setattr(self,'feature_importances_', attr_value)
         
-        self.data_=  dict( get_estimator_name (self.base_estimator) = params_values)  
+        self.data_=  { f"{get_estimator_name (self.base_estimator)}":  params_values} 
         if self.savejob: 
-            filename = filename or get_estimator_name ( self.base_estimator)+ '.results'
+            self.filename = self.filename or get_estimator_name ( self.base_estimator)+ '.results'
             save_job ( job= self.data_ , savefile = self.filename ) 
 
         return self

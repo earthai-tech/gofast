@@ -428,7 +428,6 @@ def make_social_media_comments(
         seed=seed
         ) 
 
-
 def make_african_demo(*, 
     start_year=1960,
     end_year=2020, 

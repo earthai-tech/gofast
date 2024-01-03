@@ -6950,7 +6950,6 @@ def fancier_repr_formatter(obj, max_attrs=7):
 
     return f'{obj.__class__.__name__}({attr_str})'
 
-    
 def generic_getattr(obj, name, default_value=None):
     """
     A generic attribute accessor for any class instance.
@@ -7023,14 +7022,7 @@ def _find_similar_attribute(obj, name):
     rv = smart_strobj_recognition(name, obj.__dict__, deep =True)
     return rv 
  
-    
-    
-    
-    
-    
-    
-    
-    
+
     
     
     

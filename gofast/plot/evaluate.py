@@ -931,8 +931,15 @@ class EvalPlotter(BasePlot):
             
         return self
 
-    def plot2d(self, x_feature, y_feature, groups=None, xlabel=None, 
-               ylabel=None, title=None):
+    def plot2d(
+        self, 
+        x_feature, 
+        y_feature, 
+        groups=None, 
+        xlabel=None, 
+        ylabel=None, 
+        title=None
+        ):
         """
         Plot a two-dimensional graph of two features from the dataset.
     
@@ -1010,8 +1017,15 @@ class EvalPlotter(BasePlot):
     
         return self
 
-    def plotHistogram(self, feature, data=None, bins=30, xlabel=None,
-                      ylabel='Frequency', title=None):
+    def plotHistogram(
+        self, 
+        feature, 
+        data=None, 
+        bins=30, 
+        xlabel=None,
+        ylabel='Frequency', 
+        title=None
+        ):
         """
         Plot a histogram for a specified feature in the dataset.
     
@@ -1082,8 +1096,15 @@ class EvalPlotter(BasePlot):
         return self
 
     
-    def plotBox(self, feature, data=None, 
-                by=None, xlabel=None, ylabel=None, title=None):
+    def plotBox(
+        self, 
+        feature, 
+        data=None, 
+        by=None, 
+        xlabel=None, 
+        ylabel=None, 
+        title=None
+        ):
         """
         Plot a box plot for a specified feature, optionally grouped by 
         another feature.
@@ -1325,8 +1346,7 @@ class EvalPlotter(BasePlot):
         t_params: dict, 
             Keyword arguments passed to :class:`sklearn.impute.SimpleImputer` 
             for imputing the missing data; default strategy is 'most_frequent'
-            or keywords arguments passed to
-            :func:gofast.tools.funcutils.to_numeric_dtypes`
+            or keywords arguments passed to :class:`sklearn.impute.SimpleImputer`
             
         Return
         -------
@@ -1335,7 +1355,6 @@ class EvalPlotter(BasePlot):
             
         """
         self.inspect 
-        X 
 
         strategy = t_params.pop('strategy', 'most_frequent')
         columns = list(X.columns )
@@ -1379,57 +1398,112 @@ class EvalPlotter(BasePlot):
         
         return self.X 
    
-    def encode_y ( self, y=None,  prefix:str =None ,values:List[int]=None, 
-                      classes: List[str]=None,  objective:str =None ): 
-        """ Encode y to hold the categorical values. 
-        
-        Note that if objective is set to 'flow', the `values` need to  be 
-        supplied, otherwise an error will raises. 
-        
-        :param values: list of values to encoding the numerical target `y`. 
-            for instance ``values=[0, 1, 2]`` 
-        :param objective: str, relate to the flow rate prediction. Set to 
-            ``None`` for any other predictions. 
-        :param prefix: the prefix to add to the class labels. For instance, if 
-            the `prefix` equals to ``FR``, class labels will become:: 
-                
-                [0, 1, 2] => [FR0, FR1, FR2]
-                
-        :classes: list of classes names to replace the default `FR` that is 
-            used to specify the flow rate. For instance, it can be:: 
-                
-                [0, 1, 2] => [sf0, sf1, sf2]
-        Returns 
-        --------
-        (self.y, classes): Array-like, list[int|str]
-            Array of encoded labels and list of unique class label identifiers 
-            
+    def encode_y(
+        self, 
+        y=None, 
+        prefix=None, 
+        values=None, 
+        classes=None, 
+        objective=None
+        ):
         """
-        if ( y is None 
-            and self.y is not None
-            ): 
-            y = copy.deepcopy ( self.y ) 
-            
-        if y is None: 
-            raise TypeError (" Missing target y")
-        y = pd.Series (y, name=self.tname or 'none')
-        values = values or self.label_values 
-        if values is not None: 
-            y =  categorize_target(y , labels = values, 
-                           rename_labels= classes or self.litteral_classes
-                           )
-        else:y = y.astype('category').cat.codes
-            
-        # add prefix and  update litteral classes and y 
-        y = y.map(lambda o: prefix + str(o) ) if prefix else y 
-        self.litteral_classes = np.unique (y) 
-        self.y = y 
-            
-        return y,  self.litteral_classes  
+        Encodes the target variable 'y' into categorical values.
+    
+        This method is designed to transform a numerical target variable into 
+        categorical values. It is particularly useful for classification tasks 
+        where the target needs to be categorical. The method can apply custom 
+        prefixes or replace class labels with user-defined names.
+    
+        Parameters
+        ----------
+        y : array-like, optional
+            The target variable to encode. If None, uses the target variable 
+            provided during the fit method.
+        prefix : str, optional
+            A prefix to append to each encoded class label. For example, a prefix 
+            of 'FR' will transform the labels [0, 1, 2] into ['FR0', 'FR1', 'FR2'].
+        values : list of int, optional
+            The specific numerical values to be encoded into categorical labels. 
+            For instance, values=[0, 1, 2] will encode these specific numbers.
+        classes : list of str, optional
+            Custom class names to replace the default labels. For example, 
+            replacing [0, 1, 2] with ['sf0', 'sf1', 'sf2'].
+        objective : str, optional
+            Specifies the objective of the encoding, particularly relevant for 
+            domain-specific applications. Set to None for general purposes.
+    
+        Returns
+        -------
+        tuple of (array-like, list)
+            A tuple containing the encoded target array and a list of unique class 
+            label identifiers.
+    
+        Raises
+        ------
+        TypeError
+            If the target variable 'y' is not provided and not set during fitting.
+    
+        Examples
+        --------
+        >>> from gofast.plot import EvalPlotter
+        >>> plotter = EvalPlotter()
+        >>> y_encoded, class_labels = plotter.encode_y(y=[0, 1, 2], prefix='FR')
+        >>> print(y_encoded)
+        ['FR0', 'FR1', 'FR2']
+        >>> print(class_labels)
+        ['FR0', 'FR1', 'FR2']
+    
+        Note
+        ----
+        When the 'objective' parameter is set to a specific domain (e.g., 'flow'), 
+        the 'values' parameter must be supplied. Failure to do so will result in 
+        an error. The method allows flexibility in encoding, catering to both 
+        generic and domain-specific requirements.
+        """
+        # Validation and deep copying of target variable
+        y = self._validate_and_copy_target(y)
+    
+        # Encoding process
+        values = values or self.label_values
+        if values is not None:
+            y = self._categorize_target(y, values, classes)
+        else:
+            y = y.astype('category').cat.codes
+    
+        # Applying prefix and updating class labels
+        y, self.litteral_classes = self._apply_prefix_and_update_classes(
+            y, prefix)
+    
+        return y, self.litteral_classes
+    
+    def _validate_and_copy_target(self, y):
+        # Validates the target variable and returns a deep copy
+        if y is None and self.y is not None:
+            return copy.deepcopy(self.y)
+        if y is None:
+            raise TypeError("Missing target 'y'")
+        return pd.Series(y, name=self.tname or 'none')
+    
+    def _categorize_target(self, y, values, classes):
+        # Categorizes the target variable based on specified values and classes
+        return categorize_target(
+            y, labels=values,rename_labels=classes or self.litteral_classes)
+    
+    def _apply_prefix_and_update_classes(self, y, prefix):
+        # Applies a prefix to the target variable and updates class labels
+        y = y.map(lambda o: prefix + str(o)) if prefix else y
+        return y, np.unique(y)
 
-    def plotRobustPCA(self,  n_components=None, n_axes=2, biplot=False,
-            pc1_label='Axis 1',pc2_label='Axis 2', plot_dict=None,
-            **pca_kws):
+    def plotRobustPCA(
+        self,  
+        n_components=None, 
+        n_axes=2, 
+        biplot=False,
+        pc1_label='Axis 1',
+        pc2_label='Axis 2', 
+        plot_dict=None,
+        **pca_kws
+        ):
         """
         Plots PCA component analysis using sklearn's PCA implementation.
 
@@ -1733,27 +1807,50 @@ class EvalPlotter(BasePlot):
         ax.add_line(plt.Line2D((-max_lim, max_lim), (0, 0),
                                color=self.lc, linewidth=self.lw, linestyle=self.ls))
         
-    def plotBasePCA(self, labels=None, title='PCA Plot', figsize=(8, 6)):
+    def plotBasePCA(
+        self, 
+        labels=None, 
+        title='PCA Plot'
+        ):
         """
-        Plots a 2D PCA of the given dataset.
-
-        Parameters:
+        Plots a 2D PCA of the dataset, showcasing the principal components.
+    
+        This method performs a Principal Component Analysis (PCA) on the dataset 
+        and visualizes the first two principal components. The plot can be 
+        color-coded based on provided labels, allowing for a clear distinction 
+        between different groups in the data.
+    
+        Parameters
         ----------
-        X : array-like of shape (n_samples, n_features)
-            The data to perform PCA on.
-
         labels : array-like of shape (n_samples,), optional
-            Labels for each data point, used for coloring.
-
+            Labels for each data point, used for coloring the scatter plot. 
+            Each unique label in this array will correspond to a different color.
         title : str, optional
-            Title of the plot.
-
-        figsize : tuple, optional
-            Size of the figure.
-
-        Returns:
+            The title of the PCA plot. Defaults to 'PCA Plot'.
+    
+        Returns
         -------
-        None
+        EvalPlotter
+            The instance itself for method chaining.
+            
+        Notes
+        -----
+        - If the 'scale' attribute of the class is set to True, the data will be 
+          standardized before PCA is performed.
+        - The method plots a 2D scatter plot with Principal Component 1 (PC1) on 
+          the x-axis and Principal Component 2 (PC2) on the y-axis. The percentage 
+          of variance explained by each component is indicated on the respective axis.
+        - Bold lines are drawn at 0 on both the x-axis and y-axis for reference.
+    
+        Examples
+        --------
+        >>> from gofast.plot import EvalPlotter
+        >>> plotter = EvalPlotter()
+        >>> plotter.fit(X, y)
+        >>> plotter.plotBasePCA(labels=y)
+    
+        The plot will show the first two principal components, with data points 
+        color-coded based on the labels provided.
         """
         self.inspect 
         # Standardizing the features
@@ -1767,7 +1864,7 @@ class EvalPlotter(BasePlot):
         pca_df = pd.DataFrame(data=principal_components, columns=['PC1', 'PC2'])
 
         # Plot initialization
-        plt.figure(figsize=figsize)
+        plt.figure(figsize=self.fig_size)
         ax = plt.subplot(1, 1, 1)
 
         # Scatter plot for each label
@@ -1798,8 +1895,17 @@ class EvalPlotter(BasePlot):
             ax.legend()
         plt.show()
 
-    def plotPR(self, clf, label=None, kind='threshold', 
-               method=None, cvp_kws=None, **prt_kws)-> 'EvalPlotter':
+        return self
+    
+    def plotPR(
+        self, 
+        clf, 
+        label=None, 
+        kind='threshold', 
+        method=None, 
+        cvp_kws=None, 
+        **prt_kws
+        )-> 'EvalPlotter':
         """ 
         Plots Precision-Recall (PR) or Precision-Recall tradeoff.
 
@@ -1882,6 +1988,7 @@ class EvalPlotter(BasePlot):
         # Styling and saving the plot
         self._style_pr_plot(ax, xlabel, ylabel, kind)
         self.save(fig)
+        
         return self
 
     def _set_axis_labels(self, kind):
@@ -1915,7 +2022,14 @@ class EvalPlotter(BasePlot):
         ax.legend(**self.leg_kws)
 
 
-    def plotROC(self, clfs, label, method=None, cvp_kws=None, **roc_kws):
+    def plotROC(
+        self, 
+        clfs, 
+        label, 
+        method=None, 
+        cvp_kws=None, 
+        **roc_kws
+        ):
         """
         Plots Receiver Operating Characteristic (ROC) curves for classifiers.
 
@@ -2005,8 +2119,14 @@ class EvalPlotter(BasePlot):
         ax.legend(loc='lower right')
         plt.show()
 
-    def plotROC2(self, clfs, label, method=None, cvp_kws=None,
-                 **roc_kws) -> 'EvalPlotter':
+    def plotROC2(
+        self, 
+        clfs, 
+        label, 
+        method=None, 
+        cvp_kws=None,
+        **roc_kws
+        ) -> 'EvalPlotter':
         """
         Plot Receiver Operating Characteristic (ROC) curves for multiple classifiers.
     
@@ -2106,53 +2226,82 @@ class EvalPlotter(BasePlot):
             ax.grid(True)
         plt.show()
 
-    
-    def plotLearningCurve(self, model, *,  cv=4):
+    def plotLearningCurve(
+        self, 
+        model, *, 
+        cv=None
+        ):
         """
-        Plots a learning curve.
-
+        Generates and plots the learning curve for a given model.
+    
+        The learning curve visualizes the evolution of the model's performance on 
+        both the training set and validation set as more data is used for training.
+        It is a tool for diagnosing bias and variance in a supervised learning model.
+    
         Parameters
         ----------
-        estimator : object
-            An estimator instance implementing 'fit' and 'predict'.
-        X : array-like, shape (n_samples, n_features)
-            Training vector, where n_samples is the number of samples and
-            n_features is the number of features.
-        y : array-like, shape (n_samples,)
-            Target relative to X for classification or regression.
-        cv : int, cross-validation generator or an iterable
-            Determines the cross-validation splitting strategy.
+        model : estimator object
+            A machine learning model instance that implements 'fit' and 'predict' 
+            methods. The model is used to evaluate the learning process.
+        cv : int, cross-validation generator, or an iterable, optional
+            Determines the cross-validation splitting strategy. The default 
+            cross-validation strategy is used if not specified. It can be an integer 
+            specifying the number of folds in a (Stratified)KFold, a CV splitter, 
+            or an iterable yielding (train, test) splits as arrays of indices.
+    
+        Notes
+        -----
+        The learning curve plots the training and cross-validation scores as functions
+        of the number of training examples. This visualization helps in understanding
+        how much benefit the model gets by learning from more data. It can indicate
+        whether the model suffers more from a variance error or a bias error.
+    
+        Examples
+        --------
+        >>> from gofast.plot import EvalPlotter
+        >>> from sklearn.ensemble import RandomForestClassifier
+        >>> plotter = EvalPlotter()
+        >>> plotter.fit(X, y)
+        >>> model = RandomForestClassifier()
+        >>> plotter.plotLearningCurve(model)
+    
+        This will plot the learning curve of the RandomForestClassifier on the dataset.
         """
-        self.inspect 
-        
+        self.inspect()
+    
+        # Compute learning curve values
         train_sizes, train_scores, test_scores = learning_curve(
-            model, self.X, self.y, cv=cv)
+            model, self.X, self.y, cv=cv or self.cv)
         train_scores_mean = np.mean(train_scores, axis=1)
         train_scores_std = np.std(train_scores, axis=1)
         test_scores_mean = np.mean(test_scores, axis=1)
         test_scores_std = np.std(test_scores, axis=1)
-
+    
+        # Plot learning curve
         plt.figure()
         plt.fill_between(train_sizes, train_scores_mean - train_scores_std,
                          train_scores_mean + train_scores_std, alpha=0.1, color="r")
         plt.fill_between(train_sizes, test_scores_mean - test_scores_std,
                          test_scores_mean + test_scores_std, alpha=0.1, color="g")
-        plt.plot(train_sizes, train_scores_mean, 'o-', color="r", lw=self.line_width,
-                 linestyle=self.line_style, label="Training score")
-        plt.plot(train_sizes, test_scores_mean, 'o-', color="g", lw=self.line_width,
-                 linestyle=self.line_style, label="Cross-validation score")
-
+        plt.plot(train_sizes, train_scores_mean, 'o-', color="r", lw=self.lw,
+                 linestyle=self.ls, label="Training score")
+        plt.plot(train_sizes, test_scores_mean, 'o-', color="g", lw=self.lw,
+                 linestyle=self.ls, label="Cross-validation score")
+    
         plt.xlabel("Training examples")
         plt.ylabel("Score")
         plt.title("Learning Curve")
         plt.legend(loc="best")
         plt.show()
-        
+
     def plotConfusionMatrix(
-        self, clf, *, 
-        kind=None, labels=None,
+        self, 
+        clf, *, 
+        kind=None, 
+        labels=None,
         matshow_kws=None, 
-        **conf_mx_kws):
+        **conf_mx_kws
+        ):
         """
         Plots a confusion matrix for a classifier.
 

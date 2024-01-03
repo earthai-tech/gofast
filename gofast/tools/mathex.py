@@ -19,21 +19,14 @@ from scipy.cluster.hierarchy import  linkage
 from scipy.linalg import lstsq
 from scipy._lib._util import float_factorial
 from scipy.ndimage import convolve1d
-from scipy.spatial.distance import ( 
-    pdist, squareform 
-    )
+from scipy.spatial.distance import pdist, squareform 
 import  matplotlib.pyplot as plt
 
 from ._arraytools import axis_slice
 from .._gofastlog import gofastlog
 from .._docstring import refglossary
-from ..decorators import ( 
-    refAppender, 
-    docSanitizer
-)
-from ..exceptions import ( 
-    SiteError, 
-    )
+from ..decorators import  refAppender, docSanitizer
+from ..exceptions import SiteError
 from .._typing import (
     _T, 
     _F,
@@ -74,7 +67,6 @@ from .validator import (
     assert_xy_in, 
     build_data_if
     )
-
 try: import scipy.stats as spstats
 except: pass 
 
@@ -1069,7 +1061,6 @@ def scalePosition(
         
     return ydata_new, popt, pcov 
 
-
 def detect_station_position (
         s : Union[str, int] ,
         p: _SP, 
@@ -1150,8 +1141,6 @@ def detect_station_position (
         
     return int(s_index) , s 
     
-
-
 def _manage_colors (c, default = ['ok', 'ob-', 'r-']): 
     """ Manage the ohmic-area plot colors """
     c = c or default 
@@ -2659,9 +2648,14 @@ def quality_control2(
  
 
 def quality_control(
-    data, missing_threshold=0.05, outlier_method='IQR', 
-    value_ranges=None, unique_value_columns=None, 
-    string_patterns=None, verbose:bool= ..., polish_and_return:bool=..., 
+    data, 
+    missing_threshold=0.05, 
+    outlier_method='IQR', 
+    value_ranges=None,
+    unique_value_columns=None, 
+    string_patterns=None, 
+    verbose:bool= ..., 
+    polish_and_return:bool=..., 
     columns=None, 
     **kwd 
     ):
@@ -2828,8 +2822,6 @@ def quality_control(
         fancy_printer(result)
     
     return data_ if polish_and_return else result
-
-
 
 def get_distance(
     x: ArrayLike, 

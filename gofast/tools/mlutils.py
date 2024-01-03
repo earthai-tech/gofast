@@ -22,8 +22,11 @@ from collections import Counter
 import numpy as np 
 import pandas as pd 
 
-from sklearn.feature_selection import SelectFromModel  
-from sklearn.impute import SimpleImputer
+from sklearn.compose import ColumnTransformer, make_column_selector
+from sklearn.decomposition import PCA
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_selection import SelectFromModel, SelectKBest
+from sklearn.impute import SimpleImputer, IterativeImputer
 from sklearn.metrics import confusion_matrix, classification_report 
 from sklearn.metrics import mean_squared_error, f1_score, accuracy_score
 from sklearn.metrics import precision_recall_curve, precision_score, recall_score
@@ -32,11 +35,11 @@ from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.preprocessing import OneHotEncoder,RobustScaler ,OrdinalEncoder 
 from sklearn.preprocessing import StandardScaler,MinMaxScaler,  LabelBinarizer
-from sklearn.preprocessing import LabelEncoder,Normalizer 
+from sklearn.preprocessing import LabelEncoder,Normalizer, PolynomialFeatures 
 
 from .._gofastlog import gofastlog
 from .._typing import List, Tuple, Any, Dict,  Optional,Union, Iterable,Series 
-from .._typing import _T, _F, _Sub,  ArrayLike, NDArray,DType, DataFrame  
+from .._typing import _T, _F, _Sub,  ArrayLike, NDArray,DType, DataFrame, Set  
 from ._dependency import import_optional_dependency
 from ..exceptions import ParameterNumberError, EstimatorError, DatasetError
 from ..decorators import deprecated              
@@ -46,6 +49,7 @@ from .funcutils import  is_classification_task, to_numeric_dtypes, fancy_printer
 from .validator import get_estimator_name, check_array, check_consistent_length
 from .validator import  _is_numeric_dtype,  _is_arraylike_1d 
 from .validator import  is_frame, build_data_if
+
 _logger = gofastlog().get_gofast_logger(__name__)
 
 
@@ -64,7 +68,9 @@ __all__=[
     "soft_imputer", 
     "soft_scaler", 
     "select_feature_importances", 
-    "make_pipe", 
+    "load_saved_model", 
+    "make_pipe",
+    "build_data_preprocessor", 
     "bi_selector", 
     "get_target", 
     "export_target",  
@@ -79,7 +85,7 @@ __all__=[
     "stratify_categories", 
     "serialize_data", 
     "load_dumped_data", 
-    "naive_data_split",
+    "soft_data_split",
     "laplace_smoothing"
     ]
 
@@ -1221,21 +1227,68 @@ def select_features(
     # use coerce to no raise error and return data frame instead.
     return data if coerce else data.select_dtypes (include, exclude) 
     
-def get_global_score (
-        cvres : Dict[str, ArrayLike] 
-        ) -> Tuple [ Dict[str, ArrayLike] ,  Dict[str, ArrayLike]  ]: 
-    """ Retrieve the global mean and standard deviation score  from the 
-    cross validation containers. 
-    
-    :param cvres: cross validation results after training the models of number 
-        of parameters equals to N. 
-    :type cvres: dict of Array-like, Shape (N, ) 
-    :returns: tuple 
-        ( mean_test_scores', 'std_test_scores') 
-         scores on test_dcore and standard deviation scores 
+def get_global_score(
+    cvres: Dict[str, ArrayLike],
+    ignore_convergence_problem: bool = False
+) -> Tuple[float, float]:
     """
-    return  ( cvres.get('mean_test_score').mean() ,
-             cvres.get('std_test_score').mean())  
+    Retrieve the global mean and standard deviation of test scores from 
+    cross-validation results.
+
+    This function computes the overall mean and standard deviation of test 
+    scores from the results of cross-validation. It can also handle situations 
+    where convergence issues might have occurred during model training, 
+    depending on the `ignore_convergence_problem` flag.
+
+    Parameters
+    ----------
+    cvres : Dict[str, np.ndarray]
+        A dictionary containing the cross-validation results. Expected to have 
+        keys 'mean_test_score' and 'std_test_score', with each key mapping to 
+        an array of scores.
+    ignore_convergence_problem : bool, default=False
+        If True, ignores NaN values that might have resulted from convergence 
+        issues during model training while calculating the mean. If False, NaN 
+        values contribute to the final mean as NaN.
+
+    Returns
+    -------
+    Tuple[float, float]
+        A tuple containing two float values:
+        - The first element is the mean of the test scores across all 
+          cross-validation folds.
+        - The second element is the mean of the standard deviations of the 
+          test scores across all cross-validation folds.
+
+    Examples
+    --------
+    >>> from sklearn.model_selection import cross_val_score
+    >>> from sklearn.tree import DecisionTreeClassifier
+    >>> from sklearn.datasets import load_iris
+    >>> iris = load_iris()
+    >>> clf = DecisionTreeClassifier()
+    >>> scores = cross_val_score(clf, iris.data, iris.target, cv=5,
+    ...                          scoring='accuracy', return_train_score=True)
+    >>> cvres = {'mean_test_score': scores, 'std_test_score': np.std(scores)}
+    >>> mean_score, mean_std = get_global_score(cvres)
+    >>> print(f"Mean score: {mean_score}, Mean standard deviation: {mean_std}")
+
+    Notes
+    -----
+    - The function is primarily designed to be used with results obtained from 
+      scikit-learn's cross-validation functions like `cross_val_score`.
+    - It is assumed that `cvres` contains keys 'mean_test_score' and 
+      'std_test_score'.
+    """
+    if ignore_convergence_problem:
+        mean_score = np.nanmean(cvres.get('mean_test_score'))
+        mean_std = np.nanmean(cvres.get('std_test_score'))
+    else:
+        mean_score = cvres.get('mean_test_score').mean()
+        mean_std = cvres.get('std_test_score').mean()
+
+    return mean_score, mean_std
+
 def cfexist(features_to: List[ArrayLike], 
             features: List[str] )-> bool:      
     """
@@ -1277,6 +1330,123 @@ def formatGenericObj(generic_obj :Iterable[_T])-> _T:
     return ['{0}{1}{2}'.format('{', ii, '}') for ii in range(
                     len(generic_obj))]
 
+def find_relation_between_generics(
+    gen_obj1: Iterable[Any],
+    gen_obj2: Iterable[Any],
+    operation: str = "intersection"
+) -> Set[Any]:
+    """
+    Computes either the intersection or difference of two generic iterable objects.
+
+    Based on the specified operation, this function finds either common elements 
+    (intersection) or unique elements (difference) between two iterable objects 
+    like lists, sets, or dictionaries.
+
+    Parameters
+    ----------
+    gen_obj1 : Iterable[Any]
+        The first generic iterable object. Can be a list, set, dictionary, 
+        or any iterable type.
+    gen_obj2 : Iterable[Any]
+        The second generic iterable object. Same as gen_obj1.
+    operation : str, optional
+        The operation to perform. Can be 'intersection' or 'difference'.
+        Defaults to 'intersection'.
+
+    Returns
+    -------
+    Set[Any]
+        A set containing either the common elements (intersection) or 
+        unique elements (difference) of the two iterables.
+
+    Examples
+    --------
+    Intersection:
+    >>> from gofast.tools.mlutils import find_relation_between_generics
+    >>> result = find_relation_between_generics(
+    ...     ['ohmS', 'lwi', 'power', 'id', 'sfi', 'magnitude'], 
+    ...     {'ohmS', 'lwi', 'power'}
+    ... )
+    >>> print(result)
+    {'ohmS', 'lwi', 'power'}
+
+    Difference:
+    >>> result = find_relation_between_generics(
+    ...     ['ohmS', 'lwi', 'power', 'id', 'sfi', 'magnitude'], 
+    ...     {'ohmS', 'lwi', 'power'},
+    ...     operation='difference'
+    ... )
+    >>> print(result)
+    {'id', 'sfi', 'magnitude'}
+
+    Notes
+    -----
+    The function returns the result as a set, irrespective of the
+    type of the input iterables. The 'operation' parameter controls
+    whether the function calculates the intersection or difference.
+    """
+
+    set1 = set(gen_obj1)
+    set2 = set(gen_obj2)
+
+    if operation == "intersection":
+        return set1.intersection(set2)
+    elif operation == "difference":
+        if len(gen_obj1) <= len(gen_obj2):
+            return set(gen_obj2).difference(set(gen_obj1))
+        else:
+            return set(gen_obj1).difference(set(gen_obj2))
+    else:
+        raise ValueError("Invalid operation specified. Choose"
+                         " 'intersection' or 'difference'.")
+
+def find_intersection_between_generics(
+    gen_obj1: Iterable[Any],
+    gen_obj2: Iterable[Any]
+) -> Set[Any]:
+    """
+    Computes the intersection of two generic iterable objects.
+
+    This function finds common elements between two iterable objects 
+    (like lists, sets, or dictionaries) and returns a set containing 
+    these shared elements. The function is designed to handle various 
+    iterable types.
+
+    Parameters
+    ----------
+    gen_obj1 : Iterable[Any]
+        The first generic iterable object. Can be a list, set, dictionary, 
+        or any iterable type.
+    gen_obj2 : Iterable[Any]
+        The second generic iterable object. Same as gen_obj1.
+
+    Returns
+    -------
+    Set[Any]
+        A set containing the elements common to both iterables.
+
+    Example
+    -------
+    >>> from gofast.tools.mlutils import find_intersection_between_generics
+    >>> result = find_intersection_between_generics(
+    ...     ['ohmS', 'lwi', 'power', 'id', 'sfi', 'magnitude'], 
+    ...     {'ohmS', 'lwi', 'power'}
+    ... )
+    >>> print(result)
+    {'ohmS', 'lwi', 'power'}
+
+    Notes
+    -----
+    The function returns the intersection as a set, irrespective of the
+    type of the input iterables.
+    """
+
+    # Convert both iterables to sets for intersection calculation
+    set1 = set(gen_obj1)
+    set2 = set(gen_obj2)
+
+    # Calculate and return the intersection
+    return set1.intersection(set2)
 
 def findIntersectionGenObject(
         gen_obj1: Iterable[Any], 
@@ -1305,6 +1475,57 @@ def findIntersectionGenObject(
     else: objType = type(gen_obj2)
 
     return objType(set(gen_obj1).intersection(set(gen_obj2)))
+
+def find_difference_between_generics(
+    gen_obj1: Iterable[Any],
+    gen_obj2: Iterable[Any]
+   ) -> Union[None, Set[Any]]:
+    """
+    Identifies the difference between two generic iterable objects.
+
+    This function computes the difference between two iterable objects 
+    (like lists or sets) and returns a set containing elements that are 
+    unique to the larger iterable. If both iterables are of the same length, 
+    the function returns None.
+
+    Parameters
+    ----------
+    gen_obj1 : Iterable[Any]
+        The first generic iterable object. Can be a list, set, dictionary, 
+        or any iterable type.
+    gen_obj2 : Iterable[Any]
+        The second generic iterable object. Same as gen_obj1.
+
+    Returns
+    -------
+    Union[None, Set[Any]]
+        A set containing the unique elements from the larger iterable.
+        Returns None if both
+        iterables are of equal length.
+
+    Example
+    -------
+    >>> from gofast.tools.mlutils import find_difference_between_generics
+    >>> result = find_difference_between_generics(
+    ...     ['ohmS', 'lwi', 'power', 'id', 'sfi', 'magnitude'],
+    ...     {'ohmS', 'lwi', 'power'}
+    ... )
+    >>> print(result)
+    {'id', 'sfi', 'magnitude'}
+    """
+
+    # Convert both iterables to sets for difference calculation
+    set1 = set(gen_obj1)
+    set2 = set(gen_obj2)
+
+    # Calculate difference based on length
+    if len(set1) > len(set2):
+        return set1.difference(set2)
+    elif len(set1) < len(set2):
+        return set2.difference(set1)
+
+    # Return None if both are of equal length
+    return None
 
 def findDifferenceGenObject(gen_obj1: Iterable[Any],
                             gen_obj2: Iterable[Any]
@@ -1335,7 +1556,6 @@ def findDifferenceGenObject(gen_obj1: Iterable[Any],
         return objType(set(gen_obj1).difference(set(gen_obj2)))
     else: return 
    
- 
     return set(gen_obj1).difference(set(gen_obj2))
     
 def featureExistError(superv_features: Iterable[_T], 
@@ -1376,6 +1596,60 @@ def featureExistError(superv_features: Iterable[_T],
             ' not allowed in  dataframe columns ={0}'.
             format(list(features)))
         
+def control_existing_estimator(
+    estimator_name: str, 
+    raise_error: bool = False
+) -> Union[Tuple[str, str], None]:
+    """
+    Validates and retrieves the corresponding prefix for a given estimator name.
+
+    This function checks if the provided estimator name exists in a predefined
+    list of estimators. If found, it returns the corresponding prefix and full name.
+    Otherwise, it either raises an error or returns None, based on the 
+    'raise_error' flag.
+
+    Parameters
+    ----------
+    estimator_name : str
+        The name of the estimator to check.
+    raise_error : bool, default False
+        If True, raises an error when the estimator is not found. Otherwise, 
+        emits a warning.
+
+    Returns
+    -------
+    Tuple[str, str] or None
+        A tuple containing the prefix and full name of the estimator, or 
+        None if not found.
+
+    Example
+    -------
+    >>> from gofast.tools.mlutils import control_existing_estimator
+    >>> test_est = control_existing_estimator('svm')
+    >>> print(test_est)
+    ('svc', 'SupportVectorClassifier')
+    """
+
+    estimator_name = estimator_name.lower().strip()
+    for prefix, names in _estimators.items():
+        lower_names = [name.lower() for name in names]
+        
+        if estimator_name in lower_names:
+            return prefix, names[0]
+
+    if raise_error:
+        valid_names = [name for names in _estimators.values() for name in names]
+        raise EstimatorError(f'Unsupported estimator {estimator_name!r}. '
+                             f'Expected one of {valid_names}.')
+    else:
+        available_estimators = [name for names in _estimators.values() 
+                                for name in names]
+        warning_msg = (f"Estimator {estimator_name!r} not found. "
+                       f"Expected one of: {available_estimators}.")
+        warnings.warn(warning_msg)
+
+    return None
+       
 def controlExistingEstimator(
         estimator_name: str , raise_err =False ) -> Union [Dict[str, _T], None]: 
     """ 
@@ -1419,6 +1693,42 @@ def controlExistingEstimator(
     
     return e, efx 
 
+def format_model_score(
+    model_score: Union[float, Dict[str, float]] = None,
+    selected_estimator: Optional[str] = None
+) -> None:
+    """
+    Formats and prints model scores.
+
+    Parameters
+    ----------
+    model_score : float or Dict[str, float], optional
+        The model score or a dictionary of model scores with estimator 
+        names as keys.
+    selected_estimator : str, optional
+        Name of the estimator to format the score for. Used only if 
+        `model_score` is a float.
+
+    Example
+    -------
+    >>> from gofast.tools.mlutils import format_model_score
+    >>> format_model_score({'DecisionTreeClassifier': 0.26, 'BaggingClassifier': 0.13})
+    >>> format_model_score(0.75, selected_estimator='RandomForestClassifier')
+    """
+
+    print('-' * 77)
+    if isinstance(model_score, dict):
+        for estimator, score in model_score.items():
+            formatted_score = round(score * 100, 3)
+            print(f'> {estimator:<30}:{"Score":^10}= {formatted_score:^10} %')
+    elif isinstance(model_score, float):
+        estimator_name = selected_estimator if selected_estimator else 'Unknown Estimator'
+        formatted_score = round(model_score * 100, 3)
+        print(f'> {estimator_name:<30}:{"Score":^10}= {formatted_score:^10} %')
+    else:
+        print('Invalid model score format. Please provide a float or'
+              ' a dictionary of scores.')
+    print('-' * 77)
     
 def formatModelScore(
         model_score: Union [float, Dict[str, float]] = None,
@@ -2379,6 +2689,150 @@ def naive_data_split(
         X, XT, y, yT= V
     
     return  X, XT, y, yT
+
+def soft_data_split(
+    X, y=None, *,
+    test_size=0.2,
+    target_column=None,
+    random_state=42,
+    extract_target=False,
+    **split_kwargs
+):
+    """
+    Splits data into training and test sets, optionally extracting a 
+    target column.
+
+    Parameters
+    ----------
+    X : array-like or DataFrame
+        Input data to split. If `extract_target` is True, a target column can be
+        extracted from `X`.
+    y : array-like, optional
+        Target variable array. If None and `extract_target` is False, `X` is
+        split without a target variable.
+    test_size : float, optional
+        Proportion of the dataset to include in the test split. Should be
+        between 0.0 and 1.0. Default is 0.2.
+    target_column : int or str, optional
+        Index or column name of the target variable in `X`. Used only if
+        `extract_target` is True.
+    random_state : int, optional
+        Controls the shuffling for reproducible output. Default is 42.
+    extract_target : bool, optional
+        If True, extracts the target variable from `X`. Default is False.
+    split_kwargs : dict, optional
+        Additional keyword arguments to pass to `train_test_split`.
+
+    Returns
+    -------
+    X_train, X_test, y_train, y_test : arrays
+        Split data arrays.
+
+    Raises
+    ------
+    ValueError
+        If `target_column` is not found in `X` when `extract_target` is True.
+
+    Example
+    -------
+    >>> from gofast.datasets import fetch_data
+    >>> data = fetch_data('Bagoue original')['data']
+    >>> X, XT, y, yT = split_data(data, extract_target=True, target_column='flow')
+    """
+
+    if extract_target:
+        if isinstance(X, pd.DataFrame) and target_column in X.columns:
+            y = X[target_column]
+            X = X.drop(columns=target_column)
+        elif hasattr(X, '__array__') and isinstance(target_column, int):
+            y = X[:, target_column]
+            X = np.delete(X, target_column, axis=1)
+        else:
+            raise ValueError(f"Target column {target_column!r} not found in X.")
+
+    if y is not None:
+        return train_test_split(X, y, test_size=test_size, 
+                                random_state=random_state, **split_kwargs)
+    else:
+        X_train, X_test = train_test_split(X, test_size=test_size,
+                                           random_state=random_state, 
+                                           **split_kwargs)
+        return X_train, X_test, None, None
+
+def load_saved_model(
+    file_path: str,
+    *,
+    retrieve_default: bool = True,
+    model_name: Optional[str] = None,
+    storage_format: Optional[str] = None,
+) -> Union[object, Tuple[object, Dict[str, Any]]]:
+    """
+    Load a saved model or data using Python's pickle or joblib module.
+
+    Parameters
+    ----------
+    file_path : str
+        The path to the saved model file. Supported formats are `.pkl` and `.joblib`.
+    retrieve_default : bool, default=True
+        If True, returns the model along with its best parameters. If False,
+        returns the entire contents of the saved file.
+    model_name : str, optional
+        The name of the specific model to retrieve from the saved file. If None,
+        the entire file content is returned.
+    storage_format : str, optional
+        The format used for saving the file. If None, the format is inferred
+        from the file extension. Supported formats are 'joblib' and 'pickle'.
+
+    Returns
+    -------
+    object or Tuple[object, Dict[str, Any]]
+        The loaded model or a tuple of the model and its parameters, depending
+        on the `retrieve_default` value.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the specified file does not exist.
+    KeyError
+        If the specified model name is not found in the file.
+    ValueError
+        If the storage format is not supported.
+
+    Example
+    -------
+    >>> from gofast.tools.mlutils import load_saved_model
+    >>> model, params = load_saved_model('path_to_file.pkl', model_name='SVC')
+    """
+
+    if not os.path.isfile(file_path):
+        raise FileNotFoundError(f"File {file_path!r} not found.")
+
+    # Infer storage format from file extension if not specified
+    storage_format = storage_format or os.path.splitext(
+        file_path)[-1].lower().lstrip('.')
+    if storage_format not in {"joblib", "pickle"}:
+        raise ValueError(f"Unsupported storage format {storage_format!r}."
+                         " Use 'joblib' or 'pickle'.")
+
+    # Load the saved file
+    if storage_format == 'joblib':
+        loaded_data = joblib.load(file_path)
+    elif storage_format == 'pickle':
+        with open(file_path, 'rb') as file:
+            loaded_data = pickle.load(file)
+
+    # If a specific model name is provided, extract it
+    if model_name:
+        if model_name not in loaded_data:
+            raise KeyError(f"Model {model_name!r} not found in the file."
+                           f" Available models: {list(loaded_data.keys())}")
+        if retrieve_default:
+            return ( loaded_data[model_name]['best_model'],
+                    loaded_data[model_name]['best_params_'])
+        else:
+            return loaded_data[model_name]
+
+    return loaded_data
 
 @deprecated ("Deprecated function. It should be removed soon in"
              " the next realease...")
@@ -3348,8 +3802,170 @@ def make_pipe(
         full_pipeline.fit_transform (X), y ) 
              ) if transform else full_pipeline
        
-  
+def build_data_preprocessor(
+    X, y=None, *,  
+    num_features=None, 
+    cat_features=None, 
+    custom_transformers=None,
+    label_encoding='LabelEncoder', 
+    scaler='StandardScaler', 
+    missing_values=np.nan, 
+    impute_strategy='median', 
+    feature_interaction=False,
+    dimension_reduction=None,
+    feature_selection=None,
+    balance_classes=False,
+    advanced_imputation=None,
+    verbose=False,
+    output_format='array',
+    transform=False,
+    **kwargs
+    ):
+    """
+    Create a preprocessing pipeline for data transformation and feature engineering.
+
+    This function constructs a pipeline to preprocess data for machine learning tasks, 
+    accommodating a variety of transformations including scaling, encoding, 
+    and dimensionality reduction. It supports both numerical and categorical data, 
+    and can incorporate custom transformations.
+
+    Parameters
+    ----------
+    X : DataFrame
+        Input features dataframe.
+    y : array-like, optional
+        Target variable. Required for supervised learning tasks.
+    num_features : list of str, optional
+        List of numerical feature names. If None, determined automatically.
+    cat_features : list of str, optional
+        List of categorical feature names. If None, determined automatically.
+    custom_transformers : list of tuples, optional
+        Custom transformers to be included in the pipeline. Each tuple should 
+        contain ('name', transformer_instance).
+    label_encoding : str or transformer, default 'LabelEncoder'
+        Encoder for the target variable. Accepts standard scikit-learn encoders 
+        or custom encoder objects.
+    scaler : str or transformer, default 'StandardScaler'
+        Scaler for numerical features. Accepts standard scikit-learn scalers 
+        or custom scaler objects.
+    missing_values : int, float, str, np.nan, None, default np.nan
+        Placeholder for missing values for imputation.
+    impute_strategy : str, default 'median'
+        Imputation strategy. Options: 'mean', 'median', 'most_frequent', 'constant'.
+    feature_interaction : bool, default False
+        If True, generate polynomial and interaction features.
+    dimension_reduction : str or transformer, optional
+        Dimensionality reduction technique. Accepts 'PCA', 't-SNE', or custom object.
+    feature_selection : str or transformer, optional
+        Feature selection method. Accepts 'SelectKBest', 'SelectFromModel', or custom object.
+    balance_classes : bool, default False
+        If True, balance classes in classification tasks.
+    advanced_imputation : transformer, optional
+        Advanced imputation technique like KNNImputer or IterativeImputer.
+    verbose : bool, default False
+        Enable verbose output.
+    output_format : str, default 'array'
+        Desired output format: 'array' or 'dataframe'.
+    transform : bool, default False
+        If True, apply the pipeline to the data immediately and return transformed data.
+
+    Returns
+    -------
+    full_pipeline : Pipeline or (X_transformed, y_transformed)
+        The constructed preprocessing pipeline, or transformed data if `transform` is True.
+
+    Examples
+    --------
+    >>> from gofast.tools.mlutils import build_data_preprocessor
+    >>> from gofast.datasets import load_hlogs
+    >>> X, y = load_hlogs(as_frame=True)
+    >>> pipeline = build_data_preprocessor(X, y, scaler='RobustScaler')
+    >>> X_transformed = pipeline.fit_transform(X)
+    
+    """
+    sc= {"StandardScaler": StandardScaler ,"MinMaxScaler": MinMaxScaler , 
+         "Normalizer":Normalizer , "RobustScaler":RobustScaler}
+    # assert scaler value 
+    if get_estimator_name (scaler) in sc.keys(): 
+        scaler = sc.get (get_estimator_name(scaler ))() 
         
+    # Define numerical and categorical pipelines
+    numerical_pipeline = Pipeline([
+        ('imputer', SimpleImputer(strategy=impute_strategy, missing_values=missing_values)),
+        ('scaler', StandardScaler() if scaler == 'StandardScaler' else scaler)
+    ])
+
+    categorical_pipeline = Pipeline([
+        ('imputer', SimpleImputer(strategy='most_frequent', missing_values=missing_values)),
+        ('encoder', OneHotEncoder() if label_encoding == 'LabelEncoder' else label_encoding)
+    ])
+
+    # Determine automatic feature selection if not provided
+    if num_features is None and cat_features is None:
+        num_features = make_column_selector(dtype_include=['int', 'float'])(X)
+        cat_features = make_column_selector(dtype_include='object')(X)
+
+    # Feature Union for numerical and categorical features
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', numerical_pipeline, num_features),
+            ('cat', categorical_pipeline, cat_features)
+        ])
+
+    # Add custom transformers if any
+    if custom_transformers:
+        for name, transformer in custom_transformers:
+            preprocessor.named_transformers_[name] = transformer
+
+    # Feature interaction, selection, and dimension reduction
+    steps = [('preprocessor', preprocessor)]
+    
+    if feature_interaction:
+        steps.append(('interaction', PolynomialFeatures()))
+    if feature_selection:
+        steps.append(('feature_selection', SelectKBest() 
+                      if feature_selection == 'SelectKBest' else feature_selection))
+    if dimension_reduction:
+        steps.append(('dim_reduction', PCA() if dimension_reduction == 'PCA' 
+                      else dimension_reduction))
+
+    # Final pipeline
+    pipeline = Pipeline(steps)
+
+   # Advanced imputation logic if required
+    if advanced_imputation:
+        if advanced_imputation == 'IterativeImputer':
+            steps.insert(0, ('advanced_imputer', IterativeImputer(
+                estimator=RandomForestClassifier(), random_state=42)))
+        else:
+            steps.insert(0, ('advanced_imputer', advanced_imputation))
+
+    # Final pipeline before class balancing
+    pipeline = Pipeline(steps)
+
+    # Class balancing logic if required
+    if balance_classes and y is not None:
+        if str(balance_classes).upper() == 'SMOTE':
+            msg =(" Missing 'imblearn'package. 'SMOTE` can't be used. Note that"
+                  " `imblearn` is the shorthand of the package 'imbalanced-learn'."
+                  " Use `pip install imbalanced-learn` instead.")
+            import_optional_dependency("imblearn", extra = msg )
+            #-----------------------------------------
+            from imblearn.over_sampling import SMOTE
+            #-----------------------------------------
+            # Note: SMOTE works on numerical data, so it's applied after initial pipeline
+            pipeline = Pipeline([('preprocessing', pipeline), (
+                'smote', SMOTE(random_state=42))])
+
+    # Transform data if transform flag is set
+    if transform:
+        if output_format == 'dataframe':
+            return pd.DataFrame(pipeline.fit_transform(X), columns=X.columns)
+        else:
+            return pipeline.fit_transform(X)
+
+    return pipeline
+ 
 def select_feature_importances (
     clf, 
     X, 

@@ -1,155 +1,135 @@
 # -*- coding: utf-8 -*-
 #   Licence:BSD 3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
-#   Created date: Fri Apr 10 08:46:56 2022 
 
 """ 
 `GoFast`_ Type variables
-======================== 
+========================
 
-.. _pandas DataFrame: https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html
-.. _Series: https://pandas.pydata.org/docs/reference/api/pandas.Series.html
+The `GoFast` library employs specialized type variables to enhance the clarity 
+and precision of type hints throughout the package. These custom type hints 
+facilitate the accurate definition of function arguments and return types.
 
-Some customized type variables  need to be explained for easy understanding 
-in the whole package. Indeed, customized type hints is used to define the 
-type of arguments. 
+Some customized type variables are used throughout the GoFast package for type 
+hinting. These type hints define the expected type of arguments in various 
+functions and methods.
 
-**M**: Suppose to be the interger variable `IntVar` to denote the number of 
-    rows in the ``Array``. 
-    
-**N**: Like the ``M``, *N* means the number of column in the ``Array``. It 
-    is bound with  integer variable. 
-    
-**_T**: Is known as generic type standing for `Any` type of variable. We keep 
-    it unchanged. 
+M
+---
+Represents an integer variable used to denote the number of rows in an ``Array``.
 
-**U**: Unlike `_T`, `U` stands for nothing. Use to sepcify the one dimentional 
-    array. For instance:: 
-        
-        >>> import numpy as np 
-        >>> array = np.arange(4).shape 
-        ... (4, )
-        
-**S**: Indicates the `Shape` status. It is bound by `M`, `U`, `N`. 'U' stands
-    for nothing for one dimensional array. While, the common shape expects 
-    for one of two dimensional arrays, it is possible to extend array for 
-    more than one dimensional. The class object :class:`AddShape` is 
-    created to grand all the remaining value of integers shape. 
-    
-**D**: Stands for  dtype object. It is bound with  :class:`DType`.
+N
+---
+Similar to ``M``, ``N`` indicates the number of columns in an ``Array``. It 
+is bound to an integer variable.
 
-**Array**: Defined for  one dimensional array and `DType` can be specify. For 
-    instance, we generated two arrays (`arr1`and `arr2`) for different types:: 
-        
-        >>> import numpy as np
-        >>> from gofast.typing import TypeVar, Array, DType
-        >>> _T = TypeVar ('_T', float) 
-        >>> A = TypeVar ('A', str, bytes )
-        >>> arr1:Array[_T, DType[_T]] = np.arange(21) # dtype ='float'
-        >>> arr2: Array[A, DType[A]] = arr1.astype ('str') # dtype ='str'
-        
-**NDArray**: Stands for multi-dimensional arrays i.e more than two. Here, the 
-    difference between the one dimensional type variable ``Array`` is that 
-    while the latter accepts the ``DType`` argument  as the second parameter. 
-    It could be turn to the number of multidimentional rows including the 
-    `Array as first argument and specify the DType as the second argument 
-    like this:: 
-        
-        >>> import numpy as np 
-        >>> from gofast.typing import TypeVar, Array, NDarray, DType 
-        >>> _T =TypeVar ('_T', int)
-        >>> U = TypeVar ('U')
-        >>> multidarray = np.arange(7, 7).astype (np.int32)
-        >>> def accept_multid(
-                arrays: NDArray[Array[_T, U], DType [_T]]= multidarray
-                ):
-            ''' asserted with MyPy and work-fine.'''
-                ...
-                
-**_Sub**: Stands for subset. Indeed, the class is created to define the 
-    conductive zone. It is a subset ``_Sub`` of ``Array``. For example, we first 
-    build an array secondly extract the conductive zone from |ERP| line.
-    Finally, we checked the type hint to assert whether the extracted zone 
-    is a subset of the whole |ERP| line. The demo is given below:: 
-        
-        >>> import numpy as np 
-        >>> from gofast.typing import TypeVar, DType, Array , _Sub
-        >>> from gofast.tools.exmath import _define_conductive_zone
-        >>> _T= TypeVar ('_T', float)
-        >>> erp_array: Array[_T, DType[_T]] = np.random.randn (21) # whole line 
-        >>> select_zone, _ = _define_conductive_zone (erp = erp_array , auto =True)
-        >>> select_zone: Array[_T, DType[_T]]
-        >>> def check_cz (select_zone: _Sub[Array]): 
-                ''' assert with MyPy and return ``True`` as it works fine. '''
-                ... 
-                
-**_SP**: Stands for Station positions. The unit of position may vary, however, 
-    we keep for :mod:`gofast.method.electrical.ElectricalResistivityProfiling`
-    the default unit in ``meters`` by starting at position 0. Typically,
-    positions are recording according to the dipole length. For the example, 
-    we can generated a position values for ``121 stations`` with dipole 
-    length equals to ``50m`` i.e the length of the survey line is ``6 km``. 
-    Here we go: 
-        
-        * Import required modules and generate the whole survey line::
-            
-            >>> import numpy as np 
-            >>> from gofast.typing import TypeVar, DType, _SP, _Sub 
-            >>> _T =TypeVar ('_T', bound =int)
-            >>> surveyL:_SP = np.arange(0, 50 *121 , 50.).astype (np.int32)
-            ... (work fine with MyPy )
-            
-        * Let's verify whether the extract data from surveyL is also a subset 
-            of station positions:
-                
-            -  We use the following fonction to to extract the specific
-                part of whole survey line `surveyL`:: 
-                    
-                    >>> from gofast.tools.mathex import define_conductive_zone
-                    >>> subpos,_ = define_conductive_zone (surveyL, s='S10') 
-                    
-            -  Now, we check the instance value `subpos` as subset array of 
-                of `_SP`. Note that the station 'S10' is included in the 
-                extracted locations and is extented for seven points. For 
-                further details, refer to `define_conductive_zone.__doc__`:: 
-                
-                    >>> def checksup_type (sp: _Sub[_SP[_T, DType[_T]]] = subpos ): 
-                            ''' _SP is an array of positions argument `sp`  
-                            shoud be asserted as a subestof the whole line.'''
-                            ... 
-                    ... (test verified. subpos is a subset of `_SP`) 
-                    
-**Series**: Stands for `pandas Series`_ object rather than using the specific 
-    ``pandas.Series`` everywhere in the package. 
-    
-**DataFrame**: Likewise the ``Series`` generic type hint, it stands for 
-    ``pandas DataFrame`_ object. It used to replace ``pandas.DataFrame`` object
-    to identify the callable arguments in the whole packages. 
-    Both can be instanciated as below:: 
-        
-        >>> import numpy as np 
-        >>> import pandas pd 
-        >>> from gofast.typing import TypeVar , Any, DType , Series, DataFrame
-        >>> _T  =TypeVar('_T')
-        >>> seriesStr = pd.Series ([f'obx{s}' for s in range(21)],
-                                 name ='stringobj')
-        >>> seriesFloat = pd.Series (np.arange(7).astype(np.float32),
-                                 name =floatobj)
-        >>> SERs = Series [DType[str]] # pass 
-        >>> SERf =Series [DType [float]] # pass 
-    
-        ..
-    
-        >>> dfStr= pd.DataFrame {'ser1':seriesStr , 
-                            'obj2': [f'none' for i in range (21)]}
-        >>> dfFloat= pd.DataFrame {'ser1':seriesFloat , 
-                            'obj2': np.linspace (3, 28 , 7)}
-        >>> dfAny= pd.DataFrame {'ser1':seriesStr, 
-                            'ser2':seriesFloat}
-        >>> DFs  = DataFrame [SERs] | DataFrame [DType[str]]
-        >>> DFf  = DataFrame [SERf] | DataFrame [DType[float]]
-        >>> DFa =  DataFrame [Series[Any]] | DataFrame [DType[_T]]
-       
+_T
+---
+Generic type variable representing `Any` type. It is kept as the default type 
+variable for generic purposes.
+
+U
+---
+Unlike `_T`, `U` stands for an undefined dimension, typically used to specify a
+one-dimensional array. For example:
+
+.. code-block:: python
+
+    import numpy as np
+    array = np.arange(4).shape   # Output: (4,)
+
+S
+---
+Indicates the `Shape` of an array. It is bound by `M`, `U`, `N`. `U` represents
+a one-dimensional array. While `Shape` is typically used for two-dimensional 
+arrays, it can be extended to more dimensions using the :class:`AddShape`.
+
+D
+---
+Denotes a `DType` object. It is bound to :class:`DType`.
+
+Array
+-----
+Defined for one-dimensional arrays with an optional `DType`. For example:
+
+.. code-block:: python
+
+    import numpy as np
+    from gofast._typing import TypeVar, Array, DType
+    _T = TypeVar('_T', float)
+    A = TypeVar('A', str, bytes)
+    arr1: Array[_T, DType[_T]] = np.arange(21)
+    arr2: Array[A, DType[A]] = arr1.astype('str')
+
+NDArray
+-------
+Represents multi-dimensional arrays. Unlike `Array`, `NDArray` can have multiple
+dimensions. Example usage:
+
+.. code-block:: python
+
+    import numpy as np
+    from gofast.typing import TypeVar, Array, NDArray, DType
+    _T = TypeVar('_T', int)
+    U = TypeVar('U')
+    multidarray = np.arange(7, 7).astype(np.int32)
+    def accept_multid(arrays: NDArray[Array[_T, U], DType[_T]]=multidarray): ...
+
+_Sub
+----
+Represents a subset of an `Array`. For example, extracting a specific zone 
+from an array:
+
+.. code-block:: python
+
+    import numpy as np
+    from gofast._typing import TypeVar, DType, Array, _Sub
+    from gofast.tools.exmath import _define_conductive_zone
+    _T = TypeVar('_T', float)
+    erp_array: Array[_T, DType[_T]] = np.random.randn(21)
+    select_zone, _ = _define_conductive_zone(erp=erp_array, auto=True)
+    def check_cz(select_zone: _Sub[Array]): ...
+
+_SP
+----
+Stands for Station Positions, typically used in electrical resistivity 
+profiling. Example:
+
+.. code-block:: python
+
+    import numpy as np
+    from gofast._typing import TypeVar, DType, _SP, _Sub
+    _T = TypeVar('_T', bound=int)
+    surveyL: _SP = np.arange(0, 50 * 121, 50.).astype(np.int32)
+
+Series
+------
+Represents a `pandas Series`_ object. It is used in place of `pandas.Series` 
+for type hinting throughout the package.
+
+DataFrame
+---------
+Similarly, `DataFrame` represents a `pandas DataFrame`_ object. It is used 
+instead of `pandas.DataFrame` for consistency in type hinting.
+
+Examples of Series and DataFrame usage:
+
+.. code-block:: python
+
+    import numpy as np
+    import pandas as pd
+    from gofast._typing import TypeVar, Any, DType, Series, DataFrame
+    _T = TypeVar('_T')
+    seriesStr = pd.Series([f'obx{s}' for s in range(21)], name='stringobj')
+    seriesFloat = pd.Series(np.arange(7).astype(np.float32), name='floatobj')
+    SERs = Series[DType[str]]
+    SERf = Series[DType[float]]
+    dfStr = pd.DataFrame({'ser1': seriesStr, 'obj2': [f'none' for i in range(21)]})
+    dfFloat = pd.DataFrame({'ser1': seriesFloat, 'obj2': np.linspace(3, 28, 7)})
+    dfAny = pd.DataFrame({'ser1': seriesStr, 'ser2': seriesFloat})
+    DFs = DataFrame[SERs] or DataFrame[DType[str]]
+    DFf = DataFrame[SERf] or DataFrame[DType[float]]
+    DFa = DataFrame[Series[Any]] or DataFrame[DType[_T]]
 """
 from __future__ import annotations 
 # from typing import TYPE_CHECKING
@@ -158,236 +138,253 @@ from __future__ import annotations
 from typing import (
     List,
     Tuple,
-    Sequence, 
-    Dict, 
-    Iterable, 
-    Callable, 
-    Union, 
-    Any , 
+    Sequence,
+    Dict,
+    Iterable,
+    Callable,
+    Union,
+    Any,
     Generic,
     Optional,
-    Type , 
+    Type,
     Mapping,
-    Text,
-    TypeVar, 
+    Text, 
+    TypeVar,
     Iterator,
     SupportsInt,
-
+    Set,
+    ContextManager,
+    Deque, 
+    FrozenSet,
+    NamedTuple,
+    NewType, 
+    TypeGuard, 
+    TypedDict
 )
 
-__all__=[ 
+
+__all__ = [
     "List",
-    "Tuple",
+    "Tuple", 
     "Sequence", 
     "Dict", 
-    "Iterable", 
-    "Callable", 
-    "Any" , 
-    "Generic",
-    "Optional",
-    "Union",
-    "Type" , 
+    "Iterable",
+    "Callable",
+    "Any",
+    "Generic", 
+    "Optional", 
+    "Union", 
+    "Type", 
     "Mapping",
-    "Text",
-    "Shape", 
+    "Text", 
+    "Shape",
     "DType", 
-    "NDArray", 
-    "ArrayLike", 
-    "_Sub", 
-    "_SP", 
+    "NDArray",
+    "ArrayLike",
+    "_Sub",
+    "_SP",
     "_F",
     "_T", 
-    "_V", 
-    "Series", 
+    "_V",
+    "Series",
     "Iterator",
     "SupportsInt",
-    ]
+    "Set", 
+    "_ContextManager",
+    "_Deque",
+    "_FrozenSet",
+    "_NamedTuple",
+    "_NewType",
+    "_TypeGuard", 
+    "_TypedDict"
+]
 
 _T = TypeVar('_T')
 _V = TypeVar('_V')
 K = TypeVar('K')
-M =TypeVar ('M', bound= int ) 
-N= TypeVar('N',  bound =int )
-U= TypeVar('U')
-D =TypeVar ('D', bound ='DType')
+M = TypeVar('M', bound=int)
+N = TypeVar('N', bound=int)
+U = TypeVar('U')
+D = TypeVar('D', bound='DType')
 S = TypeVar('S', bound='Shape')
 
-class AddShape (Generic [S]): 
-    """ Suppose to be an extra bound to top the `Shape` for dimensional 
-    more than two. 
-    
-    Example 
-    ------- 
-    >>> import numpy as np 
-    >>> np.random.randn(7, 3, 3) 
-    >>> def check_valid_type (
-        array: NDArray [Array[float], Shape[M, AddShape[N]]]): 
-        ... 
-    
+class AddShape(Generic[S]): 
     """
-class Shape (Generic[M, S], AddShape[S]): 
-    """ Generic to construct a tuple shape for NDarray. `Shape` has is 
-    written wait for two dimensional arrays with M-row and N-columns. However 
-    for three dimensional,`Optional` Type could be: 
-        
-    :Example: 
+    Represents an additional dimension for shapes beyond two dimensions.
+    Useful for defining shapes with more than two dimensions.
+    """
+
+class Shape(Generic[M, N], AddShape[S]): 
+    """
+    Generic type for constructing a tuple shape for NDArray. It is 
+    specifically designed for two-dimensional arrays with M rows and N columns.
+
+    Example:
         >>> import numpy as np 
-        >>> # For 1D array 
-        >>> np
-        >>> np.random.rand(7)
-        >>> def check_array1d( 
-            array: Array[float, Shape[M, None]])
-        >>> np.random.rand (7, 7).astype('>U12'):
-        >>> def check_array2d_type (
-            array: NDArray[Array[str], Shape [M, N], DType ['>U12']])
-        
+        >>> array = np.random.randn(7, 3, 3) 
+        >>> def check_valid_type(array: NDArray[Array[float], Shape[M, AddShape[N]]]): ...
     """
-    def __getitem__ (self, M, N) -> S: 
-        """ Get the type of rown and type of columns 
-        and return Tuple of ``M`` and ``N``. """
-        ... 
     
-class DType (Generic [_T]): 
-    """ DType can be Any Type so it holds '_T' type variable. """
-    def __getitem__  (self, _T) -> _T: 
-        """ Get Generic Type object and return Type Variable"""
-        ...  
-       
+class DType(Generic[D]): 
+    """
+    Represents data types of elements in arrays. DType can be any type,
+    allowing for the specification of array data types.
+
+    Example:
+        >>> import numpy as np
+        >>> array = np.random.randn(7)
+        >>> def check_dtype(array: NDArray[Array[float], DType[float]]): ...
+    """
+
 class ArrayLike(Generic[_T, D]): 
-    """ Array Type here means the 1D array i.e singular column. 
-    For multi-dimensional array we used NDArray instead. 
     """
-    
-    def __getitem__ (self, _T) -> Union ['ArrayLike', _T]: 
-        """ Return Type of the given Type variable. """ 
-        ... 
-    
-    
-class NDArray(ArrayLike[_T, DType [_T]], Generic [_T, D ]) :
-    """NDarray has ``M``rows, ``N`` -columns, `Shape` and `DType` object. 
-    and Dtype. `Shape` is unbound for this class since it does not make sense
-    to specify more integers. However, `DType` seems useful to provide. 
-    
-    :Example: 
-        >>> import numpy as np 
-        >>> _T= TypeVar (_T, str , float) # Dtype here is gone to be "str" 
-        >>> array = np.c_[np.arange(7), np.arange(7).astype ('str')]
-        >>> def test_array (array: NDArray[_T, DType [_T]]):...
-    """
-    def __getitem__ (self,_T ) -> _T: 
-        """ Return type variable. Truly the ``NDArray``"""
-        ... 
-    
-class _F (Generic [_T]): 
-    """ Generic class dedicated for functions, methods and class and 
-    return the given types i.e callable object with arguments or `Any`. 
-    
-    :Example: 
-        >>> import functools 
-        >>> def decorator (appender ='get only the documention and pass.'):
-                @functools.wraps(func):
-                def wrapper(*args, **kwds)
-                    func.__doc__ = appender + func.__doc__
-                    return func (*args, **kwds) 
-                return wrapper 
-        >>> @decorator  # do_nothing = decorator (anyway)
-            def anyway(*args, **kwds):
-                ''' Im here to '''
-                ...
-        >>> def check_F(anyway:_F): 
-                pass 
-    """
-    def __getitem__ (self, item: Callable [...,_T]
-                     ) -> Union ['_F', Callable[..., _T], _T, Any]:
-        """ Accept any type of variable supposing to be a callable object 
-        functions, methods or even classes and return the given type 
-        object or another callable object  with its own or different specific 
-        parameters or itself or Any."""
-        return self 
-    
-class _Sub (Generic [_T]): 
-    """ Return subset of whatever Array"""
-    ... 
-     
-class _SP(Generic [_T, D]): 
-    """ Station position arrays hold integer values of the survey location.
-    Most likely, the station position is given according to the dipole length.
-    Assume the dipole length is ``10 meters`` and survey is carried out on 
-    21 stations. The station position array  should be an array of interger 
-    values from 0. to 200 meters. as like:: 
-        
-        >>> import numpy as np 
-        >>> positions: _SP = np.arange(0, 21 * 10, 10.
-                                     ).astype (np.int32) # integer values 
-    """
-    ... 
-    
-class Series (DType[_T], Generic [_T]): 
-    """ To reference the pandas `Series`_ object. 
-    
-    .. _Series: https://pandas.pydata.org/docs/reference/api/pandas.Series.html
-    
-    :Example:
-        >>> import numpy as np
-        >>> import pandas as pd 
-        >>> from gofast.typing import DType, Series  
-        >>> ser = pd.Series (np.arange (21), name ='nothing')
-        
-    .. code: Python 
-        
-        def check_type (serObj:Series): 
-            ''' pass anyway'''
-            ... 
-        check_type (seObj: Series[DType[str]]=ser ) 
-    
-    """
-    def __getitem__ (self, item: _T) -> 'Series': 
-        """ Get the type variable of item _T and return `Series`_ object."""
-        return self 
-          
-class DataFrame (Series[_T], Generic[_T]): 
-    """ Type hint variable to illutsrate the `pandas DataFrame`_ object. 
-    
-    .. _pandas DataFrame: https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html
-    .. _Series: https://pandas.pydata.org/docs/reference/api/pandas.Series.html
-    
-    Indeed, `pandas DataFrame`_ can be considered as an aggregation of `Series`_, 
-    thus, the generic type hint variable is supposed to hold a `Series`_
-    object. 
-    
-    :Example:
-        
-        >>> import numpy as np
-        >>> import pandas as pd 
-        >>> from gofast.typing import DType, DataFrame 
-        
-    .. code: Python 
-         
-        df =pd.DataFrame ({serie1: np.arange(7), 
-                           serie2: np.linspace (0, 1000, 7), 
-                           serie3: [f'0b{i} for i in range(7)]
-                                    })
-        def check_type (dfObj:DataFrame): 
-            ... 
-        ckeck_type (dfObj: DataFrame [DType [object]] =df)
-    
-    """
-    
-    def __getitem__(self, item: _T)->'DataFrame':
-        """ Get the type hint variable of `pandas DataFrame`_ and return the 
-        object type variable."""
-        
-        return self     
-    
-if __name__=='__main__': 
-    def test (array:_Sub[_SP[ArrayLike[int, DType[int]], DType [int]]]):... 
-    def test2 (array:_Sub[_SP[ArrayLike, DType [int]]]):... 
-    
-    DFSTR  = DataFrame [Series[DType[str]]]
-    DF = DataFrame [DType [object]]
-    
+    Represents an array-like structure, typically used for one-dimensional arrays.
+    For multi-dimensional arrays, NDArray should be used instead.
 
+    Example:
+        >>> def check_array(array: ArrayLike[int]): ...
+    """
 
+class NDArray(Generic[_T, D], ArrayLike[_T, DType[_T]]):
+    """
+    Represents a generic N-dimensional array with specified data types.
+
+    Example:
+        >>> import numpy as np
+        >>> array = np.array([[1, 2], [3, 4]], dtype=int)
+        >>> def check_ndarray(array: NDArray[int, DType[int]]): ...
+    """
+
+class _F(Generic[_T]):
+    """
+    Represents a generic callable type, including functions, methods, and classes.
+    It allows for the specification of return types and argument types of callables.
+
+    Example:
+        >>> def my_function(x: int) -> str: ...
+        >>> def check_callable(func: _F[Callable[[int], str]]): ...
+    """
+
+class _Sub(Generic[_T]):
+    """
+    Represents a subset of an array or collection.
+    """
+
+class _SP(Generic[_T, D]):
+    """
+    Represents station position arrays in geophysical surveys.
+    Typically holds integer values representing station positions.
+
+    Example:
+        >>> import numpy as np
+        >>> positions: _SP = np.arange(0, 21 * 10, 10).astype(np.int32)
+        >>> def check_station_positions(positions: _SP[ArrayLike[int], DType[int]]): ...
+    """
+
+class Series(Generic[_T]):
+    """
+    Represents a pandas Series object.
+
+    Example:
+        >>> import pandas as pd
+        >>> series = pd.Series([1, 2, 3])
+        >>> def check_series(series: Series[int]): ...
+    """
+
+class DataFrame(Generic[_T]):
+    """
+    Represents a pandas DataFrame object.
+
+    Example:
+        >>> import pandas as pd
+        >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': ['a', 'b', 'c']})
+        >>> def check_dataframe(df: DataFrame[object]): ...
+    """
+    
+class _ContextManager(ContextManager, Generic[_T]):
+    """
+    Represents a context manager, a resource that is specifically designed
+    to be used with the 'with' statement.
+
+    Example:
+        >>> from contextlib import contextmanager
+        >>> @contextmanager
+        ... def my_context_manager() -> Generator[None, None, None]:
+        ...     print("Enter context")
+        ...     yield
+        ...     print("Exit context")
+        >>> def check_context(context: _ContextManager[None]): ...
+    """
+
+class _Deque(Deque, Generic[_T]):
+    """
+    Represents a double-ended queue, allowing for efficient addition
+    and removal of elements from either end.
+
+    Example:
+        >>> from collections import deque
+        >>> my_deque: Deque[int] = deque([1, 2, 3])
+        >>> def check_deque(dq: _Deque[int]): ...
+    """
+
+class _FrozenSet(FrozenSet, Generic[_T]):
+    """
+    Represents an immutable set.
+
+    Example:
+        >>> my_frozen_set: FrozenSet[int] = frozenset([1, 2, 3])
+        >>> def check_frozen_set(fs: _FrozenSet[int]): ...
+    """
+
+class _NamedTuple(NamedTuple[TypedDict], Generic[_T]):
+    """
+    Represents a named tuple, combining the benefits of tuples and dictionaries.
+
+    Example:
+        >>> from typing import NamedTuple
+        >>> class MyNamedTuple(NamedTuple):
+        ...     name: str
+        ...     age: int
+        >>> def check_named_tuple(nt: _NamedTuple[str, int]): ...
+    """
+
+class _NewType(NewType, Generic[_T]):
+    """
+    Represents a new type, created from an existing type, used for type checking.
+
+    Example:
+        >>> from typing import NewType
+        >>> UserId = _NewType('UserId', int)
+        >>> def check_user_id(user_id: UserId): ...
+    """
+
+class _TypeGuard(TypeGuard, Generic[_T]):
+    """
+    Represents a special type used in type narrowing, typically in type checking functions.
+
+    Example:
+        >>> from typing import TypeGuard
+        >>> def is_string(val: Any) -> _TypeGuard[str]:
+        ...     return isinstance(val, str)
+        >>> def check_string(val: Any): ...
+        ...     if is_string(val):
+        ...         print(val.upper())  # val is narrowed to str
+    """
+
+class _TypedDict(Generic[_T]):
+    """
+    Represents a dictionary with fixed keys and specified value types.
+
+    Example:
+        >>> from typing import TypedDict
+        >>> class MyDict(_TypedDict):
+        ...     name: str
+        ...     age: int
+        >>> def check_typed_dict(d: MyDict): ...
+    """
+if __name__ == '__main__':
+    # Test cases demonstrating the usage of defined generic types.
+    ...
 
 
 

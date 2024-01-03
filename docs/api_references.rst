@@ -137,7 +137,6 @@ data-centric tasks and workflows.
    base.MergeableFrames
    base.Missing
 
-
 .. _datasets_ref:
 
 :mod:`gofast.datasets`: Datasets 
@@ -260,7 +259,6 @@ In some cases, effective manipulation of geosciences datasets may require a soli
 and more. For more comprehensive geoscience capabilities, it is recommended to explore specialized libraries such as
 `watex <https://watex.readthedocs.io>`_ or others.
 
- 
 .. automodule:: gofast.geo
    :no-members:
    :no-inherited-members:
@@ -335,6 +333,7 @@ Classes
    :template: class.rst
 
    models.BaseEvaluation
+   models.CrossValidator
    models.GridSearch
    models.GridSearchMultiple
    
@@ -360,7 +359,28 @@ Functions
    models.robust_tuning 
    models.neural_tuning
    models.deep_tuning
-
+   models.find_best_C
+   models.calculate_aggregate_scores 
+   models.analyze_score_distribution 
+   models.estimate_confidence_interval 
+   models.rank_cv_scores
+   models.filter_scores
+   models.visualize_score_distribution 
+   models.performance_over_time 
+   models.calculate_custom_metric 
+   models.handle_missing_data 
+   models.export_cv_results 
+   models.comparative_analysis 
+   models.plot_parameter_importance 
+   models.plot_hyperparameter_heatmap 
+   models.plot_learning_curve 
+   models.plot_validation_curve 
+   models.plot_feature_importance
+   models.plot_roc_curve_per_fold 
+   models.plot_confidence_intervals 
+   models.plot_pairwise_model_comparison
+   models.plot_feature_correlation 
+   models.quick_evaluation 
 
 .. _metrics_ref:
 
@@ -443,6 +463,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.bi_selector
    tools.bin_counting
    tools.binning_statistic
+   tools.build_data_preprocessor
    tools.butterworth_filter
    tools.categorize_target
    tools.category_count
@@ -476,11 +497,11 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.linkage_matrix
    tools.load_csv
    tools.load_dumped_data
+   tools.load_saved_model
    tools.logarithmic_regression
    tools.make_pipe
    tools.minmax_scaler
    tools.moving_average
-   tools.naive_data_split
    tools.normalize
    tools.normalizer
    tools.pair_data
@@ -508,6 +529,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.smooth1d
    tools.smoothing
    tools.soft_bin_stats
+   tools.soft_data_split
    tools.soft_imputer
    tools.soft_scaler
    tools.speed_rowwise_process
@@ -519,6 +541,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.store_or_write_hdf5
    tools.stratify_categories
    tools.to_numeric_dtypes
+   tools.unified_storage 
  
 .. _plot_ref:
 

@@ -6,6 +6,7 @@ from __future__ import (
     print_function 
     )
 import os
+import h5py
 import copy
 import shutil 
 from six.moves import urllib 
@@ -23,6 +24,9 @@ from .._typing import (
     List, 
     NDArray, 
     DataFrame, 
+    Optional, 
+    Dict, 
+    Union
     )
 from ..exceptions import FileHandlingError 
 from ..property import  Config
@@ -1073,7 +1077,211 @@ def run_shell_command(command, progress_bar_duration=30):
     # Wait for the command to finish
     thread.join()
 
+def handle_datasets_in_h5(
+    file_path: str,
+    datasets: Optional[Dict[str, np.ndarray]] = None, 
+    operation: str = 'store'
+    ) -> Union[None, Dict[str, np.ndarray]]:
+    """
+    Handles storing or retrieving multiple datasets in an HDF5 file.
 
+    Parameters
+    ----------
+    file_path : str
+        Path to the HDF5 file where datasets will be stored or from which 
+        datasets will be retrieved.
+    datasets : dict, optional
+        A dictionary where keys are dataset names and values are the 
+        datasets (numpy arrays).
+        Required if operation is 'store'. Default is None.
+    operation : str
+        The operation to perform - 'store' for storing datasets, 'retrieve' 
+        for retrieving datasets.
+
+    Returns
+    -------
+    dict or None
+        If operation is 'retrieve', returns a dictionary where keys are dataset
+        names and values are the datasets (numpy arrays).
+        If operation is 'store', returns None.
+
+    Raises
+    ------
+    ValueError
+        If an invalid operation is specified.
+    OSError
+        If the file cannot be opened or created.
+
+    Examples
+    --------
+    Storing datasets:
+    >>> data1 = np.random.rand(100, 10)
+    >>> data2 = np.random.rand(200, 5)
+    >>> handle_datasets_in_h5('my_datasets.h5', 
+                              {'dataset1': data1, 'dataset2': data2}, operation='store')
+
+    Retrieving datasets:
+    >>> datasets = handle_datasets_in_h5('my_datasets.h5', operation='retrieve')
+    >>> print(datasets.keys())
+    """
+    if operation not in ['store', 'retrieve']:
+        raise ValueError("Invalid operation. Please choose 'store' or 'retrieve'.")
+
+    if operation == 'store':
+        if datasets is None:
+            raise ValueError("Datasets parameter is required for storing data.")
+
+        with h5py.File(file_path, 'w') as h5file:
+            for name, data in datasets.items():
+                h5file.create_dataset(name, data=data)
+
+    elif operation == 'retrieve':
+        datasets_retrieved = {}
+        with h5py.File(file_path, 'r') as h5file:
+            for name in h5file.keys():
+                datasets_retrieved[name] = h5file[name][...]
+                
+        return datasets_retrieved
+
+def handle_datasets_with_hdfstore(
+    file_path: str, 
+    datasets: Optional[Dict[str, pd.DataFrame]] = None, 
+    operation: str = 'store') -> Union[None, Dict[str, pd.DataFrame]]:
+    """
+    Handles storing or retrieving multiple Pandas DataFrames in an HDF5 
+    file using pd.HDFStore.
+
+    Parameters
+    ----------
+    file_path : str
+        Path to the HDF5 file where datasets will be stored or from which 
+        datasets will be retrieved.
+    datasets : dict, optional
+        A dictionary where keys are dataset names and values are the datasets
+        (Pandas DataFrames).
+        Required if operation is 'store'. Default is None.
+    operation : str
+        The operation to perform - 'store' for storing datasets, 'retrieve' 
+        for retrieving datasets.
+
+    Returns
+    -------
+    dict or None
+        If operation is 'retrieve', returns a dictionary where keys are dataset 
+        names and values are the datasets (Pandas DataFrames).
+        If operation is 'store', returns None.
+
+    Raises
+    ------
+    ValueError
+        If an invalid operation is specified.
+    OSError
+        If the file cannot be opened or created.
+
+    Examples
+    --------
+    Storing datasets:
+    >>> df1 = pd.DataFrame(np.random.rand(100, 10), columns=[f'col_{i}' for i in range(10)])
+    >>> df2 = pd.DataFrame(np.random.randint(0, 100, size=(200, 5)), columns=['A', 'B', 'C', 'D', 'E'])
+    >>> handle_datasets_with_hdfstore('my_datasets.h5', {'df1': df1, 'df2': df2}, operation='store')
+
+    Retrieving datasets:
+    >>> datasets = handle_datasets_with_hdfstore('my_datasets.h5', operation='retrieve')
+    >>> print(datasets.keys())
+    """
+    if operation not in ['store', 'retrieve']:
+        raise ValueError("Invalid operation. Please choose 'store' or 'retrieve'.")
+
+    if operation == 'store':
+        if datasets is None:
+            raise ValueError("Datasets parameter is required for storing data.")
+
+        with pd.HDFStore(file_path, 'w') as store:
+            for name, df in datasets.items():
+                store.put(name, df)
+
+    elif operation == 'retrieve':
+        datasets_retrieved = {}
+        with pd.HDFStore(file_path, 'r') as store:
+            for name in store.keys():
+                datasets_retrieved[name.strip('/')] = store[name]
+        return datasets_retrieved
+    
+def unified_storage(
+    file_path: str,
+    datasets: Optional[Dict[str, Union[np.ndarray, pd.DataFrame]]] = None, 
+    operation: str = 'store'
+) -> Union[None, Dict[str, Union[np.ndarray, pd.DataFrame]]]:
+    """
+    Handles storing or retrieving multiple datasets (numpy arrays or Pandas 
+    DataFrames) in an HDF5 file.
+
+    Parameters
+    ----------
+    file_path : str
+        Path to the HDF5 file where datasets will be stored or from which 
+        datasets will be retrieved.
+    datasets : dict, optional
+        A dictionary where keys are dataset names and values are the 
+        datasets (numpy arrays or Pandas DataFrames).
+        Required if operation is 'store'. Default is None.
+    operation : str
+        The operation to perform - 'store' for storing datasets, 'retrieve' 
+        for retrieving datasets.
+
+    Returns
+    -------
+    dict or None
+        If operation is 'retrieve', returns a dictionary where keys are dataset
+        names and values are the datasets (numpy arrays or Pandas DataFrames).
+        If operation is 'store', returns None.
+
+    Raises
+    ------
+    ValueError
+        If an invalid operation is specified.
+    OSError
+        If the file cannot be opened or created.
+
+    Examples
+    --------
+    Storing datasets:
+    >>> data1 = np.random.rand(100, 10)
+    >>> df1 = pd.DataFrame(np.random.randint(0, 100, size=(200, 5)), columns=['A', 'B', 'C', 'D', 'E'])
+    >>> handle_datasets_in_h5('my_datasets.h5', {'dataset1': data1, 'df1': df1}, operation='store')
+
+    Retrieving datasets:
+    >>> datasets = handle_datasets_in_h5('my_datasets.h5', operation='retrieve')
+    >>> print(datasets.keys())
+    """
+    if operation not in ['store', 'retrieve']:
+        raise ValueError("Invalid operation. Please choose 'store' or 'retrieve'.")
+
+    if operation == 'store':
+        if datasets is None:
+            raise ValueError("Datasets parameter is required for storing data.")
+
+        with h5py.File(file_path, 'w') as h5file:
+            for name, data in datasets.items():
+                if isinstance(data, pd.DataFrame):
+                    data.to_hdf(file_path, key=name, mode='a')
+                elif isinstance(data, np.ndarray):
+                    h5file.create_dataset(name, data=data)
+                else:
+                    raise TypeError("Unsupported data type. Only numpy arrays "
+                                    "and pandas DataFrames are supported.")
+
+    elif operation == 'retrieve':
+        datasets_retrieved = {}
+        with h5py.File(file_path, 'r') as h5file:
+            for name in h5file.keys():
+                try:
+                    datasets_retrieved[name] = pd.read_hdf(file_path, key=name)
+                except (KeyError, TypeError):
+                    datasets_retrieved[name] = h5file[name][...]
+
+        return datasets_retrieved
+    
 
     
     
