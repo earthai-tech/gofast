@@ -26,7 +26,7 @@ from sklearn.compose import ColumnTransformer, make_column_selector
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import SelectFromModel, SelectKBest
-from sklearn.impute import SimpleImputer, IterativeImputer
+from sklearn.impute import SimpleImputer
 from sklearn.metrics import confusion_matrix, classification_report 
 from sklearn.metrics import mean_squared_error, f1_score, accuracy_score
 from sklearn.metrics import precision_recall_curve, precision_score, recall_score
@@ -3934,6 +3934,8 @@ def build_data_preprocessor(
 
    # Advanced imputation logic if required
     if advanced_imputation:
+        from sklearn.experimental import enable_iterative_imputer
+        from sklearn.impute import IterativeImputer
         if advanced_imputation == 'IterativeImputer':
             steps.insert(0, ('advanced_imputer', IterativeImputer(
                 estimator=RandomForestClassifier(), random_state=42)))

@@ -132,10 +132,12 @@ data-centric tasks and workflows.
    :template: class.rst
    
    base.Data
+   base.FeatureProcessor
    base.FrameOperations
    base.MergeableSeries
    base.MergeableFrames
    base.Missing
+   base.TargetProcessor
 
 .. _datasets_ref:
 

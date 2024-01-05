@@ -16,6 +16,62 @@ __all__=[
     '_core_docs',
     ]
 
+class DocstringComponents:
+    """ Document the docstring of class, methods or functions. """
+    
+    regexp = re.compile(r"\n((\n|.)+)\n\s*", re.MULTILINE)
+
+    def __init__(self, comp_dict, strip_whitespace=True):
+        """Read entries from a dict, optionally stripping outer whitespace."""
+        if strip_whitespace:
+            entries = {}
+            for key, val in comp_dict.items():
+                m = re.match(self.regexp, val)
+                if m is None:
+                    entries[key] = val
+                else:
+                    entries[key] = m.group(1)
+        else:
+            entries = comp_dict.copy()
+
+        self.entries = entries
+
+    def __getattr__(self, attr):
+        """Provide dot access to entries for clean raw docstrings."""
+        if attr in self.entries:
+            return self.entries[attr]
+        else:
+            try:
+                return self.__getattribute__(attr)
+            except AttributeError as err:
+                # If Python is run with -OO, it will strip docstrings and our lookup
+                # from self.entries will fail. We check for __debug__, which is actually
+                # set to False by -O (it is True for normal execution).
+                # But we only want to see an error when building the docs;
+                # not something users should see, so this slight inconsistency is fine.
+                if __debug__:
+                    raise err
+                else:
+                    pass
+
+    @classmethod
+    def from_nested_components(cls, **kwargs):
+        """Add multiple sub-sets of components."""
+        return cls(kwargs, strip_whitespace=False)
+    
+    
+# ++++++++++++++++++++++DocComponents++++++++++++++++++++++++++++++++++++++++++
+#XXX TODO 
+_load_params= dict( 
+    
+    
+    
+    
+    
+    
+    
+    
+    )
 __doc__="""\
 
 DC-Electrical resistivity profiling data collected during the National Drinking
@@ -102,48 +158,7 @@ refglossary =type ('refglossary', (), dict (
     ) 
 )
 
-class DocstringComponents:
-    """ Document the docstring of class, methods or functions. """
-    
-    regexp = re.compile(r"\n((\n|.)+)\n\s*", re.MULTILINE)
 
-    def __init__(self, comp_dict, strip_whitespace=True):
-        """Read entries from a dict, optionally stripping outer whitespace."""
-        if strip_whitespace:
-            entries = {}
-            for key, val in comp_dict.items():
-                m = re.match(self.regexp, val)
-                if m is None:
-                    entries[key] = val
-                else:
-                    entries[key] = m.group(1)
-        else:
-            entries = comp_dict.copy()
-
-        self.entries = entries
-
-    def __getattr__(self, attr):
-        """Provide dot access to entries for clean raw docstrings."""
-        if attr in self.entries:
-            return self.entries[attr]
-        else:
-            try:
-                return self.__getattribute__(attr)
-            except AttributeError as err:
-                # If Python is run with -OO, it will strip docstrings and our lookup
-                # from self.entries will fail. We check for __debug__, which is actually
-                # set to False by -O (it is True for normal execution).
-                # But we only want to see an error when building the docs;
-                # not something users should see, so this slight inconsistency is fine.
-                if __debug__:
-                    raise err
-                else:
-                    pass
-
-    @classmethod
-    def from_nested_components(cls, **kwargs):
-        """Add multiple sub-sets of components."""
-        return cls(kwargs, strip_whitespace=False)
     
 _baseplot_params = dict( 
     savefig= """

@@ -173,7 +173,7 @@ tnames: str, optional
     that is needed for the learning task. 
 (tag, data_names): None
     `tag` and `data_names` do nothing. just for API purpose and to allow 
-    fetching the same data uing the func:`~gofast.data.fetch_data` since the 
+    fetching the same data uing the func:`~gofast.datasets.fetch_data` since the 
     latter already holds `tag` and `data_names` as parameters. 
     
 key: str, default='h502'

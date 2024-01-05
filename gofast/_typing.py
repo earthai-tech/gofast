@@ -195,8 +195,9 @@ __all__ = [
     "_FrozenSet",
     "_NamedTuple",
     "_NewType",
-    "_TypeGuard", 
-    "_TypedDict"
+    "_TypedDict",
+    "TypeGuard",  
+    "TypedDict", 
 ]
 
 _T = TypeVar('_T')
@@ -214,7 +215,7 @@ class AddShape(Generic[S]):
     Useful for defining shapes with more than two dimensions.
     """
 
-class Shape(Generic[M, N], AddShape[S]): 
+class Shape(Generic[M, N, S]):  
     """
     Generic type for constructing a tuple shape for NDArray. It is 
     specifically designed for two-dimensional arrays with M rows and N columns.
@@ -222,7 +223,7 @@ class Shape(Generic[M, N], AddShape[S]):
     Example:
         >>> import numpy as np 
         >>> array = np.random.randn(7, 3, 3) 
-        >>> def check_valid_type(array: NDArray[Array[float], Shape[M, AddShape[N]]]): ...
+        >>> def check_valid_type(array: NDArray[Array[float], Shape[M, N, S]]): ...
     """
     
 class DType(Generic[D]): 
@@ -336,7 +337,7 @@ class _FrozenSet(FrozenSet, Generic[_T]):
         >>> def check_frozen_set(fs: _FrozenSet[int]): ...
     """
 
-class _NamedTuple(NamedTuple[TypedDict], Generic[_T]):
+class _NamedTuple(NamedTuple):
     """
     Represents a named tuple, combining the benefits of tuples and dictionaries.
 
@@ -358,23 +359,14 @@ class _NewType(NewType, Generic[_T]):
         >>> def check_user_id(user_id: UserId): ...
     """
 
-class _TypeGuard(TypeGuard, Generic[_T]):
-    """
-    Represents a special type used in type narrowing, typically in type checking functions.
-
-    Example:
-        >>> from typing import TypeGuard
-        >>> def is_string(val: Any) -> _TypeGuard[str]:
-        ...     return isinstance(val, str)
-        >>> def check_string(val: Any): ...
-        ...     if is_string(val):
-        ...         print(val.upper())  # val is narrowed to str
-    """
-
-class _TypedDict(Generic[_T]):
+class _TypedDict(TypedDict):
     """
     Represents a dictionary with fixed keys and specified value types.
-
+    
+    `_TypedDict` creates a dictionary type with specific types for each key.
+    It helps to ensure that each field in the dictionary adheres to the
+    specified type, providing better type checking at the code analysis stage.
+    
     Example:
         >>> from typing import TypedDict
         >>> class MyDict(_TypedDict):

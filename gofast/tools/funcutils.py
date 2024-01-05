@@ -5038,7 +5038,7 @@ def assert_ratio(
                            format(name.title(), msg.format(low, up), v  ))
     return v 
 
-def exist_features (df, features, error='raise'): 
+def exist_features (df, features, error='raise', name="Feature"): 
     """Control whether the features exist or not  
     
     :param df: a dataframe for features selections 
@@ -5061,7 +5061,7 @@ def exist_features (df, features, error='raise'):
     set_f =  set (features).intersection (set(df.columns))
     if len(set_f)!= len(features): 
         nfeat= len(features) 
-        msg = f"Feature{'s' if nfeat >1 else ''}"
+        msg = f"{name}{'s' if nfeat >1 else ''}"
         if len(set_f)==0:
             if error =='raise':
                 raise ValueError (f"{msg} {smart_format(features)} "
