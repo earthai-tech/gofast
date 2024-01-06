@@ -31,7 +31,7 @@ __all__= [ "load_iris",  "load_hlogs", "load_mxs", "load_nlogs"]
 
 def load_hlogs (
         *,  return_X_y=False, as_frame =False, key =None,  split_X_y=False, 
-        test_size =.3 , tag =None, tnames = None , data_names=None, 
+        test_ratio =.3 , tag =None, tnames = None , data_names=None, 
          **kws): 
     
     drop_observations =kws.pop("drop_observations", False)
@@ -110,7 +110,7 @@ def load_hlogs (
         frame = to_numeric_dtypes(frame)
         
     if split_X_y: 
-        X, Xt = split_train_test_by_id (data = frame , test_ratio= test_size, 
+        X, Xt = split_train_test_by_id (data = frame , test_ratio= test_ratio, 
                                         keep_colindex= False )
         y = X[tnames] 
         X.drop(columns =target_columns, inplace =True)
@@ -141,118 +141,94 @@ def load_hlogs (
         data_module=DMODULE,
     )
 
-load_hlogs.__doc__="""\
-Load the hydro-logging dataset.
+load_hlogs.__doc__ = """\
+Load hydro-logging dataset for hydrogeophysical analysis.
 
-Dataset contains multi-target and can be used for a classification or 
-regression problem.
+This dataset contains multi-target data suitable for both classification and 
+regression tasks in the context of groundwater studies.
 
 Parameters
 ----------
 return_X_y : bool, default=False
-    If True, returns ``(data, target)`` instead of a Bowlspace object. See
-    below for more information about the `data` and `target` object.
+    If True, returns `(data, target)` instead of a Bowlspace object. 
+    `data` and `target` are described in more detail below.
 
 as_frame : bool, default=False
-    If True, the data is a pandas DataFrame including columns with
-    appropriate dtypes (numeric). The target is
-    a pandas DataFrame or Series depending on the number of target columns.
-    If `return_X_y` is True, then (`data`, `target`) will be pandas
-    DataFrames or Series as described below.
+    If True, data is a pandas DataFrame with appropriate dtypes (numeric).
+    The target is a pandas DataFrame or Series, depending on the number of 
+    target columns. If `return_X_y` is True, then both `data` and `target` will 
+    be pandas DataFrames or Series.
 
-split_X_y: bool, default=False,
-    If True, the data is splitted to hold the training set (X, y)  and the 
-    testing set (Xt, yt) with the according to the test size ratio.  
-test_size: float, default is {{.3}} i.e. 30% (X, y)
-    The ratio to split the data into training (X, y)  and testing (Xt, yt) set 
-    respectively. 
-tnames: str, optional 
-    the name of the target to retreive. If ``None`` the full target columns 
-    are collected and compose a multioutput `y`. For a singular classification 
-    or regression problem, it is recommended to indicate the name of the target 
-    that is needed for the learning task. 
-(tag, data_names): None
-    `tag` and `data_names` do nothing. just for API purpose and to allow 
-    fetching the same data uing the func:`~gofast.datasets.fetch_data` since the 
-    latter already holds `tag` and `data_names` as parameters. 
-    
+split_X_y: bool, default=False
+    If True, splits the data into training and testing sets based on the 
+    `test_size` ratio. Returns the sets as `(X, y)` for training and `(Xt, yt)` 
+    for testing.
+
+test_ratio: float, default=0.3
+    Ratio for splitting data into training and testing sets. A value of 0.3 
+    implies a 30% allocation for testing.
+
+tnames: str, optional
+    The name of the target column(s) to retrieve. If None, all target columns 
+    are collected for multioutput `y`. For specific classification or regression 
+    tasks, it's advisable to specify the relevant target name.
+
 key: str, default='h502'
-    Kind of logging data to fetch. Can also be the borehole ["h2601", "*"]. 
-    If ``key='*'``, all the data is aggregated on a single frame of borehole. 
-    
-drop_observations: bool, default='False'
-    Drop the ``remark`` column in the logging data if set to ``True``.  
+    Identifier for the specific logging data to fetch. Accepts borehole IDs 
+    (e.g., "h2601", "*"). If `key='*'`, aggregates all data into a single frame.
 
-    
+drop_observations: bool, default=False
+    If True, drops the `remark` column from the logging data.
+
 Returns
----------
+-------
 data : :class:`~gofast.tools.Boxspace`
-    Dictionary-like object, with the following attributes.
-    data : {ndarray, dataframe} 
-        The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
-    target: {ndarray, Series} 
-        The classification target. If `as_frame=True`, `target` will be
-        a pandas Series.
-    feature_names: list
-        The names of the dataset columns.
-    target_names: list
-        The names of target classes.
-    frame: DataFrame 
-        Only present when `as_frame=True`. DataFrame with `data` and
-        `target`.
+    Dictionary-like object with attributes:
+    - data: {ndarray, DataFrame} 
+      Data matrix; pandas DataFrame if `as_frame=True`.
+    - target: {ndarray, Series}
+      Classification target; pandas Series if `as_frame=True`.
+    - feature_names: list
+      Names of dataset columns.
+    - target_names: list
+      Names of target classes.
+    - frame: DataFrame
+      DataFrame with `data` and `target` if `as_frame=True`.
+    - DESCR: str
+      Full description of the dataset.
+    - filename: str
+      Path to data location.
 
-    DESCR: str
-        The full description of the dataset.
-    filename: str
-        The path to the location of the data.
+data, target : tuple
+    Returned if `return_X_y` is True. Tuple of ndarray: data matrix (n_samples, n_features)
+    and target samples (n_samples,).
 
-data, target: tuple if ``return_X_y`` is True
-    A tuple of two ndarray. The first containing a 2D array of shape
-    (n_samples, n_features) with each row representing one sample and
-    each column representing the features. The second ndarray of shape
-    (n_samples,) containing the target samples.
+X, Xt, y, yt : tuple
+    Returned if `split_X_y` is True. Tuple of ndarrays for training (X, y) 
+    and testing (Xt, yt) sets, split according to `test_ratio`. The shapes are determined as follows:
+    \[
+    \text{{shape}}(X, y) = \left(1 - \text{{test\_ratio}}\right) \times (n_{\text{{samples}}}, n_{\text{{features}}}) \times 100
+    \]
+    \[
+    \text{{shape}}(Xt, yt) = \text{{test\_ratio}} \times (n_{\text{{samples}}}, n_{\text{{features}}}) \times 100
+    \]
 
-X, Xt, y, yt: Tuple if ``split_X_y`` is True 
-    A tuple of two ndarray (X, Xt). The first containing a 2D array of:
-        
-    .. math:: 
-        
-        \\text{shape}(X, y) =  1-  \\text{test_ratio} * (n_{samples}, n_{features}) *100
-        
-        \\text{shape}(Xt, yt)= \\text{test_ratio} * (n_{samples}, n_{features}) *100
-    
-    where each row representing one sample and each column representing the 
-    features. The second ndarray of shape(n_samples,) containing the target 
-    samples.
-     
 Examples
 --------
-Let's say ,we do not have any idea of the columns that compose the target,
-thus, the best approach is to run the function without passing any parameters::
+To explore available target columns without specifying any parameters:
 
->>> from gofast.datasets.dload import load_hlogs 
->>> b= load_hlogs()
+>>> from gofast.datasets.dload import load_hlogs
+>>> b = load_hlogs()
 >>> b.target_names 
-['aquifer_group',
- 'pumping_level',
- 'aquifer_thickness',
- 'hole_depth',
- 'pumping_depth',
- 'section_aperture',
- 'k',
- 'kp',
- 'r',
- 'rp',
- 'remark']
->>> # Let's say we are interested of the targets 'pumping_level' and 
->>> # 'aquifer_thickness' and returns `y' 
->>> _, y = load_hlogs (as_frame=True, # return as frame X and y
-                       tnames =['pumping_level','aquifer_thickness'], 
-                       )
+['aquifer_group', 'pumping_level', 'aquifer_thickness', ...]
+
+To focus on specific targets 'pumping_level' and 'aquifer_thickness':
+
+>>> _, y = load_hlogs(as_frame=True, tnames=['pumping_level', 'aquifer_thickness'])
 >>> list(y.columns)
-... ['pumping_level', 'aquifer_thickness']
- 
+['pumping_level', 'aquifer_thickness']
 """
+
 def load_nlogs (
     *,  return_X_y=False, 
     as_frame =False, 
@@ -392,159 +368,102 @@ def load_nlogs (
         data_module=DMODULE,
     )
  
-load_nlogs.__doc__="""\
-Load the Nanshang Engineering and hydrogeological drilling dataset.
+load_nlogs.__doc__ = """\
+Load the Nansha Engineering and Hydrogeological Drilling Dataset.
 
-Dataset contains multi-target and can be used for a classification or 
-regression problem.
+This dataset contains multi-target information suitable for classification or 
+regression problems in hydrogeological and geotechnical contexts.
 
 Parameters
 ----------
 return_X_y : bool, default=False
-    If True, returns ``(data, target)`` instead of a Bowlspace object. See
-    below for more information about the `data` and `target` object.
+    If True, returns (data, target) as separate objects instead of a 
+    Bowlspace object.
 
 as_frame : bool, default=False
-    If True, the data is a pandas DataFrame including columns with
-    appropriate dtypes (numeric). The target is
-    a pandas DataFrame or Series depending on the number of target columns.
-    If `return_X_y` is True, then (`data`, `target`) will be pandas
-    DataFrames or Series as described below.
+    If True, data is returned as a pandas DataFrame with appropriate dtypes. 
+    The target is also returned as a DataFrame or Series, based on the number 
+    of target columns.
 
-split_X_y: bool, default=False,
-    If True, the data is splitted to hold the training set (X, y)  and the 
-    testing set (Xt, yt) with the according to the test size ratio. 
-    
-test_ratio: float, default is {{.3}} i.e. 30% (X, y)
-    The ratio to split the data into training (X, y)  and testing (Xt, yt) set 
-    respectively. 
-    
+split_X_y: bool, default=False
+    If True, data is split into a training set (X, y) and a testing set (Xt, yt) 
+    according to the test ratio specified.
+
+test_ratio: float, default=0.3
+    Ratio for splitting data into training and testing sets (default is 30%).
+
 tnames: str, optional 
-    the name of the target to retreive. If ``None`` the full target columns 
-    are collected and compose a multioutput `y`. For a singular classification 
-    or regression problem, it is recommended to indicate the name of the target 
-    that is needed for the learning task. When collecting data for land 
-    subsidence with ``key="ls"``, `tnames` and `years` are used 
-    interchangeability. 
-    
-(tag, data_names): None
-    `tag` and `data_names` do nothing. just for API purpose and to allow 
-    fetching the same data uing the func:`~gofast.data.fetch_data` since the 
-    latter already holds `tag` and `data_names` as parameters. 
-    
+    Name(s) of the target column(s) to retrieve. If None, all target columns 
+    are included.
+
 key: str, default='b0'
-    Kind of drilling data to fetch. Can also be the borehole ["ns", "ls"]. The 
-    ``ns`` data refer mostly to engineering drilling whereas the ``b0`` refers 
-    to pure hydrogeological drillings. In the former case, the 
-    ``'ground_height_distance'`` attribute used to control soil settlement is 
-    the target while the latter targets fit the water inflow, the drawdown and 
-    the static water level. The "ls" key is used for collection the times 
-    series land subsidence data from 2015-2018. It should be used in combinaison
-    with the `years` parameter for collecting the specific year data. The 
-    default land-subsidence data is ``2022``. 
-    
-years: str, default="2022" 
-   the year of land subsidence. Note that land subsidence data are collected 
-   from 2015 to 2022. For instance to select two years subsidence, use 
-   space between years like ``years ="2015 2022"``. The star ``*`` argument 
-   can be used for selecting all years data. 
-   
+    Identifier for the type of drilling data to fetch. Options include 
+    engineering drilling ('ns') and hydrogeological drilling ('b0').
 
-samples: int,optional 
-   Ratio or number of items from axis to fetch in the data. fetch all data if 
-   `samples` is ``None``.  
-   
-seed: int, array-like, BitGenerator, np.random.RandomState, \
-    np.random.Generator, optional
-   If int, array-like, or BitGenerator, seed for random number generator. 
-   If np.random.RandomState or np.random.Generator, use as given.
-   
-shuffle: bool, default =False, 
-   If ``True``, borehole data should be shuffling before sampling. 
-   
-drop_display_rate: bool, default=True 
-  Display the rate is used for image visualization. To increase the image 
-  pixels. 
+years: str, default="2022"
+    Specific year(s) for land subsidence data, ranging from 2015 to 2022.
 
+samples: int, optional 
+    Number of samples to fetch from the dataset. Fetches all data if None.
+
+seed: int, optional
+    Seed for the random number generator, used when shuffling data.
+
+shuffle: bool, default=False
+    If True, shuffles data before sampling.
+
+drop_display_rate: bool, default=True
+    If True, removes the display rate column used for image visualization.
 
 Returns
----------
-data : :class:`~gofast.tools.Boxspace`
-    Dictionary-like object, with the following attributes.
-    data : {ndarray, dataframe} 
-        The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
-    target: {ndarray, Series} 
-        The classification target. If `as_frame=True`, `target` will be
-        a pandas Series.
-    feature_names: list
-        The names of the dataset columns.
-    target_names: list
-        The names of target classes.
-    frame: DataFrame 
-        Only present when `as_frame=True`. DataFrame with `data` and
-        `target`.
-    DESCR: str
-        The full description of the dataset.
-    filename: str
-        The path to the location of the data.
+-------
+data : :class:`~gofast.tools.box.Boxspace`
+    Dictionary-like object with attributes:
+    - data: {ndarray, DataFrame} 
+      Data matrix; pandas DataFrame if `as_frame=True`.
+    - target: {ndarray, Series}
+      Classification target; pandas Series if `as_frame=True`.
+    - feature_names: list
+      Names of dataset columns.
+    - target_names: list
+      Names of target classes.
+    - frame: DataFrame
+      DataFrame with `data` and `target` if `as_frame=True`.
+    - DESCR: str
+      Full description of the dataset.
+    - filename: str
+      Path to data location.
 
-data, target: tuple if ``return_X_y`` is True
-    A tuple of two ndarray. The first containing a 2D array of shape
-    (n_samples, n_features) with each row representing one sample and
-    each column representing the features. The second ndarray of shape
-    (n_samples,) containing the target samples.
+data, target : tuple
+    Returned if `return_X_y` is True. Tuple of ndarray: data matrix 
+    (n_samples, n_features) and target samples (n_samples,).
 
-X, Xt, y, yt: Tuple if ``split_X_y`` is True 
-    A tuple of two ndarray (X, Xt). The first containing a 2D array of:
-        
-    .. math:: 
-        
-        \\text{shape}(X, y) =  1-  \\text{test_ratio} * (n_{samples}, n_{features}) *100
-        
-        \\text{shape}(Xt, yt)= \\text{test_ratio} * (n_{samples}, n_{features}) *100
-    
-    where each row representing one sample and each column representing the 
-    features. The second ndarray of shape(n_samples,) containing the target 
-    samples.
-     
+X, Xt, y, yt : tuple
+    Returned if `split_X_y` is True. Tuple of ndarrays for training (X, y) 
+    and testing (Xt, yt) sets, split according to `test_ratio`.
+
 Examples
 --------
-Let's say ,we do not have any idea of the columns that compose the target,
-thus, the best approach is to run the function without passing any parameters 
-and then `DESCR` attributes to get the unit of each attribute::
+To explore available target columns without specifying any parameters:
 
 >>> from gofast.datasets.dload import load_nlogs
->>> b= load_nlogs()
+>>> b = load_nlogs()
 >>> b.target_names
-Out[241]: 
-['static_water_level',
- 'drawdown',
- 'water_inflow',
- 'unit_water_inflow',
- 'water_inflow_in_m3_d']
->>> b.DESCR
-... (...)
->>> # Let's say we are interested of the targets 'drawdown' and 
->>> # 'static_water_level' and returns `y' 
->>> _, y = load_nlogs (as_frame=True, # return as frame X and y
-                       tnames =['drawdown','static_water_level'], )
+['static_water_level', 'drawdown', 'water_inflow', ...]
+
+To focus on specific targets 'drawdown' and 'static_water_level':
+
+>>> _, y = load_nlogs(as_frame=True, tnames=['drawdown', 'static_water_level'])
 >>> list(y.columns)
-... ['drawdown', 'static_water_level']
->>> y.head(2) 
-   drawdown  static_water_level
-0     70.03                4.21
-1      7.38                3.60
->>> # let say we want subsidence data of 2015 and 2018 with the 
->>> # diplay resolution rate. Because the display is removed, we must set  
->>> # it to False so keep it included in the data. 
->>> n= load_nlogs (key ='ls', samples = 3 , years = "2015 2018 disp",
-                   drop_display_rate =False )
->>> n.frame  
-        easting      northing   longitude  ...      2015       2018  disp_rate
-0  2.531191e+06  1.973515e+07  113.291328  ... -0.494959 -27.531837  -7.352538
-1  2.531536e+06  1.973519e+07  113.291847  ... -1.104473 -21.852705  -7.999145
-2  2.531479e+06  1.973520e+07  113.291847  ... -1.139404 -22.022655  -7.894940
+['drawdown', 'static_water_level']
+
+To retrieve land subsidence data for specific years with display rate:
+
+>>> n = load_nlogs(key='ls', samples=3, years="2015 2018", drop_display_rate=False)
+>>> n.frame.head()
+[easting, northing, longitude, 2015, 2018, disp_rate]
 """
+
 def load_bagoue(
         *, return_X_y=False, as_frame=False, split_X_y=False, test_size =.3 , 
         tag=None , data_names=None, **kws
@@ -1148,91 +1067,97 @@ def load_bagoue(
         data_module=DMODULE,
     )
 
-load_bagoue.__doc__="""\
-Load the Bagoue dataset. 
+load_bagoue.__doc__ = """\
+Load the Bagoue dataset.
 
-The Bagoue dataset is a classic and a multi-class classification
-dataset. Refer to the description for more details. 
+The Bagoue dataset is a classic, multi-class classification dataset commonly
+used in water-related studies. For detailed information, refer to the dataset
+description.
 
 Parameters
 ----------
 return_X_y : bool, default=False
-    If True, returns ``(data, target)`` instead of a 
-    :class:`~gofast.tools.box.Boxspace` object. See below for more information 
-    about the `data` and `target` object.
-
+    If True, returns (data, target) instead of a Boxspace object. 
+    Refer to below for detailed structure of data and target.
 as_frame : bool, default=False
-    If True, the data is a pandas DataFrame including columns with
-    appropriate dtypes (numeric). The target is
-    a pandas DataFrame or Series depending on the number of target columns.
-    If `return_X_y` is True, then (`data`, `target`) will be pandas
-    DataFrames or Series as described below.
-
-split_X_y: bool, default=False,
-    If True, the data is splitted to hold the training set (X, y)  and the 
-    testing set (Xt, yt) with the according to the test size ratio.  
-test_size: float, default is {{.3}} i.e. 30% (X, y)
-    The ratio to split the data into training (X, y)  and testing (Xt, yt) set 
-    respectively.
+    If True, returns data as a pandas DataFrame with appropriate dtypes.
+    The target is returned as a DataFrame or Series based on target column count.
+split_X_y: bool, default=False
+    If True, splits data into a training set (X, y) and a testing set (Xt, yt) 
+    according to the test size ratio.
+test_size: float, default=0.3
+    Ratio for splitting data into training and testing sets.
 tag, data_names: None
-    `tag` and `data_names` do nothing. just for API purpose. They allow 
-    to fetch the same data uing the func:`~gofast.datasets.fetch_data` since the 
-    latter already holds `tag` and `data_names` as parameters. 
+    Parameters for API consistency. Do not modify dataset fetching.
 
 Returns
 -------
-data: :class:`~gofast.tools.box.Boxspace`
-    Dictionary-like object, with the following attributes.
-    data : {ndarray, dataframe} of shape (150, 4)
-        The data matrix. If `as_frame=True`, `data` will be a pandas DataFrame.
-    target: {ndarray, Series} of shape (150,)
-        The classification target. If `as_frame=True`, `target` will be
-        a pandas Series.
-    feature_names: list
-        The names of the dataset columns.
-    target_names: list
-        The names of target classes.
-    frame: DataFrame of shape (150, 5)
-        Only present when `as_frame=True`. DataFrame with `data` and
-        `target`.
+data : Boxspace
+    Dictionary-like object with the following attributes:
+    - data : {ndarray, DataFrame}
+      Data matrix. DataFrame if `as_frame=True`.
+    - target : {ndarray, Series}
+      Classification target. Series if `as_frame=True`.
+    - feature_names : list
+      Names of dataset columns.
+    - target_names : list
+      Names of target classes.
+    - frame : DataFrame
+      Complete DataFrame with data and target, present if `as_frame=True`.
+    - DESCR : str
+      Full dataset description.
+    - filename : str
+      Path to dataset location.
 
-    DESCR: str
-        The full description of the dataset.
-    filename: str
-        The path to the location of the data.
+data, target : tuple
+    Returned if `return_X_y` is True. Tuple contains data matrix 
+    (n_samples, n_features) and target samples (n_samples,).
 
-data, target: tuple if ``return_X_y`` is True
-    A tuple of two ndarray. The first containing a 2D array of shape
-    (n_samples, n_features) with each row representing one sample and
-    each column representing the features. The second ndarray of shape
-    (n_samples,) containing the target samples.
+X, Xt, y, yt : tuple
+    Returned if `split_X_y` is True. Tuple contains training set
+    (X, y) and testing set (Xt, yt),
+    split according to `test_size`.
 
-X, Xt, y, yt: Tuple if ``split_X_y`` is True 
-    A tuple of two ndarray (X, Xt). The first containing a 2D array of:
-        
-    .. math:: 
-        
-        \\text{shape}(X, y) =  1-  \\text{test_ratio} * (n_{samples}, n_{features}) *100
-        
-        \\text{shape}(Xt, yt)= \\text{test_ratio} * (n_{samples}, n_{features}) *100
-        
-    where each row representing one sample and each column representing the 
-    features. The second ndarray of shape(n_samples,) containing the target 
-    samples.
-     
 Examples
 --------
-Let's say you are interested in the samples 10, 25, and 50, and want to
-know their class name::
+To explore a subset of samples:
 
 >>> from gofast.datasets import load_bagoue
->>> d = load_bagoue () 
->>> d.target[[10, 25, 50]]
-array([0, 2, 0])
->>> list(d.target_names)
-['flow']   
-"""    
-    
+>>> d = load_bagoue()
+>>> d.target[[10, 25
+"""   
+
+column_name_mapping = {
+    "Timestamp": "timestamp",
+    "sex": "gender",
+    "Age": "age",
+    "Level of study": "education_level",
+    "Occupation": "occupation",
+    "Do you think you know enough about using DNA to solve crimes?": "dna_knowledge",
+    "If YES, where did you get this information about using DNA to solve crimes?": "dna_info_source",
+    "As part of criminal investigations: Do you think that the creation of a national DNA database in Burkina Faso is:": "support_national_dna_db_bf",
+    "Who should be responsible for the custody and management of a national DNA database in Burkina Faso?": "dna_db_custodian_bf",
+    "Criteria for inclusion of a genetic profile in a DNA database. To be reserved for:": "dna_db_inclusion_criteria",
+    "Should profiles from crime scenes be included directly in the national DNA database?": "include_crime_scene_profiles",
+    "What type of offense would merit the DNA profile of a convicted person being recorded in the database?": "offense_type_dna_recording",
+    "For how long do you consider it necessary or normal for a DNA profile to be stored in a national database?": "dna_storage_duration",
+    "As part of family research": "dna_use_family_research",
+    "As part of research in the event of natural disasters and attacks": "dna_use_disaster_research",
+    "As part of Cooperation with INTERPOL": "dna_use_interpol_cooperation",
+    "As part of the fight against terrorism and organized crime": "dna_use_terrorism_fight",
+    "Do you think this is an invasion of privacy?": "privacy_invasion_opinion",
+    "Would you agree to voluntarily donate your own DNA to enrich a possible genetic database? (NB: This could help, for example, to find your loved ones or to identify you in the event of your disappearance...)": "voluntary_dna_donation",
+    "What is your level of concern about the risk of invasion of privacy?": "privacy_risk_concern",
+    "Are you concerned about misuse of this database?": "database_misuse_concern",
+    "Do you think they use DNA profiles in criminal investigations?": "dna_use_in_investigations",
+    "Do you think that the police and national gendarmerie services must be equipped with scientific and especially genetic laboratories to support criminal investigations?": "police_lab_support_need",
+    "Do you instead think that forensic DNA testing should be carried out by the private sector?": "forensic_dna_private_sector",
+    "Or do you rather think that forensic DNA testing should be carried out by an autonomous state institution other than the Police and Gendarmerie?": "forensic_dna_autonomous_institution",
+    "What would you like to say to the initiators of this investigation?": "message_to_investigators"
+}
+
+# Now, apply the renaming to a DataFrame (hypothetical code, assuming 'df' is your DataFrame):
+# df.rename(columns=column_name_mapping, inplace=True)
     
     
     

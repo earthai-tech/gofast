@@ -1,49 +1,497 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
-from __future__ import ( 
-    annotations , 
-    print_function 
-    )
+from __future__ import annotations, print_function 
 import os
 import h5py
 import copy
-import shutil 
-from six.moves import urllib 
-import pathlib
-import subprocess
-import threading
 import time
+import shutil 
+import pathlib
 import warnings 
+import threading
+import subprocess
+from six.moves import urllib 
 from joblib import Parallel, delayed
 import numpy as np 
 import pandas as pd 
 from tqdm import tqdm
-from .._typing import ( 
-    Any, 
-    List, 
-    NDArray, 
-    DataFrame, 
-    Optional, 
-    Dict, 
-    Union
-    )
+
+from .._typing import Any,  List, NDArray, DataFrame, Optional
+from .._typing import Dict, Union, TypeGuard, Tuple, ArrayLike
 from ..exceptions import FileHandlingError 
 from ..property import  Config
-from .funcutils import ( 
-    is_iterable, 
-    ellipsis2false,
-    smart_format,
-    sPath, 
-    to_numeric_dtypes, 
-    assert_ratio
-    )
-from ._dependency import ( 
-    import_optional_dependency 
-    )
-from .validator import array_to_frame
+from .funcutils import is_iterable, ellipsis2false,smart_format,sPath 
+from .funcutils import to_numeric_dtypes, assert_ratio 
+from ._dependency import import_optional_dependency 
+from .validator import array_to_frame, build_data_if 
 
-def remove_target_from_array(arr, target_indices):
+def summarize_text_columns(
+    data: DataFrame, /, column_names: List[str], 
+    stop_words: str = 'english', encode: bool = False, 
+    drop_original: bool = False, compression_method: Optional[str] = None
+    ) -> TypeGuard[DataFrame]:
+    """
+    Applies extractive summarization to specified text columns in a pandas
+    DataFrame. 
+    
+    Each text entry in the specified columns is summarized to its most 
+    representative sentence based on TF-IDF scores, considering the provided 
+    stop words. The DataFrame is then updated with these summaries. If the 
+    text entry is too short for summarization, it remains unchanged. Optionally,
+    encodes and compresses the summaries.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The DataFrame containing the text data to be summarized.
+    column_names : List[str]
+        The list of column names in the DataFrame that contains the text to be 
+        summarized.
+    stop_words : str or list, optional
+        Either a string denoting the language for which to use the pre-built 
+        stop words list ('english', 'french', etc.), or a list of stop words 
+        to use for filtering during the TF-IDF vectorization (default is 'english').
+    encode : bool, default False
+        If True, adds a new column for each text column containing the TF-IDF 
+        encoding of the summary.
+    drop_original : bool, default False
+        If True, drops the original text columns after summarization and 
+        encoding.
+    compression_method : str, optional
+       Method to compress the encoded vector into a single numeric value.
+       Options include 'sum', 'mean', 'norm'. If None, the full vector is returned.
+    Returns
+    -------
+    pd.DataFrame
+        The DataFrame with the specified columns' text summarized and 
+        optionally encoded. Original text columns are dropped if drop_original 
+        is True.
+
+    Raises
+    ------
+    ValueError
+        If any of the specified column_names do not exist in the DataFrame.
+    TypeError
+        If the input df is not a pandas DataFrame or if any of the specified 
+        columns are not of type str.
+
+    Examples
+    --------
+    >>> from gofast.tools.baseutils import summarize_text_columns
+    >>> data = {
+        'id': [1, 2],
+        'column1': [
+            "Sentence one. Sentence two. Sentence three.",
+            "Another sentence one. Another sentence two. Another sentence three."
+        ],
+        'column2': [
+            "More text here. Even more text here.",
+            "Second example here. Another example here."
+        ]
+    }
+    >>> df = pd.DataFrame(data)
+    >>> summarized_df = summarize_text_columns(df, ['column1', 'column2'], 
+                    stop_words='english', encode=True, drop_original=True, 
+                    compression_method='mean')
+    >>> print(summarized_df.columns)
+        id  column1_encoded  column2_encoded
+     0   1              1.0         1.000000
+     1   2              1.0         0.697271
+     Column 'column1' does not exist in the DataFrame.
+    >>> # Make sure the column name is exactly "column1"
+    >>> if "column1" in df.columns:
+    ...     summarized_df = summarize_text_columns(
+    ...      df, ['column1'], stop_words='english', encode=True, drop_original=True)
+    ... else:
+    ...    print("Column 'column1' does not exist in the DataFrame.")
+    """
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.metrics.pairwise import cosine_similarity
+
+    def _summarize_and_encode(text):
+        sentences = text.split('.')
+        sentences = [sentence.strip() for sentence in sentences if sentence]
+        if len(sentences) <= 1:
+            return text, None
+        vectorizer = TfidfVectorizer(stop_words=stop_words)
+        tfidf_matrix = vectorizer.fit_transform(sentences)
+        similarity_matrix = cosine_similarity(tfidf_matrix, tfidf_matrix).flatten()
+        most_important_sentence_index = np.argmax(similarity_matrix[:-1])
+        summary = sentences[most_important_sentence_index]
+        encoding = tfidf_matrix[most_important_sentence_index].todense() if encode else None
+
+        if encoding is not None and compression_method:
+            if compression_method == 'sum':
+                encoding = np.sum(encoding)
+            elif compression_method == 'mean':
+                encoding = np.mean(encoding)
+            elif compression_method == 'norm':
+                encoding = np.linalg.norm(encoding)
+            else: raise ValueError(
+                f"Unsupported compression method: {compression_method}")
+        return summary, encoding
+
+    if not isinstance(data, pd.DataFrame):
+        raise TypeError("The input data must be a pandas DataFrame.")
+    
+    for column_name in column_names:
+        if column_name not in data.columns:
+            raise ValueError(f"The column {column_name} does not exist in the DataFrame.")
+        if not pd.api.types.is_string_dtype(data[column_name]):
+            raise TypeError(f"The column {column_name} must be of type str.")
+
+        summarized_and_encoded = data[column_name].apply(
+            lambda text: _summarize_and_encode(text) if isinstance(
+                text, str) and text else (text, None))
+        data[column_name] = summarized_and_encoded.apply(lambda x: x[0])
+        
+        if encode:
+            encoded_column_name = f"{column_name}_encoded"
+            data[encoded_column_name] = summarized_and_encoded.apply(
+                lambda x: x[1] if x[1] is not None else None)
+
+    if drop_original:
+        data.drop(columns=column_names, inplace=True)
+
+    return data
+
+def simple_extractive_summary(
+        texts: List[str], raise_exception: bool = True, encode: bool = False
+        ) -> Union[str, Tuple[str, ArrayLike]]:
+    """
+    Generates a simple extractive summary from a list of texts. 
+    
+    Function selects the sentence with the highest term frequency-inverse 
+    document frequency (TF-IDF) score and optionally returns its TF-IDF 
+    encoding.
+
+    Parameters
+    ----------
+    texts : List[str]
+        A list where each element is a string representing a sentence or 
+        passage of text.
+    raise_exception : bool, default True
+        Raise ValueError if the input list contains only one sentence.
+    encode : bool, default False
+        If True, returns the TF-IDF encoding of the most representative sentence 
+        along with the sentence.
+
+    Returns
+    -------
+    Union[str, Tuple[str, np.ndarray]]
+        The sentence from the input list that has the highest TF-IDF score.
+        If 'encode' is True, also returns the sentence's TF-IDF encoded vector.
+
+    Raises
+    ------
+    ValueError
+        If the input list contains less than two sentences and raise_exception is True.
+
+    Examples
+    --------
+    >>> from gofast.tools.baseutils import simple_extractive_summary
+    >>> messages = [
+    ...     "Further explain the background and rationale for the study. "
+    ...     "Explain DNA in simple terms for non-scientists. "
+    ...     "Explain the objectives of the study which do not seem perceptible. THANKS",
+    ...     "We think this investigation is a good thing. In our opinion, it already allows the "
+    ...     "initiators to have an idea of what the populations think of the use of DNA in forensic "
+    ...     "investigations in Burkina Faso. And above all, know, through this survey, if these "
+    ...     "populations approve of the establishment of a possible genetic database in our country."
+    ... ]
+    >>> for msg in messages:
+    ...     summary, encoding = simple_extractive_summary([msg], encode=True)
+    ...     print(summary)
+    ...     print(encoding) # encoding is the TF-IDF vector of the summary
+    """
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.metrics.pairwise import cosine_similarity
+    if len(texts) < 2:
+        if not raise_exception:
+            return (texts[0], None) if encode else texts[0]
+        raise ValueError("The input list must contain at least two sentences for summarization.")
+
+    vectorizer = TfidfVectorizer(stop_words='english')
+    # Create a TF-IDF Vectorizer, excluding common English stop words
+    tfidf_matrix = vectorizer.fit_transform(texts)
+    # Calculate similarity with the entire set of documents
+    similarity_matrix = cosine_similarity(tfidf_matrix[-1], tfidf_matrix).flatten()
+    # Exclude the last entry (similarity of the document with itself)
+    sorted_idx = np.argsort(similarity_matrix, axis=0)[:-1]
+    # The index of the most similar sentence
+    most_similar_idx = sorted_idx[-1]
+    
+    if encode:
+        return texts[most_similar_idx], tfidf_matrix[most_similar_idx].todense()
+
+    return texts[most_similar_idx]
+
+
+def format_long_column_names(
+    data:DataFrame, /,  
+    max_length:int=10, 
+    return_mapping:bool=False, 
+    name_case:str='none'
+    )->TypeGuard[DataFrame]:
+    """
+    Modifies long column names in a DataFrame to a more concise format
+    
+    Function changes the case as specified, and optionally returns a mapping 
+    of new column names to original names.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The DataFrame with potentially long column names.
+    max_length : int, optional
+        Maximum length of the formatted column names. Default is 10.
+    return_mapping : bool, optional
+        If True, returns a mapping of new column names to original names.
+    name_case : {'capitalize', 'lowercase', 'none'}, optional
+        Case transformation to apply to the new column names. Default is 'none'.
+
+    Returns
+    -------
+    pd.DataFrame or (pd.DataFrame, dict)
+        The DataFrame with modified column names. If return_mapping is True,
+        also returns a dictionary mapping new column names to original names.
+
+    Example
+    -------
+    >>> from gofast.tools.baseutils import format_long_column_names
+    >>> data = {'VeryLongColumnNameIndeed': [1, 2, 3], 'AnotherLongColumnName': [4, 5, 6]}
+    >>> df = pd.DataFrame(data)
+    >>> new_df, mapping = format_long_column_names(
+        df, max_length=10, return_mapping=True, name_case='capitalize')
+    >>> print(new_df.columns)
+    >>> print(mapping)
+    """
+    if not isinstance ( data, pd.DataFrame): 
+        raise TypeError ("Input data is not a pandas DataFrame.")
+    new_names = {}
+    for col in data.columns:
+        # Create a formatted name
+        new_name = col[:max_length].rstrip('_')
+
+        # Apply case transformation
+        if name_case == 'capitalize':
+            new_name = new_name.capitalize()
+        elif name_case == 'lowercase':
+            new_name = new_name.lower()
+
+        new_names[new_name] = col
+        data.rename(columns={col: new_name}, inplace=True)
+
+    if return_mapping:
+        return data, new_names
+
+    return data
+
+def enrich_data_spectrum(
+    data:DataFrame, /, 
+    noise_level:float=0.01, 
+    resample_size:int=100, 
+    synthetic_size:int=100, 
+    bootstrap_size:int=100
+    )->TypeGuard[DataFrame]:
+    """
+    Augment a regression dataset using various techniques. 
+    
+    The technique including adding noise, resampling, generating 
+    synthetic data, and bootstrapping.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        Original DataFrame with regression data. Assumes numerical features.
+    noise_level : float, optional
+        The level of Gaussian noise to add, specified as a fraction of the standard
+        deviation of each numerical feature (default is 0.01).
+    resample_size : int, optional
+        Number of data points to generate via resampling without replacement from the
+        original dataset (default is 100).
+    synthetic_size : int, optional
+        Number of synthetic data points to generate through interpolation between
+        pairs of existing data points (default is 100).
+    bootstrap_size : int, optional
+        Number of data points to generate via bootstrapping (sampling with replacement)
+        from the original dataset (default is 100).
+    Returns
+    -------
+    pd.DataFrame
+        Augmented DataFrame with the original and newly generated data points.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from sklearn.datasets import load_boston
+    >>> boston = load_boston()
+    >>> data = pd.DataFrame(boston.data, columns=boston.feature_names)
+    >>> augmented_data = enrich_data_spectrum(
+        data, noise_level=0.02, resample_size=50, synthetic_size=50, bootstrap_size=50)
+    >>> print(augmented_data.shape)
+    
+    Note 
+    ------ 
+    `enrich_data_spectrum` proposes several techniques that can be used to 
+    augment data in regression as explained: 
+        
+    - Adding Noise: Adds Gaussian noise to each numerical feature based on a 
+      specified noise level relative to the feature's standard deviation.
+    - Data Resampling: Randomly resamples (without replacement) a specified 
+      number of data points from the original dataset.
+    - Synthetic Data Generation: Creates new data points by linear interpolation
+      between randomly chosen pairs of existing data points.
+    - Bootstrapping: Resamples (with replacement) a specified number of data 
+      points, allowing for duplicates.
+    
+    Adjust the parameters like noise_level, resample_size, synthetic_size, 
+    and bootstrap_size according to your dataset and needs.
+    This function is quite general and may need to be tailored to fit the 
+    specific characteristics of your dataset and regression task.
+    Be cautious with the synthetic data generation step; ensure that the 
+    generated points are plausible within your problem domain.
+    Always validate the model performance with and without the augmented 
+    data to ensure that the augmentation is beneficial.
+    
+    """
+    from sklearn.utils import resample
+    data = build_data_if(data,  to_frame=True, force=True, 
+                         input_name="feature_",  raise_warning='mute')
+    data = to_numeric_dtypes( data , pop_cat_features= True) 
+    if len(data.columns)==0: 
+        raise TypeError("Numeric features are expected.")
+    augmented_df = data.copy()
+
+    # Adding noise
+    for col in data.select_dtypes(include=[np.number]):
+        noise = np.random.normal(0, noise_level * data[col].std(),
+                                 size=data.shape[0])
+        augmented_df[col] += noise
+
+    # Data resampling
+    resampled_data = resample(data, n_samples=resample_size, replace=False)
+    augmented_df = pd.concat([augmented_df, resampled_data], axis=0)
+
+    # Synthetic data generation
+    for _ in range(synthetic_size):
+        idx1, idx2 = np.random.choice(data.index, 2, replace=False)
+        synthetic_point = data.loc[idx1] + np.random.rand() * (
+            data.loc[idx2] - data.loc[idx1])
+        augmented_df = augmented_df.append(synthetic_point, ignore_index=True)
+
+    # Bootstrapping
+    bootstrapped_data = resample(data, n_samples=bootstrap_size, replace=True)
+    augmented_df = pd.concat([augmented_df, bootstrapped_data], axis=0)
+
+    return augmented_df.reset_index(drop=True)
+
+def sanitize(
+    data:DataFrame, /, 
+    fill_missing:Optional[str]=None, 
+    remove_duplicates:bool=True, 
+    outlier_method:Optional[str]=None, 
+    consistency_transform:Optional[str]=None, 
+    threshold:float|int=3
+    )->TypeGuard[DataFrame]:
+    """
+    Perform data cleaning on a DataFrame with many options. 
+    
+    Options consists for handling missing values, removing duplicates, 
+    detecting and removing outliers, and transforming string data for 
+    consistency.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The DataFrame to be cleaned.
+    fill_missing : {'median', 'mean', 'mode', None}, optional
+        Method to fill missing values. If None, no filling is performed.
+        - 'median': Fill missing values with the median of each column.
+        - 'mean': Fill missing values with the mean of each column.
+        - 'mode': Fill missing values with the mode of each column.
+        Suitable for datasets where missing values are present and a simple 
+        imputation is required.
+    remove_duplicates : bool, optional
+        If True, removes duplicate rows from the DataFrame. Useful in scenarios
+        where duplicate entries 
+        do not provide additional information and might skew the analysis.
+    outlier_method : {'z_score', 'iqr', None}, optional
+        Method for outlier detection and removal. If None, no outlier 
+        processing is performed.
+        - 'z_score': Identifies and removes outliers using Z-score.
+        - 'iqr': Identifies and removes outliers using the Interquartile Range.
+        Choose based on the nature of the data and the requirement of the analysis.
+    consistency_transform : {'lower', 'upper', None}, optional
+        Transformation to apply to string columns for consistency. If None,
+        no transformation is applied.
+        - 'lower': Converts strings to lowercase.
+        - 'upper': Converts strings to uppercase.
+        Useful for categorical data where case consistency is important.
+    threshold : float, optional
+        The threshold value used for outlier detection methods. Default is 3.
+        For 'z_score', it represents
+        the number of standard deviations from the mean. For 'iqr', it is the 
+        multiplier for the IQR.
+
+    Returns
+    -------
+    pd.DataFrame
+        The cleaned and processed DataFrame.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.tools.baseutils import clean_data
+    >>> data = {'A': [1, 2, None, 4], 'B': ['X', 'Y', 'Y', None], 'C': [1, 1, 2, 2]}
+    >>> df = pd.DataFrame(data)
+    >>> cleaned_df = clean_data(df, fill_missing='median', remove_duplicates=True,
+                                outlier_method='z_score', 
+                                consistency_transform='lower', threshold=3)
+    >>> print(cleaned_df)
+    """
+    data = build_data_if(data, to_frame=True, force=True, 
+                         input_name="feature_",  raise_warning='mute')
+    data = to_numeric_dtypes( data ) # verify integrity 
+    df_cleaned = data.copy()
+
+    if fill_missing:
+        fill_methods = {
+            'median': data.median(),
+            'mean': data.mean(),
+            'mode': data.mode().iloc[0]
+        }
+        df_cleaned.fillna(fill_methods.get(fill_missing, None), inplace=True)
+
+    if remove_duplicates:
+        df_cleaned.drop_duplicates(inplace=True)
+
+    if outlier_method:
+        if outlier_method == 'z_score':
+            for col in df_cleaned.select_dtypes(include=[np.number]):
+                df_cleaned = df_cleaned[(np.abs(df_cleaned[col] - df_cleaned[col].mean()
+                                                ) / df_cleaned[col].std()) < threshold]
+        elif outlier_method == 'iqr':
+            for col in df_cleaned.select_dtypes(include=[np.number]):
+                Q1 = df_cleaned[col].quantile(0.25)
+                Q3 = df_cleaned[col].quantile(0.75)
+                IQR = Q3 - Q1
+                df_cleaned = df_cleaned[~((df_cleaned[col] < (
+                    Q1 - threshold * IQR)) | (df_cleaned[col] > (Q3 + threshold * IQR)))]
+
+    if consistency_transform:
+        transform_methods = {
+            'lower': lambda x: x.lower(),
+            'upper': lambda x: x.upper()
+        }
+        for col in df_cleaned.select_dtypes(include=[object]):
+            df_cleaned[col] = df_cleaned[col].astype(str).map(
+                transform_methods.get(consistency_transform, lambda x: x))
+
+    return df_cleaned
+
+def remove_target_from_array(arr,/,  target_indices):
     """
     Remove specified columns from a 2D array based on target indices.
 

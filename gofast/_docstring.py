@@ -2,7 +2,6 @@
 #   Licence: BSD 3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 
-
 import re 
 
 __all__=[
@@ -72,66 +71,54 @@ _load_params= dict(
     
     
     )
-__doc__="""\
-
-DC-Electrical resistivity profiling data collected during the National Drinking
- Water Supply Program (PNAEP) in Cote d'Ivoire in 2014.
+__doc__ = """
+DC-Electrical Resistivity Profiling Data from the National Drinking Water 
+Supply Program (PNAEP) in Cote d'Ivoire, 2014.
 
 Parameters
 ----------
 as_frame : bool, default=False
-    If True, the data is returned as a pandas DataFrame. The target is also 
-    returned as a pandas DataFrame or Series based on the number of target columns.
-    If False, a :class:`~gofast.tools.Boxspace` dictionary-like object is 
-    returned with the following attributes:
-    - data : {{ndarray, dataframe}} of shape {shape}
-        The data matrix. If `as_frame=True`, `data` will be a pandas DataFrame.
-    - resistivity : {{array-like}} of shape ({shape[0]},)
-        The resistivity of the sounding point.
-    - station : {{array-like}} of shape ({shape[0]},)
-        The motion distance of each station in meters, used as the station 
-        point for data collection.
-    - northing : {{array-like}} of shape ({shape[0]},)
-        The northing coordinates in UTM in meters at each station where the 
-        data is collected.
-    - easting : {{array-like}} of shape ({shape[0]},)
-        The easting coordinates in UTM in meters at each station where the 
-        data is collected.
-    - latitude : {{array-like}} of shape ({shape[0]},)
-        The latitude coordinates in degree decimals or 'DD:MM.SS' at each 
-        station where the data is collected.
-    - longitude : {{array-like}} of shape ({shape[0]},)
-        The longitude coordinates in degree decimals or 'DD:MM.SS' at each 
-        station where the data is collected.
-    - DESCR : str
-        The full description of the dataset.
-    - filename : str
-        The path to the location of the data.
+    If True, returns the data as a pandas DataFrame. The target is returned as 
+    a pandas DataFrame or Series, based on the number of target columns.
+    If False, returns a :class:`~gofast.tools.Boxspace` object with attributes:
+    - data: {{ndarray, dataframe}} of shape {shape}
+        Data matrix. As pandas DataFrame if `as_frame=True`.
+    - resistivity: {{array-like}}, shape ({shape[0]},)
+        Resistivity at each sounding point.
+    - station: {{array-like}}, shape ({shape[0]},)
+        Station movement distance in meters, used for data collection.
+    - northing: {{array-like}}, shape ({shape[0]},)
+        Northing UTM coordinates in meters at each station.
+    - easting: {{array-like}}, shape ({shape[0]},)
+        Easting UTM coordinates in meters at each station.
+    - latitude: {{array-like}}, shape ({shape[0]},)
+        Latitude coordinates in degree decimals or 'DD:MM.SS' format.
+    - longitude: {{array-like}}, shape ({shape[0]},)
+        Longitude coordinates in degree decimals or 'DD:MM.SS' format.
+    - DESCR: str
+        Detailed dataset description.
+    - filename: str
+        Path to the dataset location.
 tag, data_names : None
-    Always None for API consistency.
+    Included for API consistency.
 kws : dict
-    Keyword arguments passed to :func:`~gofast.tools.baseutils._is_readable` 
-    function for parsing data.
+    Additional arguments for the :func:`~gofast.tools.baseutils._is_readable` 
+    function.
 
 Returns
 -------
 data : :class:`~gofast.tools.Boxspace`
-    Dictionary-like object with the following attributes:
-    - data : {{ndarray, dataframe}}
-        The data matrix. If `as_frame=True`, `data` will be a pandas DataFrame.
+    Object with attributes including data matrix and geological features.
 
 Notes
 -----
-The array configuration is Schlumberger, and the maximum depth of 
-investigation is {max_depth} meters for :math:`AB/2` (current electrodes). 
-The profiling step :math:`AB` is fixed at {AB_distance} meters, while :math:`MN/2` 
-(potential electrodes) is also fixed at {MN_distance} meters. The total number 
-of station data collected is {profiling_number}.
-`station`, `easting`, and `northing` are in meters, and `rho` columns 
-represent apparent resistivity values in ohm meters.
-If UTM coordinate (easting and northing) data is provided along with the 
-UTM_zone, the latitude and longitude data will be auto-computed and vice 
-versa. Users do not need to provide both coordinate data types (UTM or DD:MM.SS).
+- Array configuration is Schlumberger with maximum depth of {max_depth} meters.
+- Profiling step `AB` fixed at {AB_distance} meters, `MN/2` at {MN_distance} meters.
+- Total profiling stations: {profiling_number}.
+- `station`, `easting`, `northing` in meters; `rho` in ohm meters.
+- If UTM coordinates are provided along with UTM_zone, latitude and longitude 
+  will be auto-computed and vice versa. Provision of both coordinate types 
+  is not required.
 """
 
 
@@ -157,7 +144,6 @@ refglossary =type ('refglossary', (), dict (
 """
     ) 
 )
-
 
     
 _baseplot_params = dict( 
@@ -361,94 +347,100 @@ cb_drawedges: bool,
 
 _core_params= dict ( 
     data ="""
-data: str, filepath_or_buffer or :class:`pandas.core.DataFrame`
-    Path -like object or Dataframe. If data is given as path-like object,
-    data is read, asserted and validated. Any valid string path is acceptable. 
-    The string could be a URL. Valid URL schemes include http, ftp, s3, gs, and
-    file. For file URLs, a host is expected. A local file could be a
-    file://localhost/path/to/table.csv. If you want to pass in a path object, 
-    pandas accepts any :code:`os.PathLike`. By file-like object, we refer to 
-    objects with a `read()` method, such as a file handle e.g. via builtin 
-    `open` function or `StringIO`.
+data: str, filepath_or_buffer, or :class:`pandas.core.DataFrame`
+    Data source, which can be a path-like object, a DataFrame, or a file-like object.
+    - For path-like objects, data is read, asserted, and validated. Accepts 
+    any valid string path, including URLs. Supported URL schemes: http, ftp, 
+    s3, gs, and file. For file URLs, a host is expected (e.g., 'file://localhost/path/to/table.csv'). 
+    - os.PathLike objects are also accepted.
+    - File-like objects should have a `read()` method (
+        e.g., opened via the `open` function or `StringIO`).
+    When a path-like object is provided, the data is loaded and validated. 
+    This flexibility allows for various data sources, including local files or 
+    files hosted on remote servers.
+
     """, 
-    X= """
-X:  Ndarray of shape ( M x N), :math:`M=m-samples` & :math:`N=n-features`
-    training set; Denotes data that is observed at training and prediction time, 
-    used as independent variables in learning. The notation is uppercase to denote 
-    that it is ordinarily a matrix. When a matrix, each sample may be 
-    represented by a feature vector, or a vector of precomputed (dis)similarity 
-    with each training sample. :code:`X` may also not be a matrix, and 
-    may require a feature extractor or a pairwise metric to turn it into one 
-    before learning a model.
-    """, 
-    y ="""
-y: array-like of shape (M, ) `:math:`M=m-samples` 
-    train target; Denotes data that may be observed at training time as the 
-    dependent variable in learning, but which is unavailable at prediction time, 
-    and is usually the target of prediction. 
-    """, 
-    Xt= """
-Xt: Ndarray ( M x N matrix where ``M=m-samples``, & ``N=n-features``)
-    Shorthand for "test set"; data that is observed at testing and prediction time, 
-    used as independent variables in learning.The notation is uppercase to denote 
-    that it is ordinarily a matrix.
-    """, 
-    yt="""
-yt: array-like, shape (M, ) ``M=m-samples``,
-    test target; Denotes data that may be observed at training time as the 
-    dependent variable in learning, but which is unavailable at prediction time, 
-    and is usually the target of prediction. 
-    """, 
-    tname="""
-tname: str, 
-    A target name or label. In supervised learning the target name is considered  
-    as the reference name of `y` or label variable.   
-    """, 
-    z="""
-z: array-like 1d, pandas.Series 
-    Array of depth or a pandas series that contains the depth values. Two  
-    dimensional array or more is not allowed. However when `z` is given as 
-    a dataframe and `zname` is not supplied, an error raises since `zname` is 
-    used to fetch and overwritten `z` from the dataframe. 
-    """, 
-    zname="""
-zname: str, int
-    Name of depth columns. `zname` allows to retrieve the depth column in 
-    a dataframe. If integer is passed, it assumes the index of the dataframe 
-    fits the depth column. Integer value must not be out the dataframe size 
-    along axis 1. Commonly `zname`needs to be supplied when a dataframe is 
-    passed to a function argument. 
-    """, 
-    kname="""
-kname: str, int
-    Name of permeability coefficient columns. `kname` allows to retrieve the 
-    permeability coefficient 'k' in  a specific dataframe. If integer is passed, 
-    it assumes the index of the dataframe  fits the 'k' columns. Note that 
-    integer value must not be out the dataframe size along axis 1. Commonly
-   `kname` needs to be supplied when a dataframe is passed as a positional 
-    or keyword argument. 
-    """, 
-    k=""" 
-k: array-like 1d, pandas.Series 
-    Array of permeability coefficient 'k' or a pandas series that contains the 
-    'k' values. Two  dimensional array or more is not allowed. However,
-    when `k` passes as a dataframe and `kname` is not supplied, an error 
-    raises since `kname` is used to retrieve `k` values from the dataframe 
-    and overwritten it.
-    """,     
-    target="""
-target: Array-like or :class:`pd.Series`
-    Is the dependent variable in supervised (and semisupervised) learning, 
-    passed as `y` to an estimator's fit method. Also known as dependent 
-    variable, outcome variable, response variable, ground truth or label. 
-    `Scikit-learn`_ works with targets that have minimal structure: a class 
-    from a finite set, a finite real-valued number, multiple classes, or 
-    multiple numbers. Refer to `Scikit-learn`_ `target types`_ . Note that 
-    throughout this library, a `target` is considered as a `pd.Series` where 
-    the name is `tname` and the variable `y` i.e `target = tname + y`.
-    .. _target types: https://scikit-learn.org/stable/glossary.html#glossary-target-types
-    
+    X = """
+X: ndarray of shape (M, N), where M = m-samples and N = n-features
+    Training data; represents observed data at both training and prediction 
+    times, used as independent variables in learning. The uppercase notation 
+    signifies that it typically represents a matrix. In a matrix form, each 
+    sample is represented by a feature vector. Alternatively, X may not be a 
+    matrix and could require a feature extractor or a pairwise metric for 
+    transformation. It's critical to ensure data consistency and compatibility 
+    with the chosen learning model.
     """,
+    y = """
+y: array-like of shape (M,), where M = m-samples
+    Training target; signifies the dependent variable in learning, observed 
+    during training but unavailable at prediction time. The target is often 
+    the main focus of prediction in supervised learning models. Ensuring the 
+    correct alignment and representation of target data is crucial for effective 
+    model training.
+    """,
+    Xt = """
+Xt: ndarray, shape (M, N), where M = m-samples and N = n-features
+    Test set; denotes data observed during testing and prediction, used as 
+    independent variables in learning. Like X, Xt is typically a matrix where 
+    each sample corresponds to a feature vector. The consistency between the 
+    training set (X) and the test set (Xt) in terms of feature representation 
+    and preprocessing is essential for accurate model evaluation.
+    """,
+    yt = """
+yt: array-like, shape (M,), where M = m-samples
+    Test target; represents the dependent variable in learning, akin to 'y' 
+    but for the testing phase. While yt is observed during training, it is used
+    to evaluate the performance of predictive models. The test target helps 
+    in assessing the generalization capabilities of the model to unseen data.
+    """,
+    tname = """
+tname: str
+    Target name or label used in supervised learning. It serves as the reference name 
+    for the target variable (`y`) or label. Accurate identification of `tname` is 
+    crucial for model training and interpretation, especially in datasets with multiple 
+    potential targets.
+""",
+
+   z = """
+z: array-like 1D or pandas.Series
+    Represents depth values in a 1D array or pandas series. Multi-dimensional arrays 
+    are not accepted. If `z` is provided as a DataFrame and `zname` is unspecified, 
+    an error is raised. In such cases, `zname` is necessary for extracting the depth 
+    column from the DataFrame.
+""",
+    zname = """
+zname: str or int
+    Specifies the column name or index for depth values within a DataFrame. If an 
+    integer is provided, it is interpreted as the column index for depth values. 
+    The integer value should be within the DataFrame's column range. `zname` is 
+    essential when the depth information is part of a larger DataFrame.
+""",
+    kname = """
+kname: str or int
+    Identifies the column name or index for permeability coefficient ('K') within a 
+    DataFrame. An integer value represents the column index for 'K'. It must be within 
+    the DataFrame's column range. `kname` is required when permeability data is 
+    integrated into a DataFrame, ensuring correct retrieval and processing of 'K' values.
+""",
+   k = """
+k: array-like 1D or pandas.Series
+    Array or series containing permeability coefficient ('K') values. Multi-dimensional 
+    arrays are not supported. If `K` is provided as a DataFrame without specifying 
+    `kname`, an error is raised. `kname` is used to extract 'K' values from the DataFrame 
+    and overwrite the original `K` input.
+""",
+    target = """
+target: Array-like or pandas.Series
+    The dependent variable in supervised (and semi-supervised) learning, usually 
+    denoted as `y` in an estimator's fit method. Also known as the dependent variable, 
+    outcome variable, response variable, ground truth, or label. Scikit-learn handles 
+    targets with minimal structure: a class from a finite set, a finite real-valued 
+    number, multiple classes, or multiple numbers. In this library, `target` is 
+    conceptualized as a pandas Series with `tname` as its name, combining the 
+    identifier and the variable `y`.
+    Refer to Scikit-learn's documentation on target types for more details:
+    [Scikit-learn Target Types](https://scikit-learn.org/stable/glossary.html#glossary-target-types).
+""",
     model="""
 model: callable, always as a function,    
     A model estimator. An object which manages the estimation and decoding 

@@ -473,6 +473,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.codify_variables
    tools.cubic_regression
    tools.discretize_categories
+   tools.enrich_data_spectrum
    tools.evaluate_model
    tools.evaluate_model
    tools.exponential_regression
@@ -519,6 +520,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.request_data
    tools.resampling
    tools.reshape
+   tools.sanitize
    tools.save_or_load
    tools.save_job
    tools.savgol_filter
@@ -526,6 +528,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.select_feature_importances
    tools.select_features
    tools.serialize_data
+   tools.simple_extractive_summary
    tools.sinusoidal_regression
    tools.smart_label_classifier
    tools.smooth1d
@@ -534,6 +537,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.soft_data_split
    tools.soft_imputer
    tools.soft_scaler
+   tools.summarize_text_columns
    tools.speed_rowwise_process
    tools.split_train_test
    tools.split_train_test_by_id

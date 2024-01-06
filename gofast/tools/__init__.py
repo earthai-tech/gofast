@@ -10,6 +10,7 @@ additional functionalities are performed with :mod:`~gofast.utils.mlutils` and
 from .baseutils import (
     audit_data, 
     read_data,
+    sanitize, 
     get_remote_data, 
     array2hdf5, 
     save_or_load, 
@@ -17,6 +18,10 @@ from .baseutils import (
     fancier_downloader,
     speed_rowwise_process,
     unified_storage, 
+    enrich_data_spectrum, 
+    format_long_column_names, 
+    summarize_text_columns, 
+    simple_extractive_summary
     )
 from .mathex import ( 
     interpolate1d, 
@@ -106,6 +111,7 @@ __all__=[
     'inspect_data', 
     'read_data',
     'array2hdf5', 
+    'sanitize',
     'save_or_load', 
     'request_data', 
     'get_remote_data', 
@@ -192,6 +198,10 @@ __all__=[
     "exponential_regression",
     "logarithmic_regression",
     "sinusoidal_regression",
+    'enrich_data_spectrum', 
+    'format_long_column_names', 
+    'summarize_text_columns', 
+    'simple_extractive_summary', 
     "cubic_regression",
     "step_regression", 
     "standard_scaler", 
