@@ -1153,7 +1153,7 @@ def is_frame (arr, /, df_only =False, raise_exception: bool=False,
         objname='Expect' if not objname else f'{objname} expects'
         raise TypeError(
             f"{objname} a {'data frame' if df_only else 'data frame or series'}."
-                        f" Got {type(arr).__name__!r}")
+              f" Got {type(arr).__name__!r}")
     return isf 
 
 
@@ -1671,7 +1671,7 @@ def check_y(y,
     return y
 
 def build_data_if (
-    data: dict | np.ndarray |pd.DataFrame, /, 
+    data: dict|np.ndarray|pd.DataFrame, /, 
     columns =None,  
     to_frame=True,  
     input_name ='data', 
@@ -1697,7 +1697,8 @@ def build_data_if (
         
     raise_warning : bool, default=True
         If True then raise a warning if conversion is required.
-        If ``ignore``, warnings silence mode is triggered.
+        If ``ignore``, silence mode is triggered.
+        
     raise_exception : bool, default=False
         If True then raise an exception if array is not symmetric.
         

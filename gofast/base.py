@@ -21,7 +21,6 @@ from .tools._dependency import import_optional_dependency
 from .tools.funcutils import sanitize_frame_cols, exist_features, inspect_data
 from .tools.funcutils import _assert_all_types, repr_callable_obj, reshape 
 from .tools.funcutils import smart_strobj_recognition, is_iterable
-from .tools.funcutils import inspect_data  
 from .tools.funcutils import format_to_datetime, fancier_repr_formatter
 from .tools.validator import array_to_frame, check_array, build_data_if
 from .tools.validator import is_time_series, is_frame, _is_arraylike_1d  
@@ -1917,7 +1916,8 @@ class FeatureProcessor:
         bins. This can be useful for linear models, decision trees, or when
         working with non-linear relationships in the data.
 
-        This method is valuable for modeling non-linear relationships and can simplify models by converting continuous variables into categorical ones.
+        This method is valuable for modeling non-linear relationships and can 
+        simplify models by converting continuous variables into categorical ones.
 
         Parameters
         ----------
@@ -2168,7 +2168,7 @@ class FeatureProcessor:
         # Image Feature Extraction
         if method == 'hog':
             msg = ("Image Feature Extraction expects 'scikit-image' package"  
-                   " to beinstalled.")
+                   " to be installed.")
             import_optional_dependency ("skimage", extra =msg )
             from skimage.feature import hog
             extractor_function = lambda image: hog(image, **kwargs)
@@ -2422,19 +2422,9 @@ class Data:
         import_optional_dependency("pandas_profiling", extra=extra_msg)
 
         self.inspect
-
         self.data = data or self.data
 
-        try:
-            from pandas_profiling import ProfileReport
-        except ImportError:
-
-            msg = (f"Missing of 'pandas_profiling package. {extra_msg}"
-                   " Cannot plot profiling report. Install it using pip"
-                   " or conda.")
-            warn(msg)
-            raise ImportError(msg)
-
+        from pandas_profiling import ProfileReport
         return ProfileReport(self.data, **kwd)
 
     def rename(self,
@@ -2610,8 +2600,6 @@ Examples
 )
 
 
-
-    
 class Missing (Data):
     """ Deal with missing values in Data 
 
@@ -2753,9 +2741,9 @@ class Missing (Data):
 
         """
         self.inspect
-        from .view.plot import ExPlot
+        from .plot.explore import QuestPlotter
 
-        ExPlot(fig_size=figsize).fit(self.data).plotmissing(
+        QuestPlotter(fig_size=figsize).fit(self.data).plotMissing(
             kind=self.kind, sample=self.sample, **kwd)
         return self
 
@@ -2849,13 +2837,14 @@ class Missing (Data):
 
         return self.data.isna().any().any()
 
-    def replace(self,
-                data: str | DataFrame = None,
-                columns: List[str] = None,
-                fill_value: float = None,
-                new_column_name: str = None,
-                return_non_null: bool = False,
-                **kwd):
+    def replace(
+        self,
+        data: str | DataFrame = None,
+        columns: List[str] = None,
+        fill_value: float = None,
+        new_column_name: str = None,
+        return_non_null: bool = False,
+        **kwd):
         """ 
         Replace the missing values to consider. 
 
@@ -2897,30 +2886,25 @@ class Missing (Data):
 
         if return_non_null:
             new_column_name = _assert_all_types(new_column_name, str)
-
-            if 'pyjanitor' not in sys.modules:
-                raise ModuleNotFoundError(" 'pyjanitor' is missing.Install it"
-                                          " mannualy using conda or pip.")
+            import_optional_dependency("pyjanitor")
             import pyjanitor as jn
-            return jn.coalease(self.data,
-                               columns=columns,
-                               new_column_name=new_column_name,
-                               )
+            return jn.coalease(
+                self.data,
+                columns=columns,
+                new_column_name=new_column_name,
+                )
         if fill_value is not None:
             # fill missing values with a particular values.
 
             try:
-                self.data = self.data .fillna(fill_value, **kwd)
+                jn.fill_empty(self.data, columns=columns or list(self.data.columns),
+                    value=fill_value
+            )
             except:
-                if 'pyjanitor' in sys.modules:
-                    import pyjanitor as jn
-                    jn.fill_empty(
-                        self.data, columns=columns or list(self.data.columns),
-                        value=fill_value
-                    )
+                self.data = self.data .fillna(fill_value, **kwd)
+                    
 
         return self
-
 
 def select_features(
     df: DataFrame,
@@ -2957,7 +2941,6 @@ def select_features(
     # raise ValueError: at least one of include or exclude must be nonempty
     # use coerce to no raise error and return data frame instead.
     return df if coerce else df.select_dtypes(include, exclude)
-
 
 class MergeableSeries:
     """
@@ -3074,10 +3057,11 @@ class FrameOperations:
 
         Examples
         --------
+        >>> from gofast.base import FrameOperations
         >>> df1 = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
         >>> df2 = pd.DataFrame({'A': [2, 3], 'C': [5, 6]})
-        >>> df_ops = DataFrameOperations(df1, df2)
-        >>> df_ops.merge_dataframes(on='A')
+        >>> df_ops = FrameOperations.fit(df1, df2)
+        >>> df_ops.merge_frames(on='A')
         """
         result = self.frames[0]
         for df in self.frames[1:]:
@@ -3102,10 +3086,11 @@ class FrameOperations:
 
         Examples
         --------
+        >>> from gofast.base import FrameOperations
         >>> df1 = pd.DataFrame({'A': [1, 2]})
         >>> df2 = pd.DataFrame({'B': [3, 4]})
-        >>> df_ops = DataFrameOperations(df1, df2)
-        >>> df_ops.concatenate_dataframes(axis=1)
+        >>> df_ops = FrameOperations(df1, df2)
+        >>> df_ops.concat_frames(axis=1)
         """
         return pd.concat(self.dataframes, axis=axis, **kws)
 
@@ -3120,10 +3105,11 @@ class FrameOperations:
 
         Examples
         --------
+        >>> from gofast.base import FrameOperations
         >>> df1 = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
         >>> df2 = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
-        >>> df_ops = DataFrameOperations(df1, df2)
-        >>> df_ops.compare_dataframes()
+        >>> df_ops = FrameOperations.fit(df1, df2)
+        >>> df_ops.compare_frames()
         """
         first_df = self.dataframes[0]
         for df in self.dataframes[1:]:
@@ -3143,10 +3129,11 @@ class FrameOperations:
 
         Examples
         --------
+        >>> from gofast.base import FrameOperations
         >>> df1 = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
         >>> df2 = pd.DataFrame({'A': [5, 6], 'B': [7, 8]})
-        >>> df_ops = DataFrameOperations(df1, df2)
-        >>> df_ops.add_dataframes()
+        >>> df_ops = FrameOperations.fit(df1, df2)
+        >>> df_ops.add_frames()
         """
         result = self.dataframes[0].copy()
         for df in self.dataframes[1:]:
@@ -3170,8 +3157,9 @@ class FrameOperations:
     
         Examples
         --------
+        >>> from gofast.base import FrameOperations
         >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
-        >>> df_ops = ComplexDataFrameOperations(df)
+        >>> df_ops = FrameOperations.fit(df)
         >>> conditions = {'A': lambda x: x > 1, 'B': lambda x: x < 6}
         >>> df_ops.conditional_filter(conditions)
         """
@@ -3213,10 +3201,11 @@ class MergeableFrames:
 
     Examples
     --------
+    >>> from gofast.base import MergeableFrames
     >>> df1 = pd.DataFrame({'A': [True, False], 'B': [False, True]})
     >>> df2 = pd.DataFrame({'A': [False, True], 'B': [True, False]})
-    >>> mergeable_df1 = MergeableDataFrames(df1)
-    >>> mergeable_df2 = MergeableDataFrames(df2)
+    >>> mergeable_df1 = MergeableFrames(df1)
+    >>> mergeable_df2 = MergeableFrames(df2)
     >>> and_result = mergeable_df1 & mergeable_df2
     >>> or_result = mergeable_df1 | mergeable_df2
     """
@@ -3243,7 +3232,7 @@ class MergeableFrames:
         Raises
         ------
         ValueError
-            If 'other' is not an instance of MergeableDataFrames.
+            If 'other' is not an instance of MergeableFrames.
         """
         if not isinstance(other, MergeableFrames):
             raise ValueError("Operand must be an instance of MergeableFrames")
@@ -3267,7 +3256,7 @@ class MergeableFrames:
         Raises
         ------
         ValueError
-            If 'other' is not an instance of MergeableDataFrames.
+            If 'other' is not an instance of MergeableFrames.
         """
         if not isinstance(other, MergeableFrames):
             raise ValueError("Operand must be an instance of MergeableFrames")

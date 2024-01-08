@@ -21,7 +21,14 @@ from .baseutils import (
     enrich_data_spectrum, 
     format_long_column_names, 
     summarize_text_columns, 
-    simple_extractive_summary
+    simple_extractive_summary, 
+    handle_datasets_with_hdfstore, 
+    verify_data_integrity, 
+    handle_categorical_features, 
+    convert_date_features, 
+    scale_data, 
+    handle_outliers_in_data,
+    handle_missing_data, 
     )
 from .mathex import ( 
     interpolate1d, 
@@ -213,6 +220,13 @@ __all__=[
     "laplace_smoothing_categorical", 
     "laplace_smoothing_word",
     "unified_storage", 
+    "handle_datasets_with_hdfstore", 
+    "verify_data_integrity", 
+    "handle_categorical_features", 
+    "convert_date_features", 
+    "scale_data", 
+    "handle_outliers_in_data",
+    "handle_missing_data", 
     
     ]
 

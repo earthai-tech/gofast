@@ -15,21 +15,28 @@ from six.moves import urllib
 from joblib import Parallel, delayed
 import numpy as np 
 import pandas as pd 
+import matplotlib.pyplot as plt 
+import seaborn as sns 
 from tqdm import tqdm
 
 from .._typing import Any,  List, NDArray, DataFrame, Optional
 from .._typing import Dict, Union, TypeGuard, Tuple, ArrayLike
 from ..exceptions import FileHandlingError 
 from ..property import  Config
-from .funcutils import is_iterable, ellipsis2false,smart_format,sPath 
-from .funcutils import to_numeric_dtypes, assert_ratio 
+from .funcutils import is_iterable, ellipsis2false,smart_format, validate_url 
+from .funcutils import to_numeric_dtypes, assert_ratio
+from .funcutils import normalize_string  
 from ._dependency import import_optional_dependency 
-from .validator import array_to_frame, build_data_if 
+from .validator import array_to_frame, build_data_if, is_frame 
 
 def summarize_text_columns(
-    data: DataFrame, /, column_names: List[str], 
-    stop_words: str = 'english', encode: bool = False, 
-    drop_original: bool = False, compression_method: Optional[str] = None
+    data: DataFrame, /, 
+    column_names: List[str], 
+    stop_words: str = 'english', 
+    encode: bool = False, 
+    drop_original: bool = False, 
+    compression_method: Optional[str] = None,
+    force: bool=False, 
     ) -> TypeGuard[DataFrame]:
     """
     Applies extractive summarization to specified text columns in a pandas
@@ -61,6 +68,8 @@ def summarize_text_columns(
     compression_method : str, optional
        Method to compress the encoded vector into a single numeric value.
        Options include 'sum', 'mean', 'norm'. If None, the full vector is returned.
+    force: bool, default=False 
+       Construct a temporary dataFrame if the numpy array is passed instead.
     Returns
     -------
     pd.DataFrame
@@ -133,7 +142,13 @@ def summarize_text_columns(
         return summary, encoding
 
     if not isinstance(data, pd.DataFrame):
-        raise TypeError("The input data must be a pandas DataFrame.")
+        if force: 
+            data = build_data_if ( data, force=force, to_frame=True, 
+                                  input_name="sum_col_", raise_warning="mute")
+        else:
+            raise TypeError("The input data must be a pandas DataFrame."
+                            " Or set force to 'True' to build a temporary"
+                            " dataFrame.")
     
     for column_name in column_names:
         if column_name not in data.columns:
@@ -558,20 +573,18 @@ def read_data (
     Parameters 
     -----------
     f: str, Path-like object 
-       File path or Pathlib object. Must contain a valid file name  and 
-       should be a readable file or url 
+        File path or Pathlib object. Must contain a valid file name  and 
+        should be a readable file or url 
         
     sanitize: bool, default=False, 
-       Push a minimum sanitization of the data such as: 
-           - replace a non-alphabetic column items with a pattern '_' 
-           - cast data values to numeric if applicable 
-           - drop full NaN columns and rows in the data 
+        Push a minimum sanitization of the data such as: 
+        - replace a non-alphabetic column items with a pattern '_' 
+        - cast data values to numeric if applicable 
+        - drop full NaN columns and rows in the data 
            
     reset_index: bool, default=False, 
-      Reset index if full NaN columns are dropped after sanitization. 
-      
-      .. versionadded:: 0.2.5
-          Apply minimum data sanitization after reading data. 
+        Reset index if full NaN columns are dropped after sanitization. 
+        Apply minimum data sanitization after reading data. 
      
     comments: str or sequence of str or None, default='#'
        The characters or list of characters used to indicate the start 
@@ -585,13 +598,10 @@ def read_data (
     npz_objkey: str, optional 
        Dataset key to indentify array in multiples array storages in '.npz' 
        format.  If key is not set during 'npz' storage, ``arr_0`` should 
-       be used. 
-      
-       .. versionadded:: 0.2.7 
-          Capable to read text and numpy formats ('.npy' and '.npz') data. Note
-          that when data is stored in compressed ".npz" format, provided the 
-          '.npz' object key  as argument of parameter `npz_objkey`. If None, 
-          only the first array should be read and ``npz_objkey='arr_0'``. 
+       be used.Capable to read text and numpy formats ('.npy' and '.npz') data. 
+       Note that when data is stored in compressed ".npz" format, provided the 
+        '.npz' object key  as argument of parameter `npz_objkey`. If None, 
+        only the first array should be read and ``npz_objkey='arr_0'``. 
           
     verbose: bool, default=0 
        Outputs message for user guide. 
@@ -610,7 +620,7 @@ def read_data (
         load text file.  
     np.load 
        Load uncompressed or compressed numpy `.npy` and `.npz` formats. 
-    watex.tools.baseutils.save_or_load: 
+    gofast.tools.baseutils.save_or_load: 
         Save or load numpy arrays.
        
     """
@@ -683,14 +693,13 @@ def _check_readable_file (f):
     if isinstance(f, str): f =f.strip() # for consistency 
     return f 
 
-
 def array2hdf5 (
     filename: str, /, 
     arr: NDArray=None , 
     dataname: str='data',  
     task: str='store', 
     as_frame: bool =..., 
-    columns: List[str, ...]=None, 
+    columns: List[str]=None, 
 )-> NDArray | DataFrame: 
     """ Load or write array to hdf5
     
@@ -904,153 +913,202 @@ def save_or_load(
          
     return arr if task=='load' else None 
  
-#XXX TODO      
-def request_data (
-    url:str, /, 
-    task: str='get',
-    data: Any=None, 
-    as_json: bool=..., 
+def request_data(
+    url: str, 
+    method: str = 'get',
+    data: Optional[Any] = None, 
+    as_json: bool = ..., 
     as_text: bool = ..., 
-    stream: bool=..., 
-    raise_status: bool=..., 
-    save2file: bool=..., 
-    filename:str =None, 
-    **kws
-): 
-    """ Fetch remotely data
- 
-    Request data remotely 
-    https://docs.python-requests.org/en/latest/user/quickstart/#raw-response-content
-    
-    
-    r = requests.get('https://api.github.com/user', auth=('user', 'pass'))
-    r.status_code
-    200
-    r.headers['content-type']
-    'application/json; charset=utf8'
-    r.encoding
-    'utf-8'
-    r.text
-    '{"type":"User"...'
-    r.json()
-    {'private_gists': 419, 'total_private_repos': 77, ...}
-    
+    stream: bool = ..., 
+    raise_status: bool = ..., 
+    save_to_file: bool = ..., 
+    filename: Optional[str] = None, 
+    show_progress: bool = ...,
+    **kwargs
+) -> Union[str, dict, ...]:
+    """
+    Perform an HTTP request to a specified URL and process the response, with 
+    optional progress bar visualization.
+
+    Parameters
+    ----------
+    url : str
+        The URL to which the HTTP request is sent.
+    method : str, optional
+        The HTTP method to use for the request. Supported values are 'get' 
+        and 'post'. Default is 'get'.
+    data : Any, optional
+        The data to send in the body of the request, used with 'post' method.
+    as_json : bool, optional
+        If True, parses the response as JSON. Default is False.
+    as_text : bool, optional
+        If True, returns the response as a string. Default is False.
+    stream : bool, optional
+        If True, streams the response. Useful for large file downloads.
+        Default is False.
+    raise_status : bool, optional
+        If True, raises an HTTPError for bad HTTP responses. 
+        Default is False.
+    save_to_file : bool, optional
+        If True, saves the response content to a file. Default is False.
+    filename : str, optional
+        File path for saving response content. Required if 
+        `save_to_file` is True.
+    show_progress : bool, optional
+        If True, displays a progress bar during file download. 
+        Default is False.
+    **kwargs
+        Additional keyword arguments passed to the requests method
+        (e.g., headers, cookies).
+
+    Returns
+    -------
+    Union[str, dict, requests.Response]
+        The server's response. Depending on the flags, this can be a string,
+        a dictionary, or a raw Response object.
+
+    Raises
+    ------
+    ValueError
+        If `save_to_file` is True but no `filename` is provided.
+        If an invalid HTTP method is specified.
+
+    Examples
+    --------
+    >>> from gofast.tools.baseutils import request_data
+    >>> response = request_data('https://api.github.com/user',
+                                auth=('user', 'pass'), as_json=True)
+    >>> print(response)
     """
     import_optional_dependency('requests' ) 
     import requests 
     
-    as_text, as_json, stream, raise_status, save2file = ellipsis2false(
-        as_text, as_json,  stream, raise_status , save2file)
+    (as_text, as_json, stream, raise_status, save_to_file,
+     show_progress) = ellipsis2false(
+        as_text, as_json,  stream, raise_status , save_to_file,
+        show_progress)
     
-    if task=='post': 
-        r = requests.post(url, data =data , **kws)
-    else: r = requests.get(url, stream = stream , **kws)
-    
-    if save2file and stream: 
-        with open(filename, 'wb') as fd:
-            for chunk in r.iter_content(chunk_size=128):
-                fd.write(chunk)
-    if raise_status: 
-        r.raise_for_status() 
-        
-    return r.text if as_text else ( r.json () if as_json else r )
+    if save_to_file and not filename:
+        raise ValueError("A filename must be provided when "
+                         "'save_to_file' is True.")
+
+    request_method = getattr(requests, method.lower(), None)
+    if not request_method:
+        raise ValueError(f"Invalid HTTP method: {method}")
+
+    response = request_method(url, data=data, stream=stream, **kwargs)
+
+    if save_to_file:
+        with open(filename, 'wb') as file:
+            if show_progress:
+                total_size = int(response.headers.get('content-length', 0))
+                progress_bar = tqdm(total=total_size, unit='iB',ascii=True,
+                                    unit_scale=True, ncols=97)
+            for chunk in response.iter_content(chunk_size=1024):
+                if show_progress:
+                    progress_bar.update(len(chunk))
+                file.write(chunk)
+            if show_progress:
+                progress_bar.close()
+
+    if raise_status:
+        response.raise_for_status()
+
+    return response.text if as_text else ( 
+        response.json () if as_json else response )
 
 def get_remote_data(
-    rfile:str, /,  
-    savepath: str=None, 
-    raise_exception: bool =True
-): 
-    """ Try to retrieve data from remote.
-    
-    Parameters 
-    -------------
-    rfile: str or PathLike-object 
-       Full path to the remote file. It can be the path to the repository 
-       root toward the file name. For instance, to retrieve the file 
-       ``'AGSO.csv'`` which is located in ``gofast/etc/`` directory then the 
-       full path should be ``'gofast/etc/AGSO.csv'``
-        
-    savepath: str, optional 
-       Full path to place where to downloaded files should be located. 
-       If ``None`` data is saved to the current directory.
-     
-    raise_exception: bool, default=True 
-      raise exception if connection failed. 
-      
-    Returns 
-    ----------
-    status: bool, 
-      ``False`` for failure and ``True`` otherwise i.e. successfully 
-       downloaded. 
-       
+    remote_file: str, 
+    save_path: Optional[str] = None, 
+    raise_exception: bool = True
+) -> bool:
     """
-    connect_reason ="""\
-    ConnectionRefusedError: No connection could  be made because the target 
-    machine actively refused it.There are some possible reasons for that:
-     1. Server is not running as well. Hence it won't listen to that port. 
-         If it's a service you may want to restart the service.
-     2. Server is running but that port is blocked by Windows Firewall
-         or other firewall. You can enable the program to go through 
-         firewall in the inbound list.
-    3. there is a security program on your PC, i.e a Internet Security 
-        or Antivirus that blocks several ports on your PC.
-    """  
-    #git_repo , git_root= AGSO_PROPERTIES['GIT_REPO'], AGSO_PROPERTIES['GIT_ROOT']
-    # usebar bar progression
-    print(f"---> Please wait while fetching {rfile!r}...")
-    try: import_optional_dependency ("tqdm")
-    except:pbar = range(3) 
-    else: 
-        import tqdm  
-        data =os.path.splitext( os.path.basename(rfile))[0]
-        pbar = tqdm.tqdm (total=3, ascii=True, 
-                          desc =f'get-{os.path.basename(rfile)}', 
-                          ncols =97
-                          )
-    status=False
-    root, rfile  = os.path.dirname(rfile), os.path.basename(rfile)
-    for k in range(3):
-        try :
-            urllib.request.urlretrieve(root,  rfile )
-        except: 
-            try :
-                with urllib.request.urlopen(root) as response:
-                    with open( rfile,'wb') as out_file:
-                        data = response.read() # a `bytes` object
-                        out_file.write(data)
-            except TimeoutError: 
-                if k ==2: 
-                    print("---> Established connection failed because"
-                       "connected host has failed to respond.")
-            except:pass 
-        else : 
-            status=True
-            break
-        try: pbar.update (k+1)
-        except: pass 
-    
-    if status: 
-        try: 
-            pbar.update (3)
-            pbar.close ()
-        except:pass
-        # print(f"\n---> Downloading {rfile!r} was successfully done.")
-    else: 
-        print(f"\n---> Failed to download {rfile!r}.")
-    # now move the file to the right place and create path if dir not exists
-    if savepath is not None: 
-        if not os.path.isdir(savepath): 
-            sPath (savepath)
-        shutil.move(os.path.realpath(rfile), savepath )
-        
-    if not status:
-        if raise_exception: 
-            raise ConnectionRefusedError(connect_reason.replace (
-                "ConnectionRefusedError:", "") )
-        else: print(connect_reason )
-    
-    return status
+    Retrieve data from a remote location and optionally save it to a 
+    specified path.
 
+    Parameters
+    ----------
+    remote_file : str
+        The full path URL to the remote file to be downloaded.
+    
+    save_path : str, optional
+        The local file system path where the downloaded file should be saved.
+        If None, the file is saved in the current directory. Default is None.
+    
+    raise_exception : bool, default True
+        If True, raises a ConnectionRefusedError when the connection fails.
+        Otherwise, prints the error message.
+
+    Returns
+    -------
+    bool
+        True if the file was successfully downloaded; False otherwise.
+
+    Raises
+    ------
+    ConnectionRefusedError
+        If the connection fails and `raise_exception` is True.
+
+    Examples
+    --------
+    >>> from gofast.tools.baseutils import get_remote_data
+    >>> status = get_remote_data('https://example.com/file.csv', save_path='/local/path')
+    >>> print(status)
+    """
+
+    connect_reason = (
+        "ConnectionRefusedError: Failed to connect to the remote server. "
+        "Possible reasons include:\n"
+        "1. The server is not running, thus not listening to the port.\n"
+        "2. The server is running, but the port is blocked by a firewall.\n"
+        "3. A security program on the PC is blocking several ports."
+    )
+    validate_url(remote_file)
+    print(f"---> Fetching {remote_file!r}...")
+
+    try:
+        # Setting up the progress bar
+        with tqdm(total=3, ascii=True, desc=f'Fetching {os.path.basename(remote_file)}', 
+                  ncols=97) as pbar:
+            _ , rfile = os.path.dirname(remote_file), os.path.basename(remote_file)
+            status = False
+
+            for k in range(3):
+                try:
+                    response = urllib.request.urlopen(remote_file)
+                    data = response.read() # a `bytes` object
+
+                    # Save the data to file
+                    with open(rfile, 'wb') as out_file:
+                        out_file.write(data)
+                    status = True
+                    break
+                except TimeoutError:
+                    if k == 2:
+                        print("---> Connection timed out.")
+                except Exception as e:
+                    print(f"---> An error occurred: {e}")
+                finally:
+                    pbar.update(1)
+
+            if status:
+                # Move the file to the specified save_path
+                if save_path is not None:
+                    os.makedirs(save_path, exist_ok=True)
+                    shutil.move(os.path.realpath(rfile),
+                                os.path.join(save_path, rfile))
+            else:
+                print(f"\n---> Failed to download {remote_file!r}.")
+                if raise_exception:
+                    raise ConnectionRefusedError(connect_reason)
+
+            return status
+
+    except Exception as e:
+        print(f"An error occurred during the download: {e}")
+        if raise_exception:
+            raise e
+        return False
 
 def download_file(url, local_filename , dstpath =None ):
     """download a remote file. 
@@ -1330,87 +1388,6 @@ def scrape_web_data(
     else:
         response.raise_for_status()  
     
-    
-def audit_data(
-    data, 
-    /, 
-    dropna_threshold=0.5, 
-    categorical_threshold=10, 
-    standardize=True
-    ):
-    """
-    Cleans and formats a dataset for analysis. 
-    This includes handling missing values,
-    converting data types, and standardizing numerical columns.
-
-    Parameters
-    ----------
-    data : pd.DataFrame
-        The dataset to be cleaned and formatted.
-
-    dropna_threshold : float, optional
-        The threshold for dropping columns with missing values. 
-        Columns with a fraction of missing values greater than 
-        this threshold will be dropped.
-        Default is 0.5 (50%).
-
-    categorical_threshold : int, optional
-        The maximum number of unique values in a column for it to 
-        be considered categorical.
-        Columns with unique values fewer than or equal to this 
-        number will be converted to 
-        categorical type. Default is 10.
-
-    standardize : bool, optional
-        If True, standardize numerical columns to have a mean of 0 
-        and a standard deviation of 1.
-        Default is True.
-
-    Returns
-    -------
-    pd.DataFrame
-        The cleaned and formatted dataset.
-
-    Example
-    -------
-    >>> data = pd.DataFrame({
-    >>>     'A': [1, 2, np.nan, 4, 5],
-    >>>     'B': ['x', 'y', 'z', 'x', 'y'],
-    >>>     'C': [1, 2, 3, 4, 5]
-    >>> })
-    >>> clean_data = audit_data(data)
-
-    """
-    data = to_numeric_dtypes(data )
-    dropna_threshold= assert_ratio(dropna_threshold)
-    
-    # Drop columns with too many missing values
-    data = data.dropna(thresh=int(
-        dropna_threshold * len(data)), axis=1)
-
-    # Fill missing values
-    for col in data.columns:
-        if data[col].dtype == 'object':
-            # For categorical columns, fill with the mode
-            data[col] = data[col].fillna(data[col].mode()[0])
-        else:
-            # For numerical columns, fill with the median
-            data[col] = data[col].fillna(data[col].median())
-
-    # Convert columns to categorical if they have fewer
-    # unique values than the threshold
-    for col in data.columns:
-        if data[col].dtype == 'object' or data[col].nunique(
-                ) <= categorical_threshold:
-            data[col] = data[col].astype('category')
-
-    # Standardize numerical columns
-    if standardize:
-        num_cols = data.select_dtypes(include=['number']).columns
-        data[num_cols] = (
-            data[num_cols] - data[num_cols].mean()) / data[num_cols].std()
-
-    return data
     
 def speed_rowwise_process(
     data, /, 
@@ -1695,8 +1672,10 @@ def unified_storage(
     --------
     Storing datasets:
     >>> data1 = np.random.rand(100, 10)
-    >>> df1 = pd.DataFrame(np.random.randint(0, 100, size=(200, 5)), columns=['A', 'B', 'C', 'D', 'E'])
-    >>> handle_datasets_in_h5('my_datasets.h5', {'dataset1': data1, 'df1': df1}, operation='store')
+    >>> df1 = pd.DataFrame(np.random.randint(0, 100, size=(200, 5)),
+                           columns=['A', 'B', 'C', 'D', 'E'])
+    >>> handle_datasets_in_h5('my_datasets.h5', {'dataset1': data1, 'df1': df1},
+                              operation='store')
 
     Retrieving datasets:
     >>> datasets = handle_datasets_in_h5('my_datasets.h5', operation='retrieve')
@@ -1730,11 +1709,769 @@ def unified_storage(
 
         return datasets_retrieved
     
+def verify_data_integrity(data: DataFrame, /) -> Tuple[bool, dict]:
+    """
+    Verifies the integrity of data within a DataFrame. 
+    
+    Data integrity checks are crucial in data analysis and machine learning 
+    to ensure the reliability and correctness of any conclusions drawn from 
+    the data. This function performs several checks including looking for 
+    missing values, detecting duplicates, and identifying outliers, which
+    are common issues that can lead to misleading analysis or model training 
+    results.
 
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The DataFrame to verify.
+
+    Returns
+    -------
+    Tuple[bool, dict]
+        A tuple containing:
+        - A boolean indicating if the data passed all integrity checks 
+          (True if no issues are found).
+        - A dictionary with the details of the checks, including counts of 
+        missing values, duplicates, and outliers by column.
+
+    Example
+    -------
+    >>> data = pd.DataFrame({'A': [1, 2, None], 'B': [4, 5, 6], 'C': [7, 8, 8]})
+    >>> is_valid, report = verify_data_integrity(data)
+    >>> print(f"Data is valid: {is_valid}\nReport: {report}")
+
+    Notes
+    -----
+    Checking for missing values is essential as they can indicate data 
+    collection issues or errors in data processing. Identifying duplicates is 
+    important to prevent skewed analysis results, especially in cases where 
+    data should be unique (e.g., unique user IDs). Outlier detection is 
+    critical in identifying data points that are significantly different from 
+    the majority of the data, which might indicate data entry errors or other 
+    anomalies.
     
+    - The method used for outlier detection in this function is the 
+      Interquartile Range (IQR) method. It's a simple approach that may not be
+      suitable for all datasets, especially those with non-normal distributions 
+      or where more sophisticated methods are required.
+    - The function does not modify the original DataFrame.
+    """
+    report = {}
+    is_valid = True
+    # check whether dataframe is passed
+    is_frame (data, df_only=True, raise_exception=True )
+
+    # Check for missing values
+    missing_values = data.isnull().sum()
+    report['missing_values'] = missing_values
+    if missing_values.any():
+        is_valid = False
+
+    # Check for duplicates
+    duplicates = data.duplicated().sum()
+    report['duplicates'] = duplicates
+    if duplicates > 0:
+        is_valid = False
+
+    # Check for potential outliers
+    outlier_report = {}
+    for col in data.select_dtypes(include=['number']).columns:
+        Q1 = data[col].quantile(0.25)
+        Q3 = data[col].quantile(0.75)
+        IQR = Q3 - Q1
+        lower_bound = Q1 - 1.5 * IQR
+        upper_bound = Q3 + 1.5 * IQR
+        outliers = data[(data[col] < lower_bound) | (data[col] > upper_bound)]
+        outlier_report[col] = len(outliers)
+        if len(outliers) > 0:
+            is_valid = False
+
+    report['outliers'] = outlier_report
+
+    return is_valid, report
+
+def audit_data(
+    data: DataFrame,/,  
+    dropna_threshold: float = 0.5, 
+    categorical_threshold: int = 10, 
+    handle_outliers: bool = False,
+    handle_missing: bool = True, 
+    handle_scaling: bool = False, 
+    handle_date_features: bool = False, 
+    handle_categorical: bool = False, 
+    replace_with: str = 'median', 
+    lower_quantile: float = 0.01, 
+    upper_quantile: float = 0.99,
+    fill_value: Optional[Any] = None,
+    scale_method: str = "minmax",
+    missing_method: str = 'drop_cols', 
+    outliers_method: str = "clip", 
+    date_features: Optional[List[str]] = None,
+    day_of_week: bool = False, 
+    quarter: bool = False, 
+    format_date: Optional[str] = None, 
+    return_report: bool = False, 
+    view: bool = False, 
+    cmap: str = 'viridis', 
+    fig_size: Tuple[int, int] = (12, 5)
+) -> Union[DataFrame, Tuple[DataFrame, dict]]:
+    """
+    Audits and preprocesses a DataFrame for analytical consistency. 
     
+    This function streamlines the data cleaning process by handling various 
+    aspects of data quality, such as outliers, missing values, and data scaling. 
+    It provides flexibility to choose specific preprocessing steps according 
+    to the needs of the analysis or modeling.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The DataFrame to be audited and preprocessed. It should be a pandas 
+        DataFrame containing the data to be cleaned.
+
+    dropna_threshold : float, optional
+        Specifies the threshold for dropping columns or rows with missing 
+        values. It determines the proportion of missing values above which 
+        a column or row will be dropped from the DataFrame. 
+        The default value is 0.5 (50%).
+
+    categorical_threshold : int, optional
+        Defines the maximum number of unique values a column can have to be 
+        considered as a categorical variable. Columns with unique values 
+        less than or equal to this threshold will be converted to categorical
+        type.
+
+    handle_outliers : bool, optional
+        Determines whether to apply outlier handling on numerical columns. 
+        If set to True, outliers in the data will be addressed according 
+        to the specified method.
+
+    handle_missing : bool, optional
+        If True, the function will handle missing data in the DataFrame based 
+        on the specified missing data handling method.
+
+    handle_scaling : bool, optional
+        Indicates whether to scale numerical columns using the specified 
+        scaling method. Scaling is essential for certain analyses and modeling 
+        techniques, especially when variables are on different scales.
+
+    handle_date_features : bool, optional
+        If True, columns specified as date features will be converted to 
+        datetime format, and additional date-related features 
+        (like day of the week, quarter) will be extracted.
+
+    handle_categorical : bool, optional
+        Enables the handling of categorical features. If set to True, 
+        numerical columns with a number of unique values below the categorical
+        threshold will be treated as categorical.
+
+    replace_with : str, optional
+        For outlier handling, specifies the method of replacement 
+        ('mean' or 'median') for the 'replace' outlier method. It determines 
+        how outliers will be replaced in the dataset.
+
+    lower_quantile : float, optional
+        The lower quantile value used for clipping outliers. It sets the 
+        lower boundary for outlier detection and handling.
+
+    upper_quantile : float, optional
+        The upper quantile value for clipping outliers. It sets the upper 
+        boundary for outlier detection and handling.
+
+    fill_value : Any, optional
+        Specifies the value to be used for filling missing data when the 
+        missing data handling method is set to 'fill_value'.
+
+    scale_method : str, optional
+        Determines the method for scaling numerical data. Options include 
+        'minmax' (scales data to a range of [0, 1]) and 'standard' 
+        (scales data to have zero mean and unit variance).
+
+    missing_method : str, optional
+        The method used to handle missing data in the DataFrame. Options 
+        include 'drop_cols' (drop columns with missing data) and other 
+        methods based on specified criteria such as 'drop_rows', 'fill_mean',
+        'fill_median', 'fill_value'. 
+
+    outliers_method : str, optional
+        The method used for handling outliers in the dataset. Options 
+        include 'clip' (limits the extreme values to specified quantiles) and 
+        other outlier handling methods such as 'remove' and 'replace'.
+
+    date_features : List[str], optional
+        A list of column names in the DataFrame to be treated as date features. 
+        These columns will be converted to datetime and additional date-related
+        features will be extracted.
+
+    day_of_week : bool, optional
+        If True, adds a column representing the day of the week for each 
+        date feature column.
+
+    quarter : bool, optional
+        If True, adds a column representing the quarter of the year for 
+        each date feature column.
+
+    format_date : str, optional
+        Specifies the format of the date columns if they are not in standard 
+        datetime format.
+
+    return_report : bool, optional
+        If True, the function returns a detailed report summarizing the 
+        preprocessing steps performed on the DataFrame.
+
+    view : bool, optional
+        Enables visualization of the data's state before and after 
+        preprocessing. If True, displays comparative heatmaps for each step.
+
+    cmap : str, optional
+        The colormap for the heatmap visualizations, enhancing the clarity 
+        and aesthetics of the plots.
+
+    fig_size : Tuple[int, int], optional
+        Determines the size of the figure for the visualizations, allowing 
+        customization of the plot dimensions.
+
+    Returns
+    -------
+    Union[pd.DataFrame, Tuple[pd.DataFrame, dict]]
+        The audited and preprocessed DataFrame. If return_report is True, 
+        also returns a comprehensive report detailing the transformations 
+        applied.
+
+    Example
+    -------
+    >>> from gofast.tools.baseutils import audit_data
+    >>> data = pd.DataFrame({'A': [1, 2, 3, 100], 'B': [4, 5, 6, -50]})
+    >>> audited_data, report = audit_data(data, handle_outliers=True, return_report=True)
+    """
+    is_frame (data, df_only=True, raise_exception=True, 
+              objname="Data for auditing" )
+    report = {}
+    data_copy = data.copy()
+
+    def update_report(new_data, step_report):
+        nonlocal data, report
+        if return_report:
+            data, step_report = new_data
+            report = {**report, **step_report}
+        else:
+            data = new_data
+
+    # Handling outliers
+    if handle_outliers:
+        update_report(handle_outliers_in_data(
+            data, method=outliers_method, replace_with=replace_with,
+            lower_quantile=assert_ratio(lower_quantile),
+            upper_quantile=assert_ratio(upper_quantile),
+            return_report=return_report),
+            {})
+
+    # Handling missing data
+    if handle_missing:
+        update_report(handle_missing_data(
+            data, method=missing_method, dropna_threshold=assert_ratio(
+                dropna_threshold), fill_value=fill_value, 
+            return_report=return_report), {})
+
+    # Handling date features
+    if handle_date_features and date_features:
+        update_report(convert_date_features(
+            data, date_features, day_of_week=day_of_week, quarter=quarter, 
+            format=format_date, return_report=return_report), {})
+
+    # Scaling data
+    if handle_scaling:
+        update_report(scale_data(
+            data, method=scale_method, return_report=return_report), {})
+
+    # Handling categorical features
+    if handle_categorical:
+        update_report(handle_categorical_features(
+            data, categorical_threshold=categorical_threshold, 
+            return_report=return_report), {})
+
+    # Compare initial and final data if view is enabled
+    if view:
+        plt.figure(figsize=(fig_size[0], fig_size[1] * 2))
+        plt.subplot(2, 1, 1)
+        sns.heatmap(data_copy.isnull(), yticklabels=False,
+                    cbar=False, cmap=cmap)
+        plt.title('Data Before Auditing')
+
+        plt.subplot(2, 1, 2)
+        sns.heatmap(data.isnull(), yticklabels=False, cbar=False,
+                    cmap=cmap)
+        plt.title('Data After Auditing')
+        plt.show()
+
+    return (data, report) if return_report else data
+
+def handle_categorical_features(
+    data: DataFrame, /, 
+    categorical_threshold: int = 10,
+    return_report: bool = False,
+    view: bool = False,
+    cmap: str = 'viridis', 
+    fig_size: Tuple[int, int] = (12, 5)
+) -> Union[DataFrame, Tuple[DataFrame, dict]]:
+    """
+    Converts numerical columns with a limited number of unique values 
+    to categorical columns in the DataFrame and optionally visualizes the 
+    data distribution before and after the conversion.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The DataFrame to process.
+    categorical_threshold : int, optional
+        Maximum number of unique values in a column for it to be considered 
+        categorical.
+    return_report : bool, optional
+        If True, returns a report summarizing the categorical feature handling.
+    view : bool, optional
+        If True, displays a heatmap of the data distribution before and after 
+        handling.
+    cmap : str, optional
+        The colormap for the heatmap visualization.
+
+    Returns
+    -------
+    Union[pd.DataFrame, Tuple[pd.DataFrame, dict]]
+        DataFrame with categorical features handled and optionally a report.
+
+    Example
+    -------
+    >>> from gofast.tools.baseutils import handle_categorical_features
+    >>> data = pd.DataFrame({'A': [1, 2, 1, 3], 'B': range(10)})
+    >>> updated_data, report = handle_categorical_features(
+        data, categorical_threshold=3, return_report=True, view=True)
+    """
+    is_frame (data, df_only=True, raise_exception=True)
+    original_data = data.copy()
+    report = {'converted_columns': []}
+    numeric_cols = data.select_dtypes(include=['number']).columns
+
+    for col in numeric_cols:
+        if data[col].nunique() <= categorical_threshold:
+            data[col] = data[col].astype('category')
+            report['converted_columns'].append(col)
+
+    # Visualization of data distribution before and after handling
+    if view:
+        plt.figure(figsize=fig_size)
+        plt.subplot(1, 2, 1)
+        sns.heatmap(original_data[numeric_cols].nunique().to_frame().T, 
+                    annot=True, cbar=False, cmap=cmap)
+        plt.title('Unique Values Before Categorization')
+
+        plt.subplot(1, 2, 2)
+        sns.heatmap(data[numeric_cols].nunique().to_frame().T, annot=True,
+                    cbar=False, cmap=cmap)
+        plt.title('Unique Values After Categorization')
+        plt.show()
+
+    return (data, report) if return_report else data
+
+def convert_date_features(
+    data: pd.DataFrame, /, 
+    date_features: List[str], 
+    day_of_week: bool = False, 
+    quarter: bool = False,
+    format: Optional[str] = None,
+    return_report: bool = False,
+    view: bool = False,
+    cmap: str = 'viridis', 
+    fig_size: Tuple[int, int] = (12, 5)
+) -> Union[DataFrame, Tuple[DataFrame, dict]]:
+    """
+    Converts specified columns in the DataFrame to datetime and extracts 
+    relevant features. 
     
+    Optionally Function returnsa report of the transformations and 
+    visualizing the data distribution  before and after conversion.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The DataFrame containing the date columns.
+    date_features : List[str]
+        List of column names to be converted into datetime and to extract 
+        features from.
+    day_of_week : bool, optional
+        If True, adds a column representing the day of the week. Default is False.
+    quarter : bool, optional
+        If True, adds a column representing the quarter of the year.
+        Default is False.
+    format : str, optional
+        The specific format of the date columns if they are not in a standard
+        datetime format.
+    return_report : bool, optional
+        If True, returns a report summarizing the date feature transformations.
+    view : bool, optional
+        If True, displays a comparative heatmap of the data distribution 
+        before and after the conversion.
+    cmap : str, optional
+        The colormap for the heatmap visualization.
+    fig_size : Tuple[int, int], optional
+        The size of the figure for the heatmap.
+    Returns
+    -------
+    Union[pd.DataFrame, Tuple[pd.DataFrame, dict]]
+        DataFrame with additional date-related features and optionally a report.
+
+    Example
+    -------
+    >>> from gofast.tools.baseutils import convert_date_features
+    >>> data = pd.DataFrame({'date': ['2021-01-01', '2021-01-02']})
+    >>> updated_data, report = convert_date_features(
+        data, ['date'], day_of_week=True, quarter=True, return_report=True, view=True)
+    """
+    is_frame (data, df_only=True, raise_exception=True)
+    original_data = data.copy()
+    report = {'converted_columns': date_features, 'added_features': []}
+
+    for feature in date_features:
+        data[feature] = pd.to_datetime(data[feature], format=format)
+        year_col = f'{feature}_year'
+        month_col = f'{feature}_month'
+        day_col = f'{feature}_day'
+        data[year_col] = data[feature].dt.year
+        data[month_col] = data[feature].dt.month
+        data[day_col] = data[feature].dt.day
+        report['added_features'].extend([year_col, month_col, day_col])
+
+        if day_of_week:
+            dow_col = f'{feature}_dayofweek'
+            data[dow_col] = data[feature].dt.dayofweek
+            report['added_features'].append(dow_col)
+
+        if quarter:
+            quarter_col = f'{feature}_quarter'
+            data[quarter_col] = data[feature].dt.quarter
+            report['added_features'].append(quarter_col)
+
+    # Visualization of data distribution before and after conversion
+    if view:
+        plt.figure(figsize=fig_size)
+        plt.subplot(1, 2, 1)
+        sns.heatmap(original_data[date_features].nunique().to_frame().T,
+                    annot=True, cbar=False, cmap=cmap)
+        plt.title('Unique Values Before Conversion')
+
+        plt.subplot(1, 2, 2)
+        sns.heatmap(data[date_features + report['added_features']
+                         ].nunique().to_frame().T, annot=True, cbar=False,
+                    cmap=cmap)
+        plt.title('Unique Values After Conversion')
+        plt.show()
+
+    return (data, report) if return_report else data
+
+def scale_data(
+    data: pd.DataFrame, /, 
+    method: str = 'norm',
+    return_report: bool = False,
+    use_sklearn: bool = False,
+    view: bool = False,
+    cmap: str = 'viridis',
+    fig_size: Tuple[int, int] = (12, 5)
+) -> Union[pd.DataFrame, Tuple[pd.DataFrame, dict]]:
+    """
+    Scales numerical columns in the DataFrame using the specified scaling 
+    method. 
     
+    Optionally returns a report on the scaling process along with 
+    visualization.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The DataFrame to be scaled.
+    method : str
+        Scaling method - 'minmax', 'norm', or 'standard'.
+    return_report : bool, optional
+        If True, returns a report summarizing the scaling process.
+    use_sklearn: bool, optional 
+        If True and scikit-learn is installed, use its scaling utilities.
+    view : bool, optional
+        If True, displays a heatmap of the data distribution before and 
+        after scaling.
+    cmap : str, optional
+        The colormap for the heatmap visualization.
+    fig_size : Tuple[int, int], optional
+        The size of the figure for the heatmap.
+
+    Returns
+    -------
+    Union[pd.DataFrame, Tuple[pd.DataFrame, dict]]
+        The scaled DataFrame and optionally a report.
+
+    Raises
+    ------
+    ValueError
+        If an invalid scaling method is provided.
+        
+    Note 
+    -----
+    Scaling method - 'minmax' or 'standard'.
+    'minmax' scales data to the [0, 1] range using the formula:
+        
+    .. math:: 
+        X_std = (X - X.min()) / (X.max() - X.min())
+        X_scaled = X_std * (max - min) + min
+        
+    'standard' scales data to zero mean and unit variance using the formula:
+        
+    .. math:: 
+        X_scaled = (X - X.mean()) / X.std()
+        
+    Example
+    -------
+    >>> from gofast.tools.baseutils import scale_data
+    >>> data = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
+    >>> scaled_data, report = scale_data(data, 'minmax',
+                                         return_report=True, view=True)
+    """
+    is_frame (data, df_only=True, raise_exception=True, 
+              objname="Exceptionnaly, scaling data")
+    numeric_cols = data.select_dtypes(include=['number']).columns
+    report = {'method_used': method, 'columns_scaled': list(numeric_cols)}
     
+    original_data = data.copy()
+    _,method=normalize_string (method, target_strs=(
+        'MinMax', "Standard", "Normalization"),return_target_str=True, deep=True)
+    # Determine which scaling method to use
+    if method not in ['minmax', 'norm', 'standard']:
+        raise ValueError("Invalid scaling method. Choose 'minmax',"
+                         " 'norm', or 'standard'.")
+    if use_sklearn:
+        try:
+            from sklearn.preprocessing import MinMaxScaler, StandardScaler
+            scaler = MinMaxScaler() if method == 'minmax' else StandardScaler()
+            data[numeric_cols] = scaler.fit_transform(data[numeric_cols])
+        except ImportError:
+            use_sklearn = False
+
+    if not use_sklearn:
+        minmax_scale = lambda col: (col - col.min()) / (col.max() - col.min())
+        standard_scale = lambda col: (col - col.mean()) / col.std()
+        scaling_func = minmax_scale if method == 'minmax' else standard_scale
+        data[numeric_cols] = data[numeric_cols].apply(scaling_func)
+
+    # Visualization of data distribution before and after scaling
+    if view:
+        plt.figure(figsize=fig_size)
+        plt.subplot(1, 2, 1)
+        sns.heatmap(original_data[numeric_cols], annot=True, cbar=False, 
+                    cmap=cmap)
+        plt.title('Before Scaling')
+
+        plt.subplot(1, 2, 2)
+        sns.heatmap(data[numeric_cols], annot=True, cbar=False, cmap=cmap)
+        plt.title('After Scaling')
+        plt.show()
+
+    return (data, report) if return_report else data
+
+def handle_outliers_in_data(
+    data: DataFrame, /, 
+    method: str = 'clip', 
+    replace_with: str = 'median', 
+    lower_quantile: float = 0.01, 
+    upper_quantile: float = 0.99,
+    return_report: bool = False, 
+    view: bool = False,
+    cmap: str = 'viridis', 
+    fig_size: Tuple[int, int] = (12, 5)
+) -> DataFrame:
+    """
+    Handles outliers in numerical columns of the DataFrame using various 
+    methods. 
+    
+    Optionally, function displays a comparative plot showing the data 
+    distribution before and after outlier handling.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The DataFrame with potential outliers.
+    method : str, optional
+        Method to handle outliers ('clip', 'remove', 'replace'). Default is 'clip'.
+    replace_with : str, optional
+        Specifies replacement method ('mean' or 'median') for 'replace'. Default is 'median'.
+    lower_quantile : float, optional
+        Lower quantile for clipping outliers. Default is 0.01.
+    upper_quantile : float, optional
+        Upper quantile for clipping outliers. Default is 0.99.
+    return_report : bool, optional
+        If True, returns a report summarizing the outlier handling process.
+    view : bool, optional
+        If True, displays a comparative plot of the data distribution before 
+        and after handling outliers.
+    cmap : str, optional
+        The colormap for the heatmap visualization. Default is 'viridis'.
+    fig_size : Tuple[int, int], optional
+        The size of the figure for the heatmap.
+        
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with outliers handled.
+
+    Example
+    -------
+    >>> from gofast.tools.baseutils import handle_outliers_in_data
+    >>> data = pd.DataFrame({'A': [1, 2, 3, 100], 'B': [4, 5, 6, -50]})
+    >>> data, report = handle_outliers_in_data(data, method='clip', view=True, 
+                                               cmap='plasma', return_report=True)
+    """
+    is_frame (data, df_only=True, raise_exception=True)
+    numeric_cols = data.select_dtypes(include=['number']).columns
+    data_before = data.copy()  # Copy of the original data for comparison
+    report = {}
+
+    # Handling outliers
+    if method == 'clip':
+        lower = data[numeric_cols].quantile(lower_quantile)
+        upper = data[numeric_cols].quantile(upper_quantile)
+        data[numeric_cols] = data[numeric_cols].clip(lower, upper, axis=1)
+        report['method'] = 'clip'
+    elif method == 'remove':
+        # Removing outliers based on quantiles
+        lower = data[numeric_cols].quantile(lower_quantile)
+        upper = data[numeric_cols].quantile(upper_quantile)
+        data = data[(data[numeric_cols] >= lower) & (data[numeric_cols] <= upper)]
+        report['method'] = 'remove'
+    elif method == 'replace':
+        if replace_with not in ['mean', 'median']:
+            raise ValueError("Invalid replace_with option. Choose 'mean' or 'median'.")
+        replace_func = ( data[numeric_cols].mean if replace_with == 'mean' 
+                        else data[numeric_cols].median)
+        data[numeric_cols] = data[numeric_cols].apply(lambda col: col.where(
+            col.between(col.quantile(lower_quantile), col.quantile(upper_quantile)),
+            replace_func(), axis=0))
+        report['method'] = 'replace'
+    else:
+        raise ValueError("Invalid method for handling outliers.")
+    
+    report['lower_quantile'] = lower_quantile
+    report['upper_quantile'] = upper_quantile
+
+    if view:
+        # Visualize data distribution before and after handling outliers
+        fig, axes = plt.subplots(nrows=1, ncols=2, figsize=fig_size)
+        
+        sns.heatmap(data_before[numeric_cols].isnull(), yticklabels=False, 
+                    cbar=False, cmap=cmap, ax=axes[0])
+        axes[0].set_title('Before Outlier Handling')
+
+        sns.heatmap(data[numeric_cols].isnull(), yticklabels=False,
+                    cbar=False, cmap=cmap, ax=axes[1])
+        axes[1].set_title('After Outlier Handling')
+
+        plt.suptitle('Comparative Missing Value Heatmap')
+        plt.show()
+
+    return (data, report) if return_report else data
+
+def handle_missing_data(
+    data: pd.DataFrame, /, 
+    method: Optional[str] = None,  
+    fill_value: Optional[Any] = None,
+    dropna_threshold: float = 0.5, 
+    return_report: bool = False,
+    view: bool = False, 
+    cmap: str = 'viridis',
+    fig_size: Tuple[int, int] = (12, 5)
+) -> Union[pd.DataFrame, Tuple[pd.DataFrame, dict]]:
+    """
+    Analyzes patterns of missing data in the DataFrame, optionally displays a heatmap 
+    before and after handling missing data, and handles missing data based on the 
+    specified method.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The DataFrame to analyze and handle missing data.
+    method : str, optional
+        Method to handle missing data. Options: 'drop_rows', 'drop_cols', 'fill_mean',
+        'fill_median', 'fill_value'. If None, no handling is performed.
+    fill_value : Any, optional
+        Value to use when filling missing data for 'fill_value' method.
+    dropna_threshold : float, optional
+        Threshold for dropping rows/columns with missing data. 
+        Only used with 'drop_rows' or 'drop_cols' method.
+    return_report : bool, optional
+        If True, returns a tuple of the DataFrame and a report dictionary.
+    view : bool, optional
+        If True, displays a heatmap of missing data before and after handling.
+    cmap : str, optional
+        The colormap for the heatmap visualization.
+    fig_size : Tuple[int, int], optional
+        The size of the figure for the heatmap.
+        
+    Returns
+    -------
+    Union[pd.DataFrame, Tuple[pd.DataFrame, dict]]
+        DataFrame after handling missing data and optionally a report dictionary.
+
+    Example
+    -------
+    >>> from gofast.tools.baseutils import handle_missing_data
+    >>> data = pd.DataFrame({'A': [1, np.nan, 3], 'B': [np.nan, 5, 6]})
+    >>> updated_data, report = handle_missing_data(
+        data, view=True, method='fill_mean', return_report=True)
+    """
+    is_frame (data, df_only=True, raise_exception=True)
+    # Analyze missing data
+    original_data = data.copy()
+    missing_data = pd.DataFrame(data.isnull().sum(), columns=['missing_count'])
+    missing_data['missing_percentage'] = (missing_data['missing_count'] / len(data)) * 100
+
+    # Handling missing data based on method
+    handling_methods = {
+        'drop_rows': lambda d: d.dropna(thresh=int(dropna_threshold * len(d.columns))),
+        'drop_cols': lambda d: d.dropna(axis=1, thresh=int(dropna_threshold * len(d))),
+        'fill_mean': lambda d: d.fillna(d.mean()),
+        'fill_median': lambda d: d.fillna(d.median()),
+        'fill_value': lambda d: d.fillna(fill_value)
+    }
+
+    if method in handling_methods:
+        if method == 'fill_value' and fill_value is None:
+            raise ValueError("fill_value must be specified for 'fill_value' method.")
+        data = handling_methods[method](data)
+    elif method:
+        raise ValueError(f"Invalid method specified: {method}")
+
+    # Visualization of missing data before and after handling
+    if view:
+        plt.figure(figsize=fig_size)
+        plt.subplot(1, 2, 1)
+        sns.heatmap(original_data.isnull(), yticklabels=False, cbar=False, 
+                    cmap=cmap)
+        plt.title('Before Handling Missing Data')
+        
+        plt.subplot(1, 2, 2)
+        sns.heatmap(data.isnull(), yticklabels=False, cbar=False, cmap=cmap)
+        plt.title('After Handling Missing Data')
+        plt.show()
+
+    # Data report
+    data_report = {
+        "missing_data_before": original_data.isnull().sum(),
+        "missing_data_after": data.isnull().sum(),
+        "stats": {
+            "method_used": method,
+            "fill_value": fill_value if method == 'fill_value' else None,
+            "dropna_threshold": dropna_threshold if method in [
+                'drop_rows', 'drop_cols'] else None
+        },
+        "describe": missing_data.describe()
+    }
+    
+    return (data, data_report) if return_report else data
+
+
     
     

@@ -471,6 +471,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.category_count
    tools.cleaner
    tools.codify_variables
+   tools.convert_date_features
    tools.cubic_regression
    tools.discretize_categories
    tools.enrich_data_spectrum
@@ -489,6 +490,9 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.get_global_score
    tools.get_remote_data
    tools.get_target
+   tools.handle_categorical_features
+   tools.handle_missing_data
+   tools.handle_outliers_in_data
    tools.inspect_data
    tools.interpolate1d
    tools.interpolate2d
@@ -524,6 +528,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.save_or_load
    tools.save_job
    tools.savgol_filter
+   tools.scale_data
    tools.scale_y
    tools.select_feature_importances
    tools.select_features
@@ -548,7 +553,8 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.stratify_categories
    tools.to_numeric_dtypes
    tools.unified_storage 
- 
+   tools.verify_data_integrity
+      
 .. _plot_ref:
 
 :mod:`gofast.plot`: Visualization 

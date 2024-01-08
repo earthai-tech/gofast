@@ -482,18 +482,16 @@ def to_numeric_dtypes(
 
     from .validator import _is_numeric_dtype
     # pass ellipsis argument to False 
-    ( sanitize_columns, 
-        reset_index, 
-        verbose,
-        return_feature_types, 
-        pop_cat_features, 
+    ( sanitize_columns, reset_index, 
+     verbose,return_feature_types, 
+     pop_cat_features, 
         ) = ellipsis2false(
             sanitize_columns, 
             reset_index, 
             verbose,
             return_feature_types, 
             pop_cat_features
-            )
+    )
    
     if not is_iterable (arr, exclude_string=True): 
         raise TypeError(f"Expect array. Got {type (arr).__name__!r}")
@@ -7023,18 +7021,195 @@ def _find_similar_attribute(obj, name):
     return rv 
  
 
+def validate_url(url: str) -> bool:
+    """
+    Check if the provided string is a valid URL.
+
+    Parameters
+    ----------
+    url : str
+        The string to be checked as a URL.
+
+    Raises
+    ------
+    ValueError
+        If the provided string is not a valid URL.
+
+    Returns
+    -------
+    bool
+        True if the URL is valid, False otherwise.
+
+    Examples
+    --------
+    >>> validate_url("https://www.example.com")
+    True
+    >>> validate_url("not_a_url")
+    ValueError: The provided string is not a valid URL.
+    """
+    from urllib.parse import urlparse
     
+    if is_module_installed("validators"): 
+        return validate_url_by_validators (url)
+    parsed_url = urlparse(url)
+    if not parsed_url.scheme or not parsed_url.netloc:
+        raise ValueError("The provided string is not a valid URL.")
+    return True
+
+def validate_url_by_validators(url: str):
+    """
+    Check if the provided string is a valid URL.
+
+    Parameters
+    ----------
+    url : str
+        The string to be checked as a URL.
+
+    Raises
+    ------
+    ValueError
+        If the provided string is not a valid URL.
+
+    Returns
+    -------
+    bool
+        True if the URL is valid, False otherwise.
+
+    Examples
+    --------
+    >>> validate_url("https://www.example.com")
+    True
+    >>> validate_url("not_a_url")
+    ValueError: The provided string is not a valid URL.
+    """
+    import validators
+    if not validators.url(url):
+        raise ValueError("The provided string is not a valid URL.")
+    return True
+
+def is_module_installed(module_name: str) -> bool:
+    """
+    Check if a Python module is installed.
+
+    Parameters
+    ----------
+    module_name : str
+        The name of the module to check.
+
+    Returns
+    -------
+    bool
+        True if the module is installed, False otherwise.
+
+    Examples
+    --------
+    >>> is_module_installed("numpy")
+    True
+    >>> is_module_installed("some_nonexistent_module")
+    False
+    """
+    import importlib.util
+    module_spec = importlib.util.find_spec(module_name)
+    return module_spec is not None
+
+def normalize_string(
+    input_str: str, 
+    target_strs: Optional[List[str]] = None, 
+    num_chars_check: Optional[int] = None, 
+    deep: bool = False, 
+    return_target_str: bool = False,
+    raise_exception: bool = False,
+    ignore_case: bool = True,
+    match_method: str = 'exact'  
+) -> Union[str, Tuple[str, Optional[str]]]:
+    """
+    Normalizes a string by applying various transformations and optionally checks 
+    against a list of target strings based on different matching methods.
+
+    Function normalizes a string by stripping leading/trailing whitespace, 
+    converting to lowercase,and optionally checks against a list of target  
+    strings. If specified, returns the target string that matches the 
+    conditions. Raise an exception if the string is not found.
     
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+    Parameters
+    ----------
+    input_str : str
+        The string to be normalized.
+    target_strs : List[str], optional
+        A list of target strings for comparison.
+    num_chars_check : int, optional
+        The number of characters at the start of the string to check 
+        against each target string.
+    deep : bool, optional
+        If True, performs a deep substring check within each target string.
+    return_target_str : bool, optional
+        If True and a target string matches, returns the matched target string 
+        along with the normalized string.
+    raise_exception : bool, optional
+        If True and the input string is not found in the target strings, 
+        raises an exception.
+    ignore_case : bool, optional
+        If True, ignores case in string comparisons. Default is True.
+    match_method : str, optional
+        The string matching method: 'exact', 'contains', or 'startswith'.
+        Default is 'exact'.
+
+    Returns
+    -------
+    Union[str, Tuple[str, Optional[str]]]
+        The normalized string. If return_target_str is True and a target 
+        string matches, returns a tuple of the normalized string and the 
+        matched target string.
+
+    Raises
+    ------
+    ValueError
+        If raise_exception is True and the input string is not found in 
+        the target strings.
+
+    Examples
+    --------
+    >>> normalize_string("Hello World", target_strs=["hello", "world"], ignore_case=True)
+    'hello world'
+    >>> normalize_string("Goodbye World", target_strs=["hello", "goodbye"], 
+                         num_chars_check=7, return_target_str=True)
+    ('goodbye world', 'goodbye')
+    >>> normalize_string("Hello Universe", target_strs=["hello", "world"],
+                         raise_exception=True)
+    ValueError: Input string not found in target strings.
+    """
+    normalized_str = input_str.lower() if ignore_case else input_str
+
+    if not target_strs:
+        return normalized_str
+    target_strs = is_iterable(target_strs, exclude_string=True, transform =True)
+    normalized_targets = [t.lower() for t in target_strs] if ignore_case else target_strs
+    matched_target = None
+
+    for target in normalized_targets:
+        if num_chars_check is not None:
+            condition = (normalized_str[:num_chars_check] == target[:num_chars_check])
+        elif deep:
+            condition = (normalized_str in target)
+        elif match_method == 'contains':
+            condition = (target in normalized_str)
+        elif match_method == 'startswith':
+            condition = normalized_str.startswith(target)
+        else:  # Exact match
+            condition = (normalized_str == target)
+
+        if condition:
+            matched_target = target
+            break
+
+    if matched_target is not None:
+        return (normalized_str, matched_target) if return_target_str else normalized_str
+
+    if raise_exception:
+        raise ValueError(f"{input_str!r} not found in {target_strs}.")
+
+    return ('', None) if return_target_str else ''
+
     
     
     
