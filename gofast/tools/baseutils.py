@@ -1760,7 +1760,7 @@ def verify_data_integrity(data: DataFrame, /) -> Tuple[bool, dict]:
     is_valid = True
     # check whether dataframe is passed
     is_frame (data, df_only=True, raise_exception=True )
-
+    data = to_numeric_dtypes(data)
     # Check for missing values
     missing_values = data.isnull().sum()
     report['missing_values'] = missing_values
@@ -2375,7 +2375,7 @@ def handle_outliers_in_data(
     return (data, report) if return_report else data
 
 def handle_missing_data(
-    data: pd.DataFrame, /, 
+    data:DataFrame, /, 
     method: Optional[str] = None,  
     fill_value: Optional[Any] = None,
     dropna_threshold: float = 0.5, 
@@ -2383,7 +2383,7 @@ def handle_missing_data(
     view: bool = False, 
     cmap: str = 'viridis',
     fig_size: Tuple[int, int] = (12, 5)
-) -> Union[pd.DataFrame, Tuple[pd.DataFrame, dict]]:
+) -> Union[DataFrame, Tuple[DataFrame, dict]]:
     """
     Analyzes patterns of missing data in the DataFrame, optionally displays a heatmap 
     before and after handling missing data, and handles missing data based on the 
@@ -2472,6 +2472,158 @@ def handle_missing_data(
     
     return (data, data_report) if return_report else data
 
+def inspect_data(
+    data: DataFrame, /, 
+    correlation_threshold: float = 0.8, 
+    categorical_threshold: float = 0.75
+) -> None:
+    """
+    Performs an exhaustive inspection of a DataFrame, evaluating data integrity,
+    providing detailed statistics, and offering tailored recommendations 
+    to ensure data quality for analysis or modeling.
+
+    This function is integral for identifying and understanding various aspects
+    of data quality such as missing values, duplicates, outliers, imbalances, 
+    and correlations. It offers insights into the data's distribution, 
+    variability, and potential issues, guiding users towards effective data 
+    cleaning and preprocessing strategies.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The DataFrame to be inspected.
+
+    correlation_threshold : float, optional
+        The threshold for flagging high correlation between numeric features.
+        Features with a correlation above this threshold will be highlighted.
+        Default is 0.8.
+
+    categorical_threshold : float, optional
+        The threshold for detecting imbalance in categorical variables. If the
+        proportion of the most frequent category exceeds this threshold, it will
+        be flagged as imbalanced. Default is 0.75.
+
+    Returns
+    -------
+    None
+        Prints a comprehensive report including data integrity assessment, statistics,
+        and recommendations for data preprocessing.
+
+    Example
+    -------
+    >>> from gofast.tools.baseutils import inspect_data
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> data = pd.DataFrame({
+    >>>     'A': np.random.normal(0, 1, 100),
+    >>>     'B': np.random.normal(5, 2, 100),
+    >>>     'C': np.random.randint(0, 100, 100)
+    >>> })
+    >>> data.iloc[0, 0] = np.nan  # Introduce a missing value
+    >>> data.iloc[1] = data.iloc[0]  # Introduce a duplicate row
+    >>> inspect_data(data)
+    """
+    def format_report_section(title, content):
+        """
+        Formats and prints a section of the report.
+        """
+        print(f"\033[1m{title}:\033[0m")
+        if ( title.lower().find('report')>=0 or title.lower(
+           ).find('recomm')>=0): print("-" * (len(title)+1)) 
+        if isinstance(content, dict):
+            for key, value in content.items():
+                print(f"  {key}: {value}")
+        else:
+            print(f"  {content}")
+        print()
+        
+    def calculate_statistics(d: DataFrame) -> Dict[str, Any]:
+        """
+        Calculates various statistics for the numerical columns of 
+        the DataFrame.
+        """
+        stats = {}
+        numeric_cols = d.select_dtypes(include=[np.number])
+
+        stats['mean'] = numeric_cols.mean()
+        stats['std_dev'] = numeric_cols.std()
+        stats['percentiles'] = numeric_cols.quantile([0.25, 0.5, 0.75]).T
+        stats['min'] = numeric_cols.min()
+        stats['max'] = numeric_cols.max()
+
+        return stats
+    
+    is_frame( data, df_only=True, raise_exception=True,
+             objname="Data for inspection")
+    is_valid, integrity_report = verify_data_integrity(data)
+    stats_report = calculate_statistics(data)
+    
+    # Display the basic integrity report
+    format_report_section("Data Integrity Report", "")
+    format_report_section("Missing Values", integrity_report['missing_values'])
+    format_report_section("Duplicate Rows", integrity_report['duplicates'])
+    format_report_section("Potential Outliers", integrity_report['outliers'])
+
+    # Display the statistics report
+    format_report_section("Data Statistics Report", "")
+    for stat_name, values in stats_report.items():
+        format_report_section(stat_name.capitalize(), values)
+
+    # Recommendations based on the report
+    if not is_valid:
+        format_report_section("Recommendations", "")
+        if integrity_report['missing_values'].any():
+            print("- Consider handling missing values using imputation or removal.")
+        if integrity_report['duplicates'] > 0:
+            print("- Check for and remove duplicate rows to ensure data uniqueness.")
+        if any(count > 0 for count in integrity_report['outliers'].values()):
+            print("- Investigate potential outliers. Consider removal or transformation.\n")
+        
+        # Additional checks and recommendations
+        # Check for columns with a single unique value
+        single_value_columns = [col for col in data.columns if 
+                                data[col].nunique() == 1]
+        if single_value_columns:
+            print("- Columns with a single unique value detected:"
+                  f" {single_value_columns}. Consider removing them"
+                  " as they do not provide useful information for analysis.")
+    
+        # Check for data imbalance in categorical variables
+        categorical_cols = data.select_dtypes(include=['category', 'object']).columns
+        for col in categorical_cols:
+            if data[col].value_counts(normalize=True).max() > categorical_threshold:
+                print(f"- High imbalance detected in categorical column '{col}'."
+                      " Consider techniques to address imbalance, like sampling"
+                      " methods or specialized models.")
+    
+        # Check for skewness in numeric columns
+        numeric_cols = data.select_dtypes(include=[np.number]).columns
+        for col in numeric_cols:
+            if abs(data[col].skew()) > 1:
+                print(f"- High skewness detected in numeric column '{col}'."
+                      " Consider transformations like log, square root, or "
+                      "Box-Cox to normalize the distribution.")
+        # Normalization for numerical columns
+        print("- Evaluate if normalization (scaling between 0 and 1) is "
+              "necessary for numerical features, especially for distance-based"
+              " algorithms.")
+    
+        # Correlation check
+        correlation_threshold = correlation_threshold  # Arbitrary threshold
+        corr_matrix = data[numeric_cols].corr().abs()
+        upper_triangle = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+        high_corr_pairs = ( [(col, corr_matrix.columns[idx]) for col in 
+                             corr_matrix.columns for idx in corr_matrix[col].index 
+                             if upper_triangle.loc[col, idx] > correlation_threshold]
+                           )
+        if high_corr_pairs:
+            print("- Highly correlated features detected:")
+            for pair in high_corr_pairs:
+                print(f"  {pair[0]} and {pair[1]} (Correlation > {correlation_threshold})")
+    
+        # Data type conversions
+        print("- Review data types of columns for appropriate conversions"
+              " (e.g., converting float to int where applicable).")
 
     
     

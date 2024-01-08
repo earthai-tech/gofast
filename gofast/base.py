@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 import re
-import sys
 import copy
 from warnings import warn
 import numpy as np 
@@ -18,10 +17,11 @@ from ._typing import List, Optional, DataFrame, Tuple
 from .tools.baseutils import _is_readable
 from .exceptions import NotFittedError
 from .tools._dependency import import_optional_dependency
-from .tools.funcutils import sanitize_frame_cols, exist_features, inspect_data
+from .tools.funcutils import sanitize_frame_cols, exist_features
 from .tools.funcutils import _assert_all_types, repr_callable_obj, reshape 
 from .tools.funcutils import smart_strobj_recognition, is_iterable
 from .tools.funcutils import format_to_datetime, fancier_repr_formatter
+from .tools.funcutils import to_numeric_dtypes
 from .tools.validator import array_to_frame, check_array, build_data_if
 from .tools.validator import is_time_series, is_frame, _is_arraylike_1d  
 
@@ -1315,7 +1315,7 @@ class FeatureProcessor:
         X = build_data_if(X, columns=self.features, to_frame=True, 
                           input_name='feature_', force=True, raise_warning='mute')
         # verify integrity 
-        X = inspect_data(X)
+        X = to_numeric_dtypes(X)
         # Extract target from 'tnames'
         if self.tnames is not None: 
             y, X = export_target(X, tname=self.tnames)
@@ -3029,7 +3029,7 @@ class FrameOperations:
         """
         frames = []
         for frame in self.frames:
-            frames.append(inspect_data(frames, **kws))
+            frames.append(to_numeric_dtypes(frames, **kws))
 
         self.frames = frames
 

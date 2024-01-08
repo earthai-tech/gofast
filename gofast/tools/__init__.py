@@ -27,6 +27,7 @@ from .baseutils import (
     handle_categorical_features, 
     convert_date_features, 
     scale_data, 
+    inspect_data, 
     handle_outliers_in_data,
     handle_missing_data, 
     )
@@ -71,7 +72,6 @@ from .funcutils import (
     random_sampling, 
     replace_data, 
     store_or_write_hdf5, 
-    inspect_data, 
     )
 
 from .mlutils import ( 
