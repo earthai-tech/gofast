@@ -14,6 +14,7 @@ import joblib
 import concurrent 
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
+from joblib import Parallel, delayed
 from sklearn.model_selection import ( 
     GridSearchCV, 
     RandomizedSearchCV, 
@@ -29,6 +30,165 @@ opt_dict = {
     'GridSearchCV': ['GSCV', 'GridSearchCV'], 
     'BayesSearchCV': ['BSCV', 'BayesSearchCV']
     }
+
+def optimize_search(
+    estimators, 
+    param_grids, 
+    X, 
+    y, 
+    optimizer='RSCV', 
+    save_results=False, 
+    n_jobs=-1, 
+    **search_kwargs
+    ):
+    """
+    Perform hyperparameter optimization for multiple estimators in parallel. 
+    
+    Function supports Grid Search, Randomized Search, and Bayesian Search. This 
+    parallel processing can significantly expedite the hyperparameter tuning process.
+
+    Parameters
+    ----------
+    estimators : dict
+        A dictionary where keys are estimator names and values are estimator 
+        instances.
+    param_grids : dict
+        A dictionary where keys are estimator names (matching those in 'estimators') 
+        and values are parameter grids.
+    X : ndarray or DataFrame
+        Input features for the model.
+    y : ndarray or Series
+        Target variable for the model.
+    optimizer : str, optional
+        Type of search to perform: 'GSCV' or 'GridSearchCV', 'RSCV' or 
+        'RandomizedSearchCV', 'BSCV' or 'BayesianSearchCV'. Default is 'RSCV'.
+    save_results : bool, optional
+        If True, saves the results of the search to a joblib file. 
+        Default is False.
+    n_jobs : int, optional
+        Number of jobs to run in parallel. Default is -1, which uses all 
+        available processors.
+    **search_kwargs : dict
+        Additional keyword arguments to pass to the search constructor.
+
+    Returns
+    -------
+    dict
+        A dictionary with keys as estimator names and values as dictionaries 
+        containing 'best_estimator', 'best_params', and 'cv_results' for 
+        each estimator.
+
+    Raises
+    ------
+    ValueError
+        If 'kind' is not a recognized option or if the keys in 'estimators' 
+        and 'param_grids' do not match.
+
+    Examples
+    --------
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from sklearn.svm import SVC
+    >>> from sklearn.datasets import load_iris 
+    >>> X, y = load_iris (return_X_y=True)
+    >>> from gofast.models.optimize import optimize_search
+    >>> estimators = {'rf': RandomForestClassifier(), 'svc': SVC()}
+    >>> param_grids = {'rf': {'n_estimators': [10, 100], 'max_depth': [None, 10]},
+    ...                'svc': {'C': [1, 10], 'kernel': ['linear', 'rbf']}}
+    >>> results = optimize_search(estimators, param_grids, X, y, optimizer='RSCV',
+                                  save_results=False, n_jobs=4)
+    """
+    if optimizer not in ['GSCV', 'GridSearchCV', 'RSCV', 'RandomizedSearchCV',
+                    'BSCV', 'BayesianSearchCV']:
+        raise ValueError("Invalid 'optimizer' parameter. Choose from 'GSCV', 'RSCV', or 'BSCV'.")
+
+    if estimators.keys() != param_grids.keys():
+        raise ValueError("The keys in 'estimators' and 'param_grids' must match.")
+    if optimizer in ['BSCV', 'BayesianSearchCV']: 
+        extra_msg = ("'BayesSearchCV' expects `skopt` to be installed."
+                     " Skopt is the shorthand of `scikit-optimize` library.")
+        import_optional_dependency("skopt", extra =extra_msg )
+        from skopt import BayesSearchCV  # Assuming skopt for Bayesian Search
+        
+    def perform_search(estimator_name, estimator, param_grid):
+        if optimizer in ['GSCV', 'GridSearchCV']:
+            search = GridSearchCV(estimator, param_grid, **search_kwargs)
+        elif optimizer in ['RSCV', 'RandomizedSearchCV']:
+            search = RandomizedSearchCV(estimator, param_grid, **search_kwargs)
+        elif optimizer in ['BSCV', 'BayesianSearchCV']:
+            search = BayesSearchCV(estimator, param_grid, **search_kwargs)
+        search.fit(X, y)
+        return estimator_name, search.best_estimator_, search.best_params_, search.cv_results_
+
+    # Parallel execution of the search for each estimator
+    results = Parallel(n_jobs=n_jobs)(delayed(perform_search)(name, est, param_grids[name])
+            for name, est in tqdm(estimators.items(), desc="Optimizing Estimators",
+                                  ncols=77, ascii=True ))
+    
+    result_dict = {name: {'best_estimator_': best_est, 'best_params_': best_params,
+                          'cv_results_': cv_res}
+                   for name, best_est, best_params, cv_res in results}
+    
+    # Optionally save results to a joblib file
+    if save_results:
+        filename = "optimization_results.joblib"
+        joblib.dump(result_dict, filename)
+        print(f"Results saved to {filename}")
+    
+    return result_dict
+
+def optimize_search2(estimators, param_grids, X, y, optimizer='GSCV', 
+                    save_results=False, n_jobs=-1, **search_kwargs):
+    
+    if optimizer in ['BSCV', 'BayesianSearchCV']: 
+        extra_msg = ("'BayesSearchCV' expects `skopt` to be installed."
+                     " Skopt is the shorthand of `scikit-optimize` library.")
+        import_optional_dependency("skopt", extra =extra_msg )
+        from skopt import BayesSearchCV  # Assuming skopt for Bayesian Search
+        
+    def validate_parameters():
+        if optimizer not in ['GSCV', 'GridSearchCV', 'RSCV', 'RandomizedSearchCV',
+                             'BSCV', 'BayesianSearchCV']:
+            raise ValueError(f"Unknown optimizer: {optimizer}")
+        if estimators.keys() != param_grids.keys():
+            raise ValueError("The keys in 'estimators' and 'param_grids' must match.")
+
+    def initialize_search(optimizer, estimator, param_grid):
+        if optimizer in ['GSCV', 'GridSearchCV']:
+            return GridSearchCV(estimator, param_grid, **search_kwargs)
+        elif optimizer in ['RSCV', 'RandomizedSearchCV']:
+            return RandomizedSearchCV(estimator, param_grid, **search_kwargs)
+        elif optimizer in ['BSCV', 'BayesianSearchCV']:
+            
+            return BayesSearchCV(estimator, param_grid, **search_kwargs)
+
+    def perform_search(name, estimator, param_grid, pbar):
+        search = initialize_search(optimizer, estimator, param_grid)
+        # tem_r={}
+        for _ in tqdm(range(search_kwargs.get('n_iter', 1)), position=0,
+                      leave=False, desc="{:<30}".format(f"Optimizing {name}"),
+                      ncols=103, ascii=True):
+            search.fit(X, y)
+            pbar.update(1)
+        return name, search.best_estimator_, search.best_params_, search.cv_results_
+
+    validate_parameters()
+    progress_bars = [tqdm(total=search_kwargs.get('n_iter', 1), position=i + 1,
+                          desc="{:<30}".format(f"Optimizing {name}"),
+                          ncols=103, ascii=True) for i, name in enumerate(estimators)
+                     ]
+    results = Parallel(n_jobs=n_jobs)(delayed(perform_search)(
+        name, estimators[name], param_grids[name], progress_bars[i])
+              for i, name in enumerate(estimators))
+
+    for pbar in progress_bars:
+        pbar.close()
+    result_dict = {name: {'best_estimator': best_est, 'best_params': best_params,
+                          'cv_results': cv_res}
+                   for name, best_est, best_params, cv_res in results}
+    if save_results:
+        joblib.dump(result_dict, "optimization_results.joblib")
+
+    return result_dict
 
 def optimize_hyperparameters(
     estimator, 

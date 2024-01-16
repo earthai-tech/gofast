@@ -57,6 +57,7 @@ from .mathex import (
     category_count, 
     soft_bin_stat, 
     binning_statistic, 
+    label_importance, 
     )
 from .funcutils import ( 
     reshape, 
@@ -173,7 +174,6 @@ __all__=[
     'soft_imputer', 
     'soft_scaler', 
     'make_pipe',
-    'classify_k',
     'label_importance', 
     'remove_outliers', 
     'normalizer',

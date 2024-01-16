@@ -74,6 +74,150 @@ _logger =gofastlog.get_gofast_logger(__name__)
 
 mu0 = 4 * np.pi * 1e-7 
 
+
+
+
+def make_mxs(
+    y,
+    yt,
+    threshold=0.5, 
+    star_mxs=True, 
+    return_ymx=False,
+    mode="strict", 
+    include_nan=False, 
+    trailer="*"
+    ):
+    """
+    Compute the similarity between labels in arrays y and yt, transform yt 
+    based on these similarities, and create a new array `ymx` by filling NaN 
+    values in y with corresponding labels from transformed yt.
+    Handles NaN values in `yt` based on the `mode` and `include_nan` 
+    parameters.
+
+    Parameters
+    ----------
+    y : array-like
+        The target array containing valid labels and potentially NaN values.
+    yt : array-like
+        The array containing predicted labels from KMeans.
+    threshold : float, optional
+        The threshold for considering a label in `y` as similar to a label 
+        in `yt` (default is 0.5).
+    star_mxs : bool, optional
+        If True, appends `trailer` to labels in `yt` when similarity is found 
+        (default is True).
+    return_ymx : bool, optional
+        If True, returns the mixed array `ymx`; otherwise, returns a 
+        dictionary of label similarities (default is False).
+    mode : str, optional
+        "strict" or "soft" handling of NaN values in `yt` (default is "strict").
+    include_nan : bool, optional
+        If True and `mode` is "soft", includes NaN values in `yt` during 
+        similarity computation (default is False).
+    trailer : str, optional
+        The string to append to labels in `yt` when `star_mxs` is True
+        (default is "*").
+
+    Returns
+    -------
+    array or dict
+        Mixed array `ymx` if `return_ymx` is True; otherwise, a 
+        dictionary representing similarities of labels in `y` and `yt`.
+
+    Raises
+    ------
+    ValueError
+        If `yt` contains NaN values in "strict" mode or if `trailer` 
+        is a number.
+
+    Examples
+    --------
+    >>> y = np.array([1, 2, np.nan, 4])
+    >>> yt = np.array([1, 2, 3, 4])
+    >>> make_mxs(y, yt, threshold=0.5, star_mxs=True, return_ymx=True, trailer="#")
+    array([1, 2, '3#', '44#'])
+
+    >>> make_mxs(y, yt, threshold=1.5, star_mxs=False, return_ymx=False, mode="soft")
+    {1: True, 2: True, np.nan: False, 4: True}
+    """
+    from sklearn.metrics import pairwise_distances
+    
+    if not isinstance(trailer, str) or trailer.isdigit():
+        raise ValueError("trailer must be a non-numeric string.")
+
+    if mode == "strict" and np.isnan(yt).any():
+        raise ValueError("yt should not contain NaN values in 'strict' mode.")
+
+    # Appending trailer to yt if star_mxs is True
+    yt_transformed = np.array([f"{label}{trailer}" for label in yt]
+                              ) if star_mxs else yt.copy()
+
+    # Computing similarities and transforming yt
+    similarities = {}
+    for i, label_y in enumerate(y):
+        include_label = not np.isnan(label_y) or (include_nan and mode == "soft")
+        if include_label:
+            similarity = pairwise_distances([[label_y]], [[yt[i]]])[0][0] <= threshold
+            similarities[label_y] = similarity
+            if similarity and star_mxs:
+                # Transform similar labels in yt
+                label_yt_trailer = f"{yt[i]}{trailer}"
+                yt_transformed[yt_transformed == label_yt_trailer
+                               ] = f"{label_y}{label_yt_trailer}"
+    # Filling NaN positions in y with corresponding labels from transformed yt
+    ymx = np.where(np.isnan(y), yt_transformed, y)
+    
+    return ymx if return_ymx else similarities
+
+
+def label_importance(y, include_nan=False):
+    """
+    Compute the importance of each label in a target array.
+
+    This function calculates the frequency of each unique label 
+    in the target array `y`. Importance is defined as the proportion of 
+    occurrences of each label in the array.
+
+    Parameters
+    ----------
+    y : array-like
+        The target array containing labels.
+    include_nan : bool, optional
+        If True, includes NaN values in the calculation, otherwise 
+        excludes them (default is False).
+
+    Returns
+    -------
+    dict
+        A dictionary with labels as keys and their corresponding 
+        importance as values.
+
+    Notes
+    -----
+    The mathematical formulation for the importance of a label `l` is given by:
+
+    .. math::
+
+        I(l) = \\frac{\\text{{count of }} l \\text{{ in }} y}{\\text{{total number of elements in }} y}
+
+    Examples
+    --------
+    >>> y = np.array([1, 2, 2, 3, 3, 3, np.nan])
+    >>> label_importance(y)
+    {1.0: 0.16666666666666666, 2.0: 0.3333333333333333, 3.0: 0.5}
+
+    >>> label_importance(y, include_nan=True)
+    {1.0: 0.14285714285714285, 2.0: 0.2857142857142857, 3.0: 0.42857142857142855,
+     nan: 0.14285714285714285}
+    """
+    y = np.array ( y )
+    if not include_nan:
+        y = y[~np.isnan(y)]
+    labels, counts = np.unique(y, return_counts=True)
+    total = counts.sum()
+    return {label: count / total for label, count in zip(labels, counts)}
+
+
 def linear_regression(X, coef, bias=0., noise=0.):
     """
     linear regression.
