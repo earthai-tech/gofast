@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 # BSD-3-Clause License
-# Copyright (c) 2022 The scikit-learn and gofast developers.
 # All rights reserved.
 
 # Utilities for input validation
@@ -11,10 +10,9 @@ import warnings
 import numbers
 import operator
 import joblib
-# import re
+
 import numpy as np
 import pandas as pd
-# mypy error: Module 'numpy.core.numeric' has no attribute 'ComplexWarning'
 from numpy.core.numeric import ComplexWarning  # type: ignore
 from contextlib import suppress
 import scipy.sparse as sp

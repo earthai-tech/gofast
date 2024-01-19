@@ -2648,7 +2648,7 @@ def quality_control2(
  
 
 def quality_control(
-    data, 
+    data, /, 
     missing_threshold=0.05, 
     outlier_method='IQR', 
     value_ranges=None,
@@ -2665,7 +2665,7 @@ def quality_control(
     In addition to checking, this function now cleans and sanitizes the 
     DataFrame based on identified issues if ``return_cleaned_data=True``. 
     
-    This function now includes steps to:
+    This function includes steps to:
 
     Drop columns with a high percentage of missing data.
     Remove outliers using either the IQR or Z-score methods.
