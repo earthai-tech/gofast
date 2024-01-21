@@ -11,12 +11,13 @@ import warnings
 import pandas as pd
 from joblib import Parallel, delayed
 import numpy as np
-from sklearn.model_selection import KFold
 import itertools
+import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-from ..tools._dependency import import_optional_dependency 
+from sklearn.model_selection import KFold
 
+from ..tools._dependency import import_optional_dependency 
 try: 
     extra_msg = ("Use `deep_search` module implies the `tensorflow` library"
                  "to be installed.")
@@ -25,10 +26,194 @@ try:
     from tensorflow.keras.callbacks import ( 
         EarlyStopping, 
         # ModelCheckpoint, 
+        History, 
         TensorBoard
         )
 except BaseException as e : 
     warnings.warn(str(e) )
+else: 
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import Dense, Dropout, BatchNormalization
+    from tensorflow.keras import regularizers
+    from tensorflow.keras.optimizers import Optimizer, Adam, SGD, RMSprop
+    from tensorflow.keras.losses import Loss
+    from tensorflow.keras.metrics import Metric
+
+from .._typing import List, Optional, Union, Dict, Tuple
+
+
+
+def plot_learning_curve(
+    history: History, 
+    title: str = 'Model Learning Curve',
+    color_scheme: Optional[Dict[str, str]] = None,
+    xlabel: str = 'Epoch',
+    ylabel_acc: str = 'Accuracy',
+    ylabel_loss: str = 'Loss',
+    figsize: Tuple[int, int] = (12, 6)
+    ) -> Tuple[plt.Axes, plt.Axes]:
+    """
+    Plots the learning curves of the training process for both accuracy and loss,
+    and returns the axes for further customization if needed.
+
+    Parameters
+    ----------
+    history : History object
+        This is the output from the fit function of the Keras model, which contains
+        the history of accuracy and loss values during training.
+    title : str, optional
+        Title of the plot. Default is 'Model Learning Curve'.
+    color_scheme : dict of str, optional
+        Dictionary containing color settings for the plot. Keys should include
+        'train_acc', 'val_acc', 'train_loss', and 'val_loss'. Default is None.
+    xlabel : str, optional
+        Label for the x-axis. Default is 'Epoch'.
+    ylabel_acc : str, optional
+        Label for the y-axis of the accuracy plot. Default is 'Accuracy'.
+    ylabel_loss : str, optional
+        Label for the y-axis of the loss plot. Default is 'Loss'.
+    figsize : tuple of int, optional
+        Size of the figure (width, height) in inches. Default is (12, 6).
+
+    Returns
+    -------
+    ax1, ax2 : tuple of matplotlib.axes._subplots.AxesSubplot
+        Axes objects for the accuracy and loss plots, respectively.
+
+    Examples
+    --------
+    >>> history = model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=10)
+    >>> ax_acc, ax_loss = plot_learning_curve(history)
+    >>> ax_acc.set_title('Updated Accuracy Title')
+    >>> plt.show()
+    """
+
+    if color_scheme is None:
+        color_scheme = {
+            'train_acc': 'blue', 'val_acc': 'green',
+            'train_loss': 'orange', 'val_loss': 'red'
+        }
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
+
+    # Plot accuracy
+    ax1.plot(history.history['accuracy'], label='Training Accuracy', 
+             color=color_scheme.get('train_acc', 'blue'))
+    if 'val_accuracy' in history.history:
+        ax1.plot(history.history['val_accuracy'], label='Validation Accuracy',
+                 color=color_scheme.get('val_acc', 'green'))
+    ax1.set_title(title + ' - Accuracy')
+    ax1.set_xlabel(xlabel)
+    ax1.set_ylabel(ylabel_acc)
+    ax1.legend()
+
+    # Plot loss
+    ax2.plot(history.history['loss'], label='Training Loss',
+             color=color_scheme.get('train_loss', 'orange'))
+    if 'val_loss' in history.history:
+        ax2.plot(history.history['val_loss'], label='Validation Loss',
+                 color=color_scheme.get('val_loss', 'red'))
+    ax2.set_title(title + ' - Loss')
+    ax2.set_xlabel(xlabel)
+    ax2.set_ylabel(ylabel_loss)
+    ax2.legend()
+
+    return ax1, ax2
+
+def build_mlp_model(
+    input_dim: int, 
+    output_classes: int = 6,
+    hidden_units: List[int] = [14, 10], 
+    dropout_rate: float = 0.5, 
+    learning_rate: float = 0.001,
+    activation_functions: Optional[List[str]] = None,
+    optimizer: Union[str, Optimizer] = 'adam',
+    loss_function: Union[str, Loss] = 'categorical_crossentropy',
+    regularizer: Optional[regularizers.Regularizer] = None,
+    include_batch_norm: bool = False,
+    custom_metrics: List[Union[str, Metric]] = ['accuracy'],
+    initializer: str = 'glorot_uniform'
+    ) -> Sequential:
+    """
+    Build and compile a Multilayer Perceptron (MLP) model.
+
+    Parameters
+    ----------
+    input_dim : int
+        Number of input features.
+    output_classes : int, default 6
+        Number of classes for the output layer.
+    hidden_units : List[int], default [14, 10]
+        List specifying the number of neurons in each hidden layer.
+    dropout_rate : float, default 0.5
+        Dropout rate for regularization to prevent overfitting.
+    learning_rate : float, default 0.001
+        Learning rate for the optimizer.
+    activation_functions : Optional[List[str]], default None
+        List of activation functions for each hidden layer. If None,
+        'relu' is used for all layers.
+    optimizer : Union[str, Optimizer], default 'adam'
+        Instance of Optimizer or string specifying the optimizer to use.
+    loss_function : Union[str, Loss], default 'categorical_crossentropy'
+        Loss function for the model.
+    regularizer : Optional[regularizers.Regularizer], default None
+        Regularizer function applied to the kernel weights matrix.
+    include_batch_norm : bool, default False
+        Whether to include batch normalization layers after each hidden layer.
+    custom_metrics : List[Union[str, Metric]], default ['accuracy']
+        Metrics to be evaluated by the model during training and testing.
+    initializer : str, default 'glorot_uniform'
+        Initializer for the kernel weights matrix.
+
+    Returns
+    -------
+    model : Sequential
+        A compiled Keras Sequential model.
+    """
+
+    if activation_functions is None:
+        activation_functions = ['relu'] * len(hidden_units)
+
+    # Initialize the Sequential model
+    model = Sequential()
+    
+    # Add the input layer and first hidden layer
+    model.add(Dense(hidden_units[0], input_shape=(input_dim,), 
+                    activation=activation_functions[0], kernel_initializer=initializer,
+                    kernel_regularizer=regularizer))
+    if include_batch_norm:
+        model.add(BatchNormalization())
+    model.add(Dropout(dropout_rate))
+
+    # Add additional hidden layers
+    for units, activation in zip(hidden_units[1:], activation_functions[1:]):
+        model.add(Dense(units, activation=activation, kernel_initializer=initializer,
+                        kernel_regularizer=regularizer))
+        if include_batch_norm:
+            model.add(BatchNormalization())
+        model.add(Dropout(dropout_rate))
+
+    # Add the output layer with softmax activation for classification
+    model.add(Dense(output_classes, activation='softmax'))
+
+    # Configure the optimizer
+    if isinstance(optimizer, str):
+        if optimizer.lower() == 'adam':
+            opt = Adam(learning_rate=learning_rate)
+        elif optimizer.lower() == 'sgd':
+            opt = SGD(learning_rate=learning_rate)
+        elif optimizer.lower() == 'rmsprop':
+            opt = RMSprop(learning_rate=learning_rate)
+        else:
+            raise ValueError(f"Unsupported optimizer: {optimizer}")
+    else:
+        opt = optimizer
+
+    # Compile the model
+    model.compile(optimizer=opt, loss=loss_function, metrics=custom_metrics)
+
+    return model
+
 
 def base_tuning(
         model, train_data, 

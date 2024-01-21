@@ -1,10 +1,9 @@
 """
-Utils sub-package offers several tools for data handling, parameters computation 
-models estimation and evalution, and graphs visualization. The extension of the 
-mathematical concepts, and the core of program are performed via the modules 
-:mod:`~gofast.utils.exmath`. Whereas the machine learning utilities and 
-additional functionalities are performed with :mod:`~gofast.utils.mlutils` and 
-:mod:`~gofast.utils.funcutils` respectively. 
+Tools sub-package offers several tools for data handling, parameters computation 
+models estimation and evalution. The extension of the mathematical concepts, 
+via the module :mod:`~gofast.tools.mathex`. Whereas the machine learning 
+utilities and additional functionalities are performed with
+ :mod:`~gofast.tools.mlutils` and :mod:`~gofast.tools.funcutils` respectively. 
 """
 
 from .baseutils import (
@@ -30,6 +29,8 @@ from .baseutils import (
     inspect_data, 
     handle_outliers_in_data,
     handle_missing_data, 
+    augment_data, 
+    assess_outlier_impact
     )
 from .mathex import ( 
     interpolate1d, 
@@ -57,7 +58,8 @@ from .mathex import (
     category_count, 
     soft_bin_stat, 
     binning_statistic, 
-    label_importance, 
+    label_importance,
+    make_mxs, 
     )
 from .funcutils import ( 
     reshape, 
@@ -106,7 +108,7 @@ from .mlutils import (
     discretize_categories, 
     stratify_categories, 
     serialize_data, 
-    load_dumped_data, 
+    deserialize_data, 
     soft_data_split, 
     laplace_smoothing, 
     features_in, 
@@ -118,6 +120,8 @@ __all__=[
     'audit_data', 
     'inspect_data', 
     'read_data',
+    'augment_data', 
+    'assess_outlier_impact', 
     'array2hdf5', 
     'sanitize',
     'save_or_load', 
@@ -169,7 +173,7 @@ __all__=[
     'discretize_categories', 
     'stratify_categories', 
     'serialize_data', 
-    'load_dumped_data', 
+    'deserialize_data', 
     'soft_data_split', 
     'soft_imputer', 
     'soft_scaler', 
@@ -188,8 +192,6 @@ __all__=[
     'smoothing', 
     'pair_data', 
     'random_sampling', 
-    'plot_voronoi', 
-    'plot_roc_curves', 
     'replace_data', 
     'store_or_write_hdf5', 
     "resampling", 
@@ -197,7 +199,6 @@ __all__=[
     "adaptive_moving_average", 
     "load_saved_model", 
     "butterworth_filter",
-    "plot_l_curve", 
     "laplace_smoothing", 
     "features_in", 
     "linear_regression",
@@ -227,6 +228,7 @@ __all__=[
     "scale_data", 
     "handle_outliers_in_data",
     "handle_missing_data", 
+    "make_mxs"
     
     ]
 

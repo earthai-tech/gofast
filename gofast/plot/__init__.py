@@ -40,6 +40,7 @@ from .utils import (
     plot_confidence, 
     plot_confidence_ellipse, 
     plot_text, 
+    plot_cumulative_variance, 
     )
 
 __all__= [
@@ -83,4 +84,5 @@ __all__= [
     'plot_confidence_ellipse', 
     'plot_text', 
     'plot_obj',
+    'plot_cumulative_variance', 
     ]

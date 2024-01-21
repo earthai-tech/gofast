@@ -74,25 +74,23 @@ _logger =gofastlog.get_gofast_logger(__name__)
 
 mu0 = 4 * np.pi * 1e-7 
 
-
-
-
 def make_mxs(
     y,
     yt,
     threshold=0.5, 
     star_mxs=True, 
-    return_ymx=False,
+    return_ymxs=False,
     mode="strict", 
     include_nan=False, 
     trailer="*"
     ):
     """
-    Compute the similarity between labels in arrays y and yt, transform yt 
-    based on these similarities, and create a new array `ymx` by filling NaN 
-    values in y with corresponding labels from transformed yt.
-    Handles NaN values in `yt` based on the `mode` and `include_nan` 
-    parameters.
+    Compute the similarity between labels in arrays true y and predicted yt. 
+    
+    Function transform yt based on these similarities, and create a new 
+    array `ymxs` by filling NaN values in y with corresponding labels from 
+    transformed yt. Handles NaN values in `yt` based on the `mode` and
+    `include_nan` parameters. See more in [1]_
 
     Parameters
     ----------
@@ -129,6 +127,11 @@ def make_mxs(
     ValueError
         If `yt` contains NaN values in "strict" mode or if `trailer` 
         is a number.
+        
+    References
+    -----------
+    [1] Kouadio, K.L, Liu R., Liu J., A mixture Learning Strategy for predicting 
+        permeability coefficient K (2024). Computers and Geosciences, doi:XXXXX 
 
     Examples
     --------
@@ -165,10 +168,9 @@ def make_mxs(
                 yt_transformed[yt_transformed == label_yt_trailer
                                ] = f"{label_y}{label_yt_trailer}"
     # Filling NaN positions in y with corresponding labels from transformed yt
-    ymx = np.where(np.isnan(y), yt_transformed, y)
+    ymxs = np.where(np.isnan(y), yt_transformed, y)
     
-    return ymx if return_ymx else similarities
-
+    return ymxs if return_ymxs else similarities
 
 def label_importance(y, include_nan=False):
     """
@@ -217,7 +219,6 @@ def label_importance(y, include_nan=False):
     total = counts.sum()
     return {label: count / total for label, count in zip(labels, counts)}
 
-
 def linear_regression(X, coef, bias=0., noise=0.):
     """
     linear regression.
@@ -225,7 +226,7 @@ def linear_regression(X, coef, bias=0., noise=0.):
     Generate output for linear regression, modeling a relationship between
     features and a response using a linear approach.
 
-    Linear regression is one of the simplest forms of regression, useful for
+    Linear regression is one of the simplest formss of regression, useful for
     understanding relationships between variables and for making predictions.
     It's widely used in various fields like economics, biology, and engineering.
 

@@ -229,6 +229,8 @@ Classes
    estimators.DecisionTreeBasedClassifier
    estimators.GradientDescentClassifier
    estimators.GradientDescentRegressor
+   estimators.KMFClassifier 
+   estimators.KMFRegressor
    estimators.HammersteinWienerClassifier
    estimators.HammersteinWienerRegressor
    estimators.HBTEnsembleClassifier
@@ -506,6 +508,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.load_dumped_data
    tools.load_saved_model
    tools.logarithmic_regression
+   tools.make_mxs
    tools.make_pipe
    tools.minmax_scaler
    tools.moving_average

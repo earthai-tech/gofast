@@ -25,8 +25,8 @@ from scipy.cluster.hierarchy import (
 import scipy.sparse as sp
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans 
+from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestClassifier 
-
 from sklearn.linear_model import LogisticRegression 
 from sklearn.metrics import ( 
     confusion_matrix , 
@@ -62,6 +62,7 @@ from ..tools._dependency import import_optional_dependency
 try : 
     from yellowbrick.classifier import ConfusionMatrix 
 except: pass 
+from .._typing import Optional, Tuple
 
 D_COLORS =[
     'g',
@@ -110,6 +111,141 @@ D_STYLES = [
     'dotted' 
 ]
 #----
+def plot_cumulative_variance(
+    data: np.ndarray,
+    n_components: Optional[int] = None,
+    threshold: Optional[float] = None,
+    figsize: Tuple[int, int] = (10, 6),
+    threshold_color: str = 'red',
+    line_color: str = 'teal',
+    title: str = None, 
+    xlabel: str = None, 
+    ylabel: str = None, 
+    threshold_label: Optional[str] =None, 
+    grid_style: str = ':',
+    grid_width: float = 0.5,
+    axis_width: float = 2,
+    axis_color: str = 'black',
+    show_grid: bool = True
+) -> plt.Axes:
+    """
+    Plots the cumulative explained variance ratio by principal components 
+    using PCA.
+    
+    Optionally, a threshold line can be drawn to indicate the desired level 
+    of explained variance.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        The input dataset for PCA. Must be 2D (samples x features).
+    n_components : int, optional
+        Number of principal components to consider. Defaults to min(data.shape).
+    threshold : float, optional
+        A variance ratio threshold to draw a horizontal line. Defaults to None.
+    figsize : Tuple[int, int], optional
+        Size of the figure (width, height) in inches. Defaults to (10, 6).
+    threshold_color : str, optional
+        Color of the threshold line. Defaults to 'red'.
+    line_color : str, optional
+        Color of the cumulative variance line. Defaults to 'teal'.
+    title : str, optional
+        Title of the plot. Defaults to 'Cumulative Explained Variance 
+        Ratio by Principal Components'.
+    xlabel : str, optional
+        X-axis label. Defaults to 'Number of Components'.
+    ylabel : str, optional
+        Y-axis label. Defaults to 'Cumulative Explained Variance Ratio'.
+    threshold_label : str, optional
+        Label for the threshold line. Defaults to 'Variance Threshold'.
+    grid_style : str, optional
+        Style of the grid lines (lines, dashes, dots, etc.).
+        Defaults to ':' (dotted line).
+    grid_width : float, optional
+        Width of the grid lines. Defaults to 0.5.
+    axis_width : float, optional
+        Width of the axes' spines. Defaults to 2.
+    axis_color : str, optional
+        Color of the axes' spines. Defaults to 'black'.
+    show_grid : bool, optional
+        If True, display grid lines on the plot. Defaults to True.
+    
+    Returns
+    -------
+    ax : matplotlib.axes.Axes
+        The Axes object with the plot for further customization.
+    
+    Raises
+    ------
+    ValueError
+        If 'data' is not a 2D array.
+        If 'n_components' is greater than the number of features in 'data'.
+        If 'threshold' is not between 0 and 1 when provided.
+    
+    Examples
+    --------
+    >>> from sklearn.datasets import load_iris
+    >>> iris = load_iris()
+    >>> ax = plot_cumulative_variance(iris.data)
+    >>> ax.set_title('Updated Plot Title')
+    >>> plt.show()
+    """
+    title= title or  'Cumulative Explained Variance Ratio by Principal Components'
+    xlabel = xlabel or 'Number of Components',
+    ylabel= ylabel or 'Cumulative Explained Variance Ratio'
+    threshold_label =threshold_label or 'Variance Threshold'
+    
+    if data.ndim != 2:
+        raise ValueError("Input 'data' must be a 2D array.")
+    
+    if n_components is None:
+        n_components = min(data.shape)
+    elif n_components > data.shape[1]:
+        raise ValueError("'n_components' cannot be greater than "
+                         f"the number of features ({data.shape[1]}).")
+    
+    if threshold is not None and (threshold < 0 or threshold > 1):
+        raise ValueError("'threshold' must be between 0 and 1.")
+    
+    # Perform PCA
+    pca = PCA(n_components=n_components)
+    pca.fit(data)
+    
+    # Calculate the cumulative explained variance ratio
+    cumulative_variance= np.cumsum(pca.explained_variance_ratio_)
+    # Create the plot
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Plot the cumulative explained variance ratio
+    ax.plot(range(1, len(cumulative_variance) + 1), cumulative_variance,
+             marker='o', linestyle='-', color=line_color,
+             label='Cumulative Variance')
+    
+    # Plot the threshold line if provided
+    if threshold is not None:
+        ax.axhline(y=threshold, color=threshold_color, linestyle='--',
+                   label=f'{threshold_label} ({threshold:.2f})' 
+                   if threshold_label else None)
+    
+    # Customize the plot
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_xticks(range(1, len(cumulative_variance) + 1))
+    ax.legend(loc='best')
+    
+    # Customize the grid
+    if show_grid:
+        ax.grid(True, linestyle=grid_style, linewidth=grid_width)
+    
+    # Customize the axes' appearance
+    for spine in ax.spines.values():
+        spine.set_linewidth(axis_width)
+        spine.set_color(axis_color)
+    
+    plt.show()
+    
+    return ax
 
 def plot_cv(
     model_fn, X, y, 
@@ -171,7 +307,7 @@ def plot_cv(
     plt.ylabel(metric.capitalize())
     plt.legend()
     plt.show()
-
+    
 def plot_taylor_diagram(
         models, reference, model_names=None
         ):
@@ -464,67 +600,68 @@ def plot_base_silhouette (X, labels, metric ='euclidean',savefig =None , **kwds 
     plt.close () if savefig is not None else plt.show() 
     
 
-def plot_sbs_feature_selection (
-        sbs_estimator,/,  X=None, y=None ,fig_size=(8, 5), 
-        sns_style =False, savefig = None, verbose=0 , 
-        **sbs_kws
-        ): 
-    """plot Sequential Backward Selection (SBS) for feature selection.  
-    
-    SBS collects the scores of the  best feature subset at each stage. 
-    
-    Parameters 
-    ------------
-    sbs_estimator : :class:`~.gofast.base.SequentialBackwardSelection`\
-        estimator object
-        The Sequential Backward Selection estimator can either be fitted or 
-        not. If not fitted. Please provide the training `X` and `y`, 
-        otherwise an error will occurs.
-        
-    X : array-like of shape (n_samples, n_features)
-        Training vector, where `n_samples` is the number of samples and
-        `n_features` is the number of features.
-
-    y : array-like of shape (n_samples,) or (n_samples, n_outputs)
-        Target relative to X for classification or regression;
-        None for unsupervised learning.
-       
-    n_estimators : int, default=500
-        The number of trees in the forest.
-        
-    fig_size : tuple (width, height), default =(8, 6)
-        the matplotlib figure size given as a tuple of width and height
-        
-    savefig: str, default =None , 
-        the path to save the figures. Argument is passed to matplotlib.Figure 
-        class. 
-    sns_style: str, optional, 
-        the seaborn style.
-    verbose: int, default=0 
-        print the feature labels with the rate of their importances. 
-    sbs_kws: dict, 
-        Additional keyyword arguments passed to 
-        :class:`~.gofast.base.SequentialBackwardSelection`
-        
-    Examples 
-    ----------
-    (1)-> Plot fitted SBS in action 
-    >>> from gofast.exlib.sklearn import KNeighborsClassifier , train_test_split
-    >>> from gofast.datasets import fetch_data
-    >>> from gofast.base import SequentialBackwardSelection
-    >>> from gofast.tools.utils import plot_sbs_feature_selection
-    >>> X, y = fetch_data('bagoue analysed') # data already standardized
-    >>> Xtrain, Xt, ytrain,  yt = train_test_split(X, y)
-    >>> knn = KNeighborsClassifier(n_neighbors=5)
-    >>> sbs= SequentialBackwardSelection (knn)
-    >>> sbs.fit(Xtrain, ytrain )
-    >>> plot_sbs_feature_selection(sbs, sns_style= True) 
-    
-    (2)-> Plot estimator with no prefit SBS. 
-    >>> plot_sbs_feature_selection(knn, Xtrain, ytrain) # yield the same result
-
+def plot_sbs_feature_selection(
+        sbs_estimator,/, X=None, y=None, fig_size=(8, 5), 
+        sns_style=False, savefig=None, verbose=0, **sbs_kws
+    ):
     """
-    from ..base import SequentialBackwardSelection as SBS 
+    Plot the feature selection process using Sequential Backward Selection (SBS).
+
+    This function visualizes the selection of the best feature subset at each stage 
+    in the SBS algorithm. It requires either a fitted SBS estimator or the training
+    data (`X` and `y`) to fit the estimator during the plot generation.
+
+    Parameters
+    ----------
+    sbs_estimator : :class:`~.gofast.transformers.SequentialBackwardSelection`
+        The SBS estimator. Can be pre-fitted; if not, `X` and `y` must be provided
+        for fitting during the plot generation.
+
+    X : array-like of shape (n_samples, n_features), optional
+        Training data, with `n_samples` as the number of samples and `n_features`
+        as the number of features. Required if `sbs_estimator` is not pre-fitted.
+
+    y : array-like of shape (n_samples,) or (n_samples, n_outputs), optional
+        Target values corresponding to `X`. Required if `sbs_estimator` is not
+        pre-fitted.
+
+    fig_size : tuple of (width, height), default=(8, 5)
+        Size of the matplotlib figure, specified as a width and height tuple.
+
+    sns_style : bool, default=False
+        If True, apply seaborn styling to the plot.
+
+    savefig : str, optional
+        File path where the figure is saved. If provided, the plot is saved
+        to this path.
+
+    verbose : int, default=0
+        If set to a positive number, print feature labels and their importance
+        rates.
+
+    sbs_kws : dict, optional
+        Additional keyword arguments passed to the
+        :class:`~.gofast.base.SequentialBackwardSelection` class.
+
+    Examples
+    --------
+    # Example 1: Plotting a pre-fitted SBS
+    >>> from sklearn.neighbors import KNeighborsClassifier, train_test_split
+    >>> from gofast.datasets import fetch_data
+    >>> from gofast.transformers import SequentialBackwardSelection
+    >>> from gofast.tools.utils import plot_sbs_feature_selection
+    >>> X, y = fetch_data('bagoue analysed')  # Data already standardized
+    >>> X_train, X_test, y_train, y_test = train_test_split(X, y)
+    >>> knn = KNeighborsClassifier(n_neighbors=5)
+    >>> sbs = SequentialBackwardSelection(knn)
+    >>> sbs.fit(X_train, y_train)
+    >>> plot_sbs_feature_selection(sbs, sns_style=True)
+
+    # Example 2: Plotting an SBS estimator without pre-fitting
+    >>> plot_sbs_feature_selection(knn, X_train, y_train)  # Same result as above
+    """
+
+    from ..transformers import SequentialBackwardSelection as SBS 
     if ( 
         not hasattr (sbs_estimator, 'scores_') 
         and not hasattr (sbs_estimator, 'k_score_')
@@ -1168,20 +1305,19 @@ def plot_learning_curves(
     ---------
     (1) -> plot via a metaestimator already cross-validated. 
     
-    >>> from gofast.models.premodels import p 
+    >>> import watex # must install watex to get the pretrained model ( pip install watex )
+    >>> from watex.models.premodels import p 
     >>> from gofast.datasets import fetch_data 
-    >>> from gofast.tools.utils import plot_learning_curves
+    >>> from gofast.plot.utils import plot_learning_curves
     >>> X, y = fetch_data ('bagoue prepared') # yields a sparse matrix 
     >>> # let collect 04 estimators already cross-validated from SVMs
     >>> models = [ p.SVM.linear , p.SVM.rbf , p.SVM.sigmoid , p.SVM.poly ]
     >>> plot_learning_curves (models, X, y, cv=4, sns_style = 'darkgrid')
     
     (2) -> plot with  multiples models not crossvalidated yet.
-    
-    >>> from gofast.exlib.sklearn import (LogisticRegression, 
-                                         RandomForestClassifier, 
-                                         SVC , KNeighborsClassifier 
-                                         )
+    >>> from sklearn.linear_model import LogisticRegression 
+    >>> from sklearn.svm import SVC 
+    >>> from sklearn.ensemble import RandomForestClassifier
     >>> models =[LogisticRegression(), RandomForestClassifier(), SVC() ,
                  KNeighborsClassifier() ]
     >>> plot_learning_curves (models, X, y, cv=4, sns_style = 'darkgrid')

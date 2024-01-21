@@ -6487,7 +6487,6 @@ def numstr2dms (
     return tuple (map ( float, [deg, mm, sec]) ) if return_values \
         else ':'.join([deg, mm, sec]) 
 
-    
 def store_or_write_hdf5 (
     d, /, 
     key:str= None, 
@@ -6961,7 +6960,7 @@ def validate_url(url: str) -> bool:
 
 def validate_url_by_validators(url: str):
     """
-    Check if the provided string is a valid URL.
+    Check if the provided string is a valid URL using `validators` packages
 
     Parameters
     ----------
@@ -7023,7 +7022,8 @@ def normalize_string(
     return_target_str: bool = False,
     raise_exception: bool = False,
     ignore_case: bool = True,
-    match_method: str = 'exact'  
+    match_method: str = 'exact',
+    error_msg: str=None, 
 ) -> Union[str, Tuple[str, Optional[str]]]:
     """
     Normalizes a string by applying various transformations and optionally checks 
@@ -7056,7 +7056,9 @@ def normalize_string(
     match_method : str, optional
         The string matching method: 'exact', 'contains', or 'startswith'.
         Default is 'exact'.
-
+    error_msg: str, optional, 
+       Message to raise if `raise_exception` is ``True``. 
+       
     Returns
     -------
     Union[str, Tuple[str, Optional[str]]]
@@ -7109,7 +7111,8 @@ def normalize_string(
         return (normalized_str, matched_target) if return_target_str else normalized_str
 
     if raise_exception:
-        raise ValueError(f"{input_str!r} not found in {target_strs}.")
+        error_msg = error_msg or f"{input_str!r} not found in {target_strs}."
+        raise ValueError(error_msg)
 
     return ('', None) if return_target_str else ''
 
