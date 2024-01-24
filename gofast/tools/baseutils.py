@@ -174,7 +174,7 @@ def summarize_text_columns(
 
 def simple_extractive_summary(
         texts: List[str], raise_exception: bool = True, encode: bool = False
-        ) -> Union[str, Tuple[str, ArrayLike]]:
+    ) -> Union[str, Tuple[str, ArrayLike]]:
     """
     Generates a simple extractive summary from a list of texts. 
     

@@ -71,8 +71,8 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
     A classifier that integrates k-means clustering with a base machine 
     learning estimator.
 
-    The KMFClassifier first employs the KMeansFeaturizer to transform the 
-    input data into cluster memberships based on k-means clustering. Each 
+    The KMFClassifier first employs the KMeansFeaturizer algorithm to transform 
+    the input data into cluster memberships based on k-means clustering. Each 
     data point is represented by its closest cluster center. This transformed 
     data, capturing the inherent clustering structure, is then used to train a 
     specified base estimator. The approach aims to enhance the performance of 
@@ -80,11 +80,16 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
     the clustering process.
 
     The mathematical formulation of the k-means clustering involves minimizing 
-    the inertia, or within-cluster sum-of-squares criterion:
+    the inertia, or within-cluster sum-of-squares criterion.
 
-        Inertia = Σ (x - μᵢ)²
-    where x represents a data point, μᵢ is the centroid of the cluster i, and 
-    the sum is taken over all the data points.
+    The inertia is defined as:
+
+    .. math::
+
+        \\text{Inertia} = \\sum_{i=1}^{n} (x_i - \\mu_k)^2
+
+    where :math:`x_i` represents a data point, :math:`\\mu_k` is the centroid of the 
+    cluster k, and the sum is taken over all the data points in the cluster.
     
     Mathematically, the KMF algorithm with no hint (target variable not included) 
     follows the standard k-means objective of minimizing the intra-cluster variance. 
@@ -381,15 +386,20 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
     base regression estimator.
 
     This regressor first transforms the data into k-means cluster memberships 
-    using the KMeansFeaturizer, then applies a base regressor to the 
-    transformed data.
+    using the KMeansFeaturizer algorithm adapted to the regression task , then 
+    applies a base regressor to the transformed data.
 
     The mathematical formulation of the k-means clustering involves minimizing 
-    the inertia, or within-cluster sum-of-squares criterion:
+    the inertia, or within-cluster sum-of-squares criterion.
 
-        Inertia = Σ (x - μᵢ)²
-    where x represents a data point, μᵢ is the centroid of the cluster i, and 
-    the sum is taken over all the data points.
+    The inertia is defined as:
+
+    .. math::
+
+        \\text{Inertia} = \\sum_{i=1}^{n} (x_i - \\mu_k)^2
+
+    where :math:`x_i` represents a data point, :math:`\\mu_k` is the centroid of the 
+    cluster k, and the sum is taken over all the data points in the cluster.
     
     Mathematically, the KMF algorithm with no hint (target variable not included) 
     follows the standard k-means objective of minimizing the intra-cluster variance. 
@@ -402,25 +412,27 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
     \]
 
     where:
-        - \( x y \) denotes the augmented data point, a combination of the feature vector x 
-          and the target y. This combination guides the clustering process by 
-          considering both feature characteristics and target variable information.
-        - \( \mu'_i \) is the centroid of the augmented data points in the cluster \( C_i \), 
-          including target variable information, aligning the clusters with the 
-          underlying class structure.
-        - The first summation \( \sum_{i=1}^{k} \) sums over all k-clusters, focusing on minimizing 
-          the variance within each cluster.
-        - The inner summation \( \sum_{x y \in C_i} \) represents the sum over all augmented data 
-          points \( x y \) in the cluster \( C_i \).
-        - \( \|x y - \mu'_i \|_2^2 \) is the squared Euclidean distance between each augmented 
-          data point \( x y \) and its cluster centroid \( \mu'_i \). Minimizing this distance 
-          ensures points are as close as possible to their cluster center.
+        - \( x y \) denotes the augmented data point, a combination of the 
+          feature vector x and the target y. This combination guides the 
+          clustering process by considering both feature characteristics and 
+          target variable information.
+        - \( \mu'_i \) is the centroid of the augmented data points in the 
+          cluster \( C_i \), including target variable information, aligning 
+          the clusters with the underlying class structure.
+        - The first summation \( \sum_{i=1}^{k} \) sums over all k-clusters, 
+          focusing on minimizing the variance within each cluster.
+        - The inner summation \( \sum_{x y \in C_i} \) represents the sum over 
+          all augmented data  points \( x y \) in the cluster \( C_i \).
+        - \( \|x y - \mu'_i \|_2^2 \) is the squared Euclidean distance between 
+          each augmented  data point \( x y \) and its cluster centroid 
+          \( \mu'_i \). Minimizing this distance ensures points are as close as 
+            possible to their cluster center.
 
     Parameters
     ----------
-    base_estimator : estimator object
-        The base machine learning estimator to fit on the transformed data.
-        This estimator should follow the scikit-learn estimator interface.
+    base_regressor : estimator object
+        The base machine learning regressor estimator to fit on the transformed 
+        data. This estimator should follow the scikit-learn estimator interface.
 
     n_clusters : int, default=7
         The number of clusters to form in the k-means clustering process.
@@ -463,7 +475,13 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
     algorithm : str, default='lloyd'
         K-means algorithm variant to use. The options include 'lloyd' for the 
         standard k-means algorithm and 'elkan' for the Elkan variant.
-
+        
+    to_sparse : bool, default=False
+            If True, the input data `X` will be converted to a sparse matrix
+            before applying the transformation. This is useful for handling
+            large datasets more efficiently. If False, the data format of `X`
+            is preserved.
+            
     Attributes
     ----------
     featurizer_ : KMeansFeaturizer object
@@ -496,7 +514,8 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
         tol=1e-4, 
         copy_x=True, 
         verbose=0, 
-        algorithm='lloyd'
+        algorithm='lloyd', 
+        to_sparse=False
         ):
         self.base_regressor = base_regressor
         self.n_clusters = n_clusters
@@ -510,6 +529,7 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
         self.copy_x = copy_x
         self.verbose = verbose
         self.algorithm = algorithm
+        self.to_sparse=to_sparse
 
     def fit(self, X, y):
         """
@@ -569,7 +589,8 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
             tol=self.tol,
             copy_x=self.copy_x,
             verbose=self.verbose,
-            algorithm=self.algorithm
+            algorithm=self.algorithm, 
+            to_sparse=self.to_sparse
         )
         X_transformed = self.featurizer_.fit_transform(X, y)
         # Fit the base regressor
@@ -1077,7 +1098,7 @@ class BenchmarkClassifier(BaseEstimator, ClassifierMixin):
     >>> from sklearn.linear_model import LogisticRegression
     >>> from sklearn.tree import DecisionTreeClassifier
     >>> from sklearn.neighbors import KNeighborsClassifier
-    >>> from your_module import BenchmarkClassifier
+    >>> from gofast.estimators import BenchmarkClassifier
     >>> iris = load_iris()
     >>> X, y = iris.data, iris.target
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3)
@@ -1308,11 +1329,11 @@ class BasePerceptron(BaseEstimator, ClassifierMixin):
     """
 
     def __init__(
-            self, 
-            eta:float = .01 , 
-            n_iter: int = 50 , 
-            random_state:int = None 
-            ) :
+        self, 
+        eta:float = .01 , 
+        n_iter: int = 50 , 
+        random_state:int = None 
+        ) :
         self.eta=eta 
         self.n_iter=n_iter 
         self.random_state=random_state 

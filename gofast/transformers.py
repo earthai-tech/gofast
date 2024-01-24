@@ -488,7 +488,7 @@ class KMeansFeaturizer(BaseEstimator, TransformerMixin):
     >>> # (1) Use a common dataset 
     >>> import matplotlib.pyplot as plt 
     >>> from sklearn.datasets import make_moons
-    >>> from gofast.tools.plotutils import plot_voronoi 
+    >>> from gofast.plot.utils import plot_voronoi 
     >>> from gofast.datasets import load_mxs 
     >>> X, y = make_moons(n_samples=5000, noise=0.2)
     >>> kmf_hint = KMeansFeaturizer(n_clusters=50, target_scale=10).fit(X,y)

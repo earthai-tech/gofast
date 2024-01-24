@@ -1,16 +1,24 @@
 """
 validation sub-package focuses on  training and validation phases. It also composed 
 of a set of grid-search tricks from model hyperparameters fine-tuning and 
-the pretrained models fetching from :mod:`~gofast.models` and 
+the pretrained models fetching from :mod:`~gofast.models` 
 """
+from .selection import ( 
+   PSOSearchCV,
+   SMBOSearchCV,
+   AnnealingSearchCV,
+   EvolutionarySearchCV,
+   GradientBasedSearchCV,
+   GeneticSearchCV,
+   )
 from .search import ( 
     BaseEvaluation, 
-    GridSearch, 
-    GridSearchMultiple,
+    BaseSearch, 
+    SearchMultiple,
+    MultipleSearch,
     get_best_kPCA_params, 
     naive_evaluation, 
     CrossValidator, 
-
     )
 from .utils import ( 
     find_best_C, 
@@ -54,9 +62,16 @@ from .deep_search import (
     deep_tuning,
     )
 __all__=[
+    "PSOSearchCV",
+    "SMBOSearchCV",
+    "AnnealingSearchCV",
+    "EvolutionarySearchCV",
+    "GradientBasedSearchCV",
+    "GeneticSearchCV",
     "BaseEvaluation", 
-    "GridSearch", 
-    "GridSearchMultiple", 
+    "BaseSearch", 
+    "SearchMultiple", 
+    "MultipleSearch", 
     "get_best_kPCA_params", 
     "get_scorers",
     "get_cv_mean_std_scores", 

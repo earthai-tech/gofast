@@ -11,7 +11,7 @@ from ._typing import Optional, DataFrame
 from .exceptions import NotFittedError 
 from .tools.funcutils import normalize_string
 
-class DataAnalysis:
+class DBAnalysis:
     """
     A class for performing various data analysis tasks using SQL.
     
@@ -92,8 +92,8 @@ class DataAnalysis:
 
     Examples
     --------
-    >>> from gofast.query import DataAnalysis 
-    >>> db_analysis = DataAnalysis('my_database.db', verbose=1)
+    >>> from gofast.query import DBAnalysis 
+    >>> db_analysis = DBAnalysis('my_database.db', verbose=1)
     >>> data = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
     >>> db_analysis.fit(data, 'my_table')
     >>> result = db_analysis.query('SELECT * FROM my_table')
@@ -130,7 +130,8 @@ class DataAnalysis:
         Examples
         --------
         >>> import pandas as pd
-        >>> db_analysis = DataAnalysis('my_database.db')
+        >>> from gofast.query import DBAnalysis 
+        >>> db_analysis = DBAnalysis('my_database.db')
         >>> data = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
         >>> db_analysis.fit(data, 'my_table')
 
@@ -151,7 +152,7 @@ class DataAnalysis:
                 raise ValueError("No data provided. Please provide a DataFrame"
                                  " or a database path.")
         
-        if self.db_path == ':memory:':
+        if self.db_path == ':memory:' and self.verbose > 1:
             print("No database path provided. Using a temporary in-memory database.")
         
         self.engine_ = sqlalchemy.create_engine(f'sqlite:///{self.db_path}')
@@ -194,7 +195,8 @@ class DataAnalysis:
 
         Examples
         --------
-        >>> db_analysis = DataAnalysis('my_database.db')
+        >>> from gofast.query import DBAnalysis 
+        >>> db_analysis = DBAnalysis('my_database.db').fit(table_name='my_table')
         >>> result = db_analysis.query('SELECT * FROM my_table', 'dataframe')
         >>> print(result)
 
@@ -246,7 +248,8 @@ class DataAnalysis:
 
         Examples
         --------
-        >>> db_analysis = DataAnalysis('my_database.db')
+        >>> from gofast.query import DBAnalysis 
+        >>> db_analysis = DBAnalysis('my_database.db').fit(table_name='my_table')
         >>> result = db_analysis.aggregate(
             'SELECT COUNT(*) FROM my_table', 'dataframe')
         >>> print(result)
@@ -304,7 +307,8 @@ class DataAnalysis:
 
         Examples
         --------
-        >>> db_analysis = DataAnalysis('my_database.db')
+        >>> from gofast.query import DBAnalysis 
+        >>> db_analysis = DBAnalysis('my_database.db').fit(table_name='my_table')
         >>> result = db_analysis.joinTables(
             'SELECT * FROM table1 INNER JOIN table2 ON table1.id = table2.id', 'dataframe')
         >>> print(result)
@@ -362,7 +366,8 @@ class DataAnalysis:
 
         Examples
         --------
-        >>> db_analysis = DataAnalysis('my_database.db')
+        >>> from gofast.query import DBAnalysis 
+        >>> db_analysis = DBAnalysis('my_database.db').fit(table_name='my_table')
         >>> queries = [
         ...     "CREATE TEMP TABLE TempTable AS SELECT * FROM MainTable WHERE condition",
         ...     "SELECT * FROM TempTable"
@@ -444,7 +449,8 @@ class DataAnalysis:
 
         Examples
         --------
-        >>> db_analysis = DataAnalysis('my_database.db')
+        >>> from gofast.query import DBAnalysis 
+        >>> db_analysis = DBAnalysis('my_database.db').fit(table_name='my_table')
         >>> db_analysis.manipulate('INSERT INTO my_table (column1, column2)
                                        VALUES (value1, value2)')
         >>> # For manual commit
@@ -472,7 +478,8 @@ class DataAnalysis:
 
        Examples
        --------
-       >>> db_analysis = DataAnalysis('my_database.db')
+       >>> from gofast.query import DBAnalysis 
+       >>> db_analysis = DBAnalysis('my_database.db').fit(table_name='my_table')
        >>> db_analysis.manipulate('INSERT INTO my_table (column1) VALUES (value1)',
                                       auto_commit=False)
        >>> db_analysis.commit()  # Committing the transaction manually
@@ -543,7 +550,8 @@ class DataAnalysis:
 
         Examples
         --------
-        >>> db_analysis = DataAnalysis('my_database.db')
+        >>> from gofast.query import DBAnalysis 
+        >>> db_analysis = DBAnalysis('my_database.db').fit(table_name='my_table')
         >>> db_analysis.transform(
             'ALTER TABLE my_table ADD COLUMN new_column DataType')
         >>> # For manual commit
@@ -601,7 +609,8 @@ class DataAnalysis:
 
         Examples
         --------
-        >>> db_analysis = DataAnalysis('my_database.db')
+        >>> from gofast.query import DBAnalysis 
+        >>> db_analysis = DBAnalysis('my_database.db').fit(table_name='my_table')
         >>> query = "SELECT AVG(column1) OVER (PARTITION BY column2) FROM my_table"
         >>> result = db_analysis.windowFunctions(query, 'dataframe')
         >>> print(result)
@@ -653,7 +662,8 @@ class DataAnalysis:
 
         Examples
         --------
-        >>> db_analysis = DataAnalysis('my_database.db')
+        >>> from gofast.query import DBAnalysis 
+        >>> db_analysis = DBAnalysis('my_database.db').fit(table_name='my_table')
         >>> procedure_name = 'my_procedure'
         >>> params = [param1, param2]
         >>> result = db_analysis.storedProcedures(procedure_name, params,
@@ -698,7 +708,8 @@ class DataAnalysis:
 
         Examples
         --------
-        >>> db_analysis = DataAnalysis('my_database.db')
+        >>> from gofast.query import DBAnalysis 
+        >>> db_analysis = DBAnalysis('my_database.db').fit(table_name='my_table')
         >>> db_analysis.ensureDataIntegrity(
             'ALTER TABLE my_table ADD CONSTRAINT my_constraint UNIQUE (column1)')
         >>> # For manual commit
@@ -748,7 +759,8 @@ class DataAnalysis:
 
         Examples
         --------
-        >>> db_analysis = DataAnalysis('my_database.db')
+        >>> from gofast.query import DBAnalysis 
+        >>> db_analysis = DBAnalysis('my_database.db').fit(table_name='my_table')
         >>> query = "EXPLAIN ANALYZE SELECT * FROM my_table"
         >>> result = db_analysis.scalabilityPerformance(query)
         >>> print(result)
@@ -789,7 +801,8 @@ class DataAnalysis:
 
         Examples
         --------
-        >>> db_analysis = DataAnalysis('my_database.db')
+        >>> from gofast.query import DBAnalysis 
+        >>> db_analysis = DBAnalysis('my_database.db').fit(table_name='my_table')
         >>> query = "SELECT * FROM information_schema.tables"
         >>> result = db_analysis.compatibilityIntegration(query)
         >>> print(result)

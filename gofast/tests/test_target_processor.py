@@ -84,7 +84,7 @@ def test_feature_correlation_with_target():
     })
     processor.fit('target', X=X)
     # Assuming there's a method to calculate feature correlation with target
-    correlations = processor.analyze_feature_correlation_with_target(X)
+    correlations = processor.analyze_feature_correlation(X)
     assert isinstance(correlations, dict)
     assert 'feature1' in correlations and 'feature2' in correlations
 

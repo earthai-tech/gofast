@@ -1226,6 +1226,7 @@ class EvalPlotter(BasePlot):
         plt.show()
         
         return self 
+    
     @staticmethod
     def plotFeatureImportance( 
         feature_names, 

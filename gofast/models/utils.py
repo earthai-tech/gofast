@@ -3,26 +3,23 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 from __future__ import annotations 
-
 import numpy as np 
 import pandas as pd
 import scipy
 import matplotlib.pyplot as plt
 import seaborn as sns
+
+from sklearn.base import BaseEstimator 
 from sklearn.covariance import ShrunkCovariance
-from sklearn.model_selection import cross_val_score, GridSearchCV 
+from sklearn.model_selection import cross_val_score, GridSearchCV, RandomizedSearchCV  
 from sklearn.svm import SVC, SVR
 from sklearn.utils.multiclass import type_of_target
 
-from .._typing import (
-    Tuple,
-    _F, 
-    ArrayLike, 
-    NDArray, 
-    Dict,
-    )
-
+from .._typing import Tuple,_F, ArrayLike, NDArray, Dict, Union, Any
+from .._typing import  List, Optional, Type
+from ..tools.funcutils import smart_format
 from ..tools.validator import get_estimator_name, check_X_y 
+from ..tools._dependency import import_optional_dependency 
 from .._gofastlog import gofastlog
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -57,9 +54,213 @@ __all__= [
     "plot_pairwise_model_comparison",
     "plot_feature_correlation", 
     "quick_evaluation", 
+    "validate_optimizer", 
+    "get_optimizer_method", 
+    "process_estimators_and_params", 
   ]
 
+def get_optimizer_method(optimizer: str) -> Type[BaseEstimator]:
+    """
+    Returns the corresponding optimizer class based on the provided optimizer 
+    string.
+    
+    This function accounts for standard optimizers as well as custom optimizers 
+    defined in gofast.
 
+    Parameters
+    ----------
+    optimizer : str
+        The name or abbreviation of the optimizer.
+
+    Returns
+    -------
+    Type[BaseEstimator]
+        The class of the optimizer corresponding to the provided optimizer 
+        string.
+
+    Raises
+    ------
+    ImportError
+        If a required external optimizer class (e.g., BayesSearchCV) is not 
+        installed.
+    ValueError
+        If no matching optimizer is found or the optimizer name is unrecognized.
+
+    Examples
+    --------
+    >>> from gofast.models.utils import get_optimizer_method
+    >>> optimizer_class = get_optimizer_method('RSCV')
+    >>> print(optimizer_class)
+    <class 'sklearn.model_selection.RandomizedSearchCV'>
+    >>> optimizer_class = get_optimizer_method('GASCV')
+    >>> print(optimizer_class)
+    <class 'gofast.models.selection.GeneticSearchCV'>
+    """
+    # Ensure the optimizer name is standardized
+    optimizer = validate_optimizer(optimizer) 
+    
+    # Mapping of optimizer names to their respective classes
+    # Standard optimizer dictionary
+    standard_optimizer_dict = {
+        'GridSearchCV': GridSearchCV,
+        'RandomizedSearchCV': RandomizedSearchCV,
+    }
+    try: from skopt import BayesSearchCV
+    except: 
+        if optimizer =='BayesSearchCV': 
+            emsg= ("scikit-optimize is required for 'BayesSearchCV'"
+                   " but not installed.")
+            import_optional_dependency('skopt', extra= emsg )
+        pass 
+    else : standard_optimizer_dict["BayesSearchCV"]= BayesSearchCV
+    
+    # Update standard optimizer with gofast optimizers if 
+    # not exist previously.
+    if optimizer not in standard_optimizer_dict.keys(): 
+        from gofast.models.selection import ( 
+            PSOSearchCV, 
+            SMBOSearchCV, 
+            AnnealingSearchCV, 
+            EvolutionarySearchCV, 
+            GradientBasedSearchCV,
+            GeneticSearchCV 
+            ) 
+        gofast_optimizer_dict = { 
+            'PSOSearchCV': PSOSearchCV,'SMBOSearchCV': SMBOSearchCV,
+            'AnnealingSearchCV': AnnealingSearchCV,
+            'EvolutionarySearchCV': EvolutionarySearchCV,
+            'GradientBasedSearchCV': GradientBasedSearchCV,
+            'GeneticSearchCV': GeneticSearchCV,
+            }
+        standard_optimizer_dict ={**standard_optimizer_dict,**gofast_optimizer_dict }
+        
+    # Search for the corresponding optimizer class
+    return standard_optimizer_dict.get(optimizer)
+    
+def process_estimators_and_params(
+    param_grids: List[Union[Dict[str, List[Any]], Tuple[BaseEstimator, Dict[str, List[Any]]]]],
+    estimators: Optional[List[BaseEstimator]] = None
+) -> Tuple[List[BaseEstimator], List[Dict[str, List[Any]]]]:
+    """
+    Process and separate estimators and their corresponding parameter grids.
+
+    This function handles two cases:
+    1. `param_grids` contains tuples of estimators and their parameter grids.
+    2. `param_grids` only contains parameter grids, and `estimators` are 
+    provided separately.
+
+    Parameters
+    ----------
+    param_grids : List[Union[Dict[str, List[Any]],
+                             Tuple[BaseEstimator, Dict[str, List[Any]]]]]
+        A list containing either parameter grids or tuples of estimators and 
+        their parameter grids.
+
+    estimators : List[BaseEstimator], optional
+        A list of estimator objects. Required if `param_grids` only contains 
+        parameter grids.
+
+    Returns
+    -------
+    Tuple[List[BaseEstimator], List[Dict[str, List[Any]]]]
+        Two lists: the first containing the estimators, and the second containing
+        the corresponding parameter grids.
+
+    Raises
+    ------
+    ValueError
+        If `param_grids` does not contain estimators and `estimators` is None.
+
+    Examples
+    --------
+    >>> from sklearn.svm import SVC
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from sklearn.models.utils import process_estimators_and_params 
+    >>> param_grids = [
+    ...     (SVC(), {'C': [1, 10, 100], 'kernel': ['linear', 'rbf']}),
+    ...     (RandomForestClassifier(), {'n_estimators': [10, 50, 100],
+                                        'max_depth': [5, 10, None]})
+    ... ]
+    >>> estimators, grids = process_estimators_and_params(param_grids)
+    >>> print(estimators)
+    [SVC(), RandomForestClassifier()]
+    >>> print(grids)
+    [{'C': [1, 10, 100], 'kernel': ['linear', 'rbf']}, {'n_estimators': [10, 50, 100],
+                                                        'max_depth': [5, 10, None]}]
+    """
+    
+    if all(isinstance(grid, (tuple, list)) for grid in param_grids):
+        # Extract estimators and parameter grids from tuples
+        estimators, param_grids = zip(*param_grids)
+        return list(estimators), list(param_grids)
+    elif estimators is not None:
+        # Use provided estimators and param_grids
+        return estimators, param_grids
+    else:
+        raise ValueError("Estimators are missing. They must be provided either "
+                         "in param_grids or as a separate list.")
+        
+def validate_optimizer(optimizer: Union[str, _F]) -> str:
+    """
+    Check whether the given optimizer is a recognized optimizer type.
+
+    This function validates if the provided optimizer, either as a string 
+    or an instance of a class derived from BaseEstimator, corresponds to a 
+    known optimizer type. If the optimizer is recognized, its standardized 
+    name is returned. Otherwise, a ValueError is raised.
+
+    Parameters
+    ----------
+    optimizer : Union[str, _F]
+        The optimizer to validate. This can be a string name or an instance 
+        of an optimizer class.
+
+    Returns
+    -------
+    str
+        The standardized name of the optimizer.
+
+    Raises
+    ------
+    ValueError
+        If the optimizer is not recognized.
+
+    Examples
+    --------
+    >>> from sklearn.ensemble import RandomForestClassifier 
+    >>> from gofast.models.selection import AnnealingSearchCV
+    >>> from gofast.models.utils import validate_optimizer
+    >>> validate_optimizer("RSCV")
+    'RandomizedSearchCV'
+    >>> validate_optimizer(AnnealingSearchCV)
+    'AnnealingSearchCV'
+    >>> validate_optimizer (RandomForestClassifier)
+    ValueError ...
+    """
+    # Mapping of optimizer names to their possible abbreviations and variations
+    opt_dict = {
+        'RandomizedSearchCV': ['RSCV', 'RandomizedSearchCV'], 
+        'GridSearchCV': ['GSCV', 'GridSearchCV'], 
+        'BayesSearchCV': ['BSCV', 'BayesSearchCV'], 
+        'AnnealingSearchCV': ['ASCV', "AnnealingSearchCV"], 
+        'PSOSearchCV': ['PSCV', 'PSOSearchCV'], 
+        'SMBOSearchCV': ['SSCV', 'SMBOSearchCV'], 
+        'EvolutionarySearchCV': ['ESCV', 'EvolutionarySearchCV'], 
+        'GradientBasedSearchCV':['GBSCV', 'GradientBasedSearchCV'], 
+        'GeneticSearchCV': ['GASCV', 'GeneticSearchCV']
+    }
+
+    optimizer_name = optimizer if isinstance(
+        optimizer, str) else get_estimator_name(optimizer)
+
+    for key, values in opt_dict.items():
+        if optimizer_name.lower() in [v.lower() for v in values]:
+            return key
+
+    valid_optimizers = [v1[1] for v1 in opt_dict.values()]
+    raise ValueError(f"Invalid 'optimizer' parameter '{optimizer_name}'."
+                     f" Choose from {smart_format(valid_optimizers, 'or')}.")
+    
 def find_best_C(X, y, C_range, cv=5, scoring='accuracy', 
                 scoring_reg='neg_mean_squared_error'):
     """
@@ -108,11 +309,7 @@ def find_best_C(X, y, C_range, cv=5, scoring='accuracy',
     >>> print(f"Best C value: {best_C}")
     """
 
-    X, y = check_X_y(
-        X, 
-        y, 
-        to_frame= True, 
-        )
+    X, y = check_X_y(X,  y, to_frame= True, )
     task_type = type_of_target(y)
     best_score = ( 0 if task_type == 'binary' or task_type == 'multiclass'
                   else float('inf') )

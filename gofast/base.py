@@ -91,7 +91,7 @@ class TargetProcessor:
     adjust_for_cost_sensitive_learning():
         Adjusts the model for cost-sensitive learning, giving more importance 
         to certain classes.
-    analyze_feature_correlation_with_target(X):
+    analyze_feature_correlation(X):
         Analyzes the correlation of features with the target variable.
     transform_multi_label(method='binary_relevance'):
         Transforms a multi-label problem into a single-label problem using 
@@ -849,7 +849,7 @@ class TargetProcessor:
         
         return self
 
-    def analyze_feature_correlation_with_target(self, X, method='pearson'):
+    def analyze_feature_correlation(self, X, method='pearson'):
         """
         Analyzes the correlation between features and the target variable.
 
@@ -880,7 +880,7 @@ class TargetProcessor:
         })
         >>> processor = TargetProcessor()
         >>> processor.fit('target', X=X)
-        >>> correlation_dict = processor.analyze_feature_correlation_with_target(X)
+        >>> correlation_dict = processor.analyze_feature_correlation(X)
         >>> print(correlation_dict)
 
         Notes
@@ -2045,7 +2045,6 @@ class FeatureProcessor:
         self.update_features
         
         return self
-
 
     def text_feature_extraction(
         self, 

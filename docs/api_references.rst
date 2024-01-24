@@ -20,7 +20,7 @@ Subpackages
 - **estimators**: Advanced machine learning estimators for both regression and classification tasks.
 - **geo**: Geospatial data handling and analysis functions, useful for geographic data processing.
 - **metrics**: Evaluation metrics and performance measures for assessing models.
-- **models**: Pre-built models and architectures for a variety of machine learning applications.
+- **models**: Optimize, pre-built models and architectures for a variety of machine learning applications.
 - **plot**: Visualization tools to create informative and interactive plots and charts.
 - **stats**: Statistical functions and tests to analyze data and derive meaningful insights.
 - **tools**: Utility functions and helpers that streamline common tasks and data manipulations.
@@ -56,7 +56,7 @@ classes, and functions within :code:`GoFast`.
    gofast.geo
    gofast.models
    gofast.metrics
-   gofast.utils
+   gofast.query
    gofast.tools
    gofast.transformers 
    gofast.plot 
@@ -340,6 +340,13 @@ Classes
    models.CrossValidator
    models.GridSearch
    models.GridSearchMultiple
+   models.PSOSearchCV
+   models.SMBOSearchCV
+   models.AnnealingSearchCV
+   models.EvolutionarySearchCV
+   models.GradientBasedSearchCV
+   models.GeneticSearchCV
+   
    
 Functions
 ~~~~~~~~~~~~
@@ -358,6 +365,8 @@ Functions
    models.naive_evaluation
    models.parallelize_estimators
    models.optimize_hyperparameters 
+   models.optimize_search 
+   models.optimize_search2
    models.shrink_covariance_cv_score
    models.base_tuning 
    models.robust_tuning 
@@ -464,6 +473,8 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.adaptive_moving_average
    tools.array2hdf5
    tools.audit_data
+   tools.augment_data
+   tools.assess_outlier_impact
    tools.bi_selector
    tools.bin_counting
    tools.binning_statistic
@@ -678,7 +689,57 @@ optimization process.
 	plot.MetricPlotter.plotPrecisionRecallPerClass
 	plot.MetricPlotter.plotActualVSPredicted
 
-	
+:mod:`~gofast.plot.ts`: TimeSeries Plots
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+"TimeSeries plots" are specialized visualizations for analyzing time-series data. 
+These plots provide valuable insights into the trends, patterns, and characteristics 
+of data that changes over time. They are essential tools in various fields such as 
+finance, meteorology, and signal processing, helping users to understand temporal 
+dynamics and make predictions based on historical data trends.
+
+.. automodule:: gofast.plot.ts
+   :no-members:
+   :no-inherited-members:
+
+**User guide:** See the :ref:`visualization <plot>` section for further details.
+
+.. currentmodule:: gofast
+
+.. autosummary::
+   :toctree: generated/
+   :template: function.rst
+
+    plot.TimeSeriesPlotter.heatmapCorrelation
+    plot.TimeSeriesPlotter.pieChart
+    plot.TimeSeriesPlotter.plotArea
+    plot.TimeSeriesPlotter.plotAutocorrelation
+    plot.TimeSeriesPlotter.plotBar
+    plot.TimeSeriesPlotter.plotBox
+    plot.TimeSeriesPlotter.plotBubble
+    plot.TimeSeriesPlotter.plotCumulativeDistribution
+    plot.TimeSeriesPlotter.plotCumulativeLine
+    plot.TimeSeriesPlotter.plotDecomposition
+    plot.TimeSeriesPlotter.plotDensity
+    plot.TimeSeriesPlotter.plotErrorbar
+    plot.TimeSeriesPlotter.plotHexbin
+    plot.TimeSeriesPlotter.plotHistogram
+    plot.TimeSeriesPlotter.plotkde
+    plot.TimeSeriesPlotter.plotLag
+    plot.TimeSeriesPlotter.plotLine
+    plot.TimeSeriesPlotter.plotpacf
+    plot.TimeSeriesPlotter.plotRadViz
+    plot.TimeSeriesPlotter.plotRollingMean
+    plot.TimeSeriesPlotter.plotScatter
+    plot.TimeSeriesPlotter.plotScatterWithTrendline
+    plot.TimeSeriesPlotter.plotStackedArea
+    plot.TimeSeriesPlotter.plotStackedBar
+    plot.TimeSeriesPlotter.plotStackedLine
+    plot.TimeSeriesPlotter.plotStep
+    plot.TimeSeriesPlotter.plotSunburst
+    plot.TimeSeriesPlotter.plotWaterfall
+    plot.TimeSeriesPlotter.radarChart
+
 Functions
 ~~~~~~~~~~~~
 
