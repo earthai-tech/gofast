@@ -2137,7 +2137,6 @@ class FeaturizeX(BaseEstimator, TransformerMixin ):
         
         return Xtransf 
         
-    
 def _featurize_X (
     X, 
     y =None, *, 

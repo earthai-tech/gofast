@@ -338,8 +338,9 @@ Classes
 
    models.BaseEvaluation
    models.CrossValidator
-   models.GridSearch
-   models.GridSearchMultiple
+   models.BaseSearch
+   models.SearchMultiple
+   models.MultipleSearch
    models.PSOSearchCV
    models.SMBOSearchCV
    models.AnnealingSearchCV

@@ -3,6 +3,7 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 from __future__ import annotations 
+import itertools 
 import numpy as np 
 import pandas as pd
 import scipy
@@ -11,7 +12,8 @@ import seaborn as sns
 
 from sklearn.base import BaseEstimator 
 from sklearn.covariance import ShrunkCovariance
-from sklearn.model_selection import cross_val_score, GridSearchCV, RandomizedSearchCV  
+from sklearn.model_selection import cross_val_score, GridSearchCV
+from sklearn.model_selection import RandomizedSearchCV  
 from sklearn.svm import SVC, SVR
 from sklearn.utils.multiclass import type_of_target
 
@@ -58,6 +60,250 @@ __all__= [
     "get_optimizer_method", 
     "process_estimators_and_params", 
   ]
+
+def align_estimators_with_params(param_grids, estimators=None):
+    """
+    Reorganize estimators and their corresponding parameter grids.
+
+    This function ensures that the estimators and parameter grids are properly 
+    aligned,particularly when explicit names are given to estimators. It 
+    supports different formats of estimator and parameter grid inputs, such 
+    as lists, dictionaries, or tuples.
+
+    Parameters
+    ----------
+    param_grids : dict, list of dict, or list of tuple
+        Parameter grids to be used for each estimator. If it's a single dictionary,
+        it's converted into a list. If it's a list of tuples, each tuple should
+        contain an estimator name and its corresponding parameter grid.
+    estimators : list, dict, tuple, or estimator, default=None
+        Estimators to be used. It can be a single estimator, a list of estimators,
+        a dictionary with estimator names as keys, or a list of tuples where each
+        tuple contains an estimator name and the estimator itself.
+
+    Returns
+    -------
+    tuple of (list, list)
+        A tuple containing two lists: the first list contains the estimators, and
+        the second list contains the corresponding parameter grids.
+
+    Raises
+    ------
+    ValueError
+        If the length of estimators and parameter grids does not match or if
+        there is a mismatch between named estimators and parameter grids.
+
+    Notes
+    -----
+    This function is particularly useful in scenarios where estimators are named
+    and need to be matched with corresponding named parameter grids, ensuring
+    consistency in hyperparameter tuning processes.
+    
+    Examples 
+    --------
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from sklearn.svm import SVC
+    >>> from gofast.models.utils import align_estimator_with_params 
+
+    >>> estimators1 = [{"rf": RandomForestClassifier()}, {"svc": SVC()}]
+    >>> param_grids1 = [("rf", {'n_estimators': [100, 200], 'max_depth': [10, 20]}), 
+                    ("svc", {"C": [1, 10], "gamma": [.001, .01, .00001]})]
+
+    >>> new_estimators1, new_param_grids1 = align_estimators_with_params(
+        param_grids1, estimators1)
+    >>> print(new_estimators1)
+    >>> print(new_param_grids1)
+
+    >>> estimators2 = [RandomForestClassifier(), SVC()]
+    >>> param_grids2 = [{'n_estimators': [100, 200], 'max_depth': [10, 20]}, 
+                    {"C": [1, 10], "gamma": [.001, .01, .00001]}]
+
+    >>> new_estimators2, new_param_grids2 = align_estimators_with_params(
+        param_grids2, estimators2)
+    >>> print(new_estimators2)
+    >>> print(new_param_grids2)
+
+    >>> estimators3 = [{"rf": RandomForestClassifier()}, {"svc": SVC()}]
+    >>> param_grids3 = [("svc", {"C": [1, 10], "gamma": [.001, .01, .00001]}), 
+                    ("rf", {'n_estimators': [100, 200], 'max_depth': [10, 20]})]
+
+    >>> new_estimators3, new_param_grids3 = align_estimators_with_params(
+        param_grids3, estimators3)
+    >>> print(new_estimators3)
+    >>> print(new_param_grids3)
+
+
+    """
+    if estimators is None:
+        return process_estimators_and_params(param_grids)
+
+    param_grids = [param_grids] if isinstance(param_grids, dict) else param_grids
+
+    if len(estimators) != len(param_grids):
+        raise ValueError("Estimators and param_grid must have consistent length."
+                         f" Got {len(estimators)} and {len(param_grids)} respectively.")
+
+    estimators, estimator_names = _unpack_estimators(estimators)
+    param_grids, param_grid_names = _unpack_param_grids(param_grids)
+
+    if estimator_names and param_grid_names:
+        estimators = _match_estimators_to_grids(
+            estimators, estimator_names, param_grid_names)
+
+    return estimators, param_grids
+
+def _unpack_estimators(estimators):
+    """
+    Unpack the estimators into a consistent format and extract names if provided.
+
+    This function handles various formats of input estimators (single estimator,
+    list of estimators, dictionary of named estimators, or list of named tuples) and
+    converts them into a uniform format (list of estimators) with optional extracted names.
+
+    Parameters
+    ----------
+    estimators : estimator, list, dict, or list of tuples
+        The input estimators in various formats.
+
+    Returns
+    -------
+    tuple of (list, list or None)
+        A tuple containing a list of unpacked estimators and a list of names
+        if provided, otherwise None.
+    """
+    if hasattr(estimators, 'fit') or isinstance(estimators, dict):
+        estimators = [estimators]
+
+    if all(hasattr(estimator, 'fit') for estimator in estimators):
+        return estimators, None
+
+    if all(isinstance(estimator, dict) for estimator in estimators):
+        names = [name for estimator in estimators for name in estimator]
+        values = [value for estimator in estimators for value in estimator.values()]
+        return values, names
+
+    if all(isinstance(estimator, tuple) for estimator in estimators):
+        names, values = zip(*estimators)
+        return list(values), list(names)
+
+    raise ValueError("Invalid format of estimators provided.")
+
+def _unpack_param_grids(param_grids):
+    """
+    Unpack the parameter grids into a consistent format and extract names if provided.
+
+    This function handles various formats of input parameter grids (single grid,
+    list of grids, or list of named tuples) and converts them into a uniform format
+    (list of parameter grids) with optional extracted names.
+
+    Parameters
+    ----------
+    param_grids : dict, list of dict, or list of tuples
+        The input parameter grids in various formats.
+
+    Returns
+    -------
+    tuple of (list, list or None)
+        A tuple containing a list of unpacked parameter grids and a list of names
+        if provided, otherwise None.
+    """
+    if isinstance(param_grids, dict):
+        param_grids = [param_grids]
+
+    if all(isinstance(param_grid, dict) for param_grid in param_grids):
+        return param_grids, None
+
+    if all(isinstance(param_grid, tuple) for param_grid in param_grids):
+        names, grids = zip(*param_grids)
+        return list(grids), list(names)
+
+    raise ValueError("Invalid format of parameter grids provided.")
+
+def _match_estimators_to_grids(estimators, estimator_names, param_grid_names):
+    """
+    Match the estimators to their corresponding parameter grids based on names.
+
+    This function aligns the estimators with their respective parameter grids by names.
+    It is useful when estimators and parameter grids are explicitly named and need
+    to be matched accurately.
+
+    Parameters
+    ----------
+    estimators : list
+        The list of estimators.
+    estimator_names : list
+        The list of names for each estimator.
+    param_grid_names : list
+        The list of names for each parameter grid.
+
+    Returns
+    -------
+    list
+        A list of matched estimators according to the parameter grid names.
+
+    Raises
+    ------
+    ValueError
+        If there is a mismatch between the named estimators and parameter grids.
+    """
+    if not estimator_names or not param_grid_names:
+        return estimators
+
+    matched_estimators = []
+    for grid_name in param_grid_names:
+        if grid_name not in estimator_names:
+            raise ValueError(f"Estimator name '{grid_name}' not found "
+                             "among provided estimators.")
+        index = estimator_names.index(grid_name)
+        matched_estimators.append(estimators[index])
+
+    if len(matched_estimators) != len(estimators):
+        raise ValueError("Mismatch between estimator names and parameter grid names.")
+
+    return matched_estimators
+
+def params_combinations(param_space):
+    """
+    Generate combinations of parameters from a parameter space.
+
+    Parameters:
+    -----------
+    param_space : dict
+        A dictionary where keys are parameter names and values are lists
+        of possible values for each parameter.
+
+    Yields:
+    -------
+    dict
+        A dictionary representing a combination of parameters.
+
+    Examples:
+    --------
+    >>> param_space = {
+    ...     'C': [1, 10, 100],
+    ...     'gamma': [0.001, 0.0001],
+    ...     'kernel': ['linear', 'rbf']
+    ... }
+    >>> combinations_generator = parameter_combinations(param_space)
+    >>> for combination in combinations_generator:
+    ...     print(combination)
+    {'C': 1, 'gamma': 0.001, 'kernel': 'linear'}
+    {'C': 1, 'gamma': 0.001, 'kernel': 'rbf'}
+    {'C': 1, 'gamma': 0.0001, 'kernel': 'linear'}
+    {'C': 1, 'gamma': 0.0001, 'kernel': 'rbf'}
+    {'C': 10, 'gamma': 0.001, 'kernel': 'linear'}
+    {'C': 10, 'gamma': 0.001, 'kernel': 'rbf'}
+    {'C': 10, 'gamma': 0.0001, 'kernel': 'linear'}
+    {'C': 10, 'gamma': 0.0001, 'kernel': 'rbf'}
+    {'C': 100, 'gamma': 0.001, 'kernel': 'linear'}
+    {'C': 100, 'gamma': 0.001, 'kernel': 'rbf'}
+    {'C': 100, 'gamma': 0.0001, 'kernel': 'linear'}
+    {'C': 100, 'gamma': 0.0001, 'kernel': 'rbf'}
+    """
+    keys = param_space.keys()
+    values = param_space.values()
+    for combination in itertools.product(*values):
+        yield dict(zip(keys, combination))
 
 def get_optimizer_method(optimizer: str) -> Type[BaseEstimator]:
     """

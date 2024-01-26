@@ -22,10 +22,9 @@ from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from .._typing import Any, Dict, List,Union, Tuple, Optional, ArrayLike
 from ..tools.funcutils import ellipsis2false , smart_format
 from ..tools.validator import get_estimator_name 
-from ..tools._dependency import import_optional_dependency 
 from ..tools.box import Boxspace 
-from .utils import get_optimizer_method, validate_optimizer 
-
+from .utils import get_optimizer_method, align_estimators_with_params
+from .utils import process_estimators_and_params
 
 def optimize_search(
     estimators: Dict[str, BaseEstimator], 
@@ -170,15 +169,16 @@ def optimize_search2(estimators, param_grids, X, y, optimizer='GSCV',
     --------
     >>> from sklearn.ensemble import RandomForestClassifier
     >>> from sklearn.model_selection import train_test_split
-    >>> X, y = [[...]], [...]
+    >>> from gofast.datasets import make_classification 
+    >>> from gofast.models.optimize import optimize_search2
+    >>> X, y = make_classification (n_samples =100, n_features=7, return_X_y=True)
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y)
     >>> estimators = [RandomForestClassifier()]
     >>> param_grids = [{'n_estimators': [100, 200], 'max_depth': [10, 20]}]
-    >>> optimize_search2(estimators, param_grids, X_train, y_train)
+    >>> _=optimize_search2(estimators, param_grids, X_train, y_train)
     """
     def validate_parameters():
-        if estimators.keys() != param_grids.keys():
-            raise ValueError("The keys in 'estimators' and 'param_grids' must match.")
+        return align_estimators_with_params (param_grids, estimators)
         
     def initialize_search(optimizer, estimator, param_grid):
         optimizer_class = get_optimizer_method(optimizer)
@@ -193,7 +193,7 @@ def optimize_search2(estimators, param_grids, X, y, optimizer='GSCV',
             pbar.update(1)
         return name, search.best_estimator_, search.best_params_, search.cv_results_
     
-    validate_parameters()
+    estimators, param_grids= validate_parameters()
     try: 
         progress_bars = [tqdm(total=search_kwargs.get('n_iter', 1), position=i + 1,
                             desc="{:<20}".format(f"Optimizing {name}"),
@@ -206,7 +206,7 @@ def optimize_search2(estimators, param_grids, X, y, optimizer='GSCV',
         for pbar in progress_bars:
             pbar.close()
     except: 
-        result_dict= optimize_search2(
+        result_dict= _optimize_search2(
             X, y, param_grids=param_grids, estimators=estimators, 
              **search_kwargs)
     else: 
@@ -226,15 +226,14 @@ def optimize_hyperparameters(
     X, y, 
     cv=5, 
     scoring=None, 
-    optimizer= 'RandomisedSearchCV', 
+    optimizer= 'GridSearchCV', 
     n_jobs=-1, 
     savejob: bool= ..., 
     savefile: str=None, 
     **kws 
     ):
     """
-    Optimize hyperparameters for a given estimator using GridSearchCV, 
-    with parallelization.
+    Optimize hyperparameters for a given estimator.
 
     Parameters
     ----------
@@ -261,7 +260,6 @@ def optimize_hyperparameters(
        model binary file name. If ``None``, the estimator name is 
        used instead.
        
-
     Returns
     -------
     best_estimator : estimator object
@@ -274,41 +272,22 @@ def optimize_hyperparameters(
         Cross-validation results  
         
     """
-    savejob, = ellipsis2false(savejob )
-
-    optimizer =get_estimator_name( _get_optimizer_method(optimizer, )) 
-    if optimizer =='BayesSearchCV': 
-        extra_msg = ("'BayesSearchCV' expects `skopt` to be installed."
-                     " Skopt is the shorthand of `scikit-optimize` library.")
-        import_optional_dependency("skopt", extra =extra_msg )
-        # ++++++++++++++++++++++++++++++++++++++++
-        from skopt.searchcv import BayesSearchCV 
-        # ++++++++++++++++++++++++++++++++++++++++
-        optimizer =  BayesSearchCV ( estimator, search_spaces = param_grid, 
-                                    cv=cv, scoring=scoring, **kws)
-        
-    elif optimizer =='RandomizedSearchCV': 
-        optimizer = RandomizedSearchCV(estimator, param_distributions= param_grid, 
-                                       scoring=scoring, cv=cv, **kws) 
-    else: 
-        optimizer = GridSearchCV ( estimator, param_grid, cv=cv, 
-                                   scoring=scoring, n_jobs=n_jobs, 
-                                   **kws)
+    savejob, = ellipsis2false(savejob) 
+    optimizer_class = get_optimizer_method(optimizer) 
+    optimizer = optimizer_class (estimator, param_grid, cv=cv, scoring=scoring,
+                                 n_jobs=n_jobs, **kws)
     optimizer.fit(X, y)
-    
+
     # try to save file 
     if savejob: 
         savefile = savefile or get_estimator_name(estimator)
+        results_dict= {"best_estimator_":optimizer.best_estimator_ , 
+                       "best_params_":optimizer.best_params_  , 
+                       "cv_results_": optimizer.cv_results_}
         # remove joblib if extension is appended.
         savefile= str(savefile).replace ('.joblib', '')
-        joblib.dump ( dict ( optimizer.best_estimator_,
-                            optimizer.best_params_, 
-                            optimizer.cv_results_
-                            ),
-                     filename = f'{savefile}.joblib' 
-                     )
-    return ( optimizer.best_estimator_,
-            optimizer.best_params_, 
+        joblib.dump ( results_dict,filename = f'{savefile}.joblib' )
+    return ( optimizer.best_estimator_, optimizer.best_params_, 
             optimizer.cv_results_
             )
 
@@ -351,7 +330,7 @@ def parallelize_estimators(
        
     Returns
     -------
-    o: gofast.tools.boxspace
+    o: gofast.tools.box.Boxspace
         The function saves the best estimator and parameters, and 
         cv results for each input estimator to disk
         returns object where `best_params_`, `best_estimators_` and `cv_results_`
@@ -374,7 +353,6 @@ def parallelize_estimators(
     >>> param_grids = [{'C': [1, 10], 'kernel': ['linear', 'rbf']}, 
                        {'max_depth': [3, 5, None], 'criterion': ['gini', 'entropy']}
                        ]
-
     >>> o= parallelize_estimators(estimators, param_grids, X, y)
     >>> o.SVC.best_estimator_
     Out[294]: SVC(C=1, kernel='linear')
@@ -395,7 +373,7 @@ def parallelize_estimators(
         for idx, (future, estimator)in enumerate (zip (
                 tqdm(concurrent.futures.as_completed(futures),
                            total=len(futures), desc="Optimizing Estimators", 
-                           ncols=77, ascii=True,
+                           ncols=100, ascii=True,
                            ), estimators)
                                                  ):
             est_name = get_estimator_name(estimator)
@@ -552,7 +530,8 @@ def _optimize_search2(
     **search_params: Any
 ) -> Dict[str, Any]:
     """
-    Perform hyperparameter optimization across multiple estimators using a specified optimizer.
+    Perform hyperparameter optimization across multiple estimators using a 
+    specified optimizer.
 
     Parameters
     ----------
@@ -592,7 +571,7 @@ def _optimize_search2(
                                   optimizer='RandomizedSearchCV')
     """
     estimators, param_grids = _process_estimators_and_params(param_grids, estimators)
-    OptimizeMethod= _get_optimizer_method(optimizer )
+    OptimizeMethod= get_optimizer_method(optimizer )
     def calculate_grid_length(param_grid):
         # n_combinations = len(list(itertools.product(*param_grid.values())))
         return np.prod([len(v) for v in param_grid.values()])

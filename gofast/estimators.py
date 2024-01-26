@@ -5,9 +5,10 @@
 from __future__ import annotations 
 import re  
 import inspect 
-import numpy as np
+from numbers import Integral, Real
 from collections import defaultdict
 from scipy import stats
+import numpy as np
 
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin, clone
 from sklearn.base import is_regressor, is_classifier 
@@ -22,12 +23,15 @@ try:from sklearn.utils import type_of_target
 except: from .tools.funcutils import type_of_target 
 from sklearn.metrics import r2_score
 
-# 
 from ._gofastlog import  gofastlog
 from .exceptions import  EstimatorError 
 from .tools.funcutils import smart_format, is_iterable
 from .tools.validator import check_X_y, get_estimator_name, check_array 
 from .tools.validator import check_is_fitted
+from .tools._param_validation import Hidden
+from .tools._param_validation import Interval
+from .tools._param_validation import StrOptions
+from .tools._param_validation import validate_params
 from .transformers import KMeansFeaturizer
     
 _logger = gofastlog().get_gofast_logger(__name__)
@@ -6262,8 +6266,34 @@ class _GradientBoostingClassifier:
         """
         F_m = sum(self.learning_rate * estimator.predict(X) for estimator in self.estimators_)
         return np.where(self._sigmoid(F_m) > 0.5, 1, 0)
+    
 
-         
+@validate_params(
+    {
+        "X": ["array-like", "sparse matrix"],
+        "n_clusters": [Interval(Integral, 1, None, closed="left")],
+        "sample_weight": ["array-like", None],
+        "init": [StrOptions({"k-means++", "random"}), callable, "array-like"],
+        "n_init": [
+            StrOptions({"auto"}),
+            Hidden(StrOptions({"warn"})),
+            Interval(Integral, 1, None, closed="left"),
+        ],
+        "max_iter": [Interval(Integral, 1, None, closed="left")],
+        "verbose": [Interval(Integral, 0, None, closed="left"), bool],
+        "tol": [Interval(Real, 0, None, closed="left")],
+        "random_state": ["random_state"],
+        "copy_x": [bool],
+        "algorithm": [
+            StrOptions({"lloyd", "elkan", "auto", "full"}, deprecated={"auto", "full"})
+        ],
+        "return_n_iter": [bool],
+    }
+)
+def kmf_featurizer (): 
+    pass 
+    
+     
 
 
 

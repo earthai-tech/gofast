@@ -41,6 +41,7 @@ from .utils import (
     plot_confidence_ellipse, 
     plot_text, 
     plot_cumulative_variance, 
+    plot_shap_summary, 
     )
 
 __all__= [
@@ -85,4 +86,5 @@ __all__= [
     'plot_text', 
     'plot_obj',
     'plot_cumulative_variance', 
+    'plot_shap_summary'
     ]

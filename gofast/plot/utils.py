@@ -14,6 +14,7 @@ import itertools
 import numpy as np
 import pandas as pd 
 import matplotlib as mpl 
+from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse
 import matplotlib.colors as mcolors
 import matplotlib.transforms as transforms 
@@ -62,55 +63,110 @@ from ..tools._dependency import import_optional_dependency
 try : 
     from yellowbrick.classifier import ConfusionMatrix 
 except: pass 
-from .._typing import Optional, Tuple
+from .._typing import Optional, Tuple, Any, List, Union, ArrayLike, DataFrame
 
-D_COLORS =[
-    'g',
-    'gray',
-    'y', 
-    'blue',
-    'orange',
-    'purple',
-    'lime',
-    'k', 
-    'cyan', 
-    (.6, .6, .6),
-    (0, .6, .3), 
-    (.9, 0, .8),
-    (.8, .2, .8),
-    (.0, .9, .4)
-]
+from ._d_cms import D_COLORS, D_MARKERS, D_STYLES 
 
-D_MARKERS =[
-    'o',
-    '^',
-    'x',
-    'D',
-    '8',
-    '*',
-    'h',
-    'p',
-    '>',
-    'o',
-    'd',
-    'H'
-]
 
-D_STYLES = [
-    '-',
-    '-',
-    '--',
-    '-.',
-    ':', 
-    'None',
-    ' ',
-    '',
-    'solid', 
-    'dashed',
-    'dashdot',
-    'dotted' 
-]
-#----
+def plot_shap_summary(
+    model: Any, 
+    X: Union[ArrayLike, DataFrame], 
+    feature_names: Optional[List[str]] = None, 
+    plot_type: str = 'dot', 
+    color_bar_label: str = 'Feature value', 
+    max_display: int = 10, 
+    show: bool = True, 
+    plot_size: Tuple[int, int] = (15, 10), 
+    cmap: str = 'coolwarm'
+) -> Optional[Figure]:
+    """
+    Generate a SHAP (SHapley Additive exPlanations) summary plot for a 
+    given model and dataset.
+
+    Parameters
+    ----------
+    model : model object
+        A trained model object that is compatible with SHAP explainer.
+
+    X : array-like or DataFrame
+        Input data for which the SHAP values are to be computed. If a DataFrame is
+        provided, the feature names are taken from the DataFrame columns.
+
+    feature_names : list, optional
+        List of feature names if `X` is an array-like object 
+        without feature names.
+
+    plot_type : str, optional
+        Type of the plot. Either 'dot' or 'bar'. The default is 'dot'.
+
+    color_bar_label : str, optional
+        Label for the color bar. The default is 'Feature value'.
+
+    max_display : int, optional
+        Maximum number of features to display on the summary plot. 
+        The default is 10.
+
+    show : bool, optional
+        Whether to show the plot. The default is True. If False, 
+        the function returns the figure object.
+
+    plot_size : tuple, optional
+        Size of the plot specified as (width, height). The default is (15, 10).
+
+    cmap : str, optional
+        Colormap to use for plotting. The default is 'coolwarm'.
+
+    Returns
+    -------
+ 
+    figure : matplotlib Figure object or None
+        The figure object if `show` is False, otherwise None.
+
+    Examples
+    --------
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from gofast.datasets import make_classification
+    >>> from gofast.plot import plot_shap_summary
+    >>> X, y = make_classification(n_features=5, random_state=42)
+    >>> model = RandomForestClassifier().fit(X, y)
+    >>> plot_shap_summary(model, X, feature_names=['f1', 'f2', 'f3', 'f4', 'f5'])
+
+    """
+    import_optional_dependency(
+        "shap", extra="Missing 'shap' package for plot_shap_summary.")
+
+    import shap
+
+    # Compute SHAP values
+    explainer = shap.Explainer(model, X)
+    shap_values = explainer(X)
+
+    # Create a summary plot
+    plt.figure(figsize=plot_size)
+    shap.summary_plot(
+        shap_values, X, 
+        feature_names=feature_names, 
+        plot_type=plot_type,
+        color_bar_label=color_bar_label, 
+        max_display=max_display, 
+        show=False
+    )
+
+    # Customize color bar label
+    color_bar = plt.gcf().get_axes()[-1]
+    color_bar.set_title(color_bar_label)
+
+    # Set colormap if specified
+    if cmap:
+        plt.set_cmap(cmap)
+
+    # Show or return the figure
+    if show:
+        plt.show()
+    else:
+        return plt.gcf()
+
+
 def plot_cumulative_variance(
     data: np.ndarray,
     n_components: Optional[int] = None,
