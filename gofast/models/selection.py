@@ -14,369 +14,11 @@ from sklearn.model_selection._search import BaseSearchCV, ParameterSampler
 from gofast.models._selection import PSOBaseSearch, GeneticBaseSearch  
 from gofast.models._selection import GradientBaseSearch, AnnealingBaseSearch
 
-class SMBOSearchCV (BaseSearchCV ):
-    r"""
-    Sequential Model-Based Optimization (SMBO) for hyperparameter tuning 
-    of estimators.
-    
-    SMBOSearchCV implements a Bayesian optimization strategy for tuning 
-    hyperparameters. It builds a probabilistic model (Gaussian Process by default) 
-    of the objective function and uses this model to select hyperparameters 
-    to evaluate in the true objective function, balancing exploration and 
-    exploitation.
-
-    Sequential Model-Based Optimization (SMBO), particularly Bayesian optimization, 
-    involves the iterative update of a surrogate model, typically a Gaussian Process,
-    which approximates the true objective function. The surrogate model is updated 
-    based on observations, and an acquisition function is used to guide the 
-    search for new hyperparameters.
-    
-    Given a set of observations \( \{(X_i, y_i)\} \), where \( X_i \) represents
-    hyperparameters and \( y_i \) their corresponding performance scores, 
-    the surrogate model \( P(y|X) \) is updated to reflect this data. The 
-    acquisition function \( A(X; P) \) is then optimized to select the next 
-    set of hyperparameters to evaluate:
-    
-    \[ X_{\text{new}} = \underset{X}{\text{argmax}} \, A(X; P) \]
-    
-    Popular choices for the acquisition function \( A \) include Expected 
-    Improvement (EI), Probability of Improvement (PI), and Upper Confidence 
-    Bound (UCB). These functions aim to balance exploration
-    (evaluating untested hyperparameters) and exploitation 
-    (focusing on areas of the hyperparameter space known to yield 
-     high performance):
-    
-    - Expected Improvement (EI): Maximizes the expected improvement over 
-      the current best observation.
-    - Probability of Improvement (PI): Maximizes the probability of improving 
-      over the current best observation.
-    - Upper Confidence Bound (UCB): Selects hyperparameters based on a 
-    trade-off between their predicted mean performance and uncertainty.
-    
-    These strategies enable efficient navigation of the hyperparameter space, 
-    leveraging the surrogate model to make informed decisions about which
-    hyperparameters to evaluate next.
-    
-    Parameters
-    ----------
-    estimator : estimator object
-        The machine learning estimator to be optimized.
-    
-    param_space : dict
-        Dictionary with parameters names as keys and distributions or lists 
-        as values, defining the search space for each hyperparameter.
-    
-    n_iter : int, default=10
-        Number of parameter settings that are sampled. n_iter trades
-        off runtime vs quality of the solution.
-
-    scoring : str, callable, list, tuple or dict, default=None
-        Strategy to evaluate the performance of the cross-validated model on
-        the test set.
-
-        If `scoring` represents a single score, one can use:
-
-        - a single string (see :ref:`scoring_parameter`);
-        - a callable (see :ref:`scoring`) that returns a single value.
-
-        If `scoring` represents multiple scores, one can use:
-
-        - a list or tuple of unique strings;
-        - a callable returning a dictionary where the keys are the metric
-          names and the values are the metric scores;
-        - a dictionary with metric names as keys and callables a values.
-
-        If None, the estimator's score method is used.
-
-    n_jobs : int, default=None
-        Number of jobs to run in parallel.
-        ``None`` means 1 unless in a :obj:`joblib.parallel_backend` context.
-        ``-1`` means using all processors. See :term:`Glossary <n_jobs>`
-        for more details.
-
-    refit : bool, str, or callable, default=True
-        Refit an estimator using the best found parameters on the whole
-        dataset.
-
-        For multiple metric evaluation, this needs to be a `str` denoting the
-        scorer that would be used to find the best parameters for refitting
-        the estimator at the end.
-
-        Where there are considerations other than maximum score in
-        choosing a best estimator, ``refit`` can be set to a function which
-        returns the selected ``best_index_`` given the ``cv_results``. In that
-        case, the ``best_estimator_`` and ``best_params_`` will be set
-        according to the returned ``best_index_`` while the ``best_score_``
-        attribute will not be available.
-
-        The refitted estimator is made available at the ``best_estimator_``
-        attribute and permits using ``predict`` directly on this
-        ``RandomizedSearchCV`` instance.
-
-        Also for multiple metric evaluation, the attributes ``best_index_``,
-        ``best_score_`` and ``best_params_`` will only be available if
-        ``refit`` is set and all of them will be determined w.r.t this specific
-        scorer.
-
-        See ``scoring`` parameter to know more about multiple metric
-        evaluation.
-
-        .. versionchanged:: 0.20
-            Support for callable added.
-
-    cv : int, cross-validation generator or an iterable, default=None
-        Determines the cross-validation splitting strategy.
-        Possible inputs for cv are:
-
-        - None, to use the default 5-fold cross validation,
-        - integer, to specify the number of folds in a `(Stratified)KFold`,
-        - :term:`CV splitter`,
-        - An iterable yielding (train, test) splits as arrays of indices.
-
-        For integer/None inputs, if the estimator is a classifier and ``y`` is
-        either binary or multiclass, :class:`StratifiedKFold` is used. In all
-        other cases, :class:`KFold` is used. These splitters are instantiated
-        with `shuffle=False` so the splits will be the same across calls.
-
-        Refer :ref:`User Guide <cross_validation>` for the various
-        cross-validation strategies that can be used here.
-
-    verbose : int
-        Controls the verbosity: the higher, the more messages.
-
-        - >1 : the computation time for each fold and parameter candidate is
-          displayed;
-        - >2 : the score is also displayed;
-        - >3 : the fold and candidate parameter indexes are also displayed
-          together with the starting time of the computation.
-
-    pre_dispatch : int, or str, default='2*n_jobs'
-        Controls the number of jobs that get dispatched during parallel
-        execution. Reducing this number can be useful to avoid an
-        explosion of memory consumption when more jobs get dispatched
-        than CPUs can process. This parameter can be:
-
-            - None, in which case all the jobs are immediately
-              created and spawned. Use this for lightweight and
-              fast-running jobs, to avoid delays due to on-demand
-              spawning of the jobs
-
-            - An int, giving the exact number of total jobs that are
-              spawned
-
-            - A str, giving an expression as a function of n_jobs,
-              as in '2*n_jobs'
-
-    random_state : int, RandomState instance or None, default=None
-        Pseudo random number generator state used for random uniform sampling
-        from lists of possible values instead of scipy.stats distributions.
-        Pass an int for reproducible output across multiple
-        function calls.
-        See :term:`Glossary <random_state>`.
-
-    error_score : 'raise' or numeric, default=np.nan
-        Value to assign to the score if an error occurs in estimator fitting.
-        If set to 'raise', the error is raised. If a numeric value is given,
-        FitFailedWarning is raised. This parameter does not affect the refit
-        step, which will always raise the error.
-
-    return_train_score : bool, default=False
-        If ``False``, the ``cv_results_`` attribute will not include training
-        scores.
-        Computing training scores is used to get insights on how different
-        parameter settings impact the overfitting/underfitting trade-off.
-        However computing the scores on the training set can be computationally
-        expensive and is not strictly required to select the parameters that
-        yield the best generalization performance.
-
-    Attributes
-    ----------
-    cv_results_ : dict of numpy (masked) ndarrays
-        A dict with keys as column headers and values as columns, that can be
-        imported into a pandas ``DataFrame``.
-
-        For instance the below given table
-
-        +--------------+-------------+-------------------+---+---------------+
-        | param_kernel | param_gamma | split0_test_score |...|rank_test_score|
-        +==============+=============+===================+===+===============+
-        |    'rbf'     |     0.1     |       0.80        |...|       1       |
-        +--------------+-------------+-------------------+---+---------------+
-        |    'rbf'     |     0.2     |       0.84        |...|       3       |
-        +--------------+-------------+-------------------+---+---------------+
-        |    'rbf'     |     0.3     |       0.70        |...|       2       |
-        +--------------+-------------+-------------------+---+---------------+
-
-        will be represented by a ``cv_results_`` dict of::
-
-            {
-            'param_kernel' : masked_array(data = ['rbf', 'rbf', 'rbf'],
-                                          mask = False),
-            'param_gamma'  : masked_array(data = [0.1 0.2 0.3], mask = False),
-            'split0_test_score'  : [0.80, 0.84, 0.70],
-            'split1_test_score'  : [0.82, 0.50, 0.70],
-            'mean_test_score'    : [0.81, 0.67, 0.70],
-            'std_test_score'     : [0.01, 0.24, 0.00],
-            'rank_test_score'    : [1, 3, 2],
-            'split0_train_score' : [0.80, 0.92, 0.70],
-            'split1_train_score' : [0.82, 0.55, 0.70],
-            'mean_train_score'   : [0.81, 0.74, 0.70],
-            'std_train_score'    : [0.01, 0.19, 0.00],
-            'mean_fit_time'      : [0.73, 0.63, 0.43],
-            'std_fit_time'       : [0.01, 0.02, 0.01],
-            'mean_score_time'    : [0.01, 0.06, 0.04],
-            'std_score_time'     : [0.00, 0.00, 0.00],
-            'params'             : [{'kernel' : 'rbf', 'gamma' : 0.1}, ...],
-            }
-
-        NOTE
-
-        The key ``'params'`` is used to store a list of parameter
-        settings dicts for all the parameter candidates.
-
-        The ``mean_fit_time``, ``std_fit_time``, ``mean_score_time`` and
-        ``std_score_time`` are all in seconds.
-
-        For multi-metric evaluation, the scores for all the scorers are
-        available in the ``cv_results_`` dict at the keys ending with that
-        scorer's name (``'_<scorer_name>'``) instead of ``'_score'`` shown
-        above. ('split0_test_precision', 'mean_train_precision' etc.)
-
-    best_estimator_ : estimator
-        Estimator that was chosen by the search, i.e. estimator
-        which gave highest score (or smallest loss if specified)
-        on the left out data. Not available if ``refit=False``.
-
-        For multi-metric evaluation, this attribute is present only if
-        ``refit`` is specified.
-
-    best_score_ : float
-        Mean cross-validated score of the best_estimator.
-
-        For multi-metric evaluation, this is not available if ``refit`` is
-        ``False``. See ``refit`` parameter for more information.
-
-    best_params_ : dict
-        Parameter setting that gave the best results on the hold out data.
-
-        For multi-metric evaluation, this is not available if ``refit`` is
-        ``False``. See ``refit`` parameter for more information.
-
-    best_index_ : int
-        The index (of the ``cv_results_`` arrays) which corresponds to the best
-        candidate parameter setting.
-
-        The dict at ``search.cv_results_['params'][search.best_index_]`` gives
-        the parameter setting for the best model, that gives the highest
-        mean score (``search.best_score_``).
-
-        For multi-metric evaluation, this is not available if ``refit`` is
-        ``False``. See ``refit`` parameter for more information.
-
-    scorer_ : function or a dict
-        Scorer function used on the held out data to choose the best
-        parameters for the model.
-
-        For multi-metric evaluation, this attribute holds the validated
-        ``scoring`` dict which maps the scorer key to the scorer callable.
-
-    n_splits_ : int
-        The number of cross-validation splits (folds/iterations).
-
-    refit_time_ : float
-        Seconds used for refitting the best model on the whole dataset.
-
-        This is present only if ``refit`` is not False.
-
-    multimetric_ : bool
-        Whether or not the scorers compute several metrics.
-
-    classes_ : ndarray of shape (n_classes,)
-        The classes labels. This is present only if ``refit`` is specified and
-        the underlying estimator is a classifier.
-
-    n_features_in_ : int
-        Number of features seen during :term:`fit`. Only defined if
-        `best_estimator_` is defined (see the documentation for the `refit`
-        parameter for more details) and that `best_estimator_` exposes
-        `n_features_in_` when fit.
-
-    feature_names_in_ : ndarray of shape (`n_features_in_`,)
-        Names of features seen during :term:`fit`. Only defined if
-        `best_estimator_` is defined (see the documentation for the `refit`
-        parameter for more details) and that `best_estimator_` exposes
-        `feature_names_in_` when fit.
-
-    
-    Examples
-    --------
-    >>> from gofast.models.selection import SMBOSearchCV
-    >>> from sklearn.datasets import load_iris
-    >>> from sklearn.svm import SVC
-    >>> X, y = load_iris(return_X_y=True)
-    >>> param_space = {'C': [1, 10, 100], 'gamma': [0.001, 0.0001]}
-    >>> search = SMBOSearchCV(estimator=SVC(), param_space=param_space)
-    >>> search.fit(X, y)
-    >>> print(search.best_params_)
-    
-    Notes
-    -----
-    SMBO is particularly useful for optimization problems with expensive evaluations,
-    as it efficiently narrows down the search space using the surrogate model.
-    
-    References
-    ----------
-    - Snoek, J., Larochelle, H., & Adams, R. P. (2012). Practical Bayesian Optimization 
-       of Machine Learning Algorithms. Advances in Neural Information Processing Systems.
-       
-    """
-    _required_parameters = ["estimator", "param_space"]
-
-    def __init__(
-        self,
-        estimator,
-        param_space,
-        *,
-        n_iter=10,
-        scoring=None,
-        n_jobs=None,
-        refit=True,
-        cv=None,
-        verbose=0,
-        pre_dispatch="2*n_jobs",
-        random_state=None,
-        error_score=np.nan,
-        return_train_score=False,
-    ):
-        self.param_space = param_space
-        self.n_iter = n_iter
-        self.random_state = random_state
-        
-        super().__init__(
-            estimator=estimator,
-            scoring=scoring,
-            n_jobs=n_jobs,
-            refit=refit,
-            cv=cv,
-            verbose=verbose,
-            pre_dispatch=pre_dispatch,
-            error_score=error_score,
-            return_train_score=return_train_score,
-        )
-
-    def _run_search(self, evaluate_candidates):
-        """Search n_iter candidates from param_distributions"""
-        evaluate_candidates(
-            ParameterSampler(
-                self.param_space, self.n_iter, random_state=self.random_state
-            )
-        )
-        
-class PSOSearchCV(PSOBaseSearch):
+class SwarmSearchCV(PSOBaseSearch):
     """
     Particle Swarm Optimization for hyperparameter tuning of estimators.
 
-    PSOSearchCV implements a Particle Swarm Optimization algorithm to find the
+    SwarmSearchCV implements a Particle Swarm Optimization algorithm to find the
     optimal hyperparameters for a given estimator. PSO is a computational method
     that iteratively improves a set of candidate solutions concerning a measure
     of quality, inspired by social behaviors such as bird flocking or fish 
@@ -685,10 +327,10 @@ class PSOSearchCV(PSOBaseSearch):
     --------
     >>> from sklearn.datasets import load_iris
     >>> from sklearn.svm import SVC
-    >>> from gofast.models._selection import PSOSearchCV
+    >>> from gofast.models.selection import SwarmSearchCV
     >>> X, y = load_iris(return_X_y=True)
     >>> param_space = {'C': [1, 10, 100], 'gamma': [0.001, 0.0001]}
-    >>> search = PSOSearchCV(estimator=SVC(), param_space=param_space)
+    >>> search = SwarmSearchCV(estimator=SVC(), param_space=param_space)
     >>> search.fit(X, y)
     >>> print(search.best_params_)
 
@@ -2995,41 +2637,411 @@ class EvolutionarySearchCV(GeneticBaseSearch):
                 self.best_params_ = individual
                 self.best_estimator_ = clone(self.estimator).set_params(**individual)
 
-if __name__=='__main__': 
+class SequentialSearchCV (BaseSearchCV ):
+    r"""
+    Sequential Model-Based Optimization (SMBO) for hyperparameter tuning 
+    of estimators.
     
-    from sklearn.datasets import load_iris
-    from sklearn.svm import SVC
-    
-    # Load Iris dataset
-    X, y = load_iris(return_X_y=True)
-    
-    # Define the hyperparameter space
-    param_space = {
-        'C': [1, 10, 100],
-        'gamma': [0.001, 0.0001],
-        'kernel': ['linear', 'rbf']
-    }
-    # Initialize and fit the GeneticSearchCV
-    # from gofast.models._selection import GeneticSearchCV 
-    # genetic_search = GeneticSearchCV(estimator=SVC(), param_space=param_space, 
-    #                                  n_population=5, n_generations=3, verbose=1)
-    # genetic_search.fit(X, y)
-    
-    # # Display the best parameters and the corresponding score
-    # print("Best parameters (GeneticSearchCV):", genetic_search.best_params_)
-    # print("Best score (GeneticSearchCV):", genetic_search.best_score_)
-    
- 
-    #param_space = {'C': [1, 10, 100], 'gamma': [0.001, 0.0001]}
-    # search = AnnealingSearchCV(estimator=SVC(), param_space=param_space, verbose=1)
-    # search = GradientSearchCV(estimator=SVC(), param_space=param_space, verbose=1)
-    # search.fit(X, y)
-    # print(search.best_params_)
-    # >>> from sklearn.datasets import load_iris
-    # >>> from sklearn.svm import SVC
-    # >>> from gofast.models._selection import PSOSearchCV
+    SequentialSearchCV implements a Bayesian optimization strategy for tuning 
+    hyperparameters. It builds a probabilistic model (Gaussian Process by default) 
+    of the objective function and uses this model to select hyperparameters 
+    to evaluate in the true objective function, balancing exploration and 
+    exploitation.
 
-    # param_space = {'C': [1, 10, 100], 'gamma': [0.001, 0.0001]}
-    search = SMBOSearchCV(estimator=SVC(), param_space=param_space, verbose=1)
-    search.fit(X, y)
-    print(search.best_params_)
+    Sequential Model-Based Optimization (SMBO), particularly Bayesian optimization, 
+    involves the iterative update of a surrogate model, typically a Gaussian Process,
+    which approximates the true objective function. The surrogate model is updated 
+    based on observations, and an acquisition function is used to guide the 
+    search for new hyperparameters.
+    
+    Given a set of observations \( \{(X_i, y_i)\} \), where \( X_i \) represents
+    hyperparameters and \( y_i \) their corresponding performance scores, 
+    the surrogate model \( P(y|X) \) is updated to reflect this data. The 
+    acquisition function \( A(X; P) \) is then optimized to select the next 
+    set of hyperparameters to evaluate:
+    
+    \[ X_{\text{new}} = \underset{X}{\text{argmax}} \, A(X; P) \]
+    
+    Popular choices for the acquisition function \( A \) include Expected 
+    Improvement (EI), Probability of Improvement (PI), and Upper Confidence 
+    Bound (UCB). These functions aim to balance exploration
+    (evaluating untested hyperparameters) and exploitation 
+    (focusing on areas of the hyperparameter space known to yield 
+     high performance):
+    
+    - Expected Improvement (EI): Maximizes the expected improvement over 
+      the current best observation.
+    - Probability of Improvement (PI): Maximizes the probability of improving 
+      over the current best observation.
+    - Upper Confidence Bound (UCB): Selects hyperparameters based on a 
+    trade-off between their predicted mean performance and uncertainty.
+    
+    These strategies enable efficient navigation of the hyperparameter space, 
+    leveraging the surrogate model to make informed decisions about which
+    hyperparameters to evaluate next.
+    
+    Parameters
+    ----------
+    estimator : estimator object
+        The machine learning estimator to be optimized.
+    
+    param_space : dict
+        Dictionary with parameters names as keys and distributions or lists 
+        as values, defining the search space for each hyperparameter.
+    
+    n_iter : int, default=10
+        Number of parameter settings that are sampled. n_iter trades
+        off runtime vs quality of the solution.
+
+    scoring : str, callable, list, tuple or dict, default=None
+        Strategy to evaluate the performance of the cross-validated model on
+        the test set.
+
+        If `scoring` represents a single score, one can use:
+
+        - a single string (see :ref:`scoring_parameter`);
+        - a callable (see :ref:`scoring`) that returns a single value.
+
+        If `scoring` represents multiple scores, one can use:
+
+        - a list or tuple of unique strings;
+        - a callable returning a dictionary where the keys are the metric
+          names and the values are the metric scores;
+        - a dictionary with metric names as keys and callables a values.
+
+        If None, the estimator's score method is used.
+
+    n_jobs : int, default=None
+        Number of jobs to run in parallel.
+        ``None`` means 1 unless in a :obj:`joblib.parallel_backend` context.
+        ``-1`` means using all processors. See :term:`Glossary <n_jobs>`
+        for more details.
+
+    refit : bool, str, or callable, default=True
+        Refit an estimator using the best found parameters on the whole
+        dataset.
+
+        For multiple metric evaluation, this needs to be a `str` denoting the
+        scorer that would be used to find the best parameters for refitting
+        the estimator at the end.
+
+        Where there are considerations other than maximum score in
+        choosing a best estimator, ``refit`` can be set to a function which
+        returns the selected ``best_index_`` given the ``cv_results``. In that
+        case, the ``best_estimator_`` and ``best_params_`` will be set
+        according to the returned ``best_index_`` while the ``best_score_``
+        attribute will not be available.
+
+        The refitted estimator is made available at the ``best_estimator_``
+        attribute and permits using ``predict`` directly on this
+        ``RandomizedSearchCV`` instance.
+
+        Also for multiple metric evaluation, the attributes ``best_index_``,
+        ``best_score_`` and ``best_params_`` will only be available if
+        ``refit`` is set and all of them will be determined w.r.t this specific
+        scorer.
+
+        See ``scoring`` parameter to know more about multiple metric
+        evaluation.
+
+        .. versionchanged:: 0.20
+            Support for callable added.
+
+    cv : int, cross-validation generator or an iterable, default=None
+        Determines the cross-validation splitting strategy.
+        Possible inputs for cv are:
+
+        - None, to use the default 5-fold cross validation,
+        - integer, to specify the number of folds in a `(Stratified)KFold`,
+        - :term:`CV splitter`,
+        - An iterable yielding (train, test) splits as arrays of indices.
+
+        For integer/None inputs, if the estimator is a classifier and ``y`` is
+        either binary or multiclass, :class:`StratifiedKFold` is used. In all
+        other cases, :class:`KFold` is used. These splitters are instantiated
+        with `shuffle=False` so the splits will be the same across calls.
+
+        Refer :ref:`User Guide <cross_validation>` for the various
+        cross-validation strategies that can be used here.
+
+    verbose : int
+        Controls the verbosity: the higher, the more messages.
+
+        - >1 : the computation time for each fold and parameter candidate is
+          displayed;
+        - >2 : the score is also displayed;
+        - >3 : the fold and candidate parameter indexes are also displayed
+          together with the starting time of the computation.
+
+    pre_dispatch : int, or str, default='2*n_jobs'
+        Controls the number of jobs that get dispatched during parallel
+        execution. Reducing this number can be useful to avoid an
+        explosion of memory consumption when more jobs get dispatched
+        than CPUs can process. This parameter can be:
+
+            - None, in which case all the jobs are immediately
+              created and spawned. Use this for lightweight and
+              fast-running jobs, to avoid delays due to on-demand
+              spawning of the jobs
+
+            - An int, giving the exact number of total jobs that are
+              spawned
+
+            - A str, giving an expression as a function of n_jobs,
+              as in '2*n_jobs'
+
+    random_state : int, RandomState instance or None, default=None
+        Pseudo random number generator state used for random uniform sampling
+        from lists of possible values instead of scipy.stats distributions.
+        Pass an int for reproducible output across multiple
+        function calls.
+        See :term:`Glossary <random_state>`.
+
+    error_score : 'raise' or numeric, default=np.nan
+        Value to assign to the score if an error occurs in estimator fitting.
+        If set to 'raise', the error is raised. If a numeric value is given,
+        FitFailedWarning is raised. This parameter does not affect the refit
+        step, which will always raise the error.
+
+    return_train_score : bool, default=False
+        If ``False``, the ``cv_results_`` attribute will not include training
+        scores.
+        Computing training scores is used to get insights on how different
+        parameter settings impact the overfitting/underfitting trade-off.
+        However computing the scores on the training set can be computationally
+        expensive and is not strictly required to select the parameters that
+        yield the best generalization performance.
+
+    Attributes
+    ----------
+    cv_results_ : dict of numpy (masked) ndarrays
+        A dict with keys as column headers and values as columns, that can be
+        imported into a pandas ``DataFrame``.
+
+        For instance the below given table
+
+        +--------------+-------------+-------------------+---+---------------+
+        | param_kernel | param_gamma | split0_test_score |...|rank_test_score|
+        +==============+=============+===================+===+===============+
+        |    'rbf'     |     0.1     |       0.80        |...|       1       |
+        +--------------+-------------+-------------------+---+---------------+
+        |    'rbf'     |     0.2     |       0.84        |...|       3       |
+        +--------------+-------------+-------------------+---+---------------+
+        |    'rbf'     |     0.3     |       0.70        |...|       2       |
+        +--------------+-------------+-------------------+---+---------------+
+
+        will be represented by a ``cv_results_`` dict of::
+
+            {
+            'param_kernel' : masked_array(data = ['rbf', 'rbf', 'rbf'],
+                                          mask = False),
+            'param_gamma'  : masked_array(data = [0.1 0.2 0.3], mask = False),
+            'split0_test_score'  : [0.80, 0.84, 0.70],
+            'split1_test_score'  : [0.82, 0.50, 0.70],
+            'mean_test_score'    : [0.81, 0.67, 0.70],
+            'std_test_score'     : [0.01, 0.24, 0.00],
+            'rank_test_score'    : [1, 3, 2],
+            'split0_train_score' : [0.80, 0.92, 0.70],
+            'split1_train_score' : [0.82, 0.55, 0.70],
+            'mean_train_score'   : [0.81, 0.74, 0.70],
+            'std_train_score'    : [0.01, 0.19, 0.00],
+            'mean_fit_time'      : [0.73, 0.63, 0.43],
+            'std_fit_time'       : [0.01, 0.02, 0.01],
+            'mean_score_time'    : [0.01, 0.06, 0.04],
+            'std_score_time'     : [0.00, 0.00, 0.00],
+            'params'             : [{'kernel' : 'rbf', 'gamma' : 0.1}, ...],
+            }
+
+        NOTE
+
+        The key ``'params'`` is used to store a list of parameter
+        settings dicts for all the parameter candidates.
+
+        The ``mean_fit_time``, ``std_fit_time``, ``mean_score_time`` and
+        ``std_score_time`` are all in seconds.
+
+        For multi-metric evaluation, the scores for all the scorers are
+        available in the ``cv_results_`` dict at the keys ending with that
+        scorer's name (``'_<scorer_name>'``) instead of ``'_score'`` shown
+        above. ('split0_test_precision', 'mean_train_precision' etc.)
+
+    best_estimator_ : estimator
+        Estimator that was chosen by the search, i.e. estimator
+        which gave highest score (or smallest loss if specified)
+        on the left out data. Not available if ``refit=False``.
+
+        For multi-metric evaluation, this attribute is present only if
+        ``refit`` is specified.
+
+    best_score_ : float
+        Mean cross-validated score of the best_estimator.
+
+        For multi-metric evaluation, this is not available if ``refit`` is
+        ``False``. See ``refit`` parameter for more information.
+
+    best_params_ : dict
+        Parameter setting that gave the best results on the hold out data.
+
+        For multi-metric evaluation, this is not available if ``refit`` is
+        ``False``. See ``refit`` parameter for more information.
+
+    best_index_ : int
+        The index (of the ``cv_results_`` arrays) which corresponds to the best
+        candidate parameter setting.
+
+        The dict at ``search.cv_results_['params'][search.best_index_]`` gives
+        the parameter setting for the best model, that gives the highest
+        mean score (``search.best_score_``).
+
+        For multi-metric evaluation, this is not available if ``refit`` is
+        ``False``. See ``refit`` parameter for more information.
+
+    scorer_ : function or a dict
+        Scorer function used on the held out data to choose the best
+        parameters for the model.
+
+        For multi-metric evaluation, this attribute holds the validated
+        ``scoring`` dict which maps the scorer key to the scorer callable.
+
+    n_splits_ : int
+        The number of cross-validation splits (folds/iterations).
+
+    refit_time_ : float
+        Seconds used for refitting the best model on the whole dataset.
+
+        This is present only if ``refit`` is not False.
+
+    multimetric_ : bool
+        Whether or not the scorers compute several metrics.
+
+    classes_ : ndarray of shape (n_classes,)
+        The classes labels. This is present only if ``refit`` is specified and
+        the underlying estimator is a classifier.
+
+    n_features_in_ : int
+        Number of features seen during :term:`fit`. Only defined if
+        `best_estimator_` is defined (see the documentation for the `refit`
+        parameter for more details) and that `best_estimator_` exposes
+        `n_features_in_` when fit.
+
+    feature_names_in_ : ndarray of shape (`n_features_in_`,)
+        Names of features seen during :term:`fit`. Only defined if
+        `best_estimator_` is defined (see the documentation for the `refit`
+        parameter for more details) and that `best_estimator_` exposes
+        `feature_names_in_` when fit.
+
+    
+    Examples
+    --------
+    >>> from gofast.models.selection import SequentialSearchCV
+    >>> from sklearn.datasets import load_iris
+    >>> from sklearn.svm import SVC
+    >>> X, y = load_iris(return_X_y=True)
+    >>> param_space = {'C': [1, 10, 100], 'gamma': [0.001, 0.0001]}
+    >>> search = SequentialSearchCV(estimator=SVC(), param_space=param_space)
+    >>> search.fit(X, y)
+    >>> print(search.best_params_)
+    
+    Notes
+    -----
+    SMBO is particularly useful for optimization problems with expensive evaluations,
+    as it efficiently narrows down the search space using the surrogate model.
+    
+    References
+    ----------
+    - Snoek, J., Larochelle, H., & Adams, R. P. (2012). Practical Bayesian Optimization 
+       of Machine Learning Algorithms. Advances in Neural Information Processing Systems.
+       
+    """
+    _required_parameters = ["estimator", "param_space"]
+
+    def __init__(
+        self,
+        estimator,
+        param_space,
+        *,
+        n_iter=10,
+        scoring=None,
+        n_jobs=None,
+        refit=True,
+        cv=None,
+        verbose=0,
+        pre_dispatch="2*n_jobs",
+        random_state=None,
+        error_score=np.nan,
+        return_train_score=False,
+    ):
+        self.param_space = param_space
+        self.n_iter = n_iter
+        self.random_state = random_state
+        
+        super().__init__(
+            estimator=estimator,
+            scoring=scoring,
+            n_jobs=n_jobs,
+            refit=refit,
+            cv=cv,
+            verbose=verbose,
+            pre_dispatch=pre_dispatch,
+            error_score=error_score,
+            return_train_score=return_train_score,
+        )
+
+    def _run_search(self, evaluate_candidates):
+        """
+        Perform the search over the parameter space.
+
+        This method samples a fixed number of candidate parameter sets from the
+        defined parameter space. It uses `ParameterSampler` to generate parameter
+        combinations, which are then evaluated to find the best set of parameters
+        for the given estimator.
+
+        The method is specifically designed to be called internally by the `fit`
+        method of the base class during the hyperparameter optimization process.
+
+        Parameters
+        ----------
+        evaluate_candidates : callable
+            A function provided by the base class that takes a list of candidate
+            parameter settings. It evaluates each parameter setting using 
+            cross-validation and records the results.
+
+        Attributes
+        ----------
+        param_space : dict
+            Dictionary with parameters names as keys and distributions or lists of
+            parameters to try. Distributions must provide a `rvs` method for sampling
+            (such as those from `scipy.stats.distributions`).
+        
+        n_iter : int
+            Number of parameter settings that are sampled. `n_iter` trades off runtime
+            vs quality of the solution.
+        
+        random_state : int, RandomState instance or None, default=None
+            Pseudo-random number generator state used for random uniform sampling from
+            lists of possible values instead of scipy.stats distributions.
+
+        Notes
+        -----
+        `_run_search` does not return any value; instead, it works by side effect,
+        calling the `evaluate_candidates` function and thus modifying the state of
+        the search object with the results of the evaluation.
+
+        Examples
+        --------
+        >>> from sklearn.datasets import load_iris
+        >>> from sklearn.svm import SVC
+        >>> from gofast.models.selection import SMBOSearchCV
+        >>> X, y = load_iris(return_X_y=True)
+        >>> param_space = {'C': scipy.stats.expon(scale=100),
+                           'gamma': scipy.stats.expon(scale=.1)}
+        >>> search = SMBOSearchCV(estimator=SVC(), param_space=param_space, 
+                                        n_iter=50)
+        >>> search._run_search(search._get_param_iterator)
+        """
+        evaluate_candidates(
+            ParameterSampler(
+                self.param_space, self.n_iter, random_state=self.random_state
+            )
+        )
+ 

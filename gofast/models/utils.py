@@ -43,7 +43,7 @@ __all__= [
     "visualize_score_distribution", 
     "performance_over_time", 
     "calculate_custom_metric", 
-    "handle_missing_data", 
+    "handle_missing_in_scores", 
     "export_cv_results", 
     "comparative_analysis", 
     "plot_parameter_importance", 
@@ -56,9 +56,6 @@ __all__= [
     "plot_pairwise_model_comparison",
     "plot_feature_correlation", 
     "quick_evaluation", 
-    "validate_optimizer", 
-    "get_optimizer_method", 
-    "process_estimators_and_params", 
   ]
 
 def align_estimators_with_params(param_grids, estimators=None):
@@ -131,7 +128,6 @@ def align_estimators_with_params(param_grids, estimators=None):
         param_grids3, estimators3)
     >>> print(new_estimators3)
     >>> print(new_param_grids3)
-
 
     """
     if estimators is None:
@@ -364,18 +360,19 @@ def get_optimizer_method(optimizer: str) -> Type[BaseEstimator]:
     # not exist previously.
     if optimizer not in standard_optimizer_dict.keys(): 
         from gofast.models.selection import ( 
-            PSOSearchCV, 
-            SMBOSearchCV, 
+            SwarmSearchCV, 
+            SequentialSearchCV, 
             AnnealingSearchCV, 
             EvolutionarySearchCV, 
-            GradientBasedSearchCV,
+            GradientSearchCV,
             GeneticSearchCV 
             ) 
         gofast_optimizer_dict = { 
-            'PSOSearchCV': PSOSearchCV,'SMBOSearchCV': SMBOSearchCV,
+            'SwarmSearchCV': SwarmSearchCV,
+            'SequentialSearchCV': SequentialSearchCV,
             'AnnealingSearchCV': AnnealingSearchCV,
             'EvolutionarySearchCV': EvolutionarySearchCV,
-            'GradientBasedSearchCV': GradientBasedSearchCV,
+            'GradientSearchCV': GradientSearchCV,
             'GeneticSearchCV': GeneticSearchCV,
             }
         standard_optimizer_dict ={**standard_optimizer_dict,**gofast_optimizer_dict }
@@ -488,12 +485,12 @@ def validate_optimizer(optimizer: Union[str, _F]) -> str:
         'RandomizedSearchCV': ['RSCV', 'RandomizedSearchCV'], 
         'GridSearchCV': ['GSCV', 'GridSearchCV'], 
         'BayesSearchCV': ['BSCV', 'BayesSearchCV'], 
-        'AnnealingSearchCV': ['ASCV', "AnnealingSearchCV"], 
-        'PSOSearchCV': ['PSCV', 'PSOSearchCV'], 
-        'SMBOSearchCV': ['SSCV', 'SMBOSearchCV'], 
-        'EvolutionarySearchCV': ['ESCV', 'EvolutionarySearchCV'], 
-        'GradientBasedSearchCV':['GBSCV', 'GradientBasedSearchCV'], 
-        'GeneticSearchCV': ['GASCV', 'GeneticSearchCV']
+        'AnnealingSearchCV': ['ANSCV', "AnnealingSearchCV"], 
+        'SwarmSearchCV': ['SWSCV', 'SwarmSearchCV'], 
+        'SequentialSearchCV': ['SQSCV', 'SequentialSearchCV'], 
+        'EvolutionarySearchCV': ['EVSCV', 'EvolutionarySearchCV'], 
+        'GradientSearchCV':['GRSCV', 'GradientSearchCV'], 
+        'GeneticSearchCV': ['GESCV', 'GeneticSearchCV']
     }
 
     optimizer_name = optimizer if isinstance(
@@ -1014,7 +1011,7 @@ def calculate_custom_metric(cv_scores, metric_function):
     """
     return metric_function(cv_scores)
 
-def handle_missing_data(cv_scores, fill_value=np.nan):
+def handle_missing_in_scores(cv_scores, fill_value=np.nan):
     """
     Handle missing or incomplete data in cross-validation scores.
 
