@@ -114,7 +114,7 @@ _estimators ={
         'bag': ['BaggingClassifier', 'bag', 'bag', 'bagg'],
         'stc': ['StackingClassifier','stc', 'sta', 'stack'],
     'xgboost': ['ExtremeGradientBoosting', 'xgboost', 'gboost', 'gbdm', 'xgb'], 
-     'logit': ['LogisticRegression', 'logit', 'lr', 'logreg'], 
+      'logit': ['LogisticRegression', 'logit', 'lr', 'logreg'], 
      'extree': ['ExtraTreesClassifier', 'extree', 'xtree', 'xtr']
         }  
 #------
