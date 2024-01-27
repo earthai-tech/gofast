@@ -10,6 +10,7 @@ Inspired from the machine learning popular dataset loading
 """
 import os
 import scipy 
+import joblib
 import numpy as np
 from importlib import resources 
 from importlib.resources import files
@@ -18,14 +19,12 @@ from .io import (csv_data_loader, _to_dataframe, DMODULE,
     description_loader, DESCR, RemoteDataURL ) 
 from ..tools.baseutils import read_data, fancier_downloader , check_file_exists   
 from ..tools.mlutils import split_train_test_by_id, existfeatures
-from ..tools.funcutils import ( 
-    to_numeric_dtypes , 
-    smart_format, 
-    key_checker, 
-    random_sampling,
-    assert_ratio, 
-    )
+from ..tools.funcutils import  to_numeric_dtypes , smart_format, key_checker
+from ..tools.funcutils import  random_sampling, assert_ratio
+from ..tools.funcutils import  format_to_datetime, is_in_if
 from ..tools.box import Boxspace
+from ._globals import FORENSIC_BF_DICT, FORENSTIC_LABELS_DESCR
+
 
 __all__= [ "load_iris",  "load_hlogs", "load_mxs", "load_nlogs"]
 
@@ -35,7 +34,6 @@ def load_hlogs (
          **kws): 
     
     drop_observations =kws.pop("drop_observations", False)
-    
     cf = as_frame 
     key = key or 'h502' 
     # assertion error if key does not exist. 
@@ -53,7 +51,6 @@ def load_hlogs (
         'h805'
         }
     is_keys = set ( list(available_sets) + ["*"])
-
     key = key_checker(key, is_keys)
     
     data_file ='h.h5'
@@ -354,7 +351,7 @@ def load_nlogs (
     # upload the description file.
     descr_suffix= {"b0": '', "ns":"+", "ls":"++"}
     fdescr = description_loader(
-        descr_module=DESCR,descr_file=f"nanshang{descr_suffix.get(key)}.rst")
+        descr_module=DESCR,descr_file=f"nansha{descr_suffix.get(key)}.rst")
 
     return Boxspace(
         data=data.values,
@@ -465,8 +462,13 @@ To retrieve land subsidence data for specific years with display rate:
 """
 
 def load_bagoue(
-        *, return_X_y=False, as_frame=False, split_X_y=False, test_size =.3 , 
-        tag=None , data_names=None, **kws
+        *, return_X_y=False, 
+        as_frame=False, 
+        split_X_y=False, 
+        test_size =.3 , 
+        tag=None , 
+        data_names=None, 
+        **kws
  ):
     cf = as_frame 
     data_file = "bagoue.csv"
@@ -718,7 +720,7 @@ def load_mxs (
     shuffle=False,
     test_ratio=.2,  
     **kws): 
-    import joblib
+    
 
     drop_observations =kws.pop("drop_observations", False)
     
@@ -1014,8 +1016,14 @@ def _get_subsidence_data (
     
     
 def load_bagoue(
-        *, return_X_y=False, as_frame=False, split_X_y=False, test_size =.3 , 
-        tag=None , data_names=None, **kws
+        *, 
+        return_X_y=False, 
+        as_frame=False, 
+        split_X_y=False, 
+        test_size =.3 , 
+        tag=None , 
+        data_names=None,
+        **kws
  ):
     cf = as_frame 
     data_file = "bagoue.csv"
@@ -1127,42 +1135,147 @@ To explore a subset of samples:
 >>> d.target[[10, 25
 """   
 
-column_name_mapping = {
-    "Timestamp": "timestamp",
-    "sex": "gender",
-    "Age": "age",
-    "Level of study": "education_level",
-    "Occupation": "occupation",
-    "Do you think you know enough about using DNA to solve crimes?": "dna_knowledge",
-    "If YES, where did you get this information about using DNA to solve crimes?": "dna_info_source",
-    "As part of criminal investigations: Do you think that the creation of a national DNA database in Burkina Faso is:": "support_national_dna_db_bf",
-    "Who should be responsible for the custody and management of a national DNA database in Burkina Faso?": "dna_db_custodian_bf",
-    "Criteria for inclusion of a genetic profile in a DNA database. To be reserved for:": "dna_db_inclusion_criteria",
-    "Should profiles from crime scenes be included directly in the national DNA database?": "include_crime_scene_profiles",
-    "What type of offense would merit the DNA profile of a convicted person being recorded in the database?": "offense_type_dna_recording",
-    "For how long do you consider it necessary or normal for a DNA profile to be stored in a national database?": "dna_storage_duration",
-    "As part of family research": "dna_use_family_research",
-    "As part of research in the event of natural disasters and attacks": "dna_use_disaster_research",
-    "As part of Cooperation with INTERPOL": "dna_use_interpol_cooperation",
-    "As part of the fight against terrorism and organized crime": "dna_use_terrorism_fight",
-    "Do you think this is an invasion of privacy?": "privacy_invasion_opinion",
-    "Would you agree to voluntarily donate your own DNA to enrich a possible genetic database? (NB: This could help, for example, to find your loved ones or to identify you in the event of your disappearance...)": "voluntary_dna_donation",
-    "What is your level of concern about the risk of invasion of privacy?": "privacy_risk_concern",
-    "Are you concerned about misuse of this database?": "database_misuse_concern",
-    "Do you think they use DNA profiles in criminal investigations?": "dna_use_in_investigations",
-    "Do you think that the police and national gendarmerie services must be equipped with scientific and especially genetic laboratories to support criminal investigations?": "police_lab_support_need",
-    "Do you instead think that forensic DNA testing should be carried out by the private sector?": "forensic_dna_private_sector",
-    "Or do you rather think that forensic DNA testing should be carried out by an autonomous state institution other than the Police and Gendarmerie?": "forensic_dna_autonomous_institution",
-    "What would you like to say to the initiators of this investigation?": "message_to_investigators"
-}
+def load_forensic( *, 
+       return_X_y=False, 
+       as_frame=False, 
+       key=None, 
+       split_X_y=False, 
+       test_size =.3 ,  
+       tag=None , 
+       data_names=None, 
+       **kws
+):
+   cf = as_frame 
+   key = key or 'preprocessed'
+   key = key_checker(key, valid_keys=("raw", "preprocessed"), 
+                     deep_search=True )
+   data_file = f"forensic_bf{'+'if key=='preprocessed' else ''}.csv"
 
-# Now, apply the renaming to a DataFrame (hypothetical code, assuming 'df' is your DataFrame):
-# df.rename(columns=column_name_mapping, inplace=True)
-    
-    
-    
-    
-    
+   with resources.path (DMODULE, data_file) as p : 
+       file = str(p)
+   data = pd.read_csv ( file )
+   
+   frame = None
+   target_columns = [
+       "dna_use_terrorism_fight",
+   ]
+   feature_names= is_in_if(data, items=target_columns, return_diff=True)
+   
+   frame, data, target = _to_dataframe(
+        data, feature_names = feature_names, tnames = target_columns, 
+        )
+   frame = format_to_datetime(to_numeric_dtypes(frame), date_col ='timestamp')
+
+   if split_X_y: 
+       X, Xt = split_train_test_by_id (data = frame , test_ratio= test_size, 
+                                       keep_colindex= False )
+       y = X.flow ;  X.drop(columns =target_columns, inplace =True)
+       yt = Xt.flow ; Xt.drop(columns =target_columns, inplace =True)
+       
+       return  (X, Xt, y, yt ) if cf else (
+           X.values, Xt.values, y.values , yt.values )
+   
+   if as_frame and not return_X_y: 
+       return frame 
+
+   if return_X_y:
+       return data, target
+   
+   fdescr = description_loader(
+       descr_module=DESCR,descr_file=data_file.replace (".csv", ".rst"))
+   
+   return Boxspace(
+       data=data,
+       target=target,
+       frame=frame,
+       tnames=target_columns,
+       target_names=target_columns,
+       DESCR=fdescr,
+       feature_names=feature_names,
+       filename=data_file,
+       data_module=DMODULE,
+       labels_descr=FORENSTIC_LABELS_DESCR,
+       colums_descr= FORENSIC_BF_DICT
+   )
+load_forensic.__doc__="""\
+Load and return the forensic dataset for criminal investigation studies.
+
+This function provides access to a forensic dataset, which includes public 
+opinion and knowledge regarding DNA databases, their potential use in criminal
+investigations, and concerns related to privacy and misuse. The dataset is 
+derived from a study on the need for a forensic DNA database in the Sahel region. 
+It comes in two forms: raw and preprocessed. The raw data includes the original 
+responses, while the preprocessed data contains encoded and cleaned information.
+
+Parameters
+----------
+return_X_y : bool, default=False
+    If True, returns `(data, target)` as separate objects. Otherwise, returns 
+    a Bunch object.
+as_frame : bool, default=False
+    If True, the data and target are returned as a pandas DataFrame and Series, 
+    respectively. This is useful for further analysis and visualization in a 
+    tabular format.
+key : {'raw', 'preprocessed'}, default='preprocessed'
+    Specifies which version of the dataset to load. 'raw' for the original 
+    dataset and 'preprocessed' for the processed dataset with encoded 
+    categorical variables.
+split_X_y : bool, default=False
+    If True, splits the dataset into training and testing sets based on the 
+    `test_size` parameter. This is useful for model training and evaluation 
+    purposes.
+test_size : float, default=0.3
+    The proportion of the dataset to include in the test split. It should be 
+    between 0.0 and 1.0 and represent the size of the test dataset relative to 
+    the original dataset.
+tag : str or None, optional
+    An optional tag to filter or categorize the data. Useful for specific 
+    analyses within the dataset.
+data_names : list of str or None, optional
+    Specific names of datasets to be loaded. If None, all datasets are loaded.
+**kws : dict, optional
+    Additional keyword arguments to pass to the data loading function. Allows 
+    customization of the data loading process.
+
+Returns
+-------
+boxspace : Bunch object or tuple
+    The function returns a Bunch object when `return_X_y` is False. When True,
+    returns `(data, target)` 
+    as separate objects. The Bunch object has the following attributes:
+    - data : ndarray, shape (n_samples, n_features)
+      The data matrix with features.
+    - target : ndarray, shape (n_samples,)
+      The classification targets.
+    - frame : DataFrame
+      A DataFrame with `data` and `target` when `as_frame=True`.
+    - DESCR : str
+      The full description of the dataset.
+    - feature_names : list
+      Names of the feature columns.
+    - target_names : list
+      Names of the target columns.
+    - target_columns : list
+      Column names in the dataset used as targets.
+    - labels_descr, columns_descr : dict
+      Formatted dictionaries providing descriptions for categorical labels.
+
+Examples
+--------
+>>> from your_module import load_forensic
+>>> forensic_data = load_forensic(key='raw', as_frame=True)
+>>> print(forensic_data.frame.head())
+
+References
+----------
+Detailed dataset descriptions can be found in the forensic_bf.rst and 
+forensic_bf+.rst files. These documents provide insights into the dataset's 
+creation, structure, and attributes.
+"""
+
+
+
+  
     
     
     

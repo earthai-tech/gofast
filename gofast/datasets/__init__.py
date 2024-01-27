@@ -11,6 +11,7 @@ from .sets import (
     load_nlogs, 
     load_mxs, 
     fetch_data, 
+    load_forensic, 
     DATASET
     )
 from ._create import ( 
@@ -37,6 +38,7 @@ __all__=[
          "load_iris",
          "load_hlogs",
          "load_nlogs", 
+         "load_forensic",
          "load_mxs", 
          "fetch_data",
          "make_elogging", 

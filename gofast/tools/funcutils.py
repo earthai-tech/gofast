@@ -82,7 +82,7 @@ except ImportError:
     
 # xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
-def format_to_datetime(data,/,  date_col):
+def format_to_datetime(data,/,  date_col, verbose=0):
     """
     Reformats a specified column in a DataFrame to Pandas 
     datetime format.
@@ -115,7 +115,8 @@ def format_to_datetime(data,/,  date_col):
         return data
     try:
         data[date_col] = pd.to_datetime(data[date_col])
-        print(f"Column '{date_col}' successfully converted to datetime format.")
+        if verbose: 
+            print(f"Column '{date_col}' successfully converted to datetime format.")
     except ValueError as e:
         print(f"Error converting '{date_col}' to datetime format: {e}")
     
@@ -5825,8 +5826,7 @@ def key_checker (
     deep_search: bool, default=False 
        If deep-search, the key finder is no sensistive to lower/upper case 
        or whether a numeric data is included. 
-       
-       .. versionadded:: 0.2.5 
+ 
        
     Returns 
     --------
@@ -7115,6 +7115,65 @@ def normalize_string(
         raise ValueError(error_msg)
 
     return ('', None) if return_target_str else ''
+
+def format_and_print_dict(data_dict, front_space=4):
+    """
+    Formats and prints the contents of a dictionary in a structured way.
+
+    Each key-value pair in the dictionary is printed with the key followed by 
+    its associated values. 
+    The values are expected to be dictionaries themselves, allowing for a nested 
+    representation.
+    The inner dictionary's keys are sorted in descending order before printing.
+
+    Parameters
+    ----------
+    data_dict : dict
+        A dictionary where each key contains a dictionary of items to be printed. 
+        The key represents a category
+        or label, and the value is another dictionary where each key-value pair 
+        represents an option or description.
+        
+    front_space : int, optional
+        The number of spaces used for indentation in front of each line (default is 4).
+
+
+    Returns
+    -------
+    None
+        This function does not return any value. It prints the formatted contents 
+        of the provided dictionary.
+
+    Examples
+    --------
+    >>> sample_dict = {
+            'gender': {1: 'Male', 0: 'Female'},
+            'age': {1: '35-60', 0: '16-35', 2: '>60'}
+        }
+    >>> format_and_print_dict(sample_dict)
+    gender:
+        1: Male
+        0: Female
+    age:
+        2: >60
+        1: 35-60
+        0: 16-35
+    """
+    if not isinstance(data_dict, dict):
+        raise TypeError("The input data must be a dictionary.")
+
+    indent = ' ' * front_space
+    for label, options in data_dict.items():
+        print(f"{label}:")
+        options= is_iterable(options, exclude_string=True, transform=True )
+  
+        if isinstance(options, (tuple, list)):
+            for option in options:
+                print(f"{indent}{option}")
+        elif isinstance(options, dict):
+            for key in sorted(options.keys(), reverse=True):
+                print(f"{indent}{key}: {options[key]}")
+        print()  # Adds an empty line for better readability between categories
 
     
     

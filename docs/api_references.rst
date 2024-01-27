@@ -164,6 +164,7 @@ expedite research and analysis.
    
    datasets.fetch_data
    datasets.load_bagoue
+   datasets.load_forensic 
    datasets.load_iris
    datasets.load_hlogs
    datasets.load_nlogs 
@@ -177,7 +178,7 @@ expedite research and analysis.
    datasets.make_erp 
    datasets.make_ert 
    datasets.make_gadget_sales 
-   datasets.make_medical_diagnostic 
+   datasets.make_medical_diagnosis
    datasets.make_mining_ops
    datasets.make_regression
    datasets.make_retail_store 
@@ -564,10 +565,10 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.standard_scaler
    tools.stats_from_prediction
    tools.step_regression
+   tools.store_data 
    tools.store_or_write_hdf5
    tools.stratify_categories
    tools.to_numeric_dtypes
-   tools.unified_storage 
    tools.verify_data_integrity
       
 .. _plot_ref:

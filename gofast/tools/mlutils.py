@@ -277,7 +277,7 @@ def codify_variables (
     if categories is None: 
         categories ={}
         for col in cat_columns: 
-            categories[col] = list(np.unique (df[col] ))
+            categories[col] = list(np.unique (df[col]))
             
     # categories should be a mapping data 
     if not isinstance ( categories, dict ): 

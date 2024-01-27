@@ -124,6 +124,36 @@ def summarize_text_columns(
         sentences = [sentence.strip() for sentence in sentences if sentence]
         if len(sentences) <= 1:
             return text, None
+    
+        vectorizer = TfidfVectorizer(stop_words=stop_words)
+        tfidf_matrix = vectorizer.fit_transform(sentences)
+        similarity_matrix = cosine_similarity(tfidf_matrix, tfidf_matrix)
+        # The similarity matrix is square, so we need to avoid comparing a 
+        # sentence to itself
+        np.fill_diagonal(similarity_matrix, 0)
+        # Sum the similarities of each sentence to all others
+        sentence_scores = similarity_matrix.sum(axis=1)
+        # Identify the index of the most important sentence
+        most_important_sentence_index = np.argmax(sentence_scores)
+        summary = sentences[most_important_sentence_index]
+        encoding = tfidf_matrix[most_important_sentence_index].todense() if encode else None
+        if encoding is not None and compression_method:
+            if compression_method == 'sum':
+                encoding = np.sum(encoding)
+            elif compression_method == 'mean':
+                encoding = np.mean(encoding)
+            elif compression_method == 'norm':
+                encoding = np.linalg.norm(encoding)
+            else: 
+                raise ValueError(
+                    f"Unsupported compression method: {compression_method}")
+        return summary, encoding
+        
+    def _summarize_and_encode0(text):
+        sentences = text.split('.')
+        sentences = [sentence.strip() for sentence in sentences if sentence]
+        if len(sentences) <= 1:
+            return text, None
         vectorizer = TfidfVectorizer(stop_words=stop_words)
         tfidf_matrix = vectorizer.fit_transform(sentences)
         similarity_matrix = cosine_similarity(tfidf_matrix, tfidf_matrix).flatten()
@@ -169,6 +199,7 @@ def summarize_text_columns(
 
     if drop_original:
         data.drop(columns=column_names, inplace=True)
+        data.columns = [ c.replace ("_encoded", '') for c in data.columns]
 
     return data
 
@@ -1631,7 +1662,63 @@ def handle_datasets_with_hdfstore(
                 datasets_retrieved[name.strip('/')] = store[name]
         return datasets_retrieved
     
-def unified_storage(
+def store_or_retrieve_data(
+    file_path: str,
+    datasets: Optional[Dict[str, Union[ArrayLike, DataFrame]]] = None,
+    operation: str = 'store'
+) -> Optional[Dict[str, Union[ArrayLike, DataFrame]]]:
+    """
+    Handles storing or retrieving multiple datasets (numpy arrays or Pandas
+    DataFrames) in an HDF5 file.
+
+    Parameters
+    ----------
+    file_path : str
+        Path to the HDF5 file for storing or retrieving datasets.
+    datasets : dict, optional
+        A dictionary with dataset names as keys and datasets 
+        (numpy arrays or Pandas DataFrames) as values.
+        Required if operation is 'store'.
+    operation : str
+        The operation to perform - 'store' for storing datasets, 'retrieve' 
+        for retrieving datasets.
+
+    Returns
+    -------
+    Optional[Dict[str, Union[np.ndarray, pd.DataFrame]]]
+        If operation is 'retrieve', returns a dictionary with dataset names 
+        as keys and datasets as values. If operation is 'store', returns None.
+
+    Raises
+    ------
+    ValueError
+        If an invalid operation is specified or required parameters are missing.
+    TypeError
+        If provided datasets are not in supported formats 
+        (numpy arrays or pandas DataFrames).
+    """
+
+    valid_operations = {'store', 'retrieve'}
+    if operation not in valid_operations:
+        raise ValueError(f"Invalid operation '{operation}'. "
+                         f"Choose from {valid_operations}.")
+
+    with pd.HDFStore(file_path, mode='a' if operation == 'store' else 'r') as store:
+        if operation == 'store':
+            if not datasets:
+                raise ValueError("Datasets are required for the 'store' operation.")
+
+            for name, data in datasets.items():
+                if not isinstance(data, (pd.DataFrame, np.ndarray)):
+                    raise TypeError("Unsupported data type. Only numpy arrays "
+                                    "and pandas DataFrames are supported.")
+                
+                store[name] = pd.DataFrame(data) if isinstance(data, np.ndarray) else data
+
+        elif operation == 'retrieve':
+            return {name.replace ("/", ""): store[name] for name in store.keys()}
+        
+def unify_data(
     file_path: str,
     datasets: Optional[Dict[str, Union[ArrayLike, DataFrame]]] = None, 
     operation: str = 'store'
@@ -1648,7 +1735,7 @@ def unified_storage(
     datasets : dict, optional
         A dictionary where keys are dataset names and values are the 
         datasets (numpy arrays or Pandas DataFrames).
-        Required if operation is 'store'. Default is None.
+        Required if operation is 'store'. 
     operation : str
         The operation to perform - 'store' for storing datasets, 'retrieve' 
         for retrieving datasets.
@@ -1673,11 +1760,11 @@ def unified_storage(
     >>> data1 = np.random.rand(100, 10)
     >>> df1 = pd.DataFrame(np.random.randint(0, 100, size=(200, 5)),
                            columns=['A', 'B', 'C', 'D', 'E'])
-    >>> handle_datasets_in_h5('my_datasets.h5', {'dataset1': data1, 'df1': df1},
+    >>> store_data('my_datasets.h5', {'dataset1': data1, 'df1': df1},
                               operation='store')
 
     Retrieving datasets:
-    >>> datasets = handle_datasets_in_h5('my_datasets.h5', operation='retrieve')
+    >>> datasets = store_data('my_datasets.h5', operation='retrieve')
     >>> print(datasets.keys())
     """
     if operation not in ['store', 'retrieve']:
