@@ -1635,6 +1635,9 @@ def handle_datasets_with_hdfstore(
 
     Examples
     --------
+    >>> import pandas as pd 
+    >>> from gofast.tools.baseutils import handle_datasets_with_hdfstore
+    
     Storing datasets:
     >>> df1 = pd.DataFrame(np.random.rand(100, 10), columns=[f'col_{i}' for i in range(10)])
     >>> df2 = pd.DataFrame(np.random.randint(0, 100, size=(200, 5)), columns=['A', 'B', 'C', 'D', 'E'])
@@ -1718,7 +1721,7 @@ def store_or_retrieve_data(
         elif operation == 'retrieve':
             return {name.replace ("/", ""): store[name] for name in store.keys()}
         
-def unify_data(
+def base_storage(
     file_path: str,
     datasets: Optional[Dict[str, Union[ArrayLike, DataFrame]]] = None, 
     operation: str = 'store'
@@ -2471,9 +2474,10 @@ def handle_missing_data(
     fig_size: Tuple[int, int] = (12, 5)
 ) -> Union[DataFrame, Tuple[DataFrame, dict]]:
     """
-    Analyzes patterns of missing data in the DataFrame, optionally displays a heatmap 
-    before and after handling missing data, and handles missing data based on the 
-    specified method.
+    Analyzes patterns of missing data in the DataFrame. 
+    
+    Optionally, function displays a heatmap before and after handling missing 
+    data, and handles missing data based on the specified method.
 
     Parameters
     ----------
@@ -2564,9 +2568,10 @@ def inspect_data(
     categorical_threshold: float = 0.75
 ) -> None:
     """
-    Performs an exhaustive inspection of a DataFrame, evaluating data integrity,
-    providing detailed statistics, and offering tailored recommendations 
-    to ensure data quality for analysis or modeling.
+    Performs an exhaustive inspection of a DataFrame. 
+    
+    Funtion evaluates data integrity,provides detailed statistics, and offers
+    tailored recommendations to ensure data quality for analysis or modeling.
 
     This function is integral for identifying and understanding various aspects
     of data quality such as missing values, duplicates, outliers, imbalances, 
@@ -2592,8 +2597,8 @@ def inspect_data(
     Returns
     -------
     None
-        Prints a comprehensive report including data integrity assessment, statistics,
-        and recommendations for data preprocessing.
+        Prints a comprehensive report including data integrity assessment, 
+        statistics, and recommendations for data preprocessing.
 
     Example
     -------
@@ -2830,8 +2835,9 @@ def assess_outlier_impact(
     verbose: bool = False
 ) -> Tuple[float, float]:
     """
-    Assess the impact of outliers on the predictive performance of a model, 
-    applicable for both regression and classification tasks.
+    Assess the impact of outliers on the predictive performance of a model. 
+    
+    Applicable for both regression and classification tasks.
 
     Parameters
     ----------

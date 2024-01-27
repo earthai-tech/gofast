@@ -3031,11 +3031,11 @@ class SequentialSearchCV (BaseSearchCV ):
         --------
         >>> from sklearn.datasets import load_iris
         >>> from sklearn.svm import SVC
-        >>> from gofast.models.selection import SMBOSearchCV
+        >>> from gofast.models.selection import SequentialSearchCV
         >>> X, y = load_iris(return_X_y=True)
         >>> param_space = {'C': scipy.stats.expon(scale=100),
                            'gamma': scipy.stats.expon(scale=.1)}
-        >>> search = SMBOSearchCV(estimator=SVC(), param_space=param_space, 
+        >>> search = SequentialSearchCV(estimator=SVC(), param_space=param_space, 
                                         n_iter=50)
         >>> search._run_search(search._get_param_iterator)
         """
