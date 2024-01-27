@@ -23,7 +23,7 @@ from ..tools.funcutils import  to_numeric_dtypes , smart_format, key_checker
 from ..tools.funcutils import  random_sampling, assert_ratio
 from ..tools.funcutils import  format_to_datetime, is_in_if
 from ..tools.box import Boxspace
-from ._globals import FORENSIC_BF_DICT, FORENSTIC_LABELS_DESCR
+from ._globals import FORENSIC_BF_DICT, FORENSIC_LABELS_DESCR
 
 
 __all__= [ "load_iris",  "load_hlogs", "load_mxs", "load_nlogs"]
@@ -1194,7 +1194,7 @@ def load_forensic( *,
        feature_names=feature_names,
        filename=data_file,
        data_module=DMODULE,
-       labels_descr=FORENSTIC_LABELS_DESCR,
+       labels_descr=FORENSIC_LABELS_DESCR,
        colums_descr= FORENSIC_BF_DICT
    )
 load_forensic.__doc__="""\

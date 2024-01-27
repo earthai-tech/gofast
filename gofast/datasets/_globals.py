@@ -38,7 +38,7 @@ FORENSIC_BF_DICT={
     'message_to_investigators': 'What would you like to say to the initiators of this investigation?'
 }
 
-FORENSTIC_LABELS_DESCR={
+FORENSIC_LABELS_DESCR={
  'gender': {
                   1: 'Male', 
                   0: 'Female'},
