@@ -74,13 +74,16 @@ Forensic BF Dataset
     A DNA database will improve investigations.           0.004167
     ...
 
-    :Creator: Zeye, Moutanou Modeste Judes et al.
+    :Creator: Kouadio K. Laurent (etanoyau@gmail.com)
+	:Donor: Zeye, Moutanou Modeste Judes et al. (zeyemodeste@gmail.com) 
     :Source: "Forensic DNA database and criminal investigation in the Sahel region, a need to update the National Security Policy?"
     :Publisher: Oxford University Press
     :DOI: https://doi.org/10.1093/fsr/owad056
     :Year: 2024
 
-This dataset is part of a study on the need for a forensic DNA database for criminal investigation in the Sahel region. It explores various aspects of public opinion and knowledge regarding DNA databases, their potential use in criminal investigations, and concerns related to privacy and misuse.
+This dataset is part of a study on the need for a forensic DNA database for criminal investigation in the Sahel region. It explores 
+various aspects of public opinion and knowledge regarding DNA databases, their potential use in criminal investigations, and concerns 
+related to privacy and misuse.
 
 .. topic:: References
 

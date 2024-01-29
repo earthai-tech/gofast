@@ -1,4 +1,4 @@
-.. _nanshang_dataset:
+.. _nansha_dataset:
 
 Nanshang District Boreholes Dataset
 ------------------------------------
@@ -48,7 +48,7 @@ Nanshang District Boreholes Dataset
     :Donor: Central South University - School of Geosciences and Info-physics (https://en.csu.edu.cn/)
     :Date: June 2023
 
-The Nanshang data, collected as part of the Nanshang project from 2018 to 2019, focuses primarily on hydrogeological drilling. 
+The Nansha data, collected as part of the Nansha project from 2018 to 2019, focuses primarily on hydrogeological drilling. 
 The project's main objective was to predict potential land subsidence from 2024 to 2035, utilizing various influential factors 
 including InSAR data, highway maps, proximity to roads, and the Pearl River, among others.
 

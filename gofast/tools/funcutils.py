@@ -82,10 +82,15 @@ except ImportError:
     
 # xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
-def format_to_datetime(data,/,  date_col, verbose=0):
+def format_to_datetime(data, date_col, verbose=0, **dt_kws):
     """
-    Reformats a specified column in a DataFrame to Pandas 
-    datetime format.
+    Reformats a specified column in a DataFrame to Pandas datetime format.
+
+    This function attempts to convert the values in the specified column of a 
+    DataFrame to Pandas datetime objects. If the conversion is successful, 
+    the DataFrame with the updated column is returned. If the conversion fails, 
+    a message describing the error is printed, and the original 
+    DataFrame is returned.
 
     Parameters
     ----------
@@ -93,34 +98,49 @@ def format_to_datetime(data,/,  date_col, verbose=0):
         The DataFrame containing the column to be reformatted.
     date_col : str
         The name of the column to be converted to datetime format.
+    verbose : int, optional
+        Verbosity mode; 0 or 1. If 1, prints messages about the conversion 
+        process.Default is 0 (silent mode).
+    **dt_kws : dict, optional
+        Additional keyword arguments to pass to `pd.to_datetime` function.
 
     Returns
     -------
     pandas.DataFrame
-        A DataFrame with the specified column in datetime format, 
-        or the original
-        DataFrame if conversion is not possible.
-    Example 
+        A DataFrame with the specified column in datetime format. If conversion
+        fails, the original DataFrame is returned.
+
+    Raises
+    ------
+    ValueError
+        If the specified column is not found in the DataFrame.
+
+    Examples
     --------
-    >>> from gofast.tools import format_to_datetime
     >>> df = pd.DataFrame({
-        'Date': ['2021-01-01', '01/02/2021', '03-Jan-2021', '2021.04.01', '05 May 2021'],
-        'Value': [1, 2, 3, 4, 5]
-    })
+    ...     'Date': ['2021-01-01', '01/02/2021', '03-Jan-2021', '2021.04.01',
+                     '05 May 2021'],
+    ...     'Value': [1, 2, 3, 4, 5]
+    ... })
     >>> df = format_to_datetime(df, 'Date')
     >>> print(df.dtypes)
+    Date     datetime64[ns]
+    Value             int64
+    dtype: object
     """
     if date_col not in data.columns:
-        print(f"Column '{date_col}' not found in DataFrame.")
-        return data
+        raise ValueError(f"Column '{date_col}' not found in DataFrame.")
+    
     try:
-        data[date_col] = pd.to_datetime(data[date_col])
+        data[date_col] = pd.to_datetime(data[date_col], **dt_kws)
         if verbose: 
             print(f"Column '{date_col}' successfully converted to datetime format.")
-    except ValueError as e:
+    except Exception as e:
         print(f"Error converting '{date_col}' to datetime format: {e}")
-    
+        return data
+
     return data
+
 
 
 def get_params (obj: object 
