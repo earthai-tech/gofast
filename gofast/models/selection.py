@@ -16,13 +16,13 @@ from gofast.models._selection import GradientBaseSearch, AnnealingBaseSearch
 
 class SwarmSearchCV(PSOBaseSearch):
     """
-    Particle Swarm Optimization for hyperparameter tuning of estimators.
+    Particle Swarm Optimization  for hyperparameter tuning of estimators.
 
-    SwarmSearchCV implements a Particle Swarm Optimization algorithm to find the
-    optimal hyperparameters for a given estimator. PSO is a computational method
-    that iteratively improves a set of candidate solutions concerning a measure
-    of quality, inspired by social behaviors such as bird flocking or fish 
-    schooling.
+    SwarmSearchCV implements a Particle Swarm Optimization (PSO) algorithm to 
+    find the optimal hyperparameters for a given estimator. PSO is a computational 
+    method that iteratively improves a set of candidate solutions concerning 
+    a measure of quality, inspired by social behaviors such as bird flocking 
+    or fish schooling.
     
     Each particle in the swarm represents a candidate solution 
     (a set of hyperparameters). The position and velocity of each particle are 
