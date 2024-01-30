@@ -169,6 +169,7 @@ expedite research and analysis.
    datasets.load_hlogs
    datasets.load_nlogs 
    datasets.load_mxs 
+   datasets.load_jrs_bet 
    datasets.make_sounding 
    datasets.make_african_demo_info 
    datasets.make_agronomy_feedback

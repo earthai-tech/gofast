@@ -1262,7 +1262,7 @@ boxspace : Bunch object or tuple
 
 Examples
 --------
->>> from your_module import load_forensic
+>>> from gofast.datasets import load_forensic
 >>> forensic_data = load_forensic(key='raw', as_frame=True)
 >>> print(forensic_data.frame.head())
 
@@ -1273,15 +1273,344 @@ forensic_bf+.rst files. These documents provide insights into the dataset's
 creation, structure, and attributes.
 """
 
+def load_jrs_bet(
+    *, 
+    return_X_y=False, 
+    as_frame=False,
+    key=None, 
+    split_X_y=False, 
+    test_size=0.2, 
+    tag=None, 
+    data_names=None, 
+    N=5, 
+    seed=None, 
+    **kws
+ ):
+    # Validating the key
+    key = key or 'classic'
+    key = key_checker(key, valid_keys=("raw", "classic", "neural"),
+                      deep_search=True )
 
+    # Loading the dataset
+    data_file = "jrs_bet.csv"
+    with resources.path(DMODULE, data_file) as p: 
+        file = str(p)
+    data = pd.read_csv(file)
 
-  
+    # Preparing the dataset
+    results = _prepare_jrs_bet_data(
+        data, key=key, N=N, split_X_y=split_X_y, return_X_y=return_X_y,
+        test_size=test_size, seed=seed
+        )
+
+    if split_X_y or return_X_y: 
+        return results
+
+    # Processing the data for return
+    target_columns=[] 
+    if key != 'neural': 
+       target_columns = ["target" if key == 'classic' else 'winning_numbers']
+       feature_names = is_in_if(results.columns, items=target_columns,
+                                return_diff=True)
+    else:feature_names= list(results.columns )
+    frame, data, target = _to_dataframe(results, feature_names=feature_names,
+                                        tnames=target_columns)
+
+    if key in ("neural", "raw"):
+        frame = format_to_datetime(to_numeric_dtypes(frame), date_col='date')
+
+    if as_frame:
+        return frame
+
+    # Loading description
+    fdescr = description_loader(descr_module=DESCR, descr_file=data_file.replace(
+        ".csv", f"{'+' if key in ('classic', 'neural') else ''}.rst"))
+
+    # Returning a Boxspace object
+    return Boxspace(
+        data=data,
+        target=target,
+        frame=frame,
+        tnames=target_columns,
+        target_names=target_columns,
+        DESCR=fdescr,
+        feature_names=feature_names,
+        filename=data_file,
+        data_module=DMODULE
+    )
+
+load_jrs_bet.__doc__="""\
+Load and prepare the jrs_bet dataset for machine learning applications.
+
+This function allows for the loading and processing of the `jrs_bet` dataset, 
+a rich collection of betting data. The dataset, in its raw form, includes 
+information such as dates, locations, and winning numbers. Depending on the 
+specified `key`, it can be prepared for classical machine learning models 
+or neural network models, with each approach entailing specific preprocessing 
+steps to optimize the dataset for the chosen model type.
+
+Parameters
+----------
+return_X_y : bool, optional
+    If True, the function returns the features (X) and target (y) as separate
+    objects, rather than a combined dataset. Useful for model training and 
+    evaluation. By default, this is set to False.
+as_frame : bool, optional
+    If True, the data is returned as a pandas DataFrame. This is beneficial for 
+    exploratory data analysis and when working with data manipulation libraries. 
+    By default, this is set to False.
+key : str, optional
+    Specifies the type of data preparation to apply. Options include 'raw' for 
+    no preprocessing, 'classic' for preparation suitable for classical machine 
+    learning models, and 'neural' for preparation tailored to neural network models.
+    Defaults to None, which treats the data as 'classic'.
+split_X_y : bool, optional
+    If True, the dataset is split into features (X) and target (y) during the 
+    preparation process. This is especially useful when the dataset needs to be 
+    directly fed into a machine learning algorithm. By default, this is set to False.
+test_size : float, optional
+    Defines the proportion of the dataset to be used as the test set. This is 
+    important for evaluating the performance of machine learning models. 
+    By default, it is set to 0.2.
+tag : str, optional
+    A custom tag that can be used for dataset processing. This allows for 
+    additional customization or identification during the data preparation process.
+    By default, this is set to None.
+data_names : list, optional
+    Custom names for the data columns. This allows for personalization of the 
+    dataset column names for clarity or specific requirements. By default, 
+    this is set to None.
+N : int, optional
+    Specifies the number of past draws to consider for LSTM models, useful 
+    in the context of the 'neural' key. This parameter is crucial for time-series 
+    prediction tasks. By default, it is set to 5.
+seed : int, optional
+    The seed for the random number generator, which is important for reproducibility 
+    in tasks like dataset splitting. By default, this is set to None.
+kws : dict
+    Additional keyword arguments for more advanced or specific dataset 
+    preparation needs.
+
+Returns
+-------
+boxspace : Bunch object or tuple
+    Depending on the `return_X_y` parameter, the function returns either a 
+    Bunch object (when False) or a tuple of `(data, target)` (when True). 
+    The Bunch object contains several attributes providing insights into the 
+    dataset, including the data matrix (`data`), classification targets (`target`), 
+    a combined DataFrame (`frame` if `as_frame` is True), a full description 
+    (`DESCR`), feature names (`feature_names`), and target names (`target_names`).
+
+Examples
+--------
+>>> from gofast.datasets import load_jrs_bet 
+>>> data_box = load_jrs_bet(key="raw")
+>>> print(data_box.frame.head())
+
+>>> df = load_jrs_bet(as_frame=True, key='neural')
+>>> print(df.head())
+
+>>> X, y = load_jrs_bet(return_X_y=True)
+>>> print(X.head(), y.head())
+
+Notes
+-----
+The jrs_bet dataset is a versatile collection of data suitable for various 
+machine learning applications. The raw dataset serves as a foundational bedrock 
+for betting analysis. When preprocessed for classical machine learning, it 
+undergoes transformation to facilitate models like logistic regression, decision 
+trees, or random forests. For neural network applications, especially RNNs like 
+LSTM, the dataset is structured to capture temporal patterns and dependencies, 
+crucial for deep learning techniques.
+"""
+def _prepare_jrs_bet_data(data, /, key='classic', N=5, split_X_y=False,
+                         return_X_y=False, test_size=0.2, seed=None
+                         ):
+    """
+    Prepare the jrs_bet dataset for machine learning models.
+
+    This function preprocesses the jrs_bet dataset for use in classical machine
+    learning or deep neural network models, specifically LSTM.
+
+    Parameters
+    ----------
+    data : DataFrame
+        The jrs_bet dataset.
+    key : str, optional
+        The type of model to prepare the data for ('classic' or 'neural'),
+        by default 'classic'.
+    N : int, optional
+        The number of past draws to consider for LSTM, by default 5.
+    split_X_y : bool, optional
+        If True, split the dataset into features (X) and target (y),
+        by default False.
+    return_X_y : bool, optional
+        If True, return features (X) and target (y) instead of the whole 
+        dataset, by default False.
+    test_size : float, optional
+        The proportion of the dataset to include in the test split, by default 0.2.
+    seed : int, optional
+        The seed for the random number generator, by default None.
+
+    Returns
+    -------
+    DataFrame or tuple of DataFrames
+        Processed dataset suitable for the specified model type.
+    """
+    # Preprocessing steps
+    data.replace('HOLIDAY', pd.NA, inplace=True)
+    data.dropna(inplace=True)
+    data['date'] = pd.to_datetime(data['date'])
+
+    # Split and convert winning numbers
+    winning_numbers = data['winning_numbers'].str.split('-', expand=True)
+    winning_numbers = winning_numbers.apply(pd.to_numeric)
+
+    # Prepare data based on the specified model type
+    if key in 'classical':
+        return _prepare_for_classical_ml(
+            winning_numbers, split_X_y=split_X_y, return_X_y=return_X_y, 
+            seed=seed, test_size=test_size
+        )
+    if key =="neural":
+        return _prepare_for_neural_networks(
+            winning_numbers, data=data, N=N, split_X_y=split_X_y, 
+            return_X_y=return_X_y, test_size=test_size
+        )
     
+    return data 
+
+def _prepare_for_neural_networks(
+        winning_numbers, /, data, N=5, split_X_y=False, 
+        return_X_y=False, test_size=0.2
+   ):
+    """
+    Prepare the jrs_bet dataset specifically for recurrent neural network models.
+
+    This function processes the winning_numbers from the jrs_bet dataset 
+    for application in recurrent neural network models such as LSTM.
+
+    Parameters
+    ----------
+    winning_numbers : DataFrame
+        Winning numbers from the jrs_bet dataset.
+    data : DataFrame
+        The original jrs_bet dataset with additional columns such as 'date'.
+    N : int, optional
+        The number of past draws to use for sequence generation, by default 5.
+    split_X_y : bool, optional
+        If True, split the dataset into features (X) and target (y), 
+        by default False.
+    return_X_y : bool, optional
+        If True, return features (X) and target (y) instead of the whole 
+        dataset, by default False.
+    test_size : float, optional
+        The proportion of the dataset to include in the test split,
+        by default 0.2.
+
+    Returns
+    -------
+    DataFrame or tuple of arrays
+        Prepared sequences and corresponding targets suitable for RNN models.
+    """
+    from sklearn.preprocessing import MinMaxScaler
+
+    # Concatenate date and winning numbers
+    historical_data = pd.concat([data['date'], winning_numbers], axis=1)
     
+    if not split_X_y and not return_X_y: 
+        return historical_data
+
+    # Generating sequences for LSTM
+    sequences = [winning_numbers.iloc[i:i+N].values.flatten()
+                 for i in range(len(winning_numbers) - N)]
+
+    # Data normalization
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    sequences_normalized = scaler.fit_transform(sequences)
+
+    # Preparing features and targets
+    X = np.array(sequences_normalized)
+    y = np.array([sequences_normalized[i+1] for i in range(
+        len(sequences_normalized)-1)])
+
+    # Reshaping for LSTM
+    X = np.reshape(X, (X.shape[0], X.shape[1], 1))
+
+    # Data splitting
+    train_size = int(len(X) * (1 - test_size))
+    X_train, X_test = X[:train_size], X[train_size:]
+    y_train, y_test = y[:train_size], y[train_size:]
     
+    return (X, y) if return_X_y else (X_train, X_test, y_train, y_test)
+ 
+def _prepare_for_classical_ml(
+        winning_numbers, /, split_X_y=False, return_X_y=False,
+        seed=None, test_size=0.2):
+    """
+    Prepare the jrs_bet dataset for classical machine learning models.
+
+    This function processes the winning_numbers from the jrs_bet dataset for 
+    application in classical machine learning models.
+
+    Parameters
+    ----------
+    winning_numbers : DataFrame
+        Winning numbers from the jrs_bet dataset.
+    split_X_y : bool, optional
+        If True, split the dataset into features (X) and target (y), 
+        by default False.
+    return_X_y : bool, optional
+        If True, return features (X) and target (y) instead of the whole 
+        dataset, by default False.
+    seed : int, optional
+        The seed for the random number generator, by default None.
+    test_size : float, optional
+        The proportion of the dataset to include in the test split,
+        by default 0.2.
+
+    Returns
+    -------
+    DataFrame or tuple of DataFrames
+        Prepared dataset suitable for classical machine learning models.
+    """
+    from sklearn.model_selection import train_test_split 
+    # Frequency and recency analysis
+    frequency_analysis = winning_numbers.apply(pd.Series.value_counts
+                                               ).fillna(0).sum(axis=1)
+    recency = {number: index for index, row in winning_numbers.iterrows() 
+               for number in row}
+
+    # Converting recency to DataFrame and merging with frequency data
+    recency_df = pd.DataFrame.from_dict(
+        recency, orient='index', columns=['most_recent_draw']
+        ).reset_index().rename(columns={'index': 'number'})
+    features_df = pd.merge(frequency_analysis.reset_index().rename(
+        columns={'index': 'number', 0: 'frequency'}), recency_df, on='number')
+
+    # Target data preparation
+    all_numbers = set(range(1, 100))
+    target_data = winning_numbers.isin(all_numbers).any(
+        axis=1).astype(int).to_frame('target')
+
+    # Merging features with target data
+    ml_dataset = pd.merge(features_df, target_data,
+                          left_on='number', right_index=True)
+    ml_dataset['target'] = ml_dataset['target'].shift(-1)
+
+    # Final dataset preparation
+    final_ml_dataset = ml_dataset.dropna().drop(columns=['number'])
+
+    if not split_X_y and not return_X_y: 
+        return final_ml_dataset
+
+    # Dataset splitting
+    X = final_ml_dataset.drop('target', axis=1)
+    y = final_ml_dataset['target']
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=seed)
     
-    
-    
+    return (X, y) if return_X_y else (X_train, X_test, y_train, y_test)
     
     
     

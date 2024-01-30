@@ -3,7 +3,7 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """ 
-Set all dataset.  
+Set all datasets.  
 """
 from warnings import warn 
 
@@ -16,6 +16,7 @@ _DTAGS=(
     "nlogs", 
     "mxs", 
     "forensic",
+    "jrs_bet"
 
     )
 
@@ -26,6 +27,7 @@ from .dload import (
     load_nlogs, 
     load_mxs, 
     load_forensic, 
+    load_jrs_bet, 
     ) 
 try : 
     from ._config import _fetch_data
@@ -43,6 +45,7 @@ __all__=[
          "fetch_data",
          "load_mxs", 
          "load_forensic", 
+         "load_jrs_bet", 
          "DATASET"
          ]
 
@@ -50,7 +53,7 @@ def fetch_data (tag, **kws):
     tag = _parse_tags(tag, multi_kind_dataset='bagoue')
     func= _fetch_data if fi else None 
     funcs= (load_bagoue , load_iris, load_hlogs, load_nlogs, load_mxs, 
-            load_forensic) 
+            load_forensic, load_jrs_bet ) 
     funcns = list (map(lambda f: f.__name__.replace('load_', ''), funcs))
     if tag in (funcns): 
         func = funcs[funcns.index (tag)] 
