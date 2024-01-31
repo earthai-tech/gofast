@@ -11,6 +11,7 @@ import copy
 import datetime 
 import warnings
 import itertools 
+import scipy.stats
 import numpy as np
 import pandas as pd 
 import matplotlib as mpl 
@@ -18,11 +19,8 @@ from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse
 import matplotlib.colors as mcolors
 import matplotlib.transforms as transforms 
-# from matplotlib import gridspec 
 import seaborn as sns 
-from scipy.cluster.hierarchy import ( 
-    dendrogram, ward 
-    )
+from scipy.cluster.hierarchy import dendrogram, ward 
 import scipy.sparse as sp
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans 
@@ -34,6 +32,7 @@ from sklearn.metrics import (
     silhouette_samples, 
     roc_curve, 
     roc_auc_score, 
+    r2_score
     )
 from sklearn.model_selection import (
     learning_curve, KFold)
@@ -59,14 +58,652 @@ from ..tools.validator import  (
     check_is_fitted , 
     )
 from ..tools._dependency import import_optional_dependency 
-
-try : 
-    from yellowbrick.classifier import ConfusionMatrix 
+try : from yellowbrick.classifier import ConfusionMatrix 
 except: pass 
 from .._typing import Optional, Tuple, Any, List, Union, ArrayLike, DataFrame
-
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES 
 
+def plot_custom_boxplot(
+    data:Union[ ArrayLike, DataFrame], /, 
+    labels: list[str],
+    title: str, y_label: str, 
+    figsize: tuple[int, int]=(8, 8), 
+    color: str="lightgreen", 
+    showfliers: bool=True, 
+    whis: float=1.5, 
+    width: float=0.5, 
+    linewidth: float=2, 
+    flierprops: dict=None, 
+    sns_style="whitegrid", 
+   ) -> plt.Axes:
+    """
+    Plots a custom boxplot with the given data and parameters using 
+    Seaborn and Matplotlib.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        The input data for each category to plot in the boxplot, 
+        organized as a list of arrays.
+    labels : list[str]
+        The labels for the boxplot categories.
+    title : str
+        The title of the plot.
+    y_label : str
+        The label for the Y-axis.
+    figsize : tuple[int, int], optional
+        Figure dimension (width, height) in inches. Default is (10, 8).
+    color : str, optional
+        Color for all of the elements, or seed for a gradient palette.
+        Default is "lightgreen".
+    showfliers : bool, optional
+        If True, show the outliers beyond the caps. Default is True.
+    whis : float, optional
+        Proportion of the IQR past the low and high quartiles to 
+        extend the plot whiskers.
+        Default is 1.5.
+    width : float, optional
+        Width of the full boxplot elements. Default is 0.5.
+    linewidth : float, optional
+        Width of the lines of the boxplot elements. Default is 2.
+    flierprops : dict, optional
+        The style of the fliers; if None, then the default is used.
+    sns_style: str, defualt='whitegrid'
+        The style of seaborn boxplot. 
+    Returns
+    -------
+    matplotlib.axes.Axes
+        The Axes object with the plot for further tweaking.
+
+    Examples
+    --------
+    >>> import numpy as np 
+    >>> from gofast.plot.utils import plot_custom_boxplot
+    >>> np.random.seed(10)
+    >>> d = [np.random.normal(0, std, 100) for std in range(1, 5)]
+    >>> labels = ['s1', 's2', 's3', 's4']
+    >>> plot_custom_boxplot(d, labels, 
+    ...                     title='Class assignment (roc-auc): PsA activity',
+    ...                     y_label='roc-auc', 
+    ...                     figsize=(12, 7),
+    ...                     color="green",
+    ...                     showfliers=False, 
+    ...                     whis=2,
+    ...                     width=0.3, 
+    ...                     linewidth=1.5,
+    ...                     flierprops=dict(marker='x', color='black', markersize=5))
+    Notes
+    -----
+    Boxplots are a standardized way of displaying the distribution of data 
+    based on a five-number summary: minimum, first quartile (Q1), median, 
+    third quartile (Q3), and maximum. It can reveal outliers, 
+    data symmetry, grouping, and skewness.
+    """
+    if flierprops is None:
+        flierprops = dict(marker='o', color='red', alpha=0.5)
+    
+    # Create a figure and a set of subplots
+    plt.figure(figsize=figsize)
+    
+    # Create the boxplot
+    bplot = sns.boxplot(data=data, width=width, color=color, 
+                        showfliers=showfliers, whis=whis, 
+                        flierprops=flierprops,
+                        linewidth=linewidth
+                        )
+    
+    # Set labels and title
+    bplot.set_title(title)
+    bplot.set_ylabel(y_label)
+    bplot.set_xticklabels(labels)
+    
+    # Set the style of the plot
+    sns.set_style(sns_style)
+    
+    # Show the plot
+    plt.show()
+    
+    return bplot
+
+def plot_abc_curve(
+    effort: List[float],
+    yield_: List[float], 
+    title: str = "ABC plot", 
+    xlabel: str = "Effort", 
+    ylabel: str = "Yield", 
+    figsize: Tuple[int, int] = (8, 6),
+    abc_line_color: str = "blue", 
+    identity_line_color: str = "magenta", 
+    uniform_line_color: str = "green",
+    abc_linestyle: str = "-", 
+    identity_linestyle: str = "--", 
+    uniform_linestyle: str = ":",
+    linewidth: int = 2,
+    legend: bool = True,
+    set_annotations: bool = True,
+    set_a: Tuple[int, int] = (0, 2),
+    set_b: Tuple[int, int] = (0, 0),
+    set_c: Tuple[int, str] = (5, '+51 dropped'),
+    savefig: Optional[str] = None
+) -> None:
+    """
+    Plot an ABC curve comparing effort vs yield with reference lines for 
+    identity and uniform distribution.
+    
+    Parameters
+    ----------
+    effort : List[float]
+        The effort values (x-axis).
+    yield_ : List[float]
+        The yield values (y-axis).
+    title : str, optional
+        The title of the plot.
+    xlabel : str, optional
+        The x-axis label.
+    ylabel : str, optional
+        The y-axis label.
+    figsize : Tuple[int, int], optional
+        The figure size in inches.
+    abc_line_color : str, optional
+        The color of the ABC line.
+    identity_line_color : str, optional
+        The color of the identity line.
+    uniform_line_color : str, optional
+        The color of the uniform line.
+    abc_linestyle : str, optional
+        The linestyle for the ABC line.
+    identity_linestyle : str, optional
+        The linestyle for the identity line.
+    uniform_linestyle : str, optional
+        The linestyle for the uniform line.
+    linewidth : int, optional
+        The width of the lines.
+    legend : bool, optional
+        Whether to show the legend.
+    set_annotations : bool, optional
+        Whether to annotate set A, B, C.
+    set_a : Tuple[int, int], optional
+        The info for set A annotation.
+    set_b : Tuple[int, int], optional
+        The info for set B annotation.
+    set_c : Tuple[int, str], optional
+        The info for set C annotation.
+    savefig : Optional[str], optional
+        Path to save the figure. If None, the figure is not saved.
+    
+    Returns
+    -------
+    ax : Axes
+        The matplotlib Axes object for the plot.
+    
+    Example 
+    -------
+    >>> import numpy as np 
+    >>> from gofast.plot.utils import plot_abc_curve
+    >>> effort = np.linspace(0, 1, 100)
+    >>> yield_ = effort ** 2  # This is just an example; your data will vary.
+    >>> plot_abc_curve(effort, yield_)
+    """
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Plot the curves
+    ax.plot(effort, yield_, label='ABC', color=abc_line_color,
+            linestyle=abc_linestyle, linewidth=linewidth)
+    ax.plot([0, 1], [0, 1], label='Identity', color=identity_line_color,
+            linestyle=identity_linestyle, linewidth=linewidth)
+    ax.hlines(y=yield_[-1], xmin=0, xmax=1, label='Uniform',
+              color=uniform_line_color, linestyle=uniform_linestyle,
+              linewidth=linewidth)
+
+    # Annotations for sets
+    if set_annotations:
+        ax.annotate(f'Set A: n = {set_a[1]}', xy=(0.05, 0.95),
+                    xycoords='axes fraction', fontsize=9)
+        ax.annotate(f'Set B: n = {set_b[1]}', xy=(0.05, 0.90),
+                    xycoords='axes fraction', fontsize=9)
+        ax.annotate(f'Set C: n = {set_c[0]} {set_c[1]}', xy=(0.05, 0.85), 
+                    xycoords='axes fraction', fontsize=9)
+
+    # Additional plot settings
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_xlim([0, 1])
+    ax.set_ylim([0, 1])
+
+    if legend:
+        ax.legend()
+
+    if savefig:
+        plt.savefig(savefig, bbox_inches='tight')
+
+    plt.show()
+    
+    return ax 
+
+def plot_permutation_importance(
+    importances: np.ndarray, 
+    feature_names: List[str], 
+    title: str = "Permutation feature importance",
+    xlabel: str = "RF importance",
+    ylabel: str = "Features", 
+    figsize: Tuple[int, int] = (10, 8), 
+    color: str = "skyblue", 
+    edgecolor: str = "black", 
+    savefig: Optional[str] = None
+) -> None:
+    """
+    Plot permutation feature importance as a horizontal bar chart.
+    
+    Parameters
+    ----------
+    importances : array-like
+        The feature importances, typically obtained from a model 
+        or permutation test.
+    feature_names : list of str
+        The names of the features corresponding to the importances.
+    title : str, optional
+        Title of the plot. Defaults to "Permutation feature importance".
+    xlabel : str, optional
+        Label for the x-axis. Defaults to "RF importance".
+    ylabel : str, optional
+        Label for the y-axis. Defaults to "Features".
+    figsize : tuple, optional
+        Size of the figure (width, height) in inches. Defaults to (10, 8).
+    color : str, optional
+        Bar color. Defaults to "skyblue".
+    edgecolor : str, optional
+        Bar edge color. Defaults to "black".
+    savefig : str, optional
+        Path to save the figure. If None, the figure is not saved. 
+        Defaults to None.
+    
+    Returns
+    -------
+    fig : Figure
+        The matplotlib Figure object for the plot.
+    ax : Axes
+        The matplotlib Axes object for the plot.
+    
+    Example
+    -------
+    >>> import numpy as np 
+    >>> from gofast.plot.utils import plot_permutation_importance
+    >>> importances = np.random.rand(30)
+    >>> feature_names = ['Feature {}'.format(i) for i in range(30)]
+    >>> plot_permutation_importance(
+        importances, feature_names, title="My Plot", xlabel="Importance",
+        ylabel="Features", figsize=(8, 10), color="lightblue",
+        edgecolor="gray", savefig="importance_plot.png")
+    """
+
+    # Sort the feature importances in ascending order for plotting
+    sorted_indices = np.argsort(importances)
+    
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.barh(range(len(importances)), importances[sorted_indices],
+            color=color, edgecolor=edgecolor)
+    ax.set_yticks(range(len(importances)))
+    ax.set_yticklabels(np.array(feature_names)[sorted_indices])
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+
+    # Optionally save the figure to a file
+    if savefig is not None:
+        plt.savefig(savefig, bbox_inches='tight')
+
+    plt.show()
+    return fig, ax
+
+def create_radar_chart(
+    d: ArrayLike, /, categories: List[str], 
+    cluster_labels: List[str], 
+    title: str = "Radar plot Umatrix cluster properties",
+    figsize: Tuple[int, int] = (6, 6), 
+    color_map: Union[str, List[str]] = 'Set2', 
+    alpha_fill: float = 0.25, 
+    linestyle: str = 'solid', 
+    linewidth: int = 1,
+    yticks: Tuple[float, ...] = (0.5, 1, 1.5), 
+    ytick_labels: Union[None, List[str]] = None,
+    ylim: Tuple[float, float] = (0, 2),
+    legend_loc: str = 'upper right'
+   ) -> None:
+    """
+    Create a radar chart with one axis per variable.
+
+    Parameters
+    ----------
+    d : array-like
+        2D array with shape (n_clusters, n_variables), where each row 
+        represents a different cluster and each column represents a 
+        different variable.
+    categories : list of str
+        List of variable names corresponding to the columns in the data.
+    cluster_labels : list of str
+        List of labels for the different clusters.
+    title : str, optional
+        The title of the radar chart. Default is "Radar plot Umatrix cluster 
+        properties".
+    figsize : tuple, optional
+        The size of the figure to plot (width, height in inches). Default is (6, 6).
+    color_map : str or list, optional
+        Colormap or list of colors for the different clusters. Default is 'Set2'.
+    alpha_fill : float, optional
+        Alpha value for the filled area under the plot. Default is 0.25.
+    linestyle : str, optional
+        The style of the line in the plot. Default is 'solid'.
+    linewidth : int, optional
+        The width of the lines. Default is 1.
+    yticks : tuple, optional
+        Tuple containing the y-ticks values. Default is (0.5, 1, 1.5).
+    ytick_labels : list of str, optional
+        List of labels for the y-ticks, must match the length of yticks. 
+        If None, yticks will be used as labels. Default is None.
+    ylim : tuple, optional
+        Tuple containing the min and max values for the y-axis. Default is (0, 2).
+    legend_loc : str, optional
+        The location of the legend. Default is 'upper right'.
+
+    Returns
+    -------
+    fig : Figure
+        The matplotlib Figure object for the radar chart.
+    ax : Axes
+        The matplotlib Axes object for the radar chart.
+
+    Example
+    -------
+    >>> import numpy as np 
+    >>> from gofast.plot.utils import create_radar_chart
+    >>> num_clusters = 5
+    >>> num_vars = 10
+    >>> data = np.random.rand(num_clusters, num_vars)
+    >>> categories = [f"Variable {i}" for i in range(num_vars)]
+    >>> cluster_labels = [f"Cluster {i}" for i in range(num_clusters)]
+    >>> create_radar_chart(data, categories, cluster_labels)
+    """
+
+    # Compute angle for each axis
+    angles = np.linspace(0, 2 * np.pi, len(categories),
+                         endpoint=False).tolist()
+    # The plot is made in a circular (not polygon) space, so we need to 
+    # "complete the loop"and append the start to the end.
+    angles += angles[:1]  # complete the loop
+    d= np.array(d)
+    d = np.concatenate((d, d[:,[0]]), axis=1)
+    # Initialize the radar chart
+    fig, ax = plt.subplots(figsize=figsize, subplot_kw=dict(polar=True))
+    plt.title(title, y=1.08)
+
+    # Draw one axe per variable + add labels
+    plt.xticks(angles[:-1], categories)
+
+    # Draw ylabels
+    ax.set_rlabel_position(0)
+    if ytick_labels is None:
+        ytick_labels = [str(ytick) for ytick in yticks]
+    plt.yticks(yticks, ytick_labels, color="grey", size=7)
+    plt.ylim(*ylim)
+
+    # Plot data and fill with color
+    for idx, (row, label) in enumerate(zip(d, cluster_labels)):
+        color = plt.get_cmap(color_map)(idx / len(d))
+        ax.plot(angles, row, color=color, linewidth=linewidth,
+                linestyle=linestyle, label=label)
+        ax.fill(angles, row, color=color, alpha=alpha_fill)
+
+    # Add a legend
+    plt.legend(loc=legend_loc, bbox_to_anchor=(0.1, 0.1))
+
+    plt.show()
+    return fig, ax
+
+def create_base_radar_chart(
+    d: ArrayLike,/,   categories: List[str], 
+    cluster_labels: List[str],
+    title:str="Radar plot Umatrix cluster properties"
+    ):
+    """
+    Create a radar chart with one axis per variable.
+
+    Parameters
+    ----------
+    data : array-like
+        2D array with shape (n_clusters, n_variables), where each row 
+        represents a different
+        cluster and each column represents a different variable.
+    categories : list of str
+        List of variable names corresponding to the columns in the data.
+    cluster_labels : list of str
+        List of labels for the different clusters.
+    title : str, optional
+        The title of the radar chart. Default is "Radar plot
+        Umatrix cluster properties".
+
+    Returns
+    -------
+    fig : Figure
+        The matplotlib Figure object for the radar chart.
+    ax : Axes
+        The matplotlib Axes object for the radar chart.
+        
+    Example
+    -------
+    >>> import numpy as np 
+    >>> from gofast.plot.utils import create_base_radar_chart
+    >>> num_clusters = 5
+    >>> num_vars = 10
+    >>> data = np.random.rand(num_clusters, num_vars)
+    >>> categories = [f"Variable {i}" for i in range(num_vars)]
+    >>> cluster_labels = [f"Cluster {i}" for i in range(num_clusters)]
+    >>> create_base_radar_chart(data, categories, cluster_labels)
+    """
+    # Number of variables we're plotting.
+    num_vars = len(categories)
+
+    # Compute angle for each axis
+    angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
+
+    # The plot is made in a circular (not polygon) space, so we need to 
+    # "complete the loop"and append the start to the end.
+    angles += angles[:1]
+    d = np.array(d)
+    d = np.concatenate((d, d[:,[0]]), axis=1)
+
+    fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
+
+    # Draw one axe per variable and add labels
+    plt.xticks(angles[:-1], categories)
+
+    # Draw ylabels
+    ax.set_rlabel_position(0)
+    plt.yticks([0.5, 1, 1.5], ["0.5", "1", "1.5"], color="grey", size=7)
+    plt.ylim(0, 2)
+
+    # Plot data
+    for i in range(len(d)):
+        ax.plot(angles, d[i], linewidth=1, linestyle='solid', 
+                label=cluster_labels[i])
+
+    # Fill area
+    ax.fill(angles, d[0], color='blue', alpha=0.25)
+
+    # Add a legend and title
+    plt.legend(loc='upper right', bbox_to_anchor=(0.1, 0.1))
+    plt.title(title)
+
+    plt.show()
+    
+    return fig, ax
+
+def plot_r_squared(
+    y_true, y_pred, 
+    model_name="Regression Model",
+    figsize=(10, 6), 
+    r_color='red', 
+    pred_color='blue',
+    sns_plot=False, 
+    show_grid=True, 
+    **scatter_kws
+):
+    """
+    Plot the R-squared value for a regression model's predictions.
+
+    Parameters
+    ----------
+    y_true : array-like
+        True target values.
+    y_pred : array-like
+        Predicted target values by the regression model.
+    model_name : str, optional
+        The name of the regression model for display in the plot title. 
+        Default is "Regression Model".
+    figsize : tuple, optional
+        The size of the figure to plot (width, height in inches). 
+        Default is (10, 6).
+    r_color : str, optional
+        The color of the line that represents the actual values.
+        Default is 'red'.
+    pred_color : str, optional
+        The color of the scatter plot points for the predictions.
+        Default is 'blue'.
+    sns_plot : bool, optional
+        If True, use seaborn for plotting. Otherwise, use matplotlib.
+        Default is False.
+    show_grid : bool, optional
+        If True, display the grid on the plot. Default is True.
+    scatter_kws : dict
+        Additional keyword arguments to be passed to 
+        the `scatter` function.
+
+    Returns
+    -------
+    ax : Axes
+        The matplotlib Axes object with the R-squared plot.
+         
+    Example 
+    -------
+    >>> import numpy as np 
+    >>> from gofast.plot.utils import plot_r_squared 
+    >>> # Generate some sample data
+    >>> np.random.seed(0)
+    >>> y_true_sample = np.random.rand(100) * 100
+    >>> # simulated prediction with small random noise
+    >>> y_pred_sample = y_true_sample * (np.random.rand(100) * 0.1 + 0.95)  
+    # Use the sample data to plot R-squared
+    >>> plot_r_squared(y_true_sample, y_pred_sample, "Sample Regression Model")
+
+    """
+    # Calculate R-squared
+    r_squared = r2_score(y_true, y_pred)
+    
+    # Create figure and axis
+    plt.figure(figsize=figsize)
+    ax = plt.gca()
+    
+    # Plot using seaborn or matplotlib
+    if sns_plot:
+        sns.scatterplot(x=y_true, y=y_pred, ax=ax, color=pred_color,
+                        **scatter_kws)
+    else:
+        ax.scatter(y_true, y_pred, color=pred_color, **scatter_kws)
+    
+    # Plot the line of perfect predictions
+    ax.plot(y_true, y_true, color=r_color, label='Actual values')
+    # Annotate the R-squared value
+    ax.legend(labels=[f'Predictions (R² = {r_squared:.2f})', 'Actual values'])
+    # Set the title and labels
+    ax.set_title(f'{model_name}: R-squared')
+    ax.set_xlabel('Actual Values')
+    ax.set_ylabel('Predicted Values')
+    
+    # Display the grid if requested
+    if show_grid:
+        ax.grid(show_grid)
+    
+    # Show the plot
+    plt.show()
+
+    return ax
+
+def plot_cluster_comparison(
+    data,  
+    cluster_col, 
+    class_col, 
+    figsize=(10, 6), 
+    palette="RdYlGn", 
+    title="Clusters versus Prior Classes"
+    ):
+    """
+    Plots a comparison of clusters versus prior class distributions 
+    using a heatmap.
+
+    Parameters
+    ----------
+    data : DataFrame
+        A pandas DataFrame containing at least two columns for clustering 
+        and class comparison.
+    cluster_col : str
+        The name of the column in `data` that contains cluster labels.
+    class_col : str
+        The name of the column in `data` that contains prior class labels.
+    figsize : tuple, optional
+        The size of the figure to be created (width, height in inches). 
+        Default is (10, 6).
+    palette : str, optional
+        The color palette to use for differentiating Pearson residuals in the 
+        heatmap. Default is "RdYlGn".
+    title : str, optional
+        The title of the plot. Default is "Clusters versus Prior Classes".
+
+    Returns
+    -------
+    A matplotlib Axes object with the heatmap.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.plot.utils import plot_cluster_comparison
+    >>> # Sample data generation (This should be replaced with the actual data)
+    >>> # For illustration purposes, we create a DataFrame with random data
+    >>> np.random.seed(0)
+    >>> sample_data = pd.DataFrame({
+        'Cluster': np.random.choice(['1', '4', '5'], size=100),
+        'PriorClass': np.random.choice(['1', '2', '3'], size=100)
+    >>> })
+
+    >>> # Call the function with the sample data
+    >>> plot_cluster_comparison(sample_data, 'Cluster', 'PriorClass')
+    >>> plt.show()
+    """
+
+    # Create a contingency table
+    contingency_table = pd.crosstab(data[cluster_col], data[class_col])
+
+    # Calculate Pearson residuals
+    chi2, _, _, expected = scipy.stats.chi2_contingency(contingency_table)
+    pearson_residuals = (contingency_table - expected) / np.sqrt(expected)
+
+    # Create the heatmap
+    plt.figure(figsize=figsize)
+    ax = sns.heatmap(pearson_residuals, annot=True, fmt=".2f", cmap=palette,
+                     cbar_kws={'label': 'Pearson residuals'})
+    ax.set_title(title)
+    ax.set_xlabel(class_col)
+    ax.set_ylabel(cluster_col)
+
+    # Display p-value
+    p_value = scipy.stats.chi2.sf(chi2, (contingency_table.shape[0] - 1) 
+                                  * (contingency_table.shape[1] - 1))
+    plt.text(0.95, 0.05, f'p-value\n{p_value:.2e}', horizontalalignment='right', 
+             verticalalignment='bottom', 
+             transform=ax.transAxes, color='black', bbox=dict(
+                 facecolor='white', alpha=0.5))
+
+    return ax
 
 def plot_shap_summary(
     model: Any, 
@@ -127,13 +764,13 @@ def plot_shap_summary(
     >>> from sklearn.ensemble import RandomForestClassifier
     >>> from gofast.datasets import make_classification
     >>> from gofast.plot import plot_shap_summary
-    >>> X, y = make_classification(n_features=5, random_state=42)
+    >>> X, y = make_classification(n_features=5, random_state=42, return_X_y=True)
     >>> model = RandomForestClassifier().fit(X, y)
     >>> plot_shap_summary(model, X, feature_names=['f1', 'f2', 'f3', 'f4', 'f5'])
 
     """
     import_optional_dependency(
-        "shap", extra="Missing 'shap' package for plot_shap_summary.")
+        "shap", extra="'shap' package is need for plot_shap_summary.")
 
     import shap
 
@@ -3330,7 +3967,6 @@ def plot_roc_curves (
         
     return ax 
         
-
 #XXX TODO
 def plot_rsquared (X , y,  y_pred, **r2_score_kws  ): 
     """ Plot :math:`R^2` squared functions. 

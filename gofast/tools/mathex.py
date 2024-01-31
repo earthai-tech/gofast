@@ -74,6 +74,80 @@ _logger =gofastlog.get_gofast_logger(__name__)
 
 mu0 = 4 * np.pi * 1e-7 
 
+
+def compute_effort_yield(
+        d: ArrayLike, /, reverse: bool = True
+        ) -> Tuple[ArrayLike, np.ndarray]:
+    """
+    Compute effort and yield values from importance data for use in 
+    ABC analysis or similar plots.
+
+    This function takes an array of importance measures (e.g., weights, scores) 
+    and computes the cumulative effort and corresponding yield. 
+    The effort is the cumulative percentage of items when sorted by importance,
+    and the yield is the cumulative sum of importance
+    measures, also as a percentage of the total sum.
+
+    Parameters
+    ----------
+    d : np.ndarray
+        1D array of importance measures for each item or feature.
+    reverse : bool, optional
+        If True (default), sort the data in descending order (highest importance first).
+        If False, sort in ascending order (lowest importance first).
+    
+    Returns
+    -------
+    effort : np.ndarray
+        The cumulative percentage of items considered, sorted by importance.
+    yield_ : np.ndarray
+        The cumulative sum of importance measures, normalized to the total 
+        sum to represent the yield as a proportion of the total importance.
+
+    Example
+    -------
+    >>> import numpy as np 
+    >>> from gofast.tools.mathex import compute_effort_yield
+    >>> importances = np.array([0.1, 0.4, 0.3, 0.2])
+    >>> effort, yield_ = compute_effort_yield(importances)
+    >>> print(effort)
+    >>> print(yield_)
+    
+    This would output:
+    >>> effort
+    [0.25 0.5  0.75 1.  ]
+    >>> yield_
+    [0.4  0.7  0.9  1.  ]
+
+    Note that the effort is simply the proportion of total items, 
+    and the yield is the
+    cumulative proportion of the sum of importances.
+    """
+    d = np.array (d)
+    # Validate input data
+    if not isinstance(d, np.ndarray) or d.ndim != 1:
+        raise ValueError("Input data must be a one-dimensional numpy array.")
+    
+    if not np.issubdtype(d.dtype, np.number):
+        raise ValueError("Input data must be a numpy array of numerical type.")
+
+    # Sort the data by importance
+    sorted_indices = np.argsort(d)
+    sorted_data = d[sorted_indices]
+    if reverse:
+        sorted_data = sorted_data[::-1]
+
+    # Calculate cumulative sum of the sorted data
+    cumulative_data = np.cumsum(sorted_data)
+
+    # Normalize cumulative sum to get yield as a proportion of the total sum
+    yield_ = cumulative_data / cumulative_data[-1]
+
+    # Calculate the effort as the proportion of total number of items
+    effort = np.arange(1, d.size + 1) / d.size
+
+    return effort, yield_
+
 def make_mxs(
     y,
     yt,

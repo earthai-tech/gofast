@@ -17,6 +17,7 @@ from .evaluate import (
     pobj as plot_obj
     )
 from .explore import EasyPlotter, QuestPlotter
+from .ts import TimeSeriesPlotter 
 from .utils import ( 
     plot_mlxtend_heatmap , 
     plot_mlxtend_matrix, 
@@ -42,6 +43,12 @@ from .utils import (
     plot_text, 
     plot_cumulative_variance, 
     plot_shap_summary, 
+    plot_custom_boxplot,
+    plot_abc_curve,
+    plot_permutation_importance,
+    create_radar_chart,
+    plot_r_squared, 
+    plot_cluster_comparison,
     )
 
 __all__= [
@@ -50,6 +57,7 @@ __all__= [
     "EvalPlotter", 
     "EasyPlotter" , 
     "QuestPlotter",
+    "TimeSeriesPlotter", 
     "plot_learning_inspection", 
     "plot_learning_inspections", 
     "plot_silhouette", 
@@ -86,5 +94,11 @@ __all__= [
     'plot_text', 
     'plot_obj',
     'plot_cumulative_variance', 
-    'plot_shap_summary'
+    'plot_shap_summary', 
+    'plot_custom_boxplot',
+    'plot_abc_curve',
+    'plot_permutation_importance',
+    'create_radar_chart',
+    'plot_r_squared', 
+    'plot_cluster_comparison',
     ]

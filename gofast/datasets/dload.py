@@ -125,14 +125,15 @@ def load_hlogs (
             or cf
             ) : return data, target 
     
+    # Loading description
+    fdescr = description_loader(descr_module=DESCR, descr_file="hlogs.rst")
     return Boxspace(
         data=data.values,
         target=data[tnames].values,
         frame=data,
         tnames=tnames,
         target_names = target_columns,
-        # XXX Add description 
-        DESCR= '', # fdescr,
+        DESCR= fdescr,
         feature_names=feature_names,
         filename=data_file,
         data_module=DMODULE,
@@ -721,7 +722,6 @@ def load_mxs (
     test_ratio=.2,  
     **kws): 
     
-
     drop_observations =kws.pop("drop_observations", False)
     
     target_map= { 

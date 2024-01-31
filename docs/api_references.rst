@@ -487,6 +487,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.category_count
    tools.cleaner
    tools.codify_variables
+   tools.compute_effort_yield
    tools.convert_date_features
    tools.cubic_regression
    tools.discretize_categories

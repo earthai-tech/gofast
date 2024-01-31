@@ -10,7 +10,7 @@ from .baseutils import (
     audit_data, 
     read_data,
     sanitize, 
-    get_remote_data, 
+    fetch_remote_data, 
     array2hdf5, 
     save_or_load, 
     request_data, 
@@ -60,6 +60,7 @@ from .mathex import (
     binning_statistic, 
     label_importance,
     make_mxs, 
+    compute_effort_yield
     )
 from .funcutils import ( 
     reshape, 
@@ -126,7 +127,7 @@ __all__=[
     'sanitize',
     'save_or_load', 
     'request_data', 
-    'get_remote_data', 
+    'fetch_remote_data', 
     'fancier_downloader',
     'savgol_filter', 
     'interpolate1d', 
@@ -228,7 +229,8 @@ __all__=[
     "scale_data", 
     "handle_outliers_in_data",
     "handle_missing_data", 
-    "make_mxs"
+    "make_mxs", 
+    "compute_effort_yield"
     
     ]
 

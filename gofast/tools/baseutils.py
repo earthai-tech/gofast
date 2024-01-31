@@ -21,6 +21,7 @@ from tqdm import tqdm
 
 from .._typing import Any,  List, NDArray, DataFrame, Optional, Series 
 from .._typing import Dict, Union, TypeGuard, Tuple, ArrayLike
+from ..decorators import deprecated
 from ..exceptions import FileHandlingError 
 from ..property import  Config
 from .funcutils import is_iterable, ellipsis2false,smart_format, validate_url 
@@ -1049,6 +1050,8 @@ def request_data(
     return response.text if as_text else ( 
         response.json () if as_json else response )
 
+@deprecated("Deprecated function. Should be remove next release."
+            "Use `gofast.tools.fetch_remote_data` instead.")
 def get_remote_data(
     remote_file: str, 
     save_path: Optional[str] = None, 
@@ -1140,6 +1143,115 @@ def get_remote_data(
         print(f"An error occurred during the download: {e}")
         if raise_exception:
             raise e
+        return False
+
+def fetch_remote_data(
+    remote_file_url: str, 
+    save_path: Optional[str] = None, 
+    raise_exception: bool = True
+ ) -> bool:
+    """
+    Download a file from a remote URL and optionally save it to a specified location.
+
+    This function attempts to download a file from the given URL. If `save_path` is 
+    provided, it saves the file to that location, otherwise, it saves it in the 
+    current working directory. If the download fails, it can optionally raise an 
+    exception or return False.
+
+    Parameters
+    ----------
+    remote_file_url : str
+        The URL of the remote file to be downloaded.
+    save_path : str, optional
+        The local directory path where the downloaded file should be saved. 
+        If None, the file is saved in the current directory. Default is None.
+    raise_exception : bool, default True
+        If True, raises an exception upon failure. Otherwise, returns False.
+
+    Returns
+    -------
+    bool
+        True if the file was successfully downloaded, False otherwise.
+
+    Raises
+    ------
+    ConnectionRefusedError
+        If the download fails and `raise_exception` is True.
+
+    Examples
+    --------
+    >>> status = get_remote_data('https://example.com/file.csv', save_path='/local/path')
+    >>> print(status)
+
+    """
+    def handle_download_error(e: Exception, message: str) -> None:
+        """
+        Handle download errors, either by raising an exception or printing 
+        an error message.
+
+        Parameters
+        ----------
+        e : Exception
+            The exception that was raised.
+        message : str
+            The error message to be printed or included in the raised exception.
+
+        Raises
+        ------
+        Exception
+            The original exception, if `raise_exception` is True.
+        """
+        print(message)
+        if raise_exception:
+            raise e
+
+    def move_file_to_save_path(file_name: str) -> None:
+        """
+        Move the downloaded file to the specified save path.
+
+        Parameters
+        ----------
+        file_name : str
+            The name of the file to be moved.
+        """
+        if save_path is not None:
+            os.makedirs(save_path, exist_ok=True)
+            shutil.move(os.path.realpath(file_name), os.path.join(
+                save_path, file_name))
+
+    try:
+        file_name = os.path.basename(remote_file_url)
+        print(f"---> Fetching '{remote_file_url}'...")
+
+        with tqdm(total=3, ascii=True, desc=f'Fetching {file_name}',
+                  ncols=97) as progress_bar:
+            for attempt in range(3):
+                try:
+                    response = urllib.request.urlopen(remote_file_url)
+                    data = response.read()
+
+                    with open(file_name, 'wb') as file:
+                        file.write(data)
+
+                    move_file_to_save_path(file_name)
+                    return True
+
+                except TimeoutError:
+                    if attempt == 2:
+                        handle_download_error(
+                            TimeoutError(), "Connection timed out while"
+                            f" downloading '{remote_file_url}'.")
+                except Exception as e:
+                    handle_download_error(
+                        e, f"An error occurred while downloading '{remote_file_url}': {e}")
+                finally:
+                    progress_bar.update(1)
+
+            # If all attempts fail
+            return False
+
+    except Exception as e:
+        handle_download_error(e, f"An unexpected error occurred during the download: {e}")
         return False
 
 def download_file(url, local_filename , dstpath =None ):
