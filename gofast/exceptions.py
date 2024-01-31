@@ -1,195 +1,233 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
-""" 
-List of :code:`gofast` exceptions for warning users. 
-"""
-class ArgumentError(Exception): 
+"""List of `gofast` exceptions for warning users."""
+
+class ArgumentError(Exception):
     """
-    Raises an Exception when values passed to the callable is not the expected 
-    one. Is deprecated and should be replaced by 'TypeError' or 'ValueError' 
-    for the next release."""
-    pass 
+    Exception raised for errors in the passed argument values.
 
-class SiteError(Exception): 
-    """Raises exception to everything related to the Site, Location. For 
-    instance, inappropriate coordinates values."""
-    pass 
+    This exception is deprecated and should be replaced by `TypeError` or
+    `ValueError` in the next release.
+    """
+    pass
 
-class DatasetError(Exception): 
-    """ Raises exception when mutiple data are passed as list of arguments 
-    where shape , columns and sizee are compared. If one aforementionned 
-    details does not fit all the data. An error raises. Furthermore, an 
-    error also raises when some items in the data are not valid according to 
-    the prescipted details beforehand."""
-    pass 
+class SiteError(Exception):
+    """
+    Exception raised for errors related to site or location information.
+
+    For example, this exception is raised when coordinates values provided are
+    inappropriate.
+    """
+    pass
+
+class DatasetError(Exception):
+    """
+    Exception raised for inconsistencies in the dataset provided.
+
+    This exception is raised when multiple datasets passed as arguments have
+    mismatching shapes, columns, or sizes, or when items in the data are not
+    valid according to predefined criteria.
+    """
+    pass
 
 class HeaderError(Exception):
-    """ Raises an Exception if the file/data header is missing, commonly the 
-    appropriate requested columns"""
-    pass 
+    """
+    Exception raised when headers or required columns are missing in the data.
+    """
+    pass
 
 class ConfigError(Exception):
-    """ Raises an Exception if configuration (file or not ) failed to be 
-    executed correctly."""
+    """
+    Exception raised for errors in configuration setup or execution.
+    """
     pass
 
 class FileHandlingError(Exception):
-    """Raises an Exception if failed to manipulate the files properly. Also, 
-    occurs if there is no permissions for user to open, read and write 
-    the files"""
+    """
+    Exception raised for errors encountered during file manipulation.
+
+    This exception occurs if there are file permission issues or other problems
+    encountered when opening, reading, or writing files.
+    """
     pass
 
 class TipError(Exception):
-    """Raises an Exception if the tip proposed to shortcut the plot 
-    visualization isn't appropriate"""
-    pass 
+    """
+    Exception raised for inappropriate tips proposed for plot visualization
+    shortcuts.
+    """
+    pass
 
-class PlotError(Exception): 
-    """Raises an Exception if the plot cannot be run sucessffully."""
-    pass 
+class PlotError(Exception):
+    """
+    Exception raised when a plot cannot be generated successfully.
+    """
+    pass
 
 class ParameterNumberError(Exception):
-    """Raises an Exception if the given parameters are not the parameters 
-    expected for a proper computation."""
+    """
+    Exception raised when the number of parameters provided is incorrect.
+
+    This exception is raised when the parameters given do not match the expected
+    count for proper computation.
+    """
     pass
 
 class ProcessingError(Exception):
-    """Raises an Exception if the auto/data processing failed to be executed 
-    properly."""
+    """
+    Exception raised for failures in the data processing pipeline.
+    """
     pass
+
 class ProfileError(Exception):
-    """Raises an Exception if the arguments passed to the Profile object are 
-    mismatched or wrong."""
+    """
+    Exception raised for mismatches in arguments passed to a profile object.
+    """
     pass
 
 class FeatureError(Exception):
-    """Raises an Exception if the features handling failed to be executed 
-    properly."""
+    """
+    Exception raised for errors in feature processing or handling.
+    """
     pass
 
 class EstimatorError(Exception):
-    """Raises an Exception if the estimator or assessor passed is wrong."""
+    """
+    Exception raised when an incorrect estimator or assessor is provided.
+    """
     pass
 
-class GeoPropertyError(Exception): 
-    """ Raises an Exception if the Geological property objects are trying to 
-    be modified externally."""
-    pass
-class GeoArgumentError(Exception): 
-    """Raises an Exception if the arguments passed for Geology modules are
-    unappropriate."""
+class GeoPropertyError(Exception):
+    """
+    Exception raised when there is an attempt to externally modify geological
+    property objects.
+    """
     pass
 
-class HintError(Exception): 
-    """Raises an Exception if the hint proposed to shortcut the processing 
-    isn't appropriate."""
+class GeoArgumentError(Exception):
+    """
+    Exception raised for inappropriate arguments passed to geology modules.
+    """
     pass
 
-class SQLError(Exception): 
-    """Raises an Exception if the SQL request is unappropriate. """
+class HintError(Exception):
+    """
+    Exception raised for inappropriate hints proposed for processing shortcuts.
+    """
+    pass
+
+class SQLError(Exception):
+    """
+    Exception raised for errors in SQL queries or database interactions.
+    """
     pass
 
 class StrataError(Exception):
-    """Raises an Exception if the value of stratum passes is wrong. Also, this 
-    error occurs if the 'sname' is missing in the Hydro-log dataset while 
-    it is mandatory to provide.'sname' is the name of column that fit the 
-    strata. """
-    pass
-
-class SQLManagerError(Exception): 
-    """Raises an Exception if the SQL request transfer failed to be 
-    executed properly."""
-    pass
-
-class GeoDatabaseError(Exception): 
-    """ Raises an Exception if the database failed to respond. The request is 
-    aborted. """
-    pass
-class ModelError(Exception): 
-    """ Raises an Exception when the requierements for building Geo/Model are
-    are wrong not truly passed. Error also raises when Model construction 
-    is going to fail."""
-    pass
-class ERPError(Exception):
-    """Raises an Exception if data passed is not a  valid Electrical Resistivity
-    Profiling. Note that 'station' and 'resistivity' must figure out in the 
-    ERP data. Station is the position where the measurement is done. By 
-    convention is the center of MN and AB, the potential and current electrodes
-    respectively."""
-    pass
-
-class ExtractionError(Exception): 
-    """Raises an Exception if value of extration in path-like object failed,
-    or *.json ,*.yml or other files formats gives an expected result of data 
-    extraction."""
-    pass 
-
-class CoordinateError (Exception): 
-    """ Raises an Exception for mismatched coordinates or if coordinates 
-    failed to be recomputed properly. """
-    pass 
-
-class TopModuleError (Exception): 
-    """ Raises an Exception if the top module failed to be installed. Note 
-    that, understanding by top module, the most dependency package that 
-    is used by `gofast`_ for running successfully. For instance, `scikit_learn`_  
-    is the top module for modeling and predition. """
-    pass 
-
-class NotFittedError (Exception): 
-    """ Raise an Exception if the 'fit' method is not called yet. Note 
-    most of `gofast`_ classes implements 'fit' methods for attributes 
-    populating and parameter init computations. Even the plotting 
-    classes need also to be fitted. """
-    pass 
-
-class ScikitLearnImportError(Exception ): 
-    """ Raises Exception if failed to import scikit-learn. Refer to 
-    :class:`~.gofast._docstring.scikit_learn_doc` for documentation.  
-    Commonly, can get scikit-learn at https://scikit-learn.org/ ."""
-    pass 
-
-class GISError (Exception): 
-    """ Raises an Exception if the GIS parameters failed to be calculated 
-    successfully. 
     """
-    pass 
+    Exception raised for incorrect stratum values or missing 'sname' in
+    hydro-logging datasets, where 'sname' is the column name for strata.
+    """
+    pass
+
+class SQLManagerError(Exception):
+    """
+    Exception raised for failures in SQL request transfers or executions.
+    """
+    pass
+
+class GeoDatabaseError(Exception):
+    """
+    Exception raised when a geospatial database fails to respond or process
+    requests.
+    """
+    pass
+
+class ModelError(Exception):
+    """
+    Exception raised for errors in geospatial or other model constructions.
+    """
+    pass
+
+class ERPError(Exception):
+    """
+    Exception raised for invalid electrical resistivity profiling data.
+
+    'station' and 'resistivity' columns must be present in the ERP dataset.
+    """
+    pass
+
+class ExtractionError(Exception):
+    """
+    Exception raised for failures in data extraction from path-like objects or
+    file formats like JSON or YAML.
+    """
+    pass
+
+class CoordinateError(Exception):
+    """
+    Exception raised for issues with coordinate values or computations.
+    """
+    pass
+
+class TopModuleError(Exception):
+    """
+    Exception raised when a key dependency package fails to install or load.
+
+    'scikit-learn' is an example of a key dependency for the `gofast` package.
+    """
+    pass
+
+class NotFittedError(Exception):
+    """
+    Exception raised when a 'fit' method is called on an unfitted object.
+
+    This is a common exception for classes in `gofast` that implement a 'fit'
+    method for parameter initialization.
+    """
+    pass
+
+class ScikitLearnImportError(Exception):
+    """
+    Exception raised when importing scikit-learn fails.
+
+    Refer to `gofast` documentation for more information on scikit-learn
+    dependencies.
+    """
+    pass
+
+class GISError(Exception):
+    """
+    Exception raised for failures in GIS parameter calculations.
+    """
+    pass
+
+
 class LearningError(Exception): 
-    """ Raises an Exception if the learning Inspection failed during the 
-    training phase. """
+    """
+    Raises an Exception for issues during the learning inspection phase 
+    of training.
+    """
     pass 
 
 class kError (Exception):
-    """ Raises exception if the array of permeability coefficient is missing 
-    or the 'kname' is not specified as the name of the column that fits the 
-    permeability coefficient in the hydro-log data. """
-    
+    """
+    Raises an exception if the permeability coefficient array is missing 
+    or if 'kname' is not specified for permeability in Hydro-log data.
+    """
+    pass
+
 class DepthError (Exception):
-    """ Raises exception with everything that does not support the depth 
-    line a multidimensional array. Commonly Depth is a one-dimensional array 
-    and its atttribute name when pandas daframe of series is given must 
-    contain at least the name 'z'. If such name does not exist in the 
-    pandas dataframe or serie name, specify other name using the parameter
-    'zname'  througthout the package. Be aware to not confuse
-    the parameters 'depth' with 'zname' . While the former specifies the 1d
-    array, the latter both are expected the name of the depth as a pandas 
-    series."""
+    """
+    Raises an exception for depth line issues in a multidimensional array. 
+    Depth should be one-dimensional and labeled 'z' in pandas dataframes 
+    or series.
+    """
     pass 
 
 class AquiferGroupError (Exception):
-    """ Raises exception with everything that does not relate to the aquifer 
-    like a multidimensional array. Commonly Aquifer is a one-dimensional array 
-    composed of categorical values expected  to be the layer/rock name where 
-    the pumping is performed. Note that aquifer is composed of categorical data. 
-    At least, labels are encoded into a numerical values. If that is the 
-    case, values should be an integer not any other types. Furthermore, it is 
-    better to not confuse the permeability coefficient 'k' with aquifer 
-    even the latter is tied to the former. In the hydrogeology modules, 
-    aquifer works apart by condering a single column preferably located in 
-    the target dataframe k. However, it does not a matter whether it 
-    is considered as a feature provided that the purpose fits exactly the 
-    objective of the users."""
+    """
+    Raises an exception for issues with aquifer data, which should be 
+    one-dimensional and categorical, representing layer/rock names.
+    """
     pass 
-
-

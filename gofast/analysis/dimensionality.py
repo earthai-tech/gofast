@@ -29,7 +29,7 @@ from .._typing import (
     ArrayLike, 
     NDArray, 
     DataFrame,
-    Sub
+    _Sub
     )
 
 from .._gofastlog import gofastlog
@@ -514,7 +514,7 @@ Example
 """
 def make_introspection(
         Obj: object ,
-        subObj: Sub[object]
+        subObj: _Sub[object]
         )-> None: 
     """ Make introspection by using the attributes of instance created to 
     populate the new classes created.

@@ -11,29 +11,20 @@ import warnings
 
 import numpy as np
 import pandas as pd 
-from scipy.signal import ( 
-    argrelextrema,  )
-
+from scipy.signal import argrelextrema 
 from scipy.optimize import curve_fit
 from scipy.cluster.hierarchy import  linkage 
 from scipy.linalg import lstsq
 from scipy._lib._util import float_factorial
 from scipy.ndimage import convolve1d
-from scipy.spatial.distance import ( 
-    pdist, squareform 
-    )
+from scipy.spatial.distance import pdist, squareform 
 import  matplotlib.pyplot as plt
 
 from ._arraytools import axis_slice
 from .._gofastlog import gofastlog
 from .._docstring import refglossary
-from ..decorators import ( 
-    refAppender, 
-    docSanitizer
-)
-from ..exceptions import ( 
-    SiteError, 
-    )
+from ..decorators import refAppender, docSanitizer
+from ..exceptions import SiteError
 from .._typing import (
     _T, 
     _F,
@@ -47,6 +38,7 @@ from .._typing import (
     _SP, 
     Series, 
     DataFrame,
+    Dict,
 )
 from .box import Boxspace 
 from .funcutils import (
@@ -74,13 +66,787 @@ from .validator import (
     assert_xy_in, 
     build_data_if
     )
-
 try: import scipy.stats as spstats
 except: pass 
 
 _logger =gofastlog.get_gofast_logger(__name__)
 
 mu0 = 4 * np.pi * 1e-7 
+
+
+def infer_sankey_columns(data: DataFrame, /, 
+  ) -> Tuple[List[str], List[str], List[int]]:
+    """
+    Infers source, target, and value columns for a Sankey diagram 
+    from a DataFrame.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The DataFrame from which to infer the source, target, and value columns.
+
+    Returns
+    -------
+    Tuple[List[str], List[str], List[int]]
+        Three lists containing the names of the source nodes, target nodes,
+        and the values of the flows between them, respectively.
+
+    Raises
+    ------
+    ValueError
+        If the DataFrame does not contain at least two columns for source and target,
+        and an additional column for value.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.tools.mathex import infer_sankey_columns
+    >>> df = pd.DataFrame({
+    ...     'from': ['A', 'A', 'B', 'B'],
+    ...     'to': ['X', 'Y', 'X', 'Y'],
+    ...     'amount': [10, 20, 30, 40]
+    ... })
+    >>> sources, targets, values = infer_sankey_columns(df)
+    >>> print(sources, targets, values)
+    ['A', 'A', 'B', 'B'] ['X', 'Y', 'X', 'Y'] [10, 20, 30, 40]
+    """
+    if len(data.columns) < 3:
+        raise ValueError("DataFrame must have at least three columns:"
+                         " source, target, and value")
+
+    # Heuristic: The source is often the first column, the target is the second,
+    # and the value is the third or the one with numeric data
+    numeric_cols = data.select_dtypes(include=[float, int]).columns
+
+    if len(numeric_cols) == 0:
+        raise ValueError(
+            "DataFrame does not contain any numeric columns for values")
+
+    # Choose the first numeric column as the value by default
+    value_col = numeric_cols[0]
+    source_col = data.columns[0]
+    target_col = data.columns[1]
+
+    # If there's a 'source' or 'target' column, prefer that
+    for col in data.columns:
+        if 'source' in col.lower():
+            source_col = col
+        elif 'target' in col.lower():
+            target_col = col
+        elif 'value' in col.lower() or 'amount' in col.lower() or 'count' in col.lower():
+            value_col = col
+
+    # Check for consistency in data
+    if data[source_col].isnull().any() or data[target_col].isnull().any():
+        raise ValueError("Source and Target columns must not contain null values")
+
+    if data[value_col].isnull().any():
+        raise ValueError("Value column must not contain null values")
+
+    # Extract the columns and return
+    sources = data[source_col].tolist()
+    targets = data[target_col].tolist()
+    values = data[value_col].tolist()
+
+    return sources, targets, values
+
+
+def compute_sunburst_data(
+    data: DataFrame, /, 
+    hierarchy: Optional[List[str]] = None, 
+    value_column: Optional[str] = None
+  ) -> List[Dict[str, str]]:
+    """
+    Computes the data structure required for generating a sunburst chart from
+    a DataFrame.
+    
+    The function allows for automatic inference of hierarchy and values if 
+    not explicitly provided. This is useful for visualizing hierarchical 
+    datasets where the relationship between parent and child categories is 
+    important.
+
+    The sunburst chart provides insights into the proportion of categories at 
+    multiple levels of the hierarchy through their area size. It is especially 
+    useful in identifying patterns and contributions of various parts to the 
+    whole in a dataset.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The DataFrame containing the hierarchical data. It should have columns 
+        representing levels of the hierarchy and optionally a column for values.
+    hierarchy : Optional[List[str]], optional
+        The list of columns that represent the hierarchy levels, ordered from 
+        top to bottom. If not provided, the function assumes all columns except
+        the last one are part of the hierarchy.
+    value_column : Optional[str], optional
+        The name of the column that contains the values for each leaf node in 
+        the sunburst chart. If not provided, the function will count the 
+        occurrences of the lowest hierarchy level and use this count as the 
+        value for each leaf node.
+
+    Returns
+    -------
+    List[Dict[str, str]]
+        A list of dictionaries where each dictionary represents a node in the
+        sunburst chart with 'name', 'value', and 'parent' keys.
+
+    Examples
+    --------
+    >>> df = pd.DataFrame({
+    ...     'Category': ['A', 'A', 'B', 'B'],
+    ...     'Subcategory': ['A1', 'A2', 'B1', 'B2']
+    ... })
+    >>> data = compute_sunburst_data(df)
+    >>> print(data)
+    [
+        {'name': 'A', 'value': 2, 'parent': ''},
+        {'name': 'B', 'value': 2, 'parent': ''},
+        {'name': 'A1', 'value': 1, 'parent': 'A'},
+        {'name': 'A2', 'value': 1, 'parent': 'A'},
+        {'name': 'B1', 'value': 1, 'parent': 'B'},
+        {'name': 'B2', 'value': 1, 'parent': 'B'}
+    ]
+    """
+    # If hierarchy is not provided, infer it from all columns except the last
+    if hierarchy is None:
+        hierarchy = data.columns[:-1].tolist()
+    
+    # If value_column is not provided, create a 'Count' column and use 
+    # it as the value column
+    if value_column is None:
+        data = data.assign(Count=1)
+        value_column = 'Count'
+    
+    # Compute the values for each level of the hierarchy
+    df_full = data.copy()
+    for i in range(1, len(hierarchy)):
+        df_level = df_full[hierarchy[:i+1] + [value_column]].groupby(
+            hierarchy[:i+1]).sum().reset_index()
+        df_full = pd.concat([df_full, df_level], ignore_index=True)
+    
+    df_full = df_full.drop_duplicates(subset=hierarchy).reset_index(drop=True)
+
+    # Generate the sunburst data structure
+    sunburst_data = [
+        {"name": row[hierarchy[-1]], 
+         "value": row[value_column], 
+         "parent": row[hierarchy[-2]] if i > 0 else ""}
+        for i in range(len(hierarchy))
+        for _, row in df_full[hierarchy[:i+1] + [value_column]].iterrows()
+    ]
+
+    # Remove duplicates, preserve order, and return
+    seen = set()
+    return [x for x in sunburst_data if not (
+        tuple(x.items()) in seen or seen.add(tuple(x.items())))]
+
+def compute_effort_yield(
+        d: ArrayLike, /, reverse: bool = True
+        ) -> Tuple[ArrayLike, np.ndarray]:
+    """
+    Compute effort and yield values from importance data for use in 
+    ABC analysis or similar plots.
+
+    This function takes an array of importance measures (e.g., weights, scores) 
+    and computes the cumulative effort and corresponding yield. 
+    The effort is the cumulative percentage of items when sorted by importance,
+    and the yield is the cumulative sum of importance
+    measures, also as a percentage of the total sum.
+
+    Parameters
+    ----------
+    d : np.ndarray
+        1D array of importance measures for each item or feature.
+    reverse : bool, optional
+        If True (default), sort the data in descending order 
+        (highest importance first).
+        If False, sort in ascending order (lowest importance first).
+    
+    Returns
+    -------
+    effort : np.ndarray
+        The cumulative percentage of items considered, sorted by importance.
+    yield_ : np.ndarray
+        The cumulative sum of importance measures, normalized to the total 
+        sum to represent the yield as a proportion of the total importance.
+
+    Example
+    -------
+    >>> import numpy as np 
+    >>> from gofast.tools.mathex import compute_effort_yield
+    >>> importances = np.array([0.1, 0.4, 0.3, 0.2])
+    >>> effort, yield_ = compute_effort_yield(importances)
+    >>> print(effort)
+    >>> print(yield_)
+    
+    This would output:
+    >>> effort
+    [0.25 0.5  0.75 1.  ]
+    >>> yield_
+    [0.4  0.7  0.9  1.  ]
+
+    Note that the effort is simply the proportion of total items, 
+    and the yield is the
+    cumulative proportion of the sum of importances.
+    """
+    d = np.array (d)
+    # Validate input data
+    if not isinstance(d, np.ndarray) or d.ndim != 1:
+        raise ValueError("Input data must be a one-dimensional numpy array.")
+    
+    if not np.issubdtype(d.dtype, np.number):
+        raise ValueError("Input data must be a numpy array of numerical type.")
+
+    # Sort the data by importance
+    sorted_indices = np.argsort(d)
+    sorted_data = d[sorted_indices]
+    if reverse:
+        sorted_data = sorted_data[::-1]
+
+    # Calculate cumulative sum of the sorted data
+    cumulative_data = np.cumsum(sorted_data)
+
+    # Normalize cumulative sum to get yield as a proportion of the total sum
+    yield_ = cumulative_data / cumulative_data[-1]
+
+    # Calculate the effort as the proportion of total number of items
+    effort = np.arange(1, d.size + 1) / d.size
+
+    return effort, yield_
+
+def make_mxs(
+    y,
+    yt,
+    threshold=0.5, 
+    star_mxs=True, 
+    return_ymxs=False,
+    mode="strict", 
+    include_nan=False, 
+    trailer="*"
+    ):
+    """
+    Compute the similarity between labels in arrays true y and predicted yt. 
+    
+    Function transform yt based on these similarities, and create a new 
+    array `ymxs` by filling NaN values in y with corresponding labels from 
+    transformed yt. Handles NaN values in `yt` based on the `mode` and
+    `include_nan` parameters. See more in [1]_
+
+    Parameters
+    ----------
+    y : array-like
+        The target array containing valid labels and potentially NaN values.
+    yt : array-like
+        The array containing predicted labels from KMeans.
+    threshold : float, optional
+        The threshold for considering a label in `y` as similar to a label 
+        in `yt` (default is 0.5).
+    star_mxs : bool, optional
+        If True, appends `trailer` to labels in `yt` when similarity is found 
+        (default is True).
+    return_ymx : bool, optional
+        If True, returns the mixed array `ymx`; otherwise, returns a 
+        dictionary of label similarities (default is False).
+    mode : str, optional
+        "strict" or "soft" handling of NaN values in `yt` (default is "strict").
+    include_nan : bool, optional
+        If True and `mode` is "soft", includes NaN values in `yt` during 
+        similarity computation (default is False).
+    trailer : str, optional
+        The string to append to labels in `yt` when `star_mxs` is True
+        (default is "*").
+
+    Returns
+    -------
+    array or dict
+        Mixed array `ymx` if `return_ymx` is True; otherwise, a 
+        dictionary representing similarities of labels in `y` and `yt`.
+
+    Raises
+    ------
+    ValueError
+        If `yt` contains NaN values in "strict" mode or if `trailer` 
+        is a number.
+        
+    References
+    -----------
+    [1] Kouadio, K.L, Liu R., Liu J., A mixture Learning Strategy for predicting 
+        permeability coefficient K (2024). Computers and Geosciences, doi:XXXXX 
+
+    Examples
+    --------
+    >>> y = np.array([1, 2, np.nan, 4])
+    >>> yt = np.array([1, 2, 3, 4])
+    >>> make_mxs(y, yt, threshold=0.5, star_mxs=True, return_ymx=True, trailer="#")
+    array([1, 2, '3#', '44#'])
+
+    >>> make_mxs(y, yt, threshold=1.5, star_mxs=False, return_ymx=False, mode="soft")
+    {1: True, 2: True, np.nan: False, 4: True}
+    """
+    from sklearn.metrics import pairwise_distances
+    
+    if not isinstance(trailer, str) or trailer.isdigit():
+        raise ValueError("trailer must be a non-numeric string.")
+
+    if mode == "strict" and np.isnan(yt).any():
+        raise ValueError("yt should not contain NaN values in 'strict' mode.")
+
+    # Appending trailer to yt if star_mxs is True
+    yt_transformed = np.array([f"{label}{trailer}" for label in yt]
+                              ) if star_mxs else yt.copy()
+
+    # Computing similarities and transforming yt
+    similarities = {}
+    for i, label_y in enumerate(y):
+        include_label = not np.isnan(label_y) or (include_nan and mode == "soft")
+        if include_label:
+            similarity = pairwise_distances([[label_y]], [[yt[i]]])[0][0] <= threshold
+            similarities[label_y] = similarity
+            if similarity and star_mxs:
+                # Transform similar labels in yt
+                label_yt_trailer = f"{yt[i]}{trailer}"
+                yt_transformed[yt_transformed == label_yt_trailer
+                               ] = f"{label_y}{label_yt_trailer}"
+    # Filling NaN positions in y with corresponding labels from transformed yt
+    ymxs = np.where(np.isnan(y), yt_transformed, y)
+    
+    return ymxs if return_ymxs else similarities
+
+def label_importance(y, include_nan=False):
+    """
+    Compute the importance of each label in a target array.
+
+    This function calculates the frequency of each unique label 
+    in the target array `y`. Importance is defined as the proportion of 
+    occurrences of each label in the array.
+
+    Parameters
+    ----------
+    y : array-like
+        The target array containing labels.
+    include_nan : bool, optional
+        If True, includes NaN values in the calculation, otherwise 
+        excludes them (default is False).
+
+    Returns
+    -------
+    dict
+        A dictionary with labels as keys and their corresponding 
+        importance as values.
+
+    Notes
+    -----
+    The mathematical formulation for the importance of a label `l` is given by:
+
+    .. math::
+
+        I(l) = \\frac{\\text{{count of }} l \\text{{ in }} y}{\\text{{total number of elements in }} y}
+
+    Examples
+    --------
+    >>> y = np.array([1, 2, 2, 3, 3, 3, np.nan])
+    >>> label_importance(y)
+    {1.0: 0.16666666666666666, 2.0: 0.3333333333333333, 3.0: 0.5}
+
+    >>> label_importance(y, include_nan=True)
+    {1.0: 0.14285714285714285, 2.0: 0.2857142857142857, 3.0: 0.42857142857142855,
+     nan: 0.14285714285714285}
+    """
+    y = np.array ( y )
+    if not include_nan:
+        y = y[~np.isnan(y)]
+    labels, counts = np.unique(y, return_counts=True)
+    total = counts.sum()
+    return {label: count / total for label, count in zip(labels, counts)}
+
+def linear_regression(X, coef, bias=0., noise=0.):
+    """
+    linear regression.
+    
+    Generate output for linear regression, modeling a relationship between
+    features and a response using a linear approach.
+
+    Linear regression is one of the simplest formss of regression, useful for
+    understanding relationships between variables and for making predictions.
+    It's widely used in various fields like economics, biology, and engineering.
+
+    Parameters
+    ----------
+    X : ndarray
+        The input samples with shape (n_samples, n_features).
+    coef : ndarray
+        The coefficients for the linear regression with shape (n_features,).
+    bias : float
+        The bias term in the linear equation.
+    noise : float
+        The standard deviation of the Gaussian noise added to the output.
+
+    Returns
+    -------
+    y : ndarray
+        The output values for linear regression with shape (n_samples,).
+
+    Formula
+    -------
+    y = X \cdot coef + bias + noise
+    
+    Applications
+    ------------
+    - Trend analysis in time series data.
+    - Predictive modeling in business and finance.
+    - Estimating relationships in scientific experiments.
+    """
+    return np.dot(X, coef) + bias + noise * np.random.randn(X.shape[0])
+
+def quadratic_regression(X, coef, bias=0., noise=0.):
+    """
+    Quadratic regression.
+
+    Generate output for quadratic regression, which models a parabolic 
+    relationship between the dependent variable and independent variables.
+
+    Quadratic regression is suitable for datasets with a non-linear trend. It's 
+    often used in areas where the rate of change increases or decreases rapidly.
+
+    Applications
+    ------------
+    - Modeling acceleration or deceleration patterns in physics.
+    - Growth rate analysis in biology and economics.
+    - Prediction in financial markets with parabolic trends.
+    
+    Parameters
+    ----------
+    X : ndarray
+        The input samples with shape (n_samples, n_features).
+    coef : ndarray
+        The coefficients for the linear regression with shape (n_features,).
+    bias : float
+        The bias term in the linear equation.
+    noise : float
+        The standard deviation of the Gaussian noise added to the output.
+        
+    Formula
+    -------
+    y = (X^2) \cdot coef + bias + noise
+    """
+    return np.dot(X**2, coef) + bias + noise * np.random.randn(X.shape[0])
+
+def cubic_regression(X, coef, bias=0., noise=0.):
+    """
+    Cubic regression.
+
+    Generate output for cubic regression, fitting a cubic polynomial to the data.
+
+    Cubic regression provides a more flexible curve than quadratic models and is 
+    beneficial in studying more complex relationships, especially where inflection 
+    points are present.
+
+    Applications
+    ------------
+    - Analyzing drug response curves in pharmacology.
+    - Studying the growth patterns of organisms or populations.
+    - Complex trend analysis in economic data.
+    
+    Parameters
+    ----------
+    X : ndarray
+        The input samples with shape (n_samples, n_features).
+    coef : ndarray
+        The coefficients for the linear regression with shape (n_features,).
+    bias : float
+        The bias term in the linear equation.
+    noise : float
+        The standard deviation of the Gaussian noise added to the output.
+
+    Formula
+    -------
+    y = (X^3) \cdot coef + bias + noise
+    """
+    return np.dot(X**3, coef) + bias + noise * np.random.randn(X.shape[0])
+
+def exponential_regression(X, coef, bias=0., noise=0.):
+    """
+    Exponential regression.
+
+    Generate output for exponential regression, ideal for modeling growth or decay.
+
+    Exponential regression is used when data grows or decays at a constant
+    percentage rate. It's crucial in fields like biology for population growth 
+    studies or in finance for compound interest calculations.
+
+    Applications
+    ------------
+    - Modeling population growth or decline.
+    - Financial modeling for compound interest.
+    - Radioactive decay in physics.
+    Parameters
+    ----------
+    X : ndarray
+        The input samples with shape (n_samples, n_features).
+    coef : ndarray
+        The coefficients for the linear regression with shape (n_features,).
+    bias : float
+        The bias term in the linear equation.
+    noise : float
+        The standard deviation of the Gaussian noise added to the output.
+
+    Formula
+    -------
+    y = exp(X \cdot coef) + bias + noise
+    """
+    return np.exp(np.dot(X, coef)) + bias + noise * np.random.randn(X.shape[0])
+
+def logarithmic_regression(X, coef, bias=0., noise=0.):
+    """
+    Logarithmic regression.
+
+    Generate output for logarithmic regression, suitable for modeling processes 
+    that rapidly increase or decrease and then level off.
+
+    Logarithmic regression is particularly useful in situations where the rate of
+    change decreases over time. It's often used in scientific data analysis.
+
+    Applications
+    ------------
+    - Analyzing diminishing returns in economics.
+    - Growth rate analysis in biological processes.
+    - Signal processing and sound intensity measurements.
+    
+    Parameters
+    ----------
+    X : ndarray
+        The input samples with shape (n_samples, n_features).
+    coef : ndarray
+        The coefficients for the linear regression with shape (n_features,).
+    bias : float
+        The bias term in the linear equation.
+    noise : float
+        The standard deviation of the Gaussian noise added to the output.
+
+    Formula
+    -------
+    y = log(X) \cdot coef + bias + noise
+    """
+    return np.dot(np.log(X), coef) + bias + noise * np.random.randn(X.shape[0])
+
+def sinusoidal_regression(X, coef, bias=0., noise=0.):
+    """
+    Sinusoidal regression.
+
+    Generate output for sinusoidal regression, fitting a sinusoidal model to the data.
+
+    This type of regression is useful for modeling cyclical patterns and is commonly
+    used in fields like meteorology, seasonal studies, and signal processing.
+
+    Applications
+    ------------
+    - Seasonal pattern analysis in climatology.
+    - Modeling cyclical trends in economics.
+    - Signal analysis in electrical engineering.
+    
+    Parameters
+    ----------
+    X : ndarray
+        The input samples with shape (n_samples, n_features).
+    coef : ndarray
+        The coefficients for the linear regression with shape (n_features,).
+    bias : float
+        The bias term in the linear equation.
+    noise : float
+        The standard deviation of the Gaussian noise added to the output.
+
+    Formula
+    -------
+    y = sin(X \cdot coef) + bias + noise
+    """
+    return np.sin(np.dot(X, coef)) + bias + noise * np.random.randn(X.shape[0])
+
+def step_regression(X, coef, bias=0., noise=0.):
+    """
+    Step regression.
+
+    Step regression is valuable for modeling scenarios where the dependent variable
+    changes abruptly at specific thresholds. It's used in quality control and market
+    segmentation analysis.
+
+    Applications
+    ------------
+    - Quality assessment in manufacturing processes.
+    - Customer segmentation in marketing.
+    - Modeling sudden changes in environmental data.
+    
+    Parameters
+    ----------
+    X : ndarray
+        The input samples with shape (n_samples, n_features).
+    coef : ndarray
+        The coefficients for the linear regression with shape (n_features,).
+    bias : float
+        The bias term in the linear equation.
+    noise : float
+        The standard deviation of the Gaussian noise added to the output.
+
+
+    Formula
+    -------
+    y = step_function(X \cdot coef) + bias + noise
+
+    Note: step_function returns 1 if x >= 0, else 0.
+    """
+    step_function = np.vectorize(lambda x: 1 if x >= 0 else 0)
+    return step_function(np.dot(X, coef)) + bias + noise * np.random.randn(X.shape[0])
+
+def standard_scaler(X, y=None):
+    """
+    Scales features to have zero mean and unit variance.
+
+    Standard scaling is vital in many machine learning algorithms that are 
+    sensitive to the scale of input features. It's commonly used in algorithms
+    like Support Vector Machines and k-Nearest Neighbors.
+
+    Applications
+    ------------
+    - Data preprocessing for machine learning models.
+    - Feature normalization in image processing.
+    - Standardizing variables in statistical analysis.
+    
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        The input samples.
+    y : ndarray of shape (n_samples,), optional
+        The output values. If provided, it will be scaled as well.
+
+    Returns
+    -------
+    X_scaled : ndarray
+        Scaled version of X.
+    y_scaled : ndarray, optional
+        Scaled version of y, if y is provided.
+
+    Formula
+    -------
+    For each feature, the Standard Scaler performs the following operation:
+        z = \frac{x - \mu}{\sigma}
+    where \mu is the mean and \sigma is the standard deviation of the feature.
+
+    Examples
+    --------
+    >>> X = np.array([[1, 2], [3, 4], [5, 6]])
+    >>> X_scaled = standard_scaler(X)
+    """
+    X_mean = X.mean(axis=0)
+    X_std = X.std(axis=0)
+    X_scaled = (X - X_mean) / X_std
+
+    if y is not None:
+        y_mean = y.mean()
+        y_std = y.std()
+        y_scaled = (y - y_mean) / y_std
+        return X_scaled, y_scaled
+
+    return X_scaled
+
+def minmax_scaler(X, y=None):
+    """
+    Scales each feature to a given range, typically [0, 1].
+
+    MinMax scaling is often used when the algorithm requires a bounded interval. 
+    It's particularly useful in neural networks and image processing where values 
+    need to be normalized.
+
+    Applications
+    ------------
+    - Data normalization for neural networks.
+    - Preprocessing data in computer vision tasks.
+    - Scaling features for optimization problems.
+    
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        The input samples.
+    y : ndarray of shape (n_samples,), optional
+        The output values. If provided, it will be scaled as well.
+
+    Returns
+    -------
+    X_scaled : ndarray
+        Scaled version of X.
+    y_scaled : ndarray, optional
+        Scaled version of y, if y is provided.
+
+    Formula
+    -------
+    The MinMax Scaler performs the following operation for each feature:
+        z = \frac{x - \min(x)}{\max(x) - \min(x)}
+
+    Examples
+    --------
+    >>> X = np.array([[1, 2], [3, 4], [5, 6]])
+    >>> X_scaled = minmax_scaler(X)
+    """
+    X_min = X.min(axis=0)
+    X_max = X.max(axis=0)
+    X_scaled = (X - X_min) / (X_max - X_min)
+
+    if y is not None:
+        y_min = y.min()
+        y_max = y.max()
+        y_scaled = (y - y_min) / (y_max - y_min)
+        return X_scaled, y_scaled
+
+    return X_scaled
+
+def normalize(X, y=None):
+    """
+    Scales individual samples to have unit norm.
+
+    Normalization is critical for distance-based algorithms like k-Nearest 
+    Neighbors and clustering algorithms. It ensures that each feature 
+    contributes proportionately to the final distance.
+
+    Applications
+    ------------
+    - Preprocessing for clustering algorithms.
+    - Normalizing data in natural language processing.
+    - Feature scaling in bioinformatics.
+    
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        The input samples.
+    y : ndarray of shape (n_samples,), optional
+        The output values. If provided, it will be normalized as well.
+
+    Returns
+    -------
+    X_normalized : ndarray
+        Normalized version of X.
+    y_normalized : ndarray, optional
+        Normalized version of y, if y is provided.
+
+    Formula
+    -------
+    The Normalize method scales each sample as follows:
+        z = \frac{x}{||x||}
+    where ||x|| is the Euclidean norm (L2 norm) of the sample.
+
+    Examples
+    --------
+    >>> X = np.array([[1, 2], [3, 4], [5, 6]])
+    >>> X_normalized = normalize(X)
+    """
+    X_norm = np.linalg.norm(X, axis=1, keepdims=True)
+    X_normalized = X / X_norm
+
+    if y is not None:
+        y_norm = np.linalg.norm(y, axis=0, keepdims=True)
+        y_normalized = y / y_norm
+        return X_normalized, y_normalized
+
+    return X_normalized
+
 
 def get_azimuth (
     xlon: str | ArrayLike, 
@@ -681,7 +1447,6 @@ def scalePosition(
         
     return ydata_new, popt, pcov 
 
-
 def detect_station_position (
         s : Union[str, int] ,
         p: _SP, 
@@ -762,8 +1527,6 @@ def detect_station_position (
         
     return int(s_index) , s 
     
-
-
 def _manage_colors (c, default = ['ok', 'ob-', 'r-']): 
     """ Manage the ohmic-area plot colors """
     c = c or default 
@@ -2271,9 +3034,14 @@ def quality_control2(
  
 
 def quality_control(
-    data, missing_threshold=0.05, outlier_method='IQR', 
-    value_ranges=None, unique_value_columns=None, 
-    string_patterns=None, verbose:bool= ..., polish_and_return:bool=..., 
+    data, 
+    missing_threshold=0.05, 
+    outlier_method='IQR', 
+    value_ranges=None,
+    unique_value_columns=None, 
+    string_patterns=None, 
+    verbose:bool= ..., 
+    polish_and_return:bool=..., 
     columns=None, 
     **kwd 
     ):
@@ -2440,8 +3208,6 @@ def quality_control(
         fancy_printer(result)
     
     return data_ if polish_and_return else result
-
-
 
 def get_distance(
     x: ArrayLike, 
@@ -3025,7 +3791,6 @@ def torres_verdin_filter(
     
     return arr 
 
-
 def binning_statistic(
     data, categorical_column, 
     value_column, 
@@ -3046,8 +3811,8 @@ def binning_statistic(
     value_column : str
         Name of the column in `data` from which the statistic will be calculated.
     statistic : str, optional
-        The statistic to compute (default is 'mean'). Other options include 'sum', 'count',
-        'median', 'min', 'max', etc.
+        The statistic to compute (default is 'mean'). Other options include 
+        'sum', 'count','median', 'min', 'max', etc.
 
     Returns
     -------
@@ -3066,10 +3831,11 @@ def binning_statistic(
     1        B         3.50
     2        C         5.50
     """
-    if statistic not in ['mean', 'sum', 'count', 'median', 'min', 'max']:
+    if statistic not in ('mean', 'sum', 'count', 'median', 'min',
+                         'max', 'proportion'):
         raise ValueError(
             "Unsupported statistic. Please choose from 'mean',"
-            " 'sum', 'count', 'median', 'min', 'max'.")
+            " 'sum', 'count', 'median', 'min', 'max', 'proportion'.")
 
     grouped_data = data.groupby(categorical_column)[value_column]
 
@@ -3085,11 +3851,14 @@ def binning_statistic(
         result = grouped_data.min().reset_index(name=f'Min_{value_column}')
     elif statistic == 'max':
         result = grouped_data.max().reset_index(name=f'Max_{value_column}')
-
+    elif statistic == 'proportion':
+        total_count = data[value_column].count()
+        proportion = grouped_data.sum() / total_count
+        result = proportion.reset_index(name=f'Proportion_{value_column}')
+        
     return result
 
-
-def bin_counting(data, /, categorical_column= None):
+def category_count(data, /, categorical_column= None):
     """
     Count occurrences of each category in a given categorical 
     column of a dataset.
@@ -3115,7 +3884,7 @@ def bin_counting(data, /, categorical_column= None):
     >>> df = pd.DataFrame({
     ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'C']
     ... })
-    >>> bin_counting(df, 'Category')
+    >>> category_count(df, 'Category')
        Category  Count
     0        A      3
     1        B      2
@@ -3128,11 +3897,11 @@ def bin_counting(data, /, categorical_column= None):
     counts.columns = [categorical_column, 'Count']
     return counts
 
-
-def binning_statistic2(
+def soft_bin_stat(
     data, /, categorical_column, 
     target_column, 
-    statistic='mean'
+    statistic='mean', 
+    update=False, 
     ):
     """
     Compute a statistic for each category in a categorical 
@@ -3162,11 +3931,12 @@ def binning_statistic2(
 
     Examples
     --------
+    >>> from gofast.tools.mathex import soft_bin_stat
     >>> df = pd.DataFrame({
     ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'C'],
     ...     'Target': [1, 0, 1, 0, 1, 0, 1]
     ... })
-    >>> binning_statistic(df, 'Category', 'Target', statistic='mean')
+    >>> soft_bin_stat(df, 'Category', 'Target', statistic='mean')
        Category  Mean_Target
     0        A     0.666667
     1        B     0.500000
@@ -3187,13 +3957,96 @@ def binning_statistic2(
         proportion = grouped_data.sum() / total_count
         result = proportion.reset_index(name=f'Proportion_{target_column}')
 
+
     return result
 
-   
+def gradient_boosting_regressor(
+        X, y, n_estimators=100, learning_rate=0.1, max_depth=1):
+    """
+    Implement a simple version of Gradient Boosting Regressor.
+
+    Gradient Boosting builds an additive model in a forward stage-wise fashion. 
+    At each stage, regression trees are fit on the negative gradient of the loss function.
+
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        The input samples.
+    y : ndarray of shape (n_samples,)
+        The target values (real numbers).
+    n_estimators : int, default=100
+        The number of boosting stages to be run.
+    learning_rate : float, default=0.1
+        Learning rate shrinks the contribution of each tree by `learning_rate`.
+    max_depth : int, default=1
+        The maximum depth of the individual regression estimators.
+
+    Returns
+    -------
+    y_pred : ndarray of shape (n_samples,)
+        The predicted values.
+
+    Mathematical Formula
+    --------------------
+    Given a differentiable loss function L(y, F(x)), the general idea is 
+    to iteratively construct additive models as follows:
     
-   
+    .. math:: 
+        F_{m}(x) = F_{m-1}(x) + \\gamma_{m} h_{m}(x)
+
+    where F_{m} is the model at iteration m, \\gamma_{m} is the step size,
+    and h_{m} is the weak learner.
+
+    Notes
+    -----
+    Gradient Boosting is widely used in machine learning for regression and 
+    classification problems. It's effective in scenarios where data is not 
+    linearly separable.
+
+    References
+    ----------
+    - J. H. Friedman, "Greedy Function Approximation: A Gradient Boosting Machine," 1999.
+    - T. Hastie, R. Tibshirani, and J. Friedman, "The Elements of Statistical Learning," Springer, 2009.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import make_regression
+    >>> X, y = make_regression(n_samples=100, n_features=1, noise=10)
+    >>> y_pred = gradient_boosting_regressor(X, y, n_estimators=100,
+                                             learning_rate=0.1)
+    >>> print(y_pred[:5])
+    """
+    from ..estimators import DecisionStumpRegressor
+    # Initialize model
+    F_m = np.zeros(len(y))
+    # for m in range(n_estimators):
+        # Compute negative gradient
+        # residual = -(y - F_m)
+
+        # # Fit a regression tree to the negative gradient
+        # tree = DecisionTreeRegressor(max_depth=max_depth)
+        # tree.fit(X, residual)
+
+        # # Update the model
+        # F_m += learning_rate * tree.predict(X)
+
+    for m in range(n_estimators):
+        # Compute negative gradient
+        residual = -(y - F_m)
     
-   
+        # Fit a decision stump to the negative gradient
+        stump = DecisionStumpRegressor()
+        stump.fit(X, residual)
+    
+        # Update the model
+        F_m += learning_rate * stump.predict(X)
+    
+
+    return F_m
+
+
+
+
     
    
     

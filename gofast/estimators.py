@@ -5,11 +5,13 @@
 from __future__ import annotations 
 import re  
 import inspect 
-import numpy as np
+from numbers import Integral, Real
 from collections import defaultdict
 from scipy import stats
+import numpy as np
 
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin, clone
+from sklearn.base import is_regressor, is_classifier 
 from sklearn.ensemble import GradientBoostingRegressor, GradientBoostingClassifier
 from sklearn.ensemble import StackingRegressor, StackingClassifier
 from sklearn.linear_model import LogisticRegression
@@ -19,11 +21,18 @@ from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
 from sklearn.utils import shuffle
 try:from sklearn.utils import type_of_target
 except: from .tools.funcutils import type_of_target 
+from sklearn.metrics import r2_score
 
 from ._gofastlog import  gofastlog
-from .exceptions import NotFittedError, EstimatorError 
+from .exceptions import  EstimatorError 
 from .tools.funcutils import smart_format, is_iterable
 from .tools.validator import check_X_y, get_estimator_name, check_array 
+from .tools.validator import check_is_fitted
+from .tools._param_validation import Hidden
+from .tools._param_validation import Interval
+from .tools._param_validation import StrOptions
+from .tools._param_validation import validate_params
+from .transformers import KMeansFeaturizer
     
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -38,8 +47,11 @@ __all__=[
    "BenchmarkClassifier", 
    "BoostedRegressionTree",
    "BoostedClassifierTree",
+   "DecisionStumpRegressor",
    "DecisionTreeBasedRegressor",
    "DecisionTreeBasedClassifier",
+   "KMFClassifier", 
+   "KMFRegressor",
    "GradientDescentClassifier",
    "GradientDescentRegressor",
    "HammersteinWienerClassifier",
@@ -58,7 +70,838 @@ __all__=[
    "WeightedAverageClassifier",
  ]
 
+class KMFClassifier(BaseEstimator, ClassifierMixin):
+    r"""
+    A classifier that integrates k-means clustering with a base machine 
+    learning estimator.
 
+    The KMFClassifier first employs the KMeansFeaturizer algorithm to transform 
+    the input data into cluster memberships based on k-means clustering. Each 
+    data point is represented by its closest cluster center. This transformed 
+    data, capturing the inherent clustering structure, is then used to train a 
+    specified base estimator. The approach aims to enhance the performance of 
+    the base estimator by leveraging the additional structure introduced by 
+    the clustering process.
+
+    The mathematical formulation of the k-means clustering involves minimizing 
+    the inertia, or within-cluster sum-of-squares criterion.
+
+    The inertia is defined as:
+
+    .. math::
+
+        \\text{Inertia} = \\sum_{i=1}^{n} (x_i - \\mu_k)^2
+
+    where :math:`x_i` represents a data point, :math:`\\mu_k` is the centroid of the 
+    cluster k, and the sum is taken over all the data points in the cluster.
+    
+    Mathematically, the KMF algorithm with no hint (target variable not included) 
+    follows the standard k-means objective of minimizing the intra-cluster variance. 
+    However, when the target variable y is included, the feature space is augmented 
+    by stacking y with X. The KMF algorithm then minimizes a modified objective 
+    function:
+
+    \[
+    \min_{C_1,\cdots,C_k, \mu'_1,\cdots,\mu'_k} \sum_{i=1}^{k} \left( \sum_{x y \in C_i} \|x y - \mu'_i \|_2^2 \right)
+    \]
+
+    where:
+        - \( x y \) denotes the augmented data point, a combination of the 
+          feature vector x and the target y. This combination guides the 
+          clustering process by considering both feature characteristics 
+          and target variable information.
+        - \( \mu'_i \) is the centroid of the augmented data points in the cluster \( C_i \), 
+          including target variable information, aligning the clusters with the 
+          underlying class structure.
+        - The first summation \( \sum_{i=1}^{k} \) sums over all k-clusters, 
+          focusing on minimizing the variance within each cluster.
+        - The inner summation \( \sum_{x y \in C_i} \) represents the sum over 
+          all augmented data points \( x y \) in the cluster \( C_i \).
+        - \( \|x y - \mu'_i \|_2^2 \) is the squared Euclidean distance between
+          each augmented data point \( x y \) and its cluster centroid 
+          \( \mu'_i \). Minimizing this distance ensures points are as close 
+            as possible to their cluster center.
+
+    Parameters
+    ----------
+    base_estimator : estimator object
+        The base machine learning estimator to fit on the transformed data.
+        This estimator should follow the scikit-learn estimator interface.
+
+    n_clusters : int, default=7
+        The number of clusters to form in the k-means clustering process.
+
+    target_scale : float, default=5.0
+        Scaling factor for the target variable when included in the k-means 
+        clustering process. This is used to adjust the influence of the target 
+        variable in the clustering process.
+
+    random_state : int, RandomState instance or None, default=None
+        Controls the randomness of the centroid initialization and data shuffling,
+        ensuring reproducibility of the results.
+
+    n_components : int, optional
+        Number of principal components to retain for dimensionality reduction 
+        before applying k-means clustering. If not set, no dimensionality 
+        reduction is performed.
+
+    init : str, callable or array-like, default='k-means++'
+        Method for initialization of the k-means centroids.
+
+    n_init : int or 'auto', default='auto'
+        Number of times the k-means algorithm will be run with different centroid 
+        seeds. The best output in terms of inertia is chosen.
+
+    max_iter : int, default=300
+        Maximum number of iterations of the k-means algorithm for a single run.
+
+    tol : float, default=1e-4
+        Relative tolerance with regards to the Frobenius norm of the difference 
+        in the cluster centers to declare convergence.
+
+    copy_x : bool, default=True
+        If True, the input data is centered before computation. Centring the data 
+        is known to improve the numerical stability of the k-means algorithm.
+
+    verbose : int, default=0
+        Verbosity mode for logging the process of the k-means algorithm.
+
+    algorithm : str, default='lloyd'
+        K-means algorithm variant to use. The options include 'lloyd' for the 
+        standard k-means algorithm and 'elkan' for the Elkan variant.
+        
+    to_sparse : bool, default=False
+            If True, the input data `X` will be converted to a sparse matrix
+            before applying the transformation. This is useful for handling
+            large datasets more efficiently. If False, the data format of `X`
+            is preserved.
+            
+    Attributes
+    ----------
+    featurizer_ : KMeansFeaturizer object
+        The KMeansFeaturizer instance used to transform the input data.
+
+    base_estimator_ : estimator object
+        The fitted instance of the base estimator used for final predictions.
+
+    Notes
+    -----
+    - The effectiveness of the KMFClassifier depends on the choice of the base estimator 
+      and the suitability of k-means clustering for the given dataset.
+    - The KMeansFeaturizer can optionally scale the target variable and perform PCA 
+      for dimensionality reduction, which can significantly affect the clustering 
+      results and hence the final prediction accuracy.
+
+    Examples
+    --------
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from sklearn.datasets import make_classification
+    >>> from sklearn.model_selection import train_test_split 
+    >>> from gofast.estimators import KMFClassifier
+    >>> X, y = make_classification(n_samples=100, n_features=20, random_state=42)
+    >>> X_train, X_test, y_train, y_test = train_test_split( X, y)
+    >>> kmf_classifier = KMFClassifier(base_estimator=RandomForestClassifier(), n_clusters=5)
+    >>> kmf_classifier.fit(X_train, y_train)
+    >>> y_pred = kmf_classifier.predict(X_test)
+
+    References
+    ----------
+    - MacQueen, J. (1967). Some methods for classification and analysis of multivariate 
+      observations. Proceedings of the 5th Berkeley Symposium on Mathematical Statistics 
+      and Probability. 1:281-297.
+    - Pedregosa, F. et al. (2011). Scikit-learn: Machine Learning in Python. Journal of 
+      Machine Learning Research. 12:2825-2830.
+    """
+    def __init__(
+        self,
+        base_estimator, 
+        n_clusters=3, 
+        target_scale=1.0, 
+        random_state=None, 
+        n_components=None, 
+        init='k-means++', 
+        n_init="auto", 
+        max_iter=300, 
+        tol=1e-4, copy_x=True, 
+        verbose=0, 
+        algorithm='lloyd', 
+        to_sparse=False, 
+        ):
+        self.base_estimator = base_estimator
+        self.n_clusters = n_clusters
+        self.target_scale = target_scale
+        self.random_state = random_state
+        self.n_components = n_components
+        self.init = init
+        self.n_init = n_init
+        self.max_iter = max_iter
+        self.tol = tol
+        self.copy_x = copy_x
+        self.verbose = verbose
+        self.algorithm = algorithm
+        self.to_sparse=to_sparse
+
+    def fit(self, X, y):
+        """
+        Fit the KMeansFeaturizer and the base estimator.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training vectors, where n_samples is the number of samples 
+            and n_features is the number of features.
+
+        y : array-like of shape (n_samples,)
+            Target values.
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
+        X, y = check_X_y(X, y, estimator =self, )
+        is_classifier(self.base_estimator )
+        self.featurizer_ = KMeansFeaturizer(
+            n_clusters=self.n_clusters,
+            target_scale=self.target_scale,
+            random_state=self.random_state,
+            n_components=self.n_components,
+            init=self.init,
+            n_init=self.n_init,
+            max_iter=self.max_iter,
+            tol=self.tol,
+            copy_x=self.copy_x,
+            verbose=self.verbose,
+            algorithm=self.algorithm, 
+            to_sparse=self.to_sparse, 
+        )
+        X_transformed = self.featurizer_.fit_transform(X, y)
+        self.base_estimator_ = clone(self.base_estimator)
+        self.base_estimator_.fit(X_transformed, y)
+        
+        return self
+
+    def predict(self, X):
+        """
+        Predict class labels for samples in X.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input samples.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            Predicted class labels.
+        """
+        X_transformed = self.featurizer_.transform(X)
+        return self.base_estimator_.predict(X_transformed)
+
+    def predict_proba(self, X):
+        """
+        Predict class probabilities for samples in X.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input samples.
+
+        Returns
+        -------
+        y_prob : array-like of shape (n_samples, n_classes)
+            Predicted class probabilities.
+
+        Raises
+        ------
+        NotImplementedError
+            If the base estimator does not support probability predictions.
+        """
+        if hasattr(self.base_estimator_, "predict_proba"):
+            X_transformed = self.featurizer_.transform(X)
+            return self.base_estimator_.predict_proba(X_transformed)
+        else:
+            raise NotImplementedError("Base estimator does not support predict_proba")
+            
+    def decision_function(self, X):
+        """
+        Compute the decision function of the samples.
+    
+        The decision function represents the confidence scores for samples. It is the 
+        distance of each sample to the decision boundary of each class. For binary 
+        classifiers, the decision function corresponds to the raw output of the model, 
+        which is then transformed into a probability score.
+    
+        This method requires that the base classifier used in KMFClassifier has a 
+        decision_function method. If the base classifier does not support 
+        decision_function, an error is raised.
+    
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input samples for which to compute the decision function.
+    
+        Returns
+        -------
+        decision : array-like of shape (n_samples,) or (n_samples, n_classes)
+            Decision function values related to each class for each sample. The shape 
+            depends on the number of classes and the nature of the classifier.
+    
+        Raises
+        ------
+        AttributeError
+            If the base classifier does not implement a decision function.
+    
+        NotFittedError
+            If the method is called before fitting the model with the `fit` method.
+    
+        Notes
+        -----
+        - In a multi-class setting, the decision function returns the confidence scores 
+          per class. The class with the highest score is taken as the predicted class.
+        - The interpretation of the decision values depends on the classifier and should 
+          be used with caution, especially when comparing classifiers.
+    
+        Examples
+        --------
+        >>> from sklearn.svm import SVC
+        >>> X, y = ...  # load dataset
+        >>> kmf_classifier = KMFClassifier(base_classifier=SVC(), n_clusters=5)
+        >>> kmf_classifier.fit(X_train, y_train)
+        >>> decision_values = kmf_classifier.decision_function(X_test)
+        """
+    
+        # Check if the model is fitted
+        check_is_fitted(self, ['featurizer_', 'base_classifier_'])
+    
+        # Check if the base classifier has the decision_function method
+        if not hasattr(self.base_classifier_, "decision_function"):
+            raise AttributeError("The base classifier does not implement a decision function.")
+    
+        # Transform the data using the trained KMeansFeaturizer
+        X_transformed = self.featurizer_.transform(X)
+    
+        # Compute and return the decision function from the base classifier
+        return self.base_classifier_.decision_function(X_transformed)
+    
+class KMFRegressor(BaseEstimator, RegressorMixin):
+    """
+    A K-Means Featurizer Regressor that combines k-means clustering with a 
+    base regression estimator.
+
+    This regressor first transforms the data into k-means cluster memberships 
+    using the KMeansFeaturizer algorithm adapted to the regression task , then 
+    applies a base regressor to the transformed data.
+
+    The mathematical formulation of the k-means clustering involves minimizing 
+    the inertia, or within-cluster sum-of-squares criterion.
+
+    The inertia is defined as:
+
+    .. math::
+
+        \\text{Inertia} = \\sum_{i=1}^{n} (x_i - \\mu_k)^2
+
+    where :math:`x_i` represents a data point, :math:`\\mu_k` is the centroid of the 
+    cluster k, and the sum is taken over all the data points in the cluster.
+    
+    Mathematically, the KMF algorithm with no hint (target variable not included) 
+    follows the standard k-means objective of minimizing the intra-cluster variance. 
+    However, when the target variable y is included, the feature space is augmented 
+    by stacking y with X. The KMF algorithm then minimizes a modified objective 
+    function:
+
+    \[
+    \min_{C_1,\cdots,C_k, \mu'_1,\cdots,\mu'_k} \sum_{i=1}^{k} \left( \sum_{x y \in C_i} \|x y - \mu'_i \|_2^2 \right)
+    \]
+
+    where:
+        - \( x y \) denotes the augmented data point, a combination of the 
+          feature vector x and the target y. This combination guides the 
+          clustering process by considering both feature characteristics and 
+          target variable information.
+        - \( \mu'_i \) is the centroid of the augmented data points in the 
+          cluster \( C_i \), including target variable information, aligning 
+          the clusters with the underlying class structure.
+        - The first summation \( \sum_{i=1}^{k} \) sums over all k-clusters, 
+          focusing on minimizing the variance within each cluster.
+        - The inner summation \( \sum_{x y \in C_i} \) represents the sum over 
+          all augmented data  points \( x y \) in the cluster \( C_i \).
+        - \( \|x y - \mu'_i \|_2^2 \) is the squared Euclidean distance between 
+          each augmented  data point \( x y \) and its cluster centroid 
+          \( \mu'_i \). Minimizing this distance ensures points are as close as 
+            possible to their cluster center.
+
+    Parameters
+    ----------
+    base_regressor : estimator object
+        The base machine learning regressor estimator to fit on the transformed 
+        data. This estimator should follow the scikit-learn estimator interface.
+
+    n_clusters : int, default=7
+        The number of clusters to form in the k-means clustering process.
+
+    target_scale : float, default=5.0
+        Scaling factor for the target variable when included in the k-means 
+        clustering process. This is used to adjust the influence of the target 
+        variable in the clustering process.
+
+    random_state : int, RandomState instance or None, default=None
+        Controls the randomness of the centroid initialization and data shuffling,
+        ensuring reproducibility of the results.
+
+    n_components : int, optional
+        Number of principal components to retain for dimensionality reduction 
+        before applying k-means clustering. If not set, no dimensionality 
+        reduction is performed.
+
+    init : str, callable or array-like, default='k-means++'
+        Method for initialization of the k-means centroids.
+
+    n_init : int or 'auto', default='auto'
+        Number of times the k-means algorithm will be run with different centroid 
+        seeds. The best output in terms of inertia is chosen.
+
+    max_iter : int, default=300
+        Maximum number of iterations of the k-means algorithm for a single run.
+
+    tol : float, default=1e-4
+        Relative tolerance with regards to the Frobenius norm of the difference 
+        in the cluster centers to declare convergence.
+
+    copy_x : bool, default=True
+        If True, the input data is centered before computation. Centring the data 
+        is known to improve the numerical stability of the k-means algorithm.
+
+    verbose : int, default=0
+        Verbosity mode for logging the process of the k-means algorithm.
+
+    algorithm : str, default='lloyd'
+        K-means algorithm variant to use. The options include 'lloyd' for the 
+        standard k-means algorithm and 'elkan' for the Elkan variant.
+        
+    to_sparse : bool, default=False
+            If True, the input data `X` will be converted to a sparse matrix
+            before applying the transformation. This is useful for handling
+            large datasets more efficiently. If False, the data format of `X`
+            is preserved.
+            
+    Attributes
+    ----------
+    featurizer_ : KMeansFeaturizer object
+        The featurizer used to transform the data.
+
+    base_regressor_ : estimator object
+        The base regressor used for prediction.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LinearRegression
+    >>> from gofast.estimators import KMFRegressor
+    >>> from sklearn.datasets import load_iris 
+    >>> from sklearn.model_selection import train_test_split 
+    >>> X, y = load_iris (return_X_y=True) 
+    >>> X_train, X_test, y_train, y_test = train_test_split( X, y) 
+    >>> kmf_regressor = KMFRegressor(base_regressor=LinearRegression(), n_clusters=5)
+    >>> kmf_regressor.fit(X_train, y_train)
+    >>> y_pred = kmf_regressor.predict(X_test)
+    """
+    def __init__(
+        self, base_regressor, 
+        n_clusters=7, 
+        target_scale=1.0, 
+        random_state=None, 
+        n_components=None, 
+        init='k-means++', 
+        n_init="auto", 
+        max_iter=300, 
+        tol=1e-4, 
+        copy_x=True, 
+        verbose=0, 
+        algorithm='lloyd', 
+        to_sparse=False
+        ):
+        self.base_regressor = base_regressor
+        self.n_clusters = n_clusters
+        self.target_scale = target_scale
+        self.random_state = random_state
+        self.n_components = n_components
+        self.init = init
+        self.n_init = n_init
+        self.max_iter = max_iter
+        self.tol = tol
+        self.copy_x = copy_x
+        self.verbose = verbose
+        self.algorithm = algorithm
+        self.to_sparse=to_sparse
+
+    def fit(self, X, y):
+        """
+        Fit the KMeansFeaturizer and the base regression estimator on 
+        the training data.
+    
+        This method first validates and checks the input data X and y. Then, 
+        it initializes and fits the KMeansFeaturizer to transform the input 
+        data into cluster memberships. Finally, it fits the base regression 
+        estimator to the transformed data.
+    
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training vectors, where n_samples is the number of samples and
+            n_features is the number of features.
+    
+        y : array-like of shape (n_samples,)
+            Target values (real numbers).
+    
+        Returns
+        -------
+        self : object
+            Returns the instance itself.
+    
+        Raises
+        ------
+        ValueError
+            If the base estimator is not a regression estimator.
+    
+        Notes
+        -----
+        - The fit method checks if the base estimator is suitable for regression 
+          tasks.
+        - Input validation is performed on the training data.
+        - The KMeansFeaturizer transforms the data by applying k-means clustering, 
+          potentially using the target variable to influence cluster formation.
+        - The transformed data is then used to fit the base regressor.
+        """
+    
+        # Check if the base estimator is a regressor
+        if not is_regressor(self.base_regressor):
+            raise ValueError("The provided base estimator "
+                             f"{get_estimator_name (self.base_regressor)!r}"
+                             " is not a regressor.")
+        # Validate the input
+        X, y = check_X_y(X, y, estimator=self)
+        # Instantiate and fit the KMeansFeaturizer
+        self.featurizer_ = KMeansFeaturizer(
+            n_clusters=self.n_clusters,
+            target_scale=self.target_scale,
+            random_state=self.random_state,
+            n_components=self.n_components,
+            init=self.init,
+            n_init=self.n_init,
+            max_iter=self.max_iter,
+            tol=self.tol,
+            copy_x=self.copy_x,
+            verbose=self.verbose,
+            algorithm=self.algorithm, 
+            to_sparse=self.to_sparse
+        )
+        X_transformed = self.featurizer_.fit_transform(X, y)
+        # Fit the base regressor
+        self.base_regressor_ = clone(self.base_regressor)
+        self.base_regressor_.fit(X_transformed, y)
+        return self
+
+    def predict(self, X):
+        """
+        Predict regression target for each sample in X.
+    
+        This method first transforms the input data using the trained 
+        KMeansFeaturizer,which involves assigning each sample to the nearest 
+        cluster centroid. The transformed data, now enriched with cluster 
+        membership information, is then fed into the trained base regressor 
+        to make predictions.
+    
+        The method assumes that the `fit` method has already been called 
+        and that the KMeansFeaturizer and the base regressor are both trained.
+    
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input samples for which to make predictions. Here, n_samples is the number
+            of samples and n_features is the number of features.
+    
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            Predicted target values per element in X.
+    
+        Raises
+        ------
+        NotFittedError
+            If the method is called before fitting the model with the `fit` method.
+    
+        Notes
+        -----
+        - The quality of predictions heavily depends on both the quality of clustering
+          achieved by the KMeansFeaturizer and the performance of the base regressor.
+        - It is important to ensure that the input features for prediction undergo the
+          same preprocessing and feature engineering steps as the training data.
+    
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression
+        >>> X, y = ...  # load dataset
+        >>> kmf_regressor = KMFRegressor(base_regressor=LinearRegression(), n_clusters=5)
+        >>> kmf_regressor.fit(X_train, y_train)
+        >>> y_pred = kmf_regressor.predict(X_test)
+        """
+        X= check_array(X, estimator= self, input_name= 'X')
+        # Check if the model is fitted
+        check_is_fitted(self, ['featurizer_', 'base_regressor_'])
+        # Transform the data using the trained KMeansFeaturizer
+        X_transformed = self.featurizer_.transform(X)
+        # Predict using the base regressor on the transformed data
+        return self.base_regressor_.predict(X_transformed)
+
+    def score(self, X, y):
+        """
+        Return the coefficient of determination R^2 of the prediction.
+    
+        The R^2 score, also known as the coefficient of determination, 
+        provides a measure of how well the future samples are likely to be 
+        predicted by the model. The best possible score is 1.0, which indicates 
+        perfect prediction. This method first makes predictions on the input 
+        data X using the trained model and then compares these predictions 
+        with the actual values y to compute the R^2 score.
+    
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Test samples, where n_samples is the number of samples and 
+            n_features is the number of features.
+    
+        y : array-like of shape (n_samples,) or (n_samples, n_outputs)
+            True values for X.
+    
+        Returns
+        -------
+        score : float
+            R^2 of self.predict(X) wrt. y.
+    
+        Raises
+        ------
+        NotFittedError
+            If the method is called before fitting the model with the `fit` method.
+    
+        Notes
+        -----
+        - The R^2 score used here is not a symmetric function and hence can 
+          be negative if the model is worse than a simple mean predictor.
+        - The score method evaluates the performance of the model on the test 
+          dataset. Higher scores indicate a model that better captures the 
+          variability of the dataset.
+        - As with any metric, the R^2 score should be considered alongside 
+          other metrics and domain knowledge to evaluate the model's performance 
+          comprehensively.
+    
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression
+        >>> X, y = ...  # load dataset
+        >>> kmf_regressor = KMFRegressor(base_regressor=LinearRegression(), n_clusters=5)
+        >>> kmf_regressor.fit(X_train, y_train)
+        >>> r2 = kmf_regressor.score(X_test, y_test)
+        """
+        # Check if the model is fitted
+        check_is_fitted(self, ['featurizer_', 'base_regressor_'])
+        # Make predictions and compute R^2 score
+        predictions = self.predict(X)
+        return r2_score(y, predictions)
+
+class DecisionStumpRegressor:
+    """
+    A simple decision stump regressor for use in gradient boosting.
+
+    This class implements a basic decision stump, which is a decision tree 
+    with only one decision node and two leaves. The stump splits the data 
+    based on the feature and threshold that minimizes the error.
+    
+    Mathematical Formulation
+    ------------------------
+    For each feature, the stump examines all possible thresholds
+    (unique values of the feature). The MSE for a split at a given 
+    threshold t is calculated as follows:
+
+    .. math::
+        MSE = \sum_{i \in left(t)} (y_i - \overline{y}_{left})^2 +\\
+            \sum_{i \in  right(t)} (y_i - \overline{y}_{right})^2
+
+    where `left(t)` and `right(t)` are the sets of indices of samples that fall 
+    to the left and right of the threshold t, respectively. `\overline{y}_{left}` 
+    and `\overline{y}_{right}` are the mean values of the target variable for 
+    the samples in each of these two sets.
+
+    The algorithm selects the feature and threshold that yield the lowest MSE.
+
+    Attributes
+    ----------
+    split_feature_ : int
+        Index of the feature used for the split.
+    split_value_ : float
+        Threshold value used for the split.
+    left_value_ : float
+        The value predicted for samples where the feature value is less than 
+        or equal to the split value.
+    right_value_ : float
+        The value predicted for samples where the feature value is greater
+        than the split value.
+
+    Methods
+    -------
+    fit(X, y)
+        Fits the decision stump to the data.
+    predict(X)
+        Predicts the target values for the given data.
+    decision_function(X)
+       Compute the raw decision scores for the given input data.
+       
+    Examples
+    --------
+    >>> from sklearn.datasets import make_regression
+    >>> X, y = make_regression(n_samples=100, n_features=1, noise=10)
+    >>> stump = DecisionStumpRegressor()
+    >>> stump.fit(X, y)
+    >>> predictions = stump.predict(X)
+    """
+
+    def __init__(self ):
+        self.split_feature=None
+        self.split_value=None
+        self.left_value=None
+        self.right_value=None
+        
+    def fit(self, X, y):
+        """
+        Fits the decision stump to the data.
+
+        The method iterates over all features and their unique values to 
+        find the split 
+        that minimizes the mean squared error.
+
+        Parameters
+        ----------
+        X : ndarray of shape (n_samples, n_features)
+            The input samples.
+        y : ndarray of shape (n_samples,)
+            The target values.
+
+        Return 
+        -------
+        self: object 
+           Return self.
+        Notes
+        -----
+        The decision stump is a weak learner and is primarily used in
+        ensemble methods like AdaBoost and Gradient Boosting.
+        """
+        min_error = float('inf')
+        for feature in range(X.shape[1]):
+            possible_values = np.unique(X[:, feature])
+            for value in possible_values:
+                # Create a split and calculate the mean value for each leaf
+                left_mask = X[:, feature] <= value
+                right_mask = X[:, feature] > value
+                left_value = np.mean(y[left_mask]) if np.any(left_mask) else 0
+                right_value = np.mean(y[right_mask]) if np.any(right_mask) else 0
+
+                # Calculate the total error for this split
+                error = np.sum((y[left_mask] - left_value) ** 2
+                               ) + np.sum((y[right_mask] - right_value) ** 2)
+
+                # Update the stump's split if this split is better
+                if error < min_error:
+                    min_error = error
+                    self.split_feature = feature
+                    self.split_value= value
+                    self.left_value= left_value
+                    self.right_value= right_value
+                    
+        self.fitted_=True 
+        
+        return self 
+       
+    def predict(self, X):
+        """
+        Predict target values for the given input data using the trained 
+        decision stump.
+
+        The prediction is based on the split learned during the fitting 
+        process. Each sample in X is assigned a value based on which side 
+        of the split it falls on.
+
+        Parameters
+        ----------
+        X : ndarray of shape (n_samples, n_features)
+            The input samples for which predictions are to be made.
+
+        Returns
+        -------
+        y_pred : ndarray of shape (n_samples,)
+            The predicted target values for each sample in X.
+
+        Examples
+        --------
+        >>> from sklearn.datasets import make_regression
+        >>> X, y = make_regression(n_samples=100, n_features=1, noise=10)
+        >>> stump = DecisionStumpRegressor()
+        >>> stump.fit(X, y)
+        >>> predictions = stump.predict(X)
+        >>> print(predictions[:5])
+
+        Notes
+        -----
+        The `predict` method should be called only after the `fit` method has 
+        been called. It uses the `split_feature`, `split_value`, `left_value`,
+        and `right_value` attributes set by the `fit` method to make predictions.
+        """
+        check_is_fitted(self, "fitted_")
+        # Determine which side of the split each sample falls on
+        left_mask = X[:, self.split_feature] <= self.split_value
+        y_pred = np.zeros(X.shape[0])
+        y_pred[left_mask] = self.left_value
+        y_pred[~left_mask] = self.right_value
+        return y_pred
+
+    def decision_function(self, X):
+        """
+        Compute the raw decision scores for the given input data.
+
+        The decision function calculates the continuous value for each sample in X
+        based on the trained decision stump. It reflects the model's degree of 
+        certainty about the classification.
+
+        Parameters
+        ----------
+        X : ndarray of shape (n_samples, n_features)
+            The input samples for which decision scores are to be computed.
+
+        Returns
+        -------
+        decision_scores : ndarray of shape (n_samples,)
+            The raw decision scores for each sample in X.
+
+        Examples
+        --------
+        >>> from sklearn.datasets import make_regression
+        >>> X, y = make_regression(n_samples=100, n_features=1, noise=10)
+        >>> stump = DecisionStumpRegressor()
+        >>> stump.fit(X, y)
+        >>> decision_scores = stump.decision_function(X)
+        >>> print(decision_scores[:5])
+
+        Notes
+        -----
+        This method should be called after the model has been fitted. It uses the
+        attributes set during the `fit` method (i.e., `split_feature`, `split_value`,
+        `left_value`, `right_value`) to compute the decision scores.
+        """
+        check_is_fitted(self, "fitted_")
+        # Calculate the decision scores based on the split
+        decision_scores = np.where(X[:, self.split_feature] <= self.split_value,
+                                   self.left_value, self.right_value)
+        return decision_scores
+    
 class BenchmarkRegressor(BaseEstimator, RegressorMixin):
     """
     Benchmark Regressor for combining various regression estimators.
@@ -192,6 +1035,7 @@ class BenchmarkRegressor(BaseEstimator, RegressorMixin):
         y_pred : array-like of shape (n_samples,)
             Predicted values.
         """
+        check_is_fitted (self, 'stacked_model_')
         return self.stacked_model_.predict(X)
 
     def score(self, X, y):
@@ -208,9 +1052,9 @@ class BenchmarkRegressor(BaseEstimator, RegressorMixin):
             Predicted values.
         
         """
+        check_is_fitted (self, 'stacked_model_')
         return self.stacked_model_.score(X, y)
     
-
 class BenchmarkClassifier(BaseEstimator, ClassifierMixin):
     """
     Benchmark Classifier for combining various classification estimators.
@@ -258,7 +1102,7 @@ class BenchmarkClassifier(BaseEstimator, ClassifierMixin):
     >>> from sklearn.linear_model import LogisticRegression
     >>> from sklearn.tree import DecisionTreeClassifier
     >>> from sklearn.neighbors import KNeighborsClassifier
-    >>> from your_module import BenchmarkClassifier
+    >>> from gofast.estimators import BenchmarkClassifier
     >>> iris = load_iris()
     >>> X, y = iris.data, iris.target
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3)
@@ -356,8 +1200,7 @@ class BenchmarkClassifier(BaseEstimator, ClassifierMixin):
         maj_vote:{array_like}, shape (n_examples, )
             Predicted class label array 
         """
-        self.inspect 
-        
+        check_is_fitted (self, 'stacked_model_')
         return self.stacked_model_.predict(X)
 
     def predict_proba(self, X):
@@ -382,26 +1225,12 @@ class BenchmarkClassifier(BaseEstimator, ClassifierMixin):
         avg_proba: {array_like }, shape (n_examples, n_classes) 
             weights average probabilities for each class per example. 
         """
-        self.inspect 
+        check_is_fitted (self, 'stacked_model_')
         return self.stacked_model_.predict_proba(X)
 
     def score(self, X, y):
         """ Compute the score of from the stacked model."""
         return self.stacked_model_.score(X, y)
-    
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'stacked_model_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
     
 
 class BasePerceptron(BaseEstimator, ClassifierMixin):
@@ -446,7 +1275,7 @@ class BasePerceptron(BaseEstimator, ClassifierMixin):
 
     Attributes
     ----------
-    w_ : ndarray of shape (n_features,)
+    weights_ : ndarray of shape (n_features,)
         Weights after fitting the model. Each weight corresponds to a feature.
 
     errors_ : list of int
@@ -504,11 +1333,11 @@ class BasePerceptron(BaseEstimator, ClassifierMixin):
     """
 
     def __init__(
-            self, 
-            eta:float = .01 , 
-            n_iter: int = 50 , 
-            random_state:int = None 
-            ) :
+        self, 
+        eta:float = .01 , 
+        n_iter: int = 50 , 
+        random_state:int = None 
+        ) :
         self.eta=eta 
         self.n_iter=n_iter 
         self.random_state=random_state 
@@ -544,16 +1373,14 @@ class BasePerceptron(BaseEstimator, ClassifierMixin):
             )
         
         rgen = np.random.RandomState(self.random_state)
-        
-        self.w_ = rgen.normal(loc=0. , scale =.01 , size = 1 + X.shape[1]
-                              )
+        self.weights_ = rgen.normal(loc=0. , scale =.01 , size = 1 + X.shape[1])
         self.errors_ =list() 
         for _ in range (self.n_iter):
             errors =0 
             for xi, target in zip(X, y):
                 update = self.eta * (target - self.predict(xi))
-                self.w_[1:] += update * xi 
-                self.w_[0] += update 
+                self.weights_[1:] += update * xi 
+                self.weights_[0] += update 
                 errors  += int(update !=0.) 
             self.errors_.append(errors)
         
@@ -561,7 +1388,7 @@ class BasePerceptron(BaseEstimator, ClassifierMixin):
     
     def net_input(self, X) :
         """ Compute the net input """
-        return np.dot (X, self.w_[1:]) + self.w_[0] 
+        return np.dot (X, self.weights_[1:]) + self.weights_[0] 
 
     def predict (self, X): 
         """
@@ -583,7 +1410,7 @@ class BasePerceptron(BaseEstimator, ClassifierMixin):
         ypred: predicted class label after the unit step  (1, or -1)
 
         """      
-        self.inspect 
+        check_is_fitted (self, 'weights_')
         X = check_array(
             X,
             accept_large_sparse=True,
@@ -591,20 +1418,6 @@ class BasePerceptron(BaseEstimator, ClassifierMixin):
             to_frame=False, 
             )
         return np.where (self.net_input(X) >=.0 , 1 , -1 )
-    
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'w_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
     
     def __repr__(self): 
         """ Represent the output class """
@@ -629,9 +1442,9 @@ class MajorityVoteClassifier (BaseEstimator, ClassifierMixin ):
 
     .. math::
 
-        \hat{y} = \arg\max_{i} \sum_{j=1}^{m} w_j \chi_{A}(C_j(x)=i)
+        \hat{y} = \arg\max_{i} \sum_{j=1}^{m} weights_j \chi_{A}(C_j(x)=i)
 
-    Here, :math:`w_j` is the weight associated with the base classifier :math:`C_j`;
+    Here, :math:`weights_j` is the weight associated with the base classifier :math:`C_j`;
     :math:`\hat{y}` is the predicted class label by the ensemble; :math:`A` is
     the set of unique class labels; :math:`\chi_A` is the characteristic
     function or indicator function, returning 1 if the predicted class of
@@ -788,20 +1601,6 @@ class MajorityVoteClassifier (BaseEstimator, ClassifierMixin ):
             
         return self 
     
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'classifiers_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
-    
     def predict(self, X):
         """
         Predict the class label of X 
@@ -823,8 +1622,7 @@ class MajorityVoteClassifier (BaseEstimator, ClassifierMixin ):
         maj_vote:{array_like}, shape (n_examples, )
             Predicted class label array 
         """
-        self.inspect 
-        
+        check_is_fitted (self, 'classifiers_')
         X = check_array(
             X,
             accept_large_sparse=True,
@@ -871,7 +1669,7 @@ class MajorityVoteClassifier (BaseEstimator, ClassifierMixin ):
             weights average probabilities for each class per example. 
 
         """
-        self.inspect 
+        check_is_fitted (self, 'classifiers_')
         probas = np.asarray (
             [ clf.predict_proba(X) for clf in self.classifiers_ ])
         avg_proba = np.average (probas , axis = 0 , weights = self.weights ) 
@@ -879,7 +1677,7 @@ class MajorityVoteClassifier (BaseEstimator, ClassifierMixin ):
         return avg_proba 
     
     def get_params( self , deep = True ): 
-        """ Overwrite the get params from `_Base` class  and get 
+        """ Overwrite the get params from `Base` class  and get 
         classifiers parameters from GridSearch . """
         
         if not deep : 
@@ -974,7 +1772,7 @@ class AdalineStochasticRegressor(BaseEstimator, RegressorMixin):
 
     Attributes
     ----------
-    w_ : 1d-array
+    weights_ : 1d-array
         Weights after fitting.
 
     cost_ : list
@@ -1045,8 +1843,8 @@ class AdalineStochasticRegressor(BaseEstimator, RegressorMixin):
         """
         X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
         rgen = np.random.RandomState(self.random_state)
-        self.w_ = rgen.normal(loc=0. , scale =.01 , size = 1 + X.shape[1])
-        # self.w_ = np.zeros(1 + X.shape[1])
+        self.weights_ = rgen.normal(loc=0. , scale =.01 , size = 1 + X.shape[1])
+        # self.weights_ = np.zeros(1 + X.shape[1])
         self.cost_ = []
 
         for i in range(self.n_iter):
@@ -1055,19 +1853,19 @@ class AdalineStochasticRegressor(BaseEstimator, RegressorMixin):
             cost = []
             for xi, target in zip(X, y):
                 error = target - self.predict(xi)
-                self.w_[1:] += self.eta * xi * error
-                self.w_[0] += self.eta * error
+                self.weights_[1:] += self.eta * xi * error
+                self.weights_[0] += self.eta * error
                 cost.append(error**2 / 2.0)
             self.cost_.append(np.mean(cost))
         return self
 
     def net_input(self, X):
         """Calculate net input"""
-        return np.dot(X, self.w_[1:]) + self.w_[0]
+        return np.dot(X, self.weights_[1:]) + self.weights_[0]
 
     def predict(self, X):
         """Return continuous output"""
-        self.inspect 
+        check_is_fitted (self, 'weights_')
         
         X = check_array(
             X,
@@ -1077,20 +1875,6 @@ class AdalineStochasticRegressor(BaseEstimator, RegressorMixin):
             )
         return self.net_input(X)
 
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'w_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
-    
 class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
     """
     Adaptive Linear Neuron Classifier with Stochastic Gradient Descent.
@@ -1144,7 +1928,7 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
 
     Attributes
     ----------
-    w_ : array-like, shape (n_features,)
+    weights_ : array-like, shape (n_features,)
         Weights assigned to the features after fitting the model.
 
     cost_ : list
@@ -1181,12 +1965,11 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
 
     def __init__(self, eta:float = .01 , n_iter: int = 50 , shuffle=True, 
                  random_state:int = None ) :
-        super().__init__()
         self.eta=eta 
         self.n_iter=n_iter 
         self.shuffle=shuffle 
         self.random_state=random_state 
-        self.w_initialized =False 
+        
         
     def fit(self , X, y ): 
         """ Fit the training data 
@@ -1210,13 +1993,13 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
         --------
         self: `Perceptron` instance 
             returns ``self`` for easy method chaining.
-        """  
+        """ 
+        self.weights_initialized_ =False 
         X, y = check_X_y(
             X, 
             y, 
             estimator = get_estimator_name(self), 
             )
-    
         self._init_weights (X.shape[1])
         self.cost_=list() 
         for i in range(self.n_iter ): 
@@ -1229,20 +2012,6 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
             self.cost_.append(avg_cost) 
         
         return self 
-    
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'w_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
     
     def partial_fit(self, X, y):
         """
@@ -1275,7 +2044,7 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
             estimator = get_estimator_name(self),  
             )
         
-        if not self.w_initialized : 
+        if not self.weights_initialized_ : 
            self._init_weights (X.shape[1])
           
         if y.ravel().shape [0]> 1: 
@@ -1310,7 +2079,7 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
         Training and target data shuffled  
 
         """
-        r= self.rgen.permutation(len(y)) 
+        r= self.rgen_.permutation(len(y)) 
         return X[r], y[r]
     
     def _init_weights (self, m): 
@@ -1323,9 +2092,9 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
            random number for weights initialization .
 
         """
-        self.rgen =  np.random.RandomState(self.random_state)
-        self.w_ = self.rgen.normal(loc=.0 , scale=.01, size = 1+ m) 
-        self.w_initialized = True 
+        self.rgen_ =  np.random.RandomState(self.random_state)
+        self.weights_ = self.rgen_.normal(loc=.0 , scale=.01, size = 1+ m) 
+        self.weights_initialized_ = True 
         
     def _update_weights (self, X, y):
         """
@@ -1346,7 +2115,7 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
         """
         output = self.activation (self.net_input(X))
         errors =(y - output ) 
-        self.w_[1:] += self.eta * X.dot(errors) 
+        self.weights_[1:] += self.eta * X.dot(errors) 
         cost = errors **2 /2. 
         
         return cost 
@@ -1372,7 +2141,7 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
 
         """
         self.inspect 
-        return np.dot (X, self.w_[1:]) + self.w_[0] 
+        return np.dot (X, self.weights_[1:]) + self.weights_[0] 
 
     def activation (self, X):
         """
@@ -1415,7 +2184,7 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
         -------
         ypred: predicted class label after the unit step  (1, or -1)
         """
-        self.inspect 
+        check_is_fitted (self, 'weights_') 
         X = check_array(
             X,
             accept_large_sparse=True,
@@ -1424,6 +2193,31 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
             )
         return np.where (self.activation(self.net_input(X))>=0. , 1, -1)
     
+    def predict_proba(self, X):
+        """
+        Predict class probabilities using the Adaline Stochastic 
+        Classifier model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        proba : array-like of shape (n_samples, 2)
+            The class probabilities of the input samples.
+        """
+        check_is_fitted(self, 'weights_')
+        X = check_array(X, accept_sparse=True)
+
+        # Apply the linear model and logistic sigmoid function
+        net_input = self.net_input(X)
+        proba_positive_class = 1 / (1 + np.exp(-net_input))
+        proba_negative_class = 1 - proba_positive_class
+
+        return np.vstack((proba_negative_class, proba_positive_class)).T
+
     def __repr__(self): 
         """ Represent the output class """
         
@@ -1431,7 +2225,6 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
                      self.get_params().items() )
         
         return self.__class__.__name__ + str(tup).replace("'", "") 
-
 
 class AdalineRegressor(BaseEstimator, RegressorMixin):
     """
@@ -1469,7 +2262,7 @@ class AdalineRegressor(BaseEstimator, RegressorMixin):
 
     Attributes
     ----------
-    w_ : array-like, shape (n_features,)
+    weights_ : array-like, shape (n_features,)
         Weights assigned to the features after fitting the model.
 
     errors_ : list
@@ -1528,9 +2321,9 @@ class AdalineRegressor(BaseEstimator, RegressorMixin):
         """
         X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
         rgen = np.random.RandomState(self.random_state)
-        self.w_ = rgen.normal(loc=0. , scale =.01 , size = 1 + X.shape[1]
+        self.weights_ = rgen.normal(loc=0. , scale =.01 , size = 1 + X.shape[1]
                               )
-        # self.w_ = np.zeros(1 + X.shape[1])
+        # self.weights_ = np.zeros(1 + X.shape[1])
         self.errors_ = []
 
         for _ in range(self.n_iter):
@@ -1538,19 +2331,19 @@ class AdalineRegressor(BaseEstimator, RegressorMixin):
             for xi, target in zip(X, y):
                 error = target - self.predict(xi)
                 update = self.eta * error
-                self.w_[1:] += update * xi
-                self.w_[0] += update
+                self.weights_[1:] += update * xi
+                self.weights_[0] += update
                 errors += error ** 2
             self.errors_.append(errors)
         return self
 
     def net_input(self, X):
         """Calculate net input"""
-        return np.dot(X, self.w_[1:]) + self.w_[0]
+        return np.dot(X, self.weights_[1:]) + self.weights_[0]
 
     def predict(self, X):
         """Return continuous output"""
-        self.inspect 
+        check_is_fitted (self, 'weights_') 
         
         X = check_array(
             X,
@@ -1560,20 +2353,6 @@ class AdalineRegressor(BaseEstimator, RegressorMixin):
             # ensure_2d=False
             )
         return self.net_input(X)
-    
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'w_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
 
 class AdalineClassifier(BaseEstimator, ClassifierMixin):
     """
@@ -1611,7 +2390,7 @@ class AdalineClassifier(BaseEstimator, ClassifierMixin):
 
     Attributes
     ----------
-    w_ : array-like, shape (n_features,)
+    weights_ : array-like, shape (n_features,)
         Weights assigned to the features after fitting the model.
 
     errors_ : list
@@ -1648,7 +2427,6 @@ class AdalineClassifier(BaseEstimator, ClassifierMixin):
 
     """
 
-
     def __init__(self, eta=0.01, n_iter=50, random_state=None ):
         self.eta = eta
         self.n_iter = n_iter
@@ -1671,28 +2449,40 @@ class AdalineClassifier(BaseEstimator, ClassifierMixin):
         """
         X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
         rgen = np.random.RandomState(self.random_state)
-        self.w_ = rgen.normal(loc=0. , scale =.01 , size = 1 + X.shape[1]
+        self.weights_ = rgen.normal(loc=0. , scale =.01 , size = 1 + X.shape[1]
                               )
-        # self.w_ = np.zeros(1 + X.shape[1])
+        # self.weights_ = np.zeros(1 + X.shape[1])
         self.errors_ = []
 
         for _ in range(self.n_iter):
             errors = 0
             for xi, target in zip(X, y):
                 update = self.eta * (target - self.predict(xi))
-                self.w_[1:] += update * xi
-                self.w_[0] += update
+                self.weights_[1:] += update * xi
+                self.weights_[0] += update
                 errors += int(update != 0.0)
             self.errors_.append(errors)
         return self
 
     def net_input(self, X):
         """Calculate net input"""
-        return np.dot(X, self.w_[1:]) + self.w_[0]
+        return np.dot(X, self.weights_[1:]) + self.weights_[0]
 
     def predict(self, X):
-        """Return class label after unit step"""
-        self.inspect 
+        """Predict  class label after unit step
+        
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            The predicted class label from the input samples.
+        
+        """
+        check_is_fitted (self, 'weights_') 
         X = check_array(
             X,
             accept_large_sparse=True,
@@ -1700,21 +2490,31 @@ class AdalineClassifier(BaseEstimator, ClassifierMixin):
             to_frame=False, 
             )
         return np.where(self.net_input(X) >= 0.0, 1, -1)
+    
+    def predict_proba(self, X):
+        """
+        Predict class probabilities using the Adaline Classifier model.
 
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'w_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
 
+        Returns
+        -------
+        proba : array-like of shape (n_samples, 2)
+            The class probabilities of the input samples.
+        """
+        check_is_fitted(self, 'weights_')
+        X = check_array(X, accept_sparse=True)
+        # Apply the linear model
+        net_input = self.net_input(X)
+
+        # Use the logistic sigmoid function to estimate probabilities
+        proba_positive_class = 1 / (1 + np.exp(-net_input))
+        proba_negative_class = 1 - proba_positive_class
+
+        return np.vstack((proba_negative_class, proba_positive_class)).T
 
 class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
     """
@@ -1779,7 +2579,7 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
 
     Attributes
     ----------
-    w_ : array-like, shape (n_features,)
+    weights_ : array-like, shape (n_features,)
         Weights assigned to the features after fitting the model.
 
     cost_ : list
@@ -1835,7 +2635,6 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
 
     def __init__(self, eta:float = .01 , n_iter: int = 50 , 
                  random_state:int = 42 ) :
-        super().__init__()
         self.eta=eta 
         self.n_iter=n_iter 
         self.random_state=random_state 
@@ -1863,25 +2662,21 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
         self: `Perceptron` instance 
             returns ``self`` for easy method chaining.
         """
-        X, y = check_X_y(
-            X, 
-            y, 
+        X, y = check_X_y( X, y, 
             estimator = get_estimator_name(self), 
             )
         
         self.task_type = type_of_target(y)
-        
         rgen = np.random.RandomState(self.random_state)
-        self.w_ = rgen.normal(loc=0. , scale =.01 , size = 1 + X.shape[1]
+        self.weights_ = rgen.normal(loc=0. , scale =.01 , size = 1 + X.shape[1]
                               )
         self.cost_ =list()    
-        
         for i in range (self.n_iter): 
             net_input = self.net_input (X) 
             output = self.activation (net_input) 
             errors =  ( y -  output ) 
-            self.w_[1:] += self.eta * X.T.dot(errors)
-            self.w_[0] += self.eta * errors.sum() 
+            self.weights_[1:] += self.eta * X.T.dot(errors)
+            self.weights_[0] += self.eta * errors.sum() 
             
             if self.task_type == "continuous":
                 cost = (errors**2).sum() / 2.0
@@ -1891,20 +2686,6 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
             self.cost_.append(cost) 
         
         return self 
-    
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'w_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
     
     def net_input (self, X):
         """
@@ -1925,8 +2706,7 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
         -------
         weight net inputs 
         """
-        self.inspect 
-        return np.dot (X, self.w_[1:]) + self.w_[0] 
+        return np.dot (X, self.weights_[1:]) + self.weights_[0] 
 
     def activation (self, X):
         """
@@ -1969,7 +2749,7 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
         -------
         ypred: predicted class label after the unit step  (1, or -1)
         """
-        self.inspect 
+        check_is_fitted (self, 'weights_') 
         X = check_array(
             X,
             accept_large_sparse=True,
@@ -1983,6 +2763,38 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
             #return np.where(self.net_input(X) >= 0.0, 1, -1)
             return np.where (self.activation(self.net_input(X))>=0. , 1, -1)
     
+    def predict_proba(self, X):
+        """
+        Predict class probabilities using the AdalineMixte model for 
+        classification tasks.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        proba : array-like of shape (n_samples, 2)
+            The class probabilities of the input samples.
+
+        Raises
+        ------
+        ValueError
+            If the model is used for regression tasks.
+        """
+        check_is_fitted(self, 'weights_')
+        X = check_array(X, accept_sparse=True)
+        if self.task_type != "binary":
+            raise ValueError("predict_proba is not supported for regression"
+                             " tasks with AdalineMixte.")
+        # Apply the linear model and the logistic sigmoid function
+        net_input = self.net_input(X)
+        proba_positive_class = 1 / (1 + np.exp(-net_input))
+        proba_negative_class = 1 - proba_positive_class
+
+        return np.vstack((proba_negative_class, proba_positive_class)).T
+
     def __repr__(self): 
         """ Represent the output class """
         
@@ -1991,7 +2803,6 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
         
         return self.__class__.__name__ + str(tup).replace("'", "") 
     
-
 class HammersteinWienerClassifier(BaseEstimator, ClassifierMixin):
     """
     Hammerstein-Wiener Classifier for Dynamic Classification Tasks.
@@ -2057,6 +2868,7 @@ class HammersteinWienerClassifier(BaseEstimator, ClassifierMixin):
 
     Examples
     --------
+    >>> from gofast.estimators import HammersteinWienerClassifier
     >>> from sklearn.linear_model import LogisticRegression
     >>> hw = HammersteinWienerClassifier(
     ...     classifier=LogisticRegression(),
@@ -2088,11 +2900,13 @@ class HammersteinWienerClassifier(BaseEstimator, ClassifierMixin):
     """
 
 
-    def __init__(self, 
-                 classifier=LogisticRegression(), 
-                 nonlinearity_in=np.tanh, 
-                 nonlinearity_out=lambda x: 1 / (1 + np.exp(-x)), 
-                 memory_depth=5):
+    def __init__(
+        self, 
+        classifier="LogisticRegression", 
+        nonlinearity_in=np.tanh, 
+        nonlinearity_out="sigmoid", 
+        memory_depth=5
+        ):
         self.classifier = classifier
         self.nonlinearity_in = nonlinearity_in
         self.nonlinearity_out = nonlinearity_out
@@ -2119,7 +2933,9 @@ class HammersteinWienerClassifier(BaseEstimator, ClassifierMixin):
         X_lagged = np.zeros((n_samples - self.memory_depth, 
                              self.memory_depth * n_features))
         for i in range(self.memory_depth, n_samples):
-            X_lagged[i - self.memory_depth, :] = X_transformed[i - self.memory_depth:i, :].flatten()
+            X_lagged[i - self.memory_depth, :] = ( 
+                X_transformed[i - self.memory_depth:i, :].flatten()
+                )
 
         return X_lagged
 
@@ -2141,14 +2957,18 @@ class HammersteinWienerClassifier(BaseEstimator, ClassifierMixin):
         """
         X, y = check_X_y(X, y, estimator=get_estimator_name(self))
         
-        if self.classfifer =='LogisticRegression': 
+        if self.nonlinearity_out=='sigmoid': 
+            self.nonlinearity_out = lambda x: 1 / (1 + np.exp(-x))
+        elif self.nonlinearity_out =='softmax': 
+            self.nonlinearity_out=lambda x: np.exp(x) / np.sum(np.exp(x), axis=0)
+            
+        if self.classfifer=='LogisticRegression': 
             if type_of_target(y)=='binary': 
                 self.classifier = LogisticRegression()
-                if self.nonlinearity_out=='sigmoid': 
-                    self.nonlinearity_out = lambda x: 1 / (1 + np.exp(-x))
             else: 
-                self.classifier=LogisticRegression(multi_class='multinomial')
-                
+                self.classifier=LogisticRegression(
+                    multi_class='multinomial')
+     
         X_lagged = self._preprocess_data(X)
         y = y[self.memory_depth:]
 
@@ -2170,7 +2990,7 @@ class HammersteinWienerClassifier(BaseEstimator, ClassifierMixin):
         y_pred : array-like of shape (n_samples,)
             Predicted classification labels.
         """
-        self.inspect
+        check_is_fitted (self, 'fitted_') 
         X = check_array(X)
         X_lagged = self._preprocess_data(X)
 
@@ -2195,7 +3015,7 @@ class HammersteinWienerClassifier(BaseEstimator, ClassifierMixin):
         proba : array-like of shape (n_samples, n_classes)
             Probability of the sample for each class in the model.
         """
-        self.inspect
+        check_is_fitted (self, 'fitted_') 
         X = check_array(X)
         X_lagged = self._preprocess_data(X)
 
@@ -2204,21 +3024,6 @@ class HammersteinWienerClassifier(BaseEstimator, ClassifierMixin):
 
         # Apply the output nonlinearity (if necessary)
         return np.apply_along_axis(self.nonlinearity_out, 1, proba_linear)
-
-
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'fitted_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1
 
 class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
     """
@@ -2388,7 +3193,7 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
         y_pred : array-like of shape (n_samples,)
             Predicted values.
         """
-        self.inspect 
+        check_is_fitted (self, 'fitted_') 
         X = check_array(
             X,
             accept_large_sparse=True,
@@ -2403,20 +3208,6 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
         # Apply the output nonlinearity
         y_pred = self.nonlinearity_out(y_linear)
         return y_pred
-
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'fitted_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
 
 class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
     """
@@ -2454,7 +3245,7 @@ class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
 
     Attributes
     ----------
-    w_ : 2d-array
+    weights_ : 2d-array
         Weights for each binary classifier, one row per classifier.
 
     classes_ : array
@@ -2487,7 +3278,6 @@ class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
     
     """
 
-
     def __init__(self, eta=0.01, n_iter=50, shuffle=True):
         self.eta = eta
         self.n_iter = n_iter
@@ -2509,7 +3299,7 @@ class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
         """
         X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
         self.classes_ = np.unique(y)
-        self.w_ = np.zeros((self.classes_.size, X.shape[1] + 1))
+        self.weights_ = np.zeros((self.classes_.size, X.shape[1] + 1))
         self.label_binarizer_ = LabelBinarizer().fit(y)
         Y_bin = self.label_binarizer_.transform(y)
 
@@ -2519,14 +3309,14 @@ class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
                 if self.shuffle:
                     X, y_bin = shuffle(X, y_bin)
                 errors = y_bin - self._predict_proba(X, class_)
-                self.w_[i, 1:] += self.eta * X.T.dot(errors)
-                self.w_[i, 0] += self.eta * errors.sum()
+                self.weights_[i, 1:] += self.eta * X.T.dot(errors)
+                self.weights_[i, 0] += self.eta * errors.sum()
 
         return self
 
     def net_input(self, X, class_):
         """Calculate net input for a specific class"""
-        w = self.w_[class_]
+        w = self.weights_[class_]
         return np.dot(X, w[1:]) + w[0]
 
     def _predict_proba(self, X, class_):
@@ -2535,7 +3325,7 @@ class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
 
     def predict(self, X):
         """Predict class labels for samples in X"""
-        self.inspect 
+        check_is_fitted (self, 'weights_') 
         X = check_array(
             X,
             accept_large_sparse=True,
@@ -2545,20 +3335,6 @@ class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
         probas = np.array([self.net_input(X, class_)
                            for class_ in range(len(self.classes_))]).T
         return self.classes_[np.argmax(probas, axis=1)]
-
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'w_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
 
 class GradientDescentRegressor(BaseEstimator, RegressorMixin):
     """
@@ -2601,7 +3377,7 @@ class GradientDescentRegressor(BaseEstimator, RegressorMixin):
 
     Attributes
     ----------
-    w_ : 1d-array
+    weights_ : 1d-array
         Weights after fitting. These weights represent the coefficients for
         the linear combination of features.
 
@@ -2658,24 +3434,24 @@ class GradientDescentRegressor(BaseEstimator, RegressorMixin):
         self : object
         """
         X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
-        self.w_ = np.zeros(1 + X.shape[1])
+        self.weights_ = np.zeros(1 + X.shape[1])
         self.cost_ = []
 
         for i in range(self.n_iter):
             errors = y - self.predict(X)
-            self.w_[1:] += self.eta * X.T.dot(errors)
-            self.w_[0] += self.eta * errors.sum()
+            self.weights_[1:] += self.eta * X.T.dot(errors)
+            self.weights_[0] += self.eta * errors.sum()
             cost = (errors**2).sum() / 2.0
             self.cost_.append(cost)
         return self
 
     def net_input(self, X):
         """Calculate net input"""
-        return np.dot(X, self.w_[1:]) + self.w_[0]
+        return np.dot(X, self.weights_[1:]) + self.weights_[0]
 
     def predict(self, X):
         """Return continuous output"""
-        self.inspect 
+        check_is_fitted (self, 'fitted_') 
         X = check_array(
             X,
             accept_large_sparse=True,
@@ -2684,20 +3460,6 @@ class GradientDescentRegressor(BaseEstimator, RegressorMixin):
             )
         return self.net_input(X)
 
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'w_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
- 
 class SimpleAverageRegressor(BaseEstimator, RegressorMixin):
     """
     Simple Average Ensemble Regressor.
@@ -2803,7 +3565,7 @@ class SimpleAverageRegressor(BaseEstimator, RegressorMixin):
         y_pred : array-like of shape (n_samples,)
             Predicted values, averaged across all base estimators.
         """
-        self.inspect 
+        check_is_fitted (self, 'fitted_') 
 
         X = check_array(
             X,
@@ -2813,20 +3575,6 @@ class SimpleAverageRegressor(BaseEstimator, RegressorMixin):
             )
         predictions = [estimator.predict(X) for estimator in self.base_estimators]
         return np.mean(predictions, axis=0)
-
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'fitted_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
 
 class WeightedAverageRegressor(BaseEstimator, RegressorMixin):
     """
@@ -2853,10 +3601,10 @@ class WeightedAverageRegressor(BaseEstimator, RegressorMixin):
     The weighted average predictions of the ensemble are calculated as follows:
 
     .. math::
-        y_{\\text{pred}} = \\sum_{i} (w_i \\times y_{\\text{pred}_i})
+        y_{\\text{pred}} = \\sum_{i} (weights_i \\times y_{\\text{pred}_i})
 
     where:
-    - \( w_i \) is the weight of the i-th base estimator.
+    - \( weights_i \) is the weight of the i-th base estimator.
     - \( y_{\\text{pred}_i} \) is the prediction of the i-th base estimator.
 
     Parameters
@@ -2955,7 +3703,7 @@ class WeightedAverageRegressor(BaseEstimator, RegressorMixin):
         y_pred : array-like of shape (n_samples,)
             Weighted predicted values, averaged across all base estimators.
         """
-        self.inspect 
+        check_is_fitted (self, 'fitted_') 
 
         X = check_array(
             X,
@@ -2969,22 +3717,6 @@ class WeightedAverageRegressor(BaseEstimator, RegressorMixin):
         weighted_predictions = np.average(predictions, axis=0, 
                                           weights=self.weights)
         return weighted_predictions
-    
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'fitted_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
-
-
 
 class HWEnsembleClassifier(BaseEstimator, ClassifierMixin):
     """
@@ -3036,6 +3768,11 @@ class HWEnsembleClassifier(BaseEstimator, ClassifierMixin):
        - \( \text{learning\_rate} \) is the learning rate for gradient boosting.
        - Weighted Error represents the error of the base classifier.
 
+    See Also 
+    ----------
+    gofast.estimators.HammersteinWienerClassifier: 
+        Hammerstein-Wiener Classifier for Dynamic Classification Tasks. 
+        
     Examples
     --------
     >>> # Import necessary libraries
@@ -3069,7 +3806,6 @@ class HWEnsembleClassifier(BaseEstimator, ClassifierMixin):
       dynamics and nonlinearities.
     """
 
-
     def __init__(self, n_estimators=50, learning_rate=0.1):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
@@ -3094,7 +3830,8 @@ class HWEnsembleClassifier(BaseEstimator, ClassifierMixin):
         y_pred = np.zeros(len(y))
 
         for _ in range(self.n_estimators):
-            # Create and fit a base classifier (you can replace this with your specific base classifier)
+            # Create and fit a base classifier. 
+            # can replace this with your specific base classifier)
             base_classifier = HammersteinWienerClassifier()
             base_classifier.fit(X, y)
             
@@ -3126,11 +3863,41 @@ class HWEnsembleClassifier(BaseEstimator, ClassifierMixin):
         y_pred : array-like, shape = [n_samples]
             Predicted class labels.
         """
+        check_is_fitted(self, 'base_classifiers_')
         y_pred = np.zeros(X.shape[0])
         for i, base_classifier in enumerate(self.base_classifiers_):
             y_pred += self.weights_[i] * base_classifier.predict(X)
         
         return np.where(y_pred >= 0.0, 1, -1)
+
+    def predict_proba(self, X):
+        """
+        Predict class probabilities using the Hammerstein-Wiener Ensemble 
+        Classifier model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        proba : array-like of shape (n_samples, 2)
+            The class probabilities of the input samples.
+        """
+        check_is_fitted(self, 'base_classifiers_')
+        X = check_array(X, accept_sparse=True)
+
+        cumulative_prediction = np.zeros(X.shape[0])
+
+        for weight, classifier in zip(self.weights_, self.base_classifiers_):
+            cumulative_prediction += weight * classifier.predict(X)
+
+        # Sigmoid function to convert predictions to probabilities
+        proba_positive_class = 1 / (1 + np.exp(-cumulative_prediction))
+        proba_negative_class = 1 - proba_positive_class
+
+        return np.vstack((proba_negative_class, proba_positive_class)).T
 
 
 class HWEnsembleRegressor(BaseEstimator, RegressorMixin):
@@ -3155,7 +3922,7 @@ class HWEnsembleRegressor(BaseEstimator, RegressorMixin):
     
     Parameters
     ----------
-    hw_estimators : list of HammersteinWienerEstimator objects
+    hweights_estimators : list of HammersteinWienerEstimator objects
         List of Hammerstein-Wiener model estimators. Each estimator in the list
         should be pre-configured with its own hyperparameters, including
         nonlinearities, linear models, and memory depth.
@@ -3179,6 +3946,11 @@ class HWEnsembleRegressor(BaseEstimator, RegressorMixin):
     - \(N\) is the number of Hammerstein-Wiener models in the ensemble.
     - \(y_{\\text{pred}_i}\) is the prediction of the \(i\)-th Hammerstein-Wiener model.
 
+    See Also 
+    ---------
+    gofast.estimators.HammersteinWienerRegressor: 
+        Hammerstein-Wiener Regressor for Dynamic Regression Tasks. 
+        
     Examples
     --------
     >>> # Import necessary libraries
@@ -3215,8 +3987,8 @@ class HWEnsembleRegressor(BaseEstimator, RegressorMixin):
       the data can be captured by different model configurations.
     """
     
-    def __init__(self, hw_estimators):
-        self.hw_estimators = hw_estimators
+    def __init__(self, hweights_estimators):
+        self.hweights_estimators = hweights_estimators
 
 
     def fit(self, X, y):
@@ -3236,15 +4008,15 @@ class HWEnsembleRegressor(BaseEstimator, RegressorMixin):
             Returns self.
         """
         X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
-        self.hw_estimators = is_iterable(
-            self.hw_estimators, exclude_string=True, transform =True) 
+        self.hweights_estimators = is_iterable(
+            self.hweights_estimators, exclude_string=True, transform =True) 
         estimator_names = [ get_estimator_name(estimator) for estimator in 
-                           self.hw_estimators ]
+                           self.hweights_estimators ]
         if list( set (estimator_names)) [0] !="HammersteinWienerRegressor": 
             raise EstimatorError("Expect `HammersteinWienerRegressor` estimators."
                                  f" Got {smart_format(estimator_names)}")
             
-        for estimator in self.hw_estimators:
+        for estimator in self.hweights_estimators:
             estimator.fit(X, y)
         self.fitted_ = True
         return self
@@ -3263,7 +4035,7 @@ class HWEnsembleRegressor(BaseEstimator, RegressorMixin):
         y_pred : array-like of shape (n_samples,)
             Predicted values, averaged across all Hammerstein-Wiener estimators.
         """
-        self.inspect 
+        check_is_fitted(self, 'fitted_')
 
         X = check_array(
             X,
@@ -3272,23 +4044,10 @@ class HWEnsembleRegressor(BaseEstimator, RegressorMixin):
             to_frame=False, 
             )
                 
-        predictions = np.array([estimator.predict(X) for estimator in self.hw_estimators])
+        predictions = np.array([estimator.predict(X) 
+                                for estimator in self.hweights_estimators])
         return np.mean(predictions, axis=0)
 
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'fitted_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
-    
 class NeuroFuzzyEnsemble(BaseEstimator, RegressorMixin):
     """
     Neuro-Fuzzy Ensemble for regression tasks.
@@ -3418,7 +4177,7 @@ class NeuroFuzzyEnsemble(BaseEstimator, RegressorMixin):
         y_pred : array-like of shape (n_samples,)
             Predicted values, averaged across all Neuro-Fuzzy estimators.
         """
-        self.inspect 
+        check_is_fitted(self, 'fitted_')
         
         X = check_array(
             X,
@@ -3430,18 +4189,6 @@ class NeuroFuzzyEnsemble(BaseEstimator, RegressorMixin):
         predictions = np.array([estimator.predict(X)
                                 for estimator in self.nf_estimators])
         return np.mean(predictions, axis=0)
-    
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'fitted_'): 
-            raise NotFittedError(msg.format(obj=self))
-        return 1 
 
 class BoostedRegressionTree(BaseEstimator, RegressorMixin):
     """
@@ -3633,8 +4380,7 @@ class BoostedRegressionTree(BaseEstimator, RegressorMixin):
         y_pred : array-like of shape (n_samples,)
             The predicted values.
         """
-        self.inspect 
-        
+        check_is_fitted(self, 'estimators_')
         X = check_array(
             X,
             accept_large_sparse=True,
@@ -3649,24 +4395,9 @@ class BoostedRegressionTree(BaseEstimator, RegressorMixin):
 
         return y_pred
 
-
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'estimators_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
-    
 class DecisionTreeBasedRegressor(BaseEstimator, RegressorMixin):
     """
-    Decision Tree-based Regression  for regression tasks.
+    Decision Tree-based Regression for regression tasks.
 
     `DecisionTreeBasedRegressor` is an ensemble model that combines multiple
     Decision Regression Trees. Each tree in the ensemble contributes to the final
@@ -3772,7 +4503,7 @@ class DecisionTreeBasedRegressor(BaseEstimator, RegressorMixin):
         y_pred : array-like of shape (n_samples,)
             The predicted values.
         """
-        self.inspect 
+        check_is_fitted(self, 'estimators_')
         
         X = check_array(
             X,
@@ -3784,26 +4515,11 @@ class DecisionTreeBasedRegressor(BaseEstimator, RegressorMixin):
         predictions = np.array([tree.predict(X) for tree in self.estimators_])
         return np.mean(predictions, axis=0)
 
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'estimators_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
-
-
 class HBTEnsembleRegressor(BaseEstimator, RegressorMixin):
     """
-    Hybrid Booster Tree Ensemble Regressor.
+    Hybrid Boosted Tree Ensemble Regressor.
 
-    The Hybrid Booster Tree Ensemble Regressor is a powerful ensemble learning
+    The Hybrid Boosted Tree Ensemble Regressor is a powerful ensemble learning
     model that combines decision trees with gradient boosting. It is designed
     for regression tasks and can provide accurate predictions for a wide range
     of applications.
@@ -3833,7 +4549,7 @@ class HBTEnsembleRegressor(BaseEstimator, RegressorMixin):
        \[ \text{Residual} = y - F_k(x) \]
 
     2. Weighted Error Calculation:
-       \[ \text{Weighted Error} = \sum_{i=1}^{n} (w_i \cdot \text{Residual}_i)^2 \]
+       \[ \text{Weighted Error} = \sum_{i=1}^{n} (weights_i \cdot \text{Residual}_i)^2 \]
 
     3. Weight Calculation for Base Learners:
        \[ \text{Weight} = \text{learning\_rate} \cdot \frac{1}{1 + \text{Weighted Error}} \]
@@ -3843,7 +4559,7 @@ class HBTEnsembleRegressor(BaseEstimator, RegressorMixin):
 
     where:
     - \( n \) is the number of samples
-    - \( w_i \) is the weight of each sample
+    - \( weights_i \) is the weight of each sample
     - \( y \) is the true target values
     - \( F_k(x) \) is the ensemble prediction at iteration \( k \)
     - \(\text{learning\_rate}\) is the learning rate for gradient boosting
@@ -3878,7 +4594,7 @@ class HBTEnsembleRegressor(BaseEstimator, RegressorMixin):
 
     Applications and Performance
     ----------------------------
-    The Hybrid Booster Tree Ensemble Regressor is a versatile model suitable
+    The Hybrid Boosted Tree Ensemble Regressor is a versatile model suitable
     for various regression tasks, including real estate price prediction,
     financial forecasting, and more. Its performance depends on the quality
     of the data, the choice of hyperparameters, and the number of estimators.
@@ -3894,7 +4610,8 @@ class HBTEnsembleRegressor(BaseEstimator, RegressorMixin):
       base learners in ensemble methods.
     - `sklearn.metrics.mean_squared_error`: A common metric for evaluating
       regression models.
-
+    - gofast.estimators.HybridBoostedTreeRegressor: Hybrid Boosted Regression 
+      Tree for regression tasks.
     """
 
     def __init__(self, n_estimators=50, learning_rate=0.1, max_depth=3):
@@ -3958,12 +4675,12 @@ class HBTEnsembleRegressor(BaseEstimator, RegressorMixin):
         y_pred : array-like, shape = [n_samples]
             Predicted target values.
         """
+        check_is_fitted(self, 'weights_')
         y_pred = np.zeros(X.shape[0])
         for i, base_estimator in enumerate(self.base_estimators_):
             y_pred += self.weights_[i] * base_estimator.predict(X)
         
         return y_pred
-
 
 class HybridBoostedTreeClassifier(BaseEstimator, ClassifierMixin):
     """
@@ -3996,7 +4713,7 @@ class HybridBoostedTreeClassifier(BaseEstimator, ClassifierMixin):
     boosting. It uses the following formulas:
 
     1. Weighted Error Calculation:
-       \[ \text{Weighted Error} = \sum_{i=1}^{n} (w_i \cdot (y_i \neq y_{\text{pred}_i})) \]
+       \[ \text{Weighted Error} = \sum_{i=1}^{n} (weights_i \cdot (y_i \neq y_{\text{pred}_i})) \]
 
     2. Weight Calculation for Base Learners:
        \[ \text{Weight} = \text{learning\_rate} \cdot \log\left(\frac{1 - \text{Weighted Error}}{\text{Weighted Error}}\right) \]
@@ -4006,7 +4723,7 @@ class HybridBoostedTreeClassifier(BaseEstimator, ClassifierMixin):
 
     where:
     - \( n \) is the number of samples
-    - \( w_i \) is the weight of each sample
+    - \( weights_i \) is the weight of each sample
     - \( y_i \) is the true label
     - \( y_{\text{pred}_i} \) is the predicted label
     - \(\text{learning\_rate}\) is the learning rate for gradient boosting
@@ -4117,12 +4834,40 @@ class HybridBoostedTreeClassifier(BaseEstimator, ClassifierMixin):
         y_pred : array-like, shape = [n_samples]
             Predicted class labels.
         """
-        self.inspect  
+        check_is_fitted (self, 'base_estimators_')  
         y_pred = np.zeros(X.shape[0])
         for i, base_estimator in enumerate(self.base_estimators_):
             y_pred += self.weights_[i] * base_estimator.predict(X)
         
         return np.sign(y_pred)
+    
+    def predict_proba(self, X):
+        """
+        Predict class probabilities using the Hybrid Boosted Tree Classifier 
+        model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        proba : array-like of shape (n_samples, 2)
+            The class probabilities of the input samples.
+        """
+        check_is_fitted(self, 'base_estimators_')
+        X = check_array(X, accept_sparse=True)
+        # Compute weighted sum of predictions from all base estimators
+        weighted_predictions = sum(weight * estimator.predict(X) 
+                                   for weight, estimator in zip(
+                                           self.weights_, self.base_estimators_))
+
+        # Convert to probabilities using the sigmoid function
+        proba_positive_class = 1 / (1 + np.exp(-weighted_predictions))
+        proba_negative_class = 1 - proba_positive_class
+
+        return np.vstack((proba_negative_class, proba_positive_class)).T
 
     def _compute_sample_weights(self, y):
         """Compute sample weights."""
@@ -4131,25 +4876,10 @@ class HybridBoostedTreeClassifier(BaseEstimator, ClassifierMixin):
     def _update_sample_weights(self, y, y_pred, weight):
         """Update sample weights."""
         return np.exp(-weight * y * y_pred)
-        
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'weights_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1
- 
 
 class HybridBoostedTreeRegressor(BaseEstimator, RegressorMixin):
     """
-    Hybrid Boosted Regression Tree (BRT) Ensemble for regression tasks.
+    Hybrid Boosted Regression Tree (BRT) for regression tasks.
 
     The Hybrid Boosted Tree Regressor is a powerful ensemble learning model
     that combines multiple Boosted Regression Tree (BRT) models. Each BRT
@@ -4159,10 +4889,10 @@ class HybridBoostedTreeRegressor(BaseEstimator, RegressorMixin):
     each of which is an ensemble in itself, created using the 
     principles of boosting.
 
-    HybridBoostedTreeRegressorEnsemble class, the n_estimators parameter 
+    In `HybridBoostedTreeRegressor` class, the `n_estimators` parameter 
     controls the number of individual Boosted Regression Trees in the ensemble,
-    and brt_params is a dictionary of parameters to be passed to each Boosted 
-    Regression Tree model. The GradientBoostingRegressor from scikit-learn 
+    and `brt_params` is a dictionary of parameters to be passed to each Boosted 
+    Regression Tree model. The `GradientBoostingRegressor` from scikit-learn 
     is used as the individual BRT model. This class's fit method trains 
     each BRT model on the entire dataset, and the predict method averages 
     their predictions for the final output.
@@ -4222,8 +4952,6 @@ class HybridBoostedTreeRegressor(BaseEstimator, RegressorMixin):
     --------
     - `sklearn.ensemble.GradientBoostingRegressor`: Scikit-learn's Gradient
       Boosting Regressor for comparison.
-    - `sklearn.ensemble.GradientBoostingClassifier`: Scikit-learn's Gradient
-      Boosting Classifier for classification tasks.
     - `sklearn.tree.DecisionTreeRegressor`: Decision tree regressor used as
       base learners in ensemble methods.
 
@@ -4272,7 +5000,7 @@ class HybridBoostedTreeRegressor(BaseEstimator, RegressorMixin):
         y_pred : array-like of shape (n_samples,)
             The predicted values.
         """
-        self.inspect 
+        check_is_fitted(self, "brt_ensembles_")
         
         X = check_array(
             X,
@@ -4284,62 +5012,81 @@ class HybridBoostedTreeRegressor(BaseEstimator, RegressorMixin):
         predictions = np.array([brt.predict(X) for brt in self.brt_ensembles_])
         return np.mean(predictions, axis=0)
 
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'brt_ensembles_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
-
 class BoostedClassifierTree(BaseEstimator, ClassifierMixin):
     """
     Boosted Decision Tree Classifier.
 
-    BoostedClassifierTree applies boosting techniques to Decision Tree 
-    classifiers. Its implementation, each tree in the ensemble is a
-    DecisionTreeClassifier. The model is trained iteratively, where each 
-    tree tries to correct the mistakes of the previous trees in the ensemble. 
-    The final prediction is determined by a thresholding mechanism applied 
-    to the cumulative prediction of all trees. The learning_rate controls 
-    the contribution of each tree to the final prediction.
+    This classifier employs an ensemble boosting method using decision trees. 
+    It builds the model by sequentially adding trees, where each tree is trained 
+    to correct the errors made by the previous ones. The final model's prediction 
+    is the weighted aggregate of all individual trees' predictions, where weights 
+    are adjusted by the learning rate.
 
     Parameters
     ----------
-    n_estimators : int
-        The number of trees in the ensemble.
-    max_depth : int
-        The maximum depth of each decision tree.
-    learning_rate : float
-        The rate at which the boosting algorithm adapts from 
-        previous trees' errors.
+    n_estimators : int, default=100
+        The number of trees in the ensemble. More trees can lead to better 
+        performance but increase computational complexity.
+
+    max_depth : int, default=3
+        The maximum depth of each decision tree. Controls the complexity of the 
+        model. Deeper trees can capture more complex patterns but may overfit.
+
+    learning_rate : float, default=0.1
+        The rate at which the boosting process adapts to the errors of the 
+        previous trees. A lower rate requires more trees to achieve similar 
+        performance levels but can yield a more robust model.
 
     Attributes
     ----------
     estimators_ : list of DecisionTreeClassifier
-        The collection of fitted sub-estimators.
+        The collection of fitted sub-estimators. Available after fitting.
+
+    Notes
+    -----
+    The BoostedClassifierTree combines weak learners (decision trees) into a 
+    stronger model. The boosting process iteratively adjusts the weights of 
+    observations based on the previous trees' errors. The final prediction is 
+    made based on a weighted majority vote (or sum) of the weak learners' predictions.
+
+    The boosting procedure is mathematically formulated as:
+
+    .. math::
+        F_t(x) = F_{t-1}(x) + \\alpha_t h_t(x)
+
+    where \( F_t(x) \) is the model at iteration \( t \), \( \\alpha_t \) is 
+    the learning rate, and \( h_t(x) \) is the weak learner.
 
     Examples
     --------
+    >>> from sklearn.datasets import make_classification
     >>> from gofast.estimators import BoostedClassifierTree
-    >>> bdtc = BoostedClassifierTree(n_estimators=100, 
-                                             max_depth=3, learning_rate=0.1)
-    >>> X, y = np.random.rand(100, 4), np.random.randint(0, 2, 100)
-    >>> bdtc.fit(X, y)
-    >>> y_pred = bdtc.predict(X)
+    >>> X, y = make_classification(n_samples=100, n_features=4)
+    >>> clf = BoostedClassifierTree(n_estimators=100, max_depth=3, learning_rate=0.1)
+    >>> clf.fit(X, y)
+    >>> print(clf.predict(X))
+
+    References
+    ----------
+    1. Y. Freund, R. E. Schapire, "A Decision-Theoretic Generalization of 
+       On-Line Learning and an Application to Boosting", 1995.
+    2. J. H. Friedman, "Greedy Function Approximation: A Gradient Boosting Machine", 
+       Annals of Statistics, 2001.
+    3. T. Hastie, R. Tibshirani, J. Friedman, "The Elements of Statistical Learning",
+       Springer, 2009.
+
+    See Also
+    --------
+    DecisionTreeClassifier : A decision tree classifier.
+    AdaBoostClassifier : An adaptive boosting classifier.
+    GradientBoostingClassifier : A gradient boosting machine for classification.
     """
 
     def __init__(self, n_estimators=100, max_depth=3, learning_rate=0.1):
         self.n_estimators = n_estimators
         self.max_depth = max_depth
         self.learning_rate = learning_rate
-        
+
     def fit(self, X, y):
         """
         Fit the Boosted Decision Tree Classifier model to the data.
@@ -4364,7 +5111,6 @@ class BoostedClassifierTree(BaseEstimator, ClassifierMixin):
             prediction = tree.predict(X)
             # Update residuals
             residual -= self.learning_rate * (prediction - residual)
-
             self.estimators_.append(tree)
 
         return self
@@ -4383,7 +5129,7 @@ class BoostedClassifierTree(BaseEstimator, ClassifierMixin):
         y_pred : array-like of shape (n_samples,)
             The predicted class labels.
         """
-        self.inspect 
+        check_is_fitted(self, 'estimators_')
         
         X = check_array(
             X,
@@ -4400,20 +5146,47 @@ class BoostedClassifierTree(BaseEstimator, ClassifierMixin):
         # Thresholding to convert to binary classification
         return np.where(cumulative_prediction > 0.5, 1, 0)
     
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'estimators_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
+    def predict_proba(self, X):
+        """
+        Predict class probabilities using the Boosted Decision Tree 
+        Classifier model.
 
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        proba : array-like of shape (n_samples, 2)
+            The class probabilities of the input samples. Column 0 contains the
+            probabilities of the negative class, and column 1 contains 
+            the probabilities of the positive class.
+            
+        Example
+        -------
+        >>> from sklearn.datasets import make_classification
+        >>> from gofast.estimators import BoostedClassifierTree
+        >>> # Create a synthetic dataset
+        >>> X, y = make_classification(n_samples=100, n_features=4, n_classes=2,
+                                       random_state=42)
+        >>> clf = BoostedClassifierTree(n_estimators=10, max_depth=3, learning_rate=0.1)
+        >>> clf.fit(X, y)
+        >>> # Predict probabilities
+        >>> print(clf.predict_proba(X))
+        """
+        check_is_fitted(self, 'estimators_')
+        X = check_array(X, accept_sparse=True)
+        
+        cumulative_prediction = np.zeros(X.shape[0])
+
+        for tree in self.estimators_:
+            cumulative_prediction += self.learning_rate * tree.predict(X)
+        # Convert cumulative predictions to probabilities
+        proba_positive_class = 1 / (1 + np.exp(-cumulative_prediction))  # Sigmoid function
+        proba_negative_class = 1 - proba_positive_class
+
+        return np.vstack((proba_negative_class, proba_positive_class)).T
 
 class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
     """
@@ -4544,32 +5317,41 @@ class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
         y_pred : array-like of shape (n_samples,)
             The predicted class labels.
         """
+        check_is_fitted(self, 'estimators_')
         X = check_array(
             X,
             accept_large_sparse=True,
             accept_sparse= True,
             to_frame=False, 
             )
-        
-        self.inspect 
         predictions = np.array([tree.predict(X) for tree in self.estimators_])
         # Majority voting
         y_pred = stats.mode(predictions, axis=0).mode[0]
         return y_pred
+    
+    def predict_proba(self, X):
+        """
+        Predict class probabilities using the Decision Tree Based Ensemble 
+        Classifier model.
 
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'estimators_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        proba : array-like of shape (n_samples, n_classes)
+            The class probabilities of the input samples.
+        """
+        check_is_fitted(self, 'estimators_')
+        X = check_array(X, accept_sparse=True)
+
+        # Collect probabilities from each estimator
+        all_proba = np.array([tree.predict_proba(X) for tree in self.estimators_])
+        # Average probabilities across all estimators
+        avg_proba = np.mean(all_proba, axis=0)
+        return avg_proba
     
 class HBTEnsembleClassifier(BaseEstimator, ClassifierMixin):
     """
@@ -4703,8 +5485,7 @@ class HBTEnsembleClassifier(BaseEstimator, ClassifierMixin):
         y_pred : array-like of shape (n_samples,)
             The predicted class labels.
         """
-        self.inspect
-        
+        check_is_fitted(self, 'gb_ensembles_')
         X = check_array(
             X,
             accept_large_sparse=True,
@@ -4715,21 +5496,7 @@ class HBTEnsembleClassifier(BaseEstimator, ClassifierMixin):
         # Majority voting for classification
         y_pred = stats.mode(predictions, axis=0).mode[0]
         return y_pred
-    
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'gb_ensembles_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
-    
+
 class WeightedAverageClassifier(BaseEstimator, ClassifierMixin):
     """
     Weighted Average Ensemble Classifier.
@@ -4769,7 +5536,7 @@ class WeightedAverageClassifier(BaseEstimator, ClassifierMixin):
     Mathematical Formulation
     ------------------------
     The Weighted Average Ensemble Classifier combines multiple base classifiers
-    \(C_i\) each with its assigned weight \(w_i\). For a given input \(x\), each 
+    \(C_i\) each with its assigned weight \(weights_i\). For a given input \(x\), each 
     base classifier \(C_i\) predicts a class label \(y_i\) and class probabilities 
     \(\mathbf{P}_i(x)\).
 
@@ -4778,13 +5545,13 @@ class WeightedAverageClassifier(BaseEstimator, ClassifierMixin):
     from all classifiers:
 
     \[
-    C_{\text{final}}(x) = \text{argmax}\left(\sum_{i=1}^{n} w_i \cdot \mathbf{P}_i(x)\right)
+    C_{\text{final}}(x) = \text{argmax}\left(\sum_{i=1}^{n} weights_i \cdot \mathbf{P}_i(x)\right)
     \]
 
     where:
     - \(C_{\text{final}}(x)\) is the final predicted class label for input \(x\).
     - \(n\) is the number of base classifiers.
-    - \(w_i\) is the weight assigned to base classifier \(C_i\).
+    - \(weights_i\) is the weight assigned to base classifier \(C_i\).
     - \(\mathbf{P}_i(x)\) is the predicted class probabilities by base
       classifier \(C_i\) for input \(x\).
 
@@ -4820,7 +5587,6 @@ class WeightedAverageClassifier(BaseEstimator, ClassifierMixin):
         self.base_classifiers = base_classifiers
         self.weights = weights
         
-
     def fit(self, X, y):
         """
         Fit the Weighted Average Ensemble Classifier model to the data.
@@ -4859,7 +5625,7 @@ class WeightedAverageClassifier(BaseEstimator, ClassifierMixin):
         y_pred : array-like of shape (n_samples,)
             The predicted class labels.
         """
-        self.inspect 
+        check_is_fitted(self, 'classifiers_')
         
         X = check_array(
             X,
@@ -4893,7 +5659,7 @@ class WeightedAverageClassifier(BaseEstimator, ClassifierMixin):
             The predicted class probabilities.
         """
         # Check if the classifier is fitted
-        self.inspect
+        check_is_fitted(self, 'classifiers_')
     
         # Check input and ensure it's compatible with base classifiers
         X = check_array(X)
@@ -4905,21 +5671,7 @@ class WeightedAverageClassifier(BaseEstimator, ClassifierMixin):
         weighted_avg_proba = np.average(probas, axis=0, weights=self.weights)
     
         return weighted_avg_proba
-    
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'classifiers_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
-    
+
 class SimpleAverageClassifier(BaseEstimator, ClassifierMixin):
     """
     Simple Average Ensemble Classifier.
@@ -4990,7 +5742,6 @@ class SimpleAverageClassifier(BaseEstimator, ClassifierMixin):
     def __init__(self, base_classifiers):
         self.base_classifiers = base_classifiers
         
-
     def fit(self, X, y):
         """
         Fit the Simple Average Ensemble Classifier model to the data.
@@ -5029,8 +5780,7 @@ class SimpleAverageClassifier(BaseEstimator, ClassifierMixin):
         y_pred : array-like of shape (n_samples,)
             The predicted class labels.
         """
-        self.inspect 
-        
+        check_is_fitted(self, 'classifiers_')
         X = check_array(
             X,
             accept_large_sparse=True,
@@ -5092,20 +5842,6 @@ class SimpleAverageClassifier(BaseEstimator, ClassifierMixin):
        # Calculate the average predicted class probabilities
        avg_proba = np.mean(probas, axis=0)
        return avg_proba
-   
-    @property 
-    def inspect (self): 
-        """ Inspect object whether is fitted or not"""
-        msg = ( "{obj.__class__.__name__} instance is not fitted yet."
-               " Call 'fit' with appropriate arguments before using"
-               " this method"
-               )
-        
-        if not hasattr (self, 'classifiers_'): 
-            raise NotFittedError(msg.format(
-                obj=self)
-            )
-        return 1 
 
 class StandardEstimator:
     """Base class for all classes in gofast for parameters retrievals
@@ -5216,6 +5952,349 @@ class StandardEstimator:
 
         return self
   
+class _GradientBoostingRegressor:
+    """
+    A simple gradient boosting regressor for regression tasks.
+
+    Gradient Boosting builds an additive model in a forward stage-wise fashion. 
+    At each stage, regression trees are fit on the negative gradient of the loss function.
+
+    Parameters
+    ----------
+    n_estimators : int, optional (default=100)
+        The number of boosting stages to be run. This is essentially the 
+        number of decision trees in the ensemble.
+
+    learning_rate : float, optional (default=1.0)
+        Learning rate shrinks the contribution of each tree. There is a 
+        trade-off between learning_rate and n_estimators.
+        
+    max_depth : int, default=1
+        The maximum depth of the individual regression estimators.
+        
+    Attributes
+    ----------
+    estimators_ : list of DecisionStumpRegressor
+        The collection of fitted sub-estimators.
+
+    Methods
+    -------
+    fit(X, y)
+        Fit the gradient boosting model to the training data.
+    predict(X)
+        Predict continuous target values for samples in X.
+    decision_function(X)
+        Compute the raw decision scores for the input data.
+
+    Mathematical Formula
+    --------------------
+    Given a differentiable loss function L(y, F(x)), the model is 
+    constructed as follows:
+    
+    .. math:: 
+        F_{m}(x) = F_{m-1}(x) + \\gamma_{m} h_{m}(x)
+
+    where F_{m} is the model at iteration m, \\gamma_{m} is the step size, 
+    and h_{m} is the weak learner.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import make_regression
+    >>> X, y = make_regression(n_samples=100, n_features=1, noise=10)
+    >>> model = GradientBoostingRegressor(n_estimators=100, learning_rate=0.1)
+    >>> model.fit(X, y)
+    >>> print(model.predict(X)[:5])
+    >>> print(model.decision_function(X)[:5])
+
+    References
+    ----------
+    - J. H. Friedman, "Greedy Function Approximation: A Gradient Boosting Machine," 1999.
+    - T. Hastie, R. Tibshirani, and J. Friedman, "The Elements of Statistical Learning," Springer, 2009.
+
+    See Also
+    --------
+    DecisionTreeRegressor, RandomForestRegressor, AdaBoostRegressor
+
+    Applications
+    ------------
+    Gradient Boosting Regressor is commonly used in various regression tasks where the relationship 
+    between features and target variable is complex and non-linear. It is particularly effective 
+    in predictive modeling and risk assessment applications.
+    """
+
+    def __init__(self, n_estimators=100, learning_rate=1.0, max_depth=1):
+        self.n_estimators = n_estimators
+        self.learning_rate = learning_rate
+        self.max_depth=max_depth
+
+    def fit(self, X, y):
+        """
+        Fit the gradient boosting regressor to the training data.
+
+        The method sequentially adds decision stumps to the ensemble, each one 
+        correcting its predecessor. The fitting process involves finding the best 
+        stump at each stage that reduces the overall prediction error.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples used for training. Each row in X is a sample and each 
+            column is a feature.
+
+        y : array-like of shape (n_samples,)
+            The target values (continuous). The regression targets are continuous 
+            values which the model will attempt to predict.
+
+        Raises
+        ------
+        ValueError
+            If input arrays X and y have incompatible shapes.
+
+        Notes
+        -----
+        - The fit process involves computing pseudo-residuals which are the gradients 
+          of the loss function with respect to the model's predictions. These are used 
+          as targets for the subsequent weak learner.
+        - The model complexity increases with each stage, controlled by the learning rate.
+
+        Examples
+        --------
+        >>> from sklearn.datasets import make_regression
+        >>> X, y = make_regression(n_samples=100, n_features=1, noise=10)
+        >>> reg = GradientBoostingRegressor(n_estimators=50, learning_rate=0.1)
+        >>> reg.fit(X, y)
+        """
+        if X.shape[0] != y.shape[0]:
+            raise ValueError("Mismatched number of samples between X and y")
+
+        # Initialize the prediction to zero
+        F_m = np.zeros(y.shape)
+
+        for m in range(self.n_estimators):
+            # Compute residuals
+            residuals = y - F_m
+
+            # # Fit a regression tree to the negative gradient
+            tree = DecisionTreeRegressor(max_depth=self.max_depth)
+            tree.fit(X, residuals)
+
+            # Update the model predictions
+            F_m += self.learning_rate * tree.predict(X)
+
+            # Store the fitted estimator
+            self.estimators_.append(tree)
+
+        return self
+
+    def predict(self, X):
+        """
+        Predict continuous target values for samples in X.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            The predicted target values.
+        """
+        F_m = sum(self.learning_rate * estimator.predict(X)
+                  for estimator in self.estimators_)
+        return F_m
+
+    def decision_function(self, X):
+        """
+        Compute the raw decision scores for the input data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input samples.
+
+        Returns
+        -------
+        decision_scores : array-like of shape (n_samples,)
+            The raw decision scores for each sample.
+        """
+        return sum(self.learning_rate * estimator.predict(X)
+                   for estimator in self.estimators_)
+    
+class _GradientBoostingClassifier:
+    """
+    A simple gradient boosting classifier for binary classification.
+
+    Gradient boosting is a machine learning technique for regression and 
+    classification problems, which produces a prediction model in the form 
+    of an ensemble of weak prediction models, typically decision trees. It 
+    builds the model in a stage-wise fashion like other boosting methods do, 
+    and it generalizes them by allowing optimization of an arbitrary 
+    differentiable loss function.
+
+    Attributes
+    ----------
+    n_estimators : int
+        The number of boosting stages to be run.
+    learning_rate : float
+        Learning rate shrinks the contribution of each tree.
+    estimators_ : list of DecisionStumpRegressor
+        The collection of fitted sub-estimators.
+
+    Methods
+    -------
+    fit(X, y)
+        Build the gradient boosting model from the training set (X, y).
+    predict(X)
+        Predict class labels for samples in X.
+    predict_proba(X)
+        Predict class probabilities for X.
+
+    Mathematical Formula
+    --------------------
+    The model is built in a stage-wise fashion as follows:
+    .. math:: 
+        F_{m}(x) = F_{m-1}(x) + \\gamma_{m} h_{m}(x)
+
+    where F_{m} is the model at iteration m, \\gamma_{m} is the step size, 
+    and h_{m} is the weak learner.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import make_classification
+    >>> X, y = make_classification(n_samples=100, n_features=20, n_classes=2)
+    >>> model = GradientBoostingClassifier(n_estimators=100, learning_rate=0.1)
+    >>> model.fit(X, y)
+    >>> print(model.predict(X)[:5])
+    >>> print(model.predict_proba(X)[:5])
+
+    References
+    ----------
+    - J. H. Friedman, "Greedy Function Approximation: A Gradient Boosting Machine," 1999.
+    - T. Hastie, R. Tibshirani, and J. Friedman, "The Elements of Statistical
+    Learning," Springer, 2009.
+
+    Applications
+    ------------
+    Gradient Boosting can be used for both regression and classification problems. 
+    It's particularly effective in scenarios where the relationship between 
+    the input features and target variable is complex and non-linear. It's 
+    widely used in applications like risk modeling, classification of objects,
+    and ranking problems.
+    """
+
+    def __init__(self, n_estimators=100, learning_rate=1.0):
+        self.n_estimators = n_estimators
+        self.learning_rate = learning_rate
+        self.estimators_ = []
+
+    def fit(self, X, y):
+        """
+        Fit the gradient boosting classifier.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The training input samples.
+        y : array-like of shape (n_samples,)
+            The target values (class labels).
+        """
+        # Convert labels to 0 and 1
+        y = np.where(y == np.unique(y)[0], -1, 1)
+
+        F_m = np.zeros(len(y))
+
+        for m in range(self.n_estimators):
+            # Compute pseudo-residuals
+            residuals = -1 * y * self._sigmoid(-y * F_m)
+
+            # Fit a decision stump to the pseudo-residuals
+            stump = DecisionStumpRegressor()
+            stump.fit(X, residuals)
+
+            # Update the model
+            F_m += self.learning_rate * stump.predict(X)
+            self.estimators_.append(stump)
+
+    def predict_proba(self, X):
+        """
+        Predict class probabilities for X.
+
+        The predicted class probabilities are the model's confidence
+        scores for the positive class.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input samples.
+
+        Returns
+        -------
+        proba : array-like of shape (n_samples, 2)
+            The class probabilities for the input samples. The columns 
+            correspond to the negative and positive classes, respectively.
+            
+        Examples 
+        ----------
+        from sklearn.datasets import make_classification
+        X, y = make_classification(n_samples=100, n_features=20, n_classes=2)
+        model = GradientBoostingClassifier(n_estimators=100, learning_rate=0.1)
+        model.fit(X, y)
+        print(model.predict_proba(X)[:5])
+        """
+        F_m = sum(self.learning_rate * estimator.predict(X) for estimator in self.estimators_)
+        proba_positive_class = self._sigmoid(F_m)
+        return np.vstack((1 - proba_positive_class, proba_positive_class)).T
+
+    def _sigmoid(self, z):
+        """Compute the sigmoid function."""
+        return 1 / (1 + np.exp(-z))
+
+    def predict(self, X):
+        """
+        Predict class labels for samples in X.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            The predicted class labels.
+        """
+        F_m = sum(self.learning_rate * estimator.predict(X) for estimator in self.estimators_)
+        return np.where(self._sigmoid(F_m) > 0.5, 1, 0)
+    
+
+@validate_params(
+    {
+        "X": ["array-like", "sparse matrix"],
+        "n_clusters": [Interval(Integral, 1, None, closed="left")],
+        "sample_weight": ["array-like", None],
+        "init": [StrOptions({"k-means++", "random"}), callable, "array-like"],
+        "n_init": [
+            StrOptions({"auto"}),
+            Hidden(StrOptions({"warn"})),
+            Interval(Integral, 1, None, closed="left"),
+        ],
+        "max_iter": [Interval(Integral, 1, None, closed="left")],
+        "verbose": [Interval(Integral, 0, None, closed="left"), bool],
+        "tol": [Interval(Real, 0, None, closed="left")],
+        "random_state": ["random_state"],
+        "copy_x": [bool],
+        "algorithm": [
+            StrOptions({"lloyd", "elkan", "auto", "full"}, deprecated={"auto", "full"})
+        ],
+        "return_n_iter": [bool],
+    }
+)
+def kmf_featurizer (): 
+    pass 
+    
+     
+
 
 
 

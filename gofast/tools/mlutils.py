@@ -15,14 +15,16 @@ import warnings
 import pickle 
 import joblib
 import datetime 
-import shutil
-from pprint import pprint  
+import shutil 
 from six.moves import urllib 
 from collections import Counter 
 import numpy as np 
 import pandas as pd 
 
-from sklearn.feature_selection import SelectFromModel  
+from sklearn.compose import ColumnTransformer, make_column_selector
+from sklearn.decomposition import PCA
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_selection import SelectFromModel, SelectKBest
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import confusion_matrix, classification_report 
 from sklearn.metrics import mean_squared_error, f1_score, accuracy_score
@@ -32,20 +34,21 @@ from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.preprocessing import OneHotEncoder,RobustScaler ,OrdinalEncoder 
 from sklearn.preprocessing import StandardScaler,MinMaxScaler,  LabelBinarizer
-from sklearn.preprocessing import LabelEncoder,Normalizer 
+from sklearn.preprocessing import LabelEncoder,Normalizer, PolynomialFeatures 
 
 from .._gofastlog import gofastlog
 from .._typing import List, Tuple, Any, Dict,  Optional,Union, Iterable,Series 
-from .._typing import _T, _F, _Sub,  ArrayLike, NDArray,DType, DataFrame  
+from .._typing import _T, _F, _Sub,  ArrayLike, NDArray,DType, DataFrame, Set  
 from ._dependency import import_optional_dependency
 from ..exceptions import ParameterNumberError, EstimatorError, DatasetError
 from ..decorators import deprecated              
 from .funcutils import _assert_all_types, _isin,  is_in_if,  ellipsis2false
-from .funcutils import savepath_, smart_format, str2columns, is_iterable
+from .funcutils import  smart_format, str2columns, is_iterable
 from .funcutils import  is_classification_task, to_numeric_dtypes, fancy_printer
 from .validator import get_estimator_name, check_array, check_consistent_length
-from .validator import  _is_numeric_dtype,  _is_arraylike_1d, assert_xy_in 
+from .validator import  _is_numeric_dtype,  _is_arraylike_1d 
 from .validator import  is_frame, build_data_if
+
 _logger = gofastlog().get_gofast_logger(__name__)
 
 
@@ -64,7 +67,9 @@ __all__=[
     "soft_imputer", 
     "soft_scaler", 
     "select_feature_importances", 
-    "make_pipe", 
+    "load_saved_model", 
+    "make_pipe",
+    "build_data_preprocessor", 
     "bi_selector", 
     "get_target", 
     "export_target",  
@@ -78,8 +83,8 @@ __all__=[
     "discretize_categories", 
     "stratify_categories", 
     "serialize_data", 
-    "load_dumped_data", 
-    "naive_data_split",
+    "deserialize_data", 
+    "soft_data_split",
     "laplace_smoothing"
     ]
 
@@ -114,7 +119,7 @@ _estimators ={
 #------
 
 def codify_variables (
-    arr, /, 
+    data:DataFrame | ArrayLike, /, 
     columns: list =None, 
     func: _F=None, 
     categories: dict=None, 
@@ -223,7 +228,7 @@ def codify_variables (
         get_dummies, parse_cols, return_cat_codes )
     # build dataframe if arr is passed rather 
     # than a dataframe 
-    df = build_data_if( arr, to_frame =True, force=True, input_name ='col',
+    df = build_data_if( data, to_frame =True, force=True, input_name ='col',
                         raise_warning='silence'  )
     # now check integrity 
     df = to_numeric_dtypes( df )
@@ -272,7 +277,7 @@ def codify_variables (
     if categories is None: 
         categories ={}
         for col in cat_columns: 
-            categories[col] = list(np.unique (df[col] ))
+            categories[col] = list(np.unique (df[col]))
             
     # categories should be a mapping data 
     if not isinstance ( categories, dict ): 
@@ -603,7 +608,6 @@ def bin_counting(
 
     return d
 
-
 def _single_counts ( 
         d,/,  bin_column, tname, odds = "N+",
         tolog= False, return_counts = False ): 
@@ -697,6 +701,128 @@ def _bin_counting (counts, tname, odds="N+" ):
 
     return counts, bin_counts  
  
+def laplace_smoothing_word(word, class_, /, word_counts, class_counts, V):
+    """
+    Apply Laplace smoothing to estimate the conditional probability of a 
+    word given a class.
+
+    Laplace smoothing (add-one smoothing) is used to handle the issue of 
+    zero probability in categorical data, particularly in the context of 
+    text classification with Naive Bayes.
+
+    The mathematical formula for Laplace smoothing is:
+    
+    .. math:: 
+        P(w|c) = \frac{\text{count}(w, c) + 1}{\text{count}(c) + |V|}
+
+    where `count(w, c)` is the count of word `w` in class `c`, `count(c)` is 
+    the total count of all words in class `c`, and `|V|` is the size of the 
+    vocabulary.
+
+    Parameters
+    ----------
+    word : str
+        The word for which the probability is to be computed.
+    class_ : str
+        The class for which the probability is to be computed.
+    word_counts : dict
+        A dictionary containing word counts for each class. The keys should 
+        be tuples of the form (word, class).
+    class_counts : dict
+        A dictionary containing the total count of words for each class.
+    V : int
+        The size of the vocabulary, i.e., the number of unique words in 
+        the dataset.
+
+    Returns
+    -------
+    float
+        The Laplace-smoothed probability of the word given the class.
+
+    Example
+    -------
+    >>> word_counts = {('dog', 'animal'): 3, ('cat', 'animal'):
+                       2, ('car', 'non-animal'): 4}
+    >>> class_counts = {'animal': 5, 'non-animal': 4}
+    >>> V = len(set([w for (w, c) in word_counts.keys()]))
+    >>> laplace_smoothing('dog', 'animal', word_counts, class_counts, V)
+    0.4444444444444444
+    
+    References
+    ----------
+    - C.D. Manning, P. Raghavan, and H. Schütze, "Introduction to Information Retrieval",
+      Cambridge University Press, 2008.
+    - A detailed explanation of Laplace Smoothing can be found in Chapter 13 of 
+      "Introduction to Information Retrieval" by Manning et al.
+
+    Notes
+    -----
+    This function is particularly useful in text classification tasks where the
+    dataset may contain a large number of unique words, and some words may not 
+    appear in the training data for every class.
+    """
+    word_class_count = word_counts.get((word, class_), 0)
+    class_word_count = class_counts.get(class_, 0)
+    probability = (word_class_count + 1) / (class_word_count + V)
+    return probability
+
+def laplace_smoothing_categorical(
+        data, /, feature_col, class_col, V=None):
+    """
+    Apply Laplace smoothing to estimate conditional probabilities of 
+    categorical features given a class in a dataset.
+
+    This function calculates the Laplace-smoothed probabilities for each 
+    category of a specified feature given each class.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The dataset containing categorical features and a class label.
+    feature_col : str
+        The column name in the dataset representing the feature for which 
+        probabilities are to be calculated.
+    class_col : str
+        The column name in the dataset representing the class label.
+    V : int or None, optional
+        The size of the vocabulary (i.e., the number of unique categories 
+                                    in the feature).
+        If None, it will be calculated based on the provided feature column.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing the Laplace-smoothed probabilities for each 
+        category of the feature across each class.
+
+    Example
+    -------
+    >>> data = pd.DataFrame({'feature': ['cat', 'dog', 'cat', 'bird'],
+                             'class': ['A', 'A', 'B', 'B']})
+    >>> probabilities = laplace_smoothing_categorical(data, 'feature', 'class')
+    >>> print(probabilities)
+
+    Notes
+    -----
+    This function is useful for handling categorical data in classification
+    tasks, especially when the dataset may contain categories that do not 
+    appear in the training data for every class.
+    """
+    if V is None:
+        V = data[feature_col].nunique()
+
+    class_counts = data[class_col].value_counts()
+    probability_table = pd.DataFrame()
+
+    # Iterating over each class to calculate probabilities
+    for class_value in data[class_col].unique():
+        class_subset = data[data[class_col] == class_value]
+        feature_counts = class_subset[feature_col].value_counts()
+        probabilities = (feature_counts + 1) / (class_counts[class_value] + V)
+        probabilities.name = class_value
+        probability_table = probability_table.append(probabilities)
+
+    return probability_table.fillna(1 / V)
 
 def laplace_smoothing(
     data, /,  
@@ -728,6 +854,13 @@ def laplace_smoothing(
         An array of the same shape as `data` containing the smoothed 
         probabilities for each category in each feature.
 
+    References
+    ----------
+    - C.D. Manning, P. Raghavan, and H. Schütze, "Introduction to Information Retrieval",
+      Cambridge University Press, 2008.
+    - A detailed explanation of Laplace Smoothing can be found in Chapter 13 of 
+      "Introduction to Information Retrieval" by Manning et al.
+      
     Notes
     -----
     This implementation assumes that the input data is categorical 
@@ -757,100 +890,7 @@ def laplace_smoothing(
     
     # Transpose and return the probabilities corresponding to each data point
     return smoothed_probs._T[data]
-
-
-#XXX TODO
-def _laplace_smoothing (x, y, data =None ): 
-    """ Laplace smooting to conditional probabilities calculations to ensure 
-    that none of the probabilities is 0.
-    
-    Laplace smoothing (also known as add-one smoothing) is a method used i
-    n the domain of probability and statistics to smooth categorical data. 
-    It's especially useful in text classification problems when a word from 
-    the test data has never been seen in the training data.
-    
-    
-    The formula for Laplace smoothing in this context is: 
-        
-    .. math:: 
-        
-        P ( w|c) = \frac{count( w, c)+1}{count(c)+\abs{V}}
-        
-    where :math:`w` and :math:`c` are the word and class respectively. Thus  
-    the :math:`count(w|c)` represents the number of times the word appears in 
-    documents of the given class. :math:`count(c)` is the total number of 
-    words in the class. :math:`|V|` is the size is the size of the 
-    vocabulary (i.e., total number of unique words in the training data).
-    
-    Parameters 
-    -----------
-    
-    x, y : Arraylike 1d or str, str  
-       One dimensional arrays. In principle if data is supplied, they must 
-       constitute series.  If `x` and `y` are given as string values, the 
-       `data` must be supplied. x and y names must be included in the  
-       dataframe otherwise an error raises.
-       
-       :math:`x` and :math:`y` are word :math:`w` and the given class :math:`c` 
-       respectively. 
-       
-    data: pd.DataFrame, 
-       Data containing x and y names. Need to be supplied when x and y 
-       are given as string names. 
-       
-    corpus: Tuple 
-        a list of (word, class) tuple
-    
-    word: 
-        the word for which the probability is to be estimated
-    given_class: 
-        the class under consideration
-    Returns 
-    ---------
-        P(word|class) with Laplace smoothing
-        
-    Examples 
-    -----------
-    >>> from gofast.tools.mlutils import laplace_smoothing
-    >>> corpus = [('apple', 'fruit'), ('orange', 'fruit'), 
-                  ('apple', 'fruit'), ('car', 'object'), 
-                  ('bike', 'object')]
-    >>> laplace_smoothing
-    >>> # This will be higher than 0, even if "apple" is not in the corpus.
-    >>> laplace_smoothing(corpus, word='apple', given_class = 'fruit'))  
-    >>> # This will be greater than 0 due to the smoothing.
-    >>> laplace_smoothing(corpus, word ='banana', given_class = 'fruit'))  
-    """
-    
-    x, y = assert_xy_in(x=x , y = y , data = data ) 
-    
-    # corpus = list ( zip ( x, y )) 
-    
-    def _laplace_smoothing ( corpus, word, given_class): 
-        # Create a set to store unique words (vocabulary)
-        vocabulary = set([word for word, _ in corpus])
-        # Total number of unique words
-        V = len(vocabulary)
-        
-        # Count the number of times the word appears 
-        # in documents of the given class
-        word_class_count = sum(1 for w, c in corpus 
-                               if w == word and c == given_class)
-        # Count the total number of words in the class
-        class_count = sum(1 for _, c in corpus if c == given_class)
-    
-        # Apply the Laplace smoothing formula
-        prob = (word_class_count + 1) / (class_count + V)
-        
-        return prob 
-    
-    # get the list of categorical values in the x 
-    # cvalues = np.unique ( x, dtype = x.dtype ) 
-    
-    # dict_c_prob = {c: _laplace_smoothing  ( corpus, c, )}
-    
-    # return P  
-    
+  
 def evaluate_model(
     model: _F, 
     X:NDArray |DataFrame, 
@@ -1186,21 +1226,68 @@ def select_features(
     # use coerce to no raise error and return data frame instead.
     return data if coerce else data.select_dtypes (include, exclude) 
     
-def get_global_score (
-        cvres : Dict[str, ArrayLike] 
-        ) -> Tuple [ Dict[str, ArrayLike] ,  Dict[str, ArrayLike]  ]: 
-    """ Retrieve the global mean and standard deviation score  from the 
-    cross validation containers. 
-    
-    :param cvres: cross validation results after training the models of number 
-        of parameters equals to N. 
-    :type cvres: dict of Array-like, Shape (N, ) 
-    :returns: tuple 
-        ( mean_test_scores', 'std_test_scores') 
-         scores on test_dcore and standard deviation scores 
+def get_global_score(
+    cvres: Dict[str, ArrayLike],
+    ignore_convergence_problem: bool = False
+) -> Tuple[float, float]:
     """
-    return  ( cvres.get('mean_test_score').mean() ,
-             cvres.get('std_test_score').mean())  
+    Retrieve the global mean and standard deviation of test scores from 
+    cross-validation results.
+
+    This function computes the overall mean and standard deviation of test 
+    scores from the results of cross-validation. It can also handle situations 
+    where convergence issues might have occurred during model training, 
+    depending on the `ignore_convergence_problem` flag.
+
+    Parameters
+    ----------
+    cvres : Dict[str, np.ndarray]
+        A dictionary containing the cross-validation results. Expected to have 
+        keys 'mean_test_score' and 'std_test_score', with each key mapping to 
+        an array of scores.
+    ignore_convergence_problem : bool, default=False
+        If True, ignores NaN values that might have resulted from convergence 
+        issues during model training while calculating the mean. If False, NaN 
+        values contribute to the final mean as NaN.
+
+    Returns
+    -------
+    Tuple[float, float]
+        A tuple containing two float values:
+        - The first element is the mean of the test scores across all 
+          cross-validation folds.
+        - The second element is the mean of the standard deviations of the 
+          test scores across all cross-validation folds.
+
+    Examples
+    --------
+    >>> from sklearn.model_selection import cross_val_score
+    >>> from sklearn.tree import DecisionTreeClassifier
+    >>> from sklearn.datasets import load_iris
+    >>> iris = load_iris()
+    >>> clf = DecisionTreeClassifier()
+    >>> scores = cross_val_score(clf, iris.data, iris.target, cv=5,
+    ...                          scoring='accuracy', return_train_score=True)
+    >>> cvres = {'mean_test_score': scores, 'std_test_score': np.std(scores)}
+    >>> mean_score, mean_std = get_global_score(cvres)
+    >>> print(f"Mean score: {mean_score}, Mean standard deviation: {mean_std}")
+
+    Notes
+    -----
+    - The function is primarily designed to be used with results obtained from 
+      scikit-learn's cross-validation functions like `cross_val_score`.
+    - It is assumed that `cvres` contains keys 'mean_test_score' and 
+      'std_test_score'.
+    """
+    if ignore_convergence_problem:
+        mean_score = np.nanmean(cvres.get('mean_test_score'))
+        mean_std = np.nanmean(cvres.get('std_test_score'))
+    else:
+        mean_score = cvres.get('mean_test_score').mean()
+        mean_std = cvres.get('std_test_score').mean()
+
+    return mean_score, mean_std
+
 def cfexist(features_to: List[ArrayLike], 
             features: List[str] )-> bool:      
     """
@@ -1242,6 +1329,123 @@ def formatGenericObj(generic_obj :Iterable[_T])-> _T:
     return ['{0}{1}{2}'.format('{', ii, '}') for ii in range(
                     len(generic_obj))]
 
+def find_relation_between_generics(
+    gen_obj1: Iterable[Any],
+    gen_obj2: Iterable[Any],
+    operation: str = "intersection"
+) -> Set[Any]:
+    """
+    Computes either the intersection or difference of two generic iterable objects.
+
+    Based on the specified operation, this function finds either common elements 
+    (intersection) or unique elements (difference) between two iterable objects 
+    like lists, sets, or dictionaries.
+
+    Parameters
+    ----------
+    gen_obj1 : Iterable[Any]
+        The first generic iterable object. Can be a list, set, dictionary, 
+        or any iterable type.
+    gen_obj2 : Iterable[Any]
+        The second generic iterable object. Same as gen_obj1.
+    operation : str, optional
+        The operation to perform. Can be 'intersection' or 'difference'.
+        Defaults to 'intersection'.
+
+    Returns
+    -------
+    Set[Any]
+        A set containing either the common elements (intersection) or 
+        unique elements (difference) of the two iterables.
+
+    Examples
+    --------
+    Intersection:
+    >>> from gofast.tools.mlutils import find_relation_between_generics
+    >>> result = find_relation_between_generics(
+    ...     ['ohmS', 'lwi', 'power', 'id', 'sfi', 'magnitude'], 
+    ...     {'ohmS', 'lwi', 'power'}
+    ... )
+    >>> print(result)
+    {'ohmS', 'lwi', 'power'}
+
+    Difference:
+    >>> result = find_relation_between_generics(
+    ...     ['ohmS', 'lwi', 'power', 'id', 'sfi', 'magnitude'], 
+    ...     {'ohmS', 'lwi', 'power'},
+    ...     operation='difference'
+    ... )
+    >>> print(result)
+    {'id', 'sfi', 'magnitude'}
+
+    Notes
+    -----
+    The function returns the result as a set, irrespective of the
+    type of the input iterables. The 'operation' parameter controls
+    whether the function calculates the intersection or difference.
+    """
+
+    set1 = set(gen_obj1)
+    set2 = set(gen_obj2)
+
+    if operation == "intersection":
+        return set1.intersection(set2)
+    elif operation == "difference":
+        if len(gen_obj1) <= len(gen_obj2):
+            return set(gen_obj2).difference(set(gen_obj1))
+        else:
+            return set(gen_obj1).difference(set(gen_obj2))
+    else:
+        raise ValueError("Invalid operation specified. Choose"
+                         " 'intersection' or 'difference'.")
+
+def find_intersection_between_generics(
+    gen_obj1: Iterable[Any],
+    gen_obj2: Iterable[Any]
+) -> Set[Any]:
+    """
+    Computes the intersection of two generic iterable objects.
+
+    This function finds common elements between two iterable objects 
+    (like lists, sets, or dictionaries) and returns a set containing 
+    these shared elements. The function is designed to handle various 
+    iterable types.
+
+    Parameters
+    ----------
+    gen_obj1 : Iterable[Any]
+        The first generic iterable object. Can be a list, set, dictionary, 
+        or any iterable type.
+    gen_obj2 : Iterable[Any]
+        The second generic iterable object. Same as gen_obj1.
+
+    Returns
+    -------
+    Set[Any]
+        A set containing the elements common to both iterables.
+
+    Example
+    -------
+    >>> from gofast.tools.mlutils import find_intersection_between_generics
+    >>> result = find_intersection_between_generics(
+    ...     ['ohmS', 'lwi', 'power', 'id', 'sfi', 'magnitude'], 
+    ...     {'ohmS', 'lwi', 'power'}
+    ... )
+    >>> print(result)
+    {'ohmS', 'lwi', 'power'}
+
+    Notes
+    -----
+    The function returns the intersection as a set, irrespective of the
+    type of the input iterables.
+    """
+
+    # Convert both iterables to sets for intersection calculation
+    set1 = set(gen_obj1)
+    set2 = set(gen_obj2)
+
+    # Calculate and return the intersection
+    return set1.intersection(set2)
 
 def findIntersectionGenObject(
         gen_obj1: Iterable[Any], 
@@ -1270,6 +1474,57 @@ def findIntersectionGenObject(
     else: objType = type(gen_obj2)
 
     return objType(set(gen_obj1).intersection(set(gen_obj2)))
+
+def find_difference_between_generics(
+    gen_obj1: Iterable[Any],
+    gen_obj2: Iterable[Any]
+   ) -> Union[None, Set[Any]]:
+    """
+    Identifies the difference between two generic iterable objects.
+
+    This function computes the difference between two iterable objects 
+    (like lists or sets) and returns a set containing elements that are 
+    unique to the larger iterable. If both iterables are of the same length, 
+    the function returns None.
+
+    Parameters
+    ----------
+    gen_obj1 : Iterable[Any]
+        The first generic iterable object. Can be a list, set, dictionary, 
+        or any iterable type.
+    gen_obj2 : Iterable[Any]
+        The second generic iterable object. Same as gen_obj1.
+
+    Returns
+    -------
+    Union[None, Set[Any]]
+        A set containing the unique elements from the larger iterable.
+        Returns None if both
+        iterables are of equal length.
+
+    Example
+    -------
+    >>> from gofast.tools.mlutils import find_difference_between_generics
+    >>> result = find_difference_between_generics(
+    ...     ['ohmS', 'lwi', 'power', 'id', 'sfi', 'magnitude'],
+    ...     {'ohmS', 'lwi', 'power'}
+    ... )
+    >>> print(result)
+    {'id', 'sfi', 'magnitude'}
+    """
+
+    # Convert both iterables to sets for difference calculation
+    set1 = set(gen_obj1)
+    set2 = set(gen_obj2)
+
+    # Calculate difference based on length
+    if len(set1) > len(set2):
+        return set1.difference(set2)
+    elif len(set1) < len(set2):
+        return set2.difference(set1)
+
+    # Return None if both are of equal length
+    return None
 
 def findDifferenceGenObject(gen_obj1: Iterable[Any],
                             gen_obj2: Iterable[Any]
@@ -1300,7 +1555,6 @@ def findDifferenceGenObject(gen_obj1: Iterable[Any],
         return objType(set(gen_obj1).difference(set(gen_obj2)))
     else: return 
    
- 
     return set(gen_obj1).difference(set(gen_obj2))
     
 def featureExistError(superv_features: Iterable[_T], 
@@ -1341,6 +1595,60 @@ def featureExistError(superv_features: Iterable[_T],
             ' not allowed in  dataframe columns ={0}'.
             format(list(features)))
         
+def control_existing_estimator(
+    estimator_name: str, 
+    raise_error: bool = False
+) -> Union[Tuple[str, str], None]:
+    """
+    Validates and retrieves the corresponding prefix for a given estimator name.
+
+    This function checks if the provided estimator name exists in a predefined
+    list of estimators. If found, it returns the corresponding prefix and full name.
+    Otherwise, it either raises an error or returns None, based on the 
+    'raise_error' flag.
+
+    Parameters
+    ----------
+    estimator_name : str
+        The name of the estimator to check.
+    raise_error : bool, default False
+        If True, raises an error when the estimator is not found. Otherwise, 
+        emits a warning.
+
+    Returns
+    -------
+    Tuple[str, str] or None
+        A tuple containing the prefix and full name of the estimator, or 
+        None if not found.
+
+    Example
+    -------
+    >>> from gofast.tools.mlutils import control_existing_estimator
+    >>> test_est = control_existing_estimator('svm')
+    >>> print(test_est)
+    ('svc', 'SupportVectorClassifier')
+    """
+
+    estimator_name = estimator_name.lower().strip()
+    for prefix, names in _estimators.items():
+        lower_names = [name.lower() for name in names]
+        
+        if estimator_name in lower_names:
+            return prefix, names[0]
+
+    if raise_error:
+        valid_names = [name for names in _estimators.values() for name in names]
+        raise EstimatorError(f'Unsupported estimator {estimator_name!r}. '
+                             f'Expected one of {valid_names}.')
+    else:
+        available_estimators = [name for names in _estimators.values() 
+                                for name in names]
+        warning_msg = (f"Estimator {estimator_name!r} not found. "
+                       f"Expected one of: {available_estimators}.")
+        warnings.warn(warning_msg)
+
+    return None
+       
 def controlExistingEstimator(
         estimator_name: str , raise_err =False ) -> Union [Dict[str, _T], None]: 
     """ 
@@ -1384,6 +1692,42 @@ def controlExistingEstimator(
     
     return e, efx 
 
+def format_model_score(
+    model_score: Union[float, Dict[str, float]] = None,
+    selected_estimator: Optional[str] = None
+) -> None:
+    """
+    Formats and prints model scores.
+
+    Parameters
+    ----------
+    model_score : float or Dict[str, float], optional
+        The model score or a dictionary of model scores with estimator 
+        names as keys.
+    selected_estimator : str, optional
+        Name of the estimator to format the score for. Used only if 
+        `model_score` is a float.
+
+    Example
+    -------
+    >>> from gofast.tools.mlutils import format_model_score
+    >>> format_model_score({'DecisionTreeClassifier': 0.26, 'BaggingClassifier': 0.13})
+    >>> format_model_score(0.75, selected_estimator='RandomForestClassifier')
+    """
+
+    print('-' * 77)
+    if isinstance(model_score, dict):
+        for estimator, score in model_score.items():
+            formatted_score = round(score * 100, 3)
+            print(f'> {estimator:<30}:{"Score":^10}= {formatted_score:^10} %')
+    elif isinstance(model_score, float):
+        estimator_name = selected_estimator if selected_estimator else 'Unknown Estimator'
+        formatted_score = round(model_score * 100, 3)
+        print(f'> {estimator_name:<30}:{"Score":^10}= {formatted_score:^10} %')
+    else:
+        print('Invalid model score format. Please provide a float or'
+              ' a dictionary of scores.')
+    print('-' * 77)
     
 def formatModelScore(
         model_score: Union [float, Dict[str, float]] = None,
@@ -1781,285 +2125,302 @@ def discretize_categories(
     return data 
 
 def stratify_categories(
-    data: Union [ArrayLike, DataFrame],
-    cat_name:str , 
-    n_splits:int =1, 
-    test_size:float= 0.2, 
-    random_state:int = 42
-    )-> Tuple[ _Sub[DataFrame[DType[_T]]], _Sub[DataFrame[DType[_T]]]]: 
-    """ Stratified sampling based on new generated category. 
-
-    :param data: dataframe holding the new column of category 
-    :param cat_name: new category name inserted into `data` 
-    :param n_splits: number of splits 
+    data: Union[DataFrame, ArrayLike],
+    cat_name: str, 
+    n_splits: int = 1, 
+    test_size: float = 0.2, 
+    random_state: int = 42
+) -> Tuple[Union[DataFrame, ArrayLike], Union[DataFrame, ArrayLike]]: 
     """
-    
-    split = StratifiedShuffleSplit(n_splits, test_size, random_state)
-    for train_index, test_index in split.split(data, data[cat_name]): 
-        strat_train_set = data.loc[train_index]
-        strat_test_set = data.loc[test_index] 
+    Perform stratified sampling on a dataset based on a specified categorical column.
+
+    Parameters
+    ----------
+    data : Union[pd.DataFrame, np.ndarray]
+        The dataset to be split. Can be a Pandas DataFrame or a NumPy ndarray.
         
-    return strat_train_set , strat_test_set 
+    cat_name : str
+        The name of the categorical column in 'data' used for stratified sampling. 
+        This column must exist in 'data' if it's a DataFrame.
+        
+    n_splits : int, optional
+        Number of re-shuffling & splitting iterations. Defaults to 1.
+        
+    test_size : float, optional
+        Proportion of the dataset to include in the test split. Defaults to 0.2.
+        
+    random_state : int, optional
+        Controls the shuffling applied to the data before applying the split.
+        Pass an int for reproducible output across multiple function calls.
+        Defaults to 42.
+
+    Returns
+    -------
+    Tuple[Union[pd.DataFrame, np.ndarray], Union[pd.DataFrame, np.ndarray]]
+        A tuple containing the training and testing sets.
+
+    Raises
+    ------
+    ValueError
+        If 'cat_name' is not found in 'data' when 'data' is a DataFrame.
+        If 'test_size' is not between 0 and 1.
+        If 'n_splits' is less than 1.
+
+    Examples
+    --------
+    >>> df = pd.DataFrame({
+    ...     'feature1': np.random.rand(100),
+    ...     'feature2': np.random.rand(100),
+    ...     'category': np.random.choice(['A', 'B', 'C'], 100)
+    ... })
+    >>> train_set, test_set = stratify_categories(df, 'category')
+    >>> train_set.shape, test_set.shape
+    ((80, 3), (20, 3))
+    """
+
+    if isinstance(data, pd.DataFrame) and cat_name not in data.columns:
+        raise ValueError(f"Column '{cat_name}' not found in the DataFrame.")
+
+    if not (0 < test_size < 1):
+        raise ValueError("Test size must be between 0 and 1.")
+
+    if n_splits < 1:
+        raise ValueError("Number of splits 'n_splits' must be at least 1.")
+
+    split = StratifiedShuffleSplit(n_splits=n_splits, test_size=test_size,
+                                   random_state=random_state)
+    for train_index, test_index in split.split(data, data[cat_name] if isinstance(
+            data, pd.DataFrame) else data[:, cat_name]):
+        if isinstance(data, pd.DataFrame):
+            strat_train_set = data.iloc[train_index]
+            strat_test_set = data.iloc[test_index]
+        else:  # Handle numpy arrays
+            strat_train_set = data[train_index]
+            strat_test_set = data[test_index]
+
+    return strat_train_set, strat_test_set
 
 def fetch_model(
-        modelfile: str ,
-        modelpath:Optional[str] = None,
-        default:bool =True,
-        modname: Optional[str] =None,
-        verbose:int =0): 
-    """ Fetch your model saved using Python pickle module or 
-    joblib module. 
-    
-    :param modelfile: str or Path-Like object 
-        dumped model file name saved using `joblib` or Python `pickle` module.
-    :param modelpath: path-Like object , 
-        Path to model dumped file =`modelfile`
-    :default: bool, 
-        Model parameters by default are saved into a dictionary. When default 
-        is ``True``, returns a tuple of pair (the model and its best parameters)
-        . If False return all values saved from `~.MultipleGridSearch`
-       
-    :modname: str 
-        Is the name of model to retrived from dumped file. If name is given 
-        get only the model and its best parameters. 
-    :verbose: int, level=0 
-        control the verbosity.More message if greater than 0.
-    
-    :returns:
-        - `model_class_params`: if default is ``True``
-        - `pickedfname`: model dumped and all parameters if default is `False`
-        
-    :Example: 
-        >>> from gofast.bases import fetch_model 
-        >>> my_model = fetch_model ('SVC__LinearSVC__LogisticRegression.pkl',
-                                    default =False,  modname='SVC')
-        >>> my_model
+    file: str,
+    path: Optional[str] = None,
+    default: bool = True,
+    name: Optional[str] = None,
+    verbose: int = 0
+) -> Union[Dict[str, Any], List[Tuple[Any, Dict[str, Any], Any]]]:
     """
+    Fetches a model saved using the Python pickle module or joblib module.
+
+    Parameters
+    ----------
+    file : str
+        The filename of the dumped model, saved using `joblib` or Python 
+        `pickle` module.
+    
+    path : str, optional
+        The directory path containing the model file. If None, `file` is assumed 
+        to be the full path to the file.
+
+    default : bool, optional
+        If True, returns a tuple (model, best parameters, best scores).
+        If False, returns all values saved in the file.
+
+    name : str, optional
+        The name of the specific model to retrieve from the file. If specified,
+        only the named model and its parameters are returned.
+
+    verbose : int, optional
+        Verbosity level. More messages are displayed for values greater than 0.
+
+    Returns
+    -------
+    Union[Dict[str, Any], List[Tuple[Any, Dict[str, Any], Any]]]
+    Depending on the default flag:
+        - If default is True, returns a list of tuples containing the model,
+        best parameters, and best scores for each model in the file.
+        - If default is False, returns the entire contents of the file,
+        which could include multiple models and their respective information.
+    
+    Raises
+    ------
+    FileNotFoundError
+        If the specified model file is not found.
+    
+    KeyError
+        If `name` is specified but not found in the loaded model file.
+    
+    Examples
+    --------
+    >>> model_info = fetch_model('model.pkl', path='/models', 
+                                 name='RandomForest', default=True)
+    >>> model, best_params, best_scores = model_info
+    """
+    full_path = os.path.join(path, file) if path else file
+
+    if not os.path.isfile(full_path):
+        raise FileNotFoundError(f"File {full_path!r} not found!")
+    
+    is_joblib = full_path.endswith('.pkl') or full_path.endswith('.joblib')
+    model_data = joblib.load(full_path) if is_joblib else pickle.load(open(full_path, 'rb'))
+    
+    if verbose:
+        lib_used = "joblib" if is_joblib else "pickle"
+        print(f"Model loaded from {full_path!r} using {lib_used}.")
+    
+    if name:
+        try:
+            model_info = model_data[name]
+            if default:
+                return (model_info['best_model'], model_info['best_params_'],
+                        model_info['best_scores'])
+            else:
+                return model_info
+        except KeyError:
+            available_models = list(model_data.keys())
+            raise KeyError(f"Model name '{name}' not found. Available models:"
+                           f" {available_models}")
+    
+    if default:
+        return [(info['best_model'], info['best_params_'], info['best_scores'])
+                for info in model_data.values()]
+    
+    return model_data
+
+def serialize_data(
+    data: Any,
+    filename: Optional[str] = None,
+    savepath: Optional[str] = None,
+    to: Optional[str] = None,
+    verbose: int = 0
+) -> str:
+    """
+    Serialize and save data to a binary file using either joblib or pickle.
+
+    Parameters
+    ----------
+    data : Any
+        The object to be serialized and saved.
+    filename : str, optional
+        The name of the file to save. If None, a name is generated automatically.
+    savepath : str, optional
+        The directory where the file should be saved. If it does not exist, 
+        it is created. If None, the current working directory is used.
+    to : str, optional
+        Specify the serialization method: 'joblib' or 'pickle'. 
+        If None, defaults to 'joblib'.
+    verbose : int, optional
+        Verbosity level. More messages are displayed for values greater than 0.
+
+    Returns
+    -------
+    str
+        The path to the saved file.
+
+    Raises
+    ------
+    ValueError
+        If 'to' is not 'joblib', 'pickle', or None.
+    TypeError
+        If 'to' is not a string.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> data = (np.array([0, 1, 3]), np.array([0.2, 4]))
+    >>> filename = serialize_data(data, filename='__XTyT.pkl', to='pickle', 
+                                  savepath='gofast/datasets')
+    """
+    if filename is None:
+        timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        filename = f"__mydumpedfile_{timestamp}.pkl"
+
+    if to:
+        if not isinstance(to, str):
+            raise TypeError(f"Serialization method 'to' must be a string, not {type(to)}.")
+        to = to.lower()
+        if to not in ('joblib', 'pickle'):
+            raise ValueError("Unknown serialization method 'to'. Must be"
+                             " 'joblib' or 'pickle'.")
+
+    if not filename.endswith('.pkl'):
+        filename += '.pkl'
+    
+    full_path = os.path.join(savepath, filename) if savepath else filename
+    
+    if savepath and not os.path.exists(savepath):
+        os.makedirs(savepath)
     
     try:
-        isdir =os.path.isdir( modelpath)
-    except TypeError: 
-        #stat: path should be string, bytes, os.PathLike or integer, not NoneType
-        isdir =False
-        
-    if isdir and modelfile is not None: 
-        modelfile = os.join.path(modelpath, modelfile)
-
-    isfile = os.path.isfile(modelfile)
-    if not isfile: 
-        raise FileNotFoundError (f"File {modelfile!r} not found!")
-        
-    from_joblib =False 
-    if modelfile.endswith('.pkl'): from_joblib  =True 
+        if to == 'pickle' or to is None:
+            with open(full_path, 'wb') as file:
+                pickle.dump(data, file, protocol=pickle.HIGHEST_PROTOCOL)
+            if verbose:
+                print(f"Data serialized using pickle and saved to {full_path!r}.")
+        elif to == 'joblib':
+            joblib.dump(data, full_path)
+            if verbose:
+                print(f"Data serialized using joblib and saved to {full_path!r}.")
+    except Exception as e:
+        raise IOError(f"An error occurred during data serialization: {e}")
     
-    if from_joblib:
-       if verbose: _logger.info(
-               f"Loading models `{os.path.basename(modelfile)}`")
-       try : 
-           pickedfname = joblib.load(modelfile)
-           # and later ....
-           # f'{pickfname}._loaded' = joblib.load(f'{pickfname}.pkl')
-           dmsg=f"Model {modelfile !r} retreived from~.externals.joblib`"
-       except : 
-           dmsg=''.join([f"Nothing to retrived. It's seems model {modelfile !r}", 
-                         " not really saved using ~external.joblib module! ", 
-                         "Please check your model filename."])
-    
-    if not from_joblib: 
-        if verbose: _logger.info(
-                f"Loading models `{os.path.basename(modelfile)}`")
-        try: 
-           # DeSerializing pickled data 
-           with open(modelfile, 'rb') as modf: 
-               pickedfname= pickle.load (modf)
-           if verbose: _logger.info(
-                   f"Model `{os.path.basename(modelfile)!r} deserialized"
-                         "  using Python pickle module.`!")
-           
-           dmsg=f'Model `{modelfile!r} deserizaled from  {modelfile}`!'
-        except: 
-            dmsg =''.join([" Unable to deserialized the "
-                           f"{os.path.basename(modelfile)!r}"])
-           
-        else: 
-            if verbose: _logger.info(dmsg)   
+    return full_path
 
-    if verbose > 0: 
-        pprint(
-            dmsg 
-            )
-           
-    if modname is not None: 
-        keymess = f"{modname!r} not found."
-        try : 
-            if default:
-                model_class_params  =( pickedfname[modname]['best_model'], 
-                                   pickedfname[modname]['best_params_'], 
-                                   pickedfname[modname]['best_scores'],
-                                   )
-            if not default: 
-                model_class_params=pickedfname[modname]
-                
-        except KeyError as key_error: 
-            warnings.warn(
-                f"Model name {modname!r} not found in the list of dumped"
-                f" models = {list(pickedfname.keys()) !r}")
-            raise KeyError from key_error(keymess + "Shoud try the model's"
-                                          f"names ={list(pickedfname.keys())!r}")
-        
-        if verbose: 
-            pprint('Should return a tuple of `best model` and the'
-                   ' `model best parameters.')
-           
-        return model_class_params  
-            
-    if default:
-        model_class_params =list()    
-        
-        for mm in pickedfname.keys(): 
-            model_class_params.append((pickedfname[mm]['best_model'], 
-                                      pickedfname[mm]['best_params_'],
-                                      pickedfname[modname]['best_scores']))
-    
-        if verbose: 
-               pprint('Should return a list of tuple pairs:`best model`and '
-                      ' `model best parameters.')
-               
-        return model_class_params
-
-    return pickedfname 
-
-def serialize_data (
-        data , 
-        filename=None, 
-        savepath =None, 
-        to=None, 
-        verbose=0,
-        ): 
-    """ Dump and save binary file 
-    
-    :param data: Object
-        Object to dump into a binary file. 
-    :param filename: str
-        Name of file to serialize. If 'None', should create automatically. 
-    :param savepath: str, PathLike object
-         Directory to save file. If not exists should automaticallycreate.
-    :param to: str 
-        Force your data to be written with specific module like ``joblib`` or 
-        Python ``pickle` module. Should be ``joblib`` or ``pypickle``.
-    :return: str
-        dumped or serialized filename.
-        
-    :Example:
-        
-        >>> import numpy as np
-        >>> from gofast.tools.mlutils import dumpOrSerializeData
-        >>>  data=(np.array([0, 1, 3]),np.array([0.2, 4]))
-        >>> dumpOrSerializeData(data, filename ='__XTyT.pkl', to='pickle', 
-                                savepath='gofast/datasets')
+def deserialize_data(filename: str, verbose: int = 0) -> Any:
     """
-    if filename is None: 
-        filename ='__mydumpedfile.{}__'.format(datetime.datetime.now())
-        filename =filename.replace(' ', '_').replace(':', '-')
+    Deserialize and load data from a serialized file using joblib or pickle.
 
-    if to is not None: 
-        if not isinstance(to, str): 
-            raise TypeError(f"Need to be string format not {type(to)}")
-        if to.lower().find('joblib')>=0: to ='joblib'
-        elif to.lower().find('pickle')>=0:to = 'pypickle'
-        
-        if to not in ('joblib', 'pypickle'): 
-            raise ValueError("Unknown argument `to={to}`."
-                             " Should be <joblib> or <pypickle>")
-    # remove extension if exists
-    if filename.endswith('.pkl'): 
-        filename = filename.replace('.pkl', '')
-        
-    if verbose: _logger.info(f'Dumping data to `{filename}`!')    
-    try : 
-        if to is None or to =='joblib':
-            joblib.dump(data, f'{filename}.pkl')
-            
-            filename +='.pkl'
-            _logger.info(f'Data dumped in `{filename} using '
-                          'to `~.externals.joblib`!')
-        elif to =='pypickle': 
-            # force to move pickling data  to exception and write using 
-            # Python pickle module
-            raise 
-    except : 
-        # Now try to pickle data Serializing data 
-        # Using HIGHEST_PROTOCOL is almost 2X faster and creates a file that
-        # is ~10% smaller.  Load times go down by a factor of about 3X.
-        with open(filename, 'wb') as wfile: 
-            pickle.dump( data, wfile, protocol=pickle.HIGHEST_PROTOCOL) 
-        if verbose: _logger.info( 'Data are well serialized ')
-        
-    if savepath is not None:
-        try : 
-            savepath = savepath_ (savepath)
-        except : 
-            savepath = savepath_ ('_dumpedData_')
+    Parameters
+    ----------
+    filename : str
+        The name or path of the file containing the serialized data.
+
+    verbose : int, optional
+        Verbosity level. More messages are displayed for values greater 
+        than 0.
+
+    Returns
+    -------
+    Any
+        The data loaded from the serialized file.
+
+    Raises
+    ------
+    TypeError
+        If 'filename' is not a string.
+
+    FileNotFoundError
+        If the specified file does not exist.
+
+    Examples
+    --------
+    >>> data = deserialize_data('path/to/serialized_data.pkl')
+    """
+
+    if not isinstance(filename, str):
+        raise TypeError("Expected 'filename' to be a string,"
+                        f" got {type(filename)} instead.")
+    
+    if not os.path.isfile(filename):
+        raise FileNotFoundError(f"File {filename!r} does not exist.")
+
+    try:
+        data = joblib.load(filename)
+        if verbose:
+            print(f"Data loaded successfully from {filename!r} using joblib.")
+    except Exception as joblib_error:
         try:
-            shutil.move(filename, savepath)
-        except :
-            print(f"--> It seems destination path {filename!r} already exists.")
+            with open(filename, 'rb') as file:
+                data = pickle.load(file)
+            if verbose:
+                print(f"Data loaded successfully from {filename!r} using pickle.")
+        except Exception as pickle_error:
+            raise IOError(f"Failed to load data from {filename!r}. "
+                          f"Joblib error: {joblib_error}, Pickle error: {pickle_error}")
+    if data is None:
+        raise ValueError(f"Data in {filename!r} could not be deserialized."
+                         " The file may be corrupted.")
 
-    if savepath is None:
-        savepath =os.getcwd()
-        
-    if verbose: 
-        print(f"Data {'serialization' if to=='pypickle' else 'dumping'}"
-          f" complete,  save to {savepath!r}")
-   
-def load_dumped_data (filename:str, verbose=0): 
-    """ Load dumped or serialized data from filename 
-    
-    :param filename: str or path-like object 
-        Name of dumped data file.
-    :return: 
-        Data loaded from dumped file.
-        
-    :Example:
-        
-        >>> from gofast.tools.mlutils import loadDumpedOrSerializedData
-        >>> loadDumpedOrSerializedData(filename ='Watex/datasets/__XTyT.pkl')
-    """
-    
-    if not isinstance(filename, str): 
-        raise TypeError(f'filename should be a <str> not <{type(filename)}>')
-        
-    if not os.path.isfile(filename): 
-        raise FileExistsError(f"File {filename!r} does not exist.")
+    return data
 
-    _filename = os.path.basename(filename)
-    if verbose: _logger.info(f"Loading data from `{_filename}`!")
-   
-    data =None 
-    try : 
-        data= joblib.load(filename)
-        if verbose: _logger.info(
-                ''.join([f"Data from {_filename !r} are sucessfully", 
-                      " loaded using ~.externals.joblib`!"]))
-    except : 
-        if verbose: 
-            _logger.info(
-            ''.join([f"Nothing to reload. It's seems data from {_filename!r}", 
-                      " are not really dumped using ~external.joblib module!"])
-            )
-        # Try DeSerializing using pickle module
-        with open(filename, 'rb') as tod: 
-            data= pickle.load (tod)
-            
-        if verbose: 
-            _logger.info(f"Data from `{_filename!r}` are well"
-                      " deserialized using Python pickle module!")
-        
-    is_none = data is None
-    if is_none: 
-        print("Unable to deserialize data. Please check your file.")
-
-    return data 
 
 def subprocess_module_installation (module, upgrade =True ): 
     """ Install  module using subprocess.
@@ -2223,7 +2584,7 @@ def export_target(
     >>> ar = np.random.randn ( 3,  3 )
     >>> df0 = pd.DataFrame ( ar, columns = ['x1', 'x2', 'tname'])
     >>> df= df0.copy() 
-    >>> get_target (df, 'tname', drop_target= False )
+    >>> get_target (df, 'tname', drop= False )
     (      tname
      0 -0.542861
      1  0.781198,
@@ -2239,7 +2600,7 @@ def export_target(
      1 -1.156182)
     >>> df = df0.copy() 
     >>> # when array is passed 
-    >>> get_target (df.values , '2', drop_target= False )
+    >>> get_target (df.values , '2', drop= False )
     (array([[-0.54286148],
             [ 0.7811981 ]]),
      array([[-1.42406091, -0.49331988, -0.54286148],
@@ -2344,6 +2705,150 @@ def naive_data_split(
         X, XT, y, yT= V
     
     return  X, XT, y, yT
+
+def soft_data_split(
+    X, y=None, *,
+    test_size=0.2,
+    target_column=None,
+    random_state=42,
+    extract_target=False,
+    **split_kwargs
+):
+    """
+    Splits data into training and test sets, optionally extracting a 
+    target column.
+
+    Parameters
+    ----------
+    X : array-like or DataFrame
+        Input data to split. If `extract_target` is True, a target column can be
+        extracted from `X`.
+    y : array-like, optional
+        Target variable array. If None and `extract_target` is False, `X` is
+        split without a target variable.
+    test_size : float, optional
+        Proportion of the dataset to include in the test split. Should be
+        between 0.0 and 1.0. Default is 0.2.
+    target_column : int or str, optional
+        Index or column name of the target variable in `X`. Used only if
+        `extract_target` is True.
+    random_state : int, optional
+        Controls the shuffling for reproducible output. Default is 42.
+    extract_target : bool, optional
+        If True, extracts the target variable from `X`. Default is False.
+    split_kwargs : dict, optional
+        Additional keyword arguments to pass to `train_test_split`.
+
+    Returns
+    -------
+    X_train, X_test, y_train, y_test : arrays
+        Split data arrays.
+
+    Raises
+    ------
+    ValueError
+        If `target_column` is not found in `X` when `extract_target` is True.
+
+    Example
+    -------
+    >>> from gofast.datasets import fetch_data
+    >>> data = fetch_data('Bagoue original')['data']
+    >>> X, XT, y, yT = split_data(data, extract_target=True, target_column='flow')
+    """
+
+    if extract_target:
+        if isinstance(X, pd.DataFrame) and target_column in X.columns:
+            y = X[target_column]
+            X = X.drop(columns=target_column)
+        elif hasattr(X, '__array__') and isinstance(target_column, int):
+            y = X[:, target_column]
+            X = np.delete(X, target_column, axis=1)
+        else:
+            raise ValueError(f"Target column {target_column!r} not found in X.")
+
+    if y is not None:
+        return train_test_split(X, y, test_size=test_size, 
+                                random_state=random_state, **split_kwargs)
+    else:
+        X_train, X_test = train_test_split(X, test_size=test_size,
+                                           random_state=random_state, 
+                                           **split_kwargs)
+        return X_train, X_test, None, None
+
+def load_saved_model(
+    file_path: str,
+    *,
+    retrieve_default: bool = True,
+    model_name: Optional[str] = None,
+    storage_format: Optional[str] = None,
+) -> Union[object, Tuple[object, Dict[str, Any]]]:
+    """
+    Load a saved model or data using Python's pickle or joblib module.
+
+    Parameters
+    ----------
+    file_path : str
+        The path to the saved model file. Supported formats are `.pkl` and `.joblib`.
+    retrieve_default : bool, default=True
+        If True, returns the model along with its best parameters. If False,
+        returns the entire contents of the saved file.
+    model_name : str, optional
+        The name of the specific model to retrieve from the saved file. If None,
+        the entire file content is returned.
+    storage_format : str, optional
+        The format used for saving the file. If None, the format is inferred
+        from the file extension. Supported formats are 'joblib' and 'pickle'.
+
+    Returns
+    -------
+    object or Tuple[object, Dict[str, Any]]
+        The loaded model or a tuple of the model and its parameters, depending
+        on the `retrieve_default` value.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the specified file does not exist.
+    KeyError
+        If the specified model name is not found in the file.
+    ValueError
+        If the storage format is not supported.
+
+    Example
+    -------
+    >>> from gofast.tools.mlutils import load_saved_model
+    >>> model, params = load_saved_model('path_to_file.pkl', model_name='SVC')
+    """
+
+    if not os.path.isfile(file_path):
+        raise FileNotFoundError(f"File {file_path!r} not found.")
+
+    # Infer storage format from file extension if not specified
+    storage_format = storage_format or os.path.splitext(
+        file_path)[-1].lower().lstrip('.')
+    if storage_format not in {"joblib", "pickle"}:
+        raise ValueError(f"Unsupported storage format {storage_format!r}."
+                         " Use 'joblib' or 'pickle'.")
+
+    # Load the saved file
+    if storage_format == 'joblib':
+        loaded_data = joblib.load(file_path)
+    elif storage_format == 'pickle':
+        with open(file_path, 'rb') as file:
+            loaded_data = pickle.load(file)
+
+    # If a specific model name is provided, extract it
+    if model_name:
+        if model_name not in loaded_data:
+            raise KeyError(f"Model {model_name!r} not found in the file."
+                           f" Available models: {list(loaded_data.keys())}")
+        if retrieve_default:
+            return ( loaded_data[model_name]['best_model'],
+                    loaded_data[model_name]['best_params_'])
+        else:
+            return loaded_data[model_name]
+
+    return loaded_data
 
 @deprecated ("Deprecated function. It should be removed soon in"
              " the next realease...")
@@ -3313,8 +3818,172 @@ def make_pipe(
         full_pipeline.fit_transform (X), y ) 
              ) if transform else full_pipeline
        
-  
+def build_data_preprocessor(
+    X, y=None, *,  
+    num_features=None, 
+    cat_features=None, 
+    custom_transformers=None,
+    label_encoding='LabelEncoder', 
+    scaler='StandardScaler', 
+    missing_values=np.nan, 
+    impute_strategy='median', 
+    feature_interaction=False,
+    dimension_reduction=None,
+    feature_selection=None,
+    balance_classes=False,
+    advanced_imputation=None,
+    verbose=False,
+    output_format='array',
+    transform=False,
+    **kwargs
+    ):
+    """
+    Create a preprocessing pipeline for data transformation and feature engineering.
+
+    This function constructs a pipeline to preprocess data for machine learning tasks, 
+    accommodating a variety of transformations including scaling, encoding, 
+    and dimensionality reduction. It supports both numerical and categorical data, 
+    and can incorporate custom transformations.
+
+    Parameters
+    ----------
+    X : DataFrame
+        Input features dataframe.
+    y : array-like, optional
+        Target variable. Required for supervised learning tasks.
+    num_features : list of str, optional
+        List of numerical feature names. If None, determined automatically.
+    cat_features : list of str, optional
+        List of categorical feature names. If None, determined automatically.
+    custom_transformers : list of tuples, optional
+        Custom transformers to be included in the pipeline. Each tuple should 
+        contain ('name', transformer_instance).
+    label_encoding : str or transformer, default 'LabelEncoder'
+        Encoder for the target variable. Accepts standard scikit-learn encoders 
+        or custom encoder objects.
+    scaler : str or transformer, default 'StandardScaler'
+        Scaler for numerical features. Accepts standard scikit-learn scalers 
+        or custom scaler objects.
+    missing_values : int, float, str, np.nan, None, default np.nan
+        Placeholder for missing values for imputation.
+    impute_strategy : str, default 'median'
+        Imputation strategy. Options: 'mean', 'median', 'most_frequent', 'constant'.
+    feature_interaction : bool, default False
+        If True, generate polynomial and interaction features.
+    dimension_reduction : str or transformer, optional
+        Dimensionality reduction technique. Accepts 'PCA', 't-SNE', or custom object.
+    feature_selection : str or transformer, optional
+        Feature selection method. Accepts 'SelectKBest', 'SelectFromModel', or custom object.
+    balance_classes : bool, default False
+        If True, balance classes in classification tasks.
+    advanced_imputation : transformer, optional
+        Advanced imputation technique like KNNImputer or IterativeImputer.
+    verbose : bool, default False
+        Enable verbose output.
+    output_format : str, default 'array'
+        Desired output format: 'array' or 'dataframe'.
+    transform : bool, default False
+        If True, apply the pipeline to the data immediately and return transformed data.
+
+    Returns
+    -------
+    full_pipeline : Pipeline or (X_transformed, y_transformed)
+        The constructed preprocessing pipeline, or transformed data if `transform` is True.
+
+    Examples
+    --------
+    >>> from gofast.tools.mlutils import build_data_preprocessor
+    >>> from gofast.datasets import load_hlogs
+    >>> X, y = load_hlogs(as_frame=True)
+    >>> pipeline = build_data_preprocessor(X, y, scaler='RobustScaler')
+    >>> X_transformed = pipeline.fit_transform(X)
+    
+    """
+    sc= {"StandardScaler": StandardScaler ,"MinMaxScaler": MinMaxScaler , 
+         "Normalizer":Normalizer , "RobustScaler":RobustScaler}
+    # assert scaler value 
+    if get_estimator_name (scaler) in sc.keys(): 
+        scaler = sc.get (get_estimator_name(scaler ))() 
         
+    # Define numerical and categorical pipelines
+    numerical_pipeline = Pipeline([
+        ('imputer', SimpleImputer(strategy=impute_strategy, missing_values=missing_values)),
+        ('scaler', StandardScaler() if scaler == 'StandardScaler' else scaler)
+    ])
+
+    categorical_pipeline = Pipeline([
+        ('imputer', SimpleImputer(strategy='most_frequent', missing_values=missing_values)),
+        ('encoder', OneHotEncoder() if label_encoding == 'LabelEncoder' else label_encoding)
+    ])
+
+    # Determine automatic feature selection if not provided
+    if num_features is None and cat_features is None:
+        num_features = make_column_selector(dtype_include=['int', 'float'])(X)
+        cat_features = make_column_selector(dtype_include='object')(X)
+
+    # Feature Union for numerical and categorical features
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', numerical_pipeline, num_features),
+            ('cat', categorical_pipeline, cat_features)
+        ])
+
+    # Add custom transformers if any
+    if custom_transformers:
+        for name, transformer in custom_transformers:
+            preprocessor.named_transformers_[name] = transformer
+
+    # Feature interaction, selection, and dimension reduction
+    steps = [('preprocessor', preprocessor)]
+    
+    if feature_interaction:
+        steps.append(('interaction', PolynomialFeatures()))
+    if feature_selection:
+        steps.append(('feature_selection', SelectKBest() 
+                      if feature_selection == 'SelectKBest' else feature_selection))
+    if dimension_reduction:
+        steps.append(('dim_reduction', PCA() if dimension_reduction == 'PCA' 
+                      else dimension_reduction))
+
+    # Final pipeline
+    pipeline = Pipeline(steps)
+
+   # Advanced imputation logic if required
+    if advanced_imputation:
+        from sklearn.experimental import enable_iterative_imputer
+        from sklearn.impute import IterativeImputer
+        if advanced_imputation == 'IterativeImputer':
+            steps.insert(0, ('advanced_imputer', IterativeImputer(
+                estimator=RandomForestClassifier(), random_state=42)))
+        else:
+            steps.insert(0, ('advanced_imputer', advanced_imputation))
+
+    # Final pipeline before class balancing
+    pipeline = Pipeline(steps)
+
+    # Class balancing logic if required
+    if balance_classes and y is not None:
+        if str(balance_classes).upper() == 'SMOTE':
+            msg =(" Missing 'imblearn'package. 'SMOTE` can't be used. Note that"
+                  " `imblearn` is the shorthand of the package 'imbalanced-learn'."
+                  " Use `pip install imbalanced-learn` instead.")
+            import_optional_dependency("imblearn", extra = msg )
+            #-----------------------------------------
+            from imblearn.over_sampling import SMOTE
+            #-----------------------------------------
+            # Note: SMOTE works on numerical data, so it's applied after initial pipeline
+            pipeline = Pipeline([('preprocessing', pipeline), (
+                'smote', SMOTE(random_state=42))])
+
+    # Transform data if transform flag is set
+    if transform:
+        if output_format == 'dataframe':
+            return pd.DataFrame(pipeline.fit_transform(X), columns=X.columns)
+        else:
+            return pipeline.fit_transform(X)
+
+    return pipeline
+ 
 def select_feature_importances (
     clf, 
     X, 

@@ -1,21 +1,36 @@
 """
-Utils sub-package offers several tools for data handling, parameters computation 
-models estimation and evalution, and graphs visualization. The extension of the 
-mathematical concepts, and the core of program are performed via the modules 
-:mod:`~gofast.utils.exmath`. Whereas the machine learning utilities and 
-additional functionalities are performed with :mod:`~gofast.utils.mlutils` and 
-:mod:`~gofast.utils.funcutils` respectively. 
+Tools sub-package offers several tools for data handling, parameters computation 
+models estimation and evalution. The extension of the mathematical concepts, 
+via the module :mod:`~gofast.tools.mathex`. Whereas the machine learning 
+utilities and additional functionalities are performed with
+ :mod:`~gofast.tools.mlutils` and :mod:`~gofast.tools.funcutils` respectively. 
 """
 
 from .baseutils import (
     audit_data, 
     read_data,
-    get_remote_data, 
+    sanitize, 
+    fetch_remote_data, 
     array2hdf5, 
     save_or_load, 
     request_data, 
     fancier_downloader,
-    speed_rowwise_process, 
+    speed_rowwise_process,
+    store_or_retrieve_data, 
+    enrich_data_spectrum, 
+    format_long_column_names, 
+    summarize_text_columns, 
+    simple_extractive_summary, 
+    handle_datasets_with_hdfstore, 
+    verify_data_integrity, 
+    handle_categorical_features, 
+    convert_date_features, 
+    scale_data, 
+    inspect_data, 
+    handle_outliers_in_data,
+    handle_missing_data, 
+    augment_data, 
+    assess_outlier_impact
     )
 from .mathex import ( 
     interpolate1d, 
@@ -29,7 +44,25 @@ from .mathex import (
     smoothing, 
     quality_control, 
     adaptive_moving_average, 
-    savgol_filter, 
+    savgol_filter,
+    linear_regression,
+    quadratic_regression,
+    exponential_regression,
+    logarithmic_regression,
+    sinusoidal_regression,
+    cubic_regression,
+    step_regression, 
+    standard_scaler, 
+    minmax_scaler, 
+    normalize, 
+    category_count, 
+    soft_bin_stat, 
+    binning_statistic, 
+    label_importance,
+    make_mxs, 
+    compute_effort_yield, 
+    compute_sunburst_data, 
+    infer_sankey_columns, 
     )
 from .funcutils import ( 
     reshape, 
@@ -45,7 +78,6 @@ from .funcutils import (
     random_sampling, 
     replace_data, 
     store_or_write_hdf5, 
-    inspect_data, 
     )
 
 from .mlutils import ( 
@@ -65,6 +97,8 @@ from .mlutils import (
     soft_scaler, 
     select_feature_importances, 
     make_pipe, 
+    build_data_preprocessor, 
+    load_saved_model, 
     bi_selector, 
     get_target, 
     export_target,  
@@ -77,20 +111,25 @@ from .mlutils import (
     discretize_categories, 
     stratify_categories, 
     serialize_data, 
-    load_dumped_data, 
-    naive_data_split, 
+    deserialize_data, 
+    soft_data_split, 
     laplace_smoothing, 
     features_in, 
+    laplace_smoothing_categorical, 
+    laplace_smoothing_word
     
     ) 
 __all__=[
     'audit_data', 
     'inspect_data', 
     'read_data',
+    'augment_data', 
+    'assess_outlier_impact', 
     'array2hdf5', 
+    'sanitize',
     'save_or_load', 
     'request_data', 
-    'get_remote_data', 
+    'fetch_remote_data', 
     'fancier_downloader',
     'savgol_filter', 
     'interpolate1d', 
@@ -124,6 +163,7 @@ __all__=[
     'soft_scaler', 
     'select_feature_importances', 
     'make_pipe', 
+    'build_data_preprocessor', 
     'bi_selector', 
     'get_target', 
     'export_target',  
@@ -136,12 +176,11 @@ __all__=[
     'discretize_categories', 
     'stratify_categories', 
     'serialize_data', 
-    'load_dumped_data', 
-    'naive_data_split', 
+    'deserialize_data', 
+    'soft_data_split', 
     'soft_imputer', 
     'soft_scaler', 
     'make_pipe',
-    'classify_k',
     'label_importance', 
     'remove_outliers', 
     'normalizer',
@@ -156,17 +195,46 @@ __all__=[
     'smoothing', 
     'pair_data', 
     'random_sampling', 
-    'plot_voronoi', 
-    'plot_roc_curves', 
     'replace_data', 
     'store_or_write_hdf5', 
     "resampling", 
     "bin_counting",
     "adaptive_moving_average", 
+    "load_saved_model", 
     "butterworth_filter",
-    "plot_l_curve", 
     "laplace_smoothing", 
-    "features_in"
+    "features_in", 
+    "linear_regression",
+    "quadratic_regression",
+    "exponential_regression",
+    "logarithmic_regression",
+    "sinusoidal_regression",
+    'enrich_data_spectrum', 
+    'format_long_column_names', 
+    'summarize_text_columns', 
+    'simple_extractive_summary', 
+    "cubic_regression",
+    "step_regression", 
+    "standard_scaler", 
+    "minmax_scaler", 
+    "normalize", 
+    "category_count", 
+    "soft_bin_stat", 
+    "binning_statistic",
+    "laplace_smoothing_categorical", 
+    "laplace_smoothing_word",
+    "store_or_retrieve_data", 
+    "handle_datasets_with_hdfstore", 
+    "verify_data_integrity", 
+    "handle_categorical_features", 
+    "convert_date_features", 
+    "scale_data", 
+    "handle_outliers_in_data",
+    "handle_missing_data", 
+    "make_mxs", 
+    "compute_effort_yield", 
+    "compute_sunburst_data", 
+    "infer_sankey_columns", 
     
     ]
 

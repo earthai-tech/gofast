@@ -20,6 +20,7 @@ import pickle
 import shutil
 import numbers 
 import inspect
+import random 
 import datetime  
 import warnings
 import itertools
@@ -34,19 +35,20 @@ import matplotlib.pyplot as plt
 
 from .._gofastlog import gofastlog
 from .._typing import ( 
+    _F,
+    _T,
+    _Sub,
     Tuple,
     Dict,
     Optional,
     Iterable,
     Any,
     ArrayLike,
-    _F,
-    _T,
     List ,
     DataFrame, 
-    _Sub,
     NDArray, 
     Text, 
+    Union
     )
 from ._dependency import import_optional_dependency
 _logger = gofastlog.get_gofast_logger(__name__)
@@ -80,7 +82,67 @@ except ImportError:
     
 # xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
+def format_to_datetime(data, date_col, verbose=0, **dt_kws):
+    """
+    Reformats a specified column in a DataFrame to Pandas datetime format.
+
+    This function attempts to convert the values in the specified column of a 
+    DataFrame to Pandas datetime objects. If the conversion is successful, 
+    the DataFrame with the updated column is returned. If the conversion fails, 
+    a message describing the error is printed, and the original 
+    DataFrame is returned.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame containing the column to be reformatted.
+    date_col : str
+        The name of the column to be converted to datetime format.
+    verbose : int, optional
+        Verbosity mode; 0 or 1. If 1, prints messages about the conversion 
+        process.Default is 0 (silent mode).
+    **dt_kws : dict, optional
+        Additional keyword arguments to pass to `pd.to_datetime` function.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame with the specified column in datetime format. If conversion
+        fails, the original DataFrame is returned.
+
+    Raises
+    ------
+    ValueError
+        If the specified column is not found in the DataFrame.
+
+    Examples
+    --------
+    >>> df = pd.DataFrame({
+    ...     'Date': ['2021-01-01', '01/02/2021', '03-Jan-2021', '2021.04.01',
+                     '05 May 2021'],
+    ...     'Value': [1, 2, 3, 4, 5]
+    ... })
+    >>> df = format_to_datetime(df, 'Date')
+    >>> print(df.dtypes)
+    Date     datetime64[ns]
+    Value             int64
+    dtype: object
+    """
+    if date_col not in data.columns:
+        raise ValueError(f"Column '{date_col}' not found in DataFrame.")
     
+    try:
+        data[date_col] = pd.to_datetime(data[date_col], **dt_kws)
+        if verbose: 
+            print(f"Column '{date_col}' successfully converted to datetime format.")
+    except Exception as e:
+        print(f"Error converting '{date_col}' to datetime format: {e}")
+        return data
+
+    return data
+
+
+
 def get_params (obj: object 
                 ) -> dict: 
     """
@@ -242,96 +304,93 @@ def fancy_printer(result, /, report_name='Data Quality Check Report'):
         else:
             print(f"--- No {key.replace('_', ' ').title()} Found ---\n")
 
-def to_numeric_dtypes (
-    arr: NDArray|DataFrame, *, 
-    columns: List[str, ...]=None, 
-    return_feature_types: bool=... , 
-    missing_values: float=np.nan, 
-    pop_cat_features: bool=..., 
-    sanitize_columns: bool=..., 
-    regex: re|str=None, 
-    fill_pattern: str='_', 
-    drop_nan_columns: bool=True, 
-    how: str='all', 
-    reset_index: bool=..., 
-    drop_index: bool=True, 
-    verbose: bool=...,
-    )-> DataFrame : 
-    """ Convert array to dataframe and coerce arguments to appropriate dtypes. 
+def to_numeric_dtypes(
+    arr: Union[NDArray, DataFrame], *, 
+    columns: Optional[List[str]] = None, 
+    return_feature_types: bool = ..., 
+    missing_values: float = np.nan, 
+    pop_cat_features: bool = ..., 
+    sanitize_columns: bool = ..., 
+    regex: Optional[re.Pattern] = None, 
+    fill_pattern: str = '_', 
+    drop_nan_columns: bool = True, 
+    how: str = 'all', 
+    reset_index: bool = ..., 
+    drop_index: bool = True, 
+    verbose: bool = ...
+) -> Union[DataFrame, Tuple[DataFrame, List[str], List[str]]]:
+    """
+    Converts an array to a DataFrame and coerces values to appropriate 
+    data types.
+
+    This function is designed to process data arrays or DataFrames, ensuring
+    numeric and categorical features are correctly identified and formatted. 
+    It provides options to manipulate the data, including column sanitization, 
+    handling of missing values, and dropping NaN-filled columns.
+
+    Parameters
+    ----------
+    arr : NDArray or DataFrame
+        The data to be processed, either as an array or a DataFrame.
     
-    Function includes additional tools to manipulate the transformed data 
-    such as: 
+    columns : list of str, optional
+        Column names for creating a DataFrame from an array. 
+        Length should match the number of columns in `arr`.
     
-    - `pop_cat_features` to remove the categorical attributes, 
-    - `sanitize_columns` to clean the columns of the dataframe by removing 
-      the undesirable characters, 
-    - `drop_nan_columns` to drop all the columns and/or rows that contains 
-      full NaN, ...
- 
-    Parameters 
-    -----------
-    arr: Ndarray or Dataframe, shape (m_samples, n_features)
-        Array of dataframe to create, to sanitize or to auto-detect
-        feature categories ( numerical or categorical).
-        
-    columns: list of str, optional 
-        Usefull to create a dataframe when array is given. Be aware to fit the 
-        number of array columns (shape[1])
-        
-    return_feature_types: bool, default=False, 
-        return the list of numerical and categorial features.
+    return_feature_types : bool, default=False
+        If True, returns a tuple with the DataFrame, numeric, and categorical 
+        features.
     
-    missing_values: float, default='NaN' 
-        Replace the missing or empty string if exist in the dataframe.
+    missing_values : float, default=np.nan
+        Value used to replace missing or empty strings in the DataFrame.
+    
+    pop_cat_features : bool, default=False
+        If True, removes categorical features from the DataFrame.
+    
+    sanitize_columns : bool, default=False
+        If True, cleans the DataFrame columns using the specified `regex` 
+        pattern.
+    
+    regex : re.Pattern or str, optional
+        Regular expression pattern for column sanitization. the default is:: 
         
-    pop_cat_features:bool, default=False, 
-        remove the categorial features  from the DataFrame.
-        
-    sanitize_columns: bool, default=False, 
-       remove undesirable character in the data columns using the default
-       argument of `regex` parameters. 
-       
-    regex: `re` object,
-        Regular expresion object used to polish the data columns.
-        the default is:: 
-            
         >>> import re 
         >>> re.compile (r'[_#&.)(*@!_,;\s-]\s*', flags=re.IGNORECASE)
-          
-       
-    fill_pattern: str, default='' 
-        Pattern to replace the non-alphabetic character in each item of 
-        columns.  
-        
-    drop_nan_columns: bool, default=True 
-       Remove all columns filled by NaN values. 
-
-    how: str, default='all'
-       Drop also the NaN row data. The row data which is composed entirely  
-       with NaN or Null values.
-       
-    reset_index: bool, default=False 
-       Reset the index of the dataframe. 
-
-    drop_index: bool, default=True, 
-       Drop index in the dataframe after reseting. 
-
-    verbose: bool, default=False, 
-        outputs a message by listing the categorial items dropped from 
-        the dataframe if exists. 
-        
-    Returns 
-    --------
-    df or (df, nf, cf): Dataframe of values casted to numeric types 
-        also return `nf` and `cf`  if `return_feature_types` is set
-        to``True``.
     
+    fill_pattern : str, default='_'
+        String pattern used to replace non-alphanumeric characters in 
+        column names.
+    
+    drop_nan_columns : bool, default=True
+        If True, drops columns filled entirely with NaN values.
+    
+    how : str, default='all'
+        Determines row dropping strategy based on NaN values.
+    
+    reset_index : bool, default=False
+        If True, resets the index of the DataFrame after processing.
+    
+    drop_index : bool, default=True
+        If True, drops the original index when resetting the DataFrame index.
+    
+    verbose : bool, default=False
+        If True, prints additional information during processing.
+
+    Returns
+    -------
+    DataFrame or tuple of DataFrame, List[str], List[str]
+        The processed DataFrame. If `return_feature_types` is True, returns a 
+        tuple with the DataFrame, list of numeric feature names (`nf`), 
+        and list of categorical feature names (`cf`).
+
     Examples
-    ---------
+    --------
     >>> from gofast.datasets.dload import load_bagoue
     >>> from gofast.tools.funcutils import to_numeric_dtypes
-    >>> X, y = load_bagoue (as_frame =True ) 
-    >>> X0 =X[['shape', 'power', 'magnitude']]
+    >>> X= load_bagoue(as_frame=True)
+    >>> X0 = X[['shape', 'power', 'magnitude']]
+    >>> df, nf, cf = to_numeric_dtypes(X0, return_feature_types=True)
+    >>> print(df.dtypes, nf, cf)
     >>> X0.dtypes 
     ... shape        object
         power        object
@@ -343,16 +402,20 @@ def to_numeric_dtypes (
         power        float64
         magnitude    float64
         dtype: object
-        
     """
+
     from .validator import _is_numeric_dtype
-    
     # pass ellipsis argument to False 
-    ( sanitize_columns, reset_index, verbose, return_feature_types, 
-     pop_cat_features ) = ellipsis2false(
-        sanitize_columns, reset_index, verbose, return_feature_types, 
-        pop_cat_features
-        )
+    ( sanitize_columns, reset_index, 
+     verbose,return_feature_types, 
+     pop_cat_features, 
+        ) = ellipsis2false(
+            sanitize_columns, 
+            reset_index, 
+            verbose,
+            return_feature_types, 
+            pop_cat_features
+    )
    
     if not is_iterable (arr, exclude_string=True): 
         raise TypeError(f"Expect array. Got {type (arr).__name__!r}")
@@ -423,7 +486,6 @@ def to_numeric_dtypes (
         return df 
     
     return (df, nf, cf) if return_feature_types else df 
-
 
 def listing_items_format ( 
         lst, /, begintext ='', endtext='' , bullet='-', 
@@ -611,11 +673,13 @@ def url_checker (url: str , install:bool = False,
     return isr 
 
     
-def shrunkformat (text: str | Iterable[Any] , 
-                  chunksize: int =7 , insert_at: str = None, 
-                  sep =None, 
-                 ) : 
-    """ format class and add ellipsis when classes are greater than maxview 
+def shrunkformat (
+    text: str | Iterable[Any], 
+    chunksize: int =7 ,
+    insert_at: str = None, 
+    sep =None, 
+    ) : 
+    """ Format class and add ellipsis when classes are greater than maxview 
     
     :param text: str - a text to shrunk and format. Can also be an iterable
         object. 
@@ -693,14 +757,13 @@ def shrunkformat (text: str | Iterable[Any] ,
                   flags=re.IGNORECASE 
                   ) 
     
-
 def is_installing (
-        module: str , 
-        upgrade: bool=True , 
-        action: bool=True, 
-        DEVNULL: bool=False,
-        verbose: int=0,
-        **subpkws
+    module: str , 
+    upgrade: bool=True , 
+    action: bool=True, 
+    DEVNULL: bool=False,
+    verbose: int=0,
+    **subpkws
     )-> bool: 
     """ Install or uninstall a module/package using the subprocess 
     under the hood.
@@ -4897,7 +4960,7 @@ def assert_ratio(
                            format(name.title(), msg.format(low, up), v  ))
     return v 
 
-def exist_features (df, features, error='raise'): 
+def exist_features (df, features, error='raise', name="Feature"): 
     """Control whether the features exist or not  
     
     :param df: a dataframe for features selections 
@@ -4920,7 +4983,7 @@ def exist_features (df, features, error='raise'):
     set_f =  set (features).intersection (set(df.columns))
     if len(set_f)!= len(features): 
         nfeat= len(features) 
-        msg = f"Feature{'s' if nfeat >1 else ''}"
+        msg = f"{name}{'s' if nfeat >1 else ''}"
         if len(set_f)==0:
             if error =='raise':
                 raise ValueError (f"{msg} {smart_format(features)} "
@@ -5783,8 +5846,7 @@ def key_checker (
     deep_search: bool, default=False 
        If deep-search, the key finder is no sensistive to lower/upper case 
        or whether a numeric data is included. 
-       
-       .. versionadded:: 0.2.5 
+ 
        
     Returns 
     --------
@@ -6445,7 +6507,6 @@ def numstr2dms (
     return tuple (map ( float, [deg, mm, sec]) ) if return_values \
         else ':'.join([deg, mm, sec]) 
 
-    
 def store_or_write_hdf5 (
     d, /, 
     key:str= None, 
@@ -6672,95 +6733,6 @@ def ellipsis2false( *parameters , default_value: Any=False ):
     """
     return tuple ( ( default_value  if param is  ... else param  
                     for param in parameters) )  
-   
-def inspect_data ( 
-    arr: NDArray|DataFrame, *, 
-    columns: List[str, ...]=None, 
-    missing_values: float=np.nan, 
-    sanitize_columns: bool=..., 
-    regex: re|str=None, 
-    fill_pattern: str='_', 
-    drop_nan_columns: bool=True, 
-    how: str='all', 
-    reset_index: bool=..., 
-    drop_index: bool=True, 
-    ): 
-    """ Verify the integrity of the data. 
-
-    Fonction tries to understand the data, convert as possible the numeric 
-    data if not converted yet and return correct numeric and categorical 
-    data. 
-   
-    This is useful because sometimes, data contain the numeric values while 
-    the values are not sanitize to get the numeric data types. 
-   
-    Parameters 
-    -----------
-    arr: Ndarray or Dataframe, shape (m_samples, n_features)
-        Array of dataframe to create, to sanitize or to auto-detect
-        feature categories ( numerical or categorical).
-        
-    columns: list of str, optional 
-        Usefull to create a dataframe when array is given. Be aware to fit the 
-        number of array columns (shape[1])
-        
-    missing_values: float, default='NaN' 
-        Replace the missing or empty string if exist in the dataframe.
-        
-    sanitize_columns: bool, default=False, 
-       remove undesirable character in the data columns using the default
-       argument of `regex` parameters. 
-       
-    regex: `re` object,
-        Regular expresion object used to polish the data columns.
-        the default is:: 
-            
-        >>> import re 
-        >>> re.compile (r'[_#&.)(*@!_,;\s-]\s*', flags=re.IGNORECASE)
-          
-    fill_pattern: str, default='' 
-        Pattern to replace the non-alphabetic character in each item of 
-        columns.  
-        
-    drop_nan_columns: bool, default=True 
-       Remove all columns filled by NaN values. 
-        
-    how: str, default='all'
-       Drop also the NaN row data. The row data which is composed entirely  
-       with NaN or Null values.
-       
-    reset_index: bool, default=False 
-       Reset the index of the dataframe. 
-       
-    drop_index: bool, default=True, 
-       Drop index in the dataframe after reseting. 
-             
-    Returns 
-    --------
-    df : Dataframe of values casted to numeric types 
-        also return `nf` and `cf`  if `return_feature_types` is set
-        to``True``.
-        
-    See Also 
-    ---------
-    gofast.tools.funcutils.to_numeric_dtypes: 
-        Inspect, pop or return categorical and numeric features. 
-        
-   
-    """
-   
-    return to_numeric_dtypes ( 
-        arr =arr, 
-        columns=columns, 
-        missing_values=missing_values,  
-        sanitize_columns=sanitize_columns, 
-        regex=regex, 
-        fill_pattern=fill_pattern, 
-        drop_nan_columns=drop_nan_columns, 
-        how=how, 
-        reset_index=reset_index, 
-        drop_index=drop_index,  
-        )
 
 def type_of_target(y):
     """
@@ -6811,7 +6783,7 @@ def type_of_target(y):
 
     return 'unknown'
 
-def add_noises_to(data, /, noises=.1):
+def add_noises_to(data, /, noise=.1, seed =None ):
     """
     Adds NaN values to a pandas DataFrame.
 
@@ -6819,10 +6791,13 @@ def add_noises_to(data, /, noises=.1):
     ----------
     dataframe : pandas.DataFrame
         The DataFrame to which NaN values will be added.
-    noises : float, default='10%'
+    noise : float, default='10%'
         The percentage of values to be replaced with NaN in each column. 
         This must be a number between 0 and 1. Default is 0.1 (10%).
-
+    seed: int, array-like, BitGenerator, np.random.RandomState, \
+        np.random.Generator, optional
+       If int, array-like, or BitGenerator, seed for random number generator. 
+       If np.random.RandomState or np.random.Generator, use as given.
     Returns
     -------
     pandas.DataFrame
@@ -6834,47 +6809,392 @@ def add_noises_to(data, /, noises=.1):
     >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': ['x', 'y', 'z']})
     >>> new_df = add_nan_to_dataframe(df, noises=0.2)
     """
-    if noises is None: 
+    random.seed (seed)
+    if noise is None: 
         return data 
-    noises = assert_ratio(noises)
+    noise = assert_ratio(noise)
     # Copy the dataframe to avoid changing the original data
     df_with_nan = data.copy()
 
     # Calculate the number of NaNs to add in each column 
     # based on the percentage
-    nan_count_per_column = int(noises * len(df_with_nan))
+    nan_count_per_column = int(noise * len(df_with_nan))
 
     for column in df_with_nan.columns:
         # Randomly pick indices to replace with NaN
-        nan_indices = np.random.sample(range(len(df_with_nan)),
-                                       nan_count_per_column)
+        nan_indices = random.sample(range(len(df_with_nan)),nan_count_per_column)
         df_with_nan.loc[nan_indices, column] = np.nan
 
     return df_with_nan
  
+def fancier_repr_formatter(obj, max_attrs=7):
+    """
+    Generates a formatted string representation for any class object.
+
+    Parameters:
+    ----------
+    obj : object
+        The object for which the string representation is generated.
+
+    max_attrs : int, optional
+        Maximum number of attributes to display in the representation.
+
+    Returns:
+    -------
+    str
+        A string representation of the object.
+
+    Examples:
+    --------
+    >>> from gofast.tools.funcutils import fancier_repr_formatter
+    >>> class MyClass:
+    >>>     def __init__(self, a, b, c):
+    >>>         self.a = a
+    >>>         self.b = b
+    >>>         self.c = c
+    >>> obj = MyClass(1, [1, 2, 3], 'hello')
+    >>> print(fancier_repr_formatter(obj))
+    MyClass(a=1, c='hello', ...)
+    """
+    attrs = [(name, getattr(obj, name)) for name in dir(obj)
+             if not name.startswith('_') and
+             (isinstance(getattr(obj, name), str) or
+              not hasattr(getattr(obj, name), '__iter__'))]
+
+    displayed_attrs = attrs[:min(len(attrs), max_attrs)]
+    attr_str = ', '.join([f'{name}={value!r}' for name, value in displayed_attrs])
+
+    # Add ellipsis if there are more attributes than max_attrs
+    if len(attrs) > max_attrs:
+        attr_str += ', ...'
+
+    return f'{obj.__class__.__name__}({attr_str})'
+
+def generic_getattr(obj, name, default_value=None):
+    """
+    A generic attribute accessor for any class instance.
+
+    This function attempts to retrieve an attribute from the given object.
+    If the attribute is not found, it provides a meaningful error message.
+
+    Parameters:
+    ----------
+    obj : object
+        The object from which to retrieve the attribute.
+
+    name : str
+        The name of the attribute to retrieve.
+
+    default_value : any, optional
+        A default value to return if the attribute is not found. If None,
+        an AttributeError will be raised.
+
+    Returns:
+    -------
+    any
+        The value of the retrieved attribute or the default value.
+
+    Raises:
+    ------
+    AttributeError
+        If the attribute is not found and no default value is provided.
+
+    Examples:
+    --------
+    >>> from gofast.tools.funcutils import generic_getattr
+    >>> class MyClass:
+    >>>     def __init__(self, a, b):
+    >>>         self.a = a
+    >>>         self.b = b
+    >>> obj = MyClass(1, 2)
+    >>> print(generic_getattr(obj, 'a'))  # Prints: 1
+    >>> print(generic_getattr(obj, 'c', 'default'))  # Prints: 'default'
+    """
+    if hasattr(obj, name):
+        return getattr(obj, name)
     
+    if default_value is not None:
+        return default_value
+
+    # Attempt to find a similar attribute name for a more informative error
+    similar_attr = _find_similar_attribute(obj, name)
+    suggestion = f". Did you mean '{similar_attr}'?" if similar_attr else ""
+
+    raise AttributeError(f"'{obj.__class__.__name__}' object has no "
+                         f"attribute '{name}'{suggestion}")
+
+def _find_similar_attribute(obj, name):
+    """
+    Attempts to find a similar attribute name in the object's dictionary.
+
+    Parameters
+    ----------
+    obj : object
+        The object whose attributes are being checked.
+    name : str
+        The name of the attribute to find a similar match for.
+
+    Returns
+    -------
+    str or None
+        A similar attribute name if found, otherwise None.
+    """
+    rv = smart_strobj_recognition(name, obj.__dict__, deep =True)
+    return rv 
+ 
+
+def validate_url(url: str) -> bool:
+    """
+    Check if the provided string is a valid URL.
+
+    Parameters
+    ----------
+    url : str
+        The string to be checked as a URL.
+
+    Raises
+    ------
+    ValueError
+        If the provided string is not a valid URL.
+
+    Returns
+    -------
+    bool
+        True if the URL is valid, False otherwise.
+
+    Examples
+    --------
+    >>> validate_url("https://www.example.com")
+    True
+    >>> validate_url("not_a_url")
+    ValueError: The provided string is not a valid URL.
+    """
+    from urllib.parse import urlparse
     
+    if is_module_installed("validators"): 
+        return validate_url_by_validators (url)
+    parsed_url = urlparse(url)
+    if not parsed_url.scheme or not parsed_url.netloc:
+        raise ValueError("The provided string is not a valid URL.")
+    return True
+
+def validate_url_by_validators(url: str):
+    """
+    Check if the provided string is a valid URL using `validators` packages
+
+    Parameters
+    ----------
+    url : str
+        The string to be checked as a URL.
+
+    Raises
+    ------
+    ValueError
+        If the provided string is not a valid URL.
+
+    Returns
+    -------
+    bool
+        True if the URL is valid, False otherwise.
+
+    Examples
+    --------
+    >>> validate_url("https://www.example.com")
+    True
+    >>> validate_url("not_a_url")
+    ValueError: The provided string is not a valid URL.
+    """
+    import validators
+    if not validators.url(url):
+        raise ValueError("The provided string is not a valid URL.")
+    return True
+
+def is_module_installed(module_name: str) -> bool:
+    """
+    Check if a Python module is installed.
+
+    Parameters
+    ----------
+    module_name : str
+        The name of the module to check.
+
+    Returns
+    -------
+    bool
+        True if the module is installed, False otherwise.
+
+    Examples
+    --------
+    >>> is_module_installed("numpy")
+    True
+    >>> is_module_installed("some_nonexistent_module")
+    False
+    """
+    import importlib.util
+    module_spec = importlib.util.find_spec(module_name)
+    return module_spec is not None
+
+def normalize_string(
+    input_str: str, 
+    target_strs: Optional[List[str]] = None, 
+    num_chars_check: Optional[int] = None, 
+    deep: bool = False, 
+    return_target_str: bool = False,
+    raise_exception: bool = False,
+    ignore_case: bool = True,
+    match_method: str = 'exact',
+    error_msg: str=None, 
+) -> Union[str, Tuple[str, Optional[str]]]:
+    """
+    Normalizes a string by applying various transformations and optionally checks 
+    against a list of target strings based on different matching methods.
+
+    Function normalizes a string by stripping leading/trailing whitespace, 
+    converting to lowercase,and optionally checks against a list of target  
+    strings. If specified, returns the target string that matches the 
+    conditions. Raise an exception if the string is not found.
     
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+    Parameters
+    ----------
+    input_str : str
+        The string to be normalized.
+    target_strs : List[str], optional
+        A list of target strings for comparison.
+    num_chars_check : int, optional
+        The number of characters at the start of the string to check 
+        against each target string.
+    deep : bool, optional
+        If True, performs a deep substring check within each target string.
+    return_target_str : bool, optional
+        If True and a target string matches, returns the matched target string 
+        along with the normalized string.
+    raise_exception : bool, optional
+        If True and the input string is not found in the target strings, 
+        raises an exception.
+    ignore_case : bool, optional
+        If True, ignores case in string comparisons. Default is True.
+    match_method : str, optional
+        The string matching method: 'exact', 'contains', or 'startswith'.
+        Default is 'exact'.
+    error_msg: str, optional, 
+       Message to raise if `raise_exception` is ``True``. 
+       
+    Returns
+    -------
+    Union[str, Tuple[str, Optional[str]]]
+        The normalized string. If return_target_str is True and a target 
+        string matches, returns a tuple of the normalized string and the 
+        matched target string.
+
+    Raises
+    ------
+    ValueError
+        If raise_exception is True and the input string is not found in 
+        the target strings.
+
+    Examples
+    --------
+    >>> normalize_string("Hello World", target_strs=["hello", "world"], ignore_case=True)
+    'hello world'
+    >>> normalize_string("Goodbye World", target_strs=["hello", "goodbye"], 
+                         num_chars_check=7, return_target_str=True)
+    ('goodbye world', 'goodbye')
+    >>> normalize_string("Hello Universe", target_strs=["hello", "world"],
+                         raise_exception=True)
+    ValueError: Input string not found in target strings.
+    """
+    normalized_str = input_str.lower() if ignore_case else input_str
+
+    if not target_strs:
+        return normalized_str
+    target_strs = is_iterable(target_strs, exclude_string=True, transform =True)
+    normalized_targets = [t.lower() for t in target_strs] if ignore_case else target_strs
+    matched_target = None
+
+    for target in normalized_targets:
+        if num_chars_check is not None:
+            condition = (normalized_str[:num_chars_check] == target[:num_chars_check])
+        elif deep:
+            condition = (normalized_str in target)
+        elif match_method == 'contains':
+            condition = (target in normalized_str)
+        elif match_method == 'startswith':
+            condition = normalized_str.startswith(target)
+        else:  # Exact match
+            condition = (normalized_str == target)
+
+        if condition:
+            matched_target = target
+            break
+
+    if matched_target is not None:
+        return (normalized_str, matched_target) if return_target_str else normalized_str
+
+    if raise_exception:
+        error_msg = error_msg or f"{input_str!r} not found in {target_strs}."
+        raise ValueError(error_msg)
+
+    return ('', None) if return_target_str else ''
+
+def format_and_print_dict(data_dict, front_space=4):
+    """
+    Formats and prints the contents of a dictionary in a structured way.
+
+    Each key-value pair in the dictionary is printed with the key followed by 
+    its associated values. 
+    The values are expected to be dictionaries themselves, allowing for a nested 
+    representation.
+    The inner dictionary's keys are sorted in descending order before printing.
+
+    Parameters
+    ----------
+    data_dict : dict
+        A dictionary where each key contains a dictionary of items to be printed. 
+        The key represents a category
+        or label, and the value is another dictionary where each key-value pair 
+        represents an option or description.
+        
+    front_space : int, optional
+        The number of spaces used for indentation in front of each line (default is 4).
+
+
+    Returns
+    -------
+    None
+        This function does not return any value. It prints the formatted contents 
+        of the provided dictionary.
+
+    Examples
+    --------
+    >>> sample_dict = {
+            'gender': {1: 'Male', 0: 'Female'},
+            'age': {1: '35-60', 0: '16-35', 2: '>60'}
+        }
+    >>> format_and_print_dict(sample_dict)
+    gender:
+        1: Male
+        0: Female
+    age:
+        2: >60
+        1: 35-60
+        0: 16-35
+    """
+    if not isinstance(data_dict, dict):
+        raise TypeError("The input data must be a dictionary.")
+
+    indent = ' ' * front_space
+    for label, options in data_dict.items():
+        print(f"{label}:")
+        options= is_iterable(options, exclude_string=True, transform=True )
+  
+        if isinstance(options, (tuple, list)):
+            for option in options:
+                print(f"{indent}{option}")
+        elif isinstance(options, dict):
+            for key in sorted(options.keys(), reverse=True):
+                print(f"{indent}{key}: {options[key]}")
+        print()  # Adds an empty line for better readability between categories
+
     
     
     

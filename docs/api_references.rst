@@ -20,7 +20,7 @@ Subpackages
 - **estimators**: Advanced machine learning estimators for both regression and classification tasks.
 - **geo**: Geospatial data handling and analysis functions, useful for geographic data processing.
 - **metrics**: Evaluation metrics and performance measures for assessing models.
-- **models**: Pre-built models and architectures for a variety of machine learning applications.
+- **models**: Optimize, pre-built models and architectures for a variety of machine learning applications.
 - **plot**: Visualization tools to create informative and interactive plots and charts.
 - **stats**: Statistical functions and tests to analyze data and derive meaningful insights.
 - **tools**: Utility functions and helpers that streamline common tasks and data manipulations.
@@ -56,7 +56,7 @@ classes, and functions within :code:`GoFast`.
    gofast.geo
    gofast.models
    gofast.metrics
-   gofast.utils
+   gofast.query
    gofast.tools
    gofast.transformers 
    gofast.plot 
@@ -132,11 +132,12 @@ data-centric tasks and workflows.
    :template: class.rst
    
    base.Data
+   base.FeatureProcessor
    base.FrameOperations
    base.MergeableSeries
    base.MergeableFrames
    base.Missing
-
+   base.TargetProcessor
 
 .. _datasets_ref:
 
@@ -163,21 +164,26 @@ expedite research and analysis.
    
    datasets.fetch_data
    datasets.load_bagoue
+   datasets.load_forensic 
    datasets.load_iris
    datasets.load_hlogs
    datasets.load_nlogs 
    datasets.load_mxs 
+   datasets.load_jrs_bet 
    datasets.make_sounding 
    datasets.make_african_demo_info 
    datasets.make_agronomy_feedback
    datasets.make_cc_factors
+   datasets.make_classification
    datasets.make_elogging 
    datasets.make_erp 
    datasets.make_ert 
    datasets.make_gadget_sales 
-   datasets.make_medical_diagnostic 
+   datasets.make_medical_diagnosis
    datasets.make_mining_ops
+   datasets.make_regression
    datasets.make_retail_store 
+   datasets.make_social_media_comments
    datasets.make_tem 
    datasets.make_water_demand
    datasets.make_well_logging 
@@ -213,32 +219,34 @@ Classes
    estimators.AdalineClassifier
    estimators.AdalineMixte
    estimators.AdalineRegressor
-   estimators.AdalineStochasticRegressor
    estimators.AdalineStochasticClassifier
+   estimators.AdalineStochasticRegressor
    estimators.BasePerceptron
    estimators.BenchmarkRegressor 
    estimators.BenchmarkClassifier 
    estimators.BoostedRegressionTree
    estimators.BoostedClassifierTree
+   estimators.DecisionStumpRegressor
    estimators.DecisionTreeBasedRegressor
    estimators.DecisionTreeBasedClassifier
    estimators.GradientDescentClassifier
    estimators.GradientDescentRegressor
+   estimators.KMFClassifier 
+   estimators.KMFRegressor
    estimators.HammersteinWienerClassifier
    estimators.HammersteinWienerRegressor
-   estimators.HBTEnsembleRegressor
    estimators.HBTEnsembleClassifier
+   estimators.HBTEnsembleRegressor
    estimators.HWEnsembleClassifier
    estimators.HWEnsembleRegressor
    estimators.HybridBoostedTreeClassifier
    estimators.HybridBoostedTreeRegressor
    estimators.MajorityVoteClassifier
    estimators.NeuroFuzzyEnsemble
-   estimators.SimpleAverageRegressor
    estimators.SimpleAverageClassifier
-   estimators.WeightedAverageRegressor
+   estimators.SimpleAverageRegressor
    estimators.WeightedAverageClassifier
-   
+   estimators.WeightedAverageRegressor
    
 :mod:`gofast.geo`: Geosciences
 ================================
@@ -257,7 +265,6 @@ In some cases, effective manipulation of geosciences datasets may require a soli
 and more. For more comprehensive geoscience capabilities, it is recommended to explore specialized libraries such as
 `watex <https://watex.readthedocs.io>`_ or others.
 
- 
 .. automodule:: gofast.geo
    :no-members:
    :no-inherited-members:
@@ -332,8 +339,17 @@ Classes
    :template: class.rst
 
    models.BaseEvaluation
-   models.GridSearch
-   models.GridSearchMultiple
+   models.CrossValidator
+   models.BaseSearch
+   models.SearchMultiple
+   models.MultipleSearch
+   models.PSOSearchCV
+   models.SMBOSearchCV
+   models.AnnealingSearchCV
+   models.EvolutionarySearchCV
+   models.GradientBasedSearchCV
+   models.GeneticSearchCV
+   
    
 Functions
 ~~~~~~~~~~~~
@@ -352,12 +368,35 @@ Functions
    models.naive_evaluation
    models.parallelize_estimators
    models.optimize_hyperparameters 
+   models.optimize_search 
+   models.optimize_search2
    models.shrink_covariance_cv_score
    models.base_tuning 
    models.robust_tuning 
    models.neural_tuning
    models.deep_tuning
-
+   models.find_best_C
+   models.calculate_aggregate_scores 
+   models.analyze_score_distribution 
+   models.estimate_confidence_interval 
+   models.rank_cv_scores
+   models.filter_scores
+   models.visualize_score_distribution 
+   models.performance_over_time 
+   models.calculate_custom_metric 
+   models.handle_missing_data 
+   models.export_cv_results 
+   models.comparative_analysis 
+   models.plot_parameter_importance 
+   models.plot_hyperparameter_heatmap 
+   models.plot_learning_curve 
+   models.plot_validation_curve 
+   models.plot_feature_importance
+   models.plot_roc_curve_per_fold 
+   models.plot_confidence_intervals 
+   models.plot_pairwise_model_comparison
+   models.plot_feature_correlation 
+   models.quick_evaluation 
 
 .. _metrics_ref:
 
@@ -437,15 +476,26 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.adaptive_moving_average
    tools.array2hdf5
    tools.audit_data
+   tools.augment_data
+   tools.assess_outlier_impact
    tools.bi_selector
    tools.bin_counting
+   tools.binning_statistic
+   tools.build_data_preprocessor
    tools.butterworth_filter
    tools.categorize_target
+   tools.category_count
    tools.cleaner
    tools.codify_variables
+   tools.compute_effort_yield
+   tools.compute_sunburst_data 
+   tools.convert_date_features
+   tools.cubic_regression
    tools.discretize_categories
+   tools.enrich_data_spectrum
    tools.evaluate_model
    tools.evaluate_model
+   tools.exponential_regression
    tools.export_target
    tools.fancier_downloader
    tools.features_in
@@ -458,6 +508,10 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.get_global_score
    tools.get_remote_data
    tools.get_target
+   tools.handle_categorical_features
+   tools.handle_missing_data
+   tools.handle_outliers_in_data
+   tools.infer_sankey_columns 
    tools.inspect_data
    tools.interpolate1d
    tools.interpolate2d
@@ -465,15 +519,21 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.label_importance
    tools.labels_validator
    tools.laplace_smoothing
+   tools.linear_regression
    tools.linkage_matrix
    tools.load_csv
    tools.load_dumped_data
+   tools.load_saved_model
+   tools.logarithmic_regression
+   tools.make_mxs
    tools.make_pipe
+   tools.minmax_scaler
    tools.moving_average
-   tools.naive_data_split
+   tools.normalize
    tools.normalizer
    tools.pair_data
    tools.projection_validator
+   tools.quadratic_regression
    tools.quality_control
    tools.random_sampling
    tools.random_selector
@@ -484,29 +544,37 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.request_data
    tools.resampling
    tools.reshape
+   tools.sanitize
    tools.save_or_load
    tools.save_job
    tools.savgol_filter
+   tools.scale_data
    tools.scale_y
    tools.select_feature_importances
    tools.select_features
    tools.serialize_data
+   tools.simple_extractive_summary
+   tools.sinusoidal_regression
    tools.smart_label_classifier
    tools.smooth1d
    tools.smoothing
+   tools.soft_bin_stats
+   tools.soft_data_split
    tools.soft_imputer
    tools.soft_scaler
+   tools.summarize_text_columns
    tools.speed_rowwise_process
    tools.split_train_test
-   tools.split_train_test
-   tools.split_train_test
    tools.split_train_test_by_id
+   tools.standard_scaler
    tools.stats_from_prediction
+   tools.step_regression
+   tools.store_data 
    tools.store_or_write_hdf5
    tools.stratify_categories
    tools.to_numeric_dtypes
-
-
+   tools.verify_data_integrity
+      
 .. _plot_ref:
 
 :mod:`gofast.plot`: Visualization 
@@ -527,16 +595,18 @@ data analysis and decision-making.
 Classes
 ~~~~~~~~~
 
-.. currentmodule:: watex
+.. currentmodule:: gofast
 
 
 .. autosummary::
    :toctree: generated/
    :template: class.rst
 
-   view.EasyPlotter
-   view.EvalPlotter
-   view.QuestPlotter
+   plot.EasyPlotter
+   plot.EvalPlotter
+   plot.MetricPlotter
+   plot.QuestPlotter
+   plot.TimeSeriesPlotter
 
 Methods
 ~~~~~~~~~~~~
@@ -605,11 +675,77 @@ optimization process.
    :toctree: generated/
    :template: function.rst
 
-    view.EvalPlotter.plotPCA
-	view.EvalPlotter.plotPR
-	view.EvalPlotter.plotROC
-	view.EvalPlotter.plotConfusionMatrix
-	
+    plot.EvalPlotter.plotPCA
+	plot.EvalPlotter.plotPR
+	plot.EvalPlotter.plotROC
+	plot.EvalPlotter.plotRobustPCA
+	plot.EvalPlotter.plotConfusionMatrix
+	plot.EvalPlotter.plotFeatureImportance
+	plot.EvalPlotter.plotHeatmap
+	plot.EvalPlotter.plotBox
+	plot.EvalPlotter.plotHistogram
+	plot.EvalPlotter.plot2d
+	plot.MetricPlotter.plotConfusionMatrix
+	plot.MetricPlotter.plotRocCurve
+	plot.MetricPlotter.plotPrecisionRecallCurve
+	plot.MetricPlotter.plotLearningCurve
+	plot.MetricPlotter.plotSilhouette
+	plot.MetricPlotter.plotLiftCurve
+	plot.MetricPlotter.plotCumulativeGain
+	plot.MetricPlotter.plotPrecisionRecallPerClass
+	plot.MetricPlotter.plotActualVSPredicted
+
+:mod:`~gofast.plot.ts`: TimeSeries Plots
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+"TimeSeries plots" are specialized visualizations for analyzing time-series data. 
+These plots provide valuable insights into the trends, patterns, and characteristics 
+of data that changes over time. They are essential tools in various fields such as 
+finance, meteorology, and signal processing, helping users to understand temporal 
+dynamics and make predictions based on historical data trends.
+
+.. automodule:: gofast.plot.ts
+   :no-members:
+   :no-inherited-members:
+
+**User guide:** See the :ref:`visualization <plot>` section for further details.
+
+.. currentmodule:: gofast
+
+.. autosummary::
+   :toctree: generated/
+   :template: function.rst
+
+    plot.TimeSeriesPlotter.heatmapCorrelation
+    plot.TimeSeriesPlotter.pieChart
+    plot.TimeSeriesPlotter.plotArea
+    plot.TimeSeriesPlotter.plotAutocorrelation
+    plot.TimeSeriesPlotter.plotBar
+    plot.TimeSeriesPlotter.plotBox
+    plot.TimeSeriesPlotter.plotBubble
+    plot.TimeSeriesPlotter.plotCumulativeDistribution
+    plot.TimeSeriesPlotter.plotCumulativeLine
+    plot.TimeSeriesPlotter.plotDecomposition
+    plot.TimeSeriesPlotter.plotDensity
+    plot.TimeSeriesPlotter.plotErrorbar
+    plot.TimeSeriesPlotter.plotHexbin
+    plot.TimeSeriesPlotter.plotHistogram
+    plot.TimeSeriesPlotter.plotkde
+    plot.TimeSeriesPlotter.plotLag
+    plot.TimeSeriesPlotter.plotLine
+    plot.TimeSeriesPlotter.plotpacf
+    plot.TimeSeriesPlotter.plotRadViz
+    plot.TimeSeriesPlotter.plotRollingMean
+    plot.TimeSeriesPlotter.plotScatter
+    plot.TimeSeriesPlotter.plotScatterWithTrendline
+    plot.TimeSeriesPlotter.plotStackedArea
+    plot.TimeSeriesPlotter.plotStackedBar
+    plot.TimeSeriesPlotter.plotStackedLine
+    plot.TimeSeriesPlotter.plotStep
+    plot.TimeSeriesPlotter.plotSunburst
+    plot.TimeSeriesPlotter.plotWaterfall
+    plot.TimeSeriesPlotter.radarChart
+
 Functions
 ~~~~~~~~~~~~
 
@@ -671,6 +807,16 @@ that aid in data exploration, analysis, and presentation.
    plot.utils.plot_confidence
    plot.utils.plot_confidence_ellipse
    plot.utils.plot_text
+   plot.utils.plot_cumulative_variance 
+   plot.utils.plot_shap_summary 
+   plot.utils.plot_custom_boxplot
+   plot.utils.plot_abc_curve
+   plot.utils.plot_permutation_importance
+   plot.utils.create_radar_chart
+   plot.utils.plot_r_squared
+   plot.utils.plot_cluster_comparison
+   plot.utils.plot_sunburst 
+   plot.utils.plot_sankey
 
 .. _stats_ref:
 
@@ -751,9 +897,13 @@ users to prepare their datasets for machine learning and analysis.
    :toctree: generated/
    :template: class.rst
 
+   transformers.AttributesCombinator
    transformers.SequentialBackwardSelection
    transformers.KMeansFeaturizer
-   transformers.StratifiedWithCategoryAdder
+   transformers.StratifyFromBaseFeature
+   transformers.BaseColumnSelector 
+   transformers.BaseCategoricalEncoder 
+   transformers.BaseFeatureScaler 
    transformers.CategoryBaseStratifier 
    transformers.CategorizeFeatures
    transformers.FrameUnion

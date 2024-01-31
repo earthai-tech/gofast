@@ -8,7 +8,7 @@ and transformation.
 from __future__ import division, annotations  
 
 import os
-import inspect
+# import inspect
 import itertools 
 import warnings 
 import numpy as np 
@@ -41,13 +41,14 @@ except : pass
 from ._gofastlog import gofastlog 
 from ._typing import _F 
 from .exceptions import EstimatorError, NotFittedError 
-from .tools.funcutils import _assert_all_types, parse_attrs, assert_ratio
+from .tools.funcutils import  parse_attrs, assert_ratio
 from .tools.funcutils import  ellipsis2false, to_numeric_dtypes, is_iterable
 from .tools.mlutils import discretize_categories, stratify_categories 
 from .tools.mlutils import existfeatures 
 from .tools._dependency import import_optional_dependency 
 from .tools.validator import  get_estimator_name, check_X_y, is_frame
-from .tools.validator import _is_arraylike_1d, build_data_if 
+from .tools.validator import _is_arraylike_1d, build_data_if, check_array 
+from .tools.validator import check_is_fitted  
 
 EMSG = (
         "`scikit-image` is needed"
@@ -61,11 +62,15 @@ _logger = gofastlog().get_gofast_logger(__name__)
 
 __all__= ['SequentialBackwardSelection',
           'KMeansFeaturizer',
-          'StratifiedWithCategoryAdder',
+          'AttributesCombinator', 
+          'StratifyFromBaseFeature',
           'CategoryBaseStratifier', 
           'CategorizeFeatures', 
           'FrameUnion', 
           'DataFrameSelector',
+          'BaseColumnSelector', 
+          'BaseCategoricalEncoder', 
+          'BaseFeatureScaler', 
           'CombinedAttributesAdder', 
           'FeaturizeX', 
           'TextFeatureExtractor', 
@@ -100,256 +105,291 @@ __all__= ['SequentialBackwardSelection',
           'ImageBatchLoader', 
           ]
 
-class SequentialBackwardSelection (BaseEstimator, TransformerMixin ):
-    r"""
-    Sequential Backward Selection (SBS) is a feature selection algorithm which 
-    aims to reduce dimensionality of the initial feature subspace with a 
-    minimum decay  in the performance of the classifier to improve upon 
-    computationan efficiency. In certains cases, SBS can even improve the 
-    predictive power of the model if a model suffers from overfitting. 
-    
-    The idea behind the SBS is simple: it sequentially removes features 
-    from the full feature subset until the new feature subspace contains the 
-    desired number of features. In order to determine which feature is to be 
-    removed at each stage, the criterion fonction :math:`J` is needed for 
-    minimization [1]_. 
-    Indeed, the criterion calculated from the criteria function can simply be 
-    the difference in performance of the classifier before and after the 
-    removal of this particular feature. Then, the feature to be remove at each 
-    stage can simply be the defined as the feature that maximizes this 
-    criterion; or in more simple terms, at each stage, the feature that causes 
-    the least performance is eliminated loss after removal. Based on the 
-    preceding definition of SBS, the algorithm can be outlibe with a few steps:
-        
-        - Initialize the algorithm with :math:`k=d`, where :math:`d` is the 
-            dimensionality of the full feature space, :math:`X_d`. 
-        - Determine the feature :math:`x^{-}`,that maximizes the criterion: 
-            :math:`x^{-}= argmax J(X_k-x)`, where :math:`x\in X_k`. 
-        - Remove the feature :math:`x^{-}` from the feature set 
-            :math:`X_{k+1}= X_k -x^{-}; k=k-1`.
-        -Terminate if :math:`k` equals to the number of desired features; 
-            otherwise go to the step 2. [2]_ 
-            
-    Parameters 
-    -----------
-    estimator: callable or instanciated object,
-        callable or instance object that has a fit method. 
-    k_features: int, default=1 
-        the number of features from where starting the selection. It must be 
-        less than the number of feature in the training set, otherwise it 
-        does not make sense. 
-    scoring: callable or str , default='accuracy'
-        metric for scoring. availabe metric are 'precision', 'recall', 
-        'roc_auc' or 'accuracy'. Any other metric with raise an errors. 
-    test_size : float or int, default=None
-        If float, should be between 0.0 and 1.0 and represent the proportion
-        of the dataset to include in the test split. If int, represents the
-        absolute number of test samples. If None, the value is set to the
-        complement of the train size. If ``train_size`` is also None, it will
-        be set to 0.25. 
-        
-    random_state : int, RandomState instance or None, default=None
-        Controls the shuffling applied to the data before applying the split.
-        Pass an int for reproducible output across multiple function calls.
 
-    References 
-    -----------
-    .. [1] Raschka, S., Mirjalili, V., 2019. Python Machine Learning, 3rd ed. Packt.
-    .. [2] Ferri _F., Pudil _F., Hatef M., and Kittler J., Comparative study of 
-        the techniques for Large-scale feature selection, pages 403-413, 1994.
+class SequentialBackwardSelection(BaseEstimator, TransformerMixin):
+    r"""
+    Sequential Backward Selection (SBS)
     
-    Attributes 
-    -----------
-    feature_names_in_ : ndarray of shape (`n_features_in_`,)
-        Names of features seen during :term:`fit`. Defined only when `X`
-        has feature names that are all strings.
-        
-    indices_: tuple of dimensionnality X
-        Collect the indices of subset of the best validated models 
-        
-    subsets_: list, 
-        list of `indices_` 
-        
-    scores_: list, 
-        Collection of the scores of the best model got during the
-        cross-validating 
-        
-    k_score_: float, 
-        The score of the desired feature. 
-        
+    SBS is a feature selection algorithm aimed at reducing the dimensionality
+    of the initial feature subspace with minimal performance decay in the
+    classifier, thereby enhancing computational efficiency. In certain cases,
+    SBS can even improve the predictive power of a model, particularly in
+    scenarios of overfitting.
+    
+    The core concept of SBS is to sequentially remove features from the full
+    feature subset until the remaining feature subspace contains the desired
+    number of features. To determine which feature to remove at each stage,
+    a criterion function :math:`J` is minimized [1]_. Essentially, the criterion
+    is the difference in classifier performance before and after removing a
+    particular feature. The feature removed at each stage is the one that
+    maximizes this criterion, meaning it has the least impact on performance
+    when removed. The SBS algorithm can be outlined in the following steps:
+    
+        - Initialize with :math:`k=d`, where :math:`d` is the dimensionality
+          of the full feature space, :math:`X_d`.
+        - Identify the feature :math:`x^{-}` that maximizes the criterion:
+          :math:`x^{-} = argmax J(X_k - x)`, where :math:`x \in X_k`.
+        - Remove the feature :math:`x^{-}` from the set, updating
+          :math:`X_{k+1} = X_k - x^{-}; k = k - 1`.
+        - Terminate if :math:`k` equals the desired number of features;
+          otherwise, repeat from step 2. [2]_
+    
+    Parameters
+    ----------
+    estimator : callable or instantiated object
+        A callable or an instance of a classifier/regressor with a `fit` method.
+    k_features : int, default=1
+        The starting number of features for selection. Must be less than the
+        total number of features in the training set.
+    scoring : callable or str, default='accuracy'
+        Metric for scoring. Available metrics are 'precision', 'recall',
+        'roc_auc', or 'accuracy'. Other metrics will raise an error.
+    test_size : float or int, default=None
+        If float, represents the proportion of the dataset for the test split.
+        If int, represents the absolute number of test samples. Defaults to the
+        complement of the train size if None. If `train_size` is also None, it
+        defaults to 0.25.
+    random_state : int, RandomState instance, or None, default=None
+        Controls the shuffling applied to the data before the split.
+        An integer value ensures reproducible results across multiple function calls.
+    
+    References
+    ----------
+    [1] Raschka, S., Mirjalili, V., Python Machine Learning, 3rd ed., Packt, 2019.
+    [2] Ferri F., Pudil P., Hatef M., Kittler J., Comparative study of
+        techniques for large-scale feature selection, pages 403-413, 1994.
+    
+    Attributes
+    ----------
+    feature_names_ : ndarray of shape (n_features_in,)
+        This attribute stores the names of the features that the model has been 
+        trained on. It is particularly useful for understanding which features 
+        were present in the input dataset `X` during the `fit` method call. This 
+        attribute is only defined if the input `X` has string type feature names.
+
+    selected_indices_ : tuple
+        Contains the indices of the features in the final selected subset after 
+        the model fitting process. These indices correspond to the features in 
+        `feature_names_` that the algorithm has identified as the most 
+        significant or relevant for the model.
+
+    feature_subsets_ : list of tuples
+        A list where each tuple represents a subset of features selected at each 
+        step of the Sequential Backward Selection process. It tracks the 
+        evolution of feature selection over the course of the algorithm's 
+        execution, showing the progressive elimination of features.
+
+    model_scores_ : list of floats
+        This list contains the scores of the model corresponding to each of the 
+        feature subsets stored in `feature_subsets_`. The scores are calculated 
+        during the cross-validation process within the algorithm. They provide 
+        insight into the performance of the model as different features are 
+        removed.
+
+    optimal_score_ : float
+        Represents the highest score achieved by the model using the feature 
+        subset specified by the `k_features` parameter. It signifies the 
+        performance of the model with the optimally selected features, giving 
+        an idea of how well the model can perform after the feature selection 
+        process.
+
     Examples
     --------
-    >>> from gofast.exlib.sklearn import KNeighborsClassifier , train_test_split
+    >>> from sklearn.neighbors import KNeighborsClassifier
+    >>> from sklearn.model_selection import train_test_split
     >>> from gofast.datasets import fetch_data
     >>> from gofast.base import SequentialBackwardSelection
     >>> X, y = fetch_data('bagoue analysed') # data already standardized
-    >>> Xtrain, Xt, ytrain,  yt = train_test_split(X, y)
+    >>> X_train, X_test, y_train, y_test = train_test_split(X, y)
     >>> knn = KNeighborsClassifier(n_neighbors=5)
-    >>> sbs= SequentialBackwardSelection (knn)
-    >>> sbs.fit(Xtrain, ytrain )
-
+    >>> sbs = SequentialBackwardSelection(knn)
+    >>> sbs.fit(X_train, y_train)
     """
-    _scorers = dict (accuracy = accuracy_score , recall = recall_score , 
-                   precision = precision_score, roc_auc= roc_auc_score 
-                   )
-    def __init__ (self, estimator=None , k_features=1 , 
-                  scoring ='accuracy', test_size = .25 , 
-                  random_state = 42 ): 
-        self.estimator=estimator 
-        self.k_features=k_features 
-        self.scoring=scoring 
-        self.test_size=test_size
-        self.random_state=random_state 
-        
-    def fit(self, X, y) :
-        """  Fit the training data 
-        
-        Note that SBS splits the datasets into a test and training insite the 
-        fit function. :math:`X` is still fed to the algorithm. Indeed, SBS 
-        will then create a new training subsets for testing (validation) and 
-        training , which is why this test set is also called the validation 
-        dataset. This approach is necessary to prevent our original test set 
-        to becoming part of the training data. 
-        
-        Parameters 
-        ----------
-        X:  Ndarray ( M x N matrix where ``M=m-samples``, & ``N=n-features``)
-            Training set; Denotes data that is observed at training and 
-            prediction time, used as independent variables in learning. 
-            When a matrix, each sample may be represented by a feature vector, 
-            or a vector of precomputed (dis)similarity with each training 
-            sample. :code:`X` may also not be a matrix, and may require a 
-            feature extractor or a pairwise metric to turn it into one  before 
-            learning a model.
-        y: array-like, shape (M, ) ``M=m-samples``, 
-            train target; Denotes data that may be observed at training time 
-            as the dependent variable in learning, but which is unavailable 
-            at prediction time, and is usually the target of prediction. 
-        
-        Returns 
-        --------
-        self: `SequentialBackwardSelection` instance 
-            returns ``self`` for easy method chaining.
-        
-        """
-        X, y = check_X_y(
-            X, 
-            y, 
-            estimator = get_estimator_name(self ), 
-            to_frame= True, 
-            )
-        
-        self._check_sbs_args(X)
-        
-        if hasattr(X, 'columns'): 
-            self.feature_names_in = list(X.columns )
-            X = X.values 
-            
-        Xtr, Xt,  ytr, yt = train_test_split(X, y , test_size=self.test_size, 
-                                            random_state=self.random_state 
-                                            )
-        dim = Xtr.shape [1] 
-        self.indices_= tuple (range (dim))
-        self.subsets_= [self.indices_]
-        score = self._compute_score(Xtr, Xt,  ytr, yt, self.indices_)
-        self.scores_=[score]
-        # compute the score for p indices in 
-        # list indices in dimensions 
-        while dim > self.k_features: 
-            scores , subsets = [], []
-            for p in itertools.combinations(self.indices_, r=dim-1):
-                score = self._compute_score(Xtr, Xt,  ytr, yt, p)
-                scores.append (score) 
-                subsets.append (p)
-            
-            best = np.argmax (scores) 
-            self.indices_= subsets [best]
-            self.subsets_.append(self.indices_)
-            dim -=1 # go back for -1 
-            
-            self.scores_.append (scores[best])
-            
-        # set  the k_feature score 
-        self.k_score_= self.scores_[-1]
-        
-        return self 
-        
-    def transform (self, X): 
-        """ Transform the training set 
-        
-        Parameters 
-        ----------
-        X:  Ndarray ( M x N matrix where ``M=m-samples``, & ``N=n-features``)
-            Training set; Denotes data that is observed at training and 
-            prediction time, used as independent variables in learning. 
-            When a matrix, each sample may be represented by a feature vector, 
-            or a vector of precomputed (dis)similarity with each training 
-            sample. :code:`X` may also not be a matrix, and may require a 
-            feature extractor or a pairwise metric to turn it into one  before 
-            learning a model.
-        Returns 
-        -------
-        X:  Ndarray ( M x N matrix where ``M=m-samples``, & ``N=n-features``)
-            New transformed training set with selected features columns 
-        
-        """
-        if not hasattr (self, 'indices_'): 
-            raise NotFittedError(
-                "Can't call transform with estimator not fitted yet."
-                " Fit estimator by calling the 'fit' method with appropriate"
-                " arguments.")
-        return X[:, self.indices_]
-    
-    def _compute_score (self, Xtr, Xt,  ytr, yt, indices):
-        """ Compute score from splitting `X` and indices """
-        self.estimator.fit(Xtr[:, indices], ytr)
-        y_pred = self.estimator.predict (Xt [:, indices])
-        score = self.scoring (yt, y_pred)
-        
-        return score 
 
-    def _check_sbs_args (self, X): 
-        """ Assert SBS main arguments  """
+    _scorers = {
+        'accuracy': accuracy_score,
+        'recall': recall_score,
+        'precision': precision_score,
+        'roc_auc': roc_auc_score
+    }
+
+    def __init__(
+        self, 
+        estimator=None, 
+        k_features=1, scoring='accuracy', 
+        test_size=0.25, 
+        random_state=42
+        ):
+        self.estimator = estimator
+        self.k_features = k_features
+        self.scoring = scoring
+        self.test_size = test_size
+        self.random_state = random_state
+
+    def fit(self, X, y):
+        """
+        Fit the Sequential Backward Selection (SBS) model to the training data.
+
+        This method involves splitting the dataset into training and validation 
+        subsets within the fit function itself. The SBS algorithm uses this 
+        internal validation set, distinct from any external test set, to 
+        evaluate feature importance and make selection decisions. 
+        This approach ensures that the original test set remains untouched 
+        and is not used inadvertently during the training process.
+
+        Parameters
+        ----------
+        X : ndarray of shape (n_samples, n_features)
+            Training data, where each sample is represented as a feature vector. 
+            `X` can be a matrix of features, or it might require preprocessing  
+            (e.g., using a feature extractor or a pairwise metric) before being 
+            used. n_samples is the number of samples, and n_features is the  
+            number of features.
+        y : array-like of shape (n_samples,)
+            Target values corresponding to the training data. These are the 
+            dependent variables that the model is trained to predict.
+
+        Returns
+        -------
+        self : object
+            The fitted `SequentialBackwardSelection` instance, allowing for 
+            method chaining.
+        """
+        X, y = check_X_y(X, y, estimator=self, multi_output=True, to_frame=True)
+        self._validate_params(X)
         
-        if not hasattr(self.estimator, 'fit'): 
-            raise TypeError ("Estimator must have a 'fit' method.")
-        try : 
-            self.k_features = int (self.k_features)
-        except  Exception as err: 
-            raise TypeError ("Expect an integer for number of feature k,"
-                             f" got {type(self.k_features).__name__!r}"
-                             ) from err
-        if self.k_features > X.shape [1] :
-            raise ValueError ("Too many number of features."
-                              f" Expect max-features={X.shape[1]}")
-        if  ( 
-            callable(self.scoring) 
-            or inspect.isfunction ( self.scoring )
-            ): 
-            self.scoring = self.scoring.__name__.replace ('_score', '')
+        if hasattr(X, 'columns'):
+            self.feature_names_in_ = list(X.columns)
+            X = X.values
         
-        if self.scoring not in self._scorers.keys(): 
-            raise ValueError (
-                f"Accept only scorers {list (self._scorers.keys())}"
-                f"for scoring, not {self.scoring!r}")
-            
-        self.scoring = self._scorers[self.scoring] 
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=self.test_size, random_state=self.random_state)
+
+        self.indices_ = tuple(range(X_train.shape[1]))
+        self.subsets_ = [self.indices_]
+        self.scores_ = [self._compute_score(X_train, X_test, y_train, y_test, self.indices_)]
+
+        while len(self.indices_) > self.k_features:
+            scores, subsets = [], []
+            for subset in itertools.combinations(self.indices_, r=len(self.indices_)-1):
+                score = self._compute_score(X_train, X_test, y_train, y_test, subset)
+                scores.append(score)
+                subsets.append(subset)
+
+            best_score_index = np.argmax(scores)
+            self.indices_ = subsets[best_score_index]
+            self.subsets_.append(self.indices_)
+            self.scores_.append(scores[best_score_index])
+
+        self.k_score_ = self.scores_[-1]
+        return self
+
+    def transform(self, X):
+        """
+        Reduce the feature set to the selected features.
+
+        After fitting the model, this method can be used to transform 
+        the dataset to contain only the selected features.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        X_reduced : array-like of shape (n_samples, k_features)
+            The data set with only the selected features.
+        """
+        if not hasattr(self, 'indices_'):
+            raise NotFittedError("SequentialBackwardSelection instance is not"
+                                 " fitted yet. Fit estimator by calling the "
+                                 "'fit' method with appropriate  arguments.")
         
-        self.scorer_name_ = self.scoring.__name__.replace (
-            '_score', '').title ()
+        return X[:, self.indices_]
+
+    def _compute_score(self, X_train, X_test, y_train, y_test, indices):
+        """
+        Compute the score of a subset of features.
+
+        Internally used to evaluate the performance of the model on a given
+        subset of features.
+
+        Parameters
+        ----------
+        X_train : array-like of shape (n_samples, n_features)
+            The training input samples.
+        X_test : array-like of shape (n_samples, n_features)
+            The testing input samples.
+        y_train : array-like of shape (n_samples,)
+            The training target values.
+        y_test : array-like of shape (n_samples,)
+            The testing target values.
+        indices : array-like of shape (n_features,)
+            The indices of the features to be used.
+
+        Returns
+        -------
+        score : float
+            The score of the estimator on the provided feature subset.
+        """
+        self.estimator.fit(X_train[:, indices], y_train)
+        y_pred = self.estimator.predict(X_test[:, indices])
+        return self._scorers[self.scoring](y_test, y_pred)
+
+    def _validate_params(self, X):
+        """
+        Validate the parameters of the estimator.
+
+        This method checks the compatibility of the parameters with the input data
+        and raises appropriate errors if invalid parameters are detected.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The training input samples used for validation.
+
+        Raises
+        ------
+        TypeError
+            If the estimator does not have a 'fit' method.
+        ValueError
+            If `k_features` is greater than the number of features in X.
+        """
+        if not hasattr(self.estimator, 'fit'):
+            raise TypeError("Estimator must have a 'fit' method.")
         
-    def __repr__(self): 
-        """ Represent the  Sequential Backward Selection class """
-        get_params = self.get_params()  
-        get_params.pop('scoring')
-        if hasattr (self, 'scorer_name_'): 
-            get_params ['scoring'] =self.scorer_name_ 
+        self.k_features = int(self.k_features)
+        if self.k_features > X.shape[1]:
+            raise ValueError(f"k_features must be <= number of features in X ({X.shape[1]}).")
+
+        if callable(self.scoring) or hasattr(self.scoring, '__call__'):
+            self.scoring = self.scoring.__name__.replace('_score', '')
         
-        tup = tuple (f"{key}={val}".replace ("'", '') for key, val in 
-                     get_params.items() )
-        
-        return self.__class__.__name__ + str(tup).replace("'", "") 
-    
+        if self.scoring not in self._scorers:
+            valid_scorers = ", ".join(self._scorers.keys())
+            raise ValueError(f"Invalid scoring method. Valid options are: {valid_scorers}")
+
+        self.scoring = self._scorers[self.scoring]
+
+    def __repr__(self):
+        """
+        Provide a string representation of the SequentialBackwardSelection 
+        instance.
+
+        This method is useful for debugging and provides an easy-to-read summary
+        of the configuration of the SequentialBackwardSelection instance.
+
+        Returns
+        -------
+        representation : str
+            The string representation of the instance.
+        """
+        class_name = self.__class__.__name__
+        params = self.get_params()
+        params_str = ", ".join(f"{key}={value!r}" for key, value in params.items())
+        return f"{class_name}({params_str})"
+
 class KMeansFeaturizer(BaseEstimator, TransformerMixin):
     """Transforms numeric data into k-means cluster memberships.
      
@@ -367,9 +407,77 @@ class KMeansFeaturizer(BaseEstimator, TransformerMixin):
     n_components: int, optional
        Number of components for reducted down the predictor. It uses the PCA 
        to reduce down dimension to the importance components. 
+    init : {'k-means++', 'random'}, callable or array-like of shape \
+            (n_clusters, n_features), default='k-means++'
+        Method for initialization:
 
-    random_state: int, Optional 
-       State for shuffling the data 
+        'k-means++' : selects initial cluster centroids using sampling based on
+        an empirical probability distribution of the points' contribution to the
+        overall inertia. This technique speeds up convergence. The algorithm
+        implemented is "greedy k-means++". It differs from the vanilla k-means++
+        by making several trials at each sampling step and choosing the best centroid
+        among them.
+
+        'random': choose `n_clusters` observations (rows) at random from data
+        for the initial centroids.
+
+        If an array is passed, it should be of shape (n_clusters, n_features)
+        and gives the initial centers.
+
+        If a callable is passed, it should take arguments X, n_clusters and a
+        random state and return an initialization.
+
+    n_init : 'auto' or int, default=10
+        Number of times the k-means algorithm is run with different centroid
+        seeds. The final results is the best output of `n_init` consecutive runs
+        in terms of inertia. Several runs are recommended for sparse
+        high-dimensional problems (see :ref:`kmeans_sparse_high_dim`).
+
+        When `n_init='auto'`, the number of runs will be 10 if using
+        `init='random'`, and 1 if using `init='kmeans++'`.
+
+    max_iter : int, default=300
+        Maximum number of iterations of the k-means algorithm for a
+        single run.
+
+    tol : float, default=1e-4
+        Relative tolerance with regards to Frobenius norm of the difference
+        in the cluster centers of two consecutive iterations to declare
+        convergence.
+
+    verbose : int, default=0
+        Verbosity mode.
+
+    random_state : int, RandomState instance or None, default=None
+        Determines random number generation for centroid initialization. Use
+        an int to make the randomness deterministic.
+        See :term:`Glossary <random_state>`.
+
+    copy_x : bool, default=True
+        When pre-computing distances it is more numerically accurate to center
+        the data first. If copy_x is True (default), then the original data is
+        not modified. If False, the original data is modified, and put back
+        before the function returns, but small numerical differences may be
+        introduced by subtracting and then adding the data mean. Note that if
+        the original data is not C-contiguous, a copy will be made even if
+        copy_x is False. If the original data is sparse, but not in CSR format,
+        a copy will be made even if copy_x is False.
+
+    algorithm : {"lloyd", "elkan", "auto", "full"}, default="lloyd"
+        K-means algorithm to use. The classical EM-style algorithm is `"lloyd"`.
+        The `"elkan"` variation can be more efficient on some datasets with
+        well-defined clusters, by using the triangle inequality. However it's
+        more memory intensive due to the allocation of an extra array of shape
+        `(n_samples, n_clusters)`.
+
+        `"auto"` and `"full"` are deprecated and they will be removed in
+        Scikit-Learn 1.3. They are both aliases for `"lloyd"`.
+
+    to_sparse : bool, default=False
+            If True, the input data `X` will be converted to a sparse matrix
+            before applying the transformation. This is useful for handling
+            large datasets more efficiently. If False, the data format of `X`
+            is preserved.
     
     Attributes 
     -----------
@@ -380,7 +488,7 @@ class KMeansFeaturizer(BaseEstimator, TransformerMixin):
     >>> # (1) Use a common dataset 
     >>> import matplotlib.pyplot as plt 
     >>> from sklearn.datasets import make_moons
-    >>> from gofast.tools.plotutils import plot_voronoi 
+    >>> from gofast.plot.utils import plot_voronoi 
     >>> from gofast.datasets import load_mxs 
     >>> X, y = make_moons(n_samples=5000, noise=0.2)
     >>> kmf_hint = KMeansFeaturizer(n_clusters=50, target_scale=10).fit(X,y)
@@ -406,127 +514,181 @@ class KMeansFeaturizer(BaseEstimator, TransformerMixin):
     """
     def __init__(
         self, 
-        n_clusters=7, 
-        target_scale=5.0, 
+        n_clusters=2, 
+        target_scale=1.0, 
         random_state=None, 
-        n_components=None
+        n_components=None, 
+        init='k-means++', 
+        n_init="auto", 
+        max_iter=300, 
+        tol=1e-4, 
+        copy_x=True,
+        verbose=0, 
+        algorithm='lloyd', 
+        to_sparse=False, 
         ):
         self.n_clusters = n_clusters
         self.target_scale = target_scale
         self.random_state = random_state
         self.n_components=n_components
-
+        self.init=init
+        self.n_init=n_init
+        self.max_iter=max_iter 
+        self.tol=tol 
+        self.copy_x=copy_x 
+        self.verbose=verbose 
+        self.algorithm=algorithm
+        self.to_sparse=to_sparse
+        
     def fit(self, X, y=None):
-        """Runs k-means on the input data and finds and updated centroids.
+        """
+        Fit the model to the data.
+
+        The method runs k-means on the input data `X`. If `n_components` is specified,
+        PCA is applied for dimensionality reduction before clustering. When the target 
+        variable `y` is provided, it augments the feature space, enhancing the clustering 
+        process to align with the target variable.
 
         Parameters
         ----------
-        X : {array-like, sparse matrix} of shape (n_samples, n_features)
-            Training vector, where `n_samples` is the number of samples and
-            `n_features` is the number of features.
+        X : array-like or sparse matrix of shape (n_samples, n_features)
+            Training data where n_samples is the number of samples and n_features is the 
+            number of features.
 
-        y : array-like of shape (n_samples,)
-            Target vector relative to X.
-            
+        y : array-like of shape (n_samples,), default=None
+            Target values relative to `X`. Used to augment the feature space if provided.
+
         Returns
         -------
-        self
-            Fitted estimator.
-        """
-        if self.n_components: 
-            self.n_components = int (_assert_all_types(
-                self.n_components, int, float,objname ="'n_components'"))
-            from gofast.analysis import nPCA 
-            X =nPCA (X, n_components = self.n_components )
-            
-        if y is None:
-            # No target variable, just do plain k-means
-            km_model = KMeans(n_clusters=self.n_clusters,
-            n_init=20,
-            random_state=self.random_state)
-            km_model.fit(X)
-            
-            self.km_model_ = km_model
-            self.cluster_centers_ = km_model.cluster_centers_
-            return self
-        
-        # There is target information. Apply appropriate scaling and include
-        # it in the input data to k-means. 
-        data_with_target = np.hstack((X, y[:,np.newaxis]*self.target_scale))
-        
-        # Build a pre-training k-means model on data and target
-        km_model_pretrain = KMeans(n_clusters=self.n_clusters,
-                            n_init=20,
-                            random_state=self.random_state
-                            )
-        km_model_pretrain.fit(data_with_target)
+        self : object
+            Returns the fitted instance.
 
-        # Run k-means a second time to get the clusters in the original space
-        # without target info. Initialize using centroids found in pre-training.
-        # Go through a single iteration of cluster assignment and centroid 
-        # recomputation.
-        km_model = KMeans(n_clusters=self.n_clusters,
-                    init=km_model_pretrain.cluster_centers_[:,:-1] , #[:, :-1]
-                    n_init=1,
-                    max_iter=1)
-        km_model.fit(X)
-        
-        self.km_model_ = km_model
+        Raises
+        ------
+        ValueError
+            If `n_components` is not an integer or a float.
+
+        Examples
+        --------
+        >>> from sklearn.datasets import make_blobs
+        >>> X, y = make_blobs(n_samples=100, centers=3, n_features=2, random_state=42)
+        >>> featurizer = KMeansFeaturizer(n_clusters=3, target_scale=5.0)
+        >>> featurizer.fit(X, y)
+        """
+
+        # Validate inputs
+        X = check_array(X, accept_sparse=True)
+        if y is not None:
+            y = check_array(y, ensure_2d=False)
+
+        # Apply PCA if n_components is specified
+        if self.n_components is not None:
+            if not isinstance(self.n_components, (int, float)):
+                raise ValueError("n_components must be an int or a float, "
+                                 f"got {type(self.n_components)} instead.")
+            pca = PCA(n_components=self.n_components)
+            X = pca.fit_transform(X)
+
+        # Prepare data for k-means
+        if y is not None:
+            y_scaled = y[:, np.newaxis] * self.target_scale
+            data_for_clustering = np.hstack((X, y_scaled))
+        else:
+            data_for_clustering = X
+
+        # Pre-training k-means model on data with or without target
+        self.km_model_ = KMeans(
+            n_clusters=self.n_clusters,
+            init=self.init,
+            n_init=self.n_init,
+            max_iter=self.max_iter,
+            algorithm=self.algorithm,
+            copy_x=self.copy_x,
+            tol=self.tol,
+            random_state=self.random_state
+        ).fit(data_for_clustering)
+
+        if y is not None:
+            # Adjust centroids if y was used
+            # Run k-means a second time to get the clusters in the original space
+            # without target info. Initialize using centroids found in pre-training.
+            # Go through a single iteration of cluster assignment and centroid 
+            # recomputation.
+            self.km_model_= KMeans(n_clusters=self.n_clusters,
+                        init=self.km_model_.cluster_centers_[:,:-1], #[:, :-1]
+                        n_init=1,
+                        max_iter=1)
+            self.km_model_.fit(X)
+            
         self.cluster_centers_ = self.km_model_.cluster_centers_
-        
+
         return self
 
     def transform(self, X):
-        """Outputs the closest cluster ID for each input data point.
-        
+        """
+        Transform the data by appending the closest cluster ID to each sample.
+
+        This method applies the fitted k-means model to predict the closest cluster
+        for each sample in the provided dataset `X`. It then appends the cluster ID
+        as an additional feature. The method handles both dense and sparse matrices
+        efficiently by converting `X` to a sparse format for concatenation if 
+        necessary.
+
         Parameters
         ----------
-        X : {array-like, sparse matrix} of shape (n_samples, n_features)
-            New data to predict.
+        X : array-like or sparse matrix of shape (n_samples, n_features)
+            New data to transform. It can be a dense array or a sparse matrix.
 
         Returns
         -------
-        labels : ndarray of shape (n_samples,)
-            Index of the cluster each sample belongs to.
+        X_transformed : sparse matrix of shape (n_samples, n_features + 1)
+            The transformed data with an additional feature indicating the cluster 
+            ID for each sample. The output is in sparse matrix format to optimize
+            memory usage.
+
+        Raises
+        ------
+        NotFittedError
+            If this method is called before the model is fitted.
+
+        Examples
+        --------
+        >>> from sklearn.datasets import make_blobs
+        >>> X, _ = make_blobs(n_samples=100, centers=3, n_features=2, random_state=42)
+        >>> featurizer = KMeansFeaturizer(n_clusters=3)
+        >>> featurizer.fit(X)
+        >>> X_transformed = featurizer.transform(X)
         """
+        # Check if the model is fitted
+        check_is_fitted(self, 'km_model_')
+        
+        # Validate input
+        X = check_array(X, accept_sparse=True)
+        # Convert X to a sparse matrix if it's not already
+        if not sparse.issparse(X) and self.to_sparse:
+            X = sparse.csr_matrix(X)
+        # Predict the closest cluster for each sample
         clusters = self.km_model_.predict(X)
-        return clusters[:,np.newaxis]
+        if self.to_sparse: 
+            clusters_sparse = sparse.csr_matrix(clusters.reshape(-1, 1))
+            # Concatenate the original data with the cluster labels
+            X_transformed = sparse.hstack((X, clusters_sparse))
+        else:
+            X_transformed= np.hstack((X, clusters [:, np.newaxis] ))
 
-    def fit_transform(self, X, y=None):
-        """ Fit and transform the data 
-        
-        X : {array-like, sparse matrix} of shape (n_samples, n_features)
-            Training vector, where `n_samples` is the number of samples and
-            `n_features` is the number of features.
-
-        y : array-like of shape (n_samples,)
-            Target vector relative to X.
-            
-        Returns
-        -------
-        labels : ndarray of shape (n_samples,)
-            Index of the cluster each sample belongs to. 
-        
-        """
-        self.fit(X, y)
-        return self.transform(X, y)
-
-    def __repr__(self):
-        """ Pretty format for guidance following the API... """
-        _t = ("n_clusters", "target_scale", "random_state", "n_components")
-        outm = ( '<{!r}:' + ', '.join(
-            [f"{k}={ False if getattr(self, k)==... else  getattr(self, k)!r}" 
-             for k in _t]) + '>' 
-            ) 
-        return  outm.format(self.__class__.__name__)
+        return X_transformed
     
-# import numpy as np
-# import pandas as pd
-# from sklearn.base import BaseEstimator, TransformerMixin
-# from sklearn.model_selection import StratifiedShuffleSplit, train_test_split
-# from gofast.log import gofastlog  # Assuming gofastlog is a module in 'gofast'
+        def __repr__(self):
+            """ Pretty format for guidance following the API... """
+            _t = ("n_clusters", "target_scale", "random_state", "n_components")
+            outm = ( '<{!r}:' + ', '.join(
+                [f"{k}={ False if getattr(self, k)==... else  getattr(self, k)!r}" 
+                 for k in _t]) + '>' 
+                ) 
+            return  outm.format(self.__class__.__name__)
+    
 
-class StratifiedWithCategoryAdder(BaseEstimator, TransformerMixin):
+class StratifyFromBaseFeature(BaseEstimator, TransformerMixin):
     """
     Stratifies a dataset by categorizing a numerical attribute and returns 
     stratified training and testing sets.
@@ -535,7 +697,7 @@ class StratifiedWithCategoryAdder(BaseEstimator, TransformerMixin):
 
     Parameters:
     ----------
-    base_num_feature : str, optional
+    base_feature : str, optional
         Numerical feature to be categorized for stratification.
 
     threshold_operator : float, default=1.0
@@ -562,7 +724,24 @@ class StratifiedWithCategoryAdder(BaseEstimator, TransformerMixin):
     ----------
     statistics_ : DataFrame or None
         Statistics about the categorization and stratification process.
+    base_class_: list 
+       List composed of the base feature class labels. 
+       
+    Example
+    --------
+    >>> from gofast.transformers import StratifyFromBaseFeature
+    >>> st= StratifyFromBaseFeature('flow') 
+    >>> a, b = st.fit_transform(data)
+    >>> st.statistics_
+    Out[17]: 
+                 Overall (total)    Random  ...  Rand. error (%)  Strat. error (%)
+    class_label                             ...                                   
+    1.0                 0.320186  0.310345  ...        -3.073463          0.516408
+    0.0                 0.354988  0.356322  ...         0.375629          0.375629
+    3.0                 0.141531  0.183908  ...        29.941587         -2.543810
+    2.0                 0.183295  0.149425  ...       -18.478103          0.334643
 
+    [4 rows x 5 columns]
     Notes:
     ------
     The `statistics_` attribute helps evaluate the distribution of the newly
@@ -570,18 +749,17 @@ class StratifiedWithCategoryAdder(BaseEstimator, TransformerMixin):
     stratification.
     """
 
-    def __init__(self, base_num_feature=None, threshold_operator=1.0,
+    def __init__(self, base_feature=None, threshold_operator=1.0,
                  max_category=3, return_train=False, n_splits=1,
                  test_size=0.2, random_state=42):
         self.logger = gofastlog().get_gofast_logger(self.__class__.__name__)
-        self.base_num_feature = base_num_feature
+        self.base_feature = base_feature
         self.threshold_operator = threshold_operator
         self.max_category = max_category
         self.return_train = return_train
         self.n_splits = n_splits
         self.test_size = test_size
         self.random_state = random_state
-        self.statistics_ = None
 
     def fit(self, X, y=None):
         """Fits the transformer to X for sklearn's Transformer API compatibility.
@@ -617,15 +795,20 @@ class StratifiedWithCategoryAdder(BaseEstimator, TransformerMixin):
         tuple of DataFrames
             Stratified training and testing sets.
         """
-        if self.base_num_feature is None:
+        train_set, test_set = train_test_split(X, test_size=self.test_size,
+                                               random_state=self.random_state)
+        if self.base_feature is None:
             self.logger.info('Base numerical feature not provided. '
                              'Using random sampling.')
-            return train_test_split(X, test_size=self.test_size, 
+            return train_test_split(X, test_size=self.test_size,
                                     random_state=self.random_state)
 
         X = self._categorize_feature(X)
+        # split after categorizing the base feature 
+        train_set, test_set = train_test_split(
+            X, test_size=self.test_size,random_state=self.random_state)
         strat_train_set, strat_test_set = self._stratify_dataset(X)
-        self._calculate_statistics(X)
+        self._calculate_statistics(X, test_set, strat_test_set) 
         self._cleanup_temp_columns(X, strat_train_set, strat_test_set)
 
         return (strat_train_set, strat_test_set
@@ -633,7 +816,12 @@ class StratifiedWithCategoryAdder(BaseEstimator, TransformerMixin):
 
     def _categorize_feature(self, X):
         """Categorizes the numerical feature."""
-        # Implement logic to categorize 'base_num_feature' here
+        # Implement logic to categorize 'base_feature' here
+        X = discretize_categories(X, in_cat=self.base_feature, 
+            new_cat="class_label", divby =self.threshold_operator,
+            higherclass = self.max_category
+             )
+        self.base_class_=  list(X["class_label"].value_counts().index.values)
         return X
 
     def _stratify_dataset(self, X):
@@ -644,197 +832,40 @@ class StratifiedWithCategoryAdder(BaseEstimator, TransformerMixin):
         for train_index, test_index in split.split(X, X['temp_feature']):
             return X.loc[train_index], X.loc[test_index]
 
-    def _calculate_statistics(self, X):
-        """Calculates statistics for the stratification process."""
+    def _calculate_statistics(self, X, *test_dataframes ):
+        """Calculates statistics for the stratification process.
         
+        Parameters 
+        -----------
+        X : DataFrame
+            The input DataFrame to be stratified.
+        *test_dataframes: DataFrames 
+           Test data before and after the stratification.  
+        """
+        test_set, strat_test_set = test_dataframes 
         # Implement logic to calculate statistics here
-
+        random_stats= test_set["class_label"].value_counts()/ len(test_set)
+        stratified_stats = strat_test_set["class_label"].value_counts()/len(
+            strat_test_set) 
+        total = X["class_label"].value_counts() /len(X)
+        stats = {
+             "class_label":  np.array (self.base_class_), 
+             "Overall (total)":total, 
+             "Random": random_stats, 
+             "Stratified": stratified_stats,  
+             "Rand. error (%)":  (random_stats /total -1) *100, 
+             "Strat. error (%)":  (stratified_stats /total -1) *100, 
+         }
+        self.statistics_ = pd.DataFrame ( stats )
+        # set a pandas dataframe for inspections attributes `statistics`.
+        self.statistics_.set_index("class_label", inplace=True)
+        
     def _cleanup_temp_columns(self, X, *dataframes):
         """Removes temporary columns used for stratification."""
-        temp_columns = ['temp_feature']  # Add any temporary columns used
+        temp_columns = ["class_label"]  # Add any temporary columns used
         for df in dataframes:
             df.drop(temp_columns, axis=1, inplace=True)
         X.drop(temp_columns, axis=1, inplace=True)
-        
-class StratifiedWithCategoryAdder2( BaseEstimator, TransformerMixin ): 
-    """
-    Stratified sampling transformer based on new generated category 
-    from numerical attributes and return stratified trainset and test set.
-    
-    Parameters  
-    ---------- 
-    base_num_feature: str, 
-        Numerical features to categorize. 
-        
-    threshold_operator: float, 
-        The coefficient to divised the numerical features value to 
-        normalize the data 
-        
-    max_category: Maximum value fits a max category to gather all 
-        value greather than.
-        
-    return_train: bool, 
-        Return the whole stratified trainset if set to ``True``.
-        usefull when the dataset is not enough. It is convenient to 
-        train all the whole trainset rather than a small amount of 
-        stratified data. Sometimes all the stratified data are 
-        not the similar equal one to another especially when the dataset 
-        is not enough.
-        
-    Another way to stratify dataset is to get insights from the dataset and 
-    to add a new category as additional mileage. From this new attributes,
-    data could be stratified after categorizing numerical features. 
-    Once data is tratified, the new category will be drop and return the 
-    train set and testset stratified. For instance::  
-        
-        >>> from gofast.transformers import StratifiedWithCategoryAdder
-        >>> stratifiedNumObj= StratifiedWithCatogoryAdder('flow')
-        >>> stratifiedNumObj.fit_transform(X=df)
-        >>> stats2 = stratifiedNumObj.statistics_
-        
-    Usage
-    ------
-    In this example, we firstly categorize the `flow` attribute using 
-    the ceilvalue (see :func:`~discretizeCategoriesforStratification`) 
-    and groupby other values greater than the ``max_category`` value to the 
-    ``max_category`` andput in the temporary features. From this features 
-    the categorization is performed and stratified the trainset and 
-    the test set.
-        
-    Notes 
-    ------
-    If `base_num_feature` is not given, dataset will be stratified using 
-    random sampling.
-        
-    """
-    
-    def __init__(
-        self,
-        base_num_feature=None,
-        threshold_operator = 1.,
-        return_train=False,
-        max_category=3,
-        n_splits=1, 
-        test_size=0.2, 
-        random_state=42
-        ):
-        
-        self._logging= gofastlog().get_gofast_logger(self.__class__.__name__)
-        
-        self.base_num_feature= base_num_feature
-        self.return_train= return_train
-        self.threshold_operator=  threshold_operator
-        self.max_category = max_category 
-        self.n_splits = n_splits 
-        self.test_size = test_size 
-        self.random_state = random_state 
-        
-        self.base_items_ =None 
-        self.statistics_=None 
-        
-    def fit(self, X, y=None): 
-        """
-        Does nothin just for scikit-learn API purpose. 
-        """
-        return self
-    
-    def transform(self, X, y=None):
-        """Transform data and populate inspections attributes 
-            from hyperparameters.
-            
-         Parameters
-         ----------
-         X : {array-like, sparse matrix} of shape (n_samples, n_features)
-             New data to predict.
-
-         y: Ignored
-            Keep just for API purpose. 
-
-         Returns
-         -------
-         X : {array-like, sparse matrix} of shape (n_samples, n_features)
-             New data transformed.   
-        """
-
-        if self.base_num_feature is not None:
-            in_c= 'temf_'
-            # discretize the new added category from the threshold value
-            X = discretize_categories(
-                                     X,
-                                    in_cat=self.base_num_feature, 
-                                     new_cat=in_c, 
-                                     divby =self.threshold_operator,
-                                     higherclass = self.max_category
-                 )
-
-            self.base_items_ = list(
-            X[in_c].value_counts().index.values)
-        
-            split = StratifiedShuffleSplit(n_splits =self.n_splits,
-                                           test_size =self.test_size, 
-                                           random_state =self.random_state)
-            
-            for train_index, test_index  in split.split(X, X[in_c]): 
-                strat_train_set = X.loc[train_index]
-                strat_test_set = X.loc[test_index] 
-                #keep a copy of all stratified trainset.
-                strat_train_set_copy = X.loc[ np.delete(X.index, test_index)]
-                
-        train_set, test_set = train_test_split( X, test_size = self.test_size,
-                                   random_state= self.random_state)
-        
-        if self.base_num_feature is None or self.n_splits==0:
-            
-            self._logging.info('Stratification not applied! Train and test sets'
-                               'were purely generated using random sampling.')
-            
-            return train_set , test_set 
-            
-        if self.base_num_feature is not None:
-            # get statistic from `in_c` category proportions into the 
-            # the overall dataset 
-            o_ =X[in_c].value_counts() /len(X)
-            r_ = test_set[in_c].value_counts()\
-                /len(test_set)
-            s_ = strat_test_set[in_c].value_counts()\
-                /len( strat_test_set)
-            r_error , s_error = ((r_/ o_)-1)*100, ((s_/ o_)-1)*100
-            
-            self.statistics_ = np.c_[np.array(self.base_items_), 
-                                     o_,
-                                     r_,
-                                     s_, 
-                                     r_error,
-                                     s_error
-                                     ]
-      
-            self.statistics_ = pd.DataFrame(data = self.statistics_,
-                                columns =[in_c, 
-                                          'Overall',
-                                          'Random', 
-                                          'Stratified', 
-                                          'Rand. %error',
-                                          'strat. %error'
-                                          ])
-            
-            # set a pandas dataframe for inspections attributes `statistics`.
-            self.statistics_.set_index(in_c, inplace=True)
-            
-            # remove the add category into the set 
-            for set in(strat_train_set_copy, strat_train_set, strat_test_set): 
-                set.drop([in_c], axis=1, inplace =True)
-                
-            if self.return_train: 
-                strat_train_set = strat_train_set_copy 
-               
-            # force to remove the temporary features for splitting in 
-            # the original dataset
-
-            if in_c in X.columns: 
-                X.drop([in_c], axis =1, inplace=True)
-               
-            return strat_train_set, strat_test_set 
-        
         
 class CategoryBaseStratifier(BaseEstimator, TransformerMixin):
     """
@@ -864,8 +895,18 @@ class CategoryBaseStratifier(BaseEstimator, TransformerMixin):
 
     Examples:
     --------
-    [Add usage examples here]
+    >>> from gofast.datasets import load_bagoue 
+    >>> from gofast.transformers import CategoryBaseStratifier
+    >>> X = load_bagoue ( as_frame=True) 
+    >>> cobj = CategoryBaseStratifier(base_column='shape')
+    >>> Xtrain_stratified, X_test_stratified= cobj.fit_transform ( X ) 
+    >>> X_test_stratified.head(2) 
+    Out[67]: 
+           num  name      east  ...    lwi                    geol  flow
+    121  122.0  b122  756473.0  ...  32.54  VOLCANO-SEDIM. SCHISTS   1.0
+    207  208.0  b208  792785.0  ...  29.80  VOLCANO-SEDIM. SCHISTS   1.0
 
+    [2 rows x 13 columns]
     Notes:
     ------
     The `statistics_` attribute provides insights into the distribution of the 
@@ -878,7 +919,7 @@ class CategoryBaseStratifier(BaseEstimator, TransformerMixin):
         self.base_column = base_column
         self.test_size = test_size
         self.random_state = random_state
-        self.statistics_ = None
+
 
     def fit(self, X, y=None):
         """Does nothing, exists for compatibility with sklearn's Transformer API."""
@@ -929,9 +970,10 @@ class CategoryBaseStratifier(BaseEstimator, TransformerMixin):
         tuple of DataFrames
             The stratified training and testing sets.
         """
-        # Implement stratification logic here (e.g., using pd.cut)
-        # Example:
-        strat_train_set, strat_test_set = stratify_categories(X, self.base_column)
+        # stratification logic here (e.g., using pd.cut)
+        strat_train_set, strat_test_set = stratify_categories(
+            X, self.base_column, test_size = self.test_size, 
+            random_state = self.random_state )
         return strat_train_set, strat_test_set
 
     def _calculate_statistics(self, X, strat_test_set):
@@ -947,7 +989,8 @@ class CategoryBaseStratifier(BaseEstimator, TransformerMixin):
             The stratified testing set.
         """
         overall_distribution = X[self.base_column].value_counts() / len(X)
-        stratified_distribution = strat_test_set[self.base_column].value_counts() / len(strat_test_set)
+        stratified_distribution = strat_test_set[self.base_column].value_counts(
+            ) / len(strat_test_set)
         error = ((stratified_distribution / overall_distribution) - 1) * 100
 
         self.statistics_ = pd.DataFrame({
@@ -985,7 +1028,6 @@ class CategorizeFeatures(BaseEstimator, TransformerMixin ):
     return_cat_codes: bool, default=False 
        return the categorical codes that used for mapping variables. 
        if `func` is applied, mapper returns an empty dict. 
-       
     
     Examples
     --------
@@ -1581,7 +1623,7 @@ class DataFrameSelector(BaseEstimator, TransformerMixin):
 
     Attributes:
     -----------
-    columns_ : list
+    features_ : list
         The final list of column names to be selected after considering 
         the input 'columns' and 'select_type'.
 
@@ -1614,10 +1656,10 @@ class DataFrameSelector(BaseEstimator, TransformerMixin):
     """
     def __init__(
         self, 
-        columns=None, 
-        select_type=None, 
-        parse_cols=False, 
-        return_frame=False
+        columns:list=None, 
+        select_type:str=None, 
+        parse_cols:bool=..., 
+        return_frame:bool=...
         ):
         self.columns = columns 
         self.select_type = select_type
@@ -1712,7 +1754,6 @@ class DataFrameSelector(BaseEstimator, TransformerMixin):
         return X if self.return_frame else np.array(X)
 
     
- 
 class FrameUnion(BaseEstimator, TransformerMixin):
     """
     Unified categorical and numerical feature processing.
@@ -1898,7 +1939,6 @@ class FrameUnion(BaseEstimator, TransformerMixin):
             warnings.warn(f'Sparse matrix `{cat_arrayObj.shape!r}` is converted'
                           ' in dense Numpy array.', UserWarning)
             # cat_arrayObj= cat_arrayObj.toarray()
-
         try: 
             X= np.c_[num_arrayObj,cat_arrayObj]
             
@@ -2097,7 +2137,6 @@ class FeaturizeX(BaseEstimator, TransformerMixin ):
         
         return Xtransf 
         
-    
 def _featurize_X (
     X, 
     y =None, *, 
@@ -2253,23 +2292,21 @@ def _featurize_X (
             random_state = random_state, 
             ).fit(X,y)
         
-    ### Use the k-means featurizer to generate cluster features
-    transf_cluster = model.transform(X)
-    ### Form new input features with cluster features
-    # training_with_cluster
-    
-    Xkmf = np.concatenate (
-        (X, transf_cluster), axis =1 )
+        ### Use the k-means featurizer to generate cluster features
+        # transf_cluster = model.transform(X)
+        # Xkmf= np.concatenate (
+        #    (X, transf_cluster), axis =1 )
+        Xkmf = model.transform(X)
+        ### Form new input features with cluster features
+        # training_with_cluster
+
     if to_sparse: 
         Xkmf= sparse_func(Xkmf )
 
     kmf_data.append(Xkmf)
     kmf_data.append(y) 
     if split_X_y: 
-
-        transf_test_cluster= model.transform(test_data)
-        test_with_cluster = np.concatenate (
-            (test_data, transf_test_cluster),axis =1 )
+        test_with_cluster= model.transform(test_data)
         if sparse: 
             test_with_cluster= sparse_func(test_with_cluster)
  

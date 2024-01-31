@@ -1,24 +1,55 @@
 """
 validation sub-package focuses on  training and validation phases. It also composed 
 of a set of grid-search tricks from model hyperparameters fine-tuning and 
-the pretrained models fetching from :mod:`~gofast.models` and 
+the pretrained models fetching from :mod:`~gofast.models` 
 """
+from .selection import ( 
+   PSOSearchCV,
+   SMBOSearchCV,
+   AnnealingSearchCV,
+   EvolutionarySearchCV,
+   GradientBasedSearchCV,
+   GeneticSearchCV,
+   )
 from .search import ( 
     BaseEvaluation, 
-    GridSearch, 
-    GridSearchMultiple,
+    BaseSearch, 
+    SearchMultiple,
+    MultipleSearch,
     get_best_kPCA_params, 
     naive_evaluation, 
-
+    CrossValidator, 
     )
 from .utils import ( 
+    find_best_C, 
     get_scorers,
     get_cv_mean_std_scores, 
     get_split_best_scores, 
     display_cv_tables, 
     display_fine_tuned_results, 
     display_model_max_details, 
-    shrink_covariance_cv_score
+    shrink_covariance_cv_score, 
+    calculate_aggregate_scores, 
+    analyze_score_distribution, 
+    estimate_confidence_interval, 
+    rank_cv_scores, 
+    filter_scores, 
+    visualize_score_distribution, 
+    performance_over_time, 
+    calculate_custom_metric, 
+    handle_missing_data, 
+    export_cv_results, 
+    comparative_analysis,
+    plot_parameter_importance, 
+    plot_hyperparameter_heatmap, 
+    plot_learning_curve, 
+    plot_validation_curve, 
+    plot_feature_importance,
+    plot_roc_curve_per_fold, 
+    plot_confidence_intervals, 
+    plot_pairwise_model_comparison,
+    plot_feature_correlation, 
+    quick_evaluation
     ) 
 from .optimize import ( 
     parallelize_estimators, 
@@ -31,9 +62,16 @@ from .deep_search import (
     deep_tuning,
     )
 __all__=[
+    "PSOSearchCV",
+    "SMBOSearchCV",
+    "AnnealingSearchCV",
+    "EvolutionarySearchCV",
+    "GradientBasedSearchCV",
+    "GeneticSearchCV",
     "BaseEvaluation", 
-    "GridSearch", 
-    "GridSearchMultiple", 
+    "BaseSearch", 
+    "SearchMultiple", 
+    "MultipleSearch", 
     "get_best_kPCA_params", 
     "get_scorers",
     "get_cv_mean_std_scores", 
@@ -42,6 +80,7 @@ __all__=[
     "display_fine_tuned_results", 
     "display_model_max_details", 
     "naive_evaluation",
+    "CrossValidator", 
     "parallelize_estimators", 
     "optimize_hyperparameters", 
     "shrink_covariance_cv_score", 
@@ -49,4 +88,26 @@ __all__=[
     "robust_tuning", 
     "neural_tuning",
     "deep_tuning",
+    "find_best_C", 
+    "calculate_aggregate_scores", 
+    "analyze_score_distribution", 
+    "estimate_confidence_interval", 
+    "rank_cv_scores", 
+    "filter_scores", 
+    "visualize_score_distribution", 
+    "performance_over_time", 
+    "calculate_custom_metric", 
+    "handle_missing_data", 
+    "export_cv_results", 
+    "comparative_analysis", 
+    "plot_parameter_importance", 
+    "plot_hyperparameter_heatmap", 
+    "plot_learning_curve", 
+    "plot_validation_curve", 
+    "plot_feature_importance",
+    "plot_roc_curve_per_fold", 
+    "plot_confidence_intervals", 
+    "plot_pairwise_model_comparison",
+    "plot_feature_correlation", 
+    "quick_evaluation"
     ]

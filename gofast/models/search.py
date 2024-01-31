@@ -6,79 +6,669 @@ from __future__ import annotations
 
 import inspect
 import warnings  
+import joblib
 from pprint import pprint 
 import numpy as np 
+from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor
 
-from .._docstring import ( 
-    DocstringComponents, 
-    _core_docs 
-    ) 
-from .._gofastlog import gofastlog
-
-from sklearn.metrics import ( 
-    mean_squared_error,
-    )
-
+from sklearn.base import BaseEstimator, clone
 from sklearn.linear_model import LogisticRegression 
-from sklearn.model_selection import ( 
-    RandomizedSearchCV,
-    GridSearchCV, 
-    cross_val_score,
-    )
-from sklearn.pipeline import Pipeline 
+from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import RandomizedSearchCV, GridSearchCV, KFold
+from sklearn.model_selection import cross_val_score, StratifiedKFold, LeaveOneOut
+from sklearn.pipeline import Pipeline  
+try:from skopt import BayesSearchCV 
+except:pass 
 
-from .._typing import (
-    List,
-    _F, 
-    ArrayLike, 
-    NDArray, 
-    Dict,
-    Any, 
-    DataFrame, 
-    Series,
-    
-    )
-from ..exceptions import ( 
-    EstimatorError, 
-    NotFittedError, 
-    ) 
-from ..tools.funcutils import ( 
-    _assert_all_types, 
-    get_params, 
-    save_job, 
-    listing_items_format, 
-    pretty_printer, 
-
-    )
+from .._docstring import DocstringComponents, _core_docs 
+from .._gofastlog import gofastlog
+from .._typing import _F, List,ArrayLike, NDArray, Dict, Any 
+from .._typing import DataFrame, Series,Optional, Union
+from ..exceptions import EstimatorError, NotFittedError
 from ..tools.box import Boxspace 
-from ..tools.validator import ( 
-    check_X_y, check_array, 
-    check_consistent_length, 
-    get_estimator_name
-    )
+from ..tools.funcutils import _assert_all_types, get_params, save_job
+from ..tools.funcutils import listing_items_format, pretty_printer
+from ..tools.validator import check_X_y, check_array, check_consistent_length 
+from ..tools.validator import get_estimator_name
 
-from .utils import ( 
-    get_scorers, 
-    naive_evaluation
-    ) 
-
+from .utils import get_scorers, naive_evaluation
+ 
 _logger = gofastlog().get_gofast_logger(__name__)
 
-__all__=["BaseEvaluation", "GridSearch", "GridSearchMultiple",
-         "get_best_kPCA_params", 
+__all__=["BaseEvaluation", "BaseSearch", "SearchMultiple",
+         "get_best_kPCA_params", "CrossValidator", "MultipleSearch",
     ]
 
 _param_docs = DocstringComponents.from_nested_components(
     core=_core_docs["params"], 
     )
 
-class GridSearch: 
+
+class MultipleSearch:
+    r"""
+    A class for concurrently performing parameter tuning across multiple estimators 
+    using different search strategies.
+
+    This class allows users to specify multiple machine learning estimators and perform 
+    parameter tuning using various optimizers like GridSearchCV, RandomizedSearchCV, 
+    or BayesSearchCV simultaneously in parallel. The best parameters for each estimator 
+    can be saved to a file.
+
+    Parameters
+    ----------
+    estimators : dict
+        A dictionary of estimators to tune. 
+        Format: {'estimator_name': estimator_object}.
+    param_grids : dict
+        A dictionary of parameter grids for the corresponding estimators. 
+        Format: {'estimator_name': param_grid}.
+    optimizers : list of str
+        List of optimizers to use for parameter tuning. Options: 'grid', 'random', 'bayes'.
+    cv : int, cross-validation generator or an iterable, optional
+        Determines the cross-validation splitting strategy. Default is 4.
+    n_iter : int, optional
+        Number of iterations for random or Bayes search. Default is 10.
+    savejob : bool, optional
+        Whether to save the tuning results to a joblib file. Default is False.
+    filename : str, optional
+        The filename for saving the joblib file. Required if savejob is True.
+
+    Attributes
+    ----------
+    best_params_ : dict
+        The best found parameters for each estimator and optimizer combination.
+
+    Methods
+    -------
+    fit(X, y):
+        Run the parameter tuning for each estimator using each optimizer in parallel on the given data.
+
+    Notes
+    -----
+    The optimization problem for parameter tuning can be formulated as:
+    \[
+    \underset{\theta}{\text{argmin}} \; f(\theta)
+    \]
+    where \(\theta\) represents the parameters of the model, and \(f(\theta)\) is the 
+    objective function, typically the cross-validated performance of the model.
+
+    The class utilizes concurrent processing to run multiple parameter search operations 
+    in parallel, enhancing efficiency, especially for large datasets and complex models.
+
+    Examples
+    --------
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> estimators = {'rf': RandomForestClassifier()}
+    >>> param_grids = {'rf': {'n_estimators': [100, 200], 'max_depth': [10, 20]}}
+    >>> optimizers = ['grid', 'random']
+    >>> ms = MultipleSearch(estimators, param_grids, optimizers)
+    >>> ms.fit(X, y)
+    >>> print(ms.best_params_)
+
+    """
+
+    def __init__(self, 
+        estimators, 
+        param_grids, 
+        optimizers, 
+        cv=4, 
+        n_iter=10, 
+        savejob=False, 
+        filename=None
+        ):
+        self.estimators = estimators
+        self.param_grids = param_grids
+        self.optimizers = optimizers
+        self.cv = cv
+        self.n_iter=n_iter
+        self.savejob = savejob
+        self.filename = filename
+        self.best_params_ = {}
+
+    def fit(self, X, y):
+        """
+        Run the parameter tuning for each estimator using each optimizer in parallel 
+        on the given data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data.
+        y : array-like of shape (n_samples,)
+            Target values.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with ThreadPoolExecutor(max_workers=len(self.optimizers)) as executor:
+                futures = []
+                for optimizer in self.optimizers:
+                    for name, estimator in self.estimators.items():
+                        future = executor.submit(self._search, estimator, self.param_grids[name], optimizer, X, y)
+                        futures.append(future)
+
+                for future in tqdm(futures, desc='Optimizing parameters', ncols=100, ascii=True, unit='search'):
+                    result = future.result()
+                    self.best_params_.update(result)
+
+        if self.savejob and self.filename:
+            joblib.dump(self.best_params_, self.filename)
+            
+        return self 
+
+    def _search(self, estimator, param_grid, optimizer, X, y):
+        """
+        Conducts a parameter search using the specified optimizer on the given estimator.
+
+        Parameters
+        ----------
+        estimator : estimator object
+            The machine learning estimator to tune.
+        param_grid : dict
+            The parameter grid for tuning.
+        optimizer : str
+            The optimizer to use for parameter tuning.
+        X : array-like of shape (n_samples, n_features)
+            Training data.
+        y : array-like of shape (n_samples,)
+            Target values.
+
+        Returns
+        -------
+        dict
+            The best parameters found for the estimator using the optimizer.
+        """
+        if optimizer in ['grid', 'GSCV', 'GridSearchCV']:
+            search = GridSearchCV(estimator, param_grid, cv=self.cv)
+        elif optimizer in ['random', 'RSCV', 'RandomizedSearchCV']:
+            search = RandomizedSearchCV(estimator, param_grid, cv=self.cv, n_iter=self.n_iter)
+        elif optimizer in ['bayes', 'BSCV', 'BayesSearchCV']:
+            search = BayesSearchCV(estimator, param_grid, cv=self.cv, n_iter=self.n_iter)
+        else:
+            raise ValueError(f"Invalid search method: {optimizer}")
+
+        search.fit(X, y)
+        return {(estimator.__class__.__name__, optimizer): search.best_params_}
+        
+class MultipleSearch0:
+    """
+    A class for performing parameter tuning across multiple 
+    estimators using different search strategies.
+
+    Allows specification of multiple machine learning estimators 
+    and performs parameter tuning using GridSearchCV, RandomizedSearchCV, 
+    or BayesSearchCV. Results, including best parameters and estimators,
+    can be saved to a file.
+
+    Parameters
+    ----------
+    estimators : dict
+        Estimators for tuning. Format: {'estimator_name': estimator_object}.
+    param_grids : dict
+        Parameter grids for the corresponding estimators. Format: {'estimator_name': param_grid}.
+    optimizer : str, optional
+        Method for parameter tuning: 'grid', 'random', 'bayes'. Default is 'grid'.
+    savejob : bool, optional
+        Save tuning results to a joblib file. Default is False.
+    filename : str, optional
+        Filename for saving the joblib file. Required if savejob is True.
+    cv : int, cross-validation generator or an iterable, optional
+        Determines the cross-validation splitting strategy. Default is None.
+    n_iter : int, optional
+        Number of iterations for random or Bayes search. Default is 10.
+    n_job : int or None, optional
+        Number of jobs to run in parallel. None means 1. Default is None.
+    scoring : str, callable, list/tuple or dict, optional
+        A single string or a callable to evaluate the predictions. Default is None.
+    grid_kws : dict, optional
+        Additional keyword arguments to pass to the search method. Default is None.
+
+    Attributes
+    ----------
+    best_params_ : dict
+        Best found parameters for each estimator.
+    best_estimator_ : dict
+        Best estimator for each search.
+    cv_results_ : dict
+        Cross validation results for each search.
+
+    Raises
+    ------
+    ValueError
+        If an invalid search method is specified.
+
+    Examples
+    --------
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> estimators = {'rf': RandomForestClassifier()}
+    >>> param_grids = {'rf': {'n_estimators': [100, 200]}}
+    >>> ms = MultipleSearch(estimators, param_grids, optimizer='grid')
+    >>> ms.fit(X, y)
+    >>> print(ms.best_params_)
+
+    """
+
+    def __init__(self, 
+        estimators, 
+        param_grids, 
+        optimizer='grid', 
+        savejob=False, 
+        filename=None, 
+        cv=None, 
+        n_iter=10, 
+        n_job=None, 
+        scoring=None, 
+        grid_kws=None
+        ):
+        self.estimators = estimators
+        self.param_grids = param_grids
+        self.optimizer = optimizer
+        self.savejob = savejob
+        self.filename = filename
+        self.cv = cv or 5
+        self.n_iter = n_iter
+        self.n_job = n_job
+        self.scoring = scoring
+        self.grid_kws = grid_kws or {}
+
+    def fit(self, X, y):
+        """
+        Fit the parameter tuning for each estimator on the given data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data.
+        y : array-like of shape (n_samples,)
+            Target values.
+        """
+        self.best_params_ = {}
+        self.best_estimator_ = {}
+        self.cv_results_ = {}
+        for name, estimator in self.estimators.items():
+            param_grid = self.param_grids.get(name, {})
+            search = self._get_search(estimator, param_grid, name)
+            search.fit(X, y)
+            self.best_params_[name] = search.best_params_
+            self.best_estimator_[name] = search.best_estimator_
+            self.cv_results_[name] = search.cv_results_
+
+        if self.savejob:
+            self.filename = self.filename or "saved_data.joblib"
+            joblib.dump({'best_params_': self.best_params_, 
+                        'best_estimator_': self.best_estimator_,
+                        'cv_results_': self.cv_results_}, 
+                        self.filename)
+                    
+        return self 
+        
+    def _get_search(self, estimator, param_grid, name):
+        """
+        Get the search object based on the optimizer.
+
+        Parameters
+        ----------
+        estimator : estimator object
+            The estimator to tune.
+        param_grid : dict
+            Parameter grid to search.
+        name : str
+            Name of the estimator.
+
+        Returns
+        -------
+        search : GridSearchCV, RandomizedSearchCV or BayesSearchCV object
+            The search object.
+        """
+        if self.optimizer in ['grid', 'GSCV', 'GridSearchCV']:
+            return GridSearchCV(estimator, param_grid, cv=self.cv, 
+            n_jobs=self.n_job, scoring=self.scoring, **self.grid_kws)
+        elif self.optimizer in ['random', 'RSCV', 'RandomizedSearchCV']:
+            return RandomizedSearchCV(estimator, param_grid, n_iter=self.n_iter, 
+            cv=self.cv, n_jobs=self.n_job, scoring=self.scoring, **self.grid_kws)
+        elif self.optimizer in ['bayes', 'BSCV', 'BayesSearchCV']:
+            return BayesSearchCV(estimator, param_grid, n_iter=self.n_iter, cv=self.cv,
+            n_jobs=self.n_job, scoring=self.scoring, **self.grid_kws)
+        else:
+            raise ValueError(f"Invalid search method: {self.optimizer}")
+
+class CrossValidator:
+    """
+    A class for handling cross-validation of machine learning models.
+
+    This class provides functionalities for performing cross-validation on
+    various classifiers or regressors using different scoring strategies.
+
+    Attributes
+    ----------
+    clf : BaseEstimator
+        The machine learning model to be used for cross-validation.
+    cv : int, optional
+        The number of folds for cross-validation (default is 5).
+    scoring : str, optional
+        The scoring strategy to evaluate the model (default is 'accuracy').
+    results : Optional[Tuple[np.ndarray, float]]
+        Stored results of the cross-validation, including scores and mean score.
+
+    Methods
+    -------
+    fit(X, y=None):
+        Fits the model to the data (X, y) and performs cross-validation.
+    calculate_mean_score():
+        Calculates and returns the mean of the cross-validation scores.
+    display_results():
+        Prints the cross-validation scores and their mean.
+        
+    Examples
+    ---------
+    >>> from gofast.models.search import CrossValidator
+    >>> from sklearn.tree import DecisionTreeClassifier
+    >>> clf = DecisionTreeClassifier()
+    >>> cross_validator = CrossValidator(clf, cv=5, scoring='accuracy')
+    >>> X, y = # Load your dataset here
+    >>> cross_validator.fit(X, y)
+    >>> cross_validator.displayResults()
+    """
+
+    def __init__(
+            self, clf: BaseEstimator,
+            cv: int = 5, 
+            scoring: str = 'accuracy'
+            ):
+        """
+        Initializes the CrossValidator with a classifier and evaluation parameters.
+        """
+        self.clf = clf
+        self.cv = cv
+        self.scoring = scoring
+
+    def fit(self, X: Union[ArrayLike, list],
+            y: Optional[Union[ArrayLike, list]] = None):
+        """
+        Fits the model to the data (X, y) and performs cross-validation.
+
+        Parameters
+        ----------
+        X : np.ndarray or list
+            The feature dataset for training the model.
+        y : np.ndarray or list, optional
+            The target labels for the dataset (default is None).
+
+        Raises
+        ------
+        ValueError
+            If the target labels `y` are not provided for supervised 
+            learning models.
+        """
+        if y is None and issubclass(self.clf.__class__, BaseEstimator):
+            raise ValueError("Target labels `y` must be provided for"
+                             " supervised learning models.")
+        
+        scores = cross_val_score(self.clf, X, y, cv=self.cv, scoring=self.scoring)
+        mean_score = scores.mean()
+        self.results_ = (scores, mean_score)
+
+        return self 
+    
+    def calculateMeanScore(self) -> float:
+        """
+        Calculate and return the mean score from the cross-validation results.
+
+        Returns
+        -------
+        float
+            Mean of the cross-validation scores.
+
+        Raises
+        ------
+        ValueError
+            If cross-validation has not been performed yet.
+        """
+        self.inspect 
+        if self.results_ is None:
+            raise ValueError("Cross-validation has not been performed yet.")
+        return self.results_[1]
+    
+        return self 
+
+    def displayResults(self):
+        """
+        Display the cross-validation scores and their mean.
+
+        Raises
+        ------
+        ValueError
+            If cross-validation has not been performed yet.
+        """
+        self.inspect 
+        if self.results_ is None:
+            raise ValueError("Cross-validation has not been performed yet.")
+        
+        scores, mean_score = self.results_
+        clf_name = self.clf.__class__.__name__
+        print(f'Classifier/Regressor: {clf_name}')
+        print(f'Cross-validation scores: {scores}')
+        print(f'Mean score: {mean_score:.4f}')
+
+    def setCVStrategy(self, cv_strategy: Union[int, str, object], 
+                        n_splits: int = 5, random_state: int = None):
+        """
+        Sets the cross-validation strategy for the model.
+
+        Parameters
+        ----------
+        cv_strategy : int, str, or cross-validation generator object
+            The cross-validation strategy to be used. If an integer is provided,
+            KFold is assumed with that many splits. If a string is provided,
+            it must be one of 'kfold', 'stratified', or 'leaveoneout'.
+            Alternatively, a custom cross-validation generator object can be provided.
+        n_splits : int, optional
+            The number of splits for KFold or StratifiedKFold (default is 5).
+        random_state : int, optional
+            Random state for reproducibility (default is None).
+        
+        Returns
+        -------
+        cv : cross-validation generator object
+            The configured cross-validation generator instance.
+            
+        Notes
+        -----
+        - 'kfold': KFold divides all the samples into 'n_splits' number of groups,
+           called folds, of equal sizes (if possible). Each fold is then used as
+           a validation set once while the remaining folds form the training set.
+        - 'stratified': StratifiedKFold is a variation of KFold that returns
+           stratified folds. Each set contains approximately the same percentage
+           of samples of each target class as the complete set.
+        - 'leaveoneout': LeaveOneOut (LOO) is a simple cross-validation. Each
+           learning set is created by taking all the samples except one, the test
+           set being the sample left out.
+           
+        Raises
+        ------
+        ValueError
+            If an invalid cross-validation strategy or type is provided.
+            
+        Examples 
+        ---------
+        >>> from sklearn.tree import DecisionTreeClassifier
+        >>> clf = DecisionTreeClassifier()
+        >>> cross_validator = CrossValidator(clf, cv=5, scoring='accuracy')
+        >>> cross_validator.setCVStrategy('stratified', n_splits=5)
+        >>> X, y = # Load your dataset here
+        >>> cross_validator.fit(X, y)
+        >>> cross_validator.display_results()
+        """
+        if isinstance(cv_strategy, int):
+            self.cv = KFold(n_splits=cv_strategy, random_state=random_state, shuffle=True)
+        elif isinstance(cv_strategy, str):
+            cv_strategy = cv_strategy.lower()
+            if cv_strategy == 'kfold':
+                self.cv = KFold(n_splits=n_splits, random_state=random_state, shuffle=True)
+            elif cv_strategy == 'stratified':
+                self.cv = StratifiedKFold(n_splits=n_splits, random_state=random_state, 
+                                          shuffle=True)
+            elif cv_strategy == 'leaveoneout':
+                self.cv = LeaveOneOut()
+            else:
+                raise ValueError(f"Invalid cross-validation strategy: {cv_strategy}")
+        elif hasattr(cv_strategy, 'split'):
+            self.cv = cv_strategy
+        else:
+            raise ValueError("cv_strategy must be an integer, a string,"
+                             " or a cross-validation generator object.")
+        
+        return self.cv 
+
+    def applyCVStrategy(
+        self, 
+        X: ArrayLike, 
+        y: ArrayLike, 
+        metrics: Optional[Dict[str, _F[[ArrayLike, ArrayLike], float]]] = None, 
+        display_results: bool = False
+        ):
+        """
+        Applies the configured cross-validation strategy to the given dataset
+        and evaluates the model.
+
+        This method performs cross-validation using the strategy set by the
+        `setCVStrategy` method. It fits the model on each training set and
+        evaluates it on each corresponding test set. The results, including
+        scores and other metrics, are stored in the `cv_results_` attribute.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data to be used for cross-validation.
+        y : array-like of shape (n_samples,)
+            Target values corresponding to X.
+        metrics : dict, optional
+            A dictionary where keys are metric names and values are functions
+            that compute the metric. Each function should accept two arguments:
+            true labels and predicted labels. Default is None.
+            
+        display_results : bool, optional
+            Whether to print the cross-validation results. Default is False.
+
+        Stores
+        -------
+        cv_results_ : dict
+            Dictionary containing the results of cross-validation. This includes
+            scores for each fold, mean score, and standard deviation.
+
+        Notes
+        -----
+        - KFold: Suitable for large datasets and is not stratified.
+        - StratifiedKFold: Suitable for imbalanced datasets, as it preserves
+          the percentage of samples for each class.
+        - LeaveOneOut: Suitable for small datasets but computationally expensive.
+        - Ensure that the cross-validation strategy is appropriately chosen
+          for your dataset and problem. For example, StratifiedKFold is more
+          suited for datasets with imbalanced class distributions.
+        - The metrics functions should match the signature of sklearn.metrics
+          functions, i.e., they accept two arguments: y_true and y_pred.
+          
+        Raises
+        ------
+        ValueError
+            If the cross-validation strategy has not been set prior to calling
+            this method.
+            
+        Examples
+        --------
+        >>> from sklearn.tree import DecisionTreeClassifier
+        >>> from sklearn.datasets import load_iris
+        >>> X, y = load_iris(return_X_y=True)
+        >>> clf = DecisionTreeClassifier()
+        >>> cross_validator = CrossValidator(clf)
+        >>> cross_validator.setCVStrategy('kfold', n_splits=5)
+        >>> cross_validator.applyCVStrategy(X, y, display_results=True)
+        >>> from sklearn.metrics import accuracy_score, precision_score
+        >>> additional_metrics = {
+        ...     'accuracy': accuracy_score,
+        ...     'precision': precision_score
+        ... }
+        >>> cross_validator.applyCVStrategy(X, y, metrics=additional_metrics)
+        """
+        if not hasattr(self, 'cv'):
+            raise ValueError("Cross-validation strategy not set."
+                             " Please call setCVStrategy first.")
+
+        self.cv_results_ = {'scores': [], 'additional_metrics': {}}
+        if metrics:
+            for metric in metrics:
+                self.cv_results_['additional_metrics'][metric] = []
+
+        for train_index, test_index in self.cv.split(X, y):
+            X_train, X_test = X[train_index], X[test_index]
+            y_train, y_test = y[train_index], y[test_index]
+
+            model_clone = clone(self.model)
+            model_clone.fit(X_train, y_train)
+            y_pred = model_clone.predict(X_test)
+
+            score = model_clone.score(X_test, y_test)
+            self.cv_results_['scores'].append(score)
+
+            if metrics:
+                for metric_name, metric_func in metrics.items():
+                    metric_score = metric_func(y_test, y_pred)
+                    self.cv_results_['additional_metrics'][metric_name].append(metric_score)
+
+        self.cv_results_['mean_score'] = np.mean(self.cv_results_['scores'])
+        self.cv_results_['std_dev'] = np.std(self.cv_results_['scores'])
+
+        if metrics:
+            for metric in self.cv_results_['additional_metrics']:
+                mean_metric = np.mean(self.cv_results_['additional_metrics'][metric])
+                self.cv_results_['additional_metrics'][metric] = mean_metric
+
+        if display_results:
+            self._display_results()
+
+        return self
+
+    def _display_results(self):
+        """
+       Displays the results of cross-validation.
+
+        This method prints the mean score, standard deviation, and individual
+        fold scores from the cross-validation.
+
+        Raises
+        ------
+        ValueError
+            If this method is called before applying cross-validation.
+        """
+        if not hasattr(self, 'cv_results_'):
+            raise ValueError("Cross-validation not applied. Please call apply_cv_strategy.")
+
+        print(f"CV Mean Score: {self.cv_results_['mean_score']:.3f}")
+        print(f"CV Standard Deviation: {self.cv_results_['std_dev']:.3f}")
+        print("Scores per fold: ", self.cv_results_['scores'])
+
+
+    @property 
+    def inspect(self): 
+        """ Inspect data and trigger plot after checking the data entry. 
+        Raises `NotFittedError` if `ExPlot` is not fitted yet."""
+        
+        msg = ( "{expobj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+        
+        if not hasattr (self, "results_" ): 
+            raise NotFittedError(msg.format(expobj=self))
+        return 1 
+
+class BaseSearch: 
     __slots__=(
         '_base_estimator',
         'grid_params', 
         'scoring',
         'cv', 
-        '_kind', 
+        '_optimizer', 
         'grid_kws', 
         'best_params_',
         'cv_results_',
@@ -92,7 +682,7 @@ class GridSearch:
         base_estimator:_F,
         grid_params:Dict[str,Any],
         cv:int =4,
-        kind:str ='GridSearchCV',
+        optimizer:str ='GridSearchCV',
         scoring:str = 'nmse',
         savejob:bool=False, 
         filename:str=None, 
@@ -108,8 +698,9 @@ class GridSearch:
         self.cv_results_= None
         self.feature_importances_= None
         self.grid_kws = grid_kws 
-        self._kind = kind 
+        self._optimizer = optimizer 
         self.verbose=verbose
+        self.filename=filename
 
     @property 
     def base_estimator (self): 
@@ -128,24 +719,24 @@ class GridSearch:
         self._base_estimator =base_est 
         
     @property 
-    def kind(self): 
+    def optimizer(self): 
         """ Kind of searched. `RandomizedSearchCV` or `GridSearchCV`."""
-        return self._kind 
+        return self._optimizer 
     
-    @kind.setter 
-    def kind (self, ksearch): 
-        """`kind attribute checker"""
+    @optimizer.setter 
+    def optimizer (self, ksearch): 
+        """`optimizer attribute checker"""
         if 'gridsearchcv1'.find( str(ksearch).lower())>=0: 
             ksearch = 'GridSearchCV' 
         elif 'randomizedsearchcv2'.find( str(ksearch).lower())>=0:
             ksearch = 'RandomizedSearchCV'
         else: raise ValueError (
-            " Unkown the kind of parameter search {ksearch!r}."
+            " Unkown the optimizer of parameter search {ksearch!r}."
             " Supports only 'GridSearchCV' and 'RandomizedSearchCV'.")
-        self._kind = ksearch 
+        self._optimizer = ksearch 
 
     def fit(self,  X, y): 
-        """ Fit method using base Estimator and populate gridSearch 
+        """ Fit method using base Estimator and populate BaseSearch 
         attributes.
  
         Parameters
@@ -165,8 +756,8 @@ class GridSearch:
 
         Returns
         ----------
-        ``self``: `GridSearch`
-            Returns :class:`~.GridSearch` 
+        ``self``: `BaseSearch`
+            Returns :class:`~.BaseSearch` 
     
         """
         if callable (self.base_estimator): 
@@ -180,11 +771,11 @@ class GridSearch:
                        )
                 warnings.warn(msg)
         
-        self.kind =self._kind 
+        self.optimizer =self._optimizer 
         
-        if self.kind =='GridSearchCV': 
+        if self.optimizer =='GridSearchCV': 
             searchGridMethod = GridSearchCV 
-        elif self.kind=='RandomizedSearchCV': 
+        elif self.optimizer=='RandomizedSearchCV': 
             searchGridMethod= RandomizedSearchCV 
             
         if self.scoring in ( 'nmse', None): 
@@ -215,14 +806,14 @@ class GridSearch:
         else : 
             setattr(self,'feature_importances_', attr_value)
         
-        self.data_=  dict( get_estimator_name (self.base_estimator) = params_values)  
+        self.data_=  { f"{get_estimator_name (self.base_estimator)}":  params_values} 
         if self.savejob: 
-            filename = filename or get_estimator_name ( self.base_estimator)+ '.results'
+            self.filename = self.filename or get_estimator_name ( self.base_estimator)+ '.results'
             save_job ( job= self.data_ , savefile = self.filename ) 
 
         return self
     
-GridSearch.__doc__="""\
+BaseSearch.__doc__="""\
 Fine-tune hyperparameters using grid search methods. 
 
 Search Grid will be able to  fiddle with the hyperparameters until to 
@@ -261,7 +852,7 @@ filename: str,
 
 {params.core.cv}
     The default is ``4``.
-kind:str, default='GridSearchCV' or '1'
+optimizer:str, default='GridSearchCV' or '1'
     Kind of grid parameter searches. Can be ``1`` for ``GridSearchCV`` or
     ``2`` for ``RandomizedSearchCV``. 
 {params.core.scoring} 
@@ -271,7 +862,7 @@ Examples
 -----------
 >>> from pprint import pprint 
 >>> from gofast.datasets import fetch_data 
->>> from gofast.models.search import GridSearch
+>>> from gofast.models.search import BaseSearch
 >>> from sklearn.ensemble import RandomForestClassifier
 >>> X_prepared, y_prepared =fetch_data ('bagoue prepared')
 >>> grid_params = [ dict(
@@ -280,7 +871,7 @@ Examples
 ...                             max_features=[2, 3, 4])
 ...        ]
 >>> forest_clf = RandomForestClassifier()
->>> grid_search = GridSearch(forest_clf, grid_params)
+>>> grid_search = BaseSearch(forest_clf, grid_params)
 >>> grid_search.fit(X= X_prepared,y =  y_prepared,)
 >>> pprint(grid_search.best_params_ )
 {{'max_features': 8, 'n_estimators': 30}}
@@ -288,14 +879,14 @@ Examples
 """.format (params=_param_docs,
 )
     
-class GridSearchMultiple:
+class SearchMultiple:
     def __init__ (
         self, 
         estimators: _F, 
         scoring:str,  
         grid_params: Dict[str, Any],
         *, 
-        kind:str ='GridSearchCV', 
+        optimizer:str ='GridSearchCV', 
         cv: int =7, 
         random_state:int =42,
         savejob:bool =False,
@@ -306,7 +897,7 @@ class GridSearchMultiple:
         self.estimators = estimators 
         self.scoring=scoring 
         self.grid_params=grid_params
-        self.kind=kind 
+        self.optimizer=optimizer 
         self.cv=cv
         self.savejob=savejob
         self.filename=filename 
@@ -351,11 +942,11 @@ class GridSearchMultiple:
         
         for j, estm in enumerate(self.estimators):
             estm_name = get_estimator_name(estm)
-            msg = f'{estm_name} is evaluated with {self.kind}.'
-            searchObj = GridSearch(base_estimator=estm, 
+            msg = f'{estm_name} is evaluated with {self.optimizer}.'
+            searchObj = BaseSearch(base_estimator=estm, 
                                     grid_params= self.grid_params[j], 
                                     cv = self.cv, 
-                                    kind=self.kind, 
+                                    optimizer=self.optimizer, 
                                     scoring=self.scoring, 
                                     **self.grid_kws
                                       )
@@ -364,7 +955,7 @@ class GridSearchMultiple:
             
             if self.verbose > 7 :
                 msg += ( 
-                    f"\End {self.kind} search. Set estimator {estm_name!r}"
+                    f"\End {self.optimizer} search. Set estimator {estm_name!r}"
                     " best parameters, cv_results and other importances" 
                     " attributes\n'"
                  )
@@ -434,7 +1025,7 @@ class GridSearchMultiple:
 
         return self 
 
-GridSearchMultiple.__doc__="""\
+SearchMultiple.__doc__="""\
 Search and find multiples best parameters from differents
 estimators.
 
@@ -468,7 +1059,7 @@ grid_params: list
 
 {params.core.scoring}
    
-kind:str, default='GridSearchCV' or '1'
+optimizer:str, default='GridSearchCV' or '1'
     Kind of grid parameter searches. Can be ``1`` for ``GridSearchCV`` or
     ``2`` for ``RandomizedSearchCV``. 
     
@@ -490,7 +1081,7 @@ grid_kws: dict,
     
 Examples
 --------
->>> from gofast.search import GridSearchMultiple , displayFineTunedResults
+>>> from gofast.search import SearchMultiple , displayFineTunedResults
 >>> from sklearn.svm import SVC, LinearSVC 
 >>> from sklearn.linear_model import SGDClassifier,LogisticRegression
 >>> X, y  = gf.fetch_data ('bagoue prepared') 
@@ -513,15 +1104,15 @@ Examples
                 [dict()], # we just no provided parameter for demo
                 [dict()]
                 )
->>> #Now  we can call :class:`gofast.models.GridSearchMultiple` for
+>>> #Now  we can call :class:`gofast.models.SearchMultiple` for
 >>> # training and self-validating as:
->>> gobj = GridSearchMultiple(estimators = estimators, 
+>>> gobj = SearchMultiple(estimators = estimators, 
                        grid_params = grid_params ,
                        cv =4, 
                        scoring ='accuracy', 
                        verbose =1,   #> 7 put more verbose 
                        savejob=False ,  # set true to save job in binary disk file.
-                       kind='GridSearchCV').fit(X, y)
+                       optimizer='GridSearchCV').fit(X, y)
 >>> # Once the parameters are fined tuned, we can display the fined tuning 
 >>> # results using displayFineTunedResults`` function
 >>> displayFineTunedResults (gobj.models.values_) 
@@ -810,7 +1401,7 @@ pipeline: Callable or :class:`~sklearn.pipeline.Pipeline` object
     Refer to https://scikit-learn.org/stable/modules/classes.html#module-sklearn.pipeline
     for further details. 
     
-kind: str, default ='GridSearchCV'
+optimizer: str, default ='GridSearchCV'
     Kind of grid search method. Could be ``GridSearchCV`` or 
     ``RandomizedSearchCV``.
 
@@ -874,7 +1465,7 @@ def get_best_kPCA_params(
             ('kpca', KernelPCA(n_components=n_components)),
             ('log_reg', LogisticRegression())
             ])
-    gridObj =GridSearch(base_estimator= clf,
+    gridObj =BaseSearch(base_estimator= clf,
                         grid_params= param_grid, 
                         cv=cv,
                         **grid_kws

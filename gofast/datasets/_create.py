@@ -12,15 +12,419 @@ import numpy as np
 import random
 from datetime import timedelta
 from sklearn.model_selection import train_test_split 
+from ..tools._dependency import import_optional_dependency 
+from ..tools.baseutils import run_shell_command, remove_target_from_array
 from ..tools.box import Boxspace 
-from ..tools.funcutils import ( 
-    ellipsis2false ,
-    assert_ratio,
-    is_iterable, 
-    is_in_if , 
-    _assert_all_types, 
-    add_noises_to
-    ) 
+from ..tools.funcutils import ellipsis2false ,assert_ratio, is_iterable 
+from ..tools.funcutils import is_in_if, _assert_all_types,  add_noises_to 
+from ..tools.funcutils import smart_format, reshape 
+from ._globals import AFRICAN_COUNTRIES 
+from ._globals import COMMON_PESTICIDES, COMMON_CROPS 
+from ._globals import WATER_QUAL_NEEDS, WATER_QUAN_NEEDS, SDG6_CHALLENGES
+from ._globals import ORE_TYPE, EXPLOSIVE_TYPE, EQUIPMENT_TYPE
+
+
+def make_classification(
+    n_samples=70,
+    n_features=7, *,
+    n_classes=2,
+    n_labels=1,
+    noise=0.1, 
+    bias=0.0, 
+    scale=None, 
+    class_sep=1.0,
+    as_frame=False, 
+    return_X_y=False, 
+    split_X_y=False, 
+    test_size=0.3, 
+    nan_percentage=None, 
+    seed=None, 
+    **kws 
+    ):
+    """
+    Generate synthetic classification data for testing classification 
+    algorithms. 
+    
+    Funtion supports multilabel classification task.
+
+    `make_classification` is designed to create datasets suitable for evaluating 
+    and testing different classification algorithms. It allows control over the 
+    number of classes, features, and offers various options for data scaling.
+
+    Parameters
+    ----------
+    n_samples : int, default=70
+        Number of samples to generate in the dataset.
+    n_features : int, default=7
+        Number of features for each sample.
+    n_classes : int, default=2
+        Number of distinct classes or labels in the dataset.
+    n_labels : int, default=1
+        Number of labels per instance for multilabel classification.
+        For n_labels > 1, the output y will be a 2D array with multiple 
+        labels per instance.
+    noise : float, default=0.1
+        Standard deviation of Gaussian noise added to the output.
+    bias : float, default=0.0
+        Bias term to be added to the output.
+    scale : str or None, default=None
+        Method used to scale the dataset. Options are 'standard', 'minmax',
+        and 'normalize'.
+        If None, no scaling is applied.
+    class_sep : float, default=1.0
+        Factor multiplying the hypercube size. Larger values spread out 
+        the classes.
+    as_frame : bool, default=False
+        If True, the data is returned as a pandas DataFrame.
+    return_X_y : bool, default=False
+        If True, returns (data, target) instead of a single array.
+    split_X_y : bool, default=False
+        If True, the dataset is split into training and testing sets based on
+        `test_size`.
+    test_size : float, default=0.3
+        Proportion of the dataset to include in the test split.
+    nan_percentage : float or None, default=None
+        The percentage of values to be replaced with NaN in each column. 
+        This must be a number between 0 and 1.
+    seed : int, np.random.RandomState instance, or None, default=None
+        Determines random number generation for dataset creation. Pass an int for
+        reproducible output.
+
+    Returns
+    -------
+    obj: gofast.tools.Boxspace 
+        The object that contains data details: frame, data, target etc. if 
+        `return_X_y` and `split_X_y` and `as_frame` are ``False``.
+    X, y : ndarray of shape (n_samples, n_features) or DataFrame
+        The generated samples and target values. If `as_frame` is True, 
+        returns a DataFrame.
+        
+    Scaling Methods 
+    ------------------
+    - Standard Scaler:
+        z = \frac{x - \mu}{\sigma}
+      where \mu is the mean and \sigma is the standard deviation.
+    - MinMax Scaler:
+        z = \frac{x - \min(x)}{\max(x) - \min(x)}
+    - Normalize:
+        z = \frac{x}{||x||}
+      where ||x|| is the Euclidean norm (L2 norm).
+      
+    Examples
+    --------
+    >>> X, y = make_classification(n_samples=100, n_features=2, scale='standard', 
+                                   n_classes=3, class_sep=2.0)
+    >>> X.shape, y.shape
+    ((100, 2), (100,))
+
+    Notes
+    -----
+    This function is useful for creating artificial datasets for classification 
+    tasks. It allows the simulation of datasets with varying degrees of class 
+    separability, making it suitable for testing the robustness of 
+    classification models.
+    """
+    # Set random seed for reproducibility
+    rng = np.random.RandomState(seed) if seed is not None else np.random
+    # Generate random features
+    X = rng.normal(size=(n_samples, n_features)) * class_sep
+    # Generate random labels for multilabel classification
+    y = rng.randint(0, n_classes, size=(n_samples, n_labels))
+    # Add noise and bias
+    X += noise * rng.normal(size=X.shape) + bias
+
+    # Apply scaling if specified
+    if scale is not None:
+        X, y = _apply_scaling(X, y, method=str(scale).lower() )
+
+    data = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
+    
+    if n_labels==1: 
+        data['target']=reshape (y[:, 0])
+    else: 
+        for i in range(n_labels):
+            data[f'target_{i}'] = y [:, i]       
+    tnames = 'target' if n_labels ==1 else [f'target_{i}'for i in range(n_labels)]
+    return _manage_data(
+        data,
+        as_frame=as_frame, 
+        tnames=tnames, 
+        return_X_y= return_X_y, 
+        split_X_y=split_X_y, 
+        test_size=test_size, 
+        noise=nan_percentage, 
+        seed=seed
+        ) 
+
+def make_regression( 
+    n_samples=70,
+    n_features=7, *, 
+    noise=0.1, 
+    bias=0.0, 
+    scale=None, 
+    regression_type='linear', 
+    as_frame=False, 
+    return_X_y=False, 
+    split_X_y=False, 
+    test_size=0.3, 
+    target_indices=None, 
+    nan_percentage=None, 
+    seed=None, 
+    **kws 
+    ):
+    """
+    Generate regression data with customizable scaling and regression patterns.
+
+    This function is designed to create datasets that are ideal for evaluating
+    and testing different regression algorithms. It offers various options 
+    for the regression pattern, scaling of data, and data formatting.
+
+    Parameters
+    ----------
+    n_samples : int, default=70
+        Number of samples to generate in the dataset.
+    n_features : int, default=7
+        Number of features for each sample.
+    noise : float, default=0.1
+        Standard deviation of Gaussian noise added to the output.
+    bias : float, default=0.0
+        Bias term to be added to the output.
+    scale : str or None, default=None
+        Method used to scale the dataset. Options are 'standard', 'minmax', 
+        and 'normalize'.If None, no scaling is applied.
+    regression_type : str, default='linear'
+        Type of regression pattern to simulate. Options include 'linear', 
+        'quadratic', 'cubic', 'exponential', 'logarithmic', 'sinusoidal',
+        and 'step'.
+    as_frame : bool, default=False
+        If True, the data is returned as a pandas DataFrame.
+    return_X_y : bool, default=False
+        If True, returns (data, target) instead of a single array.
+    split_X_y : bool, default=False
+        If True, the dataset is split into training and testing sets based 
+        on `test_size`.
+    test_size : float, default=0.3
+        Proportion of the dataset to include in the test split.
+    target_indices : list or None, default=None
+        Indices of target features to be extracted. If specified, these 
+        columns are removed from the returned 'X' and included in 'y'.
+    nan_percentage : float, Optional
+        The percentage of values to be replaced with NaN in each column. 
+        This must be a number between 0 and 1. Default is None.
+    seed : int, np.random.RandomState instance, or None, default=None
+        Determines random number generation for dataset creation. Pass an 
+        int for reproducible output.
+
+    Returns
+    -------
+    obj: gofast.tools.Boxspace 
+        The object that contains data details: frame, data, target etc, if 
+        `return_X_y` and `split_X_y` and `as_frame` are ``False``.
+    X : ndarray of shape (n_samples, n_features)
+        The input samples.
+    y : ndarray of shape (n_samples,)
+        The output values.
+
+    Scaling Methods 
+    ------------------
+    - Standard Scaler:
+        z = \frac{x - \mu}{\sigma}
+      where \mu is the mean and \sigma is the standard deviation.
+    - MinMax Scaler:
+        z = \frac{x - \min(x)}{\max(x) - \min(x)}
+    - Normalize:
+        z = \frac{x}{||x||}
+      where ||x|| is the Euclidean norm (L2 norm).
+
+    Examples
+    --------
+    >>> from gofast.datasets import make_regression
+    >>> X, y = make_regression(n_samples=100, n_features=2, scale='standard', 
+                               regression_type='quadratic')
+    >>> X.shape, y.shape
+    ((100, 2), (100,))
+
+    Notes
+    -----
+    This function is useful for testing regression models by generating data 
+    with known properties. Different regression types allow simulation of 
+    various real-world scenarios. The scaling options help in preparing data 
+    that mimics different data distributions.
+    """
+    np.random.seed(seed)  # Ensures reproducibility
+    X = np.random.randn(n_samples, n_features)
+    coef = np.random.randn(n_features)
+    # Generate regression data based on the specified type
+    regression_type = str(regression_type).lower()
+    y = _generate_regression_output(X, coef, bias, noise, regression_type)
+    
+    target_indices = target_indices or -1 
+    target_indices = is_iterable (target_indices, transform=True) 
+    if len(target_indices)!=1:
+        # concat it 
+        X = np.hstack (( X, y.reshape( -1,1)))
+         # remove target if multilabels
+        X, y = remove_target_from_array ( X, target_indices=target_indices )
+        
+    # Apply scaling if specified    
+    if scale is not None:
+       scale = str(scale).lower() 
+       X, y = _apply_scaling(X, y, method=scale)   
+        
+    tnames = 'target' if len(target_indices) ==1 else [
+        f'target_{i}'for i in range(len(target_indices) )]   
+    data = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
+    data[tnames]=y
+    
+    return _manage_data(
+        data,
+        as_frame=as_frame, 
+        tnames=tnames, 
+        return_X_y= return_X_y, 
+        split_X_y=split_X_y, 
+        test_size=test_size,
+        noise=nan_percentage, 
+        seed=seed
+        ) 
+
+def make_social_media_comments(
+    *, samples=1000, 
+    as_frame:bool =..., 
+    return_X_y:bool = ..., 
+    split_X_y:bool= ..., 
+    tnames:list=None,  
+    test_size:float =.3, 
+    noise: float=None, 
+    seed:int | np.random.RandomState = None, 
+    **kws 
+    ):
+    """
+    Generate a synthetic dataset of social media comments.
+
+    This function creates a DataFrame containing simulated social media 
+    comments, including features like comment text, timestamp, 
+    username, and number of likes.
+
+    Parameters
+    ----------
+    samples : int, optional
+        The number of comments to generate. Default is 1000.
+
+    as_frame : bool, default=False
+        If True, the data is returned as a pandas DataFrame with appropriately 
+        typed columns (numeric). The target is returned as a pandas DataFrame 
+        or Series, depending on the number of target columns.
+        If `return_X_y` is True, then both `data` and `target` are returned 
+        as pandas DataFrames or Series.
+    
+    return_X_y : bool, default=False
+        If True, returns `(data, target)` instead of a Bowlspace object. 
+        See the "Returns" section below for more information about the 
+        `data` and `target` objects.
+    
+    split_X_y : bool, default=False
+        If True, the dataset is split into training (X, y) and testing (Xt, yt)
+        sets according to the specified test size ratio.
+    
+    tnames : str, optional
+        The name of the target column to retrieve. If `None`, the default 
+        target columns are used, which may result in a multioutput `y`. For 
+        single-output tasks in classification or regression, it's recommended 
+        to specify the target name.
+    
+    test_size : float, default=0.3
+        The proportion of the dataset to be used as the test set. The default
+        is 0.3, meaning 30% of the data is used for testing.
+        
+    noise : float, Optional
+        The percentage of values to be replaced with NaN in each column. 
+        This must be a number between 0 and 1. Default is None.
+        
+    seed : int, array-like, BitGenerator, np.random.RandomState,\
+        np.random.Generator, optional
+        Seed for the random number generator. Accepts an integer, array-like, 
+        or BitGenerator for seeding.
+        If an instance of np.random.RandomState or np.random.Generator 
+        is provided, it will be used as is.
+    
+    Returns
+    -------
+    DataFrame
+        Returns a pandas DataFrame containing the demographic dataset if 
+        `as_frame=True` and `return_X_y=False`.
+        DataFrame
+            A pandas DataFrame with the following columns:
+            - 'username': The username of the commenter.
+            - 'comment': The text of the comment.
+            - 'timestamp': The timestamp of the comment.
+            - 'likes': The number of likes on the comment.
+            
+    data : :class:`~gofast.tools.box.Boxspace` object
+        A dictionary-like object with the following attributes:
+        data : ndarray or DataFrame
+            The data matrix. If `as_frame=True`, `data` is a pandas DataFrame.
+        target : ndarray or Series
+            The classification target. If `as_frame=True`, `target` is a 
+            pandas Series.
+        feature_names : list
+            Names of the dataset columns.
+        target_names : list
+            Names of the target classes.
+        frame : DataFrame
+            Present only when `as_frame=True`. DataFrame with `data` and 
+            `target`.
+    data, target : tuple
+        A tuple of two ndarrays if `return_X_y` is True. The first ndarray
+        is 2D with shape
+        `(n_samples, n_features)`, representing samples and features. The
+        second ndarray has shape`(n_samples,)`, containing target values.
+    
+    X, Xt, y, yt : tuple
+        A tuple of four ndarrays (X, Xt, y, yt) if `split_X_y` is True. The 
+        shapes of these arrays are determined by the test_size ratio as 
+        follows:
+        
+        .. math::
+            \\text{shape}(X, y) = (1 - \\text{test_size}) \\times (n_{samples}, n_{features})
+            \\text{shape}(Xt, yt) = \\text{test_size} \\times (n_{samples}, n_{features})
+    
+        Each row represents a sample and each column represents a feature. 
+        
+    Examples
+    --------
+    >>> df = make_social_media_comments(n=100, seed=42)
+    >>> print(df.head())
+    """
+    if seed is not None:
+        np.random.seed(seed)
+    try: 
+        import_optional_dependency('faker')
+    except: 
+        run_shell_command(["pip", "install", "faker"])
+    # recheck whether faker is well installed
+    import_optional_dependency('Faker')
+    from faker import Faker
+    fake = Faker()
+    Faker.seed(seed)
+
+    data = {
+        'username': [fake.user_name() for _ in range(samples)],
+        'comment': [fake.sentence() for _ in range(samples)],
+        'timestamp': [fake.date_time_this_year() for _ in range(samples)],
+        'likes': np.random.randint(0, 1000, samples)
+    }
+    tnames = list( is_iterable(
+        tnames or 'comment', exclude_string= True, transform =True ) ) 
+    return _manage_data(
+        data,
+        as_frame=as_frame, 
+        return_X_y= return_X_y, 
+        split_X_y=split_X_y, 
+        tnames=tnames, 
+        test_size=test_size,
+        noise= noise, 
+        seed=seed
+        ) 
 
 def make_african_demo(*, 
     start_year=1960,
@@ -31,7 +435,7 @@ def make_african_demo(*,
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -48,82 +452,83 @@ def make_african_demo(*,
     Parameters
     ----------
     start_year : int
-        The starting year for the dataset (e.g., 1960).
-
+        The starting year for the dataset, e.g., 1960.
+    
     end_year : int
         The ending year for the dataset.
-
+    
     countries : int or list of str
-        A list of African countries to include in the dataset.
-
+        A single integer or a list of country names from Africa to be included 
+        in the dataset.
+    
     as_frame : bool, default=False
-        If True, the data is a pandas DataFrame including columns with
-        appropriate dtypes (numeric). The target is
-        a pandas DataFrame or Series depending on the number of target columns.
-        If `return_X_y` is True, then (`data`, `target`) will be pandas
-        DataFrames or Series as described below.
-
+        If True, the data is returned as a pandas DataFrame with appropriately 
+        typed columns (numeric). The target is returned as a pandas DataFrame 
+        or Series, depending on the number of target columns.
+        If `return_X_y` is True, then both `data` and `target` are returned 
+        as pandas DataFrames or Series.
+    
     return_X_y : bool, default=False
-        If True, returns ``(data, target)`` instead of a Bowlspace object. See
-        below for more information about the `data` and `target` object.
-        
-    split_X_y: bool, default=False,
-        If True, the data is splitted to hold the training set (X, y)  and the 
-        testing set (Xt, yt) with the according to the test size ratio. 
-        
-    tnames: str, optional 
-        the name of the target to retreive. If ``None`` the default target columns 
-        are collected and may be a multioutput `y`. For a singular classification 
-        or regression problem, it is recommended to indicate the name of the target 
-        that is needed for the learning task. 
-        
-    test_size: float, default is {{.3}} i.e. 30% (X, y)
-        The ratio to split the data into training (X, y)  and testing (Xt, yt) set 
-        respectively. 
-        
-    seed: int, array-like, BitGenerator, np.random.RandomState, \
+        If True, returns `(data, target)` instead of a Bowlspace object. 
+        See the "Returns" section below for more information about the 
+        `data` and `target` objects.
+    
+    split_X_y : bool, default=False
+        If True, the dataset is split into training (X, y) and testing (Xt, yt)
+        sets according to the specified test size ratio.
+    
+    tnames : str, optional
+        The name of the target column to retrieve. If `None`, the default 
+        target columns are used, which may result in a multioutput `y`. For 
+        single-output tasks in classification or regression, it's recommended 
+        to specify the target name.
+    
+    test_size : float, default=0.3
+        The proportion of the dataset to be used as the test set. The default
+        is 0.3, meaning 30% of the data is used for testing.
+    
+    seed : int, array-like, BitGenerator, np.random.RandomState,\
         np.random.Generator, optional
-       If int, array-like, or BitGenerator, seed for random number generator. 
-       If np.random.RandomState or np.random.Generator, use as given.
-       
+        Seed for the random number generator. Accepts an integer, array-like, 
+        or BitGenerator for seeding.
+        If an instance of np.random.RandomState or np.random.Generator 
+        is provided, it will be used as is.
+    
     Returns
     -------
-    pd.DataFrame if ``as_frame=True`` and ``return_X_y=False``
-        A DataFrame containing the generated demographic dataset.
+    DataFrame
+        Returns a pandas DataFrame containing the demographic dataset if 
+        `as_frame=True` and `return_X_y=False`.
     data : :class:`~gofast.tools.box.Boxspace` object
-        Dictionary-like object, with the following attributes.
-        data : {ndarray, dataframe} 
-            The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
-        target: {ndarray, Series} 
-            The classification target. If `as_frame=True`, `target` will be
-            a pandas Series.
-        feature_names: list
-            The names of the dataset columns.
-        target_names: list
-            The names of target classes.
-        frame: DataFrame 
-            Only present when `as_frame=True`. DataFrame with `data` and
+        A dictionary-like object with the following attributes:
+        data : ndarray or DataFrame
+            The data matrix. If `as_frame=True`, `data` is a pandas DataFrame.
+        target : ndarray or Series
+            The classification target. If `as_frame=True`, `target` is a 
+            pandas Series.
+        feature_names : list
+            Names of the dataset columns.
+        target_names : list
+            Names of the target classes.
+        frame : DataFrame
+            Present only when `as_frame=True`. DataFrame with `data` and 
             `target`.
-    data, target: tuple if `return_X_y` is ``True``
-        A tuple of two ndarray. The first containing a 2D array of shape
-        (n_samples, n_features) with each row representing one sample and
-        each column representing the features. The second ndarray of shape
-        (n_samples,) containing the target samples.
-
-    X, Xt, y, yt: Tuple if `split_X_y` is ``True`` 
-        A tuple of two ndarray (X, Xt). The first containing a 2D array of:
-            
-        .. math:: 
-            
-            \\text{shape}(X, y) =  1-  \\text{test_ratio} *\
-                (n_{samples}, n_{features}) *100
-            
-            \\text{shape}(Xt, yt)= \\text{test_ratio} * \
-                (n_{samples}, n_{features}) *100
+    data, target : tuple
+        A tuple of two ndarrays if `return_X_y` is True. The first ndarray
+        is 2D with shape
+        `(n_samples, n_features)`, representing samples and features. The
+        second ndarray has shape`(n_samples,)`, containing target values.
+    
+    X, Xt, y, yt : tuple
+        A tuple of four ndarrays (X, Xt, y, yt) if `split_X_y` is True. The 
+        shapes of these arrays are determined by the test_size ratio as 
+        follows:
         
-        where each row representing one sample and each column representing the 
-        features. The second ndarray of shape(n_samples,) containing the target 
-        samples.
+        .. math::
+            \\text{shape}(X, y) = (1 - \\text{test_size}) \\times (n_{samples}, n_{features})
+            \\text{shape}(Xt, yt) = \\text{test_size} \\times (n_{samples}, n_{features})
+    
+        Each row represents a sample and each column represents a feature. 
         
     Example
     -------
@@ -175,14 +580,13 @@ def make_african_demo(*,
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size,
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
     return demo_data
 
-def make_agronomy_feedback(
-    *, 
+def make_agronomy_feedback(*, 
     samples=100, 
     num_years=5, 
     n_specimens:int =7, 
@@ -191,7 +595,7 @@ def make_agronomy_feedback(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -293,7 +697,7 @@ def make_agronomy_feedback(
     >>> from gofast.datasets import make_agronomy_feedback
     >>> samples = 100
     >>> num_years = 5
-    >>> agronomy_data = make_agronomy_feedback(samples, num_years, n_specimens=3)
+    >>> agronomy_data = make_agronomy_feedback(samples, num_years=num_years, n_specimens=3)
     >>> print(agronomy_data.head())
 
     """
@@ -303,8 +707,8 @@ def make_agronomy_feedback(
                 objname='The number of specimens (crop and pesticides)')
         )
     
-    pesticide_types = random.choice(COMMON_PESTICIDES, n_specimens)
-    crop_types = random.choice(COMMON_CROPS, n_specimens)
+    pesticide_types = random.sample(COMMON_PESTICIDES, n_specimens)
+    crop_types = random.sample(COMMON_CROPS, n_specimens)
     data = []
     for entry_id in range(samples):
         for year in range(num_years):
@@ -354,7 +758,7 @@ def make_agronomy_feedback(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
     return agronomy_dataset
@@ -367,7 +771,7 @@ def make_mining_ops(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -575,7 +979,7 @@ def make_mining_ops(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size,
-        noises= noises, 
+        noise= noise, 
         seed=seed, 
         ) 
     return mining_data
@@ -588,7 +992,7 @@ def make_sounding(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -737,7 +1141,7 @@ def make_sounding(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
@@ -748,7 +1152,7 @@ def make_medical_diagnosis(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -913,7 +1317,7 @@ def make_medical_diagnosis(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size,
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
@@ -927,7 +1331,7 @@ def make_well_logging(*,
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -1063,7 +1467,7 @@ def make_well_logging(*,
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
@@ -1077,7 +1481,7 @@ def make_ert(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -1220,7 +1624,7 @@ def make_ert(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
@@ -1237,7 +1641,7 @@ def make_tem(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -1379,7 +1783,7 @@ def make_tem(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size,
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
@@ -1393,7 +1797,7 @@ def make_erp(*,
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -1545,7 +1949,7 @@ def make_erp(*,
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
@@ -1561,7 +1965,7 @@ def make_elogging(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -1698,7 +2102,7 @@ def make_elogging(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
@@ -1712,7 +2116,7 @@ def make_gadget_sales(*,
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -1851,7 +2255,7 @@ def make_gadget_sales(*,
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size, 
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
@@ -1863,7 +2267,7 @@ def make_retail_store(
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
-    noises: float=None, 
+    noise: float=None, 
     seed:int | np.random.RandomState = None, 
     **kws
     ):
@@ -2010,13 +2414,13 @@ def make_retail_store(
         split_X_y=split_X_y, 
         tnames=tnames, 
         test_size=test_size,
-        noises= noises, 
+        noise= noise, 
         seed=seed
         ) 
 
 def make_cc_factors(
     *, samples=1000,  
-    noises=.1, 
+    noise=.1, 
     as_frame:bool =..., 
     return_X_y:bool = ..., 
     split_X_y:bool= ..., 
@@ -2034,7 +2438,7 @@ def make_cc_factors(
     samples : int, default=1000.
         Number of samples in the dataset.
 
-    noises : float, default='10%'
+    noise : float, default='10%'
         Probability of a value being missing in the dataset, by default 0.1.
 
     as_frame : bool, default=False
@@ -2158,9 +2562,9 @@ def make_cc_factors(
     # data = data_flattened.reshape((samples, len(features)))
 
     # df = pd.DataFrame ( data , columns = features )
-    noises = assert_ratio(noises)
+    noise = assert_ratio(noise)
     data = np.random.randn(samples, len(features)) * 10  # Random data generation
-    missing_mask = np.random.random(size=data.shape) < noises
+    missing_mask = np.random.random(size=data.shape) < noise
     data[missing_mask] = np.nan  # Introduce missing values based on the probability
     
     # Generating a Pandas DataFrame
@@ -2170,7 +2574,7 @@ def make_cc_factors(
         tnames or 'Feedbacks', 
         exclude_string= True, transform =True )
         )
-    cc_data = add_noises_to(cc_data, noises = noises )
+    cc_data = add_noises_to(cc_data, noise = noise )
     
     return _manage_data(
         cc_data,
@@ -2188,7 +2592,7 @@ def make_water_demand(
     *, samples=700, 
     as_frame =..., 
     return_X_y = ..., 
-    noises:float=None, 
+    noise:float=None, 
     split_X_y= ..., 
     tnames=None,  
     test_size =.3, 
@@ -2202,7 +2606,7 @@ def make_water_demand(
     samples : int, default=700
         Number of samples or data points in the dataset.
 
-    noises : float, Optional
+    noise : float, Optional
         Probability of a value being missing in the dataset.
 
     as_frame : bool, default=False
@@ -2313,7 +2717,6 @@ def make_water_demand(
         # first skip when feature is Region to compute later 
         if feature =='Region': 
             continue 
-        
         data_dict[feature] = np.random.choice(possible_values, samples)
 
     # now get the feature Ehnicity and found 
@@ -2338,7 +2741,6 @@ def make_water_demand(
         tnames or 'Drinking', 
         exclude_string= True, transform =True )
         )
-    
     return _manage_data(
         water_data,
         as_frame=as_frame, 
@@ -2347,10 +2749,45 @@ def make_water_demand(
         tnames=tnames, 
         descr= { **WATER_QUAN_NEEDS, **WATER_QUAL_NEEDS,**SDG6_CHALLENGES}, 
         test_size=test_size, 
-        noises = noises, 
+        noise = noise, 
         seed=seed
-        ) 
+        )
+ 
 # --func -utilities -----  
+def _generate_regression_output(X, coef, bias, noise, regression_type):
+    """
+    Generates the regression output based on the specified regression type.
+    """
+    from ..tools.mathex import linear_regression, quadratic_regression
+    from ..tools.mathex import exponential_regression,logarithmic_regression
+    from ..tools.mathex import sinusoidal_regression, cubic_regression
+    from ..tools.mathex import step_regression
+    
+    available_reg_types = [ 'linear', 'quadratic', 'cubic','exponential', 
+                           'logarithmic', 'sinusoidal', 'step' ]
+    regression_dict =  dict ( zip ( available_reg_types, [ 
+        linear_regression, quadratic_regression, cubic_regression, 
+        exponential_regression,logarithmic_regression, sinusoidal_regression,
+        step_regression] ))
+                          
+    if regression_type not in available_reg_types: 
+        raise ValueError(f"Invalid regression_type '{regression_type}'. Expected"
+                         f" {smart_format(available_reg_types, 'or')}.")
+
+    return regression_dict[regression_type](X, coef=coef , bias=bias, noise=noise )
+        
+def _apply_scaling(X, y, method):
+    """
+    Applies the specified scaling method to the data.
+    """
+    from ..tools.mathex import standard_scaler, minmax_scaler, normalize
+    
+    scale_dict = {'standard':standard_scaler ,
+    'minmax':minmax_scaler , 'normalize':normalize }
+    if method not in  (scale_dict.keys()): 
+        raise ValueError (f"Invalid scale method '{method}'. Expected"
+                          f"{smart_format(scale_dict.keys(),'or')}")
+    return scale_dict[method] ( X, y=y )
 
 def _manage_data(
     data, /, 
@@ -2359,7 +2796,7 @@ def _manage_data(
     split_X_y= ..., 
     tnames=None,  
     test_size =.3, 
-    noises=None, 
+    noise=None, 
     seed = None, 
     **kws
      ): 
@@ -2393,7 +2830,11 @@ def _manage_data(
         
     test_size: float, default is {{.3}} i.e. 30% (X, y)
         The ratio to split the data into training (X, y)  and testing (Xt, yt) set 
-        respectively. 
+        respectively
+        . 
+    noise : float, Optional
+        The percentage of values to be replaced with NaN in each column. 
+        This must be a number between 0 and 1. Default is None.
         
     seed: int, array-like, BitGenerator, np.random.RandomState, \
         np.random.Generator, optional
@@ -2452,7 +2893,7 @@ def _manage_data(
                      if tnames else list(frame.columns ))
     
     # Noises only in the data not in target  
-    data = add_noises_to(data, noises = noises )
+    data = add_noises_to(data, noise = noise , seed=seed )
     if not as_frame: 
         data = np.array (data )
         y = np.array(y ) 
@@ -2465,9 +2906,9 @@ def _manage_data(
     if return_X_y : 
         return data, y 
     
+    frame [feature_names] = add_noises_to( 
+        frame [feature_names], noise =noise, seed=seed  )
     if as_frame:
-        frame [feature_names] = add_noises_to(
-            frame [feature_names], noises =noises )
         return frame
     
     return Boxspace(
@@ -2517,493 +2958,4 @@ def _get_item_from ( spec , /,  default_items, default_number = 7 ):
     return spec 
     
 
-# --------------------------------GLOBAL DATA ---------------------------------
-# Features representing water needs
-WATER_QUAN_NEEDS= {
-    "Agri Demand": "Agricultural Water Demand",
-    "Indus Demand": "Industrial Water Demand",
-    "Domestic Demand": "Domestic Water Demand",
-    "Municipal Demand": "Municipal Water Demand",
-    "Livestock Needs": "Livestock Water Needs",
-    "Irrigation Req": "Irrigation Water Requirements",
-    "Hydropower Gen": "Hydropower Generation",
-    "Aquaculture Usage": "Aquaculture Water Usage",
-    "Mining Consumption": "Mining Water Consumption",
-    "Thermal Plant Consumption": "Thermal Power Plant Water Consumption",
-    "Ecosystems": "Water for Ecosystems",
-    "Forestry": "Water for Forestry",
-    "Recreation": "Water for Recreation",
-    "Urban Dev": "Water for Urban Development",
-    "Drinking": "Water for Drinking",
-    "Sanitation": "Water for Sanitation",
-    "Food Processing": "Water for Food Processing",
-    "Textile Industry": "Water for Textile Industry",
-    "Paper Industry": "Water for Paper Industry",
-    "Chemical Industry": "Water for Chemical Industry",
-    "Pharma Industry": "Water for Pharmaceutical Industry",
-    "Construction": "Water for Construction",
-    "Energy Production": "Water for Energy Production",
-    "Oil Refining": "Water for Oil Refining",
-    "Metals Production": "Water for Metals Production",
-    "Auto Manufacturing": "Water for Automobile Manufacturing",
-    "Electronics Manufacturing": "Water for Electronics Manufacturing",
-    "Plastics Manufacturing": "Water for Plastics Manufacturing",
-    "Leather Industry": "Water for Leather Industry",
-    "Beverage Industry": "Water for Beverage Industry",
-    "Pulp & Paper Industry": "Water for Pulp and Paper Industry",
-    "Sugar Industry": "Water for Sugar Industry",
-    "Cement Industry": "Water for Cement Industry",
-    "Fertilizer Industry": "Water for Fertilizer Industry",
-}
-
-# Define categorical feature values
-WATER_QUAL_NEEDS= {
-    "Water Quality": ["Excellent",
-                      "Good", 
-                      "Fair", 
-                      "Poor", 
-                      "Very Poor",
-                      "Toxic", 
-                      "Polluted", 
-                      "Eutrophic", 
-                      "Saline",
-                      "Acidic/Alkaline"
-                      ],
-    "Ethnicity": [
-        "English", 
-        "Mandarin Chinese", 
-        "Spanish", 
-        "French", 
-        "Arabic", 
-        "Hindi",
-        "Bengali", 
-        "Russian", 
-        "Portuguese",
-        "Japanese",
-        "Swahili", 
-        "Hausa",
-        "Yoruba",
-        "Zulu", 
-        "Amharic",
-        "Agni",
-        "Baoule", 
-        "Bron",
-        "Asante"
-        ],
-    "Region": {
-        "English": [
-            "United States", 
-            "United Kingdom",
-            "Canada",
-            "Australia", 
-            "South Africa"
-                    ],
-        "Mandarin Chinese": [
-            "China (Mainland China)",
-            "Taiwan",
-            "Singapore", 
-            "Malaysia", 
-            "Indonesia"
-             ],
-        "Spanish": [
-            "Mexico",
-            "United States (primarily in areas with a large Hispanic population)",
-            "Spain", 
-            "Colombia",
-            "Argentina"
-                    ],
-        "French": [
-            "France",
-            "Democratic Republic of the Congo",
-            "Canada (particularly in Quebec)", 
-            "Belgium",
-            "Cote d'Ivoire (Ivory Coast)"
-                   ],
-        "Arabic": [
-            "Egypt", 
-            "Saudi Arabia", 
-            "Algeria", 
-            "Morocco", 
-            "Sudan"
-                   ],
-        "Hindi": [
-            "India",
-            "Nepal",
-            "Fiji",
-            "Trinidad and Tobago",
-            "Guyana"
-                  ],
-        "Bengali": [
-            "Bangladesh",
-            "India (particularly in the state of West Bengal)",
-            "West Bengal (India) is a major region."
-            ],
-        "Russian": [
-            "Russia (primarily in the European part)",
-            "Kazakhstan", 
-            "Ukraine",
-            "Belarus",
-            "Kyrgyzstan"
-                    ],
-        "Portuguese": [
-            "Brazil", 
-            "Portugal",
-            "Mozambique", 
-            "Angola",
-            "Guinea-Bissau"
-                       ],
-        "Japanese": [
-            "Japan (natively spoken)",
-            "Brazil (has a significant Japanese-speaking community)",
-            "Hawaii, USA (also has a Japanese-speaking community)",
-            "Peru (small Japanese-speaking community)",
-            "Canada (particularly in Vancouver and Toronto)"
-                     ],
-        "Swahili": [
-            "Kenya", 
-            "Tanzania",
-            "Uganda", 
-            "Rwanda", 
-            "Burundi",
-            "Democratic Republic of Congo"
-                    ],
-        "Hausa": [
-            "Nigeria","Niger"
-                  ],
-        "Yoruba": [
-            "Nigeria","Benin", "Togo"
-                   ],
-        "Zulu": ["South Africa (particularly in the KwaZulu-Natal province)"
-                 ],
-        "Amharic": ["Ethiopia"],
-        "Agni": ["Cote d'Ivoire"],
-        "Baoule": ["Cote d'Ivoire"],
-        "Bron": ["Cote d'Ivoire","Ghana"],
-        "Asante": ["Ghana", "Cote d'Ivoire"],
-        },
-        # Random GDP per capita values
-        # np.random.uniform(1000, 50000, num_samples).round(2),
-    "Economic Status": [], # will define later    
-}
-
-# SDG6 Challenges dictionary with shorthand keys
-SDG6_CHALLENGES = {
-    "Lack of Access": "Access",
-    "Water Scarcity": "Scarcity",
-    "Water Pollution": "Pollution",
-    "Ecosystem Degradation": "Ecosystems",
-    "Governance Issues": "Governance",
-}
-
-ORE_TYPE = {
-    'Type1': 'Gold Ore',
-    'Type2': 'Iron Ore',
-    'Type3': 'Copper Ore',
-    'Type4': 'Silver Ore',
-    'Type5': 'Lead Ore',
-    'Type6': 'Zinc Ore',
-    'Type7': 'Nickel Ore',
-    'Type8': 'Tin Ore',
-    'Type9': 'Bauxite',
-    'Type10': 'Cobalt Ore',
-    'Type11': 'Chromite',
-    'Type12': 'Uranium Ore',
-    'Type13': 'Manganese Ore',
-    'Type14': 'Platinum Ore',
-    'Type15': 'Tantalum Ore',
-    'Type16': 'Vanadium Ore',
-    'Type17': 'Molybdenum Ore',
-    'Type18': 'Titanium Ore',
-    'Type19': 'Lithium Ore',
-    'Type20': 'Tungsten Ore',
-    'Type21': 'Antimony Ore',
-    'Type22': 'Mercury Ore',
-    'Type23': 'Sulfur Ore',
-    'Type24': 'Graphite Ore',
-    'Type25': 'Diamond Ore',
-    'Type26': 'Rare Earth Element Ores',
-    'Type27': 'Phosphate Ore',
-    'Type28': 'Gypsum Ore',
-    'Type29': 'Fluorite Ore',
-    'Type30': 'Barite Ore',
-    'Type31': 'Asbestos Ore',
-    'Type32': 'Boron Ore',
-    'Type33': 'Potash Ore'
-}
-
-EXPLOSIVE_TYPE = {
-    'Explosive1': 'ANFO (Ammonium Nitrate Fuel Oil)',
-    'Explosive2': 'Water Gel Explosives',
-    'Explosive3': 'Emulsion Explosives',
-    'Explosive4': 'Dynamite',
-    'Explosive5': 'Nitroglycerin',
-    'Explosive6': 'Slurry Explosives',
-    'Explosive7': 'Binary Explosives',
-    'Explosive8': 'Boosters',
-    'Explosive9': 'Detonating Cord',
-    'Explosive10': 'C-4 (Plastic Explosive)',
-    'Explosive11': 'Ammonium Nitrate',
-    'Explosive12': 'Black Powder',
-    'Explosive13': 'TNT (Trinitrotoluene)',
-    'Explosive14': 'RDX (Cyclotrimethylenetrinitramine)',
-    'Explosive15': 'PETN (Pentaerythritol Tetranitrate)',
-    'Explosive16': 'ANFO Prills',
-    'Explosive17': 'Cast Boosters',
-    'Explosive18': 'Ammonium Nitrate Emulsion',
-    'Explosive19': 'Nitrocellulose',
-    'Explosive20': 'Aluminized Explosives',
-    'Explosive21': 'Pentolite',
-    'Explosive22': 'Semtex',
-    'Explosive23': 'Nitroguanidine',
-    'Explosive24': 'HMX (Cyclotetramethylenetetranitramine)',
-    'Explosive25': 'Amatol',
-    'Explosive26': 'Tetryl',
-    'Explosive27': 'Composition B',
-    'Explosive28': 'Water Gels with Sensitizers',
-    'Explosive29': 'Nitrate Mixture Explosives',
-    'Explosive30': 'Perchlorate Explosives',
-    'Explosive31': 'Detonators (Non-Electric)',
-    'Explosive32': 'Electric Detonators',
-    'Explosive33': 'Electronic Detonators'
-}
-
-EQUIPMENT_TYPE = [
-    'Excavator', 
-    'Drill', 
-    'Loader', 
-    'Truck',
-    "Articulated Haulers",
-    "Asphalt Pavers",
-    "Backhoe Loaders",
-    "Blasthole Drills",
-    "Bulldozers",
-    "Cable Shovels",
-    "Continuous Miners",
-    "Conveyor Systems",
-    "Crushing Equipment",
-    "Draglines",
-    "Drilling Rigs",
-    "Dump Trucks",
-    "Electric Rope Shovels",
-    "Excavators",
-    "Exploration Drills",
-    "Feller Bunchers",
-    "Forwarders",
-    "Graders",
-    "Harvesters",
-    "Hydraulic Mining Shovels",
-    "Jaw Crushers",
-    "Loaders",
-    "Material Handlers",
-    "Milling Equipment",
-    "Motor Graders",
-    "Off-Highway Trucks",
-    "Pipelayers",
-    "Road Reclaimers",
-    "Rock Drills",
-    "Rotary Drills",
-    "Scrapers",
-    "Skid Steer Loaders",
-    "Telehandlers",
-    "Track Loaders",
-    "Tracked Dozers",
-    "Underground Mining Loaders",
-    "Underground Mining Trucks",
-    "Wheel Dozers",
-    "Wheel Excavators",
-    "Wheel Loaders",
-    "Wheel Tractor-Scrapers",
-    "Hydraulic Hammer",
-    "Jumbos and Drifters",
-    "Longwall Miners",
-    "Roof Bolters",
-    "Scooptrams",
-    "Shotcrete Machines",
-    "Shuttle Cars",
-    "Stackers",
-    "Reclaimers",
-    "Screening Plants",
-    "Haul Trucks",
-    "Feeders",
-    "Gyratory Crushers",
-    "Cone Crushers",
-    "Impact Crushers",
-    "Hammer Mills",
-    "Sizers"
-]
-
-
-COMMON_CROPS = [
-    "Wheat", 
-    "Rice",
-    "Corn",
-    "Barley", 
-    "Soybeans",
-    "Oats",
-    "Rye",
-    "Millet",
-    "Sorghum",
-    "Canola",
-    "Sunflower",
-    "Cotton",
-    "Sugar Cane", 
-    "Sugar Beet",
-    "Potatoes",
-    "Tomatoes",
-    "Onions", 
-    "Cabbage",
-    "Carrots",
-    "Lettuce",
-    "Spinach", 
-    "Broccoli", 
-    "Garlic",
-    "Cucumbers", 
-    "Pumpkins",
-    "Peppers",
-    "Eggplants",
-    "Zucchini", 
-    "Squash",
-    "Peas",
-    "Green Beans",
-    "Lentils", 
-    "Chickpeas",
-    "Almonds", 
-    "Walnuts",
-    "Peanuts", 
-    "Cashews", 
-    "Pistachios", 
-    "Apples",
-    "Oranges",
-    "Bananas", 
-    "Grapes",
-    "Strawberries",
-    "Blueberries",
-    "Raspberries",
-    "Blackberries",
-    "Cherries", 
-    "Peaches",
-    "Pears", 
-    "Plums",
-    "Pineapples",
-    "Mangoes",
-    "Avocados"
-]
-
-COMMON_PESTICIDES = [
-    'Herbicide',
-    'Insecticide',
-    'Fungicide'
-    "Glyphosate", 
-    "Atrazine",
-    "2,4-Dichlorophenoxyacetic acid (2,4-D)", 
-    "Dicamba",
-    "Paraquat", 
-    "Chlorpyrifos",
-    "Metolachlor",
-    "Imidacloprid",
-    "Thiamethoxam", 
-    "Clothianidin", 
-    "Acetamiprid", 
-    "Fipronil",
-    "Bacillus thuringiensis (Bt)",
-    "Neonicotinoids",
-    "Pyrethroids",
-    "Carbamates",
-    "Organophosphates",
-    "Sulfonylureas",
-    "Roundup",
-    "Liberty",
-    "Malathion",
-    "Diazinon", 
-    "DDT", 
-    "Methoxychlor",
-    "Aldrin", 
-    "Dieldrin", 
-    "Endrin",
-    "Chlordane",
-    "Heptachlor", 
-    "Hexachlorobenzene",
-    "Mirex", 
-    "Toxaphene",
-    "Captan", 
-    "Chlorothalonil", 
-    "Mancozeb",
-    "Maneb", 
-    "Zineb",
-    "Copper Sulphate",
-    "Streptomycin",
-    "Tetracycline", 
-    "Difenoconazole", 
-    "Propiconazole",
-    "Cyproconazole", 
-    "Azoxystrobin",
-    "Chlorantraniliprole",
-    "Abamectin", 
-    "Spinosad", 
-    "Bifenthrin",
-    "Cyfluthrin", 
-    "Deltamethrin", 
-    "Permethrin", 
-    "Cypermethrin",
-    "Metam Sodium",
-    "Methyl Bromide",
-    "Chloropicrin",
-    "Vapam"
-]
-AFRICAN_COUNTRIES= [
-    "Algeria",
-    "Angola",
-    "Benin", 
-    "Botswana",
-    "Burkina Faso",
-    "Burundi",
-    "Cabo Verde", 
-    "Cameroon",
-    "Central African Republic", 
-    "Chad",
-    "Comoros", 
-    "Congo",
-    "Congo Democratic Republic", 
-    "Cote d'Ivoire",
-    "Djibouti",
-    "Egypt", 
-    "Equatorial Guinea", 
-    "Eritrea", 
-    "Eswatini",
-    "Ethiopia",
-    "Gabon",
-    "Gambia", 
-    "Ghana",
-    "Guinea",
-    "Guinea-Bissau",
-    "Kenya", 
-    "Lesotho",
-    "Liberia",
-    "Libya",
-    "Madagascar",
-    "Malawi", 
-    "Mali",
-    "Mauritania",
-    "Mauritius",
-    "Morocco", 
-    "Mozambique",
-    "Namibia",
-    "Niger",
-    "Nigeria",
-    "Rwanda", 
-    "Sao Tome and Principe",
-    "Senegal", 
-    "Seychelles",
-    "Sierra Leone",
-    "Somalia",
-    "South Africa",
-    "South Sudan",
-    "Sudan", 
-    "Tanzania",
-    "Togo", 
-    "Tunisia", 
-    "Uganda",
-    "Zambia",
-    "Zimbabwe"
-]
 

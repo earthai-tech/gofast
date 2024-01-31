@@ -24,6 +24,104 @@ from ._array_api import get_namespace, _asarray_with_order
 
 FLOAT_DTYPES = (np.float64, np.float32, np.float16)
 
+def is_time_series(data, /, time_col, check_time_interval=False ):
+    """
+    Check if the provided DataFrame is time series data.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame to be checked.
+    time_col : str
+        The name of the column in `df` expected to represent time.
+
+    Returns
+    -------
+    bool
+        True if `df` is a time series, False otherwise.
+        
+    Example
+    -------
+    >>> import pandas as pd 
+    >>> df = pd.DataFrame({
+        'Date': ['2021-01-01', '2021-01-02', '2021-01-03', '2021-01-04', '2021-01-05'],
+        'Value': [1, 2, 3, 4, 5]
+    })
+    >>> # Should return True if Date column 
+    >>> # can be converted to datetime
+    >>> print(is_time_series(df, 'Date'))   
+ 
+    """
+    if time_col not in data.columns:
+        print(f"Time column '{time_col}' not found in DataFrame.")
+        return False
+
+    # Check if the column is datetime type or can be converted to datetime
+    if not pd.api.types.is_datetime64_any_dtype(data[time_col]):
+        try:
+            pd.to_datetime(data[time_col])
+        except ValueError:
+            print(f"Column '{time_col}' does not contain datetime objects.")
+            return False
+
+    if check_time_interval: 
+        # Optional: Check for regular intervals (commented out by default)
+        intervals = pd.to_datetime(data[time_col]).diff().dropna()
+        if not intervals.nunique() == 1:
+            print("Time intervals are not regular.")
+            return False
+
+    return True
+
+def check_is_fitted2(estimator, attributes, *, msg=None):
+    """
+    Perform is_fitted validation for estimator.
+
+    Checks if the estimator is fitted by looking for attributes set during fitting.
+    Typically, these attributes end with an underscore ('_').
+
+    Parameters
+    ----------
+    estimator : BaseEstimator
+        An instance of a scikit-learn estimator.
+
+    attributes : str or list of str
+        The attributes to check for. These are typically set in the 'fit' method.
+
+    msg : str, optional
+        The message to raise in the NotFittedError. If not provided, a default
+        message is used.
+
+    Raises
+    ------
+    NotFittedError
+        If the given attributes are not found in the estimator.
+
+    Examples
+    --------
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> clf = RandomForestClassifier()
+    >>> check_is_fitted(clf, ['feature_importances_'])
+    NotFittedError: This RandomForestClassifier instance is not fitted yet.
+    """
+    from ..exceptions import NotFittedError 
+    if not hasattr(estimator, "fit"):
+        raise TypeError("%s is not an estimator instance." % (estimator))
+
+    if not isinstance(attributes, (list, tuple)):
+        attributes = [attributes]
+
+    fitted = all([hasattr(estimator, attr) for attr in attributes])
+
+    if not fitted:
+        if msg is None:
+            cls_name = estimator.__class__.__name__
+            msg = ("This %s instance is not fitted yet. Call 'fit' with appropriate "
+                   "arguments before using this estimator." % cls_name)
+
+        raise NotFittedError(msg)
+
+
 def assert_xy_in (
     x, 
     y, *, 
@@ -1055,7 +1153,7 @@ def is_frame (arr, /, df_only =False, raise_exception: bool=False,
         objname='Expect' if not objname else f'{objname} expects'
         raise TypeError(
             f"{objname} a {'data frame' if df_only else 'data frame or series'}."
-                        f" Got {type(arr).__name__!r}")
+              f" Got {type(arr).__name__!r}")
     return isf 
 
 
@@ -1573,7 +1671,7 @@ def check_y(y,
     return y
 
 def build_data_if (
-    data: dict | np.ndarray |pd.DataFrame, /, 
+    data: dict|np.ndarray|pd.DataFrame, /, 
     columns =None,  
     to_frame=True,  
     input_name ='data', 
@@ -1599,7 +1697,8 @@ def build_data_if (
         
     raise_warning : bool, default=True
         If True then raise a warning if conversion is required.
-        If ``ignore``, warnings silence mode is triggered.
+        If ``ignore``, silence mode is triggered.
+        
     raise_exception : bool, default=False
         If True then raise an exception if array is not symmetric.
         

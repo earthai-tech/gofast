@@ -42,6 +42,7 @@ from sklearn.metrics import (
 from sklearn.model_selection import ( 
     cross_val_predict 
     )
+from .tools.box import Boxspace 
 from .tools.validator import ( 
     get_estimator_name, 
     _is_numeric_dtype,
@@ -301,9 +302,8 @@ def get_eval_scores (
     model, 
     Xt, 
     yt, 
-    *, 
+    *,average="binary", 
     multi_class="raise", 
-    average="binary", 
     normalize=True, 
     sample_weight=None,
     verbose = False, 
@@ -329,10 +329,10 @@ def get_eval_scores (
             yt, ypred, average=average, multi_class=multi_class, 
             sample_weight = sample_weight, **scorer_kws)
 
-    scores= dict ( 
+    scores= Boxspace (**dict ( 
         accuracy = acc_scores , recall = rec_scores, 
         precision= prec_scores, auc = rocauc_scores 
-        )
+        ))
     if verbose: 
         mname=get_estimator_name(model)
         print(f"{mname}:\n")
@@ -416,12 +416,13 @@ scorer_kws: dict,
     
 Returns 
 --------
-scores: dict , 
-    A dictionnary to retain all the scores from metrics evaluation such as 
+scores: :class:`gofast.tools.box.Boxspace`. , 
+    A dictionnary object to retain all the scores from metrics evaluation such as 
     - accuracy , 
     - recall 
     - precision 
     - ROC AUC ( Receiving Operating Characteric Area Under the Curve)
+    Each score can be fetch as an attribute. 
     
 Notes 
 -------
@@ -588,21 +589,9 @@ def precision_recall_tradeoff(
     if cvp_kws is None: 
         cvp_kws = dict()
         
-    obj.y_scores = cross_val_predict(
-        clf,
-         X,
-         y,
-         cv =cv,
-        method= method,
-        **cvp_kws 
-    )
-    y_scores = cross_val_predict(
-        clf,
-        X,
-        y, 
-        cv =cv,
-        **cvp_kws 
-        )
+    obj.y_scores = cross_val_predict(clf,X,y,cv =cv,
+                                     method= method,**cvp_kws )
+    y_scores = cross_val_predict(clf,X,y, cv =cv,**cvp_kws )
     
     obj.confusion_matrix =cfsmx(y, y_scores )
     
@@ -724,10 +713,10 @@ Examples
 >>> from gofast.exlib import SGDClassifier
 >>> from gofast.metrics import precision_recall_tradeoff
 >>> from gofast.datasets import fetch_data 
->>> X, y= fetch_data('Bagoue prepared')
+>>> X, y= fetch_data('Bagoue analysed')
 >>> sgd_clf = SGDClassifier()
 >>> mObj = precision_recall_tradeoff (clf = sgd_clf, X= X, y = y,
-                                classe_=1, cv=3 , y_tradeoff=0.90) 
+                                label=1, cv=3 , y_tradeoff=0.90) 
 >>> mObj.confusion_matrix
 """.format(
     params =_param_docs
@@ -1750,7 +1739,8 @@ def average_precision(y_true, y_pred):
     Notes
     -----
     AP = \sum_{k=1}^n P(k) \Delta r(k)
-    where P(k) is the precision at cutoff k, and \Delta r(k) is the change in recall from items k-1 to k.
+    where P(k) is the precision at cutoff k, and \Delta r(k) is the change 
+    in recall from items k-1 to k.
     """
     y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
     sorted_indices = np.argsort(y_pred)[::-1]

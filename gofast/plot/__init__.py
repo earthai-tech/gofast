@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-
-from .evaluate import  EvalPlotter 
+ 
 from .evaluate import ( 
+    EvalPlotter, MetricPlotter, 
     plot_unified_pca, 
     plot_learning_inspection, 
     plot_learning_inspections, 
@@ -13,10 +13,11 @@ from .evaluate import (
     plot_reg_scoring, 
     plot_matshow, 
     plot_model_scores,
-    plot2d  
+    plot2d,  
     pobj as plot_obj
     )
 from .explore import EasyPlotter, QuestPlotter
+from .ts import TimeSeriesPlotter 
 from .utils import ( 
     plot_mlxtend_heatmap , 
     plot_mlxtend_matrix, 
@@ -40,13 +41,25 @@ from .utils import (
     plot_confidence, 
     plot_confidence_ellipse, 
     plot_text, 
+    plot_cumulative_variance, 
+    plot_shap_summary, 
+    plot_custom_boxplot,
+    plot_abc_curve,
+    plot_permutation_importance,
+    create_radar_chart,
+    plot_r_squared, 
+    plot_cluster_comparison,
+    plot_sunburst, 
+    plot_sankey, 
     )
 
 __all__= [
+    "MetricPlotter", 
     "plot_unified_pca", 
     "EvalPlotter", 
     "EasyPlotter" , 
     "QuestPlotter",
+    "TimeSeriesPlotter", 
     "plot_learning_inspection", 
     "plot_learning_inspections", 
     "plot_silhouette", 
@@ -82,4 +95,14 @@ __all__= [
     'plot_confidence_ellipse', 
     'plot_text', 
     'plot_obj',
+    'plot_cumulative_variance', 
+    'plot_shap_summary', 
+    'plot_custom_boxplot',
+    'plot_abc_curve',
+    'plot_permutation_importance',
+    'create_radar_chart',
+    'plot_r_squared', 
+    'plot_cluster_comparison',
+    'plot_sunburst', 
+    'plot_sankey',
     ]
