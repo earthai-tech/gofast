@@ -11,9 +11,7 @@ import warnings
 
 import numpy as np
 import pandas as pd 
-from scipy.signal import ( 
-    argrelextrema,  )
-
+from scipy.signal import argrelextrema 
 from scipy.optimize import curve_fit
 from scipy.cluster.hierarchy import  linkage 
 from scipy.linalg import lstsq
@@ -25,7 +23,7 @@ import  matplotlib.pyplot as plt
 from ._arraytools import axis_slice
 from .._gofastlog import gofastlog
 from .._docstring import refglossary
-from ..decorators import  refAppender, docSanitizer
+from ..decorators import refAppender, docSanitizer
 from ..exceptions import SiteError
 from .._typing import (
     _T, 
@@ -40,6 +38,7 @@ from .._typing import (
     _SP, 
     Series, 
     DataFrame,
+    Dict,
 )
 from .box import Boxspace 
 from .funcutils import (
@@ -75,6 +74,173 @@ _logger =gofastlog.get_gofast_logger(__name__)
 mu0 = 4 * np.pi * 1e-7 
 
 
+def infer_sankey_columns(data: DataFrame, /, 
+  ) -> Tuple[List[str], List[str], List[int]]:
+    """
+    Infers source, target, and value columns for a Sankey diagram 
+    from a DataFrame.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The DataFrame from which to infer the source, target, and value columns.
+
+    Returns
+    -------
+    Tuple[List[str], List[str], List[int]]
+        Three lists containing the names of the source nodes, target nodes,
+        and the values of the flows between them, respectively.
+
+    Raises
+    ------
+    ValueError
+        If the DataFrame does not contain at least two columns for source and target,
+        and an additional column for value.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.tools.mathex import infer_sankey_columns
+    >>> df = pd.DataFrame({
+    ...     'from': ['A', 'A', 'B', 'B'],
+    ...     'to': ['X', 'Y', 'X', 'Y'],
+    ...     'amount': [10, 20, 30, 40]
+    ... })
+    >>> sources, targets, values = infer_sankey_columns(df)
+    >>> print(sources, targets, values)
+    ['A', 'A', 'B', 'B'] ['X', 'Y', 'X', 'Y'] [10, 20, 30, 40]
+    """
+    if len(data.columns) < 3:
+        raise ValueError("DataFrame must have at least three columns:"
+                         " source, target, and value")
+
+    # Heuristic: The source is often the first column, the target is the second,
+    # and the value is the third or the one with numeric data
+    numeric_cols = data.select_dtypes(include=[float, int]).columns
+
+    if len(numeric_cols) == 0:
+        raise ValueError(
+            "DataFrame does not contain any numeric columns for values")
+
+    # Choose the first numeric column as the value by default
+    value_col = numeric_cols[0]
+    source_col = data.columns[0]
+    target_col = data.columns[1]
+
+    # If there's a 'source' or 'target' column, prefer that
+    for col in data.columns:
+        if 'source' in col.lower():
+            source_col = col
+        elif 'target' in col.lower():
+            target_col = col
+        elif 'value' in col.lower() or 'amount' in col.lower() or 'count' in col.lower():
+            value_col = col
+
+    # Check for consistency in data
+    if data[source_col].isnull().any() or data[target_col].isnull().any():
+        raise ValueError("Source and Target columns must not contain null values")
+
+    if data[value_col].isnull().any():
+        raise ValueError("Value column must not contain null values")
+
+    # Extract the columns and return
+    sources = data[source_col].tolist()
+    targets = data[target_col].tolist()
+    values = data[value_col].tolist()
+
+    return sources, targets, values
+
+
+def compute_sunburst_data(
+    data: DataFrame, /, 
+    hierarchy: Optional[List[str]] = None, 
+    value_column: Optional[str] = None
+  ) -> List[Dict[str, str]]:
+    """
+    Computes the data structure required for generating a sunburst chart from
+    a DataFrame.
+    
+    The function allows for automatic inference of hierarchy and values if 
+    not explicitly provided. This is useful for visualizing hierarchical 
+    datasets where the relationship between parent and child categories is 
+    important.
+
+    The sunburst chart provides insights into the proportion of categories at 
+    multiple levels of the hierarchy through their area size. It is especially 
+    useful in identifying patterns and contributions of various parts to the 
+    whole in a dataset.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The DataFrame containing the hierarchical data. It should have columns 
+        representing levels of the hierarchy and optionally a column for values.
+    hierarchy : Optional[List[str]], optional
+        The list of columns that represent the hierarchy levels, ordered from 
+        top to bottom. If not provided, the function assumes all columns except
+        the last one are part of the hierarchy.
+    value_column : Optional[str], optional
+        The name of the column that contains the values for each leaf node in 
+        the sunburst chart. If not provided, the function will count the 
+        occurrences of the lowest hierarchy level and use this count as the 
+        value for each leaf node.
+
+    Returns
+    -------
+    List[Dict[str, str]]
+        A list of dictionaries where each dictionary represents a node in the
+        sunburst chart with 'name', 'value', and 'parent' keys.
+
+    Examples
+    --------
+    >>> df = pd.DataFrame({
+    ...     'Category': ['A', 'A', 'B', 'B'],
+    ...     'Subcategory': ['A1', 'A2', 'B1', 'B2']
+    ... })
+    >>> data = compute_sunburst_data(df)
+    >>> print(data)
+    [
+        {'name': 'A', 'value': 2, 'parent': ''},
+        {'name': 'B', 'value': 2, 'parent': ''},
+        {'name': 'A1', 'value': 1, 'parent': 'A'},
+        {'name': 'A2', 'value': 1, 'parent': 'A'},
+        {'name': 'B1', 'value': 1, 'parent': 'B'},
+        {'name': 'B2', 'value': 1, 'parent': 'B'}
+    ]
+    """
+    # If hierarchy is not provided, infer it from all columns except the last
+    if hierarchy is None:
+        hierarchy = data.columns[:-1].tolist()
+    
+    # If value_column is not provided, create a 'Count' column and use 
+    # it as the value column
+    if value_column is None:
+        data = data.assign(Count=1)
+        value_column = 'Count'
+    
+    # Compute the values for each level of the hierarchy
+    df_full = data.copy()
+    for i in range(1, len(hierarchy)):
+        df_level = df_full[hierarchy[:i+1] + [value_column]].groupby(
+            hierarchy[:i+1]).sum().reset_index()
+        df_full = pd.concat([df_full, df_level], ignore_index=True)
+    
+    df_full = df_full.drop_duplicates(subset=hierarchy).reset_index(drop=True)
+
+    # Generate the sunburst data structure
+    sunburst_data = [
+        {"name": row[hierarchy[-1]], 
+         "value": row[value_column], 
+         "parent": row[hierarchy[-2]] if i > 0 else ""}
+        for i in range(len(hierarchy))
+        for _, row in df_full[hierarchy[:i+1] + [value_column]].iterrows()
+    ]
+
+    # Remove duplicates, preserve order, and return
+    seen = set()
+    return [x for x in sunburst_data if not (
+        tuple(x.items()) in seen or seen.add(tuple(x.items())))]
+
 def compute_effort_yield(
         d: ArrayLike, /, reverse: bool = True
         ) -> Tuple[ArrayLike, np.ndarray]:
@@ -93,7 +259,8 @@ def compute_effort_yield(
     d : np.ndarray
         1D array of importance measures for each item or feature.
     reverse : bool, optional
-        If True (default), sort the data in descending order (highest importance first).
+        If True (default), sort the data in descending order 
+        (highest importance first).
         If False, sort in ascending order (lowest importance first).
     
     Returns

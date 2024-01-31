@@ -55,16 +55,197 @@ from ..tools.validator import  (
     check_array, 
     check_X_y,
     check_consistent_length, 
-    check_is_fitted , 
+    check_is_fitted, 
     )
 from ..tools._dependency import import_optional_dependency 
 try : from yellowbrick.classifier import ConfusionMatrix 
 except: pass 
 from .._typing import Optional, Tuple, Any, List, Union, ArrayLike, DataFrame
+from .._typing import Dict 
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES 
 
+
+def plot_sankey(
+    data: DataFrame , 
+    source_col: str, 
+    target_col: str, 
+    value_col: str, 
+    label_col: Optional[str] = None,
+    figsize: Tuple[int, int] = (800, 600), 
+    title: Optional[str] = None
+ ):
+    """
+    Creates a Sankey diagram from a pandas DataFrame using Plotly.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The DataFrame containing the source, target, and value columns 
+        for the Sankey diagram.
+    source_col : str
+        The name of the column in 'data' that contains the source nodes.
+    target_col : str
+        The name of the column in 'data' that contains the target nodes.
+    value_col : str
+        The name of the column in 'data' that contains the flow values
+        between the nodes.
+    label_col : Optional[str], optional
+        The name of the column in 'data' that contains the labels of the nodes.
+        If None, the nodes will be labeled with unique identifiers.
+    figsize : Tuple[int, int], optional
+        Figure dimension (width, height) in pixels. Default is (800, 600).
+    title : Optional[str], optional
+        The title of the plot. If None, no title is set.
+
+    Returns
+    -------
+    go.Figure
+        The Plotly Figure object with the Sankey diagram for further 
+        tweaking and rendering.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.plot.utils import plot_sankey 
+    >>> df = pd.DataFrame({
+    ...     'source': ['A', 'A', 'B', 'B', 'C', 'C'],
+    ...     'target': ['C', 'D', 'C', 'D', 'E', 'F'],
+    ...     'value': [8, 2, 4, 8, 4, 2],
+    ...     'label': ['Node A', 'Node B', 'Node C', 'Node D', 'Node E', 'Node F']
+    ... })
+    >>> fig = plot_sankey(df, 'source', 'target', 'value', 'label', 
+                          title='My Sankey Diagram')
+    >>> fig.show()  
+
+    Notes
+    -----
+    Sankey diagrams are helpful for visualizing flow data between different 
+    nodes or stages. The width of the arrows or links is proportional to the 
+    flow quantity, allowing for easy comparison of volume or value transfers.
+    
+    See Also 
+    ---------
+    gofast.tools.mathex.infer_sankey_columns: 
+        Infers source, target, and value columns for a Sankey diagram 
+        from a DataFrame.
+    """
+    import_optional_dependency("plotly")
+    import plotly.graph_objects as go
+
+    # Prepare the data for the Sankey diagram
+    label_list =  data[label_col].unique().tolist() if label_col else\
+        pd.concat([data[source_col], data[target_col]]).unique().tolist()
+                  
+    source_indices = data[source_col].apply(label_list.index).tolist()
+    target_indices = data[target_col].apply(label_list.index).tolist()
+
+    
+
+    # Create the Sankey diagram
+    fig = go.Figure(data=[go.Sankey(
+        node=dict(
+            pad=15,
+            thickness=20,
+            line=dict(color='black', width=0.5),
+            label=label_list,
+        ),
+        link=dict(
+            source=source_indices,  # indices correspond to labels
+            target=target_indices,
+            value=data[value_col].tolist()
+        ))])
+    
+    # Update layout
+    fig.update_layout(title_text=title, width=figsize[0], height=figsize[1])
+    
+    return fig
+
+def plot_sunburst(
+    d: List[Dict[str, str]], /, 
+    figsize: Tuple[int, int] = (10, 8), 
+    color: Optional[List[str]] = None,
+    title: Optional[str] = None, 
+    savefig: Optional[str] = None
+) :
+    """
+    Plots a sunburst chart with the given data and parameters using Plotly.
+
+    Parameters
+    ----------
+    d : List[Dict[str, str]]
+        The input data for the sunburst chart, where each dict contains 'name',
+        'value', and 'parent' keys.
+    figsize : Tuple[int, int], optional
+        Figure dimension (width, height) in pixels. Default is (1000, 800).
+    color : List[str], optional
+        A list of color codes for the segments of the sunburst chart. If None,
+        default colors are used.
+    title : str, optional
+        The title of the plot. If None, no title is set.
+    savefig : str, optional
+        Path and filename where the figure should be saved. If ends with 'html',
+        saves an interactive HTML file. Otherwise, saves a static image of the
+        plot.
+
+    Returns
+    -------
+    go.Figure
+        The Plotly Figure object with the plot for further tweaking and rendering.
+
+    See Also
+    ---------
+    gofast.tools.mathex.compute_sunburst_data: 
+        Computes the data structure required for generating a sunburst chart 
+        from a DataFrame.
+        
+    Examples
+    --------
+    >>> from gofast.plot.utils import plot_sunburst
+    >>> d = [
+    ...     {"name": "Category A", "value": 10, "parent": ""},
+    ...     {"name": "Category B", "value": 20, "parent": ""},
+    ...     {"name": "Subcategory A1", "value": 5, "parent": "Category A"},
+    ...     {"name": "Subcategory A2", "value": 5, "parent": "Category A"}
+    ... ]
+    >>> plot_sunburst(d, figsize=(8, 8), title='Sunburst Chart Example')
+
+    Notes
+    -----
+    Sunburst charts are used to visualize hierarchical data spanning outwards
+    radially from root to leaves. The parent-child relation is represented by 
+    the enclosure in this chart type.
+
+    """
+    import_optional_dependency("plotly")
+    import plotly.graph_objects as go
+    # Convert figsize from inches to pixels
+    width_px, height_px = figsize[0] * 100, figsize[1] * 100
+
+    fig = go.Figure(go.Sunburst(
+        labels=[item['name'] for item in d],
+        parents=[item['parent'] for item in d],
+        values=[item['value'] for item in d],
+        marker=dict(colors=color) if color else None
+    ))
+
+    fig.update_layout(margin=dict(t=0, l=0, r=0, b=0),
+                      width=width_px, height=height_px)
+
+    if title:
+        fig.update_layout(title=title)
+
+    if savefig:
+        if savefig.endswith('.html'):
+            fig.write_html(savefig, auto_open=True)
+        else:
+            fig.write_image(savefig)
+
+    fig.show()
+
+    return fig
+
 def plot_custom_boxplot(
-    data:Union[ ArrayLike, DataFrame], /, 
+    data: ArrayLike | DataFrame, /, 
     labels: list[str],
     title: str, y_label: str, 
     figsize: tuple[int, int]=(8, 8), 
@@ -100,8 +281,7 @@ def plot_custom_boxplot(
         If True, show the outliers beyond the caps. Default is True.
     whis : float, optional
         Proportion of the IQR past the low and high quartiles to 
-        extend the plot whiskers.
-        Default is 1.5.
+        extend the plot whiskers. Default is 1.5.
     width : float, optional
         Width of the full boxplot elements. Default is 0.5.
     linewidth : float, optional
@@ -236,6 +416,11 @@ def plot_abc_curve(
     ax : Axes
         The matplotlib Axes object for the plot.
     
+    See Also
+    --------
+    gofast.tools.mathex.compute_effort_yield: 
+        Compute effort and yield values from importance data. 
+        
     Example 
     -------
     >>> import numpy as np 

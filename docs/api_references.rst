@@ -488,6 +488,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.cleaner
    tools.codify_variables
    tools.compute_effort_yield
+   tools.compute_sunburst_data 
    tools.convert_date_features
    tools.cubic_regression
    tools.discretize_categories
@@ -510,6 +511,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.handle_categorical_features
    tools.handle_missing_data
    tools.handle_outliers_in_data
+   tools.infer_sankey_columns 
    tools.inspect_data
    tools.interpolate1d
    tools.interpolate2d
@@ -805,6 +807,16 @@ that aid in data exploration, analysis, and presentation.
    plot.utils.plot_confidence
    plot.utils.plot_confidence_ellipse
    plot.utils.plot_text
+   plot.utils.plot_cumulative_variance 
+   plot.utils.plot_shap_summary 
+   plot.utils.plot_custom_boxplot
+   plot.utils.plot_abc_curve
+   plot.utils.plot_permutation_importance
+   plot.utils.create_radar_chart
+   plot.utils.plot_r_squared
+   plot.utils.plot_cluster_comparison
+   plot.utils.plot_sunburst 
+   plot.utils.plot_sankey
 
 .. _stats_ref:
 

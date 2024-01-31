@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-
-from .evaluate import  EvalPlotter, MetricPlotter 
+ 
 from .evaluate import ( 
+    EvalPlotter, MetricPlotter, 
     plot_unified_pca, 
     plot_learning_inspection, 
     plot_learning_inspections, 
@@ -49,6 +49,8 @@ from .utils import (
     create_radar_chart,
     plot_r_squared, 
     plot_cluster_comparison,
+    plot_sunburst, 
+    plot_sankey, 
     )
 
 __all__= [
@@ -101,4 +103,6 @@ __all__= [
     'create_radar_chart',
     'plot_r_squared', 
     'plot_cluster_comparison',
+    'plot_sunburst', 
+    'plot_sankey',
     ]

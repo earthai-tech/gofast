@@ -11,8 +11,8 @@ from sklearn.base import  clone
 from sklearn.model_selection import cross_val_score 
 from sklearn.model_selection._search import BaseSearchCV, ParameterSampler
 
-from gofast.models._selection import PSOBaseSearch, GeneticBaseSearch  
-from gofast.models._selection import GradientBaseSearch, AnnealingBaseSearch
+from ._selection import PSOBaseSearch, GeneticBaseSearch  
+from ._selection import GradientBaseSearch, AnnealingBaseSearch
 
 class SwarmSearchCV(PSOBaseSearch):
     """

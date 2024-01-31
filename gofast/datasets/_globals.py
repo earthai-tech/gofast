@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-`globals.py` module designed for internal use within :code:`gofast` package, 
+`_globals.py` module designed for internal use within :code:`gofast` package, 
 containing global variables, constants, and shared configurations. This module
 typically includes definitions that are used across multiple `datasets` module 
 ensuring consistency and ease of maintenance. The leading underscore in its 

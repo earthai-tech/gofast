@@ -60,7 +60,9 @@ from .mathex import (
     binning_statistic, 
     label_importance,
     make_mxs, 
-    compute_effort_yield
+    compute_effort_yield, 
+    compute_sunburst_data, 
+    infer_sankey_columns, 
     )
 from .funcutils import ( 
     reshape, 
@@ -230,7 +232,9 @@ __all__=[
     "handle_outliers_in_data",
     "handle_missing_data", 
     "make_mxs", 
-    "compute_effort_yield"
+    "compute_effort_yield", 
+    "compute_sunburst_data", 
+    "infer_sankey_columns", 
     
     ]
 
