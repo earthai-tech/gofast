@@ -63,6 +63,7 @@ from .mathex import (
     compute_effort_yield, 
     compute_sunburst_data, 
     infer_sankey_columns, 
+    calculate_residuals, 
     )
 from .funcutils import ( 
     reshape, 
@@ -234,7 +235,8 @@ __all__=[
     "make_mxs", 
     "compute_effort_yield", 
     "compute_sunburst_data", 
-    "infer_sankey_columns", 
+    "infer_sankey_columns",
+    "calculate_residuals", 
     
     ]
 

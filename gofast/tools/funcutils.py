@@ -7195,8 +7195,67 @@ def format_and_print_dict(data_dict, front_space=4):
                 print(f"{indent}{key}: {options[key]}")
         print()  # Adds an empty line for better readability between categories
 
+
+def fill_nan_in(
+        data: DataFrame, /, method: str = 'constant', 
+        value: Optional[Union[int, float, str]] = 0) -> DataFrame:
+    """
+    Fills NaN values in a Pandas DataFrame using various methods.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The DataFrame to be checked and modified.
+    method : str, optional
+        The method to use for filling NaN values. Options include 'constant',
+        'ffill', 'bfill', 'mean', 'median', 'mode'. Default is 'constant'.
+    value : int, float, string, optional
+        The value used when method is 'constant'. Ignored for other methods.
+        Default is 0.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        The DataFrame with NaN values filled.
+
+    Example
+    -------
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({'A': [1, 2, np.nan], 'B': [np.nan, 2, 3]})
+    >>> df = fill_nan_in_dataframe(df, method='median')
+    >>> print(df)
+       A    B
+    0  1.0  2.5
+    1  2.0  2.0
+    2  1.5  3.0
+    """
+    # Check for NaN values in the DataFrame and apply the specified fill method
+    if not data.isna().any().any(): 
+        return data 
+
+    fill_methods = {
+        'constant': lambda: data.fillna(value, inplace=True),
+        'ffill': lambda: data.fillna(method='ffill', inplace=True),
+        'bfill': lambda: data.fillna(method='bfill', inplace=True),
+        'mean': lambda: data.fillna(data.mean(), inplace=True),
+        'median': lambda: data.fillna(data.median(), inplace=True),
+        'mode': lambda: data.apply(lambda col: col.fillna(col.mode()[0], inplace=True))
+    }
     
-    
+    fill_action = fill_methods.get(method)
+    if fill_action:
+        fill_action()
+    else:
+        raise ValueError(f"Method '{method}' not recognized for filling NaN values.")
+        
+    return data 
+
+
+
+
+
+
+
     
     
     
