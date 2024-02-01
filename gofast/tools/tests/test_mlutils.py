@@ -11,7 +11,7 @@ from sklearn.svm import LinearSVC, SVC
 from sklearn.model_selection import train_test_split 
 from sklearn.model_selection import RandomizedSearchCV 
 
-from gofast.utils.mlutils import ( 
+from gofast.tools.mlutils import ( 
     evaluate_model,
     select_features, 
     get_global_score,  
@@ -44,9 +44,9 @@ from gofast.utils.mlutils import (
     load_dumped_data, 
     naive_data_split,
     ) 
-from gofast.utils.funcutils import smart_label_classifier, cleaner 
-from gofast.datasets.dload import load_bagoue
-from gofast.datasets.dload import load_hlogs
+from gofast.tools.funcutils import smart_label_classifier, cleaner 
+from gofast.datasets.load import load_bagoue
+from gofast.datasets.load import load_hlogs
 
 # get the data for a test 
 def _prepare_dataset ( return_encoded_data =False, return_raw=False ): 

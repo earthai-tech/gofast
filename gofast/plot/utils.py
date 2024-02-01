@@ -14,61 +14,38 @@ import itertools
 import scipy.stats
 import numpy as np
 import pandas as pd 
-import matplotlib as mpl 
-from matplotlib.axes import Axes
-from matplotlib.figure import Figure
-from matplotlib.patches import Ellipse
+import seaborn as sns 
+import matplotlib as mpl
+import scipy.sparse as sp
+import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.transforms as transforms 
 from matplotlib.collections import EllipseCollection
-import seaborn as sns 
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+from matplotlib.patches import Ellipse
 from scipy.cluster.hierarchy import dendrogram, ward 
-import scipy.sparse as sp
-import matplotlib.pyplot as plt
+
 from sklearn.cluster import KMeans 
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestClassifier 
 from sklearn.linear_model import LogisticRegression 
-from sklearn.metrics import ( 
-    confusion_matrix , 
-    silhouette_samples, 
-    roc_curve, 
-    roc_auc_score, 
-    r2_score
-    )
-from sklearn.model_selection import (
-    learning_curve, KFold)
+from sklearn.metrics import confusion_matrix , silhouette_samples, roc_curve 
+from sklearn.metrics import roc_auc_score, r2_score
+from sklearn.model_selection import learning_curve, KFold 
 from sklearn.utils import resample
-from ..exceptions import ( 
-    TipError, 
-    PlotError, 
-    )
-from ..tools.funcutils import  ( 
-    _assert_all_types,
-    is_iterable, 
-    make_obj_consistent_if, 
-    str2columns, 
-    is_in_if, 
-    to_numeric_dtypes, 
-    fill_nan_in
-    )
-from ..tools.validator import  ( 
-    _check_array_in  , 
-    _is_cross_validated,
-    assert_xy_in, 
-    get_estimator_name,
-    check_array, 
-    check_X_y,
-    check_consistent_length, 
-    check_is_fitted, 
-    )
-from ..tools._dependency import import_optional_dependency 
-try : from yellowbrick.classifier import ConfusionMatrix 
-except: pass 
-from .._typing import Optional, Tuple, Any, List, Union, ArrayLike, DataFrame
-from .._typing import Dict 
-from ._d_cms import D_COLORS, D_MARKERS, D_STYLES 
 
+from .._typing import Optional, Tuple, Any, List, Union 
+from .._typing import Dict, ArrayLike, DataFrame
+from ..exceptions import  TipError, PlotError 
+from ..tools.funcutils import _assert_all_types, is_iterable, str2columns 
+from ..tools.funcutils import make_obj_consistent_if, is_in_if, to_numeric_dtypes 
+from ..tools.funcutils import fill_nan_in
+from ..tools.validator import _check_array_in , _is_cross_validated
+from ..tools.validator import  assert_xy_in, get_estimator_name, check_is_fitted
+from ..tools.validator import check_array, check_X_y, check_consistent_length 
+from ..tools._dependency import import_optional_dependency 
+from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
 def plot_regression_diagnostics(
     x: ArrayLike,
@@ -2649,6 +2626,7 @@ def plot_yb_confusion_matrix (
         " Alternatively, you may use ufunc `~.plot_confusion_matrix`,"
         " otherwise install it mannually.")
         )
+    from yellowbrick.classifier import ConfusionMatrix 
     fig, ax = plt.subplots(figsize = fig_size )
     cmo= ConfusionMatrix (clf, classes=labels, 
                          label_encoder = encoder, **kws

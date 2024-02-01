@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-#   Author: L.Kouadio <etanoyau@gmail.com>
+#   Author: LKouadio <etanoyau@gmail.com>
 #   License: BSD-3-Clause
 
 """
