@@ -15,7 +15,8 @@ License: BSD-3-Clause
 import re
 from warnings import warn
 
-from .load import load_bagoue, load_iris, load_hlogs, load_nlogs, load_mxs, load_forensic, load_jrs_bet
+from .load import (load_bagoue, load_iris, load_hlogs, load_nlogs, load_mxs,
+                   load_forensic, load_jrs_bet)
 from ..tools.funcutils import listing_items_format
 from ..exceptions import DatasetError
 from .._gofastlog import gofastlog
@@ -82,7 +83,6 @@ def fetch_data(tag, **kwargs):
         raise DatasetError(f"No load function available for tag '{tag}'.")
 
     return load_func(**kwargs)
-
 
 def _parse_tag(tag, default='bagoue'):
     """

@@ -3,13 +3,13 @@
 Created on Tue Dec 19 09:26:17 2023
 @author: Daniel
 
-Testing some utilities of :mod:`gofast.utils.funcutils` 
+Testing some utilities of :mod:`gofast.tools.funcutils` 
 """
 
 import numpy as np 
 import pandas as pd 
 import matplotlib.pyplot as plt 
-from gofast.utils.funcutils import  ( 
+from gofast.tools.funcutils import  ( 
     reshape, 
     to_numeric_dtypes, 
     smart_label_classifier, 
@@ -23,8 +23,8 @@ from gofast.utils.funcutils import  (
     replace_data, 
     ) 
 
-from gofast.datasets.dload import load_bagoue
-from gofast.datasets.dload import load_hlogs
+from gofast.datasets.load import load_bagoue
+from gofast.datasets.load import load_hlogs
 # get the data for a test 
 X, y = load_bagoue (as_frame =True ) 
 
