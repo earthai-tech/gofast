@@ -758,7 +758,6 @@ def plot_euler_diagram(sets: dict):
     plt.imshow(img)
     plt.axis('off')
     plt.show()
-
     # Remove the temporary file
     os.remove(tmpfile_name)
 
