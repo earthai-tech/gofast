@@ -11,9 +11,7 @@ import warnings
 
 import numpy as np
 import pandas as pd 
-from scipy.signal import ( 
-    argrelextrema,  )
-
+from scipy.signal import argrelextrema 
 from scipy.optimize import curve_fit
 from scipy.cluster.hierarchy import  linkage 
 from scipy.linalg import lstsq
@@ -25,7 +23,7 @@ import  matplotlib.pyplot as plt
 from ._arraytools import axis_slice
 from .._gofastlog import gofastlog
 from .._docstring import refglossary
-from ..decorators import  refAppender, docSanitizer
+from ..decorators import refAppender, docSanitizer
 from ..exceptions import SiteError
 from .._typing import (
     _T, 
@@ -40,6 +38,7 @@ from .._typing import (
     _SP, 
     Series, 
     DataFrame,
+    Dict,
 )
 from .box import Boxspace 
 from .funcutils import (
@@ -74,6 +73,470 @@ _logger =gofastlog.get_gofast_logger(__name__)
 
 mu0 = 4 * np.pi * 1e-7 
 
+
+def calculate_residuals(
+    actual: ArrayLike, 
+    predicted: Union[np.ndarray, List[ArrayLike]], 
+    task_type: str = 'regression',
+    predict_proba: Optional[ArrayLike] = None
+) -> ArrayLike:
+    """
+    Calculate the residuals for regression, binary, or multiclass 
+    classification tasks.
+
+    Parameters
+    ----------
+    actual : np.ndarray
+        The actual observed values or class labels.
+    predicted : Union[np.ndarray, List[np.ndarray]]
+        The predicted values for regression or class labels for classification.
+        Can be a list of predicted probabilities for each class from predict_proba.
+    task_type : str, default='regression'
+        The type of task: 'regression', 'binary', or 'multiclass'.
+    predict_proba : np.ndarray, optional
+        Predicted probabilities for each class from predict_proba 
+        (for classification tasks).
+
+    Returns
+    -------
+    residuals : np.ndarray
+        The residuals of the model.
+
+    Example
+    -------
+    >>> import numpy as np 
+    >>> from gofast.tools.mathex import calculate_residuals
+    >>> # For regression
+    >>> actual = np.array([3, -0.5, 2, 7])
+    >>> predicted = np.array([2.5, 0.0, 2, 8])
+    >>> residuals = calculate_residuals(actual, predicted, task_type='regression')
+    >>> print(residuals)
+
+    >>> # For binary classification
+    >>> actual = np.array([0, 1, 0, 1])
+    >>> predicted = np.array([0, 1, 0, 1])  # predicted class labels
+    >>> residuals = calculate_residuals(actual, predicted, task_type='binary')
+    >>> print(residuals)
+
+    >>> # For multiclass classification with predict_proba
+    >>> actual = np.array([0, 1, 2, 1])
+    >>> predict_proba = np.array([[0.7, 0.2, 0.1], [0.1, 0.7, 0.2], 
+                                  [0.2, 0.2, 0.6], [0.1, 0.8, 0.1]])
+    >>> residuals = calculate_residuals(actual, None, task_type='multiclass',
+                                        predict_proba=predict_proba)
+    >>> print(residuals)
+    """
+    if task_type == 'regression':
+        if predicted is None:
+            raise ValueError("Predicted values must be provided for regression tasks.")
+        return actual - predicted
+    elif task_type in ['binary', 'multiclass']:
+        if predict_proba is not None:
+            if predict_proba.shape[0] != actual.shape[0]:
+                raise ValueError("The length of predict_proba does not match "
+                                 "the number of actual values.")
+            # For each sample, find the predicted probability of the true class
+            prob_true_class = predict_proba[np.arange(len(actual)), actual]
+            residuals = 1 - prob_true_class  # Residuals are 1 - P(true class)
+        elif predicted is not None:
+            # For binary classification without probabilities, residuals 
+            # are 0 for correct predictions and 1 for incorrect
+            residuals = np.where(actual == predicted, 0, 1)
+        else:
+            raise ValueError("Either predicted class labels or predict_proba "
+                             "must be provided for classification tasks.")
+    else:
+        raise ValueError("The task_type must be 'regression', 'binary', or"
+                         " 'multiclass'.")
+
+    return residuals
+
+def infer_sankey_columns(data: DataFrame, /, 
+  ) -> Tuple[List[str], List[str], List[int]]:
+    """
+    Infers source, target, and value columns for a Sankey diagram 
+    from a DataFrame.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The DataFrame from which to infer the source, target, and value columns.
+
+    Returns
+    -------
+    Tuple[List[str], List[str], List[int]]
+        Three lists containing the names of the source nodes, target nodes,
+        and the values of the flows between them, respectively.
+
+    Raises
+    ------
+    ValueError
+        If the DataFrame does not contain at least two columns for source and target,
+        and an additional column for value.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.tools.mathex import infer_sankey_columns
+    >>> df = pd.DataFrame({
+    ...     'from': ['A', 'A', 'B', 'B'],
+    ...     'to': ['X', 'Y', 'X', 'Y'],
+    ...     'amount': [10, 20, 30, 40]
+    ... })
+    >>> sources, targets, values = infer_sankey_columns(df)
+    >>> print(sources, targets, values)
+    ['A', 'A', 'B', 'B'] ['X', 'Y', 'X', 'Y'] [10, 20, 30, 40]
+    """
+    if len(data.columns) < 3:
+        raise ValueError("DataFrame must have at least three columns:"
+                         " source, target, and value")
+
+    # Heuristic: The source is often the first column, the target is the second,
+    # and the value is the third or the one with numeric data
+    numeric_cols = data.select_dtypes(include=[float, int]).columns
+
+    if len(numeric_cols) == 0:
+        raise ValueError(
+            "DataFrame does not contain any numeric columns for values")
+
+    # Choose the first numeric column as the value by default
+    value_col = numeric_cols[0]
+    source_col = data.columns[0]
+    target_col = data.columns[1]
+
+    # If there's a 'source' or 'target' column, prefer that
+    for col in data.columns:
+        if 'source' in col.lower():
+            source_col = col
+        elif 'target' in col.lower():
+            target_col = col
+        elif 'value' in col.lower() or 'amount' in col.lower() or 'count' in col.lower():
+            value_col = col
+
+    # Check for consistency in data
+    if data[source_col].isnull().any() or data[target_col].isnull().any():
+        raise ValueError("Source and Target columns must not contain null values")
+
+    if data[value_col].isnull().any():
+        raise ValueError("Value column must not contain null values")
+
+    # Extract the columns and return
+    sources = data[source_col].tolist()
+    targets = data[target_col].tolist()
+    values = data[value_col].tolist()
+
+    return sources, targets, values
+
+
+def compute_sunburst_data(
+    data: DataFrame, /, 
+    hierarchy: Optional[List[str]] = None, 
+    value_column: Optional[str] = None
+  ) -> List[Dict[str, str]]:
+    """
+    Computes the data structure required for generating a sunburst chart from
+    a DataFrame.
+    
+    The function allows for automatic inference of hierarchy and values if 
+    not explicitly provided. This is useful for visualizing hierarchical 
+    datasets where the relationship between parent and child categories is 
+    important.
+
+    The sunburst chart provides insights into the proportion of categories at 
+    multiple levels of the hierarchy through their area size. It is especially 
+    useful in identifying patterns and contributions of various parts to the 
+    whole in a dataset.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The DataFrame containing the hierarchical data. It should have columns 
+        representing levels of the hierarchy and optionally a column for values.
+    hierarchy : Optional[List[str]], optional
+        The list of columns that represent the hierarchy levels, ordered from 
+        top to bottom. If not provided, the function assumes all columns except
+        the last one are part of the hierarchy.
+    value_column : Optional[str], optional
+        The name of the column that contains the values for each leaf node in 
+        the sunburst chart. If not provided, the function will count the 
+        occurrences of the lowest hierarchy level and use this count as the 
+        value for each leaf node.
+
+    Returns
+    -------
+    List[Dict[str, str]]
+        A list of dictionaries where each dictionary represents a node in the
+        sunburst chart with 'name', 'value', and 'parent' keys.
+
+    Examples
+    --------
+    >>> df = pd.DataFrame({
+    ...     'Category': ['A', 'A', 'B', 'B'],
+    ...     'Subcategory': ['A1', 'A2', 'B1', 'B2']
+    ... })
+    >>> data = compute_sunburst_data(df)
+    >>> print(data)
+    [
+        {'name': 'A', 'value': 2, 'parent': ''},
+        {'name': 'B', 'value': 2, 'parent': ''},
+        {'name': 'A1', 'value': 1, 'parent': 'A'},
+        {'name': 'A2', 'value': 1, 'parent': 'A'},
+        {'name': 'B1', 'value': 1, 'parent': 'B'},
+        {'name': 'B2', 'value': 1, 'parent': 'B'}
+    ]
+    """
+    # If hierarchy is not provided, infer it from all columns except the last
+    if hierarchy is None:
+        hierarchy = data.columns[:-1].tolist()
+    
+    # If value_column is not provided, create a 'Count' column and use 
+    # it as the value column
+    if value_column is None:
+        data = data.assign(Count=1)
+        value_column = 'Count'
+    
+    # Compute the values for each level of the hierarchy
+    df_full = data.copy()
+    for i in range(1, len(hierarchy)):
+        df_level = df_full[hierarchy[:i+1] + [value_column]].groupby(
+            hierarchy[:i+1]).sum().reset_index()
+        df_full = pd.concat([df_full, df_level], ignore_index=True)
+    
+    df_full = df_full.drop_duplicates(subset=hierarchy).reset_index(drop=True)
+
+    # Generate the sunburst data structure
+    sunburst_data = [
+        {"name": row[hierarchy[-1]], 
+         "value": row[value_column], 
+         "parent": row[hierarchy[-2]] if i > 0 else ""}
+        for i in range(len(hierarchy))
+        for _, row in df_full[hierarchy[:i+1] + [value_column]].iterrows()
+    ]
+
+    # Remove duplicates, preserve order, and return
+    seen = set()
+    return [x for x in sunburst_data if not (
+        tuple(x.items()) in seen or seen.add(tuple(x.items())))]
+
+def compute_effort_yield(
+        d: ArrayLike, /, reverse: bool = True
+        ) -> Tuple[ArrayLike, np.ndarray]:
+    """
+    Compute effort and yield values from importance data for use in 
+    ABC analysis or similar plots.
+
+    This function takes an array of importance measures (e.g., weights, scores) 
+    and computes the cumulative effort and corresponding yield. 
+    The effort is the cumulative percentage of items when sorted by importance,
+    and the yield is the cumulative sum of importance
+    measures, also as a percentage of the total sum.
+
+    Parameters
+    ----------
+    d : np.ndarray
+        1D array of importance measures for each item or feature.
+    reverse : bool, optional
+        If True (default), sort the data in descending order 
+        (highest importance first).
+        If False, sort in ascending order (lowest importance first).
+    
+    Returns
+    -------
+    effort : np.ndarray
+        The cumulative percentage of items considered, sorted by importance.
+    yield_ : np.ndarray
+        The cumulative sum of importance measures, normalized to the total 
+        sum to represent the yield as a proportion of the total importance.
+
+    Example
+    -------
+    >>> import numpy as np 
+    >>> from gofast.tools.mathex import compute_effort_yield
+    >>> importances = np.array([0.1, 0.4, 0.3, 0.2])
+    >>> effort, yield_ = compute_effort_yield(importances)
+    >>> print(effort)
+    >>> print(yield_)
+    
+    This would output:
+    >>> effort
+    [0.25 0.5  0.75 1.  ]
+    >>> yield_
+    [0.4  0.7  0.9  1.  ]
+
+    Note that the effort is simply the proportion of total items, 
+    and the yield is the
+    cumulative proportion of the sum of importances.
+    """
+    d = np.array (d)
+    # Validate input data
+    if not isinstance(d, np.ndarray) or d.ndim != 1:
+        raise ValueError("Input data must be a one-dimensional numpy array.")
+    
+    if not np.issubdtype(d.dtype, np.number):
+        raise ValueError("Input data must be a numpy array of numerical type.")
+
+    # Sort the data by importance
+    sorted_indices = np.argsort(d)
+    sorted_data = d[sorted_indices]
+    if reverse:
+        sorted_data = sorted_data[::-1]
+
+    # Calculate cumulative sum of the sorted data
+    cumulative_data = np.cumsum(sorted_data)
+
+    # Normalize cumulative sum to get yield as a proportion of the total sum
+    yield_ = cumulative_data / cumulative_data[-1]
+
+    # Calculate the effort as the proportion of total number of items
+    effort = np.arange(1, d.size + 1) / d.size
+
+    return effort, yield_
+
+def make_mxs(
+    y,
+    yt,
+    threshold=0.5, 
+    star_mxs=True, 
+    return_ymxs=False,
+    mode="strict", 
+    include_nan=False, 
+    trailer="*"
+    ):
+    """
+    Compute the similarity between labels in arrays true y and predicted yt. 
+    
+    Function transform yt based on these similarities, and create a new 
+    array `ymxs` by filling NaN values in y with corresponding labels from 
+    transformed yt. Handles NaN values in `yt` based on the `mode` and
+    `include_nan` parameters. See more in [1]_
+
+    Parameters
+    ----------
+    y : array-like
+        The target array containing valid labels and potentially NaN values.
+    yt : array-like
+        The array containing predicted labels from KMeans.
+    threshold : float, optional
+        The threshold for considering a label in `y` as similar to a label 
+        in `yt` (default is 0.5).
+    star_mxs : bool, optional
+        If True, appends `trailer` to labels in `yt` when similarity is found 
+        (default is True).
+    return_ymx : bool, optional
+        If True, returns the mixed array `ymx`; otherwise, returns a 
+        dictionary of label similarities (default is False).
+    mode : str, optional
+        "strict" or "soft" handling of NaN values in `yt` (default is "strict").
+    include_nan : bool, optional
+        If True and `mode` is "soft", includes NaN values in `yt` during 
+        similarity computation (default is False).
+    trailer : str, optional
+        The string to append to labels in `yt` when `star_mxs` is True
+        (default is "*").
+
+    Returns
+    -------
+    array or dict
+        Mixed array `ymx` if `return_ymx` is True; otherwise, a 
+        dictionary representing similarities of labels in `y` and `yt`.
+
+    Raises
+    ------
+    ValueError
+        If `yt` contains NaN values in "strict" mode or if `trailer` 
+        is a number.
+        
+    References
+    -----------
+    [1] Kouadio, K.L, Liu R., Liu J., A mixture Learning Strategy for predicting 
+        permeability coefficient K (2024). Computers and Geosciences, doi:XXXXX 
+
+    Examples
+    --------
+    >>> y = np.array([1, 2, np.nan, 4])
+    >>> yt = np.array([1, 2, 3, 4])
+    >>> make_mxs(y, yt, threshold=0.5, star_mxs=True, return_ymx=True, trailer="#")
+    array([1, 2, '3#', '44#'])
+
+    >>> make_mxs(y, yt, threshold=1.5, star_mxs=False, return_ymx=False, mode="soft")
+    {1: True, 2: True, np.nan: False, 4: True}
+    """
+    from sklearn.metrics import pairwise_distances
+    
+    if not isinstance(trailer, str) or trailer.isdigit():
+        raise ValueError("trailer must be a non-numeric string.")
+
+    if mode == "strict" and np.isnan(yt).any():
+        raise ValueError("yt should not contain NaN values in 'strict' mode.")
+
+    # Appending trailer to yt if star_mxs is True
+    yt_transformed = np.array([f"{label}{trailer}" for label in yt]
+                              ) if star_mxs else yt.copy()
+
+    # Computing similarities and transforming yt
+    similarities = {}
+    for i, label_y in enumerate(y):
+        include_label = not np.isnan(label_y) or (include_nan and mode == "soft")
+        if include_label:
+            similarity = pairwise_distances([[label_y]], [[yt[i]]])[0][0] <= threshold
+            similarities[label_y] = similarity
+            if similarity and star_mxs:
+                # Transform similar labels in yt
+                label_yt_trailer = f"{yt[i]}{trailer}"
+                yt_transformed[yt_transformed == label_yt_trailer
+                               ] = f"{label_y}{label_yt_trailer}"
+    # Filling NaN positions in y with corresponding labels from transformed yt
+    ymxs = np.where(np.isnan(y), yt_transformed, y)
+    
+    return ymxs if return_ymxs else similarities
+
+def label_importance(y, include_nan=False):
+    """
+    Compute the importance of each label in a target array.
+
+    This function calculates the frequency of each unique label 
+    in the target array `y`. Importance is defined as the proportion of 
+    occurrences of each label in the array.
+
+    Parameters
+    ----------
+    y : array-like
+        The target array containing labels.
+    include_nan : bool, optional
+        If True, includes NaN values in the calculation, otherwise 
+        excludes them (default is False).
+
+    Returns
+    -------
+    dict
+        A dictionary with labels as keys and their corresponding 
+        importance as values.
+
+    Notes
+    -----
+    The mathematical formulation for the importance of a label `l` is given by:
+
+    .. math::
+
+        I(l) = \\frac{\\text{{count of }} l \\text{{ in }} y}{\\text{{total number of elements in }} y}
+
+    Examples
+    --------
+    >>> y = np.array([1, 2, 2, 3, 3, 3, np.nan])
+    >>> label_importance(y)
+    {1.0: 0.16666666666666666, 2.0: 0.3333333333333333, 3.0: 0.5}
+
+    >>> label_importance(y, include_nan=True)
+    {1.0: 0.14285714285714285, 2.0: 0.2857142857142857, 3.0: 0.42857142857142855,
+     nan: 0.14285714285714285}
+    """
+    y = np.array ( y )
+    if not include_nan:
+        y = y[~np.isnan(y)]
+    labels, counts = np.unique(y, return_counts=True)
+    total = counts.sum()
+    return {label: count / total for label, count in zip(labels, counts)}
+
 def linear_regression(X, coef, bias=0., noise=0.):
     """
     linear regression.
@@ -81,7 +544,7 @@ def linear_regression(X, coef, bias=0., noise=0.):
     Generate output for linear regression, modeling a relationship between
     features and a response using a linear approach.
 
-    Linear regression is one of the simplest forms of regression, useful for
+    Linear regression is one of the simplest formss of regression, useful for
     understanding relationships between variables and for making predictions.
     It's widely used in various fields like economics, biology, and engineering.
 

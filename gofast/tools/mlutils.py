@@ -15,8 +15,7 @@ import warnings
 import pickle 
 import joblib
 import datetime 
-import shutil
-from pprint import pprint  
+import shutil 
 from six.moves import urllib 
 from collections import Counter 
 import numpy as np 
@@ -44,7 +43,7 @@ from ._dependency import import_optional_dependency
 from ..exceptions import ParameterNumberError, EstimatorError, DatasetError
 from ..decorators import deprecated              
 from .funcutils import _assert_all_types, _isin,  is_in_if,  ellipsis2false
-from .funcutils import savepath_, smart_format, str2columns, is_iterable
+from .funcutils import  smart_format, str2columns, is_iterable
 from .funcutils import  is_classification_task, to_numeric_dtypes, fancy_printer
 from .validator import get_estimator_name, check_array, check_consistent_length
 from .validator import  _is_numeric_dtype,  _is_arraylike_1d 
@@ -84,7 +83,7 @@ __all__=[
     "discretize_categories", 
     "stratify_categories", 
     "serialize_data", 
-    "load_dumped_data", 
+    "deserialize_data", 
     "soft_data_split",
     "laplace_smoothing"
     ]
@@ -120,7 +119,7 @@ _estimators ={
 #------
 
 def codify_variables (
-    arr, /, 
+    data:DataFrame | ArrayLike, /, 
     columns: list =None, 
     func: _F=None, 
     categories: dict=None, 
@@ -229,7 +228,7 @@ def codify_variables (
         get_dummies, parse_cols, return_cat_codes )
     # build dataframe if arr is passed rather 
     # than a dataframe 
-    df = build_data_if( arr, to_frame =True, force=True, input_name ='col',
+    df = build_data_if( data, to_frame =True, force=True, input_name ='col',
                         raise_warning='silence'  )
     # now check integrity 
     df = to_numeric_dtypes( df )
@@ -278,7 +277,7 @@ def codify_variables (
     if categories is None: 
         categories ={}
         for col in cat_columns: 
-            categories[col] = list(np.unique (df[col] ))
+            categories[col] = list(np.unique (df[col]))
             
     # categories should be a mapping data 
     if not isinstance ( categories, dict ): 
@@ -2126,285 +2125,302 @@ def discretize_categories(
     return data 
 
 def stratify_categories(
-    data: Union [ArrayLike, DataFrame],
-    cat_name:str , 
-    n_splits:int =1, 
-    test_size:float= 0.2, 
-    random_state:int = 42
-    )-> Tuple[ _Sub[DataFrame[DType[_T]]], _Sub[DataFrame[DType[_T]]]]: 
-    """ Stratified sampling based on new generated category. 
-
-    :param data: dataframe holding the new column of category 
-    :param cat_name: new category name inserted into `data` 
-    :param n_splits: number of splits 
+    data: Union[DataFrame, ArrayLike],
+    cat_name: str, 
+    n_splits: int = 1, 
+    test_size: float = 0.2, 
+    random_state: int = 42
+) -> Tuple[Union[DataFrame, ArrayLike], Union[DataFrame, ArrayLike]]: 
     """
-    split = StratifiedShuffleSplit(n_splits, test_size = test_size, 
-                                   random_state=random_state)
-    for train_index, test_index in split.split(data, data[cat_name]): 
-        strat_train_set = data.loc[train_index]
-        strat_test_set = data.loc[test_index] 
+    Perform stratified sampling on a dataset based on a specified categorical column.
+
+    Parameters
+    ----------
+    data : Union[pd.DataFrame, np.ndarray]
+        The dataset to be split. Can be a Pandas DataFrame or a NumPy ndarray.
         
-    return strat_train_set , strat_test_set 
+    cat_name : str
+        The name of the categorical column in 'data' used for stratified sampling. 
+        This column must exist in 'data' if it's a DataFrame.
+        
+    n_splits : int, optional
+        Number of re-shuffling & splitting iterations. Defaults to 1.
+        
+    test_size : float, optional
+        Proportion of the dataset to include in the test split. Defaults to 0.2.
+        
+    random_state : int, optional
+        Controls the shuffling applied to the data before applying the split.
+        Pass an int for reproducible output across multiple function calls.
+        Defaults to 42.
+
+    Returns
+    -------
+    Tuple[Union[pd.DataFrame, np.ndarray], Union[pd.DataFrame, np.ndarray]]
+        A tuple containing the training and testing sets.
+
+    Raises
+    ------
+    ValueError
+        If 'cat_name' is not found in 'data' when 'data' is a DataFrame.
+        If 'test_size' is not between 0 and 1.
+        If 'n_splits' is less than 1.
+
+    Examples
+    --------
+    >>> df = pd.DataFrame({
+    ...     'feature1': np.random.rand(100),
+    ...     'feature2': np.random.rand(100),
+    ...     'category': np.random.choice(['A', 'B', 'C'], 100)
+    ... })
+    >>> train_set, test_set = stratify_categories(df, 'category')
+    >>> train_set.shape, test_set.shape
+    ((80, 3), (20, 3))
+    """
+
+    if isinstance(data, pd.DataFrame) and cat_name not in data.columns:
+        raise ValueError(f"Column '{cat_name}' not found in the DataFrame.")
+
+    if not (0 < test_size < 1):
+        raise ValueError("Test size must be between 0 and 1.")
+
+    if n_splits < 1:
+        raise ValueError("Number of splits 'n_splits' must be at least 1.")
+
+    split = StratifiedShuffleSplit(n_splits=n_splits, test_size=test_size,
+                                   random_state=random_state)
+    for train_index, test_index in split.split(data, data[cat_name] if isinstance(
+            data, pd.DataFrame) else data[:, cat_name]):
+        if isinstance(data, pd.DataFrame):
+            strat_train_set = data.iloc[train_index]
+            strat_test_set = data.iloc[test_index]
+        else:  # Handle numpy arrays
+            strat_train_set = data[train_index]
+            strat_test_set = data[test_index]
+
+    return strat_train_set, strat_test_set
 
 def fetch_model(
-        modelfile: str ,
-        modelpath:Optional[str] = None,
-        default:bool =True,
-        modname: Optional[str] =None,
-        verbose:int =0): 
-    """ Fetch your model saved using Python pickle module or 
-    joblib module. 
-    
-    :param modelfile: str or Path-Like object 
-        dumped model file name saved using `joblib` or Python `pickle` module.
-    :param modelpath: path-Like object , 
-        Path to model dumped file =`modelfile`
-    :default: bool, 
-        Model parameters by default are saved into a dictionary. When default 
-        is ``True``, returns a tuple of pair (the model and its best parameters)
-        . If False return all values saved from `~.MultipleGridSearch`
-       
-    :modname: str 
-        Is the name of model to retrived from dumped file. If name is given 
-        get only the model and its best parameters. 
-    :verbose: int, level=0 
-        control the verbosity.More message if greater than 0.
-    
-    :returns:
-        - `model_class_params`: if default is ``True``
-        - `pickedfname`: model dumped and all parameters if default is `False`
-        
-    :Example: 
-        >>> from gofast.bases import fetch_model 
-        >>> my_model = fetch_model ('SVC__LinearSVC__LogisticRegression.pkl',
-                                    default =False,  modname='SVC')
-        >>> my_model
+    file: str,
+    path: Optional[str] = None,
+    default: bool = True,
+    name: Optional[str] = None,
+    verbose: int = 0
+) -> Union[Dict[str, Any], List[Tuple[Any, Dict[str, Any], Any]]]:
     """
+    Fetches a model saved using the Python pickle module or joblib module.
+
+    Parameters
+    ----------
+    file : str
+        The filename of the dumped model, saved using `joblib` or Python 
+        `pickle` module.
+    
+    path : str, optional
+        The directory path containing the model file. If None, `file` is assumed 
+        to be the full path to the file.
+
+    default : bool, optional
+        If True, returns a tuple (model, best parameters, best scores).
+        If False, returns all values saved in the file.
+
+    name : str, optional
+        The name of the specific model to retrieve from the file. If specified,
+        only the named model and its parameters are returned.
+
+    verbose : int, optional
+        Verbosity level. More messages are displayed for values greater than 0.
+
+    Returns
+    -------
+    Union[Dict[str, Any], List[Tuple[Any, Dict[str, Any], Any]]]
+    Depending on the default flag:
+        - If default is True, returns a list of tuples containing the model,
+        best parameters, and best scores for each model in the file.
+        - If default is False, returns the entire contents of the file,
+        which could include multiple models and their respective information.
+    
+    Raises
+    ------
+    FileNotFoundError
+        If the specified model file is not found.
+    
+    KeyError
+        If `name` is specified but not found in the loaded model file.
+    
+    Examples
+    --------
+    >>> model_info = fetch_model('model.pkl', path='/models', 
+                                 name='RandomForest', default=True)
+    >>> model, best_params, best_scores = model_info
+    """
+    full_path = os.path.join(path, file) if path else file
+
+    if not os.path.isfile(full_path):
+        raise FileNotFoundError(f"File {full_path!r} not found!")
+    
+    is_joblib = full_path.endswith('.pkl') or full_path.endswith('.joblib')
+    model_data = joblib.load(full_path) if is_joblib else pickle.load(open(full_path, 'rb'))
+    
+    if verbose:
+        lib_used = "joblib" if is_joblib else "pickle"
+        print(f"Model loaded from {full_path!r} using {lib_used}.")
+    
+    if name:
+        try:
+            model_info = model_data[name]
+            if default:
+                return (model_info['best_model'], model_info['best_params_'],
+                        model_info['best_scores'])
+            else:
+                return model_info
+        except KeyError:
+            available_models = list(model_data.keys())
+            raise KeyError(f"Model name '{name}' not found. Available models:"
+                           f" {available_models}")
+    
+    if default:
+        return [(info['best_model'], info['best_params_'], info['best_scores'])
+                for info in model_data.values()]
+    
+    return model_data
+
+def serialize_data(
+    data: Any,
+    filename: Optional[str] = None,
+    savepath: Optional[str] = None,
+    to: Optional[str] = None,
+    verbose: int = 0
+) -> str:
+    """
+    Serialize and save data to a binary file using either joblib or pickle.
+
+    Parameters
+    ----------
+    data : Any
+        The object to be serialized and saved.
+    filename : str, optional
+        The name of the file to save. If None, a name is generated automatically.
+    savepath : str, optional
+        The directory where the file should be saved. If it does not exist, 
+        it is created. If None, the current working directory is used.
+    to : str, optional
+        Specify the serialization method: 'joblib' or 'pickle'. 
+        If None, defaults to 'joblib'.
+    verbose : int, optional
+        Verbosity level. More messages are displayed for values greater than 0.
+
+    Returns
+    -------
+    str
+        The path to the saved file.
+
+    Raises
+    ------
+    ValueError
+        If 'to' is not 'joblib', 'pickle', or None.
+    TypeError
+        If 'to' is not a string.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> data = (np.array([0, 1, 3]), np.array([0.2, 4]))
+    >>> filename = serialize_data(data, filename='__XTyT.pkl', to='pickle', 
+                                  savepath='gofast/datasets')
+    """
+    if filename is None:
+        timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        filename = f"__mydumpedfile_{timestamp}.pkl"
+
+    if to:
+        if not isinstance(to, str):
+            raise TypeError(f"Serialization method 'to' must be a string, not {type(to)}.")
+        to = to.lower()
+        if to not in ('joblib', 'pickle'):
+            raise ValueError("Unknown serialization method 'to'. Must be"
+                             " 'joblib' or 'pickle'.")
+
+    if not filename.endswith('.pkl'):
+        filename += '.pkl'
+    
+    full_path = os.path.join(savepath, filename) if savepath else filename
+    
+    if savepath and not os.path.exists(savepath):
+        os.makedirs(savepath)
     
     try:
-        isdir =os.path.isdir( modelpath)
-    except TypeError: 
-        #stat: path should be string, bytes, os.PathLike or integer, not NoneType
-        isdir =False
-        
-    if isdir and modelfile is not None: 
-        modelfile = os.join.path(modelpath, modelfile)
-
-    isfile = os.path.isfile(modelfile)
-    if not isfile: 
-        raise FileNotFoundError (f"File {modelfile!r} not found!")
-        
-    from_joblib =False 
-    if modelfile.endswith('.pkl'): from_joblib  =True 
+        if to == 'pickle' or to is None:
+            with open(full_path, 'wb') as file:
+                pickle.dump(data, file, protocol=pickle.HIGHEST_PROTOCOL)
+            if verbose:
+                print(f"Data serialized using pickle and saved to {full_path!r}.")
+        elif to == 'joblib':
+            joblib.dump(data, full_path)
+            if verbose:
+                print(f"Data serialized using joblib and saved to {full_path!r}.")
+    except Exception as e:
+        raise IOError(f"An error occurred during data serialization: {e}")
     
-    if from_joblib:
-       if verbose: _logger.info(
-               f"Loading models `{os.path.basename(modelfile)}`")
-       try : 
-           pickedfname = joblib.load(modelfile)
-           # and later ....
-           # f'{pickfname}._loaded' = joblib.load(f'{pickfname}.pkl')
-           dmsg=f"Model {modelfile !r} retreived from~.externals.joblib`"
-       except : 
-           dmsg=''.join([f"Nothing to retrived. It's seems model {modelfile !r}", 
-                         " not really saved using ~external.joblib module! ", 
-                         "Please check your model filename."])
-    
-    if not from_joblib: 
-        if verbose: _logger.info(
-                f"Loading models `{os.path.basename(modelfile)}`")
-        try: 
-           # DeSerializing pickled data 
-           with open(modelfile, 'rb') as modf: 
-               pickedfname= pickle.load (modf)
-           if verbose: _logger.info(
-                   f"Model `{os.path.basename(modelfile)!r} deserialized"
-                         "  using Python pickle module.`!")
-           
-           dmsg=f'Model `{modelfile!r} deserizaled from  {modelfile}`!'
-        except: 
-            dmsg =''.join([" Unable to deserialized the "
-                           f"{os.path.basename(modelfile)!r}"])
-           
-        else: 
-            if verbose: _logger.info(dmsg)   
+    return full_path
 
-    if verbose > 0: 
-        pprint(
-            dmsg 
-            )
-           
-    if modname is not None: 
-        keymess = f"{modname!r} not found."
-        try : 
-            if default:
-                model_class_params  =( pickedfname[modname]['best_model'], 
-                                   pickedfname[modname]['best_params_'], 
-                                   pickedfname[modname]['best_scores'],
-                                   )
-            if not default: 
-                model_class_params=pickedfname[modname]
-                
-        except KeyError as key_error: 
-            warnings.warn(
-                f"Model name {modname!r} not found in the list of dumped"
-                f" models = {list(pickedfname.keys()) !r}")
-            raise KeyError from key_error(keymess + "Shoud try the model's"
-                                          f"names ={list(pickedfname.keys())!r}")
-        
-        if verbose: 
-            pprint('Should return a tuple of `best model` and the'
-                   ' `model best parameters.')
-           
-        return model_class_params  
-            
-    if default:
-        model_class_params =list()    
-        
-        for mm in pickedfname.keys(): 
-            model_class_params.append((pickedfname[mm]['best_model'], 
-                                      pickedfname[mm]['best_params_'],
-                                      pickedfname[modname]['best_scores']))
-    
-        if verbose: 
-               pprint('Should return a list of tuple pairs:`best model`and '
-                      ' `model best parameters.')
-               
-        return model_class_params
-
-    return pickedfname 
-
-def serialize_data (
-        data , 
-        filename=None, 
-        savepath =None, 
-        to=None, 
-        verbose=0,
-        ): 
-    """ Dump and save binary file 
-    
-    :param data: Object
-        Object to dump into a binary file. 
-    :param filename: str
-        Name of file to serialize. If 'None', should create automatically. 
-    :param savepath: str, PathLike object
-         Directory to save file. If not exists should automaticallycreate.
-    :param to: str 
-        Force your data to be written with specific module like ``joblib`` or 
-        Python ``pickle` module. Should be ``joblib`` or ``pypickle``.
-    :return: str
-        dumped or serialized filename.
-        
-    :Example:
-        
-        >>> import numpy as np
-        >>> from gofast.tools.mlutils import dumpOrSerializeData
-        >>>  data=(np.array([0, 1, 3]),np.array([0.2, 4]))
-        >>> dumpOrSerializeData(data, filename ='__XTyT.pkl', to='pickle', 
-                                savepath='gofast/datasets')
+def deserialize_data(filename: str, verbose: int = 0) -> Any:
     """
-    if filename is None: 
-        filename ='__mydumpedfile.{}__'.format(datetime.datetime.now())
-        filename =filename.replace(' ', '_').replace(':', '-')
+    Deserialize and load data from a serialized file using joblib or pickle.
 
-    if to is not None: 
-        if not isinstance(to, str): 
-            raise TypeError(f"Need to be string format not {type(to)}")
-        if to.lower().find('joblib')>=0: to ='joblib'
-        elif to.lower().find('pickle')>=0:to = 'pypickle'
-        
-        if to not in ('joblib', 'pypickle'): 
-            raise ValueError("Unknown argument `to={to}`."
-                             " Should be <joblib> or <pypickle>")
-    # remove extension if exists
-    if filename.endswith('.pkl'): 
-        filename = filename.replace('.pkl', '')
-        
-    if verbose: _logger.info(f'Dumping data to `{filename}`!')    
-    try : 
-        if to is None or to =='joblib':
-            joblib.dump(data, f'{filename}.pkl')
-            
-            filename +='.pkl'
-            _logger.info(f'Data dumped in `{filename} using '
-                          'to `~.externals.joblib`!')
-        elif to =='pypickle': 
-            # force to move pickling data  to exception and write using 
-            # Python pickle module
-            raise 
-    except : 
-        # Now try to pickle data Serializing data 
-        # Using HIGHEST_PROTOCOL is almost 2X faster and creates a file that
-        # is ~10% smaller.  Load times go down by a factor of about 3X.
-        with open(filename, 'wb') as wfile: 
-            pickle.dump( data, wfile, protocol=pickle.HIGHEST_PROTOCOL) 
-        if verbose: _logger.info( 'Data are well serialized ')
-        
-    if savepath is not None:
-        try : 
-            savepath = savepath_ (savepath)
-        except : 
-            savepath = savepath_ ('_dumpedData_')
+    Parameters
+    ----------
+    filename : str
+        The name or path of the file containing the serialized data.
+
+    verbose : int, optional
+        Verbosity level. More messages are displayed for values greater 
+        than 0.
+
+    Returns
+    -------
+    Any
+        The data loaded from the serialized file.
+
+    Raises
+    ------
+    TypeError
+        If 'filename' is not a string.
+
+    FileNotFoundError
+        If the specified file does not exist.
+
+    Examples
+    --------
+    >>> data = deserialize_data('path/to/serialized_data.pkl')
+    """
+
+    if not isinstance(filename, str):
+        raise TypeError("Expected 'filename' to be a string,"
+                        f" got {type(filename)} instead.")
+    
+    if not os.path.isfile(filename):
+        raise FileNotFoundError(f"File {filename!r} does not exist.")
+
+    try:
+        data = joblib.load(filename)
+        if verbose:
+            print(f"Data loaded successfully from {filename!r} using joblib.")
+    except Exception as joblib_error:
         try:
-            shutil.move(filename, savepath)
-        except :
-            print(f"--> It seems destination path {filename!r} already exists.")
+            with open(filename, 'rb') as file:
+                data = pickle.load(file)
+            if verbose:
+                print(f"Data loaded successfully from {filename!r} using pickle.")
+        except Exception as pickle_error:
+            raise IOError(f"Failed to load data from {filename!r}. "
+                          f"Joblib error: {joblib_error}, Pickle error: {pickle_error}")
+    if data is None:
+        raise ValueError(f"Data in {filename!r} could not be deserialized."
+                         " The file may be corrupted.")
 
-    if savepath is None:
-        savepath =os.getcwd()
-        
-    if verbose: 
-        print(f"Data {'serialization' if to=='pypickle' else 'dumping'}"
-          f" complete,  save to {savepath!r}")
-   
-def load_dumped_data (filename:str, verbose=0): 
-    """ Load dumped or serialized data from filename 
-    
-    :param filename: str or path-like object 
-        Name of dumped data file.
-    :return: 
-        Data loaded from dumped file.
-        
-    :Example:
-        
-        >>> from gofast.tools.mlutils import loadDumpedOrSerializedData
-        >>> loadDumpedOrSerializedData(filename ='Watex/datasets/__XTyT.pkl')
-    """
-    
-    if not isinstance(filename, str): 
-        raise TypeError(f'filename should be a <str> not <{type(filename)}>')
-        
-    if not os.path.isfile(filename): 
-        raise FileExistsError(f"File {filename!r} does not exist.")
+    return data
 
-    _filename = os.path.basename(filename)
-    if verbose: _logger.info(f"Loading data from `{_filename}`!")
-   
-    data =None 
-    try : 
-        data= joblib.load(filename)
-        if verbose: _logger.info(
-                ''.join([f"Data from {_filename !r} are sucessfully", 
-                      " loaded using ~.externals.joblib`!"]))
-    except : 
-        if verbose: 
-            _logger.info(
-            ''.join([f"Nothing to reload. It's seems data from {_filename!r}", 
-                      " are not really dumped using ~external.joblib module!"])
-            )
-        # Try DeSerializing using pickle module
-        with open(filename, 'rb') as tod: 
-            data= pickle.load (tod)
-            
-        if verbose: 
-            _logger.info(f"Data from `{_filename!r}` are well"
-                      " deserialized using Python pickle module!")
-        
-    is_none = data is None
-    if is_none: 
-        print("Unable to deserialize data. Please check your file.")
-
-    return data 
 
 def subprocess_module_installation (module, upgrade =True ): 
     """ Install  module using subprocess.

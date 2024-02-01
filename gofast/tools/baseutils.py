@@ -19,8 +19,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns 
 from tqdm import tqdm
 
-from .._typing import Any,  List, NDArray, DataFrame, Optional
+from .._typing import Any,  List, NDArray, DataFrame, Optional, Series 
 from .._typing import Dict, Union, TypeGuard, Tuple, ArrayLike
+from ..decorators import deprecated
 from ..exceptions import FileHandlingError 
 from ..property import  Config
 from .funcutils import is_iterable, ellipsis2false,smart_format, validate_url 
@@ -28,6 +29,7 @@ from .funcutils import to_numeric_dtypes, assert_ratio
 from .funcutils import normalize_string  
 from ._dependency import import_optional_dependency 
 from .validator import array_to_frame, build_data_if, is_frame 
+from .validator import check_consistent_length
 
 def summarize_text_columns(
     data: DataFrame, /, 
@@ -123,6 +125,36 @@ def summarize_text_columns(
         sentences = [sentence.strip() for sentence in sentences if sentence]
         if len(sentences) <= 1:
             return text, None
+    
+        vectorizer = TfidfVectorizer(stop_words=stop_words)
+        tfidf_matrix = vectorizer.fit_transform(sentences)
+        similarity_matrix = cosine_similarity(tfidf_matrix, tfidf_matrix)
+        # The similarity matrix is square, so we need to avoid comparing a 
+        # sentence to itself
+        np.fill_diagonal(similarity_matrix, 0)
+        # Sum the similarities of each sentence to all others
+        sentence_scores = similarity_matrix.sum(axis=1)
+        # Identify the index of the most important sentence
+        most_important_sentence_index = np.argmax(sentence_scores)
+        summary = sentences[most_important_sentence_index]
+        encoding = tfidf_matrix[most_important_sentence_index].todense() if encode else None
+        if encoding is not None and compression_method:
+            if compression_method == 'sum':
+                encoding = np.sum(encoding)
+            elif compression_method == 'mean':
+                encoding = np.mean(encoding)
+            elif compression_method == 'norm':
+                encoding = np.linalg.norm(encoding)
+            else: 
+                raise ValueError(
+                    f"Unsupported compression method: {compression_method}")
+        return summary, encoding
+        
+    def _summarize_and_encode0(text):
+        sentences = text.split('.')
+        sentences = [sentence.strip() for sentence in sentences if sentence]
+        if len(sentences) <= 1:
+            return text, None
         vectorizer = TfidfVectorizer(stop_words=stop_words)
         tfidf_matrix = vectorizer.fit_transform(sentences)
         similarity_matrix = cosine_similarity(tfidf_matrix, tfidf_matrix).flatten()
@@ -168,12 +200,13 @@ def summarize_text_columns(
 
     if drop_original:
         data.drop(columns=column_names, inplace=True)
+        data.columns = [ c.replace ("_encoded", '') for c in data.columns]
 
     return data
 
 def simple_extractive_summary(
         texts: List[str], raise_exception: bool = True, encode: bool = False
-        ) -> Union[str, Tuple[str, ArrayLike]]:
+    ) -> Union[str, Tuple[str, ArrayLike]]:
     """
     Generates a simple extractive summary from a list of texts. 
     
@@ -241,7 +274,6 @@ def simple_extractive_summary(
         return texts[most_similar_idx], tfidf_matrix[most_similar_idx].todense()
 
     return texts[most_similar_idx]
-
 
 def format_long_column_names(
     data:DataFrame, /,  
@@ -341,6 +373,7 @@ def enrich_data_spectrum(
     --------
     >>> import pandas as pd
     >>> from sklearn.datasets import load_boston
+    >>> from gofast.tools.baseutils import enrich_data_spectrum
     >>> boston = load_boston()
     >>> data = pd.DataFrame(boston.data, columns=boston.feature_names)
     >>> augmented_data = enrich_data_spectrum(
@@ -1017,6 +1050,8 @@ def request_data(
     return response.text if as_text else ( 
         response.json () if as_json else response )
 
+@deprecated("Deprecated function. Should be remove next release."
+            "Use `gofast.tools.fetch_remote_data` instead.")
 def get_remote_data(
     remote_file: str, 
     save_path: Optional[str] = None, 
@@ -1108,6 +1143,115 @@ def get_remote_data(
         print(f"An error occurred during the download: {e}")
         if raise_exception:
             raise e
+        return False
+
+def fetch_remote_data(
+    remote_file_url: str, 
+    save_path: Optional[str] = None, 
+    raise_exception: bool = True
+ ) -> bool:
+    """
+    Download a file from a remote URL and optionally save it to a specified location.
+
+    This function attempts to download a file from the given URL. If `save_path` is 
+    provided, it saves the file to that location, otherwise, it saves it in the 
+    current working directory. If the download fails, it can optionally raise an 
+    exception or return False.
+
+    Parameters
+    ----------
+    remote_file_url : str
+        The URL of the remote file to be downloaded.
+    save_path : str, optional
+        The local directory path where the downloaded file should be saved. 
+        If None, the file is saved in the current directory. Default is None.
+    raise_exception : bool, default True
+        If True, raises an exception upon failure. Otherwise, returns False.
+
+    Returns
+    -------
+    bool
+        True if the file was successfully downloaded, False otherwise.
+
+    Raises
+    ------
+    ConnectionRefusedError
+        If the download fails and `raise_exception` is True.
+
+    Examples
+    --------
+    >>> status = get_remote_data('https://example.com/file.csv', save_path='/local/path')
+    >>> print(status)
+
+    """
+    def handle_download_error(e: Exception, message: str) -> None:
+        """
+        Handle download errors, either by raising an exception or printing 
+        an error message.
+
+        Parameters
+        ----------
+        e : Exception
+            The exception that was raised.
+        message : str
+            The error message to be printed or included in the raised exception.
+
+        Raises
+        ------
+        Exception
+            The original exception, if `raise_exception` is True.
+        """
+        print(message)
+        if raise_exception:
+            raise e
+
+    def move_file_to_save_path(file_name: str) -> None:
+        """
+        Move the downloaded file to the specified save path.
+
+        Parameters
+        ----------
+        file_name : str
+            The name of the file to be moved.
+        """
+        if save_path is not None:
+            os.makedirs(save_path, exist_ok=True)
+            shutil.move(os.path.realpath(file_name), os.path.join(
+                save_path, file_name))
+
+    try:
+        file_name = os.path.basename(remote_file_url)
+        print(f"---> Fetching '{remote_file_url}'...")
+
+        with tqdm(total=3, ascii=True, desc=f'Fetching {file_name}',
+                  ncols=97) as progress_bar:
+            for attempt in range(3):
+                try:
+                    response = urllib.request.urlopen(remote_file_url)
+                    data = response.read()
+
+                    with open(file_name, 'wb') as file:
+                        file.write(data)
+
+                    move_file_to_save_path(file_name)
+                    return True
+
+                except TimeoutError:
+                    if attempt == 2:
+                        handle_download_error(
+                            TimeoutError(), "Connection timed out while"
+                            f" downloading '{remote_file_url}'.")
+                except Exception as e:
+                    handle_download_error(
+                        e, f"An error occurred while downloading '{remote_file_url}': {e}")
+                finally:
+                    progress_bar.update(1)
+
+            # If all attempts fail
+            return False
+
+    except Exception as e:
+        handle_download_error(e, f"An unexpected error occurred during the download: {e}")
         return False
 
 def download_file(url, local_filename , dstpath =None ):
@@ -1387,8 +1531,7 @@ def scrape_web_data(
         return elements
     else:
         response.raise_for_status()  
-    
-    
+     
 def speed_rowwise_process(
     data, /, 
     func, 
@@ -1401,7 +1544,7 @@ def speed_rowwise_process(
 
     Parameters
     ----------
-    data : pd.DataFrame
+    data : pd.DataFrames
         The large dataset to be processed. Assumes the 
         dataset is a Pandas DataFrame.
 
@@ -1439,7 +1582,6 @@ def speed_rowwise_process(
 
     # Converting results back to DataFrame
     processed_data = pd.DataFrame(results, columns=data.columns)
-
     return processed_data
     
 
@@ -1480,7 +1622,7 @@ def run_shell_command(command, progress_bar_duration=30):
     Example 
     -------
     >>> from gofast.tools.baseutils import run_shell_command 
-    >>> run_with_progress_bar(["pip", "install", "some-package"])
+    >>> run_with_progress_bar(["pip", "install", "gofast"])
     """
     def run_command(command):
         subprocess.run(command, check=True)
@@ -1570,8 +1712,8 @@ def handle_datasets_in_h5(
 
 def handle_datasets_with_hdfstore(
     file_path: str, 
-    datasets: Optional[Dict[str, pd.DataFrame]] = None, 
-    operation: str = 'store') -> Union[None, Dict[str, pd.DataFrame]]:
+    datasets: Optional[Dict[str, DataFrame]] = None, 
+    operation: str = 'store') -> Union[None, Dict[str, DataFrame]]:
     """
     Handles storing or retrieving multiple Pandas DataFrames in an HDF5 
     file using pd.HDFStore.
@@ -1605,6 +1747,9 @@ def handle_datasets_with_hdfstore(
 
     Examples
     --------
+    >>> import pandas as pd 
+    >>> from gofast.tools.baseutils import handle_datasets_with_hdfstore
+    
     Storing datasets:
     >>> df1 = pd.DataFrame(np.random.rand(100, 10), columns=[f'col_{i}' for i in range(10)])
     >>> df2 = pd.DataFrame(np.random.randint(0, 100, size=(200, 5)), columns=['A', 'B', 'C', 'D', 'E'])
@@ -1632,11 +1777,67 @@ def handle_datasets_with_hdfstore(
                 datasets_retrieved[name.strip('/')] = store[name]
         return datasets_retrieved
     
-def unified_storage(
+def store_or_retrieve_data(
     file_path: str,
-    datasets: Optional[Dict[str, Union[np.ndarray, pd.DataFrame]]] = None, 
+    datasets: Optional[Dict[str, Union[ArrayLike, DataFrame]]] = None,
     operation: str = 'store'
-) -> Union[None, Dict[str, Union[np.ndarray, pd.DataFrame]]]:
+) -> Optional[Dict[str, Union[ArrayLike, DataFrame]]]:
+    """
+    Handles storing or retrieving multiple datasets (numpy arrays or Pandas
+    DataFrames) in an HDF5 file.
+
+    Parameters
+    ----------
+    file_path : str
+        Path to the HDF5 file for storing or retrieving datasets.
+    datasets : dict, optional
+        A dictionary with dataset names as keys and datasets 
+        (numpy arrays or Pandas DataFrames) as values.
+        Required if operation is 'store'.
+    operation : str
+        The operation to perform - 'store' for storing datasets, 'retrieve' 
+        for retrieving datasets.
+
+    Returns
+    -------
+    Optional[Dict[str, Union[np.ndarray, pd.DataFrame]]]
+        If operation is 'retrieve', returns a dictionary with dataset names 
+        as keys and datasets as values. If operation is 'store', returns None.
+
+    Raises
+    ------
+    ValueError
+        If an invalid operation is specified or required parameters are missing.
+    TypeError
+        If provided datasets are not in supported formats 
+        (numpy arrays or pandas DataFrames).
+    """
+
+    valid_operations = {'store', 'retrieve'}
+    if operation not in valid_operations:
+        raise ValueError(f"Invalid operation '{operation}'. "
+                         f"Choose from {valid_operations}.")
+
+    with pd.HDFStore(file_path, mode='a' if operation == 'store' else 'r') as store:
+        if operation == 'store':
+            if not datasets:
+                raise ValueError("Datasets are required for the 'store' operation.")
+
+            for name, data in datasets.items():
+                if not isinstance(data, (pd.DataFrame, np.ndarray)):
+                    raise TypeError("Unsupported data type. Only numpy arrays "
+                                    "and pandas DataFrames are supported.")
+                
+                store[name] = pd.DataFrame(data) if isinstance(data, np.ndarray) else data
+
+        elif operation == 'retrieve':
+            return {name.replace ("/", ""): store[name] for name in store.keys()}
+        
+def base_storage(
+    file_path: str,
+    datasets: Optional[Dict[str, Union[ArrayLike, DataFrame]]] = None, 
+    operation: str = 'store'
+) -> Union[None, Dict[str, Union[ArrayLike, DataFrame]]]:
     """
     Handles storing or retrieving multiple datasets (numpy arrays or Pandas 
     DataFrames) in an HDF5 file.
@@ -1649,7 +1850,7 @@ def unified_storage(
     datasets : dict, optional
         A dictionary where keys are dataset names and values are the 
         datasets (numpy arrays or Pandas DataFrames).
-        Required if operation is 'store'. Default is None.
+        Required if operation is 'store'. 
     operation : str
         The operation to perform - 'store' for storing datasets, 'retrieve' 
         for retrieving datasets.
@@ -1674,11 +1875,11 @@ def unified_storage(
     >>> data1 = np.random.rand(100, 10)
     >>> df1 = pd.DataFrame(np.random.randint(0, 100, size=(200, 5)),
                            columns=['A', 'B', 'C', 'D', 'E'])
-    >>> handle_datasets_in_h5('my_datasets.h5', {'dataset1': data1, 'df1': df1},
+    >>> store_data('my_datasets.h5', {'dataset1': data1, 'df1': df1},
                               operation='store')
 
     Retrieving datasets:
-    >>> datasets = handle_datasets_in_h5('my_datasets.h5', operation='retrieve')
+    >>> datasets = store_data('my_datasets.h5', operation='retrieve')
     >>> print(datasets.keys())
     """
     if operation not in ['store', 'retrieve']:
@@ -2073,7 +2274,7 @@ def handle_categorical_features(
     return (data, report) if return_report else data
 
 def convert_date_features(
-    data: pd.DataFrame, /, 
+    data: DataFrame, /, 
     date_features: List[str], 
     day_of_week: bool = False, 
     quarter: bool = False,
@@ -2087,7 +2288,7 @@ def convert_date_features(
     Converts specified columns in the DataFrame to datetime and extracts 
     relevant features. 
     
-    Optionally Function returnsa report of the transformations and 
+    Optionally Function returns a report of the transformations and 
     visualizing the data distribution  before and after conversion.
 
     Parameters
@@ -2168,14 +2369,14 @@ def convert_date_features(
     return (data, report) if return_report else data
 
 def scale_data(
-    data: pd.DataFrame, /, 
+    data: DataFrame, /, 
     method: str = 'norm',
     return_report: bool = False,
     use_sklearn: bool = False,
     view: bool = False,
     cmap: str = 'viridis',
     fig_size: Tuple[int, int] = (12, 5)
-) -> Union[pd.DataFrame, Tuple[pd.DataFrame, dict]]:
+) -> Union[DataFrame, Tuple[DataFrame, dict]]:
     """
     Scales numerical columns in the DataFrame using the specified scaling 
     method. 
@@ -2385,9 +2586,10 @@ def handle_missing_data(
     fig_size: Tuple[int, int] = (12, 5)
 ) -> Union[DataFrame, Tuple[DataFrame, dict]]:
     """
-    Analyzes patterns of missing data in the DataFrame, optionally displays a heatmap 
-    before and after handling missing data, and handles missing data based on the 
-    specified method.
+    Analyzes patterns of missing data in the DataFrame. 
+    
+    Optionally, function displays a heatmap before and after handling missing 
+    data, and handles missing data based on the specified method.
 
     Parameters
     ----------
@@ -2478,9 +2680,10 @@ def inspect_data(
     categorical_threshold: float = 0.75
 ) -> None:
     """
-    Performs an exhaustive inspection of a DataFrame, evaluating data integrity,
-    providing detailed statistics, and offering tailored recommendations 
-    to ensure data quality for analysis or modeling.
+    Performs an exhaustive inspection of a DataFrame. 
+    
+    Funtion evaluates data integrity,provides detailed statistics, and offers
+    tailored recommendations to ensure data quality for analysis or modeling.
 
     This function is integral for identifying and understanding various aspects
     of data quality such as missing values, duplicates, outliers, imbalances, 
@@ -2506,8 +2709,8 @@ def inspect_data(
     Returns
     -------
     None
-        Prints a comprehensive report including data integrity assessment, statistics,
-        and recommendations for data preprocessing.
+        Prints a comprehensive report including data integrity assessment, 
+        statistics, and recommendations for data preprocessing.
 
     Example
     -------
@@ -2625,5 +2828,262 @@ def inspect_data(
         print("- Review data types of columns for appropriate conversions"
               " (e.g., converting float to int where applicable).")
 
+def augment_data(
+    X: Union[DataFrame, ArrayLike], 
+    y: Optional[Union[pd.Series, np.ndarray]] = None, 
+    augmentation_factor: int = 2, 
+    shuffle: bool = True
+) -> Union[Tuple[Union[DataFrame, ArrayLike], Optional[Union[
+    Series, ArrayLike]]], Union[DataFrame, ArrayLike]]:
+    """
+    Augment a dataset by repeating it with random variations to enhance 
+    training diversity.
+
+    This function is useful in scenarios with limited data, helping improve the 
+    generalization of machine learning models by creating a more diverse training set.
+
+    Parameters
+    ----------
+    X : Union[pd.DataFrame, np.ndarray]
+        Input data, either as a Pandas DataFrame or a NumPy ndarray.
+
+    y : Optional[Union[pd.Series, np.ndarray]], optional
+        Target labels, either as a Pandas Series or a NumPy ndarray. If `None`, 
+        the function only processes the `X` data. This is useful in unsupervised 
+        learning scenarios where target labels may not be applicable.
+    augmentation_factor : int, optional
+        The multiplier for data augmentation. Defaults to 2 (doubling the data).
+    shuffle : bool, optional
+        If True, shuffle the data after augmentation. Defaults to True.
+
+    Returns
+    -------
+    X_augmented : pd.DataFrame or np.ndarray
+        Augmented input data in the same format as `X`.
+    y_augmented : pd.Series, np.ndarray, or None
+        Augmented target labels in the same format as `y`, if `y` is not None.
+        Otherwise, None.
+
+    Raises
+    ------
+    ValueError
+        If `augmentation_factor` is less than 1 or if the lengths of `X` and `y` 
+        are mismatched when `y` is not None.
+
+    Raises
+    ------
+    ValueError
+        If `augmentation_factor` is less than 1 or if `X` and `y` have mismatched lengths.
+
+    Examples
+    --------
+    >>> from gofast.tools.baseutils import augment_data 
+    >>> X, y = np.array([[1, 2], [3, 4]]), np.array([0, 1])
+    >>> X_aug, y_aug = augment_data(X, y)
+    >>> X_aug.shape, y_aug.shape
+    ((4, 2), (4,))
+    >>> X = np.array([[1, 2], [3, 4]])
+    >>> X_aug = augment_data(X, y=None)
+    >>> X_aug.shape
+    (4, 2)
+    """
+    from sklearn.utils import shuffle as shuffle_data
+    if augmentation_factor < 1:
+        raise ValueError("Augmentation factor must be at least 1.")
+
+    is_X_df = isinstance(X, pd.DataFrame)
+    is_y_series = isinstance(y, pd.Series) if y is not None else False
+
+    if is_X_df:
+        # Separating numerical and categorical columns
+        num_columns = X.select_dtypes(include=['number']).columns
+        cat_columns = X.select_dtypes(exclude=['number']).columns
+
+        # Augment only numerical columns
+        X_num = X[num_columns]
+        X_num_augmented = np.concatenate([X_num] * augmentation_factor)
+        X_num_augmented += np.random.normal(loc=0.0, scale=0.1 * X_num.std(axis=0), 
+                                            size=X_num_augmented.shape)
+        # Repeat categorical columns without augmentation
+        X_cat_augmented = pd.concat([X[cat_columns]] * augmentation_factor
+                                    ).reset_index(drop=True)
+
+        # Combine numerical and categorical data
+        X_augmented = pd.concat([pd.DataFrame(
+            X_num_augmented, columns=num_columns), X_cat_augmented], axis=1)
+   
+    else:
+        # If X is not a DataFrame, it's treated as a numerical array
+        X_np = np.asarray(X, dtype= float) 
+        X_augmented = np.concatenate([X_np] * augmentation_factor)
+        X_augmented += np.random.normal(
+            loc=0.0, scale=0.1 * X_np.std(axis=0), size=X_augmented.shape)
+
+    y_np = np.asarray(y) if y is not None else None
     
+    # Shuffle if required
+    if y_np is not None:
+        check_consistent_length(X_augmented, y_np )
+        
+        y_augmented = np.concatenate([y_np] * augmentation_factor)
+        if shuffle:
+            X_augmented, y_augmented = shuffle_data(X_augmented, y_augmented)
+        if is_y_series:
+            y_augmented = pd.Series(y_augmented, name=y.name)
+            
+        return X_augmented, y_augmented
+
+    else:
+        if shuffle:
+            X_augmented = shuffle_data(X_augmented)
+            
+        return X_augmented
+
+def assess_outlier_impact(
+    data: DataFrame,/, 
+    target_column: Union[str, List[str], Series, ArrayLike],
+    test_size: float = 0.2,
+    random_state: int = 42,
+    verbose: bool = False
+) -> Tuple[float, float]:
+    """
+    Assess the impact of outliers on the predictive performance of a model. 
     
+    Applicable for both regression and classification tasks.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The input DataFrame containing features and a target variable.
+        
+    target_column : Union[str, List[str], pd.Series, np.ndarray]
+        The name of the target variable column(s) in the DataFrame, or the target 
+        variable array/Series itself. If a string or list of strings is provided, 
+        the column(s) will be used as the target variable and removed from the data.
+        
+    test_size : float, optional (default=0.2)
+        The proportion of the dataset to include in the test split.
+        
+    random_state : int, optional (default=42)
+        The random state to use for reproducible train-test splits.
+    
+    verbose : bool
+        If True, prints the evaluation metric with and without outliers, 
+        and the impact message.
+        
+    Returns
+    -------
+    Tuple[float, float]
+        A tuple containing the evaluation metric (MSE for regression or 
+                                                  accuracy for classification)
+        of the model's predictions on the test set with outliers present and 
+        with outliers removed.
+        
+     Raises:
+     -------
+     KeyError
+         If the target column is not present in the DataFrame.
+         
+     ValueError
+         If the test size is not between 0 and 1.
+         
+    Examples:
+    ---------
+    >>> df = pd.DataFrame({
+    ...     'feature1': np.random.rand(100),
+    ...     'feature2': np.random.rand(100),
+    ...     'target': np.random.rand(100)
+    ... })
+    >>> mse_with_outliers, mse_without_outliers = assess_outlier_impact(df, 'target')
+    >>> print('MSE with outliers:', mse_with_outliers)
+    >>> print('MSE without outliers:', mse_without_outliers)
+    
+    """
+    from sklearn.linear_model import LogisticRegression, LinearRegression
+    from sklearn.preprocessing import LabelEncoder
+    from sklearn.metrics import accuracy_score, mean_squared_error
+    from sklearn.model_selection import train_test_split 
+    
+    if isinstance(target_column, str):
+        target_column = [target_column]
+    
+    if isinstance(target_column, list):
+        for col in target_column:
+            if col not in data.columns:
+                raise KeyError(f"Target column '{col}' not found in the DataFrame.")
+        y = data[target_column]
+        X = data.drop(target_column, axis=1)
+    elif isinstance(target_column, (pd.Series, np.ndarray)):
+        if len(target_column) != len(data):
+            raise ValueError("Length of the target array/Series must match "
+                             "the number of samples in 'data'.")
+        y = target_column
+        X = data
+    else:
+        raise ValueError("Invalid type for 'target_column'. Must be str,"
+                         " list, pd.Series, or np.ndarray.")
+
+    if not (0 < test_size < 1):
+        raise ValueError("Test size must be between 0 and 1.")
+    
+    # Determine if the task is regression or classification based on the target variable
+    if data[target_column].dtype.kind in 'ibc':  # Integer, boolean, or categorical target
+        is_regression = False
+        model = LogisticRegression()
+        metric = accuracy_score
+        metric_name = "Accuracy"
+        # Encode categorical target if necessary
+        if data[target_column].dtype.kind in 'Oc':  # Object or categorical dtype
+            encoder = LabelEncoder()
+            data[target_column] = encoder.fit_transform(data[target_column])
+    else:  # Continuous target
+        is_regression = True
+        model = LinearRegression()
+        metric = mean_squared_error
+        metric_name = "MSE"
+
+    # Split the data into training and testing sets
+    X = data.drop(target_column, axis=1)
+    y = data[target_column]
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=random_state)
+
+    # Function to evaluate model performance
+    def evaluate_model(X_train, y_train, X_test, y_test, model, metric):
+        model.fit(X_train, y_train)
+        predictions = model.predict(X_test)
+        return metric(y_test, predictions)
+
+    # Evaluate the model on the original data
+    original_metric = evaluate_model(X_train, y_train, X_test, y_test, model, metric)
+
+    # Identify and remove outliers using the Interquartile Range (IQR) method
+    Q1 = X_train.quantile(0.25)
+    Q3 = X_train.quantile(0.75)
+    IQR = Q3 - Q1
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+
+    # Filter out the outliers from the training data
+    X_train_filtered = X_train[~((X_train < lower_bound) | (X_train > upper_bound)
+                                 ).any(axis=1)]
+    y_train_filtered = y_train[~((X_train < lower_bound) | (X_train > upper_bound)
+                                 ).any(axis=1)]
+
+    # Evaluate the model on the filtered data
+    filtered_metric = evaluate_model(X_train_filtered, y_train_filtered,
+                                     X_test, y_test, model, metric)
+    # Print results if verbose is True
+    if verbose:
+        print(f'{metric_name} with outliers in the training set: {original_metric}')
+        print(f'{metric_name} without outliers in the training set: {filtered_metric}')
+        
+        # Check the impact
+        if is_regression and filtered_metric < original_metric or \
+           not is_regression and filtered_metric > original_metric:
+            print('Outliers appear to have a negative impact on the model performance.')
+        else:
+            print('Outliers do not appear to have a significant negative'
+                  ' impact on the model performance.')
+
+    return original_metric, filtered_metric

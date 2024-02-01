@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-
-from .evaluate import  EvalPlotter, MetricPlotter 
+ 
 from .evaluate import ( 
+    EvalPlotter, MetricPlotter, 
     plot_unified_pca, 
     plot_learning_inspection, 
     plot_learning_inspections, 
@@ -17,6 +17,7 @@ from .evaluate import (
     pobj as plot_obj
     )
 from .explore import EasyPlotter, QuestPlotter
+from .ts import TimeSeriesPlotter 
 from .utils import ( 
     plot_mlxtend_heatmap , 
     plot_mlxtend_matrix, 
@@ -40,6 +41,24 @@ from .utils import (
     plot_confidence, 
     plot_confidence_ellipse, 
     plot_text, 
+    plot_cumulative_variance, 
+    plot_shap_summary, 
+    plot_custom_boxplot,
+    plot_abc_curve,
+    plot_permutation_importance,
+    create_radar_chart,
+    plot_r_squared, 
+    plot_cluster_comparison,
+    plot_sunburst, 
+    plot_sankey, 
+    plot_euler_diagram, 
+    create_upset_plot, 
+    plot_venn_diagram, 
+    create_matrix_representation, 
+    plot_feature_interactions, 
+    plot_regression_diagnostics, 
+    plot_residuals_vs_leverage, 
+    plot_residuals_vs_fitted
     )
 
 __all__= [
@@ -48,6 +67,7 @@ __all__= [
     "EvalPlotter", 
     "EasyPlotter" , 
     "QuestPlotter",
+    "TimeSeriesPlotter", 
     "plot_learning_inspection", 
     "plot_learning_inspections", 
     "plot_silhouette", 
@@ -83,4 +103,22 @@ __all__= [
     'plot_confidence_ellipse', 
     'plot_text', 
     'plot_obj',
+    'plot_cumulative_variance', 
+    'plot_shap_summary', 
+    'plot_custom_boxplot',
+    'plot_abc_curve',
+    'plot_permutation_importance',
+    'create_radar_chart',
+    'plot_r_squared', 
+    'plot_cluster_comparison',
+    'plot_sunburst', 
+    'plot_sankey',
+    'plot_euler_diagram', 
+    'create_upset_plot', 
+    'plot_venn_diagram', 
+    'create_matrix_representation', 
+    'plot_feature_interactions', 
+    'plot_regression_diagnostics', 
+    'plot_residuals_vs_leverage', 
+    'plot_residuals_vs_fitted'
     ]

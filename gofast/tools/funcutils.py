@@ -82,10 +82,15 @@ except ImportError:
     
 # xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
-def format_to_datetime(data,/,  date_col):
+def format_to_datetime(data, date_col, verbose=0, **dt_kws):
     """
-    Reformats a specified column in a DataFrame to Pandas 
-    datetime format.
+    Reformats a specified column in a DataFrame to Pandas datetime format.
+
+    This function attempts to convert the values in the specified column of a 
+    DataFrame to Pandas datetime objects. If the conversion is successful, 
+    the DataFrame with the updated column is returned. If the conversion fails, 
+    a message describing the error is printed, and the original 
+    DataFrame is returned.
 
     Parameters
     ----------
@@ -93,32 +98,47 @@ def format_to_datetime(data,/,  date_col):
         The DataFrame containing the column to be reformatted.
     date_col : str
         The name of the column to be converted to datetime format.
+    verbose : int, optional
+        Verbosity mode; 0 or 1. If 1, prints messages about the conversion 
+        process.Default is 0 (silent mode).
+    **dt_kws : dict, optional
+        Additional keyword arguments to pass to `pd.to_datetime` function.
 
     Returns
     -------
     pandas.DataFrame
-        A DataFrame with the specified column in datetime format, 
-        or the original
-        DataFrame if conversion is not possible.
-    Example 
+        A DataFrame with the specified column in datetime format. If conversion
+        fails, the original DataFrame is returned.
+
+    Raises
+    ------
+    ValueError
+        If the specified column is not found in the DataFrame.
+
+    Examples
     --------
-    >>> from gofast.tools import format_to_datetime
     >>> df = pd.DataFrame({
-        'Date': ['2021-01-01', '01/02/2021', '03-Jan-2021', '2021.04.01', '05 May 2021'],
-        'Value': [1, 2, 3, 4, 5]
-    })
+    ...     'Date': ['2021-01-01', '01/02/2021', '03-Jan-2021', '2021.04.01',
+                     '05 May 2021'],
+    ...     'Value': [1, 2, 3, 4, 5]
+    ... })
     >>> df = format_to_datetime(df, 'Date')
     >>> print(df.dtypes)
+    Date     datetime64[ns]
+    Value             int64
+    dtype: object
     """
     if date_col not in data.columns:
-        print(f"Column '{date_col}' not found in DataFrame.")
-        return data
-    try:
-        data[date_col] = pd.to_datetime(data[date_col])
-        print(f"Column '{date_col}' successfully converted to datetime format.")
-    except ValueError as e:
-        print(f"Error converting '{date_col}' to datetime format: {e}")
+        raise ValueError(f"Column '{date_col}' not found in DataFrame.")
     
+    try:
+        data[date_col] = pd.to_datetime(data[date_col], **dt_kws)
+        if verbose: 
+            print(f"Column '{date_col}' successfully converted to datetime format.")
+    except Exception as e:
+        print(f"Error converting '{date_col}' to datetime format: {e}")
+        return data
+
     return data
 
 def get_params (obj: object 
@@ -5824,8 +5844,7 @@ def key_checker (
     deep_search: bool, default=False 
        If deep-search, the key finder is no sensistive to lower/upper case 
        or whether a numeric data is included. 
-       
-       .. versionadded:: 0.2.5 
+ 
        
     Returns 
     --------
@@ -6486,7 +6505,6 @@ def numstr2dms (
     return tuple (map ( float, [deg, mm, sec]) ) if return_values \
         else ':'.join([deg, mm, sec]) 
 
-    
 def store_or_write_hdf5 (
     d, /, 
     key:str= None, 
@@ -6960,7 +6978,7 @@ def validate_url(url: str) -> bool:
 
 def validate_url_by_validators(url: str):
     """
-    Check if the provided string is a valid URL.
+    Check if the provided string is a valid URL using `validators` packages
 
     Parameters
     ----------
@@ -7022,7 +7040,8 @@ def normalize_string(
     return_target_str: bool = False,
     raise_exception: bool = False,
     ignore_case: bool = True,
-    match_method: str = 'exact'  
+    match_method: str = 'exact',
+    error_msg: str=None, 
 ) -> Union[str, Tuple[str, Optional[str]]]:
     """
     Normalizes a string by applying various transformations and optionally checks 
@@ -7055,7 +7074,9 @@ def normalize_string(
     match_method : str, optional
         The string matching method: 'exact', 'contains', or 'startswith'.
         Default is 'exact'.
-
+    error_msg: str, optional, 
+       Message to raise if `raise_exception` is ``True``. 
+       
     Returns
     -------
     Union[str, Tuple[str, Optional[str]]]
@@ -7108,12 +7129,131 @@ def normalize_string(
         return (normalized_str, matched_target) if return_target_str else normalized_str
 
     if raise_exception:
-        raise ValueError(f"{input_str!r} not found in {target_strs}.")
+        error_msg = error_msg or f"{input_str!r} not found in {target_strs}."
+        raise ValueError(error_msg)
 
     return ('', None) if return_target_str else ''
 
+def format_and_print_dict(data_dict, front_space=4):
+    """
+    Formats and prints the contents of a dictionary in a structured way.
+
+    Each key-value pair in the dictionary is printed with the key followed by 
+    its associated values. 
+    The values are expected to be dictionaries themselves, allowing for a nested 
+    representation.
+    The inner dictionary's keys are sorted in descending order before printing.
+
+    Parameters
+    ----------
+    data_dict : dict
+        A dictionary where each key contains a dictionary of items to be printed. 
+        The key represents a category
+        or label, and the value is another dictionary where each key-value pair 
+        represents an option or description.
+        
+    front_space : int, optional
+        The number of spaces used for indentation in front of each line (default is 4).
+
+
+    Returns
+    -------
+    None
+        This function does not return any value. It prints the formatted contents 
+        of the provided dictionary.
+
+    Examples
+    --------
+    >>> sample_dict = {
+            'gender': {1: 'Male', 0: 'Female'},
+            'age': {1: '35-60', 0: '16-35', 2: '>60'}
+        }
+    >>> format_and_print_dict(sample_dict)
+    gender:
+        1: Male
+        0: Female
+    age:
+        2: >60
+        1: 35-60
+        0: 16-35
+    """
+    if not isinstance(data_dict, dict):
+        raise TypeError("The input data must be a dictionary.")
+
+    indent = ' ' * front_space
+    for label, options in data_dict.items():
+        print(f"{label}:")
+        options= is_iterable(options, exclude_string=True, transform=True )
+  
+        if isinstance(options, (tuple, list)):
+            for option in options:
+                print(f"{indent}{option}")
+        elif isinstance(options, dict):
+            for key in sorted(options.keys(), reverse=True):
+                print(f"{indent}{key}: {options[key]}")
+        print()  # Adds an empty line for better readability between categories
+
+
+def fill_nan_in(
+        data: DataFrame, /, method: str = 'constant', 
+        value: Optional[Union[int, float, str]] = 0) -> DataFrame:
+    """
+    Fills NaN values in a Pandas DataFrame using various methods.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The DataFrame to be checked and modified.
+    method : str, optional
+        The method to use for filling NaN values. Options include 'constant',
+        'ffill', 'bfill', 'mean', 'median', 'mode'. Default is 'constant'.
+    value : int, float, string, optional
+        The value used when method is 'constant'. Ignored for other methods.
+        Default is 0.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        The DataFrame with NaN values filled.
+
+    Example
+    -------
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({'A': [1, 2, np.nan], 'B': [np.nan, 2, 3]})
+    >>> df = fill_nan_in_dataframe(df, method='median')
+    >>> print(df)
+       A    B
+    0  1.0  2.5
+    1  2.0  2.0
+    2  1.5  3.0
+    """
+    # Check for NaN values in the DataFrame and apply the specified fill method
+    if not data.isna().any().any(): 
+        return data 
+
+    fill_methods = {
+        'constant': lambda: data.fillna(value, inplace=True),
+        'ffill': lambda: data.fillna(method='ffill', inplace=True),
+        'bfill': lambda: data.fillna(method='bfill', inplace=True),
+        'mean': lambda: data.fillna(data.mean(), inplace=True),
+        'median': lambda: data.fillna(data.median(), inplace=True),
+        'mode': lambda: data.apply(lambda col: col.fillna(col.mode()[0], inplace=True))
+    }
     
-    
+    fill_action = fill_methods.get(method)
+    if fill_action:
+        fill_action()
+    else:
+        raise ValueError(f"Method '{method}' not recognized for filling NaN values.")
+        
+    return data 
+
+
+
+
+
+
+
     
     
     

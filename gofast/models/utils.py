@@ -3,26 +3,25 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 from __future__ import annotations 
-
+import itertools 
 import numpy as np 
 import pandas as pd
 import scipy
 import matplotlib.pyplot as plt
 import seaborn as sns
+
+from sklearn.base import BaseEstimator 
 from sklearn.covariance import ShrunkCovariance
-from sklearn.model_selection import cross_val_score, GridSearchCV 
+from sklearn.model_selection import cross_val_score, GridSearchCV
+from sklearn.model_selection import RandomizedSearchCV  
 from sklearn.svm import SVC, SVR
 from sklearn.utils.multiclass import type_of_target
 
-from .._typing import (
-    Tuple,
-    _F, 
-    ArrayLike, 
-    NDArray, 
-    Dict,
-    )
-
+from .._typing import Tuple,_F, ArrayLike, NDArray, Dict, Union, Any
+from .._typing import  List, Optional, Type
+from ..tools.funcutils import smart_format
 from ..tools.validator import get_estimator_name, check_X_y 
+from ..tools._dependency import import_optional_dependency 
 from .._gofastlog import gofastlog
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -44,7 +43,7 @@ __all__= [
     "visualize_score_distribution", 
     "performance_over_time", 
     "calculate_custom_metric", 
-    "handle_missing_data", 
+    "handle_missing_in_scores", 
     "export_cv_results", 
     "comparative_analysis", 
     "plot_parameter_importance", 
@@ -59,7 +58,452 @@ __all__= [
     "quick_evaluation", 
   ]
 
+def align_estimators_with_params(param_grids, estimators=None):
+    """
+    Reorganize estimators and their corresponding parameter grids.
 
+    This function ensures that the estimators and parameter grids are properly 
+    aligned,particularly when explicit names are given to estimators. It 
+    supports different formats of estimator and parameter grid inputs, such 
+    as lists, dictionaries, or tuples.
+
+    Parameters
+    ----------
+    param_grids : dict, list of dict, or list of tuple
+        Parameter grids to be used for each estimator. If it's a single dictionary,
+        it's converted into a list. If it's a list of tuples, each tuple should
+        contain an estimator name and its corresponding parameter grid.
+    estimators : list, dict, tuple, or estimator, default=None
+        Estimators to be used. It can be a single estimator, a list of estimators,
+        a dictionary with estimator names as keys, or a list of tuples where each
+        tuple contains an estimator name and the estimator itself.
+
+    Returns
+    -------
+    tuple of (list, list)
+        A tuple containing two lists: the first list contains the estimators, and
+        the second list contains the corresponding parameter grids.
+
+    Raises
+    ------
+    ValueError
+        If the length of estimators and parameter grids does not match or if
+        there is a mismatch between named estimators and parameter grids.
+
+    Notes
+    -----
+    This function is particularly useful in scenarios where estimators are named
+    and need to be matched with corresponding named parameter grids, ensuring
+    consistency in hyperparameter tuning processes.
+    
+    Examples 
+    --------
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from sklearn.svm import SVC
+    >>> from gofast.models.utils import align_estimator_with_params 
+
+    >>> estimators1 = [{"rf": RandomForestClassifier()}, {"svc": SVC()}]
+    >>> param_grids1 = [("rf", {'n_estimators': [100, 200], 'max_depth': [10, 20]}), 
+                    ("svc", {"C": [1, 10], "gamma": [.001, .01, .00001]})]
+
+    >>> new_estimators1, new_param_grids1 = align_estimators_with_params(
+        param_grids1, estimators1)
+    >>> print(new_estimators1)
+    >>> print(new_param_grids1)
+
+    >>> estimators2 = [RandomForestClassifier(), SVC()]
+    >>> param_grids2 = [{'n_estimators': [100, 200], 'max_depth': [10, 20]}, 
+                    {"C": [1, 10], "gamma": [.001, .01, .00001]}]
+
+    >>> new_estimators2, new_param_grids2 = align_estimators_with_params(
+        param_grids2, estimators2)
+    >>> print(new_estimators2)
+    >>> print(new_param_grids2)
+
+    >>> estimators3 = [{"rf": RandomForestClassifier()}, {"svc": SVC()}]
+    >>> param_grids3 = [("svc", {"C": [1, 10], "gamma": [.001, .01, .00001]}), 
+                    ("rf", {'n_estimators': [100, 200], 'max_depth': [10, 20]})]
+
+    >>> new_estimators3, new_param_grids3 = align_estimators_with_params(
+        param_grids3, estimators3)
+    >>> print(new_estimators3)
+    >>> print(new_param_grids3)
+
+    """
+    if estimators is None:
+        return process_estimators_and_params(param_grids)
+
+    param_grids = [param_grids] if isinstance(param_grids, dict) else param_grids
+
+    if len(estimators) != len(param_grids):
+        raise ValueError("Estimators and param_grid must have consistent length."
+                         f" Got {len(estimators)} and {len(param_grids)} respectively.")
+
+    estimators, estimator_names = _unpack_estimators(estimators)
+    param_grids, param_grid_names = _unpack_param_grids(param_grids)
+
+    if estimator_names and param_grid_names:
+        estimators = _match_estimators_to_grids(
+            estimators, estimator_names, param_grid_names)
+
+    return estimators, param_grids
+
+def _unpack_estimators(estimators):
+    """
+    Unpack the estimators into a consistent format and extract names if provided.
+
+    This function handles various formats of input estimators (single estimator,
+    list of estimators, dictionary of named estimators, or list of named tuples) and
+    converts them into a uniform format (list of estimators) with optional extracted names.
+
+    Parameters
+    ----------
+    estimators : estimator, list, dict, or list of tuples
+        The input estimators in various formats.
+
+    Returns
+    -------
+    tuple of (list, list or None)
+        A tuple containing a list of unpacked estimators and a list of names
+        if provided, otherwise None.
+    """
+    if hasattr(estimators, 'fit') or isinstance(estimators, dict):
+        estimators = [estimators]
+
+    if all(hasattr(estimator, 'fit') for estimator in estimators):
+        return estimators, None
+
+    if all(isinstance(estimator, dict) for estimator in estimators):
+        names = [name for estimator in estimators for name in estimator]
+        values = [value for estimator in estimators for value in estimator.values()]
+        return values, names
+
+    if all(isinstance(estimator, tuple) for estimator in estimators):
+        names, values = zip(*estimators)
+        return list(values), list(names)
+
+    raise ValueError("Invalid format of estimators provided.")
+
+def _unpack_param_grids(param_grids):
+    """
+    Unpack the parameter grids into a consistent format and extract names if provided.
+
+    This function handles various formats of input parameter grids (single grid,
+    list of grids, or list of named tuples) and converts them into a uniform format
+    (list of parameter grids) with optional extracted names.
+
+    Parameters
+    ----------
+    param_grids : dict, list of dict, or list of tuples
+        The input parameter grids in various formats.
+
+    Returns
+    -------
+    tuple of (list, list or None)
+        A tuple containing a list of unpacked parameter grids and a list of names
+        if provided, otherwise None.
+    """
+    if isinstance(param_grids, dict):
+        param_grids = [param_grids]
+
+    if all(isinstance(param_grid, dict) for param_grid in param_grids):
+        return param_grids, None
+
+    if all(isinstance(param_grid, tuple) for param_grid in param_grids):
+        names, grids = zip(*param_grids)
+        return list(grids), list(names)
+
+    raise ValueError("Invalid format of parameter grids provided.")
+
+def _match_estimators_to_grids(estimators, estimator_names, param_grid_names):
+    """
+    Match the estimators to their corresponding parameter grids based on names.
+
+    This function aligns the estimators with their respective parameter grids by names.
+    It is useful when estimators and parameter grids are explicitly named and need
+    to be matched accurately.
+
+    Parameters
+    ----------
+    estimators : list
+        The list of estimators.
+    estimator_names : list
+        The list of names for each estimator.
+    param_grid_names : list
+        The list of names for each parameter grid.
+
+    Returns
+    -------
+    list
+        A list of matched estimators according to the parameter grid names.
+
+    Raises
+    ------
+    ValueError
+        If there is a mismatch between the named estimators and parameter grids.
+    """
+    if not estimator_names or not param_grid_names:
+        return estimators
+
+    matched_estimators = []
+    for grid_name in param_grid_names:
+        if grid_name not in estimator_names:
+            raise ValueError(f"Estimator name '{grid_name}' not found "
+                             "among provided estimators.")
+        index = estimator_names.index(grid_name)
+        matched_estimators.append(estimators[index])
+
+    if len(matched_estimators) != len(estimators):
+        raise ValueError("Mismatch between estimator names and parameter grid names.")
+
+    return matched_estimators
+
+def params_combinations(param_space):
+    """
+    Generate combinations of parameters from a parameter space.
+
+    Parameters:
+    -----------
+    param_space : dict
+        A dictionary where keys are parameter names and values are lists
+        of possible values for each parameter.
+
+    Yields:
+    -------
+    dict
+        A dictionary representing a combination of parameters.
+
+    Examples:
+    --------
+    >>> param_space = {
+    ...     'C': [1, 10, 100],
+    ...     'gamma': [0.001, 0.0001],
+    ...     'kernel': ['linear', 'rbf']
+    ... }
+    >>> combinations_generator = parameter_combinations(param_space)
+    >>> for combination in combinations_generator:
+    ...     print(combination)
+    {'C': 1, 'gamma': 0.001, 'kernel': 'linear'}
+    {'C': 1, 'gamma': 0.001, 'kernel': 'rbf'}
+    {'C': 1, 'gamma': 0.0001, 'kernel': 'linear'}
+    {'C': 1, 'gamma': 0.0001, 'kernel': 'rbf'}
+    {'C': 10, 'gamma': 0.001, 'kernel': 'linear'}
+    {'C': 10, 'gamma': 0.001, 'kernel': 'rbf'}
+    {'C': 10, 'gamma': 0.0001, 'kernel': 'linear'}
+    {'C': 10, 'gamma': 0.0001, 'kernel': 'rbf'}
+    {'C': 100, 'gamma': 0.001, 'kernel': 'linear'}
+    {'C': 100, 'gamma': 0.001, 'kernel': 'rbf'}
+    {'C': 100, 'gamma': 0.0001, 'kernel': 'linear'}
+    {'C': 100, 'gamma': 0.0001, 'kernel': 'rbf'}
+    """
+    keys = param_space.keys()
+    values = param_space.values()
+    for combination in itertools.product(*values):
+        yield dict(zip(keys, combination))
+
+def get_optimizer_method(optimizer: str) -> Type[BaseEstimator]:
+    """
+    Returns the corresponding optimizer class based on the provided optimizer 
+    string.
+    
+    This function accounts for standard optimizers as well as custom optimizers 
+    defined in gofast.
+
+    Parameters
+    ----------
+    optimizer : str
+        The name or abbreviation of the optimizer.
+
+    Returns
+    -------
+    Type[BaseEstimator]
+        The class of the optimizer corresponding to the provided optimizer 
+        string.
+
+    Raises
+    ------
+    ImportError
+        If a required external optimizer class (e.g., BayesSearchCV) is not 
+        installed.
+    ValueError
+        If no matching optimizer is found or the optimizer name is unrecognized.
+
+    Examples
+    --------
+    >>> from gofast.models.utils import get_optimizer_method
+    >>> optimizer_class = get_optimizer_method('RSCV')
+    >>> print(optimizer_class)
+    <class 'sklearn.model_selection.RandomizedSearchCV'>
+    >>> optimizer_class = get_optimizer_method('GASCV')
+    >>> print(optimizer_class)
+    <class 'gofast.models.selection.GeneticSearchCV'>
+    """
+    # Ensure the optimizer name is standardized
+    optimizer = validate_optimizer(optimizer) 
+    
+    # Mapping of optimizer names to their respective classes
+    # Standard optimizer dictionary
+    standard_optimizer_dict = {
+        'GridSearchCV': GridSearchCV,
+        'RandomizedSearchCV': RandomizedSearchCV,
+    }
+    try: from skopt import BayesSearchCV
+    except: 
+        if optimizer =='BayesSearchCV': 
+            emsg= ("scikit-optimize is required for 'BayesSearchCV'"
+                   " but not installed.")
+            import_optional_dependency('skopt', extra= emsg )
+        pass 
+    else : standard_optimizer_dict["BayesSearchCV"]= BayesSearchCV
+    
+    # Update standard optimizer with gofast optimizers if 
+    # not exist previously.
+    if optimizer not in standard_optimizer_dict.keys(): 
+        from gofast.models.selection import ( 
+            SwarmSearchCV, 
+            SequentialSearchCV, 
+            AnnealingSearchCV, 
+            EvolutionarySearchCV, 
+            GradientSearchCV,
+            GeneticSearchCV 
+            ) 
+        gofast_optimizer_dict = { 
+            'SwarmSearchCV': SwarmSearchCV,
+            'SequentialSearchCV': SequentialSearchCV,
+            'AnnealingSearchCV': AnnealingSearchCV,
+            'EvolutionarySearchCV': EvolutionarySearchCV,
+            'GradientSearchCV': GradientSearchCV,
+            'GeneticSearchCV': GeneticSearchCV,
+            }
+        standard_optimizer_dict ={**standard_optimizer_dict,**gofast_optimizer_dict }
+        
+    # Search for the corresponding optimizer class
+    return standard_optimizer_dict.get(optimizer)
+    
+def process_estimators_and_params(
+    param_grids: List[Union[Dict[str, List[Any]], Tuple[BaseEstimator, Dict[str, List[Any]]]]],
+    estimators: Optional[List[BaseEstimator]] = None
+) -> Tuple[List[BaseEstimator], List[Dict[str, List[Any]]]]:
+    """
+    Process and separate estimators and their corresponding parameter grids.
+
+    This function handles two cases:
+    1. `param_grids` contains tuples of estimators and their parameter grids.
+    2. `param_grids` only contains parameter grids, and `estimators` are 
+    provided separately.
+
+    Parameters
+    ----------
+    param_grids : List[Union[Dict[str, List[Any]],
+                             Tuple[BaseEstimator, Dict[str, List[Any]]]]]
+        A list containing either parameter grids or tuples of estimators and 
+        their parameter grids.
+
+    estimators : List[BaseEstimator], optional
+        A list of estimator objects. Required if `param_grids` only contains 
+        parameter grids.
+
+    Returns
+    -------
+    Tuple[List[BaseEstimator], List[Dict[str, List[Any]]]]
+        Two lists: the first containing the estimators, and the second containing
+        the corresponding parameter grids.
+
+    Raises
+    ------
+    ValueError
+        If `param_grids` does not contain estimators and `estimators` is None.
+
+    Examples
+    --------
+    >>> from sklearn.svm import SVC
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from sklearn.models.utils import process_estimators_and_params 
+    >>> param_grids = [
+    ...     (SVC(), {'C': [1, 10, 100], 'kernel': ['linear', 'rbf']}),
+    ...     (RandomForestClassifier(), {'n_estimators': [10, 50, 100],
+                                        'max_depth': [5, 10, None]})
+    ... ]
+    >>> estimators, grids = process_estimators_and_params(param_grids)
+    >>> print(estimators)
+    [SVC(), RandomForestClassifier()]
+    >>> print(grids)
+    [{'C': [1, 10, 100], 'kernel': ['linear', 'rbf']}, {'n_estimators': [10, 50, 100],
+                                                        'max_depth': [5, 10, None]}]
+    """
+    
+    if all(isinstance(grid, (tuple, list)) for grid in param_grids):
+        # Extract estimators and parameter grids from tuples
+        estimators, param_grids = zip(*param_grids)
+        return list(estimators), list(param_grids)
+    elif estimators is not None:
+        # Use provided estimators and param_grids
+        return estimators, param_grids
+    else:
+        raise ValueError("Estimators are missing. They must be provided either "
+                         "in param_grids or as a separate list.")
+        
+def validate_optimizer(optimizer: Union[str, _F]) -> str:
+    """
+    Check whether the given optimizer is a recognized optimizer type.
+
+    This function validates if the provided optimizer, either as a string 
+    or an instance of a class derived from BaseEstimator, corresponds to a 
+    known optimizer type. If the optimizer is recognized, its standardized 
+    name is returned. Otherwise, a ValueError is raised.
+
+    Parameters
+    ----------
+    optimizer : Union[str, _F]
+        The optimizer to validate. This can be a string name or an instance 
+        of an optimizer class.
+
+    Returns
+    -------
+    str
+        The standardized name of the optimizer.
+
+    Raises
+    ------
+    ValueError
+        If the optimizer is not recognized.
+
+    Examples
+    --------
+    >>> from sklearn.ensemble import RandomForestClassifier 
+    >>> from gofast.models.selection import AnnealingSearchCV
+    >>> from gofast.models.utils import validate_optimizer
+    >>> validate_optimizer("RSCV")
+    'RandomizedSearchCV'
+    >>> validate_optimizer(AnnealingSearchCV)
+    'AnnealingSearchCV'
+    >>> validate_optimizer (RandomForestClassifier)
+    ValueError ...
+    """
+    # Mapping of optimizer names to their possible abbreviations and variations
+    opt_dict = {
+        'RandomizedSearchCV': ['RSCV', 'RandomizedSearchCV'], 
+        'GridSearchCV': ['GSCV', 'GridSearchCV'], 
+        'BayesSearchCV': ['BSCV', 'BayesSearchCV'], 
+        'AnnealingSearchCV': ['ANSCV', "AnnealingSearchCV"], 
+        'SwarmSearchCV': ['SWSCV', 'SwarmSearchCV'], 
+        'SequentialSearchCV': ['SQSCV', 'SequentialSearchCV'], 
+        'EvolutionarySearchCV': ['EVSCV', 'EvolutionarySearchCV'], 
+        'GradientSearchCV':['GRSCV', 'GradientSearchCV'], 
+        'GeneticSearchCV': ['GESCV', 'GeneticSearchCV']
+    }
+
+    optimizer_name = optimizer if isinstance(
+        optimizer, str) else get_estimator_name(optimizer)
+
+    for key, values in opt_dict.items():
+        if optimizer_name.lower() in [v.lower() for v in values]:
+            return key
+
+    valid_optimizers = [v1[1] for v1 in opt_dict.values()]
+    raise ValueError(f"Invalid 'optimizer' parameter '{optimizer_name}'."
+                     f" Choose from {smart_format(valid_optimizers, 'or')}.")
+    
 def find_best_C(X, y, C_range, cv=5, scoring='accuracy', 
                 scoring_reg='neg_mean_squared_error'):
     """
@@ -108,11 +552,7 @@ def find_best_C(X, y, C_range, cv=5, scoring='accuracy',
     >>> print(f"Best C value: {best_C}")
     """
 
-    X, y = check_X_y(
-        X, 
-        y, 
-        to_frame= True, 
-        )
+    X, y = check_X_y(X,  y, to_frame= True, )
     task_type = type_of_target(y)
     best_score = ( 0 if task_type == 'binary' or task_type == 'multiclass'
                   else float('inf') )
@@ -571,7 +1011,7 @@ def calculate_custom_metric(cv_scores, metric_function):
     """
     return metric_function(cv_scores)
 
-def handle_missing_data(cv_scores, fill_value=np.nan):
+def handle_missing_in_scores(cv_scores, fill_value=np.nan):
     """
     Handle missing or incomplete data in cross-validation scores.
 

@@ -20,7 +20,7 @@ Subpackages
 - **estimators**: Advanced machine learning estimators for both regression and classification tasks.
 - **geo**: Geospatial data handling and analysis functions, useful for geographic data processing.
 - **metrics**: Evaluation metrics and performance measures for assessing models.
-- **models**: Pre-built models and architectures for a variety of machine learning applications.
+- **models**: Optimize, pre-built models and architectures for a variety of machine learning applications.
 - **plot**: Visualization tools to create informative and interactive plots and charts.
 - **stats**: Statistical functions and tests to analyze data and derive meaningful insights.
 - **tools**: Utility functions and helpers that streamline common tasks and data manipulations.
@@ -56,7 +56,7 @@ classes, and functions within :code:`GoFast`.
    gofast.geo
    gofast.models
    gofast.metrics
-   gofast.utils
+   gofast.query
    gofast.tools
    gofast.transformers 
    gofast.plot 
@@ -164,10 +164,12 @@ expedite research and analysis.
    
    datasets.fetch_data
    datasets.load_bagoue
+   datasets.load_forensic 
    datasets.load_iris
    datasets.load_hlogs
    datasets.load_nlogs 
    datasets.load_mxs 
+   datasets.load_jrs_bet 
    datasets.make_sounding 
    datasets.make_african_demo_info 
    datasets.make_agronomy_feedback
@@ -177,7 +179,7 @@ expedite research and analysis.
    datasets.make_erp 
    datasets.make_ert 
    datasets.make_gadget_sales 
-   datasets.make_medical_diagnostic 
+   datasets.make_medical_diagnosis
    datasets.make_mining_ops
    datasets.make_regression
    datasets.make_retail_store 
@@ -229,6 +231,8 @@ Classes
    estimators.DecisionTreeBasedClassifier
    estimators.GradientDescentClassifier
    estimators.GradientDescentRegressor
+   estimators.KMFClassifier 
+   estimators.KMFRegressor
    estimators.HammersteinWienerClassifier
    estimators.HammersteinWienerRegressor
    estimators.HBTEnsembleClassifier
@@ -336,8 +340,16 @@ Classes
 
    models.BaseEvaluation
    models.CrossValidator
-   models.GridSearch
-   models.GridSearchMultiple
+   models.BaseSearch
+   models.SearchMultiple
+   models.MultipleSearch
+   models.SequentialSearchCV
+   models.SwarmSearchCV
+   models.AnnealingSearchCV
+   models.EvolutionarySearchCV
+   models.GradientBasedSearchCV
+   models.GeneticSearchCV
+   
    
 Functions
 ~~~~~~~~~~~~
@@ -356,6 +368,8 @@ Functions
    models.naive_evaluation
    models.parallelize_estimators
    models.optimize_hyperparameters 
+   models.optimize_search 
+   models.optimize_search2
    models.shrink_covariance_cv_score
    models.base_tuning 
    models.robust_tuning 
@@ -462,6 +476,8 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.adaptive_moving_average
    tools.array2hdf5
    tools.audit_data
+   tools.augment_data
+   tools.assess_outlier_impact
    tools.bi_selector
    tools.bin_counting
    tools.binning_statistic
@@ -471,6 +487,8 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.category_count
    tools.cleaner
    tools.codify_variables
+   tools.compute_effort_yield
+   tools.compute_sunburst_data 
    tools.convert_date_features
    tools.cubic_regression
    tools.discretize_categories
@@ -493,6 +511,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.handle_categorical_features
    tools.handle_missing_data
    tools.handle_outliers_in_data
+   tools.infer_sankey_columns 
    tools.inspect_data
    tools.interpolate1d
    tools.interpolate2d
@@ -506,6 +525,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.load_dumped_data
    tools.load_saved_model
    tools.logarithmic_regression
+   tools.make_mxs
    tools.make_pipe
    tools.minmax_scaler
    tools.moving_average
@@ -549,10 +569,10 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.standard_scaler
    tools.stats_from_prediction
    tools.step_regression
+   tools.store_data 
    tools.store_or_write_hdf5
    tools.stratify_categories
    tools.to_numeric_dtypes
-   tools.unified_storage 
    tools.verify_data_integrity
       
 .. _plot_ref:
@@ -675,7 +695,57 @@ optimization process.
 	plot.MetricPlotter.plotPrecisionRecallPerClass
 	plot.MetricPlotter.plotActualVSPredicted
 
-	
+:mod:`~gofast.plot.ts`: TimeSeries Plots
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+"TimeSeries plots" are specialized visualizations for analyzing time-series data. 
+These plots provide valuable insights into the trends, patterns, and characteristics 
+of data that changes over time. They are essential tools in various fields such as 
+finance, meteorology, and signal processing, helping users to understand temporal 
+dynamics and make predictions based on historical data trends.
+
+.. automodule:: gofast.plot.ts
+   :no-members:
+   :no-inherited-members:
+
+**User guide:** See the :ref:`visualization <plot>` section for further details.
+
+.. currentmodule:: gofast
+
+.. autosummary::
+   :toctree: generated/
+   :template: function.rst
+
+    plot.TimeSeriesPlotter.heatmapCorrelation
+    plot.TimeSeriesPlotter.pieChart
+    plot.TimeSeriesPlotter.plotArea
+    plot.TimeSeriesPlotter.plotAutocorrelation
+    plot.TimeSeriesPlotter.plotBar
+    plot.TimeSeriesPlotter.plotBox
+    plot.TimeSeriesPlotter.plotBubble
+    plot.TimeSeriesPlotter.plotCumulativeDistribution
+    plot.TimeSeriesPlotter.plotCumulativeLine
+    plot.TimeSeriesPlotter.plotDecomposition
+    plot.TimeSeriesPlotter.plotDensity
+    plot.TimeSeriesPlotter.plotErrorbar
+    plot.TimeSeriesPlotter.plotHexbin
+    plot.TimeSeriesPlotter.plotHistogram
+    plot.TimeSeriesPlotter.plotkde
+    plot.TimeSeriesPlotter.plotLag
+    plot.TimeSeriesPlotter.plotLine
+    plot.TimeSeriesPlotter.plotpacf
+    plot.TimeSeriesPlotter.plotRadViz
+    plot.TimeSeriesPlotter.plotRollingMean
+    plot.TimeSeriesPlotter.plotScatter
+    plot.TimeSeriesPlotter.plotScatterWithTrendline
+    plot.TimeSeriesPlotter.plotStackedArea
+    plot.TimeSeriesPlotter.plotStackedBar
+    plot.TimeSeriesPlotter.plotStackedLine
+    plot.TimeSeriesPlotter.plotStep
+    plot.TimeSeriesPlotter.plotSunburst
+    plot.TimeSeriesPlotter.plotWaterfall
+    plot.TimeSeriesPlotter.radarChart
+
 Functions
 ~~~~~~~~~~~~
 
@@ -737,6 +807,24 @@ that aid in data exploration, analysis, and presentation.
    plot.utils.plot_confidence
    plot.utils.plot_confidence_ellipse
    plot.utils.plot_text
+   plot.utils.plot_cumulative_variance 
+   plot.utils.plot_shap_summary 
+   plot.utils.plot_custom_boxplot
+   plot.utils.plot_abc_curve
+   plot.utils.plot_permutation_importance
+   plot.utils.create_radar_chart
+   plot.utils.plot_r_squared
+   plot.utils.plot_cluster_comparison
+   plot.utils.plot_sunburst 
+   plot.utils.plot_sankey
+   plot.utils.plot_euler_diagram 
+   plot.utils.create_upset_plot 
+   plot.utils.plot_venn_diagram 
+   plot.utils.create_matrix_representation 
+   plot.utils.plot_feature_interactions 
+   plot.utils.plot_regression_diagnostics 
+   plot.utils.plot_residuals_vs_leverage 
+   plot.utils.plot_residuals_vs_fitted
 
 .. _stats_ref:
 
@@ -796,6 +884,8 @@ user may visit other powerful libraries such as ``scipy.stats``, ``statsmodels``
    stats.levene_test
    stats.kolmogorov_smirnov_test
    stats.cronbach_alpha
+   stats.friedman_test
+   stats.statistical_tests
   
 .. _transformers_ref:
 

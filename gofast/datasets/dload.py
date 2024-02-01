@@ -10,6 +10,7 @@ Inspired from the machine learning popular dataset loading
 """
 import os
 import scipy 
+import joblib
 import numpy as np
 from importlib import resources 
 from importlib.resources import files
@@ -18,14 +19,12 @@ from .io import (csv_data_loader, _to_dataframe, DMODULE,
     description_loader, DESCR, RemoteDataURL ) 
 from ..tools.baseutils import read_data, fancier_downloader , check_file_exists   
 from ..tools.mlutils import split_train_test_by_id, existfeatures
-from ..tools.funcutils import ( 
-    to_numeric_dtypes , 
-    smart_format, 
-    key_checker, 
-    random_sampling,
-    assert_ratio, 
-    )
+from ..tools.funcutils import  to_numeric_dtypes , smart_format, key_checker
+from ..tools.funcutils import  random_sampling, assert_ratio
+from ..tools.funcutils import  format_to_datetime, is_in_if
 from ..tools.box import Boxspace
+from ._globals import FORENSIC_BF_DICT, FORENSIC_LABELS_DESCR
+
 
 __all__= [ "load_iris",  "load_hlogs", "load_mxs", "load_nlogs"]
 
@@ -35,7 +34,6 @@ def load_hlogs (
          **kws): 
     
     drop_observations =kws.pop("drop_observations", False)
-    
     cf = as_frame 
     key = key or 'h502' 
     # assertion error if key does not exist. 
@@ -53,7 +51,6 @@ def load_hlogs (
         'h805'
         }
     is_keys = set ( list(available_sets) + ["*"])
-
     key = key_checker(key, is_keys)
     
     data_file ='h.h5'
@@ -128,14 +125,15 @@ def load_hlogs (
             or cf
             ) : return data, target 
     
+    # Loading description
+    fdescr = description_loader(descr_module=DESCR, descr_file="hlogs.rst")
     return Boxspace(
         data=data.values,
         target=data[tnames].values,
         frame=data,
         tnames=tnames,
         target_names = target_columns,
-        # XXX Add description 
-        DESCR= '', # fdescr,
+        DESCR= fdescr,
         feature_names=feature_names,
         filename=data_file,
         data_module=DMODULE,
@@ -354,7 +352,7 @@ def load_nlogs (
     # upload the description file.
     descr_suffix= {"b0": '', "ns":"+", "ls":"++"}
     fdescr = description_loader(
-        descr_module=DESCR,descr_file=f"nanshang{descr_suffix.get(key)}.rst")
+        descr_module=DESCR,descr_file=f"nansha{descr_suffix.get(key)}.rst")
 
     return Boxspace(
         data=data.values,
@@ -465,8 +463,13 @@ To retrieve land subsidence data for specific years with display rate:
 """
 
 def load_bagoue(
-        *, return_X_y=False, as_frame=False, split_X_y=False, test_size =.3 , 
-        tag=None , data_names=None, **kws
+        *, return_X_y=False, 
+        as_frame=False, 
+        split_X_y=False, 
+        test_size =.3 , 
+        tag=None , 
+        data_names=None, 
+        **kws
  ):
     cf = as_frame 
     data_file = "bagoue.csv"
@@ -718,8 +721,7 @@ def load_mxs (
     shuffle=False,
     test_ratio=.2,  
     **kws): 
-    import joblib
-
+    
     drop_observations =kws.pop("drop_observations", False)
     
     target_map= { 
@@ -1014,8 +1016,14 @@ def _get_subsidence_data (
     
     
 def load_bagoue(
-        *, return_X_y=False, as_frame=False, split_X_y=False, test_size =.3 , 
-        tag=None , data_names=None, **kws
+        *, 
+        return_X_y=False, 
+        as_frame=False, 
+        split_X_y=False, 
+        test_size =.3 , 
+        tag=None , 
+        data_names=None,
+        **kws
  ):
     cf = as_frame 
     data_file = "bagoue.csv"
@@ -1127,48 +1135,482 @@ To explore a subset of samples:
 >>> d.target[[10, 25
 """   
 
-column_name_mapping = {
-    "Timestamp": "timestamp",
-    "sex": "gender",
-    "Age": "age",
-    "Level of study": "education_level",
-    "Occupation": "occupation",
-    "Do you think you know enough about using DNA to solve crimes?": "dna_knowledge",
-    "If YES, where did you get this information about using DNA to solve crimes?": "dna_info_source",
-    "As part of criminal investigations: Do you think that the creation of a national DNA database in Burkina Faso is:": "support_national_dna_db_bf",
-    "Who should be responsible for the custody and management of a national DNA database in Burkina Faso?": "dna_db_custodian_bf",
-    "Criteria for inclusion of a genetic profile in a DNA database. To be reserved for:": "dna_db_inclusion_criteria",
-    "Should profiles from crime scenes be included directly in the national DNA database?": "include_crime_scene_profiles",
-    "What type of offense would merit the DNA profile of a convicted person being recorded in the database?": "offense_type_dna_recording",
-    "For how long do you consider it necessary or normal for a DNA profile to be stored in a national database?": "dna_storage_duration",
-    "As part of family research": "dna_use_family_research",
-    "As part of research in the event of natural disasters and attacks": "dna_use_disaster_research",
-    "As part of Cooperation with INTERPOL": "dna_use_interpol_cooperation",
-    "As part of the fight against terrorism and organized crime": "dna_use_terrorism_fight",
-    "Do you think this is an invasion of privacy?": "privacy_invasion_opinion",
-    "Would you agree to voluntarily donate your own DNA to enrich a possible genetic database? (NB: This could help, for example, to find your loved ones or to identify you in the event of your disappearance...)": "voluntary_dna_donation",
-    "What is your level of concern about the risk of invasion of privacy?": "privacy_risk_concern",
-    "Are you concerned about misuse of this database?": "database_misuse_concern",
-    "Do you think they use DNA profiles in criminal investigations?": "dna_use_in_investigations",
-    "Do you think that the police and national gendarmerie services must be equipped with scientific and especially genetic laboratories to support criminal investigations?": "police_lab_support_need",
-    "Do you instead think that forensic DNA testing should be carried out by the private sector?": "forensic_dna_private_sector",
-    "Or do you rather think that forensic DNA testing should be carried out by an autonomous state institution other than the Police and Gendarmerie?": "forensic_dna_autonomous_institution",
-    "What would you like to say to the initiators of this investigation?": "message_to_investigators"
-}
+def load_forensic( *, 
+       return_X_y=False, 
+       as_frame=False, 
+       key=None, 
+       split_X_y=False, 
+       test_size =.3 ,  
+       tag=None , 
+       data_names=None, 
+       **kws
+):
+   cf = as_frame 
+   key = key or 'preprocessed'
+   key = key_checker(key, valid_keys=("raw", "preprocessed"), 
+                     deep_search=True )
+   data_file = f"forensic_bf{'+'if key=='preprocessed' else ''}.csv"
 
-# Now, apply the renaming to a DataFrame (hypothetical code, assuming 'df' is your DataFrame):
-# df.rename(columns=column_name_mapping, inplace=True)
+   with resources.path (DMODULE, data_file) as p : 
+       file = str(p)
+   data = pd.read_csv ( file )
+   
+   frame = None
+   target_columns = [
+       "dna_use_terrorism_fight",
+   ]
+   feature_names= is_in_if(data, items=target_columns, return_diff=True)
+   
+   frame, data, target = _to_dataframe(
+        data, feature_names = feature_names, tnames = target_columns, 
+        )
+   frame = format_to_datetime(to_numeric_dtypes(frame), date_col ='timestamp')
+
+   if split_X_y: 
+       X, Xt = split_train_test_by_id (data = frame , test_ratio= test_size, 
+                                       keep_colindex= False )
+       y = X.flow ;  X.drop(columns =target_columns, inplace =True)
+       yt = Xt.flow ; Xt.drop(columns =target_columns, inplace =True)
+       
+       return  (X, Xt, y, yt ) if cf else (
+           X.values, Xt.values, y.values , yt.values )
+   
+   if as_frame and not return_X_y: 
+       return frame 
+
+   if return_X_y:
+       return data, target
+   
+   fdescr = description_loader(
+       descr_module=DESCR,descr_file=data_file.replace (".csv", ".rst"))
+   
+   return Boxspace(
+       data=data,
+       target=target,
+       frame=frame,
+       tnames=target_columns,
+       target_names=target_columns,
+       DESCR=fdescr,
+       feature_names=feature_names,
+       filename=data_file,
+       data_module=DMODULE,
+       labels_descr=FORENSIC_LABELS_DESCR,
+       colums_descr= FORENSIC_BF_DICT
+   )
+load_forensic.__doc__="""\
+Load and return the forensic dataset for criminal investigation studies.
+
+This function provides access to a forensic dataset, which includes public 
+opinion and knowledge regarding DNA databases, their potential use in criminal
+investigations, and concerns related to privacy and misuse. The dataset is 
+derived from a study on the need for a forensic DNA database in the Sahel region. 
+It comes in two forms: raw and preprocessed. The raw data includes the original 
+responses, while the preprocessed data contains encoded and cleaned information.
+
+Parameters
+----------
+return_X_y : bool, default=False
+    If True, returns `(data, target)` as separate objects. Otherwise, returns 
+    a Bunch object.
+as_frame : bool, default=False
+    If True, the data and target are returned as a pandas DataFrame and Series, 
+    respectively. This is useful for further analysis and visualization in a 
+    tabular format.
+key : {'raw', 'preprocessed'}, default='preprocessed'
+    Specifies which version of the dataset to load. 'raw' for the original 
+    dataset and 'preprocessed' for the processed dataset with encoded 
+    categorical variables.
+split_X_y : bool, default=False
+    If True, splits the dataset into training and testing sets based on the 
+    `test_size` parameter. This is useful for model training and evaluation 
+    purposes.
+test_size : float, default=0.3
+    The proportion of the dataset to include in the test split. It should be 
+    between 0.0 and 1.0 and represent the size of the test dataset relative to 
+    the original dataset.
+tag : str or None, optional
+    An optional tag to filter or categorize the data. Useful for specific 
+    analyses within the dataset.
+data_names : list of str or None, optional
+    Specific names of datasets to be loaded. If None, all datasets are loaded.
+**kws : dict, optional
+    Additional keyword arguments to pass to the data loading function. Allows 
+    customization of the data loading process.
+
+Returns
+-------
+boxspace : Bunch object or tuple
+    The function returns a Bunch object when `return_X_y` is False. When True,
+    returns `(data, target)` 
+    as separate objects. The Bunch object has the following attributes:
+    - data : ndarray, shape (n_samples, n_features)
+      The data matrix with features.
+    - target : ndarray, shape (n_samples,)
+      The classification targets.
+    - frame : DataFrame
+      A DataFrame with `data` and `target` when `as_frame=True`.
+    - DESCR : str
+      The full description of the dataset.
+    - feature_names : list
+      Names of the feature columns.
+    - target_names : list
+      Names of the target columns.
+    - target_columns : list
+      Column names in the dataset used as targets.
+    - labels_descr, columns_descr : dict
+      Formatted dictionaries providing descriptions for categorical labels.
+
+Examples
+--------
+>>> from gofast.datasets import load_forensic
+>>> forensic_data = load_forensic(key='raw', as_frame=True)
+>>> print(forensic_data.frame.head())
+
+References
+----------
+Detailed dataset descriptions can be found in the forensic_bf.rst and 
+forensic_bf+.rst files. These documents provide insights into the dataset's 
+creation, structure, and attributes.
+"""
+
+def load_jrs_bet(
+    *, 
+    return_X_y=False, 
+    as_frame=False,
+    key=None, 
+    split_X_y=False, 
+    test_size=0.2, 
+    tag=None, 
+    data_names=None, 
+    N=5, 
+    seed=None, 
+    **kws
+ ):
+    # Validating the key
+    key = key or 'classic'
+    key = key_checker(key, valid_keys=("raw", "classic", "neural"),
+                      deep_search=True )
+
+    # Loading the dataset
+    data_file = "jrs_bet.csv"
+    with resources.path(DMODULE, data_file) as p: 
+        file = str(p)
+    data = pd.read_csv(file)
+
+    # Preparing the dataset
+    results = _prepare_jrs_bet_data(
+        data, key=key, N=N, split_X_y=split_X_y, return_X_y=return_X_y,
+        test_size=test_size, seed=seed
+        )
+
+    if split_X_y or return_X_y: 
+        return results
+
+    # Processing the data for return
+    target_columns=[] 
+    if key != 'neural': 
+       target_columns = ["target" if key == 'classic' else 'winning_numbers']
+       feature_names = is_in_if(results.columns, items=target_columns,
+                                return_diff=True)
+    else:feature_names= list(results.columns )
+    frame, data, target = _to_dataframe(results, feature_names=feature_names,
+                                        tnames=target_columns)
+
+    if key in ("neural", "raw"):
+        frame = format_to_datetime(to_numeric_dtypes(frame), date_col='date')
+
+    if as_frame:
+        return frame
+
+    # Loading description
+    fdescr = description_loader(descr_module=DESCR, descr_file=data_file.replace(
+        ".csv", f"{'+' if key in ('classic', 'neural') else ''}.rst"))
+
+    # Returning a Boxspace object
+    return Boxspace(
+        data=data,
+        target=target,
+        frame=frame,
+        tnames=target_columns,
+        target_names=target_columns,
+        DESCR=fdescr,
+        feature_names=feature_names,
+        filename=data_file,
+        data_module=DMODULE
+    )
+
+load_jrs_bet.__doc__="""\
+Load and prepare the jrs_bet dataset for machine learning applications.
+
+This function allows for the loading and processing of the `jrs_bet` dataset, 
+a rich collection of betting data. The dataset, in its raw form, includes 
+information such as dates, locations, and winning numbers. Depending on the 
+specified `key`, it can be prepared for classical machine learning models 
+or neural network models, with each approach entailing specific preprocessing 
+steps to optimize the dataset for the chosen model type.
+
+Parameters
+----------
+return_X_y : bool, optional
+    If True, the function returns the features (X) and target (y) as separate
+    objects, rather than a combined dataset. Useful for model training and 
+    evaluation. By default, this is set to False.
+as_frame : bool, optional
+    If True, the data is returned as a pandas DataFrame. This is beneficial for 
+    exploratory data analysis and when working with data manipulation libraries. 
+    By default, this is set to False.
+key : str, optional
+    Specifies the type of data preparation to apply. Options include 'raw' for 
+    no preprocessing, 'classic' for preparation suitable for classical machine 
+    learning models, and 'neural' for preparation tailored to neural network models.
+    Defaults to None, which treats the data as 'classic'.
+split_X_y : bool, optional
+    If True, the dataset is split into features (X) and target (y) during the 
+    preparation process. This is especially useful when the dataset needs to be 
+    directly fed into a machine learning algorithm. By default, this is set to False.
+test_size : float, optional
+    Defines the proportion of the dataset to be used as the test set. This is 
+    important for evaluating the performance of machine learning models. 
+    By default, it is set to 0.2.
+tag : str, optional
+    A custom tag that can be used for dataset processing. This allows for 
+    additional customization or identification during the data preparation process.
+    By default, this is set to None.
+data_names : list, optional
+    Custom names for the data columns. This allows for personalization of the 
+    dataset column names for clarity or specific requirements. By default, 
+    this is set to None.
+N : int, optional
+    Specifies the number of past draws to consider for LSTM models, useful 
+    in the context of the 'neural' key. This parameter is crucial for time-series 
+    prediction tasks. By default, it is set to 5.
+seed : int, optional
+    The seed for the random number generator, which is important for reproducibility 
+    in tasks like dataset splitting. By default, this is set to None.
+kws : dict
+    Additional keyword arguments for more advanced or specific dataset 
+    preparation needs.
+
+Returns
+-------
+boxspace : Bunch object or tuple
+    Depending on the `return_X_y` parameter, the function returns either a 
+    Bunch object (when False) or a tuple of `(data, target)` (when True). 
+    The Bunch object contains several attributes providing insights into the 
+    dataset, including the data matrix (`data`), classification targets (`target`), 
+    a combined DataFrame (`frame` if `as_frame` is True), a full description 
+    (`DESCR`), feature names (`feature_names`), and target names (`target_names`).
+
+Examples
+--------
+>>> from gofast.datasets import load_jrs_bet 
+>>> data_box = load_jrs_bet(key="raw")
+>>> print(data_box.frame.head())
+
+>>> df = load_jrs_bet(as_frame=True, key='neural')
+>>> print(df.head())
+
+>>> X, y = load_jrs_bet(return_X_y=True)
+>>> print(X.head(), y.head())
+
+Notes
+-----
+The jrs_bet dataset is a versatile collection of data suitable for various 
+machine learning applications. The raw dataset serves as a foundational bedrock 
+for betting analysis. When preprocessed for classical machine learning, it 
+undergoes transformation to facilitate models like logistic regression, decision 
+trees, or random forests. For neural network applications, especially RNNs like 
+LSTM, the dataset is structured to capture temporal patterns and dependencies, 
+crucial for deep learning techniques.
+"""
+def _prepare_jrs_bet_data(data, /, key='classic', N=5, split_X_y=False,
+                         return_X_y=False, test_size=0.2, seed=None
+                         ):
+    """
+    Prepare the jrs_bet dataset for machine learning models.
+
+    This function preprocesses the jrs_bet dataset for use in classical machine
+    learning or deep neural network models, specifically LSTM.
+
+    Parameters
+    ----------
+    data : DataFrame
+        The jrs_bet dataset.
+    key : str, optional
+        The type of model to prepare the data for ('classic' or 'neural'),
+        by default 'classic'.
+    N : int, optional
+        The number of past draws to consider for LSTM, by default 5.
+    split_X_y : bool, optional
+        If True, split the dataset into features (X) and target (y),
+        by default False.
+    return_X_y : bool, optional
+        If True, return features (X) and target (y) instead of the whole 
+        dataset, by default False.
+    test_size : float, optional
+        The proportion of the dataset to include in the test split, by default 0.2.
+    seed : int, optional
+        The seed for the random number generator, by default None.
+
+    Returns
+    -------
+    DataFrame or tuple of DataFrames
+        Processed dataset suitable for the specified model type.
+    """
+    # Preprocessing steps
+    data.replace('HOLIDAY', pd.NA, inplace=True)
+    data.dropna(inplace=True)
+    data['date'] = pd.to_datetime(data['date'])
+
+    # Split and convert winning numbers
+    winning_numbers = data['winning_numbers'].str.split('-', expand=True)
+    winning_numbers = winning_numbers.apply(pd.to_numeric)
+
+    # Prepare data based on the specified model type
+    if key in 'classical':
+        return _prepare_for_classical_ml(
+            winning_numbers, split_X_y=split_X_y, return_X_y=return_X_y, 
+            seed=seed, test_size=test_size
+        )
+    if key =="neural":
+        return _prepare_for_neural_networks(
+            winning_numbers, data=data, N=N, split_X_y=split_X_y, 
+            return_X_y=return_X_y, test_size=test_size
+        )
     
+    return data 
+
+def _prepare_for_neural_networks(
+        winning_numbers, /, data, N=5, split_X_y=False, 
+        return_X_y=False, test_size=0.2
+   ):
+    """
+    Prepare the jrs_bet dataset specifically for recurrent neural network models.
+
+    This function processes the winning_numbers from the jrs_bet dataset 
+    for application in recurrent neural network models such as LSTM.
+
+    Parameters
+    ----------
+    winning_numbers : DataFrame
+        Winning numbers from the jrs_bet dataset.
+    data : DataFrame
+        The original jrs_bet dataset with additional columns such as 'date'.
+    N : int, optional
+        The number of past draws to use for sequence generation, by default 5.
+    split_X_y : bool, optional
+        If True, split the dataset into features (X) and target (y), 
+        by default False.
+    return_X_y : bool, optional
+        If True, return features (X) and target (y) instead of the whole 
+        dataset, by default False.
+    test_size : float, optional
+        The proportion of the dataset to include in the test split,
+        by default 0.2.
+
+    Returns
+    -------
+    DataFrame or tuple of arrays
+        Prepared sequences and corresponding targets suitable for RNN models.
+    """
+    from sklearn.preprocessing import MinMaxScaler
+
+    # Concatenate date and winning numbers
+    historical_data = pd.concat([data['date'], winning_numbers], axis=1)
     
+    if not split_X_y and not return_X_y: 
+        return historical_data
+
+    # Generating sequences for LSTM
+    sequences = [winning_numbers.iloc[i:i+N].values.flatten()
+                 for i in range(len(winning_numbers) - N)]
+
+    # Data normalization
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    sequences_normalized = scaler.fit_transform(sequences)
+
+    # Preparing features and targets
+    X = np.array(sequences_normalized)
+    y = np.array([sequences_normalized[i+1] for i in range(
+        len(sequences_normalized)-1)])
+
+    # Reshaping for LSTM
+    X = np.reshape(X, (X.shape[0], X.shape[1], 1))
+
+    # Data splitting
+    train_size = int(len(X) * (1 - test_size))
+    X_train, X_test = X[:train_size], X[train_size:]
+    y_train, y_test = y[:train_size], y[train_size:]
     
+    return (X, y) if return_X_y else (X_train, X_test, y_train, y_test)
+ 
+def _prepare_for_classical_ml(
+        winning_numbers, /, split_X_y=False, return_X_y=False,
+        seed=None, test_size=0.2):
+    """
+    Prepare the jrs_bet dataset for classical machine learning models.
+
+    This function processes the winning_numbers from the jrs_bet dataset for 
+    application in classical machine learning models.
+
+    Parameters
+    ----------
+    winning_numbers : DataFrame
+        Winning numbers from the jrs_bet dataset.
+    split_X_y : bool, optional
+        If True, split the dataset into features (X) and target (y), 
+        by default False.
+    return_X_y : bool, optional
+        If True, return features (X) and target (y) instead of the whole 
+        dataset, by default False.
+    seed : int, optional
+        The seed for the random number generator, by default None.
+    test_size : float, optional
+        The proportion of the dataset to include in the test split,
+        by default 0.2.
+
+    Returns
+    -------
+    DataFrame or tuple of DataFrames
+        Prepared dataset suitable for classical machine learning models.
+    """
+    from sklearn.model_selection import train_test_split 
+    # Frequency and recency analysis
+    frequency_analysis = winning_numbers.apply(pd.Series.value_counts
+                                               ).fillna(0).sum(axis=1)
+    recency = {number: index for index, row in winning_numbers.iterrows() 
+               for number in row}
+
+    # Converting recency to DataFrame and merging with frequency data
+    recency_df = pd.DataFrame.from_dict(
+        recency, orient='index', columns=['most_recent_draw']
+        ).reset_index().rename(columns={'index': 'number'})
+    features_df = pd.merge(frequency_analysis.reset_index().rename(
+        columns={'index': 'number', 0: 'frequency'}), recency_df, on='number')
+
+    # Target data preparation
+    all_numbers = set(range(1, 100))
+    target_data = winning_numbers.isin(all_numbers).any(
+        axis=1).astype(int).to_frame('target')
+
+    # Merging features with target data
+    ml_dataset = pd.merge(features_df, target_data,
+                          left_on='number', right_index=True)
+    ml_dataset['target'] = ml_dataset['target'].shift(-1)
+
+    # Final dataset preparation
+    final_ml_dataset = ml_dataset.dropna().drop(columns=['number'])
+
+    if not split_X_y and not return_X_y: 
+        return final_ml_dataset
+
+    # Dataset splitting
+    X = final_ml_dataset.drop('target', axis=1)
+    y = final_ml_dataset['target']
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=seed)
     
-    
-    
-    
-    
-    
-    
-    
+    return (X, y) if return_X_y else (X_train, X_test, y_train, y_test)
     
     
     

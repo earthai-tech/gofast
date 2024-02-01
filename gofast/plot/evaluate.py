@@ -577,9 +577,8 @@ class MetricPlotter (BasePlot):
     
         return self
 
-
+    @staticmethod
     def plotSilhouette(
-        self, 
         X, 
         cluster_labels, 
         n_clusters, 
@@ -1092,7 +1091,6 @@ class EvalPlotter(BasePlot):
         plt.ylabel(ylabel)
         plt.title(title if title else f'Histogram of {xlabel}')
         plt.show()
-    
         return self
 
     
@@ -1228,9 +1226,9 @@ class EvalPlotter(BasePlot):
         plt.show()
         
         return self 
-
-    def plotFeatureImportance(
-        self, 
+    
+    @staticmethod
+    def plotFeatureImportance( 
         feature_names, 
         importances, 
         title='Feature Importances'

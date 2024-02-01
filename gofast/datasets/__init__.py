@@ -11,7 +11,8 @@ from .sets import (
     load_nlogs, 
     load_mxs, 
     fetch_data, 
-    DATASET
+    load_forensic, 
+    load_jrs_bet 
     )
 from ._create import ( 
     make_elogging, 
@@ -37,6 +38,8 @@ __all__=[
          "load_iris",
          "load_hlogs",
          "load_nlogs", 
+         "load_forensic",
+         "load_jrs_bet", 
          "load_mxs", 
          "fetch_data",
          "make_elogging", 
@@ -55,6 +58,5 @@ __all__=[
          "make_social_media_comments", 
          "make_water_demand", 
          "make_regression", 
-         "make_classification",
-         "DATASET", 
+         "make_classification", 
          ]

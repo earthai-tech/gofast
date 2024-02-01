@@ -3,9 +3,6 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 """
 Time-Series Plots  
-Created on Thu Dec 28 23:12:44 2023
-
-@author: Daniel
 """
 from math import pi
 import numpy as np 
@@ -29,7 +26,6 @@ from ..tools._dependency import import_optional_dependency
 
 class TimeSeriesPlotter (BasePlot) :
     def __init__(self,  **kws):
-        
         super().__init__(**kws) 
         
     def fit( self, data, /, date_col, value_col =None, **fit_params): 
@@ -68,7 +64,7 @@ class TimeSeriesPlotter (BasePlot) :
 
         plotter = TimeSeriesPlotter(df, 'Date', 'Value')
         plotter.area_plot()
-        plotter.heatmap_correlation()
+        plotter.heatmapCorrelation()
         # Other plot methods...
         """
         columns =fit_params.pop("columns", None )
@@ -84,7 +80,7 @@ class TimeSeriesPlotter (BasePlot) :
         
         return self 
 
-    def rolling_mean_std(self, window=12, mean_color='blue',
+    def plotRollingMean(self, window=12, mean_color='blue',
                          std_color='red', figsize=(10, 6), 
                          title='Rolling Mean & Standard Deviation'):
         """
@@ -117,7 +113,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.legend()
         plt.show()
 
-    def autocorrelation_plot(self, figsize=(10, 6), title='Autocorrelation Plot'):
+    def plotAutocorrelation(self, figsize=(10, 6), title='Autocorrelation Plot'):
         """
         Generates an autocorrelation plot for the time series data.
 
@@ -134,7 +130,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.title(title, fontsize=14)
         plt.show()
 
-    def pacf_plot(self, lags=15, figsize=(10, 6),
+    def plotpacf(self, lags=15, figsize=(10, 6),
                   title='Partial Autocorrelation Plot'):
         """
         Generates a partial autocorrelation plot for the time series data.
@@ -155,7 +151,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.title(title, fontsize=14)
         plt.show()
 
-    def decomposition_plot(self, model='additive', freq=12, figsize=(10, 6),
+    def plotDecomposition(self, model='additive', freq=12, figsize=(10, 6),
                            title='Time Series Decomposition'):
         """
         Generates a decomposition plot of the time series data.
@@ -188,7 +184,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.rcParams['font.size'] = 12
 
 
-    def cumulative_line_plot(self, color='blue', title='Cumulative Line Plot'):
+    def plotCumulativeLine(self, color='blue', title='Cumulative Line Plot'):
         """
         Generates a cumulative line plot of the time series data.
 
@@ -207,7 +203,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.ylabel('Cumulative Value', fontsize=12)
         plt.show()
 
-    def density_plot(self, color='green', title='Density Plot'):
+    def plotDensity(self, color='green', title='Density Plot'):
         """
         Generates a density plot of the time series data.
 
@@ -226,7 +222,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.ylabel('Density', fontsize=12)
         plt.show()
 
-    def scatter_plot_with_trendline(
+    def plotScatterWithTrendline(
             self, color='red', title='Scatter Plot with Trendline'):
         """
         Generates a scatter plot with a trendline of the time series data.
@@ -246,7 +242,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.ylabel('Value', fontsize=12)
         plt.show()
 
-    def bar_plot(self, color='cyan', title='Bar Plot'):
+    def plotBar(self, color='cyan', title='Bar Plot'):
         """
         Generates a bar plot of the time series data.
 
@@ -265,7 +261,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.ylabel('Value', fontsize=12)
         plt.show()
 
-    def stacked_area_plot(self, title='Stacked Area Plot'):
+    def plotStackedArea(self, title='Stacked Area Plot'):
         """
         Generates a stacked area plot of the time series data.
 
@@ -282,7 +278,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.ylabel('Value', fontsize=12)
         plt.show()
 
-    def violin_plot(self, color='purple', title='Violin Plot'):
+    def plotViolin(self, color='purple', title='Violin Plot'):
         """
         Generates a violin plot of the time series data.
 
@@ -303,7 +299,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.xticks(rotation=45)
         plt.show()
 
-    def pie_chart(self, title='Pie Chart'):
+    def pieChart(self, title='Pie Chart'):
         """
         Generates a pie chart of the time series data. Best used with 
         categorical data.
@@ -320,7 +316,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.ylabel('')
         plt.show()
 
-    def line_plot(self, figsize=(10, 6), title='Time Series Line Plot',
+    def plotLine(self, figsize=(10, 6), title='Time Series Line Plot',
                   xlabel='Date', ylabel='Value', color='blue'):
         """
         Generates a line plot of the time series data.
@@ -373,7 +369,7 @@ class TimeSeriesPlotter (BasePlot) :
         ax.set_ylabel(ylabel)
         plt.show()
 
-    def box_plot(self, figsize=(10, 6), title='Time Series Box Plot',
+    def plotBox(self, figsize=(10, 6), title='Time Series Box Plot',
                  xlabel='Date', ylabel='Value', rotation=45):
         """
         Generates a box plot of the time series data.
@@ -401,7 +397,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.show()
 
 
-    def area_plot(self, figsize=(10, 6), title='Time Series Area Plot',
+    def plotArea(self, figsize=(10, 6), title='Time Series Area Plot',
                   xlabel='Date', ylabel='Value', color='skyblue', alpha=0.4):
         """
         Generates an area plot of the time series data.
@@ -430,7 +426,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.ylabel(ylabel)
         plt.show()
 
-    def heatmap_correlation(self, figsize=(10, 6),
+    def heatmapCorrelation(self, figsize=(10, 6),
                             title='Heatmap of Correlations', cmap='coolwarm',
                             annot=True, fmt=".2f"):
         """
@@ -479,7 +475,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.title(title or f'Lag {lag} Plot', fontsize=14)
         plt.show()
 
-    def scatter_plot(self, color='blue', figsize=(10, 6), title='Scatter Plot'):
+    def plotScatter(self, color='blue', figsize=(10, 6), title='Scatter Plot'):
         """
         Generates a scatter plot of the time series data.
 
@@ -500,7 +496,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.ylabel('Value')
         plt.show()
 
-    def cumulative_distribution_plot(self, color='green', figsize=(10, 6),
+    def plotCumulativeDistribution(self, color='green', figsize=(10, 6),
                                      title='Cumulative Distribution'):
         """
         Generates a cumulative distribution plot of the time series data.
@@ -523,7 +519,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.ylabel('Cumulative Probability')
         plt.show()
 
-    def stacked_bar_plot(self, secondary_col, figsize=(10, 6),
+    def plotStackedBar(self, secondary_col, figsize=(10, 6),
                          title='Stacked Bar Plot'):
         """
         Generates a stacked bar plot of the time series data.
@@ -547,7 +543,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.show()
 
 
-    def hexbin_plot(self, gridsize=30, figsize=(10, 6), title='Hexbin Plot'):
+    def plotHexbin(self, gridsize=30, figsize=(10, 6), title='Hexbin Plot'):
         """
         Generates a hexbin plot of the time series data.
 
@@ -569,7 +565,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.ylabel('Value')
         plt.show()
 
-    def kde_plot(self, shade=True, figsize=(10, 6), title='KDE Plot'):
+    def plotkde(self, shade=True, figsize=(10, 6), title='KDE Plot'):
         """
         Generates a KDE plot of the time series data.
 
@@ -590,7 +586,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.ylabel('Density')
         plt.show()
 
-    def step_plot(self, color='green', linestyle='-', linewidth=2,
+    def plotStep(self, color='green', linestyle='-', linewidth=2,
                   figsize=(10, 6), title='Step Plot'):
         """
         Generates a step plot of the time series data.
@@ -617,7 +613,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.ylabel('Value')
         plt.show()
 
-    def error_bar_plot(self, yerr=None, color='blue', ecolor='red', 
+    def plotErrorbar(self, yerr=None, color='blue', ecolor='red', 
                        elinewidth=2, capsize=5, figsize=(10, 6),
                        title='Error Bar Plot'):
         """
@@ -650,7 +646,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.ylabel('Value')
         plt.show()
 
-    def stacked_line_plot(self, secondary_col, figsize=(10, 6), title='Stacked Line Plot'):
+    def plotStackedLine(self, secondary_col, figsize=(10, 6), title='Stacked Line Plot'):
         """
         Generates a stacked line plot of the time series data.
     
@@ -676,7 +672,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.legend()
         plt.show()
         
-    def bubble_plot(self, bubble_size_col, figsize=(10, 6), title='Bubble Plot'):
+    def plotBubble(self, bubble_size_col, figsize=(10, 6), title='Bubble Plot'):
         """
         Generates a bubble plot of the time series data.
     
@@ -701,7 +697,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.ylabel('Value')
         plt.show()
         
-    def sunburst_plot(self, path_col, values_col, figsize=(10, 10),
+    def plotSunburst(self, path_col, values_col, figsize=(10, 10),
                       title='Sunburst Plot'):
         """
         Generates a sunburst plot of the time series data.
@@ -728,7 +724,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.title(title)
         plt.show()
         
-    def radar_chart(self, categories, figsize=(6, 6), title='Radar Chart'):
+    def radarChart(self, categories, figsize=(6, 6), title='Radar Chart'):
         """
         Generates a radar chart of the time series data.
     
@@ -761,7 +757,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.title(title, size=20, y=1.1)
         plt.show()
         
-    def waterfall_plot(self, figsize=(10, 6), title='Waterfall Plot'):
+    def plotWaterfall(self, figsize=(10, 6), title='Waterfall Plot'):
         """
         Generates a waterfall plot of the time series data.
         
@@ -825,53 +821,53 @@ value_col : str
 
 Methods
 -------
-line_plot(...)
+plotLine(...)
     Generates a line plot of the time series data.
 histogram(...)
     Generates a histogram of the values in the time series.
-box_plot(...)
+plotBox(...)
     Generates a box plot of the time series data.
-area_plot(...)
+plotArea(...)
     Generates an area plot of the time series data.
-heatmap_correlation(...)
+heatmapCorrelation(...)
     Generates a heatmap showing correlations between columns in the data.
-lag_plot(...)
+plotLag(...)
     Generates a lag plot to analyze autocorrelation in the time series.
-rolling_mean_std(...)
+plotRollingMean(...)
     Plots the rolling mean and standard deviation.
-autocorrelation_plot(...)
+plotAutocorrelation(...)
     Generates an autocorrelation plot for the time series.
-pacf_plot(...)
+plotPACF(...)
     Generates a partial autocorrelation plot for the time series.
-decomposition_plot(...)
+plotDecomposition(...)
     Decomposes the time series into trend, seasonal, and residual components.
-scatter_plot(...)
+plotScatter(...)
     Generates a scatter plot of the time series data.
-violin_plot(...)
+plotViolin(...)
     Generates a violin plot of the time series data.
-cumulative_distribution_plot(...)
+plotCumulativeDistribution(...)
     Generates a cumulative distribution plot of the time series data.
-stacked_bar_plot(...)
+plotStackedBar(...)
     Generates a stacked bar plot of the time series data.
-pie_chart(...)
+pieChart(...)
     Generates a pie chart of the distribution of values.
-hexbin_plot(...)
+plotHexbin(...)
     Generates a hexbin plot of the time series data.
-kde_plot(...)
+plotkde(...)
     Generates a kernel density estimate plot of the time series data.
-step_plot(...)
+plotStep(...)
     Generates a step plot of the time series data.
-error_bar_plot(...)
+plotErrorBar(...)
     Generates an error bar plot of the time series data.
-stacked_line_plot(...)
+plotStackedLine(...)
     Generates a stacked line plot of the time series data.
-waterfall_plot(...)
+plotWaterfall(...)
     Generates a waterfall plot of the time series data.
-bubble_plot(...)
+plotBubble(...)
     Generates a bubble plot of the time series data.
-sunburst_plot(...)
+plotSunburst(...)
     Generates a sunburst plot of hierarchical data.
-radar_chart(...)
+radarChart(...)
     Generates a radar chart for multivariate data comparison.
 
 Examples

@@ -1,23 +1,22 @@
 """
-Utils sub-package offers several tools for data handling, parameters computation 
-models estimation and evalution, and graphs visualization. The extension of the 
-mathematical concepts, and the core of program are performed via the modules 
-:mod:`~gofast.utils.exmath`. Whereas the machine learning utilities and 
-additional functionalities are performed with :mod:`~gofast.utils.mlutils` and 
-:mod:`~gofast.utils.funcutils` respectively. 
+Tools sub-package offers several tools for data handling, parameters computation 
+models estimation and evalution. The extension of the mathematical concepts, 
+via the module :mod:`~gofast.tools.mathex`. Whereas the machine learning 
+utilities and additional functionalities are performed with
+ :mod:`~gofast.tools.mlutils` and :mod:`~gofast.tools.funcutils` respectively. 
 """
 
 from .baseutils import (
     audit_data, 
     read_data,
     sanitize, 
-    get_remote_data, 
+    fetch_remote_data, 
     array2hdf5, 
     save_or_load, 
     request_data, 
     fancier_downloader,
     speed_rowwise_process,
-    unified_storage, 
+    store_or_retrieve_data, 
     enrich_data_spectrum, 
     format_long_column_names, 
     summarize_text_columns, 
@@ -30,6 +29,8 @@ from .baseutils import (
     inspect_data, 
     handle_outliers_in_data,
     handle_missing_data, 
+    augment_data, 
+    assess_outlier_impact
     )
 from .mathex import ( 
     interpolate1d, 
@@ -57,6 +58,12 @@ from .mathex import (
     category_count, 
     soft_bin_stat, 
     binning_statistic, 
+    label_importance,
+    make_mxs, 
+    compute_effort_yield, 
+    compute_sunburst_data, 
+    infer_sankey_columns, 
+    calculate_residuals, 
     )
 from .funcutils import ( 
     reshape, 
@@ -105,7 +112,7 @@ from .mlutils import (
     discretize_categories, 
     stratify_categories, 
     serialize_data, 
-    load_dumped_data, 
+    deserialize_data, 
     soft_data_split, 
     laplace_smoothing, 
     features_in, 
@@ -117,11 +124,13 @@ __all__=[
     'audit_data', 
     'inspect_data', 
     'read_data',
+    'augment_data', 
+    'assess_outlier_impact', 
     'array2hdf5', 
     'sanitize',
     'save_or_load', 
     'request_data', 
-    'get_remote_data', 
+    'fetch_remote_data', 
     'fancier_downloader',
     'savgol_filter', 
     'interpolate1d', 
@@ -168,12 +177,11 @@ __all__=[
     'discretize_categories', 
     'stratify_categories', 
     'serialize_data', 
-    'load_dumped_data', 
+    'deserialize_data', 
     'soft_data_split', 
     'soft_imputer', 
     'soft_scaler', 
     'make_pipe',
-    'classify_k',
     'label_importance', 
     'remove_outliers', 
     'normalizer',
@@ -188,8 +196,6 @@ __all__=[
     'smoothing', 
     'pair_data', 
     'random_sampling', 
-    'plot_voronoi', 
-    'plot_roc_curves', 
     'replace_data', 
     'store_or_write_hdf5', 
     "resampling", 
@@ -197,7 +203,6 @@ __all__=[
     "adaptive_moving_average", 
     "load_saved_model", 
     "butterworth_filter",
-    "plot_l_curve", 
     "laplace_smoothing", 
     "features_in", 
     "linear_regression",
@@ -219,7 +224,7 @@ __all__=[
     "binning_statistic",
     "laplace_smoothing_categorical", 
     "laplace_smoothing_word",
-    "unified_storage", 
+    "store_or_retrieve_data", 
     "handle_datasets_with_hdfstore", 
     "verify_data_integrity", 
     "handle_categorical_features", 
@@ -227,6 +232,11 @@ __all__=[
     "scale_data", 
     "handle_outliers_in_data",
     "handle_missing_data", 
+    "make_mxs", 
+    "compute_effort_yield", 
+    "compute_sunburst_data", 
+    "infer_sankey_columns",
+    "calculate_residuals", 
     
     ]
 
