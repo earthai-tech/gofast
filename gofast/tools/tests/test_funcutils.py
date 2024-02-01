@@ -18,7 +18,7 @@ from gofast.tools.funcutils import  (
     cleaner, 
     random_selector, 
     interpolate_grid, 
-    twinning, 
+    pair_data, 
     random_sampling, 
     replace_data, 
     ) 
@@ -183,7 +183,7 @@ def test_twinning ():
     #          AB    MN   arrangememt  ... nareas   longitude  latitude
     # area                             ...                             
     # None  200.0  20.0  schlumberger  ...      1  110.486111  26.05174
-    twinning (table1, sounding_table,  ) 
+    pair_data (table1, sounding_table,  ) 
     #        dipole   longitude  latitude  ...  nareas   longitude  latitude
     # line1    10.0  110.486111  26.05174  ...     NaN         NaN       NaN
     # None      NaN         NaN       NaN  ...     1.0  110.486111  26.05174
@@ -191,11 +191,11 @@ def test_twinning ():
     # Empty DataFrame 
     # >>> # comments: Empty dataframe appears because, decimal is too large 
     # >>> # then it considers values longitude and latitude differents 
-    twinning (table1, sounding_table, on =['longitude', 'latitude'], decimals =5 ) 
+    pair_data (table1, sounding_table, on =['longitude', 'latitude'], decimals =5 ) 
     #     dipole  longitude  latitude  ...  max_depth  ohmic_area  nareas
     # 0      10  110.48611  26.05174  ...      109.0  690.063003       1
     # >>> # Now is able to find existing dataframe with identical closer coordinates. 
-    twinning(data_no_xy, data_xy, coerce=True , parse_on= True )
+    pair_data(data_no_xy, data_xy, coerce=True , parse_on= True )
     
     
 def test_random_sampling (): 

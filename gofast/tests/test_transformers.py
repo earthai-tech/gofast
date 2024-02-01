@@ -12,7 +12,7 @@ import pytest
 from gofast.transformers import SequentialBackwardSelection, KMeansFeaturizer
 
 from sklearn.datasets import make_classification
-from sklearn.model_selection import  LogisticRegression
+from sklearn.linear_model import  LogisticRegression
 from sklearn.preprocessing import LabelEncoder
 from gofast.transformers import ( 
     StratifiedWithCategoryAdder, 

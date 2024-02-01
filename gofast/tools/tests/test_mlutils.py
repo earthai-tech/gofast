@@ -33,15 +33,13 @@ from gofast.tools.mlutils import (
     export_target,  
     stats_from_prediction, 
     fetch_tgz, 
-    fetchModel, 
     fetch_model, 
-    load_data, 
+    load_csv,
     split_train_test_by_id, 
     split_train_test, 
     discretize_categories, 
     stratify_categories, 
     serialize_data, 
-    load_dumped_data, 
     naive_data_split,
     ) 
 from gofast.tools.funcutils import smart_label_classifier, cleaner 
