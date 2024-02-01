@@ -74,6 +74,83 @@ _logger =gofastlog.get_gofast_logger(__name__)
 mu0 = 4 * np.pi * 1e-7 
 
 
+def calculate_residuals(
+    actual: ArrayLike, 
+    predicted: Union[np.ndarray, List[ArrayLike]], 
+    task_type: str = 'regression',
+    predict_proba: Optional[ArrayLike] = None
+) -> ArrayLike:
+    """
+    Calculate the residuals for regression, binary, or multiclass 
+    classification tasks.
+
+    Parameters
+    ----------
+    actual : np.ndarray
+        The actual observed values or class labels.
+    predicted : Union[np.ndarray, List[np.ndarray]]
+        The predicted values for regression or class labels for classification.
+        Can be a list of predicted probabilities for each class from predict_proba.
+    task_type : str, default='regression'
+        The type of task: 'regression', 'binary', or 'multiclass'.
+    predict_proba : np.ndarray, optional
+        Predicted probabilities for each class from predict_proba 
+        (for classification tasks).
+
+    Returns
+    -------
+    residuals : np.ndarray
+        The residuals of the model.
+
+    Example
+    -------
+    >>> import numpy as np 
+    >>> from gofast.tools.mathex import calculate_residuals
+    >>> # For regression
+    >>> actual = np.array([3, -0.5, 2, 7])
+    >>> predicted = np.array([2.5, 0.0, 2, 8])
+    >>> residuals = calculate_residuals(actual, predicted, task_type='regression')
+    >>> print(residuals)
+
+    >>> # For binary classification
+    >>> actual = np.array([0, 1, 0, 1])
+    >>> predicted = np.array([0, 1, 0, 1])  # predicted class labels
+    >>> residuals = calculate_residuals(actual, predicted, task_type='binary')
+    >>> print(residuals)
+
+    >>> # For multiclass classification with predict_proba
+    >>> actual = np.array([0, 1, 2, 1])
+    >>> predict_proba = np.array([[0.7, 0.2, 0.1], [0.1, 0.7, 0.2], 
+                                  [0.2, 0.2, 0.6], [0.1, 0.8, 0.1]])
+    >>> residuals = calculate_residuals(actual, None, task_type='multiclass',
+                                        predict_proba=predict_proba)
+    >>> print(residuals)
+    """
+    if task_type == 'regression':
+        if predicted is None:
+            raise ValueError("Predicted values must be provided for regression tasks.")
+        return actual - predicted
+    elif task_type in ['binary', 'multiclass']:
+        if predict_proba is not None:
+            if predict_proba.shape[0] != actual.shape[0]:
+                raise ValueError("The length of predict_proba does not match "
+                                 "the number of actual values.")
+            # For each sample, find the predicted probability of the true class
+            prob_true_class = predict_proba[np.arange(len(actual)), actual]
+            residuals = 1 - prob_true_class  # Residuals are 1 - P(true class)
+        elif predicted is not None:
+            # For binary classification without probabilities, residuals 
+            # are 0 for correct predictions and 1 for incorrect
+            residuals = np.where(actual == predicted, 0, 1)
+        else:
+            raise ValueError("Either predicted class labels or predict_proba "
+                             "must be provided for classification tasks.")
+    else:
+        raise ValueError("The task_type must be 'regression', 'binary', or"
+                         " 'multiclass'.")
+
+    return residuals
+
 def infer_sankey_columns(data: DataFrame, /, 
   ) -> Tuple[List[str], List[str], List[int]]:
     """

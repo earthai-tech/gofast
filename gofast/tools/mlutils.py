@@ -43,7 +43,7 @@ from ._dependency import import_optional_dependency
 from ..exceptions import ParameterNumberError, EstimatorError, DatasetError
 from ..decorators import deprecated              
 from .funcutils import _assert_all_types, _isin,  is_in_if,  ellipsis2false
-from .funcutils import  smart_format, str2columns, is_iterable
+from .funcutils import  smart_format, str2columns, is_iterable, assert_ratio
 from .funcutils import  is_classification_task, to_numeric_dtypes, fancy_printer
 from .validator import get_estimator_name, check_array, check_consistent_length
 from .validator import  _is_numeric_dtype,  _is_arraylike_1d 
@@ -1945,7 +1945,7 @@ def fetch_tgz_locally(tgz_file: str , filename: str ,
         Name of of the new file to replace the fetched file.
     :return: Location of the fetched file
     :Example: 
-        >>> from gofast.tools.mlutils import fetchSingleTGZData
+        >>> from gofast.tools.mlutils import fetch_tgz_locally
         >>> fetch_tgz_locally('data/__tar.tgz/fmain.bagciv.data.tar.gz', 
                                rename_outfile='main.bagciv.data.csv')
     """
@@ -2020,10 +2020,8 @@ def split_train_test (
     :returns: a tuple of train set and test set. 
     
     """
-    if isinstance (test_ratio, str):
-        if test_ratio.lower().find('%')>=0: 
-            try: test_ratio = float(test_ratio.lower().replace('%', ''))/100.
-            except: TypeError (f"Could not convert value to float: {test_ratio!r}")
+    try: test_ratio = assert_ratio(test_ratio)
+    except: TypeError (f"Could not convert value to float: {test_ratio!r}")
     if test_ratio <=0: 
         raise ValueError ("Invalid ratio. Must greater than 0.")
     elif test_ratio >=1: 

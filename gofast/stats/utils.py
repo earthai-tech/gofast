@@ -1010,3 +1010,192 @@ def cronbach_alpha(items_scores):
     total_variance = items_scores.sum(axis=0).var(ddof=1)
     n_items = items_scores.shape[0]
     return (n_items / (n_items - 1)) * (1 - item_variances.sum() / total_variance)
+
+
+def friedman_test(*args, method='auto'):
+    """
+    Perform a Friedman test to compare more than two related groups,
+    with an option to control the test method.
+
+    The Friedman test is a non-parametric test used to detect differences
+    in treatments across multiple test attempts. It is particularly useful
+    for small sample sizes and for data that do not follow a normal
+    distribution.
+
+    Parameters
+    ----------
+    *args : array_like
+        The arrays must have the same number of elements, each representing
+        a related group. These groups are typically different treatments
+        applied to the same subjects.
+    method : {'auto', 'exact', 'asymptotic'}, optional
+        The method to use for the test:
+        - 'auto' : Use exact method for small sample sizes and asymptotic
+          method for larger samples.
+        - 'exact' : Use the exact distribution of the test statistic.
+        - 'asymptotic' : Use the asymptotic distribution of the test statistic.
+
+    Returns
+    -------
+    statistic : float
+        The test statistic, in this case, the Friedman statistic.
+    p_value : float
+        The p-value for the test. A p-value less than a significance level
+        (commonly 0.05) indicates significant differences among the groups.
+
+    Raises
+    ------
+    ValueError
+        If the input arrays have different lengths.
+
+    Example
+    -------
+    >>> from gofast.stats import friedman_test
+    >>> group1 = [20, 21, 19, 20, 21]
+    >>> group2 = [19, 20, 18, 21, 20]
+    >>> group3 = [21, 22, 20, 22, 21]
+    >>> statistic, p_value = friedman_test(group1, group2, group3, 
+                                           method='auto')
+    >>> print(f'Friedman statistic: {statistic}, p-value: {p_value}')
+
+    Notes
+    -----
+    The Friedman test is widely used in scenarios where you want to compare
+    the effects of different treatments or conditions on the same subjects,
+    especially in medical, psychological, and other scientific research.
+    It is an alternative to ANOVA when the normality assumption is not met.
+
+    References
+    ----------
+    Friedman, Milton. (1937). The use of ranks to avoid the assumption
+    of normality implicit in the analysis of variance. Journal of the
+    American Statistical Association.
+    """
+    
+    # Check that all input arrays have the same length
+    if len(set(map(len, args))) != 1:
+        raise ValueError("All input arrays must have the same length.")
+
+    return stats.friedmanchisquare(*args, method=method)
+
+def statistical_tests(data, test_type, *args, **kwargs):
+    """
+    Perform various statistical tests including Repeated Measures ANOVA, 
+    Cochran’s Q Test, McNemar’s Test, Kruskal-Wallis H Test, 
+    Wilcoxon Signed-Rank Test, and t-Test (Paired or Independent).
+
+    Parameters
+    ----------
+    data : DataFrame or array_like
+        The data to be used in the test. Format and structure depend on the test.
+    test_type : str
+        Type of the test to perform. Options include 'rm_anova', 'cochran_q', 
+        'mcnemar', 'kruskal_wallis', 'wilcoxon', 'ttest_paired', 'ttest_indep'.
+        
+    *args : additional arguments
+        Additional arguments required by the specific test.
+    **kwargs : additional keyword arguments
+        Additional keyword arguments required by the specific test.
+
+    Returns
+    -------
+    result : Result object
+        The result of the statistical test. Includes test statistic and p-value.
+
+    Test Details
+    ------------
+    - Repeated Measures ANOVA ('rm_anova'):
+        Used for comparing the means of three or more groups on the same subjects.
+        Commonly used in experiments where subjects undergo multiple treatments.
+        
+    - Cochran’s Q Test ('cochran_q'):
+        A non-parametric test for comparing three or more matched groups. It is the 
+        extension of the McNemar test and is used for binary (two-outcome) data.
+
+    - McNemar’s Test ('mcnemar'):
+        Used for binary classification to compare the proportion of misclassified 
+        instances between two models on the same dataset.
+
+    - Kruskal-Wallis H Test ('kruskal_wallis'):
+        A non-parametric version of ANOVA, used for comparing two or more independent 
+        groups. Suitable when the data does not meet ANOVA assumptions.
+
+    - Wilcoxon Signed-Rank Test ('wilcoxon'):
+        A non-parametric test to compare two related samples. It's used when the 
+        population cannot be assumed to be normally distributed.
+
+    - Paired t-Test ('ttest_paired'):
+        Compares the means of two related groups. It's used when the same subjects 
+        are used in both groups (e.g., before-after studies).
+
+    - Independent t-Test ('ttest_indep'):
+        Compares the means of two independent groups. Used when different subjects 
+        are used in each group or condition.
+        
+    Examples
+    --------
+    >>> import numpy as np 
+    >>> import pandas as pd 
+    >>> from gofasts.stats import statistical_tests
+    
+    For Repeated Measures ANOVA:
+    >>> data = pd.DataFrame({'subject': [1, 2, 3, 4, 5],
+                             'condition1': [20, 19, 22, 21, 18],
+                             'condition2': [22, 20, 24, 23, 19]})
+    >>> result = statistical_tests(data, 'rm_anova', subject='subject', 
+                                   within=['condition1', 'condition2'])
+    
+    For Cochran’s Q Test:
+    >>> data = np.array([[1, 1, 0], [1, 1, 1], [0, 1, 1]])
+    >>> result = statistical_tests(data, 'cochran_q')
+
+    For McNemar’s Test:
+    >>> data = np.array([[10, 2], [3, 5]])
+    >>> result = statistical_tests(data, 'mcnemar')
+
+    For Kruskal-Wallis H Test:
+    >>> group1 = [20, 21, 19, 20, 21]
+    >>> group2 = [19, 20, 18, 21, 20]
+    >>> group3 = [21, 22, 20, 22, 21]
+    >>> result = statistical_tests([group1, group2, group3], 'kruskal_wallis')
+
+    For Wilcoxon Signed-Rank Test:
+    >>> data1 = [20, 21, 19, 20, 21]
+    >>> data2 = [19, 20, 18, 21, 20]
+    >>> result = statistical_tests((data1, data2), 'wilcoxon')
+
+    For Paired t-Test:
+    >>> data1 = [20, 21, 19, 20, 21]
+    >>> data2 = [19, 20, 18, 21, 20]
+    >>> result = statistical_tests((data1, data2), 'ttest_paired')
+
+    For Independent t-Test:
+    >>> data1 = [20, 21, 19, 20, 21]
+    >>> data2 = [22, 23, 21, 22, 24]
+    >>> result = statistical_tests((data1, data2), 'ttest_indep')
+
+    Notes
+    -----
+    Ensure that the data is prepared according to the requirements of each test.
+    For example, data for Repeated Measures ANOVA should be in long format.
+    """
+    import_optional_dependency("statsmodels")
+    from statsmodels.stats.anova import AnovaRM
+    from statsmodels.stats.contingency_tables import mcnemar
+    
+    test_functions = {
+        'rm_anova': lambda: AnovaRM(data, **kwargs).fit(),
+        'cochran_q': lambda: stats.cochrans_q(*args),
+        'mcnemar': lambda: mcnemar(*args, **kwargs),
+        'kruskal_wallis': lambda: stats.kruskal(*args),
+        'wilcoxon': lambda: stats.wilcoxon(*args),
+        'ttest_paired': lambda: stats.ttest_rel(*args),
+        'ttest_indep': lambda: stats.ttest_ind(*args)
+    }
+
+    try:
+        return test_functions[test_type]()
+    except KeyError:
+        raise ValueError(f"Invalid test type '{test_type}' specified.")
+
+

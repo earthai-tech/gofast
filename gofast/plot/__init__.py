@@ -51,6 +51,14 @@ from .utils import (
     plot_cluster_comparison,
     plot_sunburst, 
     plot_sankey, 
+    plot_euler_diagram, 
+    create_upset_plot, 
+    plot_venn_diagram, 
+    create_matrix_representation, 
+    plot_feature_interactions, 
+    plot_regression_diagnostics, 
+    plot_residuals_vs_leverage, 
+    plot_residuals_vs_fitted
     )
 
 __all__= [
@@ -105,4 +113,12 @@ __all__= [
     'plot_cluster_comparison',
     'plot_sunburst', 
     'plot_sankey',
+    'plot_euler_diagram', 
+    'create_upset_plot', 
+    'plot_venn_diagram', 
+    'create_matrix_representation', 
+    'plot_feature_interactions', 
+    'plot_regression_diagnostics', 
+    'plot_residuals_vs_leverage', 
+    'plot_residuals_vs_fitted'
     ]

@@ -343,8 +343,8 @@ Classes
    models.BaseSearch
    models.SearchMultiple
    models.MultipleSearch
-   models.PSOSearchCV
-   models.SMBOSearchCV
+   models.SequentialSearchCV
+   models.SwarmSearchCV
    models.AnnealingSearchCV
    models.EvolutionarySearchCV
    models.GradientBasedSearchCV
@@ -817,6 +817,14 @@ that aid in data exploration, analysis, and presentation.
    plot.utils.plot_cluster_comparison
    plot.utils.plot_sunburst 
    plot.utils.plot_sankey
+   plot.utils.plot_euler_diagram 
+   plot.utils.create_upset_plot 
+   plot.utils.plot_venn_diagram 
+   plot.utils.create_matrix_representation 
+   plot.utils.plot_feature_interactions 
+   plot.utils.plot_regression_diagnostics 
+   plot.utils.plot_residuals_vs_leverage 
+   plot.utils.plot_residuals_vs_fitted
 
 .. _stats_ref:
 
@@ -876,6 +884,8 @@ user may visit other powerful libraries such as ``scipy.stats``, ``statsmodels``
    stats.levene_test
    stats.kolmogorov_smirnov_test
    stats.cronbach_alpha
+   stats.friedman_test
+   stats.statistical_tests
   
 .. _transformers_ref:
 

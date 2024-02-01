@@ -1,7 +1,7 @@
 .. _sjr_bet_plus_dataset:
 
-Enhanced Ghanaian Lottery Dataset for Machine Learning ("SJR bet+")
--------------------------------------------------------------------
+Enhanced Lottery Dataset for Machine Learning ("JRS bet+")
+-----------------------------------------------------------
 
 **Data Set Characteristics:**
 
@@ -25,7 +25,7 @@ Enhanced Ghanaian Lottery Dataset for Machine Learning ("SJR bet+")
 	
 **Dataset Description:**
 
-The "SJR bet+" dataset is an enhanced version of the original "SJR bet" dataset, specifically prepared for classical machine 
+The "JRS bet+" dataset is an enhanced version of the original "JRS bet" dataset, specifically prepared for classical machine 
 learning predictions. This dataset transforms the original lottery draw data into a format suitable for binary classification 
 tasks, where the goal is to predict the likelihood of a specific number winning in the next draw.
 

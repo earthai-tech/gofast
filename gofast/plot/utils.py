@@ -15,10 +15,12 @@ import scipy.stats
 import numpy as np
 import pandas as pd 
 import matplotlib as mpl 
+from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse
 import matplotlib.colors as mcolors
 import matplotlib.transforms as transforms 
+from matplotlib.collections import EllipseCollection
 import seaborn as sns 
 from scipy.cluster.hierarchy import dendrogram, ward 
 import scipy.sparse as sp
@@ -36,6 +38,7 @@ from sklearn.metrics import (
     )
 from sklearn.model_selection import (
     learning_curve, KFold)
+from sklearn.utils import resample
 from ..exceptions import ( 
     TipError, 
     PlotError, 
@@ -46,6 +49,8 @@ from ..tools.funcutils import  (
     make_obj_consistent_if, 
     str2columns, 
     is_in_if, 
+    to_numeric_dtypes, 
+    fill_nan_in
     )
 from ..tools.validator import  ( 
     _check_array_in  , 
@@ -64,6 +69,697 @@ from .._typing import Optional, Tuple, Any, List, Union, ArrayLike, DataFrame
 from .._typing import Dict 
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES 
 
+
+def plot_regression_diagnostics(
+    x: ArrayLike,
+    ys: List[ArrayLike],
+    titles: List[str],
+    xlabel: str = 'X',
+    ylabel: str = 'Y',
+    figsize: Tuple[int, int] = (15, 5),
+    ci: Optional[int] = 95, 
+    **reg_kws
+) -> plt.Figure:
+    """
+    Creates a series of plots to diagnose linear regression fits.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        The independent variable data.
+    ys : List[np.ndarray]
+        A list of dependent variable datasets to be plotted against x.
+    titles : List[str]
+        Titles for each subplot.
+    xlabel : str, default='X'
+        Label for the x-axis.
+    ylabel : str, default='Y'
+        Label for the y-axis.
+    figsize : Tuple[int, int], default=(15, 5)
+        Size of the entire figure.
+    ci : Optional[int], default=95
+        Size of the confidence interval for the regression estimate.
+    reg_kws: dict, 
+        Additional parameters passed to `seaborn.regplot`. 
+        
+    Returns
+    -------
+    fig : plt.Figure
+        The matplotlib figure object with the plots.
+
+    Example
+    -------
+    >>> import numpy as np 
+    >>> from gofast.plot.utils import plot_regression_diagnostics
+    >>> x = np.linspace(160, 170, 100)
+    >>> # Homoscedastic noise
+    >>> y1 = 50 + 0.6 * x + np.random.normal(size=x.size)  
+    >>> # Heteroscedastic noise
+    >>> y2 = y1 * np.exp(np.random.normal(scale=0.05, size=x.size))  
+    >>> # Larger noise variance
+    >>> y3 = y1 + np.random.normal(scale=0.5, size=x.size)  
+    >>> titles = ['All assumptions satisfied', 'Nonlinear term in model',
+                  'Heteroscedastic noise']
+    >>> fig = plot_regression_diagnostics(x, [y1, y2, y3], titles)
+    >>> plt.show()
+    """
+    fig, axes = plt.subplots(1, len(ys), figsize=figsize, sharey=True)
+    
+    for i, ax in enumerate(axes):
+        sns.regplot(x=x, y=ys[i], ax=ax, ci=ci, **reg_kws)
+        ax.set_title(titles[i])
+        ax.set_xlabel(xlabel)
+        if i == 0:
+            ax.set_ylabel(ylabel)
+        else:
+            ax.set_ylabel('')
+
+    plt.tight_layout()
+    return fig
+
+def plot_residuals_vs_leverage(
+    residuals: ArrayLike,
+    leverage: ArrayLike,
+    cook_d: Optional[ArrayLike] = None,
+    figsize: Tuple[int, int] = (8, 6),
+    cook_d_threshold: float = 0.5,
+    annotate: bool = True,
+    scatter_kwargs: Optional[dict] = None,
+    cook_d_kwargs: Optional[dict] = None,
+    line_kwargs: Optional[dict] = None,
+    annotation_kwargs: Optional[dict] = None
+) -> plt.Axes:
+    """
+    Plots standardized residuals against leverage with Cook's 
+    distance contours.
+
+    Parameters
+    ----------
+    residuals : np.ndarray
+        Standardized residuals from the regression model.
+    leverage : np.ndarray
+        Leverage values calculated from the model.
+    cook_d : np.ndarray, optional
+        Cook's distance for each observation in the model.
+    figsize : Tuple[int, int], default=(8, 6)
+        The figure size for the plot.
+    cook_d_threshold : float, default=0.5
+        The threshold for Cook's distance to draw a contour and potentially 
+        annotate points.
+    annotate : bool, default=True
+        If True, annotate points that exceed the Cook's distance threshold.
+    scatter_kwargs : dict, optional
+        Additional keyword arguments for the scatter plot.
+    cook_d_kwargs : dict, optional
+        Additional keyword arguments for the Cook's distance ellipses.
+    line_kwargs : dict, optional
+        Additional keyword arguments for the horizontal line at 0.
+    annotation_kwargs : dict, optional
+        Additional keyword arguments for the annotations.
+
+    Returns
+    -------
+    ax : plt.Axes
+        The matplotlib axes containing the plot.
+
+    Example
+    -------
+    >>> import numpy as np 
+    >>> from gofast.plot.utils import plot_residuals_vs_leverage
+    >>> residuals = np.random.normal(0, 1, 100)
+    >>> leverage = np.random.uniform(0, 0.2, 100)
+    >>> # Randomly generated for example purposes
+    >>> cook_d = np.random.uniform(0, 1, 100) ** 2  
+    >>> ax = plot_residuals_vs_leverage(residuals, leverage, cook_d)
+    >>> plt.show()
+    """
+    if scatter_kwargs is None:
+        scatter_kwargs = {'edgecolors': 'k', 'facecolors': 'none'}
+    if cook_d_kwargs is None:
+        cook_d_kwargs = {'cmap': 'RdYlBu_r'}
+    if line_kwargs is None:
+        line_kwargs = {'linestyle': '--', 'color': 'grey', 'linewidth': 1}
+    if annotation_kwargs is None:
+        annotation_kwargs = {'textcoords': 'offset points', 
+                             'xytext': (5,5), 'ha': 'right'}
+
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.scatter(leverage, residuals, **scatter_kwargs)
+    
+    # Add Cook's distance contour if provided
+    if cook_d is not None:
+        levels = [cook_d_threshold, np.max(cook_d)]
+        cook_d_collection = EllipseCollection(
+            widths=2 * leverage, heights=2 * np.sqrt(cook_d), 
+            angles=0, units='x',
+            offsets=np.column_stack([leverage, residuals]),
+            transOffset=ax.transData,
+            **cook_d_kwargs
+        )
+        cook_d_collection.set_array(cook_d)
+        cook_d_collection.set_clim(*levels)
+        ax.add_collection(cook_d_collection)
+        fig.colorbar(cook_d_collection, ax=ax, orientation='vertical')
+
+    # Draw the horizontal line at 0 for residuals
+    ax.axhline(y=0, **line_kwargs)
+    
+    # Annotate points with Cook's distance above threshold
+    if annotate and cook_d is not None:
+        for i, (xi, yi, ci) in enumerate(zip(leverage, residuals, cook_d)):
+            if ci > cook_d_threshold:
+                ax.annotate(f"{i}", (xi, yi), **annotation_kwargs)
+
+    ax.set_title('Residuals vs Leverage')
+    ax.set_xlabel('Leverage')
+    ax.set_ylabel('Standardized Residuals')
+
+    plt.show()
+    return ax
+
+def plot_residuals_vs_fitted(
+    fitted_values: ArrayLike, 
+    residuals: ArrayLike, 
+    highlight: Optional[Tuple[int, ...]] = None, 
+    figsize: Tuple[int, int] = (6, 4),
+    title: str = 'Residuals vs Fitted',
+    xlabel: str = 'Fitted values',
+    ylabel: str = 'Residuals',
+    linecolor: str = 'red',
+    linestyle: str = '-',
+    scatter_kws: Optional[dict] = None,
+    line_kws: Optional[dict] = None
+) -> plt.Axes:
+    """
+    Creates a residuals vs fitted values plot.
+    
+    Function is commonly used in regression analysis to assess the fit of a 
+    model. It shows if the residuals have non-linear patterns that could 
+    suggest non-linearity in the data or problems with the model.
+
+    Parameters
+    ----------
+    fitted_values : np.ndarray
+        The fitted values from a regression model.
+    residuals : np.ndarray
+        The residuals from a regression model.
+    highlight : Tuple[int, ...], optional
+        Indices of points to highlight in the plot.
+    figsize : Tuple[int, int], default=(6, 4)
+        Size of the figure to be created.
+    title : str, default='Residuals vs Fitted'
+        Title of the plot.
+    xlabel : str, default='Fitted values'
+        Label of the x-axis.
+    ylabel : str, default='Residuals'
+        Label of the y-axis.
+    linecolor : str, default='red'
+        Color of the line to be plotted.
+    linestyle : str, default='-'
+        Style of the line to be plotted.
+    scatter_kws : dict, optional
+        Additional keyword arguments to be passed to the `plt.scatter` method.
+    line_kws : dict, optional
+        Additional keyword arguments to be passed to the `plt.plot` method.
+
+    Returns
+    -------
+    ax : plt.Axes
+        The matplotlib axes containing the plot.
+
+    See Also 
+    ---------
+    gofast.tools.mathex.calculate_residuals: 
+        Calculate the residuals for regression, binary, or multiclass 
+        classification tasks.
+        
+    Example
+    -------
+    >>> import numpy as np 
+    >>> from gofast.plot.utils import plot_residuals_vs_fitted
+    >>> fitted = np.linspace(0, 100, 100)
+    >>> residuals = np.random.normal(0, 10, 100)
+    >>> ax = plot_residuals_vs_fitted(fitted, residuals)
+    >>> plt.show()
+    """
+    if scatter_kws is None:
+        scatter_kws = {}
+    if line_kws is None:
+        line_kws = {}
+
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.scatter(fitted_values, residuals, **scatter_kws)
+    
+    if highlight:
+        ax.scatter(fitted_values[list(highlight)], 
+                   residuals[list(highlight)], color='orange')
+
+    sns.regplot(x=fitted_values, y=residuals, lowess=True, ax=ax,
+                line_kws={'color': linecolor, 'linestyle': linestyle, **line_kws})
+
+    # Annotate highlighted points
+    if highlight:
+        for i in highlight:
+            ax.annotate(i, (fitted_values[i], residuals[i]))
+
+    ax.axhline(0, color='grey', lw=1)
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+
+    return ax
+
+def plot_feature_interactions(
+    data: DataFrame, /, 
+    features: Optional[List[str]] = None, 
+    histogram_bins: int = 15, 
+    scatter_alpha: float = 0.7,
+    corr_round: int = 2,
+    plot_color: str = 'skyblue',
+    edge_color: str = 'black',
+    savefig: Optional[str] = None
+) -> plt.Figure:
+    """
+    Visualizes the interactions (distributions and relationships) among 
+    various features in a dataset. 
+    
+    The visualization includes histograms for distribution of features, 
+    scatter plots for pairwise relationships, and Pearson correlation 
+    coefficients.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        A DataFrame containing the dataset.
+    features : Optional[List[str]]
+        A list of feature names to be visualized. If None, all features are used.
+    histogram_bins : int, optional
+        The number of bins for the histograms. Default is 15.
+    scatter_alpha : float, optional
+        Alpha blending value for scatter plot, between 0 (transparent) and 
+        1 (opaque). Default is 0.7.
+    corr_round : int, optional
+        The number of decimal places for rounding the correlation coefficient.
+        Default is 2.
+    plot_color : str, optional
+        The color for the plots. Default is 'skyblue'.
+    edge_color : str, optional
+        The edge color for the histogram bins. Default is 'black'.
+    savefig : Optional[str], optional
+        The file path to save the figure. If None, the figure is not saved.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The figure object containing the plot.
+
+    Example
+    -------
+    >>> import numpy as np 
+    >>> import pandas as pd 
+    >>> from gofast.plot.utils import plot_feature_interactions
+    >>> df = pd.DataFrame({
+        'Feature1': np.random.randn(100),
+        'Feature2': np.random.rand(100),
+        'Feature3': np.random.gamma(2., 2., 100)
+    })
+    >>> fig = plot_feature_interactions(df, histogram_bins=20, scatter_alpha=0.5)
+    
+    This will create a customized plot with histograms, scatter plots, 
+    and correlation coefficients for all features in the DataFrame.
+    """
+    data = to_numeric_dtypes(data, pop_cat_features=True )
+    if features is None:
+        features= list( data.columns )
+        
+    # fill Nan, if exist in data
+    data = fill_nan_in(data )
+    num_features = len(features)
+    
+    fig, axs = plt.subplots(num_features, num_features, figsize=(15, 15))
+
+    for i in range(num_features):
+        for j in range(num_features):
+            if i == j:  # Diagonal - Histogram
+                axs[i, j].hist(data[features[i]], bins=histogram_bins,
+                               color=plot_color, edgecolor=edge_color)
+                axs[i, j].set_title(f'Distribution of {features[i]}')
+            elif i < j:  # Upper Triangle - Scatter plot
+                axs[i, j].scatter(data[features[j]], data[features[i]],
+                                  alpha=scatter_alpha)
+                axs[i, j].set_xlabel(features[j])
+                axs[i, j].set_ylabel(features[i])
+                # Calculate and display Pearson correlation
+                corr, _ = scipy.stats.pearsonr(data[features[i]], data[features[j]])
+                axs[i, j].annotate(f'ρ = {corr:.{corr_round}f}', xy=(0.1, 0.9),
+                                   xycoords='axes fraction')
+            else:  # Lower Triangle - Empty
+                axs[i, j].axis('off')
+
+    plt.tight_layout()
+
+    if savefig:
+        plt.savefig(savefig, format='png', bbox_inches='tight')
+
+    return fig
+
+def create_matrix_representation(
+        data: Dict[str, set], 
+        cmap: str = 'Blues', 
+        savefig: Optional[str] = None
+        ) -> plt.Axes:
+    """
+    Creates and optionally saves a matrix-based representation to visualize 
+    intersections among multiple sets.
+    
+    Rows represent elements and columns represent sets. Cells in the matrix 
+    are filled to indicate membership.
+
+    Parameters
+    ----------
+    data : Dict[str, set]
+        A dictionary where each key is the name of a set and each value is 
+        the set itself.
+    cmap : str, optional
+        The colormap used for the matrix plot. Defaults to 'Blues'.
+    savefig : Optional[str], optional
+        The file path and name to save the figure. If None, the figure is 
+        not saved.
+
+    Returns
+    -------
+    ax : matplotlib.axes.Axes
+        The axes object of the plot.
+
+    Example
+    -------
+    >>> from gofast.plot.utils import create_matrix_representation
+    >>> sets = {
+        "Set1": {1, 2, 3},
+        "Set2": {2, 3, 4},
+        "Set3": {3, 4, 5}
+    }
+    >>> ax = create_matrix_representation(sets, cmap='Greens', savefig='set_matrix.png')
+
+    This will create a matrix plot for three sets, showing which elements 
+    belong to which sets and optionally save it to 'set_matrix.png'.
+    """
+    # Create a DataFrame to represent the sets
+    all_elements = sorted(set.union(*data.values()))
+    matrix_data = pd.DataFrame(index=all_elements, columns=data.keys(), data=0)
+
+    # Fill the DataFrame
+    for set_name, elements in data.items():
+        matrix_data.loc[elements, set_name] = 1
+
+    # Create and display the matrix plot
+    fig, ax = plt.subplots(figsize=(len(data), len(all_elements)/2))
+    cax = ax.imshow(matrix_data, aspect='auto', cmap=cmap, interpolation='nearest')
+    fig.colorbar(cax, ax=ax, label='Set Membership')
+    ax.set_xticks(np.arange(len(data)))
+    ax.set_xticklabels(data.keys())
+    ax.set_yticks(np.arange(len(all_elements)))
+    ax.set_yticklabels(all_elements)
+    ax.set_title('Matrix-Based Representation of Set Intersections')
+    ax.set_xlabel('Sets')
+    ax.set_ylabel('Elements')
+    ax.grid(False)
+
+    # Save the figure if a path is provided
+    if savefig:
+        plt.savefig(savefig, format='png', bbox_inches='tight')
+
+    return ax
+
+def plot_venn_diagram(
+    sets: Union[Dict[str, set], List[ArrayLike]],
+    set_labels: Optional[Tuple[str, ...]] = None,
+    title: str = 'Venn Diagram',
+    figsize: Tuple[int, int] = (8, 8),
+    set_colors: Tuple[str, ...] = ('red', 'green', 'blue'),
+    alpha: float = 0.5, 
+    savefig: Optional[str]=None, 
+) -> Axes:
+    """
+    Create and optionally save a Venn diagram for two sets.
+
+    A Venn diagram is a visual representation of the mathematical or logical
+    relationship between two sets of items. It depicts these sets as circles,
+    with the overlap representing items common to both sets. It's a useful
+    tool for comparing and contrasting groups of elements, especially in
+    the field of data analysis and machine learning.
+    
+    This function supports up to 3 sets. Venn diagrams for more than 3 sets
+    are not currently supported due to visualization complexity.
+
+    Parameters
+    ----------
+    sets : Union[Dict[str, set], List[np.ndarray]]
+        Either a dictionary with two items, each being a set of elements, or a 
+        list of two arrays. The arrays should be of consistent length, 
+        and their elements will be treated as unique identifiers.
+    set_labels : Optional[Tuple[str, str]], optional
+        A tuple containing two strings that label the sets in the diagram. If None, 
+        default labels will be used.
+    title : str, optional
+        Title of the Venn diagram. Default is 'Venn Diagram'.
+    figsize : Tuple[int, int], optional
+        Size of the figure (width, height). Default is (8, 8).
+    set_colors : Tuple[str, str], optional
+        Colors for the two sets. Default is ('red', 'green').
+    alpha : float, optional
+        Transparency level of the set colors. Default is 0.5.
+    savefig : Optional[str], optional
+        Path and filename to save the figure. If None, the figure is not saved.
+        Example: 'path/to/figure.png'
+
+    Returns
+    -------
+    ax : Axes
+        The axes object of the plot.
+
+    Examples
+    --------
+    >>> from sklearn.model_selection import train_test_split
+    >>> from sklearn.datasets import make_classification
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from xgboost import XGBClassifier
+    >>> from gofast.plot.utils import plot_venn_diagram
+    
+    >>> # Example of comparing feature contributions of RandomForest and XGBoost
+    >>> X, y = make_classification(n_samples=1000, n_features=20, 
+                               n_informative=2, n_redundant=0, 
+                               random_state=42)
+    >>> X_train, X_test, y_train, y_test = train_test_split(X, y, 
+                                                        test_size=0.3, 
+                                                        random_state=42)
+
+    >>> # Train classifiers
+    >>> rf = RandomForestClassifier(random_state=42).fit(X_train, y_train)
+    >>> xgb = XGBClassifier(random_state=42).fit(X_train, y_train)
+
+    >>> # Get feature importances
+    >>> rf_features = set(np.argsort(rf.feature_importances_)[-5:])  # Top 5 features
+    >>> xgb_features = set(np.argsort(xgb.feature_importances_)[-5:])
+
+    >>> # Plot Venn diagram
+    >>> ax = plot_venn_diagram(
+        sets={'RandomForest': rf_features, 'XGBoost': xgb_features},
+        set_labels=('RandomForest Features', 'XGBoost Features'),
+        title='Feature Contribution Comparison'
+    )
+    >>> plt.show()
+    
+    Using dictionaries
+    >>> set1 = {1, 2, 3}
+    >>> set2 = {2, 3, 4}
+    >>> set3 = {4, 5, 6}
+    >>> ax = plot_venn_diagram({'Set1': set1, 'Set2': set2, 'Set3': set3}, 
+                           ('Set1', 'Set2', 'Set3'))
+
+    Using arrays
+    >>> arr1 = np.array([1, 2, 3])
+    >>> arr2 = np.array([2, 3, 4])
+    >>> ax = plot_venn_diagram([arr1, arr2], ('Array1', 'Array2'))
+
+    Notes
+    -----
+    This function can be particularly useful in scenarios like feature analysis
+    in machine learning models, where understanding the overlap and uniqueness
+    of feature contributions from different models can provide insights into
+    model behavior and performance.
+    """
+    import_optional_dependency("matplotlib_venn")
+    from matplotlib_venn import venn2, venn2_circles, venn3, venn3_circles
+    num_sets = len(sets)
+
+    # Validate input
+    if num_sets not in [2, 3]:
+        raise ValueError("Only 2 or 3 sets are supported.")
+
+    if set_labels is not None:
+        if len(set_labels) != num_sets:
+            raise ValueError("Length of 'set_labels' must match the number of sets.")
+    else:
+        # Default labels if not provided
+        set_labels = tuple(f'Set {i+1}' for i in range(num_sets))
+
+    # Prepare set values for Venn diagram
+    if isinstance(sets, dict):
+        set_values = tuple(sets.values())
+    elif isinstance(sets, list):
+        set_values = tuple(set(arr) for arr in sets)
+
+    fig, ax = plt.subplots(figsize=figsize)
+    plt.title(title)
+
+    # Choose the appropriate Venn function
+    if num_sets == 2:
+        venn2(subsets=set_values, set_labels=set_labels, 
+                     set_colors=set_colors[:2], alpha=alpha)
+        venn2_circles(subsets=set_values)
+    elif num_sets == 3:
+        venn3(subsets=set_values, set_labels=set_labels,
+                     set_colors=set_colors[:3], alpha=alpha)
+        venn3_circles(subsets=set_values)
+
+    if savefig:
+        plt.savefig(savefig, format='png', bbox_inches='tight')
+
+    return ax
+
+
+def create_upset_plot(
+        data: Dict[str, set], sort_by: str = 'degree', 
+        show_counts: bool = False):
+    """
+    Creates an UpSet plot, which is an alternative to Venn diagrams for more 
+    than three sets.
+    
+    The UpSet plot focuses on the intersections of the sets rather than on the 
+    sets themselves.
+
+    Parameters
+    ----------
+    data : Dict[str, set]
+        A dictionary where each key is the name of a set and each value is 
+        the set itself.
+    sort_by : str, optional
+        The criteria to sort the bars. Options are 'degree' and 'cardinality'.
+        'degree' will sort by the number of sets in the intersection, 
+        'cardinality' by the size of the intersection.
+    show_counts : bool, optional
+        Whether to show the counts at the top of the bars in the UpSet plot.
+
+    Returns
+    -------
+    None. The function displays the UpSet plot.
+
+    Example
+    -------
+    >>> sets = {
+        "Set1": {1, 2, 3},
+        "Set2": {3, 4, 5},
+        "Set3": {5, 6, 7},
+        "Set4": {7, 8, 9}
+    }
+    >>> create_upset_plot(sets, sort_by='degree', show_counts=True)
+
+    This will create an UpSet plot for four sets, showing their intersections 
+    and the counts of elements in each intersection.
+    """
+    import_optional_dependency("upsetplot")
+    from upsetplot import plot, from_contents 
+    # Convert the data into the format required by UpSetPlot
+    upset_data = from_contents(data)
+
+    # Create and display the UpSet plot
+    plot(upset_data, sort_by=sort_by, show_counts=show_counts)
+
+def plot_euler_diagram(sets: dict):
+    """
+    Creates an Area-Proportional Euler Diagram using R's venneuler package.
+
+    Euler diagrams are a generalization of Venn diagrams that represent 
+    relationships between different sets or groupings. Unlike Venn diagrams, 
+    they do not require all possible logical relationships to be shown. This 
+    function interfaces with R to create and display an Euler diagram for a 
+    given set of data.
+
+    Parameters
+    ----------
+    sets : dict
+        A dictionary where keys are set names and values are the sets.
+
+    Returns
+    -------
+    None. The function displays the Euler diagram.
+
+    Example
+    -------
+    >>> sets = {
+        "Set1": {1, 2, 3},
+        "Set2": {3, 4, 5},
+        "Set3": {5, 6, 7}
+    }
+    >>> plot_euler_diagram(sets)
+
+    This will create an Euler diagram for three sets, showing their overlaps.
+    Set1 contains elements 1, 2, and 3; Set2 contains 3, 4, and 5; and Set3 
+    contains 5, 6, and 7. The diagram will visually represent the intersections 
+    between these sets.
+
+    Notes
+    -----
+    This function requires a working R environment with the 'venneuler' package 
+    installed, as well as 'rpy2' installed in the Python environment. It creates 
+    a temporary file to save the plot generated by R, reads this file into Python 
+    for display, and then removes the file.
+    """
+    import_optional_dependency("rpy2")
+    
+    import rpy2.robjects as robjects
+    # from rpy2.robjects.packages import importr
+    from rpy2.robjects import pandas2ri
+    import matplotlib.image as mpimg
+    import tempfile
+    
+    # Activate automatic conversion between pandas dataframes and R dataframes
+    pandas2ri.activate()
+
+    # Define an R script
+    r_script = """
+    library(venneuler)
+    plot_venneuler <- function(sets) {
+        v <- venneuler(sets)
+        plot(v)
+    }
+    """
+
+    # Convert the Python dictionary to an R-readable string
+    sets_r = 'list(' + ', '.join(f"{k}=c({', '.join(map(str, v))})" 
+                                 for k, v in sets.items()) + ')'
+
+    # Run the R script
+    robjects.r(r_script)
+    plot_venneuler = robjects.globalenv['plot_venneuler']
+
+    # Temporary file to save the plot
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
+        tmpfile_name = tmpfile.name
+
+    # Execute the R function and save the plot
+    robjects.r(f"png('{tmpfile_name}')")
+    plot_venneuler(robjects.r(sets_r))
+    robjects.r("dev.off()")
+
+    # Display the saved plot in Python
+    img = mpimg.imread(tmpfile_name)
+    plt.imshow(img)
+    plt.axis('off')
+    plt.show()
+    # Remove the temporary file
+    os.remove(tmpfile_name)
 
 def plot_sankey(
     data: DataFrame , 
@@ -3573,102 +4269,140 @@ def _format_ticks (value, tick_number, fmt ='S{:02}', nskip =7 ):
     else: None 
     
 
-def plot_confidence (
-    data = None, 
-    *,  
-    y=None, 
-    x=None, 
-    ci =.95 ,  
-    kind ='line', 
-    b_samples = 1000, 
-    **sns_kws
-    ): 
-    """ Plot confidence data 
-    
-    Confidence Interval (CI)  is a type of estimate computed from the statistics 
-    of the observed data which gives a range of values that’s likely to 
-    contain a population parameter with a particular level of confidence.
-    CI as a concept was put forth by Jerzy Neyman in a paper published 
-    in 1937. There are various types of the confidence interval, some of 
-    the most commonly used ones are: CI for mean, CI for the median, CI for 
-    the difference between means, CI for a proportion and CI for the difference 
-    in proportions.
-    
-    Parameters 
-    ------------
-    data: pandas.DataFrame, numpy.ndarray, mapping, or sequence
-       Input data structure. Either a long-form collection of vectors 
-       that can be assigned to named variables or a wide-form dataset 
-       that will be internally reshaped.
 
-    x, y: vectors or keys in data
-       Variables that specify positions on the x and y axes.
-       
-    ci: float, default=.95 
-       Confidence value. 
-       
-    kind: str, default='line' 
-       kind of confidence intervval plot. 
-      
-    b_samples: int, default=1000
-        Number of bootstraps to use for computing the confidence interval.
-        
-    sns_kws: dict, 
-       Keywords arguments passed to the `sns.lineplot` or `sns.regplot`
-       
-    Returns 
+
+def plot_confidence(
+    y: Optional[Union[str, ArrayLike]] = None, 
+    x: Optional[Union[str, ArrayLike]] = None,  
+    data: Optional[DataFrame] = None,  
+    ci: float = .95,  
+    kind: str = 'line', 
+    b_samples: int = 1000, 
+    **sns_kws: Dict
+) -> plt.Axes:
+    """
+    Plot confidence interval data using a line plot, regression plot, 
+    or the bootstrap method.
+    
+    A Confidence Interval (CI) is an estimate derived from observed data statistics, 
+    indicating a range where a population parameter is likely to be found at a 
+    specified confidence level. Introduced by Jerzy Neyman in 1937, CI is a crucial 
+    concept in statistical inference. Common types include CI for mean, median, 
+    the difference between means, a proportion, and the difference in proportions.
+
+    Parameters 
     ----------
-    ax: matplotlib.axes.Axes
-       The matplotlib axes containing the plot.
-       
-    """   
-    #y = np.array (y) 
-    #x= x or ( np.arange (len(y)) if 
-    ax=None 
-    if 'lin' in str(kind).lower(): 
-        ax = sns.lineplot(data= data, x=x, y=y, ci=ci, **sns_kws)
-    elif 'reg' in  str(kind).lower(): 
-        ax = sns.regplot(data = data, x=x, y=y, ci=ci, **sns_kws ) 
-    else: 
-        if not y: 
-            raise ValueError("y should not be None when using the boostrapping"
-                             " for plotting the confidence interval.")
-        b_samples = _assert_all_types(
-            b_samples, int, float, objname="Bootstrap samples `b_samples`")
+    y : Union[np.ndarray, str], optional
+        Dependent variable values. If a string, `y` should be a column name in 
+        `data`. `data` cannot be None in this case.
+    x : Union[np.ndarray, str], optional
+        Independent variable values. If a string, `x` should be a column name in 
+        `data`. `data` cannot be None in this case.
+    data : pd.DataFrame, optional
+        Input data structure. Can be a long-form collection of vectors that can be 
+        assigned to named variables or a wide-form dataset that will be reshaped.
+    ci : float, default=0.95
+        The confidence level for the interval.
+    kind : str, default='line'
+        The type of plot. Options include 'line', 'reg', or 'bootstrap'.
+    b_samples : int, default=1000
+        The number of bootstrap samples to use for the 'bootstrap' method.
+    sns_kws : Dict
+        Additional keyword arguments passed to the seaborn plot function.
+
+    Returns 
+    -------
+    ax : matplotlib.axes.Axes
+        The matplotlib axes containing the plot.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.plot.utils import plot_confidence 
+    >>> df = pd.DataFrame({'x': range(10), 'y': np.random.rand(10)})
+    >>> ax = plot_confidence(x='x', y='y', data=df, kind='line', ci=0.95)
+    >>> plt.show()
+    
+    >>> ax = plot_confidence(y='y', data=df, kind='bootstrap', ci=0.95, b_samples=500)
+    >>> plt.show()
+    """
+
+    plot_functions = {
+        'line': lambda: sns.lineplot(data=data, x=x, y=y, errorbar=('ci', ci), **sns_kws),
+        'reg': lambda: sns.regplot(data=data, x=x, y=y, ci=ci, **sns_kws)
+    }
+    if isinstance ( data, dict): 
+        data = pd.DataFrame ( data )
         
-        from sklearn.metrics import resample 
-        # configure bootstrap
-        n_iterations = 1000 # here k=no. of bootstrapped samples
-        n_size = int(len(y))
-          
-        # run bootstrap
-        medians = list()
-        for i in range(n_iterations):
-           s = resample(y, n_samples=n_size);
-           m = np.median(s);
-           medians.append(m)
-          
-        # plot scores
+    x, y = assert_xy_in(x, y, data=data, ignore ="x")
+    if kind in plot_functions:
+        ax = plot_functions[kind]()
+    elif kind.lower().startswith('boot'):
+        if y is None:
+            raise ValueError("y must be provided for bootstrap method.")
+        if not isinstance(b_samples, int):
+            raise ValueError("`b_samples` must be an integer.")
+
+        medians = [np.median(resample(y, n_samples=len(y))) for _ in range(b_samples)]
         plt.hist(medians)
         plt.show()
-          
-        # confidence intervals
-        p = ((1.0-ci)/2.0) * 100
-        lower =  np.percentile(medians, p)
-        p = (ci+((1.0-ci)/2.0)) * 100
-        upper =  np.percentile(medians, p)
-  
-        print(f"\n{ci*100} confidence interval {lower} and {upper}")
-    
-    return ax 
+        
+        p = ((1.0 - ci) / 2.0) * 100
+        lower, upper = np.percentile(medians, [p, 100 - p])
+        print(f"{ci*100}% confidence interval between {lower} and {upper}")
 
-def plot_confidence_ellipse (x, y ): 
-    """ Plot a confidence ellipse of a two-dimensional dataset 
-    
-    This function plots the confidence ellipse of the covariance of 
-    the given array-like variables x and y. The ellipse is plotted 
-    into the given axes-object ax.
-    
+        ax = plt.gca()
+    else:
+        raise ValueError(f"Unrecognized plot kind: {kind}")
+
+    return ax
+   
+def plot_confidence_ellipse(
+    x: Union[str, ArrayLike], 
+    y: Union[str, ArrayLike], 
+    data: Optional[DataFrame] = None,
+    figsize: Tuple[int, int] = (6, 6),
+    scatter_s: int = 0.5,
+    line_colors: Tuple[str, str, str] = ('firebrick', 'fuchsia', 'blue'),
+    line_styles: Tuple[str, str, str] = ('-', '--', ':'),
+    title: str = 'Different Standard Deviations',
+    show_legend: bool = True
+) -> plt.Axes:
+    """
+    Plots the confidence ellipse of a two-dimensional dataset.
+
+    This function visualizes the confidence ellipse representing the covariance 
+    of the provided 'x' and 'y' variables. The ellipses plotted represent 1, 2, 
+    and 3 standard deviations from the mean.
+
+    Parameters
+    ----------
+    x : Union[str, np.ndarray, pd.Series]
+        The x-coordinates of the data points or column name in DataFrame.
+    y : Union[str, np.ndarray, pd.Series]
+        The y-coordinates of the data points or column name in DataFrame.
+    data : pd.DataFrame, optional
+        DataFrame containing x and y data. Required if x and y are column names.
+    figsize : Tuple[int, int], optional
+        Size of the figure (width, height). Default is (6, 6).
+    scatter_s : int, optional
+        The size of the scatter plot markers. Default is 0.5.
+    line_colors : Tuple[str, str, str], optional
+        The colors of the lines for the 1, 2, and 3 std deviation ellipses.
+    line_styles : Tuple[str, str, str], optional
+        The line styles for the 1, 2, and 3 std deviation ellipses.
+    title : str, optional
+        The title of the plot. Default is 'Different Standard Deviations'.
+    show_legend : bool, optional
+        If True, shows the legend. Default is True.
+
+    Returns
+    -------
+    ax : plt.Axes
+        The matplotlib axes containing the plot.
+
+    Note 
+    -----
     The approach that is used to obtain the correct geometry 
     is explained and proved here:
       https://carstenschelp.github.io/2018/09/14/Plot_Confidence_Ellipse_001.html
@@ -3678,91 +4412,100 @@ def plot_confidence_ellipse (x, y ):
     matrix (composed of pearson correlation coefficients and ones) is 
     particularly easy to handle.
     
+    Example
+    -------
+    >>> import numpy as np 
+    >>> from gofast.plot.utils import plot_confidence_ellipse
+    >>> x = np.random.normal(size=500)
+    >>> y = np.random.normal(size=500)
+    >>> ax = plot_confidence_ellipse(x, y)
+    >>> plt.show()
     """
-    fig, ax_nstd = plt.subplots(figsize=(6, 6))
-    # dependency_nstd = [[0.8, 0.75],
-    #                    [-0.2, 0.35]]
-    mu = 0, 0
-    # scale = 8, 5
-    ax_nstd.axvline(c='grey', lw=1)
-    ax_nstd.axhline(c='grey', lw=1)
-    
-    #x, y = get_correlated_dataset(500, dependency_nstd, mu, scale)
-    ax_nstd.scatter(x, y, s=0.5)
-    
-    confidence_ellipse(x, y, ax_nstd, n_std=1,
-                       label=r'$1\sigma$', edgecolor='firebrick')
-    confidence_ellipse(x, y, ax_nstd, n_std=2,
-                       label=r'$2\sigma$', edgecolor='fuchsia',
-                       linestyle='--')
-    confidence_ellipse(x, y, ax_nstd, n_std=3,
-                       label=r'$3\sigma$', edgecolor='blue', 
-                       linestyle=':')
-    
-    ax_nstd.scatter(mu[0], mu[1], c='red', s=3)
-    ax_nstd.set_title('Different standard deviations')
-    ax_nstd.legend()
-    plt.show()
-    
+    x, y= assert_xy_in(x, y, data = data )
+
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.axvline(c='grey', lw=1)
+    ax.axhline(c='grey', lw=1)
+    ax.scatter(x, y, s=scatter_s)
+
+    for n_std, color, style in zip([1, 2, 3], line_colors, line_styles):
+        confidence_ellipse(x, y, ax, n_std=n_std, label=f'${n_std}\sigma$',
+                           edgecolor=color, linestyle=style)
+
+    ax.set_title(title)
+    if show_legend:
+        ax.legend()
+    return ax
+
 def confidence_ellipse(
-    x, 
-    y, 
-    ax, 
-    n_std=3.0, 
-    facecolor='none', 
+    x: Union[str, ArrayLike], 
+    y: Union[str, ArrayLike], 
+    ax: plt.Axes, 
+    n_std: float = 3.0, 
+    facecolor: str = 'none', 
+    data: Optional[DataFrame] = None,
     **kwargs
-    ):
+) -> Ellipse:
     """
-    Create a plot of the covariance confidence ellipse of *x* and *y*.
+    Creates a covariance confidence ellipse of x and y.
 
     Parameters
     ----------
-    x, y : array-like, shape (n, )
-        Input data.
-
-    ax : matplotlib.axes.Axes
-        The axes object to draw the ellipse into.
-
-    n_std : float
-        The number of standard deviations to determine the ellipse's radiuses.
+    x, y : np.ndarray
+        Input data arrays with the same size.
+    ax : plt.Axes
+        The axes object where the ellipse will be plotted.
+    n_std : float, optional
+        The number of standard deviations to determine the ellipse's radius. 
+        Default is 3.
+    facecolor : str, optional
+        The color of the ellipse's face. Default is 'none' (no fill).
+    data : pd.DataFrame, optional
+        DataFrame containing x and y data. Required if x and y are column names.
 
     **kwargs
-        Forwarded to `~matplotlib.patches.Ellipse`
+        Additional arguments passed to the Ellipse patch.
 
     Returns
     -------
-    mpl.patches.Ellipse
+    ellipse : Ellipse
+        The Ellipse object added to the axes.
+
+    Raises
+    ------
+    ValueError
+        If 'x' and 'y' are not of the same size.
+
+    Example
+    -------
+    >>> import numpy as np 
+    >>> from gofast.plot.utils import confidence_ellipse
+    >>> x = np.random.normal(size=500)
+    >>> y = np.random.normal(size=500)
+    >>> fig, ax = plt.subplots()
+    >>> confidence_ellipse(x, y, ax, n_std=2, edgecolor='red')
+    >>> ax.scatter(x, y, s=3)
+    >>> plt.show()
     """
-    if x.size != y.size:
-        raise ValueError("x and y must be the same size")
+    x, y = assert_xy_in(x, y, data = data )
 
     cov = np.cov(x, y)
-    pearson = cov[0, 1]/np.sqrt(cov[0, 0] * cov[1, 1])
-    # Using a special case to obtain the eigenvalues of this
-    # two-dimensional dataset.
+    pearson = cov[0, 1] / np.sqrt(cov[0, 0] * cov[1, 1])
     ell_radius_x = np.sqrt(1 + pearson)
     ell_radius_y = np.sqrt(1 - pearson)
     ellipse = Ellipse((0, 0), width=ell_radius_x * 2, height=ell_radius_y * 2,
                       facecolor=facecolor, **kwargs)
 
-    # Calculating the standard deviation of x from
-    # the squareroot of the variance and multiplying
-    # with the given number of standard deviations.
     scale_x = np.sqrt(cov[0, 0]) * n_std
     mean_x = np.mean(x)
-
-    # calculating the standard deviation of y ...
     scale_y = np.sqrt(cov[1, 1]) * n_std
     mean_y = np.mean(y)
 
-    transf = transforms.Affine2D() \
-        .rotate_deg(45) \
-        .scale(scale_x, scale_y) \
-        .translate(mean_x, mean_y)
-
+    transf = transforms.Affine2D().rotate_deg(45).scale(
+        scale_x, scale_y).translate(mean_x, mean_y)
     ellipse.set_transform(transf + ax.transData)
-    return ax.add_patch(ellipse)  
-   
+    return ax.add_patch(ellipse)
+
 
 def plot_text (
     x, y, 
@@ -4152,7 +4895,6 @@ def plot_roc_curves (
         
     return ax 
         
-#XXX TODO
 def plot_rsquared (X , y,  y_pred, **r2_score_kws  ): 
     """ Plot :math:`R^2` squared functions. 
     

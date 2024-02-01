@@ -31,7 +31,8 @@ from .utils import (
     levene_test, 
     kolmogorov_smirnov_test, 
     cronbach_alpha, 
-    
+    friedman_test, 
+    statistical_tests, 
     )
 from .proba import (  
     normal_pdf,
@@ -80,4 +81,6 @@ __all__=[
     'levene_test', 
     'kolmogorov_smirnov_test', 
     'cronbach_alpha', 
+    'friedman_test', 
+    'statistical_tests',
     ]
