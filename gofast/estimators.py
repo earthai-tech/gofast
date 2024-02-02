@@ -18,10 +18,10 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import _name_estimators
 from sklearn.preprocessing import LabelEncoder, LabelBinarizer
 from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
+from sklearn.metrics import r2_score
 from sklearn.utils import shuffle
 try:from sklearn.utils import type_of_target
 except: from .tools.funcutils import type_of_target 
-from sklearn.metrics import r2_score
 
 from ._gofastlog import  gofastlog
 from .exceptions import  EstimatorError 
@@ -211,6 +211,8 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
       and Probability. 1:281-297.
     - Pedregosa, F. et al. (2011). Scikit-learn: Machine Learning in Python. Journal of 
       Machine Learning Research. 12:2825-2830.
+    - Kouadio, K.L. et al. (2024). K-Means Featurizer: A booster for intricate datasets.
+      Earth Sci. Informatics. 12: 
     """
     def __init__(
         self,

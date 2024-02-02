@@ -830,7 +830,7 @@ class DBAnalysis:
         
         msg = ( "{expobj.__class__.__name__} instance is not fitted yet."
                " Call 'fit' with appropriate arguments before using"
-               " this method"
+               " this method."
                )
         if not hasattr ( self, 'cursor_'):  
             raise NotFittedError(msg.format(expobj=self))

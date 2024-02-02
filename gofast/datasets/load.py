@@ -18,10 +18,9 @@ import pandas as pd
 from .io import (csv_data_loader, _to_dataframe, DMODULE, 
     description_loader, DESCR, RemoteDataURL ) 
 from ..tools.baseutils import read_data, fancier_downloader , check_file_exists   
-from ..tools.mlutils import split_train_test_by_id, existfeatures
 from ..tools.funcutils import  to_numeric_dtypes , smart_format, key_checker
-from ..tools.funcutils import  random_sampling, assert_ratio
-from ..tools.funcutils import  format_to_datetime, is_in_if
+from ..tools.funcutils import  random_sampling, assert_ratio, split_train_test_by_id
+from ..tools.funcutils import  format_to_datetime, is_in_if, validate_feature
 from ..tools.box import Boxspace
 from ._globals import FORENSIC_BF_DICT, FORENSIC_LABELS_DESCR
 
@@ -85,7 +84,7 @@ def load_hlogs (
     tnames = tnames or target_columns
     # control the existence of the tnames to retreive
     try : 
-        existfeatures(data[target_columns] , tnames)
+        validate_feature(data[target_columns] , tnames)
     except Exception as error: 
         # get valueError message and replace Feature by target 
         msg = (". Acceptable target values are:"
@@ -313,7 +312,7 @@ def load_nlogs (
     tnames = tnames or target_columns
     # control the existence of the tnames to retreive
     try : 
-        existfeatures(data[target_columns], tnames)
+        validate_feature(data[target_columns], tnames)
     except Exception as error: 
         # get valueError message and replace Feature by target
         verb ="s are" if len(target_columns) > 2 else " is"
@@ -330,6 +329,7 @@ def load_nlogs (
     frame = to_numeric_dtypes(frame)
         
     if split_X_y: 
+        
         X, Xt = split_train_test_by_id (
             data = frame , test_ratio= assert_ratio(test_ratio), 
             keep_colindex= False )

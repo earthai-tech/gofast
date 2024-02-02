@@ -30,7 +30,7 @@ from .baseutils import (
     handle_outliers_in_data,
     handle_missing_data, 
     augment_data, 
-    assess_outlier_impact
+    assess_outlier_impact, 
     )
 from .mathex import ( 
     interpolate1d, 
@@ -78,7 +78,13 @@ from .funcutils import (
     pair_data, 
     random_sampling, 
     replace_data, 
-    store_or_write_hdf5, 
+    store_or_write_hdf5,
+    projection_validator,
+    extract_coordinates, 
+    find_features_in, 
+    features_in, 
+    split_train_test_by_id, 
+    split_train_test, 
     )
 
 from .mlutils import ( 
@@ -86,13 +92,11 @@ from .mlutils import (
     select_features, 
     get_global_score,  
     get_correlated_features, 
-    find_features_in, 
     codify_variables, 
     categorize_target, 
     resampling, 
     bin_counting, 
     labels_validator, 
-    projection_validator, 
     rename_labels_in , 
     soft_imputer, 
     soft_scaler, 
@@ -107,15 +111,12 @@ from .mlutils import (
     fetch_tgz,  
     fetch_model, 
     load_csv, 
-    split_train_test_by_id, 
-    split_train_test, 
     discretize_categories, 
     stratify_categories, 
     serialize_data, 
     deserialize_data, 
     soft_data_split, 
     laplace_smoothing, 
-    features_in, 
     laplace_smoothing_categorical, 
     laplace_smoothing_word
     
@@ -237,6 +238,7 @@ __all__=[
     "compute_sunburst_data", 
     "infer_sankey_columns",
     "calculate_residuals", 
+    "extract_coordinates"
     
     ]
 

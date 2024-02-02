@@ -2637,7 +2637,7 @@ class EvolutionarySearchCV(GeneticBaseSearch):
                 self.best_params_ = individual
                 self.best_estimator_ = clone(self.estimator).set_params(**individual)
 
-class SequentialSearchCV (BaseSearchCV ):
+class SequentialSearchCV (BaseSearchCV):
     r"""
     Sequential Model-Based Optimization (SMBO) for hyperparameter tuning 
     of estimators.

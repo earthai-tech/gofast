@@ -19,8 +19,9 @@ import joblib
 import pickle
 import shutil
 import numbers 
+import random
 import inspect
-import random 
+import hashlib 
 import datetime  
 import warnings
 import itertools
@@ -48,7 +49,8 @@ from .._typing import (
     DataFrame, 
     NDArray, 
     Text, 
-    Union
+    Union, 
+    Series 
     )
 from ._dependency import import_optional_dependency
 _logger = gofastlog.get_gofast_logger(__name__)
@@ -5549,7 +5551,7 @@ def get_xy_coordinates (d, / , as_frame = False, drop_xy = False,
        
 
 def pair_data(
-    *d: DataFrame,  
+    *d: List[DataFrame, ...],  
     on:str | List[str] = None, 
     parse_on:bool=False, 
     mode: str='strict', 
@@ -7250,17 +7252,730 @@ def fill_nan_in(
         
     return data 
 
+def get_valid_kwargs(obj_or_func, raise_warning=False, **kwargs):
+    """
+    Filters keyword arguments (`kwargs`) to retain only those that are valid
+    for the initializer of a given object or function.
 
+    Parameters
+    ----------
+    obj_or_func : object or function
+        The object or function to inspect for valid keyword arguments. If it's
+        callable, its `__init__` method's valid keyword arguments are considered.
+    raise_warning : bool, optional
+        If True, raises a warning for any keyword arguments provided that are not
+        valid for `obj_or_func`. The default is False.
+    **kwargs : dict
+        Arbitrary keyword arguments to filter based on `obj_or_func`'s
+        valid parameters.
 
+    Returns
+    -------
+    dict
+        A dictionary containing only the keyword arguments that are valid for the
+        `obj_or_func`'s initializer.
 
+    Raises
+    ------
+    Warning
+        If `raise_warning` is True and there are keyword arguments that are not
+        valid for `obj_or_func`, a warning is raised.
 
+    Notes
+    -----
+    This function checks whether the provided keyword arguments are valid for the given
+    class, method, or function. It filters out any invalid keyword arguments and returns
+    a dictionary containing only the valid ones.
 
+    If the provided object is a class, it inspects the __init__ method to determine the
+    valid keyword arguments. If it is a method or function, it inspects the argument names.
 
+    It issues a warning for any invalid keyword arguments if `raise_warning`
+    is ``True`` but it does not raise an error.
     
+    Examples
+    --------
+    >>> class MyClass:
+    ...     def __init__(self, a, b):
+    ...         self.a = a
+    ...         self.b = b
+    >>> valid_kwargs = get_valid_kwargs(MyClass, a=1, b=2, c=3)
+    >>> print(valid_kwargs)
+    {'a': 1, 'b': 2}
+    >>> valid_kwargs = get_valid_kwargs(MyClass, raise_warning=True,  **kwargs)
+    Warning: 'arg3' is not a valid keyword argument for 'MyClass'.
+    >>> print(valid_kwargs)
+    {'arg1': 1, 'arg2': 2}
+
+    >>> def my_function(a, b, c):
+    ...     return a + b + c
+    ...
+    >>> kwargs = {'a': 1, 'b': 2, 'd': 3}
+    >>> valid_kwargs = get_valid_kwargs(my_function, raise_warning=True, **kwargs)
+    Warning: 'd' is not a valid keyword argument for 'my_function'.
+    >>> print(valid_kwargs)
+    {'a': 1, 'b': 2}
+    """
+    valid_kwargs = {}
+    not_valid_keys = []
+
+    # Determine whether obj_or_func is callable and get its valid arguments
+    obj = obj_or_func() if callable(obj_or_func) else obj_or_func
+    valid_args = obj.__init__.__code__.co_varnames if hasattr(
+        obj, '__init__') else obj.__code__.co_varnames
+
+    # Filter kwargs to separate valid from invalid ones
+    for key, value in kwargs.items():
+        if key in valid_args:
+            valid_kwargs[key] = value
+        else:
+            not_valid_keys.append(key)
+
+    # Raise a warning for invalid kwargs, if required
+    if raise_warning and not_valid_keys:
+        warning_msg = (f"Warning: '{', '.join(not_valid_keys)}' "
+                       f"{'is' if len(not_valid_keys) == 1 else 'are'} "
+                       "not a valid keyword argument "
+                       f"for '{obj_or_func.__name__}'.")
+        warnings.warn(warning_msg)
+
+    return valid_kwargs
+ 
+def projection_validator (X, Xt=None, columns =None ):
+    """ Retrieve x, y coordinates of a datraframe ( X, Xt ) from columns 
+    names or indexes. 
     
+    If X or Xt are given as arrays, `columns` may hold integers from 
+    selecting the the coordinates 'x' and 'y'. 
     
+    Parameters 
+    ---------
+    X:  Ndarray ( M x N matrix where ``M=m-samples``, & ``N=n-features``)
+        training set; Denotes data that is observed at training and prediction 
+        time, used as independent variables in learning. The notation 
+        is uppercase to denote that it is ordinarily a matrix. When a matrix, 
+        each sample may be represented by a feature vector, or a vector of 
+        precomputed (dis)similarity with each training sample. 
+
+    Xt: Ndarray ( M x N matrix where ``M=m-samples``, & ``N=n-features``)
+        Shorthand for "test set"; data that is observed at testing and 
+        prediction time, used as independent variables in learning. The 
+        notation is uppercase to denote that it is ordinarily a matrix.
+    columns: list of str or index, optional 
+        columns is usefull when a dataframe is given  with a dimension size 
+        greater than 2. If such data is passed to `X` or `Xt`, columns must
+        hold the name to consider as 'easting', 'northing' when UTM 
+        coordinates are given or 'latitude' , 'longitude' when latlon are 
+        given. 
+        If dimension size is greater than 2 and columns is None , an error 
+        will raises to prevent the user to provide the index for 'y' and 'x' 
+        coordinated retrieval. 
+      
+    Returns 
+    -------
+    ( x, y, xt, yt ), (xname, yname, xtname, ytname), Tuple of coordinate 
+        arrays and coordinate labels 
+ 
+    """
+    # initialize arrays and names 
+    init_none = [None for i in range (4)]
+    x,y, xt, yt = init_none
+    xname,yname, xtname, ytname = init_none 
     
+    m="{0} must be an iterable object, not {1!r}"
+    ms= ("{!r} is given while columns are not supplied. set the list of "
+        " feature names or indexes to fetch 'x' and 'y' coordinate arrays." )
     
+    # validate X if X is np.array or dataframe 
+    X =_assert_all_types(X, np.ndarray, pd.DataFrame ) 
+    
+    if Xt is not None: 
+        # validate Xt if Xt is np.array or dataframe 
+        Xt = _assert_all_types(Xt, np.ndarray, pd.DataFrame)
+        
+    if columns is not None: 
+        if isinstance (columns, str): 
+            columns = str2columns(columns )
+        
+        if not is_iterable(columns): 
+            raise ValueError(m.format('columns', type(columns).__name__))
+        
+        columns = list(columns) + [ None for i in range (5)]
+        xname , yname, xtname, ytname , *_= columns 
+
+    if isinstance(X, pd.DataFrame):
+        x, xname, y, yname = _validate_columns(X, [xname, yname])
+        
+    elif isinstance(X, np.ndarray):
+        x, y = _is_valid_coordinate_arrays (X, xname, yname )    
+        
+        
+    if isinstance (Xt, pd.DataFrame) :
+        # the test set holds the same feature names
+        # as the train set 
+        if xtname is None: 
+            xtname = xname
+        if ytname is None: 
+            ytname = yname 
+            
+        xt, xtname, yt, ytname = _validate_columns(Xt, [xname, yname])
+
+    elif isinstance(Xt, np.ndarray):
+        
+        if xtname is None: 
+            xtname = xname
+        if ytname is None: 
+            ytname = yname 
+            
+        xt, yt = _is_valid_coordinate_arrays (Xt, xtname, ytname , 'test')
+        
+    if (x is None) or (y is None): 
+        raise ValueError (ms.format('X'))
+    if Xt is not None: 
+        if (xt is None) or (yt is None): 
+            warnings.warn (ms.format('Xt'))
+
+    return  (x, y , xt, yt ) , (
+        xname, yname, xtname, ytname ) 
+    
+def _validate_columns0 (df, xni, yni ): 
+    """ Validate the feature name  in the dataframe using either the 
+    string litteral name of the index position in the columns.
+    
+    :param df: pandas.DataFrame- Dataframe with feature names as columns. 
+    :param xni: str, int- feature name  or position index in the columns for 
+        x-coordinate 
+    :param yni: str, int- feature name  or position index in the columns for 
+        y-coordinate 
+    
+    :returns: (x, ni) Tuple of (pandas.Series, and names) for x and y 
+        coordinates respectively.
+    
+    """
+    def _r (ni): 
+        if isinstance(ni, str): # feature name
+            exist_features(df, ni ) 
+            s = df[ni]  
+        elif isinstance (ni, (int, float)):# feature index
+            s= df.iloc[:, int(ni)] 
+            ni = s.name 
+        return s, ni 
+        
+    xs , ys = [None, None ]
+    if df.ndim ==1: 
+        raise ValueError ("Expect a dataframe of two dimensions, got '1'")
+        
+    elif df.shape[1]==2: 
+       warnings.warn("columns are not specify while array has dimension"
+                     "equals to 2. Expect indexes 0 and 1 for (x, y)"
+                     "coordinates respectively.")
+       xni= df.iloc[:, 0].name 
+       yni= df.iloc[:, 1].name 
+    else: 
+        ms = ("The matrix of features is greater than 2. Need column names or"
+              " indexes to  retrieve the 'x' and 'y' coordinate arrays." ) 
+        e =' Only {!r} is given.' 
+        me=''
+        if xni is not None: 
+            me =e.format(xni)
+        if yni is not None: 
+            me=e.format(yni)
+           
+        if (xni is None) or (yni is None ): 
+            raise ValueError (ms + me)
+            
+    xs, xni = _r (xni) ;  ys, yni = _r (yni)
+  
+    return xs, xni , ys, yni 
+
+def _validate_array_indexer (arr, index): 
+    """ Select the appropriate coordinates (x,y) arrays from indexes.  
+    
+    Index is used  to retrieve the array of (x, y) coordinates if dimension 
+    of `arr` is greater than 2. Since we expect x, y coordinate for projecting 
+    coordinates, 1-d  array `X` is not acceptable. 
+    
+    :param arr: ndarray (n_samples, n_features) - if nfeatures is greater than 
+        2 , indexes is needed to fetch the x, y coordinates . 
+    :param index: int, index to fetch x, and y coordinates in multi-dimension
+        arrays. 
+    :returns: arr- x or y coordinates arrays. 
+
+    """
+    if arr.ndim ==1: 
+        raise ValueError ("Expect an array of two dimensions.")
+    if not isinstance (index, (float, int)): 
+        raise ValueError("index is needed to coordinate array with "
+                         "dimension greater than 2.")
+        
+    return arr[:, int (index) ]
+
+def _is_valid_coordinate_arrays (arr, xind, yind, ptype ='train'): 
+    """ Check whether array is suitable for projecting i.e. whether 
+    x and y (both coordinates) can be retrived from `arr`.
+    
+    :param arr: ndarray (n_samples, n_features) - if nfeatures is greater than 
+        2 , indexes is needed to fetch the x, y coordinates . 
+        
+    :param xind: int, index to fetch x-coordinate in multi-dimension
+        arrays. 
+    :param yind: int, index to fetch y-coordinate in multi-dimension
+        arrays
+    :param ptype: str, default='train', specify whether the array passed is 
+        training or test sets. 
+    :returns: (x, y)- array-like of x and y coordinates. 
+    
+    """
+    xn, yn =('x', 'y') if ptype =='train' else ('xt', 'yt') 
+    if arr.ndim ==1: 
+        raise ValueError ("Expect an array of two dimensions.")
+        
+    elif arr.shape[1] ==2 : 
+        x, y = arr[:, 0], arr[:, 1]
+        
+    else :
+        msg=("The matrix of features is greater than 2; Need index to  "
+             " retrieve the {!r} coordinate array in param 'column'.")
+        
+        if xind is None: 
+            raise ValueError(msg.format(xn))
+        else : x = _validate_array_indexer(arr, xind)
+        if yind is None : 
+            raise ValueError(msg.format(yn))
+        else : y = _validate_array_indexer(arr, yind)
+        
+    return x, y         
+
+def extract_coordinates(X, Xt=None, columns=None):
+    """
+    Extracts 'x' and 'y' coordinate arrays from training (X) and optionally
+    test (Xt) datasets. 
+    
+    Supports input as NumPy arrays or pandas DataFrames. When dealing
+    with DataFrames, `columns` can specify which columns to use for coordinates.
+
+    Parameters
+    ----------
+    X : ndarray or DataFrame
+        Training dataset with shape (M, N) where M is the number of samples and
+        N is the number of features. It represents the observed data used as
+        independent variables in learning.
+    Xt : ndarray or DataFrame, optional
+        Test dataset with shape (M, N) where M is the number of samples and
+        N is the number of features. It represents the data observed at testing
+        and prediction time, used as independent variables in learning.
+    columns : list of str or int, optional
+        Specifies the columns to use for 'x' and 'y' coordinates. Necessary when
+        X or Xt are DataFrames with more than 2 dimensions or when selecting specific
+        features from NumPy arrays.
+
+    Returns
+    -------
+    tuple of arrays
+        A tuple containing the 'x' and 'y' coordinates from the training set and, 
+        if provided, the test set. Formatted as (x, y, xt, yt).
+    tuple of str or None
+        A tuple containing the names or indices of the 'x' and 'y' columns 
+        for the training and test sets. Formatted as (xname, yname, xtname, ytname).
+        Values are None if not applicable or not provided.
+
+    Raises
+    ------
+    ValueError
+        If `columns` is not iterable, not provided for DataFrames with more 
+        than 2 dimensions, or if X or Xt cannot be validated as coordinate arrays.
+
+    Examples
+    --------
+    >>> import numpy as np 
+    >>> from gofast.tools.funcutils import extract_coordinates
+    >>> X = np.array([[1, 2], [3, 4]])
+    >>> Xt = np.array([[5, 6], [7, 8]])
+    >>> extract_coordinates(X, Xt )
+    ((array([1, 3]), array([2, 4]), array([5, 7]), array([6, 8])), (0, 1, 0, 1))
+    """
+    if columns is None: 
+        if not isinstance ( X, pd.DataFrame) and X.shape[1]!=2: 
+            raise ValueError("Columns cannot be None when array is passed.")
+        if isinstance(X, np.ndarray) and X.shape[1]==2: 
+            columns =[0, 1] 
+    
+    columns = columns or ( list(X.columns) if isinstance (
+        X, pd.DataFrame ) else columns )
+    
+    if columns is None :
+        raise ValueError("Columns parameter is required to specify"
+                         " 'x' and 'y' coordinates.")
+    
+    if not isinstance(columns, (list, tuple)) or len(columns) != 2:
+        raise ValueError("Columns parameter must be a list or tuple with "
+                         "exactly two elements for 'x' and 'y' coordinates.")
+    
+    # Process training dataset
+    x, y, xname, yname = _process_dataset(X, columns)
+    
+    # Process test dataset, if provided
+    if Xt is not None:
+        xt, yt, xtname, ytname = _process_dataset(Xt, columns)
+    else:
+        xt, yt, xtname, ytname = None, None, None, None
+
+    return (x, y, xt, yt), (xname, yname, xtname, ytname)
+       
+def _validate_columns(df, columns):
+    """
+    Validates and extracts x, y coordinates from a DataFrame based on column 
+    names or indices.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame from which to extract coordinate columns.
+    columns : list of str or int
+        The names or indices of the columns to extract as coordinates.
+    
+    Returns
+    -------
+    x, xname, y, yname : (pandas.Series, str/int, pandas.Series, str/int)
+        The extracted x and y coordinate Series along with their column
+        names or indices.
+    
+    Raises
+    ------
+    ValueError
+        If the specified columns are not found in the DataFrame or if the 
+        columns list is not correctly specified.
+    """
+    if not isinstance(columns, (list, tuple)) or len(columns) < 2:
+        raise ValueError("Columns parameter must be a list or tuple with at"
+                         " least two elements.")
+    
+    try:
+        xname, yname = columns[0], columns[1]
+        x = df[xname] if isinstance(xname, str) else df.iloc[:, xname]
+        y = df[yname] if isinstance(yname, str) else df.iloc[:, yname]
+    except Exception as e:
+        raise ValueError(f"Error extracting columns: {e}")
+    
+    return x, xname, y, yname
+
+def _process_dataset(dataset, columns):
+    """
+    Processes the dataset (X or Xt) to extract 'x' and 'y' coordinates based 
+    on provided column names or indices.
+    
+    Parameters
+    ----------
+    dataset : pandas.DataFrame or numpy.ndarray
+        The dataset from which to extract 'x' and 'y' coordinates.
+    columns : list of str or int
+        The names or indices of the columns to extract as coordinates. 
+        For ndarray, integers are expected.
+    
+    Returns
+    -------
+    x, y, xname, yname : (numpy.array or pandas.Series, numpy.array or 
+                          pandas.Series, str/int, str/int)
+        The extracted 'x' and 'y' coordinates, along with their column names 
+        or indices.
+    
+    Raises
+    ------
+    ValueError
+        If the dataset or columns are not properly specified.
+    """
+    if isinstance(dataset, pd.DataFrame):
+        x, xname, y, yname = _validate_columns(dataset, columns)
+        return x.to_numpy(), y.to_numpy(), xname, yname
+    elif isinstance(dataset, np.ndarray):
+        if not isinstance(columns, (list, tuple)) or len(columns) < 2:
+            raise ValueError("For ndarray, columns must be a list or tuple "
+                             "with at least two indices.")
+        xindex, yindex = columns[0], columns[1]
+        x, y = dataset[:, xindex], dataset[:, yindex]
+        return x, y, xindex, yindex
+    else:
+        raise ValueError("Dataset must be a pandas.DataFrame or numpy.ndarray.")
+
+def validate_feature(data: Union[DataFrame, Series], /, features: List[str],
+                     verbose: str = 'raise') -> bool:
+    """
+    Validate the existence of specified features in a DataFrame or Series.
+
+    Parameters
+    ----------
+    data : DataFrame or Series
+        The DataFrame or Series to validate feature existence.
+    features : list of str
+        List of features to check for existence in the data.
+    verbose : str, {'raise', 'ignore'}, optional
+        Specify how to handle the absence of features. 'raise' (default) will raise
+        a ValueError if any feature is missing, while 'ignore' will return a
+        boolean indicating whether all features exist.
+
+    Returns
+    -------
+    bool
+        True if all specified features exist in the data, False otherwise.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> data = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
+    >>> result = validate_feature(data, ['A', 'C'], verbose='raise')
+    >>> print(result)  # This will raise a ValueError
+    """
+    if isinstance(data, pd.Series):
+        data = data.to_frame().T  # Convert Series to DataFrame
+
+    present_features = set(features).intersection(data.columns)
+
+    if len(present_features) != len(features):
+        missing_features = set(features).difference(present_features)
+        if verbose == 'raise':
+            raise ValueError("The following features are missing in the "
+                             f"data: {smart_format(missing_features)}.")
+        return False
+
+    return True
+
+def features_in(
+    *data: Union[pd.DataFrame, pd.Series], features: List[str],
+    error: str = 'ignore') -> List[bool]:
+    """
+    Control whether the specified features exist in multiple datasets.
+
+    Parameters
+    ----------
+    *data : DataFrame or Series arguments
+        Multiple DataFrames or Series to check for feature existence.
+    features : list of str
+        List of features to check for existence in the datasets.
+    error : str, {'raise', 'ignore'}, optional
+        Specify how to handle the absence of features. 'ignore' (default) will ignore
+        a ValueError for each dataset with missing features, while 'ignore' will
+        return a list of booleans indicating whether all features exist in each dataset.
+
+    Returns
+    -------
+    list of bool
+        A list of booleans indicating whether the specified features exist in each dataset.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> data1 = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
+    >>> data2 = pd.Series([5, 6], name='C')
+    >>> data3 = pd.DataFrame({'X': [7, 8]})
+    >>> features = ['A', 'C']
+    >>> results1 = features_in(data1, data2, features, error='raise')
+    >>> print(results1)  # This will raise a ValueError for the first dataset
+    >>> results2 = features_in(data1, data3, features, error='ignore')
+    >>> print(results2)  # This will return [True, False]
+    """
+    results = []
+
+    for dataset in data:
+        results.append(validate_feature(dataset, features, verbose=error))
+
+    return results
+
+def find_features_in(
+    data: pd.DataFrame = None,
+    features: List[str] = None,
+    parse_features: bool = False,
+    return_frames: bool = False,
+) -> Tuple[List[str] | pd.DataFrame, List[str] | pd.DataFrame]:
+    """
+    Retrieve the categorical or numerical features from the dataset.
+
+    Parameters
+    ----------
+    data : DataFrame, optional
+        DataFrame with columns representing the features.
+    features : list of str, optional
+        List of column names. If provided, the DataFrame will be restricted
+        to only include the specified features before searching for numerical
+        and categorical features. An error will be raised if any specified
+        feature is missing in the DataFrame.
+    return_frames : bool, optional
+        If True, it returns two separate DataFrames (cat & num). Otherwise, it
+        returns only the column names of categorical and numerical features.
+    parse_features : bool, default False
+        Use default parsers to parse string items into an iterable object.
+
+    Returns
+    -------
+    Tuple : List[str] or DataFrame
+        The names or DataFrames of categorical and numerical features.
+
+    Examples
+    --------
+    >>> from gofast.datasets import fetch_data
+    >>> from gofast.tools.mlutils import find_features_in
+    >>> data = fetch_data('bagoue').frame 
+    >>> cat, num = find_features_in(data)
+    >>> cat, num
+    ... (['type', 'geol', 'shape', 'name', 'flow'],
+    ...  ['num', 'east', 'north', 'power', 'magnitude', 'sfi', 'ohmS', 'lwi'])
+    >>> cat, num = find_features_in(data, features=['geol', 'ohmS', 'sfi'])
+    >>> cat, num
+    ... (['geol'], ['ohmS', 'sfi'])
+    """
+    if not isinstance (data, pd.DataFrame):
+        raise TypeError(f"Expect a DataFrame. Got {type(data).__name__!r}")
+
+    if features is not None:
+        features = list(
+            is_iterable(
+                features,
+                exclude_string=True,
+                transform=True,
+                parse_string=parse_features,
+            )
+        )
+
+    if features is None:
+        features = list(data.columns)
+
+    validate_feature(data, list(features))
+    data = data[features].copy()
+
+    # Get numerical features
+    data, numnames, catnames = to_numeric_dtypes(data, return_feature_types=True )
+
+    if catnames is None:
+        catnames = []
+
+    return (data[catnames], data[numnames]) if return_frames else (
+        list(catnames), list(numnames)
+    )
+
+   
+def split_train_test(
+        data: DataFrame, test_ratio: float = 0.2
+        ) -> Tuple[DataFrame, DataFrame]:
+    """
+    Split a DataFrame into train and test sets based on a given ratio.
+
+    Parameters
+    ----------
+    data : DataFrame
+        The DataFrame containing the features.
+    test_ratio : float, optional
+        The ratio of the test set, ranging from 0 to 1. Default is 0.2 (20%).
+
+    Returns
+    -------
+    Tuple[DataFrame, DataFrame]
+        A tuple of the train set and test set DataFrames.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from sklearn.datasets import load_iris
+    >>> from gofast.tools.funcutils import split_train_test
+    >>> data = load_iris(as_frame=True)['data']
+    >>> train_set, test_set = split_train_test(data, test_ratio=0.2)
+    >>> len(train_set), len(test_set)
+    ... (120, 30)
+    """
+
+    test_ratio = assert_ratio(test_ratio)
+
+    shuffled_indices = np.random.permutation(len(data))
+    test_set_size = int(len(data) * test_ratio)
+    test_indices = shuffled_indices[:test_set_size]
+    train_indices = shuffled_indices[test_set_size:]
+
+    return data.iloc[train_indices], data.iloc[test_indices]
+
+def test_set_check_id(
+        identifier: int, test_ratio: float, hash: _F[_T]) -> bool:
+    """
+    Check if an instance should be in the test set based on its unique identifier.
+
+    Parameters
+    ----------
+    identifier : int
+        A unique identifier for the instance.
+    test_ratio : float, optional
+        The ratio of instances to put in the test set. Default is 0.2 (20%).
+    hash : callable
+        A hash function to generate a hash from the identifier.
+        Secure hashes and message digests algorithm. Can be 
+        SHA1, SHA224, SHA256, SHA384, and SHA512 (defined in FIPS 180-2) 
+        as well as RSA’s MD5 algorithm (defined in Internet RFC 1321). 
+        
+        Please refer to :ref:`<https://docs.python.org/3/library/hashlib.html>` 
+        for futher details.
+
+    Returns
+    -------
+    bool
+        True if the instance should be in the test set, False otherwise.
+
+    Examples
+    --------
+    >>> from gofast.tools.funcutils import test_set_check_id
+    >>> test_set_check_id(42, test_ratio=0.2, hash=hashlib.md5)
+    ... False
+    """
+
+    return hash(np.int64(identifier)).digest()[-1] < 256 * test_ratio
+
+def split_train_test_by_id(
+    data: DataFrame, test_ratio: float, id_column: Optional[List[int]] = None,
+    keep_colindex: bool = True, hash: _F = hashlib.md5
+) -> Tuple[_Sub[DataFrame], _Sub[DataFrame]]:
+    """
+    Split a DataFrame into train and test sets while ensuring data consistency.
+
+    Parameters
+    ----------
+    data : DataFrame
+        The DataFrame containing the features.
+    test_ratio : float
+        The ratio of instances to put in the test set.
+    id_column : list of int, optional
+        Index columns that serve as unique identifiers. Default is None, which resets
+        the DataFrame index and uses 'index' as the identifier.
+    keep_colindex : bool, optional
+        If False, it drops the 'index' column after resetting the index. Default is True.
+    hash : callable
+        A hash function to generate a hash from the identifier.
+
+    Returns
+    -------
+    Tuple[DataFrame, DataFrame]
+        A tuple of train and test set DataFrames with consistent data.
+
+    Examples
+    --------
+    >>> from gofast.tools.funcutils import split_train_test_by_id
+    >>> import pandas as pd
+    >>> data = pd.DataFrame({'ID': [1, 2, 3, 4, 5], 'Value': [10, 20, 30, 40, 50]})
+    >>> train_set, test_set = split_train_test_by_id(data, test_ratio=0.2, id_column=['ID'])
+    >>> len(train_set), len(test_set)
+    ... (4, 1)
+    """
+    if isinstance(data, np.ndarray):
+        data = pd.DataFrame(data)
+        if 'index' in data.columns:
+            data.drop(columns='index', inplace=True)
+
+    if id_column is None:
+        id_column = 'index'
+        data = data.reset_index()
+
+    ids = data[id_column]
+    in_test_set = ids.apply(lambda id_: test_set_check_id(id_, test_ratio, hash))
+
+    if not keep_colindex:
+        data.drop(columns='index', inplace=True)
+
+    return data.loc[~in_test_set], data.loc[in_test_set]
+  
     
     
     
