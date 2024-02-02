@@ -15,17 +15,18 @@ import numpy as np
 from importlib import resources 
 from importlib.resources import files
 import pandas as pd 
-from .io import (csv_data_loader, _to_dataframe, DMODULE, 
-    description_loader, DESCR, RemoteDataURL ) 
+
 from ..tools.baseutils import read_data, fancier_downloader , check_file_exists   
 from ..tools.funcutils import  to_numeric_dtypes , smart_format, key_checker
 from ..tools.funcutils import  random_sampling, assert_ratio, split_train_test_by_id
 from ..tools.funcutils import  format_to_datetime, is_in_if, validate_feature
 from ..tools.box import Boxspace
 from ._globals import FORENSIC_BF_DICT, FORENSIC_LABELS_DESCR
+from .io import (csv_data_loader, _to_dataframe, DMODULE, 
+    description_loader, DESCR, RemoteDataURL ) 
 
-
-__all__= [ "load_iris",  "load_hlogs", "load_mxs", "load_nlogs"]
+__all__= [ "load_iris",  "load_hlogs", "load_mxs", "load_nlogs", "load_forensic", 
+          "load_jrs_bet"]
 
 def load_hlogs (
         *,  return_X_y=False, as_frame =False, key =None,  split_X_y=False, 

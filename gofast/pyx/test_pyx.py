@@ -1,6 +1,6 @@
 
 import numpy as np
-from ml_bases import dot_product, euclidean_distance, elementwise_add
+from .ml_bases import dot_product, euclidean_distance, elementwise_add
 
 # Example usage
 vec1 = np.array([1.0, 2.0, 3.0])

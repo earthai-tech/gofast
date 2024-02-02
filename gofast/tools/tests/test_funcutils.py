@@ -26,7 +26,7 @@ from gofast.tools.funcutils import  (
 from gofast.datasets.load import load_bagoue
 from gofast.datasets.load import load_hlogs
 # get the data for a test 
-X, y = load_bagoue (as_frame =True ) 
+X, y = load_bagoue (as_frame =True , return_X_y=True ) 
 
 def test_to_numeric_dtypes (): 
     """ test data types """

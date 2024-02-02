@@ -8,8 +8,6 @@ Created on Thu Dec 21 17:06:51 2023
 import os
 import datetime
 import warnings 
-import pandas as pd
-from joblib import Parallel, delayed
 import numpy as np
 import itertools
 import matplotlib.pyplot as plt
@@ -17,9 +15,10 @@ from tqdm import tqdm
 
 from sklearn.model_selection import KFold
 
+from .._typing import List, Optional, Union, Dict, Tuple
 from ..tools._dependency import import_optional_dependency 
 try: 
-    extra_msg = ("Use `deep_search` module implies the `tensorflow` library"
+    extra_msg = ("`deep_search` module expects the `tensorflow` library"
                  "to be installed.")
     import_optional_dependency('tensorflow', extra= extra_msg)
     import tensorflow as tf
@@ -39,11 +38,11 @@ else:
     from tensorflow.keras.losses import Loss
     from tensorflow.keras.metrics import Metric
 
-from .._typing import List, Optional, Union, Dict, Tuple
 
+__all__=["plot_history", "base_tuning", "robust_tuning","build_mlp_model", 
+         "neural_tuning", "deep_tuning"]
 
-
-def plot_learning_curve(
+def plot_history(
     history: History, 
     title: str = 'Model Learning Curve',
     color_scheme: Optional[Dict[str, str]] = None,

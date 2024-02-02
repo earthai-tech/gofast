@@ -10,19 +10,17 @@ import pandas as pd
 from sklearn.svm import LinearSVC, SVC 
 from sklearn.model_selection import train_test_split 
 from sklearn.model_selection import RandomizedSearchCV 
-
+from gofast.tools.funcutils import find_features_in
 from gofast.tools.mlutils import ( 
     evaluate_model,
     select_features, 
     get_global_score,  
     get_correlated_features, 
-    find_features_in, 
     codify_variables, 
     categorize_target, 
     resampling, 
     bin_counting, 
     labels_validator, 
-    projection_validator, 
     rename_labels_in , 
     soft_imputer, 
     soft_scaler, 
@@ -35,8 +33,6 @@ from gofast.tools.mlutils import (
     fetch_tgz, 
     fetch_model, 
     load_csv,
-    split_train_test_by_id, 
-    split_train_test, 
     discretize_categories, 
     stratify_categories, 
     serialize_data, 

@@ -26,10 +26,12 @@ import datetime
 import warnings
 import itertools
 import subprocess 
+import multiprocessing
 from zipfile import ZipFile
 from six.moves import urllib 
 from collections.abc import Sequence
-
+from concurrent.futures import (ThreadPoolExecutor, ProcessPoolExecutor, 
+                                as_completed)
 import numpy as np 
 import pandas as pd 
 import matplotlib.pyplot as plt
@@ -7168,6 +7170,7 @@ def format_and_print_dict(data_dict, front_space=4):
 
     Examples
     --------
+    >>> from gofast.tools.funcutils import format_and_print_dict
     >>> sample_dict = {
             'gender': {1: 'Male', 0: 'Female'},
             'age': {1: '35-60', 0: '16-35', 2: '>60'}
@@ -7223,8 +7226,9 @@ def fill_nan_in(
     Example
     -------
     >>> import pandas as pd
+    >>> from gofast.tools.funcutils import fill_nan_in
     >>> df = pd.DataFrame({'A': [1, 2, np.nan], 'B': [np.nan, 2, 3]})
-    >>> df = fill_nan_in_dataframe(df, method='median')
+    >>> df = fill_nan_in(df, method='median')
     >>> print(df)
        A    B
     0  1.0  2.5
@@ -7295,6 +7299,7 @@ def get_valid_kwargs(obj_or_func, raise_warning=False, **kwargs):
     
     Examples
     --------
+    >>> from gofast.tools.funcutils import get_valid_kwargs
     >>> class MyClass:
     ...     def __init__(self, a, b):
     ...         self.a = a
@@ -7720,6 +7725,7 @@ def validate_feature(data: Union[DataFrame, Series], /, features: List[str],
 
     Examples
     --------
+    >>> from gofast.tools.funcutils import validate_feature
     >>> import pandas as pd
     >>> data = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
     >>> result = validate_feature(data, ['A', 'C'], verbose='raise')
@@ -7764,6 +7770,7 @@ def features_in(
     Examples
     --------
     >>> import pandas as pd
+    >>> from gofast.tools.funcutils import features_in
     >>> data1 = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
     >>> data2 = pd.Series([5, 6], name='C')
     >>> data3 = pd.DataFrame({'X': [7, 8]})
@@ -7781,11 +7788,11 @@ def features_in(
     return results
 
 def find_features_in(
-    data: pd.DataFrame = None,
+    data: DataFrame = None,
     features: List[str] = None,
     parse_features: bool = False,
     return_frames: bool = False,
-) -> Tuple[List[str] | pd.DataFrame, List[str] | pd.DataFrame]:
+) -> Tuple[List[str] | DataFrame, List[str] | DataFrame]:
     """
     Retrieve the categorical or numerical features from the dataset.
 
@@ -7976,6 +7983,83 @@ def split_train_test_by_id(
 
     return data.loc[~in_test_set], data.loc[in_test_set]
   
+
+
+def parallelize_jobs(
+    function: _F[..., Any],
+    tasks: Sequence[Dict[str, Any]] = (),
+    n_jobs: Optional[int] = None,
+    executor_type: str = 'process') -> list:
+    """
+    Parallelize the execution of a callable across multiple processors, 
+    supporting both positional and keyword arguments.
+
+    Parameters
+    ----------
+    function : Callable[..., Any]
+        The function to execute in parallel. This function must be picklable 
+        if using `executor_type='process'`.
+    tasks : Sequence[Dict[str, Any]], optional
+        A sequence of dictionaries, where each dictionary contains 
+        two keys: 'args' (a tuple) for positional arguments,
+        and 'kwargs' (a dict) for keyword arguments, for one execution of
+        `function`. Defaults to an empty sequence.
+    n_jobs : Optional[int], optional
+        The number of jobs to run in parallel. `None` or `1` uses a single 
+        processor, any positive integer specifies the
+        exact number of processors to use, `-1` uses all available processors. 
+        Default is None (1 processor).
+    executor_type : str, optional
+        The type of executor to use. Can be 'process' for CPU-bound tasks or
+        'thread' for I/O-bound tasks. Default is 'process'.
+
+    Returns
+    -------
+    list
+        A list of results from the function executions.
+
+    Raises
+    ------
+    ValueError
+        If `function` is not picklable when using 'process' as `executor_type`.
+
+    Examples
+    --------
+    >>> from gofast.tools.funcutils import parallelize_jobs
+    >>> def greet(name, greeting='Hello'):
+    ...     return f"{greeting}, {name}!"
+    >>> tasks = [
+    ...     {'args': ('John',), 'kwargs': {'greeting': 'Hi'}},
+    ...     {'args': ('Jane',), 'kwargs': {}}
+    ... ]
+    >>> results = parallelize_jobs(greet, tasks, n_jobs=2)
+    >>> print(results)
+    ['Hi, John!', 'Hello, Jane!']
+    """
+    if executor_type == 'process':
+        import_optional_dependency("cloudpickle")
+        import cloudpickle
+        try:
+            cloudpickle.dumps(function)
+        except cloudpickle.PicklingError:
+            raise ValueError("The function to be parallelized must be "
+                             "picklable when using 'process' executor.")
+
+    num_workers = multiprocessing.cpu_count() if n_jobs == -1 else (
+        1 if n_jobs is None else n_jobs)
+    
+    ExecutorClass = ProcessPoolExecutor if executor_type == 'process' \
+        else ThreadPoolExecutor
+    
+    results = []
+    with ExecutorClass(max_workers=num_workers) as executor:
+        futures = [executor.submit(function, *task.get('args', ()),
+                                   **task.get('kwargs', {})) for task in tasks]
+        
+        for future in as_completed(futures):
+            results.append(future.result())
+    
+    return results
     
     
     

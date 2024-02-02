@@ -85,6 +85,7 @@ from .funcutils import (
     features_in, 
     split_train_test_by_id, 
     split_train_test, 
+    parallelize_jobs
     )
 
 from .mlutils import ( 
@@ -238,7 +239,8 @@ __all__=[
     "compute_sunburst_data", 
     "infer_sankey_columns",
     "calculate_residuals", 
-    "extract_coordinates"
+    "extract_coordinates", 
+    "parallelize_jobs"
     
     ]
 

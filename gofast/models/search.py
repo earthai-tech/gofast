@@ -13,18 +13,15 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 
 from sklearn.base import BaseEstimator, clone
-from sklearn.linear_model import LogisticRegression 
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import RandomizedSearchCV, GridSearchCV, KFold
 from sklearn.model_selection import cross_val_score, StratifiedKFold, LeaveOneOut
-from sklearn.pipeline import Pipeline  
 try:from skopt import BayesSearchCV 
 except:pass 
 
 from .._docstring import DocstringComponents, _core_docs 
 from .._gofastlog import gofastlog
-from .._typing import _F, List,ArrayLike, NDArray, Dict, Any 
-from .._typing import DataFrame, Series,Optional, Union
+from .._typing import _F, List,ArrayLike, NDArray, Dict, Any, Optional, Union
 from ..exceptions import EstimatorError, NotFittedError
 from ..tools.box import Boxspace 
 from ..tools.funcutils import _assert_all_types, get_params, save_job
@@ -32,18 +29,17 @@ from ..tools.funcutils import listing_items_format, pretty_printer
 from ..tools.validator import check_X_y, check_array, check_consistent_length 
 from ..tools.validator import get_estimator_name
 
-from .utils import get_scorers, naive_evaluation
+from .utils import get_scorers, dummy_evaluation
  
 _logger = gofastlog().get_gofast_logger(__name__)
 
 __all__=["BaseEvaluation", "BaseSearch", "SearchMultiple",
-         "get_best_kPCA_params", "CrossValidator", "MultipleSearch",
+         "CrossValidator", "MultipleSearch",
     ]
 
 _param_docs = DocstringComponents.from_nested_components(
     core=_core_docs["params"], 
     )
-
 
 class MultipleSearch:
     r"""
@@ -82,7 +78,8 @@ class MultipleSearch:
     Methods
     -------
     fit(X, y):
-        Run the parameter tuning for each estimator using each optimizer in parallel on the given data.
+        Run the parameter tuning for each estimator using each optimizer in
+        parallel on the given data.
 
     Notes
     -----
@@ -144,10 +141,12 @@ class MultipleSearch:
                 futures = []
                 for optimizer in self.optimizers:
                     for name, estimator in self.estimators.items():
-                        future = executor.submit(self._search, estimator, self.param_grids[name], optimizer, X, y)
+                        future = executor.submit(self._search, estimator,
+                                                 self.param_grids[name], optimizer, X, y)
                         futures.append(future)
 
-                for future in tqdm(futures, desc='Optimizing parameters', ncols=100, ascii=True, unit='search'):
+                for future in tqdm(futures, desc='Optimizing parameters', 
+                                   ncols=100, ascii=True, unit='search'):
                     result = future.result()
                     self.best_params_.update(result)
 
@@ -158,7 +157,8 @@ class MultipleSearch:
 
     def _search(self, estimator, param_grid, optimizer, X, y):
         """
-        Conducts a parameter search using the specified optimizer on the given estimator.
+        Conducts a parameter search using the specified optimizer on the
+        given estimator.
 
         Parameters
         ----------
@@ -205,7 +205,8 @@ class MultipleSearch0:
     estimators : dict
         Estimators for tuning. Format: {'estimator_name': estimator_object}.
     param_grids : dict
-        Parameter grids for the corresponding estimators. Format: {'estimator_name': param_grid}.
+        Parameter grids for the corresponding estimators.
+        Format: {'estimator_name': param_grid}.
     optimizer : str, optional
         Method for parameter tuning: 'grid', 'random', 'bayes'. Default is 'grid'.
     savejob : bool, optional
@@ -974,13 +975,13 @@ class SearchMultiple:
             msg += ( f"Cross-evaluatation the {estm_name} best model."
                     f" with KFold ={self.cv}"
                    )
-            bestim_best_scores, _ = naive_evaluation(
+            bestim_best_scores, _ = dummy_evaluation(
                 best_model_clf, 
                 X,
                 y,
                 cv = self.cv, 
                 scoring = self.scoring,
-                display ='on' if self.verbose > 7 else 'off'
+                display ='on' if self.verbose > 7 else 'off', 
                 )
             # store the best scores 
             self.data_[f'{estm_name}']['best_scores']= bestim_best_scores
@@ -1444,104 +1445,3 @@ Out[174]: array([0.75409836, 0.72131148, 0.73333333, 0.78333333])
 """.format (params=_param_docs,
 )
 
-def get_best_kPCA_params(
-    X:NDArray | DataFrame,
-    n_components: float | int =2,
-    *,
-    y: ArrayLike | Series=None,
-    param_grid: Dict[str, Any] =None, 
-    clf: _F =None,
-    cv: int =7,
-    **grid_kws
-    )-> Dict[str, Any]: 
-
-    from ..analysis.dimensionality import ( 
-        get_component_with_most_variance, KernelPCA) 
-    if n_components is None: 
-        n_components= get_component_with_most_variance(X)
-    if clf is None: 
-
-        clf =Pipeline([
-            ('kpca', KernelPCA(n_components=n_components)),
-            ('log_reg', LogisticRegression())
-            ])
-    gridObj =BaseSearch(base_estimator= clf,
-                        grid_params= param_grid, 
-                        cv=cv,
-                        **grid_kws
-                        ) 
-    gridObj.fit(X, y)
-    
-    return gridObj.best_params_
-
-get_best_kPCA_params.__doc__="""\
-Select the Kernel and hyperparameters using GridSearchCV that lead 
-to the best performance.
-
-As kPCA( unsupervised learning algorithm), there is obvious performance
-measure to help selecting the best kernel and hyperparameters values. 
-However dimensionality reduction is often a preparation step for a 
-supervised task(e.g. classification). So we can use grid search to select
-the kernel and hyperparameters that lead the best performance on that 
-task. By default implementation we create two steps pipeline. First reducing 
-dimensionality to two dimension using kPCA, then applying the 
-`LogisticRegression` for classification. AFter use Grid searchCV to find 
-the best ``kernel`` and ``gamma`` value for kPCA in oder to get the best 
-clasification accuracy at the end of the pipeline.
-
-Parameters
-----------
-{params.core.X} 
-{params.core.y}
-
-n_components:int, 
-     Number of dimension to preserve. If `n_components` is ranged between 
-     0. to 1., it indicated the number of variance ratio to preserve. 
-    
-param_grid: list 
-    list of parameters grids. For instance::
-    
-        param_grid=[dict(
-            kpca__gamma=np.linspace(0.03, 0.05, 10),
-            kpca__kernel=["rbf", "sigmoid"]
-            )]
-    
-{params.core.clf} 
-    It can also be a base estimator or a composite estimor with pipeline. For 
-    instance::
-    clf =Pipeline([
-    ('kpca', KernelPCA(n_components=2))
-    ('log_reg', LogisticRegression())
-    ])
-    
-{params.core.cv}
-
-grid_kws: dict, 
-    Additional keywords arguments passed to Grid parameters from 
-    :class:`~gofast.models.search.GridSearch`
-
-Examples
----------
->>> from gofast.analysis.dimensionality import get_best_kPCA_params
->>> from gofast.datasets import fetch_data 
->>> X, y=fetch_data('Bagoue analysis data')
->>> param_grid=[dict(
-    kpca__gamma=np.linspace(0.03, 0.05, 10),
-    kpca__kernel=["rbf", "sigmoid"]
-    )]
->>> clf =Pipeline([
-    ('kpca', KernelPCA(n_components=2)), 
-    ('log_reg', LogisticRegression())
-     ])
->>> kpca_best_params =get_best_kPCA_params(
-            X,y=y,scoring = 'accuracy',
-            n_components= 2, clf=clf, 
-            param_grid=param_grid)
->>> kpca_best_params
-... {{'kpca__gamma': 0.03, 'kpca__kernel': 'rbf'}}
-
-""".format(
-    params=_param_docs,
-    )
-   
-   
