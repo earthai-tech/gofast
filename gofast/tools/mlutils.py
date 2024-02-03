@@ -363,10 +363,9 @@ def resampling(
     --------- 
     >>> import gofast as gf 
     >>> from gofast.tools.mlutils import resampling 
-    >>> data, target = gf.fetch_data ('bagoue analysed', as_frame =True) 
+    >>> data, target = gf.fetch_data ('bagoue analysed', as_frame =True, return_X_y=True) 
     >>> data.shape, target.shape 
-    >>> data_us, target_us = resampling (data, target, kind ='under',
-                                         verbose=True)
+    >>> data_us, target_us = resampling (data, target, kind ='under',verbose=True)
     >>> data_us.shape, target_us.shape 
     Counters: Auto      
                          Raw counter y: Counter({0: 232, 1: 112})

@@ -16,7 +16,7 @@ from importlib import resources
 from importlib.resources import files
 import pandas as pd 
 
-from ..tools.baseutils import read_data, fancier_downloader , check_file_exists   
+from ..tools.baseutils import read_data, fancier_downloader, check_file_exists   
 from ..tools.funcutils import  to_numeric_dtypes , smart_format, key_checker
 from ..tools.funcutils import  random_sampling, assert_ratio, split_train_test_by_id
 from ..tools.funcutils import  format_to_datetime, is_in_if, validate_feature
