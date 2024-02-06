@@ -1,61 +1,27 @@
 # -*- coding: utf-8 -*-
+"""
+The `gofast.geo` module is designed to offer advanced geospatial analysis and 
+manipulation tools within the gofast framework, facilitating the handling of 
+geographical data, spatial transformations, and visualization.
+"""
+import typing
 
-from .site import ( 
-    Profile, 
-    Location
-    )
-from .utils import ( 
-    smart_thickness_ranker , 
-    build_random_thickness, 
-    plot_stratalog, 
-    make_coords, 
-    refine_locations, 
-    get_azimuth, 
-    get_bearing, 
-    get_stratum_thickness, 
-    )
+if typing.TYPE_CHECKING:
+    # Avoid errors in type checkers (e.g. mypy) for experimental modules.
+    # TODO: remove this check once the estimator is no longer experimental.
+    from .system import  GeoIntelligentSystem # noqa
+    
+__all__= ['select_base_stratum' , 'reduce_samples' , 'transmissivity', 
+          'calculate_K', 'compress_aquifer_data', 'correct_data_location', 
+          'make_coords', 'compute_azimuth', 'calculate_bearing', ]
 
-from .hydroutils import ( 
-    select_base_stratum , 
-    get_aquifer_section , 
-    get_aquifer_sections, 
-    get_unique_section, 
-    get_compressed_vector, 
-    get_hole_partitions, 
-    reduce_samples , 
-    get_sections_from_depth, 
-    make_mxs_labels, 
-    predict_nga_labels, 
-    find_aquifer_groups, 
-    find_similar_labels, 
-    classify_k, 
-    label_importance,
-    )
-
-__all__= [
-        'Profile',
-        'Location',
-        'make_coords', 
-        'refine_locations', 
-        'get_azimuth', 
-        'get_bearing', 
-        'get_stratum_thickness', 
-        'smart_thickness_ranker' , 
-        'build_random_thickness', 
-        'plot_stratalog', 
-        'select_base_stratum' , 
-        'get_aquifer_section' , 
-        'get_aquifer_sections', 
-        'get_unique_section', 
-        'get_compressed_vector', 
-        'get_hole_partitions', 
-        'reduce_samples' , 
-        'get_sections_from_depth', 
-        'make_mxs_labels', 
-        'predict_nga_labels', 
-        'find_aquifer_groups', 
-        'find_similar_labels', 
-        'classify_k', 
-        'label_importance',
-        
-        ]
+# TODO: remove this check once the estimator is no longer experimental.
+def __getattr__(name):
+    if name =="GeoIntelligentSystem":
+        raise ImportError(
+            f"{name} is experimental and the API might change without any "
+            "deprecation cycle. To use it, you need to explicitly import "
+            "enable_geo_intel_system:\n"
+            "from gofast.experimental import enable_geo_intel_system"
+        )
+    raise AttributeError(f"module {__name__} has no attribute {name}")

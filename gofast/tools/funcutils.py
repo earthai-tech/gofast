@@ -7857,8 +7857,7 @@ def find_features_in(
     return (data[catnames], data[numnames]) if return_frames else (
         list(catnames), list(numnames)
     )
-
-   
+  
 def split_train_test(
         data: DataFrame, test_ratio: float = 0.2
         ) -> Tuple[DataFrame, DataFrame]:
@@ -7983,8 +7982,6 @@ def split_train_test_by_id(
 
     return data.loc[~in_test_set], data.loc[in_test_set]
   
-
-
 def parallelize_jobs(
     function: _F[..., Any],
     tasks: Sequence[Dict[str, Any]] = (),

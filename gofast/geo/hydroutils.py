@@ -2376,7 +2376,7 @@ def check_flow_objectivity ( y ,/,  values, classes  ) :
     classes = classes or values 
     return y, classes 
  
-@catmapflow2(cat_classes=['FR0', 'FR1', 'FR2', 'FR3'])#, 'FR4'] )
+
 def categorize_flow(
         target: Series | ArrayLike[_T] ,
         flow_values: List [float],

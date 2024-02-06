@@ -31,6 +31,7 @@ from .baseutils import (
     handle_missing_data, 
     augment_data, 
     assess_outlier_impact, 
+    transform_dates
     )
 from .mathex import ( 
     interpolate1d, 
@@ -240,7 +241,8 @@ __all__=[
     "infer_sankey_columns",
     "calculate_residuals", 
     "extract_coordinates", 
-    "parallelize_jobs"
+    "parallelize_jobs", 
+    "transform_dates"
     
     ]
 

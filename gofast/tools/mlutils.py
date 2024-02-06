@@ -241,6 +241,7 @@ def codify_variables (
     if categories is None: 
         categories ={}
         for col in cat_columns: 
+            #categories[col].fillna(pd.NA, inplace =True)
             categories[col] = list(np.unique (df[col]))
             
     # categories should be a mapping data 
@@ -250,7 +251,6 @@ def codify_variables (
         
     for col, values  in  categories.items():
         if col not in df.columns:
-            print(col)
             continue  
         values = is_iterable(
             values, exclude_string=True, transform =True )
@@ -3474,7 +3474,7 @@ def build_data_preprocessor(
 
    # Advanced imputation logic if required
     if advanced_imputation:
-        from sklearn.experimental import enable_iterative_imputer
+        from sklearn.experimental import enable_iterative_imputer # noqa
         from sklearn.impute import IterativeImputer
         if advanced_imputation == 'IterativeImputer':
             steps.insert(0, ('advanced_imputer', IterativeImputer(

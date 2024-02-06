@@ -164,6 +164,7 @@ expedite research and analysis.
    
    datasets.fetch_data
    datasets.load_bagoue
+   datasets.load_dyspnea
    datasets.load_forensic 
    datasets.load_iris
    datasets.load_hlogs

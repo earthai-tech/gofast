@@ -8,7 +8,9 @@ load different data as a function
 
 Inspired from the machine learning popular dataset loading 
 """
+import warnings
 import os
+import random
 import scipy 
 import joblib
 import numpy as np
@@ -16,17 +18,167 @@ from importlib import resources
 from importlib.resources import files
 import pandas as pd 
 
-from ..tools.baseutils import read_data, fancier_downloader, check_file_exists   
+from ..tools.baseutils import read_data, fancier_downloader, check_file_exists 
+from ..tools.baseutils import transform_dates  
 from ..tools.funcutils import  to_numeric_dtypes , smart_format, key_checker
 from ..tools.funcutils import  random_sampling, assert_ratio, split_train_test_by_id
 from ..tools.funcutils import  format_to_datetime, is_in_if, validate_feature
 from ..tools.box import Boxspace
-from ._globals import FORENSIC_BF_DICT, FORENSIC_LABELS_DESCR
+from ._globals import FORENSIC_BF_DICT, FORENSIC_LABELS_DESCR 
+from ._globals import DYSPNEA_DICT, DYSPNEA_LABELS_DESCR
 from .io import (csv_data_loader, _to_dataframe, DMODULE, 
     description_loader, DESCR, RemoteDataURL ) 
 
 __all__= [ "load_iris",  "load_hlogs", "load_mxs", "load_nlogs", "load_forensic", 
           "load_jrs_bet"]
+
+
+def load_dyspnea(
+        *, 
+        return_X_y=False, 
+        as_frame=False, 
+        split_X_y=False, 
+        test_size =.3 , 
+        tag=None , 
+        data_names=None,
+        objective=None, 
+        key=None, 
+        n_labels=1, 
+        **kws
+  ):
+    """ 
+    Load and return the dyspnea dataset for ....
+
+    This function provides ....
+
+    Parameters
+    ----------
+    return_X_y : bool, default=False
+        If True, returns `(data, target)` as separate objects. Otherwise, returns 
+        a Bunch object.
+    as_frame : bool, default=False
+        If True, the data and target are returned as a pandas DataFrame and Series, 
+        respectively. This is useful for further analysis and visualization in a 
+        tabular format.
+    key : {'raw', 'preprocessed'}, default='preprocessed'
+        Specifies which version of the dataset to load. 'raw' for the original 
+        dataset and 'preprocessed' for the processed dataset with encoded 
+        categorical variables.
+    split_X_y : bool, default=False
+        If True, splits the dataset into training and testing sets based on the 
+        `test_size` parameter. This is useful for model training and evaluation 
+        purposes.
+    test_size : float, default=0.3
+        The proportion of the dataset to include in the test split. It should be 
+        between 0.0 and 1.0 and represent the size of the test dataset relative to 
+        the original dataset.
+    tag : str or None, optional
+        An optional tag to filter or categorize the data. Useful for specific 
+        analyses within the dataset.
+    data_names : list of str or None, optional
+        Specific names of datasets to be loaded. If None, all datasets are loaded.
+        
+    objective : str, 
+        The analysis objective indicating the type of target variable(s) 
+        to select. Supported objectives include ``"Diagnosis Prediction"``, 
+        and ``"Severity Prediction"``, ``"Hospitalization Outcome Prediction"``, 
+        ``"Symptom-based Prediction"``, with flexibility in matching these
+        objectives even without the exact phrase "Prediction".
+        
+    n_labels : int, optional
+        The number of target labels to select. Defaults to 1 for single-label 
+        selection. If greater than 1, a multi-label selection is performed, 
+        returning multiple target columns based on the specified objective.
+        
+    **kws : dict, optional
+        Additional keyword arguments to pass to the data loading function. Allows 
+        customization of the data loading process.
+
+    Returns
+    -------
+    boxspace : Bunch object or tuple
+        The function returns a Bunch object when `return_X_y` is False. When True,
+        returns `(data, target)` 
+        as separate objects. The Bunch object has the following attributes:
+        - data : ndarray, shape (n_samples, n_features)
+          The data matrix with features.
+        - target : ndarray, shape (n_samples,)
+          The classification targets.
+        - frame : DataFrame
+          A DataFrame with `data` and `target` when `as_frame=True`.
+        - DESCR : str
+          The full description of the dataset.
+        - feature_names : list
+          Names of the feature columns.
+        - target_names : list
+          Names of the target columns.
+        - target_columns : list
+          Column names in the dataset used as targets.
+        - labels_descr, columns_descr : dict
+          Formatted dictionaries providing descriptions for categorical labels.
+
+    Examples
+    --------
+    >>> from gofast.datasets import load_dyspnea
+    >>> ...
+    >>> ...
+
+    """
+    cf = as_frame 
+    key = key or 'preprocessed'
+    key = key_checker(key, valid_keys=("raw", "preprocessed"), 
+                      deep_search=True )
+    data_file = f"dyspnea{'+'if key=='preprocessed' else ''}.csv"
+
+    with resources.path (DMODULE, data_file) as p : 
+        file = str(p)
+    data = pd.read_csv ( file )
+    
+    frame = None
+    target_columns = [
+        "respiratory_distress",
+    ]
+    if objective is not None: 
+        target_columns= _select_dyspnea_target_variable(objective, n_labels=n_labels )
+        
+    feature_names= is_in_if(data, items=target_columns, return_diff=True)
+    
+    frame, data, target = _to_dataframe(
+         data, feature_names = feature_names, tnames = target_columns, 
+         )
+    frame = transform_dates(to_numeric_dtypes(frame),transform=True)
+ 
+    if split_X_y: 
+        X, Xt = split_train_test_by_id (data = frame , test_ratio= test_size, 
+                                        keep_colindex= False )
+        y = X.flow ;  X.drop(columns =target_columns, inplace =True)
+        yt = Xt.flow ; Xt.drop(columns =target_columns, inplace =True)
+        
+        return  (X, Xt, y, yt ) if cf else (
+            X.values, Xt.values, y.values , yt.values )
+    
+    if as_frame and not return_X_y: 
+        return frame 
+
+    if return_X_y:
+        return data, target
+    
+    fdescr = description_loader(descr_module=DESCR,descr_file="dyspnea.rst")
+    
+    return Boxspace(
+        data=data,
+        target=target,
+        frame=frame,
+        tnames=target_columns,
+        target_names=target_columns,
+        DESCR=fdescr,
+        feature_names=feature_names,
+        filename=data_file,
+        data_module=DMODULE,
+        labels_descr=DYSPNEA_LABELS_DESCR,
+        columns_descr=DYSPNEA_DICT
+    )
+
 
 def load_hlogs (
         *,  return_X_y=False, as_frame =False, key =None,  split_X_y=False, 
@@ -1613,6 +1765,116 @@ def _prepare_for_classical_ml(
     
     return (X, y) if return_X_y else (X_train, X_test, y_train, y_test)
     
+def _select_dyspnea_target_variable(
+        objective, data=None, n_labels=1, raise_exception=False, verbose=0):
+    """
+    Selects and returns target variable(s) based on a specified objective from 
+    a pandas DataFrame, accommodating both single-label and multi-label 
+    scenarios and allowing for flexible objective specification.
+
+    Parameters
+    ----------
+    objective : str
+        The analysis objective indicating the type of target variable(s) 
+        to select. Supported objectives include ``"Diagnosis Prediction"``, 
+        and ``"Severity Prediction"``, ``"Hospitalization Outcome Prediction"``, 
+        ``"Symptom-based Prediction"``, with flexibility in matching these
+        objectives even without the exact phrase "Prediction".
+    data : pandas.DataFrame, optional
+        The dataset from which to select the target variable(s). If provided, 
+        the function returns the selected target column(s) as a DataFrame or 
+        Series. If not provided, returns the name(s) 
+        of the target column(s).
+    n_labels : int, optional
+        The number of target labels to select. Defaults to 1 for single-label 
+        selection. If greater than 1, a multi-label selection is performed, 
+        returning multiple target columns based on the specified objective.
+    raise_exception : bool, optional
+        If True, raises an exception when `n_labels` exceeds the number of 
+        available target columns for the specified objective. If False, a 
+        warning is issued instead, and `n_labels` is set to the maximum available. 
+        Defaults to False.
+    verbose : int, optional
+        If greater than 0, enables the function to print warnings when 
+        applicable. Defaults to 0.
+
+    Returns
+    -------
+    pandas.DataFrame, pandas.Series, str, or list of str
+        Depending on the inputs, returns either the name(s) of the target 
+        column(s) (str or list of str) or the target column(s) themselves as a 
+        pandas DataFrame or Series.
+
+    Raises
+    ------
+    ValueError
+        If an invalid objective is provided or if `n_labels` exceeds the number
+        of available target columns for the specified objective and 
+        `raise_exception` is True.
+
+    Examples
+    --------
+    >>> dataset = pd.DataFrame({
+    ...     "diagnosis_covid_19": [0, 1],
+    ...     "nyha_intensity": [2, 3],
+    ...     "outcome_of_hospitalization": [1, 0]
+    ... })
+    >>> select_target_variable("Diagnosis Prediction", data=dataset)
+    diagnosis_covid_19    0
+    1
+    Name: diagnosis_covid_19, dtype: int64
+
+    >>> select_target_variable("Severity Prediction", n_labels=2)
+    ['nyha_intensity', 'respiratory_distress']
+    """
+    # Adjusted for flexible objective matching 
+    adjusted_objective = " ".join(objective.lower().split())  # Normalize whitespace and case
+    adjusted_objective = adjusted_objective.replace(" prediction", "")  # Allow omission of 'prediction'
+
+    # Define the mapping of adjusted objectives to potential target columns
+    DYSPNEA_TARGETS = {
+        "diagnosis": [
+            "diagnosis_pneumonitis", "diagnosis_asthma_attack",
+            "diagnosis_pulmonary_tuberculosis", "diagnosis_covid_19",
+            "diagnosis_heart_failure", "diagnosis_copd",
+            "diagnosis_bronchial_cancer", "diagnosis_pulmonary_fibrosis",
+            "diagnostic_other"
+        ],
+        "severity": ["nyha_intensity", "glasgow_score", "respiratory_distress"],
+        "symptom-based": ["cough", "fever", "asthenia", "heart_failure"],
+        "hospitalization outcome": ["outcome_of_hospitalization"]
+    }
+
+    # Attempt to find matching targets for the objective
+    potential_columns = []
+    for key, values in DYSPNEA_TARGETS.items():
+        if key in adjusted_objective:
+            potential_columns = values
+            break
+
+    if not potential_columns:
+        raise ValueError(f"Invalid objective provided: '{objective}'. Supported "
+                         f"objectives are: {', '.join(DYSPNEA_TARGETS.keys())}.")
+
+    if n_labels > len(potential_columns):
+        if raise_exception:
+            raise ValueError(f"Requested number of labels ({n_labels}) exceeds "
+                             f"available targets for '{objective}'.")
+        else:
+            if verbose > 0:
+                warnings.warn(
+                    f"Requested number of labels ({n_labels}) exceeds available "
+                    f"targets. Adjusting to {len(potential_columns)}.")
+            n_labels = len(potential_columns)
+
+    selected_columns = random.sample(potential_columns, k=n_labels)
+
+    if data is not None:
+        if not isinstance(data, pd.DataFrame):
+            raise TypeError("The `data` parameter must be a pandas DataFrame.")
+        return data[selected_columns] if n_labels > 1 else data[selected_columns[0]]
+
+    return selected_columns if n_labels > 1 else selected_columns[0]
     
     
     

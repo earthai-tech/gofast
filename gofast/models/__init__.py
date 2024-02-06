@@ -1,7 +1,5 @@
 """
-validation sub-package focuses on  training and validation phases. It also composed 
-of a set of grid-search tricks from model hyperparameters fine-tuning and 
-the pretrained models fetching from :mod:`~gofast.models` 
+Validation and optimization sub-package. 
 """
 
 from .utils import ( 

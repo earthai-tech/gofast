@@ -16,7 +16,7 @@ import re
 from warnings import warn
 
 from .load import (load_bagoue, load_iris, load_hlogs, load_nlogs, load_mxs,
-                   load_forensic, load_jrs_bet)
+                   load_forensic, load_jrs_bet, load_dyspnea)
 from ..tools.funcutils import listing_items_format
 from ..exceptions import DatasetError
 from .._gofastlog import gofastlog
@@ -25,10 +25,12 @@ _logger = gofastlog().get_gofast_logger(__name__)
 
 __all__ = [
     "load_bagoue", "load_iris", "load_hlogs", "load_nlogs", "fetch_data",
-    "load_mxs", "load_forensic", "load_jrs_bet", "DATASET"
+    "load_mxs", "load_forensic", "load_jrs_bet", "load_dyspnea", "DATASET"
 ]
 
-_DTAGS = ("bagoue", "iris", "hlogs", "nlogs", "mxs", "forensic", "jrs_bet")
+_DTAGS = ("bagoue","iris" , "hlogs", "nlogs", "mxs", "forensic", "jrs_bet",
+          "dyspnea",
+          )
 
 # Error messages for different processing stages
 _ERROR_MSGS = {
@@ -72,7 +74,7 @@ def fetch_data(tag, **kwargs):
     load_funcs = {
         'bagoue': load_bagoue, 'iris': load_iris, 'hlogs': load_hlogs,
         'nlogs': load_nlogs, 'mxs': load_mxs, 'forensic': load_forensic,
-        'jrs_bet': load_jrs_bet
+        'jrs_bet': load_jrs_bet, 'dyspnea': load_dyspnea,
     }
     tag = _parse_tag(tag, default='bagoue')
     if _fetch_data and callable(_fetch_data) and tag not in load_funcs.keys():

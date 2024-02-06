@@ -3087,3 +3087,75 @@ def assess_outlier_impact(
                   ' impact on the model performance.')
 
     return original_metric, filtered_metric
+
+def transform_dates(
+    data: pd.DataFrame, 
+    transform: bool = True, 
+    fmt: Union[str, None] = None, 
+    return_dt_columns: bool = False, 
+    **dt_kws
+    ) -> Union[pd.DataFrame, List[str]]:
+    """
+    Detects columns in a DataFrame that can be interpreted as date and time. 
+    
+    Optionally, transforms these columns to datetime objects using pandas' 
+    to_datetime function.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame to process.
+    transform : bool, optional
+        If True, converts detected datetime columns to datetime objects. 
+        Default is True.
+    fmt : str or None, optional
+        The datetime format string to use for conversion. If None, pandas' 
+        default parsing is used.
+    return_dt_columns : bool, optional
+        If True, returns a list of column names detected as datetime.
+        Default is False.
+    **dt_kws : dict
+        Additional keyword arguments to be passed to `pd.to_datetime`.
+
+    Returns
+    -------
+    Union[pandas.DataFrame, List[str]]
+        Depending on `return_dt_columns`, either returns the modified 
+        DataFrame or a list of column names detected as datetime.
+
+    Examples
+    --------
+    >>> from gofast.tools.baseutils import transform_dates
+    >>> data = pd.DataFrame({
+    ...     'date': ['2021-01-01', '2021-01-02'],
+    ...     'value': [1, 2]
+    ... })
+    >>> transform_dates(data, transform=True, return_dt_columns=True)
+    ['date']
+
+    >>> transform_dates(data, transform=True, fmt='%Y-%m-%d').dtypes
+    date     datetime64[ns]
+    value             int64
+    dtype: object
+    """
+    datetime_columns = [] 
+    # make a copy if not done 
+    df = data.copy() 
+    for col in df.columns:
+        try:
+            pd.to_datetime(df[col], format=None, errors='raise', **dt_kws)
+            datetime_columns.append(col)
+        except (ValueError, TypeError):
+            continue
+    
+    if return_dt_columns:
+        return datetime_columns
+    
+    if transform and datetime_columns:
+        for dt_col in datetime_columns:
+            # Use .loc to explicitly modify the DataFrame and 
+            # avoid SettingWithCopyWarning
+            df.loc[:, dt_col] = pd.to_datetime(
+                df[dt_col], format=fmt, **dt_kws)
+    
+    return data
