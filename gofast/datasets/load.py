@@ -30,8 +30,101 @@ from .io import (csv_data_loader, _to_dataframe, DMODULE,
     description_loader, DESCR, RemoteDataURL ) 
 
 __all__= [ "load_iris",  "load_hlogs", "load_mxs", "load_nlogs", "load_forensic", 
-          "load_jrs_bet"]
+          "load_jrs_bet", "load_statlog"]
 
+def load_statlog(*, return_X_y=False, as_frame=False, tag=None, 
+                       data_names=None, **kws):
+    """
+    Load and return the Statlog Heart Disease dataset.
+
+    The Statlog Heart dataset is a classic dataset in the machine learning 
+    community,used for binary classification tasks to predict the presence of 
+    heart disease in patients.
+
+    Parameters
+    ----------
+    return_X_y : bool, default=False
+        If True, returns `(data, target)` instead of a `Boxspace` object.
+    as_frame : bool, default=False
+        If True, returns a pandas DataFrame object.
+    tag : str, optional
+        Tag to add to the dataset loading, not used in this function but kept 
+        for compatibility.
+    data_names : list of str, optional
+        Names of the data columns, not used in this function but kept for 
+        compatibility.
+    **kws : dict, optional
+        Additional keyword arguments not used in this function but kept for 
+        compatibility.
+
+    Returns
+    -------
+    data : ndarray or DataFrame
+        The data matrix. If `as_frame=True`, `data` is a pandas DataFrame.
+    target : ndarray or Series
+        The classification targets. If `as_frame=True`, `target` is a pandas Series.
+    Boxspace : Boxspace object
+        Object with dataset details, returned when `return_X_y` is 
+        False and `as_frame` is False.
+        - data : ndarray, shape (n_samples, n_features)
+          The data matrix with features.
+        - target : ndarray, shape (n_samples,)
+          The classification targets.
+        - frame : DataFrame
+          A DataFrame with `data` and `target` when `as_frame=True`.
+        - DESCR : str
+          The full description of the dataset.
+        - feature_names : list
+          Names of the feature columns.
+        - target_names : list
+          Names of the target columns.
+    
+
+    Examples
+    --------
+    To load the dataset as a (data, target) tuple:
+
+    >>> from gofast.datasets import load_statlog
+    >>> data, target = load_statlog(return_X_y=True)
+    >>> print(data.shape)
+    >>> print(target.shape)
+
+    To load the dataset as a pandas DataFrame:
+
+    >>> df, target = load_statlog(return_X_y=True, as_frame=True)
+    >>> print(df.head())
+    >>> print(target.head())
+
+    """
+    data_file = "statlog_heart.csv"
+    data, target, target_names, feature_names, fdescr = csv_data_loader(
+        data_file=data_file, descr_file="statlog_heart.rst"
+    )
+    feature_names=["age", "sex", "cp", "trestbps", "chol", "fbs",
+                   "restecg", "thalach", "exang", "oldpeak", "slope", "ca",
+                   "thal"]
+
+    frame = None
+    target_columns = ["presence",]
+
+    if as_frame:
+        frame, data, target = _to_dataframe(
+            data, feature_names=feature_names, tnames=target_columns, target=target)
+
+    if return_X_y or as_frame:
+        return to_numeric_dtypes(data) if as_frame else data, target
+
+    return Boxspace(
+        data=data.values,
+        target=target,
+        frame=frame,
+        tnames=target_names,
+        target_names=target_names,
+        DESCR=fdescr,
+        feature_names=feature_names,
+        filename=data_file,
+        data_module=DMODULE,
+    )
 
 def load_dyspnea(
         *, 

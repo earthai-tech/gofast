@@ -16,7 +16,7 @@ import re
 from warnings import warn
 
 from .load import (load_bagoue, load_iris, load_hlogs, load_nlogs, load_mxs,
-                   load_forensic, load_jrs_bet, load_dyspnea)
+                   load_forensic, load_jrs_bet, load_dyspnea, load_statlog)
 from ..tools.funcutils import listing_items_format
 from ..exceptions import DatasetError
 from .._gofastlog import gofastlog
@@ -25,11 +25,12 @@ _logger = gofastlog().get_gofast_logger(__name__)
 
 __all__ = [
     "load_bagoue", "load_iris", "load_hlogs", "load_nlogs", "fetch_data",
-    "load_mxs", "load_forensic", "load_jrs_bet", "load_dyspnea", "DATASET"
+    "load_mxs", "load_forensic", "load_jrs_bet", "load_dyspnea", "load_statlog", 
+    "DATASET"
 ]
 
 _DTAGS = ("bagoue","iris" , "hlogs", "nlogs", "mxs", "forensic", "jrs_bet",
-          "dyspnea",
+          "dyspnea","statlog"
           )
 
 # Error messages for different processing stages
@@ -74,7 +75,7 @@ def fetch_data(tag, **kwargs):
     load_funcs = {
         'bagoue': load_bagoue, 'iris': load_iris, 'hlogs': load_hlogs,
         'nlogs': load_nlogs, 'mxs': load_mxs, 'forensic': load_forensic,
-        'jrs_bet': load_jrs_bet, 'dyspnea': load_dyspnea,
+        'jrs_bet': load_jrs_bet, 'dyspnea': load_dyspnea,'statlog':load_statlog
     }
     tag = _parse_tag(tag, default='bagoue')
     if _fetch_data and callable(_fetch_data) and tag not in load_funcs.keys():
@@ -129,6 +130,8 @@ Gofast dataset includes various data types for software implementation, such as:
 - 'Hlogs' and 'Mxs': Hydrogeological engineering logging data.:doi:` https://doi.org/10.1007/s12145-024-01236-3`
 - 'Forensic': DNA forensic dataset from West Africa.
 - 'Jrs_bet': Lottery dataset for educational purposes.
+- 'Dyspnea': Dyspnea dataset collected in Cote d'Ivoire.
+- 'Stalog': Statlog Heart Disease dataset.  
 """
 
 DATASET = type("DATASET", (), {"KIND": _DTAGS, "HOW": _DATASET_LIST, "DOC": _DATASET_DOC})

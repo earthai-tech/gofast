@@ -10,14 +10,15 @@ import scipy
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from sklearn.base import BaseEstimator 
+from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.covariance import ShrunkCovariance
+from sklearn.metrics import get_scorer
 from sklearn.model_selection import cross_val_score, GridSearchCV
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.linear_model import LogisticRegression  
 from sklearn.svm import SVC, SVR
-from sklearn.utils.multiclass import type_of_target
 from sklearn.pipeline import Pipeline 
+from sklearn.utils.multiclass import type_of_target  
 
 from .._typing import Tuple,_F, ArrayLike, NDArray, Dict, Union, Any
 from .._typing import  List, Optional, Type, DataFrame, Series 
@@ -25,6 +26,7 @@ from ..tools.funcutils import smart_format
 from ..tools.validator import get_estimator_name, check_X_y 
 from ..tools._dependency import import_optional_dependency 
 from .._gofastlog import gofastlog
+
 _logger = gofastlog().get_gofast_logger(__name__)
 
 __all__= [
@@ -33,7 +35,6 @@ __all__= [
     'get_split_best_scores', 
     'display_model_max_details',
     'display_fine_tuned_results', 
-    'display_fine_tuned_results',
     'display_cv_tables', 
     'get_scorers', 
     'dummy_evaluation', 
@@ -48,6 +49,7 @@ __all__= [
     "handle_missing_in_scores", 
     "export_cv_results", 
     "comparative_analysis", 
+    "base_evaluation", 
     "plot_parameter_importance", 
     "plot_hyperparameter_heatmap", 
     "visualize_learning_curve", 
@@ -57,7 +59,9 @@ __all__= [
     "plot_confidence_intervals", 
     "plot_pairwise_model_comparison",
     "plot_feature_correlation", 
-    "base_evaluation", 
+    "get_best_kPCA_params", 
+    "shrink_covariance_cv_score",
+    
   ]
 
 def align_estimators_with_params(param_grids, estimators=None):
@@ -75,6 +79,7 @@ def align_estimators_with_params(param_grids, estimators=None):
         Parameter grids to be used for each estimator. If it's a single dictionary,
         it's converted into a list. If it's a list of tuples, each tuple should
         contain an estimator name and its corresponding parameter grid.
+        
     estimators : list, dict, tuple, or estimator, default=None
         Estimators to be used. It can be a single estimator, a list of estimators,
         a dictionary with estimator names as keys, or a list of tuples where each
@@ -1470,11 +1475,6 @@ def plot_feature_correlation(cv_results, X, y):
     plt.title("Feature Correlation with Target")
     plt.show()
 
-
-
-from sklearn.base import  ClassifierMixin, RegressorMixin
-from sklearn.metrics import get_scorer
-
 def base_evaluation(
     model: BaseEstimator,
     X: NDArray,
@@ -1566,7 +1566,6 @@ def base_evaluation(
             print(f'Std deviation: {std_score:.4f}')
 
     return (scores, mean_score, std_score) if return_std else (scores, mean_score)
-
 
 def dummy_evaluation(
     model: BaseEstimator,
@@ -1667,7 +1666,7 @@ def shrink_covariance_cv_score(
     --------
     >>> from sklearn.datasets import make_spd_matrix
     >>> from gofast.models.utils import shrink_covariance_cv_score
-    >>> # # Generate a symmetric positive-definite matrix
+    >>> # Generate a symmetric positive-definite matrix
     >>> X = make_spd_matrix(n_dim=100, random_state=42)  
     >>> score, best_estimator = shrink_covariance_cv_score(
         X, cv=3, scoring='neg_log_loss', return_estimator=True)

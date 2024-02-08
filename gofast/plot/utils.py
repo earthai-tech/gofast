@@ -36,7 +36,7 @@ from sklearn.model_selection import learning_curve, KFold
 from sklearn.utils import resample
 
 from .._typing import Optional, Tuple, Any, List, Union 
-from .._typing import Dict, ArrayLike, DataFrame
+from .._typing import Dict, ArrayLike, DataFrame, Series
 from ..exceptions import  TipError, PlotError 
 from ..tools.funcutils import _assert_all_types, is_iterable, str2columns 
 from ..tools.funcutils import make_obj_consistent_if, is_in_if, to_numeric_dtypes 
@@ -47,6 +47,212 @@ from ..tools.validator import check_array, check_X_y, check_consistent_length
 from ..tools._dependency import import_optional_dependency 
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
+
+def plot_variables(
+    data: DataFrame, 
+    kind: str = "cat", 
+    target: Optional[str] = None,
+    colors: Optional[List[str]] = None, 
+    target_labels: Optional[Union[List[str], ArrayLike]] = None,
+    fontsize: int = 12, 
+    ylabel: Optional[str] = None, 
+    figsize: Tuple[int, int] = (20, 16)
+    ) -> None:
+    """
+    Plot variables in the dataframe based on their type (categorical or numerical)
+    against a target variable.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The dataframe containing the variables to plot.
+    kind : str, optional
+        The kind of variables to plot ('cat' for categorical, 'num' for numerical). 
+        Default is 'cat'.
+    target : Optional[str], optional
+        The name of the target variable. If provided, it must exist in `data`.
+    colors : Optional[List[str]], optional
+        A list of colors to use for the plot. If not provided, defaults will be used.
+    target_labels : Optional[Union[List[str], np.ndarray]], optional
+        Labels for the different values of the target variable. If not provided,
+        values will be used as labels.
+    fontsize : int, optional
+        Font size for labels in the plot. Default is 12.
+    ylabel : Optional[str], optional
+        Label for the y-axis. If not provided, no label is set.
+    figsize : Tuple[int, int], optional
+        Figure size for the plot. Default is (20, 16).
+
+    Raises
+    ------
+    TypeError
+        If `data` is not a pandas DataFrame.
+    ValueError
+        If `target` is provided but does not exist in `data`.
+
+    Examples
+    --------
+    >>> import seaborn as sns
+    >>> from gofast.plot.utils import plot_variables
+    >>> df = sns.load_dataset('titanic')
+    >>> plot_variables(df, kind='cat', target='survived',
+                       colors=['blue', 'red'], target_labels=['Died', 'Survived'], 
+                       fontsize=10, ylabel='Count')
+    """
+
+    if not isinstance(data, pd.DataFrame):
+        raise TypeError("Expected data to be a pandas DataFrame."
+                        f" Got {type(data).__name__!r}")
+    
+    if target is None:
+        raise ValueError("Target must be provided.")
+    if target not in data.columns:
+        raise ValueError(f"Target column '{target}' does not exist in the dataframe.")
+
+    target_data = data[target]
+    data = data.drop(columns=[target])
+
+    # Determine categorical and numerical variables
+    data, num_vars, cat_vars= to_numeric_dtypes(data, return_feature_types=True)
+
+    if colors is None:
+        colors = ['royalblue', 'green'] +  list(make_mpl_properties (
+            len(np.unique (target_data))))
+    
+    if kind.lower() == 'cat':
+        _plot_categorical_variables(data, cat_vars, target_data, colors,
+                                    target_labels, fontsize, ylabel, figsize)
+    elif kind.lower() == 'num':
+        _plot_numerical_variables(data, num_vars, target_data, colors, 
+                                  target_labels, fontsize, ylabel, figsize)
+    else:
+        raise ValueError(f"Unsupported plot kind '{kind}'. Choose 'cat' for "
+                         "categorical or 'num' for numerical variables.")
+
+def _plot_categorical_variables(
+    data: DataFrame, cat_vars: List[str], target: Series, 
+    colors: Optional[List[str]], target_labels: Optional[Union[List[str], ArrayLike]],
+    fontsize: int, ylabel: Optional[str], figsize: Tuple[int, int]) -> None:
+    """
+    Helper function to plot categorical variables against a target variable.
+    """
+    if target_labels is None or len(target_labels) != len(np.unique(target)):
+        target_labels = [str(val) for val in np.unique(target)]
+
+    plt.figure(figsize=figsize)
+    for i, var in enumerate(cat_vars, 1):
+        plt.subplot(len(cat_vars)//3+1, 3, i)
+        for j, val in enumerate (np.unique(target)): 
+            data[target== val][var].hist(
+                bins=10, color= colors[j],  
+                label=target_labels [j], 
+                alpha=0.8 if j%2==0 else 0.5 )
+        plt.title(var)
+        plt.ylabel(ylabel if ylabel else 'Count')
+        plt.xticks(rotation=45)
+        plt.legend(labels=target_labels, fontsize=fontsize)
+    plt.tight_layout()
+
+def _plot_numerical_variables(
+    data: DataFrame, num_vars: List[str], target: Series, 
+    colors: Optional[List[str]], target_labels: Optional[Union[List[str], ArrayLike]],
+    fontsize: int, ylabel: Optional[str], figsize: Tuple[int, int]) -> None:
+    """
+    Helper function to plot numerical variables against a target variable.
+    """
+    if target_labels is None or len(target_labels) != len(np.unique(target)):
+        target_labels = [str(val) for val in np.unique(target)]
+
+    plt.figure(figsize=figsize)
+    for i, var in enumerate(num_vars, 1):
+        plt.subplot(len(num_vars)//2+1, 2, i)
+        for j, val in enumerate(np.unique(target)):
+            subset = data[target == val]
+            plt.hist(subset[var], bins=15, color=colors[j % len(colors)],
+                     alpha=0.75, label=str(target_labels[j]))
+        plt.title(var)
+        plt.xlabel(var)
+        plt.ylabel(ylabel if ylabel else 'Frequency')
+        plt.legend(fontsize=fontsize)
+    plt.tight_layout()
+
+def plot_correlation_with_target(
+    data: pd.DataFrame, 
+    target: Union[str, pd.Series], 
+    kind: str = 'bar', 
+    show_grid: bool = True, 
+    fig_size: Tuple[int, int] = (20, 8), 
+    title: Optional[str] = None, 
+    color: Optional[str] = None, 
+    sns_style: Optional[str] = None, 
+    **kwargs
+    ) -> plt.Axes:
+    """
+    Plot the correlation of each feature in the dataframe with a
+    specified target.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The dataset containing the features to be correlated with the target.
+    target : Union[str, pd.Series]
+        The target feature name (as a string) or a pandas Series object. 
+        If a string is provided, it should be a column name in `data`.
+    kind : str, optional
+        The kind of plot to generate. Default is 'bar'.
+    show_grid : bool, optional
+        Whether to show grid lines on the plot. Default is True.
+    fig_size : Tuple[int, int], optional
+        The figure size in inches (width, height). Default is (20, 8).
+    title : Optional[str], optional
+        The title of the plot. If None, defaults to "Correlation with target". 
+        Default is None.
+    color : Optional[str], optional
+        The color for the bars or lines in the plot. If None, defaults to 
+        "royalblue". Default is None.
+    sns_style : Optional[str], optional
+        The seaborn style to apply to the plot. If None, the default seaborn 
+        style is used. Default is None.
+    **kwargs : dict
+        Additional keyword arguments to be passed to the plot function.
+
+    Returns
+    -------
+    plt.Axes
+        The matplotlib Axes object with the plot.
+
+    Examples
+    --------
+    >>> import seaborn as sns
+    >>> from gofast.plot.utils import plot_correlation_with_target
+    >>> df = sns.load_dataset('iris')
+    >>> plot_correlation_with_target(df, 'petal_length', kind='bar', 
+                                     sns_style='whitegrid', color='green')
+    
+    """
+    if not isinstance(data, pd.DataFrame):
+        raise TypeError("Expected data to be a pandas DataFrame."
+                        f" Got {type(data).__name__!r}")
+
+    if isinstance(target, str):
+        if target not in data.columns:
+            raise ValueError(
+                f"Target column '{target}' does not exist in the dataframe.")
+        target_data = data[target]
+        data = data.drop(columns=target)
+    else:
+        target_data = target
+
+    if sns_style:
+        sns.set_style(sns_style)
+
+    correlation = data.corrwith(target_data)
+    ax = correlation.plot(kind=kind, grid=show_grid, figsize=fig_size,
+                          title=title or "Correlation with target",
+                          color=color or "royalblue", **kwargs)
+
+    return ax
+ 
 def plot_regression_diagnostics(
     x: ArrayLike,
     ys: List[ArrayLike],

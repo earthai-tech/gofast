@@ -41,10 +41,10 @@ from ..metrics import precision_recall_tradeoff, roc_curve_, confusion_matrix_
 from ..property import BasePlot 
 from ..tools._dependency import import_optional_dependency 
 from ..tools.funcutils import  to_numeric_dtypes, fancier_repr_formatter 
-from ..tools.funcutils import  smart_strobj_recognition, reshape 
+from ..tools.funcutils import  smart_strobj_recognition, reshape,projection_validator
 from ..tools.funcutils import  str2columns, make_ids, type_of_target, is_iterable 
 from ..tools.mathex import linkage_matrix 
-from ..tools.mlutils import categorize_target, projection_validator, export_target  
+from ..tools.mlutils import categorize_target, export_target  
 from ..tools.validator import  _check_consistency_size,  get_estimator_name  
 from ..tools.validator import build_data_if,  check_array, check_X_y, check_y 
 from ..tools.validator import _is_numeric_dtype , check_consistent_length

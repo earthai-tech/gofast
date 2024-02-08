@@ -8057,7 +8057,49 @@ def parallelize_jobs(
             results.append(future.result())
     
     return results
-    
+ 
+def denormalize(data: ArrayLike, min_value: float, max_value: float
+                ) -> ArrayLike:
+    """
+    Denormalizes data from a normalized scale back to its original scale.
+
+    This function is useful when data has been normalized to a different 
+    scale (e.g., [0, 1]) and needs to be converted back to its original scale 
+    for interpretation or further processing.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        The data to be denormalized, assumed to be a NumPy array.
+    min_value : float
+        The minimum value of the original scale before normalization.
+    max_value : float
+        The maximum value of the original scale before normalization.
+
+    Returns
+    -------
+    np.ndarray
+        The denormalized data, converted back to its original scale.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> normalized_data = np.array([0, 0.5, 1])
+    >>> min_value = 10
+    >>> max_value = 20
+    >>> denormalized_data = denormalize(normalized_data, min_value, max_value)
+    >>> print(denormalized_data)
+    [10. 15. 20.]
+
+    Note
+    ----
+    The denormalization process is the inverse of normalization and is applied
+    to data that was previously normalized according to the formula:
+        `data_norm = (data - min_value) / (max_value - min_value)`
+    The denormalize function uses the inverse of this formula to restore the data.
+    """
+    return data * (max_value - min_value) + min_value
+   
     
     
     

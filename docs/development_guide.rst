@@ -2,7 +2,9 @@
 Development Guide for GoFast
 ==========================
 
-This development guide is intended for contributors who wish to understand the development process, coding style, and design principles that GoFast adheres to, in line with its Scikit-Learn-inspired philosophy.
+This development guide is intended for contributors who wish to understand the 
+development process, coding style, and design principles that GoFast adheres to, 
+in line with its Scikit-Learn-inspired philosophy.
 
 .. toctree::
    :maxdepth: 2

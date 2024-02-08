@@ -25,6 +25,7 @@ Subpackages
 - **stats**: Statistical functions and tests to analyze data and derive meaningful insights.
 - **tools**: Utility functions and helpers that streamline common tasks and data manipulations.
 - **transformers**: Data transformation and preprocessing tools for preparing datasets for analysis.
+- **query**:
 
 
 Usage
@@ -171,6 +172,7 @@ expedite research and analysis.
    datasets.load_nlogs 
    datasets.load_mxs 
    datasets.load_jrs_bet 
+   datasets.load_statlog
    datasets.make_sounding 
    datasets.make_african_demo_info 
    datasets.make_agronomy_feedback
@@ -339,17 +341,17 @@ Classes
    :toctree: generated/
    :template: class.rst
 
-   models.BaseEvaluation
-   models.CrossValidator
-   models.BaseSearch
-   models.SearchMultiple
-   models.MultipleSearch
-   models.SequentialSearchCV
-   models.SwarmSearchCV
-   models.AnnealingSearchCV
-   models.EvolutionarySearchCV
-   models.GradientBasedSearchCV
-   models.GeneticSearchCV
+   models.search.BaseEvaluation
+   models.search.CrossValidator
+   models.search.BaseSearch
+   models.search.SearchMultiple
+   models.search.MultipleSearch
+   models.selection.SequentialSearchCV
+   models.selection.SwarmSearchCV
+   models.selection.AnnealingSearchCV
+   models.selection.EvolutionarySearchCV
+   models.selection.GradientBasedSearchCV
+   models.selection.GeneticSearchCV
    
    
 Functions
@@ -826,6 +828,8 @@ that aid in data exploration, analysis, and presentation.
    plot.utils.plot_regression_diagnostics 
    plot.utils.plot_residuals_vs_leverage 
    plot.utils.plot_residuals_vs_fitted
+   plot.utils.plot_variables 
+   plot.uils.plot_correlation_with_target
 
 .. _stats_ref:
 
