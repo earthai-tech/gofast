@@ -9,8 +9,8 @@ efficient model evaluation, tuning strategies like Hyperband and Population-Base
 Training (PBT), and various model-building utilities.
 
 Note: This module requires TensorFlow to be installed. If TensorFlow is not 
-available, the module will raise an ImportError with instructions to install TensorFlow.
-
+available, the module will raise an ImportError with instructions to install 
+TensorFlow.
 
 """
 import os
@@ -25,13 +25,18 @@ from tqdm import tqdm
 
 import numpy as np
 
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from sklearn.model_selection import KFold
+from sklearn.metrics import mean_squared_error, mean_absolute_error 
+from sklearn.metrics import r2_score, accuracy_score
+from sklearn.model_selection import KFold, TimeSeriesSplit
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
-from .._typing import List, Optional, Union, Dict, Tuple
+from .._typing import List, Optional, Union, Dict, Tuple, DataFrame, Series 
 from .._typing import ArrayLike , Callable, Any, Generator
 from ..tools._dependency import import_optional_dependency 
-from ..tools.funcutils import is_iterable, denormalize
+from ..tools.funcutils import is_iterable, denormalize, type_of_target 
+from ..tools.validator import check_X_y, check_consistent_length
+from ..tools.validator import validate_keras_model, check_array, is_frame
+
 try: 
     extra_msg = "`deep_search` module expects the `tensorflow` library to be installed."
     import_optional_dependency('tensorflow', extra=extra_msg)
@@ -58,7 +63,9 @@ __all__=["plot_history", "base_tuning", "robust_tuning","build_mlp_model",
          "train_epoch", "calculate_validation_loss","data_generator",
          "evaluate_model", "train_model","create_lstm_model","create_cnn_model",
          "create_autoencoder_model" ,"create_attention_model", "plot_errors", 
-         "plot_predictions"]
+         "plot_predictions", "find_best_lr", "create_sequences", 
+         "make_future_predictions", "build_lstm_model", "lstm_ts_tuner", 
+         "cross_validate_lstm"]
 
 def plot_history(
     history: History, 
@@ -338,7 +345,8 @@ def base_tuning(
                       callbacks=callbacks)
     
             # Evaluate the model on validation data
-            accuracy = model.evaluate(val_data)[1]  # Assuming accuracy is the second metric
+            # Assuming accuracy is the second metric
+            accuracy = model.evaluate(val_data)[1]  
     
             # Update the best model if current model is better
             if accuracy > best_accuracy:
@@ -706,13 +714,18 @@ def deep_cv_tuning(
             model = model_fn(**params)
             model.compile(optimizer=model.optimizer, loss=loss, metrics=metrics)
 
-            early_stop = EarlyStopping(monitor='val_loss', patience=patience, verbose=verbose)
-            log_path = os.path.join(log_dir, f"{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}", str(params))
+            early_stop = EarlyStopping(monitor='val_loss', patience=patience,
+                                       verbose=verbose)
+            log_path = os.path.join(log_dir,
+                                    f"{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}",
+                                    str(params))
             tensorboard_callback = TensorBoard(log_dir=log_path, histogram_freq=1)
 
             model.fit(X_train, y_train, validation_data=(X_val, y_val),
-                      epochs=epochs, batch_size=params.get('batch_size', 32), verbose=verbose,
-                      callbacks=[early_stop, tensorboard_callback] + (callbacks if callbacks else []))
+                      epochs=epochs, batch_size=params.get('batch_size', 32), 
+                      verbose=verbose,
+                      callbacks=[early_stop, tensorboard_callback] + (
+                          callbacks if callbacks else []))
             # Assuming accuracy is the target metric
             score = model.evaluate(X_val, y_val, verbose=verbose)[1] 
             scores.append(score)
@@ -769,7 +782,8 @@ def train_and_evaluate2(
     >>> best_val_accuracy = train_and_evaluate(model_config, resource)
     >>> print(f"Best Validation Accuracy: {best_val_accuracy}")
 
-    Note: The function defaults to using the MNIST dataset if no dataset is provided.
+    Note: The function defaults to using the MNIST dataset if no dataset 
+    is provided.
     """
     # Load and prepare dataset
     if dataset is None:
@@ -785,7 +799,6 @@ def train_and_evaluate2(
                               input_shape=(784,)),
         tf.keras.layers.Dense(10, activation='softmax')
     ])
-    
     # Select optimizer
     if optimizer.lower() == 'adam':
         opt = tf.keras.optimizers.Adam(learning_rate=model_config['learning_rate'])
@@ -848,13 +861,11 @@ def train_and_evaluate(model_config: Dict[str, Any], resource: int) -> float:
     
     return best_val_accuracy
 
-from typing import Callable, Dict, Any, List, Tuple
-
-
 class Hyperband:
     """
-    Hyperband is an advanced hyperparameter optimization algorithm that 
-    efficiently identifies the best hyperparameters for a given model using 
+    Hyperband: an advanced hyperparameter optimization algorithm. 
+    
+    It efficiently identifies the best hyperparameters for a given model using 
     a bandit-based approach. It dynamically allocates computational resources 
     to different model configurations by balancing exploration of the 
     hyperparameter space with exploitation of promising configurations through 
@@ -941,15 +952,21 @@ class Hyperband:
     configuration is found.
     
     """
-
-    def __init__(self, model_fn: Callable, max_resource: int, eta: float = 3 ):
+    def __init__(
+        self, 
+        model_fn: Callable, 
+        max_resource: int,
+        eta: float = 3 
+        ):
         self.max_resource = max_resource
         self.eta = eta
         self.model_fn = model_fn
         
     def _train_and_evaluate(
-        self, model_config: Dict[str, Any], resource: int, 
-        train_data: Tuple, val_data: Tuple
+        self, model_config: Dict[str, Any], 
+        resource: int, 
+        train_data: Tuple, 
+        val_data: Tuple
         ) -> float:
         """
         Trains and evaluates a model for a specified configuration and resource.
@@ -1261,8 +1278,9 @@ def custom_loss(
     loss_name: str = 'custom_loss'
     ) -> Callable:
     """
-    Computes a custom loss value which is a combination of mean squared error between 
-    true and predicted values, and an additional term weighted by a lambda value.
+    Computes a custom loss value which is a combination of mean squared 
+    error between true and predicted values, and an additional term weighted 
+    by a lambda value.
 
     Parameters
     ----------
@@ -1276,17 +1294,18 @@ def custom_loss(
     lambda_value : float
         The weight of the additional term in the loss calculation.
     reduction : str, optional
-        Type of `tf.keras.losses.Reduction` to apply to loss. Default value is 'auto',
-        which means the reduction option will be determined by the current Keras backend.
-        Other possible values include 'sum_over_batch_size', 'sum', and 'none'.
+        Type of `tf.keras.losses.Reduction` to apply to loss. Default value 
+        is 'auto', which means the reduction option will be determined by 
+        the current Keras backend. Other possible values include 
+        'sum_over_batch_size', 'sum', and 'none'.
     loss_name : str, optional
         Name to use for the loss.
 
     Returns
     -------
     Callable
-        A callable that takes `y_true` and `y_pred` as inputs and returns the loss value
-        as an output.
+        A callable that takes `y_true` and `y_pred` as inputs and returns the 
+        loss value as an output.
 
     Examples
     --------
@@ -1303,10 +1322,13 @@ def custom_loss(
 
     Note
     ----
-    The `custom_loss` function is designed to be used with TensorFlow and Keras models. 
-    The `y_estimated` parameter allows for incorporating additional domain-specific knowledge 
-    into the loss, beyond what is captured by comparing `y_true` and `y_pred` alone.
+    The `custom_loss` function is designed to be used with TensorFlow and Keras
+    models. The `y_estimated` parameter allows for incorporating additional 
+    domain-specific knowledge into the loss, beyond what is captured by 
+    comparing `y_true` and `y_pred` alone.
     """
+    check_consistent_length(y_true,y_pred )
+    
     def loss(y_true, y_pred):
         mse = tf.reduce_mean(tf.square(y_true - y_pred), axis=-1)
         additional_term = tf.reduce_mean(tf.square(y_true - y_estimated), axis=-1)
@@ -1325,8 +1347,8 @@ def train_epoch(
     use_custom_loss: bool = False
 ) -> Tuple[float, float]:
     """
-    Trains the model for one epoch over the provided training data and calculates
-    the training and validation loss.
+    Trains the model for one epoch over the provided training data and 
+    calculates the training and validation loss.
 
     Parameters
     ----------
@@ -1367,6 +1389,7 @@ def train_epoch(
     ...     use_custom_loss=True)
     >>> print(f"Train Loss: {train_loss}, Validation Loss: {val_loss}")
     """
+    validate_keras_model(model, raise_exception=True)
     epoch_train_loss = []
     for x_batch, y_actual_batch, y_estimated_batch in data_generator(
         x_train, y_train_actual, y_train_estimated, batch_size):
@@ -1401,8 +1424,8 @@ def calculate_validation_loss(
     use_custom_loss: bool = False
 ) -> float:
     """
-    Calculates the loss on the validation dataset using either a custom loss function
-    or mean squared error.
+    Calculates the loss on the validation dataset using either a custom 
+    loss function or mean squared error.
 
     Parameters
     ----------
@@ -1438,6 +1461,7 @@ def calculate_validation_loss(
     ...     use_custom_loss=True)
     >>> print(f"Validation Loss: {val_loss}")
     """
+    validate_keras_model(model, raise_exception=True)
     val_preds = model.predict(x_val)
     if use_custom_loss and y_val_estimated is not None:
         loss = custom_loss(y_val_actual, val_preds, y_val_estimated, lambda_value)
@@ -1446,50 +1470,79 @@ def calculate_validation_loss(
     return np.mean(loss.numpy())
 
 def data_generator(
-    x_data: np.ndarray, 
-    y_data_actual: np.ndarray, 
-    y_data_estimated: Optional[np.ndarray], 
-    batch_size: int
-) -> Generator[Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]], None, None]:
+    X: ArrayLike, 
+    y_actual: ArrayLike, 
+    y_estimated: Optional[ArrayLike] = None, 
+    batch_size: int = 32,
+    shuffle: bool = True,
+    preprocess_fn: Optional[Callable[
+        [ArrayLike, ArrayLike, Optional[ArrayLike]], Tuple[
+            ArrayLike, ArrayLike, Optional[ArrayLike]]]] = None
+) -> Generator[Tuple[ArrayLike, ArrayLike, Optional[ArrayLike]], None, None]:
     """
-    Yields batches of data for training or validation.
+    Generates batches of data for training or validation. Optionally shuffles 
+    the data each epoch and applies a custom preprocessing function to the 
+    batches.
 
     Parameters
     ----------
-    x_data : np.ndarray
-        The input features.
-    y_data_actual : np.ndarray
-        The actual target values.
-    y_data_estimated : Optional[np.ndarray]
-        The estimated target values, if applicable.
-    batch_size : int
+    X: ArrayLike
+        The input features, expected to be a NumPy array or similar.
+    y_actual : ArrayLike
+        The actual target values, expected to be a NumPy array or similar.
+    y_estimated : Optional[ArrayLike], default=None
+        The estimated target values, if applicable. None if not used.
+    batch_size : int, default=32
         The number of samples per batch.
+    shuffle : bool, default=True
+        Whether to shuffle the indices of the data before creating batches.
+    preprocess_fn : Optional[Callable], default=None
+        A function that takes a batch of `X`, `y_actual`, and `y_estimated`,
+        and returns preprocessed batches. If None, no preprocessing is applied.
 
     Yields
     ------
-    Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]
-        A tuple containing a batch of input features, actual target values, 
-        and optionally estimated target values.
+    Generator[Tuple[ArrayLike, ArrayLike, Optional[ArrayLike]], None, None]
+        A generator yielding tuples containing a batch of input features, 
+        actual target values, and optionally estimated target values.
+
+    Examples
+    --------
+    >>> from gofast.models.deep_search import data_generator
+    >>> import numpy as np
+    >>> X = np.random.rand(100, 10)  # 100 samples, 10 features
+    >>> y_actual = np.random.rand(100, 1)
+    >>> y_estimated = np.random.rand(100, 1)
+    >>> generator = data_generator(X, y_actual, y_estimated, batch_size=10, shuffle=True)
+    >>> for x_batch, y_actual_batch, y_estimated_batch in generator:
+    ...     # Process the batch
+    ...     pass
     """
-    num_samples = x_data.shape[0]
+    X, y_actual = check_X_y(X, y_actual)
+    num_samples = X.shape[0]
     indices = np.arange(num_samples)
-    np.random.shuffle(indices)
+    if shuffle:
+        np.random.shuffle(indices)
 
     for start_idx in range(0, num_samples, batch_size):
         end_idx = min(start_idx + batch_size, num_samples)
         batch_indices = indices[start_idx:end_idx]
 
-        x_batch = x_data[batch_indices]
-        y_actual_batch = y_data_actual[batch_indices]
-        y_estimated_batch = y_data_estimated[batch_indices] if y_data_estimated is not None else None
+        x_batch = X[batch_indices]
+        y_actual_batch = y_actual[batch_indices]
+        y_estimated_batch = y_estimated[batch_indices] if\
+            y_estimated is not None else None
+
+        if preprocess_fn is not None:
+            x_batch, y_actual_batch, y_estimated_batch = preprocess_fn(
+                x_batch, y_actual_batch, y_estimated_batch)
 
         yield (x_batch, y_actual_batch, y_estimated_batch)
-        
 
 def evaluate_model(
     model_path: str, 
-    x_test: ArrayLike, 
-    y_test: ArrayLike, 
+    Xt: ArrayLike, 
+    yt: ArrayLike, 
     batch_size: int = 32, 
     denorm_range: Tuple[float, float] = (0.0, 1.0), 
     save_metrics: bool = False, 
@@ -1504,9 +1557,9 @@ def evaluate_model(
     ----------
     model_path : str
         Path to the saved model.
-    x_test : np.ndarray
+    Xt : np.ndarray
         Test dataset features.
-    y_test : np.ndarray
+    yt : np.ndarray
         Actual target values for the test dataset.
     batch_size : int, default=32
         Batch size to use for prediction.
@@ -1540,11 +1593,12 @@ def evaluate_model(
     before calculating metrics. The `denorm_range` parameter should match the 
     normalization applied to your dataset.
     """
+    Xt, yt= check_X_y(Xt, yt)
     min_value, max_value = denorm_range
     model = load_model(model_path)
-    predictions = model.predict(x_test, batch_size=batch_size)
+    predictions = model.predict(Xt, batch_size=batch_size)
     predictions_denormalized = denormalize(predictions, min_value, max_value)
-    y_test_denormalized = denormalize(y_test, min_value, max_value)
+    y_test_denormalized = denormalize(yt, min_value, max_value)
     
     test_metrics = {}
     if metrics is None or 'mse' in metrics:
@@ -1622,6 +1676,7 @@ def train_model(
     ...     patience=5, use_custom_loss=False)
     >>> print(f"Training complete. Checkpoints saved to {checkpoint_dir}")
     """
+    validate_keras_model(model, raise_exception=True)
     optimizer = Adam(learning_rate=initial_lr)
     best_loss = np.inf
     patience_counter = 0
@@ -1631,8 +1686,8 @@ def train_model(
         os.makedirs(checkpoint_dir)
 
     for epoch in range(num_epochs):
-        # Assume train_epoch is a function that trains the model for one epoch and returns
-        # the training and validation loss
+        # Assume train_epoch is a function that trains the model for one 
+        # epoch and returns the training and validation loss
         train_loss, val_loss = train_epoch(
             model, optimizer, x_train, y_train_actual, y_train_estimated, 
             lambda_value, batch_size, use_custom_loss)
@@ -1763,7 +1818,8 @@ def create_cnn_model(
     model = Sequential()
     for i, (filters, kernel_size, activation, dropout) in enumerate(conv_layers):
         if i == 0:
-            model.add(Conv2D(filters, kernel_size, activation=activation or 'relu', input_shape=input_shape))
+            model.add(Conv2D(filters, kernel_size, activation=activation or 'relu',
+                             input_shape=input_shape))
         else:
             model.add(Conv2D(filters, kernel_size, activation=activation or 'relu'))
         model.add(MaxPooling2D(pool_size=(2, 2)))
@@ -2008,9 +2064,9 @@ def plot_predictions(
     return plt.gca()
 
 def plot_errors(
-    predicted_custom: np.ndarray, 
-    predicted_mse: np.ndarray, 
-    actual: np.ndarray, 
+    predicted_custom: ArrayLike, 
+    predicted_mse: ArrayLike, 
+    actual: ArrayLike, 
     filename: Optional[str] = None, 
     figsize: tuple = (12, 6), 
     title: str = 'Error in Predictions', 
@@ -2020,7 +2076,7 @@ def plot_errors(
 ) -> 'matplotlib.axes.Axes':
     """
     Plots the absolute errors in predictions using custom loss and MSE against
-    actual values, optionally saving the plot to a file.
+    actual values. 
 
     Parameters
     ----------
@@ -2031,7 +2087,8 @@ def plot_errors(
     actual : np.ndarray
         Actual values to compare against predictions.
     filename : Optional[str], default=None
-        Path and filename where the plot will be saved. If None, the plot is not saved.
+        Path and filename where the plot will be saved. If None, the plot is 
+        not saved.
     figsize : tuple, default=(12, 6)
         Dimensions of the figure.
     title : str, default='Error in Predictions'
@@ -2075,3 +2132,624 @@ def plot_errors(
         plt.savefig(filename)
     return plt.gca()
 
+def find_best_lr(
+    model_fn: Callable, 
+    train_data: Union[Tuple[ArrayLike, ArrayLike], tf.data.Dataset], 
+    epochs: int = 5, 
+    initial_lr: float = 1e-6, 
+    max_lr: float = 1, 
+    loss: str = 'binary_crossentropy', 
+    steps_per_epoch: Union[int, None] = None, 
+    verbose: int=0, 
+    batch_size: Union[int, None] = None, 
+    view: bool = True) -> float:
+    """
+    Identifies the optimal learning rate for training a Keras model. 
+    
+    Function gradually increases the learning rate within a specified range 
+    and monitoring the loss. The optimal learning rate is estimated 
+    programmatically based on the steepest decline observed in the loss curve.
+
+    Parameters
+    ----------
+    model_fn : Callable
+        A function that returns an uncompiled Keras model. The function should
+        not compile the model as this method will apply the learning rate
+        adjustments dynamically.
+    train_data : Union[Tuple[np.ndarray, np.ndarray], tf.data.Dataset]
+        The training data to be used. This can either be a tuple of NumPy arrays
+        `(X_train, y_train)` or a TensorFlow `Dataset` object.
+    epochs : int, optional
+        The number of epochs to perform during the learning rate range test. 
+        Defaults to 5.
+    initial_lr : float, optional
+        The initial learning rate to start the test from. Defaults to 1e-6.
+    max_lr : float, optional
+        The maximum learning rate to test up to. Defaults to 1.
+    loss : str, optional
+        Loss function to be used for compiling the model. Defaults to 
+        'binary_crossentropy'.
+    steps_per_epoch : int or None, optional
+        Specifies the number of steps in each epoch. Required if `train_data` is
+        a TensorFlow `Dataset`. Defaults to None, in which case it is calculated
+        based on the batch size and the size of `train_data`.
+    batch_size : int or None, optional
+        The batch size for training. Required if `train_data` is provided as 
+        NumPy arrays.Defaults to None.
+    verbose: int, default=0 
+       Control the level of verbosity. 
+    view : bool, optional
+        If True, plots the loss against the learning rate upon completion of 
+        the test, marking the estimated optimal learning rate. Defaults to True.
+
+    Returns
+    -------
+    float
+        The estimated optimal learning rate based on the observed loss curve.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.models.deep_search import find_best_lr
+    >>> def create_model():
+    ...     return tf.keras.models.Sequential([
+    ...         tf.keras.layers.Dense(10, activation='relu', input_shape=(100,)),
+    ...         tf.keras.layers.Dense(1, activation='sigmoid')])
+    >>> X_train, y_train = np.random.rand(1000, 100), np.random.randint(2, size=(1000, 1))
+    >>> optimal_lr = find_best_lr(create_model, (X_train, y_train), 
+                                             epochs=3, batch_size=32)
+    >>> print(f"Optimal learning rate: {optimal_lr}")
+    """
+    validate_keras_model(model_fn, raise_exception=True)
+    if isinstance(train_data, tuple):
+        if batch_size is None:
+            raise ValueError("When using NumPy arrays as train_data, batch_size"
+                             " must be specified.")
+        train_data = tf.data.Dataset.from_tensor_slices(train_data).shuffle(
+            buffer_size=10000).batch(batch_size)
+        steps_per_epoch = len(train_data)
+
+    lr_schedule = tf.keras.callbacks.LearningRateScheduler(
+        lambda epoch: initial_lr + (max_lr - initial_lr) * epoch / (epochs - 1)
+    )
+
+    model = model_fn()
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=initial_lr),
+                  loss=loss)
+
+    history = model.fit(train_data, epochs=epochs, steps_per_epoch=steps_per_epoch,
+                        callbacks=[lr_schedule], verbose=verbose )
+
+    lr_diff = np.diff(learning_rates := np.linspace(initial_lr, max_lr, epochs))
+    loss_diff = np.diff(history.history['loss'])
+    derivatives = loss_diff / lr_diff
+    steepest_decline_index = np.argmin(derivatives)
+    optimal_lr = learning_rates[steepest_decline_index]
+
+    if view:
+        plt.figure(figsize=(10, 6))
+        plt.plot(learning_rates[:-1], history.history['loss'][:-1], label='Loss')
+        plt.plot(optimal_lr, history.history['loss'][steepest_decline_index], 'ro',
+                 label='Optimal LR')
+        plt.xscale('log')
+        plt.xlabel('Learning Rate')
+        plt.ylabel('Loss')
+        plt.legend()
+        plt.show()
+
+    return optimal_lr
+
+def create_sequences(
+    input_data: ArrayLike, 
+    n_features: int, 
+    n_forecast: int = 1, 
+    n_lag: int = 12, 
+    step: int = 1, 
+    output_features: list[int] = None, 
+    shuffle: bool = False, 
+    normalize: bool = False
+ ) -> tuple[ArrayLike, ArrayLike]:
+    """
+    Create sequences from the data for LSTM model training. 
+    
+    Generates sequences, including specific output features selection, 
+    optional shuffling, and normalization.
+
+    Parameters
+    ----------
+    input_data : np.ndarray
+        Normalized dataset as a NumPy array.
+    n_features : int
+        Total number of features in the dataset.
+    n_forecast : int, optional
+        Number of steps to forecast; defaults to 1 (for the next time step).
+    n_lag : int, optional
+        Number of past time steps to use for prediction; defaults to 12.
+    step : int, optional
+        Step size for iterating through the input_data; defaults to 1.
+    output_features : list[int], optional
+        Indices of features to be used for output sequences; defaults to None,
+        using the last feature.
+    shuffle : bool, optional
+        Whether to shuffle the sequences; defaults to False. Useful for training.
+    normalize : bool, optional
+        Whether to apply normalization on sequences; defaults to False.
+
+    Returns
+    -------
+    X : np.ndarray
+        Input sequences shaped for LSTM, with dimensions [samples, time steps, features].
+    y : np.ndarray
+        Output sequences (targets), shaped according to selected output features.
+
+    Examples
+    --------
+    >>> import numpy as np 
+    >>> from gofast.models.deep_search import create_sequences
+    >>> input_data = np.random.rand(100, 5)  # Example data
+    >>> X, y = create_sequences(input_data, n_features=5, n_forecast=1, n_lag=12,
+    ... step=1, output_features=[-1], shuffle=True, normalize=True)
+    >>> print(X.shape, y.shape)
+    """
+    input_data = check_array( input_data )
+    output_features= is_iterable(output_features, transform =True )
+    if output_features is None:
+        output_features = [-1]  # Default to the last feature if none specified
+    
+    X, y = [], []
+    for i in range(0, len(input_data) - n_lag, step):
+        end_ix = i + n_lag
+        if end_ix + n_forecast > len(input_data):
+            break
+        seq_x = input_data[i:end_ix, :]
+        seq_y = input_data[end_ix:end_ix + n_forecast, output_features].squeeze()
+        
+        if normalize:
+            seq_x = (seq_x - np.mean(seq_x, axis=0)) / np.std(seq_x, axis=0)
+            seq_y = (seq_y - np.mean(seq_y)) / np.std(seq_y)
+        
+        X.append(seq_x)
+        y.append(seq_y)
+    
+    if shuffle:
+        indices = np.arange(len(X))
+        np.random.shuffle(indices)
+        X = np.array(X)[indices]
+        y = np.array(y)[indices]
+    
+    return np.array(X), np.array(y)
+
+def make_future_predictions(
+    model: Any, 
+    last_known_sequence: ArrayLike, 
+    n_features: int, 
+    n_periods: int=1, 
+    output_feature_index: int = 0, 
+    update_sequence: bool = True, 
+    scaler: Optional[Any] = None
+) -> ArrayLike:
+    """
+    Generate future predictions for a specified number of periods using 
+    a trained model. 
+    
+    Function updates the sequence with each prediction and applying inverse 
+    transformation using a provided scaler.
+
+    Parameters
+    ----------
+    model : Any
+        The trained predictive model that has a predict method. This model is used 
+        to generate future predictions based on the last known sequence.
+    last_known_sequence : ArrayLike
+        A numpy array representing the last known data sequence. This sequence is 
+        the starting point for generating future predictions.
+    n_features : int
+        The total number of features in the dataset. This is required to 
+        properly format the predictions and input sequence.
+    n_periods : int, optional,defaulting to 1
+        The number of future periods for which predictions are to be made, 
+        defaulting to 1. This can represent any unit of time as specified by 
+        (e.g., days, months, years).
+    output_feature_index : int, optional
+        Index of the target feature within the dataset for which predictions 
+        are made. Defaults to 0, indicating the first feature.
+    update_sequence : bool, optional
+        Indicates whether the sequence should be updated with each new prediction. 
+        If True, each new prediction is added to the sequence for subsequent 
+        predictions. Defaults to True.
+    scaler : Optional[Any], optional
+        An optional scaler object used for inverse transforming the predictions
+        to their original scale. If None, predictions are returned without 
+        scaling. This is useful when the data has been previously scaled for 
+        training the model.
+
+    Returns
+    -------
+    ArrayLike
+        An array of predictions for the specified future periods, potentially  
+        inverse transformed to their original scale if a scaler is provided.
+
+    Example
+    -------
+    >>> import numpy as np 
+    >>> from gofast.models.deep_search import make_future_predictions
+    >>> from sklearn.preprocessing import MinMaxScaler
+    >>> model = YourModel()
+    >>> scaler = MinMaxScaler()
+    >>> last_known_sequence = np.random.rand(1, 12, 5)  # Example sequence
+    >>> predictions = make_future_predictions(model, last_known_sequence, 
+    ...                                          3, 5, scaler=scaler)
+    >>> print(predictions)
+    """
+    validate_keras_model(model, raise_exception=True)
+    input_sequence = np.copy(last_known_sequence)
+    
+    future_predictions = []
+    for _ in range(n_periods):
+        predicted = model.predict(input_sequence)[0, output_feature_index]
+        future_predictions.append(predicted)
+        
+        if update_sequence:
+            input_sequence = np.roll(input_sequence, -1, axis=1)
+            new_row = np.zeros(n_features)
+            new_row[output_feature_index] = predicted
+            input_sequence[0, -1, :] = new_row
+
+    predictions_full_features = np.zeros((len(future_predictions), n_features))
+    predictions_full_features[:, output_feature_index] = future_predictions
+    
+    if scaler is not None:
+        future_predictions = scaler.inverse_transform(
+            predictions_full_features)[:, output_feature_index]
+    else:
+        # Ensuring return type consistency
+        future_predictions = np.array(future_predictions)  
+    
+    return future_predictions
+
+def lstm_ts_tuner(
+    data: DataFrame,
+    target: Union[str, Series, ArrayLike],
+    n_lag: int,
+    activation='relu', 
+    decompose_ts: bool = True,
+    decomposition_model: str = 'additive',
+    decomposition_period: int = 12,
+    n_splits: int = 5,
+    epochs: int = 100,
+    metric: str = "auto",
+    scale: str = 'minmax',
+    learning_rate: float = 0.01
+) -> dict:
+    """
+    Optimizes an LSTM model considering optional decomposition of the time series,
+    feature scaling. 
+    
+    Function uses cross-validation for model tuning and supports both mean squared
+    error (MSE) and accuracy metrics, and allows for the data to be scaled 
+    using either MinMaxScaler or StandardScaler.
+
+    Parameters
+    ----------
+    data : DataFrame
+        Input dataframe containing the time series data and any additional features.
+    target : Union[str, Series, ArrayLike]
+        The target variable to predict. Can be a column name (str) in `data`, 
+        a Series, or an ArrayLike object.
+    n_lag : int
+        Number of lag observations to include as input features for the model.
+    activation: str, default='relu'. 
+        The activation function to use in the LSTM layers. Default for Rectified 
+        Linear Unit ('relu'). Can be 'sigmoid', 'tanh' etc. 
+    decompose_ts : bool, default=True
+        Whether to decompose the time series data before modeling.
+    decomposition_model : str, default='additive'
+        Model to use for seasonal decomposition ('additive' or 'multiplicative').
+    decomposition_period : int, default=12
+        Frequency of the time series data for decomposition.
+    n_splits : int, default=5
+        Number of splits for time series cross-validation.
+    epochs : int, default=100
+        Number of epochs to train the LSTM model.
+    metric : str, default='auto'
+        Metric to evaluate the model performance (
+            'mse', 'accuracy', or 'auto' to decide based on target type).
+    scale : str, default='minmax'
+        Scaling method for the input features ('minmax' or 'normalize').
+    learning_rate : float, default=0.01
+        Learning rate for the optimizer.
+
+    Returns
+    -------
+    dict
+        Dictionary containing the best score and LSTM model parameters after tuning.
+
+    Example
+    -------
+    >>> import pandas as pd 
+    >>> import numpy as np 
+    >>> from gofast.models.deep_search import lstm_ts_tuner
+    >>> data = pd.read_csv('data.csv', parse_dates=['date'], index_col='date')
+    >>> best_params = lstm_ts_tuner(data, 'target_column', 12)
+    >>> print(best_params)
+    """
+    is_frame(data, df_only=True, raise_exception= True )
+    target = data[target] if isinstance(target, str) else target
+    metric = ( 'mse' if metric == 'auto' and type_of_target(target) == 'contineous'
+              else 'accuracy') 
+    if decompose_ts:
+        import_optional_dependency("statsmodels", extra= ( 
+            "Need 'statsmodels' for time-series decomposition")
+            )
+        from statsmodels.tsa.seasonal import seasonal_decompose
+        decomposition = seasonal_decompose(target, model=decomposition_model,
+                                           period=decomposition_period)
+        data['residual'] = decomposition.resid.fillna(method='bfill').fillna(method='ffill')
+    
+    scaler = MinMaxScaler() if scale == 'minmax' else StandardScaler()
+    data['scaled_residual'] = scaler.fit_transform(data[['residual']])
+
+    X, y = _create_sequences(data['scaled_residual'].to_numpy(), n_lag)
+    tscv = TimeSeriesSplit(n_splits=n_splits)
+    model = _build_lstm_model(n_lag, learning_rate, activation=activation)
+
+    metric_scores = _cross_validate_lstm(model, X, y, tscv, metric, scaler, epochs)
+    best_score = min(metric_scores) if metric == "mse" else max(metric_scores)
+    
+    return  {
+    'best_score': best_score,
+    'epochs': epochs,
+    'learning_rate': learning_rate,
+    'average_cv_score': np.mean(metric_scores),
+    'std_cv_score': np.std(metric_scores),
+    'model_details': model.get_config(),
+    'suggested_next_steps': {
+        'adjust_n_lag': 'Try increasing or decreasing n_lag.',
+        'try_different_activation': 'Experiment with different activation functions.',
+        'alter_architecture': 'Consider adding more LSTM layers or adjusting'
+        ' the number of units.'
+        }
+    }
+
+def _create_sequences(data: ArrayLike, n_lag: int) -> Tuple[ArrayLike, ArrayLike]:
+    """
+    Creates sequences from time series data for LSTM model input.
+    
+    Parameters:
+    - data: np.ndarray. Time series data.
+    - n_lag: int. Number of lag observations per sequence.
+    
+    Returns:
+    - Tuple of np.ndarray: (X, y). X is the sequences for model input, y is 
+      the target output.
+    """
+    X, y = [], []
+    for i in range(n_lag, len(data)):
+        X.append(data[i-n_lag:i])
+        y.append(data[i])
+    return np.array(X), np.array(y)
+
+def _build_lstm_model(n_lag: int, learning_rate: float, activation='relu'
+                      ) -> Sequential:
+    """
+    Builds and compiles an LSTM model based on the specified input shape 
+    and learning rate.
+    
+    Parameters:
+    - n_lag: int. Number of lag observations, defining the input shape.
+    - learning_rate: float. Learning rate for the optimizer.
+    - activation: str. Activation method, default='relu'.
+    
+    Returns:
+    - Sequential. The compiled LSTM model.
+    """
+    model = Sequential([
+        LSTM(50, activation=activation, input_shape=(n_lag, 1)),
+        Dense(1)
+    ])
+    model.compile(optimizer=Adam(learning_rate=learning_rate), 
+                  loss='mean_squared_error')
+    return model
+
+def _cross_validate_lstm(
+        model: Sequential, 
+        X: np.ndarray, y: np.ndarray, 
+        tscv: TimeSeriesSplit, metric: str, 
+        scaler: Union[MinMaxScaler, StandardScaler], 
+        epochs: int) -> list:
+    """
+    Performs cross-validation on LSTM model with time series data.
+    
+    Parameters:
+    - model: Sequential. The LSTM model to be evaluated.
+    - X: np.ndarray. Input sequences.
+    - y: np.ndarray. Target outputs.
+    - tscv: TimeSeriesSplit. Cross-validator.
+    - metric: str. Performance metric ('mse' or 'accuracy').
+    - scaler: MinMaxScaler or StandardScaler. Scaler used for inverse transformation.
+    - epochs: int. Number of epochs for training.
+    
+    Returns:
+    - list. List of scores for each cross-validation split.
+    """
+    scores = []
+    for train_index, test_index in tscv.split(X):
+        X_train, X_test, y_train, y_test = (X[train_index], X[test_index],
+                                            y[train_index], y[test_index]
+                                            )
+        model.fit(X_train, y_train, epochs=epochs, verbose=0)
+        predictions = model.predict(X_test)
+        predictions_original = scaler.inverse_transform(predictions)
+        y_test_original = scaler.inverse_transform(y_test.reshape(-1, 1))
+        score = mean_squared_error(y_test_original, predictions_original
+                                   ) if metric == 'mse' else accuracy_score(
+                                       y_test_original, np.round(predictions_original))
+        scores.append(score)
+    return scores
+
+def cross_validate_lstm(
+    model: Sequential,
+    X: np.ndarray,
+    y: np.ndarray, 
+    tscv: Optional[Union[TimeSeriesSplit, int]] = 4,
+    metric: Union[str, Callable] = "mse",
+    scaler: Optional[Union[MinMaxScaler, StandardScaler]] = None,
+    epochs: int = 100,
+    verbose: int = 0,
+    **metric_kwargs
+) -> list:
+    """
+    Performs cross-validation on an LSTM model with specified metrics 
+    and scaling.
+
+    Parameters
+    ----------
+    model : Sequential
+        The LSTM model to evaluate.
+    X : np.ndarray
+        The input data for the model, structured as sequences.
+    y : np.ndarray
+        The target data corresponding to the input sequences.
+    tscv : Optional[Union[TimeSeriesSplit, int]], default=4
+        The cross-validation splitting strategy as a TimeSeriesSplit instance 
+        or an integer specifying the number of splits.
+    metric : Union[str, Callable], default="mse"
+        The metric for evaluating model performance. Can be a string 
+        ('mse', 'accuracy') or a callable function.
+    scaler : Optional[Union[MinMaxScaler, StandardScaler]], default=None
+        The scaler instance used for inverse transforming the model predictions. 
+        If None, predictions are not scaled.
+    epochs : int, default=100
+        Number of training epochs for the LSTM model.
+    verbose : int, default=0
+        Verbosity mode for model training. 0 = silent, 1 = progress bar,
+        2 = one line per epoch.
+    **metric_kwargs
+        Additional keyword arguments to be passed to the metric function.
+
+    Returns
+    -------
+    list
+        Scores from each cross-validation fold based on the specified metric.
+
+    Examples
+    --------
+    >>> from keras.models import Sequential
+    >>> from sklearn.model_selection import TimeSeriesSplit
+    >>> from sklearn.preprocessing import MinMaxScaler
+    >>> model = Sequential([Dense(10, input_shape=(3,))])
+    >>> X, y = np.random.rand(100, 3), np.random.rand(100)
+    >>> scores = cross_validate_lstm(model, X, y, metric="mse", epochs=10)
+    >>> print(scores)
+    """
+    validate_keras_model(model, raise_exception=True) 
+    X, y = check_X_y ( X, y )
+    
+    if isinstance(tscv, int):
+        tscv = TimeSeriesSplit(n_splits=tscv)
+    if not isinstance(tscv, TimeSeriesSplit):
+        raise ValueError("tscv must be a TimeSeriesSplit instance or an integer.")
+
+    if scaler and not hasattr(scaler, 'fit_transform'):
+        raise ValueError("Scaler must be a MinMaxScaler, StandardScaler, "
+                         "or have a 'fit_transform' method.")
+
+    metric_fn = metric if callable(metric) else {
+        "mse": mean_squared_error,
+        "accuracy": accuracy_score
+    }.get(metric)
+
+    if metric_fn is None:
+        raise ValueError(f"Metric {metric} is not supported or not callable.")
+
+    scores = []
+    for train_index, test_index in tscv.split(X):
+        X_train, X_test, y_train, y_test = ( 
+            X[train_index], X[test_index], y[train_index], y[test_index]
+            )
+        model.fit(X_train, y_train, epochs=epochs, verbose=verbose, **metric_kwargs)
+        predictions = model.predict(X_test)
+
+        if scaler:
+            predictions = scaler.inverse_transform(predictions.reshape(-1, 1))
+            y_test = scaler.inverse_transform(y_test.reshape(-1, 1))
+
+        score = metric_fn(y_test, predictions, **metric_kwargs)
+        scores.append(score)
+
+    return scores
+
+def build_lstm_model(
+    n_lag: Optional[int] = None,
+    input_shape: Optional[Tuple[int, int]] = None,
+    learning_rate: float = 0.01,
+    activation: str = 'relu',
+    loss: str = 'mean_squared_error',
+    units: int = 50,
+    output_units: int = 1,
+    optimizer: Union[str, Adam] = 'adam',
+    metrics: Optional[list] = None
+) -> Sequential:
+    """
+    Constructs and compiles an LSTM model with customizable configurations, 
+    allowing for flexible input shapes.
+
+    Parameters
+    ----------
+    n_lag : int, optional
+        The number of lag observations to use as input features. 
+        Ignored if `input_shape` is provided.
+    input_shape : Tuple[int, int], optional
+        Direct specification of the input shape (time_steps, features). Use 
+        this instead of `n_lag` for non-uniform input shapes.
+    learning_rate : float, optional
+        The learning rate for the optimizer. Defaults to 0.01.
+    activation : str, optional
+        Activation function for the LSTM layers. Defaults to 'relu'.
+    loss : str, optional
+        Loss function for model training. Defaults to 'mean_squared_error'.
+    units : int, optional
+        Number of units in the LSTM layer. Defaults to 50.
+    output_units : int, optional
+        Number of units in the output layer. Suitable for regression tasks. 
+        Defaults to 1.
+    optimizer : Union[str, Adam], optional
+        Optimizer to use. Defaults to 'adam'. Can be an optimizer instance 
+        for custom configurations.
+    metrics : list, optional
+        Metrics to be evaluated by the model during training and testing.
+
+    Returns
+    -------
+    Sequential
+        The compiled Keras Sequential LSTM model.
+
+    Examples
+    --------
+    >>> from gofast.models.deep_search import build_lstm_model
+    >>> model = build_lstm_model(n_lag=10, learning_rate=0.01, activation='relu')
+    >>> print(model.summary())
+    
+    >>> model = build_lstm_model(n_lag=10)
+    >>> print(model.summary())
+    >>> # With direct input shape
+    >>> model = build_lstm_model(input_shape=(10, 2))
+    >>> print(model.summary())
+    """
+    # Determine input shape based on n_lag or direct input_shape
+    if not input_shape:
+        if n_lag is None:
+            raise ValueError("Either n_lag or input_shape must be provided.")
+        input_shape = (n_lag, 1)
+    
+    model = Sequential([
+        LSTM(units=units, activation=activation, input_shape=input_shape),
+        Dense(output_units)
+    ])
+    
+    # Configure optimizer
+    optimizer_instance = Adam(learning_rate=learning_rate
+                              ) if optimizer == 'adam' else optimizer
+    model.compile(optimizer=optimizer_instance, loss=loss, metrics=metrics or [])
+    
+    return model

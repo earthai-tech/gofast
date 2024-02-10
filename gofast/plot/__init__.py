@@ -61,6 +61,7 @@ from .utils import (
     plot_residuals_vs_fitted, 
     plot_variables, 
     plot_correlation_with_target, 
+    plot_dependences
     )
 
 __all__= [
@@ -125,4 +126,5 @@ __all__= [
     'plot_residuals_vs_fitted', 
     'plot_variables', 
     'plot_correlation_with_target', 
+    'plot_dependences'
     ]

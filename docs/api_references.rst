@@ -368,7 +368,7 @@ Functions
    models.display_cv_tables 
    models.display_fine_tuned_results
    models.display_model_max_details
-   models.naive_evaluation
+   models.dummy_evaluation
    models.parallelize_estimators
    models.optimize_hyperparameters 
    models.optimize_search 
@@ -387,7 +387,7 @@ Functions
    models.visualize_score_distribution 
    models.performance_over_time 
    models.calculate_custom_metric 
-   models.handle_missing_data 
+   models.handle_missing_in_scores 
    models.export_cv_results 
    models.comparative_analysis 
    models.plot_parameter_importance 
@@ -399,7 +399,7 @@ Functions
    models.plot_confidence_intervals 
    models.plot_pairwise_model_comparison
    models.plot_feature_correlation 
-   models.quick_evaluation 
+   models.base_evaluation 
 
 .. _metrics_ref:
 

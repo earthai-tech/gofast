@@ -5,6 +5,7 @@
 
 # Utilities for input validation
 from functools import wraps
+from typing import Any, Callable, Optional
 import inspect 
 import types 
 import warnings
@@ -23,6 +24,151 @@ from inspect import signature, Parameter, isclass
 from ._array_api import get_namespace, _asarray_with_order
 
 FLOAT_DTYPES = (np.float64, np.float32, np.float16)
+
+def is_keras_model(model: Any) -> bool:
+    """
+    Determine whether the provided object is an instance of a Keras model.
+
+    Parameters
+    ----------
+    model : Any
+        The object to be checked.
+
+    Returns
+    -------
+    bool
+        True if the object is an instance of `tf.keras.models.Model` or 
+        `tf.keras.Sequential`,False otherwise.
+    """
+    from ._dependency import import_optional_dependency 
+    import_optional_dependency("tensorflow")
+    import tensorflow as tf
+    return isinstance(model, (tf.keras.models.Model, tf.keras.Sequential))
+
+def has_required_attributes(model: Any, attributes: list[str]) -> bool:
+    """
+    Check if the model has all required Keras-specific attributes.
+
+    This function is part of the deep validation process to ensure that the
+    model not only inherits from Keras model classes but also implements 
+    essential methods.
+
+    Parameters
+    ----------
+    model : Any
+        The model object to inspect.
+    attributes : list of str
+        A list of strings representing the names of the attributes to check for
+        in the model.
+
+    Returns
+    -------
+    bool
+        True if the model contains all specified attributes, False otherwise.
+    """
+    return all(hasattr(model, attr) for attr in attributes)
+
+def validate_keras_model(
+        model: Any, custom_check: Optional[Callable[[Any], bool]] = None,
+        deep_check: bool = False, raise_exception =False ) -> bool:
+    """
+    Validates whether a given object is a Keras model and optionally performs 
+    additional checks.
+
+    This function provides a mechanism to ensure that an object not only is an 
+    instance of a Keras model but also conforms to additional, user-defined 
+    criteria if specified. It offers an optional deep check that inspects the 
+    model for key Keras methods, enhancing the validation
+    process.
+
+    Parameters
+    ----------
+    model : Any
+        The object to validate as a Keras model.
+    custom_check : Callable[[Any], bool], optional
+        An optional callback function that takes the model as input and returns
+        a boolean indicating whether the model passes custom validation criteria. 
+        If `None`, no custom validation is performed.
+    deep_check : bool, optional
+        If True, performs a deep inspection of the model's attributes to ensure
+        it supports essential Keras functionality (default is False).
+        
+    raise_exception : bool, optional
+        If True, raises a TypeError when the model fails the validation
+        checks, instead of returning False.
+    Returns
+    -------
+    bool
+        True if the object is validated as a Keras model and satisfies any 
+        specified custom validation criteria. False otherwise.
+
+    Raises
+    ------
+    ValueError
+        If the custom check is provided and raises an exception, indicating 
+        failure of the custom validation logic.
+
+    Examples
+    --------
+    >>> from tensorflow.keras.layers import Dense
+    >>> from tensorflow.keras.models import Sequential
+    >>> from gofast.tools.validator import  validate_keras_model
+    >>> model = Sequential([Dense(2)])
+
+    Validate a simple Keras model without additional checks:
+    >>> validate_keras_model(model)
+    True
+
+    Validate with a custom check (e.g., model must have more than 1 layer):
+    >>> custom_layer_check = lambda m: len(m.layers) > 1
+    >>> validate_keras_model(model, custom_check=custom_layer_check)
+    False
+
+    Validate with deep inspection:
+    >>> validate_keras_model(model, deep_check=True)
+    True
+    """
+    if not is_keras_model(model):
+        if raise_exception: 
+            raise TypeError("Provided object is not a Keras model.")
+        return False 
+
+    if deep_check and not has_required_attributes(
+            model, ['fit', 'predict', 'compile', 'summary']):
+        if raise_exception: 
+            raise TypeError("Model does not support essential Keras functionalities.")
+        return False
+
+    if custom_check:
+        try:
+            return custom_check(model)
+        except Exception as e:
+            raise ValueError(f"Custom check failed: {e}")
+   
+    return True
+
+def is_installed(module: str ) -> bool:
+    """
+    Checks if TensorFlow is installed.
+
+    This function attempts to find the TensorFlow package specification without
+    importing the package. It's a lightweight method to verify the presence of
+    TensorFlow in the environment.
+
+    Returns
+    -------
+    bool
+        True if TensorFlow is installed, False otherwise.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import is_installed 
+    >>> print(is_installed("tensorflow"))
+    True  # Output will be True if TensorFlow is installed, False otherwise.
+    """
+    import importlib.util
+    module_spec = importlib.util.find_spec(module)
+    return module_spec is not None
 
 def is_time_series(data, /, time_col, check_time_interval=False ):
     """

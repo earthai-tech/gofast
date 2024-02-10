@@ -17,6 +17,7 @@ import pandas as pd
 import seaborn as sns 
 import matplotlib as mpl
 import scipy.sparse as sp
+import matplotlib.axes
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.transforms as transforms 
@@ -26,9 +27,11 @@ from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse
 from scipy.cluster.hierarchy import dendrogram, ward 
 
+from sklearn.base import BaseEstimator
 from sklearn.cluster import KMeans 
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestClassifier 
+from sklearn.inspection import PartialDependenceDisplay
 from sklearn.linear_model import LogisticRegression 
 from sklearn.metrics import confusion_matrix , silhouette_samples, roc_curve 
 from sklearn.metrics import roc_auc_score, r2_score
@@ -48,10 +51,103 @@ from ..tools._dependency import import_optional_dependency
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
 
+def plot_dependences(
+    model: BaseEstimator, 
+    X: Union[ArrayLike, DataFrame], 
+    features: Union[List[int], List[str]], 
+    kind: str = 'average', 
+    grid_resolution: int = 100, 
+    feature_names: Optional[List[str]] = None, 
+    percentiles: Tuple[float, float] = (0.05, 0.95), 
+    n_jobs: Optional[int] = None, 
+    verbose: int = 0, 
+    ax: Optional[matplotlib.axes.Axes] = None
+) -> matplotlib.axes.Axes:
+    """
+    Generates Partial Dependence Plots (PDP) or Individual Conditional 
+    Expectation (ICE) plots for specified features using a fitted model.
+
+    Parameters
+    ----------
+    model : BaseEstimator
+        A fitted scikit-learn-compatible estimator that implements `predict` 
+        or `predict_proba`.
+    X : Union[np.ndarray, pd.DataFrame]
+        The input samples. Pass directly as a Fortran-contiguous NumPy array 
+        to avoid unnecessary memory duplication. For pandas DataFrame, 
+        ensure binary columns are used.
+    features : Union[List[int], List[str]]
+        The target features for which to create the PDPs or ICE plots. For 
+        `feature_names` provided, `features` can be a list of feature names.
+    kind : str, optional
+        The kind of plot to generate. 'average' generates the PDP, and 
+        'individual' generates the ICE plots. Defaults to 'average'.
+    grid_resolution : int, optional
+        The number of evenly spaced points where the partial dependence 
+        is evaluated. Defaults to 100.
+    feature_names : Optional[List[str]], optional
+        List of feature names if `X` is a NumPy array. `feature_names` is 
+        used for axis labels. Defaults to None.
+    percentiles : Tuple[float, float], optional
+        The lower and upper percentile used to create the extreme values 
+        for the PDP axes. Must be in [0, 1]. Defaults to (0.05, 0.95).
+    n_jobs : Optional[int], optional
+        The number of jobs to run in parallel for `plot_partial_dependence`. 
+        `None` means 1. Defaults to None.
+    verbose : int, optional
+        Verbosity level. Defaults to 0.
+    ax : Optional[matplotlib.axes.Axes], optional
+        Matplotlib axes object to plot on. If None, creates a new figure. 
+        Defaults to None.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+        The matplotlib axes object with the plot.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import make_friedman1
+    >>> from sklearn.ensemble import GradientBoostingRegressor
+    >>> from gofast.plot.utils import plot_dependences
+    >>> X, y = make_friedman1()
+    >>> model = GradientBoostingRegressor().fit(X, y)
+    >>> plot_dependences(model, X, features=[0, 1], kind='average')
+
+    Note
+    ----
+    This function is a utility wrapper around `sklearn.inspection.plot_partial_dependence`
+    that simplifies generating PDP and ICE plots. These plots are valuable 
+    tools for understanding the effect of features on the prediction of a model,
+    providing insights into the model's behavior over a range of feature values.
+    """
+    if not hasattr(model, 'predict') and not hasattr(model, 'predict_proba'):
+       raise TypeError("The model must implement predict or predict_proba method.")
+   
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(12, len(features) * 4))
+    
+    disp = PartialDependenceDisplay.from_estimator(
+        model, X, features, kind=kind, feature_names=feature_names, 
+        percentiles=percentiles, grid_resolution=grid_resolution, 
+        n_jobs=n_jobs, verbose=verbose, ax=ax,
+        line_kw={'color': 'gray', 'alpha': 0.5} if kind == 'individual' else {},
+        pd_line_kw={'color': 'red', 'linestyle': '--'} if kind == 'average' else {}
+    )
+    
+    plot_title = ("Partial Dependence Plots" if kind == 'average' 
+                  else "Individual Conditional Expectation Plots"
+                  )
+    disp.figure_.suptitle(plot_title)
+    plt.subplots_adjust(top=0.9)  # Adjust the title to not overlap with plots
+    plt.show()
+    
+    return ax
+
 def plot_variables(
     data: DataFrame, 
+    target: Union[Optional[str], ArrayLike] = None,
     kind: str = "cat", 
-    target: Optional[str] = None,
     colors: Optional[List[str]] = None, 
     target_labels: Optional[Union[List[str], ArrayLike]] = None,
     fontsize: int = 12, 
@@ -66,11 +162,12 @@ def plot_variables(
     ----------
     data : pd.DataFrame
         The dataframe containing the variables to plot.
+    target : Optional[str], optional
+        The name of the target variable. If provided, it must exist in `data`.
+        If array is passed, it must be consistent with the data. 
     kind : str, optional
         The kind of variables to plot ('cat' for categorical, 'num' for numerical). 
         Default is 'cat'.
-    target : Optional[str], optional
-        The name of the target variable. If provided, it must exist in `data`.
     colors : Optional[List[str]], optional
         A list of colors to use for the plot. If not provided, defaults will be used.
     target_labels : Optional[Union[List[str], np.ndarray]], optional
@@ -103,15 +200,19 @@ def plot_variables(
     if not isinstance(data, pd.DataFrame):
         raise TypeError("Expected data to be a pandas DataFrame."
                         f" Got {type(data).__name__!r}")
-    
     if target is None:
         raise ValueError("Target must be provided.")
-    if target not in data.columns:
-        raise ValueError(f"Target column '{target}' does not exist in the dataframe.")
-
-    target_data = data[target]
-    data = data.drop(columns=[target])
-
+        
+    if isinstance ( target, str): 
+        if target not in data.columns:
+            raise ValueError(f"Target column '{target}' does not exist in"
+                             " the dataframe.")
+        target_data = data[target]
+        data = data.drop(columns=[target])
+    elif isinstance ( target, ( np.ndarray, pd.Series)): 
+        target_data = np.array (target).copy() 
+    
+    check_consistent_length(data, target_data)
     # Determine categorical and numerical variables
     data, num_vars, cat_vars= to_numeric_dtypes(data, return_feature_types=True)
 
@@ -416,8 +517,8 @@ def plot_residuals_vs_leverage(
     ax.set_title('Residuals vs Leverage')
     ax.set_xlabel('Leverage')
     ax.set_ylabel('Standardized Residuals')
-
     plt.show()
+    
     return ax
 
 def plot_residuals_vs_fitted(
@@ -753,14 +854,14 @@ def plot_venn_diagram(
     )
     >>> plt.show()
     
-    Using dictionaries
+    >>> # Using dictionaries
     >>> set1 = {1, 2, 3}
     >>> set2 = {2, 3, 4}
     >>> set3 = {4, 5, 6}
     >>> ax = plot_venn_diagram({'Set1': set1, 'Set2': set2, 'Set3': set3}, 
                            ('Set1', 'Set2', 'Set3'))
 
-    Using arrays
+    >>> # Using arrays
     >>> arr1 = np.array([1, 2, 3])
     >>> arr2 = np.array([2, 3, 4])
     >>> ax = plot_venn_diagram([arr1, arr2], ('Array1', 'Array2'))
@@ -811,7 +912,6 @@ def plot_venn_diagram(
 
     return ax
 
-
 def create_upset_plot(
         data: Dict[str, set], sort_by: str = 'degree', 
         show_counts: bool = False):
@@ -840,6 +940,7 @@ def create_upset_plot(
 
     Example
     -------
+    >>> from gofast.plot.utils import create_upset_plot
     >>> sets = {
         "Set1": {1, 2, 3},
         "Set2": {3, 4, 5},
@@ -880,6 +981,7 @@ def plot_euler_diagram(sets: dict):
 
     Example
     -------
+    >>> from gofast.plot.utils import plot_euler_diagram
     >>> sets = {
         "Set1": {1, 2, 3},
         "Set2": {3, 4, 5},

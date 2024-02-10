@@ -3159,3 +3159,68 @@ def transform_dates(
                 df[dt_col], format=fmt, **dt_kws)
     
     return data
+
+def merge_frames_on_index(
+    *data: DataFrame, 
+    index_col: str, 
+    join_type: str = 'outer', 
+    axis: int = 1, 
+    ignore_index: bool = False, 
+    sort: bool = False
+    ) -> DataFrame:
+    """
+    Merges multiple DataFrames based on a specified column set as the index.
+
+    Parameters
+    ----------
+    *data : pd.DataFrame
+        Variable number of pandas DataFrames to merge.
+    index_col : str
+        The name of the column to set as the index in each DataFrame before merging.
+    join_type : str, optional
+        The type of join to perform. One of 'outer', 'inner', 'left', or 'right'.
+        Defaults to 'outer'.
+    axis : int, optional
+        The axis to concatenate along. {0/'index', 1/'columns'}, default 1/'columns'.
+    ignore_index : bool, optional
+        If True, the resulting axis will be labeled 0, 1, …, n - 1. Default False.
+    sort : bool, optional
+        Sort non-concatenation axis if it is not already aligned. Default False.
+
+    Returns
+    -------
+    pd.DataFrame
+        A single DataFrame resulting from merging the input DataFrames based 
+        on the specified index.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.tools.baseutils import merge_frames_on_index
+    >>> df1 = pd.DataFrame({'A': [1, 2, 3], 'Key': ['K0', 'K1', 'K2']})
+    >>> df2 = pd.DataFrame({'B': [4, 5, 6], 'Key': ['K0', 'K1', 'K2']})
+    >>> merged_df = merge_frames_on_index(df1, df2, index_col='Key')
+    >>> print(merged_df)
+
+    Note: This function sets the specified column as the index for each 
+    DataFrame if it is not already.
+    If the column specified is not present in any of the DataFrames,
+    a KeyError will be raised.
+    """
+    # Ensure all provided data are pandas DataFrames
+    if not all(isinstance(df, pd.DataFrame) for df in data):
+        raise TypeError("All data provided must be pandas DataFrames.")
+        
+    # Check if the specified index column exists in all DataFrames
+    for df in data:
+        if index_col not in df.columns:
+            raise KeyError(f"The column '{index_col}' was not found in DataFrame.")
+
+    # Set the specified column as the index for each DataFrame
+    indexed_dfs = [df.set_index(index_col) for df in data]
+
+    # Concatenate the DataFrames based on the provided parameters
+    merged_df = pd.concat(indexed_dfs, axis=axis, join=join_type,
+                          ignore_index=ignore_index, sort=sort)
+
+    return merged_df

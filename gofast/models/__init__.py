@@ -101,7 +101,13 @@ else:
         create_autoencoder_model,
         create_attention_model,
         plot_errors,
-        plot_predictions
+        plot_predictions, 
+        find_best_lr, 
+        create_sequences, 
+        build_lstm_model, 
+        make_future_predictions, 
+        lstm_ts_tuner, 
+        cross_validate_lstm,
     )
     __all__+=[
         "plot_history",
@@ -125,7 +131,13 @@ else:
         "create_autoencoder_model",
         "create_attention_model",
         "plot_errors",
-        "plot_predictions"
+        "plot_predictions", 
+        "find_best_lr", 
+        "create_sequences", 
+        "make_future_predictions", 
+        "build_lstm_model", 
+        "lstm_ts_tuner", 
+        "cross_validate_lstm", 
     ]
         
 import typing

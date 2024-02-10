@@ -8100,7 +8100,7 @@ def denormalize(data: ArrayLike, min_value: float, max_value: float
     """
     return data * (max_value - min_value) + min_value
    
-    
+ 
     
     
     
