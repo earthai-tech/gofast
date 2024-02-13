@@ -44,12 +44,129 @@ from ..exceptions import  TipError, PlotError
 from ..tools.funcutils import _assert_all_types, is_iterable, str2columns 
 from ..tools.funcutils import make_obj_consistent_if, is_in_if, to_numeric_dtypes 
 from ..tools.funcutils import fill_nan_in
-from ..tools.validator import _check_array_in , _is_cross_validated
+from ..tools.validator import _check_array_in , _is_cross_validated, is_frame 
 from ..tools.validator import  assert_xy_in, get_estimator_name, check_is_fitted
 from ..tools.validator import check_array, check_X_y, check_consistent_length 
 from ..tools._dependency import import_optional_dependency 
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
+
+def plot_pie_charts(
+    data: DataFrame, /, 
+    columns: Optional[Union[str, List[str]]] = None,
+    bin_numerical: bool = True,
+    num_bins: int = 4,
+    handle_missing: str = 'exclude',
+    explode: Optional[Union[Tuple[float, ...], str]] = None,
+    shadow: bool = True,
+    startangle: int = 90,
+    cmap: str = 'viridis',
+    autopct: str = '%1.1f%%',
+    verbose: int = 0
+):
+    """
+    Plots pie charts for categorical and numerical columns in a DataFrame. 
+    
+    Function automatically detects and appropriately treats each type. 
+    Numerical columns can be binned into categories.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame containing the data.
+    columns : str or list of str, optional
+        Specific columns to plot. If None, all columns are plotted.
+    bin_numerical : bool, optional
+        If True, numerical columns will be binned into categories before plotting.
+    num_bins : int, optional
+        Number of bins to use for numerical columns if bin_numerical is True.
+    handle_missing : {'exclude', 'include'}, optional
+        How to handle missing values in data. 'exclude' will ignore them,
+        while 'include' will treat them as a separate category.
+    explode, shadow, startangle, cmap, autopct : various
+        Formatting options for the pie charts, similar to matplotlib's pie 
+        chart configuration.
+    verbose : int, optional
+        Verbosity level. Higher values increase the amount of informational output.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.plot.utils import plot_pie_charts
+    >>> df = pd.DataFrame({
+    ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'D', 'D'],
+    ...     'Values': [1, 2, 3, 4, 5, 6, 7, 8]
+    ... })
+    >>> plot_pie_charts(df, bin_numerical=True, num_bins=3)
+    """
+    is_frame (data, df_only=True, raise_exception= True)
+    if columns is None:
+        columns = data.columns.tolist()
+    columns = is_iterable(columns, exclude_string= True, transform=True )
+    
+    valid_columns = [col for col in columns if col in data.columns]
+    n_cols = len(valid_columns)
+    rows, cols = (n_cols // 4 + (n_cols % 4 > 0), min(n_cols, 4)
+                  ) if n_cols > 1 else (1, 1)
+    fig, axs = plt.subplots(rows, cols, figsize=(cols*6, rows*5))
+    axs = np.array(axs).flatten()
+
+    for idx, column in enumerate(valid_columns):
+        column_data = data[column]
+        if column_data.dtype.kind in 'iufc' and bin_numerical:  # Numerical data
+            column_data = _handle_numerical_data(column_data, bin_numerical, num_bins)
+        column_data = _handle_missing_data(column_data, handle_missing)
+        labels, sizes = _compute_sizes_and_labels(column_data)
+
+        _plot_pie_chart(axs[idx], labels, sizes, explode, shadow, startangle, 
+                        cmap, autopct, f'{column} Distribution')
+
+    plt.tight_layout()
+    plt.show()
+    
+def _handle_numerical_data(column_data: pd.Series, bin_numerical: bool,
+                           num_bins: int) -> pd.Series:
+    """Bins numerical data into categories if specified."""
+    if bin_numerical:
+        return pd.cut(column_data, bins=num_bins, include_lowest=True)
+    return column_data
+
+def _handle_missing_data(
+        column_data: pd.Series, handle_missing: str  ) -> pd.Series:
+    """Handles missing data based on user preference."""
+    if handle_missing == 'exclude':
+        return column_data.dropna()
+    return column_data.fillna('Missing')
+
+def _compute_sizes_and_labels(
+        column_data: pd.Series) -> Tuple[List[str], List[float]]:
+    """Computes the sizes and labels for the pie chart."""
+    sizes = column_data.value_counts(normalize=True)
+    labels = sizes.index.astype(str).tolist()
+    sizes = sizes.values.tolist()
+    return labels, sizes
+
+def _plot_pie_chart(
+        ax, labels: List[str], sizes: List[float], 
+        explode: Optional[Union[Tuple[float, ...], str]], shadow: bool, 
+        startangle: int, cmap: str, autopct: str, title: str):
+    """Plots a single pie chart on the given axis."""
+    # Adjust explode based on the number of labels if 'auto' is selected
+    if explode == 'auto':
+        explode = [0.1 if i == sizes.index(max(sizes)) else 0 for i in range(len(labels))]
+    elif explode is None:
+        explode = (0,) * len(labels)
+    else:
+        # Ensure explode is correctly sized for the current pie chart
+        if len(explode) != len(labels):
+            raise ValueError(f"The length of 'explode' ({len(explode)}) does "
+                             f"not match the number of categories ({len(labels)}).")
+    
+    ax.pie(sizes, explode=explode, labels=labels, autopct=autopct,
+           shadow=shadow, startangle=startangle, colors=plt.get_cmap(cmap)(
+               np.linspace(0, 1, len(labels))))
+    ax.set_title(title)
+    ax.axis('equal')  # Ensures the pie chart is drawn as a circle
 
 def plot_dependences(
     model: BaseEstimator, 
@@ -114,12 +231,16 @@ def plot_dependences(
     >>> model = GradientBoostingRegressor().fit(X, y)
     >>> plot_dependences(model, X, features=[0, 1], kind='average')
 
+    See Also 
+    ---------
+    sklearn.inspection.PartialDependenceDisplay: 
+        Class simplifies generating PDP and ICE plots. 
+        
     Note
     ----
-    This function is a utility wrapper around `sklearn.inspection.plot_partial_dependence`
-    that simplifies generating PDP and ICE plots. These plots are valuable 
-    tools for understanding the effect of features on the prediction of a model,
-    providing insights into the model's behavior over a range of feature values.
+    PDP and ICE plots are valuable  tools for understanding the effect of 
+    features on the prediction of a model, providing insights into the model's 
+    behavior over a range of feature values.
     """
     if not hasattr(model, 'predict') and not hasattr(model, 'predict_proba'):
        raise TypeError("The model must implement predict or predict_proba method.")

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # BSD-3-Clause License
-# Copyright (c) 2022 The scikit-learn and gofast developers.
+# Copyright (c) 2022 gofast developers.
 # All rights reserved.
 
 # Utilities for input validation
@@ -905,7 +905,6 @@ def check_symmetric(array, *, tol=1e-10, raise_warning=True, raise_exception=Fal
             array = 0.5 * (array + array.T)
 
     return array
-
 
 def check_scalar(
     x,

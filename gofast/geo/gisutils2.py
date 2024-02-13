@@ -1008,13 +1008,12 @@ def get_utm_string_from_sr(spatialreference):
 
     Examples
     --------
-    ```python
-    from osgeo import osr
-    from gofast.geo.gisutils import get_utm_string_from_sr
+    >>> from osgeo import osr
+    >>> from gofast.geo.gisutils import get_utm_string_from_sr
 
-    sr = osr.SpatialReference()
-    sr.ImportFromEPSG(32633)  # Example EPSG code for UTM zone 33N
-    print(get_utm_string_from_sr(sr))
+    >>> sr = osr.SpatialReference()
+    >>> sr.ImportFromEPSG(32633)  # Example EPSG code for UTM zone 33N
+    >>> print(get_utm_string_from_sr(sr))
     ```
     """
     zone_number = spatialreference.GetUTMZone()

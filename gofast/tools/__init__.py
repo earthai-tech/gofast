@@ -1,5 +1,5 @@
 """
-Tools sub-package offers several tools for data handling, parameters computation 
+Tools sub-package offers several utilities for data handling, parameters computation 
 models estimation and evalution. The extension of the mathematical concepts, 
 via the module :mod:`~gofast.tools.mathex`. Whereas the machine learning 
 utilities and additional functionalities are performed with
@@ -31,7 +31,12 @@ from .baseutils import (
     handle_missing_data, 
     augment_data, 
     assess_outlier_impact, 
-    transform_dates
+    transform_dates, 
+    apply_bow_vectorization, 
+    apply_tfidf_vectorization, 
+    apply_word_embeddings, 
+    boxcox_transformation, 
+    check_missing_data
     )
 from .mathex import ( 
     interpolate1d, 
@@ -108,7 +113,7 @@ from .mlutils import (
     load_saved_model, 
     bi_selector, 
     get_target, 
-    export_target,  
+    extract_target,  
     stats_from_prediction, 
     fetch_tgz,  
     fetch_model, 
@@ -120,7 +125,9 @@ from .mlutils import (
     soft_data_split, 
     laplace_smoothing, 
     laplace_smoothing_categorical, 
-    laplace_smoothing_word
+    laplace_smoothing_word, 
+    handle_imbalance, 
+    smart_split
     
     ) 
 __all__=[
@@ -170,7 +177,7 @@ __all__=[
     'build_data_preprocessor', 
     'bi_selector', 
     'get_target', 
-    'export_target',  
+    'extract_target',  
     'stats_from_prediction', 
     'fetch_tgz', 
     'fetch_model', 
@@ -242,7 +249,14 @@ __all__=[
     "calculate_residuals", 
     "extract_coordinates", 
     "parallelize_jobs", 
-    "transform_dates"
+    "transform_dates", 
+    "apply_bow_vectorization", 
+    "apply_tfidf_vectorization", 
+    "apply_word_embeddings" , 
+    "boxcox_transformation", 
+    "check_missing_data", 
+    "handle_imbalance", 
+    "smart_split"
     
     ]
 

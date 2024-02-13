@@ -20,7 +20,6 @@ from collections import Counter
 import numpy as np 
 import pandas as pd 
 
-from sklearn.base import is_classifier
 from sklearn.compose import ColumnTransformer, make_column_selector
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestClassifier
@@ -31,7 +30,7 @@ from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.preprocessing import OneHotEncoder,RobustScaler ,OrdinalEncoder 
 from sklearn.preprocessing import StandardScaler,MinMaxScaler,  LabelBinarizer
 from sklearn.preprocessing import LabelEncoder,Normalizer, PolynomialFeatures 
-from sklearn.utils import all_estimators
+from sklearn.utils import all_estimators, resample
 
 from .._gofastlog import gofastlog
 from .._typing import List, Tuple, Any, Dict,  Optional,Union, Iterable,Series 
@@ -45,7 +44,7 @@ from .funcutils import is_classification_task, to_numeric_dtypes, fancy_printer
 from .funcutils import validate_feature 
 from .validator import get_estimator_name, check_array, check_consistent_length
 from .validator import  _is_numeric_dtype,  _is_arraylike_1d 
-from .validator import  is_frame, build_data_if
+from .validator import  is_frame, build_data_if, check_is_fitted
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -68,7 +67,7 @@ __all__=[
     "build_data_preprocessor", 
     "bi_selector", 
     "get_target", 
-    "export_target",  
+    "extract_target",  
     "stats_from_prediction", 
     "fetch_tgz", 
     "fetch_model", 
@@ -78,7 +77,11 @@ __all__=[
     "serialize_data", 
     "deserialize_data", 
     "soft_data_split",
-    "laplace_smoothing"
+    "laplace_smoothing", 
+    "laplace_smoothing_categorical", 
+    "laplace_smoothing_word", 
+    "handle_imbalance", 
+    "smart_split",
     ]
 
 
@@ -631,7 +634,7 @@ def _target_counting(d, / ,  bin_column, tname ):
     neg_action = pd.Series(d[d[tname] < 1][bin_column].value_counts(),
     name=f'no_{tname}')
      
-    counts = pd.DataFrame([pos_action,neg_action])._T.fillna('0')
+    counts = pd.DataFrame([pos_action,neg_action]).T.fillna('0')
     counts[f'total_{tname}'] = counts[tname].astype('int64') +\
     counts[f'no_{tname}'].astype('int64')
     
@@ -704,12 +707,13 @@ def laplace_smoothing_word(word, class_, /, word_counts, class_counts, V):
 
     Example
     -------
+    >>> from gofast.tools.mlutils import laplace_smoothing_word
     >>> word_counts = {('dog', 'animal'): 3, ('cat', 'animal'):
                        2, ('car', 'non-animal'): 4}
     >>> class_counts = {'animal': 5, 'non-animal': 4}
     >>> V = len(set([w for (w, c) in word_counts.keys()]))
-    >>> laplace_smoothing('dog', 'animal', word_counts, class_counts, V)
-    0.4444444444444444
+    >>> laplace_smoothing_word('dog', 'animal', word_counts, class_counts, V)
+    0.5
     
     References
     ----------
@@ -760,6 +764,8 @@ def laplace_smoothing_categorical(
 
     Example
     -------
+    >>> import pandas as pd 
+    >>> from gofast.tools.mlutils import laplace_smoothing_categorical
     >>> data = pd.DataFrame({'feature': ['cat', 'dog', 'cat', 'bird'],
                              'class': ['A', 'A', 'B', 'B']})
     >>> probabilities = laplace_smoothing_categorical(data, 'feature', 'class')
@@ -771,11 +777,12 @@ def laplace_smoothing_categorical(
     tasks, especially when the dataset may contain categories that do not 
     appear in the training data for every class.
     """
+    is_frame( data, df_only=True, raise_exception=True)
     if V is None:
         V = data[feature_col].nunique()
 
     class_counts = data[class_col].value_counts()
-    probability_table = pd.DataFrame()
+    probability_tables = []
 
     # Iterating over each class to calculate probabilities
     for class_value in data[class_col].unique():
@@ -783,181 +790,203 @@ def laplace_smoothing_categorical(
         feature_counts = class_subset[feature_col].value_counts()
         probabilities = (feature_counts + 1) / (class_counts[class_value] + V)
         probabilities.name = class_value
-        probability_table = probability_table.append(probabilities)
+        probability_tables.append(probabilities.to_frame().T)
 
-    return probability_table.fillna(1 / V)
+    # Using pandas.concat to combine the probability tables
+    probability_table = pd.concat(probability_tables, sort=False).fillna(1 / V)
+    # Transpose to match expected format: features as rows, classes as columns
+    probability_table = probability_table.T
+
+    return probability_table
 
 def laplace_smoothing(
-    data, /,  
-    alpha=1,
-    columns=None, 
-    as_frame=False, 
-    ):
+    data: Union[ArrayLike, DataFrame], 
+    alpha: float = 1.0, 
+    columns: Union[list, None] = None
+) -> Union[ArrayLike, DataFrame]:
     """
-    Apply Laplace Smoothing to a dataset.
+    Applies Laplace smoothing to  data to calculate smoothed probabilities.
 
     Parameters
     ----------
-    data : ndarray
-        An array-like object containing categorical data. Each column 
+    data : ndarray or DataFrame
+        An array-like or DataFrame object containing categorical data. Each column 
         represents a feature, and each row represents a data sample.
     alpha : float, optional
         The smoothing parameter, often referred to as 'alpha'. This is 
         added to the count for each category in each feature. 
         Default is 1 (Laplace Smoothing).
-    
-    columns: list, 
-       Columns to construct the data. 
-    as_frame: bool, default=False, 
-       To convert data as a frame before proceeding. 
-       
+    columns: list, optional
+        Columns to construct the DataFrame when `data` is an ndarray. The 
+        number of columns must match the second dimension of the ndarray.
+        
     Returns
     -------
-    smoothed_probs : ndarray
-        An array of the same shape as `data` containing the smoothed 
+    smoothed_probs : ndarray or DataFrame
+        An array or DataFrame of the same shape as `data` containing the smoothed 
         probabilities for each category in each feature.
 
-    References
-    ----------
-    - C.D. Manning, P. Raghavan, and H. Schütze, "Introduction to Information Retrieval",
-      Cambridge University Press, 2008.
-    - A detailed explanation of Laplace Smoothing can be found in Chapter 13 of 
-      "Introduction to Information Retrieval" by Manning et al.
-      
-    Notes
-    -----
-    This implementation assumes that the input data is categorical 
-    and encoded as non-negative integers, which are indices of categories.
+    Raises
+    ------
+    ValueError
+        If `columns` is provided and its length does not match the number 
+        of columns in `data`.
 
     Examples
     --------
+    >>> import numpy as np 
+    >>> import pandas as pd 
     >>> from gofast.tools.mlutils import laplace_smoothing
     >>> data = np.array([[0, 1], [1, 0], [1, 1]])
     >>> laplace_smoothing(data, alpha=1)
     array([[0.4 , 0.6 ],
            [0.6 , 0.4 ],
            [0.6 , 0.6 ]])
+
+    >>> data_df = pd.DataFrame(data, columns=['feature1', 'feature2'])
+    >>> laplace_smoothing(data_df, alpha=1)
+       feature1  feature2
+    0       0.4       0.6
+    1       0.6       0.4
+    2       0.6       0.6
     """
-    data = build_data_if(data, columns= columns, to_frame =as_frame ) 
-    # Count the occurrences of each category in each feature
-    n_samples, n_features = data.shape
-    feature_counts = [np.bincount(data[:, i], minlength=np.max(data[:, i]) + 1)
-                      for i in range(n_features)]
+    if isinstance(data, np.ndarray):
+        if columns:
+            if len(columns) != data.shape[1]:
+                raise ValueError("Length of `columns` does not match the shape of `data`.")
+            data = pd.DataFrame(data, columns=columns)
+        input_type = 'ndarray'
+    elif isinstance(data, pd.DataFrame):
+        input_type = 'dataframe'
+    else:
+        raise TypeError("`data` must be either a numpy.ndarray or a pandas.DataFrame.")
 
-    # Apply Laplace smoothing
-    smoothed_counts = [counts + alpha for counts in feature_counts]
-    total_counts = [counts.sum() for counts in smoothed_counts]
+    smoothed_probs_list = []
+    features = data.columns if input_type == 'dataframe' else range(data.shape[1])
 
-    # Calculate probabilities
-    smoothed_probs = np.array([counts / total for counts, total in
-                               zip(smoothed_counts, total_counts)])
-    
-    # Transpose and return the probabilities corresponding to each data point
-    return smoothed_probs._T[data]
-  
+    for feature in features:
+        series = data[feature] if input_type == 'dataframe' else data[:, feature]
+        counts = np.bincount(series, minlength=series.max() + 1)
+        smoothed_counts = counts + alpha
+        total_counts = smoothed_counts.sum()
+        smoothed_probs = (series.map(lambda x: smoothed_counts[x] / total_counts)
+                          if input_type == 'dataframe' else smoothed_counts[series] / total_counts)
+        smoothed_probs_list.append(smoothed_probs)
+
+    if input_type == 'dataframe':
+        return pd.DataFrame({feature: probs for feature, probs in zip(features, smoothed_probs_list)})
+    else:
+        return np.column_stack(smoothed_probs_list)
+
 def evaluate_model(
-    model: Optional[Union[_F, _F[[NDArray, NDArray], NDArray]]] = None,
+    model: Optional[_F[[NDArray, NDArray], NDArray]] = None,
     X: Optional[Union[NDArray, DataFrame]] = None,
-    y: Optional[Union[NDArray, Series]] = None,
     Xt: Optional[Union[NDArray, DataFrame]] = None,
+    y: Optional[Union[NDArray, Series]] = None, 
+    yt: Optional[Union[NDArray, Series]] = None,
     y_pred: Optional[Union[NDArray, Series]] = None,
-    scorer: Union[str, _F] = 'accuracy',
+    scorer: Union[str, _F[[NDArray, NDArray], float]] = 'accuracy',
     eval: bool = False,
     **kws: Any
-) -> Tuple[Optional[Union[NDArray, Series]], Any]:
-    """Evaluate a model using different scoring metrics.
+) -> Union[Tuple[Optional[Union[NDArray, Series]], Optional[float]],
+           Optional[Union[NDArray, Series]]]:
+    """
+    Evaluates a predictive model's performance or the effectiveness of predictions 
+    using a specified scoring metric.
 
     Parameters
     ----------
-    model : Callable or None, optional
-        The model to evaluate, either a callable estimator or None 
-        when `y_pred` is provided.
-    X : NDArray or DataFrame or None, optional
-        The training feature set or None when `y_pred` is provided.
-    y : NDArray or Series or None, optional
-        The training target values or None when `y_pred` is provided.
-    Xt : NDArray or DataFrame or None, optional
-        The test feature set or None when `y_pred` is provided.
-    y_pred : NDArray or Series or None, optional
-        The predicted labels or None when evaluating the model.
-    scorer : str or Callable, optional
-        The scoring metric to use. Can be a string representing a known scorer or
-        a custom callable scorer. Default is 'accuracy'.
-    eval : bool, optional
-        Whether to perform evaluation. Default is False.
-    **kws : dict, optional
-        Additional keyword arguments for the scoring metric.
+    model : Callable, optional
+        A machine learning model that implements fit and predict methods.
+        Required if `y_pred` is not provided.
+    X : np.ndarray or pd.DataFrame, optional
+        Training data features. Required if `model` is provided and `y_pred` is None.
+    Xt : np.ndarray or pd.DataFrame, optional
+        Test data features. Required if `model` is provided and `y_pred` is None.
+    y : np.ndarray or pd.Series, optional
+        Training data labels. Required if `model` is provided and `y_pred` is None.
+    yt : np.ndarray or pd.Series, optional
+        Test data labels. Required if `eval` is True.
+    y_pred : np.ndarray or pd.Series, optional
+        Predictions for test data. Required if `model` is None.
+    scorer : str or Callable, default='accuracy'
+        The scoring metric name or a scorer callable object/function with signature 
+        scorer(y_true, y_pred, **kws). 
+    eval : bool, default=False
+        If True, performs evaluation using `scorer` on `yt` and `y_pred`.
+    **kws : Any
+        Additional keyword arguments to pass to the scoring function.
 
     Returns
     -------
-    Tuple[Optional[Union[NDArray, Series]], Any]
-        A tuple containing the predicted labels and the computed score 
-        (if evaluation is performed).
-        
+    predictions : np.ndarray or pd.Series
+        The predicted labels or probabilities.
+    score : float, optional
+        The score of the predictions based on `scorer`. Only returned if `eval` is True.
+
+    Raises
+    ------
+    ValueError
+        If required arguments are missing or if the provided arguments are invalid.
+    TypeError
+        If `scorer` is not a recognized scoring function.
+
     Examples
     --------
-    >>> from sklearn.linear_model import LogisticRegression
     >>> from sklearn.datasets import load_iris
     >>> from sklearn.model_selection import train_test_split
+    >>> from sklearn.linear_model import LogisticRegression
     >>> from gofast.tools.mlutils import evaluate_model
-
-    >>> # Load the iris dataset and split it into training and test sets
-    >>> data = load_iris()
-    >>> X_train, X_test, y_train, y_test = train_test_split(
-        data.data, data.target, test_size=0.2, random_state=42)
-
-    >>> # Create a Logistic Regression model
+    >>> iris = load_iris()
+    >>> X, y = iris.data, iris.target
+    >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
     >>> model = LogisticRegression()
-
-    >>> # Evaluate the model using accuracy as the scoring metric
-    >>> y_pred, accuracy = evaluate_model(
-        model, X_train, y_train, X_test, y_test, scorer='accuracy')
-    >>> print(f'Accuracy: {accuracy:.2f}')
-
-    >>> # Alternatively, you can provide y_pred and skip model fitting
-    >>> y_pred, accuracy = evaluate_model(y_pred=y_pred, scorer='accuracy')
-    >>> print(f'Accuracy: {accuracy:.2f}')
+    >>> y_pred, score = evaluate_model(model=model, X=X_train, Xt=X_test,
+    ...                                y=y_train, yt=y_test, eval=True)
+    >>> print(f'Score: {score:.2f}')
+    
+    >>> # Providing predictions directly
+    >>> y_pred, _ = evaluate_model(y_pred=y_pred, yt=y_test, scorer='accuracy',
+    ...                            eval=True)
+    >>> print(f'Accuracy: {score:.2f}')
     """
-    from ..metrics import _SCORERS 
-
+    from ..metrics import _SCORERS
+    
     if y_pred is None:
-        if X is None or y is None or Xt is None:
-            raise ValueError("When y_pred is not provided, model, X, y, and"
-                             " Xt must be provided.")
-
-        if X.ndim == 1:
-            X = X.reshape(-1, 1)
-        if Xt.ndim == 1:
-            Xt = Xt.reshape(-1, 1)
-
-        if is_classifier(model) and eval and y is None:
-            raise TypeError("NoneType 'y' cannot be used for model evaluation.")
-
-        model.fit(X, y)
+        if model is None or X is None or y is None or Xt is None:
+            raise ValueError("Model, X, y, and Xt must be provided when y_pred"
+                             " is not provided.")
+        if not hasattr(model, 'fit') or not hasattr(model, 'predict'):
+            raise TypeError("The provided model does not implement fit and "
+                            "predict methods.")
+        
+        # Check model if is fitted
+        try: check_is_fitted(model)
+        except: 
+            # If the model is not fitted, then fit it with X and y
+            if X is not None and y is not None:
+                if hasattr(X, 'ndim') and X.ndim == 1:
+                    X = X.reshape(-1, 1)
+                model.fit(X, y)
+            else:
+                raise ValueError("Model is not fitted, and no training data"
+                                 " (X, y) were provided.")
         y_pred = model.predict(Xt)
 
     if eval:
-        if isinstance(scorer, str):
-            if scorer not in _SCORERS:
-                raise ValueError(f"Unknown scorer {scorer!r}. "
-                                 f"Accepts only {_SCORERS.keys()}")
+        if yt is None:
+            raise ValueError("yt must be provided when eval is True.")
+        if not isinstance(scorer, (str, callable)):
+            raise TypeError("scorer must be a string or a callable,"
+                            f" got {type(scorer).__name__}.")
+            if isinstance (scorer , str) and scorer not in _SCORERS:
+                raise ValueError(f"Use {scorer!r} function instead.")
+        
+        score_func = _SCORERS[scorer] if isinstance(scorer, str) else scorer
+        score = score_func(yt, y_pred, **kws)
+        return y_pred, score
 
-            score_function = _SCORERS[scorer]
-        elif callable(scorer):
-            score_function = scorer
-        else:
-            raise TypeError("Scorer should be a callable object or a known string,"
-                            f" got {type(scorer).__name__!r}")
-
-        if y is None:
-            raise ValueError("y cannot be None when eval is True.")
-
-        score = score_function(y, y_pred, **kws)
-    else:
-        score = None
-
-    return y_pred, score
-
+    return y_pred
 
 def get_correlated_features(
     data:DataFrame ,
@@ -1213,8 +1242,8 @@ def get_global_score(
         mean_score = np.nanmean(cvres.get('mean_test_score'))
         mean_std = np.nanmean(cvres.get('std_test_score'))
     else:
-        mean_score = cvres.get('mean_test_score').mean()
-        mean_std = cvres.get('std_test_score').mean()
+        mean_score = np.mean( cvres.get('mean_test_score'))
+        mean_std = np.mean(cvres.get('std_test_score'))
 
     return mean_score, mean_std
 
@@ -1720,7 +1749,6 @@ def stats_from_prediction(y_true, y_pred, verbose=False):
 
     return stats
 
-
 def write_excel(
         listOfDfs: List[DataFrame],
         csv: bool =False , 
@@ -1876,51 +1904,117 @@ def fetch_tgz_locally(tgz_file: str , filename: str ,
               f"and saved to {savefile!r}")
         
     return os.path.join(savefile, rename_outfile)
-    
-def load_csv ( data: str = None, delimiter: str  =None ,**kws
-        )-> DataFrame:
-    """ Load csv file and convert to a frame. 
-    
-    :param data_path: path to data csv file 
-    :param delimiter: str, item for data  delimitations. 
-    :param kws: dict, additional keywords arguments passed 
-        to :class:`pandas.read_csv`
-    :return: pandas dataframe 
-    
-    """ 
-    if not os.path.isfile(data): 
-        raise TypeError("Expect a valid CSV file.")
-    if (os.path.splitext(data)[1].replace('.', '')).lower() !='csv': 
-        raise ValueError("Read only a csv file.")
-        
-    return pd.read_csv(data, delimiter=delimiter, **kws) 
 
+def load_csv(data_path: str, delimiter: Optional[str] = ',', **kwargs
+             ) -> DataFrame:
+    """
+    Loads a CSV file into a pandas DataFrame.
 
+    Parameters
+    ----------
+    data_path : str
+        The file path to the CSV file to be loaded.
+    delimiter : str, optional
+        The delimiter character used in the CSV file. Defaults to ','.
+    **kwargs : dict
+        Additional keyword arguments passed to `pandas.read_csv`.
 
+    Returns
+    -------
+    DataFrame
+        A DataFrame containing the loaded data.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the specified file does not exist.
+    ValueError
+        If the specified file is not a CSV file.
+
+    Examples
+    --------
+    Assuming you have a CSV file named 'example.csv' with the following content:
+    
+    ```
+    name,age
+    Alice,30
+    Bob,25
+    ```
+
+    You can load this file into a DataFrame like this:
+
+    >>> from gofast.tools.mlutils import load_csv
+    >>> df = load_csv('example.csv')
+    >>> print(df)
+       name  age
+    0  Alice   30
+    1    Bob   25
+    """
+    if not os.path.isfile(data_path):
+        raise FileNotFoundError(f"The file '{data_path}' does not exist.")
+    
+    if not data_path.lower().endswith('.csv'):
+        raise ValueError(
+            "The specified file is not a CSV file. Please provide a valid CSV file.")
+    
+    return pd.read_csv(data_path, delimiter=delimiter, **kwargs)
 
 def discretize_categories(
-        data: Union [ArrayLike, DataFrame],
-        in_cat:str =None,
-        new_cat:Optional [str] = None, 
-        **kws
-        ) -> DataFrame: 
-    """ Create a new category attribute to discretize instances. 
-    
-    A new category in data is better use to stratified the trainset and 
-    the dataset to be consistent and rounding using ceil values.
-    
-    :param in_cat: column name used for stratified dataset 
-    :param new_cat: new category name created and inset into the 
-                dataframe.
-    :return: new dataframe with new column of created category.
+    data: Union[pd.DataFrame, pd.Series],
+    in_cat: str,
+    new_cat: Optional[str] = None,
+    divby: float = 1.5,
+    higherclass: int = 5
+) -> DataFrame:
     """
-    divby = kws.pop('divby', 1.5) # normalize to hold raisonable number 
-    combined_cat_into = kws.pop('higherclass', 5) # upper class bound 
+    Discretizes a numerical column in the DataFrame into categories. 
     
-    data[new_cat]= np.ceil(data[in_cat]) /divby 
-    data[new_cat].where(data[in_cat] < combined_cat_into, 
-                             float(combined_cat_into), inplace =True )
-    return data 
+    Creating a new categorical column based on ceiling division and 
+    an upper class limit.
+
+    Parameters
+    ----------
+    data : DataFrame or Series
+        Input data containing the column to be discretized.
+    in_cat : str
+        Column name in `data` used for generating the new categorical attribute.
+    new_cat : str, optional
+        Name for the newly created categorical column. If not provided, 
+        a default name 'new_category' is used.
+    divby : float, default=1.5
+        The divisor used in the ceiling division to discretize the column values.
+    higherclass : int, default=5
+        The upper bound for the discretized categories. Values reaching this 
+        class or higher are grouped into this single upper class.
+
+    Returns
+    -------
+    DataFrame
+        A new DataFrame including the newly created categorical column.
+
+    Examples
+    --------
+    >>> df = pd.DataFrame({'age': [23, 45, 18, 27]})
+    >>> discretized_df = discretize_categories(df, 'age', 'age_cat', divby=10, higherclass=3)
+    >>> print(discretized_df)
+       age  age_cat
+    0   23      3.0
+    1   45      3.0
+    2   18      2.0
+    3   27      3.0
+
+    Note: The 'age_cat' column contains discretized categories based on the 
+    'age' column.
+    """
+    if new_cat is None:
+        new_cat = 'new_category'
+    
+    # Discretize the specified column
+    data[new_cat] = np.ceil(data[in_cat] / divby)
+    # Apply upper class limit
+    data[new_cat] = data[new_cat].where(data[new_cat] < higherclass, other=higherclass)
+    
+    return data
 
 def stratify_categories(
     data: Union[DataFrame, ArrayLike],
@@ -2336,173 +2430,336 @@ def _assert_sl_target (target,  df=None, obj=None):
             
     return target
 
-def export_target(
-    ar, /, 
-    tname, 
-    drop=True , 
-    columns =None,
-    as_frame=False 
-    ): 
-    """ Extract target from multidimensional array or dataframe.  
+def extract_target(
+    data: Union[ArrayLike, DataFrame],/, 
+    target_names: Union[str, int, List[Union[str, int]]],
+    drop: bool = True,
+    columns: Optional[List[str]] = None,
+) -> Tuple[Union[ArrayLike, Series, DataFrame], Union[ArrayLike, DataFrame]]:
+    """
+    Extracts specified target column(s) from a multidimensional numpy array
+    or pandas DataFrame. 
     
-    Parameters 
-    ------------
-    ar: arraylike2d or pd.DataFrame 
-      Array that supposed to contain the target value. 
-      
-    tname: int/str, list of int/str 
-       index or the name of the target; if ``int`` is passed it should range 
-       ranged less than the columns number of the array i.e. a shape[1] in 
-       the case of np.ndarray. If the list of indexes or names are given, 
-       the return target should be in two dimensional array. 
-       
-    drop: bool, default=True 
-       Remove the target array in the 2D array or dataframe in the case 
-       the target exists and returns a data exluding the target array. 
-       
-    columns: list, default=False. 
-       composes the dataframe when the array is given rather than a dataframe. 
-       The list of column names must match the number of columns in the 
-       two dimensional array, otherwise an error occurs. 
-       
-    as_frame: bool, default=False, 
-       returns dataframe/series or the target rather than array when the array 
-       is supplied. This seems useful when column names are supplied. 
-       
+    with options to rename columns in a DataFrame and control over whether the 
+    extracted columns are dropped from the original data.
+
+    Parameters
+    ----------
+    data : Union[np.ndarray, pd.DataFrame]
+        The input data from which target columns are to be extracted. Can be a 
+        NumPy array or a pandas DataFrame.
+    target_names : Union[str, int, List[Union[str, int]]]
+        The name(s) or integer index/indices of the column(s) to extract. 
+        If `data` is a DataFrame, this can be a mix of column names and indices. 
+        If `data` is a NumPy array, only integer indices are allowed.
+    drop : bool, default True
+        If True, the extracted columns are removed from the original `data`. 
+        If False, the original `data` remains unchanged.
+    columns : Optional[List[str]], default None
+        If provided and `data` is a DataFrame, specifies new names for the 
+        columns in `data`. The length of `columns` must match the number of 
+        columns in `data`. This parameter is ignored if `data` is a NumPy array.
+
     Returns
+    -------
+    Tuple[Union[np.ndarray, pd.Series, pd.DataFrame], Union[np.ndarray, pd.DataFrame]]
+        A tuple containing two elements:
+        - The extracted column(s) as a NumPy array or pandas Series/DataFrame.
+        - The original data with the extracted columns optionally removed, as a
+          NumPy array or pandas DataFrame.
+
+    Raises
+    ------
+    ValueError
+        If `columns` is provided and its length does not match the number of 
+        columns in `data`.
+        If any of the specified `target_names` do not exist in `data`.
+        If `target_names` includes a mix of strings and integers for a NumPy 
+        array input.
+
+    Examples
     --------
-    t, ar : array-like/pd.Series , array-like/pd.DataFrame 
-      Return the targets and the array/dataframe of the target. 
-      
-    Examples 
-    ---------
-    >>>> import numpy as np 
     >>> import pandas as pd 
-    >>> from gofast.tools.mtutils import get_target 
-    >>> ar = np.random.randn ( 3,  3 )
-    >>> df0 = pd.DataFrame ( ar, columns = ['x1', 'x2', 'tname'])
-    >>> df= df0.copy() 
-    >>> get_target (df, 'tname', drop= False )
-    (      tname
-     0 -0.542861
-     1  0.781198,
-              x1        x2     tname
-     0 -1.424061 -0.493320 -0.542861
-     1  0.416050 -1.156182  0.781198)
-    >>> get_target (df, [ 'tname', 'x1']) # drop is True by default
-    (      tname        x1
-     0 -0.542861 -1.424061
-     1  0.781198  0.416050,
-              x2
-     0 -0.493320
-     1 -1.156182)
-    >>> df = df0.copy() 
-    >>> # when array is passed 
-    >>> get_target (df.values , '2', drop= False )
-    (array([[-0.54286148],
-            [ 0.7811981 ]]),
-     array([[-1.42406091, -0.49331988, -0.54286148],
-            [ 0.41605005, -1.15618243,  0.7811981 ]]))
-    >>> get_target (df.values , 'tname') # raise error 
-    ValueError: 'tname' ['tname'] is not valid...
-    
+    >>> from gofast.tools.mlutils import extract_target
+    >>> df = pd.DataFrame({
+    ...     'A': [1, 2, 3],
+    ...     'B': [4, 5, 6],
+    ...     'C': [7, 8, 9]
+    ... })
+    >>> target, remaining = extract_target(df, 'B', drop=True)
+    >>> print(target)
+    0    4
+    1    5
+    2    6
+    Name: B, dtype: int64
+    >>> print(remaining)
+       A  C
+    0  1  7
+    1  2  8
+    2  3  9
+    >>> arr = np.random.rand(5, 3)
+    >>> target, modified_arr = extract_target(arr, 2, )
+    >>> print(target)
+    >>> print(modified_arr)
     """
-    emsg =("Array is passed.'tname' must be a list of indexes or column names"
-           " that fit the shape[axis=1] of the given array. Expect {}, got {}.")
-    emsgc =("'tname' {} {} not valid. Array is passed while columns are not "
-            "supplied. Expect 'tname' in the range of numbers betwen 0- {}")
-    is_arr=False 
-    tname =[ str(i) for i in is_iterable(
-        tname, exclude_string =True, transform =True)] 
+    is_frame = isinstance(data, pd.DataFrame)
     
-    if isinstance (ar, np.ndarray): 
-        columns = columns or [str(i) for i in range(ar.shape[1])]
-        if len(columns) < ar.shape [1]: 
-            raise ValueError(emsg.format(ar.shape[1], len(tname)))
-        ar = pd.DataFrame (ar, columns = columns) 
-        if not validate_feature(ar, tname, verbose='ignore'): 
-            raise ValueError(emsgc.format(tname, "is" if len(tname)==1 else "are", 
-                                         len(columns)-1)
-                             )
-        is_arr=True if not as_frame else False 
-        
-    t, ar =get_target(ar, tname , inplace = drop ) 
+    if is_frame and columns is not None:
+        if len(columns) != data.shape[1]:
+            raise ValueError("`columns` must match the number of columns in"
+                             f" `data`. Expected {data.shape[1]}, got {len(columns)}.")
+        data.columns = columns
 
-    return (t.values, ar.values ) if is_arr  else (t, ar) 
-        
-def naive_data_split(
-    X, y=None, *,  
-    test_size =0.2, 
-    target =None,
-    random_state=42, 
-    fetch_target =False,
-    **skws): 
-    """ Splitting data function naively. 
-    
-    Split data into the training set and test set. If target `y` is not
-    given and you want to consider a specific array as a target for 
-    supervised learning, just turn `fetch_target` argument to ``True`` and 
-    set the `target` argument as a numpy columns index or pandas dataframe
-    colums name. 
-    
-    :param X: np.ndarray or pd.DataFrame 
-    :param y: array_like 
-    :param test_size: If float, should be between 0.0 and 1.0 and represent
-        the proportion of the dataset to include in the test split. 
-    :param random_state: int, Controls the shuffling applied to the data
-        before applying the split. Pass an int for reproducible output across
-        multiple function calls
-    :param fetch_target: bool, use to retrieve the targetted value from 
-        the whole data `X`. 
-    :param target: int, str 
-        If int itshould be the index of the targetted value otherwise should 
-        be the columns name of pandas DataFrame.
-    :param skws: additional scikit-lean keywords arguments 
-        https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.train_test_split.html
-    
-    :returns: list, length -List containing train-test split of inputs.
-        
-    :Example: 
-        
-        >>> from gofast.datasets import fetch_data 
-        >>> data = fetch_data ('Bagoue original').get('data=df')
-        >>> X, XT, y, yT= default_data_splitting(data.values,
-                                     fetch_target=True,
-                                     target =12 )
-        >>> X, XT, y, yT= default_data_splitting(data,
-                             fetch_target=True,
-                             target ='flow' )
-        >>> X0= data.copy()
-        >>> X0.drop('flow', axis =1, inplace=True)
-        >>> y0 = data ['flow']
-        >>> X, XT, y, yT= default_data_splitting(X0, y0)
+    if isinstance(target_names, (int, str)):
+        target_names = [target_names]
+
+    if all(isinstance(name, int) for name in target_names):
+        if max(target_names, default=-1) >= data.shape[1]:
+            raise ValueError("All integer indices must be within the"
+                             " column range of the data.")
+    elif any(isinstance(name, int) for name in target_names) and is_frame:
+        target_names = [data.columns[name] if isinstance(name, int) 
+                        else name for name in target_names]
+
+    if is_frame:
+        missing_cols = [name for name in target_names 
+                        if name not in data.columns]
+        if missing_cols:
+            raise ValueError(f"Column names {missing_cols} do not match "
+                             "any column in the DataFrame.")
+        target = data.loc[:, target_names]
+        if drop:
+            data = data.drop(columns=target_names)
+    else:
+        if any(isinstance(name, str) for name in target_names):
+            raise ValueError("String names are not allowed for target names"
+                             " when data is a NumPy array.")
+        target = data[:, target_names]
+        if drop:
+            data = np.delete(data, target_names, axis=1)
+
+    return target, data
+
+def _extract_target(
+        X, target: Union[ArrayLike, int, str, List[Union[int, str]]]):
     """
+    Extracts and validates the target variable(s) from the dataset.
 
-    if fetch_target: 
-        target = _assert_sl_target (target, df =X)
-        s='could not be ' if target is None else 'was succesffully '
-        wmsg = ''.join([
-            f"Target {'index' if isinstance(target, int) else 'value'} "
-            f"{str(target)!r} {s} used to fetch the `y` value from "
-            "the whole data set."])
-        if isinstance(target, str): 
-            y = X[target]
-            X= X.copy()
-            X.drop(target, axis =1, inplace=True)
-        if isinstance(target, (float, int)): 
-            y=X[:, target]
-            X = np.delete (X, target, axis =1)
-        warnings.warn(wmsg, category =UserWarning)
-        
-    V= train_test_split(X, y, random_state=random_state, **skws) \
-        if y is not None else train_test_split(
-                X,random_state=random_state, **skws)
-    if y is None: 
-        X, XT , yT = *V,  None 
-    else: 
-        X, XT, y, yT= V
+    Parameters
+    ----------
+    X : pd.DataFrame or np.ndarray
+        The dataset from which to extract the target variable(s).
+    target : ArrayLike, int, str, or list of int/str
+        The target variable(s) to be used. If an array-like or DataFrame, 
+        it's directly used as `y`. If an int or str (or list of them), it 
+        indicates the column(s) in `X` to be used as `y`.
+
+    Returns
+    -------
+    X : pd.DataFrame or np.ndarray
+        The dataset without the target column(s).
+    y : pd.Series, np.ndarray, pd.DataFrame
+        The target variable(s).
+    target_names : list of str
+        The names of the target variable(s) for labeling purposes.
+    """
+    target_names = []
+
+    if isinstance(target, (list, pd.DataFrame)) or (
+            isinstance(target, pd.Series) and not isinstance(X, np.ndarray)):
+        if isinstance(target, list):  # List of column names or indexes
+            if all(isinstance(t, str) for t in target):
+                y = X[target]
+                target_names = target
+            elif all(isinstance(t, int) for t in target):
+                y = X.iloc[:, target]
+                target_names = [X.columns[i] for i in target]
+            X = X.drop(columns=target_names)
+        elif isinstance(target, pd.DataFrame):
+            y = target
+            target_names = target.columns.tolist()
+            # Assuming target DataFrame is not part of X
+        elif isinstance(target, pd.Series):
+            y = target
+            target_names = [target.name] if target.name else ["target"]
+            if target.name and target.name in X.columns:
+                X = X.drop(columns=target.name)
+                
+    elif isinstance(target, (int, str)):
+        if isinstance(target, str):
+            y = X.pop(target)
+            target_names = [target]
+        elif isinstance(target, int):
+            y = X.iloc[:, target]
+            target_names = [X.columns[target]]
+            X = X.drop(columns=X.columns[target])
+    elif isinstance(target, np.ndarray) or (
+            isinstance(target, pd.Series) and isinstance(X, np.ndarray)):
+        y = np.array(target)
+        target_names = ["target"]
+    else:
+        raise ValueError("Unsupported target type or target does not match X dimensions.")
     
-    return  X, XT, y, yT
+    check_consistent_length(X, y)
+    
+    return X, y, target_names
+
+def smart_split(
+    X, 
+    target: Optional[Union[ArrayLike, int, str, List[Union[int, str]]]] = None,
+    test_size: float = 0.2, 
+    random_state: int = 42,
+    stratify: bool = False,
+    shuffle: bool = True,
+    return_df: bool = False,
+    **skws
+) -> Union[
+    Tuple[DataFrame, DataFrame], 
+    Tuple[ArrayLike, ArrayLike],
+    Tuple[DataFrame, DataFrame, Series, Series], 
+    Tuple[DataFrame, DataFrame, DataFrame, DataFrame], 
+    Tuple[ArrayLike, ArrayLike, ArrayLike, ArrayLike]
+    ]:
+    """
+    Splits data into training and test sets, with the option to extract and 
+    handle multiple target variables. 
+    
+    Function supports both single and multi-label targets and maintains 
+    compatibility with pandas DataFrame and numpy ndarray.
+
+    Parameters
+    ----------
+    X : np.ndarray or pd.DataFrame
+        The input data to be split. This can be either feature data alone or 
+        include the target column(s) if the `target` parameter is used to specify 
+        target column(s) for extraction.
+    target : int, str, list of int/str, pd.Series, pd.DataFrame, optional
+        Specifies the target variable(s) for supervised learning problems. 
+        It can be:
+        - An integer or string specifying the column index or name in `X` to 
+          be used as the target variable.
+        - A list of integers or strings for multi-label targets.
+        - A pandas Series or DataFrame directly specifying the target variable(s).
+        If `target` is provided as an array-like object or DataFrame, its 
+        length must match the number of samples in `X`.
+    test_size : float, optional
+        Represents the proportion of the dataset to include in the test split. 
+        Must be between 0.0 and 1.0.
+    random_state : int, optional
+        Sets the seed for random operations, ensuring reproducible splits.
+    stratify : bool, optional
+        Ensures that the train and test sets have approximately the same 
+        percentage of samples of each target class if set to True.
+    shuffle : bool, optional
+        Determines whether to shuffle the dataset before splitting. 
+    return_df : bool, optional
+        If True and `X` is a DataFrame, returns the splits as pandas DataFrames/Series. 
+        Otherwise, returns numpy ndarrays.
+    skws : dict
+        Additional keyword arguments for `train_test_split`, allowing customization 
+        of the split beyond the parameters explicitly mentioned here.
+
+    Returns
+    -------
+    Depending on the inputs and `return_df`:
+    - If `target` is not specified: X_train, X_test
+    - If `target` is specified: X_train, X_test, y_train, y_test
+    `X_train` and `X_test` are the splits of the input data, while `y_train` and 
+    `y_test` are the splits of the target variable(s) if provided.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.tools.mlutils import smart_split
+    >>> data = pd.DataFrame({
+    ...     'Feature1': [1, 2, 3, 4],
+    ...     'Feature2': [4, 3, 2, 1],
+    ...     'Target': [0, 1, 0, 1]
+    ... })
+    >>> # Single target specified as a column name
+    >>> X_train, X_test, y_train, y_test = smart_split(
+    ... data, target='Target', return_df=True)
+    >>> print(X_train.shape, X_test.shape, y_train.shape, y_test.shape)
+    """
+    if target is not None:
+        X, y, target_names = _extract_target(X, target)
+    else:
+        y, target_names = None, []
+
+    stratify_param = y if stratify and y is not None else None
+    
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=random_state, shuffle=shuffle, 
+        stratify=stratify_param, **skws)
+
+    if return_df and isinstance(X, pd.DataFrame):
+        X_train, X_test = pd.DataFrame(X_train, columns=X.columns
+                                       ), pd.DataFrame(X_test, columns=X.columns)
+        if y is not None:
+            if isinstance(y, pd.DataFrame):
+                y_train, y_test = pd.DataFrame(
+                    y_train, columns=target_names), pd.DataFrame(
+                        y_test, columns=target_names)
+            else:
+                y_train, y_test = pd.Series(
+                    y_train, name=target_names[0]), pd.Series(
+                        y_test, name=target_names[0])
+
+    return (X_train, X_test, y_train, y_test) if y is not None else (X_train, X_test)
+
+
+def handle_imbalance(X, y, strategy='oversample', random_state=42):
+    """
+    Handles imbalanced dataset by oversampling the minority class or 
+    undersampling the majority class.
+    
+    Parameters
+    ----------
+    X : pd.DataFrame or np.ndarray
+        The features of the dataset.
+    y : pd.Series or np.ndarray
+        The target variable of the dataset.
+    strategy : str, optional
+        The strategy to apply for handling imbalance: 'oversample' or 'undersample'.
+    random_state : int, optional
+        The random state for reproducible results.
+    
+    Returns
+    -------
+    X_resampled, y_resampled : Resampled features and target variable.
+    """
+    if isinstance(X, pd.DataFrame):
+        data = pd.concat([X, y], axis=1)
+    else:  # Assuming numpy array
+        data = np.column_stack([X, y])
+    
+    if strategy == 'oversample':
+        majority = data[data[y.name] == y.value_counts().idxmax()]
+        minority = data[data[y.name] == y.value_counts().idxmin()]
+        minority_upsampled = resample(
+            minority, replace=True, n_samples=len(majority), 
+            random_state=random_state)
+    elif strategy == 'undersample':
+        majority = data[data[y.name] == y.value_counts().idxmax()]
+        minority = data[data[y.name] == y.value_counts().idxmin()]
+        majority_downsampled = resample(majority, replace=False, 
+                                        n_samples=len(minority), 
+                                        random_state=random_state)
+    else:
+        raise ValueError("Strategy not recognized. Use 'oversample' or 'undersample'.")
+    if strategy == 'oversample':
+        resampled = pd.concat([majority, minority_upsampled])
+    else:  # 'undersample'
+        resampled = pd.concat([minority, majority_downsampled])
+    
+    if isinstance(X, pd.DataFrame):
+        X_resampled = resampled.drop(y.name, axis=1)
+        y_resampled = resampled[y.name]
+    else:  # numpy array
+        X_resampled = resampled[:, :-1]
+        y_resampled = resampled[:, -1]
+
+    return X_resampled, y_resampled
 
 def soft_data_split(
     X, y=None, *,
@@ -2568,10 +2825,9 @@ def soft_data_split(
         return train_test_split(X, y, test_size=test_size, 
                                 random_state=random_state, **split_kwargs)
     else:
-        X_train, X_test = train_test_split(X, test_size=test_size,
-                                           random_state=random_state, 
-                                           **split_kwargs)
-        return X_train, X_test, None, None
+        return  train_test_split(
+            X, test_size=test_size,random_state=random_state, **split_kwargs)
+ 
 
 def load_saved_model(
     file_path: str,

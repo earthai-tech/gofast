@@ -3,6 +3,7 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 from __future__ import annotations, print_function 
 import os
+import re
 import h5py
 import copy
 import time
@@ -11,6 +12,7 @@ import pathlib
 import warnings 
 import threading
 import subprocess
+from scipy import stats
 from six.moves import urllib 
 from joblib import Parallel, delayed
 import numpy as np 
@@ -25,8 +27,8 @@ from ..decorators import deprecated
 from ..exceptions import FileHandlingError 
 from ..property import  Config
 from .funcutils import is_iterable, ellipsis2false,smart_format, validate_url 
-from .funcutils import to_numeric_dtypes, assert_ratio
-from .funcutils import normalize_string  
+from .funcutils import to_numeric_dtypes, assert_ratio, exist_features
+from .funcutils import normalize_string
 from ._dependency import import_optional_dependency 
 from .validator import array_to_frame, build_data_if, is_frame 
 from .validator import check_consistent_length
@@ -91,20 +93,20 @@ def summarize_text_columns(
     --------
     >>> from gofast.tools.baseutils import summarize_text_columns
     >>> data = {
-        'id': [1, 2],
-        'column1': [
-            "Sentence one. Sentence two. Sentence three.",
-            "Another sentence one. Another sentence two. Another sentence three."
-        ],
-        'column2': [
-            "More text here. Even more text here.",
-            "Second example here. Another example here."
-        ]
-    }
+    ...    'id': [1, 2],
+    ...    'column1': [
+    ...        "Sentence one. Sentence two. Sentence three.",
+    ...        "Another sentence one. Another sentence two. Another sentence three."
+    ...    ],
+    ...    'column2': [
+    ...        "More text here. Even more text here.",
+    ...        "Second example here. Another example here."
+    ...    ]
+    ... }
     >>> df = pd.DataFrame(data)
     >>> summarized_df = summarize_text_columns(df, ['column1', 'column2'], 
-                    stop_words='english', encode=True, drop_original=True, 
-                    compression_method='mean')
+    ...                stop_words='english', encode=True, drop_original=True, 
+    ...                compression_method='mean')
     >>> print(summarized_df.columns)
         id  column1_encoded  column2_encoded
      0   1              1.0         1.000000
@@ -248,17 +250,17 @@ def simple_extractive_summary(
     ...     "investigations in Burkina Faso. And above all, know, through this survey, if these "
     ...     "populations approve of the establishment of a possible genetic database in our country."
     ... ]
-    >>> for msg in messages:
-    ...     summary, encoding = simple_extractive_summary([msg], encode=True)
-    ...     print(summary)
-    ...     print(encoding) # encoding is the TF-IDF vector of the summary
+    >>> summary, encoding = simple_extractive_summary(messages, encode=True)
+    >>> print(summary)
+    >>> print(encoding) # encoding is the TF-IDF vector of the summary
     """
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.metrics.pairwise import cosine_similarity
     if len(texts) < 2:
         if not raise_exception:
             return (texts[0], None) if encode else texts[0]
-        raise ValueError("The input list must contain at least two sentences for summarization.")
+        raise ValueError("The input list must contain at least two "
+                         "sentences for summarization.")
 
     vectorizer = TfidfVectorizer(stop_words='english')
     # Create a TF-IDF Vectorizer, excluding common English stop words
@@ -427,7 +429,11 @@ def enrich_data_spectrum(
         idx1, idx2 = np.random.choice(data.index, 2, replace=False)
         synthetic_point = data.loc[idx1] + np.random.rand() * (
             data.loc[idx2] - data.loc[idx1])
-        augmented_df = augmented_df.append(synthetic_point, ignore_index=True)
+        # Create a DataFrame from synthetic_point to use with pd.concat
+        synthetic_df = pd.DataFrame([synthetic_point], columns=data.columns)
+        augmented_df = pd.concat([augmented_df, synthetic_df], ignore_index=True)
+        # append deprecated
+        # augmented_df = augmented_df.append(synthetic_point, ignore_index=True)
 
     # Bootstrapping
     bootstrapped_data = resample(data, n_samples=bootstrap_size, replace=True)
@@ -503,7 +509,6 @@ def sanitize(
                          input_name="feature_",  raise_warning='mute')
     data = to_numeric_dtypes( data ) # verify integrity 
     df_cleaned = data.copy()
-
     if fill_missing:
         fill_methods = {
             'median': data.median(),
@@ -795,34 +800,73 @@ def array2hdf5 (
             data = pd.DataFrame ( data , columns = columns )
             
     return data if task=='load' else None 
-   
-def lowertify (*values, strip = True, return_origin: bool =... ): 
-    """ Strip and convert value to lowercase. 
-    
-    :param value: str , value to convert 
-    :return: value in lowercase and original value. 
-    
-    :Example: 
-        >>> from gofast.tools.baseutils import lowertify 
-        >>> lowertify ( 'KIND')
-        Out[19]: ('kind',)
-        >>> lowertify ( "KIND", return_origin =True )
-        Out[20]: (('kind', 'KIND'),)
-        >>> lowertify ( "args1", 120 , 'ArG3') 
-        Out[21]: ('args1', '120', 'arg3')
-        >>> lowertify ( "args1", 120 , 'ArG3', return_origin =True ) 
-        Out[22]: (('args1', 'args1'), ('120', 120), ('arg3', 'ArG3'))
-        >>> (kind, kind0) , ( task, task0 ) = lowertify(
-            "KIND", "task ", return_origin =True )
-        >>> kind, kind0, task, task0 
-        Out[23]: ('kind', 'KIND', 'task', 'task ')
-        """
-    raw_values = copy.deepcopy(values ) 
-    values = [ str(val).lower().strip() if strip else str(val).lower() 
-              for val in values]
 
-    return tuple (zip ( values, raw_values)) if ellipsis2false (
-        return_origin)[0]  else tuple (values)
+def lowertify(
+    *values, strip: bool = True, return_origin: bool = False, 
+    unpack: bool = False
+    ) -> Union[Tuple[str, ...], Tuple[Tuple[str, Any], ...], Tuple[Any, ...]]:
+    """
+    Convert all input values to lowercase strings, optionally stripping 
+    whitespace, and optionally return the original values alongside the 
+    lowercased versions.
+    
+    Can also unpack the tuples of lowercased and original values into a single
+    flat tuple.
+
+    Parameters
+    ----------
+    *values : Any
+        Arbitrary number of values to be converted to lowercase. Non-string 
+        values will be converted to strings before processing.
+    strip : bool, optional
+        If True (default), leading and trailing whitespace will be removed 
+        from the strings.
+    return_origin : bool, optional
+        If True, each lowercased string is returned as a tuple with its 
+        original value; otherwise, only the lowercased strings are returned.
+    unpack : bool, optional
+        If True, and `return_origin` is also True, the function returns a 
+        single flat tuple containing all lowercased and original values 
+        alternatively. This parameter is ignored if `return_origin` is False.
+
+    Returns
+    -------
+    Union[Tuple[str, ...], Tuple[Tuple[str, Any], ...], Tuple[Any, ...]]
+        Depending on `return_origin` and `unpack` flags, returns either:
+        - A tuple of lowercased (and optionally stripped) strings.
+        - A tuple of tuples, each containing the lowercased string and its 
+          original value.
+        - A single flat tuple containing all lowercased and original values 
+          alternatively (if `unpack` is True).
+
+    Examples
+    --------
+    >>> from gofast.tools.baseutils import lowertify
+    >>> lowertify('KIND')
+    ('kind',)
+    
+    >>> lowertify("KIND", return_origin=True)
+    (('kind', 'KIND'),)
+    
+    >>> lowertify("args1", 120, 'ArG3')
+    ('args1', '120', 'arg3')
+    
+    >>> lowertify("args1", 120, 'ArG3', return_origin=True)
+    (('args1', 'args1'), ('120', 120), ('arg3', 'ArG3'))
+    
+    >>> lowertify("KIND", "task ", return_origin=True, unpack=True)
+    ('kind', 'KIND', 'task', 'task ')
+    """
+    processed_values = [(str(val).strip().lower() if strip 
+                         else str(val).lower(), val) for val in values]
+    if return_origin:
+        if unpack:
+            # Flatten the list of tuples into a single tuple for unpacking
+            return tuple(item for pair in processed_values for item in pair)
+        else:
+            return tuple(processed_values)
+    else:
+        return tuple(lowered for lowered, _ in processed_values)
 
 def save_or_load(
     fname:str, /,
@@ -1584,7 +1628,6 @@ def speed_rowwise_process(
     processed_data = pd.DataFrame(results, columns=data.columns)
     return processed_data
     
-
 def run_shell_command(command, progress_bar_duration=30):
     """
     Run a shell command with an indeterminate progress bar.
@@ -1646,9 +1689,9 @@ def run_shell_command(command, progress_bar_duration=30):
 
 def handle_datasets_in_h5(
     file_path: str,
-    datasets: Optional[Dict[str, np.ndarray]] = None, 
+    datasets: Optional[Dict[str, ArrayLike]] = None, 
     operation: str = 'store'
-    ) -> Union[None, Dict[str, np.ndarray]]:
+    ) -> Union[None, Dict[str, ArrayLike]]:
     """
     Handles storing or retrieving multiple datasets in an HDF5 file.
 
@@ -2141,6 +2184,7 @@ def audit_data(
 
     Example
     -------
+    >>> import pandas as pd 
     >>> from gofast.tools.baseutils import audit_data
     >>> data = pd.DataFrame({'A': [1, 2, 3, 100], 'B': [4, 5, 6, -50]})
     >>> audited_data, report = audit_data(data, handle_outliers=True, return_report=True)
@@ -2497,9 +2541,11 @@ def handle_outliers_in_data(
     data : pd.DataFrame
         The DataFrame with potential outliers.
     method : str, optional
-        Method to handle outliers ('clip', 'remove', 'replace'). Default is 'clip'.
+        Method to handle outliers ('clip', 'remove', 'replace'). 
+        Default is 'clip'.
     replace_with : str, optional
-        Specifies replacement method ('mean' or 'median') for 'replace'. Default is 'median'.
+        Specifies replacement method ('mean' or 'median') for 'replace'.
+        Default is 'median'.
     lower_quantile : float, optional
         Lower quantile for clipping outliers. Default is 0.01.
     upper_quantile : float, optional
@@ -2517,7 +2563,7 @@ def handle_outliers_in_data(
     Returns
     -------
     pd.DataFrame
-        DataFrame with outliers handled.
+        DataFrame with outliers handled and optionally a report dictionary.
 
     Example
     -------
@@ -2814,20 +2860,21 @@ def inspect_data(
         # Correlation check
         correlation_threshold = correlation_threshold  # Arbitrary threshold
         corr_matrix = data[numeric_cols].corr().abs()
-        upper_triangle = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
-        high_corr_pairs = ( [(col, corr_matrix.columns[idx]) for col in 
-                             corr_matrix.columns for idx in corr_matrix[col].index 
-                             if upper_triangle.loc[col, idx] > correlation_threshold]
-                           )
+        upper_triangle = corr_matrix.where(np.triu(np.ones(
+            corr_matrix.shape), k=1).astype(bool))
+        high_corr_pairs = [(col1, col2) for col1, col2 in zip(
+            *np.where(upper_triangle > correlation_threshold))]
+    
         if high_corr_pairs:
             print("- Highly correlated features detected:")
-            for pair in high_corr_pairs:
-                print(f"  {pair[0]} and {pair[1]} (Correlation > {correlation_threshold})")
-    
+            for idx1, idx2 in high_corr_pairs:
+                col1, col2 = numeric_cols[idx1], numeric_cols[idx2]
+                print(f"  {col1} and {col2} (Correlation > {correlation_threshold})")
+        
         # Data type conversions
         print("- Review data types of columns for appropriate conversions"
               " (e.g., converting float to int where applicable).")
-
+                 
 def augment_data(
     X: Union[DataFrame, ArrayLike], 
     y: Optional[Union[pd.Series, np.ndarray]] = None, 
@@ -2923,8 +2970,7 @@ def augment_data(
     
     # Shuffle if required
     if y_np is not None:
-        check_consistent_length(X_augmented, y_np )
-        
+        check_consistent_length(X, y_np )
         y_augmented = np.concatenate([y_np] * augmentation_factor)
         if shuffle:
             X_augmented, y_augmented = shuffle_data(X_augmented, y_augmented)
@@ -2939,17 +2985,106 @@ def augment_data(
             
         return X_augmented
 
+def _is_categorical(y: Union[pd.Series, pd.DataFrame]) -> bool:
+    """
+    Determine if the target variable(s) is categorical.
+
+    Parameters
+    ----------
+    y : Union[pd.Series, pd.DataFrame]
+        Target variable(s).
+
+    Returns
+    -------
+    bool
+        True if the target variable(s) is categorical, False otherwise.
+    """
+    if isinstance(y, pd.DataFrame):
+        return all(y.dtypes.apply(lambda dtype: dtype.kind in 'iOc'))
+    return y.dtype.kind in 'iOc'
+
+def _encode_target(y: Union[pd.Series, pd.DataFrame]) -> Union[pd.Series, pd.DataFrame]:
+    """
+    Encode the target variable(s) if it is categorical.
+
+    Parameters
+    ----------
+    y : Union[pd.Series, pd.DataFrame]
+        Target variable(s).
+
+    Returns
+    -------
+    Union[pd.Series, pd.DataFrame]
+        Encoded target variable(s).
+    """
+    from sklearn.preprocessing import LabelEncoder
+    
+    if isinstance(y, pd.DataFrame):
+        encoder = LabelEncoder()
+        return y.apply(lambda col: encoder.fit_transform(col))
+    elif y.dtype.kind == 'O':
+        encoder = LabelEncoder()
+        return pd.Series(encoder.fit_transform(y), index=y.index)
+    return y
+
+def _prepare_data(
+        data: pd.DataFrame, 
+        target_column: Union[str, List[str], pd.Series, np.ndarray]
+        ) -> Tuple[pd.DataFrame, Union[pd.Series, pd.DataFrame]]:
+    """
+    Prepare the feature matrix X and target vector y from the input DataFrame.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The input DataFrame containing features and a target variable.
+    target_column : Union[str, List[str], pd.Series, np.ndarray]
+        The target variable's identifier(s) or the target variable itself.
+
+    Returns
+    -------
+    X : pd.DataFrame
+        The feature matrix after removing the target column(s) if specified by name.
+    y : Union[pd.Series, pd.DataFrame]
+        The target vector or DataFrame for multiple labels.
+
+    Raises
+    ------
+    ValueError
+        If the target_column length does not match the number of samples in data.
+    KeyError
+        If the target_column specified by name is not found in data.
+    """
+    if isinstance(target_column, (str, list)):
+        target_column= list(is_iterable(
+            target_column, exclude_string= True, transform =True )
+            )
+        exist_features(data, features= target_column )
+        y = data[target_column]
+        X = data.drop(target_column, axis=1)
+    elif isinstance(target_column, (pd.Series, np.ndarray)):
+        # if len(target_column) != len(data):
+        #     raise ValueError("Length of the target array/Series must match the number of samples in 'data'.")
+        y = pd.Series(target_column, index=data.index) if isinstance(target_column, np.ndarray) else target_column
+        X = data
+    else:
+        raise ValueError("Invalid type for 'target_column'. Must be str, list, pd.Series, or np.ndarray.")
+    
+    check_consistent_length(X, y)
+    
+    return X, y
+
 def assess_outlier_impact(
-    data: DataFrame,/, 
-    target_column: Union[str, List[str], Series, ArrayLike],
-    test_size: float = 0.2,
-    random_state: int = 42,
-    verbose: bool = False
-) -> Tuple[float, float]:
+    data: pd.DataFrame, /, 
+    target_column: Union[str, List[str], pd.Series, np.ndarray],
+    test_size: float = 0.2, 
+    random_state: int = 42, 
+    verbose: bool = False) -> Tuple[float, float]:
     """
     Assess the impact of outliers on the predictive performance of a model. 
     
-    Applicable for both regression and classification tasks.
+    Applicable for both regression and classification tasks, including 
+    multi-label targets.
 
     Parameters
     ----------
@@ -2989,6 +3124,8 @@ def assess_outlier_impact(
          
     Examples:
     ---------
+    >>> import pandas as pd 
+    >>> from gofast.tools.baseutils import assess_outlier_impact
     >>> df = pd.DataFrame({
     ...     'feature1': np.random.rand(100),
     ...     'feature2': np.random.rand(100),
@@ -2997,90 +3134,62 @@ def assess_outlier_impact(
     >>> mse_with_outliers, mse_without_outliers = assess_outlier_impact(df, 'target')
     >>> print('MSE with outliers:', mse_with_outliers)
     >>> print('MSE without outliers:', mse_without_outliers)
-    
-    """
-    from sklearn.linear_model import LogisticRegression, LinearRegression
-    from sklearn.preprocessing import LabelEncoder
-    from sklearn.metrics import accuracy_score, mean_squared_error
-    from sklearn.model_selection import train_test_split 
-    
-    if isinstance(target_column, str):
-        target_column = [target_column]
-    
-    if isinstance(target_column, list):
-        for col in target_column:
-            if col not in data.columns:
-                raise KeyError(f"Target column '{col}' not found in the DataFrame.")
-        y = data[target_column]
-        X = data.drop(target_column, axis=1)
-    elif isinstance(target_column, (pd.Series, np.ndarray)):
-        if len(target_column) != len(data):
-            raise ValueError("Length of the target array/Series must match "
-                             "the number of samples in 'data'.")
-        y = target_column
-        X = data
-    else:
-        raise ValueError("Invalid type for 'target_column'. Must be str,"
-                         " list, pd.Series, or np.ndarray.")
 
-    if not (0 < test_size < 1):
-        raise ValueError("Test size must be between 0 and 1.")
+    """
+    from sklearn.metrics import accuracy_score, mean_squared_error
+    from sklearn.model_selection import train_test_split
+    from sklearn.linear_model import LogisticRegression, LinearRegression
     
-    # Determine if the task is regression or classification based on the target variable
-    if data[target_column].dtype.kind in 'ibc':  # Integer, boolean, or categorical target
-        is_regression = False
+    is_frame (data, df_only= True, raise_exception= True )
+    X, y = _prepare_data(data, target_column)
+    # Determine if the task is regression or classification
+    is_categorical = _is_categorical(y)
+    if is_categorical:
         model = LogisticRegression()
         metric = accuracy_score
         metric_name = "Accuracy"
-        # Encode categorical target if necessary
-        if data[target_column].dtype.kind in 'Oc':  # Object or categorical dtype
-            encoder = LabelEncoder()
-            data[target_column] = encoder.fit_transform(data[target_column])
-    else:  # Continuous target
-        is_regression = True
+        y = _encode_target(y)
+    else:
         model = LinearRegression()
         metric = mean_squared_error
         metric_name = "MSE"
+    # Ensure y is a np.ndarray for model fitting
+    y = y if isinstance(y, np.ndarray) else y.values
 
-    # Split the data into training and testing sets
-    X = data.drop(target_column, axis=1)
-    y = data[target_column]
+    # Split the data
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=test_size, random_state=random_state)
 
-    # Function to evaluate model performance
-    def evaluate_model(X_train, y_train, X_test, y_test, model, metric):
+    # Define an internal function for model evaluation to keep the main logic clean
+    def _evaluate_model(X_train: pd.DataFrame, y_train: np.ndarray,
+                        X_test: pd.DataFrame, y_test: np.ndarray, 
+                        model, metric) -> float:
+        """ Train the model and evaluate its performance on the test set."""
         model.fit(X_train, y_train)
         predictions = model.predict(X_test)
         return metric(y_test, predictions)
 
     # Evaluate the model on the original data
-    original_metric = evaluate_model(X_train, y_train, X_test, y_test, model, metric)
+    original_metric = _evaluate_model(X_train, y_train, X_test, y_test, model, metric)
 
-    # Identify and remove outliers using the Interquartile Range (IQR) method
+    # Identify and remove outliers using the IQR method
     Q1 = X_train.quantile(0.25)
     Q3 = X_train.quantile(0.75)
     IQR = Q3 - Q1
-    lower_bound = Q1 - 1.5 * IQR
-    upper_bound = Q3 + 1.5 * IQR
-
-    # Filter out the outliers from the training data
-    X_train_filtered = X_train[~((X_train < lower_bound) | (X_train > upper_bound)
-                                 ).any(axis=1)]
-    y_train_filtered = y_train[~((X_train < lower_bound) | (X_train > upper_bound)
-                                 ).any(axis=1)]
+    is_not_outlier = ~((X_train < (Q1 - 1.5 * IQR)) | (X_train > (Q3 + 1.5 * IQR))).any(axis=1)
+    X_train_filtered = X_train[is_not_outlier]
+    y_train_filtered = y_train[is_not_outlier]
 
     # Evaluate the model on the filtered data
-    filtered_metric = evaluate_model(X_train_filtered, y_train_filtered,
-                                     X_test, y_test, model, metric)
+    filtered_metric = _evaluate_model(X_train_filtered, y_train_filtered, X_test, y_test, model, metric)
+
     # Print results if verbose is True
     if verbose:
         print(f'{metric_name} with outliers in the training set: {original_metric}')
         print(f'{metric_name} without outliers in the training set: {filtered_metric}')
-        
         # Check the impact
-        if is_regression and filtered_metric < original_metric or \
-           not is_regression and filtered_metric > original_metric:
+        if not is_categorical and filtered_metric < original_metric or \
+           is_categorical and filtered_metric > original_metric:
             print('Outliers appear to have a negative impact on the model performance.')
         else:
             print('Outliers do not appear to have a significant negative'
@@ -3089,76 +3198,151 @@ def assess_outlier_impact(
     return original_metric, filtered_metric
 
 def transform_dates(
-    data: pd.DataFrame, 
+    data: DataFrame, /, 
     transform: bool = True, 
-    fmt: Union[str, None] = None, 
-    return_dt_columns: bool = False, 
+    fmt: Optional[str] = None, 
+    return_dt_columns: bool = False,
+    include_columns: Optional[List[str]] = None,
+    exclude_columns: Optional[List[str]] = None,
+    force: bool = False,
+    errors: str = 'coerce',
     **dt_kws
-    ) -> Union[pd.DataFrame, List[str]]:
+) -> Union[pd.DataFrame, List[str]]:
     """
-    Detects columns in a DataFrame that can be interpreted as date and time. 
+    Detects and optionally transforms columns in a DataFrame that can be 
+    interpreted as dates. 
     
-    Optionally, transforms these columns to datetime objects using pandas' 
-    to_datetime function.
+    Funtion uses advanced parameters for greater control over the 
+    conversion process.
 
     Parameters
     ----------
-    data : pandas.DataFrame
-        The DataFrame to process.
+    data : pd.DataFrame
+        The DataFrame to inspect and process.
     transform : bool, optional
-        If True, converts detected datetime columns to datetime objects. 
-        Default is True.
+        Determines whether to perform the conversion of detected datetime 
+        columns. Defaults to True.
     fmt : str or None, optional
-        The datetime format string to use for conversion. If None, pandas' 
-        default parsing is used.
+        Specifies the datetime format string to use for conversion. If None, 
+        pandas will infer the format.
     return_dt_columns : bool, optional
-        If True, returns a list of column names detected as datetime.
-        Default is False.
+        If True, the function returns a list of column names detected 
+        (and potentially converted) as datetime. 
+        Otherwise, it returns the modified DataFrame or the original DataFrame
+        if no transformation is performed.
+    include_columns : List[str] or None, optional
+        Specifies a list of column names to consider for datetime conversion. 
+        If None, all columns are considered.
+    exclude_columns : List[str] or None, optional
+        Specifies a list of column names to exclude from datetime conversion. 
+        This parameter is ignored if `include_columns` is provided.
+    force : bool, optional
+        If True, forces the conversion of columns to datetime objects, even 
+        for columns with mixed or unexpected data types.
+    errors : str, optional
+        Determines how to handle conversion errors. Options are 'raise', 
+        'coerce', and 'ignore' (default is 'coerce').
+        'raise' will raise an exception for any errors, 'coerce' will convert 
+        problematic data to NaT, and 'ignore' will
+        return the original data without conversion.
     **dt_kws : dict
         Additional keyword arguments to be passed to `pd.to_datetime`.
 
     Returns
     -------
-    Union[pandas.DataFrame, List[str]]
-        Depending on `return_dt_columns`, either returns the modified 
-        DataFrame or a list of column names detected as datetime.
+    Union[pd.DataFrame, List[str]]
+        Depending on `return_dt_columns`, returns either a list of column names 
+        detected as datetime or the DataFrame with the datetime conversions 
+        applied.
 
     Examples
     --------
     >>> from gofast.tools.baseutils import transform_dates
     >>> data = pd.DataFrame({
     ...     'date': ['2021-01-01', '2021-01-02'],
-    ...     'value': [1, 2]
+    ...     'value': [1, 2],
+    ...     'timestamp': ['2021-01-01 12:00:00', None],
+    ...     'text': ['Some text', 'More text']
     ... })
-    >>> transform_dates(data, transform=True, return_dt_columns=True)
-    ['date']
+    >>> transform_dates(data, fmt='%Y-%m-%d', return_dt_columns=True)
+    ['date', 'timestamp']
 
-    >>> transform_dates(data, transform=True, fmt='%Y-%m-%d').dtypes
-    date     datetime64[ns]
-    value             int64
+    >>> transform_dates(data, include_columns=['date', 'timestamp'], 
+    ...                    errors='ignore').dtypes
+    date          datetime64[ns]
+    value                  int64
+    timestamp     datetime64[ns]
+    text                  object
     dtype: object
     """
-    datetime_columns = [] 
-    # make a copy if not done 
-    df = data.copy() 
-    for col in df.columns:
-        try:
-            pd.to_datetime(df[col], format=None, errors='raise', **dt_kws)
-            datetime_columns.append(col)
-        except (ValueError, TypeError):
-            continue
+    # Use the helper function to identify potential datetime columns
+    potential_dt_columns = detect_datetime_columns(data)
+    
+    # Filter columns based on include/exclude lists if provided
+    if include_columns is not None:
+        datetime_columns = [col for col in include_columns 
+                            if col in potential_dt_columns]
+    elif exclude_columns is not None:
+        datetime_columns = [col for col in potential_dt_columns 
+                            if col not in exclude_columns]
+    else:
+        datetime_columns = potential_dt_columns
+
+    df = data.copy()
+    
+    if transform:
+        for col in datetime_columns:
+            if force or col in datetime_columns:
+                df[col] = pd.to_datetime(df[col], format=fmt,
+                                         errors=errors, **dt_kws)
     
     if return_dt_columns:
         return datetime_columns
     
-    if transform and datetime_columns:
-        for dt_col in datetime_columns:
-            # Use .loc to explicitly modify the DataFrame and 
-            # avoid SettingWithCopyWarning
-            df.loc[:, dt_col] = pd.to_datetime(
-                df[dt_col], format=fmt, **dt_kws)
+    return df
     
-    return data
+def detect_datetime_columns(data: DataFrame, / ) -> List[str]:
+    """
+    Detects columns in a DataFrame that can be interpreted as date and time,
+    with an improved check to avoid false positives on purely numeric columns.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame to inspect.
+
+    Returns
+    -------
+    List[str]
+        A list of column names that can potentially be formatted as datetime objects.
+
+    Examples
+    --------
+    >>> data = pd.DataFrame({
+    ...     'date': ['2021-01-01', '2021-01-02'],
+    ...     'value': [1, 2],
+    ...     'timestamp': ['2021-01-01 12:00:00', None],
+    ...     'text': ['Some text', 'More text']
+    ... })
+    >>> detect_datetime_columns(data)
+    ['date', 'timestamp']
+    """
+    datetime_columns = []
+
+    for col in data.columns:
+        if pd.api.types.is_numeric_dtype(data[col]) and data[col].dropna().empty:
+            # Skip numeric columns with no values, as they cannot be dates
+            continue
+        if pd.api.types.is_string_dtype(data[col]) or pd.api.types.is_object_dtype(data[col]):
+            try:
+                # Attempt conversion on columns with string-like or mixed types
+                _ = pd.to_datetime(data[col], errors='raise')
+                datetime_columns.append(col)
+            except (ValueError, TypeError):
+                # If conversion fails, skip the column.
+                continue
+
+    return datetime_columns
 
 def merge_frames_on_index(
     *data: DataFrame, 
@@ -3224,3 +3408,715 @@ def merge_frames_on_index(
                           ignore_index=ignore_index, sort=sort)
 
     return merged_df
+
+def apply_tfidf_vectorization(
+    data: DataFrame,/,
+    text_columns: Union[str, List[str]],
+    max_features: int = 100,
+    stop_words: Union[str, List[str]] = 'english',
+    missing_value_handling: str = 'fill',
+    fill_value: str = '',
+    drop_text_columns: bool = True
+  ) -> DataFrame:
+    """
+    Applies TF-IDF (Term Frequency-Inverse Document Frequency) vectorization 
+    to one or more text columns in a pandas DataFrame. 
+    
+    Function concatenates the resulting features back into the original 
+    DataFrame.
+    
+    TF-IDF method weighs the words based on their occurrence in a document 
+    relative to their frequency across all documents, helping to highlight 
+    words that are more interesting, i.e., frequent in a document but not 
+    across documents.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The input DataFrame containing the text data to vectorize.
+    text_columns : Union[str, List[str]]
+        The name(s) of the column(s) in `data` containing the text data.
+    max_features : int, optional
+        The maximum number of features to generate. Defaults to 100.
+    stop_words : Union[str, List[str]], optional
+        The stop words to use for the TF-IDF vectorizer. Can be 'english' or 
+        a custom list of stop words. Defaults to 'english'.
+    missing_value_handling : str, optional
+        Specifies how to handle missing values in `text_columns`. 'fill' will 
+        replace them with `fill_value`, 'ignore' will keep them as is, and 
+        'drop' will remove rows with missing values. Defaults to 'fill'.
+    fill_value : str, optional
+        The value to use for replacing missing values in `text_columns` if 
+        `missing_value_handling` is 'fill'. Defaults to an empty string.
+    drop_text_columns : bool, optional
+        Whether to drop the original text columns from the returned DataFrame.
+        Defaults to True.
+
+    Returns
+    -------
+    pd.DataFrame
+        The original DataFrame concatenated with the TF-IDF features. The 
+        original text column(s) can be optionally dropped.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.tools.baseutils import apply_tfidf_vectorization
+    >>> data = pd.DataFrame({
+    ...     'message_to_investigators': ['This is a sample message', 'Another sample message', np.nan],
+    ...     'additional_notes': ['Note one', np.nan, 'Note three']
+    ... })
+    >>> processed_data = apply_tfidf_vectorization(
+    ... data, text_columns=['message_to_investigators', 'additional_notes'])
+    >>> processed_data.head()
+    """
+    is_frame(data, df_only= True, raise_exception= True )
+    text_columns = is_iterable(text_columns, exclude_string= True, transform=True)
+    tfidf_features_df = pd.DataFrame()
+
+    for column in text_columns:
+        column_data = data[column]
+        handled_data = _handle_missing_values(
+            column_data, missing_value_handling, fill_value
+            )
+        column_tfidf_df = _generate_tfidf_features(
+            handled_data, max_features, stop_words
+            )
+        tfidf_features_df = pd.concat(
+            [tfidf_features_df, column_tfidf_df], 
+            axis=1
+            )
+
+    if drop_text_columns:
+        data = data.drop(columns=text_columns)
+    prepared_data = pd.concat(
+        [data.reset_index(drop=True), tfidf_features_df.reset_index(drop=True)
+         ], axis=1
+    )
+
+    return prepared_data
+
+def _handle_missing_values(
+        column_data: pd.Series, missing_value_handling: str, fill_value: str = ''
+   ) -> pd.Series:
+    """
+    Handles missing values in a pandas Series according to the specified method.
+
+    Parameters
+    ----------
+    column_data : pd.Series
+        The Series (column) from the DataFrame for which missing values 
+        need to be handled.
+    missing_value_handling : str
+        The method for handling missing values: 'fill', 'drop', or 'ignore'.
+    fill_value : str, optional
+        The value to use for filling missing values if `missing_value_handling`
+        is 'fill'. Defaults to an empty string.
+
+    Returns
+    -------
+    pd.Series
+        The Series with missing values handled according to the specified method.
+
+    Raises
+    ------
+    ValueError
+        If an invalid `missing_value_handling` option is provided.
+    """
+    if missing_value_handling == 'fill':
+        return column_data.fillna(fill_value)
+    elif missing_value_handling == 'drop':
+        return column_data.dropna()
+    elif missing_value_handling == 'ignore':
+        return column_data
+    else:
+        raise ValueError("Invalid missing_value_handling option. Choose"
+                         " 'fill', 'drop', or 'ignore'.")
+def _generate_tfidf_features(
+        text_data: pd.Series, max_features: int, 
+        stop_words: Union[str, List[str]]) -> pd.DataFrame:
+    """
+    Generates TF-IDF features for a given text data Series.
+
+    Parameters
+    ----------
+    text_data : pd.Series
+        The Series (column) from the DataFrame containing the text data.
+    max_features : int
+        The maximum number of features to generate.
+    stop_words : Union[str, List[str]]
+        The stop words to use for the TF-IDF vectorizer. Can be 'english' 
+        or a custom list of stop words.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing the TF-IDF features for the text data.
+    """
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    
+    tfidf_vectorizer = TfidfVectorizer(max_features=max_features, stop_words=stop_words)
+    tfidf_features = tfidf_vectorizer.fit_transform(text_data).toarray()
+    feature_names = [f'tfidf_{i}' for i in range(tfidf_features.shape[1])]
+    return pd.DataFrame(tfidf_features, columns=feature_names, index=text_data.index)
+
+def apply_bow_vectorization(
+    data: pd.DataFrame, /, 
+    text_columns: Union[str, List[str]],
+    max_features: int = 100,
+    stop_words: Union[str, List[str]] = 'english',
+    missing_value_handling: str = 'fill',
+    fill_value: str = '',
+    drop_text_columns: bool = True
+ ) -> pd.DataFrame:
+    """
+    Applies Bag of Words (BoW) vectorization to one or more text columns in 
+    a pandas DataFrame. 
+    
+    Function concatenates the resulting features back into the original 
+    DataFrame.
+    
+    Bow is a simpler approach that creates a vocabulary of all the unique 
+    words in the dataset and then models each text as a count of the number 
+    of times each word appears.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The input DataFrame containing the text data to vectorize.
+    text_columns : Union[str, List[str]]
+        The name(s) of the column(s) in `data` containing the text data.
+    max_features : int, optional
+        The maximum number of features to generate. Defaults to 100.
+    stop_words : Union[str, List[str]], optional
+        The stop words to use for the BoW vectorizer. Can be 'english' or 
+        a custom list of stop words. Defaults to 'english'.
+    missing_value_handling : str, optional
+        Specifies how to handle missing values in `text_columns`. 'fill' will 
+        replace them with `fill_value`, 'ignore' will keep them as is, and 
+        'drop' will remove rows with missing values. Defaults to 'fill'.
+    fill_value : str, optional
+        The value to use for replacing missing values in `text_columns` if 
+        `missing_value_handling` is 'fill'. Defaults to an empty string.
+    drop_text_columns : bool, optional
+        Whether to drop the original text columns from the returned DataFrame.
+        Defaults to True.
+
+    Returns
+    -------
+    pd.DataFrame
+        The original DataFrame concatenated with the BoW features. The 
+        original text column(s) can be optionally dropped.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.tools.baseutils import apply_bow_vectorization
+    >>> data = pd.DataFrame({
+    ...     'message_to_investigators': ['This is a sample message', 'Another sample message', np.nan],
+    ...     'additional_notes': ['Note one', np.nan, 'Note three']
+    ... })
+    >>> processed_data = apply_bow_vectorization(
+    ... data, text_columns=['message_to_investigators', 'additional_notes'])
+    >>> processed_data.head()
+    """
+    is_frame(data, df_only= True, raise_exception= True )
+    text_columns = is_iterable(
+        text_columns, exclude_string= True, transform=True)
+
+    bow_features_df = pd.DataFrame()
+
+    for column in text_columns:
+        column_data = data[column]
+        handled_data = _handle_missing_values(
+            column_data, missing_value_handling, fill_value)
+        column_bow_df = _generate_bow_features(
+            handled_data, max_features, stop_words)
+        bow_features_df = pd.concat([bow_features_df, column_bow_df], axis=1)
+
+    if drop_text_columns:
+        data = data.drop(columns=text_columns)
+    prepared_data = pd.concat([data.reset_index(drop=True),
+                               bow_features_df.reset_index(drop=True)],
+                              axis=1
+                              )
+
+    return prepared_data
+
+def apply_word_embeddings(
+    data: DataFrame,/, 
+    text_columns: Union[str, List[str]],
+    embedding_file_path: str,
+    n_components: int = 50,
+    missing_value_handling: str = 'fill',
+    fill_value: str = '',
+    drop_text_columns: bool = True
+  ) -> DataFrame:
+    """
+    Applies word embedding vectorization followed by dimensionality reduction 
+    to text columns in a pandas DataFrame.
+    
+    This process converts text data into a numerical form that captures 
+    semantic relationships between words, making it suitable for use in machine
+    learning models. The function leverages pre-trained word embeddings 
+    (e.g., Word2Vec, GloVe) to represent words in a high-dimensional space and 
+    then applies PCA (Principal Component Analysis) to reduce the
+    dimensionality of these embeddings to a specified number of components.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The input DataFrame containing the text data to be processed.
+    text_columns : Union[str, List[str]]
+        The name(s) of the column(s) in `data` containing the text data to be 
+        vectorized. Can be a single column name or a list of names for multiple
+        columns.
+    embedding_file_path : str
+        The file path to the pre-trained word embeddings. This file should be 
+        in a format compatible with Gensim's KeyedVectors, such as Word2Vec's .
+        bin format or GloVe's .txt format.
+    n_components : int, optional
+        The number of dimensions to reduce the word embeddings to using PCA. 
+        Defaults to 50, balancing between retaining
+        semantic information and ensuring manageability for machine learning models.
+    missing_value_handling : str, optional
+        Specifies how to handle missing values in `text_columns`. Options are:
+        - 'fill': Replace missing values with `fill_value`.
+        - 'drop': Remove rows with missing values in any of the specified text columns.
+        - 'ignore': Leave missing values as is, which may affect the embedding process.
+        Defaults to 'fill'.
+    fill_value : str, optional
+        The value to use for replacing missing values in `text_columns` 
+        if `missing_value_handling` is 'fill'. This can be an empty string 
+        (default) or any placeholder text.
+    drop_text_columns : bool, optional
+        Whether to drop the original text columns from the returned DataFrame.
+        Defaults to True, removing the text
+        columns to only include the generated features and original non-text data.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame consisting of the original DataFrame 
+        (minus the text columns if `drop_text_columns` is True) concatenated
+        with the dimensionality-reduced word embedding features. The new 
+        features are numerical and ready for use in machine learning models.
+
+    Examples
+    --------
+    Assuming we have a DataFrame `df` with a text column 'reviews' and 
+    pre-trained word embeddings stored at 'path/to/embeddings.bin':
+
+    >>> import pandas as pd 
+    >>> from gofast.tools.baseutils import apply_word_embeddings
+    >>> df = pd.DataFrame({'reviews': [
+    ...  'This product is great', 'Terrible customer service', 'Will buy again', 
+    ... 'Not worth the price']})
+    >>> processed_df = apply_word_embeddings(df,
+    ...                                      text_columns='reviews',
+    ...                                      embedding_file_path='path/to/embeddings.bin',
+    ...                                      n_components=50,
+    ...                                      missing_value_handling='fill',
+    ...                                      fill_value='[UNK]',
+    ...                                      drop_text_columns=True)
+    >>> processed_df.head()
+
+    This will create a DataFrame with 50 new columns, each representing a 
+    component of the reduced dimensionality word embeddings, ready for further 
+    analysis or machine learning.
+    """
+    embeddings = _load_word_embeddings(embedding_file_path)
+    
+    is_frame(data, df_only= True, raise_exception= True )
+    text_columns = is_iterable(
+        text_columns, exclude_string= True, transform=True)
+    
+    if isinstance(text_columns, str):
+        text_columns = [text_columns]
+
+    all_reduced_embeddings = []
+
+    for column in text_columns:
+        column_data = data[column]
+        handled_data = _handle_missing_values(
+            column_data, missing_value_handling, fill_value
+            )
+        avg_embeddings = _average_word_embeddings(handled_data, embeddings)
+        reduced_embeddings = _reduce_dimensions(avg_embeddings, n_components)
+        all_reduced_embeddings.append(reduced_embeddings)
+
+    # Combine reduced embeddings into a DataFrame
+    embeddings_df = pd.DataFrame(np.hstack(all_reduced_embeddings))
+
+    if drop_text_columns:
+        data = data.drop(columns=text_columns)
+    prepared_data = pd.concat([data.reset_index(drop=True), 
+                               embeddings_df.reset_index(drop=True)],
+                              axis=1
+                              )
+
+    return prepared_data
+
+def _generate_bow_features(
+        text_data: pd.Series, max_features: int, 
+        stop_words: Union[str, List[str]]
+    ) -> pd.DataFrame:
+    """
+    Generates Bag of Words (BoW) features for a given text data Series.
+
+    Parameters
+    ----------
+    text_data : pd.Series
+        The Series (column) from the DataFrame containing the text data.
+    max_features : int
+        The maximum number of features to generate.
+    stop_words : Union[str, List[str]]
+        The stop words to use for the BoW vectorizer. Can be 'english' or a 
+        custom list of stop words.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing the BoW features for the text data.
+    """
+    from sklearn.feature_extraction.text import CountVectorizer
+    bow_vectorizer = CountVectorizer(max_features=max_features, stop_words=stop_words)
+    bow_features = bow_vectorizer.fit_transform(text_data).toarray()
+    feature_names = [f'bow_{i}' for i in range(bow_features.shape[1])]
+    return pd.DataFrame(bow_features, columns=feature_names, index=text_data.index)
+
+def _load_word_embeddings(embedding_file_path: str):
+    """
+    Loads pre-trained word embeddings from a file.
+
+    Parameters
+    ----------
+    embedding_file_path : str
+        Path to the file containing the pre-trained word embeddings.
+
+    Returns
+    -------
+    KeyedVectors
+        The loaded word embeddings.
+    """
+    import_optional_dependency("gensim", extra=(
+        "Word-Embeddings expect 'gensim'to be installed.")
+        )
+    from gensim.models import KeyedVectors
+    embeddings = KeyedVectors.load_word2vec_format(embedding_file_path, binary=True)
+    
+    return embeddings
+
+def _average_word_embeddings(
+        text_data: Series, embeddings
+    ) -> ArrayLike:
+    """
+    Generates an average word embedding for each text sample in a Series.
+
+    Parameters
+    ----------
+    text_data : pd.Series
+        The Series (column) from the DataFrame containing the text data.
+    embeddings : KeyedVectors
+        The pre-trained word embeddings.
+
+    Returns
+    -------
+    np.ndarray
+        An array of averaged word embeddings for the text data.
+    """
+    def get_embedding(word):
+        try:
+            return embeddings[word]
+        except KeyError:
+            return np.zeros(embeddings.vector_size)
+
+    avg_embeddings = text_data.apply(lambda x: np.mean(
+        [get_embedding(word) for word in x.split() if word in embeddings],
+        axis=0)
+        )
+    return np.vstack(avg_embeddings)
+
+def _reduce_dimensions(
+        embeddings: ArrayLike, n_components: int = 50
+        ) -> ArrayLike:
+    """
+    Reduces the dimensionality of word embeddings using PCA.
+
+    Parameters
+    ----------
+    embeddings : np.ndarray
+        The word embeddings array.
+    n_components : int
+        The number of dimensions to reduce to.
+
+    Returns
+    -------
+    np.ndarray
+        The dimensionality-reduced word embeddings.
+    """
+    from sklearn.decomposition import PCA
+    pca = PCA(n_components=n_components)
+    reduced_embeddings = pca.fit_transform(embeddings)
+    return reduced_embeddings
+
+def boxcox_transformation(
+    data: DataFrame, 
+    columns: Optional[Union[str, List[str]]] = None, 
+    min_value: float = 1, 
+    adjust_non_positive: str = 'skip',
+    verbose: int = 0, 
+    view: bool = False,
+    cmap: str = 'viridis',
+    fig_size: Tuple[int, int] = (12, 5)
+) -> (DataFrame, Dict[str, Optional[float]]):
+    """
+    Apply Box-Cox transformation to each numeric column of a pandas DataFrame.
+    
+    The Box-Cox transformation can only be applied to positive data. This function
+    offers the option to adjust columns with non-positive values by either 
+    skipping those columns or adding a constant to make all values positive 
+    before applying the transformation.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame containing numeric data to transform. Non-numeric columns 
+        will be ignored.
+    columns : str or list of str, optional
+        List of column names to apply the Box-Cox transformation to. If None, 
+        the transformation is applied to all numeric columns in the DataFrame.
+    min_value : float or int, optional
+        The minimum value to be considered positive. Default is 1. Values in 
+        columns must be greater than this minimum to apply the Box-Cox 
+        transformation.
+    adjust_non_positive : {'skip', 'adjust'}, optional
+        Determines how to handle columns with values <= min_value:
+            - 'skip': Skip the transformation for these columns.
+            - 'adjust': Add a constant to all elements in these columns to 
+              make them > min_value before applying the transformation.
+    verbose : int, optional
+        Verbosity mode. 0 = silent, 1 = print messages about columns being 
+        skipped or adjusted.
+        
+    view : bool, optional
+        If True, displays visualizations of the data before and after 
+        transformation.
+    cmap : str, optional
+        The colormap for visualizing the data distributions. Default is 
+        'viridis'.
+    fig_size : Tuple[int, int], optional
+        Size of the figure for the visualizations. Default is (12, 5).
+
+    Returns
+    -------
+    transformed_data : pandas.DataFrame
+        The DataFrame after applying the Box-Cox transformation to eligible 
+        columns.
+    lambda_values : dict
+        A dictionary mapping column names to the lambda value used for the 
+        Box-Cox transformation. Columns that were skipped or not numeric will 
+        have a lambda value of None.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from gofast.tools.baseutils import boxcox_transformation
+    >>> # Create a sample DataFrame
+    >>> data = pd.DataFrame({
+    ...     'A': np.random.rand(10) * 100,
+    ...     'B': np.random.normal(loc=50, scale=10, size=10),
+    ...     'C': np.random.randint(1, 10, size=10)  # Ensure positive values for example
+    ... })
+    >>> transformed_data, lambda_values = boxcox_transformation(
+    ...     data, columns=['A', 'B'], adjust_non_positive='adjust', verbose=1)
+    >>> print(transformed_data.head())
+    >>> print(lambda_values)
+    """
+    is_frame (data, df_only=True, raise_exception= True )
+    transformed_data = pd.DataFrame()
+    lambda_values = {}
+
+    columns = is_iterable(columns, exclude_string=True, transform= True )
+    if columns is not None:
+        missing_cols = [col for col in columns if col not in data.columns]
+        if missing_cols and verbose:
+            print(f"Warning: Columns {missing_cols} not found in DataFrame."
+                  " Skipping these columns.")
+        columns = [col for col in columns if col in data.columns]
+
+    numeric_columns = data.select_dtypes(include=[np.number]).columns
+    columns_to_transform = columns if columns is not None else numeric_columns
+    
+    _, adjust_non_positive= normalize_string(adjust_non_positive, target_strs=(
+        "adjust", "skip"), return_target_str= True, raise_exception=True, 
+        error_msg= ("`adjust_non_positive` argument expects ['skip', 'adjust']"
+                    f" Got: {adjust_non_positive!r}")
+        )
+    for column in columns_to_transform:
+        if column in numeric_columns:
+            col_data = data[column]
+            if adjust_non_positive == 'adjust' and (col_data <= min_value).any():
+                adjustment = min_value - col_data.min() + 1
+                col_data += adjustment
+                transformed, fitted_lambda = stats.boxcox(col_data)
+            elif (col_data > min_value).all():
+                transformed, fitted_lambda = stats.boxcox(col_data)
+            else:
+                transformed = col_data.copy()
+                fitted_lambda = None
+                if verbose:
+                    print(f"Column '{column}' skipped: contains values <= {min_value}.")
+            transformed_data[column] = transformed
+            lambda_values[column] = fitted_lambda
+        else:
+            if verbose:
+                print(f"Column '{column}' is not numeric and will be skipped.")
+
+    # Include non-transformed columns in the returned DataFrame
+    for column in data.columns:
+        if column not in transformed_data:
+            transformed_data[column] = data[column]
+            
+    if view:
+        fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(fig_size[0]*2, fig_size[1]))
+        
+        # Determine columns for heatmap
+        heatmap_columns = columns if columns is not None else data.select_dtypes(
+            include=[np.number]).columns
+        heatmap_columns = [col for col in heatmap_columns if col in data.columns 
+                           and np.issubdtype(data[col].dtype, np.number)]
+        # Original data heatmap
+        sns.heatmap(data[heatmap_columns].corr(), ax=axs[0], annot=True, cmap=cmap)
+        axs[0].set_title('Correlation Matrix Before Transformation')
+        
+        # Apply Box-Cox Transformation
+        # Transformed data heatmap
+        sns.heatmap(transformed_data[heatmap_columns].corr(), ax=axs[1], 
+                    annot=True, cmap=cmap)
+        axs[1].set_title('Correlation Matrix After Transformation')
+        
+        plt.tight_layout()
+        plt.show()
+    
+    return transformed_data, lambda_values
+
+def check_missing_data(
+    data: DataFrame, /, 
+    view: bool = False,
+    explode: Optional[Union[Tuple[float, ...], str]] = None,
+    shadow: bool = True,
+    startangle: int = 90,
+    cmap: str = 'viridis',
+    autopct: str = '%1.1f%%',
+    verbose: int = 0
+) -> DataFrame:
+    """
+    Check for missing data in a DataFrame and optionally visualize the 
+    distribution of missing data with a pie chart.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame to check for missing data.
+    view : bool, optional
+        If True, displays a pie chart visualization of the missing data 
+        distribution.
+    explode : tuple of float, or 'auto', optional
+        - If a tuple, it should have a length matching the number of columns 
+          with missing data, indicating how far from the center the slice 
+          for that column will be.
+        - If 'auto', the slice with the highest percentage of missing data will 
+          be exploded. If the length does not match, an error is raised.
+    shadow : bool, optional
+        If True, draws a shadow beneath the pie chart.
+    startangle : int, optional
+        The starting angle of the pie chart. If greater than 360 degrees, 
+        the value is adjusted using modulo operation.
+    cmap : str, optional
+        The colormap to use for the pie chart.
+    autopct : str, optional
+        String format for the percentage of each slice in the pie chart. 
+    verbose : int, optional
+        If set, prints messages about automatic adjustments.
+
+    Returns
+    -------
+    missing_stats : pandas.DataFrame
+        A DataFrame containing the count and percentage of missing data in 
+        each column that has missing data.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.tools.baseutils import check_missing_data
+    >>> # Create a sample DataFrame with missing values
+    >>> data = pd.DataFrame({
+    ...     'A': [1, 2, None, 4],
+    ...     'B': [None, 2, 3, 4],
+    ...     'C': [1, 2, 3, 4]
+    ... })
+    >>> missing_stats = check_missing_data(data, view=True, explode='auto',
+                                           shadow=True, startangle=270, verbose=1)
+    """
+    def validate_autopct_format(autopct: str) -> bool:
+        """
+        Validates the autopct format string for matplotlib pie chart.
+
+        Parameters
+        ----------
+        autopct : str
+            The format string to validate.
+
+        Returns
+        -------
+        bool
+            True if the format string is valid, False otherwise.
+        """
+        # A regex pattern that matches strings like '%1.1f%%', '%1.2f%%', etc.
+        # This pattern checks for the start of the string (%), optional flags,
+        # optional width, a period, precision, the 'f' specifier, and ends with '%%'
+        pattern = r'^%[0-9]*\.?[0-9]+f%%$'
+        return bool(re.match(pattern, autopct))
+    
+    is_frame( data, df_only= True, raise_exception= True )
+    missing_count = data.isnull().sum()
+    missing_count = missing_count[missing_count > 0]
+    missing_percentage = (missing_count / len(data)) * 100
+    missing_stats = pd.DataFrame({'Count': missing_count,
+                                  'Percentage': missing_percentage})
+    
+    if view and not missing_count.empty:
+        labels = missing_stats.index.tolist()
+        sizes = missing_stats['Percentage'].values.tolist()
+        if explode == 'auto':
+            # Dynamically create explode data 
+            explode = [0.1 if i == sizes.index(max(sizes)) else 0 
+                       for i in range(len(sizes))]
+        elif explode is not None:
+            if len(explode) != len(sizes):
+                raise ValueError(
+                    f"The length of 'explode' ({len(explode)}) does not match "
+                    f"the number of columns with missing data ({len(sizes)})."
+                    " Set 'explode' to 'auto' to avoid this error.")
+        
+        if startangle > 360:
+            startangle %= 360
+            if verbose:
+                print("Start angle greater than 180 degrees. Using modulo "
+                      f"to adjust: startangle={startangle}")
+        
+        if not validate_autopct_format(autopct):
+            raise ValueError("`autopct` format is not valid. It should be a"
+                             "  format string like '%1.1f%%'.")
+        fig, ax = plt.subplots()
+        ax.pie(sizes, explode=explode, labels=labels, autopct=autopct,
+               shadow=shadow, startangle=startangle, colors=plt.get_cmap(cmap)(
+                   np.linspace(0, 1, len(labels))))
+        ax.axis('equal')  # Equal aspect ratio ensures the pie is drawn as a circle.
+        ax.set_title('Missing Data Distribution')
+        plt.show()
+
+    return missing_stats
+

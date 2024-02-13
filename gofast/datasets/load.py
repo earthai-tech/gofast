@@ -30,7 +30,130 @@ from .io import (csv_data_loader, _to_dataframe, DMODULE,
     description_loader, DESCR, RemoteDataURL ) 
 
 __all__= [ "load_iris",  "load_hlogs", "load_mxs", "load_nlogs", "load_forensic", 
-          "load_jrs_bet", "load_statlog"]
+          "load_jrs_bet", "load_statlog", "load_hydro_metrics"]
+
+
+def load_hydro_metrics(*, return_X_y=False, as_frame=False, tag=None, 
+                       data_names=None, **kws):
+    """
+    Load and return the Hydro-Meteorological dataset collected in Yobouakro, 
+    S-P Agnibilekro, Cote d'Ivoire(West-Africa).
+
+    This dataset encompasses a comprehensive range of environmental and 
+    hydro-meteorological variables, including temperature, humidity, wind speed,
+    solar radiation, evapotranspiration, rainfall, and river flow metrics. 
+    It's instrumental for studies in environmental science, agriculture, 
+    meteorology, hydrology, and climate change research, facilitating the analysis 
+    of weather patterns, water resource management, and the impacts of climate 
+    variability on agriculture.
+
+    Parameters
+    ----------
+    return_X_y : bool, default=False
+        If True, returns `(data, target)` instead of a Bunch object. Here, 
+        `data` includes all features except the target variable(s), and 
+        `target` is typically the river flow measurement considered for predictive 
+        modeling tasks.
+    as_frame : bool, default=False
+        If True, returns a pandas DataFrame for `data` and a pandas Series for
+        `target`, facilitating direct interaction with pandas functionalities 
+        for data manipulation and analysis.
+    tag : str, optional
+        A tag to add to the dataset loading for user-defined categorization or 
+        filtering, not used in this function but maintained for API compatibility.
+    data_names : list of str, optional
+        Custom names for the data columns if needed to override the default 
+        names derived from the dataset; not utilized in this function but
+        preserved for future extension or API consistency.
+    **kws : dict, optional
+        Additional keyword arguments allowing for future enhancements without 
+        affecting the current function signature.
+
+    Returns
+    -------
+    data : ndarray or DataFrame
+        The dataset's features, excluding the target variable. If `as_frame=True`,
+        `data` is a pandas DataFrame.
+    target : ndarray or Series
+        The target variable(s), typically representing the river flow measurements.
+        If `as_frame=True`, 
+        `target` is a pandas Series.
+    Boxspace : Bunch object
+        A container holding the dataset details. Returned when `return_X_y` is
+        False and `as_frame` is False. 
+        It includes:
+        - `data`: ndarray, shape (n_samples, n_features) for the feature matrix.
+        - `target`: ndarray, shape (n_samples,) for the target variable.
+        - `frame`: DataFrame, combining `data` and `target` if `as_frame=True`.
+        - `DESCR`: str, a detailed description of the dataset and its context.
+        - `feature_names`: list, the names of the feature columns.
+        - `target_names`: list, the names of the target column(s).
+
+    Examples
+    --------
+    To load the dataset as a (data, target) tuple for custom analysis:
+
+    >>> from gofast.datasets import load_hydro_metrics
+    >>> data, target = load_hydro_metrics(return_X_y=True)
+    >>> print(data.shape)
+    (276, 8)  # Assuming 276 instances and 8 features.
+    >>> print(target.shape)
+    (276,)  # Assuming 276 instances of the target variable.
+
+    To load the dataset as a pandas DataFrame for easier data manipulation
+    and exploration:
+
+    >>> df, target = load_hydro_metrics(return_X_y=True, as_frame=True)
+    >>> print(df.head())
+    # Displays the first five rows of the feature data.
+    >>> print(target.head())
+    # Displays the first five rows of the target data.
+
+    Note
+    ----
+    The function is designed with flexibility in mind, accommodating various 
+    forms of data analysis and machine learning tasks. By providing options to 
+    return the data as arrays or a DataFrame, it enables users to leverage the 
+    full power of numpy and pandas for data processing and analysis, respectively.
+    """
+    data_file = "hydro_metrics.csv"
+    data, target, target_names, feature_names, fdescr = csv_data_loader(
+        data_file=data_file, include_headline=True, 
+        descr_file="hydro_metrics.rst"
+    )
+    frame = None
+    target_columns = ["flow"]
+    # get date column and remove it from dataset.
+    date_column= pd.to_datetime(pd.DataFrame ( data, columns=feature_names)['date'])
+    data= data[:, 1:].astype (float)   
+    feature_names = feature_names[1:]
+    
+    if as_frame:
+        frame, data, target = _to_dataframe(
+            data, feature_names=feature_names, tnames=target_columns,
+            target=target
+        )
+        # set date column index 
+        frame.set_index ( date_column, inplace =True )
+        data.set_index ( date_column, inplace =True )
+        
+    if return_X_y : 
+        return data, target
+    
+    if as_frame: 
+        return to_numeric_dtypes(frame)
+
+    return Boxspace(
+        data=np.array(data),
+        target=target,
+        frame=frame,
+        tnames=target_names,
+        target_names=target_names,
+        DESCR=fdescr,
+        feature_names=feature_names,
+        filename=data_file,
+        data_module=DMODULE,
+    )
 
 def load_statlog(*, return_X_y=False, as_frame=False, tag=None, 
                        data_names=None, **kws):
@@ -110,12 +233,15 @@ def load_statlog(*, return_X_y=False, as_frame=False, tag=None,
     if as_frame:
         frame, data, target = _to_dataframe(
             data, feature_names=feature_names, tnames=target_columns, target=target)
-
-    if return_X_y or as_frame:
-        return to_numeric_dtypes(data) if as_frame else data, target
-
+        
+    if return_X_y : 
+        return data, target
+    
+    if as_frame: 
+        return to_numeric_dtypes(frame)
+    
     return Boxspace(
-        data=data.values,
+        data=np.array(data) ,
         target=target,
         frame=frame,
         tnames=target_names,
@@ -250,11 +376,11 @@ def load_dyspnea(
         return  (X, Xt, y, yt ) if cf else (
             X.values, Xt.values, y.values , yt.values )
     
-    if as_frame and not return_X_y: 
-        return frame 
-
-    if return_X_y:
+    if return_X_y : 
         return data, target
+    
+    if as_frame: 
+        return to_numeric_dtypes(frame)
     
     fdescr = description_loader(descr_module=DESCR,descr_file="dyspnea.rst")
     
@@ -1382,15 +1508,18 @@ To explore a subset of samples:
 """   
 
 def load_forensic( *, 
-       return_X_y=False, 
-       as_frame=False, 
-       key=None, 
-       split_X_y=False, 
-       test_size =.3 ,  
-       tag=None , 
-       data_names=None, 
-       **kws
+    return_X_y=False, 
+    as_frame=False, 
+    key=None, 
+    split_X_y=False, 
+    test_size =.3 ,  
+    tag=None , 
+    data_names=None, 
+    exclude_message_column=True,  
+    exclude_vectorized_features=True,  
+    **kws
 ):
+   """ Forensic """
    cf = as_frame 
    key = key or 'preprocessed'
    key = key_checker(key, valid_keys=("raw", "preprocessed"), 
@@ -1401,6 +1530,12 @@ def load_forensic( *,
        file = str(p)
    data = pd.read_csv ( file )
    
+   if exclude_message_column: 
+       data = data.drop ( ['message_to_investigators'], axis =1)
+   if exclude_vectorized_features and key=='preprocessed': 
+       tfidf_columns = [ c for c in data.columns if c.find ('tfid')>=0] 
+       data.drop ( columns =tfidf_columns, inplace=True)
+   
    frame = None
    target_columns = [
        "dna_use_terrorism_fight",
@@ -1410,7 +1545,7 @@ def load_forensic( *,
    frame, data, target = _to_dataframe(
         data, feature_names = feature_names, tnames = target_columns, 
         )
-   frame = format_to_datetime(to_numeric_dtypes(frame), date_col ='timestamp')
+   frame = format_to_datetime(to_numeric_dtypes(frame), date_col ='date')
 
    if split_X_y: 
        X, Xt = split_train_test_by_id (data = frame , test_ratio= test_size, 
@@ -1479,6 +1614,13 @@ tag : str or None, optional
     analyses within the dataset.
 data_names : list of str or None, optional
     Specific names of datasets to be loaded. If None, all datasets are loaded.
+exclude_message_column : bool, default=True
+    If True, the column 'message_to_investigators', which contains textual opinions,
+    is excluded from the dataset. Set to False to include this column.
+exclude_vectorized_features : bool, default=False
+    If True, excludes vectorized features derived from the 'message_to_investigators' 
+    column. This is applicable only when `key` is set to 'preprocessed'. Set to False
+    to include these vectorized features.
 **kws : dict, optional
     Additional keyword arguments to pass to the data loading function. Allows 
     customization of the data loading process.
@@ -1510,6 +1652,10 @@ Examples
 --------
 >>> from gofast.datasets import load_forensic
 >>> forensic_data = load_forensic(key='raw', as_frame=True)
+>>> print(forensic_data.frame.head())
+>>> forensic_data = load_forensic(key='preprocessed', as_frame=True, 
+...                                  exclude_message_column=False, 
+...                                  exclude_vectorized_features=True)
 >>> print(forensic_data.frame.head())
 
 References

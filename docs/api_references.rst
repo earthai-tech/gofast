@@ -169,6 +169,7 @@ expedite research and analysis.
    datasets.load_forensic 
    datasets.load_iris
    datasets.load_hlogs
+   datasets.load_hydro_metrics
    datasets.load_nlogs 
    datasets.load_mxs 
    datasets.load_jrs_bet 

@@ -210,7 +210,7 @@ N = TypeVar('N', bound=int)
 U = TypeVar('U')
 D = TypeVar('D', bound='DType')
 S = TypeVar('S', bound='Shape')
-
+# ArrayLike = Union[Sequence, np.ndarray, pd.Series, pd.DataFrame]
 class AddShape(Generic[S]): 
     """
     Represents an additional dimension for shapes beyond two dimensions.

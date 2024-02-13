@@ -7733,7 +7733,7 @@ def validate_feature(data: Union[DataFrame, Series], /, features: List[str],
     """
     if isinstance(data, pd.Series):
         data = data.to_frame().T  # Convert Series to DataFrame
-
+    features= is_iterable(features, exclude_string= True, transform =True )
     present_features = set(features).intersection(data.columns)
 
     if len(present_features) != len(features):
