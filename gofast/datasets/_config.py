@@ -30,7 +30,7 @@ from importlib import resources
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from .io import DMODULE
-from ..tools.funcutils import smart_format
+from ..tools.coreutils import smart_format
 from ..exceptions import DatasetError
 from .._gofastlog import gofastlog
 

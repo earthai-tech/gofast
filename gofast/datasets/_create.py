@@ -15,9 +15,9 @@ from sklearn.model_selection import train_test_split
 from ..tools._dependency import import_optional_dependency 
 from ..tools.baseutils import run_shell_command, remove_target_from_array
 from ..tools.box import Boxspace 
-from ..tools.funcutils import ellipsis2false ,assert_ratio, is_iterable 
-from ..tools.funcutils import is_in_if, _assert_all_types,  add_noises_to 
-from ..tools.funcutils import smart_format # , reshape 
+from ..tools.coreutils import ellipsis2false ,assert_ratio, is_iterable 
+from ..tools.coreutils import is_in_if, _assert_all_types,  add_noises_to 
+from ..tools.coreutils import smart_format # , reshape 
 from ._globals import AFRICAN_COUNTRIES 
 from ._globals import COMMON_PESTICIDES, COMMON_CROPS 
 from ._globals import WATER_QUAL_NEEDS, WATER_QUAN_NEEDS, SDG6_CHALLENGES
@@ -263,7 +263,7 @@ def make_classification(
     --------
     >>> from gofast.datasets import make_classification
     >>> X, y = make_classification(n_samples=100, n_features=25, scale='standard', 
-                                   n_classes=3, class_sep=2.0)
+                                   n_classes=2, class_sep=2.0)
     >>> X.shape, y.shape
     ((100, 2), (100,))
 

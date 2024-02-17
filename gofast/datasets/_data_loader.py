@@ -18,7 +18,7 @@ from warnings import warn
 from .load import (load_bagoue, load_iris, load_hlogs, load_nlogs, load_mxs,
                    load_forensic, load_jrs_bet, load_dyspnea, load_statlog, 
                    load_hydro_metrics)
-from ..tools.funcutils import listing_items_format
+from ..tools.coreutils import listing_items_format
 from ..exceptions import DatasetError
 from .._gofastlog import gofastlog
 

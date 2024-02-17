@@ -10,7 +10,7 @@ import pandas as pd
 from ._typing import Optional, DataFrame
 from .exceptions import NotFittedError 
 from .tools._dependency import import_optional_dependency
-from .tools.funcutils import normalize_string
+from .tools.coreutils import normalize_string
 
 try: import sqlalchemy
 except: pass 

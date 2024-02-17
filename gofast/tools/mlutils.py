@@ -6,7 +6,8 @@ Learning utilities for data transformation,
 model learning and inspections. 
 """
 from __future__ import annotations 
-import os 
+import os
+import re 
 import copy 
 import inspect 
 import tarfile 
@@ -19,7 +20,10 @@ from six.moves import urllib
 from collections import Counter 
 import numpy as np 
 import pandas as pd 
+from pathlib import Path
+from tqdm import tqdm
 
+from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer, make_column_selector
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestClassifier
@@ -36,15 +40,16 @@ from .._gofastlog import gofastlog
 from .._typing import List, Tuple, Any, Dict,  Optional,Union, Iterable,Series 
 from .._typing import _T, _F, ArrayLike, NDArray,  DataFrame, Set 
 from ._dependency import import_optional_dependency
-from ..exceptions import ParameterNumberError, EstimatorError
-from ..decorators import deprecated              
-from .funcutils import _assert_all_types, _isin,  is_in_if,  ellipsis2false
-from .funcutils import smart_format,  is_iterable, get_valid_kwargs
-from .funcutils import is_classification_task, to_numeric_dtypes, fancy_printer
-from .funcutils import validate_feature 
+from ..exceptions import ParameterNumberError, EstimatorError          
+from .coreutils import _assert_all_types, _isin,  is_in_if,  ellipsis2false
+from .coreutils import smart_format,  is_iterable, get_valid_kwargs
+from .coreutils import is_classification_task, to_numeric_dtypes, fancy_printer
+from .coreutils import validate_feature, download_progress_hook, exist_features
+from .coreutils import contains_delimiter 
 from .validator import get_estimator_name, check_array, check_consistent_length
 from .validator import  _is_numeric_dtype,  _is_arraylike_1d 
 from .validator import  is_frame, build_data_if, check_is_fitted
+from .validator import check_mixed_data_types 
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -62,7 +67,7 @@ __all__=[
     "soft_imputer", 
     "soft_scaler", 
     "select_feature_importances", 
-    "load_saved_model", 
+    "load_model", 
     "make_pipe",
     "build_data_preprocessor", 
     "bi_selector", 
@@ -82,6 +87,7 @@ __all__=[
     "laplace_smoothing_word", 
     "handle_imbalance", 
     "smart_split",
+    "save_dataframes"
     ]
 
 
@@ -95,6 +101,10 @@ def codify_variables (
     return_cat_codes:bool=... 
     ) -> DataFrame: 
     """ Encode multiple categorical variables in a dataset. 
+    
+    Encodes categorical variables in a dataset by applying specified transformations,
+    mapping categories, or performing one-hot encoding. Supports DataFrame, 
+    array-like, or dictionary inputs for data.
 
     Parameters 
     -----------
@@ -148,7 +158,7 @@ def codify_variables (
        Height  Weight  Color  Size  Shape
     0     152      80      2     2      0
     1     175      75      0     0      1
-    >>> # nw return_map codes 
+    >>> # new return_map codes 
     >>> df_encoded , map_codes =codify_variables (
         data, return_cat_codes =True )
     >>> map_codes 
@@ -220,20 +230,22 @@ def codify_variables (
     # if categories is Note , get auto numeric and 
     # categoric variablees 
     num_columns, cat_columns = bi_selector (df ) 
-    #apply function if 
-    # function is given 
     
+    # apply function if 
     if func is not None: 
         # just get only the columns 
         if not callable (func): 
-            raise TypeError("Expect an universal function."
-                            f" Got {type(func).__name__!r}")
+            raise TypeError(
+                f"Provided func is not callable. Received: {type(func)}")
         if len(cat_columns)==0: 
             # no categorical data func. 
-            msg =("No categorical data detected. To transform numeric"
-                " values to labels, use `gofast.tools.smart_label_classifier`"
-                " or `gofast.tools.categorize_target` instead.")
-            warnings.warn (msg) 
+            warnings.warn(
+                "No categorical data were detected. To transform numeric"
+                " values into categorical labels, consider using either"
+                " `gofast.tools.smart_label_classifier` or"
+                " `gofast.tools.categorize_target`."
+                )
+    
             return df 
         
         for col in  cat_columns: 
@@ -249,8 +261,9 @@ def codify_variables (
             
     # categories should be a mapping data 
     if not isinstance ( categories, dict ): 
-        raise TypeError("Expect a dictionnary {`column name`:`labels`}"
-                        "to categorize data.")
+        raise TypeError("Expected a dictionary with the format"
+                        " {'column name': 'labels'} to categorize data.")
+
         
     for col, values  in  categories.items():
         if col not in df.columns:
@@ -1749,161 +1762,447 @@ def stats_from_prediction(y_true, y_pred, verbose=False):
 
     return stats
 
-def write_excel(
-        listOfDfs: List[DataFrame],
-        csv: bool =False , 
-        sep:str =',') -> None: 
-    """ 
-    Rewrite excell workbook with dataframe for :ref:`read_from_excelsheets`. 
-    
-    Its recover the name of the files and write the data from dataframe 
-    associated with the name of the `erp_file`. 
-    
-    :param listOfDfs: list composed of `erp_file` name at index 0 and the
-     remains dataframes. 
-    :param csv: output workbook in 'csv' format. If ``False`` will return un 
-     `excel` format. 
-    :param sep: type of data separation. 'default is ``,``.'
-    
+def save_dataframes(
+    *data: Union[pd.DataFrame, Any],
+    file_name_prefix: str = 'data',
+    output_format: str = 'excel',
+    sep: str = ',',
+    start_index: int = 1
+    ) -> None:
     """
-    site_name = listOfDfs[0]
-    listOfDfs = listOfDfs[1:]
-    for ii , df in enumerate(listOfDfs):
-        
-        if csv:
-            df.to_csv(df, sep=sep)
-        else :
-            with pd.ExcelWriter(f"z{site_name}_{ii}.xlsx") as writer: 
+    Saves multiple dataframes to Excel or CSV files, with each dataframe in a
+    separate file.
+    
+    The files are named using a specified prefix and an index.
+
+    Parameters
+    ----------
+    *data : Union[pd.DataFrame, Any]
+        Variable number of arguments, where each argument is a dataframe or
+        data that can be converted to a dataframe.
+    file_name_prefix : str, optional
+        Prefix for the output file names. Default is 'data'.
+    output_format : str, optional
+        Output format of the files. Can be 'excel' or 'csv'. Default is 'excel'.
+    sep : str, optional
+        Separator character for CSV output. Default is ','.
+    start_index : int, optional
+        Starting index for numbering the output files. Default is 1.
+
+    Examples
+    --------
+    >>> from gofast.tools.mlutils import save_dataframes
+    >>> df1 = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
+    >>> df2 = pd.DataFrame({'C': [5, 6], 'D': [7, 8]})
+    >>> save_dataframes(df1, df2, file_name_prefix='mydata', output_format='csv')
+    # This will create 'mydata_1.csv' for df1 and 'mydata_2.csv' for df2
+
+    >>> save_dataframes(df1, output_format='excel', file_name_prefix='test')
+    # This will create 'test_1.xlsx' containing df1
+    """
+    for index, df in enumerate(data, start=start_index):
+        # Ensure the argument is a DataFrame
+        if not isinstance(df, pd.DataFrame):
+            df = pd.DataFrame(df)
+
+        # Determine the file name
+        file_name = f"{file_name_prefix}_{index}"
+        if output_format == 'csv':
+            df.to_csv(f"{file_name}.csv", sep=sep, index=False)
+        elif output_format == 'excel':
+            with pd.ExcelWriter(f"{file_name}.xlsx") as writer:
                 df.to_excel(writer, index=False)
-    
+        else:
+            raise ValueError("Unsupported output format. Choose 'excel' or 'csv'.")
 
-def fetch_tgz (
-    data_url:str ,
-    data_path:str ,
-    tgz_filename:str 
-   ) -> None: 
-    """ Fetch data from data repository in zip of 'targz_file. 
-    
-    I will create a `datasets/data` directory in your workspace, downloading
-     the `~.tgz_file and extract the `data.csv` from this directory.
-    
-    :param data_url: url to the datafilename where `tgz` filename is located  
-    :param data_path: absolute path to the `tgz` filename 
-    :param filename: `tgz` filename. 
+def fetch_tgz(
+    data_url: str,
+    tgz_filename: str,
+    data_path: Optional[str] = None,
+    show_progress: bool = False
+) -> None:
     """
-    if not os.path.isdir(data_path): 
-        os.makedirs(data_path)
+    Fetches and extracts a .tgz file from a specified URL, optionally into 
+    a target directory.
 
-    tgz_path = os.path.join(data_url, tgz_filename.replace('/', ''))
-    urllib.request.urlretrieve(data_url, tgz_path)
-    data_tgz = tarfile.open(tgz_path)
-    data_tgz.extractall(path = data_path )
-    data_tgz.close()
+    If `data_path` is provided and does not exist, it is created. If `data_path`
+    is not provided, a default directory named 'tgz_data' in the current working 
+    directory is used and created if necessary.
+
+    Parameters
+    ----------
+    data_url : str
+        The URL where the .tgz file is located.
+    tgz_filename : str
+        The filename of the .tgz file to download.
+    data_path : Optional[str], optional
+        The absolute path to the directory where the .tgz file will be extracted.
+        If None, uses a directory named ``'tgz_data'`` in the current working 
+        directory.
+    show_progress : bool, optional
+        If True, displays a progress bar during the file download. Default is False.
+
+    Examples
+    --------
+    >>> from gofast.tools.mlutils import fetch_tgz
+    >>> fetch_tgz(
+    ...     data_url="http://example.com/data",
+    ...     tgz_filename="data.tgz",
+    ...     show_progress=True
+    ... )
+
+    >>> fetch_tgz(
+    ...     data_url="http://example.com/data",
+    ...     tgz_filename="data.tgz",
+    ...     data_path="/path/to/custom/data",
+    ...     show_progress=True
+    ... )
+
+    Note
+    ----
+    The function requires `tqdm` library for showing the progress bar. Ensure
+    that `tqdm` is installed if `show_progress` is set to True.
+    """
+    # Use a default data directory if none is provided
+    data_path = data_path or os.path.join(os.getcwd(), 'tgz_data')
     
-def fetch_tgz_from_url (
-    data_url:str , 
-    data_path:str ,
-    tgz_file, 
-    file_to_retreive=None,
-    **kws
-    ) -> Union [str, None]: 
-    """ Fetch data from data repository in zip of 'targz_file. 
+    if not os.path.isdir(data_path):
+        os.makedirs(data_path, exist_ok=True)
+
+    tgz_path = os.path.join(data_path, tgz_filename)
     
-    I will create a `datasets/data` directory in your workspace, downloading
-     the `~.tgz_file and extract the `data.csv` from this directory.
+    # Define a simple progress function, if needed
+    def _progress(block_num, block_size, total_size):
+        if show_progress:
+            if tqdm is None:
+                raise ImportError("`tqdm` library is required for progress output.")
+            progress = tqdm(total=total_size, unit='iB', unit_scale=True, ascii=True, 
+                            ncols= 100) 
+            progress.n = block_num * block_size
+            progress.last_print_n = progress.n
+            progress.update()
+
+    # Download the .tgz file
+    urllib.request.urlretrieve(
+        data_url, tgz_path, _progress if show_progress else None)
+
+    # Extract the .tgz file
+    with tarfile.open(tgz_path) as data_tgz:
+        data_tgz.extractall(path=data_path)
     
-    :param data_url: url to the datafilename where `tgz` filename is located  
-    :param data_path: absolute path to the `tgz` filename 
-    :param filename: `tgz` filename. 
+    if show_progress:
+        print("Download and extraction complete.")
+
+def base_url_tgz_fetch(
+    data_url: str, tgz_filename: str,  
+    data_path: Optional[str]=None, 
+    file_to_retrieve: Optional[str] = None, 
+    **kwargs
+    ) -> Union[str, None]:
+    """
+    Fetches a .tgz file from a given URL, saves it to a specified directory, 
+    and optionally extracts a specific file from it.
+
+    This function downloads a .tgz file from the specified URL and saves it to 
+    the given directory. If a specific file  within the .tgz archive is 
+    specified, it attempts to extract this file. If no specific file is 
+    mentioned, it will extract all contents of the archive.
+
+    Parameters
+    ----------
+    data_url : str
+        The URL where the .tgz file is located.
+    data_path : str
+        The absolute path to the directory where the .tgz file will be saved.
+    tgz_filename : str
+        The name of the .tgz file to be downloaded.
+    file_to_retrieve : Optional[str], optional
+        The specific file within the .tgz archive to extract. If None, all 
+        contents of the archive are extracted, by default None.
+    **kwargs : dict
+        Additional keyword arguments to be passed to the extraction method.
+
+    Returns
+    -------
+    Union[str, None]
+        The path to the extracted file if a specific file is requested,
+        None otherwise.
+
+    Examples
+    --------
+    >>> from gofast.tools.mlutils import base_url_tgz_fetch
+    >>> data_url = 'https://example.com/data.tar.gz'
+    >>> data_path = '/path/to/save/data'
+    >>> tgz_filename = 'data.tar.gz'
+    >>> file_to_retrieve = 'data.csv'
+    >>> extracted_file_path = base_url_tgz_fetch(
+    ... data_url, tgz_filename, data_path,file_to_retrieve)
+    >>> print(extracted_file_path)
+
+    """
+    import urllib.request
+    # Use a default data directory if none is provided
+    data_path = data_path or os.path.join(os.getcwd(), 'tgz_data')
     
-    :example: 
+    if not os.path.isdir(data_path):
+        os.makedirs(data_path, exist_ok=True)
+        
+    tgz_path = os.path.join(data_path, tgz_filename)
+
+    # Attempt to download the .tgz file
+    try:
+        urllib.request.urlretrieve(data_url, tgz_path)
+    except Exception as e:
+        print(f"Failed to download {tgz_filename} from {data_url}. Error: {e}")
+        return None
+
+    # If a specific file to retrieve is not specified, extract all contents
+    if not file_to_retrieve:
+        try:
+            with tarfile.open(tgz_path, "r:gz") as tar:
+                tar.extractall(path=data_path)
+        except Exception as e:
+            print(f"Failed to extract {tgz_filename}. Error: {e}")
+            return None
+        return None
+
+    # If a specific file is specified, attempt to extract just that file
+    try:
+        with tarfile.open(tgz_path, "r:gz") as tar:
+            tar.extract(file_to_retrieve, path=data_path, **kwargs)
+            return os.path.join(data_path, file_to_retrieve)
+    except Exception as e:
+        print(f"Failed to extract {file_to_retrieve} from {tgz_filename}. Error: {e}")
+        return None
+
+def fetch_tgz_from_url(
+    data_url: str, tgz_filename: str, 
+    data_path: Optional[str, Path]=None, 
+    file_to_retrieve: Optional[str] = None, 
+    **kwargs
+    ) -> Optional[Path]:
+    """
+    Fetches a .tgz file from a given URL, saves it to a specified directory, 
+    and optionally extracts a specific file from it.
+
+    This function downloads a .tgz file from the specified URL and saves it to 
+    the given directory. If a specific file  within the .tgz archive is 
+    specified, it attempts to extract this file. If no specific file is 
+    mentioned, it will extract all contents of the archive.
+
+    Parameters
+    ----------
+    data_url : str
+        The URL where the .tgz file is located.
+    data_path : str
+        The absolute path to the directory where the .tgz file will be saved.
+    tgz_filename : str
+        The name of the .tgz file to be downloaded.
+    file_to_retrieve : Optional[str], optional
+        The specific file within the .tgz archive to extract. If None, all 
+        contents of the archive are extracted, by default None.
+    **kwargs : dict
+        Additional keyword arguments to be passed to the extraction method.
+
+    Returns
+    -------
+    Union[str, None]
+        The path to the extracted file if a specific file is requested,
+        None otherwise.
+
+    Examples
+    --------
     >>> from gofast.tools.mlutils import fetch_tgz_from_url
-    >>> DOWNLOAD_ROOT = 'https://raw.githubusercontent.com/WEgeophysics/watex/master/'
-    >>> # from Zenodo: 'https://zenodo.org/record/5560937#.YWQBOnzithE'
-    >>> DATA_PATH = 'data/__tar.tgz'  # 'BagoueCIV__dataset__main/__tar.tgz_files__'
-    >>> TGZ_FILENAME = '/fmain.bagciv.data.tar.gz'
-    >>> CSV_FILENAME = '/__tar.tgz_files__/___fmain.bagciv.data.csv'
-    >>> fetch_tgz_from_url (data_url= DATA_URL,data_path=DATA_PATH,
-                            tgz_filename=TGZ_FILENAME
-                            ) 
-    """
-    f= None
-    if data_url is not None: 
-        tgz_path = os.path.join(data_path, tgz_file.replace('/', ''))
-        try: 
-            urllib.request.urlretrieve(data_url, tgz_path)
-        except urllib.URLError: 
-            print("<urlopen error [WinError 10061] No connection could "
-                  "be made because the target machine actively refused it>")
-        except ConnectionError or ConnectionRefusedError: 
-            print("Connection failed!")
-        except: 
-            print(f"Unable to fetch {os.path.basename(tgz_file)!r}"
-                  f" from <{data_url}>")
-            
-        return False 
-    
-    if file_to_retreive is not None: 
-        f= fetch_tgz_locally(filename=file_to_retreive, **kws)
-        
-    return f
+    >>> data_url = 'https://example.com/data.tar.gz'
+    >>> data_path = '/path/to/save/data'
+    >>> tgz_filename = 'data.tar.gz'
+    >>> file_to_retrieve = 'data.csv'
+    >>> extracted_file_path = fetch_tgz_from_url(
+    ... data_url, tgz_filename, data_path,file_to_retrieve)
+    >>> print(extracted_file_path)
 
-def fetch_tgz_locally(tgz_file: str , filename: str ,
-        savefile: str ='tgz',rename_outfile: Optional [str]=None 
-        ) -> str :
-    """ Fetch single file from archived tar file and rename a file if possible.
-    
-    :param tgz_file: str or Path-Like obj 
-        Full path to tarfile. 
-    :param filename:str 
-        Tagert  file to fetch from the tarfile.
-    :savefile:str or Parh-like obj 
-        Destination path to save the retreived file. 
-    :param rename_outfile:str or Path-like obj
-        Name of of the new file to replace the fetched file.
-    :return: Location of the fetched file
-    :Example: 
-        >>> from gofast.tools.mlutils import fetch_tgz_locally
-        >>> fetch_tgz_locally('data/__tar.tgz/fmain.bagciv.data.tar.gz', 
-                               rename_outfile='main.bagciv.data.csv')
     """
-     # get the extension of the fetched file 
-    fetch_ex = os.path.splitext(filename)[1]
-    if not os.path.isdir(savefile):
-        os.makedirs(savefile)
+    # Use a default data directory if none is provided
+    data_path = data_path or os.path.join(os.getcwd(), 'tgz_data')
     
-    def retreive_main_member (tarObj): 
-        """ Retreive only the main member that contain the target filename."""
-        for tarmem in tarObj.getmembers():
-            if os.path.splitext(tarmem.name)[1]== fetch_ex: #'.csv': 
-                return tarmem 
-            
-    if not os.path.isfile(tgz_file):
-        raise FileNotFoundError(f"Source {tgz_file!r} is a wrong file.")
-   
-    with tarfile.open(tgz_file) as tar_ref:
-        tar_ref.extractall(members=[retreive_main_member(tar_ref)])
-        tar_name = [ name for name in tar_ref.getnames()
-                    if name.find(filename)>=0 ][0]
-        shutil.move(tar_name, savefile)
-        # for consistency ,tree to check whether the tar info is 
-        # different with the collapse file 
-        if tar_name != savefile : 
-            # print(os.path.join(os.getcwd(),os.path.dirname(tar_name)))
-            _fol = tar_name.split('/')[0]
-            shutil.rmtree(os.path.join(os.getcwd(),_fol))
-        # now rename the file to the 
-        if rename_outfile is not None: 
-            os.rename(os.path.join(savefile, filename), 
-                      os.path.join(savefile, rename_outfile))
-        if rename_outfile is None: 
-            rename_outfile =os.path.join(savefile, filename)
-            
-        print(f"---> {os.path.join(savefile, rename_outfile)!r} was "
-              f" successfully decompressed from {os.path.basename(tgz_file)!r}"
-              f"and saved to {savefile!r}")
+    if not os.path.isdir(data_path):
+        os.makedirs(data_path, exist_ok=True)
         
-    return os.path.join(savefile, rename_outfile)
+    data_path = Path(data_path)
+    tgz_path = data_path / tgz_filename
+
+    # Setup tqdm progress bar for the download
+    with tqdm(unit='B', unit_scale=True, miniters=1, desc=tgz_filename, ncols=100) as t:
+        urllib.request.urlretrieve(data_url, tgz_path, reporthook=download_progress_hook(t))
+
+    # Extract specified file or entire archive
+    try:
+        with tarfile.open(tgz_path, "r:gz") as tar:
+            if file_to_retrieve:
+                tar.extract(file_to_retrieve, path=data_path, **kwargs)
+                return data_path / file_to_retrieve
+            else:
+                tar.extractall(path=data_path)
+    except (tarfile.TarError, KeyError) as e:
+        print(f"Error extracting {'file' if file_to_retrieve else 'archive'}: {e}")
+        return None
+
+    return None
+
+def _extract_with_progress(
+        tar: tarfile.TarFile, member: tarfile.TarInfo, path: Path):
+    """
+    Extracts a single member from a tarfile with progress reporting.
+
+    Parameters
+    ----------
+    tar : tarfile.TarFile
+        The tarfile object opened in read mode.
+    member : tarfile.TarInfo
+        The specific member within the tarfile to extract.
+    path : Path
+        The path to extract the member to.
+    """
+    # Initialize a progress bar for the extraction process
+    with tqdm(total=member.size, desc=f"Extracting {member.name}",
+              unit='B', unit_scale=True) as progress_bar:
+        # Extract member and update the progress bar accordingly
+        def custom_read(size):
+            progress_bar.update(size)
+            return member_file.read(size)
+        
+        # Open the member file for reading and wrap the read method for progress updates
+        with tar.extractfile(member) as member_file:
+            with open(path / member.name, 'wb') as out_file:
+                shutil.copyfileobj(member_file, out_file, length=1024*1024,
+                                   callback=lambda x: progress_bar.update(1024*1024))
+
+def fetch_tgz_locally(
+    tgz_file: str, 
+    filename: str, 
+    savefile: str = 'tgz', 
+    rename_outfile: Optional[str] = None
+    ) -> str:
+    """
+    Fetches and optionally renames a file from a tar archive with progress reporting.
+    
+    Parameters
+    ----------
+    tgz_file : str or Path
+        The full path to the tar file.
+    filename : str
+        The target file to fetch from the tar archive.
+    savefile : str or Path, optional
+        The destination path to save the retrieved file.
+    rename_outfile : str or Path, optional
+        The new name for the fetched file, if desired.
+
+    Returns
+    -------
+    str
+        The path to the fetched and possibly renamed file.
+        
+    Example
+    -------
+    >>> from gofast.tools.mlutils import fetch_tgz_locally
+    >>> fetch_tgz_locally('data/__tar.tgz/fmain.bagciv.data.tar.gz',
+    ...                      'dataset.csv', 'extracted', 
+    ...                      rename_outfile='main.bagciv.data.csv')
+    >>> # This will extract 'dataset.csv' from the tar.gz, save it to 
+    >>> # 'extracted' directory, and rename it to 'main.bagciv.data.csv'.
+    
+    """
+    tgz_path = Path(tgz_file)
+    save_path = Path(savefile)
+    save_path.mkdir(parents=True, exist_ok=True)
+
+    if not tgz_path.is_file():
+        raise FileNotFoundError(f"Source {tgz_file!r} is not a valid file.")
+
+    with tarfile.open(tgz_path) as tar:
+        member = next((m for m in tar.getmembers() if m.name.endswith(filename)), None)
+        if member:
+            _extract_with_progress(tar, member, save_path)
+            extracted_file_path = save_path / member.name
+            final_file_path = save_path / (rename_outfile if rename_outfile else filename)
+            if extracted_file_path != final_file_path:
+                extracted_file_path.rename(final_file_path)
+                # Cleanup if the extracted file was within a subdirectory
+                if extracted_file_path.parent != save_path:
+                    shutil.rmtree(extracted_file_path.parent, ignore_errors=True)
+        else:
+            raise FileNotFoundError(f"File {filename} not found in {tgz_file}.")
+
+    print(f"--> '{final_file_path}' was successfully decompressed from"
+          f" '{tgz_path.name}' and saved to '{save_path}'.")
+    
+    return str(final_file_path)
+
+def base_local_tgz_fetch(
+    tgz_file: str, 
+    filename: str, 
+    savefile: str = 'tgz', 
+    rename_outfile: Optional[str] = None
+    ) -> str:
+    """
+    Fetches a single file from an archived tar file and optionally renames it.
+
+    Parameters
+    ----------
+    tgz_file : str or Path
+        The full path to the tar file.
+    filename : str
+        The target file to fetch from the tar archive.
+    savefile : str or Path, optional
+        The destination path to save the retrieved file. Defaults to 'tgz'.
+    rename_outfile : str or Path, optional
+        The new name for the fetched file. If not provided, the original name is used.
+
+    Returns
+    -------
+    str
+        The path to the fetched (and possibly renamed) file.
+
+    Example
+    -------
+    >>> fetch_tgz_locally('data/__tar.tgz/fmain.bagciv.data.tar.gz',
+    ...                      'dataset.csv', 'extracted', 
+    ...                      rename_outfile='main.bagciv.data.csv')
+    >>> # This will extract 'dataset.csv' from the tar.gz, save it to 
+    >>> # 'extracted' directory, and rename it to 'main.bagciv.data.csv'.
+    """
+    tgz_path = Path(tgz_file)
+    save_path = Path(savefile)
+    save_path.mkdir(parents=True, exist_ok=True)
+
+    def retrieve_target_member(tar_obj, target_extension):
+        """Retrieve the main member that matches the target filename extension."""
+        return next((m for m in tar_obj.getmembers() if Path
+                     (m.name).suffix == target_extension), None)
+
+    if not tgz_path.is_file():
+        raise FileNotFoundError(f"Source {tgz_file!r} is not a valid file.")
+
+    with tarfile.open(tgz_path) as tar:
+        target_extension = Path(filename).suffix
+        target_member = retrieve_target_member(tar, target_extension)
+        if target_member:
+            tar.extract(target_member, path=save_path)
+            extracted_file_path = save_path / target_member.name
+            final_file_path = save_path / (rename_outfile if rename_outfile else filename)
+            if extracted_file_path != final_file_path:
+                extracted_file_path.rename(final_file_path)
+                # Cleanup if the extracted file was within a subdirectory
+                if extracted_file_path.parent != save_path:
+                    shutil.rmtree(extracted_file_path.parent)
+        else:
+            raise FileNotFoundError(f"File {filename} not found in {tgz_file}.")
+
+    print(f"--> '{final_file_path}' was successfully decompressed from"
+          f" '{tgz_path.name}' and saved to '{save_path}'.")
+    
+    return str(final_file_path)
+
 
 def load_csv(data_path: str, delimiter: Optional[str] = ',', **kwargs
              ) -> DataFrame:
@@ -2095,86 +2394,96 @@ def stratify_categories(
 def fetch_model(
     file: str,
     path: Optional[str] = None,
-    default: bool = True,
+    default: bool = False,
     name: Optional[str] = None,
     verbose: int = 0
-) -> Union[Dict[str, Any], List[Tuple[Any, Dict[str, Any], Any]]]:
+    ) -> Union[Dict[str, Any], List[Tuple[Any, Dict[str, Any], Any]]]:
     """
     Fetches a model saved using the Python pickle module or joblib module.
 
     Parameters
     ----------
     file : str
-        The filename of the dumped model, saved using `joblib` or Python 
+        The filename of the dumped model, saved using `joblib` or Python
         `pickle` module.
-    
-    path : str, optional
-        The directory path containing the model file. If None, `file` is assumed 
+    path : Optional[str], optional
+        The directory path containing the model file. If None, `file` is assumed
         to be the full path to the file.
-
     default : bool, optional
-        If True, returns a tuple (model, best parameters, best scores).
-        If False, returns all values saved in the file.
-
-    name : str, optional
+        If True, returns a list of tuples (model, best parameters, best scores)
+        for each model in the file. If False, returns the entire contents of the
+        file.
+    name : Optional[str], optional
         The name of the specific model to retrieve from the file. If specified,
         only the named model and its parameters are returned.
-
     verbose : int, optional
         Verbosity level. More messages are displayed for values greater than 0.
 
     Returns
     -------
     Union[Dict[str, Any], List[Tuple[Any, Dict[str, Any], Any]]]
-    Depending on the default flag:
-        - If default is True, returns a list of tuples containing the model,
-        best parameters, and best scores for each model in the file.
-        - If default is False, returns the entire contents of the file,
-        which could include multiple models and their respective information.
-    
+        Depending on the `default` flag:
+        - If `default` is True, returns a list of tuples containing the model,
+          best parameters, and best scores for each model in the file.
+        - If `default` is False, returns the entire contents of the file, which
+          could include multiple models and their respective information.
+
     Raises
     ------
     FileNotFoundError
         If the specified model file is not found.
-    
     KeyError
         If `name` is specified but not found in the loaded model file.
-    
+
     Examples
     --------
-    >>> model_info = fetch_model('model.pkl', path='/models', 
+    >>> model_info = fetch_model('model.pkl', path='/models',
                                  name='RandomForest', default=True)
-    >>> model, best_params, best_scores = model_info
+    >>> model, best_params, best_scores = model_info[0]
     """
     full_path = os.path.join(path, file) if path else file
 
     if not os.path.isfile(full_path):
-        raise FileNotFoundError(f"File {full_path!r} not found!")
-    
+        raise FileNotFoundError(f"File {full_path!r} not found.")
+
     is_joblib = full_path.endswith('.pkl') or full_path.endswith('.joblib')
-    model_data = joblib.load(full_path) if is_joblib else pickle.load(open(full_path, 'rb'))
-    
-    if verbose:
+    load_func = joblib.load if is_joblib else pickle.load
+    with open(full_path, 'rb') as f:
+        model_data = load_func(f)
+
+    if verbose > 0:
         lib_used = "joblib" if is_joblib else "pickle"
         print(f"Model loaded from {full_path!r} using {lib_used}.")
-    
+
     if name:
         try:
-            model_info = model_data[name]
-            if default:
-                return (model_info['best_model'], model_info['best_params_'],
-                        model_info['best_scores'])
-            else:
-                return model_info
+            specific_model_data = model_data[name]
         except KeyError:
             available_models = list(model_data.keys())
-            raise KeyError(f"Model name '{name}' not found. Available models:"
-                           f" {available_models}")
-    
+            raise KeyError(f"Model name '{name}' not found. Available models: {available_models}")
+        
+        if default:
+            if not isinstance(specific_model_data, dict):
+                warnings.warn(
+                    "The retrieved model data does not follow the expected structure. "
+                    "Each model should be represented as a dictionary, with the model's "
+                    "name as the key and its details (including 'best_params_' and "
+                    "'best_scores_') as nested dictionaries. For instance: "
+                    "`model_data = {'ModelName': {'best_params_': <parameters>, "
+                    "'best_scores_': <scores>}}`. As the structure is unexpected, "
+                    "returning the raw model data instead of the processed tuple."
+                )
+                return specific_model_data
+            # Assuming model data structure for specific named model when default is True
+            return [(specific_model_data, specific_model_data.get('best_params_', {}),
+                     specific_model_data.get('best_scores_', {}))]
+        return specific_model_data
+
     if default:
-        return [(info['best_model'], info['best_params_'], info['best_scores'])
-                for info in model_data.values()]
-    
+        # Assuming model data structure contains 'best_model', 'best_params_', and 'best_scores'
+        return [(model, info.get('best_params_', {}), info.get('best_scores_', {})) 
+                for model, info in model_data.items()]
+
     return model_data
 
 def serialize_data(
@@ -2537,7 +2846,10 @@ def extract_target(
         target = data[:, target_names]
         if drop:
             data = np.delete(data, target_names, axis=1)
-
+            
+    if  isinstance (target, np.ndarray): # squeeze the array 
+        target = np.squeeze (target)
+        
     return target, data
 
 def _extract_target(
@@ -2687,10 +2999,14 @@ def smart_split(
         y, target_names = None, []
 
     stratify_param = y if stratify and y is not None else None
-    
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=random_state, shuffle=shuffle, 
-        stratify=stratify_param, **skws)
+    if y is not None: 
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=test_size, random_state=random_state, shuffle=shuffle, 
+            stratify=stratify_param, **skws)
+    else: 
+        X_train, X_test= train_test_split(
+            X, test_size=test_size, random_state=random_state, shuffle=shuffle, 
+            stratify=stratify_param, **skws)
 
     if return_df and isinstance(X, pd.DataFrame):
         X_train, X_test = pd.DataFrame(X_train, columns=X.columns
@@ -2707,59 +3023,138 @@ def smart_split(
 
     return (X_train, X_test, y_train, y_test) if y is not None else (X_train, X_test)
 
-
-def handle_imbalance(X, y, strategy='oversample', random_state=42):
+def handle_imbalance(
+    X, y=None, strategy='oversample', 
+    random_state=42, 
+    target_col='target'
+    ):
     """
-    Handles imbalanced dataset by oversampling the minority class or 
+    Handles imbalanced datasets by either oversampling the minority class or 
     undersampling the majority class.
     
+    It supports inputs as pandas DataFrame/Series, numpy arrays, and allows 
+    specifying the target variable either as a separate argument or as part 
+    of the DataFrame.
+
     Parameters
     ----------
-    X : pd.DataFrame or np.ndarray
-        The features of the dataset.
-    y : pd.Series or np.ndarray
-        The target variable of the dataset.
+    X : pd.DataFrame, np.ndarray
+        The features of the dataset. If `y` is None, `X` is expected to include 
+        the target variable.
+    y : pd.Series, np.ndarray, optional
+        The target variable of the dataset. If None, `target_col` must be 
+        specified, and `X` must be a DataFrame containing the target.
     strategy : str, optional
-        The strategy to apply for handling imbalance: 'oversample' or 'undersample'.
+        The strategy to apply for handling imbalance: 'oversample' or 
+        'undersample'. Default is 'oversample'.
     random_state : int, optional
-        The random state for reproducible results.
+        The random state for reproducible results. Default is 42.
+    target_col : str, optional
+        The name of the target column in `X` if `X` is a DataFrame and 
+        `y` is None. Default is 'target'.
     
     Returns
     -------
     X_resampled, y_resampled : Resampled features and target variable.
+        The types of `X_resampled` and `y_resampled` match the input types.
+
+    Examples
+    --------
+    Using with numpy arrays:
+    
+    >>> import numpy as np 
+    >>> import pandas as pd 
+    >>> from gofast.tools.mlutils import handle_imbalance
+    >>> X = np.array([[1, 2], [2, 3], [3, 4]])
+    >>> y = np.array([0, 1, 0])
+    >>> X_resampled, y_resampled = handle_imbalance(X, y)
+    >>> print(X_resampled.shape, y_resampled.shape)
+    (3, 2) (3,)
+    Using with pandas DataFrame (including target column):
+    
+    >>> df = pd.DataFrame({'feature1': [1, 2, 3], 'feature2': [2, 3, 4], 'target': [0, 1, 0]})
+    >>> X_resampled, y_resampled = handle_imbalance(df, target_col='target')
+    >>> print(X_resampled.shape, y_resampled.value_counts())
+
+    Using with pandas DataFrame and Series:
+    
+    >>> X = pd.DataFrame({'feature1': [1, 2, 3], 'feature2': [2, 3, 4]})
+    >>> y = pd.Series([0, 1, 0], name='target')
+    >>> X_resampled, y_resampled = handle_imbalance(X, y)
+    >>> print(X_resampled.shape, y_resampled.value_counts())
     """
+    if y is None:
+        if not isinstance(X, pd.DataFrame):
+            raise ValueError("`X` must be a DataFrame when `y` is None.")
+        exist_features(X, target_col, name =target_col)
+        y = X[target_col]
+        X = X.drop(target_col, axis=1)
+
+    if not _is_arraylike_1d(y): 
+        raise TypeError ("Check `y`. Expect one-dimensional array.")
+
+    if not isinstance (y, pd.Series) : 
+        # squeeze y to keep 1d array for skipping value error 
+        # when constructing pd.Series and 
+        # ensure `y` is a Series with the correct name for 
+        # easy concatenation and manipulation
+        y =pd.Series (np.squeeze (y), name =target_col ) 
+    else : target_col = y.name # reset the default target_col 
+ 
+    # Check consistent length 
+    check_consistent_length(X, y )
+    
     if isinstance(X, pd.DataFrame):
         data = pd.concat([X, y], axis=1)
-    else:  # Assuming numpy array
-        data = np.column_stack([X, y])
-    
+    elif isinstance (X, np.ndarray ): 
+        # Ensure `data` from `X` is a DataFrame with correct 
+        # column names for subsequent operations
+        data = pd.DataFrame(
+            np.column_stack([X, y]), columns=[*X.columns, y.name]
+            if isinstance(X, pd.DataFrame) else [
+                    *[f"feature_{i}" for i in range(X.shape[1])], y.name])
+    else: 
+        TypeError("Unsupported type for X. Must be np.ndarray or pd.DataFrame.")
+        
+    # Identify majority and minority classes
+    majority_class = y.value_counts().idxmax()
+    minority_class = y.value_counts().idxmin()
+
+    # Correctly determine the number of samples for resampling
+    num_majority = y.value_counts()[majority_class]
+    num_minority = y.value_counts()[minority_class]
+
+    # Apply resampling strategy
     if strategy == 'oversample':
-        majority = data[data[y.name] == y.value_counts().idxmax()]
-        minority = data[data[y.name] == y.value_counts().idxmin()]
         minority_upsampled = resample(
-            minority, replace=True, n_samples=len(majority), 
-            random_state=random_state)
+            data[data[target_col] == minority_class],
+            replace=True,
+            n_samples=num_majority,
+            random_state=random_state
+            )
+        resampled = pd.concat(
+            [data[data[target_col] == majority_class], minority_upsampled])
     elif strategy == 'undersample':
-        majority = data[data[y.name] == y.value_counts().idxmax()]
-        minority = data[data[y.name] == y.value_counts().idxmin()]
-        majority_downsampled = resample(majority, replace=False, 
-                                        n_samples=len(minority), 
-                                        random_state=random_state)
-    else:
-        raise ValueError("Strategy not recognized. Use 'oversample' or 'undersample'.")
-    if strategy == 'oversample':
-        resampled = pd.concat([majority, minority_upsampled])
-    else:  # 'undersample'
-        resampled = pd.concat([minority, majority_downsampled])
-    
-    if isinstance(X, pd.DataFrame):
-        X_resampled = resampled.drop(y.name, axis=1)
-        y_resampled = resampled[y.name]
-    else:  # numpy array
-        X_resampled = resampled[:, :-1]
-        y_resampled = resampled[:, -1]
+        majority_downsampled = resample(
+            data[data[target_col] == majority_class],
+            replace=False,
+            n_samples=num_minority,
+            random_state=random_state
+            )
+        resampled = pd.concat(
+            [data[data[target_col] == minority_class], majority_downsampled])
+
+    # Prepare the output
+    X_resampled = resampled.drop(target_col, axis=1)
+    y_resampled = resampled[target_col]
+
+    # Convert back to the original input type if necessary
+    if isinstance(X, np.ndarray):
+        X_resampled = X_resampled.to_numpy()
+        y_resampled = y_resampled.to_numpy()
 
     return X_resampled, y_resampled
+
 
 def soft_data_split(
     X, y=None, *,
@@ -2828,34 +3223,33 @@ def soft_data_split(
         return  train_test_split(
             X, test_size=test_size,random_state=random_state, **split_kwargs)
  
-
-def load_saved_model(
+def load_model(
     file_path: str,
     *,
     retrieve_default: bool = True,
     model_name: Optional[str] = None,
-    storage_format: Optional[str] = None,
-) -> Union[object, Tuple[object, Dict[str, Any]]]:
+    storage_format: Optional[str] = None
+    ) -> Union[Any, Tuple[Any, Dict[str, Any]]]:
     """
-    Load a saved model or data using Python's pickle or joblib module.
+    Loads a saved model or data using Python's pickle or joblib module.
 
     Parameters
     ----------
     file_path : str
         The path to the saved model file. Supported formats are `.pkl` and `.joblib`.
-    retrieve_default : bool, default=True
+    retrieve_default : bool, optional, default=True
         If True, returns the model along with its best parameters. If False,
         returns the entire contents of the saved file.
-    model_name : str, optional
+    model_name : Optional[str], optional
         The name of the specific model to retrieve from the saved file. If None,
         the entire file content is returned.
-    storage_format : str, optional
+    storage_format : Optional[str], optional
         The format used for saving the file. If None, the format is inferred
         from the file extension. Supported formats are 'joblib' and 'pickle'.
 
     Returns
     -------
-    object or Tuple[object, Dict[str, Any]]
+    Union[Any, Tuple[Any, Dict[str, Any]]]
         The loaded model or a tuple of the model and its parameters, depending
         on the `retrieve_default` value.
 
@@ -2866,136 +3260,70 @@ def load_saved_model(
     KeyError
         If the specified model name is not found in the file.
     ValueError
-        If the storage format is not supported.
+        If the storage format is not supported or if the loaded data is not
+        a dictionary when a model name is specified.
 
     Example
     -------
-    >>> from gofast.tools.mlutils import load_saved_model
-    >>> model, params = load_saved_model('path_to_file.pkl', model_name='SVC')
+    >>> model, params = load_model('path_to_file.pkl', model_name='SVC')
+    >>> print(model)
+    >>> print(params)
     """
-
     if not os.path.isfile(file_path):
-        raise FileNotFoundError(f"File {file_path!r} not found.")
+        raise FileNotFoundError(f"File '{file_path}' not found.")
 
-    # Infer storage format from file extension if not specified
-    storage_format = storage_format or os.path.splitext(
-        file_path)[-1].lower().lstrip('.')
+    storage_format = storage_format or os.path.splitext(file_path)[-1].lower().lstrip('.')
     if storage_format not in {"joblib", "pickle"}:
-        raise ValueError(f"Unsupported storage format {storage_format!r}."
-                         " Use 'joblib' or 'pickle'.")
+        raise ValueError(f"Unsupported storage format '{storage_format}'. "
+                         "Use 'joblib' or 'pickle'.")
 
-    # Load the saved file
-    if storage_format == 'joblib':
-        loaded_data = joblib.load(file_path)
-    elif storage_format == 'pickle':
-        with open(file_path, 'rb') as file:
-            loaded_data = pickle.load(file)
+    load_func = joblib.load if storage_format == 'joblib' else pickle.load
+    with open(file_path, 'rb') as file:
+        loaded_data = load_func(file)
 
-    # If a specific model name is provided, extract it
     if model_name:
-        if model_name not in loaded_data:
-            raise KeyError(f"Model {model_name!r} not found in the file."
-                           f" Available models: {list(loaded_data.keys())}")
+        if not isinstance(loaded_data, dict):
+            warnings.warn(
+                f"Expected loaded data to be a dictionary for model name retrieval. "
+               f"Received type '{type(loaded_data).__name__}'. Returning loaded data.")
+            return loaded_data
+
+        model_info = loaded_data.get(model_name)
+        if model_info is None:
+            available = ', '.join(loaded_data.keys())
+            raise KeyError(f"Model '{model_name}' not found. Available models: {available}")
+
         if retrieve_default:
-            return ( loaded_data[model_name]['best_model'],
-                    loaded_data[model_name]['best_params_'])
-        else:
-            return loaded_data[model_name]
+            if not isinstance(model_info, dict):
+                # Check if 'best_model_' and 'best_params_' are among the keys
+                main_keys = [key for key in loaded_data if key in (
+                    'best_model_', 'best_params_')]
+                if len(main_keys) == 0:
+                    warnings.warn(
+                    "The structure of the default model data is not correctly "
+                    "formatted. Expected 'best_model_' and 'best_params_' to be "
+                    "present within a dictionary keyed by the model's name. Each key "
+                    "should map to a dictionary containing the model itself and its "
+                    "parameters, for example: `{'ModelName': {'best_model_': <Model>, "
+                    "'best_params_': <Parameters>}}`. Since the expected keys were "
+                    "not found, returning the unprocessed model data."
+                    )
+                    return model_info
+                else:
+                    # Extract 'best_model_' and 'best_params_' from loaded_data
+                    best_model = loaded_data.get('best_model_', None)
+                    best_params = loaded_data.get('best_params_', {})
+            else:
+                # Direct extraction from model_info if it's properly structured
+                best_model = model_info.get('best_model_', None)
+                best_params = model_info.get('best_params_', {})
+
+            return best_model, best_params
+
+        return model_info
 
     return loaded_data
 
-@deprecated ("Deprecated function. It should be removed soon in"
-             " the next realease...")
-def fetchModel(
-    file: str,
-    *, 
-    default: bool = True,
-    name: Optional[str] = None,
-    storage=None, 
-)-> object: 
-    """ Fetch your data/model saved using Python pickle or joblib module. 
-    
-    Parameters 
-    ------------
-    file: str or Path-Like object 
-        dumped model file name saved using `joblib` or Python `pickle` module.
-    path: path-Like object , 
-        Path to model dumped file =`modelfile`
-    default: bool, 
-        Model parameters by default are saved into a dictionary. When default 
-        is ``True``, returns a tuple of pair (the model and its best parameters).
-        If ``False`` return all values saved from `~.MultipleGridSearch`
-    storage: str, default='joblib'
-        kind of module use to pickling the data
-    name: str 
-        Is the name of model to retreived from dumped file. If name is given 
-        get only the model and its best parameters. 
-        
-    Returns
-    --------
-    - `data`: Tuple (Dict, )
-        data composed of models, classes and params for 'best_model', 
-        'best_params_' and 'best_scores' if default is ``True``,
-        and model dumped and all parameters otherwise.
-
-    Example
-    ---------
-        >>> from gofast.bases import fetch_model 
-        >>> my_model, = fetchModel ('SVC__LinearSVC__LogisticRegression.pkl',
-                                    default =False,  modname='SVC')
-        >>> my_model
-    """
-    
-    if not os.path.isfile (file): 
-        raise FileNotFoundError (f"File {file!r} not found. Please check"
-                                 " your filename.")
-    st = storage 
-    if storage is None: 
-        ex = os.path.splitext (file)[-1] 
-        storage = 'joblib' if ex =='.joblib' else 'pickle'
-
-    storage = str(storage).lower().strip() 
-    
-    assert storage in {"joblib", "pickle"}, (
-        "Data pickling supports only the Python's built-in persistence"
-        f" model'pickle' or 'joblib' as replacement of pickle: got{st!r}"
-        )
-    _logger.info(f"Loading models {os.path.basename(file)}")
-    
-    if storage =='joblib':
-        pickledmodel = joblib.load(file)
-        if len(pickledmodel)>=2 : 
-            pickledmodel = pickledmodel[0]
-    elif storage =='pickle': 
-        with open(file, 'rb') as modf: 
-            pickledmodel= pickle.load (modf)
-            
-    data= copy.deepcopy(pickledmodel)
-    if name is not None: 
-        name =_assert_all_types(name, str, objname="Model to pickle ")
-        if name not in pickledmodel.keys(): 
-            raise KeyError(
-                f"Model {name!r} is missing in the dumped models."
-                f" Available pickled models: {list(pickledmodel.keys())}"
-                         )
-        if default: 
-            data =[pickledmodel[name][k] for k in (
-                "best_model", "best_params_", "best_scores")
-                ]
-        else:
-            # When using storage as joblib
-            # trying to unpickle estimator directly other
-            # format than dict from version 1.1.1 
-            # might lead to breaking code or invalid results. 
-            # Use at your own risk. For more info please refer to:
-            # https://scikit-learn.org/stable/modules/model_persistence.html#security-maintainability-limitations
-            
-            # pickling all data
-            data= pickledmodel.get(name)
-        
-    return data,       
-
- 
 def categorize_target(
     arr :ArrayLike |Series , /, 
     func: _F = None,  
@@ -3599,24 +3927,25 @@ def make_pipe(
              ) if transform else full_pipeline
        
 def build_data_preprocessor(
-    X, y=None, *,  
-    num_features=None, 
-    cat_features=None, 
-    custom_transformers=None,
-    label_encoding='LabelEncoder', 
-    scaler='StandardScaler', 
-    missing_values=np.nan, 
-    impute_strategy='median', 
-    feature_interaction=False,
-    dimension_reduction=None,
-    feature_selection=None,
-    balance_classes=False,
-    advanced_imputation=None,
-    verbose=False,
-    output_format='array',
-    transform=False,
-    **kwargs
-    ):
+    X: Union [NDArray, DataFrame], 
+    y: Optional[ArrayLike] = None, *,  
+    num_features: Optional[List[str]] = None, 
+    cat_features: Optional[List[str]] = None, 
+    custom_transformers: Optional[List[Tuple[str, TransformerMixin]]] = None,
+    label_encoding: Union[str, TransformerMixin] = 'LabelEncoder', 
+    scaler: Union[str, TransformerMixin] = 'StandardScaler', 
+    missing_values: Union[int, float, str, np.nan, None] = np.nan, 
+    impute_strategy: str = 'median', 
+    feature_interaction: bool = False,
+    dimension_reduction: Optional[Union[str, TransformerMixin]] = None,
+    feature_selection: Optional[Union[str, TransformerMixin]] = None,
+    balance_classes: bool = False,
+    advanced_imputation: Optional[TransformerMixin] = None,
+    verbose: bool = False,
+    output_format: str = 'array',
+    transform: bool = False,
+    **kwargs: Any
+) -> Any:
     """
     Create a preprocessing pipeline for data transformation and feature engineering.
 
@@ -3627,8 +3956,8 @@ def build_data_preprocessor(
 
     Parameters
     ----------
-    X : DataFrame
-        Input features dataframe.
+    X : np.ndarray or DataFrame
+        Input features dataframe or arraylike. Must be two dimensional array.
     y : array-like, optional
         Target variable. Required for supervised learning tasks.
     num_features : list of str, optional
@@ -3681,6 +4010,11 @@ def build_data_preprocessor(
     """
     sc= {"StandardScaler": StandardScaler ,"MinMaxScaler": MinMaxScaler , 
          "Normalizer":Normalizer , "RobustScaler":RobustScaler}
+    # Check and preserve dtype by setting to None. 
+    X= check_array(X, dtype =None )
+    if not isinstance (X, pd.DataFrame): 
+        # create fake dataframe for handling columns features 
+        X= pd.DataFrame(X)
     # assert scaler value 
     if get_estimator_name (scaler) in sc.keys(): 
         scaler = sc.get (get_estimator_name(scaler ))() 
@@ -3756,14 +4090,37 @@ def build_data_preprocessor(
                 'smote', SMOTE(random_state=42))])
 
     # Transform data if transform flag is set
-    if transform:
-        if output_format == 'dataframe':
-            return pd.DataFrame(pipeline.fit_transform(X), columns=X.columns)
-        else:
-            return pipeline.fit_transform(X)
+    # if transform:
+    output_format = output_format or 'array' # force none to hold array
+    if str(output_format) not in ('array', 'dataframe'): 
+        raise ValueError(f"Invalid '{output_format}', expect 'array' or 'dataframe'.")
+        
+    return _execute_transformation(
+        pipeline, X, y, transform, output_format, label_encoding)
 
+def _execute_transformation(
+        pipeline, X, y, transform, output_format, label_encoding):
+    """ # Transform data if transform flag is set or return pipeline"""
+    if transform:
+        X_transformed = pipeline.fit_transform(X)
+        if y is not None:
+            y_transformed = _transform_target(y, label_encoding) if label_encoding else y
+            return (X_transformed, y_transformed) if output_format == 'array' else (
+                pd.DataFrame(X_transformed), pd.Series(y_transformed))
+        
+        return X_transformed if output_format == 'array' else pd.DataFrame(X_transformed)
+    
     return pipeline
 
+def _transform_target(y, label_encoding:BaseEstimator|TransformerMixin ):
+    if label_encoding == 'LabelEncoder':
+        encoder = LabelEncoder()
+        return encoder.fit_transform(y)
+    elif isinstance(label_encoding, (BaseEstimator, TransformerMixin)):
+        return label_encoding.fit_transform(y)
+    else:
+        raise ValueError("Unsupported label_encoding value: {}".format(label_encoding)) 
+         
 def select_feature_importances(
         clf, X, y=None, *, threshold=0.1, prefit=True, 
         verbose=0, return_selector=False, **kwargs
@@ -3829,7 +4186,9 @@ def select_feature_importances(
     if not prefit and (hasattr(clf, 'feature_importances_') or hasattr(clf, 'coef_')):
         warnings.warn(f"The estimator {clf.__class__.__name__} appears to be fitted. "
                       "Consider setting `prefit=True` or refit the estimator.",UserWarning)
-   
+    try:threshold = float(threshold ) 
+    except: pass 
+
     selector = SelectFromModel(clf, threshold=threshold, prefit=prefit, **kwargs)
     
     if not prefit:
@@ -3867,6 +4226,7 @@ def soft_imputer(
     ----------
     X : array-like or sparse matrix of shape (n_samples, n_features)
         The input data to impute.
+        
     strategy : str, default='mean'
         The imputation strategy:
         - 'mean': Impute using the mean of each column. Only for numeric data.
@@ -3874,14 +4234,22 @@ def soft_imputer(
         - 'most_frequent': Impute using the most frequent value of each column. 
           For numeric and categorical data.
         - 'constant': Impute using the specified `fill_value`.
+        
     missing_values : int, float, str, np.nan, None, or pd.NA, default=np.nan
         The placeholder for the missing values. All occurrences of
         `missing_values` will be imputed.
+        
     fill_value : str or numerical value, default=None
         When `strategy` == 'constant', `fill_value` is used to replace all
         occurrences of `missing_values`. If left to the default, `fill_value` 
         will be 0 when imputing numerical data and 'missing_value' for strings 
         or object data types.
+        For 'constant' strategy, specifies the value used for replacement.
+        In 'bi-impute' mode, allows specifying separate fill values for
+        numerical and categorical data using a delimiter from the set
+        {"__", "--", "&", "@", "!"}. For example, "0.5__missing" indicates
+        0.5 as fill value for numerical data and "missing" for categorical.
+        
     drop_features : bool or list, default=False
         If True, drops all categorical features before imputation. If a list, 
         drops specified features.
@@ -3931,10 +4299,23 @@ def soft_imputer(
     X = _drop_features(X, drop_features)
     
     if mode == 'bi-impute':
-        num_imputer = SimpleImputer(
-            strategy=strategy, missing_values=missing_values, fill_value=fill_value)
-        cat_imputer = SimpleImputer(
-            strategy='most_frequent', missing_values=missing_values)
+        fill_values, strategies = _enabled_bi_impute_mode (strategy, fill_value)
+        try: 
+            num_imputer = SimpleImputer(
+                strategy=strategies[0], missing_values=missing_values,
+                fill_value=fill_values[0])
+        except ValueError as e: 
+            msg= (" Consider using the {'__', '--', '&', '@', '!'} delimiter"
+                  " for mixed numeric and categorical fill values.")
+            # Improve the error message 
+            raise ValueError(
+                f"Imputation failed due to: {e}." +
+                msg if check_mixed_data_types(X) else ''
+                )
+        cat_imputer = SimpleImputer(strategy= strategies[1], 
+                                    missing_values=missing_values,
+                                    fill_value = fill_values [1]
+                                    )
         num_imputed, cat_imputed, num_columns, cat_columns = _separate_and_impute(
             X, num_imputer, cat_imputer)
         Xi = np.hstack((num_imputed, cat_imputed))
@@ -3993,6 +4374,131 @@ def _separate_and_impute(X, num_imputer, cat_imputer):
     else:
         cat_imputed = np.array([]).reshape(X.shape[0], 0)
     return num_imputed, cat_imputed, num_columns, cat_columns
+
+
+def _enabled_bi_impute_mode(
+    strategy: str, fill_value: Union[str, float, None]
+     ) -> Tuple[List[Union[None, float, str]], List[str]]:
+    """
+    Determines strategies and fill values for numerical and categorical data
+    in bi-impute mode based on the provided strategy and fill value.
+
+    Parameters
+    ----------
+    strategy : str
+        The imputation strategy to use.
+    fill_value : Union[str, float, None]
+        The fill value to use for imputation, which can be a float, string, 
+        or None. When a string containing delimiters is provided, it indicates
+        separate fill values for numerical and categorical data.
+
+    Returns
+    -------
+    Tuple[List[Union[None, float, str]], List[str]]
+        A tuple containing two lists: the first with fill values for numerical
+        and categorical data, and the second with strategies for numerical and
+        categorical data.
+
+    Examples
+    --------
+    >>> from gofast.tools.mlutils import enabled_bi_impute_mode
+    >>> enabled_bi_impute_mode('mean', None)
+    ([None, None], ['mean', 'most_frequent'])
+
+    >>> enabled_bi_impute_mode('constant', '0__missing')
+    ([0.0, 'missing'], ['constant', 'constant'])
+    
+    >>> enabled_bi_impute_mode (strategy='constant', fill_value="missing")
+    ([0.0, 'missing'], ['constant', 'constant'])
+    
+    >>> enabled_bi_impute_mode('constant', 9.) 
+    ([9.0, None], ['constant', 'most_frequent'])
+    
+    >>> enabled_bi_impute_mode(strategy='constant', fill_value="mean__missing",)
+    ([None, 'missing'], ['mean', 'constant'])
+    """
+    num_strategy, cat_strategy = 'most_frequent', 'most_frequent'
+    fill_values = [None, None]
+    
+    if fill_value is None or isinstance(fill_value, (float, int)):
+        if strategy in ["mean", 'median', 'constant']:
+            num_strategy = strategy
+            fill_values[0] = ( 
+                0.0 if strategy == 'constant' 
+                and fill_value is None else fill_value
+                )
+        return fill_values, [num_strategy, cat_strategy]
+
+    if contains_delimiter(fill_value,{"__", "--", "&", "@", "!"} ):
+        fill_values, strategies = _manage_fill_value(fill_value, strategy)
+    else:
+        fill_value = (
+            f"{strategy}__{fill_value}" if strategy in ['mean', 'median'] 
+            else ( f"0__{fill_value}" if strategy =="constant" else fill_value )
+        )
+        fill_values, strategies = _manage_fill_value(fill_value, strategy)
+    
+    return fill_values, strategies
+
+def _manage_fill_value(
+    fill_value: str, strategy: str
+    ) -> Tuple[List[Union[None, float, str]], List[str]]:
+    """
+    Parses and manages fill values for bi-impute mode, supporting mixed types.
+
+    Parameters
+    ----------
+    fill_value : str
+        The fill value string potentially containing mixed types for numerical
+        and categorical data.
+    strategy : str
+        The imputation strategy to determine how to handle numerical fill values.
+
+    Returns
+    -------
+    Tuple[List[Union[None, float, str]], List[str]]
+        A tuple containing two elements: the first is a list with numerical and
+        categorical fill values, and the second is a list of strategies for 
+        numerical and categorical data.
+
+    Raises
+    ------
+    ValueError
+        If the fill value does not contain a proper separator or if the numerical
+        fill value is incompatible with the specified strategy.
+
+    Examples
+    --------
+    >>> from gofast.tools.mlutils import _manage_fill_value
+    >>> _manage_fill_value("0__missing", "constant")
+    ([0.0, 'missing'], ['constant', 'constant'])
+
+    >>> _manage_fill_value("mean__missing", "mean")
+    ([None, 'missing'], ['mean', 'constant'])
+    """
+    regex = re.compile(r'(__|--|&|@|!)')
+    parts = regex.split(fill_value)
+    if len(parts) < 3:
+        raise ValueError("Fill value must contain a separator (__|--|&|@|!)"
+                         " between numerical and categorical fill values.")
+
+    num_fill, cat_fill = parts[0], parts[-1]
+    num_fill_value = None if strategy in ['mean', 'median'] and num_fill.lower(
+        ) in ['mean', 'median'] else num_fill
+
+    try:
+        num_fill_value = float(num_fill) if num_fill.replace('.', '', 1).isdigit() else num_fill
+    except ValueError:
+        raise ValueError(f"Numerical fill value '{num_fill}' must be a float"
+                         f" for strategy '{strategy}'.")
+    strategies =[ strategy if strategy in ['mean', 'median', 'constant']
+                 else 'most_frequent', 'constant'] 
+    if num_fill.lower() in ['mean', 'median'] and strategy=='constant': 
+        # Permutate the strategy and fill value. 
+        strategies [0]= num_fill.lower()
+        num_fill_value =None ; 
+    
+    return [num_fill_value, cat_fill], strategies
 
 def soft_scaler(
     X, *, 

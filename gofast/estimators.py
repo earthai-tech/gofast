@@ -21,11 +21,11 @@ from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
 from sklearn.metrics import r2_score
 from sklearn.utils import shuffle
 try:from sklearn.utils import type_of_target
-except: from .tools.funcutils import type_of_target 
+except: from .tools.coreutils import type_of_target 
 
 from ._gofastlog import  gofastlog
 from .exceptions import  EstimatorError 
-from .tools.funcutils import smart_format, is_iterable
+from .tools.coreutils import smart_format, is_iterable
 from .tools.validator import check_X_y, get_estimator_name, check_array 
 from .tools.validator import check_is_fitted
 from .tools._param_validation import Hidden
@@ -1502,7 +1502,7 @@ class MajorityVoteClassifier (BaseEstimator, ClassifierMixin ):
     >>> from sklearn.impute import SimpleImputer
     >>> from gofast.datasets import fetch_data 
     >>> from gofast.estimators import MajorityVoteClassifier 
-    >>> from gofast.tools.funcutils import select_features 
+    >>> from gofast.tools.coreutils import select_features 
     >>> data = fetch_data('bagoue original').frame
     >>> X0 = data.iloc [:, :-1]; y0 = data ['flow'].values  
     >>> # exclude the categorical value for demonstration 

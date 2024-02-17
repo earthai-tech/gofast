@@ -23,7 +23,8 @@ import  matplotlib.pyplot as plt
 from ._arraytools import axis_slice
 from .._gofastlog import gofastlog
 from .._docstring import refglossary
-from ..decorators import refAppender, docSanitizer
+from ..decorators import AppendDocReferences
+from ..decorators import SanitizeDocstring
 from ..exceptions import SiteError
 from .._typing import (
     _T, 
@@ -41,7 +42,7 @@ from .._typing import (
     Dict,
 )
 from .box import Boxspace 
-from .funcutils import (
+from .coreutils import (
     _assert_all_types, 
     _validate_name_in, 
     assert_ratio,
@@ -1373,8 +1374,8 @@ def interpolate2d (
     return arr2d 
 
 
-@refAppender(refglossary.__doc__)
-@docSanitizer()    
+@AppendDocReferences(refglossary.__doc__)
+@SanitizeDocstring()
 def scalePosition(
         ydata: ArrayLike | _SP | Series | DataFrame ,
         xdata: ArrayLike| Series = None, 
@@ -1613,7 +1614,8 @@ def _manage_colors (c, default = ['ok', 'ob-', 'r-']):
     
     return c [:3] # return 3colors 
      
-@refAppender(refglossary.__doc__)
+
+@AppendDocReferences(refglossary.__doc__)
 def plot_ (
     *args : List [Union [str, ArrayLike, ...]],
     fig_size: Tuple[int] = None,

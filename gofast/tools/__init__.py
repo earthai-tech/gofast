@@ -3,7 +3,7 @@ Tools sub-package offers several utilities for data handling, parameters computa
 models estimation and evalution. The extension of the mathematical concepts, 
 via the module :mod:`~gofast.tools.mathex`. Whereas the machine learning 
 utilities and additional functionalities are performed with
- :mod:`~gofast.tools.mlutils` and :mod:`~gofast.tools.funcutils` respectively. 
+ :mod:`~gofast.tools.mlutils` and :mod:`~gofast.tools.coreutils` respectively. 
 """
 
 from .baseutils import (
@@ -71,7 +71,7 @@ from .mathex import (
     infer_sankey_columns, 
     calculate_residuals, 
     )
-from .funcutils import ( 
+from .coreutils import ( 
     reshape, 
     to_numeric_dtypes, 
     smart_label_classifier, 
@@ -91,7 +91,8 @@ from .funcutils import (
     features_in, 
     split_train_test_by_id, 
     split_train_test, 
-    parallelize_jobs
+    parallelize_jobs,
+    denormalize, 
     )
 
 from .mlutils import ( 
@@ -110,7 +111,7 @@ from .mlutils import (
     select_feature_importances, 
     make_pipe, 
     build_data_preprocessor, 
-    load_saved_model, 
+    load_model, 
     bi_selector, 
     get_target, 
     extract_target,  
@@ -127,7 +128,8 @@ from .mlutils import (
     laplace_smoothing_categorical, 
     laplace_smoothing_word, 
     handle_imbalance, 
-    smart_split
+    smart_split, 
+    save_dataframes
     
     ) 
 __all__=[
@@ -211,7 +213,7 @@ __all__=[
     "resampling", 
     "bin_counting",
     "adaptive_moving_average", 
-    "load_saved_model", 
+    "load_model", 
     "butterworth_filter",
     "laplace_smoothing", 
     "features_in", 
@@ -256,7 +258,9 @@ __all__=[
     "boxcox_transformation", 
     "check_missing_data", 
     "handle_imbalance", 
-    "smart_split"
+    "smart_split", 
+    "save_dataframes",
+    "denormalize"
     
     ]
 

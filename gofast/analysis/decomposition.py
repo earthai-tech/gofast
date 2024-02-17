@@ -17,7 +17,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split 
 from sklearn.decomposition import PCA 
 from .._docstring import _core_docs 
-from ..tools.funcutils import _assert_all_types 
+from ..tools.coreutils import _assert_all_types 
 # ---
 __all__=[
     "get_eigen_components", 

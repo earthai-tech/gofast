@@ -23,19 +23,22 @@ from tqdm import tqdm
 
 from .._typing import Any,  List, NDArray, DataFrame, Optional, Series 
 from .._typing import Dict, Union, TypeGuard, Tuple, ArrayLike
-from ..decorators import deprecated
+from .._typing import BeautifulSoupTag 
+from ..decorators import Deprecated
 from ..exceptions import FileHandlingError 
 from ..property import  Config
-from .funcutils import is_iterable, ellipsis2false,smart_format, validate_url 
-from .funcutils import to_numeric_dtypes, assert_ratio, exist_features
-from .funcutils import normalize_string
+from .coreutils import is_iterable, ellipsis2false,smart_format, validate_url 
+from .coreutils import to_numeric_dtypes, assert_ratio, exist_features
+from .coreutils import normalize_string
+from ..decorators import dataify 
+
 from ._dependency import import_optional_dependency 
 from .validator import array_to_frame, build_data_if, is_frame 
 from .validator import check_consistent_length
 
 def summarize_text_columns(
     data: DataFrame, /, 
-    column_names: List[str], 
+    text_columns: List[str], 
     stop_words: str = 'english', 
     encode: bool = False, 
     drop_original: bool = False, 
@@ -184,7 +187,7 @@ def summarize_text_columns(
                             " Or set force to 'True' to build a temporary"
                             " dataFrame.")
     
-    for column_name in column_names:
+    for column_name in text_columns:
         if column_name not in data.columns:
             raise ValueError(f"The column {column_name} does not exist in the DataFrame.")
         if not pd.api.types.is_string_dtype(data[column_name]):
@@ -201,7 +204,7 @@ def summarize_text_columns(
                 lambda x: x[1] if x[1] is not None else None)
 
     if drop_original:
-        data.drop(columns=column_names, inplace=True)
+        data.drop(columns=text_columns, inplace=True)
         data.columns = [ c.replace ("_encoded", '') for c in data.columns]
 
     return data
@@ -441,6 +444,7 @@ def enrich_data_spectrum(
 
     return augmented_df.reset_index(drop=True)
 
+@dataify 
 def sanitize(
     data:DataFrame, /, 
     fill_missing:Optional[str]=None, 
@@ -497,22 +501,22 @@ def sanitize(
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.tools.baseutils import clean_data
+    >>> from gofast.tools.baseutils import sanitize
     >>> data = {'A': [1, 2, None, 4], 'B': ['X', 'Y', 'Y', None], 'C': [1, 1, 2, 2]}
     >>> df = pd.DataFrame(data)
-    >>> cleaned_df = clean_data(df, fill_missing='median', remove_duplicates=True,
+    >>> cleaned_df = sanitize(df, fill_missing='median', remove_duplicates=True,
                                 outlier_method='z_score', 
                                 consistency_transform='lower', threshold=3)
     >>> print(cleaned_df)
     """
-    data = build_data_if(data, to_frame=True, force=True, 
-                         input_name="feature_",  raise_warning='mute')
+    data = build_data_if(data, to_frame=True, force=True, input_name="feature_", 
+                         raise_warning='mute')
     data = to_numeric_dtypes( data ) # verify integrity 
     df_cleaned = data.copy()
     if fill_missing:
         fill_methods = {
-            'median': data.median(),
-            'mean': data.mean(),
+            'median': data.median(numeric_only=True),
+            'mean': data.mean(numeric_only=True),
             'mode': data.mode().iloc[0]
         }
         df_cleaned.fillna(fill_methods.get(fill_missing, None), inplace=True)
@@ -802,7 +806,9 @@ def array2hdf5 (
     return data if task=='load' else None 
 
 def lowertify(
-    *values, strip: bool = True, return_origin: bool = False, 
+    *values,
+    strip: bool = True, 
+    return_origin: bool = False, 
     unpack: bool = False
     ) -> Union[Tuple[str, ...], Tuple[Tuple[str, Any], ...], Tuple[Any, ...]]:
     """
@@ -1094,7 +1100,7 @@ def request_data(
     return response.text if as_text else ( 
         response.json () if as_json else response )
 
-@deprecated("Deprecated function. Should be remove next release."
+@Deprecated("Deprecated function. Should be remove next release."
             "Use `gofast.tools.fetch_remote_data` instead.")
 def get_remote_data(
     remote_file: str, 
@@ -1514,26 +1520,32 @@ def _is_readable (
             f" Can not parse the file : {os.path.basename (f)!r}")
 
     return f 
-    
+
 def scrape_web_data(
-    url, element, 
-    class_name=None
-    ):
+    url: str, 
+    element: str, 
+    class_name: Optional[str] = None, 
+    attributes: Optional[dict] = None, 
+    parser: str = 'html.parser'
+    ) -> List[BeautifulSoupTag[str]]:
     """
-    Scrape data from a web page.
+    Scrape data from a web page using BeautifulSoup.
 
     Parameters
     ----------
     url : str
         The URL of the web page to scrape.
-
     element : str
         The HTML element to search for.
-
     class_name : str, optional
-        The class attribute of the HTML element to 
-        narrow down the search.
-    
+        The class attribute of the HTML element to narrow down the search.
+        Default is None.
+    attributes : dict, optional
+        Additional attributes of the HTML element to narrow down the search. 
+        Default is None.
+    parser : str, optional
+        The parser used by BeautifulSoup. Default is 'html.parser'.
+
     Returns
     -------
     list of bs4.element.Tag
@@ -1541,41 +1553,48 @@ def scrape_web_data(
 
     Examples
     --------
+    >>> from gofast.tools.baseutils import scrape_web_data
     >>> url = 'https://example.com'
     >>> element = 'div'
     >>> class_name = 'content'
     >>> data = scrape_web_data(url, element, class_name)
     >>> for item in data:
-    >>>     print(item.text)
-    # Assuming the function scrape_web_data is defined as above.
+    ...     print(item.text)
 
     >>> url = 'https://example.com/articles'
     >>> element = 'h1'
     >>> data = scrape_web_data(url, element)
-
     >>> for header in data:
-           print(header.text)  # prints the text of each <h1> tag
+    ...    print(header.text)  # prints the text of each <h1> tag
 
+    >>> url = 'https://example.com/products'
+    >>> element = 'section'
+    >>> attributes = {'id': 'featured-products'}
+    >>> data = scrape_web_data(url, element, attributes=attributes)
+    >>> # prints the text of each section with id 'featured-products'
+    >>> for product in data:
+    ...     print(product.text)  
     """
-    
     import_optional_dependency('requests' ) 
     extra= (" Needs `BeautifulSoup` from `bs4` package" )
     import_optional_dependency('bs4', extra = extra  ) 
     import requests
     from bs4 import BeautifulSoup
-
+    
     response = requests.get(url)
     if response.status_code == 200:
         html_content = response.text
-        soup = BeautifulSoup(html_content, 'html.parser')
+        soup = BeautifulSoup(html_content, parser)
         if class_name:
             elements = soup.find_all(element, class_=class_name)
+        elif attributes:
+            elements = soup.find_all(element, **attributes)
         else:
             elements = soup.find_all(element)
         return elements
     else:
-        response.raise_for_status()  
-     
+        response.raise_for_status()
+
 def speed_rowwise_process(
     data, /, 
     func, 
@@ -1628,7 +1647,7 @@ def speed_rowwise_process(
     processed_data = pd.DataFrame(results, columns=data.columns)
     return processed_data
     
-def run_shell_command(command, progress_bar_duration=30):
+def run_shell_command(command, progress_bar_duration=30, pkg=None):
     """
     Run a shell command with an indeterminate progress bar.
 
@@ -1657,6 +1676,8 @@ def run_shell_command(command, progress_bar_duration=30):
     progress_bar_duration : int
         The maximum duration to display the progress bar for, in seconds.
         Defaults to 30 seconds.
+    pkg: str, optional 
+        The name of package to install for customizing bar description. 
 
     Returns:
     --------
@@ -1665,14 +1686,15 @@ def run_shell_command(command, progress_bar_duration=30):
     Example 
     -------
     >>> from gofast.tools.baseutils import run_shell_command 
-    >>> run_with_progress_bar(["pip", "install", "gofast"])
+    >>> run_shell_command(["pip", "install", "gofast"])
     """
     def run_command(command):
         subprocess.run(command, check=True)
 
     def show_progress_bar(duration):
-        with tqdm(total=duration, desc="Installing", 
-                  bar_format="{l_bar}{bar}", ncols=100, ascii=True)  as pbar:
+        with tqdm(total=duration, desc="Installing{}".format( 
+                '' if pkg is None else f" {str(pkg)}"), 
+                  bar_format="{l_bar}{bar}", ncols=77, ascii=True)  as pbar:
             for i in range(duration):
                 time.sleep(1)
                 pbar.update(1)
@@ -2621,6 +2643,7 @@ def handle_outliers_in_data(
 
     return (data, report) if return_report else data
 
+@dataify
 def handle_missing_data(
     data:DataFrame, /, 
     method: Optional[str] = None,  
@@ -3859,6 +3882,8 @@ def _reduce_dimensions(
     pca = PCA(n_components=n_components)
     reduced_embeddings = pca.fit_transform(embeddings)
     return reduced_embeddings
+
+
 
 def boxcox_transformation(
     data: DataFrame, 

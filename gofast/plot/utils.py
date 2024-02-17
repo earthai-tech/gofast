@@ -41,9 +41,9 @@ from sklearn.utils import resample
 from .._typing import Optional, Tuple, Any, List, Union 
 from .._typing import Dict, ArrayLike, DataFrame, Series
 from ..exceptions import  TipError, PlotError 
-from ..tools.funcutils import _assert_all_types, is_iterable, str2columns 
-from ..tools.funcutils import make_obj_consistent_if, is_in_if, to_numeric_dtypes 
-from ..tools.funcutils import fill_nan_in
+from ..tools.coreutils import _assert_all_types, is_iterable, str2columns 
+from ..tools.coreutils import make_obj_consistent_if, is_in_if, to_numeric_dtypes 
+from ..tools.coreutils import fill_nan_in
 from ..tools.validator import _check_array_in , _is_cross_validated, is_frame 
 from ..tools.validator import  assert_xy_in, get_estimator_name, check_is_fitted
 from ..tools.validator import check_array, check_X_y, check_consistent_length 

@@ -15,7 +15,7 @@ from importlib import resources
 from collections import namedtuple
 from ..tools.box import Boxspace 
 from ..tools.baseutils import _is_readable 
-from ..tools.funcutils import random_state_validator , is_iterable
+from ..tools.coreutils import random_state_validator , is_iterable
 
 DMODULE = "gofast.datasets.data" ; DESCR = "gofast.datasets.descr"
 

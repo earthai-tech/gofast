@@ -27,9 +27,9 @@ from ..exceptions import PlotError, FeatureError, NotFittedError
 from ..property import BasePlot
 from ..tools._dependency import import_optional_dependency 
 from ..tools.baseutils import _is_readable
-from ..tools.funcutils import _assert_all_types , _isin,  repr_callable_obj 
-from ..tools.funcutils import smart_strobj_recognition, smart_format, reshape
-from ..tools.funcutils import  shrunkformat, exist_features
+from ..tools.coreutils import _assert_all_types , _isin,  repr_callable_obj 
+from ..tools.coreutils import smart_strobj_recognition, smart_format, reshape
+from ..tools.coreutils import  shrunkformat, exist_features
 from ..tools.mlutils import select_features , export_target, formatGenericObj
 from ..tools.validator import check_X_y 
 try: 

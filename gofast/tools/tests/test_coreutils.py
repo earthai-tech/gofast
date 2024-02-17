@@ -3,13 +3,13 @@
 Created on Tue Dec 19 09:26:17 2023
 @author: Daniel
 
-Testing some utilities of :mod:`gofast.tools.funcutils` 
+Testing some utilities of :mod:`gofast.tools.coreutils` 
 """
 
 import numpy as np 
 import pandas as pd 
 import matplotlib.pyplot as plt 
-from gofast.tools.funcutils import  ( 
+from gofast.tools.coreutils import  ( 
     reshape, 
     to_numeric_dtypes, 
     smart_label_classifier, 

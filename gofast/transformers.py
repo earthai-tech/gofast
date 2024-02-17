@@ -41,8 +41,8 @@ except : pass
 from ._gofastlog import gofastlog 
 from ._typing import _F 
 from .exceptions import EstimatorError, NotFittedError 
-from .tools.funcutils import  parse_attrs, assert_ratio, validate_feature
-from .tools.funcutils import  ellipsis2false, to_numeric_dtypes, is_iterable
+from .tools.coreutils import  parse_attrs, assert_ratio, validate_feature
+from .tools.coreutils import  ellipsis2false, to_numeric_dtypes, is_iterable
 from .tools.mlutils import discretize_categories, stratify_categories 
 from .tools._dependency import import_optional_dependency 
 from .tools.validator import  get_estimator_name, check_X_y, is_frame

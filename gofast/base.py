@@ -17,11 +17,11 @@ from ._typing import List, Optional, DataFrame, Tuple
 from .tools.baseutils import _is_readable
 from .exceptions import NotFittedError
 from .tools._dependency import import_optional_dependency
-from .tools.funcutils import sanitize_frame_cols, exist_features
-from .tools.funcutils import _assert_all_types, repr_callable_obj, reshape 
-from .tools.funcutils import smart_strobj_recognition, is_iterable
-from .tools.funcutils import format_to_datetime, fancier_repr_formatter
-from .tools.funcutils import to_numeric_dtypes
+from .tools.coreutils import sanitize_frame_cols, exist_features
+from .tools.coreutils import _assert_all_types, repr_callable_obj, reshape 
+from .tools.coreutils import smart_strobj_recognition, is_iterable
+from .tools.coreutils import format_to_datetime, fancier_repr_formatter
+from .tools.coreutils import to_numeric_dtypes
 from .tools.validator import array_to_frame, check_array, build_data_if
 from .tools.validator import is_time_series, is_frame, _is_arraylike_1d  
 
@@ -3020,7 +3020,7 @@ class FrameOperations:
 
         kws: dict, 
            Additional keywords arguments passed to 
-           func:`gofast.tools.funcutils.inspect_data`
+           func:`gofast.tools.coreutils.inspect_data`
         Returns 
         ---------
         self: Object for chainings methods. 

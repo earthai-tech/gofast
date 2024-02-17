@@ -24,8 +24,8 @@ from .._gofastlog import gofastlog
 from .._typing import _F, List,ArrayLike, NDArray, Dict, Any, Optional, Union
 from ..exceptions import EstimatorError, NotFittedError
 from ..tools.box import Boxspace 
-from ..tools.funcutils import _assert_all_types, get_params, save_job
-from ..tools.funcutils import listing_items_format, pretty_printer
+from ..tools.coreutils import _assert_all_types, get_params, save_job
+from ..tools.coreutils import listing_items_format, pretty_printer
 from ..tools.validator import check_X_y, check_array, check_consistent_length 
 from ..tools.validator import get_estimator_name
 

@@ -478,6 +478,9 @@ streamlining workflows and improving productivity. The list of the tools are not
    :template: function.rst
 
    tools.adaptive_moving_average
+   tools.apply_bow_vectorization 
+   tools.apply_tfidf_vectorization 
+   tools.apply_word_embeddings 
    tools.array2hdf5
    tools.audit_data
    tools.augment_data
@@ -485,16 +488,19 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.bi_selector
    tools.bin_counting
    tools.binning_statistic
+   tools.boxcox_transformation
    tools.build_data_preprocessor
    tools.butterworth_filter
    tools.categorize_target
    tools.category_count
+   tools.check_missing_data
    tools.cleaner
    tools.codify_variables
    tools.compute_effort_yield
    tools.compute_sunburst_data 
    tools.convert_date_features
    tools.cubic_regression
+   tools.denormalize
    tools.discretize_categories
    tools.enrich_data_spectrum
    tools.evaluate_model
@@ -527,7 +533,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.linkage_matrix
    tools.load_csv
    tools.load_dumped_data
-   tools.load_saved_model
+   tools.load_model
    tools.logarithmic_regression
    tools.make_mxs
    tools.make_pipe
@@ -549,6 +555,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.resampling
    tools.reshape
    tools.sanitize
+   tools.save_dataframes
    tools.save_or_load
    tools.save_job
    tools.savgol_filter
@@ -577,6 +584,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.store_or_write_hdf5
    tools.stratify_categories
    tools.to_numeric_dtypes
+   tools.transform_dates
    tools.verify_data_integrity
       
 .. _plot_ref:

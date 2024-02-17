@@ -22,7 +22,7 @@ from sklearn.utils.multiclass import type_of_target
 
 from .._typing import Tuple,_F, ArrayLike, NDArray, Dict, Union, Any
 from .._typing import  List, Optional, Type, DataFrame, Series 
-from ..tools.funcutils import smart_format
+from ..tools.coreutils import smart_format
 from ..tools.validator import get_estimator_name, check_X_y 
 from ..tools._dependency import import_optional_dependency 
 from .._gofastlog import gofastlog

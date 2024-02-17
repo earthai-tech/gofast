@@ -58,7 +58,6 @@ def stochastic_volatility_model(arr, /, ):
         
     return model
 
-
 def hierarchical_linear_model(X, y, groups):
     """
     Hierarchical Linear Model using PyMC3.
@@ -113,7 +112,7 @@ def hierarchical_linear_model(X, y, groups):
                          shape=(len(np.unique(groups)), X.shape[1])) # beta 
     return model
 
-def normal_pdf(data, mean, std_dev):
+def normal_pdf(data, mean, std_dev, *args, **kws):
     """
     Compute the Probability Density Function (PDF) for 
     a normal distribution.
@@ -138,9 +137,9 @@ def normal_pdf(data, mean, std_dev):
     >>> normal_pdf(data, mean=0, std_dev=1)
     array([...])
     """
-    return norm.pdf(data, mean, std_dev)
+    return norm.pdf(data, mean, std_dev, *args, **kws)
 
-def normal_cdf(data, mean, std_dev):
+def normal_cdf(data, mean, std_dev, *args, **kws):
     """
     Compute the Cumulative Distribution Function (CDF) for
     a normal distribution.
@@ -165,7 +164,7 @@ def normal_cdf(data, mean, std_dev):
     >>> normal_cdf(data, mean=0, std_dev=1)
     array([...])
     """
-    return norm.cdf(data, mean, std_dev)
+    return norm.cdf(data, mean, std_dev, *args, **kws)
 
 def binomial_pmf(trials, p_success, n_successes):
     """
@@ -194,7 +193,7 @@ def binomial_pmf(trials, p_success, n_successes):
     return binom.pmf(n_successes, trials, p_success)
 
 
-def poisson_logpmf(data, lambda_param):
+def poisson_logpmf(data, lambda_param, *args, **kws):
     """
     Compute the logarithm of the Probability Mass Function 
     (PMF) for a Poisson distribution.
@@ -218,7 +217,7 @@ def poisson_logpmf(data, lambda_param):
     >>> poisson_logpmf(data, lambda_param=2)
     array([...])
     """
-    return poisson.logpmf(data, lambda_param)
+    return poisson.logpmf(data, lambda_param, *args, **kws)
 
 def uniform_sampling(low, high, size):
     """
@@ -243,4 +242,4 @@ def uniform_sampling(low, high, size):
     >>> uniform_sampling(low=0, high=10, size=5)
     array([...])
     """
-    return np.random.uniform(low, high, size)
+    return np.random.uniform(low, high, size )

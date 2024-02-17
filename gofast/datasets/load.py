@@ -20,9 +20,9 @@ import pandas as pd
 
 from ..tools.baseutils import read_data, fancier_downloader, check_file_exists 
 from ..tools.baseutils import transform_dates  
-from ..tools.funcutils import  to_numeric_dtypes , smart_format, key_checker
-from ..tools.funcutils import  random_sampling, assert_ratio, split_train_test_by_id
-from ..tools.funcutils import  format_to_datetime, is_in_if, validate_feature
+from ..tools.coreutils import  to_numeric_dtypes , smart_format, key_checker
+from ..tools.coreutils import  random_sampling, assert_ratio, split_train_test_by_id
+from ..tools.coreutils import  format_to_datetime, is_in_if, validate_feature
 from ..tools.box import Boxspace
 from ._globals import FORENSIC_BF_DICT, FORENSIC_LABELS_DESCR 
 from ._globals import DYSPNEA_DICT, DYSPNEA_LABELS_DESCR

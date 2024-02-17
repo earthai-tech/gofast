@@ -38,7 +38,7 @@ from .exceptions import LearningError
 from .tools.box import Boxspace 
 from .tools.validator import ( get_estimator_name, _is_numeric_dtype,
     check_consistent_length, check_y  )
-from .tools.funcutils import is_iterable, _assert_all_types 
+from .tools.coreutils import is_iterable, _assert_all_types 
 
 _logger = gofastlog().get_gofast_logger(__name__)
 

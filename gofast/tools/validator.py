@@ -25,6 +25,64 @@ from ._array_api import get_namespace, _asarray_with_order
 
 FLOAT_DTYPES = (np.float64, np.float32, np.float16)
 
+def check_mixed_data_types(data, /) -> bool:
+    """
+    Checks if the given data (DataFrame or numpy array) contains both numerical 
+    and categorical columns.
+
+    Parameters
+    ----------
+    data : pd.DataFrame or np.ndarray
+        The data to check. Can be a pandas DataFrame or a numpy array. If `data`
+        is a numpy array, it is temporarily converted to a DataFrame for type 
+        checking.
+
+    Returns
+    -------
+    bool
+        True if the data contains both numerical and categorical columns, False
+        otherwise.
+
+    Examples
+    --------
+    Using with a pandas DataFrame:
+        
+    >>> import numpy as np 
+    >>> import pandas as pd 
+    >>> from gofast.tools.validator import check_mixed_data_types
+    >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': ['a', 'b', 'c']})
+    >>> print(check_mixed_data_types(df))
+    True
+
+    Using with a numpy array:
+
+    >>> array = np.array([[1, 'a'], [2, 'b'], [3, 'c']])
+    >>> print(check_mixed_data_types(array))
+    True
+
+    With data containing only numerical values:
+
+    >>> df_numeric_only = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
+    >>> print(check_mixed_data_types(df_numeric_only))
+    False
+
+    With data containing only categorical values:
+
+    >>> df_categorical_only = pd.DataFrame({'A': ['a', 'b', 'c'], 'B': ['d', 'e', 'f']})
+    >>> print(check_mixed_data_types(df_categorical_only))
+    False
+    """
+    # Convert numpy array to DataFrame if necessary
+    if isinstance(data, np.ndarray):
+        data = pd.DataFrame(data)
+    
+    # Check for the presence of numerical and categorical data types
+    has_numerical = any(data.dtypes.apply(lambda dtype: np.issubdtype(dtype, np.number)))
+    has_categorical = any(data.dtypes.apply(
+        lambda dtype: dtype == 'object' or dtype.name == 'category' or dtype == 'bool'))
+    
+    return has_numerical and has_categorical
+
 def is_keras_model(model: Any) -> bool:
     """
     Determine whether the provided object is an instance of a Keras model.
@@ -348,7 +406,7 @@ def assert_xy_in (
     6    6
     Name: y, dtype: int32)
     """
-    from .funcutils import exist_features
+    from .coreutils import exist_features
     if to_frame : 
         data = array_to_frame(data , to_frame = True ,  input_name ='Data', 
                               columns =columns , **kws)
@@ -1185,7 +1243,7 @@ def _pandas_dtype_needs_early_conversion(pd_dtype):
     # Check these early for pandas versions without extension dtypes
     from pandas.api.types import (
         is_bool_dtype,
-        is_sparse,
+        # is_sparse,
         is_float_dtype,
         is_integer_dtype,
     )
@@ -1195,7 +1253,7 @@ def _pandas_dtype_needs_early_conversion(pd_dtype):
         # converts mixed dtype dataframes into object dtypes
         return True
 
-    if is_sparse(pd_dtype):
+    if  isinstance(pd_dtype, pd.SparseDtype ):
         # Sparse arrays will be converted later in `check_array`
         return False
 
@@ -1204,7 +1262,8 @@ def _pandas_dtype_needs_early_conversion(pd_dtype):
     except ImportError:
         return False
 
-    if is_sparse(pd_dtype) or not is_extension_array_dtype(pd_dtype):
+    # if is_sparse(pd_dtype) or not is_extension_array_dtype(pd_dtype): # deprecated 
+    if isinstance(pd_dtype, pd.SparseDtype ) or not is_extension_array_dtype(pd_dtype):
         # Sparse arrays will be converted later in `check_array`
         # Only handle extension arrays for integer and floats
         return False
@@ -1465,9 +1524,9 @@ def check_array(
         # throw warning if columns are sparse. If all columns are sparse, then
         # array.sparse exists and sparsity will be preserved (later).
         with suppress(ImportError):
-            from pandas.api.types import is_sparse
+            # from pandas.api.types import is_sparse
 
-            if not hasattr(array, "sparse") and array.dtypes.apply(is_sparse).any():
+            if not hasattr(array, "sparse") and isinstance(array, pd.SparseDtype ):
                 warnings.warn(
                     "pandas.DataFrame with sparse columns found."
                     "It will be converted to a dense numpy array."

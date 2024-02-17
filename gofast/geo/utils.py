@@ -22,7 +22,7 @@ from .._typing import  Tuple,  Any, Optional, Union # List,
 from .._typing import  _F, ArrayLike, DataFrame #  Series
 from ..exceptions import  DepthError 
 from ..property import Config 
-from ..tools.funcutils import  convert_value_in, ellipsis2false
+from ..tools.coreutils import  convert_value_in, ellipsis2false
 from ..tools.mathex import find_closest 
 from ..tools.validator import  assert_xy_in  
 from .gisutils import utm_to_ll, project_point_utm2ll # HAS_GDAL 

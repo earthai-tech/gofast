@@ -33,7 +33,7 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from .._typing import List, Optional, Union, Dict, Tuple, DataFrame, Series 
 from .._typing import ArrayLike , Callable, Any, Generator
 from ..tools._dependency import import_optional_dependency 
-from ..tools.funcutils import is_iterable, denormalize, type_of_target 
+from ..tools.coreutils import is_iterable, denormalize, type_of_target 
 from ..tools.validator import check_X_y, check_consistent_length
 from ..tools.validator import validate_keras_model, check_array, is_frame
 
@@ -106,8 +106,9 @@ def plot_history(
 
     Examples
     --------
+    >>> from gofast.models.deep_search import plot_history
     >>> history = model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=10)
-    >>> ax_acc, ax_loss = plot_learning_curve(history)
+    >>> ax_acc, ax_loss = plot_history(history)
     >>> ax_acc.set_title('Updated Accuracy Title')
     >>> plt.show()
     """
