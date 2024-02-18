@@ -398,118 +398,110 @@ def load_dyspnea(
         columns_descr=DYSPNEA_DICT
     )
 
-
-def load_hlogs (
-        *,  return_X_y=False, as_frame =False, key =None,  split_X_y=False, 
-        test_ratio =.3 , tag =None, tnames = None , data_names=None, 
-         **kws): 
+def load_hlogs(
+    *,
+    return_X_y=False,
+    as_frame=False,
+    key=None,
+    split_X_y=False,
+    test_ratio=0.3,
+    tag=None,
+    tnames=None,
+    data_names=None,
+    **kws
+):
+    drop_remark = kws.pop("drop_remark", False)
+    key, available_sets = _setup_key(key)
+    data_file = 'h.h5'
     
-    drop_observations =kws.pop("drop_observations", False)
-    cf = as_frame 
-    key = key or 'h502' 
-    # assertion error if key does not exist. 
-    available_sets = {
-        "h502", 
-        "h2601", 
-        'h1102',
-        'h1104',
-        'h1405',
-        'h1602',
-        'h2003',
-        'h2602',
-        'h604',
-        'h803',
-        'h805'
-        }
-    is_keys = set ( list(available_sets) + ["*"])
-    key = key_checker(key, is_keys)
+    _ensure_data_file(data_file)
+    data = _load_data(data_file, key, available_sets)
+    if drop_remark:
+        data = data.drop(columns="remark")
     
-    data_file ='h.h5'
+    frame, data, target, tnames = _prepare_data(data, tnames)
     
-    #-----------------------------------------------------------
-    if not check_file_exists(DMODULE, data_file): 
-        # If file does not exist download it from the remote and 
-        # save it to the path 
-        package_path = str(files(DMODULE).joinpath(data_file))
-        URL= os.path.join( RemoteDataURL, data_file) 
-        fancier_downloader (URL,data_file, dstpath = os.path.dirname (package_path)
-                       )
-    #-------------------------------------------------------------- 
-    with resources.path (DMODULE , data_file) as p : 
-        data_file = str(p)
-        
-    if key =='*': 
-        key = available_sets
-        
-    if isinstance (key, str): 
-        data = pd.read_hdf(data_file, key = key)
-    else: 
-        data =  pd.concat( [ pd.read_hdf(data_file, key = k) for k in key ]) 
-
-    if drop_observations: 
-        data.drop (columns = "remark", inplace = True )
-        
-    frame = None
-    feature_names = list(data.columns [:12] ) 
-    target_columns = list(data.columns [12:])
+    if split_X_y:
+        return _handle_split_X_y(frame, tnames, test_ratio, as_frame)
     
-    tnames = tnames or target_columns
-    # control the existence of the tnames to retreive
-    try : 
-        validate_feature(data[target_columns] , tnames)
-    except Exception as error: 
-        # get valueError message and replace Feature by target 
-        msg = (". Acceptable target values are:"
-               f"{smart_format(target_columns, 'or')}")
-        raise ValueError(str(error).replace(
-            'Features'.replace('s', ''), 'Target(s)')+msg)
-        
-    if  ( 
-            split_X_y
-            or return_X_y
-            ) : 
-        as_frame =True 
-        
+    if return_X_y:
+        return (data, target) if as_frame else (data.values, target.values)
+    
     if as_frame:
-        frame, data, target = _to_dataframe(
-            data, feature_names = feature_names, tnames = tnames, 
-            target=data[tnames].values 
-            )
-        frame = to_numeric_dtypes(frame)
-        
-    if split_X_y: 
-        X, Xt = split_train_test_by_id (data = frame , test_ratio= test_ratio, 
-                                        keep_colindex= False )
-        y = X[tnames] 
-        X.drop(columns =target_columns, inplace =True)
-        yt = Xt[tnames]
-        Xt.drop(columns =target_columns, inplace =True)
-        
-        return  (X, Xt, y, yt ) if cf else (
-            X.values, Xt.values, y.values , yt.values )
-    
-    if return_X_y: 
-        data , target = data.values, target.values
-        
-    if ( 
-            return_X_y 
-            or cf
-            ) : return data, target 
-    
-    # Loading description
+        return frame
+    return _finalize_return(data, tnames, frame, data_file)
+
+def _setup_key(key):
+    """
+    Ensures the key is valid and returns the appropriate key for data loading.
+    """
+    default_key = 'h502'
+    available_sets = {"h502", "h2601", 'h1102', 'h1104', 'h1405', 'h1602',
+                      'h2003', 'h2602', 'h604', 'h803', 'h805'}
+    is_keys = set(list(available_sets) + ["*"])
+    return key_checker(key or default_key, is_keys), available_sets
+
+def _ensure_data_file(data_file):
+    """
+    Checks if data file exists locally, downloads if not.
+    """
+    if not check_file_exists(DMODULE, data_file):
+        package_path = str(files(DMODULE).joinpath(data_file))
+        URL = os.path.join(RemoteDataURL, data_file)
+        fancier_downloader(URL, data_file, dstpath=os.path.dirname(package_path))
+
+def _load_data(data_file, key, available_sets):
+    """
+    Loads data from file based on provided key.
+    """
+    with resources.path(DMODULE, data_file) as p:
+        data_file = str(p)
+    if key == '*':
+        key = available_sets
+    return pd.read_hdf(data_file, key=key) if isinstance(
+        key, str) else pd.concat([pd.read_hdf(data_file, key=k) for k in key])
+
+def _prepare_data(data, tnames):
+    """
+    Prepares the data for return based on parameters.
+    """
+    feature_names = list(data.columns[:12])
+    target_columns = list(data.columns[12:])
+    tnames = tnames or target_columns
+    validate_feature(data[target_columns], tnames)
+    frame, data, target = _to_dataframe(data, tnames, feature_names, )
+    frame = to_numeric_dtypes(frame, drop_nan_columns= False )
+    # update frame columns if target is specified 
+    return frame, data, target, tnames 
+
+def _handle_split_X_y(frame, tnames, test_ratio, as_frame):
+    """
+    Splits data into training and test sets and formats for return.
+    """
+    X, Xt = split_train_test_by_id(data=frame, test_ratio=test_ratio,
+                                   keep_colindex=False)
+    y, yt = X[tnames], Xt[tnames]
+    Xt.drop(columns=tnames, inplace=True)
+    X.drop(columns=tnames, inplace=True)
+    return (X, Xt, y, yt) if as_frame else (
+        X.values, Xt.values, y.values, yt.values)
+
+def _finalize_return(data, tnames, frame, data_file):
+    """
+    Finalizes the return object based on loading preferences.
+    """
     fdescr = description_loader(descr_module=DESCR, descr_file="hlogs.rst")
     return Boxspace(
         data=data.values,
-        target=data[tnames].values,
-        frame=data,
+        target=frame[tnames].values,
+        frame=frame,
         tnames=tnames,
-        target_names = target_columns,
-        DESCR= fdescr,
-        feature_names=feature_names,
+        target_names=list(data.columns[12:]),
+        DESCR=fdescr,
+        feature_names=list(data.columns[:12]),
         filename=data_file,
         data_module=DMODULE,
     )
-
 load_hlogs.__doc__ = """\
 Load hydro-logging dataset for hydrogeophysical analysis.
 

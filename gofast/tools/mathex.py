@@ -24,7 +24,6 @@ from ._arraytools import axis_slice
 from .._gofastlog import gofastlog
 from .._docstring import refglossary
 from ..decorators import AppendDocReferences
-from ..decorators import SanitizeDocstring
 from ..exceptions import SiteError
 from .._typing import (
     _T, 
@@ -1375,7 +1374,6 @@ def interpolate2d (
 
 
 @AppendDocReferences(refglossary.__doc__)
-@SanitizeDocstring()
 def scalePosition(
         ydata: ArrayLike | _SP | Series | DataFrame ,
         xdata: ArrayLike| Series = None, 

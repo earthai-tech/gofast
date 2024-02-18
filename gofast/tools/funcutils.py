@@ -1,61 +1,220 @@
 # -*- coding: utf-8 -*-
 """
-Created on Thu Feb 15 21:21:15 2024
+Funcutils
+=========
 
-@author: Daniel
+`gofast.tools.funcutils` is a utilities package providing various 
+functionalities for functional programming tasks.
+
+Features:
+    - Currying and Partial Application
+    - Function Composition
+    - Memoization
+    - High-order Functions
+    - Utility Functions
 """
 
-from typing import Dict, Any, Callable, List,  Optional, Tuple , Union 
 import time
 import functools
 import logging
 import subprocess
-import sys  # Import sys to use sys.executable
-import pkg_resources
+import sys  
 import numpy as np
 import pandas as pd
+from .._typing import Dict, Any, Callable, List
+from .._typing import Optional, Tuple , Union,_T 
+from ._dependency import import_optional_dependency
 
-def merge_dicts(*dicts: Dict[Any, Any]) -> Dict[Any, Any]:
+def curry(func):
     """
-    Merges multiple dictionaries into a single dictionary, with later 
-    dictionary values overriding those from earlier dictionaries.
+    Decorator for currying a function.
+
+    Parameters
+    ----------
+    func : callable
+        The function to be curried.
+
+    Returns
+    -------
+    callable
+        The curried function.
+
+    Examples
+    --------
+    @curry
+    def add(x, y):
+        return x + y
+
+    add_five = add(5)
+    print(add_five(3))  # Output: 8
+    """
+    @functools.wraps(func)
+    def curried(*args, **kwargs):
+        if len(args) + len(kwargs) >= func.__code__.co_argcount:
+            return func(*args, **kwargs)
+        else:
+            return functools.partial(curried, *args, **kwargs)
+    return curried
+
+def compose(*functions):
+    """
+    Decorator for composing multiple functions.
+
+    Parameters
+    ----------
+    *functions : callable
+        Functions to be composed.
+
+    Returns
+    -------
+    callable
+        The composed function.
+
+    Examples
+    --------
+    @compose
+    def double(x):
+        return x * 2
+
+    increment_and_double = compose(lambda x: x + 1, double)
+    print(increment_and_double(3))  # Output: 8
+    """
+    def composed(*args, **kwargs):
+        result = args[0] if args else kwargs.get('result', None)
+        for f in reversed(functions):
+            result = f(result)
+        return result
+    return composed
+
+def memoize(func):
+    """
+    Decorator for memoizing a function.
+
+    Parameters
+    ----------
+    func : callable
+        The function to be memoized.
+
+    Returns
+    -------
+    callable
+        The memoized function.
+
+    Examples
+    --------
+    @memoize
+    def fibonacci(n):
+        if n < 2:
+            return n
+        return fibonacci(n - 1) + fibonacci(n - 2)
+
+    print(fibonacci(10))  # Output: 55
+    """
+    memo = {}
+
+    @functools.wraps(func)
+    def memoized(*args, **kwargs):
+        if args not in memo:
+            memo[args] = func(*args, **kwargs)
+        return memo[args]
+
+    return memoized
+
+def merge_dicts(
+    *dicts: Dict[Any, Any], deep_merge: bool = False,
+     list_merge: Union[bool, Callable] = False) -> Dict[Any, Any]:
+    """
+    Merges multiple dictionaries into a single dictionary. Allows for deep
+    merging and custom handling of list concatenation.
 
     Parameters
     ----------
     *dicts : Dict[Any, Any]
-        An arbitrary number of dictionary arguments to be merged.
+        Variable number of dictionary objects to be merged.
+    deep_merge : bool, optional
+        Enables deep merging of nested dictionaries. Defaults to False.
+    list_merge : bool or Callable, optional
+        Determines how list values are handled during merge. If True, lists
+        are concatenated. If a Callable is provided, it is used to merge lists.
+        Defaults to False, which replaces lists from earlier dicts with those
+        from later dicts.
 
     Returns
     -------
     Dict[Any, Any]
-        A single dictionary resulting from the merging of input dictionaries.
+        The resulting dictionary from merging all input dictionaries.
 
     Examples
     --------
     >>> from gofast.tools.funcutils import merge_dicts
-    >>> dict_a = {'a': 1, 'b': 2}
-    >>> dict_b = {'b': 3, 'c': 4}
-    >>> merged_dict = merge_dicts(dict_a, dict_b)
-    >>> print(merged_dict)
-    {'a': 1, 'b': 3, 'c': 4}
+    >>> dict_a = {'a': 1, 'b': [2], 'c': {'d': 4}}
+    >>> dict_b = {'b': [3], 'c': {'e': 5}}
+    >>> print(merge_dicts(dict_a, dict_b))
+    {'a': 1, 'b': [3], 'c': {'e': 5}}
+
+    Deep merge with list concatenation:
+
+    >>> print(merge_dicts(dict_a, dict_b, deep_merge=True, list_merge=True))
+    {'a': 1, 'b': [2, 3], 'c': {'d': 4, 'e': 5}}
+
+    Deep merge with custom list merge function (taking the max of each list):
+
+    >>> print(merge_dicts(dict_a, dict_b, deep_merge=True,
+    ... list_merge=lambda x, y: [max(x + y)]))
+    {'a': 1, 'b': [3], 'c': {'d': 4, 'e': 5}}
     """
+    def deep_merge_dicts(target, source):
+        for key, value in source.items():
+            if deep_merge and isinstance(value, dict) and key in target and isinstance(
+                    target[key], dict):
+                deep_merge_dicts(target[key], value)
+            elif isinstance(value, list) and key in target and isinstance(
+                    target[key], list):
+                if list_merge is True:
+                    target[key].extend(value)  # Changed from += to extend for clarity
+                elif callable(list_merge):
+                    target[key] = list_merge(target[key], value)
+                else:
+                    target[key] = value
+            else:
+                target[key] = value
+    
     result = {}
     for dictionary in dicts:
-        result.update(dictionary)
+        if deep_merge:
+            deep_merge_dicts(result, dictionary)
+        else:
+            for key, value in dictionary.items():
+                if key in result and isinstance(result[key], list) and isinstance(
+                        value, list):
+                    if list_merge is True:
+                        result[key].extend(value)
+                    elif callable(list_merge):
+                        result[key] = list_merge(result[key], value)
+                    else:
+                        result[key] = value
+                else:
+                    result.update({key: value})
     return result
 
-def retry_operation(func: Callable, retries: int = 3, delay: float = 1.0, 
-                    catch_exceptions: tuple = (Exception,), 
-                    backoff_factor: float = 1.0, 
-                    on_retry: Optional[Callable[[int, Exception], None]] = None):
+def retry_operation(
+    func: Callable, 
+    retries: int = 3, 
+    delay: float = 1.0, 
+    catch_exceptions: tuple = (Exception,), 
+    backoff_factor: float = 1.0, 
+    on_retry: Optional[Callable[[int, Exception], None]] = None,
+    pre_process_args: Optional[Callable[[int, Tuple[Any, ...], dict],
+                                        Tuple[Tuple[Any, ...], dict]]] = None
+):
     """
     Retries a specified function upon failure, for a defined number of retries
-    and with a delay between attempts. Allows specifying which exceptions to catch,
-    a backoff strategy for delays, and an optional callback after each retry.
+    and with a delay between attempts. Enhancements include the ability to 
+    pre-process function arguments before each retry attempt.
 
     Parameters
     ----------
-    function : Callable
+    func : Callable
         The function to be executed and possibly retried upon failure.
     retries : int, optional
         The number of retries to attempt upon failure. Default is 3.
@@ -66,8 +225,12 @@ def retry_operation(func: Callable, retries: int = 3, delay: float = 1.0,
     backoff_factor : float, optional
         The factor by which the delay increases after each retry. Default is 1.0.
     on_retry : Optional[Callable[[int, Exception], None]], optional
-        An optional callback function that is called after a failed attempt.
-        It receives the current attempt number and the exception raised.
+        A callback function that is called after a failed attempt.
+    pre_process_args : Optional[Callable[[int, Tuple[Any, ...], dict], Tuple[Tuple[Any, ...], dict]]], optional
+        A function to pre-process the arguments to `func` before each retry.
+        It receives the current attempt number, the arguments, and keyword
+        arguments to `func` and returns a tuple of processed arguments and
+        keyword arguments.
 
     Returns
     -------
@@ -82,34 +245,41 @@ def retry_operation(func: Callable, retries: int = 3, delay: float = 1.0,
     Examples
     --------
     >>> from gofast.tools.funcutils import retry_operation
-    >>> def test_func():
-    ...     print("Trying...")
+    >>> def test_func(x):
+    ...     print(f"Trying with x={x}...")
     ...     raise ValueError("Fail")
-    >>> def on_retry_callback(attempt, exception):
-    ...     print(f"Attempt {attempt}: {exception}")
+    >>> def pre_process(attempt, args, kwargs):
+    ...     # Increase argument x by 1 on each retry
+    ...     return ((args[0] + 1,), kwargs)
     >>> try:
-    ...     retry_operation(test_func, retries=2, delay=0.5, 
-    ...                     on_retry=on_retry_callback)
+    ...     retry_operation(test_func, retries=2, delay=0.5,
+    ...                        pre_process_args=pre_process,args=(1,))
     ... except ValueError as e:
     ...     print(e)
     """
-    current_delay = delay
+    args, kwargs = (), {}
     for attempt in range(1, retries + 1):
         try:
-            return func()
+            if pre_process_args:
+                args, kwargs = pre_process_args(attempt, args, kwargs)
+            return func(*args, **kwargs)
         except catch_exceptions as e:
             if attempt < retries:
                 if on_retry:
                     on_retry(attempt, e)
-                time.sleep(current_delay)
-                current_delay *= backoff_factor
+                time.sleep(delay)
+                delay *= backoff_factor
             else:
                 raise e
 
-def flatten_list(nested_list: List[Any], depth: int = -1) -> List[Any]:
+def flatten_list(
+    nested_list: List[Any], 
+    depth: int = -1, 
+    process_item: Optional[Callable[[Any], Any]] = None
+    ) -> List[Any]:
     """
-    Flattens a nested list into a single list of values, with an optional 
-    depth parameter.
+    Flattens a nested list into a single list of values, with optional depth 
+    and item processing parameters.
 
     Parameters
     ----------
@@ -119,36 +289,51 @@ def flatten_list(nested_list: List[Any], depth: int = -1) -> List[Any]:
         The maximum depth of list nesting to flatten. A depth of -1 (default)
         means fully flatten, a depth of 0 means no flattening, a depth of 1
         means flatten one level of nesting, and so on.
+    process_item : Optional[Callable[[Any], Any]], optional
+        A callable that processes each item during flattening. It takes a single
+        item and returns the processed item. Default is None, which means no processing.
 
     Returns
     -------
     List[Any]
         A single, flat list containing all values from the nested list to the
-        specified depth.
+        specified depth, with each item processed if a callable is provided.
 
     Examples
     --------
-    >>> from gofast.tools.funcutils import flatten_list
     >>> nested = [1, [2, 3], [4, [5, 6]], 7]
     >>> flat = flatten_list(nested, depth=1)
     >>> print(flat)
     [1, 2, 3, 4, [5, 6], 7]
-    """
-    if depth == 0:
-        return nested_list
-    result = []
-    for item in nested_list:
-        if isinstance(item, list) and depth != 1:
-            result.extend(flatten_list(item, depth-1))
-        else:
-            result.append(item)
-    return result
 
+    With item processing to square numbers:
+    >>> flat_processed = flatten_list(nested, process_item=(lambda x: x**2 if
+    ...                                  isinstance(x, int) else x))
+    >>> print(flat_processed)
+    [1, 4, 9, 16, [25, 36], 49]
+    """
+    def flatten(current_list: List[Any], current_depth: int) -> List[Any]:
+        result = []
+        for item in current_list:
+            if isinstance(item, list) and current_depth != 0:
+                # Decrement depth unless it's infinite (-1)
+                new_depth = current_depth - 1 if current_depth > 0 else -1
+                result.extend(flatten(item, new_depth))
+            else:
+                # Apply processing if available
+                processed_item = process_item(item) if process_item else item
+                result.append(processed_item)
+        return result
+    
+    return flatten(nested_list, depth)
 
 def timeit_decorator(
-        logger: Optional[logging.Logger] = None, level: int = logging.INFO):
+    logger: Optional[logging.Logger] = None, 
+    level: int = logging.INFO
+    ):
     """
-    A decorator that measures the execution time of a function and optionally logs it.
+    A decorator that measures the execution time of a function and optionally
+    logs it.
 
     Parameters
     ----------
@@ -302,17 +487,32 @@ def batch_processor(
         return results
     return process_batch
 
-def is_valid_if(*expected_types: Tuple[type]):
+def is_valid_if(
+    *expected_types: Tuple[type],
+    kwarg_types: Optional[Dict[str, type]] = None,
+    custom_error: Optional[str] = None,
+    skip_check: Optional[Callable[[Any, Any], bool]] = None
+):
     """
-    A decorator to verify the datatype of positional parameters of a function.
+    A decorator to verify the datatype of positional and keyword parameters 
+    of a function.
     
-    Raises a TypeError if the actual parameter types do not match the 
-    expected types.
+    Allows specifying expected types for both positional and keyword arguments.
+    A custom error message and a condition to skip checks can also be provided.
 
     Parameters
     ----------
     *expected_types : Tuple[type]
         The expected types of the positional parameters.
+    kwarg_types : Optional[Dict[str, type]], optional
+        A dictionary mapping keyword argument names to their expected types.
+    custom_error : Optional[str], optional
+        A custom error message to raise in case of a type mismatch. Should
+        contain placeholders for positional formatting: {arg_index}, {func_name},
+        {expected_type}, and {got_type}.
+    skip_check : Optional[Callable[[Any, Any], bool]], optional
+        A function that takes the argument list and keyword argument dictionary,
+        and returns True if type checks should be skipped.
 
     Returns
     -------
@@ -322,49 +522,223 @@ def is_valid_if(*expected_types: Tuple[type]):
     Raises
     ------
     TypeError
-        If the types of the actual parameters do not match the expected types.
+        If the types of the actual parameters do not match the expected types
+        and skip_check is False or not provided.
 
     Examples
     --------
     >>> from gofast.tools.funcutils import is_valid_if
-    >>> @is_valid_if(int, float)
-    ... def add(a, b):
+    >>> @is_valid_if(int, float, kwarg_types={'c': str})
+    ... def add(a, b, c="default"):
     ...     return a + b
-    >>> add(1, 2.5)
+    >>> add(1, 2.5, c="text")
     3.5
-    >>> add(1, "2.5")  # This will raise a TypeError
+    >>> add(1, "2.5", c=100)  # This will raise a TypeError
     TypeError: Argument 2 of 'add' requires <class 'float'> but got <class 'str'>.
     """
+    def _construct_error_msg(arg_name, func_name, expected_type, got_type):
+        """Constructs a custom or default error message based on provided parameters."""
+        if custom_error:
+            return custom_error.format(arg_name=arg_name, func_name=func_name,
+                                       expected_type=expected_type, got_type=got_type)
+        else:
+            return (f"Argument '{arg_name}' of '{func_name}' requires {expected_type} "
+                    f"but got {got_type}.")
+
+    def _check_arg_types(args, kwargs, func_name):
+        """Checks types of positional and keyword arguments."""
+        for i, (arg, expected_type) in enumerate(zip(args, expected_types), 1):
+            if not isinstance(arg, expected_type):
+                error_msg = _construct_error_msg(arg_name=i, func_name=func_name,
+                                                 expected_type=expected_type,
+                                                 got_type=type(arg))
+                raise TypeError(error_msg)
+
+        if kwarg_types:
+            for kwarg, expected_type in kwarg_types.items():
+                if kwarg in kwargs and not isinstance(kwargs[kwarg], expected_type):
+                    error_msg = _construct_error_msg(arg_name=kwarg, func_name=func_name,
+                                                     expected_type=expected_type, 
+                                                     got_type=type(kwargs[kwarg]))
+                    raise TypeError(error_msg)
+
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            for i, (arg, expected_type) in enumerate(zip(args, expected_types), 1):
-                if not isinstance(arg, expected_type):
-                    raise TypeError(f"Argument {i} of '{func.__name__}' "
-                                    f"requires {expected_type} but got {type(arg)}.")
+            if skip_check and skip_check(args, kwargs):
+                return func(*args, **kwargs)
+
+            _check_arg_types(args, kwargs, func.__name__)
+
             return func(*args, **kwargs)
         return wrapper
     return decorator
 
-def ensure_pkg(package_name: str, auto_install: bool = False):
+def install_package(
+    name: str, extra: str = '', 
+    use_conda: bool = False, 
+    verbose: bool = True
+    ) -> None:
     """
-    A decorator to ensure a specific package is installed before executing 
-    the function.
-    
-    Optionally installs the package automatically if not found.
+    Install a Python package using either conda or pip, with an option to display
+    installation progress and fallback mechanism.
+
+    This function dynamically chooses between conda and pip for installing Python
+    packages, based on user preference and system configuration. It supports a verbose
+    mode for detailed operation logging and utilizes a progress bar for pip installations.
 
     Parameters
     ----------
-    package_name : str
-        The name of the package to check or install.
+    name : str
+        Name of the package to install. Version specification can be included.
+    extra : str, optional
+        Additional options or version specifier for the package, by default ''.
+    use_conda : bool, optional
+        Prefer conda over pip for installation, by default False.
+    verbose : bool, optional
+        Enable detailed output during the installation process, by default True.
+
+    Raises
+    ------
+    RuntimeError
+        If installation fails via both conda and pip, or if the specified installer
+        is not available.
+
+    Examples
+    --------
+    Install a package using pip without version specification:
+
+        >>> install_package('requests', verbose=True)
+
+    Install a specific version of a package using conda:
+
+        >>> install_package('pandas', extra='==1.2.0', use_conda=True, verbose=True)
+    
+    Notes
+    -----
+    Conda installations do not display a progress bar due to limitations in capturing
+    conda command line output. Pip installations will show a progress bar indicating
+    the number of processed output lines from the installation command.
+    """
+    def execute_command(command: list, progress_bar: bool = False) -> None:
+        """
+        Execute a system command with optional progress bar for output lines.
+
+        Parameters
+        ----------
+        command : list
+            Command and arguments to execute as a list.
+        progress_bar : bool, optional
+            Enable a progress bar that tracks the command's output lines, 
+            by default False.
+        """
+        from tqdm import tqdm
+        with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
+                              text=True, bufsize=1) as process, \
+             tqdm(desc="Installing", unit="line", disable=not progress_bar) as pbar:
+            for line in process.stdout:
+                if verbose:
+                    print(line, end='')
+                pbar.update(1)
+            if process.wait() != 0:  # Non-zero exit code indicates failure
+                raise RuntimeError(f"Installation failed for package '{name}{extra}'.")
+
+    conda_available = _check_conda_installed()
+
+    try:
+        if use_conda and conda_available:
+            if verbose:
+                print(f"Attempting to install '{name}{extra}' using conda...")
+            execute_command(['conda', 'install', f"{name}{extra}", '-y'], 
+                            progress_bar=False)
+        elif use_conda and not conda_available:
+            if verbose:
+                print("Conda is not available. Falling back to pip...")
+            execute_command([sys.executable, "-m", "pip", "install", f"{name}{extra}"],
+                            progress_bar=True)
+        else:
+            if verbose:
+                print(f"Attempting to install '{name}{extra}' using pip...")
+            execute_command([sys.executable, "-m", "pip", "install", f"{name}{extra}"],
+                            progress_bar=True)
+        if verbose:
+            print(f"Package '{name}{extra}' was successfully installed.")
+    except Exception as e:
+        raise RuntimeError(f"Failed to install '{name}{extra}': {e}") from e
+
+def _check_conda_installed() -> bool:
+    """
+    Check if conda is installed and available in the system's PATH.
+
+    Returns
+    -------
+    bool
+        True if conda is found, False otherwise.
+    """
+    try:
+        subprocess.check_call(['conda', '--version'], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+def ensure_pkg(
+    name: str, 
+    extra: str = "",
+    errors: str = "raise",
+    min_version: str | None = None,
+    exception: Exception = None, 
+    auto_install: bool = False,
+    use_conda: bool = False, 
+    partial_check: bool = False,
+    condition: Any = None, 
+    verbose: bool = False
+) -> Callable[[_T], _T]:
+    """
+    Decorator to ensure a Python package is installed before function execution.
+
+    If the specified package is not installed, or if its installed version does
+    not meet the minimum version requirement, this decorator can optionally 
+    install or upgrade the package automatically using either pip or conda.
+
+    Parameters
+    ----------
+    name : str
+        The name of the package.
+    extra : str, optional
+        Additional specification for the package, such as version or extras.
+    errors : str, optional
+        Error handling strategy if the package is missing: 'raise', 'ignore',
+        or 'warn'.
+    min_version : str or None, optional
+        The minimum required version of the package. If not met, triggers 
+        installation.
+    exception : Exception, optional
+        A custom exception to raise if the package is missing and `errors`
+        is 'raise'.
     auto_install : bool, optional
-        If True, the package will be automatically installed if not found. 
-        Default is False.
+        Whether to automatically install the package if missing. 
+        Defaults to False.
+    use_conda : bool, optional
+        Prefer conda over pip for automatic installation. Defaults to False.
+    partial_check : bool, optional
+        If True, checks the existence of the package only if the `condition` 
+        is met. This allows for conditional package checking based on the 
+        function's arguments or other criteria. Defaults to False.
+    condition : Any, optional
+        A condition that determines whether to check for the package's existence. 
+        This can be a callable that takes the same arguments as the decorated function 
+        and returns a boolean, a specific argument name to check for truthiness, or 
+        any other value that will be evaluated as a boolean. If `None`, the package 
+        check is performed unconditionally unless `partial_check` is False.
+    verbose : bool, optional
+        Enable verbose output during the installation process. Defaults to False.
 
     Returns
     -------
     Callable
-        The decorated function.
+        A decorator that wraps functions to ensure the specified package 
+        is installed.
 
     Examples
     --------
@@ -373,29 +747,186 @@ def ensure_pkg(package_name: str, auto_install: bool = False):
     ... def use_numpy():
     ...     import numpy as np
     ...     return np.array([1, 2, 3])
-    
-    Note: Using auto_install=True might require administrative privileges.
+
+    >>> @ensure_pkg("pandas", min_version="1.1.0", errors="warn", use_conda=True)
+    ... def use_pandas():
+    ...     import pandas as pd
+    ...     return pd.DataFrame([[1, 2], [3, 4]])
+
+    >>> @ensure_pkg("matplotlib", partial_check=True, condition=lambda x, y: x > 0)
+    ... def plot_data(x, y):
+    ...     import matplotlib.pyplot as plt
+    ...     plt.plot(x, y)
+    ...     plt.show()
     """
-    def decorator(func: Callable) -> Callable:
+    def decorator(func: _T) -> _T:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            try:
-                # Attempt to load the package to see if it's already installed
-                pkg_resources.get_distribution(package_name)
-            except pkg_resources.DistributionNotFound:
-                if auto_install:
-                    print(f"Package '{package_name}' not found. Installing...")
-                    subprocess.check_call([
-                        sys.executable, "-m", "pip", "install", package_name,
-                        '--progress-bar', 'ascii'])
-                    print(f"Package '{package_name}' installed successfully.")
-                else:
-                    raise ModuleNotFoundError(
-                        f"Package '{package_name}' is required but not installed."
-                        " Set auto_install=True to install automatically.")
+            if _should_check_condition(
+                    partial_check, condition, *args, **kwargs):
+                try:
+                    # Attempts to import the package, installing 
+                    # if necessary and permitted
+                    import_optional_dependency(
+                        name, extra=extra, errors=errors, 
+                        min_version=min_version, exception=exception,
+                    )
+                except ModuleNotFoundError:
+                    if auto_install:
+                        install_package(name, extra=extra, use_conda=use_conda,
+                                        verbose=verbose)
+                    else:
+                        # Reraises the exception with optional custom handling
+                        if exception is not None:
+                            raise exception
+                        raise
             return func(*args, **kwargs)
         return wrapper
     return decorator
+
+def _should_check_condition(
+        partial_check: bool, condition: Any, *args, **kwargs) -> bool:
+    """
+    Determines if the condition for checking the package's existence is met.
+
+    Parameters
+    ----------
+    partial_check : bool
+        Indicates if the package existence check should be conditional.
+    condition : Any
+        The condition that determines whether to perform the package check.
+        This can be a callable, a specific argument name, or any value.
+    *args : tuple
+        Positional arguments passed to the decorated function.
+    **kwargs : dict
+        Keyword arguments passed to the decorated function.
+
+    Returns
+    -------
+    bool
+        True if the package check should be performed, False otherwise.
+    """
+    if not partial_check:
+        return True
+    
+    if callable(condition):
+        return condition(*args, **kwargs)
+    elif isinstance(condition, str) and condition in kwargs:
+        return bool(kwargs[condition])
+    else:
+        return bool(condition)
+
+# def ensure_pkg(
+#     name: str, 
+#     extra: str = "",
+#     errors: str = "raise",
+#     min_version: str | None = None,
+#     exception: Exception = None, 
+#     auto_install: bool = False,
+#     use_conda: bool = False, 
+#     condition: str | Callable |Any=None, 
+#     verbose: bool = False
+# ) -> Callable[[_T], _T]:
+#     """
+#     Decorator to ensure a Python package is installed before function execution.
+
+#     If the specified package is not installed, or if its installed version does
+#     not meet the minimum version requirement, this decorator can optionally 
+#     install or upgrade the package automatically using either pip or conda.
+
+#     Parameters
+#     ----------
+#     name : str
+#         Name of the package.
+#     extra : str, optional
+#         Additional specification for the package, such as version or extras.
+#     errors : str, optional
+#         Error handling strategy if package is missing: 'raise', 'ignore', or 'warn'.
+#     min_version : str or None, optional
+#         Minimum required version of the package. If not met, triggers installation.
+#     exception : Exception, optional
+#         Custom exception to raise if the package is missing and `errors` is 'raise'.
+#     auto_install : bool, optional
+#         Whether to automatically install the package if missing. Defaults to False.
+#     use_conda : bool, optional
+#         Prefer conda over pip for automatic installation. Defaults to False.
+#     verbose : bool, optional
+#         Enable verbose output during the installation process. Defaults to False.
+        
+#     partial_check: bool, default=False, 
+#         This parameter works with `condition` parameter. If conditon is true, 
+#         then check the whole exising of dependency. If False, 
+#         return the functions with its arguments. 
+    
+#     condition: str, Callable or Any, 
+#         The parameter, once activated, partial check the existing of the 
+#         dependency. It refers to a keywords arguments of the original function. 
+#         If triggered the package must be checked. If ``None`` and ``partial_check``
+#         if ``True``, the decorator returns the function without checking the 
+#         existence of the dependency. This is usefull to skip checking the 
+#         whole function unless the condition is met. Sometimes, only the condition 
+#         section of the code needs optional dependency to be installed not the whole 
+#         code to effectively run. 
+#         Mostly the condition collects a specific parameter as keywords arguments 
+#         of the original functions then check it if True ( str, Callable, Any).
+#         If true, the `ensure_pkg`can now check the whole packages provided that 
+#         `partial_check` is ``True``. 
+        
+#     Returns
+#     -------
+#     Callable
+#         A decorator that wraps functions to ensure the specified package is installed.
+
+#     Examples
+#     --------
+#     >>> @ensure_pkg("numpy", auto_install=True)
+#     ... def use_numpy():
+#     ...     import numpy as np
+#     ...     return np.array([1, 2, 3])
+
+#     >>> @ensure_pkg("pandas", min_version="1.1.0", errors="warn", use_conda=True)
+#     ... def use_pandas():
+#     ...     import pandas as pd
+#     ...     return pd.DataFrame([[1, 2], [3, 4]])
+
+#     Notes
+#     -----
+#     - `auto_install=True` may require administrative privileges.
+#     - `use_conda=True` prefers conda for installation but falls back to pip if 
+#        conda is not available.
+#     """
+#     def _install_package():
+#         """Utilizes the install_package function"""
+#         install_package(name, extra=extra, use_conda=use_conda, verbose=verbose)
+
+#     def decorator(func: _T) -> _T:
+#         @functools.wraps(func)
+#         def wrapper(*args, **kwargs):
+#             # implement `partial check and condition properly" 
+#             # this seems not correct. 
+#             condition= kwargs.get("condition", None)
+#             if condition: 
+#                 return func(*args, **kwargs)
+        
+        
+#             try:
+#                 # Attempts to import the package, installing 
+#                 # if necessary and permitted
+#                 import_optional_dependency(
+#                     name, extra=extra, errors=errors, 
+#                     min_version=min_version, exception=exception
+#                     )
+#             except ModuleNotFoundError:
+#                 if auto_install:
+#                     _install_package()
+#                 else:
+#                     # Reraises the exception with optional custom handling
+#                     if exception is not None:
+#                         raise exception
+#                     raise
+#             return func(*args, **kwargs)
+#         return wrapper
+#     return decorator
 
 def drop_nan_if(thresh: float, meth: str = 'drop_cols'):
     """
@@ -584,6 +1115,7 @@ def make_data_dynamic(
 
     Examples
     --------
+    >>> from gofast.tools.funcutils import make_data_dynamic 
     >>> @make_data_dynamic(expected_type='numeric', capture_columns=True, 
     ... drop_na=True, thresh=0.5, meth='drop_rows', reset_index=True)
     ... def calculate_mean(data: Union[pd.DataFrame, np.ndarray]):
@@ -612,6 +1144,8 @@ def make_data_dynamic(
             new_args = (data,) + args[1:]
             return func(*new_args, **kwargs)
         
+        if not hasattr(pd.DataFrame, func.__name__):
+            setattr(pd.DataFrame, func.__name__, wrapper)
         return wrapper
     return decorator
 
@@ -815,7 +1349,11 @@ def make_data_dynamic0(
         return wrapper
     return decorator
 
-def preserve_input_type(keep_columns_intact: bool = False):
+def preserve_input_type(
+    keep_columns_intact: bool = False,
+    custom_convert: Optional[Callable[[Any, type, Any], Any]] = None,
+    fallback_on_error: bool = True
+) -> Callable:
     """
     Decorator to preserve the original data type of the first positional 
     argument.
@@ -826,40 +1364,33 @@ def preserve_input_type(keep_columns_intact: bool = False):
     Parameters
     ----------
     keep_columns_intact : bool, optional
-        If True and the original data type is a pandas DataFrame, attempts 
-        to preserve the original columns in the returned DataFrame. 
-        If the conversion with original columns is not feasible, falls back 
-        to default DataFrame conversion. Default is False.
+        Attempts to preserve original DataFrame columns in the returned DataFrame.
+        Defaults to False.
+    custom_convert : Optional[Callable[[Any, type, Any], Any]], optional
+        Custom conversion function that takes the result, original type, and 
+        original columns (if applicable) as arguments, returning the converted result.
+        If None, uses default conversion logic.
+    fallback_on_error : bool, optional
+        If True, falls back to the unconverted result when conversion fails or
+        when `custom_convert` raises an error. Defaults to True.
 
     Returns
     -------
     Callable
         The decorated function with preserved input data type functionality.
-
+    
     Example
     -------
+    >>> from gofast.tools.funcutils import preserve_input_type
     >>> @preserve_input_type(keep_columns_intact=True)
     ... def to_list_then_back(data):
-    ...     return list(data.values())
+    ...     return pd.DataFrame(list(data.values()))
     ...
     >>> df = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
     >>> result = to_list_then_back(df)
     >>> print(result)
     >>> print(type(result))
     >>> print(result.columns)
-    
-    Parameters
-    ----------
-    keep_columns_intact : bool, optional
-        Indicates whether to attempt to preserve the original DataFrame 
-        columns in the output.
-        Defaults to False.
-    
-    Returns
-    -------
-    Callable
-        A wrapper function that ensures the result is returned in the 
-        original input type.
     """
     
     def decorator(func: Callable) -> Callable:
@@ -870,6 +1401,17 @@ def preserve_input_type(keep_columns_intact: bool = False):
             
             original_type, original_columns = _get_original_type_columns(args[0])
             result = func(*args, **kwargs)
+            
+            if custom_convert:
+                try:
+                    return custom_convert(result, original_type, original_columns)
+                except Exception as e:
+                    if not fallback_on_error:
+                        raise e
+                    # If fallback_on_error=True, simply return the original result
+                    return result
+                    
+            # Conversion back to original type logic, if applicable...    
             return _convert_result(result, original_type, original_columns,
                                    keep_columns_intact)
 
@@ -976,28 +1518,6 @@ def _attempt_type_conversion(result: Any, original_type: type) -> Any:
     except Exception:
         pass  # If conversion fails, return the result as is
     return result
-
-# Example usage
-if __name__ == "__main__":
-    @preserve_input_type(keep_columns_intact=True)
-    def example_function(data):
-        # Example function that converts input to list for demonstration
-        return list(data.values())
-
-    original_df = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
-    modified_df = example_function(original_df)
-    print(f"Modified type: {type(modified_df)}")
-    print(modified_df)
-
-    @preserve_input_type
-    def example_function(data):
-        # Example function that converts input to list for demonstration
-        return list(data)
-
-    original_set = {1, 2, 3}
-    modified_set = example_function(original_set)
-    print(f"Original type: {type(original_set)}, Modified type: {type(modified_set)}")
-    # This should print: Original type: <class 'set'>, Modified type: <class 'set'>
 
 
 

@@ -1214,7 +1214,6 @@ class AppendDocFrom:
         
         target.__doc__ = target_doc
 
-
 class NumpyDocstring:
     """
     A class decorator designed to automatically parse and reformat the docstring of
@@ -1680,11 +1679,12 @@ class NumpyDocstringFormatter:
     """
 
     def __init__(self, include_sections=None, validate_with_sphinx=False, 
-                 custom_formatting=None):
+                 custom_formatting=None, verbose=0):
 
         self.include_sections = include_sections
         self.validate_with_sphinx = validate_with_sphinx
         self.custom_formatting = custom_formatting
+        self.verbose=verbose 
 
     def __call__(self, func):
         """
@@ -1711,6 +1711,20 @@ class NumpyDocstringFormatter:
         return wrapper
 
     def format_docstring(self, docstring):
+        """
+        
+
+        Parameters
+        ----------
+        docstring : TYPE
+            DESCRIPTION.
+
+        Returns
+        -------
+        TYPE
+            DESCRIPTION.
+
+        """
         """
         Format the original docstring according to the NumPy standard.
 
@@ -1801,8 +1815,7 @@ class NumpyDocstringFormatter:
     def sphinx_validation(self, docstring):
         """
         Validates the given docstring using Sphinx and docutils to ensure 
-        it adheres to standards
-        acceptable by Sphinx for documentation generation.
+        it adheres to standards acceptable by Sphinx for documentation generation.
     
         Parameters
         ----------
@@ -1816,31 +1829,32 @@ class NumpyDocstringFormatter:
         """
         from docutils import nodes
         from docutils.core import publish_doctree
-        from docutils.parsers.rst import Parser
-        from sphinx.util.docutils import SphinxFileInput
-        from sphinx.util import logging
-    
-        logger = logging.getLogger(__name__)
-    
+        from .tools._dependency import import_optional_dependency
+        
+        try: 
+            import_optional_dependency ("docutils")
+        except: 
+            from .tools.funcutils import install_package
+            install_package('docutils' )
         try:
-            # Parse the docstring using docutils
-            parser = Parser()
-            document = publish_doctree(docstring, source_class=SphinxFileInput,
-                                       settings_overrides={'report_level': 2})
-            parser.parse(docstring, document)
-    
+            # Create a new document for parsing
+            settings_overrides = {'report_level': 2, 'warning_stream': False}
+            document = publish_doctree(docstring, settings_overrides=settings_overrides)
+            
             # Check for any errors or warnings in the parsed document
-            if document.traverse(condition=lambda node: isinstance(
-                    node, (nodes.warning, nodes.error))):
-                logger.warning("Docstring validation failed with warnings or errors.")
+            warnings_or_errors = document.traverse(condition=lambda node: isinstance(
+                node, (nodes.warning, nodes.error)))
+            if next(warnings_or_errors, None):
+                if self.verbose:
+                    _logger.warning(
+                        "Docstring validation failed with warnings or errors.") 
             else:
-                logger.info("Docstring passed Sphinx validation.")
-    
-            # Optionally, here you could invoke a Sphinx build process 
-            # limited to the module or function
+                if self.verbose:
+                    _logger.info("Docstring passed Sphinx validation.")
         except Exception as e:
-            logger.error(f"Docstring validation failed due to an exception: {e}")
-
+            if self.verbose:
+                _logger.error(
+                    f"Docstring validation failed due to an exception: {e}") 
 
 class Dataify:
     """

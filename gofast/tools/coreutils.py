@@ -3391,13 +3391,13 @@ def move_cfile(
     
     try:
         shutil.move(cfile, destination_file_path)
-    except shutil.Error as e:
+    except shutil.Error as e: 
         # If the move is unsuccessful, copy then delete the original file
         shutil.copy2(cfile, destination_file_path)
         os.remove(cfile)
         message = (f"Warning: Could not move '{cfile}'. It was copied and the"
-                   " original was deleted.")
-        _logger.warning(message)  # Or use logging.warning(message) if logging is configured
+                   f" original was deleted. {e}")
+        _logger.warning(message) 
 
     msg = (f"--> '{os.path.basename(destination_file_path)}' data was successfully"
            f" saved to '{os.path.realpath(destination_file_path)}'.")

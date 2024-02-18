@@ -2240,7 +2240,7 @@ def _assert_all_finite(
         f"{input_name} does not accept missing values encoded as NaN"
         " natively. Alternatively, it is possible to preprocess the data,"
         " for instance by using the imputer transformer like the ufunc"
-        " 'naive_imputer' in 'gofast.tools.mlutils.naive_imputer'."
+        " 'soft_imputer' in 'gofast.tools.mlutils.soft_imputer'."
         )
     
     xp, _ = get_namespace(X)

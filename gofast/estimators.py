@@ -387,7 +387,7 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
         return self.base_classifier_.decision_function(X_transformed)
     
 class KMFRegressor(BaseEstimator, RegressorMixin):
-    """
+    r"""
     A K-Means Featurizer Regressor that combines k-means clustering with a 
     base regression estimator.
 
@@ -712,7 +712,7 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
         return r2_score(y, predictions)
 
 class DecisionStumpRegressor:
-    """
+    r"""
     A simple decision stump regressor for use in gradient boosting.
 
     This class implements a basic decision stump, which is a decision tree 
@@ -905,7 +905,7 @@ class DecisionStumpRegressor:
         return decision_scores
     
 class BenchmarkRegressor(BaseEstimator, RegressorMixin):
-    """
+    r"""
     Benchmark Regressor for combining various regression estimators.
 
     This regressor operates as a stacking model, combining multiple base
@@ -1058,7 +1058,7 @@ class BenchmarkRegressor(BaseEstimator, RegressorMixin):
         return self.stacked_model_.score(X, y)
     
 class BenchmarkClassifier(BaseEstimator, ClassifierMixin):
-    """
+    r"""
     Benchmark Classifier for combining various classification estimators.
 
     This classifier operates as a stacking model, combining multiple base
@@ -1734,7 +1734,7 @@ class MajorityVoteClassifier (BaseEstimator, ClassifierMixin ):
                             )
             
 class AdalineStochasticRegressor(BaseEstimator, RegressorMixin):
-    """
+    r"""
     Adaline Stochastic Gradient Descent Regressor.
 
     This regressor implements the Adaptive Linear Neuron (Adaline) algorithm 
@@ -1878,7 +1878,7 @@ class AdalineStochasticRegressor(BaseEstimator, RegressorMixin):
         return self.net_input(X)
 
 class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
-    """
+    r"""
     Adaptive Linear Neuron Classifier with Stochastic Gradient Descent.
 
     This classifier implements a stochastic gradient descent algorithm for 
@@ -2229,7 +2229,7 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
         return self.__class__.__name__ + str(tup).replace("'", "") 
 
 class AdalineRegressor(BaseEstimator, RegressorMixin):
-    """
+    r"""
     Adaline Gradient Descent Regressor.
 
     This regressor is based on the principles of Adaptive Linear Neurons (Adaline),
@@ -2357,7 +2357,7 @@ class AdalineRegressor(BaseEstimator, RegressorMixin):
         return self.net_input(X)
 
 class AdalineClassifier(BaseEstimator, ClassifierMixin):
-    """
+    r"""
     Adaline Gradient Descent Classifier.
 
     This classifier is based on the principles of Adaptive Linear Neurons (Adaline),
@@ -2519,7 +2519,7 @@ class AdalineClassifier(BaseEstimator, ClassifierMixin):
         return np.vstack((proba_negative_class, proba_positive_class)).T
 
 class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
-    """
+    r"""
     Adaline Mixte for Dual Regression and Classification Tasks.
 
     The ADAptive LInear NEuron (Adaline) Mixte is a foundational model in 
@@ -2806,7 +2806,7 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
         return self.__class__.__name__ + str(tup).replace("'", "") 
     
 class HammersteinWienerClassifier(BaseEstimator, ClassifierMixin):
-    """
+    r"""
     Hammerstein-Wiener Classifier for Dynamic Classification Tasks.
 
     The Hammerstein-Wiener Classifier is designed for modeling and predicting 
@@ -3028,7 +3028,7 @@ class HammersteinWienerClassifier(BaseEstimator, ClassifierMixin):
         return np.apply_along_axis(self.nonlinearity_out, 1, proba_linear)
 
 class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
-    """
+    r"""
     Hammerstein-Wiener Estimator for Nonlinear Dynamic System Identification.
 
     The Hammerstein-Wiener Estimator is a powerful tool for modeling dynamic 
@@ -3212,7 +3212,7 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
         return y_pred
 
 class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
-    """
+    r"""
     Gradient Descent Classifier for Binary and Multi-Class Classification.
 
     This classifier utilizes the gradient descent optimization algorithm to train
@@ -3339,7 +3339,7 @@ class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
         return self.classes_[np.argmax(probas, axis=1)]
 
 class GradientDescentRegressor(BaseEstimator, RegressorMixin):
-    """
+    r"""
     Gradient Descent Regressor for Linear Regression.
 
     This regressor employs the gradient descent optimization algorithm to
@@ -3463,7 +3463,7 @@ class GradientDescentRegressor(BaseEstimator, RegressorMixin):
         return self.net_input(X)
 
 class SimpleAverageRegressor(BaseEstimator, RegressorMixin):
-    """
+    r"""
     Simple Average Ensemble Regressor.
 
     This ensemble model performs regression tasks by averaging the predictions
@@ -3579,7 +3579,7 @@ class SimpleAverageRegressor(BaseEstimator, RegressorMixin):
         return np.mean(predictions, axis=0)
 
 class WeightedAverageRegressor(BaseEstimator, RegressorMixin):
-    """
+    r"""
     Weighted Average Ensemble Regressor.
 
     This ensemble model calculates the weighted average of the predictions of
@@ -3721,7 +3721,7 @@ class WeightedAverageRegressor(BaseEstimator, RegressorMixin):
         return weighted_predictions
 
 class HWEnsembleClassifier(BaseEstimator, ClassifierMixin):
-    """
+    r"""
     Hammerstein-Wiener Ensemble Classifier.
 
     This classifier combines the Hammerstein-Wiener model with ensemble learning.
@@ -3903,7 +3903,7 @@ class HWEnsembleClassifier(BaseEstimator, ClassifierMixin):
 
 
 class HWEnsembleRegressor(BaseEstimator, RegressorMixin):
-    """
+    r"""
     Hammerstein-Wiener Ensemble (HWE) for regression tasks.
 
     This ensemble model combines multiple Hammerstein-Wiener models, each of 
@@ -4051,7 +4051,7 @@ class HWEnsembleRegressor(BaseEstimator, RegressorMixin):
         return np.mean(predictions, axis=0)
 
 class NeuroFuzzyEnsemble(BaseEstimator, RegressorMixin):
-    """
+    r"""
     Neuro-Fuzzy Ensemble for regression tasks.
 
     This ensemble model combines multiple neuro-fuzzy models, which integrate
@@ -4193,7 +4193,7 @@ class NeuroFuzzyEnsemble(BaseEstimator, RegressorMixin):
         return np.mean(predictions, axis=0)
 
 class BoostedRegressionTree(BaseEstimator, RegressorMixin):
-    """
+    r"""
     Enhanced Boosted Regression Tree (BRT) for regression tasks.
 
     The Enhanced Boosted Regression Tree (BRT) is an advanced implementation
@@ -4398,7 +4398,7 @@ class BoostedRegressionTree(BaseEstimator, RegressorMixin):
         return y_pred
 
 class DecisionTreeBasedRegressor(BaseEstimator, RegressorMixin):
-    """
+    r"""
     Decision Tree-based Regression for regression tasks.
 
     `DecisionTreeBasedRegressor` is an ensemble model that combines multiple
@@ -4518,7 +4518,7 @@ class DecisionTreeBasedRegressor(BaseEstimator, RegressorMixin):
         return np.mean(predictions, axis=0)
 
 class HBTEnsembleRegressor(BaseEstimator, RegressorMixin):
-    """
+    r"""
     Hybrid Boosted Tree Ensemble Regressor.
 
     The Hybrid Boosted Tree Ensemble Regressor is a powerful ensemble learning
@@ -4685,7 +4685,7 @@ class HBTEnsembleRegressor(BaseEstimator, RegressorMixin):
         return y_pred
 
 class HybridBoostedTreeClassifier(BaseEstimator, ClassifierMixin):
-    """
+    r"""
     Hybrid Boosted Tree Classifier.
 
     The Hybrid Boosted Tree Classifier is a powerful ensemble learning model
@@ -4880,7 +4880,7 @@ class HybridBoostedTreeClassifier(BaseEstimator, ClassifierMixin):
         return np.exp(-weight * y * y_pred)
 
 class HybridBoostedTreeRegressor(BaseEstimator, RegressorMixin):
-    """
+    r"""
     Hybrid Boosted Regression Tree (BRT) for regression tasks.
 
     The Hybrid Boosted Tree Regressor is a powerful ensemble learning model
@@ -5015,7 +5015,7 @@ class HybridBoostedTreeRegressor(BaseEstimator, RegressorMixin):
         return np.mean(predictions, axis=0)
 
 class BoostedClassifierTree(BaseEstimator, ClassifierMixin):
-    """
+    r"""
     Boosted Decision Tree Classifier.
 
     This classifier employs an ensemble boosting method using decision trees. 
@@ -5191,7 +5191,7 @@ class BoostedClassifierTree(BaseEstimator, ClassifierMixin):
         return np.vstack((proba_negative_class, proba_positive_class)).T
 
 class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
-    """
+    r"""
     Decision Tree -based Ensemble Classifier.
 
     The Decision Tree-Based Classifier is an ensemble model that combines
@@ -5356,7 +5356,7 @@ class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
         return avg_proba
     
 class HBTEnsembleClassifier(BaseEstimator, ClassifierMixin):
-    """
+    r"""
     Hybrid Boosted Regression Tree Ensemble Classifier.
 
     This classifier combines multiple Boosted Decision Tree classifiers. 
@@ -5500,7 +5500,7 @@ class HBTEnsembleClassifier(BaseEstimator, ClassifierMixin):
         return y_pred
 
 class WeightedAverageClassifier(BaseEstimator, ClassifierMixin):
-    """
+    r"""
     Weighted Average Ensemble Classifier.
 
     This classifier averages the predictions of multiple base classifiers,
@@ -5675,7 +5675,7 @@ class WeightedAverageClassifier(BaseEstimator, ClassifierMixin):
         return weighted_avg_proba
 
 class SimpleAverageClassifier(BaseEstimator, ClassifierMixin):
-    """
+    r"""
     Simple Average Ensemble Classifier.
 
     This classifier combines the predictions of multiple base classifiers
@@ -5955,7 +5955,7 @@ class StandardEstimator:
         return self
   
 class _GradientBoostingRegressor:
-    """
+    r"""
     A simple gradient boosting regressor for regression tasks.
 
     Gradient Boosting builds an additive model in a forward stage-wise fashion. 
@@ -6124,7 +6124,7 @@ class _GradientBoostingRegressor:
                    for estimator in self.estimators_)
     
 class _GradientBoostingClassifier:
-    """
+    r"""
     A simple gradient boosting classifier for binary classification.
 
     Gradient boosting is a machine learning technique for regression and 

@@ -39,13 +39,14 @@ from sklearn.utils import all_estimators, resample
 from .._gofastlog import gofastlog
 from .._typing import List, Tuple, Any, Dict,  Optional,Union, Iterable,Series 
 from .._typing import _T, _F, ArrayLike, NDArray,  DataFrame, Set 
-from ._dependency import import_optional_dependency
+# from ._dependency import import_optional_dependency
 from ..exceptions import ParameterNumberError, EstimatorError          
 from .coreutils import _assert_all_types, _isin,  is_in_if,  ellipsis2false
 from .coreutils import smart_format,  is_iterable, get_valid_kwargs
 from .coreutils import is_classification_task, to_numeric_dtypes, fancy_printer
 from .coreutils import validate_feature, download_progress_hook, exist_features
 from .coreutils import contains_delimiter 
+from .funcutils import ensure_pkg
 from .validator import get_estimator_name, check_array, check_consistent_length
 from .validator import  _is_numeric_dtype,  _is_arraylike_1d 
 from .validator import  is_frame, build_data_if, check_is_fitted
@@ -284,6 +285,9 @@ def codify_variables (
         
     return (df, map_codes) if return_cat_codes else df 
 
+@ensure_pkg ("imblearn", extra= (
+    "`imblearn` is actually a shorthand for ``imbalanced-learn``.")
+   )
 def resampling( 
     X, 
     y, 
@@ -389,9 +393,6 @@ def resampling(
     Out[43]: ((224, 8), (224,))
     
     """
-    msg =(" `imblearn` is the shorthand of the package 'imbalanced-learn'."
-          " Use `pip install imbalanced-learn` instead.")
-    import_optional_dependency ("imblearn", extra = msg )
     kind = str(kind).lower() 
     if kind =='under': 
         from imblearn.under_sampling import RandomUnderSampler
@@ -3925,7 +3926,16 @@ def make_pipe(
     return  ( full_pipeline.fit_transform (X) if y is None else (
         full_pipeline.fit_transform (X), y ) 
              ) if transform else full_pipeline
-       
+
+@ensure_pkg (
+    "imblearn", 
+    partial_check=True, 
+    condition="balance_classes", 
+    extra= (
+        "Synthetic Minority Over-sampling Technique (SMOTE) cannot be used."
+        " Note,`imblearn` is actually a shorthand for ``imbalanced-learn``."
+        ), 
+   )
 def build_data_preprocessor(
     X: Union [NDArray, DataFrame], 
     y: Optional[ArrayLike] = None, *,  
@@ -4003,15 +4013,14 @@ def build_data_preprocessor(
     --------
     >>> from gofast.tools.mlutils import build_data_preprocessor
     >>> from gofast.datasets import load_hlogs
-    >>> X, y = load_hlogs(as_frame=True)
+    >>> X, y = load_hlogs(as_frame=True, return_X_y=True)
     >>> pipeline = build_data_preprocessor(X, y, scaler='RobustScaler')
     >>> X_transformed = pipeline.fit_transform(X)
     
     """
     sc= {"StandardScaler": StandardScaler ,"MinMaxScaler": MinMaxScaler , 
          "Normalizer":Normalizer , "RobustScaler":RobustScaler}
-    # Check and preserve dtype by setting to None. 
-    X= check_array(X, dtype =None )
+
     if not isinstance (X, pd.DataFrame): 
         # create fake dataframe for handling columns features 
         X= pd.DataFrame(X)
@@ -4078,13 +4087,7 @@ def build_data_preprocessor(
     # Class balancing logic if required
     if balance_classes and y is not None:
         if str(balance_classes).upper() == 'SMOTE':
-            msg =(" Missing 'imblearn'package. 'SMOTE` can't be used. Note that"
-                  " `imblearn` is the shorthand of the package 'imbalanced-learn'."
-                  " Use `pip install imbalanced-learn` instead.")
-            import_optional_dependency("imblearn", extra = msg )
-            #-----------------------------------------
             from imblearn.over_sampling import SMOTE
-            #-----------------------------------------
             # Note: SMOTE works on numerical data, so it's applied after initial pipeline
             pipeline = Pipeline([('preprocessing', pipeline), (
                 'smote', SMOTE(random_state=42))])

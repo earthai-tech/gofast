@@ -748,7 +748,6 @@ def correlation(
     method for DataFrame inputs, enabling comprehensive correlation analysis within 
     tabular data.
     """
- 
     if isinstance(x, str) and data is not None:
         x = data[x]
     if isinstance(y, str) and data is not None:
