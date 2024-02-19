@@ -6793,7 +6793,7 @@ def type_of_target(y):
     'multilabel-indicator'
     """
     # Check if y is an array-like
-    if not isinstance(y, (np.ndarray, list, pd.Series, Sequence)):
+    if not isinstance(y, (np.ndarray, list, pd.Series, Sequence, pd.DataFrame)):
         raise ValueError("Expected array-like (array or list), got %s" % type(y))
 
     # Check for valid number type
@@ -7959,60 +7959,89 @@ def test_set_check_id(
     >>> test_set_check_id(42, test_ratio=0.2, hash=hashlib.md5)
     ... False
     """
-
+    # def test_set_check_id(identifier: str, ratio: float, hash_function: _F) -> bool:
+    #     """Determines if an identifier belongs to the test set using the hash value."""
+    #     # Convert identifier to string and hash
+    #     hash_val = int(hash_function(str(identifier).encode()).hexdigest(), 16)
+    #     # Use the hash value to decide test set membership
+    #     return hash_val % 10000 / 10000.0 < ratio
+    
+    #     hashed_id = hash_function(identifier.encode('utf-8')).digest()
+    #     return np.frombuffer(hashed_id, dtype=np.uint8).sum() < 256 * test_ratio
     return hash(np.int64(identifier)).digest()[-1] < 256 * test_ratio
 
 def split_train_test_by_id(
-    data: DataFrame, test_ratio: float, id_column: Optional[List[int]] = None,
+    data: DataFrame, test_ratio: float, id_column: Optional[List[str]] = None,
     keep_colindex: bool = True, hash: _F = hashlib.md5
-) -> Tuple[_Sub[DataFrame], _Sub[DataFrame]]:
+) -> Tuple[DataFrame, DataFrame]:
     """
-    Split a DataFrame into train and test sets while ensuring data consistency.
+    Split a DataFrame into train and test sets while ensuring data consistency
+    by using specified id columns or the DataFrame's index as unique identifiers.
 
     Parameters
     ----------
     data : DataFrame
         The DataFrame containing the features.
     test_ratio : float
-        The ratio of instances to put in the test set.
-    id_column : list of int, optional
-        Index columns that serve as unique identifiers. Default is None, which resets
-        the DataFrame index and uses 'index' as the identifier.
+        The ratio of instances to include in the test set.
+    id_column : list of str, optional
+        Column names to use as unique identifiers. If None, the DataFrame's index
+        is used as the identifier.
     keep_colindex : bool, optional
-        If False, it drops the 'index' column after resetting the index. Default is True.
+        Determines whether to keep or drop the index column after resetting.
+        This parameter is only applicable if id_column is None and the DataFrame's
+        index is reset. Default is True.
     hash : callable
         A hash function to generate a hash from the identifier.
 
     Returns
     -------
     Tuple[DataFrame, DataFrame]
-        A tuple of train and test set DataFrames with consistent data.
+        A tuple containing the train and test set DataFrames.
 
     Examples
     --------
-    >>> from gofast.tools.funcutils import split_train_test_by_id
     >>> import pandas as pd
+    >>> from gofast.tools.coreutils import split_train_test_by_id
     >>> data = pd.DataFrame({'ID': [1, 2, 3, 4, 5], 'Value': [10, 20, 30, 40, 50]})
     >>> train_set, test_set = split_train_test_by_id(data, test_ratio=0.2, id_column=['ID'])
     >>> len(train_set), len(test_set)
-    ... (4, 1)
+    (4, 1)
     """
-    if isinstance(data, np.ndarray):
-        data = pd.DataFrame(data)
-        if 'index' in data.columns:
-            data.drop(columns='index', inplace=True)
-
+    drop_tmp_index=False
     if id_column is None:
-        id_column = 'index'
-        data = data.reset_index()
+        # Check if the index is integer-based; if not, create a temporary integer index.
+        if not data.index.is_integer():
+            data['_tmp_hash_index'] = np.arange(len(data))
+            ids = data['_tmp_hash_index']
+            drop_tmp_index = True
+        else:
+            ids = data.index.to_series()
+            drop_tmp_index = False
+    else:
+        # Use specified id columns as unique identifiers, combining them if necessary.
+        ids = data[id_column].astype(str).apply(
+            lambda row: '_'.join(row), axis=1) if isinstance(
+                id_column, list) else data[id_column]
 
-    ids = data[id_column]
     in_test_set = ids.apply(lambda id_: test_set_check_id(id_, test_ratio, hash))
 
-    if not keep_colindex:
-        data.drop(columns='index', inplace=True)
+    train_set = data.loc[~in_test_set].copy()
+    test_set = data.loc[in_test_set].copy()
 
-    return data.loc[~in_test_set], data.loc[in_test_set]
+    if drop_tmp_index or (id_column is None and not keep_colindex):
+        # Remove the temporary index or reset the index as needed
+        train_set.drop(columns=['_tmp_hash_index'], errors='ignore', inplace=True)
+        test_set.drop(columns=['_tmp_hash_index'], errors='ignore', inplace=True)
+        # for consistency if '_tmp_has_index' 
+        if '_tmp_hash_index' in data.columns: 
+            data.drop (columns='_tmp_hash_index', inplace =True)
+    elif id_column is None and keep_colindex:
+        # If keeping the original index and it was integer-based, no action needed
+        pass
+
+    return train_set, test_set
+
   
 def parallelize_jobs(
     function: _F[..., Any],
@@ -8288,4 +8317,196 @@ def contains_delimiter(s: str, delimiters: Union[str, list, set]) -> bool:
     
     return any(delimiter in s for delimiter in delimiters)    
     
-        
+def convert_to_structured_format(
+        *arrays: Any, as_frame: bool = True, 
+        skip_sparse: bool =True, 
+        ) -> List[Union[ArrayLike, DataFrame, Series]]:
+    """
+    Converts input objects to structured numpy arrays or pandas DataFrame/Series
+    based on their shapes and the `as_frame` flag. If conversion to a structured
+    format fails, the original objects are returned. When `as_frame` is False,
+    attempts are made to convert inputs to numpy arrays.
+    
+    Parameters
+    ----------
+    *arrays : Any
+        A variable number of objects to potentially convert. These can be lists,
+        tuples, or numpy arrays.
+    as_frame : bool, default=True
+        If True, attempts to convert arrays to DataFrame or Series; otherwise,
+        attempts to standardize as numpy arrays.
+    skip_sparse: bool, default=True 
+        Dont convert any sparse matrix and keept it as is. 
+    
+    Returns
+    -------
+    List[Union[np.ndarray, pd.DataFrame, pd.Series]]
+        A list containing the original objects, numpy arrays, DataFrames, or
+        Series, depending on each object's structure and the `as_frame` flag.
+    
+    Examples
+    --------
+    Converting to pandas DataFrame/Series:
+    >>> from gofast.tools.coreutils import convert_to_structured_format
+    >>> import numpy as np 
+    >>> import pandas as pd 
+    >>> features= {"feature_1": range (7), "feature_2":['1', 2, 9, 35, "0", "76", 'r']}
+    >>> target= pd.Series(data=range(10), name="target")
+    >>> convert_to_structured_format( features, target, as_frame=True)
+    >>> arr1 = np.array([[1, 2, 3], [4, 5, 6]])
+    >>> arr2 = np.array([7, 8, 9])
+    >>> convert_to_structured_format(arr1, arr2, as_frame=True)
+    [   DataFrame:
+            0  1  2
+        0   1  2  3
+        1   4  5  6,
+        Series:
+        0    7
+        1    8
+        2    9
+    ]
+
+    Standardizing as numpy arrays:
+    >>> list1 = [10, 11, 12]
+    >>> tuple1 = (13, 14, 15)
+    >>> convert_to_structured_format(list1, tuple1, as_frame=False)
+    [   array([10, 11, 12]),
+        array([13, 14, 15])
+    ]
+    """
+
+    def attempt_conversion_to_numpy(arr: Any) -> np.ndarray:
+        """Attempts to convert an object to a numpy array."""
+        try:
+            return np.array(arr)
+        except Exception:
+            return arr
+
+    def attempt_conversion_to_pandas(
+            arr: np.ndarray) -> Union[np.ndarray, pd.DataFrame, pd.Series]:
+        """Attempts to convert an array to a DataFrame or Series based on shape."""
+        from scipy.sparse import issparse
+        try:
+            if issparse(arr) and skip_sparse: 
+                raise # dont perform any convertion 
+            if hasattr(arr, '__array__'): 
+                if arr.ndim == 1:
+                    return pd.Series(arr)
+                elif arr.ndim == 2:
+                    if arr.shape[1] == 1:
+                        return pd.Series(arr.squeeze())
+                    else:
+                        return pd.DataFrame(arr)
+            else: 
+                return pd.DataFrame(arr)
+        except Exception:
+            pass
+        return arr
+
+    if as_frame:
+        return [attempt_conversion_to_pandas(arr) for arr in arrays]
+    else:
+        # Try to convert everything to numpy arrays, return as is if it fails
+        return [attempt_conversion_to_numpy(attempt_conversion_to_pandas(arr)
+                                            ) for arr in arrays]
+
+def resample_data(*data: Any, samples: Union[int, float, str] = 1,
+                  replace: bool = False, random_state: int = None,
+                  shuffle: bool = True) -> List[Any]:
+    """
+    Resample multiple data structures (arrays, sparse matrices, Series, DataFrames)
+    based on specified sample size or ratio.
+
+    Parameters
+    ----------
+    *data_structures : Any
+        Variable number of array-like, sparse matrix, pandas Series, or DataFrame
+        objects to be resampled.
+    samples : int, float, or str, optional
+        Number of items to sample or a ratio of items to sample (if < 1 or
+        expressed as a percentage string, e.g., "50%"). Defaults to 1, meaning
+        no resampling unless specified.
+    replace : bool, default=False
+        Whether sampling of the same row more than once is allowed.
+    random_state : int, optional
+        Seed for the random number generator for reproducibility.
+    shuffle : bool, default=True
+        Whether to shuffle data before sampling.
+
+    Returns
+    -------
+    List[Any]
+        A list of resampled data structures, matching the input order. Each
+        structure is resampled according to the `samples` parameter.
+
+    Examples
+    --------
+    >>> from gofast.tools.coreutils import resample_data
+    >>> from sklearn.datasets import load_iris
+    >>> iris = load_iris(as_frame=True)
+    >>> data, target = iris.data, iris.target
+    >>> resampled_data, resampled_target = resample_data(data, target, samples=0.5,
+    ...                                                  random_state=42)
+    >>> print(resampled_data.shape, resampled_target.shape)
+    """
+    resampled_structures = []
+    
+    for d in data:
+        # Correct way to access the shape of the sparse matrix 
+        # encapsulated in a numpy array
+        try: 
+            if d.dtype == object and scipy.sparse.issparse(d.item()):
+                d = d.item()  # Access the sparse matrix
+            # Now you can safely access the number of rows
+        except:
+            # Fallback for regular numpy arrays/data or 
+            # directly accessible sparse matrices
+           pass 
+        n_samples = _determine_sample_size(d, samples, is_percent="%" in str(samples))
+        sampled_d = _perform_sampling(d, n_samples, replace, random_state, shuffle)
+        resampled_structures.append(sampled_d)
+
+    return resampled_structures
+
+def _determine_sample_size(d: Any, samples: Union[int, float, str], 
+                           is_percent: bool) -> int:
+    """
+    Determine the number of samples to draw based on the input size or ratio.
+    """
+    if isinstance(samples, str) and is_percent:
+        samples = samples.replace("%", "")
+    try:
+        samples = float(samples)
+    except ValueError:
+        raise TypeError(f"Invalid type for 'samples': {type(samples).__name__}."
+                        " Expected int, float, or percentage string.")
+   
+    d_length = d.shape[0] if hasattr(d, 'shape') else len(d)
+    if samples < 1 or is_percent:
+        return max(1, int(samples * d_length))
+    return int(samples)
+
+def _perform_sampling(d: Any, n_samples: int, replace: bool, 
+                      random_state: int, shuffle: bool) -> Any:
+    """
+    Perform the actual sampling operation on the data structure.
+    """
+    if isinstance(d, pd.DataFrame) or isinstance(d, pd.Series):
+        return d.sample(n=n_samples, replace=replace, random_state=random_state
+                        ) if shuffle else d.iloc[:n_samples]
+    elif scipy.sparse.issparse(d):
+        if scipy.sparse.isspmatrix_coo(d):
+            warnings.warn("coo_matrix does not support indexing. Conversion"
+                          " to CSR matrix is recommended.")
+            d = d.tocsr()
+        indices = np.random.choice(d.shape[0], n_samples, replace=replace
+                                   ) if shuffle else np.arange(n_samples)
+        return d[indices]
+    else:
+        d_array = np.array(d) if not hasattr(d, '__array__') else d
+        indices = np.random.choice(len(d_array), n_samples, replace=replace
+                                   ) if shuffle else np.arange(n_samples)
+        return d_array[indices] if d_array.ndim == 1 else d_array[indices, :]
+
+
+    

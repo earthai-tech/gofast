@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-#   Author: L.Kouadio <etanoyau@gmail.com>
-#   License: BSD-3-Clause
 """
 Config Dataset Module
 =====================
@@ -15,7 +13,7 @@ License: BSD-3-Clause
 import re
 from warnings import warn
 
-from .load import (load_bagoue, load_iris, load_hlogs, load_nlogs, load_mxs,
+from .load import (load_bagoue, load_iris, load_hlogs, load_nansha, load_mxs,
                    load_forensic, load_jrs_bet, load_dyspnea, load_statlog, 
                    load_hydro_metrics)
 from ..tools.coreutils import listing_items_format
@@ -25,7 +23,7 @@ from .._gofastlog import gofastlog
 _logger = gofastlog().get_gofast_logger(__name__)
 
 __all__ = [
-    "load_bagoue", "load_iris", "load_hlogs", "load_nlogs", "fetch_data",
+    "load_bagoue", "load_iris", "load_hlogs", "load_nansha", "fetch_data",
     "load_mxs", "load_forensic", "load_jrs_bet", "load_dyspnea", "load_statlog", 
     "load_hydro_metrics", "DATASET"
 ]
@@ -75,7 +73,7 @@ def fetch_data(tag, **kwargs):
     """
     load_funcs = {
         'bagoue': load_bagoue, 'iris': load_iris, 'hlogs': load_hlogs,
-        'nlogs': load_nlogs, 'mxs': load_mxs, 'forensic': load_forensic,
+        'nansha': load_nansha, 'mxs': load_mxs, 'forensic': load_forensic,
         'jrs_bet': load_jrs_bet, 'dyspnea': load_dyspnea,'statlog':load_statlog, 
         'hydro_metrics':load_hydro_metrics
     }
@@ -127,7 +125,7 @@ _DATASET_LIST = listing_items_format(
 
 _DATASET_DOC = """
 Gofast dataset includes various data types for software implementation, such as:
-- 'nlogs': Land subsidence data in Nansha district, Guangzhou, China.:doi:`https://doi.org/10.1016/j.jenvman.2024.120078`. 
+- 'Nansha': Land subsidence data in Nansha district, Guangzhou, China.:doi:`https://doi.org/10.1016/j.jenvman.2024.120078`. 
 - 'Bagoue': Flow rate features data. :doi:`https://doi.org/10.1029/2021wr031623` or :doi:`https://doi.org/10.1007/s11269-023-03562-5`
 - 'Hlogs' and 'Mxs': Hydrogeological engineering logging data.:doi:`https://doi.org/10.1007/s12145-024-01236-3`
 - 'Forensic': DNA forensic dataset from West Africa. :doi:`https://doi.org/10.1093/fsr/owad056`.

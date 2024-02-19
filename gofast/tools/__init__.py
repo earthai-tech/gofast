@@ -93,6 +93,7 @@ from .coreutils import (
     split_train_test, 
     parallelize_jobs,
     denormalize, 
+    resample_data, 
     )
 
 from .mlutils import ( 
@@ -260,7 +261,8 @@ __all__=[
     "handle_imbalance", 
     "smart_split", 
     "save_dataframes",
-    "denormalize"
+    "denormalize", 
+    "resample_data"
     
     ]
 

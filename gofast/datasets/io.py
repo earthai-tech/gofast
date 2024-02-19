@@ -124,11 +124,16 @@ def _to_dataframe(data, tnames=None, feature_names=None, target=None):
         try:
             data = pd.DataFrame(data, columns=feature_names)
         except: data =pd.DataFrame(data )
+        
     if tnames is not None: 
         tnames = is_iterable (tnames, exclude_string=True, transform=True)
-        exist_features(data, tnames)
+        
     feature_data = data.drop(columns=tnames, errors='ignore') if tnames else data
-    target_from_data = data[tnames] if tnames else pd.DataFrame()
+    try:
+        exist_features(data, tnames) # check whether tnames is on data 
+    except: target_from_data= pd.DataFrame()
+    else: 
+        target_from_data = data[tnames] if tnames else pd.DataFrame()
 
     if target is not None:
         if isinstance(target, (pd.Series, pd.DataFrame, np.ndarray)):

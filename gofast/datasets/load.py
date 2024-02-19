@@ -11,7 +11,6 @@ Inspired from the machine learning popular dataset loading
 import warnings
 import os
 import random
-import scipy 
 import joblib
 import numpy as np
 from importlib import resources 
@@ -20,21 +19,23 @@ import pandas as pd
 
 from ..tools.baseutils import read_data, fancier_downloader, check_file_exists 
 from ..tools.baseutils import transform_dates  
+from ..tools.box import Boxspace
 from ..tools.coreutils import  to_numeric_dtypes , smart_format, key_checker
 from ..tools.coreutils import  random_sampling, assert_ratio, split_train_test_by_id
 from ..tools.coreutils import  format_to_datetime, is_in_if, validate_feature
-from ..tools.box import Boxspace
+from ..tools.coreutils import convert_to_structured_format, resample_data
 from ._globals import FORENSIC_BF_DICT, FORENSIC_LABELS_DESCR 
 from ._globals import DYSPNEA_DICT, DYSPNEA_LABELS_DESCR
 from .io import (csv_data_loader, _to_dataframe, DMODULE, 
+                 
     description_loader, DESCR, RemoteDataURL ) 
 
-__all__= [ "load_iris",  "load_hlogs", "load_mxs", "load_nlogs", "load_forensic", 
+__all__= [ "load_iris",  "load_hlogs", "load_mxs", "load_nansha", "load_forensic", 
           "load_jrs_bet", "load_statlog", "load_hydro_metrics"]
 
 
 def load_hydro_metrics(*, return_X_y=False, as_frame=False, tag=None, 
-                       data_names=None, **kws):
+                       data_names=None,  **kws):
     """
     Load and return the Hydro-Meteorological dataset collected in Yobouakro, 
     S-P Agnibilekro, Cote d'Ivoire(West-Africa).
@@ -117,38 +118,38 @@ def load_hydro_metrics(*, return_X_y=False, as_frame=False, tag=None,
     full power of numpy and pandas for data processing and analysis, respectively.
     """
     data_file = "hydro_metrics.csv"
-    data, target, target_names, feature_names, fdescr = csv_data_loader(
+    data, target, target_classes, feature_names, fdescr = csv_data_loader(
         data_file=data_file, include_headline=True, 
         descr_file="hydro_metrics.rst"
     )
-    frame = None
     target_columns = ["flow"]
     # get date column and remove it from dataset.
-    date_column= pd.to_datetime(pd.DataFrame ( data, columns=feature_names)['date'])
+    date_column= pd.to_datetime(pd.DataFrame (data, columns=feature_names)['date'])
     data= data[:, 1:].astype (float)   
     feature_names = feature_names[1:]
     
-    if as_frame:
-        frame, data, target = _to_dataframe(
-            data, feature_names=feature_names, tnames=target_columns,
-            target=target
-        )
-        # set date column index 
-        frame.set_index ( date_column, inplace =True )
-        data.set_index ( date_column, inplace =True )
+    frame, data, target = _to_dataframe( data, feature_names=feature_names,
+                                        tnames=target_columns, target=target)
+    # set date column index 
+    frame.set_index ( date_column, inplace =True )
+    data.set_index ( date_column, inplace =True )
         
+    if kws.get("split_X_y", False): 
+        return _split_X_y(frame,target_columns, as_frame=as_frame, 
+            test_ratio=kws.pop("test_ratio", None),
+        )
     if return_X_y : 
-        return data, target
+        return _return_X_y( data, target, as_frame) 
     
     if as_frame: 
         return to_numeric_dtypes(frame)
 
     return Boxspace(
         data=np.array(data),
-        target=target,
+        target=np.array(target),
         frame=frame,
-        tnames=target_names,
-        target_names=target_names,
+        target_classes=target_classes,
+        target_names=target_columns,
         DESCR=fdescr,
         feature_names=feature_names,
         filename=data_file,
@@ -156,7 +157,7 @@ def load_hydro_metrics(*, return_X_y=False, as_frame=False, tag=None,
     )
 
 def load_statlog(*, return_X_y=False, as_frame=False, tag=None, 
-                       data_names=None, **kws):
+                 data_names=None, **kws):
     """
     Load and return the Statlog Heart Disease dataset.
 
@@ -220,7 +221,7 @@ def load_statlog(*, return_X_y=False, as_frame=False, tag=None,
 
     """
     data_file = "statlog_heart.csv"
-    data, target, target_names, feature_names, fdescr = csv_data_loader(
+    data, target, target_classes, feature_names, fdescr = csv_data_loader(
         data_file=data_file, descr_file="statlog_heart.rst"
     )
     feature_names=["age", "sex", "cp", "trestbps", "chol", "fbs",
@@ -228,24 +229,29 @@ def load_statlog(*, return_X_y=False, as_frame=False, tag=None,
                    "thal"]
 
     frame = None
-    target_columns = ["presence",]
-
-    if as_frame:
-        frame, data, target = _to_dataframe(
-            data, feature_names=feature_names, tnames=target_columns, target=target)
-        
+    target_columns = ["presence"]
+    
+    frame, data, target = _to_dataframe(
+        data, feature_names=feature_names, tnames=target_columns,
+        target=target)
+    
+    if kws.get("split_X_y", False): 
+        return _split_X_y(frame,target_columns, as_frame=as_frame, 
+            test_ratio=kws.pop("test_ratio", None),
+        )
+    
     if return_X_y : 
-        return data, target
+        return _return_X_y(data, target, as_frame)
     
     if as_frame: 
         return to_numeric_dtypes(frame)
     
     return Boxspace(
         data=np.array(data) ,
-        target=target,
+        target=np.array(target),
         frame=frame,
-        tnames=target_names,
-        target_names=target_names,
+        target_classes=target_classes,
+        target_names=target_columns,
         DESCR=fdescr,
         feature_names=feature_names,
         filename=data_file,
@@ -253,28 +259,32 @@ def load_statlog(*, return_X_y=False, as_frame=False, tag=None,
     )
 
 def load_dyspnea(
-        *, 
-        return_X_y=False, 
-        as_frame=False, 
-        split_X_y=False, 
-        test_size =.3 , 
-        tag=None , 
-        data_names=None,
-        objective=None, 
-        key=None, 
-        n_labels=1, 
-        **kws
+    *, 
+    return_X_y=False, 
+    as_frame=False, 
+    split_X_y=False, 
+    test_ratio =.3 , 
+    tag=None , 
+    data_names=None,
+    objective=None, 
+    key=None, 
+    n_labels=1, 
+    **kws
   ):
     """ 
-    Load and return the dyspnea dataset for ....
-
-    This function provides ....
+    Load the dyspnea (difficulty in breathing) dataset, which is designed for 
+    medical research and predictive modeling in healthcare, particularly for 
+    conditions involving dyspnea.
+    
+    This function allows for flexible data loading tailored for various 
+    analysis needs, including diagnostics, severity assessment, outcome 
+    prediction, and symptom-based studies.
 
     Parameters
     ----------
     return_X_y : bool, default=False
-        If True, returns `(data, target)` as separate objects. Otherwise, returns 
-        a Bunch object.
+        If True, returns `(data, target)` as separate objects. Otherwise,
+        returns a Bunch object.
     as_frame : bool, default=False
         If True, the data and target are returned as a pandas DataFrame and Series, 
         respectively. This is useful for further analysis and visualization in a 
@@ -329,9 +339,9 @@ def load_dyspnea(
           The full description of the dataset.
         - feature_names : list
           Names of the feature columns.
+        - target_classes : list
+          Number of classes in the target. 
         - target_names : list
-          Names of the target columns.
-        - target_columns : list
           Column names in the dataset used as targets.
         - labels_descr, columns_descr : dict
           Formatted dictionaries providing descriptions for categorical labels.
@@ -339,21 +349,20 @@ def load_dyspnea(
     Examples
     --------
     >>> from gofast.datasets import load_dyspnea
-    >>> ...
-    >>> ...
+    >>> b = load_dyspnea()
+    >>> b.frame 
+    >>> b.target 
+    >>> X, y = load_dyspnea (return_X_y=True )
 
     """
-    cf = as_frame 
     key = key or 'preprocessed'
-    key = key_checker(key, valid_keys=("raw", "preprocessed"), 
-                      deep_search=True )
+    key = key_checker(key, valid_keys=("raw", "preprocessed"), deep_search=True )
     data_file = f"dyspnea{'+'if key=='preprocessed' else ''}.csv"
 
     with resources.path (DMODULE, data_file) as p : 
         file = str(p)
     data = pd.read_csv ( file )
     
-    frame = None
     target_columns = [
         "respiratory_distress",
     ]
@@ -361,23 +370,15 @@ def load_dyspnea(
         target_columns= _select_dyspnea_target_variable(objective, n_labels=n_labels )
         
     feature_names= is_in_if(data, items=target_columns, return_diff=True)
-    
     frame, data, target = _to_dataframe(
-         data, feature_names = feature_names, tnames = target_columns, 
+         data, feature_names = feature_names, tnames = target_columns,
          )
     frame = transform_dates(to_numeric_dtypes(frame),transform=True)
- 
     if split_X_y: 
-        X, Xt = split_train_test_by_id (data = frame , test_ratio= test_size, 
-                                        keep_colindex= False )
-        y = X.flow ;  X.drop(columns =target_columns, inplace =True)
-        yt = Xt.flow ; Xt.drop(columns =target_columns, inplace =True)
-        
-        return  (X, Xt, y, yt ) if cf else (
-            X.values, Xt.values, y.values , yt.values )
-    
+        return _split_X_y(frame,target_columns, as_frame=as_frame, 
+                          test_ratio=test_ratio)
     if return_X_y : 
-        return data, target
+        return _return_X_y(data, target, as_frame= as_frame)
     
     if as_frame: 
         return to_numeric_dtypes(frame)
@@ -385,8 +386,8 @@ def load_dyspnea(
     fdescr = description_loader(descr_module=DESCR,descr_file="dyspnea.rst")
     
     return Boxspace(
-        data=data,
-        target=target,
+        data=np.array(data),
+        target=np.array(target),
         frame=frame,
         tnames=target_columns,
         target_names=target_columns,
@@ -492,17 +493,18 @@ def _finalize_return(data, tnames, frame, data_file):
     """
     fdescr = description_loader(descr_module=DESCR, descr_file="hlogs.rst")
     return Boxspace(
-        data=data.values,
-        target=frame[tnames].values,
+        data=np.array(data),
+        target=np.array(frame[tnames]),
         frame=frame,
-        tnames=tnames,
-        target_names=list(data.columns[12:]),
+        target_classes=_get_target_classes(
+            frame[tnames], tnames),
+        target_names=tnames,
         DESCR=fdescr,
-        feature_names=list(data.columns[:12]),
+        feature_names=list(data.columns),
         filename=data_file,
         data_module=DMODULE,
     )
-load_hlogs.__doc__ = """\
+load_hlogs.__doc__ =r"""\
 Load hydro-logging dataset for hydrogeophysical analysis.
 
 This dataset contains multi-target data suitable for both classification and 
@@ -585,12 +587,12 @@ To explore available target columns without specifying any parameters:
 
 To focus on specific targets 'pumping_level' and 'aquifer_thickness':
 
->>> _, y = load_hlogs(as_frame=True, tnames=['pumping_level', 'aquifer_thickness'])
->>> list(y.columns)
+>>> b= load_hlogs(as_frame=True, tnames=['pumping_level', 'aquifer_thickness'])
+>>> list(b.columns[-2:])
 ['pumping_level', 'aquifer_thickness']
 """
 
-def load_nlogs (
+def load_nansha (
     *,  return_X_y=False, 
     as_frame =False, 
     key =None, 
@@ -693,22 +695,10 @@ def load_nlogs (
     frame = to_numeric_dtypes(frame)
         
     if split_X_y: 
-        
-        X, Xt = split_train_test_by_id (
-            data = frame , test_ratio= assert_ratio(test_ratio), 
-            keep_colindex= False )
-        
-        y = X[tnames] 
-        X.drop(columns =target_columns, inplace =True)
-        yt = Xt[tnames]
-        Xt.drop(columns =target_columns, inplace =True)
-        
-        return  (X, Xt, y, yt ) if as_frame else (
-            X.values, Xt.values, y.values , yt.values )
-
-    if return_X_y: 
-        return (data.values, target.values) if not as_frame else (
-            data, target) 
+        return _split_X_y(frame,target_columns, as_frame=as_frame, 
+                          test_ratio=test_ratio)
+    if return_X_y : 
+        return _return_X_y(data, target, as_frame)
     
     # return frame if as_frame simply 
     if as_frame: 
@@ -730,7 +720,7 @@ def load_nlogs (
         data_module=DMODULE,
     )
  
-load_nlogs.__doc__ = """\
+load_nansha.__doc__ = """\
 Load the Nansha Engineering and Hydrogeological Drilling Dataset.
 
 This dataset contains multi-target information suitable for classification or 
@@ -808,21 +798,21 @@ Examples
 --------
 To explore available target columns without specifying any parameters:
 
->>> from gofast.datasets.dload import load_nlogs
+>>> from gofast.datasets.load import load_nlogs
 >>> b = load_nlogs()
 >>> b.target_names
 ['static_water_level', 'drawdown', 'water_inflow', ...]
 
 To focus on specific targets 'drawdown' and 'static_water_level':
 
->>> _, y = load_nlogs(as_frame=True, tnames=['drawdown', 'static_water_level'])
->>> list(y.columns)
+>>> b= load_nlogs(as_frame=True, tnames=['drawdown', 'static_water_level'])
+>>> list(b.columns[-2:])
 ['drawdown', 'static_water_level']
 
 To retrieve land subsidence data for specific years with display rate:
 
 >>> n = load_nlogs(key='ls', samples=3, years="2015 2018", drop_display_rate=False)
->>> n.frame.head()
+>>> list(n.frame.columns)
 [easting, northing, longitude, 2015, 2018, disp_rate]
 """
 
@@ -830,12 +820,12 @@ def load_bagoue(
         *, return_X_y=False, 
         as_frame=False, 
         split_X_y=False, 
-        test_size =.3 , 
+        test_ratio =.3 , 
         tag=None , 
         data_names=None, 
         **kws
  ):
-    cf = as_frame 
+
     data_file = "bagoue.csv"
     data, target, target_names, feature_names, fdescr = csv_data_loader(
         data_file=data_file, descr_file="bagoue.rst", include_headline= True, 
@@ -844,30 +834,19 @@ def load_bagoue(
     target_columns = [
         "flow",
     ]
-    if split_X_y: 
-        as_frame =True 
-        
-    if as_frame:
-        frame, data, target = _to_dataframe(
-            data, feature_names = feature_names, tnames = target_columns, 
-            target=target)
-        frame = to_numeric_dtypes(frame)
+    frame, data, target = _to_dataframe(
+        data, feature_names = feature_names, tnames = target_columns, 
+        target=target)
+    frame = to_numeric_dtypes(frame)
 
     if split_X_y: 
-        X, Xt = split_train_test_by_id (data = frame , test_ratio= test_size, 
-                                        keep_colindex= False )
-        y = X.flow ;  X.drop(columns =target_columns, inplace =True)
-        yt = Xt.flow ; Xt.drop(columns =target_columns, inplace =True)
-        
-        return  (X, Xt, y, yt ) if cf else (
-            X.values, Xt.values, y.values , yt.values )
+        return _split_X_y(frame,target_columns, as_frame=as_frame, 
+                          test_ratio=test_ratio)
+    if return_X_y : 
+        return _return_X_y(data, target, as_frame)
     
-    if return_X_y or as_frame:
-        return to_numeric_dtypes(data) if as_frame else data , target
-    
-    frame = to_numeric_dtypes (
-        pd.concat ([pd.DataFrame (data, columns =feature_names),
-            pd.DataFrame(target, columns= target_names)],axis=1))
+    if as_frame: 
+        return to_numeric_dtypes(frame)
     
     return Boxspace(
         data=data,
@@ -975,26 +954,29 @@ def load_iris(
     feature_names = ["sepal length (cm)","sepal width (cm)",
         "petal length (cm)","petal width (cm)",
     ]
-    frame = None
+
     target_columns = [
         "target",
     ]
-    #if as_frame:
     frame, data, target = _to_dataframe(
         data, feature_names = feature_names, tnames = target_columns, 
         target = target)
-        # _to(
-        #     "load_iris", data, target, feature_names, target_columns
-        # )
-    if return_X_y or as_frame:
-        return to_numeric_dtypes(data) if as_frame else data , target
+    
+    if kws.get("split_X_y", False): 
+        return _split_X_y(frame,target_columns, as_frame=as_frame, 
+                          test_ratio=kws.pop("test_ratio", None))
+    if return_X_y : 
+        return _return_X_y(data, target, as_frame)
+    
+    if as_frame: 
+        return to_numeric_dtypes(frame)
 
     return Boxspace(
         data=data.values,
         target=target,
         frame=frame,
         tnames=target_names,
-        target_names=target_names,
+        target_names=target_columns,
         DESCR=fdescr,
         feature_names=feature_names,
         filename=data_file,
@@ -1067,11 +1049,10 @@ know their class name.
 >>> data = load_iris()
 >>> data.target[[10, 25, 50]]
 array([0, 0, 1])
->>> list(data.target_names)
+>>> list(data.tnames)
 ['setosa', 'versicolor', 'virginica']
 """    
-    
-    
+   
 def load_mxs (
     *,  return_X_y=False, 
     as_frame =False, 
@@ -1084,234 +1065,250 @@ def load_mxs (
     seed = None, 
     shuffle=False,
     test_ratio=.2,  
-    **kws): 
+    **kws):
+    """
+    Load the dataset after implementing the mixture learning strategy (MXS).
     
-    drop_observations =kws.pop("drop_observations", False)
+    Dataset is composed of 11 boreholes merged with multiple-target that can be 
+    used for a classification problem collected as Niming county. 
     
-    target_map= { 
-        0: '1',
-        1: '11*', 
-        2: '2', 
-        3: '2*', 
-        4: '3', 
-        5: '33*'
-        }
+    See more details in :ref:`Documentation User Guide <user_guide>`. 
     
-    add = {"data": ('data', ) , '*': (
-        'X_train','X_test' , 'y_train','y_test' ), 
-        }
-    av= {"sparse": ('X_csr', 'ymxs_transf'), 
-         "scale": ('Xsc', 'ymxs_transf'), 
-         "train": ( 'X_train', 'y_train'), 
-         "test": ('X_test', 'y_test'), 
-         'numeric': ( 'Xnm', 'ymxs_transf'), 
-         'raw': ('X', 'y')
-         }
+    Parameters
+    ----------
+    return_X_y : bool, default=False
+        If True, returns ``(data, target)`` instead of a Bowlspace object. See
+        below for more information about the `data` and `target` object.
+        
+    as_frame : bool, default=False
+        If True, the data is a pandas DataFrame including columns with
+        appropriate dtypes (numeric). The target is
+        a pandas DataFrame or Series depending on the number of target columns.
+        If `return_X_y` is True, then (`data`, `target`) will be pandas
+        DataFrames or Series as described below.
     
-    if key is None: 
-        key='data'
-    data_file ='mxs.joblib'
-    with resources.path (DMODULE , data_file) as p : 
+    split_X_y: bool, default=False,
+        If True, the data is splitted to hold the training set (X, y)  and the 
+        testing set (Xt, yt) based on to the `test_ratio` value.
+    
+    tnames: str, optional 
+        the name of the target to retrieve. If ``None`` the full target columns 
+        are collected and compose a multioutput `y`. For a singular classification 
+        or regression problem, it is recommended to indicate the name of the target 
+        that is needed for the learning task. 
+    (tag, data_names): None
+        `tag` and `data_names` do nothing. just for API purpose and to allow 
+        fetching the same data uing the func:`~gofast.data.fetch_data` since the 
+        latter already holds `tag` and `data_names` as parameters. 
+        
+    samples: int,optional 
+       Ratio or number of items from axis to fetch in the data. 
+       Default = .5 if `samples` is ``None``.
+    
+    key: str, default='data'
+        Kind of MXS data to fetch. Can also be: 
+            
+            - "sparse": for a compressed sparsed row matrix format of train set X. 
+            - "scale": returns a scaled X using the standardization strategy 
+            - "num": Exclusive numerical data and exclude the 'strata' feature.
+            - "test": test data `X` and `y` 
+            - "train": train data `X` and  `y` with preprocessing already performed
+            - "raw": for original dataset X and y  with no preprocessing 
+            - "data": Default when key is not supplied. It returns 
+              the :class:`Bowlspace` objects.
+            
+        When k is not supplied, "data" is used instead and return a 
+        :class:`Bowlspace` objects. where: 
+            - target_map: is the mapping of MXS labels in the target y. 
+            - nga_labels: is the y predicted for Naive Group of Aquifer. 
+    
+    drop_observations: bool, default='False'
+        Drop the ``remark`` column in the logging data if set to ``True``. 
+        
+    seed: int, array-like, BitGenerator, np.random.RandomState, \
+        np.random.Generator, optional
+       If int, array-like, or BitGenerator, seed for random number generator. 
+       If np.random.RandomState or np.random.Generator, use as given.
+       
+    shuffle: bool, default =False, 
+       If ``True``, borehole data should be shuffling before sampling. 
+       
+    test_ratio: float, default is 0.2 i.e. 20% (X, y)
+        The ratio to split the data into training (X, y) and testing (Xt, yt) set 
+        respectively.
+        
+    Returns
+    ---------
+    data : :class:`~gofast.tools.Boxspace`
+        Dictionary-like object, with the following attributes.
+        data : {ndarray, dataframe} 
+            The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
+        target: {ndarray, Series} 
+            The classification target. If `as_frame=True`, `target` will be
+            a pandas Series.
+        feature_names: list
+            The names of the dataset columns.
+        target_names: list
+            The names of target classes.
+        target_map: dict, 
+           is the mapping of MXS labels in the target y. 
+        nga_labels: arryalike 1D, 
+           is the y predicted for Naive Group of Aquifer. 
+        frame: DataFrame 
+            Only present when `as_frame=True`. DataFrame with `data` and
+            `target`.
+        DESCR: str
+            The full description of the dataset.
+        filename: str
+            The path to the location of the data.
+    data, target: tuple if ``return_X_y`` is True
+        A tuple of two ndarray. The first containing a 2D array of shape
+        (n_samples, n_features) with each row representing one sample and
+        each column representing the features. The second ndarray of shape
+        (n_samples,) containing the target samples.
+    
+    X, Xt, y, yt: Tuple if ``split_X_y`` is True 
+        A tuple of two ndarray (X, Xt). The first containing a 2D array of
+        training and test data whereas `y` and `yt` are training and test labels.
+        The number of samples are based on the `test_ratio`. 
+     
+    Examples
+    --------
+    >>> from gofast.datasets.dload import load_mxs  
+    >>> load_mxs (return_X_y= True, key ='sparse', samples ='*')
+    (<1038x21 sparse matrix of type '<class 'numpy.float64'>'
+     	with 8298 stored elements in Compressed Sparse Row format>,
+     array([1, 1, 1, ..., 5, 5, 5], dtype=int64))
+    
+    Load the entire dataset as a pandas DataFrame:
+    >>> df = load_mxs_dataset(as_frame=True)
+    
+    Load the dataset, split into training and testing sets:
+    >>> X_train, X_test, y_train, y_test = load_mxs_dataset(split_X_y=True, 
+                                                            return_X_y=True)
+    """
+  
+    drop_observations = kws.pop("drop_observations", False)
+    target_map = {0: '1', 1: '11*', 2: '2', 3: '2*', 4: '3', 5: '33*'}
+    
+    # Handling the 'key' parameter and validating against available options
+    key = key or 'data'
+    key = 'pp' if key.lower() in ('pp', 'preprocessed') else key.lower()
+    available_dict = _validate_key(key)
+
+    data_file = 'mxs.joblib'
+    with resources.path(DMODULE, data_file) as p:
         data_file = str(p)
-        
-    data_dict = joblib.load (data_file )
-    # assertion error if key does not exist. 
-    available_sets = set (list( av.keys() ) + list( add.keys()))
-
-    msg = (f"key {key!r} does not exist yet, expect"
-           f" {smart_format(available_sets, 'or')}")
-    assert str(key).lower() in available_sets , msg
-    # manage sampling 
-    # by default output 50% data 
-    samples= samples or .50 
+    data_dict = joblib.load(data_file)
+    samples = ( None if samples =="*" else samples) or .5 # 50%
+    data, frame,feature_names, tnames = _prepare_common_dataset(
+        data_dict["data"], drop_observations, tnames,  samples, seed, shuffle)
+    # Processing based on the specified 'key'
+    if key in available_dict:
+        Xy = _get_mxs_X_y(available_dict[key], data_dict)
+        if Xy:
+            Xy = resample_data(*Xy, samples=samples, random_state=seed, shuffle=shuffle)
+            if split_X_y and key == 'pp':
+                return Xy
+            elif split_X_y:
+                return _split_and_convert(Xy, test_ratio, seed, shuffle, as_frame)
+    elif split_X_y:
+        return _split_X_y(frame, tnames, test_ratio, as_frame)
     
-    if split_X_y: 
-        from ..exlib import train_test_split
-        data = tuple ([data_dict [k] for k in add ['*'] ] )
-        # concatenate the CSR matrix 
-        X_csr = scipy.sparse.csc_matrix (np.concatenate (
-            (data[0].toarray(), data[1].toarray()))) 
-        y= np.concatenate ((data[-2], data[-1]))
-        # resampling 
-        data = (random_sampling(d, samples = samples,random_state= seed , 
-                                shuffle= shuffle) for d in (X_csr, y ) 
-                )
-        # split now
-        return train_test_split (*tuple ( data ),random_state = seed, 
-                                 test_size =assert_ratio (test_ratio),
-                                 shuffle = shuffle)
-    # Append Xy to Boxspace if 
-    # return_X_y is not set explicitly.
-    Xy = dict() 
-    # if for return X and y if k is not None 
-    if key is not None and key !="data": 
-        if key not in  av.keys():
-            key ='raw'
-        X, y =  tuple ( [ data_dict[k]  for k in av [key]] ) 
+    return (data, frame[tnames]) if return_X_y else frame if as_frame else\
+        Boxspace(
+            data=np.array(data),
+            target=np.array(frame[tnames]),
+            frame=data,
+            tnames=tnames,
+            target_names = tnames,
+            target_map = target_map, 
+            nga_labels = data_dict.get('nga_labels'), 
+            DESCR= 'Not uploaded yet: Authors are waiting for a publication first.',
+            feature_names=feature_names,
+            filename=data_file,
+            data_module=DMODULE,
+            )
+def _get_mxs_X_y(key_Xy: tuple, data_dict: dict):
+    """
+    Retrieve the data and target arrays from a dictionary given specific keys.
 
-        X = random_sampling(X, samples = samples,random_state= seed , 
-                            shuffle= shuffle)
-        y = random_sampling(y, samples = samples, random_state= seed, 
-                            shuffle= shuffle
-                               )
-        if return_X_y: 
-            return (  X, y )  if as_frame or key =='sparse' else (
-                np.array(X), np.array(y))
-        
-        # if return_X_y is not True 
-        Xy ['X']=X ; Xy ['y']=y 
-        # Initialize key to 'data' to 
-        # append the remain data 
-        key ='data'
+    This function extracts the features (X) and target (y) arrays from the provided
+    data dictionary using keys specified in `key_Xy`. It is designed to fetch data
+    for machine learning models where the data is organized in a dictionary format,
+    facilitating easy access to the inputs (X) and outputs (y) for training or testing.
 
-    data = data_dict.get(key)  
-    if drop_observations: 
-        data.drop (columns = "remark", inplace = True )
+    Parameters
+    ----------
+    key_Xy : tuple
+        A tuple containing two keys. The first key should correspond to the features
+        (X) and the second key to the target (y) within the `data_dict`.
+    data_dict : dict
+        A dictionary where each key corresponds to a specific dataset component. This
+        dictionary should contain at least the keys specified in `key_Xy` pointing to
+        the features and target data.
+
+    Returns
+    -------
+    list
+        A list containing two elements: the features (X) and the target (y) arrays
+        retrieved from the `data_dict` using the keys provided in `key_Xy`. The order
+        in the list corresponds to the order of keys in `key_Xy`.
+
+    Example
+    -------
+    >>> data_dict = {'X_train': array([...]), 'y_train': array([...])}
+    >>> key_Xy = ('X_train', 'y_train')
+    >>> Xy = _get_mxs_X_y(key_Xy, data_dict)
+    >>> Xy[0]  # This will return the features array corresponding to 'X_train'
+    >>> Xy[1]  # This will return the target array corresponding to 'y_train'
+    """
+    if key_Xy is None: 
+        return 
+    Xy = list(data_dict.get(k) for k in key_Xy)
+    return Xy
+       
+def _validate_key(key: str):
+    # Validate the provided 'key' against known dataset variants
+    available_data = { 
+        "sparse": ('X_csr', 'ymxs_transf'), "scale": ('Xsc', 'ymxs_transf'), 
+        "pp": ( 'X_train', 'X_test', 'y_train', 'y_test'),
+        'numeric': ( 'Xnm', 'ymxs_transf'), 'raw': ('X', 'y')
+        }
+    available_keys = list(available_data.keys())  + ['data']
+    if key not in available_keys:
+        raise ValueError(f"Invalid 'key': {key}. Expected one of {available_keys}.")
         
-    frame = None
+    return available_data
+
+def _prepare_common_dataset(data, drop_observations, tnames, samples, seed, shuffle):
+    # Process the common dataset: handling dropping columns, sampling,
+    # and converting to DataFrame
+    if drop_observations:
+        data = data.drop(columns="remark")
     feature_names = list(data.columns [:13] ) 
     target_columns = list(data.columns [13:])
-    
     tnames = tnames or target_columns
-    # control the existence of the tnames to retreive
-    data = random_sampling(data, samples = samples, random_state= seed, 
-                           shuffle= shuffle)
+
+    sampled_data = random_sampling(
+        data, samples=samples, random_state=seed, shuffle=shuffle)
+    
+    frame, processed_data, target = _to_dataframe(
+        sampled_data, tnames, list(data.columns [:13] ),
+        target=sampled_data[tnames].values)
+    return processed_data, to_numeric_dtypes(frame), feature_names, tnames
+
+def _split_and_convert(Xy, test_ratio, seed, shuffle, as_frame):
+    # Split data into training and testing sets and optionally convert
+    # to structured pandas format
+    from sklearn.model_selection import train_test_split
+    X_train, X_test, y_train, y_test = train_test_split(
+        *Xy, test_size=test_ratio, random_state=seed, shuffle=shuffle)
     if as_frame:
-        frame, data, target = _to_dataframe(
-            data, feature_names = feature_names, tnames = tnames, 
-            target=data[tnames].values 
-            )
-        frame = to_numeric_dtypes(frame)
+        return convert_to_structured_format(X_train, X_test, y_train, y_test,
+                                            as_frame=True)
+    return X_train, X_test, y_train, y_test
 
-    return Boxspace(
-        data=data.values,
-        target=data[tnames].values,
-        frame=data,
-        tnames=tnames,
-        target_names = target_columns,
-        target_map = target_map, 
-        nga_labels = data_dict.get('nga_labels'), 
-        #XXX Add description 
-        DESCR= '', # fdescr,
-        feature_names=feature_names,
-        filename=data_file,
-        data_module=DMODULE,
-        **Xy
-        )
-    
-load_mxs.__doc__="""\
-Load the dataset after implementing the mixture learning strategy (MXS).
-
-Dataset is composed of 11 boreholes merged with multiple-target that can be 
-used for a classification problem.
-
-Parameters
-----------
-return_X_y : bool, default=False
-    If True, returns ``(data, target)`` instead of a Bowlspace object. See
-    below for more information about the `data` and `target` object.
-    
-as_frame : bool, default=False
-    If True, the data is a pandas DataFrame including columns with
-    appropriate dtypes (numeric). The target is
-    a pandas DataFrame or Series depending on the number of target columns.
-    If `return_X_y` is True, then (`data`, `target`) will be pandas
-    DataFrames or Series as described below.
-
-split_X_y: bool, default=False,
-    If True, the data is splitted to hold the training set (X, y)  and the 
-    testing set (Xt, yt) based on to the `test_ratio` value.
-
-tnames: str, optional 
-    the name of the target to retrieve. If ``None`` the full target columns 
-    are collected and compose a multioutput `y`. For a singular classification 
-    or regression problem, it is recommended to indicate the name of the target 
-    that is needed for the learning task. 
-(tag, data_names): None
-    `tag` and `data_names` do nothing. just for API purpose and to allow 
-    fetching the same data uing the func:`~gofast.data.fetch_data` since the 
-    latter already holds `tag` and `data_names` as parameters. 
-    
-samples: int,optional 
-   Ratio or number of items from axis to fetch in the data. 
-   Default = .5 if `samples` is ``None``.
-
-key: str, default='data'
-    Kind of MXS data to fetch. Can also be: 
-        
-        - "sparse": for a compressed sparsed row matrix format of train set X. 
-        - "scale": returns a scaled X using the standardization strategy 
-        - "num": Exclusive numerical data and exclude the 'strata' feature.
-        - "test": test data `X` and `y` 
-        - "train": train data `X` and  `y` with preprocessing already performed
-        - "raw": for original dataset X and y  with no preprocessing 
-        - "data": Default when key is not supplied. It returns 
-          the :class:`Bowlspace` objects.
-        
-    When k is not supplied, "data" is used instead and return a 
-    :class:`Bowlspace` objects. where: 
-        - target_map: is the mapping of MXS labels in the target y. 
-        - nga_labels: is the y predicted for Naive Group of Aquifer. 
-
-drop_observations: bool, default='False'
-    Drop the ``remark`` column in the logging data if set to ``True``. 
-    
-seed: int, array-like, BitGenerator, np.random.RandomState, \
-    np.random.Generator, optional
-   If int, array-like, or BitGenerator, seed for random number generator. 
-   If np.random.RandomState or np.random.Generator, use as given.
-   
-shuffle: bool, default =False, 
-   If ``True``, borehole data should be shuffling before sampling. 
-   
-test_ratio: float, default is 0.2 i.e. 20% (X, y)
-    The ratio to split the data into training (X, y) and testing (Xt, yt) set 
-    respectively.
-    
-Returns
----------
-data : :class:`~gofast.tools.Boxspace`
-    Dictionary-like object, with the following attributes.
-    data : {ndarray, dataframe} 
-        The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
-    target: {ndarray, Series} 
-        The classification target. If `as_frame=True`, `target` will be
-        a pandas Series.
-    feature_names: list
-        The names of the dataset columns.
-    target_names: list
-        The names of target classes.
-    target_map: dict, 
-       is the mapping of MXS labels in the target y. 
-    nga_labels: arryalike 1D, 
-       is the y predicted for Naive Group of Aquifer. 
-    frame: DataFrame 
-        Only present when `as_frame=True`. DataFrame with `data` and
-        `target`.
-    DESCR: str
-        The full description of the dataset.
-    filename: str
-        The path to the location of the data.
-data, target: tuple if ``return_X_y`` is True
-    A tuple of two ndarray. The first containing a 2D array of shape
-    (n_samples, n_features) with each row representing one sample and
-    each column representing the features. The second ndarray of shape
-    (n_samples,) containing the target samples.
-
-X, Xt, y, yt: Tuple if ``split_X_y`` is True 
-    A tuple of two ndarray (X, Xt). The first containing a 2D array of
-    training and test data whereas `y` and `yt` are training and test labels.
-    The number of samples are based on the `test_ratio`. 
- 
-Examples
---------
->>> from gofast.datasets.dload import load_mxs  
->>> load_mxs (return_X_y= True, key ='sparse', samples ='*')
-(<1038x21 sparse matrix of type '<class 'numpy.float64'>'
- 	with 8298 stored elements in Compressed Sparse Row format>,
- array([1, 1, 1, ..., 5, 5, 5], dtype=int64))
- 
-"""  
 def _get_subsidence_data (
         data_file, /, 
         years: str="2022", 
@@ -1384,12 +1381,11 @@ def load_bagoue(
         return_X_y=False, 
         as_frame=False, 
         split_X_y=False, 
-        test_size =.3 , 
+        test_ratio ="30%" , 
         tag=None , 
         data_names=None,
         **kws
  ):
-    cf = as_frame 
     data_file = "bagoue.csv"
     data, target, target_names, feature_names, fdescr = csv_data_loader(
         data_file=data_file, descr_file="bagoue.rst", include_headline= True, 
@@ -1401,32 +1397,19 @@ def load_bagoue(
     if split_X_y: 
         as_frame =True 
         
-    if as_frame:
-        frame, data, target = _to_dataframe(
-            data, feature_names = feature_names, tnames = target_columns, 
-            target=target)
-        frame = to_numeric_dtypes(frame)
+    frame, data, target = _to_dataframe(
+        data, feature_names = feature_names, tnames = target_columns, 
+        target=target)
+    frame = to_numeric_dtypes(frame)
 
     if split_X_y: 
-        X, Xt = split_train_test_by_id (data = frame , test_ratio= test_size, 
-                                        keep_colindex= False )
-        y = X.flow ;  X.drop(columns =target_columns, inplace =True)
-        yt = Xt.flow ; Xt.drop(columns =target_columns, inplace =True)
-        
-        return  (X, Xt, y, yt ) if cf else (
-            X.values, Xt.values, y.values , yt.values )
-    
-
-    if as_frame and not return_X_y: 
-        return frame 
+        return _split_X_y(frame, target_columns, test_ratio, as_frame) 
 
     if return_X_y:
-        return data, target
-    
-    frame = to_numeric_dtypes (
-        pd.concat ([pd.DataFrame (data, columns =feature_names),
-            pd.DataFrame(target, columns= target_names)],axis=1))
-    
+        return _return_X_y(data, target, as_frame)
+    if as_frame: 
+        return to_numeric_dtypes(frame )
+
     return Boxspace(
         data=data,
         target=target,
@@ -1504,15 +1487,13 @@ def load_forensic( *,
     as_frame=False, 
     key=None, 
     split_X_y=False, 
-    test_size =.3 ,  
+    test_ratio =.3 ,  
     tag=None , 
     data_names=None, 
     exclude_message_column=True,  
     exclude_vectorized_features=True,  
     **kws
 ):
-   """ Forensic """
-   cf = as_frame 
    key = key or 'preprocessed'
    key = key_checker(key, valid_keys=("raw", "preprocessed"), 
                      deep_search=True )
@@ -1540,19 +1521,12 @@ def load_forensic( *,
    frame = format_to_datetime(to_numeric_dtypes(frame), date_col ='date')
 
    if split_X_y: 
-       X, Xt = split_train_test_by_id (data = frame , test_ratio= test_size, 
-                                       keep_colindex= False )
-       y = X.flow ;  X.drop(columns =target_columns, inplace =True)
-       yt = Xt.flow ; Xt.drop(columns =target_columns, inplace =True)
-       
-       return  (X, Xt, y, yt ) if cf else (
-           X.values, Xt.values, y.values , yt.values )
-   
-   if as_frame and not return_X_y: 
-       return frame 
+       return _split_X_y(frame, target_columns, test_ratio, as_frame) 
 
    if return_X_y:
-       return data, target
+       return _return_X_y(data, target, as_frame)
+   if as_frame: 
+       return to_numeric_dtypes(frame )
    
    fdescr = description_loader(
        descr_module=DESCR,descr_file=data_file.replace (".csv", ".rst"))
@@ -2106,17 +2080,173 @@ def _select_dyspnea_target_variable(
         return data[selected_columns] if n_labels > 1 else data[selected_columns[0]]
 
     return selected_columns if n_labels > 1 else selected_columns[0]
+       
+def _get_target_classes(target, target_columns):
+    """
+    Determines the classification type of the target variable(s) based
+    on the unique values present. Identifies if the target is suited for
+    classification or regression tasks, based on unique class counts or
+    target type.
+
+    Parameters
+    ----------
+    target : array-like
+        The target variable(s) from the dataset, used to determine the
+        prediction task type (classification or regression).
+    target_columns : list of str
+        Names of the target columns, used as fallback for regression tasks
+        or when class count exceeds threshold.
+
+    Returns
+    -------
+    classification_info : list, str, or 'undetermined'
+        - Returns a list of unique classes for binary or multiclass with
+          10 or fewer classes.
+        - Returns target column names if class count is over 10, assuming
+          regression.
+        - Returns a string indicating non-binary/multiclass target type.
+        - Returns 'undetermined' if target type cannot be established.
+
+    Notes
+    -----
+    Utilizes `type_of_target` from core utilities to assess target variable
+    type. Designed to distinguish between classification and regression
+    tasks for appropriate model selection and preprocessing.
+    """
+    from ..tools.coreutils import type_of_target
+    try:
+        target_type = type_of_target(target)
+        unique_classes = np.unique(target)
+
+        if target_type in ("binary", "multiclass"):
+            if len(unique_classes) <= 10:
+                return list(unique_classes)
+            else:
+                return target_columns
+        else:
+            return f"is {target_type}"
+    except Exception as e: # noqa
+        # print(f"Error determining target classification: {e}")
+        return 'undetermined'
+
+def _split_X_y(frame, target_columns, test_ratio=None, as_frame=False):
+    """
+    Splits the provided dataset into training and testing subsets, further 
+    separating features from target variables. 
     
+    This operation facilitates machine learn training and testing sets, along 
+    with clear separation of input features and target outcomes.
+
+    Parameters
+    ----------
+    frame : pandas.DataFrame
+        The dataset to be split, containing both the features and the target
+        variables. It is assumed that this dataframe is preprocessed and ready
+        for splitting.
+    target_columns : list of str
+        Names of the columns in `frame` that should be treated as the target 
+        variables. These columns are separated from the features during the
+        split process.
+    test_ratio : float,default='20%'
+        The proportion of the dataset to be allocated to the test subset, 
+        expressed as a float between 0.0 and 1.0.
+    as_frame : bool, optional, default=False
+        Flag indicating the format of the returned datasets. If True, the 
+        datasets are returned as pandas DataFrame and Series objects. If False, 
+        they are converted to numpy arrays, suitable for use in scenarios where 
+        DataFrame structures are not required.
+
+    Returns
+    -------
+    X_train, X_test, y_train, y_test : tuple
+        A tuple containing the split datasets. `X_train` and `X_test` are the 
+        subsets of features for training and testing, respectively. 
+        `y_train` and `y_test` represent the corresponding target variables 
+        for each subset. The types of these objects are determined by the 
+        `return_as_frame` parameter.
+
+    Raises
+    ------
+    ValueError
+        If `perform_split` is False, indicating an incorrect use of the 
+        function for its intended purpose.
+
+    Examples
+    --------
+    >>> df = pd.DataFrame({...})
+    >>> target_cols = ['target']
+    >>> X_train, X_test, y_train, y_test = _split_X_y(
+        df, target_cols, 0.25, return_as_frame=True)
+    >>> print(X_train.shape, X_test.shape, y_train.shape, y_test.shape)
+
+    Note
+    ----
+    This function is designed to be flexible, accommodating various types of 
+    data analysis and machine learning workflows. By providing control over 
+    the split ratio and the data format, it enables seamless integration into 
+    different 
+    data processing pipelines.
+    """
+    test_ratio= assert_ratio(test_ratio) if test_ratio is not None else 0.2
+    # Execute the dataset splitting based on ID, preserving the order or 
+    # structure as required
+    X, Xt = split_train_test_by_id(
+        data=frame, test_ratio=test_ratio, keep_colindex=False)
+    # Separate the target variables from the features in both training
+    # and testing sets
+    y = X [target_columns]
+    yt = Xt[target_columns]
+    X= X.drop (columns =target_columns )
+    Xt=Xt.drop (columns =target_columns )
+    # Return the split datasets in the specified format
     
-    
-    
-    
-    
-    
-    
-    
-    
-    
+    return convert_to_structured_format(
+        X, Xt, y, yt, as_frame=as_frame, skip_sparse= True )
+
+def _return_X_y (data, target, as_frame):
+    """
+    Formats the data and target variables for return, based on the specified
+    format preference. This function allows for the flexible return of data
+    either as pandas DataFrame/Series or as numpy arrays, facilitating
+    subsequent analysis or model feeding processes.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame or array-like
+        The input features of the dataset, either as a DataFrame or any
+        structure convertible to a numpy array.
+    target : pandas.Series or array-like
+        The target variables of the dataset, similarly as a Series or
+        convertible structure.
+    as_frame : bool
+        Flag indicating the desired return format. If True, returns the
+        data and target as provided (suitable for DataFrame/Series inputs).
+        If False, converts and returns them as numpy arrays.
+
+    Returns
+    -------
+    tuple
+        A tuple containing the data and target in the requested format.
+        - If `return_as_frame` is True, the original input formats of `data`
+          and `target` are returned.
+        - If False, `data` and `target` are returned as numpy arrays, using
+          np.array conversion.
+
+    Example
+    -------
+    >>> df, target = _return_X_y(df, series, True)
+    >>> X, y = _return_X_y(list_of_lists, list_of_targets, False)
+    """
+    if as_frame:
+        if isinstance (target, pd.DataFrame ) and len(target.columns)==1: 
+             try : target= pd.Series (data = np.squeeze(target), 
+                                      name =target.columns[0])
+             except: pass # do nothing
+             
+        return data, target
+    else:
+        return np.array(data), np.array (np.squeeze(target))
+
     
     
     
