@@ -12,13 +12,13 @@ import numpy as np
 import random
 from datetime import timedelta
 from sklearn.model_selection import train_test_split 
-from ..tools._dependency import import_optional_dependency 
-from ..tools.baseutils import run_shell_command, remove_target_from_array
+from ..tools.baseutils import remove_target_from_array
 from ..tools.box import Boxspace 
 from ..tools.coreutils import ellipsis2false ,assert_ratio, is_iterable 
 from ..tools.coreutils import is_in_if, _assert_all_types,  add_noises_to 
-from ..tools.coreutils import smart_format # , reshape 
-from ._globals import AFRICAN_COUNTRIES 
+from ..tools.coreutils import smart_format, random_sampling
+from ..tools.funcutils import ensure_pkg
+from ._globals import AFRICAN_COUNTRIES, DIAGNOSIS_UNITS
 from ._globals import COMMON_PESTICIDES, COMMON_CROPS 
 from ._globals import WATER_QUAL_NEEDS, WATER_QUAN_NEEDS, SDG6_CHALLENGES
 from ._globals import ORE_TYPE, EXPLOSIVE_TYPE, EQUIPMENT_TYPE
@@ -339,16 +339,16 @@ def make_classification(
     else: 
         for i in range(n_labels):
             data[f'target_{i}'] = y [:, i]       
-    tnames = 'target' if n_labels ==1 else [f'target_{i}'for i in range(n_labels)]
+    target_names = 'target' if n_labels ==1 else [f'target_{i}'for i in range(n_labels)]
     # return X, y 
     data = _rename_data_columns(data , feature_columns) 
-    _target= _rename_data_columns(data[tnames], target_columns ) 
-    tnames = _target.name if n_labels==1 else list(_target.columns )
+    _target= _rename_data_columns(data[target_names], target_columns ) 
+    target_names = _target.name if n_labels==1 else list(_target.columns )
     
     data = _manage_data(
         data,
         as_frame=as_frame, 
-        tnames=tnames, 
+        target_names=target_names, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
         test_size=test_size, 
@@ -481,20 +481,20 @@ def make_regression(
        scale = str(scale).lower() 
        X, y = _apply_scaling(X, y, method=scale)   
         
-    tnames = 'target' if len(target_indices) ==1 else [
+    target_names = 'target' if len(target_indices) ==1 else [
         f'target_{i}'for i in range(len(target_indices) )]   
     data = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
-    data[tnames]=y
+    data[target_names]=y
     
     # return X, y 
     data = _rename_data_columns(data , feature_columns) 
-    _target= _rename_data_columns(data[tnames], target_columns ) 
-    tnames = _target.name if len(target_indices)==1 else list(_target.columns )
+    _target= _rename_data_columns(data[target_names], target_columns ) 
+    target_names = _target.name if len(target_indices)==1 else list(_target.columns )
     
     return _manage_data(
         data,
         as_frame=as_frame, 
-        tnames=tnames, 
+        target_names=target_names, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
         test_size=test_size,
@@ -502,12 +502,18 @@ def make_regression(
         seed=seed
         ) 
 
+@ensure_pkg(
+    "faker", 
+    auto_install=True,
+    use_conda=True, 
+    verbose=1  
+    )
 def make_social_media_comments(
     *, samples=1000, 
     as_frame:bool =..., 
     return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -541,7 +547,7 @@ def make_social_media_comments(
         If True, the dataset is split into training (X, y) and testing (Xt, yt)
         sets according to the specified test size ratio.
     
-    tnames : str, optional
+    target_names : str, optional
         The name of the target column to retrieve. If `None`, the default 
         target columns are used, which may result in a multioutput `y`. For 
         single-output tasks in classification or regression, it's recommended 
@@ -610,14 +616,8 @@ def make_social_media_comments(
     >>> df = make_social_media_comments(n=100, seed=42)
     >>> print(df.head())
     """
-    if seed is not None:
-        np.random.seed(seed)
-    try: 
-        import_optional_dependency('faker')
-    except: 
-        run_shell_command(["pip", "install", "faker"])
-    # recheck whether faker is well installed
-    import_optional_dependency('Faker')
+    np.random.seed(seed)
+ 
     from faker import Faker
     fake = Faker()
     Faker.seed(seed)
@@ -628,14 +628,16 @@ def make_social_media_comments(
         'timestamp': [fake.date_time_this_year() for _ in range(samples)],
         'likes': np.random.randint(0, 1000, samples)
     }
-    tnames = list( is_iterable(
-        tnames or 'comment', exclude_string= True, transform =True ) ) 
+    data = pd.DataFrame (data)
+    target_names = list( is_iterable(
+        target_names or 'comment', exclude_string= True, transform =True ) ) 
+    
     return _manage_data(
         data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size,
         noise= noise, 
         seed=seed
@@ -648,7 +650,7 @@ def make_african_demo(*,
     as_frame:bool =..., 
     return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -692,7 +694,7 @@ def make_african_demo(*,
         If True, the dataset is split into training (X, y) and testing (Xt, yt)
         sets according to the specified test size ratio.
     
-    tnames : str, optional
+    target_names : str, optional
         The name of the target column to retrieve. If `None`, the default 
         target columns are used, which may result in a multioutput `y`. For 
         single-output tasks in classification or regression, it's recommended 
@@ -774,32 +776,34 @@ def make_african_demo(*,
 
             data.append([country, year, population, birth_rate, death_rate,
                          urbanization_rate, gdp_per_capita])
+    columns = [
+        'country',
+        'year',
+        'population',
+        'birth_rate',
+        'death_rate',
+        'urbanization_rate',
+        'gdp_per_capita'
+    ]
 
-    columns = ['Country',
-               'Year', 
-               'Population', 
-               'BirthRate', 
-               'DeathRate', 
-               'UrbanizationRate', 
-               'GDP_PerCapita'
-               ]
     demo_data = pd.DataFrame(data, columns=columns)
   
-    tnames = list( is_iterable(
-        tnames or 'GDP_PerCapita', exclude_string= True, transform =True ) ) 
+    target_names = list( is_iterable(
+        target_names or 'gdp_per_capita', exclude_string= True, transform =True ) ) 
     
     demo_data = _manage_data(
         demo_data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size,
         noise= noise, 
         seed=seed
         ) 
 
     return demo_data
+
 
 def make_agronomy_feedback(*, 
     samples=100, 
@@ -808,7 +812,7 @@ def make_agronomy_feedback(*,
     as_frame:bool =..., 
     return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -853,7 +857,7 @@ def make_agronomy_feedback(*,
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -951,32 +955,36 @@ def make_agronomy_feedback(*,
                              crop_yield]
                             )
 
-    columns = ['FarmID', 
-               'Year', 
-               'Crop', 
-               'SoilPH', 
-               'Temperature_C', 
-               'Rainfall_mm', 
-               'PesticideType', 
-               'PesticideAmount_kg_per_hectare', 
-               'CropYield_kg_per_hectare'
-               ]
-    
+    columns = [
+        'farm_id',
+        'year',
+        'crop',
+        'soil_ph',
+        'temperature_c',
+        'rainfall_mm',
+        'pesticide_type',
+        'pesticide_amount_kg_per_hectare',
+        'crop_yield_kg_per_hectare'
+    ]
+
     agronomy_dataset = pd.DataFrame(data, columns=columns)
-    tnames = list( is_iterable(
-        tnames or 'CropYield_kg_per_hectare',exclude_string= True,
+    target_names = list( is_iterable(
+        target_names or 'crop_yield_kg_per_hectare',exclude_string= True,
         transform =True ) ) 
-    agronomy_dataset = _manage_data(
+    
+    agronomy_dataset = random_sampling(
+        agronomy_dataset, samples, random_state=seed )
+    agronomy_dataset.reset_index (drop=True, inplace =True)
+    return _manage_data(
         agronomy_dataset,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
         seed=seed
         ) 
-    return agronomy_dataset
 
 def make_mining_ops(
     *, 
@@ -984,7 +992,7 @@ def make_mining_ops(
     as_frame:bool =..., 
     return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -1077,7 +1085,7 @@ def make_mining_ops(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -1148,13 +1156,13 @@ def make_mining_ops(
     depths = np.random.uniform(0, 500, samples)  # in meters
 
     # Mineralogical data
-    ore_types = np.random.choice(ORE_TYPE.keys(), samples)
+    ore_types = np.random.choice(list(ORE_TYPE.keys()), samples)
     ore_concentrations = np.random.uniform(0.1, 20, samples)  # percentage
 
     # Drilling and blasting data
     drill_diameters = np.random.uniform(50, 200, samples)  # in mm
     blast_hole_depths = np.random.uniform(3, 15, samples)  # in meters
-    explosive_types = np.random.choice(EXPLOSIVE_TYPE.keys(), samples)
+    explosive_types = np.random.choice(list(EXPLOSIVE_TYPE.keys()), samples)
     explosive_amounts = np.random.uniform(10, 500, samples)  # in kg
 
     # Equipment details
@@ -1166,33 +1174,36 @@ def make_mining_ops(
 
     # Construct the DataFrame
     mining_data = pd.DataFrame({
-        'Easting_m': eastings,
-        'Northing_m': northings,
-        'Depth_m': depths,
-        'OreType': ore_types,
-        'OreConcentration_Percent': ore_concentrations,
-        'DrillDiameter_mm': drill_diameters,
-        'BlastHoleDepth_m': blast_hole_depths,
-        'ExplosiveType': explosive_types,
-        'ExplosiveAmount_kg': explosive_amounts,
-        'EquipmentType': equipment_types,
-        'EquipmentAge_years': equipment_ages,
-        'DailyProduction_tonnes': daily_productions
+        'easting_m': eastings,
+        'northing_m': northings,
+        'depth_m': depths,
+        'ore_type': ore_types,
+        'ore_concentration_percent': ore_concentrations,
+        'drill_diameter_mm': drill_diameters,
+        'blast_hole_depth_m': blast_hole_depths,
+        'explosive_type': explosive_types,
+        'explosive_amount_kg': explosive_amounts,
+        'equipment_type': equipment_types,
+        'equipment_age_years': equipment_ages,
+        'daily_production_tonnes': daily_productions
     })
-    tnames = list (is_iterable ( 
-        tnames or 'DailyProduction_tonnes',exclude_string= True, transform =True )
+
+    target_names = list (is_iterable ( 
+        target_names or 'daily_production_tonnes',
+        exclude_string= True, transform =True )
         )
     # map to make it a little bit real.
-    for typ, rtype  in zip ( ("OreType", "ExplosiveType"), 
+    for typ, rtype  in zip ( ("ore_type", "explosive_type"), 
                        (ORE_TYPE, EXPLOSIVE_TYPE )) : 
         mining_data[typ] = mining_data[typ].map (rtype) 
         
+    # resample to fit the number of samples 
     mining_data = _manage_data(
         mining_data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size,
         noise= noise, 
         seed=seed, 
@@ -1205,7 +1216,7 @@ def make_sounding(
     as_frame:bool =..., 
     return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -1253,7 +1264,7 @@ def make_sounding(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -1340,21 +1351,23 @@ def make_sounding(
 
     # Constructing the DataFrame
     sounding_data = pd.DataFrame({
-        'SurveyPointID': survey_point_ids,
-        'LayerDepth_m': layer_depths,
-        'Resistivity_OhmMeter': resistivities,
-        'SeismicVelocity_m_s': velocities
+        'survey_point_id': survey_point_ids,
+        'layer_depth_m': layer_depths,
+        'resistivity_ohm_meter': resistivities,
+        'seismic_velocity_m_s': velocities
     })
-
-    tnames = list (is_iterable ( 
-        tnames or 'Resistivity_OhmMeter',exclude_string= True, transform =True )
+    # resample the data and reset index 
+    sounding_data = random_sampling(sounding_data, samples, random_state=seed )
+    sounding_data.reset_index (drop =True, inplace =True )
+    target_names = list (is_iterable ( 
+        target_names or 'resistivity_ohm_meter',exclude_string= True, transform =True )
         )
     return _manage_data(
         sounding_data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
         seed=seed
@@ -1365,7 +1378,7 @@ def make_medical_diagnosis(
     as_frame:bool =..., 
     return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -1405,7 +1418,7 @@ def make_medical_diagnosis(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -1463,8 +1476,9 @@ def make_medical_diagnosis(
     -------
     >>> from gofast.datasets import make_medical_diagnosis
     >>> samples = 1000
-    >>> medical_data = make_medical_diagnosis(samples)
-    >>> print(medical_data.head())
+    >>> medical_data = make_medical_diagnosis( samples, return_X_y=False, )
+    >>> # Display the feature units. 
+    >>> medical_data.feature_units 
 
     """
     # Random seed for reproducibility
@@ -1488,41 +1502,103 @@ def make_medical_diagnosis(
     blood_sugars = np.random.uniform(70, 150, samples)  # mg/dL
     cholesterol_levels = np.random.uniform(100, 250, samples)  # mg/dL
     hemoglobins = np.random.uniform(12, 18, samples)  # g/dL
-    # ... (more lab tests)
 
     # Medical history flags (binary: 0 or 1)
     history_of_diabetes = np.random.randint(0, 2, samples)
     history_of_hypertension = np.random.randint(0, 2, samples)
     history_of_heart_disease = np.random.randint(0, 2, samples)
-    # ... (more medical history flags)
-
-    # Additional clinical metrics
-    # ...
-    # (add more features to reach at least 55 in total)
-
-    # Combining all features into a DataFrame
+    # Additional Vital Signs
+    respiratory_rate = np.random.randint(12, 20, samples)  # Normal range
+    oxygen_saturation = np.random.uniform(95, 100, samples)  # Normal range
+    pain_score = np.random.randint(0, 11, samples)  # Scale from 0 to 10
+    
+    # Extended Laboratory Tests (Simplified example values)
+    alt_levels = np.random.uniform(7, 56, samples)  # ALT levels in U/L
+    creatinine_levels = np.random.uniform(0.5, 1.2, samples)  # Creatinine in mg/dL
+    wbc_count = np.random.uniform(4.0, 11.0, samples)  # WBC count in x10^3/uL
+    
+    # Nutritional Status
+    bmi = np.random.uniform(18.5, 30, samples)  # BMI range
+    daily_caloric_intake = np.random.randint(1500, 3000, samples)  # Example caloric intake
+    dietary_restrictions = np.random.randint(0, 2, samples)  # Binary flag for dietary restrictions
+    
+    # Lifestyle Factors
+    physical_activity_level = np.random.choice(
+        ['sedentary', 'light', 'moderate', 'high'], samples)
+    smoking_status = np.random.randint(0, 2, samples)  # Binary
+    alcohol_consumption = np.random.randint(0, 2, samples)  # Binary
+    
+    # Psychological/Well-being Metrics
+    stress_level = np.random.randint(0, 11, samples)  # Scale from 0 to 10
+    sleep_hours_per_night = np.random.uniform(4, 10, samples)  # Normal sleep duration range
+    mental_health_status = np.random.randint(0, 2, samples)  # Binary flag for common mental health conditions
+    
+    # Medical History Details
+    history_of_chronic_diseases = np.random.randint(0, 2, samples)  # Binary flag for chronic diseases
+    number_of_surgeries = np.random.randint(0, 5, samples)  # Number of surgeries
+    family_history_of_major_diseases = np.random.randint(0, 2, samples)  # Binary flag for family history
+    
+    # Current Medications and Allergies
+    number_of_current_medications = np.random.randint(0, 10, samples)  # Number of medications
+    allergy_flags = np.random.randint(0, 2, samples)  # Binary flag for common allergies
+    
+    # Social Determinants of Health
+    employment_status = np.random.randint(0, 2, samples)  # Binary
+    living_situation = np.random.choice(['alone', 'with_family', 'in_care_facility'], samples)
+    access_to_healthcare = np.random.randint(0, 2, samples)  # Binary
+    
+    # Immunization Status
+    flu_vaccine = np.random.randint(0, 2, samples)  # Binary
+    covid_19_vaccine = np.random.randint(0, 2, samples)  # Binary
+    other_vaccines = np.random.randint(0, 2, samples)  # Binary flag for other vaccines
+    
+    # Combining all features into a DataFrame 
     medical_dataset = pd.DataFrame({
-        'Age': ages,
-        'Gender': genders,
-        'Ethnicity': ethnicities,
-        'Weight_kg': weights,
-        'Height_cm': heights,
-        'SystolicBP': blood_pressures[:, 0],
-        'DiastolicBP': blood_pressures[:, 1],
-        'HeartRate': heart_rates,
-        'Temperature_C': temperatures,
-        'BloodSugar_mg_dL': blood_sugars,
-        'Cholesterol_mg_dL': cholesterol_levels,
-        'Hemoglobin_g_dL': hemoglobins,
-        # ...
-        'HistoryOfDiabetes': history_of_diabetes,
-        'HistoryOfHypertension': history_of_hypertension,
-        'HistoryOfHeartDisease': history_of_heart_disease,
-        # ...
-        # Add additional columns for other features
+        'age': ages,
+        'gender': genders,
+        'ethnicity': ethnicities,
+        'weight': weights,
+        'height': heights,
+        'systolic': blood_pressures[:, 0],
+        'diastolic': blood_pressures[:, 1],
+        'heart_rate': heart_rates,
+        'temperature': temperatures,
+        'blood_sugar': blood_sugars,
+        'cholesterol': cholesterol_levels,
+        'hemoglobin': hemoglobins,
+        'history_of_diabetes': history_of_diabetes,
+        'history_of_hypertension': history_of_hypertension,
+        'history_of_heart_disease': history_of_heart_disease,
+        'respiratory_rate': respiratory_rate,
+        'oxygen_saturation': oxygen_saturation,
+        'pain_score': pain_score,
+        'alt_levels': alt_levels,
+        'creatinine_levels': creatinine_levels,
+        'wbc_count': wbc_count,
+        'bmi': bmi,
+        'daily_caloric_intake': daily_caloric_intake,
+        'dietary_restrictions': dietary_restrictions,
+        'physical_activity_level': physical_activity_level,
+        'smoking_status': smoking_status,
+        'alcohol_consumption': alcohol_consumption,
+        'stress_level': stress_level,
+        'sleep_hours_per_night': sleep_hours_per_night,
+        'mental_health_status': mental_health_status,
+        'history_of_chronic_diseases': history_of_chronic_diseases,
+        'number_of_surgeries': number_of_surgeries,
+        'family_history_of_major_diseases': family_history_of_major_diseases,
+        'number_of_current_medications': number_of_current_medications,
+        'allergy_flags': allergy_flags,
+        'employment_status': employment_status,
+        'living_situation': living_situation,
+        'access_to_healthcare': access_to_healthcare,
+        'flu_vaccine': flu_vaccine,
+        'covid_19_vaccine': covid_19_vaccine,
+        'other_vaccines': other_vaccines
     })
-    tnames = list (is_iterable (tnames or [
-        'HistoryOfDiabetes','HistoryOfHypertension','HistoryOfHeartDisease'],
+
+    target_names = list (is_iterable (target_names or [
+        'history_of_diabetes','history_of_hypertension','history_of_heart_disease'],
         exclude_string= True, transform =True )
         )
     return _manage_data(
@@ -1530,10 +1606,11 @@ def make_medical_diagnosis(
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size,
         noise= noise, 
-        seed=seed
+        seed=seed, 
+        feature_units=DIAGNOSIS_UNITS
         ) 
 
 
@@ -1544,7 +1621,7 @@ def make_well_logging(*,
     as_frame:bool =..., 
     return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -1587,7 +1664,7 @@ def make_well_logging(*,
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -1664,14 +1741,14 @@ def make_well_logging(*,
 
     # Construct the DataFrame
     well_logging_dataset = pd.DataFrame({
-        'Depth_m': depths,
-        'GammaRay_API': gamma_ray,
-        'Resistivity_OhmMeter': resistivity,
-        'NeutronPorosity_Percent': neutron_porosity,
-        'Density_g_cm3': density
+        'depth_m': depths,
+        'gamma_ray_api': gamma_ray,
+        'resistivity_ohm_meter': resistivity,
+        'neutron_porosity_percent': neutron_porosity,
+        'density_g_cm3': density
     })
-    tnames = list (is_iterable ( 
-        tnames or 'NeutronPorosity_Percent', exclude_string= True,
+    target_names = list (is_iterable ( 
+        target_names or 'neutron_porosity_percent', exclude_string= True,
         transform =True )
         )
 
@@ -1680,7 +1757,7 @@ def make_well_logging(*,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
         seed=seed
@@ -1694,7 +1771,7 @@ def make_ert(
     as_frame:bool =..., 
     return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -1738,7 +1815,7 @@ def make_ert(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -1823,21 +1900,22 @@ def make_ert(
 
     # Construct the DataFrame
     ert_dataset = pd.DataFrame({
-        'ElectrodePosition_m': electrode_positions,
-        'CableLength_m': cable_lengths,
-        'Resistivity_OhmMeter': resistivity_measurements,
-        'BatteryVoltage_V': battery_voltage,
-        'EquipmentType': equipment_type
+        'electrode_position_m': electrode_positions,
+        'cable_length_m': cable_lengths,
+        'resistivity_ohm_meter': resistivity_measurements,
+        'battery_voltage_v': battery_voltage,
+        'equipment_type': equipment_type
     })
-    tnames = list (is_iterable ( 
-        tnames or 'Resistivity_OhmMeter', exclude_string= True, transform =True )
+
+    target_names = list (is_iterable ( 
+        target_names or 'resistivity_ohm_meter', exclude_string= True, transform =True )
         )
     return _manage_data(
         ert_dataset,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
         seed=seed
@@ -1854,7 +1932,7 @@ def make_tem(
     as_frame:bool =..., 
     return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -1896,7 +1974,7 @@ def make_tem(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -1982,21 +2060,21 @@ def make_tem(
 
     # Construct the DataFrame
     tem_survey_data = pd.DataFrame({
-        'Latitude': latitudes,
-        'Longitude': longitudes,
-        'Time_ms': times,
-        'TEM_Measurement': measurements,
-        'EquipmentType': equipment
+        'latitude': latitudes,
+        'longitude': longitudes,
+        'time_ms': times,
+        'tem_measurement': measurements,
+        'equipment_type': equipment
     })
-    tnames = list (is_iterable ( 
-        tnames or 'TEM_Measurement', exclude_string= True, transform =True )
+    target_names = list (is_iterable ( 
+        target_names or 'tem_measurement', exclude_string= True, transform =True )
         )
     return _manage_data(
         tem_survey_data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size,
         noise= noise, 
         seed=seed
@@ -2010,7 +2088,7 @@ def make_erp(*,
     as_frame:bool =..., 
     return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -2059,7 +2137,7 @@ def make_erp(*,
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -2146,23 +2224,23 @@ def make_erp(*,
 
     # Construct the DataFrame
     data = pd.DataFrame({
-        'Easting': eastings,
-        'Northing': northings,
-        'Longitude': longitudes,
-        'Latitude': latitudes,
-        'Position': positions,
-        'Step': steps,
-        'Resistivity': resistivities
+        'easting': eastings,
+        'northing': northings,
+        'longitude': longitudes,
+        'latitude': latitudes,
+        'position': positions,
+        'step': steps,
+        'resistivity': resistivities
     })
-    tnames = list (is_iterable ( 
-        tnames or 'Resistivity', exclude_string= True, transform =True )
+    target_names = list (is_iterable ( 
+        target_names or 'resistivity', exclude_string= True, transform =True )
         )
     return _manage_data(
         data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
         seed=seed
@@ -2178,7 +2256,7 @@ def make_elogging(
     as_frame:bool =..., 
     return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -2217,7 +2295,7 @@ def make_elogging(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -2302,20 +2380,20 @@ def make_elogging(
     messages = [f'This is a {level} message.' for level in levels]
 
     # Create DataFrame
-    log_data = pd.DataFrame({'Timestamp': timestamps,
-                             'LogLevel': levels, 
-                             'Message': messages})
-    log_data.sort_values(by='Timestamp', inplace=True)
+    log_data = pd.DataFrame({'timestamp': timestamps,
+                             'log_level': levels, 
+                             'message': messages})
+    log_data.sort_values(by='timestamp', inplace=True)
     
-    tnames = list (is_iterable ( 
-        tnames or 'LogLevel', exclude_string= True, transform =True )
+    target_names = list (is_iterable ( 
+        target_names or 'log_level', exclude_string= True, transform =True )
         )
     return _manage_data(
         log_data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
         seed=seed
@@ -2329,7 +2407,7 @@ def make_gadget_sales(*,
     as_frame:bool =..., 
     return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -2372,7 +2450,7 @@ def make_gadget_sales(*,
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -2455,20 +2533,23 @@ def make_gadget_sales(*,
     units_sold = [random.randint(1, 20) for _ in range(samples)]
 
     # Create DataFrame
-    sales_data = pd.DataFrame({'SaleDate': sale_dates, 
-                               'Gadget': gadgets, 'Gender': gender, 
-                               'UnitsSold': units_sold})
-    sales_data.sort_values(by='SaleDate', inplace=True)
+    sales_data = pd.DataFrame({
+                'sale_date': sale_dates,
+                'gadget': gadgets,
+                'gender': gender,
+                'units_sold': units_sold
+            })
+    sales_data.sort_values(by='sale_date', inplace=True)
     
-    tnames = list (is_iterable ( 
-        tnames or 'UnitsSold', exclude_string= True, transform =True )
+    target_names = list (is_iterable ( 
+        target_names or 'units_sold', exclude_string= True, transform =True )
         )
     return _manage_data(
         sales_data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
         seed=seed
@@ -2480,7 +2561,7 @@ def make_retail_store(
     as_frame:bool =..., 
     return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -2523,7 +2604,7 @@ def make_retail_store(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -2611,23 +2692,24 @@ def make_retail_store(
 
     # Construct the DataFrame
     data = pd.DataFrame({
-        'Age': ages,
-        'Income': incomes,
-        'ShoppingFrequency': shopping_frequency,
-        'LastPurchaseAmount': last_purchase_amount,
-        'PreferredCategory': preferred_category,
-        'LikelyToRespond': target
-    })
+        'age': ages,
+        'income': incomes,
+        'shopping_frequency': shopping_frequency,
+        'last_purchase_amount': last_purchase_amount,
+        'preferred_category': preferred_category,
+        'likely_to_respond': target
+     })
 
-    tnames = list (is_iterable ( 
-        tnames or 'Income', exclude_string= True, transform =True )
+
+    target_names = list (is_iterable ( 
+        target_names or 'income', exclude_string= True, transform =True )
         )
     return _manage_data(
         data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size,
         noise= noise, 
         seed=seed
@@ -2639,7 +2721,7 @@ def make_cc_factors(
     as_frame:bool =..., 
     return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     seed:int | np.random.RandomState = None, 
     **kws
@@ -2671,7 +2753,7 @@ def make_cc_factors(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -2738,30 +2820,31 @@ def make_cc_factors(
     """
 
     # Features influencing climate change
-    features= {
-        "GHG": "Greenhouse Gas Emissions (CO2, Methane, Nitrous Oxide)",
-        "Def&Land": "Deforestation and Land Use Changes",
-        "FossilFuels": "Burning of Fossil Fuels (Coal, Oil, Natural Gas)",
-        "IndustProc": "Industrial Processes and Manufacturing",
-        "Agri&Livestock": "Agriculture and Livestock Farming (Methane from Cattle)",
-        "Transport": "Transportation (Road, Air, Maritime)",
-        "EnergyProd": "Energy Production and Consumption",
-        "Urban&Infra": "Urbanization and Infrastructure Development",
-        "WasteMgmt": "Waste Management and Landfills",
-        "MeltPolar": "Melting of Polar Ice Caps and Glaciers",
-        "ChgLandAlbedo": "Changes in Land Surface Albedo",
-        "SolarIrr": "Solar Irradiance and Variability",
-        "Aerosols": "Aerosols and Particulate Matter in the Atmosphere",
-        "OzoneDepl": "Ozone Depletion in the Stratosphere",
-        "ChgOceanCirc": "Changes in Ocean Circulation and Currents",
-        "OceanAcid": "Ocean Acidification due to CO2 Absorption",
-        "Permafrost": "Permafrost Thawing and Release of Methane",
-        "ChgAtmWater": "Changes in Atmospheric Water Vapor",
-        "LandDeg&SoilErosion": "Land Degradation and Soil Erosion",
-        "HumanAct&Biodiv": "Human Activities Impacting Biodiversity",
-        "NatDisasters": "Natural Disasters (Floods, Hurricanes, Wildfires)",
-        "Feedbacks": "Feedback Mechanisms (Positive/Negative Climate Feedbacks)"
-    }
+    features = {
+        "ghg": "Greenhouse Gas Emissions (CO2, Methane, Nitrous Oxide)",
+        "def_land": "Deforestation and Land Use Changes",
+        "fossil_fuels": "Burning of Fossil Fuels (Coal, Oil, Natural Gas)",
+        "indust_proc": "Industrial Processes and Manufacturing",
+        "agri_livestock": "Agriculture and Livestock Farming (Methane from Cattle)",
+        "transport": "Transportation (Road, Air, Maritime)",
+        "energy_prod": "Energy Production and Consumption",
+        "urban_infra": "Urbanization and Infrastructure Development",
+        "waste_mgmt": "Waste Management and Landfills",
+        "melt_polar": "Melting of Polar Ice Caps and Glaciers",
+        "chg_land_albedo": "Changes in Land Surface Albedo",
+        "solar_irr": "Solar Irradiance and Variability",
+        "aerosols": "Aerosols and Particulate Matter in the Atmosphere",
+        "ozone_depl": "Ozone Depletion in the Stratosphere",
+        "chg_ocean_circ": "Changes in Ocean Circulation and Currents",
+        "ocean_acid": "Ocean Acidification due to CO2 Absorption",
+        "permafrost": "Permafrost Thawing and Release of Methane",
+        "chg_atm_water": "Changes in Atmospheric Water Vapor",
+        "land_deg_soil_erosion": "Land Degradation and Soil Erosion",
+        "human_act_biodiv": "Human Activities Impacting Biodiversity",
+        "nat_disasters": "Natural Disasters (Floods, Hurricanes, Wildfires)",
+        "feedbacks": "Feedback Mechanisms (Positive/Negative Climate Feedbacks)"
+     }
+
     # Random seed for reproducibility
     np.random.seed(seed)
     
@@ -2785,8 +2868,8 @@ def make_cc_factors(
     # Generating a Pandas DataFrame
     cc_data = pd.DataFrame(data, columns=list( features.keys()))
     
-    tnames = list (is_iterable ( 
-        tnames or 'Feedbacks', 
+    target_names = list (is_iterable ( 
+        target_names or 'feedbacks', 
         exclude_string= True, transform =True )
         )
     cc_data = add_noises_to(cc_data, noise = noise )
@@ -2796,8 +2879,8 @@ def make_cc_factors(
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
-        features_descr=features, 
+        target_names=target_names, 
+        descr=features, 
         test_size=test_size, 
         seed=seed
         ) 
@@ -2809,7 +2892,7 @@ def make_water_demand(
     return_X_y = True, 
     noise=None, 
     split_X_y= ..., 
-    tnames=None,  
+    target_names=None,  
     test_size =.3, 
     seed = None, 
     ):
@@ -2839,7 +2922,7 @@ def make_water_demand(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -2951,9 +3034,10 @@ def make_water_demand(
 
     # Create a DataFrame from the data dictionary
     water_data  = pd.DataFrame(data_dict)
+    water_data.columns = [ c.lower() for c in water_data.columns ]
 
-    tnames = list (is_iterable ( 
-        tnames or 'Drinking', 
+    target_names = list (is_iterable ( 
+        target_names or 'drinking', 
         exclude_string= True, transform =True )
         )
     return _manage_data(
@@ -2961,7 +3045,7 @@ def make_water_demand(
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         descr= { **WATER_QUAN_NEEDS, **WATER_QUAL_NEEDS,**SDG6_CHALLENGES}, 
         test_size=test_size, 
         noise = noise, 
@@ -3056,7 +3140,7 @@ def _manage_data(
     as_frame =..., 
     return_X_y = ..., 
     split_X_y= ..., 
-    tnames=None,  
+    target_names=None,  
     test_size =.3, 
     noise=None, 
     seed = None, 
@@ -3084,7 +3168,7 @@ def _manage_data(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -3147,13 +3231,13 @@ def _manage_data(
         as_frame, return_X_y, split_X_y )
     
     frame = data.copy() 
-    if return_X_y : 
-        y = data [tnames] 
-        data.drop( columns = tnames, inplace =True )
-        
-    feature_names = (is_in_if(list( frame.columns), tnames, return_diff =True )
-                     if tnames else list(frame.columns ))
     
+    feature_names = (is_in_if(list( frame.columns), target_names, return_diff =True )
+                     if target_names else list(frame.columns ))
+    if return_X_y : 
+        y = data [target_names] 
+        data.drop( columns = target_names, inplace =True )
+ 
     # Noises only in the data not in target  
     data = add_noises_to(data, noise = noise , seed=seed )
     if not as_frame: 
@@ -3175,11 +3259,11 @@ def _manage_data(
     
     return Boxspace(
         data=data,
-        target=frame[tnames].values ,
+        target=frame[target_names].values ,
         frame=frame,
-        tnames=tnames,
-        target_names = tnames,
+        target_names=target_names,
         feature_names=feature_names,
+        **kws
         )
  
 def _get_item_from ( spec , /,  default_items, default_number = 7 ): 

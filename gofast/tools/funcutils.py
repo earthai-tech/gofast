@@ -24,6 +24,7 @@ import pandas as pd
 from .._typing import Dict, Any, Callable, List
 from .._typing import Optional, Tuple , Union,_T 
 from ._dependency import import_optional_dependency
+from .coreutils import to_numeric_dtypes
 
 def curry(func):
     """
@@ -226,7 +227,8 @@ def retry_operation(
         The factor by which the delay increases after each retry. Default is 1.0.
     on_retry : Optional[Callable[[int, Exception], None]], optional
         A callback function that is called after a failed attempt.
-    pre_process_args : Optional[Callable[[int, Tuple[Any, ...], dict], Tuple[Tuple[Any, ...], dict]]], optional
+    pre_process_args : Optional[Callable[
+        [int, Tuple[Any, ...], dict], Tuple[Tuple[Any, ...], dict]]], optional
         A function to pre-process the arguments to `func` before each retry.
         It receives the current attempt number, the arguments, and keyword
         arguments to `func` and returns a tuple of processed arguments and
@@ -301,6 +303,7 @@ def flatten_list(
 
     Examples
     --------
+    >>> from gofast.tools.funcutils import flatten_list
     >>> nested = [1, [2, 3], [4, [5, 6]], 7]
     >>> flat = flatten_list(nested, depth=1)
     >>> print(flat)
@@ -580,12 +583,13 @@ def install_package(
     verbose: bool = True
     ) -> None:
     """
-    Install a Python package using either conda or pip, with an option to display
-    installation progress and fallback mechanism.
+    Install a Python package using either conda or pip, with an option to 
+    display installation progress and fallback mechanism.
 
-    This function dynamically chooses between conda and pip for installing Python
-    packages, based on user preference and system configuration. It supports a verbose
-    mode for detailed operation logging and utilizes a progress bar for pip installations.
+    This function dynamically chooses between conda and pip for installing 
+    Python packages, based on user preference and system configuration. It 
+    supports a verbose mode for detailed operation logging and utilizes a 
+    progress bar for pip installations.
 
     Parameters
     ----------
@@ -771,7 +775,7 @@ def ensure_pkg(
                         name, extra=extra, errors=errors, 
                         min_version=min_version, exception=exception,
                     )
-                except ModuleNotFoundError:
+                except (ModuleNotFoundError, ImportError) as e: #noqa
                     if auto_install:
                         install_package(name, extra=extra, use_conda=use_conda,
                                         verbose=verbose)
@@ -780,6 +784,7 @@ def ensure_pkg(
                         if exception is not None:
                             raise exception
                         raise
+                        
             return func(*args, **kwargs)
         return wrapper
     return decorator
@@ -815,118 +820,6 @@ def _should_check_condition(
         return bool(kwargs[condition])
     else:
         return bool(condition)
-
-# def ensure_pkg(
-#     name: str, 
-#     extra: str = "",
-#     errors: str = "raise",
-#     min_version: str | None = None,
-#     exception: Exception = None, 
-#     auto_install: bool = False,
-#     use_conda: bool = False, 
-#     condition: str | Callable |Any=None, 
-#     verbose: bool = False
-# ) -> Callable[[_T], _T]:
-#     """
-#     Decorator to ensure a Python package is installed before function execution.
-
-#     If the specified package is not installed, or if its installed version does
-#     not meet the minimum version requirement, this decorator can optionally 
-#     install or upgrade the package automatically using either pip or conda.
-
-#     Parameters
-#     ----------
-#     name : str
-#         Name of the package.
-#     extra : str, optional
-#         Additional specification for the package, such as version or extras.
-#     errors : str, optional
-#         Error handling strategy if package is missing: 'raise', 'ignore', or 'warn'.
-#     min_version : str or None, optional
-#         Minimum required version of the package. If not met, triggers installation.
-#     exception : Exception, optional
-#         Custom exception to raise if the package is missing and `errors` is 'raise'.
-#     auto_install : bool, optional
-#         Whether to automatically install the package if missing. Defaults to False.
-#     use_conda : bool, optional
-#         Prefer conda over pip for automatic installation. Defaults to False.
-#     verbose : bool, optional
-#         Enable verbose output during the installation process. Defaults to False.
-        
-#     partial_check: bool, default=False, 
-#         This parameter works with `condition` parameter. If conditon is true, 
-#         then check the whole exising of dependency. If False, 
-#         return the functions with its arguments. 
-    
-#     condition: str, Callable or Any, 
-#         The parameter, once activated, partial check the existing of the 
-#         dependency. It refers to a keywords arguments of the original function. 
-#         If triggered the package must be checked. If ``None`` and ``partial_check``
-#         if ``True``, the decorator returns the function without checking the 
-#         existence of the dependency. This is usefull to skip checking the 
-#         whole function unless the condition is met. Sometimes, only the condition 
-#         section of the code needs optional dependency to be installed not the whole 
-#         code to effectively run. 
-#         Mostly the condition collects a specific parameter as keywords arguments 
-#         of the original functions then check it if True ( str, Callable, Any).
-#         If true, the `ensure_pkg`can now check the whole packages provided that 
-#         `partial_check` is ``True``. 
-        
-#     Returns
-#     -------
-#     Callable
-#         A decorator that wraps functions to ensure the specified package is installed.
-
-#     Examples
-#     --------
-#     >>> @ensure_pkg("numpy", auto_install=True)
-#     ... def use_numpy():
-#     ...     import numpy as np
-#     ...     return np.array([1, 2, 3])
-
-#     >>> @ensure_pkg("pandas", min_version="1.1.0", errors="warn", use_conda=True)
-#     ... def use_pandas():
-#     ...     import pandas as pd
-#     ...     return pd.DataFrame([[1, 2], [3, 4]])
-
-#     Notes
-#     -----
-#     - `auto_install=True` may require administrative privileges.
-#     - `use_conda=True` prefers conda for installation but falls back to pip if 
-#        conda is not available.
-#     """
-#     def _install_package():
-#         """Utilizes the install_package function"""
-#         install_package(name, extra=extra, use_conda=use_conda, verbose=verbose)
-
-#     def decorator(func: _T) -> _T:
-#         @functools.wraps(func)
-#         def wrapper(*args, **kwargs):
-#             # implement `partial check and condition properly" 
-#             # this seems not correct. 
-#             condition= kwargs.get("condition", None)
-#             if condition: 
-#                 return func(*args, **kwargs)
-        
-        
-#             try:
-#                 # Attempts to import the package, installing 
-#                 # if necessary and permitted
-#                 import_optional_dependency(
-#                     name, extra=extra, errors=errors, 
-#                     min_version=min_version, exception=exception
-#                     )
-#             except ModuleNotFoundError:
-#                 if auto_install:
-#                     _install_package()
-#                 else:
-#                     # Reraises the exception with optional custom handling
-#                     if exception is not None:
-#                         raise exception
-#                     raise
-#             return func(*args, **kwargs)
-#         return wrapper
-#     return decorator
 
 def drop_nan_if(thresh: float, meth: str = 'drop_cols'):
     """
@@ -1076,14 +969,14 @@ def apply_transform(
         return data
     return transformed_callable
 
-# XXX TODOD 
 def make_data_dynamic(
     expected_type: str = 'numeric', 
     capture_columns: bool = False, 
     drop_na: bool = False, 
     na_thresh: Optional[float] = None, 
     na_meth: str = 'drop_rows', 
-    reset_index: bool = False
+    reset_index: bool = False, 
+    dynamize: bool=True, 
 ) -> Callable:
     """
     A decorator for preprocessing data before passing it to a function, 
@@ -1112,6 +1005,12 @@ def make_data_dynamic(
     reset_index : bool, optional
         If True, resets the DataFrame index (dropping the current index) before 
         passing it to the function. Defaults to False.
+    dynamize: bool,
+        If True, the preprocessing function is attached as a method to the 
+        pandas DataFrame class, allowing it to be called directly on DataFrame
+        instances. This enhances the integration and usability of the function
+        within pandas workflows, making it more accessible as part of 
+        DataFrame's method chain. Defaults to True.
 
     Examples
     --------
@@ -1144,8 +1043,9 @@ def make_data_dynamic(
             new_args = (data,) + args[1:]
             return func(*new_args, **kwargs)
         
-        if not hasattr(pd.DataFrame, func.__name__):
-            setattr(pd.DataFrame, func.__name__, wrapper)
+        if dynamize: 
+            if not hasattr(pd.DataFrame, func.__name__):
+                setattr(pd.DataFrame, func.__name__, wrapper)
         return wrapper
     return decorator
 
@@ -1173,12 +1073,12 @@ def _check_and_convert_input(input_data):
         convertible iterable.
     """
     if isinstance(input_data, (pd.DataFrame, np.ndarray)):
-        return pd.DataFrame(input_data)
+        return to_numeric_dtypes (pd.DataFrame(input_data))
     elif isinstance(input_data, dict):
-        return pd.DataFrame(input_data)
+        return to_numeric_dtypes (pd.DataFrame(input_data))
     elif hasattr(input_data, '__iter__'):  # Check if it's iterable
         try:
-            return pd.DataFrame(np.array(input_data))
+            return to_numeric_dtypes (pd.DataFrame(np.array(input_data))) 
         except Exception:
             raise ValueError("Expect the first argument to be an interable object"
                              " with minimum samples equal to two.")

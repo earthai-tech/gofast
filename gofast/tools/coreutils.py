@@ -2,10 +2,7 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 
-from __future__ import ( 
-    annotations , 
-    print_function 
-    )
+from __future__ import annotations, print_function 
 import os 
 import re 
 import sys
@@ -52,7 +49,8 @@ from .._typing import (
     NDArray, 
     Text, 
     Union, 
-    Series 
+    Series, 
+    Set
     )
 from ._dependency import import_optional_dependency
 _logger = gofastlog.get_gofast_logger(__name__)
@@ -78,10 +76,8 @@ try:
     interp_import = True
  # pragma: no cover
 except ImportError: 
-    
     warnings.warn(_msg0)
     _logger.warning(_msg0)
-    
     interp_import = False
     
 # xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -144,8 +140,6 @@ def format_to_datetime(data, date_col, verbose=0, **dt_kws):
         return data
 
     return data
-
-
 
 def get_params (obj: object 
                 ) -> dict: 
@@ -894,7 +888,7 @@ def smart_strobj_recognition(
         detected.
         
     :Example:
-        >>> from gofast.tools.funcutils import smart_strobj_recognition
+        >>> from gofast.tools.coreutils import smart_strobj_recognition
         >>> from gofast.methods import ResistivityProfiling 
         >>> rObj = ResistivityProfiling(AB= 200, MN= 20,)
         >>> smart_strobj_recognition ('dip', robj.__dict__))
@@ -8509,4 +8503,270 @@ def _perform_sampling(d: Any, n_samples: int, replace: bool,
         return d_array[indices] if d_array.ndim == 1 else d_array[indices, :]
 
 
+def get_valid_key(input_key, default_key, substitute_key_dict=None,
+                  regex_pattern = "[#&*@!,;\s]\s*", deep_search=True):
+    """
+    Validates an input key and substitutes it with a valid key if necessary,
+    based on a mapping of valid keys to their possible substitutes. If the input
+    key is not provided or is invalid, a default key is used.
+
+    Parameters
+    ----------
+    input_key : str
+        The key to validate and possibly substitute.
+    default_key : str
+        The default key to use if input_key is None, empty, or not found in 
+        the substitute mapping.
+    substitute_key_dict : dict, optional
+        A mapping of valid keys to lists of their possible substitutes. This
+        allows for flexible key substitution and validation.
+    regex_pattern: str, default = '[#&*@!,;\s-]\s*'
+        The base pattern to split the text into a columns
+    deep_search: bool, default=False 
+       If deep-search, the key finder is no sensistive to lower/upper case 
+       or whether a numeric data is included. 
+    Returns
+    -------
+    str
+        A valid key, which is either the original input_key if valid, a substituted
+        key if the original was found in the substitute mappings, or the default_key.
+
+    Notes
+    -----
+    This function also leverages an external validation through `key_checker` for
+    a deep search validation, ensuring the returned key is within the set of valid keys.
     
+    Example
+    -------
+    >>> from gofast.tools.coreutils import get_valid_key
+    >>> substitute_key_dict = {'valid_key1': ['vk1', 'key1'], 'valid_key2': ['vk2', 'key2']}
+    >>> get_valid_key('vk1', 'default_key', substitute_key_dict)
+    'valid_key1'
+    >>> get_valid_key('unknown_key', 'default_key', substitute_key_dict)
+    'KeyError...'
+  
+    """
+    # Ensure substitute_mapping is a dictionary if not provided
+    substitute_key_dict = substitute_key_dict or {}
+
+    # Fallback to default_key if input_key is None or empty
+    input_key = input_key or default_key
+
+    # Attempt to find a valid substitute for the input_key
+    for valid_key, substitutes in substitute_key_dict.items():
+        # Case-insensitive comparison for substitutes
+        normalized_substitutes = [str(sub).lower() for sub in substitutes]
+        
+        if str(input_key).lower() in normalized_substitutes:
+            input_key = valid_key
+            break
+    
+    regex = re.compile (fr'{regex_pattern}', flags=re.IGNORECASE)
+    # use valid keys  only if substitute_key_dict not provided. 
+    valid_keys = substitute_key_dict.keys() if substitute_key_dict else is_iterable(
+            default_key, exclude_string=True, transform=True)
+    valid_keys = set (list(valid_keys) + [default_key])
+    # Further validate the (possibly substituted) input_key
+    input_key = key_checker(input_key, valid_keys=valid_keys,
+                            deep_search=deep_search,regex = regex  )
+    
+    return input_key
+
+def process_and_extract_data(
+    *args: ArrayLike, 
+    columns: Optional[List[Union[str, int]]] = None,
+    enforce_extraction: bool = True, 
+    allow_split: bool = False, 
+    search_multiple: bool = False,
+    ensure_uniform_length: bool = False, 
+    to_array: bool = False,
+    on_error: str = 'raise',
+) -> List[np.ndarray]:
+    """
+    Extracts and processes data from various input types, focusing on column extraction
+    from pandas DataFrames and conversion of inputs to numpy arrays or pandas Series.
+
+    Parameters
+    ----------
+    *args : ArrayLike
+        A variable number of inputs, each can be a list, numpy array, pandas Series,
+        dictionary, or pandas DataFrame.
+    columns : List[Union[str, int]], optional
+        Specific columns to extract from pandas DataFrames. If not provided, the function
+        behaves differently based on `allow_split`.
+    enforce_extraction : bool, default=True
+        Forces the function to try extracting `columns` from DataFrames. If False,
+        DataFrames are returned without column extraction unless `allow_split` is True.
+        Removing non-conforming elements if True.
+    allow_split : bool, default=False
+        If True and a DataFrame is provided without `columns`, splits the DataFrame
+        into its constituent columns.
+    search_multiple : bool, default=False
+        Allows searching for `columns` across multiple DataFrame inputs. Once a column
+        is found, it is not searched for in subsequent DataFrames.
+    ensure_uniform_length : bool, default=False
+        Checks that all extracted arrays have the same length. Raises an error if they don't.
+    to_array : bool, default=False
+        Converts all extracted pandas Series to numpy arrays.
+    on_error : str, {'raise', 'ignore'}, default='raise'
+        Determines how to handle errors during column extraction or when enforcing uniform length.
+        'raise' will raise an error, 'ignore' will skip the problematic input.
+
+    Returns
+    -------
+    List[np.ndarray]
+        A list of numpy arrays or pandas Series extracted based 
+        on the specified conditions.
+
+    Examples
+    --------
+    >>> import numpy as np 
+    >>> import pandas as pd 
+    >>> from gofast.tools.coreutils import process_and_extract_data
+    >>> data = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
+    >>> process_and_extract_data(data, columns=['A'], to_array=True)
+    [array([1, 2, 3])]
+
+    Splitting DataFrame into individual arrays:
+
+    >>> process_and_extract_data(data, allow_split=True, to_array=True)
+    [array([1, 2, 3]), array([4, 5, 6])]
+
+    Extracting columns from multiple DataFrames:
+
+    >>> data2 = pd.DataFrame({'C': [7, 8, 9], 'D': [10, 11, 12]})
+    >>> process_and_extract_data(data, data2, columns=['A', 'C'], 
+                                  search_multiple=True, to_array=True)
+    [array([1, 2, 3]), array([7, 8, 9])]
+
+    Handling mixed data types:
+
+    >>> process_and_extract_data([1, 2, 3], {'E': [13, 14, 15]}, to_array=True)
+    [array([1, 2, 3]), array([13, 14, 15])]
+    
+    Extracting columns from multiple DataFrames and enforcing uniform length:
+    >>> data2 = pd.DataFrame({'C': [7, 8, 9, 10], 'D': [11, 12, 13, 14]})
+    >>> result = process_and_extract_data(
+        data, data2, columns=['A', 'C'],search_multiple=True,
+        ensure_uniform_length=True, to_array=True)
+    ValueError: Extracted data arrays do not have uniform length.
+    """
+    extracted_data = []
+    columns_found: Set[Union[str, int]] = set()
+
+    def _process_input(
+            input_data: ArrayLike,
+            target_columns: Optional[List[Union[str, int]]], 
+            to_array: bool) -> Optional[np.ndarray]:
+        """
+        Processes each input based on its type, extracting specified columns if necessary,
+        and converting to numpy array if specified.
+        """
+        if isinstance(input_data, (list, tuple)):
+            input_data = np.array(input_data)
+            return input_data if len(input_data.shape) == 1 or not enforce_extraction else None
+
+        elif isinstance(input_data, dict):
+            input_data = pd.DataFrame(input_data)
+
+        if isinstance(input_data, pd.DataFrame):
+            if target_columns:
+                for col in target_columns:
+                    if col in input_data.columns and (search_multiple or col not in columns_found):
+                        data_to_add = input_data[col].to_numpy() if to_array else input_data[col]
+                        extracted_data.append(data_to_add)
+                        columns_found.add(col)
+                    elif on_error == 'raise':
+                        raise ValueError(f"Column {col} not found in DataFrame.")
+            elif allow_split:
+                for col in input_data.columns:
+                    data_to_add = input_data[col].to_numpy() if to_array else input_data[col]
+                    extracted_data.append(data_to_add)
+            return None
+
+        if isinstance(input_data, np.ndarray):
+            if input_data.ndim > 1 and allow_split:
+                input_data = np.hsplit(input_data, input_data.shape[1])
+                for arr in input_data:
+                    extracted_data.append(arr.squeeze())
+                return None
+            elif input_data.ndim > 1 and enforce_extraction and on_error == 'raise':
+                raise ValueError("Multidimensional array found while `enforce_extraction` is True.")
+            return input_data if to_array else np.squeeze(input_data)
+
+        return input_data.to_numpy() if to_array and isinstance(input_data, pd.Series) else input_data
+
+    for arg in args:
+        result = _process_input(arg, columns, to_array)
+        if result is not None:
+            extracted_data.append(result)
+
+    if ensure_uniform_length and not all(len(x) == len(
+            extracted_data[0]) for x in extracted_data):
+        if on_error == 'raise':
+            raise ValueError("Extracted data arrays do not have uniform length.")
+        else:
+            return []
+
+    return extracted_data
+
+def to_series_if(
+    *values: Any, 
+    value_names: Optional[List[str]] = None, 
+    name: Optional[str] = None,
+    error: str = 'ignore',
+    **kws
+) -> pd.Series:
+    """
+    Constructs a pandas Series from given values, optionally naming the series
+    and its index.
+
+    Parameters
+    ----------
+    *values : Any
+        A variable number of inputs, each can be a scalar, float, int, or array-like object.
+    value_names : Optional[List[str]]
+        Names to be used for the index of the series. If not provided or if its length
+        doesn't match the number of values, default numeric index is used.
+    name : Optional[str]
+        Name of the series.
+    error : str, default 'ignore'
+        Error handling strategy ('ignore' or 'raise'). If 'raise', errors during series
+        construction lead to an exception.
+    **kws : dict
+        Additional keyword arguments passed to `pd.Series` constructor.
+
+    Returns
+    -------
+    pd.Series or original values
+        A pandas Series constructed from the inputs if successful, otherwise, the original
+        values if the series construction is not applicable.
+
+    Examples
+    --------
+    >>> from gofast.tools.coreutils import to_series_if
+    >>> series = to_series_if(0.5, 8, np.array(
+        [6.3]), [5], 2, value_names=['a', 'b', 'c', 'd', 'e'])
+    >>> print(series)
+
+    >>> series = to_series_if(0.5, 8, np.array([6.3, 7]), [5], 2,
+                              value_names=['a', 'b', 'c', 'd', 'e'], error='raise')
+    ValueError: Failed to construct series, input types vary.
+    """
+    # Validate input lengths and types
+    if value_names and len(value_names) != len(values):
+        if error == 'raise':
+            raise ValueError("Length of `value_names` does not match the number of values.")
+        value_names = None  # Reset to default indexing
+    # Attempt to construct series
+    try:
+        # Flatten array-like inputs to avoid creating Series of lists/arrays
+        flattened_values = [val[0] if isinstance(val, (list,tuple,  np.ndarray)
+                                                 ) and len(val) == 1 else val for val in values]
+        series = pd.Series(flattened_values, index=value_names, name=name, **kws)
+    except Exception as e:
+        if error == 'raise':
+            raise ValueError(f"Failed to construct series due to: {e}")
+        return values  # Return the original values if series construction fails
+
+    return series
