@@ -1,47 +1,49 @@
 version: 1
 disable_existing_loggers: False
+
 formatters:
-    simple:
-        format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        datefmt: "%Y-%m-%dT %H:%M:%S %p"
+  detailed:
+    format: "%(asctime)s - %(name)s - %(levelname)s - [%(threadName)s] [%(process)d] %(message)s"
+    datefmt: "%Y-%m-%dT%H:%M:%S"
 
 handlers:
-    console: # screen display print out
-        class: logging.StreamHandler
-        level: DEBUG  #INFO
-        formatter: simple
-        stream: ext://sys.stdout
+  # console:
+  #   class: logging.StreamHandler
+  #   level: INFO
+  #   formatter: detailed
+  #   stream: ext://sys.stdout
 
-    info_file_handler:
-        class: logging.handlers.RotatingFileHandler
-        level: DEBUG
-        formatter: simple
-        filename: gofast/gflogfiles/infos.log
-        maxBytes: 1000000 # 1MB
-        backupCount: 2
-        encoding: utf8
-        
-    error_file_handler:
-        class: logging.handlers.RotatingFileHandler
-        level: ERROR
-        formatter: simple
-        filename: gofast/gflogfiles/errors.log
-        maxBytes: 1000000 # 1MB
-        backupCount: 2
-        encoding: utf8
+  info_file_handler:
+    class: logging.handlers.TimedRotatingFileHandler
+    level: INFO
+    formatter: detailed
+    filename: "${LOG_PATH}/infos.log"
+    when: midnight
+    backupCount: 7
+    encoding: utf-8
+    delay: True
+
+  error_file_handler:
+    class: logging.handlers.RotatingFileHandler
+    level: ERROR
+    formatter: detailed
+    filename: "${LOG_PATH}/errors.log"
+    maxBytes: 1048576 # 1MB
+    backupCount: 5
+    encoding: utf-8
+    delay: True
 
 loggers:
-    my_module:
-        level: DEBUG
-        handlers: [info_file_handler, error_file_handler]
-        propagate: no
-
-    __main__:
-        level: DEBUG
-        handlers: [info_file_handler, error_file_handler]
-        propagate: no
-
-root:
+  my_module:
     level: DEBUG
     handlers: [info_file_handler, error_file_handler]
+    propagate: no
 
+  __main__:
+    level: DEBUG
+    handlers: [info_file_handler, error_file_handler] # Removed console from here as it's commented out
+    propagate: no
+
+root:
+  level: DEBUG
+  handlers: [info_file_handler, error_file_handler] # Removed console as it's commented out

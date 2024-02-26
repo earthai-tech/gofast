@@ -24,6 +24,70 @@ from ._array_api import get_namespace, _asarray_with_order
 
 FLOAT_DTYPES = (np.float64, np.float32, np.float16)
 
+
+def validate_yy(
+    y_true, y_pred, 
+    expected_type=None, *, 
+    validation_mode='strict', 
+    flatten=False
+    ):
+    """
+    Validates the shapes and types of actual and predicted target arrays, 
+    ensuring they are compatible for further analysis or metrics calculation.
+
+    Parameters
+    ----------
+    y_true : array-like
+        True target values.
+    y_pred : array-like
+        Predicted target values.
+    expected_type : str, optional
+        The expected sklearn type of the target ('binary', 'multiclass', etc.).
+    validation_mode : str, optional
+        Validation strictness. Currently, only 'strict' is implemented,
+        which requires y_true and y_pred to have the same shape and match the expected_type.
+    flatten : bool, optional
+        If True, both y_true and y_pred are flattened to one-dimensional arrays.
+
+    Raises
+    ------
+    ValueError
+        If y_true and y_pred do not meet the validation criteria.
+
+    Returns
+    -------
+    tuple
+        The validated y_true and y_pred arrays, potentially flattened.
+    """
+    from .coreutils import type_of_target
+    
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+
+    if flatten:
+        y_true = y_true.ravel()
+        y_pred = y_pred.ravel()
+
+    if y_true.ndim != 1 or y_pred.ndim != 1:
+        msg = "Both y_true and y_pred must be one-dimensional arrays after optional flattening."
+        raise ValueError(msg)
+
+    check_consistent_length(y_true, y_pred)
+
+    if expected_type is not None:
+        actual_type_y_true = type_of_target(y_true)
+        actual_type_y_pred = type_of_target(y_pred)
+        if validation_mode == 'strict' and (
+                actual_type_y_true != expected_type or actual_type_y_pred != expected_type
+                ):
+            msg = (f"Validation failed in strict mode. Expected type '{expected_type}'"
+                   " for both y_true and y_pred, but got '{actual_type_y_true}'"
+                   " and '{actual_type_y_pred}' respectively.")
+            raise ValueError(msg)
+
+    return y_true, y_pred
+
+
 def check_mixed_data_types(data, /) -> bool:
     """
     Checks if the given data (DataFrame or numpy array) contains both numerical 

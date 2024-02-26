@@ -38,18 +38,18 @@ one-dimensional array. For example:
     import numpy as np
     array = np.arange(4).shape   # Output: (4,)
 
-S
----
+Shape
+-----
 Indicates the `Shape` of an array. It is bound by `M`, `U`, `N`. `U` represents
 a one-dimensional array. While `Shape` is typically used for two-dimensional 
 arrays, it can be extended to more dimensions using the :class:`AddShape`.
 
-D
----
+DType
+-----
 Denotes a `DType` object. It is bound to :class:`DType`.
 
-Array
------
+Array1D
+--------
 Defined for one-dimensional arrays with an optional `DType`. For example:
 
 .. code-block:: python
@@ -58,8 +58,8 @@ Defined for one-dimensional arrays with an optional `DType`. For example:
     from gofast._typing import TypeVar, Array, DType
     _T = TypeVar('_T', float)
     A = TypeVar('A', str, bytes)
-    arr1: Array[_T, DType[_T]] = np.arange(21)
-    arr2: Array[A, DType[A]] = arr1.astype('str')
+    arr1: Array1D[_T, DType[_T]] = np.arange(21)
+    arr2: Array1D[A, DType[A]] = arr1.astype('str')
 
 NDArray
 -------
@@ -84,7 +84,7 @@ from an array:
 
     import numpy as np
     from gofast._typing import TypeVar, DType, Array, _Sub
-    from gofast.tools.exmath import _define_conductive_zone
+    from gofast.tools.mathex import _define_conductive_zone
     _T = TypeVar('_T', float)
     erp_array: Array[_T, DType[_T]] = np.random.randn(21)
     select_zone, _ = _define_conductive_zone(erp=erp_array, auto=True)
@@ -199,7 +199,12 @@ __all__ = [
     "_TypedDict",
     "TypeGuard",  
     "TypedDict", 
-    "Generator"
+    "Generator", 
+    "Array1D", 
+    "TypedCallable", 
+    "LambdaType", 
+    "NumPyFunction"
+    
 ]
 
 _T = TypeVar('_T')
@@ -210,6 +215,10 @@ N = TypeVar('N', bound=int)
 U = TypeVar('U')
 D = TypeVar('D', bound='DType')
 S = TypeVar('S', bound='Shape')
+# Define type variables for the arguments and return type
+A = TypeVar('A')  # Argument type
+R = TypeVar('R')  # Return type
+
 # ArrayLike = Union[Sequence, np.ndarray, pd.Series, pd.DataFrame]
 class AddShape(Generic[S]): 
     """
@@ -239,23 +248,27 @@ class DType(Generic[D]):
         >>> def check_dtype(array: NDArray[Array[float], DType[float]]): ...
     """
 
-class ArrayLike(Generic[_T, D]): 
+class ArrayLike(Generic[_T]):
     """
-    Represents an array-like structure, typically used for one-dimensional arrays.
-    For multi-dimensional arrays, NDArray should be used instead.
+    Represents a 2-dimensional array-like structure, suitable for data 
+    structures like Pandas DataFrame and Series.
+    For N-dimensional arrays, NDArray should be used instead.
 
     Example:
-        >>> def check_array(array: ArrayLike[int]): ...
+        >>> import pandas as pd
+        >>> def check_dataframe(array: ArrayLike[pd.DataFrame]): ...
+        >>> def check_series(array: ArrayLike[pd.Series]): ...
     """
 
-class NDArray(Generic[_T, D], ArrayLike[_T, DType[_T]]):
+class NDArray(Generic[_T]):
     """
-    Represents a generic N-dimensional array with specified data types.
+    Represents a generic N-dimensional array with specified data types, 
+    suitable for N-dimensional structures,
+    including but not limited to NumPy arrays.
 
     Example:
         >>> import numpy as np
-        >>> array = np.array([[1, 2], [3, 4]], dtype=int)
-        >>> def check_ndarray(array: NDArray[int, DType[int]]): ...
+        >>> def check_ndarray(array: NDArray[np.ndarray]): ...
     """
 
 class _F(Generic[_T]):
@@ -266,6 +279,62 @@ class _F(Generic[_T]):
     Example:
         >>> def my_function(x: int) -> str: ...
         >>> def check_callable(func: _F[Callable[[int], str]]): ...
+    """
+
+class LambdaType(Generic[A, R]):
+    """
+    Represents a type hint for lambda functions, specifying their argument 
+    and return types.
+    
+    This enhances type checking and clarity when using lambda functions in 
+    codebases, especially in contexts where the function signature is crucial 
+    for understanding the code's intent.
+
+    LambdaType can be used to explicitly define the expected argument types 
+    and the return type  of a lambda, providing a clearer interface 
+    contract within codebases.
+
+    Example:
+        >>> my_lambda: LambdaType[int, str] = lambda x: str(x)
+        >>> def process_lambda(func: LambdaType[int, str], value: int) -> str:
+        ...     return func(value)
+    """
+
+class NumPyFunction(Generic[R]):
+    """
+    A type hint for representing NumPy functions that operate on array-like
+    structures and return either a scalar or an array. This class captures the
+    signature of such functions, including their input types and return type.
+
+    This type hint is particularly useful for annotating functions that accept 
+    other NumPy functions as arguments, or for specifying the expected behavior
+    of user-defined functions that mimic NumPy reduction operations.
+
+    Example:
+        >>> from numpy.typing import ArrayLike
+        >>> def apply_numpy_func(func: NumPyFunction[float], data: ArrayLike) -> float:
+        ...     return func(data)
+    """
+
+    def __init__(self, func: Callable[[ArrayLike, Union[None, int, Sequence[int]]], R]):
+        self.func = func
+    
+    def __call__(self, *args, **kwargs) -> R:
+        return self.func(*args, **kwargs)
+
+class TypedCallable(Generic[_T]):
+    """
+    Represents a generic callable type, including functions, methods, and classes.
+    It allows for the specification of return types and argument types of 
+    callables, enhancing type checking and documentation.
+
+    The type hint can be used to explicitly define the expected argument types
+    and the return type
+    of a callable, providing clearer interface contracts within codebases.
+
+    Example:
+        >>> def my_function(x: int) -> str: ...
+        >>> def check_callable(func: TypedCallable[Callable[[int], str]]): ...
     """
 
 class _Sub(Generic[_T]):
@@ -401,6 +470,96 @@ class BeautifulSoupTag(Generic[_T]):
         Hello, world!
     """
     
+
+class Array1D(Generic[_T]):
+    """
+    A generic class for representing and manipulating one-dimensional arrays 
+    of any type.
+
+    This class provides basic functionality similar to a Python list but
+    ensures type safety, so all elements in the array are of the 
+    specified type `T`.
+
+    Attributes:
+        elements (List[T]): The list of elements stored in the array.
+
+    Type Parameters:
+        T: The type of elements in the `Array1D`. This can be any valid Python type.
+
+    Example Usage:
+        >>> numbers = Array1D[int]([1, 2, 3, 4])
+        >>> print(numbers)
+        Array1D([1, 2, 3, 4])
+        
+        >>> words = Array1D[str](["hello", "world"])
+        >>> words[1] = "python"
+        >>> print(words)
+        Array1D(['hello', 'python'])
+    """
+
+    def __init__(self, elements: List[_T]):
+        """
+        Initializes a new instance of the Array1D class with the provided elements.
+
+        Parameters:
+            elements (List[T]): A list of elements of type `T` to initialize the array.
+        """
+        self.elements = elements
+    
+    def __getitem__(self, index: int) -> _T:
+        """
+        Allows indexing into the array to get an element.
+
+        Parameters:
+            index (int): The index of the element to retrieve.
+
+        Returns:
+            T: The element at the specified index.
+
+        Raises:
+            IndexError: If the index is out of bounds.
+        """
+        return self.elements[index]
+    
+    def __setitem__(self, index: int, value: _T):
+        """
+        Allows setting the value of an element at a specific index.
+
+        Parameters:
+            index (int): The index of the element to modify.
+            value (T): The new value to set at the specified index.
+
+        Raises:
+            IndexError: If the index is out of bounds.
+        """
+        self.elements[index] = value
+    
+    def __len__(self) -> int:
+        """
+        Returns the number of elements in the array.
+
+        Returns:
+            int: The length of the array.
+        """
+        return len(self.elements)
+    
+    def add(self, value: _T):
+        """
+        Appends a new element to the end of the array.
+
+        Parameters:
+            value (T): The element to append to the array.
+        """
+        self.elements.append(value)
+    
+    def __repr__(self) -> str:
+        """
+        Provides a string representation of the array instance, useful for debugging.
+
+        Returns:
+            str: A string representation of the `Array1D` instance.
+        """
+        return f"Array1D({self.elements})"
 
 
 if __name__ == '__main__':

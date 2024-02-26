@@ -62,7 +62,9 @@ from .utils import (
     plot_variables, 
     plot_correlation_with_target, 
     plot_dependences, 
-    plot_pie_charts
+    plot_pie_charts, 
+    plot_actual_vs_predicted, 
+    plot_r2
     )
 
 __all__= [
@@ -128,5 +130,7 @@ __all__= [
     'plot_variables', 
     'plot_correlation_with_target', 
     'plot_dependences', 
-    'plot_pie_charts'
+    'plot_pie_charts', 
+    "plot_actual_vs_predicted", 
+    "plot_r2"
     ]

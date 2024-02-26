@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Feb 19 00:30:04 2024
+test_load.py 
 
-@author: Daniel
+@author: LKouadio <etanoyau@gmail.com>
 """
 import pytest
 import scipy 
@@ -13,7 +13,7 @@ from gofast.tools.box import Boxspace
 from gofast.datasets.load import load_hydro_metrics, load_statlog
 from gofast.datasets.load import  load_dyspnea, load_hlogs, load_nansha 
 from gofast.datasets.load import load_bagoue, load_iris, load_mxs
-# from gofast.datasets.load import load_jrs_bet, load_forensic 
+from gofast.datasets.load import load_jrs_bet, load_forensic 
 
 @patch("gofast.datasets.load._finalize_return")
 @patch("gofast.datasets.load._handle_split_X_y")
@@ -21,11 +21,18 @@ from gofast.datasets.load import load_bagoue, load_iris, load_mxs
 @patch("gofast.datasets.load._load_data")
 @patch("gofast.datasets.load._ensure_data_file")
 @patch("gofast.datasets.load._setup_key")
-def test_load_hlogs_default(mock_setup_key, mock_ensure_data_file, mock_load_data, mock_prepare_data, mock_handle_split_X_y, mock_finalize_return):
+def test_load_hlogs_default(mock_setup_key, mock_ensure_data_file, mock_load_data,
+                            mock_prepare_data, mock_handle_split_X_y, 
+                            mock_finalize_return):
     mock_setup_key.return_value = ('h502', {"h502", "h2601"})
-    mock_load_data.return_value = pd.DataFrame({'feature1': [1, 2], 'remark': ['note1', 'note2']})
-    mock_prepare_data.return_value = (pd.DataFrame({'feature1': [1, 2]}), pd.DataFrame({'feature1': [1, 2]}), pd.Series([3, 4]), ['feature1'])
-    mock_handle_split_X_y.return_value = (pd.DataFrame({'feature1': [1]}), pd.DataFrame({'feature1': [2]}), pd.Series([3]), pd.Series([4]))
+    mock_load_data.return_value = pd.DataFrame(
+        {'feature1': [1, 2], 'remark': ['note1', 'note2']})
+    mock_prepare_data.return_value = (
+        pd.DataFrame({'feature1': [1, 2]}), 
+        pd.DataFrame({'feature1': [1, 2]}), pd.Series([3, 4]), ['feature1'])
+    mock_handle_split_X_y.return_value = (
+        pd.DataFrame({'feature1': [1]}), 
+        pd.DataFrame({'feature1': [2]}), pd.Series([3]), pd.Series([4]))
     mock_finalize_return.return_value = "Bunch object"
     
     # Default behavior without any flags
@@ -62,7 +69,6 @@ def test_load_hydro_metrics_as_frame(mock_to_dataframe, mock_csv_data_loader):
         pd.Series([5, 6])
     )
 
-
 def test_base_load_dyspnea():
     # Test return_X_y=True
     data, target = load_dyspnea(return_X_y=True)
@@ -74,6 +80,139 @@ def test_base_load_dyspnea():
     assert isinstance(Xt, pd.DataFrame)
     assert isinstance(y, pd.Series)
     assert isinstance(yt, pd.Series)
+
+def test_load_forensic():
+    """
+    Run dataset tests on the forensic dataset with various configurations.
+    """
+    configurations = [
+        {},
+        {'return_X_y': True},
+        {'as_frame': True},
+        {'return_X_y': True, 'as_frame': True},
+        {'split_X_y': True, 'test_ratio': 0.3},
+        {'key': 'preprocessed', 'exclude_message_column': False},
+        {'key': 'raw', 'exclude_vectorized_features': False},
+        {'tag': 'specific_tag', 'exclude_message_column': True, 'exclude_vectorized_features': True},
+    ]
+    
+    for config in configurations:
+        _common_forensic_tests(load_forensic, **config)
+        print(f"Test passed with configuration: {config}")
+
+def _common_forensic_tests(func, **kwargs):
+    """
+    Perform assertions to validate loading and formatting of forensic dataset
+    based on the configuration.
+    """
+    result = func(**kwargs)
+    
+    # Assertions for return_X_y functionality
+    if kwargs.get('return_X_y', False):
+        data, target = result
+        assert isinstance(data, (np.ndarray, pd.DataFrame)), "Data must be ndarray or DataFrame"
+        assert isinstance(target, (np.ndarray, pd.Series)), "Target must be ndarray or Series"
+        
+        if kwargs.get('as_frame', False):
+                assert isinstance(data, pd.DataFrame), "Data must be a DataFrame when as_frame=True"
+                assert isinstance(target, pd.Series), "Target must be a Series when as_frame=True"
+    elif len(kwargs)==0:
+        # Assuming a custom Boxspace or similar object is returned
+        assert 'data' in result and 'target' in result, "Result must contain both 'data' and 'target'"
+        assert isinstance(result.get('frame', pd.DataFrame()), pd.DataFrame), "Frame must be a DataFrame"
+        assert 'DESCR' in result, "Result must contain 'DESCR'"
+        # Assertions for as_frame functionality
+    
+    elif kwargs.get('as_frame', False):
+        assert isinstance(result, pd.DataFrame), "Result must be a DataFrame when as_frame=True"
+    
+    # Assertions for split_X_y functionality
+    elif kwargs.get('split_X_y', False):
+        X_train, X_test, y_train, y_test = result
+        assert isinstance(X_train, (np.ndarray, pd.DataFrame)), "X_train must be ndarray or DataFrame"
+        assert isinstance(X_test, (np.ndarray, pd.DataFrame)), "X_test must be ndarray or DataFrame"
+        assert isinstance(y_train, (np.ndarray, pd.Series)), "y_train must be ndarray or Series"
+        assert isinstance(y_test, (np.ndarray, pd.Series)), "y_test must be ndarray or Series"
+    
+    # Additional checks for key parameter and feature exclusion
+    if 'key' in kwargs:
+        if kwargs.get('split_X_y', False): 
+            data = X_train 
+        data = data if kwargs.get('return_X_y', False) else result.frame 
+        expected_columns = 'message_to_investigators' not in data.columns if kwargs.get(
+            'exclude_message_column', True) else True
+        assert expected_columns, "Message column exclusion/inclusion does not match configuration"
+        if kwargs.get('exclude_vectorized_features', True) and kwargs['key'] == 'preprocessed':
+            tfidf_columns = [c for c in data.columns if 'tfid' in c]
+            assert not tfidf_columns, "TFIDF columns should not be present"
+
+    # Validate the presence of description and feature names 
+    # for comprehensive configurations
+    if not kwargs.get('split_X_y', False) and not kwargs.get(
+            'return_X_y', False) and not kwargs.get("as_frame", False):
+        assert 'DESCR' in result, "Result must contain 'DESCR'"
+        assert 'feature_names' in result, "Result must contain 'feature_names'"
+
+def test_load_jrs_bet():
+    """
+    Run common dataset tests on the JRS Bet dataset with various configurations.
+    """
+    configurations = [
+        {},
+        {'return_X_y': True},
+        {'as_frame': True},
+        {'return_X_y': True, 'as_frame': True},
+        {'split_X_y': True, 'test_size': 0.2},
+        {'key': 'classic', 'N': 5},
+        {'key': 'neural', 'data_names': ['winning_numbers'], 'as_frame': True}, #deoes 
+        {'key': 'raw', 'split_X_y': True, 'test_ratio': 0.3},
+        {'tag': 'example_tag', 'N': 10, 'seed': 42}
+    ]
+    
+    for config in configurations:
+        _common_jrs_bet_tests(load_jrs_bet, **config)
+        print(f"Test passed with configuration: {config}")
+
+def _common_jrs_bet_tests(func, **kwargs):
+    """
+    Perform a series of assertions to validate the loading and formatting of datasets
+    returned by the load_jrs_bet function. This includes checks for data types,
+    structure, integrity, and specific behaviors based on the configuration.
+    """
+    result = func(**kwargs)
+    
+    # Assertions for basic configurations
+    if kwargs.get('return_X_y', False):
+        data, target = result
+        assert isinstance(data, (np.ndarray, pd.DataFrame)), "Data must be ndarray or DataFrame"
+        assert isinstance(target, (np.ndarray, pd.Series)), "Target must be ndarray or Series"
+        
+        if kwargs.get('as_frame', False):
+                assert isinstance(data, pd.DataFrame), "Data must be a DataFrame when as_frame=True"
+                assert isinstance(target, pd.Series), "Target must be a Series when as_frame=True"
+    elif len(kwargs)==0:
+        # Assuming a custom Boxspace or similar object is returned
+        assert 'data' in result and 'target' in result, "Result must contain both 'data' and 'target'"
+        assert isinstance(result.get('frame', pd.DataFrame()), pd.DataFrame), "Frame must be a DataFrame"
+        assert 'DESCR' in result, "Result must contain 'DESCR'"
+    elif kwargs.get('as_frame', False):
+        assert isinstance(result, pd.DataFrame), "Result must be a DataFrame when as_frame=True"
+    
+    # Assertions for split_X_y functionality
+    elif kwargs.get('split_X_y', False):
+        X_train, X_test, y_train, y_test = result
+        print(X_train)
+        assert isinstance(X_train, (np.ndarray, pd.DataFrame)), "X_train must be ndarray or DataFrame"
+        assert isinstance(X_test, (np.ndarray, pd.DataFrame)), "X_test must be ndarray or DataFrame"
+        assert isinstance(y_train, (np.ndarray, pd.Series)), "y_train must be ndarray or Series"
+        assert isinstance(y_test, (np.ndarray, pd.Series)), "y_test must be ndarray or Series"
+
+     # Validate the presence of description and feature 
+     # names for comprehensive configurations
+    if not kwargs.get('split_X_y', False) and not kwargs.get(
+            'return_X_y', False) and not kwargs.get("as_frame", False):
+         assert 'DESCR' in result, "Result must contain 'DESCR'"
+         assert 'feature_names' in result, "Result must contain 'feature_names'"
 
 def test_load_mxs():
     """
@@ -87,7 +226,7 @@ def test_load_mxs():
         {'split_X_y': True, 'test_ratio': 0.2},
         {'key': 'sparse', 'return_X_y': True},
         {'key': 'scale', 'as_frame': True},
-        {'key': 'data', 'tnames': ['k'], 'samples': "*", 'seed': 42, 'shuffle': True},
+        {'key': 'data', 'target_names': ['k'], 'samples': "*", 'seed': 42, 'shuffle': True},
         {'key': 'raw', 'drop_observations': True},
     ]
     
@@ -230,10 +369,9 @@ def _common_bagoue_tests(func, **kwargs):
     if kwargs.get('split_X_y', False):
         validate_split_X_y(func, **kwargs)
 
-
-def test_load_nlogs():
+def test_load_nansha():
     """
-    Run common dataset tests on the Nlogs dataset with various configurations.
+    Run common dataset tests on the Nansha dataset with various configurations.
     """
     configurations = [
         {},
@@ -242,18 +380,18 @@ def test_load_nlogs():
         {'return_X_y': True, 'as_frame': True},
         {'split_X_y': True, 'test_ratio': 0.3},
         {'key': 'ns', 'as_frame': True},
-        {'key': 'engineering', 'years': '2018', 'tnames': ['ground_height_distance'],
+        {'key': 'engineering', 'years': '2018', 'target_names': ['ground_height_distance'],
           'return_X_y':True},
-        {'key': 'ls', 'years': '2018', 'tnames': ['2021', '2018', '1017'], 'split_X_y':True},
+        {'key': 'ls', 'years': '2018', 'target_names': ['2021', '2018', '1017'], 'split_X_y':True},
         {'samples': 100, 'seed': 42, 'shuffle': True},
         {'tag': 'test', 'data_names': ['easting', 'northing'], 'as_frame': True}
     ]
     
     for config in configurations:
-        _common_nlogs_tests(load_nansha, **config)
+        _common_nansha_tests(load_nansha, **config)
         print(f"Test passed with configuration: {config}")
 
-def _common_nlogs_tests(func, **kwargs):
+def _common_nansha_tests(func, **kwargs):
     """
     Perform a series of assertions to validate the loading and formatting of datasets
     returned by the load_nansha function. This includes checks for data types,
@@ -472,7 +610,7 @@ def test_hlogs():
         {},
         {'return_X_y': True}, 
         {'split_X_y': True},
-        {'tnames': 'k', 'split_X_y': True},
+        {'target_names': 'k', 'split_X_y': True},
         {'key': 'h1102 h1104'}
     ]
     for config in configurations:

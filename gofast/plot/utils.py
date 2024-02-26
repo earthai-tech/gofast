@@ -34,7 +34,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.inspection import PartialDependenceDisplay
 from sklearn.linear_model import LogisticRegression 
 from sklearn.metrics import confusion_matrix , silhouette_samples, roc_curve 
-from sklearn.metrics import roc_auc_score, r2_score
+from sklearn.metrics import roc_auc_score, r2_score 
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import learning_curve, KFold 
 from sklearn.utils import resample
 
@@ -46,10 +47,153 @@ from ..tools.coreutils import make_obj_consistent_if, is_in_if, to_numeric_dtype
 from ..tools.coreutils import fill_nan_in
 from ..tools.validator import _check_array_in , _is_cross_validated, is_frame 
 from ..tools.validator import  assert_xy_in, get_estimator_name, check_is_fitted
-from ..tools.validator import check_array, check_X_y, check_consistent_length 
+from ..tools.validator import check_array, check_X_y, check_consistent_length
+from ..tools.validator import validate_yy 
 from ..tools._dependency import import_optional_dependency 
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
+
+def plot_actual_vs_predicted(
+    y_true: ArrayLike, 
+    y_pred: ArrayLike, 
+    metrics: Optional[List[str]] = None, 
+    point_color: str = 'blue', 
+    line_color: str = 'red', 
+    point_label: str = 'Prediction', 
+    line_label: str = 'Ideal', 
+    xlabel: str = 'Actual (true) value', 
+    ylabel: str = 'Predicted values', 
+    title: str = 'Actual (true) value vs predicted values', 
+    show_grid: bool = True, 
+    grid_style: str = '-', 
+    point_size: float = 50, 
+    line_style: str = '-', 
+    ax: Optional[plt.Axes] = None, 
+    fig_size: Optional[Tuple[int, int]] = (10, 8),
+    **metrics_kws
+) -> plt.Axes:
+    """
+    Plot a scatter graph of actual vs predicted values along with an ideal line 
+    representing perfect predictions.
+    
+    Optionally calculate and display selected  metrics such as 
+    MSE, RMSE, MAE, and R2.
+
+    Parameters
+    ----------
+    y_true : ArrayLike
+        The true values for comparison. Must be a one-dimensional array-like 
+        object of numerical data.
+    y_pred : ArrayLike
+        The predicted values to be plotted against the true values. Must be 
+        a one-dimensional array-like object of numerical data.
+    metrics : Optional[List[str]], optional
+        A list of strings indicating which metrics to calculate and display on 
+        the plot. Possible values are 'mse', 'rmse', 'mae', and 'r2'. If None,
+        no metrics are displayed. If ``**``, displays all metric values.
+    point_color : str, optional
+        The color for the scatter plot points. Default is 'blue'.
+    line_color : str, optional
+        The color for the ideal line. Default is 'red'.
+    point_label : str, optional
+        The label for the scatter plot points in the legend. Default is 'Prediction'.
+    line_label : str, optional
+        The label for the ideal line in the legend. Default is 'Ideal'.
+    xlabel : str, optional
+        The label for the X-axis. Default is 'Actual (true) value'.
+    ylabel : str, optional
+        The label for the Y-axis. Default is 'Predicted values'.
+    title : str, optional
+        The title of the plot. Default is 'Actual (true) value vs predicted values'.
+    show_grid : bool, optional
+        Whether to show grid lines on the plot. Default is True.
+    grid_style : str, optional
+        The style of the grid lines. Default is '-' (solid line).
+    point_size : float, optional
+        The size of the scatter plot points. Default is 50.
+    line_style : str, optional
+        The style of the ideal line. Default is '-' (solid line).
+    ax : Optional[plt.Axes], optional
+        The matplotlib Axes object to draw the plot on. If None, a new figure 
+        and axes are created. Default is None.
+    fig_size : Optional[Tuple[int, int]], optional
+        The size of the figure in inches. Default is (10, 8).
+    **metrics_kws
+        Additional keyword arguments to pass to the metric functions.
+
+    Returns
+    -------
+    ax : plt.Axes
+        The matplotlib Axes object with the plot.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.plot.utils import plot_actual_vs_predicted
+    >>> y_true = np.array([1, 2, 3, 4, 5])
+    >>> y_pred = np.array([1.1, 1.9, 3.1, 3.9, 4.9])
+    >>> plot_actual_vs_predicted(y_true, y_pred, metrics=['mse', 'rmse'], 
+    ...                          point_color='green', line_color='r') 
+    """
+    # Validate inputs
+    y_true, y_pred = validate_yy(y_true, y_pred, "continuous")
+
+    if ax is None:
+        plt.figure(figsize=fig_size)
+        ax = plt.gca()
+
+    # Plotting
+    ax.scatter(y_true, y_pred, color=point_color, label=point_label,
+               s=point_size, alpha=0.7)
+    ideal_line = np.linspace(min(y_true), max(y_true), 100)
+    ax.plot(ideal_line, ideal_line, color=line_color, label=line_label,
+            linestyle=line_style)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+
+    if show_grid:
+        ax.grid(visible=show_grid, linestyle=grid_style)
+
+    # Calculate and display metrics
+    metrics_text = ""
+    if metrics is not None:
+        available_metrics = {
+            'mse': mean_squared_error(y_true, y_pred, **metrics_kws),
+            'mae': mean_absolute_error(y_true, y_pred, **metrics_kws),
+            'r2': r2_score(y_true, y_pred, **metrics_kws)
+        }
+        available_metrics['rmse'] = np.sqrt(available_metrics['mse'])
+        if metrics=='*': 
+            metrics = list(available_metrics.keys())
+        metrics = [ metric.lower().replace("_score", "") for metric in metrics]
+        
+        valid_metrics = list(set(metrics).intersection(set(available_metrics)))  
+        if len(valid_metrics)!=0: 
+            metrics_text = "\n".join(
+                f"${name.upper()} = {value:.3f}$" for name, value in available_metrics.items() 
+                if name in valid_metrics)
+            metrics_box = ax.text(
+                0.05, 0.95, metrics_text,  ha='left', va='top',
+                transform=ax.transAxes, fontsize=9, 
+                                  bbox=dict(boxstyle="round,pad=0.5",
+                                            facecolor='white', 
+                                            edgecolor='black', alpha=0.7))
+    
+            # Dynamically place the legend
+            legend_loc = 'best' if metrics_box.get_bbox_patch(
+                ).get_extents().y0 > 0.5 else 'lower right'
+        else: 
+            warnings.warn(f"Metric '{metrics}' is not recognized. "
+                          f"Available metrics are {list(available_metrics.keys())}.", 
+                          UserWarning)
+            
+    ax.legend(loc=legend_loc)
+    
+    plt.tight_layout()
+    plt.show()
+
+    return ax
 
 def plot_pie_charts(
     data: DataFrame, /, 
@@ -4458,19 +4602,19 @@ def _set_sns_style (s, /):
     s = re.sub(r'true|none', 'darkgrid', s)
     return sns.set_style(s) 
 
-def _is_target_in (X, y=None, tname=None): 
-    """ Create new target name for tname if given 
+def _is_target_in (X, y=None, target_name=None): 
+    """ Create new target name for target_name if given 
     
     :param X: dataframe 
         dataframe containing the data for plotting 
     :param y: array or series
         target data for plotting. Note that multitarget outpout is not 
-        allowed yet. Moroever, it `y` is given as a dataframe, 'tname' must 
+        allowed yet. Moroever, it `y` is given as a dataframe, 'target_name' must 
         be supplied to retrive y as a pandas series object, otherwise an 
         error will raise. 
-    :param tname: str,  
-        target name. If given and `y` is ``None``, Will try to find `tname`
-        in the `X` columns. If 'tname' does not exist, plot for target is 
+    :param target_name: str,  
+        target name. If given and `y` is ``None``, Will try to find `target_name`
+        in the `X` columns. If 'target_name' does not exist, plot for target is 
         cancelled. 
         
     :return y: Series 
@@ -4481,22 +4625,22 @@ def _is_target_in (X, y=None, tname=None):
         y = _assert_all_types(y , pd.Series, pd.DataFrame, np.ndarray)
         
         if hasattr (y, 'columns'): 
-            if tname not in (y.columns): tname = None 
-            if tname is None: 
+            if target_name not in (y.columns): target_name = None 
+            if target_name is None: 
                 raise TypeError (
-                    "'tname' must be supplied when y is a dataframe.")
-            y = y [tname ]
+                    "'target_name' must be supplied when y is a dataframe.")
+            y = y [target_name ]
         elif hasattr (y, 'name'): 
-            tname = tname or y.name 
+            target_name = target_name or y.name 
             # reformat inplace the name of series 
-            y.name = tname 
+            y.name = target_name 
             
         elif hasattr(y, '__array__'): 
-            y = pd.Series (y, name = tname or 'target')
+            y = pd.Series (y, name = target_name or 'target')
             
     elif y is None: 
-        if tname in X.columns :
-            y = X.pop(tname)
+        if target_name in X.columns :
+            y = X.pop(target_name)
 
     return X, y 
 
@@ -5301,49 +5445,138 @@ def plot_roc_curves (
         ax.legend() 
         
     return ax 
-        
-def plot_rsquared (X , y,  y_pred, **r2_score_kws  ): 
-    """ Plot :math:`R^2` squared functions. 
-    
-    Parameters 
-    -----------
-    X : array-like of shape (n_samples, n_features)
-        Training vector, where `n_samples` is the number of samples and
-        `n_features` is the number of features.
 
-    y : array-like of shape (n_samples,) or (n_samples, n_outputs)
-        Target relative to X for classification or regression;
-        None for unsupervised learning.
-    
-    y_pred: array-like of shape (n_samples,) or (n_samples, n_outputs)
-        Predicted target relative to X for classification or regression;
-        None for unsupervised learning.
-        
-    r2_score_kws: dict, optional 
-       Additional keyword arguments of :func:`sklearn.metrics.r2_score`. 
-    
+def plot_r2(
+    y_true, 
+    y_pred,
+    *, 
+    title=None,  
+    xlabel=None, 
+    ylabel=None,  
+    fig_size=(8, 8),
+    scatter_color='blue', 
+    line_color='red', 
+    line_style='--', 
+    annotate=True, 
+    ax=None, 
+    **r2_score_kws
+    ):
     """
-    from sklearn.metrics import r2_score
-    # Calculate R-squared
-    r_squared = r2_score(y, y_pred, **r2_score_kws)
+    Plot a scatter plot of actual vs. predicted values and annotate 
+    the R-squared value to visualize the model's performance.
 
-    # Plotting the scatter plot
-    plt.scatter(X, y, color='blue', label='Actual data')
+    This function uses the actual and predicted values to plot a scatter 
+    diagram, illustrating how close the predictions are to the actual values.
+    It can also plot a line representing perfect predictions for reference 
+    and annotate the plot with the R-squared value, providing a visual metric 
+    of the model's accuracy.
 
-    # Plotting the regression line
-    plt.plot(X, y_pred, color='red', linewidth=2, label='Fitted line')
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        The true target values.
+    
+    y_pred : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        The predicted target values.
+        
+    title : str, optional
+        The title of the plot. If None, defaults to 'Model
+        Performance: Actual vs Predicted'.
+        
+    xlabel : str, optional
+        The label for the x-axis. If None, defaults to 'Actual Values'.
+        
+    ylabel : str, optional
+        The label for the y-axis. If None, defaults to 'Predicted Values'.
+        
+    fig_size : tuple, optional
+        The size of the figure in inches. Defaults to (8, 8).
+        
+    scatter_color : str, optional
+        The color of the scatter plot points. Defaults to 'blue'.
+        
+    line_color : str, optional
+        The color of the line representing perfect predictions.
+        Defaults to 'red'.
+        
+    line_style : str, optional
+        The style of the line representing perfect predictions.
+        Defaults to '--'.
+        
+    annotate : bool, optional
+        If True, annotates the plot with the R-squared value. 
+        Defaults to True.
+        
+    ax : matplotlib.axes.Axes, optional
+        The axes upon which to draw the plot. If None, a new figure
+        and axes are created.
+        
+    **r2_score_kws : dict, optional
+        Additional keyword arguments to be passed to `sklearn.metrics.r2_score`.
 
-    # Annotate the R-squared value on the plot
-    plt.text(0.5, 0.5, 'R-squared = {:.2f}'.format(r_squared), fontsize=12, ha='center')
+    Examples
+    --------
+    >>> from sklearn.model_selection import train_test_split
+    >>> from sklearn.linear_model import LinearRegression
+    >>> from sklearn.datasets import make_regression
+    >>> import matplotlib.pyplot as plt
 
-    # Adding labels and title
-    plt.xlabel('Predictor')
-    plt.ylabel('Target')
-    plt.title('R-squared Diagram')
-    plt.legend()
-    # Show the plot
-    plt.show()
+    # Generating synthetic data
+    >>> X, y = make_regression(n_samples=100, n_features=1, 
+                               noise=10, random_state=42)
+    >>> X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42)
 
+    # Fitting a linear model
+    >>> model = LinearRegression()
+    >>> model.fit(X_train, y_train)
+    >>> y_pred = model.predict(X_test)
+
+    # Plotting R-squared performance
+    >>> plot_r2(y_test, y_pred, title='Linear Regression Performance',
+                xlabel='Actual', ylabel='Predicted', scatter_color='green', 
+                line_color='orange', line_style='-.')
+
+    # Integrating with existing matplotlib figure and axes
+    >>> fig, ax = plt.subplots()
+    >>> plot_r2(y_test, y_pred, ax=ax)
+    >>> plt.show()
+
+    This function is versatile and can be used directly within data science 
+    and machine learning workflows to visually assess model performance.
+    """
+    y_true, y_pred= validate_yy(y_true, y_pred, "continuous")
+    if ax is None: 
+        fig, ax = plt.subplots(figsize=fig_size)
+    
+    # Calculate R-squared value
+    r_squared = r2_score(y_true, y_pred, **r2_score_kws)
+    
+    # Plot actual vs predicted values
+    ax.scatter(y_true, y_pred, color=scatter_color, label='Predictions vs Actual data')
+    
+    # Plot a line representing perfect predictions
+    perfect_preds = [min(y_true.min(), y_pred.min()), max(y_true.max(), y_pred.max())]
+    ax.plot(perfect_preds, perfect_preds, color=line_color,
+            linestyle=line_style, label='Perfect fit')
+    
+    # Annotate the R-squared value on the plot if requested
+    if annotate:
+        ax.text(0.05, 0.95, f'$R^2 = {r_squared:.2f}$', 
+                fontsize=12, ha='left', va='top', transform=ax.transAxes)
+    
+    # Enhancing the plot
+    ax.set_xlabel(xlabel or 'Actual Values')
+    ax.set_ylabel(ylabel or 'Predicted Values')
+    ax.set_title(title or 'Model Performance: Actual vs Predicted')
+    ax.legend(loc='upper left')
+    ax.grid(True)
+    
+    # Show the plot only if `ax` was not provided
+    if ax is None:
+        plt.show()
+        
+    return ax 
 
 def plot_l_curve(
     rms, 
@@ -5382,7 +5615,7 @@ def plot_l_curve(
        Corresponding list pr Arraylike of RMS values.
        
     roughness: Arraylike, list, 
-       List or ArratLike of roughness values. 
+       List or ArrayLike of roughness values. 
        
     tau: Arraylike or list, optional 
        List of tau values to visualize as text mark in the plot. 
@@ -5571,6 +5804,21 @@ def _manage_plot_kws ( kws, dkws = dict () ):
             kws[key] = dkws.get(key)
             
     return kws 
+
+def is_colormap(color_name):
+    """
+    Checks if the given color name is a valid colormap in Matplotlib.
+
+    Parameters:
+    - color_name: str, the name of the color or colormap to check.
+
+    Returns:
+    - bool, True if the color_name is a colormap, False otherwise.
+    """
+    # Get the list of all colormaps in Matplotlib
+    colormaps = plt.colormaps()
+    # Check if the given color_name is in the list of colormaps
+    return color_name in colormaps
 
 
 

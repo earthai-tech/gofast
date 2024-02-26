@@ -2,10 +2,7 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 
-from __future__ import ( 
-    annotations , 
-    print_function 
-    )
+from __future__ import annotations, print_function 
 import os 
 import re 
 import sys
@@ -35,6 +32,7 @@ from concurrent.futures import (ThreadPoolExecutor, ProcessPoolExecutor,
 import numpy as np 
 import pandas as pd 
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
 from .._gofastlog import gofastlog
 from .._typing import ( 
@@ -52,7 +50,8 @@ from .._typing import (
     NDArray, 
     Text, 
     Union, 
-    Series 
+    Series, 
+    Set
     )
 from ._dependency import import_optional_dependency
 _logger = gofastlog.get_gofast_logger(__name__)
@@ -74,14 +73,13 @@ try:
             _logger.warning(_msg)
             
     import scipy.interpolate as spi
-
+    from scipy.spatial import distance 
+    
     interp_import = True
  # pragma: no cover
 except ImportError: 
-    
     warnings.warn(_msg0)
     _logger.warning(_msg0)
-    
     interp_import = False
     
 # xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -144,8 +142,6 @@ def format_to_datetime(data, date_col, verbose=0, **dt_kws):
         return data
 
     return data
-
-
 
 def get_params (obj: object 
                 ) -> dict: 
@@ -894,7 +890,7 @@ def smart_strobj_recognition(
         detected.
         
     :Example:
-        >>> from gofast.tools.funcutils import smart_strobj_recognition
+        >>> from gofast.tools.coreutils import smart_strobj_recognition
         >>> from gofast.methods import ResistivityProfiling 
         >>> rObj = ResistivityProfiling(AB= 200, MN= 20,)
         >>> smart_strobj_recognition ('dip', robj.__dict__))
@@ -8509,4 +8505,691 @@ def _perform_sampling(d: Any, n_samples: int, replace: bool,
         return d_array[indices] if d_array.ndim == 1 else d_array[indices, :]
 
 
+def get_valid_key(input_key, default_key, substitute_key_dict=None,
+                  regex_pattern = "[#&*@!,;\s]\s*", deep_search=True):
+    """
+    Validates an input key and substitutes it with a valid key if necessary,
+    based on a mapping of valid keys to their possible substitutes. If the input
+    key is not provided or is invalid, a default key is used.
+
+    Parameters
+    ----------
+    input_key : str
+        The key to validate and possibly substitute.
+    default_key : str
+        The default key to use if input_key is None, empty, or not found in 
+        the substitute mapping.
+    substitute_key_dict : dict, optional
+        A mapping of valid keys to lists of their possible substitutes. This
+        allows for flexible key substitution and validation.
+    regex_pattern: str, default = '[#&*@!,;\s-]\s*'
+        The base pattern to split the text into a columns
+    deep_search: bool, default=False 
+       If deep-search, the key finder is no sensistive to lower/upper case 
+       or whether a numeric data is included. 
+    Returns
+    -------
+    str
+        A valid key, which is either the original input_key if valid, a substituted
+        key if the original was found in the substitute mappings, or the default_key.
+
+    Notes
+    -----
+    This function also leverages an external validation through `key_checker` for
+    a deep search validation, ensuring the returned key is within the set of valid keys.
     
+    Example
+    -------
+    >>> from gofast.tools.coreutils import get_valid_key
+    >>> substitute_key_dict = {'valid_key1': ['vk1', 'key1'], 'valid_key2': ['vk2', 'key2']}
+    >>> get_valid_key('vk1', 'default_key', substitute_key_dict)
+    'valid_key1'
+    >>> get_valid_key('unknown_key', 'default_key', substitute_key_dict)
+    'KeyError...'
+  
+    """
+    # Ensure substitute_mapping is a dictionary if not provided
+    substitute_key_dict = substitute_key_dict or {}
+
+    # Fallback to default_key if input_key is None or empty
+    input_key = input_key or default_key
+
+    # Attempt to find a valid substitute for the input_key
+    for valid_key, substitutes in substitute_key_dict.items():
+        # Case-insensitive comparison for substitutes
+        normalized_substitutes = [str(sub).lower() for sub in substitutes]
+        
+        if str(input_key).lower() in normalized_substitutes:
+            input_key = valid_key
+            break
+    
+    regex = re.compile (fr'{regex_pattern}', flags=re.IGNORECASE)
+    # use valid keys  only if substitute_key_dict not provided. 
+    valid_keys = substitute_key_dict.keys() if substitute_key_dict else is_iterable(
+            default_key, exclude_string=True, transform=True)
+    valid_keys = set (list(valid_keys) + [default_key])
+    # Further validate the (possibly substituted) input_key
+    input_key = key_checker(input_key, valid_keys=valid_keys,
+                            deep_search=deep_search,regex = regex  )
+    
+    return input_key
+
+def process_and_extract_data(
+    *args: ArrayLike, 
+    columns: Optional[List[Union[str, int]]] = None,
+    enforce_extraction: bool = True, 
+    allow_split: bool = False, 
+    search_multiple: bool = False,
+    ensure_uniform_length: bool = False, 
+    to_array: bool = False,
+    on_error: str = 'raise',
+) -> List[np.ndarray]:
+    """
+    Extracts and processes data from various input types, focusing on column extraction
+    from pandas DataFrames and conversion of inputs to numpy arrays or pandas Series.
+
+    Parameters
+    ----------
+    *args : ArrayLike
+        A variable number of inputs, each can be a list, numpy array, pandas Series,
+        dictionary, or pandas DataFrame.
+    columns : List[Union[str, int]], optional
+        Specific columns to extract from pandas DataFrames. If not provided, the function
+        behaves differently based on `allow_split`.
+    enforce_extraction : bool, default=True
+        Forces the function to try extracting `columns` from DataFrames. If False,
+        DataFrames are returned without column extraction unless `allow_split` is True.
+        Removing non-conforming elements if True.
+    allow_split : bool, default=False
+        If True and a DataFrame is provided without `columns`, splits the DataFrame
+        into its constituent columns.
+    search_multiple : bool, default=False
+        Allows searching for `columns` across multiple DataFrame inputs. Once a column
+        is found, it is not searched for in subsequent DataFrames.
+    ensure_uniform_length : bool, default=False
+        Checks that all extracted arrays have the same length. Raises an error if they don't.
+    to_array : bool, default=False
+        Converts all extracted pandas Series to numpy arrays.
+    on_error : str, {'raise', 'ignore'}, default='raise'
+        Determines how to handle errors during column extraction or when enforcing uniform length.
+        'raise' will raise an error, 'ignore' will skip the problematic input.
+
+    Returns
+    -------
+    List[np.ndarray]
+        A list of numpy arrays or pandas Series extracted based 
+        on the specified conditions.
+
+    Examples
+    --------
+    >>> import numpy as np 
+    >>> import pandas as pd 
+    >>> from gofast.tools.coreutils import process_and_extract_data
+    >>> data = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
+    >>> process_and_extract_data(data, columns=['A'], to_array=True)
+    [array([1, 2, 3])]
+
+    Splitting DataFrame into individual arrays:
+
+    >>> process_and_extract_data(data, allow_split=True, to_array=True)
+    [array([1, 2, 3]), array([4, 5, 6])]
+
+    Extracting columns from multiple DataFrames:
+
+    >>> data2 = pd.DataFrame({'C': [7, 8, 9], 'D': [10, 11, 12]})
+    >>> process_and_extract_data(data, data2, columns=['A', 'C'], 
+                                  search_multiple=True, to_array=True)
+    [array([1, 2, 3]), array([7, 8, 9])]
+
+    Handling mixed data types:
+
+    >>> process_and_extract_data([1, 2, 3], {'E': [13, 14, 15]}, to_array=True)
+    [array([1, 2, 3]), array([13, 14, 15])]
+    
+    Extracting columns from multiple DataFrames and enforcing uniform length:
+    >>> data2 = pd.DataFrame({'C': [7, 8, 9, 10], 'D': [11, 12, 13, 14]})
+    >>> result = process_and_extract_data(
+        data, data2, columns=['A', 'C'],search_multiple=True,
+        ensure_uniform_length=True, to_array=True)
+    ValueError: Extracted data arrays do not have uniform length.
+    """
+    extracted_data = []
+    columns_found: Set[Union[str, int]] = set()
+
+    def _process_input(
+            input_data: ArrayLike,
+            target_columns: Optional[List[Union[str, int]]], 
+            to_array: bool) -> Optional[np.ndarray]:
+        """
+        Processes each input based on its type, extracting specified columns if necessary,
+        and converting to numpy array if specified.
+        """
+        if isinstance(input_data, (list, tuple)):
+            input_data = np.array(input_data)
+            return input_data if len(input_data.shape) == 1 or not enforce_extraction else None
+
+        elif isinstance(input_data, dict):
+            input_data = pd.DataFrame(input_data)
+
+        if isinstance(input_data, pd.DataFrame):
+            if target_columns:
+                for col in target_columns:
+                    if col in input_data.columns and (search_multiple or col not in columns_found):
+                        data_to_add = input_data[col].to_numpy() if to_array else input_data[col]
+                        extracted_data.append(data_to_add)
+                        columns_found.add(col)
+                    elif on_error == 'raise':
+                        raise ValueError(f"Column {col} not found in DataFrame.")
+            elif allow_split:
+                for col in input_data.columns:
+                    data_to_add = input_data[col].to_numpy() if to_array else input_data[col]
+                    extracted_data.append(data_to_add)
+            return None
+
+        if isinstance(input_data, np.ndarray):
+            if input_data.ndim > 1 and allow_split:
+                input_data = np.hsplit(input_data, input_data.shape[1])
+                for arr in input_data:
+                    extracted_data.append(arr.squeeze())
+                return None
+            elif input_data.ndim > 1 and enforce_extraction and on_error == 'raise':
+                raise ValueError("Multidimensional array found while `enforce_extraction` is True.")
+            return input_data if to_array else np.squeeze(input_data)
+
+        return input_data.to_numpy() if to_array and isinstance(input_data, pd.Series) else input_data
+
+    for arg in args:
+        result = _process_input(arg, columns, to_array)
+        if result is not None:
+            extracted_data.append(result)
+
+    if ensure_uniform_length and not all(len(x) == len(
+            extracted_data[0]) for x in extracted_data):
+        if on_error == 'raise':
+            raise ValueError("Extracted data arrays do not have uniform length.")
+        else:
+            return []
+
+    return extracted_data
+
+def to_series_if(
+    *values: Any, 
+    value_names: Optional[List[str]] = None, 
+    name: Optional[str] = None,
+    error: str = 'ignore',
+    **kws
+) -> pd.Series:
+    """
+    Constructs a pandas Series from given values, optionally naming the series
+    and its index.
+
+    Parameters
+    ----------
+    *values : Any
+        A variable number of inputs, each can be a scalar, float, int, or array-like object.
+    value_names : Optional[List[str]]
+        Names to be used for the index of the series. If not provided or if its length
+        doesn't match the number of values, default numeric index is used.
+    name : Optional[str]
+        Name of the series.
+    error : str, default 'ignore'
+        Error handling strategy ('ignore' or 'raise'). If 'raise', errors during series
+        construction lead to an exception.
+    **kws : dict
+        Additional keyword arguments passed to `pd.Series` constructor.
+
+    Returns
+    -------
+    pd.Series or original values
+        A pandas Series constructed from the inputs if successful, otherwise, the original
+        values if the series construction is not applicable.
+
+    Examples
+    --------
+    >>> from gofast.tools.coreutils import to_series_if
+    >>> series = to_series_if(0.5, 8, np.array(
+        [6.3]), [5], 2, value_names=['a', 'b', 'c', 'd', 'e'])
+    >>> print(series)
+
+    >>> series = to_series_if(0.5, 8, np.array([6.3, 7]), [5], 2,
+                              value_names=['a', 'b', 'c', 'd', 'e'], error='raise')
+    ValueError: Failed to construct series, input types vary.
+    """
+    # Validate input lengths and types
+    if value_names and len(value_names) != len(values):
+        if error == 'raise':
+            raise ValueError("Length of `value_names` does not match the number of values.")
+        value_names = None  # Reset to default indexing
+    # Attempt to construct series
+    try:
+        # Flatten array-like inputs to avoid creating Series of lists/arrays
+        flattened_values = [val[0] if isinstance(
+            val, (list,tuple,  np.ndarray, pd.Series)) and len(val) == 1 else val for val in values]
+        series = pd.Series(flattened_values, index=value_names, name=name, **kws)
+    except Exception as e:
+        if error == 'raise':
+            raise ValueError(f"Failed to construct series due to: {e}")
+        return values  # Return the original values if series construction fails
+
+    return series
+
+def ensure_visualization_compatibility(
+        result, as_frame=False, view=False, func_name=None,
+        verbose=0, allow_singleton_view=False
+        ):
+    """
+    Evaluates and prepares the result for visualization, adjusting its format
+    if necessary and determining whether visualization is feasible based on
+    given parameters. If the conditions for visualization are not met, 
+    especially for singleton values, it can modify the view flag accordingly.
+
+    Parameters
+    ----------
+    result : iterable or any
+        The result to be checked and potentially modified for visualization.
+    as_frame : bool, optional
+        If True, the result is intended for frame-based visualization, which 
+        may prevent conversion of singleton iterables to a float. Defaults to False.
+    view : bool, optional
+        Flag indicating whether visualization is intended. This function may 
+        modify it to False if visualization conditions aren't met. Defaults to False.
+    func_name : callable or str, optional
+        The name of the function or a callable from which the name can be derived, 
+        used in generating verbose messages. Defaults to None.
+    verbose : int, optional
+        Controls verbosity level. A value greater than 0 enables verbose messages. 
+        Defaults to 0.
+    allow_singleton_view : bool, optional
+        Allows visualization of singleton values if set to True. If False and a 
+        singleton value is encountered, `view` is set to False. Defaults to False.
+
+    Returns
+    -------
+    tuple
+        A tuple containing the potentially modified result and the updated view flag.
+        The result is modified if it's a singleton iterable and conditions require it.
+        The view flag is updated based on the allowability of visualization.
+
+    Examples
+    --------
+    >>> from gofast.tools.coreutils import ensure_visualization_compatibility
+    >>> result = [100.0]
+    >>> modified_result, can_view = ensure_visualization_compatibility(
+    ...     result, as_frame=False, view=True, verbose=1, allow_singleton_view=False)
+    Visualization is not allowed for singleton value.
+    >>> print(modified_result, can_view)
+    100.0 False
+
+    >>> result = [[100.0]]
+    >>> modified_result, can_view = ensure_visualization_compatibility(
+    ...     result, as_frame=True, verbose=1)
+    >>> print(modified_result, can_view)
+    [[100.0]] True
+    """
+    if hasattr(result, '__iter__') and len(
+            result) == 1 and not allow_singleton_view:
+        if not as_frame:
+            # Attempt to convert to float value
+            try:
+                result = float(result[0])
+            except ValueError:
+                pass  # Keep the result as is if conversion fails
+
+        if view: 
+            if verbose > 0:
+                # Construct a user-friendly verbose message
+                func_name_str = f"{func_name.__name__} visualization" if callable(
+                    func_name) else "Visualization"
+                # Ensure the first letter is capitalized
+                message_start = func_name_str[0].upper() + func_name_str[1:]  
+                print(f"{message_start} is not allowed for singleton value.")
+            view =False 
+    return result, view 
+
+def generate_mpl_styles(n, prop='color'):
+    """
+    Generates a list of matplotlib property items (colors, markers, or line styles)
+    to accommodate a specified number of samples.
+
+    Parameters
+    ----------
+    n : int
+        Number of property items needed. It generates a list of property items.
+    prop : str, optional
+        Name of the property to retrieve. Accepts 'color', 'marker', or 'line'.
+        Defaults to 'color'.
+
+    Returns
+    -------
+    list
+        A list of property items with size equal to `n`.
+
+    Raises
+    ------
+    ValueError
+        If the `prop` argument is not one of the accepted property names.
+
+    Examples
+    --------
+    Generate 10 color properties:
+
+    >>> from gofast.tools.coreutils import generate_mpl_styles
+    >>> generate_mpl_styles(10, prop='color')
+    ['g', 'gray', 'y', 'blue', 'orange', 'purple', 'lime', 'k', 'cyan', 'magenta']
+
+    Generate 5 marker properties:
+
+    >>> generate_mpl_styles(5, prop='marker')
+    ['o', '^', 's', '*', '+']
+
+    Generate 3 line style properties:
+
+    >>> generate_mpl_styles(3, prop='line')
+    ['-', '--', '-.']
+    """
+    import matplotlib as mpl
+
+    D_COLORS = ["g", "gray", "y", "blue", "orange", "purple", "lime",
+                "k", "cyan", "magenta"]
+    D_MARKERS = ["o", "^", "s", "*", "+", "x", "D", "H"]
+    D_STYLES = ["-", "--", "-.", ":"]
+    
+    n = int(n)  # Ensure n is an integer
+    prop = prop.lower().strip().replace('s', '')  # Normalize the prop string
+    if prop not in ('color', 'marker', 'line'):
+        raise ValueError(f"Property '{prop}' is not available."
+                         " Expect 'color', 'marker', or 'line'.")
+
+    # Mapping property types to their corresponding lists
+    properties_map = {
+        'color': D_COLORS,
+        'marker': D_MARKERS + list(mpl.lines.Line2D.markers.keys()),
+        'line': D_STYLES
+    }
+
+    # Retrieve the specific list of properties based on the prop parameter
+    properties_list = properties_map[prop]
+
+    # Generate the required number of properties, repeating the list if necessary
+    repeated_properties = list(itertools.chain(*itertools.repeat(properties_list, (
+        n + len(properties_list) - 1) // len(properties_list))))[:n]
+
+    return repeated_properties
+
+def generate_alpha_values(n, increase=True, start=0.1, end=1.0, epsilon=1e-10):
+    """
+    Generates a list of alpha (transparency) values that either increase or 
+    decrease gradually to fit the number of property items.
+    
+    Incorporates an epsilon to safeguard against division by zero.
+    
+    Parameters
+    ----------
+    n : int
+        The number of alpha values to generate.
+    increase : bool, optional
+        If True, the alpha values will increase; if False, they will decrease.
+        Defaults to True.
+    start : float, optional
+        The starting alpha value. Defaults to 0.1.
+    end : float, optional
+        The ending alpha value. Defaults to 1.0.
+        
+    epsilon : float, optional
+        Small value to avert division by zero. Defaults to 1e-10.
+        
+    Returns
+    -------
+    list
+        A list of alpha values of length `n`.
+    
+    Examples
+    --------
+    >>> from gofast.tools.coreutils import generate_alpha_values
+    >>> generate_alpha_values(5, increase=True)
+    [0.1, 0.325, 0.55, 0.775, 1.0]
+    
+    >>> generate_alpha_values(5, increase=False)
+    [1.0, 0.775, 0.55, 0.325, 0.1]
+    """
+    if not 0 <= start <= 1 or not 0 <= end <= 1:
+        raise ValueError("Alpha values must be between 0 and 1.")
+
+    # Calculate the alpha values, utilizing epsilon in the denominator 
+    # to prevent division by zero
+    alphas = [start + (end - start) * i / max(n - 1, epsilon) for i in range(n)]
+    
+    if not increase:
+        alphas.reverse() # or alphas[::-1] creates new list
+    
+    return alphas
+
+def decompose_colormap(cmap_name, n_colors=5):
+    """
+    Decomposes a colormap into a list of individual colors.
+
+    Parameters
+    ----------
+    cmap_name : str
+        The name of the colormap to decompose.
+    n_colors : int, default=5
+        The number of colors to extract from the colormap.
+
+    Returns
+    -------
+    list
+        A list of RGBA color values from the colormap.
+
+    Examples
+    --------
+    >>> colors = decompose_colormap('viridis', 5)
+    >>> print(colors)
+    [(0.267004, 0.004874, 0.329415, 1.0), ..., (0.993248, 0.906157, 0.143936, 1.0)]
+    """
+    cmap = plt.cm.get_cmap(cmap_name, n_colors)
+    colors = [cmap(i) for i in range(cmap.N)]
+    return colors
+
+def get_colors_and_alphas(
+        count, cmap=None, alpha_direction='decrease', start_alpha=0.1,
+        end_alpha=1.0, convert_to_named_color=True, single_color_as_string=False):
+    """
+    Generates a sequence of color codes and alpha (transparency) values. Colors 
+    can be sourced from a specified Matplotlib colormap or generated using 
+    predefined styles. Alpha values can be arranged in ascending or descending 
+    order to create a gradient effect.
+
+    This function also offers the option to convert a single color tuple (RGB or RGBA)
+    into the nearest Matplotlib named color. Additionally, if only one color is
+    generated, it can return that color directly as a string rather than wrapped
+    in a list, for convenience in functions that expect a single color string.
+
+    Parameters
+    ----------
+    count : int or iterable
+        Specifies the number of colors and alpha values to generate. If an iterable
+        object is provided, the number of colors and alphas generated will match
+        its length.
+    cmap : str, optional
+        Specifies the name of a Matplotlib colormap from which to generate color
+        codes. If not provided, predefined styles are used to generate colors.
+        Defaults to None.
+    alpha_direction : str, optional
+        Determines whether the alpha values should be arranged in 'increase'ing or
+        'decrease'ing order. This can be used to create a gradient of transparency.
+        Defaults to 'decrease'.
+    start_alpha : float, optional
+        Sets the starting alpha value for the gradient range. Must be between 0
+        (fully transparent) and 1 (fully opaque). Defaults to 0.1.
+    end_alpha : float, optional
+        Sets the ending alpha value for the gradient range. Must be between 0
+        (fully transparent) and 1 (fully opaque). Defaults to 1.0.
+    convert_to_named_color : bool, optional
+        If True, and if a single color is generated as a tuple, this color will
+        be converted to the nearest named color that Matplotlib recognizes. This
+        is helpful when a human-readable color name is preferred over RGB values.
+        Defaults to True. This conversion only takes place when exactly one color
+        is generated.
+    single_color_as_string : bool, optional
+        If True, and if only one color is generated, it will be returned as a
+        string rather than as a single-item list. This can simplify further
+        processing when only one color string is expected by subsequent code.
+        Defaults to False.
+
+    Returns
+    -------
+    tuple
+        A tuple containing either a list of RGBA color values or a single color
+        string, along with a corresponding list of alpha values.
+
+    Examples
+    --------
+    Generate 5 random colors with decreasing alpha values:
+
+    >>> from gofast.tools.coreutils import get_colors_and_alphas
+    >>> get_colors_and_alphas(5)
+    (['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd'], [1.0, 0.775, 0.55, 0.325, 0.1])
+
+    Generate 5 colors from the 'viridis' colormap with increasing alpha values:
+
+    >>> get_colors_and_alphas(5, cmap='viridis', alpha_direction='increase')
+    (['#440154', '#3b528b', '#21918c', '#5ec962', '#fde725'], [0.1, 0.325, 0.55, 0.775, 1.0])
+
+    Convert a single color tuple to a named color:
+
+    >>> get_colors_and_alphas(1, convert_to_named_color=True)
+    ('blue', [1.0])
+
+    Get a single color string instead of a list:
+
+    >>> get_colors_and_alphas(1, single_color_as_string=True)
+    ('#1f77b4', [1.0])
+    """
+
+    if hasattr(count, '__iter__'):
+        count = len(count)
+    colors =[]
+    if cmap is not None and cmap not in plt.colormaps(): 
+        cmap=None 
+        colors =[cmap] # add it to add generate map
+    # Generate colors
+    if cmap is not None:
+        colors = decompose_colormap(cmap, n_colors=count)
+    else:
+        colors += generate_mpl_styles(count, prop='color')
+
+    # Generate alphas
+    increase = alpha_direction == 'increase'
+    alphas = generate_alpha_values(count, increase=increase,
+                                   start=start_alpha, end=end_alpha)
+
+    # Convert tuple colors to named colors if applicable
+    if convert_to_named_color and len(colors) == 1 and isinstance(colors[0], tuple):
+        colors = [closest_color(colors[0])]
+
+    # If a single color is requested as a string, return it directly
+    if single_color_as_string and len(colors) == 1:
+        colors = colors[0]
+    
+    return colors, alphas
+
+def closest_color(rgb_color, consider_alpha=False, color_space='rgb'):
+    """
+    Finds the closest named CSS4 color to the given RGB(A) color in the specified
+    color space, optionally considering the alpha channel.
+
+    Parameters
+    ----------
+    rgb_color : tuple
+        A tuple representing the RGB(A) color.
+    consider_alpha : bool, optional
+        Whether to include the alpha channel in the color closeness calculation.
+        Defaults to False.
+    color_space : str, optional
+        The color space to use when computing color closeness. Can be 'rgb' or 'lab'.
+        Defaults to 'rgb'.
+
+    Returns
+    -------
+    str
+        The name of the closest CSS4 color.
+
+    Raises
+    ------
+    ValueError
+        If an invalid color space is specified.
+
+    Examples
+    --------
+    Find the closest named color to a given RGB color:
+
+    >>> from gofast.tools.coreutils import closest_color
+    >>> closest_color((123, 234, 45))
+    'forestgreen'
+
+    Find the closest named color to a given RGBA color, considering the alpha:
+
+    >>> closest_color((123, 234, 45, 0.5), consider_alpha=True)
+    'forestgreen'
+
+    Find the closest named color in LAB color space (more perceptually uniform):
+
+    >>> closest_color((123, 234, 45), color_space='lab')
+    'limegreen'
+    """
+    if color_space not in ['rgb', 'lab']:
+        raise ValueError(f"Invalid color space '{color_space}'. Choose 'rgb' or 'lab'.")
+
+    # Adjust input color based on consider_alpha flag
+    
+    # Include alpha channel if consider_alpha is True
+    input_color = rgb_color[:3 + consider_alpha]  
+
+    # Convert the color to the chosen color space if needed
+    if color_space == 'lab':
+        # LAB conversion ignores alpha
+        input_color = mcolors.rgb_to_lab(input_color[:3])  
+        color_comparator = lambda color: distance.euclidean(
+            mcolors.rgb_to_lab(color[:3]), input_color)
+    else:  # RGB or RGBA
+        color_comparator = lambda color: distance.euclidean(
+            color[:len(input_color)], input_color)
+
+    # Compute the closeness of each named color to the given color
+    closest_name = None
+    min_dist = float('inf')
+    for name, hex_color in mcolors.CSS4_COLORS.items():
+        # Adjust based on input_color length
+        named_color = mcolors.to_rgba(hex_color)[:len(input_color)]  
+        dist = color_comparator(named_color)
+        if dist < min_dist:
+            min_dist = dist
+            closest_name = name
+
+    return closest_name
+
+
+# def closest_color(rgb_color):
+#     """
+#     Finds the closest named CSS4 color to the given RGB(A) color.
+
+#     Parameters
+#     ----------
+#     rgb_color : tuple
+#         A tuple representing the RGB(A) color.
+
+#     Returns
+#     -------
+#     str
+#         The name of the closest CSS4 color.
+#     """
+#     # Remove the alpha channel if present
+#     rgb_color = rgb_color[:3]
+#     min_colors = {}
+#     for key, name in mcolors.CSS4_COLORS.items():
+#         r_c, g_c, b_c = mcolors.to_rgb(name)
+#         rd = (r_c - rgb_color[0]) ** 2
+#         gd = (g_c - rgb_color[1]) ** 2
+#         bd = (b_c - rgb_color[2]) ** 2
+#         min_colors[(rd + gd + bd)] = name
+#     return min_colors[min(min_colors.keys())]

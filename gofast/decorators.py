@@ -197,11 +197,11 @@ class DynamicMethod:
             data = self._process_data(data, **kwargs)
             return func(data, *args[1:], **kwargs)
         
-        if not hasattr(pd.DataFrame, func.__name__):
-            setattr(pd.DataFrame, func.__name__, wrapper)
+        self._add_method_to_pandas (wrapper)
         
         return wrapper
 
+    
     def _validate_and_prepare_data(self, data, **kwargs):
         """
         Validates the input data and converts it to a pandas DataFrame if
@@ -244,6 +244,8 @@ class DynamicMethod:
                     " with minimum samples equal 2.")
         elif isinstance(data, np.ndarray):
             columns = kwargs.get('columns')
+            if isinstance (columns, str): 
+                columns =[columns]
             data = pd.DataFrame(data, columns=(
                 columns if columns and len(columns) == data.shape[1] else None))
             
@@ -396,7 +398,31 @@ class DynamicMethod:
         print("na-aixs=", na_axis , "na_thresh=",thresh)
         # Drop missing values based on the specified axis and threshold
         return data.dropna(axis=na_axis, thresh=thresh)
-
+    
+    def _add_method_to_pandas(self, func):
+        """
+        Dynamically adds a new method to pandas DataFrame and Series objects.
+        
+        This function checks if the method named after `func.__name__` does 
+        not already exist in the pandas DataFrame and Series classes. If not,
+        it adds `func` as a method to these classes, allowing for seamless 
+        integration of custom functionality into pandas objects.
+        
+        Parameters
+        ----------
+        func : function
+            The function to add as a method to DataFrame and Series objects.
+            The name of the function (`func.__name__`) will be used as the 
+            method name.
+        """
+        for cls in [pd.DataFrame, pd.Series]:
+            if not hasattr(cls, func.__name__):
+                try:
+                    setattr(cls, func.__name__, func)
+                except Exception as e: # noqa
+                    pass 
+                    # Optionally log the error or handle it as needed
+                    # print(f"Error adding method {func.__name__} to {cls.__name__}: {e}")
 class ExportData:
     """
     A decorator for exporting data into various formats post-function execution. 

@@ -41,10 +41,11 @@ from ..metrics import precision_recall_tradeoff, roc_curve_, confusion_matrix_
 from ..property import BasePlot 
 from ..tools._dependency import import_optional_dependency 
 from ..tools.coreutils import  to_numeric_dtypes, fancier_repr_formatter 
-from ..tools.coreutils import  smart_strobj_recognition, reshape,projection_validator
+from ..tools.coreutils import  smart_strobj_recognition, reshape 
+from ..tools.coreutils import  projection_validator
 from ..tools.coreutils import  str2columns, make_ids, type_of_target, is_iterable 
 from ..tools.mathex import linkage_matrix 
-from ..tools.mlutils import categorize_target, export_target  
+from ..tools.mlutils import categorize_target, extract_target
 from ..tools.validator import  _check_consistency_size,  get_estimator_name  
 from ..tools.validator import build_data_if,  check_array, check_X_y, check_y 
 from ..tools.validator import _is_numeric_dtype , check_consistent_length
@@ -808,7 +809,7 @@ Examples
 
 class EvalPlotter(BasePlot): 
     def __init__(self, 
-        tname:str =None, 
+        target_name:str =None, 
         encode_labels: bool=False,
         scale: str = None, 
         cv: int =None, 
@@ -818,7 +819,7 @@ class EvalPlotter(BasePlot):
         litteral_classes: List[str]=None, 
         **kws 
         ): 
-        self.tname=tname
+        self.target_name=target_name
         self.objective=objective
         self.scale=scale
         self.cv=cv
@@ -1304,9 +1305,9 @@ class EvalPlotter(BasePlot):
         X, y: DataFrame X and target y 
         
         """
-        if self.tname: 
-            if y is not None: y = pd.Series ( y, name = self.tname )
-            else: y , X = export_target(X, tname= self.tname, drop=False )
+        if self.target_name: 
+            if y is not None: y = pd.Series ( y, name = self.target_name )
+            else: y , X = extract_target(X, target_names= self.target_name, drop=False )
                 
         if y is None : 
             return X, y 
@@ -1480,7 +1481,7 @@ class EvalPlotter(BasePlot):
             return copy.deepcopy(self.y)
         if y is None:
             raise TypeError("Missing target 'y'")
-        return pd.Series(y, name=self.tname or 'none')
+        return pd.Series(y, name=self.target_name or 'none')
     
     def _categorize_target(self, y, values, classes):
         # Categorizes the target variable based on specified values and classes
@@ -1543,7 +1544,7 @@ class EvalPlotter(BasePlot):
         >>> from gofast.plot import EvalPlotter 
         >>> from gofast.datasets import load_bagoue
         >>> X , y = load_bagoue(as_frame =True, return_X_y=True )
-        >>> p =EvalPlotter(tname ='flow', scale = True, encode_labels=True )
+        >>> p =EvalPlotter(target_name ='flow', scale = True, encode_labels=True )
         >>> _=p.fit_transform (X)
         >>> p.plotRobustPCA (n_components=2 ) 
         
@@ -1729,7 +1730,7 @@ class EvalPlotter(BasePlot):
         pca_data = pd.DataFrame(X_pca[:, pca_axes_labels], columns=pca_cols)
 
         if y is not None:
-            pca_data[self.tname] = y
+            pca_data[self.target_name] = y
 
         return pca_data
 
@@ -1765,11 +1766,11 @@ class EvalPlotter(BasePlot):
         # now update the feature components 
         # and replace to the exis in pca_data 
         pca_data.columns = ( 
-            ( feature_names +[self.tname])  if self.y is not None 
+            ( feature_names +[self.target_name])  if self.y is not None 
             else feature_names ) 
         for target, color in zip(self.litteral_classes, self.plot_config['y_colors']):
-            ax.scatter(pca_data.loc[pca_data[self.tname] == target, feature_names[0]],
-                       pca_data.loc[pca_data[self.tname] == target, feature_names[1]],
+            ax.scatter(pca_data.loc[pca_data[self.target_name] == target, feature_names[0]],
+                       pca_data.loc[pca_data[self.target_name] == target, feature_names[1]],
                        color=color, s=plot_dict['s'])
 
     def _style_plot(self, ax, pca_data, feature_names, ratios):
@@ -2585,7 +2586,7 @@ Parameters
 -----------
 {params.core.X}
 {params.core.y}
-{params.core.tname}
+{params.core.target_name}
 {params.evdoc.objective}
     
 encode_labels: bool, default=False,  
@@ -2829,7 +2830,7 @@ def plot_loc_projection(
     # validate the projections.
     xy , xynames = projection_validator(X, Xt, columns )
     x, y , xt, yt =xy 
-    xname, yname, xtname, yname=xynames 
+    xname, yname, xtarget_name, yname=xynames 
 
     pobj.xlim =[np.ceil(min(x)), np.floor(max(x))]
     pobj.ylim =[np.ceil(min(y)), np.floor(max(y))]   

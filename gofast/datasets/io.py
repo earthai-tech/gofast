@@ -64,7 +64,7 @@ def remove_data(data=None): #clear
     shutil.rmtree(data)
 
 
-def _to_dataframe(data, tnames=None, feature_names=None, target=None):
+def _to_dataframe(data, target_names=None, feature_names=None, target=None):
     """
     Refines input data into a structured DataFrame, distinguishing between
     features and targets based on specified column names or a separate target array.
@@ -125,21 +125,21 @@ def _to_dataframe(data, tnames=None, feature_names=None, target=None):
             data = pd.DataFrame(data, columns=feature_names)
         except: data =pd.DataFrame(data )
         
-    if tnames is not None: 
-        tnames = is_iterable (tnames, exclude_string=True, transform=True)
+    if target_names is not None: 
+        target_names = is_iterable (target_names, exclude_string=True, transform=True)
         
-    feature_data = data.drop(columns=tnames, errors='ignore') if tnames else data
+    feature_data = data.drop(columns=target_names, errors='ignore') if target_names else data
     try:
-        exist_features(data, tnames) # check whether tnames is on data 
+        exist_features(data, target_names) # check whether tnames is on data 
     except: target_from_data= pd.DataFrame()
     else: 
-        target_from_data = data[tnames] if tnames else pd.DataFrame()
+        target_from_data = data[target_names] if target_names else pd.DataFrame()
 
     if target is not None:
         if isinstance(target, (pd.Series, pd.DataFrame, np.ndarray)):
             if isinstance(target, np.ndarray):
-                target = pd.DataFrame(target, columns=tnames
-                                      ) if tnames else pd.DataFrame(target)
+                target = pd.DataFrame(target, columns=target_names
+                                      ) if target_names else pd.DataFrame(target)
             elif isinstance(target, pd.Series):
                 target = pd.DataFrame(target)
             # No need to filter out duplicates here, as we've preemptively handled them.

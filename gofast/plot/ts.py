@@ -74,7 +74,7 @@ class TimeSeriesPlotter (BasePlot) :
         data = format_to_datetime(data, date_col= date_col )
         data = is_time_series(data , time_col= date_col )
         
-        date_value, self.value_col =export_target(data, tname= date_col )
+        date_value, self.value_col =export_target(data, target_name= date_col )
         self.date_col = date_col
         self.value_col = value_col
         
