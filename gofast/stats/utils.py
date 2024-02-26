@@ -23,10 +23,11 @@ from .._typing import DataFrame, ArrayLike, List, Dict
 from .._typing import _F, Union, Tuple , Optional 
 from ..decorators import DynamicMethod, AppendDocFrom # AppendDocSection 
 from ..tools.validator import assert_xy_in, is_frame, check_consistent_length 
-from ..tools.coreutils import ellipsis2false 
+from ..tools.coreutils import ensure_visualization_compatibility, ellipsis2false 
 from ..tools.coreutils import process_and_extract_data, to_series_if 
-from ..tools.funcutils import make_data_dynamic, ensure_pkg
-
+from ..tools.coreutils import get_colors_and_alphas
+from ..tools.funcutils import make_data_dynamic, ensure_pkg 
+from ..tools.funcutils import flatten_data_if
 __all__= [ 
     "gomean", "gomedian", "gomode",  "govar", "gostd", "get_range", 
     "quartiles", "goquantile","gocorr", "correlation", "goiqr", "z_scores", 
@@ -39,10 +40,12 @@ __all__= [
     "statistical_tests"
    ]
 
-@make_data_dynamic(capture_columns=True)
+
+@make_data_dynamic(capture_columns=True, force_df=True)
 def gomean(
     data: Union[ArrayLike, DataFrame], 
     columns: Optional[List[str]] = None,
+    axis: int =None, 
     view: bool = False, 
     cmap: str = 'viridis', 
     as_frame: bool = False, 
@@ -69,7 +72,9 @@ def gomean(
     columns : list of str, optional
         List of column names to consider in the calculation if `data` is a
         DataFrame. If not provided, all numeric columns are considered.
-
+    axis: optional, {index (0), columns {1}}
+       Axis for the function to be applied on.  Default is 0.
+       
     view : bool, default=False
         If True, visualizes the distribution of the data and highlights the
         calculated mean values.
@@ -102,14 +107,14 @@ def gomean(
     --------
     >>> from gofast.stats.utils import gomean
     >>> data_array = [1, 2, 3, 4, 5]
-    >>> mean(data_array)
+    >>> gomean(data_array)
     3.0
 
     >>> data_df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
-    >>> mean(data_df, columns=['A'])
+    >>> gomean(data_df, columns=['A'])
     2.0
 
-    >>> mean(data_df, axis=0)
+    >>> gomean(data_df, axis=0)
     array([2., 5.])
     
     Calculating mean from a list:
@@ -136,13 +141,12 @@ def gomean(
     DataFrames with mixed data types and for selecting specific columns for
     the calculation.
     """
-    if isinstance(data, pd.DataFrame):
-        if columns is not None:
-            data = data[columns]
-        mean_values = data.mean(**kws)
+    if isinstance(data, (pd.DataFrame, pd.Series)):
+        axis = axis or 0
+        mean_values = data.mean(axis =axis, **kws)
     else:
         data = np.array(data)
-        mean_values = np.mean(data, **kws)
+        mean_values = np.mean(data, axis =axis,  **kws)
     
     if as_frame:
         if isinstance(mean_values, np.ndarray) and mean_values.ndim > 1:
@@ -150,29 +154,94 @@ def gomean(
         else:
             mean_values = pd.Series(
                 mean_values, index=columns if columns else None, name='Mean')
-
+    
+    mean_values, view = ensure_visualization_compatibility(
+        mean_values, as_frame, view, gomean )
+    
     if view:
-        _visualize_mean(data, mean_values, cmap=cmap, fig_size=fig_size)
+        _visualize_mean(
+            data, mean_values, cmap=cmap, fig_size=fig_size, axis=axis)
 
     return mean_values
 
+
 def _visualize_mean(
-        data, mean_values, cmap='viridis', fig_size=None):
+        data, mean_values, cmap='viridis', fig_size=None, axis =0 ):
     """
-    Visualizes the distribution of the data and highlights the mean values.
+    Visualizes the distribution of the data and highlights the mean values 
+    with distinct colors.
+    
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The data containing the columns to be visualized.
+    mean_values : pd.Series or np.ndarray
+        The mean values for the columns in the data.
+    cmap : str, optional
+        The colormap name to be used if `data` is not a DataFrame.
+    fig_size : tuple, optional
+        The size of the figure to be created.
+
+    Returns
+    -------
+    None
+        This function does not return any value. It shows a plot.
+    
+    Examples
+    --------
+    >>> df = pd.DataFrame({'A': np.random.randn(100), 'B': np.random.randn(100) + 1})
+    >>> _visualize_mean(df, df.mean())
     """
+    
     plt.figure(figsize=fig_size if fig_size else (10, 6))
+    # print("is_dataframe=", isinstance(data, pd.DataFrame))
+    # # data = to_series_if(data, )
+    # print("is_dataframe=", isinstance(data, pd.DataFrame))
+    # print(data)
+    # mean_values= mean_values.T ; data=data.T
+    mean_values, data, cols= prepare_plot_data(mean_values, data, axis=axis)
+    
+    print(mean_values, data, cols )
     if isinstance(data, pd.DataFrame):
-        for col in data.columns:
-            plt.hist(data[col], bins='auto', alpha=0.7, 
-                     label=f'{col} Distribution', color=cmap)
-            plt.axvline(data[col].mean(), color='red', linestyle='dashed',
+        # Generate distinct colors for each column from cmap 
+        colors, alphas = get_colors_and_alphas( cols, cmap) 
+        for ii, col in enumerate(cols):
+            # Get the histogram data
+            n, bins, patches = plt.hist(data[col], bins='auto', alpha=alphas[ii], 
+                                        label=f'{col} Distribution', color=colors[ii])
+            
+            # Highlight the mean
+            mean_val = mean_values[col]
+            plt.axvline(mean_val, color=colors[ii], linestyle='dashed',
                         linewidth=2, label=f'{col} Mean')
+            
+            # Calculate the height of the mean line for placing the annotation
+            mean_bin_index = np.digitize(mean_val, bins) - 1
+            mean_height = n[mean_bin_index] if 0 <= mean_bin_index < len(n) else 0
+            
+            # Add annotation for the mean value
+            plt.text(mean_val, mean_height, f'{mean_val:.2f}',
+                     color=colors[ii], ha='center', va='bottom')
     else:
-        plt.hist(data, bins='auto', alpha=0.7, label='Data Distribution',
-                 color=cmap)
-        plt.axvline(np.mean(data), color='red', linestyle='dashed', 
+        data =flatten_data_if(data, squeeze= True)
+        # If `data` is not a DataFrame, use a single color from the colormap
+        n, bins, patches = plt.hist(
+            data, bins='auto', alpha=0.7, label='Data Distribution')
+        # Ensure mean_val is a scalar for annotation
+        mean_val =np.mean(data)
+        if isinstance(mean_val, np.ndarray):
+            mean_val = mean_val.item()
+        elif isinstance(mean_val, pd.Series):
+            mean_val = mean_val.iloc[0]
+        plt.axvline(mean_val, color='red', linestyle='dashed', 
                     linewidth=2, label='Mean')
+        
+        # Add annotation for the mean value
+        mean_bin_index = np.digitize(mean_val, bins) - 1
+        mean_height = n[mean_bin_index] if 0 <= mean_bin_index < len(n) else 0
+        plt.text(mean_val, mean_height, f'{mean_val:.2f}',
+                 color='red', ha='center', va='bottom')
+    
     plt.title('Data Distribution and Mean')
     plt.xlabel('Value')
     plt.ylabel('Frequency')
@@ -288,6 +357,8 @@ def gomedian(
         )
 
     # Visualization of data distribution and median
+    median_values, view = ensure_visualization_compatibility(
+        median_values, as_frame, view, gomedian )
     if view:
         _visualize_median(
             data, median_values, cmap=cmap, fig_size=fig_size)
@@ -300,15 +371,18 @@ def _visualize_median(
     Visualizes the distribution of the data and highlights the median values.
     """
     plt.figure(figsize=fig_size if fig_size else (10, 6))
+    
     if isinstance(data, pd.DataFrame):
-        for col in data.columns:
-            plt.hist(data[col], bins='auto', alpha=0.7,
-                     label=f'{col} Distribution', color=cmap)
+        # Generate distinct colors for each column from cmap 
+        colors, alphas = get_colors_and_alphas( data.columns, cmap) 
+        for ii, col in enumerate (data.columns) :
+            plt.hist(data[col], bins='auto', alpha=alphas[ii],
+                     label=f'{col} Distribution', color=colors [ii])
             plt.axvline(data[col].median(), color='red', linestyle='dashed', 
                         linewidth=2, label=f'{col} Median')
     else:
         plt.hist(data, bins='auto', alpha=0.7, label='Data Distribution',
-                 color=cmap)
+                 )
         plt.axvline(np.median(data), color='red', linestyle='dashed',
                     linewidth=2, label='Median')
     plt.title('Data Distribution and Median')
@@ -390,18 +464,16 @@ def gomode(
     ensures that statistical calculations are performed accurately and 
     efficiently on DataFrame inputs with mixed data types.
     """
-    as_frame = ellipsis2false(as_frame)
-    
+    as_frame,  = ellipsis2false(as_frame)
     if isinstance(data, pd.DataFrame):
-        # columns are captured already
-        # if columns is not None:
-        #     data = data[columns]
         mode_result = data.mode(**kws)
     else:
         data = np.asarray(data)
         mode_result = stats.mode(data, **kws).mode[0]
         mode_result = pd.Series(mode_result) if as_frame else mode_result
     
+    mode_result, view = ensure_visualization_compatibility(
+        mode_result, as_frame, view, gomode )
     if view:
         _visualize_mode(data, mode_result, cmap=cmap, fig_size=fig_size)
     
@@ -412,16 +484,17 @@ def _visualize_mode(data, mode_result, cmap='viridis', fig_size=None):
     Visualizes the data distribution and highlights the mode values.
     """
     plt.figure(figsize=fig_size if fig_size else (10, 6))
+    
     if isinstance(data, pd.DataFrame):
-        for col in data.columns:
-            plt.hist(data[col], bins='auto', alpha=0.7, 
-                     label=f'{col} Distribution', color=cmap)
+        colors, alphas = get_colors_and_alphas( data.columns, cmap)
+        for ii, col in enumerate (data.columns) :
+            plt.hist(data[col], bins='auto', alpha=alphas[ii], 
+                     label=f'{col} Distribution', color=colors[ii])
             for mode in np.ravel([mode_result[col]]):
                 plt.axvline(x=mode, color='red', linestyle='dashed',
                             linewidth=2, label=f'{col} Mode')
     else:
-        plt.hist(data, bins='auto', alpha=0.7, label='Data Distribution', 
-                 color=cmap)
+        plt.hist(data, bins='auto', alpha=0.7, label='Data Distribution')
         for mode in np.ravel([mode_result]):
             plt.axvline(x=mode, color='red', linestyle='dashed', 
                         linewidth=2, label='Mode')
@@ -431,12 +504,7 @@ def _visualize_mode(data, mode_result, cmap='viridis', fig_size=None):
     plt.legend()
     plt.show()
 
-
-
-@make_data_dynamic(
-    capture_columns=True, 
-    reset_index=True
-    )
+@make_data_dynamic(capture_columns=True, reset_index=True)
 def govar(
     data: Union[ArrayLike, DataFrame], 
     columns: Optional[List[str]] = None, 
@@ -520,10 +588,7 @@ def govar(
     specified columns, enhancing the function's flexibility and applicability 
     across various data forms.
     """
-    as_frame = False if as_frame is ... else as_frame
     if isinstance(data, pd.DataFrame):
-        # if columns is not None:
-        #     data = data[columns]
         variance_result = data.var(ddof=1, **kws)  # Pandas default ddof=1
     else:
         data = np.asarray(data)
@@ -534,10 +599,12 @@ def govar(
         variance_result = pd.Series(
             variance_result, index=columns if columns else ['Variance'])
 
+    variance_result, view = ensure_visualization_compatibility(
+        variance_result, as_frame, view, govar )
+    
     if view:
         _visualize_variance(data, variance_result, columns=columns,
                             cmap=cmap, fig_size=fig_size)
-
     return variance_result
 
 def _visualize_variance(data, variance_result, columns=None, cmap='viridis',
@@ -547,16 +614,17 @@ def _visualize_variance(data, variance_result, columns=None, cmap='viridis',
     """
     plt.figure(figsize=fig_size if fig_size else (10, 6))
     if isinstance(data, pd.DataFrame):
-        for col in data.columns:
-            plt.hist(data[col], bins='auto', alpha=0.7, 
-                     label=f'{col} Distribution', color=cmap)
+        colors, alphas = get_colors_and_alphas( data.columns, cmap)
+        for ii, col in enumerate(data.columns):
+            plt.hist(data[col], bins='auto', alpha=alphas[ii], 
+                     label=f'{col} Distribution', color=colors[ii])
         for col, var in variance_result.items():
             plt.axvline(x=np.sqrt(var), color='red', 
                         linestyle='dashed', linewidth=2, 
                         label=f'{col} StdDev')
     else:
         plt.hist(data, bins='auto', alpha=0.7, label='Data Distribution', 
-                 color=cmap)
+                 )
         plt.axvline(x=np.sqrt(variance_result), color='red',
                     linestyle='dashed', linewidth=2, label='StdDev')
     plt.title('Data Distribution and Standard Deviation')
@@ -659,6 +727,8 @@ def gostd(
         std_dev_result = np.std(data, ddof=1, **kws)  # Ensure consistency with pandas
     
     # Visualization of results if requested
+    std_dev_result, view = ensure_visualization_compatibility(
+        std_dev_result, as_frame, view, gostd )
     if view:
         _visualize_std_dev(data, std_dev_result, cmap=cmap, fig_size=fig_size)
     
@@ -675,9 +745,10 @@ def _visualize_std_dev(data, std_dev_result, cmap='viridis', fig_size=None):
     """
     plt.figure(figsize=fig_size if fig_size else (10, 6))
     if isinstance(data, pd.DataFrame):
-        for col in data.columns:
-            plt.hist(data[col], bins='auto', alpha=0.7, 
-                     label=f'{col} Distribution', color=cmap)
+        colors, alphas = get_colors_and_alphas( data.columns, cmap)
+        for ii, col in enumerate(data.columns):
+            plt.hist(data[col], bins='auto', alpha=alphas[ii], 
+                     label=f'{col} Distribution', color=colors[ii])
             plt.axvline(x=data[col].mean(), color='red', linestyle='dashed', 
                         linewidth=2, label=f'{col} Mean')
             plt.axvline(x=data[col].mean() + data[col].std(), color='green',
@@ -685,7 +756,7 @@ def _visualize_std_dev(data, std_dev_result, cmap='viridis', fig_size=None):
             plt.axvline(x=data[col].mean() - data[col].std(), color='green', 
                         linestyle='dashed', linewidth=2, label=f'{col} - Std Dev')
     else:
-        plt.hist(data, bins='auto', alpha=0.7, label='Data Distribution', color=cmap)
+        plt.hist(data, bins='auto', alpha=0.7, label='Data Distribution',)
         mean = np.mean(data)
         std_dev = np.std(data)
         plt.axvline(x=mean, color='red', linestyle='dashed', linewidth=2, 
@@ -748,6 +819,8 @@ def _statistical_function(
         # Convert result to pandas DataFrame or Series if applicable
         result = convert_to_dataframe_or_series(result)
     
+    result, view = ensure_visualization_compatibility(
+        result, as_frame, view, gostd )
     if view:
         # Visualization logic
         _visualize_data(data, result, cmap=cmap, fig_size=fig_size)
@@ -848,9 +921,12 @@ def get_range(
 
     # For DataFrame output
     if as_frame:
-        range_values = pd.Series(range_values,
-                                 index=columns if columns else data.columns)
-
+        range_values = pd.Series(
+            range_values, index=columns if columns else data.columns)
+    
+    range_values, view  = ensure_visualization_compatibility(
+        range_values, as_frame, view, get_range )
+    
     # Visualization
     if view:
         _visualize_range(data_selected, range_values, columns=columns,
@@ -865,17 +941,19 @@ def _visualize_range(data, range_values, columns=None,
     """
     plt.figure(figsize=fig_size if fig_size else (10, 6))
     if isinstance(data, pd.DataFrame):
-        for col in columns or data.columns:
+        colors, alphas = get_colors_and_alphas( data.columns, cmap)
+        for ii, col in enumerate(data.columns):
             values = data[col]
-            plt.hist(values, bins=30, alpha=0.5, label=f'{col} Distribution',
-                     color=cmap)
+            plt.hist(values, bins=30, alpha=alphas[ii], 
+                     label=f'{col} Distribution',
+                     color=colors[ii])
             min_val, max_val = values.min(), values.max()
             plt.axvline(x=min_val, color='red', linestyle='dashed', 
                         linewidth=1, label=f'{col} Min')
             plt.axvline(x=max_val, color='green', linestyle='dashed',
                         linewidth=1, label=f'{col} Max')
     else:
-        plt.hist(data, bins=30, alpha=0.5, label='Data Distribution', color=cmap)
+        plt.hist(data, bins=30, alpha=0.5, label='Data Distribution',)
         min_val, max_val = np.min(data), np.max(data)
         plt.axvline(x=min_val, color='red', linestyle='dashed', 
                     linewidth=1, label='Min')
@@ -983,6 +1061,9 @@ def quartiles(
         data_selected = np.asarray(data)
         quartiles_result = np.percentile(data_selected, [25, 50, 75], **kws)
 
+    quartiles_result, view  = ensure_visualization_compatibility(
+        quartiles_result, as_frame, view , func_name=quartiles )
+    
     if view:
         _visualize_quartiles(
             data, plot_type=plot_type, cmap=cmap, fig_size=fig_size, 
@@ -3644,9 +3725,121 @@ def _visualize_data(data, result, cmap='viridis', fig_size=None):
     plt.ylabel('Frequency')
     plt.show()
 
-       
+def get_columns_axis_plot ( values, data =None,  axis=None ): 
+    # get the appropriate columns from the values and axis for to iterable . 
+    # values if the results of mean, median, var, mode, etc of data applying 
+    # on a specific axis. 
+    # data can be numpy array, series, dataframe. 
+    # axis can be None, 0 and 1. 
     
+    # finding the best columns of index to iterate when plotting eleemnt in 
+    # axis. 
+    if axis is None:
+        # we assume is Numpy array, preferably plot 
+        return values, data, None 
+    if isinstance (values, pd.Series): 
+        # columns should be the index 
+        # dans transpose data for looping columns 
+        # here axis is not so importance 
+        
+        return values.T, data.T, values.index 
+    elif isinstance (values, pd.DataFrame): 
+        if axis ==0: 
+            return values, data, values.columns 
+        elif axis ==1 : 
+            # iterate over row and plot values of each rows. 
+            # so columns become index 
+            return values.T, data.T, values.T.index 
+    elif isinstance ( values, np.ndarray): 
+        # try to squeeze value to reduce dimensionallity if possible 
+        values = np.squeeze ( values )
+        if np.ndarray.ndim ==1: 
+            return values,  data, range (len(values))
+        # for 2D array 
+        if axis==0: 
+            return values, data, range (values.shape [1])
+        elif axis ==1: 
+            return values.T, data.T, range ( len(values))
+        
+    return values, data, None 
     
+from typing import Any, Callable, Optional, Tuple, Union
+import pandas as pd
+import numpy as np
+
+def prepare_plot_data(
+    values: Union[np.ndarray, pd.Series, pd.DataFrame],
+    data: Optional[Union[np.ndarray, pd.Series, pd.DataFrame]] = None,
+    axis: Optional[int] = None,
+    transform: Optional[Callable[[Any], Any]] = None
+) -> Tuple[Any, Any, Optional[Union[pd.Index, range]]]:
+    """
+    Prepares data and its labels for plotting, handling different data structures
+    and orientations based on the specified axis.
+
+    Parameters
+    ----------
+    values : Union[np.ndarray, pd.Series, pd.DataFrame]
+        The data values to be plotted, which can be the result of statistical
+        operations like mean, median, etc.
+    data : Optional[Union[np.ndarray, pd.Series, pd.DataFrame]], optional
+        Additional data related to `values`, used for plotting. Defaults to None.
+    axis : Optional[int], optional
+        The axis along which to organize the plot data. Can be None, 0, or 1.
+        Defaults to None.
+    transform : Optional[Callable[[Any], Any]], optional
+        A function to apply to the data before plotting. Defaults to None.
+
+    Returns
+    -------
+    Tuple[Any, Any, Optional[Union[pd.Index, range]]]
+        A tuple containing the transformed `values`, `data`, and the labels
+        for plotting.
+
+    Examples
+    --------
+    >>> values = pd.Series([1, 2, 3], index=['a', 'b', 'c'])
+    >>> prepare_plot_data(values)
+    (Series([1, 2, 3], index=['a', 'b', 'c']), None, Index(['a', 'b', 'c']))
+
+    >>> values = pd.DataFrame({'A': [1, 2], 'B': [3, 4]}, index=['x', 'y'])
+    >>> prepare_plot_data(values, axis=1)
+    (Transposed DataFrame, Transposed DataFrame, Index(['x', 'y']))
+
+    >>> values = np.array([1, 2, 3])
+    >>> prepare_plot_data(values, transform=np.square)
+    (array([1, 4, 9]), None, range(0, 3))
+    """
+    if transform is not None and callable(transform):
+        values = transform(values)
+        if data is not None:
+            data = transform(data)
+
+    if axis is None:
+        return values, data, None
+
+    if isinstance(values, pd.Series):
+        return values.T, data.T if data is not None else None, values.index
+
+    elif isinstance(values, pd.DataFrame):
+        if axis == 0:
+            print("yes-axis=0")
+            return values, data, values.columns
+        elif axis == 1:
+            print('yes axis=1')
+            return values.T, data.T if data is not None else None, values.index
+
+    elif isinstance(values, np.ndarray):
+        values = np.squeeze(values)
+        if values.ndim == 1:
+            return values, data, range(len(values))
+        if axis == 0:
+            return values, data, range(values.shape[1])
+        elif axis == 1:
+            return values.T, data.T if data is not None else None, range(values.shape[0])
+
+    return values, data, None
+
     
     
     

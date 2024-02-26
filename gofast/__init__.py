@@ -30,6 +30,7 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 if not __package__:
     __package__ = 'gofast'
 
+
 # Dynamic import to reduce initial load time
 def lazy_import(module_name, global_name=None):
     if global_name is None:
@@ -66,6 +67,20 @@ for module, import_name in _main_dependencies.items():
 if _missing_dependencies:
     raise ImportError("Unable to import required dependencies:\n" + "\n".join(
         _missing_dependencies))
+
+
+# Set a default LOG_PATH if it's not already set
+os.environ.setdefault('LOG_PATH', os.path.join(package_dir, 'gflogs'))
+
+# Import the logging setup function from _gofastlog.py
+from ._gofastlog import gofastlog
+
+# Define the path to the _gflog.yml file
+config_file_path = os.path.join(package_dir, '_gflog.yml')
+
+# Set up logging with the path to the configuration file
+gofastlog.load_configuration(config_file_path)
+
 
 # Public API
 # __all__ = ['show_versions']

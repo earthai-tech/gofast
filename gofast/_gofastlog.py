@@ -10,241 +10,224 @@ Module to track bugs and issues, and also deal with all exceptions in
 :mod:`~.exceptions`.
  
 """
-
-import os 
+ 
+import os
 import yaml
-import logging 
+import logging
 import logging.config
-import inspect 
+from string import Template
 
 class gofastlog:
     """
-    Field to logs  module Files  in order to tracks all exceptions.
-    
+    A class to configure logging for the `gofast` module, facilitating 
+    tracking of all exceptions.
     """
-    
     @staticmethod
-    def load_configure (
-            path2configure =None, 
-            OwnloggerBaseConf=False, 
-            verbose=False, 
-            ) :
+    def load_configuration(
+            config_path=None, use_default_logger=True, verbose=False):
         """
-        configure/setup the logging according to the input configfile
+        Configures logging based on a specified configuration file.
 
-        :param configfile: .yml, .ini, .conf, .json, .yaml.
-        Its default is the logging.yml located in the same dir as this module.
-        It can be modified to use env variables to search for a log config file.
-        """
-        
-        configfile=path2configure
-        
-        if configfile is None or configfile == "":
-            if OwnloggerBaseConf ==False :
-                logging.basicConfig()
-            else :
-                gofastlog().set_logger_output()
-            
-        elif configfile.endswith(".yaml") or configfile.endswith(".yml") :
-            this_module_file=os.path.abspath(__file__)
-
-            if verbose:
-                print('yaml config file', this_module_file) 
-            
-            if verbose :
-                print('os.path.dirname(this_module_path)=',
-                  os.path.dirname(this_module_file)) 
-
-            yaml_path=os.path.join(os.path.dirname(this_module_file),
-                                   configfile)
-    
-            if verbose: 
-                print(f"Effective yaml configuration file {yaml_path!r}") 
-            if os.path.exists(yaml_path) :
-                # try : 
-                with open (yaml_path,"rt") as f :
-                    config=yaml.safe_load(f.read())
-                logging.config.dictConfig(config)
-                # except : 
-                #     with open (os.path.dirname (yaml_path),"rt") as f :
-                #         config=yaml.safe_load(f.read())
-                #     logging.config.dictConfig(config)
-            else :
-                logging.exception(
-                    "the config yaml file %s does not exist?", yaml_path)
-                
-        elif configfile.endswith(".conf") or configfile.endswith(".ini") :
-            logging.config.fileConfig(configfile,
-                                     disable_existing_loggers=False)
-            
-        elif configfile.endswith(".json") :
-            pass 
-        else :
-            logging.exception(
-                "logging configuration file %s is not supported" %configfile)
-            
-    
-    @staticmethod        
-    def get_gofast_logger(
-            loggername=''
-            ):
-        """
-        create a named logger (try different)
-        :param loggername: the name (key) of the logger object in this 
-        Python interpreter.
-        :return: logger 
-        """
-        return logging.getLogger(loggername) # logger 
- 
-
-    @staticmethod
-    def load_configure_set_logfile (
-            path2configfile=None, 
-            configfile ='wlog.yml', 
-            app = 'gofast'
-            ): 
-        """
-        configure/setup the logging according to the input configure .yaml file.
-
-        :param configfile: .yml, or add ownUsersConfigYamlfile (*.yml) 
-            Its default is the logging.yml located in logfiles folder 
-            It can be modified to use env variables to search for a log 
-            config file.
-        :param path2configfile: path to logger config file 
-        :param app: application name. Use to set the variable environnment. 
-        
-        """
-        
-        ownUserLogger=configfile
-        
-        if path2configfile is None :
-            env_var=os.environ[app]
-            path2configfile =os.path.join( env_var, app, ownUserLogger)
-            
-        elif path2configfile is not None :
-            if os.path.isdir(os.path.dirname(path2configfile)):
-                if path2configfile.endswith(
-                        '.yml') or path2configfile.endswith('.yaml'):
-                    
-                    logging.info(
-                        'Effective yaml configuration file'
-                        ' :%s' %path2configfile)
-                else :
-                    logging.exception(
-                        'File provided {%s}, is not a .yaml config file '
-                        '!'%os.path.basename(path2configfile))
-            else :
-                
-                logging.exception ('Wrong path to .yaml config file.')
-        
-        yaml_path=path2configfile
-        os.chdir(os.path.dirname(yaml_path))
-        if os.path.exists(yaml_path) :
-            with open (yaml_path,"rt") as f :
-                config=yaml.safe_load(f.read())
-            logging.config.dictConfig(config)
-        else :
-            logging.exception(
-                "the config yaml file %s does not exist?", yaml_path) 
-            
-    @staticmethod
-    def set_logger_output(
-            logfilename="gofast.log", 
-            date_format='%m %d %Y %I:%M%S %p',
-            filemode="w",
-            format_="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            level=logging.DEBUG 
-            ):
-        """
-        
         Parameters
         ----------
-        * logfilename : str, optional
-            logfilename output. The default is "LogFileTest.log".
-        * date_format :str, 
-            format of date . consult module time. The default is 
-            '%m %d %Y %I:%M%S %p'.
-        * filemode : str, 
-            mode to write the out[ut file. Must be ["a","w", "wt',"wt"].
-            the default is "a".
-        * format_ : str,
-            format of date and time. Must consult the module of datetime.
-            The default is '%s(asctime)s %(message)s'.
-        * level : object, optional
-                    logging object.  Must be C.E.W.I.D :
-                        >>> logging.CRITICAL
-                        >>> Logging.ERROR
-                        >>> logging.WARNING
-                        >>> logging.INFO
-                        >>> logging.DEBUG
-                    The default is logging.DEBUG.
-
-        Returns : NoneType object
-        -------
-        Procedure staticFunctions
+        config_path : str, optional
+            Path to the configuration file. Supports .yaml, .yml, .ini, and .json formats.
+            If None or not provided, uses basic logging configuration or a default logger
+            setup, depending on `use_default_logger`.
+        use_default_logger : bool, optional
+            Whether to use the default logger configuration if no config_path is provided.
+            Defaults to True.
+        verbose : bool, optional
+            If True, prints additional information during configuration. Defaults to False.
 
         """
-        # #create logger 
-        # logger=logging.getLogger(__name__)
-        logger=gofastlog.get_gofast_logger(__name__) 
+        if not config_path:
+            if use_default_logger:
+                gofastlog.set_default_logger()
+            else:
+                logging.basicConfig()
+            return
+
+        if verbose:
+            print(f"Configuring logging with: {config_path}")
+
+        if config_path.endswith((".yaml", ".yml")):
+            gofastlog._configure_from_yaml(config_path, verbose)
+        elif config_path.endswith(".ini"):
+            logging.config.fileConfig(config_path, disable_existing_loggers=False)
+        else:
+            logging.warning(f"Unsupported logging configuration format: {config_path}")
+
+    @staticmethod
+    def _configure_from_yaml(yaml_path, verbose=False):
+        """
+        Configures logging from a YAML file.
+
+        Parameters
+        ----------
+        yaml_path : str
+            Path to the YAML configuration file.
+        verbose : bool, optional
+            If True, prints additional information during configuration.
+        """
+        full_path = os.path.abspath(yaml_path)
+        if not os.path.exists(full_path):
+            logging.error(f"The YAML config file {full_path} does not exist.")
+            return
+
+        if verbose:
+            print(f"Loading YAML config from {full_path}")
+
+        with open(full_path, "rt") as f:
+            config = yaml.safe_load(f.read())
+            
+        logging.config.dictConfig(config)
+
+    @staticmethod
+    def set_default_logger():
+        """
+        Sets up a default logger configuration. This can be customized to suit default
+        logging preferences.
+        """
+        logging.basicConfig(
+            level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    
+    @staticmethod
+    def get_gofast_logger(logger_name=''):
+        """
+        Creates and retrieves a named logger.
+    
+        Parameters
+        ----------
+        logger_name : str, optional
+            The name of the logger. If empty, returns the root logger.
+    
+        Returns
+        -------
+        logging.Logger
+            The logger instance with the specified name.
+        """
+        return logging.getLogger(logger_name)
+    
+    @staticmethod
+    def load_configure_set_logfile(config_file='_gflog.yml', app_name='gofast'):
+        """
+        Configures logging from a YAML file located in a specific directory 
+        defined by an environment variable or a direct path.
+    
+        Parameters
+        ----------
+        config_file : str, optional
+            The name of the configuration file. Defaults to '_gflog.yml'.
+        app_name : str, optional
+            The application name used to derive the path from environment variables.
+    
+        Raises
+        ------
+        FileNotFoundError
+            If the specified configuration file does not exist.
+        ValueError
+            If the configuration file format is not supported.
+        """
+        config_path = os.getenv(app_name.upper() + '_LOG_CONFIG_PATH', '')
+        if config_path:
+            full_path = os.path.join(config_path, config_file)
+        else:
+            raise EnvironmentError(
+                f"{app_name.upper()}_LOG_CONFIG_PATH environment variable is not set.")
+    
+        if not full_path.endswith(('.yaml', '.yml')):
+            raise ValueError("Only .yaml or .yml config files are supported.")
+    
+        if not os.path.exists(full_path):
+            raise FileNotFoundError(f"The config file {full_path} does not exist.")
+    
+        with open(full_path, 'rt') as f:
+            config = yaml.safe_load(f.read())
+            
+        logging.config.dictConfig(config)
+    
+    @staticmethod
+    def set_logger_output(
+            log_filename="gofast.log", date_format='%Y-%m-%d %H:%M:%S', file_mode="w",
+            format_="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            level=logging.DEBUG):
+        """
+        Configures the logging output, including the file name, date format, 
+        logging level, and message format.
+    
+        Parameters
+        ----------
+        log_filename : str, optional
+            The name of the log file.
+        date_format : str, optional
+            The date format used in log messages.
+        file_mode : str, optional
+            The mode for opening the log file ('a' for append, 'w' for overwrite).
+        format_ : str, optional
+            The format of the log messages.
+        level : logging.Level, optional
+            The logging level (e.g., logging.DEBUG, logging.INFO).
+    
+        """
+        handler = logging.FileHandler(log_filename, mode=file_mode)
+        handler.setLevel(level)
+        formatter = logging.Formatter(format_, datefmt=date_format)
+        handler.setFormatter(formatter)
+    
+        logger = gofastlog.get_gofast_logger()
         logger.setLevel(level)
-        
-        # #create console handler  and set the level to DEBUG 
-        ch=logging.StreamHandler()
-        ch.setLevel(level) # level=logging.DEBUG
-        
-        #create formatter :
-        formatter =logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-        
-        #add Formatter to ch 
-        ch.setFormatter(formatter)
-        
-        #add ch to logger 
-        logger.addHandler(ch)
-        
-        # logging.basicConfig(filename="test.log", level=logging.DEBUG)
-        logging.basicConfig(filename=logfilename, format=format_,
-                            datefmt=date_format,
-                            filemode=filemode, level=level)
-        logging.debug("debug message")
-        logging.info("info message ")
-        logging.warning("warn message")
-        logging.error("error message")
-        logging.critical("critical message")
+        logger.addHandler(handler)
+        # Remove duplicate handlers if any exist to prevent repeated log messages.
+        logger.handlers = list(set(logger.handlers))
 
-        
-def test_yaml_configfile(yamlfile="wlog.yml"):
-    
-    this_func_name = inspect.getframeinfo(inspect.currentframe())[2]
+def setup_logging(config_path='path/to/_gflog.yml'):
+    with open(config_path, 'rt') as f:
+        config = yaml.safe_load(f.read())
 
-    UsersOwnConfigFile = yamlfile
-    gofastlog.load_configure(UsersOwnConfigFile)
-    logger = gofastlog.get_gofast_logger(__name__)
-    
-    print((logger,
-           id(logger),
-           logger.name,
-           logger.level,
-           logger.handlers
-           ))
-    
-    # 4 use the named-logger
-    logger.debug(this_func_name + ' __debug message')
-    logger.info(this_func_name + ' __info message')
-    logger.warn(this_func_name + ' __warn message')
-    logger.error(this_func_name + ' __error message')
-    logger.critical(this_func_name + ' __critical message')
+    # Use the default path from the YAML file or override it with an environment variable
+    log_path = os.getenv('LOG_PATH', config.get('default_log_path', '/fallback/path'))
 
-    print(("End of: ", this_func_name))
+    # Now replace the placeholder or directly use the `log_path` 
+    # in your logging configuration
+    if 'handlers' in config:
+        for handler in config['handlers'].values():
+            if 'filename' in handler:
+                handler['filename'] = handler['filename'].replace('${LOG_PATH}', log_path)
+
+    logging.config.dictConfig(config)
+
+def setup_logging_with_template(config_path='path/to/_gflog.yml'):
+    # Load the YAML configuration file
+    with open(config_path, 'rt') as f:
+        config_text = f.read()
     
+    # Substitute environment variable placeholders
+    config_text = Template(config_text).substitute(LOG_PATH=os.getenv(
+        'LOG_PATH', 'default/log/path'))
+    
+    # Load the substituted configuration as a dictionary
+    config = yaml.safe_load(config_text)
+    
+    # Configure logging
+    logging.config.dictConfig(config) 
+    
+def setup_logging_with_expandvars(
+        config_path='path/to/_gflog.yml'):
+    # Load the YAML configuration file
+    with open(config_path, 'rt') as f:
+        config_text = f.read()
+    
+    # Substitute environment variable placeholders
+    config_text = os.path.expandvars(config_text)
+    
+    # Load the substituted configuration as a dictionary
+    config = yaml.safe_load(config_text)
+    
+    # Configure logging
+    logging.config.dictConfig(config)
+
 if __name__=='__main__':
-    # ownerlogfile = '/gofast/wlog.yml'
-    # gofastlog().load_configure(path2configure='wlog.yml')
-    
-    # gofastlog().get_gofast_logger().error('First pseudo test error')
-    # gofastlog().get_gofast_logger().info('Just a logging test')
-    
     print(os.path.abspath(gofastlog.__name__))
     
 
