@@ -25,6 +25,7 @@ Subpackages
 - **stats**: Statistical functions and tests to analyze data and derive meaningful insights.
 - **tools**: Utility functions and helpers that streamline common tasks and data manipulations.
 - **transformers**: Data transformation and preprocessing tools for preparing datasets for analysis.
+- **query**:
 
 
 Usage
@@ -164,12 +165,15 @@ expedite research and analysis.
    
    datasets.fetch_data
    datasets.load_bagoue
+   datasets.load_dyspnea
    datasets.load_forensic 
    datasets.load_iris
    datasets.load_hlogs
+   datasets.load_hydro_metrics
    datasets.load_nlogs 
    datasets.load_mxs 
    datasets.load_jrs_bet 
+   datasets.load_statlog
    datasets.make_sounding 
    datasets.make_african_demo_info 
    datasets.make_agronomy_feedback
@@ -338,17 +342,17 @@ Classes
    :toctree: generated/
    :template: class.rst
 
-   models.BaseEvaluation
-   models.CrossValidator
-   models.BaseSearch
-   models.SearchMultiple
-   models.MultipleSearch
-   models.SequentialSearchCV
-   models.SwarmSearchCV
-   models.AnnealingSearchCV
-   models.EvolutionarySearchCV
-   models.GradientBasedSearchCV
-   models.GeneticSearchCV
+   models.search.BaseEvaluation
+   models.search.CrossValidator
+   models.search.BaseSearch
+   models.search.SearchMultiple
+   models.search.MultipleSearch
+   models.selection.SequentialSearchCV
+   models.selection.SwarmSearchCV
+   models.selection.AnnealingSearchCV
+   models.selection.EvolutionarySearchCV
+   models.selection.GradientBasedSearchCV
+   models.selection.GeneticSearchCV
    
    
 Functions
@@ -365,7 +369,7 @@ Functions
    models.display_cv_tables 
    models.display_fine_tuned_results
    models.display_model_max_details
-   models.naive_evaluation
+   models.dummy_evaluation
    models.parallelize_estimators
    models.optimize_hyperparameters 
    models.optimize_search 
@@ -384,7 +388,7 @@ Functions
    models.visualize_score_distribution 
    models.performance_over_time 
    models.calculate_custom_metric 
-   models.handle_missing_data 
+   models.handle_missing_in_scores 
    models.export_cv_results 
    models.comparative_analysis 
    models.plot_parameter_importance 
@@ -396,7 +400,7 @@ Functions
    models.plot_confidence_intervals 
    models.plot_pairwise_model_comparison
    models.plot_feature_correlation 
-   models.quick_evaluation 
+   models.base_evaluation 
 
 .. _metrics_ref:
 
@@ -474,6 +478,9 @@ streamlining workflows and improving productivity. The list of the tools are not
    :template: function.rst
 
    tools.adaptive_moving_average
+   tools.apply_bow_vectorization 
+   tools.apply_tfidf_vectorization 
+   tools.apply_word_embeddings 
    tools.array2hdf5
    tools.audit_data
    tools.augment_data
@@ -481,16 +488,19 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.bi_selector
    tools.bin_counting
    tools.binning_statistic
+   tools.boxcox_transformation
    tools.build_data_preprocessor
    tools.butterworth_filter
    tools.categorize_target
    tools.category_count
+   tools.check_missing_data
    tools.cleaner
    tools.codify_variables
    tools.compute_effort_yield
    tools.compute_sunburst_data 
    tools.convert_date_features
    tools.cubic_regression
+   tools.denormalize
    tools.discretize_categories
    tools.enrich_data_spectrum
    tools.evaluate_model
@@ -523,7 +533,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.linkage_matrix
    tools.load_csv
    tools.load_dumped_data
-   tools.load_saved_model
+   tools.load_model
    tools.logarithmic_regression
    tools.make_mxs
    tools.make_pipe
@@ -545,6 +555,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.resampling
    tools.reshape
    tools.sanitize
+   tools.save_dataframes
    tools.save_or_load
    tools.save_job
    tools.savgol_filter
@@ -573,6 +584,7 @@ streamlining workflows and improving productivity. The list of the tools are not
    tools.store_or_write_hdf5
    tools.stratify_categories
    tools.to_numeric_dtypes
+   tools.transform_dates
    tools.verify_data_integrity
       
 .. _plot_ref:
@@ -825,6 +837,8 @@ that aid in data exploration, analysis, and presentation.
    plot.utils.plot_regression_diagnostics 
    plot.utils.plot_residuals_vs_leverage 
    plot.utils.plot_residuals_vs_fitted
+   plot.utils.plot_variables 
+   plot.uils.plot_correlation_with_target
 
 .. _stats_ref:
 

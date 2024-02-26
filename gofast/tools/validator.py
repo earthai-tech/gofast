@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 # BSD-3-Clause License
+# Copyright (c) 2022 gofast developers.
 # All rights reserved.
 
 # Utilities for input validation
 from functools import wraps
+from typing import Any, Callable, Optional
 import inspect 
 import types 
 import warnings
@@ -21,6 +23,209 @@ from inspect import signature, Parameter, isclass
 from ._array_api import get_namespace, _asarray_with_order
 
 FLOAT_DTYPES = (np.float64, np.float32, np.float16)
+
+def check_mixed_data_types(data, /) -> bool:
+    """
+    Checks if the given data (DataFrame or numpy array) contains both numerical 
+    and categorical columns.
+
+    Parameters
+    ----------
+    data : pd.DataFrame or np.ndarray
+        The data to check. Can be a pandas DataFrame or a numpy array. If `data`
+        is a numpy array, it is temporarily converted to a DataFrame for type 
+        checking.
+
+    Returns
+    -------
+    bool
+        True if the data contains both numerical and categorical columns, False
+        otherwise.
+
+    Examples
+    --------
+    Using with a pandas DataFrame:
+        
+    >>> import numpy as np 
+    >>> import pandas as pd 
+    >>> from gofast.tools.validator import check_mixed_data_types
+    >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': ['a', 'b', 'c']})
+    >>> print(check_mixed_data_types(df))
+    True
+
+    Using with a numpy array:
+
+    >>> array = np.array([[1, 'a'], [2, 'b'], [3, 'c']])
+    >>> print(check_mixed_data_types(array))
+    True
+
+    With data containing only numerical values:
+
+    >>> df_numeric_only = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
+    >>> print(check_mixed_data_types(df_numeric_only))
+    False
+
+    With data containing only categorical values:
+
+    >>> df_categorical_only = pd.DataFrame({'A': ['a', 'b', 'c'], 'B': ['d', 'e', 'f']})
+    >>> print(check_mixed_data_types(df_categorical_only))
+    False
+    """
+    # Convert numpy array to DataFrame if necessary
+    if isinstance(data, np.ndarray):
+        data = pd.DataFrame(data)
+    
+    # Check for the presence of numerical and categorical data types
+    has_numerical = any(data.dtypes.apply(lambda dtype: np.issubdtype(dtype, np.number)))
+    has_categorical = any(data.dtypes.apply(
+        lambda dtype: dtype == 'object' or dtype.name == 'category' or dtype == 'bool'))
+    
+    return has_numerical and has_categorical
+
+def is_keras_model(model: Any) -> bool:
+    """
+    Determine whether the provided object is an instance of a Keras model.
+
+    Parameters
+    ----------
+    model : Any
+        The object to be checked.
+
+    Returns
+    -------
+    bool
+        True if the object is an instance of `tf.keras.models.Model` or 
+        `tf.keras.Sequential`,False otherwise.
+    """
+    from ._dependency import import_optional_dependency 
+    import_optional_dependency("tensorflow")
+    import tensorflow as tf
+    return isinstance(model, (tf.keras.models.Model, tf.keras.Sequential))
+
+def has_required_attributes(model: Any, attributes: list[str]) -> bool:
+    """
+    Check if the model has all required Keras-specific attributes.
+
+    This function is part of the deep validation process to ensure that the
+    model not only inherits from Keras model classes but also implements 
+    essential methods.
+
+    Parameters
+    ----------
+    model : Any
+        The model object to inspect.
+    attributes : list of str
+        A list of strings representing the names of the attributes to check for
+        in the model.
+
+    Returns
+    -------
+    bool
+        True if the model contains all specified attributes, False otherwise.
+    """
+    return all(hasattr(model, attr) for attr in attributes)
+
+def validate_keras_model(
+        model: Any, custom_check: Optional[Callable[[Any], bool]] = None,
+        deep_check: bool = False, raise_exception =False ) -> bool:
+    """
+    Validates whether a given object is a Keras model and optionally performs 
+    additional checks.
+
+    This function provides a mechanism to ensure that an object not only is an 
+    instance of a Keras model but also conforms to additional, user-defined 
+    criteria if specified. It offers an optional deep check that inspects the 
+    model for key Keras methods, enhancing the validation
+    process.
+
+    Parameters
+    ----------
+    model : Any
+        The object to validate as a Keras model.
+    custom_check : Callable[[Any], bool], optional
+        An optional callback function that takes the model as input and returns
+        a boolean indicating whether the model passes custom validation criteria. 
+        If `None`, no custom validation is performed.
+    deep_check : bool, optional
+        If True, performs a deep inspection of the model's attributes to ensure
+        it supports essential Keras functionality (default is False).
+        
+    raise_exception : bool, optional
+        If True, raises a TypeError when the model fails the validation
+        checks, instead of returning False.
+    Returns
+    -------
+    bool
+        True if the object is validated as a Keras model and satisfies any 
+        specified custom validation criteria. False otherwise.
+
+    Raises
+    ------
+    ValueError
+        If the custom check is provided and raises an exception, indicating 
+        failure of the custom validation logic.
+
+    Examples
+    --------
+    >>> from tensorflow.keras.layers import Dense
+    >>> from tensorflow.keras.models import Sequential
+    >>> from gofast.tools.validator import  validate_keras_model
+    >>> model = Sequential([Dense(2)])
+
+    Validate a simple Keras model without additional checks:
+    >>> validate_keras_model(model)
+    True
+
+    Validate with a custom check (e.g., model must have more than 1 layer):
+    >>> custom_layer_check = lambda m: len(m.layers) > 1
+    >>> validate_keras_model(model, custom_check=custom_layer_check)
+    False
+
+    Validate with deep inspection:
+    >>> validate_keras_model(model, deep_check=True)
+    True
+    """
+    if not is_keras_model(model):
+        if raise_exception: 
+            raise TypeError("Provided object is not a Keras model.")
+        return False 
+
+    if deep_check and not has_required_attributes(
+            model, ['fit', 'predict', 'compile', 'summary']):
+        if raise_exception: 
+            raise TypeError("Model does not support essential Keras functionalities.")
+        return False
+
+    if custom_check:
+        try:
+            return custom_check(model)
+        except Exception as e:
+            raise ValueError(f"Custom check failed: {e}")
+   
+    return True
+
+def is_installed(module: str ) -> bool:
+    """
+    Checks if TensorFlow is installed.
+
+    This function attempts to find the TensorFlow package specification without
+    importing the package. It's a lightweight method to verify the presence of
+    TensorFlow in the environment.
+
+    Returns
+    -------
+    bool
+        True if TensorFlow is installed, False otherwise.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import is_installed 
+    >>> print(is_installed("tensorflow"))
+    True  # Output will be True if TensorFlow is installed, False otherwise.
+    """
+    import importlib.util
+    module_spec = importlib.util.find_spec(module)
+    return module_spec is not None
 
 def is_time_series(data, /, time_col, check_time_interval=False ):
     """
@@ -200,7 +405,7 @@ def assert_xy_in (
     6    6
     Name: y, dtype: int32)
     """
-    from .funcutils import exist_features
+    from .coreutils import exist_features
     if to_frame : 
         data = array_to_frame(data , to_frame = True ,  input_name ='Data', 
                               columns =columns , **kws)
@@ -758,7 +963,6 @@ def check_symmetric(array, *, tol=1e-10, raise_warning=True, raise_exception=Fal
 
     return array
 
-
 def check_scalar(
     x,
     name,
@@ -1038,7 +1242,7 @@ def _pandas_dtype_needs_early_conversion(pd_dtype):
     # Check these early for pandas versions without extension dtypes
     from pandas.api.types import (
         is_bool_dtype,
-        is_sparse,
+        # is_sparse,
         is_float_dtype,
         is_integer_dtype,
     )
@@ -1048,7 +1252,7 @@ def _pandas_dtype_needs_early_conversion(pd_dtype):
         # converts mixed dtype dataframes into object dtypes
         return True
 
-    if is_sparse(pd_dtype):
+    if  isinstance(pd_dtype, pd.SparseDtype ):
         # Sparse arrays will be converted later in `check_array`
         return False
 
@@ -1057,7 +1261,8 @@ def _pandas_dtype_needs_early_conversion(pd_dtype):
     except ImportError:
         return False
 
-    if is_sparse(pd_dtype) or not is_extension_array_dtype(pd_dtype):
+    # if is_sparse(pd_dtype) or not is_extension_array_dtype(pd_dtype): # deprecated 
+    if isinstance(pd_dtype, pd.SparseDtype ) or not is_extension_array_dtype(pd_dtype):
         # Sparse arrays will be converted later in `check_array`
         # Only handle extension arrays for integer and floats
         return False
@@ -1318,9 +1523,9 @@ def check_array(
         # throw warning if columns are sparse. If all columns are sparse, then
         # array.sparse exists and sparsity will be preserved (later).
         with suppress(ImportError):
-            from pandas.api.types import is_sparse
+            # from pandas.api.types import is_sparse
 
-            if not hasattr(array, "sparse") and array.dtypes.apply(is_sparse).any():
+            if not hasattr(array, "sparse") and isinstance(array, pd.SparseDtype ):
                 warnings.warn(
                     "pandas.DataFrame with sparse columns found."
                     "It will be converted to a dense numpy array."
@@ -2034,7 +2239,7 @@ def _assert_all_finite(
         f"{input_name} does not accept missing values encoded as NaN"
         " natively. Alternatively, it is possible to preprocess the data,"
         " for instance by using the imputer transformer like the ufunc"
-        " 'naive_imputer' in 'gofast.tools.mlutils.naive_imputer'."
+        " 'soft_imputer' in 'gofast.tools.mlutils.soft_imputer'."
         )
     
     xp, _ = get_namespace(X)

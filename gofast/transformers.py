@@ -41,10 +41,9 @@ except : pass
 from ._gofastlog import gofastlog 
 from ._typing import _F 
 from .exceptions import EstimatorError, NotFittedError 
-from .tools.funcutils import  parse_attrs, assert_ratio
-from .tools.funcutils import  ellipsis2false, to_numeric_dtypes, is_iterable
+from .tools.coreutils import  parse_attrs, assert_ratio, validate_feature
+from .tools.coreutils import  ellipsis2false, to_numeric_dtypes, is_iterable
 from .tools.mlutils import discretize_categories, stratify_categories 
-from .tools.mlutils import existfeatures 
 from .tools._dependency import import_optional_dependency 
 from .tools.validator import  get_estimator_name, check_X_y, is_frame
 from .tools.validator import _is_arraylike_1d, build_data_if, check_array 
@@ -216,7 +215,8 @@ class SequentialBackwardSelection(BaseEstimator, TransformerMixin):
     def __init__(
         self, 
         estimator=None, 
-        k_features=1, scoring='accuracy', 
+        k_features=1, 
+        scoring='accuracy', 
         test_size=0.25, 
         random_state=42
         ):
@@ -1509,7 +1509,7 @@ class CombinedAttributesAdder(BaseEstimator, TransformerMixin):
         if isinstance(X, pd.DataFrame):
             # Check if attributes exist in the DataFrame
             if self.attribute_names_:
-                existfeatures(X, self.attribute_names_)
+                validate_feature(X, self.attribute_names_)
             # Get the index of attributes from the DataFrame
             if self.attribute_names_:
                 self.attribute_indexes = list(map(
@@ -1723,7 +1723,7 @@ class DataFrameSelector(BaseEstimator, TransformerMixin):
                 "Either 'columns' or 'select_type' needs to be supplied.")
 
         if self.columns is not None:
-            existfeatures(X, self.columns)
+            validate_feature(X, self.columns)
             X = X[self.columns]
 
         if self.select_type is not None:

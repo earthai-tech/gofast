@@ -12,355 +12,918 @@ of data types and structures.
 import numpy as np
 from scipy import stats
 import pandas as pd
+import matplotlib.pyplot as plt 
 
 from sklearn.cluster import KMeans,SpectralClustering
 from sklearn.linear_model import LinearRegression
 from sklearn.manifold import MDS
 
-from .._typing import ( 
-    DataFrame, 
-    ArrayLike 
-    )
-from ..tools.validator import ( 
-    build_data_if , 
-    assert_xy_in 
-    )
-from ..tools.funcutils import ( 
-    to_numeric_dtypes ,
-    ellipsis2false 
-    )
-
+from .._typing import DataFrame, ArrayLike, List, Dict
+from .._typing import  Union, Tuple , Optional
+from ..decorators import DynamicMethod 
+from ..tools.validator import build_data_if , assert_xy_in 
+from ..tools.coreutils import to_numeric_dtypes, ellipsis2false 
+from ..tools.funcutils import make_data_dynamic , preserve_input_type
 from ..tools._dependency import import_optional_dependency 
 
-def mean(
-    data: ArrayLike | DataFrame , 
-    /, 
-    columns: list = None, 
-    as_frame: bool=..., 
-    **kws  
-    ):
-    """ Calculates the average of a list of numbers.
-    
-    Parameters 
-    ----------
-    data: ArrayLike, pd.DataFrame 
-       Data frame containing valid numeric values. 
-    columns: list, 
-       Columns to construct the data. 
-       
-    as_frame: bool, default=False, 
-       To convert data as a frame before proceeding. 
-       
-    kws: dict,  
-       Additional keywords arguments for sanitizing the data 
-       before proceedings. 
-
-    Return 
-    ------
-    mean_value: Mean value of the data 
-    
+@preserve_input_type
+@make_data_dynamic(expected_type="numeric", capture_columns=True)
+def gomean(
+        data: Union[ArrayLike, DataFrame], /, 
+        columns: List[str] = None,
+        **kws):
     """
-    as_frame, = ellipsis2false(as_frame )
-    data = build_data_if(data, columns = columns, to_frame= as_frame  )
-    data = to_numeric_dtypes(
-        data, pop_cat_features= True, return_feature_types= False, **kws )
-    return np.mean(data)
+    Calculates the mean of numeric data provided as an array-like structure 
+    or within a pandas DataFrame.
 
-def median(
-    data:ArrayLike | DataFrame, /,  
-    columns: list=None,
-    as_frame: bool=..., 
-    **kws 
-    ):
-    """ Finds the middle value in a list of numbers.
-    
-    Parameters 
+    The function dynamically preprocesses the input data based on the 
+    `expected_type` and `capture_columns` parameters specified by the 
+    `make_data_dynamic` decorator. For DataFrames, if `columns` are specified,
+    only those columns are considered for calculating the mean.
+
+    Parameters
     ----------
-    data: ArrayLike, pd.DataFrame 
-       Data frame containing valid numeric values. 
-    columns: list, 
-       Columns to construct the data. 
-    as_frame: bool, default=False, 
-       To convert data as a frame before proceeding.    
-    kws: dict,  
-       Additional keywords arguments for sanitizing the data 
-       before proceedings. 
-    Return 
-    ------
-    median_value: Mean value of the data 
-    
+    data : ArrayLike or DataFrame
+        The input data from which to calculate the mean. Can be a list, 
+        numpy array, or pandas DataFrame containing valid numeric values.
+    columns : list of str, optional
+        List of column names to consider in the calculation if `data` is a
+        DataFrame. If not provided, all numeric columns are considered.
+    **kws : dict
+        Additional keyword arguments passed to the underlying numpy mean 
+        function, allowing customization of the mean calculation, such as 
+        specifying the axis.
+
+    Returns
+    -------
+    mean_value : float or np.ndarray
+        The calculated mean of the provided data. Returns a single float if 
+        the data is one-dimensional or 
+        a numpy array if an axis is specified in `kws`.
+
+    Examples
+    --------
+    >>> from gofast.stats.utils import gomean
+    >>> data_array = [1, 2, 3, 4, 5]
+    >>> mean(data_array)
+    3.0
+
+    >>> data_df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
+    >>> mean(data_df, columns=['A'])
+    2.0
+
+    >>> mean(data_df, axis=0)
+    array([2., 5.])
+
+    Note
+    ----
+    The function is wrapped by the `make_data_dynamic` decorator, which 
+    preprocesses the input data based on the specified `expected_type` and 
+    `capture_columns`. This preprocessing step is crucial for handling pandas 
+    DataFrames with mixed data types and for selecting specific columns for
+    the calculation.
     """
-    as_frame, = ellipsis2false(as_frame )
-    data = build_data_if(data, columns = columns, to_frame= as_frame  )
-    data = to_numeric_dtypes(
-        data, pop_cat_features= True, return_feature_types= False, **kws )
-    return np.median(data)
+    if isinstance(data, pd.DataFrame):
+        return data.mean(**kws)
+    else:
+        return np.mean(data, **kws)
 
-
-def mode(
-    data:ArrayLike | DataFrame, /,  
-    columns: list=None,
-    as_frame: bool=..., 
-    **kws 
+@make_data_dynamic(expected_type="numeric", capture_columns=True)
+def gomedian(
+    data: Union[ArrayLike, DataFrame], 
+    columns: List[str] = None, **kws
     ):
-    """ Determines the most frequently occurring value in a dataset
-    
-    Parameters 
-    ----------
-    data: ArrayLike, pd.DataFrame 
-       Data frame containing valid numeric values. 
-    columns: list, 
-       Columns to construct the data. 
-    as_frame: bool, default=False, 
-       To convert data as a frame before proceeding. 
-    kws: dict,  
-       Additional keywords arguments for sanitizing the data 
-       before proceedings. 
-    Return 
-    ------
-    mode_value: Mean value of the data 
     """
-    as_frame, = ellipsis2false(as_frame )
-    data = build_data_if(data, columns = columns, to_frame= as_frame  )
-    data = to_numeric_dtypes(
-        data, pop_cat_features= True, return_feature_types= False, **kws )
-    mode = stats.mode(data)
-    return mode.mode[0]
+    Calculates the median of numeric data provided either as an array-like 
+    structure or within a pandas DataFrame.
 
-def variance(
-    data:ArrayLike | DataFrame, /,  
-    columns: list=None,
-    as_frame: bool=..., 
-    **kws 
-    ):
-    """Calculates the variance of a dataset. 
-    
-    Parameters 
+    Leveraging the `make_data_dynamic` decorator, the function preprocesses 
+    the input data to ensure it conforms to the expected numeric type and 
+    optionally focuses on specified columns when dealing with DataFrames.
+
+    Parameters
     ----------
-    data: ArrayLike, pd.DataFrame 
-       Data frame containing valid numeric values. 
-    columns: list, 
-       Columns to construct the data. 
-       
-    as_frame: bool, default=False, 
-       To convert data as a frame before proceeding. 
-    kws: dict,  
-       Additional keywords arguments for sanitizing the data 
-       before proceedings. 
-    Return 
-    ------
-    variance_value: Mean value of the data 
-    
-    """
-    as_frame, = ellipsis2false(as_frame )
-    data = build_data_if(data, columns = columns, to_frame= as_frame  )
-    data = to_numeric_dtypes(
-        data, pop_cat_features= True, return_feature_types= False, **kws )
-    return np.var(data)
+    data : ArrayLike or DataFrame
+        The input data from which to calculate the median. Can be a list,
+        numpy array, or pandas DataFrame containing valid numeric values.
+    columns : list of str, optional
+        List of column names to consider for the calculation if `data` is a
+        DataFrame. If not provided, all numeric columns are considered.
+    **kws : dict
+        Additional keyword arguments passed to the underlying numpy median 
+        function, allowing customization of the median calculation, such as 
+        specifying the axis or whether to ignore NaN values.
 
-def std_dev(
-    data:ArrayLike | DataFrame,
-    /,  
-    columns: list=None,
-    as_frame: bool=..., 
-    **kws 
-    ):
-    """Computes the standard deviation of a dataset. 
-    
-    Parameters 
+    Returns
+    -------
+    median_value : float or np.ndarray
+        The calculated median of the provided data. Returns a single float 
+        if the data is one-dimensional or  an np.ndarray if an axis is specified in `kws`.
+
+    Examples
+    --------
+    >>> from gofast.stats.utils import gomedian
+    >>> data_array = [3, 1, 4, 1, 5]
+    >>> gomedian(data_array)
+    3.0
+
+    >>> data_df = pd.DataFrame({'A': [2, 4, 7], 'B': [1, 6, 5]})
+    >>> gomedian(data_df, columns=['A'])
+    4.0
+
+    >>> gomedian(data_df, axis=0)
+    array([4., 5.])
+
+    Note
+    ----
+    This function is enhanced by the `make_data_dynamic` decorator, which 
+    preprocesses the input data to align with the expected numeric type and 
+    selectively processes columns if specified. This preprocessing
+    is particularly useful for ensuring compatibility with statistical 
+    calculations and optimizing performance for DataFrame inputs with mixed
+    data types.
+    """
+    if isinstance(data, pd.DataFrame):
+        return np.median(data.to_numpy(), **kws)
+    else:
+        return np.median(data, **kws)
+
+@make_data_dynamic(expected_type="numeric", capture_columns=True)
+def gomode(
+        data: Union[ArrayLike, DataFrame], /, 
+        columns: List[str] = None, 
+        as_frame:bool=..., 
+        **kws):
+    """
+    Calculates the mode(s) of numeric data provided either as an array-like 
+    structure or within a pandas DataFrame.
+
+    Utilizes the `make_data_dynamic` decorator to preprocess the input data
+    to ensure it conforms to the expected numeric type and optionally focuses
+    on specified columns when dealing with DataFrames.
+
+    Parameters
     ----------
-    data: ArrayLike, pd.DataFrame 
-       Data frame containing valid numeric values. 
-    columns: list, 
-       Columns to construct the data. 
-       
-    as_frame: bool, default=False, 
-       To convert data as a frame before proceeding. 
-       
-    kws: dict,  
-       Additional keywords arguments for sanitizing the data 
-       before proceedings. 
-    Return 
-    ------
-    std_dev_value: Mean value of the data 
-    
-    """
-    as_frame, = ellipsis2false(as_frame )
-    data = build_data_if(data, columns = columns, to_frame= as_frame  )
-    data = to_numeric_dtypes(
-        data, pop_cat_features= True, return_feature_types= False, **kws )
-    return np.std(data)
+    data : ArrayLike or DataFrame
+        The input data from which to calculate the mode. Can be a list, 
+        numpy array, or pandas DataFrame containing valid numeric values.
+    columns : list of str, optional
+        List of column names to consider for the calculation if `data` is a 
+        DataFrame. If not provided, all 
+        numeric columns are considered.
+    as_frame : bool, default False
+        Indicates whether to convert the input data to a DataFrame before 
+        proceeding. This parameter is
+        particularly relevant when input data is not already a DataFrame.
+    **kws : dict
+        Additional keyword arguments for further data processing or passed to 
+        underlying statistical functions.
 
-def get_range(
-    data:ArrayLike | DataFrame,
-    /,  
-    columns: list=None,
-    as_frame: bool=..., 
+    Returns
+    -------
+    mode_value : np.ndarray or pd.Series
+        The mode(s) of the dataset. Returns a numpy array if the input is 
+        ArrayLike or if `as_frame` is False.
+        Returns a pandas Series if the input is a DataFrame and 
+        `as_frame` is True.
+
+    Examples
+    --------
+    >>> from gofast.stats.utils import gomode
+    >>> data_array = [1, 2, 2, 3, 4]
+    >>> gomode(data_array)
+    2
+
+    >>> data_df = pd.DataFrame({'A': [1, 2, 2, 3], 'B': [4, 4, 5, 5]})
+    >>> gomode(data_df, as_frame=True)
+    A    2
+    B    4
+    dtype: int64
+
+    Note
+    ----
+    This function is enhanced by the `make_data_dynamic` decorator, which 
+    preprocesses the input data to align with the expected numeric type and 
+    selectively processes columns if specified. This preprocessing
+    ensures that statistical calculations are performed accurately and 
+    efficiently on DataFrame inputs with mixed data types.
+    """
+    as_frame, = ellipsis2false(as_frame)
+    if isinstance(data, pd.DataFrame) and columns:
+        data = data[columns]
+    
+    mode_result = stats.mode(data, **kws)
+    return mode_result.mode[0] if not as_frame else pd.Series(
+        mode_result.mode[0], index=columns or data.columns)
+
+@make_data_dynamic(
+    expected_type="numeric", 
+    capture_columns=True, 
+    reset_index=True
+    )
+def govar(
+    data: Union[ArrayLike, DataFrame], /, 
+    columns: List[str] = None, 
+    as_frame:bool=..., 
     **kws):
-    """Finds the range (difference between max and min) of a dataset. 
-    
-    Parameters 
-    ----------
-    data: ArrayLike, pd.DataFrame 
-       Data frame containing valid numeric values. 
-    columns: list, 
-       Columns to construct the data. 
-    as_frame: bool, default=False, 
-       To convert data as a frame before proceeding. 
-    kws: dict,  
-       Additional keywords arguments for sanitizing the data 
-       before proceedings. 
-    Return 
-    ------
-    range_value: Mean value of the data 
-    
     """
-    as_frame, = ellipsis2false(as_frame )
-    data = build_data_if(data, columns = columns, to_frame= as_frame  )
-    data = to_numeric_dtypes(
-        data, pop_cat_features= True, return_feature_types= False, **kws )
-    return np.max(data) - np.min(data)
+    Calculates the variance of numeric data provided either as an array-like 
+    structure or within a pandas DataFrame. This function is designed to be 
+    flexible, allowing for the calculation of variance across entire datasets 
+    or within specified columns of a DataFrame.
 
+    Utilizing preprocessing parameters such as `expected_type` and 
+    `capture_columns`, the input data is first sanitized to ensure it contains 
+    only numeric values. This preprocessing step is essential for accurate 
+    statistical analysis.
 
-def quartiles(
-    data:ArrayLike | DataFrame,
-    /,  
-    columns: list=None,
-    as_frame: bool=..., 
+    Parameters
+    ----------
+    data : ArrayLike or DataFrame
+        The input data from which to calculate the variance. Can be a list, 
+        numpy array, or pandas DataFrame containing valid numeric values.
+    columns : list of str, optional
+        List of column names to consider for the calculation if `data` is a 
+        DataFrame. If not provided, all numeric columns are considered.
+    as_frame : bool, default False
+        Indicates whether to convert the input data to a DataFrame before 
+        proceeding with the calculation. This parameter is particularly relevant 
+        when input data is not already a DataFrame.
+    **kws : dict
+        Additional keyword arguments passed to the underlying numpy variance 
+        function, allowing customization of the variance calculation, such as 
+        specifying the axis or whether to use Bessel's correction.
+
+    Returns
+    -------
+    variance_value : float or np.ndarray or pd.Series
+        The calculated variance of the provided data. Returns a single float 
+        if the data is one-dimensional, a numpy array if an axis is specified 
+        in `kws`, or a pandas Series if the input is a DataFrame and `as_frame`
+        is True.
+
+    Examples
+    --------
+    >>> from gofast.stats.utils import govar
+    >>> data_array = [1, 2, 3, 4, 5]
+    >>> govar(data_array)
+    2.0
+
+    >>> data_df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
+    >>> govar(data_df, columns=['A'], ddof=1)
+    1.0
+
+    >>> govar(data_df, as_frame=True)
+    A    1.0
+    B    1.0
+    dtype: float64
+
+    Note
+    ----
+    The preprocessing steps, controlled by the `make_data_dynamic` decorator,
+    ensure that the input data is suitable for variance calculation. This
+    includes converting the data to numeric types and filtering based on 
+    specified columns, enhancing the function's flexibility and applicability 
+    across various data forms.
+    """
+    as_frame = False if as_frame is ... else as_frame
+
+    # Preprocess DataFrame to focus on specified columns
+    if isinstance(data, pd.DataFrame) and columns:
+        data = data[columns]
+
+    # Calculate variance
+    variance_result = np.var(data, **kws)
+    # Return result in the appropriate format
+    if as_frame:
+        return pd.Series(variance_result, index=columns or data.columns)
+    else:
+        return variance_result
+    
+@make_data_dynamic(
+    expected_type="numeric", 
+    capture_columns=True, 
+    reset_index=True
+    )    
+def gostd(
+    data: Union[ArrayLike, DataFrame], /, 
+    columns: List[str] = None, 
+    as_frame: bool = False, 
     **kws
     ):
-    """Determines the quartiles of a dataset. 
-    
-    Parameters 
-    ----------
-    data: ArrayLike, pd.DataFrame 
-       Data frame containing valid numeric values. 
-    columns: list, 
-       Columns to construct the data. 
-    as_frame: bool, default=False, 
-       To convert data as a frame before proceeding. 
-    kws: dict,  
-       Additional keywords arguments for sanitizing the data 
-       before proceedings. 
-    Return 
-    ------
-    auartile_values: Quartile values of the data 
     """
-    as_frame, = ellipsis2false(as_frame )
-    data = build_data_if(data, columns = columns, to_frame= as_frame  )
-    data = to_numeric_dtypes(
-        data, pop_cat_features= True, return_feature_types= False, **kws )
-    return np.percentile(data, [25, 50, 75])
+    Computes the standard deviation of numeric data provided either as an 
+    array-like structure or within a pandas DataFrame. This function leverages 
+    preprocessing to ensure the data is numeric and optionally focuses on 
+    specified columns when dealing with DataFrames.
+
+    Parameters
+    ----------
+    data : ArrayLike or DataFrame
+        The input data from which to calculate the standard deviation. Can be 
+        a list, numpy array, or pandas DataFrame containing valid numeric values.
+    columns : list of str, optional
+        List of column names to consider for the calculation if `data` is a 
+        DataFrame. If not provided, all numeric columns are considered.
+    as_frame : bool, default False
+        Indicates whether to convert the input data to a DataFrame before 
+        proceeding with the calculation. This parameter is relevant when 
+        input data is not already a DataFrame.
+    **kws : dict
+        Additional keyword arguments passed to the underlying numpy standard 
+        deviation function, allowing customization of the calculation, such 
+        as specifying the axis or whether to use Bessel's correction.
+
+    Returns
+    -------
+    std_dev_value : float or np.ndarray or pd.Series
+        The calculated standard deviation of the provided data. Returns a single 
+        float if the data is one-dimensional, an np.ndarray if an axis is specified 
+        in `kws`, or a pandas Series if the input is a DataFrame and `as_frame` 
+        is True.
+
+    Examples
+    --------
+    >>> from gofast.stats.utils import gostd
+    >>> data_array = [1, 2, 3, 4, 5]
+    >>> gostd(data_array)
+    1.4142135623730951
+
+    >>> data_df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
+    >>> gostd(data_df, columns=['A'], ddof=1)
+    1.0
+
+    >>> gostd(data_df, as_frame=True)
+    A    1.0
+    B    1.0
+    dtype: float64
+
+    Note
+    ----
+    The preprocessing steps, implied by the `make_data_dynamic` decorator (not shown here but 
+    assumed to be applied outside this code snippet), ensure that the input data is suitable 
+    for standard deviation calculation. These steps convert the data to numeric types and filter 
+    based on specified columns, thus enhancing the function's utility and applicability across 
+    diverse data forms.
+    """
+    as_frame = False if as_frame is ... else as_frame
+    
+    # Preprocess DataFrame to focus on specified columns
+    if isinstance(data, pd.DataFrame) and columns:
+        data = data[columns]
+    # Calculate standard deviation
+    std_dev_result = np.std(data, **kws)
+    # Return result in the appropriate format
+    if as_frame:
+        return pd.Series(std_dev_result, index=columns or data.columns)
+    else:
+        return std_dev_result
+
+@make_data_dynamic(
+    expected_type="numeric", 
+    capture_columns=True, 
+    reset_index=True
+    )   
+def get_range(
+    data: Union[ArrayLike, DataFrame], /, 
+    columns: List[str] = None, 
+    as_frame: bool = False,
+    **kws
+    ):
+    """
+    Calculates the range of numeric data provided either as an array-like 
+    structure or within a pandas DataFrame. This function computes the difference 
+    between the maximum and minimum values in the dataset, optionally focusing on 
+    specified columns when dealing with DataFrames.
+
+    Parameters
+    ----------
+    data : ArrayLike or DataFrame
+        The input data from which to calculate the range. Can be a list, numpy 
+        array, or pandas DataFrame containing valid numeric values.
+    columns : list of str, optional
+        List of column names to consider for the calculation if `data` is a 
+        DataFrame. If not provided, all numeric columns are considered.
+    as_frame : bool, default False
+        Indicates whether to convert the input data to a DataFrame before 
+        proceeding with the calculation. Relevant when input data is not 
+        already a DataFrame.
+    **kws : dict
+        Additional keyword arguments for data preprocessing, not directly 
+        used in range calculation but may be used for data sanitization.
+
+    Returns
+    -------
+    range_value : float or pd.Series
+        The calculated range of the provided data. Returns a single float if 
+        the data is one-dimensional or a pandas Series if the input is a DataFrame 
+        and `as_frame` is True, showing the range for each specified column.
+
+    Examples
+    --------
+    >>> from gofast.stats.utils import get_range
+    >>> data_array = [1, 2, 3, 4, 5]
+    >>> get_range(data_array)
+    4
+
+    >>> data_df = pd.DataFrame({'A': [2, 5, 8], 'B': [1, 4, 7]})
+    >>> get_range(data_df, columns=['A'])
+    6
+
+    >>> get_range(data_df, as_frame=True)
+    A    6
+    B    6
+    dtype: int64
+
+    Note
+    ----
+    The function aims to provide a straightforward way to compute the range 
+    of a dataset, enhancing data analysis tasks. For DataFrame inputs, the 
+    `as_frame` parameter allows users to maintain DataFrame structure in the 
+    output, facilitating further analysis or integration with pandas-based 
+    workflows.
+    """
+    as_frame = False if as_frame is ... else as_frame
+    if isinstance(data, pd.DataFrame):
+        # When columns are specified, reduce the DataFrame to these columns
+        if columns:
+            data = data[columns]
+    # Calculate the range using numpy functions
+    range_calculation = lambda x: np.max(x, **kws) - np.min(x, **kws)
+    
+    if as_frame and isinstance(data, pd.DataFrame):
+        # Calculate range for each column and return as a pandas Series
+        return data.apply(range_calculation)
+    else:
+        # For non-DataFrame or entire DataFrame as input
+        return range_calculation(data)
+    
+@make_data_dynamic(
+    expected_type="numeric", 
+    capture_columns=True, 
+    )  
+def quartiles(
+    data: Union[ArrayLike, DataFrame], /, 
+    columns: List[str] = None, 
+    as_frame: bool = ...,
+    **kws
+    ):
+    """
+    Calculates the quartiles (25th, 50th, and 75th percentiles) of numeric data 
+    provided either as an array-like structure or within a pandas DataFrame. 
+    This function is versatile, allowing calculations across entire datasets or 
+    within specified columns of a DataFrame.
+
+    Parameters
+    ----------
+    data : ArrayLike or DataFrame
+        The input data from which to calculate quartiles. Can be a list, numpy 
+        array, or pandas DataFrame containing valid numeric values.
+    columns : list of str, optional
+        List of column names to consider for the calculation if `data` is a 
+        DataFrame. If not provided, all numeric columns are considered.
+    as_frame : bool, default False
+        Indicates whether to convert the input data to a DataFrame before 
+        proceeding with the calculation. Relevant when input data is not 
+        already a DataFrame.
+    **kws : dict
+        Additional keyword arguments passed to the numpy percentile function, 
+        allowing customization of the quartile calculation, such as specifying 
+        the interpolation method.
+
+    Returns
+    -------
+    quartile_values : np.ndarray or pd.DataFrame
+        The calculated quartiles of the provided data. Returns a numpy array 
+        with the quartiles if the data is one-dimensional or a pandas DataFrame 
+        if the input is a DataFrame and `as_frame` is True, showing the quartiles 
+        for each specified column.
+
+    Examples
+    --------
+    >>> from gofast.stats.utils import quartiles
+    >>> data_array = [1, 2, 3, 4, 5]
+    >>> quartiles(data_array)
+    array([2., 3., 4.])
+
+    >>> data_df = pd.DataFrame({'A': [2, 5, 7, 8], 'B': [1, 4, 6, 9]})
+    >>> quartiles(data_df, columns=['A'])
+    array([4.25, 6. , 7.75])
+
+    >>> quartiles(data_df, as_frame=True)
+        25%   50%   75%
+    A  4.25  6.0  7.75
+    B  2.75  5.0  7.25
+
+    Note
+    ----
+    Quartiles are a fundamental statistical measure used to understand the spread 
+    and center of a dataset. By offering the flexibility to compute quartiles for 
+    specific columns or entire datasets, this function aids in comprehensive data 
+    analysis, particularly in exploratory data analysis (EDA) and data visualization.
+    """
+    as_frame = False if as_frame is ... else as_frame
+
+    # Preprocess DataFrame to focus on specified columns
+    if isinstance(data, pd.DataFrame) and columns:
+        data = data[columns]
+
+    # Calculate quartiles
+    quartile_calculation = lambda x: np.percentile(x, [25, 50, 75], **kws)
+
+    if as_frame and isinstance(data, pd.DataFrame):
+        # Calculate quartiles for each column and return as a DataFrame
+        quartiles_df = pd.DataFrame({col: quartile_calculation(
+            data[col]) for col in data.columns}, index=['25%', '50%', '75%'])
+        return quartiles_df
+    else:
+        # For non-DataFrame or entire DataFrame as input
+        return quartile_calculation(data)
+    
+@DynamicMethod ( 
+    expected_type="numeric", 
+    capture_columns=True
+   )
+def goquantile(
+    data: Union[ArrayLike, DataFrame], /, 
+    q: float, 
+    columns: List[str] = None, 
+    as_frame: bool = False, 
+    **kws
+    ):
+    """
+    Computes specified quantiles of numeric data provided either as an array-like 
+    structure or within a pandas DataFrame. This function is designed to offer 
+    flexibility in calculating quantiles across entire datasets or within specified 
+    columns of a DataFrame.
+
+    Parameters
+    ----------
+    data : ArrayLike or DataFrame
+        The input data from which to compute quantiles. Can be a list, numpy 
+        array, or pandas DataFrame containing valid numeric values.
+    q : float or list of float
+        Quantile or sequence of quantiles to compute, which must be between 0 
+        and 1 inclusive.
+    columns : list of str, optional
+        List of column names to consider for the calculation if `data` is a 
+        DataFrame. If not provided, all numeric columns are considered.
+    as_frame : bool, default False
+        Indicates whether to convert the input data to a DataFrame before 
+        proceeding with the calculation. Relevant when input data is not 
+        already a DataFrame.
+    **kws : dict
+        Additional keyword arguments passed to the numpy quantile function, 
+        allowing customization of the quantile calculation, such as specifying 
+        the interpolation method.
+
+    Returns
+    -------
+    quantile_values : float, np.ndarray, or pd.DataFrame
+        The computed quantile(s) of the provided data. Returns a single float if 
+        `q` is a single quantile value and the data is one-dimensional, an 
+        np.ndarray if `q` is a list and the data is one-dimensional, or a pandas 
+        DataFrame if the input is a DataFrame and `as_frame` is True.
+
+    Examples
+    --------
+    >>> from gofast.stats.utils import goquantile
+    >>> data_array = [1, 2, 3, 4, 5]
+    >>> goquantile(data_array, q=0.5)
+    3.0
+
+    >>> data_df = pd.DataFrame({'A': [2, 5, 7, 8], 'B': [1, 4, 6, 9]})
+    >>> goquantile(data_df, q=[0.25, 0.75], columns=['A'])
+    array([3.75, 7.25])
+
+    >>> goquantile(data_df, q=0.5, as_frame=True)
+       50%
+    A  6.0
+    B  5.0
+
+    Note
+    ----
+    The function provides a convenient way to compute quantiles, a critical 
+    statistical measure for understanding the distribution of data. The 
+    flexibility to compute quantiles for specific columns or entire datasets 
+    enhances its utility in exploratory data analysis and data preprocessing.
+    """
+    as_frame = False if as_frame is ... else as_frame
+    if isinstance(data, pd.DataFrame) and columns:
+        data = data[columns]
+
+    quantile_calculation = lambda x: np.quantile(x, q, **kws)
+
+    if as_frame and isinstance(data, pd.DataFrame):
+        # Compute quantiles for each column and return as a DataFrame
+        quantiles_df = pd.DataFrame({col: quantile_calculation(
+            data[col]) for col in data.columns}, index=[
+                f'{q*100}%' for q in np.atleast_1d(q)])
+        return quantiles_df
+    else:
+        # For non-DataFrame or entire DataFrame as input
+        return quantile_calculation(data)
+
+@DynamicMethod ( 
+    expected_type="both", 
+    capture_columns=True
+   )
+def gocorr(
+    data: Union[ArrayLike, DataFrame], /,  
+    columns: List[str] = None, **kws
+    ):
+    """
+    Calculates the correlation matrix for the given dataset. If the dataset is 
+    a DataFrame and columns are specified, the correlation is calculated only 
+    for those columns.
+
+    Parameters
+    ----------
+    data : ArrayLike or DataFrame
+        The input data from which to calculate the correlation matrix. Can be 
+        a list, numpy array, or pandas DataFrame containing valid numeric values.
+    columns : list of str, optional
+        List of column names for which to calculate the correlation if `data` 
+        is a DataFrame. If not provided, the correlation is calculated for all 
+        numeric columns in the DataFrame.
+    **kws : dict
+        Additional keyword arguments for the pandas `corr()` method, allowing 
+        customization of the correlation calculation, such as specifying the 
+        method (e.g., 'pearson', 'kendall', 'spearman').
+
+    Returns
+    -------
+    correlation_matrix : DataFrame
+        The correlation matrix of the provided data. If `data` is ArrayLike, 
+        the function first converts it to a DataFrame.
+
+    Examples
+    --------
+    >>> from gofast.stats.utils import gocorr
+    >>> data = pd.DataFrame({
+    ...     'A': [1, 2, 3, 4],
+    ...     'B': [4, 3, 2, 1],
+    ...     'C': [1, 2, 3, 4]
+    ... })
+    >>> gocorr(data)
+           A         B    C
+    A  1.000000 -1.000000  1.000000
+    B -1.000000  1.000000 -1.000000
+    C  1.000000 -1.000000  1.000000
+
+    >>> gocorr2(data, columns=['A', 'C'])
+           A    C
+    A  1.000000  1.000000
+    C  1.000000  1.000000
+
+    Note
+    ----
+    The function utilizes pandas' `corr()` method to compute the correlation 
+    matrix, offering flexibility through `**kws` to use different correlation 
+    computation methods. For non-DataFrame inputs, the data is first converted 
+    to a DataFrame, ensuring uniform processing.
+    """
+    if isinstance(data, (list, np.ndarray)):
+        data = pd.DataFrame(data, columns=columns if columns else range(len(data[0])))
+    elif isinstance(data, pd.DataFrame) and columns:
+        data = data[columns] 
+    return data.corr(**kws)
 
 def correlation(
-    x=None, 
-    y=None, 
-    data=None, 
-    columns=None, 
-    **kws 
+    x: Union[str, ArrayLike], 
+    y: Union[str, ArrayLike] = None, 
+    data: Optional[pd.DataFrame] = None,
+    **kws):
+    """
+    Computes the correlation between two datasets, or within a DataFrame. 
+    This function allows for flexible input types, including direct array-like 
+    inputs or specifying column names within a DataFrame.
+
+    Parameters
+    ----------
+    x : str or ArrayLike
+        The first dataset for correlation analysis. If `x` is a string, 
+        `data` must be supplied and `x` should be a column name of `data`. 
+        Otherwise, `x` can be array-like (list or pd.Series).
+    y : str or ArrayLike, optional
+        The second dataset for correlation analysis. Similar to `x`, if `y` 
+        is a string, `y` should be a column name of `data` and `data` must 
+        be supplied. If omitted, calculates the correlation matrix of `data`.
+    data : pd.DataFrame, optional
+        DataFrame containing valid numeric values if `x` and/or `y` are specified 
+        as column names.
+    **kws : dict
+        Additional keyword arguments passed to the pandas DataFrame corr() method, 
+        allowing customization of the correlation calculation, such as specifying 
+        the method (e.g., 'pearson', 'kendall', 'spearman').
+
+    Returns
+    -------
+    correlation_value : float or pd.DataFrame
+        The correlation coefficient(s) between `x` and `y` if both are provided, 
+        or the correlation matrix of `data` or `x` (if `x` is a DataFrame and `y` 
+        is None).
+
+    Examples
+    --------
+    >>> from gofast.stats.utils import correlation
+    >>> import pandas as pd
+    >>> data = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
+    >>> gocorr('A', 'B', data=data)
+    1.0
+
+    >>> x = [1, 2, 3]
+    >>> y = [4, 5, 6]
+    >>> gocorr(x, y)
+    1.0
+
+    >>> correlation(data)
+    DataFrame showing correlation matrix of 'data'
+
+    Note
+    ----
+    The function is designed to provide a versatile interface for correlation 
+    analysis, accommodating different types of input and supporting various 
+    correlation methods through keyword arguments. It utilizes pandas' `corr()` 
+    method for DataFrame inputs, enabling comprehensive correlation analysis within 
+    tabular data.
+    """
+    if isinstance(x, str) and data is not None:
+        x = data[x]
+    if isinstance(y, str) and data is not None:
+        y = data[y]
+    if isinstance(x, pd.DataFrame) and y is None:
+        # Compute correlation matrix of DataFrame
+        return x.corr(**kws)
+    elif isinstance(x, pd.Series) and isinstance(y, pd.Series):
+        # Compute correlation between two Series
+        return x.corr(y, **kws)
+    else:
+        # Convert array-like inputs to Series and compute correlation
+        x_series = pd.Series(x)
+        y_series = pd.Series(y) if y is not None else pd.Series()
+        return x_series.corr(y_series, **kws) if not y_series.empty else x_series.corr(**kws)
+
+@DynamicMethod ( 
+    expected_type="both", 
+    capture_columns=True, 
+    drop_na=True
+   )
+def goiqr(
+    data: Union[ArrayLike, DataFrame], /, 
+    columns: List[str] = None,
+    as_frame: bool = False,
+    **kws
     ):
-    """Computes the interquartile range of a dataset. 
-    
-    Parameters 
-    ----------
-    X: str, Arraylike  
-       First array for coorrelation analysis. When `x` is a string 
-       `data` must be supplied. `x` should be a column name of the data. \
-           
-    y: str, Arraylike 
-       Second array for coorrelation analysis. When `y` is given as string 
-       it should be a column name of the data and `data`must be supplied 
-       instead.
-    data: ArrayLike, pd.DataFrame 
-       Data frame containing valid numeric values. 
-    columns: list, 
-       Columns to construct the data. 
-    kws: dict,  
-       Additional keywords arguments for sanitizing the data 
-       before proceedings. 
-    Return 
-    ------
-    correlation_value: correlation value of the data 
-    
     """
+    Computes the interquartile range (IQR) of numeric data provided either as 
+    an array-like structure or within a pandas DataFrame. 
     
-    if data is not None: 
-        data = build_data_if(data, columns = columns )
-        data = to_numeric_dtypes(
-            data, pop_cat_features= True, return_feature_types= False, **kws )
-        
-    x, y = assert_xy_in(x, y, data =data, xy_numeric= True )
-    
-    return np.corrcoef(x, y)[0, 1]
+    The IQR is calculated as the difference between the 75th and 25th 
+    percentiles of the data, offering insight into the variability and 
+    spread of the dataset.
 
-def iqr(
-    data:ArrayLike | DataFrame,
-    /,  
-    columns: list=None,
-    as_frame: bool=..., 
-    **kws):
-    """ Calculates the Pearson correlation coefficient between two variables.
-    
-    Parameters 
+    Parameters
     ----------
-    data: ArrayLike, pd.DataFrame 
-       Data frame containing valid numeric values. 
-    columns: list, 
-       Columns to construct the data. 
-    as_frame: bool, default=False, 
-       To convert data as a frame before proceeding. 
-    kws: dict,  
-       Additional keywords arguments for sanitizing the data 
-       before proceedings. 
-       
-    Return 
-    ------
-    iqr_value: IQR value of the data 
-    
-    """
-    as_frame, = ellipsis2false(as_frame )
-    data = build_data_if(data, columns = columns, to_frame= as_frame  )
-    data = to_numeric_dtypes(
-        data, pop_cat_features= True, return_feature_types= False, **kws )
-    Q1, Q3 = np.percentile(data, [25, 75])
-    
-    return Q3 - Q1
+    data : ArrayLike or DataFrame
+        The input data from which to calculate the IQR. Can be a list, numpy 
+        array, or pandas DataFrame containing valid numeric values.
+    columns : list of str, optional
+        List of column names to consider for the calculation if `data` is a 
+        DataFrame. If not provided, the IQR is calculated for all numeric 
+        columns in the DataFrame.
+    as_frame : bool, default False
+        Indicates whether to convert the input data to a DataFrame before 
+        proceeding with the calculation. Relevant when input data is not 
+        already a DataFrame.
+    **kws : dict
+        Additional keyword arguments passed to the numpy percentile function, 
+        allowing customization of the percentile calculation.
 
+    Returns
+    -------
+    iqr_value : float or pd.Series
+        The calculated IQR of the provided data. Returns a single float if 
+        the data is one-dimensional or a pandas Series if the input is a 
+        DataFrame and `as_frame` is True, showing the IQR for each specified 
+        column.
+
+    Examples
+    --------
+    >>> from gofast.stats.utils import goiqr
+    >>> data_array = [1, 2, 3, 4, 5]
+    >>> goiqr(data_array)
+    2.0
+
+    >>> data_df = pd.DataFrame({'A': [2, 5, 7, 8], 'B': [1, 4, 6, 9]})
+    >>> goiqr(data_df, columns=['A'])
+    3.5
+
+    >>> goiqr(data_df, as_frame=True)
+    A    3.5
+    B    4.0
+    dtype: float64
+
+    Note
+    ----
+    The IQR is a robust measure of spread that is less influenced by outliers 
+    than the range. This function simplifies the process of calculating the IQR, 
+    especially useful in exploratory data analysis and for identifying potential 
+    outliers.
+    """
+    if isinstance(data, (list, np.ndarray)):
+        data = pd.DataFrame(data, columns=columns if columns else range(len(data)))
+    elif isinstance(data, pd.DataFrame) and columns:
+        data = data[columns]
+
+    if as_frame and isinstance(data, pd.DataFrame):
+        # Calculate IQR for each column and return as a pandas Series
+        Q1 = data.quantile(0.25)
+        Q3 = data.quantile(0.75)
+        iqr_values = Q3 - Q1
+        return iqr_values
+    else:
+        # For non-DataFrame or entire DataFrame as input
+        Q1, Q3 = np.percentile(data, [25, 75], **kws)
+        return Q3 - Q1
+
+@make_data_dynamic('numeric', capture_columns=True)
 def z_scores(
-    data:ArrayLike | DataFrame,
-    /,  
-    columns: list=None,
-    as_frame: bool=..., 
-    **kws):
-    """ Computes the Z-score for each data point in a dataset.
-    
-    Parameters 
-    ----------
-    data: ArrayLike, pd.DataFrame 
-       Data frame containing valid numeric values. 
-    columns: list, 
-       Columns to construct the data. 
-    as_frame: bool, default=False, 
-       To convert data as a frame before proceeding. 
-    kws: dict,  
-       Additional keywords arguments for sanitizing the data 
-       before proceedings. 
-       
-    Return 
-    ------
-    z_scores_value: Z-Score value of the data 
+    data: Union[ArrayLike, DataFrame], /, 
+    columns: List[str] = None, 
+    as_frame: bool = False, 
+    **kws
+    ):
     """
-    as_frame, = ellipsis2false(as_frame )
-    data = build_data_if(data, columns = columns, to_frame= as_frame  )
-    data = to_numeric_dtypes(
-        data, pop_cat_features= True, return_feature_types= False, **kws )
-    mean = np.mean(data)
-    std_dev = np.std(data)
-    z_scores = [(x - mean) / std_dev for x in data]
-    return z_scores
+    Computes the Z-scores for each data point in a dataset, indicating how many 
+    standard deviations an element is from the mean. This standardization process 
+    is crucial for many statistical analyses and data processing tasks.
 
+    Parameters
+    ----------
+    data : ArrayLike or DataFrame
+        The input data from which to calculate Z-scores. Can be a list, numpy 
+        array, or pandas DataFrame containing valid numeric values.
+    columns : list of str, optional
+        List of column names for which to calculate Z-scores if `data` is a 
+        DataFrame. If not provided, Z-scores are calculated for all numeric 
+        columns in the DataFrame.
+    as_frame : bool, default False
+        Indicates whether to convert the input data to a DataFrame before 
+        proceeding with the calculation. Relevant when input data is not 
+        already a DataFrame.
+    **kws : dict
+        Additional keyword arguments for data sanitization, not directly used 
+        in Z-score calculation.
 
-def descr_stats_summary(
+    Returns
+    -------
+    z_scores_value : np.ndarray or pd.DataFrame
+        The calculated Z-scores of the provided data. Returns a numpy array 
+        if the data is one-dimensional or a pandas DataFrame if the input is 
+        a DataFrame and `as_frame` is True.
+
+    Examples
+    --------
+    >>> from gofast.stats.utils import z_scores
+    >>> data_array = [1, 2, 3, 4, 5]
+    >>> z_scores(data_array)
+    [-1.41421356, -0.70710678, 0., 0.70710678, 1.41421356]
+
+    >>> data_df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
+    >>> z_scores(data_df, as_frame=True)
+             A         B
+    0 -1.224745 -1.224745
+    1  0.000000  0.000000
+    2  1.224745  1.224745
+
+    Note
+    ----
+    Z-score standardization is widely used in data pre-processing to normalize 
+    the distribution of data points. This function facilitates such 
+    standardization, making it easier to perform comparative analyses across 
+    different datasets or features.
+    """
+    if isinstance(data, (list, np.ndarray)):
+        data = np.array(data)
+    elif isinstance(data, pd.DataFrame) and columns:
+        data = data[columns]
+
+    if as_frame and isinstance(data, pd.DataFrame):
+        # Calculate Z-scores for each column and return as a DataFrame
+        mean = data.mean()
+        std_dev = data.std()
+        z_scores_df = (data - mean) / std_dev
+        return z_scores_df
+    else:
+        # For non-DataFrame or entire DataFrame as input
+        mean = np.mean(data, axis=0)
+        std_dev = np.std(data, axis=0)
+        z_scores_array = (data - mean) / std_dev
+        return z_scores_array
+
+@make_data_dynamic('numeric', capture_columns=True)
+def godescr_stats_summary(
     data:ArrayLike | DataFrame,
     /,  
     columns: list=None,
@@ -384,16 +947,12 @@ def descr_stats_summary(
        
     Return 
     ------
-    iqr_value: IQR value of the data 
-    """
-    as_frame, = ellipsis2false(as_frame )
-    data = build_data_if(data, columns = columns, to_frame= as_frame  )
-    data = to_numeric_dtypes(
-        data, pop_cat_features= True, return_feature_types= False, **kws )
-    
-    series = pd.Series(data)
-    return series.describe()
 
+    """
+
+    return data.describe(**kws)
+
+@make_data_dynamic('numeric', capture_columns=True)
 def skewness(
     data:ArrayLike | DataFrame,
     /,  
@@ -428,6 +987,7 @@ def skewness(
         data, pop_cat_features= True, return_feature_types= False, **kws )
     return stats.skew(data)
 
+@make_data_dynamic('numeric', capture_columns=True)
 def kurtosis(
     data:ArrayLike | DataFrame,
     /,  
@@ -481,7 +1041,6 @@ def t_test_independent(
     reject_null = p_value < alpha
     return t_stat, p_value, reject_null
 
-
 def linear_regression(
     x=None , 
     y=None, 
@@ -531,6 +1090,7 @@ def linear_regression(
     model.fit(np.array(x).reshape(-1, 1), y)
     return model, model.coef_, model.intercept_
 
+@make_data_dynamic('numeric', capture_columns=True)
 def chi_squared_test(
     data: ArrayLike | DataFrame,
     /,  
@@ -571,19 +1131,147 @@ def chi_squared_test(
     reject_null = p_value < alpha
     return chi2_stat, p_value, reject_null
 
-def anova_test(*groups, alpha=0.05):
+# XXX todo
+@DynamicMethod( 
+    'categorical',
+    capture_columns=False, 
+    treat_int_as_categorical=True, 
+    encode_categories= True
+  )
+def anova_test(
+        data: Union[Dict[str, List[float]], ArrayLike, DataFrame], 
+        *groups: Union[List[str], ArrayLike], alpha: float = 0.05,
+        view: bool = False,
+        cmap: str = 'viridis',
+        fig_size: Tuple[int, int] = (12, 5), 
+        ):
     """
     Perform ANOVA test to compare means across multiple groups.
-    
-    :param groups: Variable number of lists or arrays, each representing a group.
-    :param alpha: Significance level, default is 0.05.
-    :return: F-statistic, p-value, and whether to reject the null hypothesis.
+
+    Parameters
+    ----------
+    data : dict, np.ndarray, pd.DataFrame
+        The input data from which groups are extracted. Can be a dictionary
+        with group names as keys and lists of values as values, a NumPy
+        array if `groups` are indices, or a pandas DataFrame with `groups`
+        specifying column names.
+    groups : List[str] or np.ndarray
+        The names or indices of the groups to compare, extracted from `data`.
+        If `data` is a dictionary or DataFrame, `groups` should be the keys
+        or column names. If `data` is an array, `groups` should be indices
+        specifying which slices of the array to compare.
+    alpha : float, optional
+        The significance level for the ANOVA test. Default is 0.05.
+
+    Returns
+    -------
+    tuple
+        A tuple containing the F-statistic, the p-value, and a boolean indicating
+        whether to reject the null hypothesis (True if p-value < alpha).
+
+    Examples
+    --------
+    >>> data = {'group1': [1, 2, 3], 'group2': [4, 5, 6], 'group3': [7, 8, 9]}
+    >>> f_stat, p_value, reject_null = anova_test(data, 'group1', 'group2', 'group3')
+    >>> print(f_stat, p_value, reject_null)
+
+    >>> df = pd.DataFrame(data)
+    >>> f_stat, p_value, reject_null = anova_test(df, 'group1', 'group2', 'group3')
+    >>> print(f_stat, p_value, reject_null)
     """
-    f_stat, p_value = stats.f_oneway(*groups)
+    # Extract groups based on the type of `data`
+    if isinstance(data, dict):
+        group_values = [data[group] for group in groups]
+    elif isinstance(data, np.ndarray):
+        group_values = [data[group] for group in groups]
+    elif isinstance(data, pd.DataFrame):
+        group_values = [data[group].values for group in groups]
+    else:
+        raise ValueError("Unsupported data type. `data` must be a dict, np.ndarray, or pd.DataFrame.")
+
+    # Perform ANOVA
+    f_stat, p_value = stats.f_oneway(*group_values)
     reject_null = p_value < alpha
+
     return f_stat, p_value, reject_null
 
 
+def anova_test(
+    data: Union[Dict[str, List[float]], ArrayLike, DataFrame], 
+    *groups: Optional[Union[List[str], ArrayLike]], 
+    alpha: float = 0.05,
+    view: bool = False,
+    cmap: str = 'viridis',
+    fig_size: Tuple[int, int] = (12, 5)):
+    """
+    Perform ANOVA test to compare means across multiple groups, with an option to 
+    visualize the results via a box plot.
+
+    Parameters
+    ----------
+    data : dict, np.ndarray, pd.DataFrame
+        The input data from which groups are extracted. Can be a dictionary
+        with group names as keys and lists of values as values, a NumPy
+        array if `groups` are indices, or a pandas DataFrame with `groups`
+        specifying column names.
+    groups : List[str] or np.ndarray, optional
+        The names or indices of the groups to compare, extracted from `data`.
+        If `data` is a DataFrame and `groups` is not provided, all columns are used.
+    alpha : float, optional
+        The significance level for the ANOVA test. Default is 0.05.
+    view : bool, optional
+        If True, generates a box plot of the group distributions. Default is False.
+    cmap : str, optional
+        The colormap for the box plot. Default is 'viridis'.
+    fig_size : Tuple[int, int], optional
+        Figure size for the box plot. Default is (12, 5).
+
+    Returns
+    -------
+    tuple
+        A tuple containing the F-statistic, the p-value, and a boolean indicating
+        whether to reject the null hypothesis (True if p-value < alpha).
+
+    Examples
+    --------
+    >>> from gofast.stats.utils import anova_test
+    >>> data = {'group1': [1, 2, 3], 'group2': [4, 5, 6], 'group3': [7, 8, 9]}
+    >>> f_stat, p_value, reject_null = anova_test(data, 'group1', 'group2', 'group3')
+    >>> print(f_stat, p_value, reject_null)
+    """
+    if isinstance(data, pd.DataFrame):
+        if not groups:
+            group_values = [data[col].values for col in data.columns]
+        else:
+            if not all(group in data.columns for group in groups):
+                raise ValueError("All specified groups must be valid column names in the DataFrame.")
+            group_values = [data[group].values for group in groups]
+    elif isinstance(data, dict):
+        group_values = [data[group] for group in groups]
+    elif isinstance(data, (np.ndarray, list)):
+        group_values = [data[group] for group in groups]
+    else:
+        raise ValueError("Unsupported data type. `data` must be a dict, np.ndarray, or pd.DataFrame.")
+
+    # Perform ANOVA
+    f_stat, p_value = stats.f_oneway(*group_values)
+    reject_null = p_value < alpha
+
+    # Optionally generate a box plot
+    if view:
+        plt.figure(figsize=fig_size)
+        plt.boxplot(group_values, patch_artist=True)
+        plt.xticks(range(1, len(groups) + 1), groups, rotation=45)
+        plt.title('ANOVA Test Box Plot')
+        plt.xlabel('Groups')
+        plt.ylabel('Values')
+        plt.grid(True, linestyle='--', alpha=0.6)
+        plt.show()
+
+    return f_stat, p_value, reject_null
+
+
+@make_data_dynamic('numeric', capture_columns=True)
 def kmeans(
     data:ArrayLike | DataFrame,
     /, 
@@ -1078,6 +1766,7 @@ def friedman_test(*args, method='auto'):
 
     return stats.friedmanchisquare(*args, method=method)
 
+@make_data_dynamic('numeric', capture_columns=True)
 def statistical_tests(data, test_type, *args, **kwargs):
     """
     Perform various statistical tests including Repeated Measures ANOVA, 
@@ -1199,3 +1888,58 @@ def statistical_tests(data, test_type, *args, **kwargs):
         raise ValueError(f"Invalid test type '{test_type}' specified.")
 
 
+def data_view ( x=None, y=None, data=None, kind='', **plot_kws):
+    """ Visualize data or the groups of columns (`x` and `y`)  in the data 
+    
+    Parameters 
+    ---------
+    x: ArrayLike 1d or str, optional 
+      if `str` , data must be provided and must exist in the data columns names. 
+      Otherwise an error raise 
+    y: arraylike 1d or str, optional 
+      if `str` 
+    
+    
+    """
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    

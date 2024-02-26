@@ -10,19 +10,23 @@ import scipy
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from sklearn.base import BaseEstimator 
+from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.covariance import ShrunkCovariance
+from sklearn.metrics import get_scorer
 from sklearn.model_selection import cross_val_score, GridSearchCV
-from sklearn.model_selection import RandomizedSearchCV  
+from sklearn.model_selection import RandomizedSearchCV
+from sklearn.linear_model import LogisticRegression  
 from sklearn.svm import SVC, SVR
-from sklearn.utils.multiclass import type_of_target
+from sklearn.pipeline import Pipeline 
+from sklearn.utils.multiclass import type_of_target  
 
 from .._typing import Tuple,_F, ArrayLike, NDArray, Dict, Union, Any
-from .._typing import  List, Optional, Type
-from ..tools.funcutils import smart_format
+from .._typing import  List, Optional, Type, DataFrame, Series 
+from ..tools.coreutils import smart_format
 from ..tools.validator import get_estimator_name, check_X_y 
 from ..tools._dependency import import_optional_dependency 
 from .._gofastlog import gofastlog
+
 _logger = gofastlog().get_gofast_logger(__name__)
 
 __all__= [
@@ -31,10 +35,9 @@ __all__= [
     'get_split_best_scores', 
     'display_model_max_details',
     'display_fine_tuned_results', 
-    'display_fine_tuned_results',
     'display_cv_tables', 
     'get_scorers', 
-    'naive_evaluation', 
+    'dummy_evaluation', 
     "calculate_aggregate_scores", 
     "analyze_score_distribution", 
     "estimate_confidence_interval", 
@@ -46,16 +49,19 @@ __all__= [
     "handle_missing_in_scores", 
     "export_cv_results", 
     "comparative_analysis", 
+    "base_evaluation", 
     "plot_parameter_importance", 
     "plot_hyperparameter_heatmap", 
-    "plot_learning_curve", 
+    "visualize_learning_curve", 
     "plot_validation_curve", 
     "plot_feature_importance",
     "plot_roc_curve_per_fold", 
     "plot_confidence_intervals", 
     "plot_pairwise_model_comparison",
     "plot_feature_correlation", 
-    "quick_evaluation", 
+    "get_best_kPCA_params", 
+    "shrink_covariance_cv_score",
+    
   ]
 
 def align_estimators_with_params(param_grids, estimators=None):
@@ -73,6 +79,7 @@ def align_estimators_with_params(param_grids, estimators=None):
         Parameter grids to be used for each estimator. If it's a single dictionary,
         it's converted into a list. If it's a list of tuples, each tuple should
         contain an estimator name and its corresponding parameter grid.
+        
     estimators : list, dict, tuple, or estimator, default=None
         Estimators to be used. It can be a single estimator, a list of estimators,
         a dictionary with estimator names as keys, or a list of tuples where each
@@ -1192,7 +1199,7 @@ def plot_hyperparameter_heatmap(
     plt.show()
 
 
-def plot_learning_curve(estimator, X, y, cv=None, train_sizes=None):
+def visualize_learning_curve(estimator, X, y, cv=None, train_sizes=None):
     """
     Generates a plot of the test and training learning curve.
 
@@ -1468,43 +1475,130 @@ def plot_feature_correlation(cv_results, X, y):
     plt.title("Feature Correlation with Target")
     plt.show()
 
-
-def quick_evaluation(
-    clf: _F,
+def base_evaluation(
+    model: BaseEstimator,
     X: NDArray,
-    y: ArrayLike,
-    cv: int = 7,
-    scoring: str = 'accuracy',
+    y: NDArray,
+    cv: int = 5,
+    scoring: str = 'accuracy', 
     display: bool = False,
-    **kws
-) -> Tuple[ArrayLike, float]:
+    random_state: int = None,
+    n_jobs: int = -1,
+    return_std: bool = False,
+    **kwargs: Dict[str, Any]
+) -> Tuple[NDArray, float, float]:
     """
-    Perform a quick evaluation of a classifier using cross-validation.
-
-    This function calculates cross-validation scores for a given classifier
-    on provided data. It optionally prints the scores and their mean.
+    Evaluate a machine learning model (classifier or regressor) 
+    using cross-validation.
 
     Parameters
     ----------
-    clf : _F
-        Classifier to be evaluated.
+    model : BaseEstimator
+        The machine learning model to evaluate.
     X : NDArray
-        Training data, where n_samples is the number of samples and
-        n_features is the number of features.
-    y : ArrayLike
-        Target labels corresponding to X.
+        Feature matrix with shape (n_samples, n_features).
+    y : NDArray
+        Target vector with shape (n_samples,).
     cv : int, optional
-        Number of folds for cross-validation. Default is 7.
+        Number of folds in cross-validation (default is 5).
     scoring : str, optional
-        Scoring metric to use. Default is 'accuracy'.
+        Scoring metric name. Defaults to 'accuracy' for classifiers and 
+        'r2' for regressors.
     display : bool, optional
-        Whether to print the scores and their mean. Default is False.
-    **kws : dict
+        If True, prints the model name, scores, and their mean (default is False).
+    random_state : int, optional
+        Random state for reproducibility (default is None).
+    n_jobs : int, optional
+        Number of jobs to run in parallel (-1 means using all processors, default is -1).
+    return_std : bool, optional
+        If True, returns the standard deviation of the cross-validation scores
+        (default is False).
+    **kwargs : dict
+        Additional keyword arguments for `cross_val_score`.
+
+    Returns
+    -------
+    scores : NDArray
+        Cross-validation scores for each fold.
+    mean_score : float
+        Mean of the cross-validation scores.
+    std_score : float, optional
+        Standard deviation of the cross-validation scores, 
+        returned if `return_std` is True.
+        
+    Examples 
+    --------
+    >>> from sklearn.tree import DecisionTreeClassifier
+    >>> from gofast.models.search import base_evaluation
+    >>> X, y = gf.fetch_data('bagoue prepared', return_X_y=True)
+    >>> clf = DecisionTreeClassifier()
+    >>> scores, mean_score = base_evaluation(clf, X, y, cv=4, display=True)
+    clf: DecisionTreeClassifier
+    scores: [0.6279 0.7674 0.7093 0.593 ]
+    scores.mean: 0.6744
+    """
+    # Determine if the model is a classifier or regressor
+    if isinstance(model, ClassifierMixin):
+        model_type = 'classifier'
+    elif isinstance(model, RegressorMixin):
+        model_type = 'regressor'
+        scoring = 'r2' if scoring == 'accuracy' else scoring  
+    else:
+        raise ValueError("Model must be a classifier or regressor.")
+
+    # Validate scoring metric
+    try:
+        get_scorer(scoring)
+    except ValueError:
+        raise ValueError(f"The scoring metric '{scoring}' is not appropriate"
+                         f" for a {model_type}.")
+    scores = cross_val_score(model, X, y, cv=cv, scoring=scoring, 
+                             n_jobs=n_jobs, random_state=random_state, **kwargs)
+    mean_score = scores.mean()
+    std_score = np.std(scores) if return_std else None
+
+    if display:
+        model_name = model.__class__.__name__
+        print(f'Model: {model_name}')
+        print(f'Scores: {scores}')
+        print(f'Mean score: {mean_score:.4f}')
+        if return_std:
+            print(f'Std deviation: {std_score:.4f}')
+
+    return (scores, mean_score, std_score) if return_std else (scores, mean_score)
+
+def dummy_evaluation(
+    model: BaseEstimator,
+    X: NDArray,
+    y: NDArray,
+    cv: int = 7,
+    scoring: str = 'accuracy',
+    display: bool = False,
+    **kwargs: Dict[str, Any]
+) -> Tuple[NDArray, float]:
+    """
+    Perform a quick evaluation of a machine learning model using cross-validation.
+
+    Parameters
+    ----------
+    model : BaseEstimator
+        The machine learning model to be evaluated.
+    X : NDArray
+        Feature matrix with shape (n_samples, n_features).
+    y : NDArray
+        Target vector with shape (n_samples,).
+    cv : int
+        Number of folds in cross-validation (default is 7).
+    scoring : str
+        Scoring metric to use (default is 'accuracy').
+    display : bool
+        If True, print the model name, scores, and their mean (default is False).
+    **kwargs : dict
         Additional keyword arguments passed to `cross_val_score`.
 
     Returns
     -------
-    scores : np.ndarray
+    scores : NDArray
         Array of scores of the estimator for each run of the cross-validation.
     mean_score : float
         Mean of the cross-validation scores.
@@ -1512,101 +1606,172 @@ def quick_evaluation(
     Examples
     --------
     >>> from sklearn.tree import DecisionTreeClassifier
-    >>> from gofast.models.search import naive_evaluation
-    >>> X, y = gf.fetch_data('bagoue data prepared')
+    >>> from sklearn.datasets import load_iris
+    >>> from gofast.models.utils import dummy_evaluation
+    >>> X, y = load_iris(return_X_y=True)
     >>> clf = DecisionTreeClassifier()
-    >>> scores, mean_score = naive_evaluation(clf, X, y, cv=4, display=True)
-    clf: DecisionTreeClassifier
-    scores: [0.6279 0.7674 0.7093 0.593 ]
-    scores.mean: 0.6744
+    >>> scores, mean_score = dummy_evaluation(clf, X, y, cv=4, display=True)
+    Model: DecisionTreeClassifier
+    Scores: [0.95, 0.92, 0.95, 0.98]
+    Mean score: 0.95
     """
-    scores = cross_val_score(clf, X, y, cv=cv, scoring=scoring, **kws)
-    mean_score = scores.mean()
+    scores = cross_val_score(model, X, y, cv=cv, scoring=scoring, **kwargs)
+    mean_score = np.mean(scores)
 
     if display:
-        clf_name = clf.__class__.__name__
-        print(f'clf: {clf_name}')
-        print(f'scores: {scores}')
-        print(f'scores.mean: {mean_score:.4f}')
+        model_name = model.__class__.__name__
+        print(f'Model: {model_name}')
+        print(f'Scores: {scores}')
+        print(f'Mean score: {mean_score:.4f}')
 
     return scores, mean_score
-   
-def naive_evaluation(
-        clf: _F,
-        X:NDArray,
-        y:ArrayLike,
-        cv:int =7,
-        scoring:str  ='accuracy', 
-        display: str ='off', 
-        **kws
-        ): 
-    scores = cross_val_score(clf , X, y, cv = cv, scoring=scoring, **kws)
-                         
-    if display is True or display =='on':
-        print('clf=:', clf.__class__.__name__)
-        print('scores=:', scores )
-        print('scores.mean=:', scores.mean())
+
+def shrink_covariance_cv_score(
+    X: Union[np.ndarray, pd.DataFrame],
+    shrink_space: Tuple[float, float, int] = (-2, 0, 30),
+    cv: int = 5,
+    scoring: str = 'neg_log_loss',
+    n_jobs: int = -1,
+    return_estimator: bool = False
+) -> Union[float, Tuple[float, ShrunkCovariance]]:
+    """
+    Evaluate the performance of ShrunkCovariance estimator on the data `X`
+    by tuning the 'shrinkage' parameter using GridSearchCV and cross-validation.
+
+    Parameters
+    ----------
+    X : array_like or pandas.DataFrame
+        Input data where rows represent samples and columns represent features.
+    shrink_space : tuple of (float, float, int), default=(-2, 0, 30)
+        The range and number of points for 'shrinkage' parameter space, 
+        specified as (start, stop, num) for np.logspace to generate shrinkages.
+    cv : int, default=5
+        Number of folds in cross-validation.
+    scoring : str, default='neg_log_loss'
+        Scoring metric to use for the cross-validation.
+    n_jobs : int, default=-1
+        Number of jobs to run in parallel. -1 means using all processors.
+    return_estimator : bool, default=False
+        Whether to return the best estimator along with the score.
+
+    Returns
+    -------
+    score : float
+        Mean cross-validation score of the best estimator.
+    best_estimator : ShrunkCovariance, optional
+        The best ShrunkCovariance estimator from GridSearchCV, returned if
+        return_estimator is True.
+        
+    Examples
+    --------
+    >>> from sklearn.datasets import make_spd_matrix
+    >>> from gofast.models.utils import shrink_covariance_cv_score
+    >>> # Generate a symmetric positive-definite matrix
+    >>> X = make_spd_matrix(n_dim=100, random_state=42)  
+    >>> score, best_estimator = shrink_covariance_cv_score(
+        X, cv=3, scoring='neg_log_loss', return_estimator=True)
+    >>> print(f"Best CV score: {score:.4f}")
+    >>> print(f"Best shrinkage parameter: {best_estimator.shrinkage}")
+    """
+    shrinkages = np.logspace(*shrink_space)  # Define shrinkage values
+    cv_estimator = GridSearchCV(
+        ShrunkCovariance(), 
+        {'shrinkage': shrinkages}, 
+        cv=cv, 
+        scoring=scoring, 
+        n_jobs=n_jobs
+    )
     
-    return scores , scores.mean()
-
-naive_evaluation.__doc__="""\
-Quick scores evaluation using cross validation. 
-
-Parameters
-----------
-clf: callable 
-    Classifer for testing default data. 
-X: ndarray
-    trainset data 
+    # Fit the GridSearchCV to find the best shrinkage parameter
+    cv_estimator.fit(X)
     
-y: array_like 
-    label data 
-cv: int 
-    KFold for data validation.
+    # Calculate the cross-validation score for the best estimator
+    score = np.mean(cross_val_score(cv_estimator.best_estimator_, X, cv=cv,
+                                    scoring=scoring, n_jobs=n_jobs))
     
-scoring: str 
-    type of error visualization. 
+    return (score, cv_estimator.best_estimator_) if return_estimator else score 
+
+def get_best_kPCA_params(
+    X: Union[NDArray, DataFrame],
+    n_components: Union[float, int] = 2,
+    *,
+    y: Optional[Union[ArrayLike, Series]] = None,
+    param_grid: Optional[Dict[str, Any]] = None,
+    clf: Optional[Pipeline] = None,
+    cv: int = 7,
+    **grid_kws
+) -> Dict[str, Any]:
+    """
+    Select the kernel and hyperparameters for Kernel PCA (kPCA) using 
+    GridSearchCV. 
     
-display: str or bool, 
-    show the show on the stdout
-kws: dict, 
-    Additional keywords arguments passed to 
-    :func:`gofast.exlib.slearn.cross_val_score`.
-Returns 
----------
-scores, mean_core: array_like, float 
-    scaore after evaluation and mean of the score
+    GridSearchCV lead to the best performance in a subsequent supervised 
+    learning task, typically classification.
     
-Examples 
----------
->>> import gofast as gf 
->>> from gofast.models.search import naive_evaluation
->>> X,  y = gf.fetch_data ('bagoue data prepared') 
->>> clf = gf.sklearn.DecisionTreeClassifier() 
->>> naive_evaluation(clf, X, y , cv =4 , display ='on' )
-clf=: DecisionTreeClassifier
-scores=: [0.6279 0.7674 0.7093 0.593 ]
-scores.mean=: 0.6744186046511629
-Out[57]: (array([0.6279, 0.7674, 0.7093, 0.593 ]), 0.6744186046511629)
-"""
+    As kPCA( unsupervised learning algorithm), there is obvious performance
+    measure to help selecting the best kernel and hyperparameters values. 
+    However dimensionality reduction is often a preparation step for a 
+    supervised task(e.g. classification). So we can use grid search to select
+    the kernel and hyperparameters that lead the best performance on that 
+    task. By default implementation we create two steps pipeline. First reducing 
+    dimensionality to two dimension using kPCA, then applying the 
+    `LogisticRegression` for classification. AFter use Grid searchCV to find 
+    the best ``kernel`` and ``gamma`` value for kPCA in oder to get the best 
+    clasification accuracy at the end of the pipeline.
 
-def shrink_covariance_cv_score(X, skrink_space =( -2, 0, 30 )):
-    shrinkages = np.logspace(*skrink_space)  # Fit the models
-    cv = GridSearchCV(ShrunkCovariance(), {'shrinkage': shrinkages})
-    return np.mean(cross_val_score(cv.fit(X).best_estimator_, X))
+    Parameters
+    ----------
+    X : NDArray or DataFrame
+        Input data for dimensionality reduction.
+    n_components : int or float, default=2
+        Number of components to preserve. If a float in the range (0, 1), 
+        it indicates the ratio of variance to preserve.
+    y : ArrayLike or Series, optional
+        Target variable for supervised learning tasks.
+    param_grid : Dict[str, Any], optional
+        Dictionary with parameters names (`str`) as keys and lists of parameter 
+        settings to try as values.
+    clf : Pipeline, optional
+        A sklearn Pipeline where kPCA is followed by a classifier. Default is 
+        a pipeline with KernelPCA and LogisticRegression.
+    cv : int, default=7
+        Number of folds in cross-validation.
+    grid_kws : dict
+        Additional keyword arguments passed to GridSearchCV.
 
-shrink_covariance_cv_score.__doc__="""\
-shrunk the covariance scores from validating X using 
-GridSearchCV.
- 
-Parameters 
------------
-X : array_like, pandas.DataFrame 
-    Input data where rows represent samples and 
-    columns represent features.
+    Returns
+    -------
+    best_params_ : Dict[str, Any]
+        Dictionary containing the best parameters found on the grid.
 
-Returns
------------
-score: score of covariance estimator (best ) with shrinkage
+    Examples
+    --------
+    >>> from sklearn.datasets import make_classification
+    >>> from gofast.models.utils import get_best_kPCA_params
+    >>> X, y = make_classification(n_features=20, n_redundant=0, 
+                                   n_informative=2, random_state=1)
+    >>> param_grid = {
+    ...     'kpca__gamma': np.linspace(0.03, 0.05, 10),
+    ...     'kpca__kernel': ["rbf", "sigmoid"]
+    ... }
+    >>> best_params = get_best_kPCA_params(X, y=y, param_grid=param_grid)
+    >>> print(best_params)
+    """
+    from sklearn.decomposition import KernelPCA
 
-"""
+    if param_grid is None:
+        param_grid = {
+            'kpca__gamma': np.linspace(0.03, 0.05, 10),
+            'kpca__kernel': ["rbf", "sigmoid"]
+        }
+
+    if clf is None:
+        clf = Pipeline([
+            ('kpca', KernelPCA(n_components=n_components)),
+            ('log_reg', LogisticRegression())
+        ])
+    
+    grid_search = GridSearchCV(clf, param_grid, cv=cv, **grid_kws)
+    grid_search.fit(X, y)
+    
+    return grid_search.best_params_

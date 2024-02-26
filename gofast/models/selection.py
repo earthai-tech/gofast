@@ -14,6 +14,10 @@ from sklearn.model_selection._search import BaseSearchCV, ParameterSampler
 from ._selection import PSOBaseSearch, GeneticBaseSearch  
 from ._selection import GradientBaseSearch, AnnealingBaseSearch
 
+__all__=["SwarmSearchCV", "GradientSearchCV", "AnnealingSearchCV", 
+         "GeneticSearchCV", "EvolutionarySearchCV", "SequentialSearchCV", 
+         ]
+
 class SwarmSearchCV(PSOBaseSearch):
     """
     Particle Swarm Optimization  for hyperparameter tuning of estimators.
@@ -2637,7 +2641,7 @@ class EvolutionarySearchCV(GeneticBaseSearch):
                 self.best_params_ = individual
                 self.best_estimator_ = clone(self.estimator).set_params(**individual)
 
-class SequentialSearchCV (BaseSearchCV ):
+class SequentialSearchCV (BaseSearchCV):
     r"""
     Sequential Model-Based Optimization (SMBO) for hyperparameter tuning 
     of estimators.

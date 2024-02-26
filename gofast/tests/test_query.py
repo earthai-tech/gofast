@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
 """
 Created on Fri Jan 19 15:21:00 2024
-
-@author: Daniel
+@author: LKouadio
 """
 import pytest
 import pandas as pd
 # Adjust the import based on your project structure
-from gofast.query import DataAnalysisSQL  
+from gofast.query import DBAnalysis  
 
 # Sample data for testing
 test_data = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
@@ -20,7 +19,7 @@ test_table_name_2 = 'test_table_2'
 
 @pytest.fixture
 def db_analysis():
-    db = DataAnalysisSQL(':memory:')
+    db = DBAnalysis(':memory:')
     db.fit(test_data, test_table_name)
     db.fit(test_data_1, test_table_name_1)
     db.fit(test_data_2, test_table_name_2)
@@ -64,7 +63,7 @@ def test_subqueriesAndTempTables(db_analysis):
 def test_manipulate(db_analysis):
     insert_query = f"INSERT INTO {test_table_name_1} (ID, Value) VALUES (4, 40)"
     db_analysis.manipulate(insert_query)
-    result = db_analysis.queryData(f"SELECT * FROM {test_table_name_1} WHERE ID = 4")
+    result = db_analysis.query(f"SELECT * FROM {test_table_name_1} WHERE ID = 4")
     assert not result.empty
     assert result.iloc[0]['Value'] == 40
 
@@ -73,7 +72,7 @@ def test_manipulate(db_analysis):
 def test_transform(db_analysis):
     transform_query = f"UPDATE {test_table_name_1} SET Value = Value * 2 WHERE ID = 1"
     db_analysis.transformData(transform_query)
-    result = db_analysis.queryData(f"SELECT Value FROM {test_table_name_1} WHERE ID = 1")
+    result = db_analysis.query(f"SELECT Value FROM {test_table_name_1} WHERE ID = 1")
     assert result.iloc[0]['Value'] == 20  # Expecting the value to be doubled
 
 def test_windowFunctions(db_analysis):

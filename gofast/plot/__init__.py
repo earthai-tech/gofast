@@ -58,7 +58,11 @@ from .utils import (
     plot_feature_interactions, 
     plot_regression_diagnostics, 
     plot_residuals_vs_leverage, 
-    plot_residuals_vs_fitted
+    plot_residuals_vs_fitted, 
+    plot_variables, 
+    plot_correlation_with_target, 
+    plot_dependences, 
+    plot_pie_charts
     )
 
 __all__= [
@@ -120,5 +124,9 @@ __all__= [
     'plot_feature_interactions', 
     'plot_regression_diagnostics', 
     'plot_residuals_vs_leverage', 
-    'plot_residuals_vs_fitted'
+    'plot_residuals_vs_fitted', 
+    'plot_variables', 
+    'plot_correlation_with_target', 
+    'plot_dependences', 
+    'plot_pie_charts'
     ]

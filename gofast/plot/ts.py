@@ -21,7 +21,7 @@ from ..exceptions import NotFittedError
 from ..property import BasePlot 
 from ..tools.validator import is_time_series , build_data_if 
 from ..tools.mlutils import export_target 
-from ..tools.funcutils import format_to_datetime
+from ..tools.coreutils import format_to_datetime
 from ..tools._dependency import import_optional_dependency 
 
 class TimeSeriesPlotter (BasePlot) :

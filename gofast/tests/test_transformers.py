@@ -4,19 +4,18 @@ Created on Wed Dec 27 16:18:13 2023
 
 @author: Daniel
 """
-
+import pytest
 import numpy as np
 import pandas as pd
-# import unittest
-import pytest
-from gofast.transformers import SequentialBackwardSelection, KMeansFeaturizer
 
 from sklearn.datasets import make_classification
-from sklearn.model_selection import  LogisticRegression
+from sklearn.linear_model import  LogisticRegression
 from sklearn.preprocessing import LabelEncoder
+
+from gofast.transformers import SequentialBackwardSelection, KMeansFeaturizer
 from gofast.transformers import ( 
-    StratifiedWithCategoryAdder, 
-    StratifiedUsingBaseCategory, 
+    StratifyFromBaseFeature,
+    CategoryBaseStratifier, 
     CategorizeFeatures, 
     CombinedAttributesAdder, 
     DataFrameSelector,
@@ -26,13 +25,12 @@ from gofast.transformers import (
     DateFeatureExtractor,
     DimensionalityReducer,
     PolynomialFeatureCombiner,
-    CategoricalEncoder2,
+    BaseCategoricalEncoder,
     CategoricalEncoder, 
     FeatureScaler,
     MissingValueImputer,
-    MissingValueImputer2,
     ColumnSelector,
-    ColumnSelector2,
+    BaseColumnSelector,
     LogTransformer,
     TimeSeriesFeatureExtractor,
     CategoryFrequencyEncoder,
@@ -71,8 +69,6 @@ def test_seasonal_decompose_transformer():
     assert 'trend' in decomposed.columns
     assert 'resid' in decomposed.columns
 
-# Add more test cases for SeasonalDecomposeTransformer if needed
-
 def test_fourier_features_transformer():
     # Create a sample DataFrame with time series data
     X = pd.DataFrame({'time': np.arange(100)})
@@ -89,8 +85,6 @@ def test_fourier_features_transformer():
     assert 'sin_24' in fourier_features.columns
     assert 'cos_24' in fourier_features.columns
 
-# Add more test cases for FourierFeaturesTransformer if needed
-
 def test_trend_feature_extractor():
     # Create a sample DataFrame with time series data
     X = pd.DataFrame({'time': np.arange(100), 
@@ -105,8 +99,6 @@ def test_trend_feature_extractor():
     # Check that trend features are extracted correctly
     assert 'trend_1' in trend_features.columns
 
-# Add more test cases for TrendFeatureExtractor if needed
-
 def test_image_resizer():
     # Create a sample image
     image = np.random.rand(256, 256, 3)
@@ -119,8 +111,6 @@ def test_image_resizer():
     
     # Check that the image is resized to the specified size
     assert resized_image.shape == (128, 128, 3)
-
-# Add more test cases for ImageResizer if needed
 
 def test_image_normalizer():
     # Create a sample image with pixel values in [0, 255]
@@ -135,8 +125,6 @@ def test_image_normalizer():
     # Check that pixel values are scaled to [0, 1]
     assert np.all(np.logical_and(normalized_image >= 0, normalized_image <= 1))
 
-# Add more test cases for ImageNormalizer if needed
-
 def test_image_to_grayscale():
     # Create a sample color image
     image = np.random.rand(256, 256, 3)
@@ -149,8 +137,6 @@ def test_image_to_grayscale():
     
     # Check that the image is converted to grayscale
     assert grayscale_image.shape == (256, 256, 1)
-
-# Add more test cases for ImageToGrayscale if needed
 
 def test_image_augmenter():
     # Create a sample image
@@ -165,8 +151,6 @@ def test_image_augmenter():
     # Check that the augmented image is of the same shape
     assert augmented_image.shape == (256, 256, 3)
 
-
-
 def test_log_transformer():
     # Create a sample DataFrame with numeric features
     X = pd.DataFrame({'income': [50000, 80000, 120000]})
@@ -179,8 +163,6 @@ def test_log_transformer():
     
     # Check that log transformation is applied correctly
     assert np.allclose(X_transformed['income'], np.log(X['income'] + 1e-6))
-
-# Add more test cases for LogTransformer if needed
 
 def test_time_series_feature_extractor():
     # Create a sample DataFrame with time series data
@@ -195,8 +177,6 @@ def test_time_series_feature_extractor():
     # Check the shape of the extracted features
     assert features.shape == (100, 5)  # Five rolling statistics computed
 
-# Add more test cases for TimeSeriesFeatureExtractor if needed
-
 def test_category_frequency_encoder():
     # Create a sample DataFrame with categorical data
     X = pd.DataFrame({'brand': ['apple', 'apple', 'samsung', 'samsung', 'nokia']})
@@ -209,8 +189,6 @@ def test_category_frequency_encoder():
     
     # Check that categorical encoding is applied correctly
     assert encoded_features['brand'].equals(pd.Series([0.4, 0.4, 0.4, 0.4, 0.2], name='brand'))
-
-# Add more test cases for CategoryFrequencyEncoder if needed
 
 def test_date_time_cyclical_encoder():
     # Create a sample DataFrame with datetime data
@@ -225,8 +203,6 @@ def test_date_time_cyclical_encoder():
     # Check that cyclical encoding is applied correctly
     assert 'timestamp_sin_hour' in encoded_features.columns
     assert 'timestamp_cos_hour' in encoded_features.columns
-
-# Add more test cases for DateTimeCyclicalEncoder if needed
 
 def test_lag_feature_generator():
     # Create a sample DataFrame with time series data
@@ -243,8 +219,6 @@ def test_lag_feature_generator():
     assert 'lag_2' in lag_features.columns
     assert 'lag_3' in lag_features.columns
 
-# Add more test cases for LagFeatureGenerator if needed
-
 def test_differencing_transformer():
     # Create a sample DataFrame with time series data
     X = pd.DataFrame({'value': np.cumsum(np.random.randn(100))})
@@ -259,8 +233,6 @@ def test_differencing_transformer():
     assert 'value' in stationary_data.columns
     assert stationary_data['value'].iloc[0] == 0
 
-# Add more test cases for DifferencingTransformer if needed
-
 def test_moving_average_transformer():
     # Create a sample DataFrame with time series data
     X = pd.DataFrame({'value': np.random.randn(100)})
@@ -273,8 +245,6 @@ def test_moving_average_transformer():
     
     # Check that moving average is computed correctly
     assert 'value' in moving_avg.columns
-
-# Add more test cases for MovingAverageTransformer if needed
 
 def test_cumulative_sum_transformer():
     # Create a sample DataFrame with time series data
@@ -321,11 +291,6 @@ def test_kmeans_featurizer():
     # Ensure that the transformed data has the expected shape
     assert X_kmeans.shape == (df.shape[0], 3)
 
-# Run the tests
-# if __name__ == "__main__":
-#     pytest.main([__file__])
-
-
 # Test StratifiedWithCategoryAdder
 def test_stratified_with_category_adder():
     # Generate a sample dataset for testing
@@ -333,8 +298,8 @@ def test_stratified_with_category_adder():
     df = pd.DataFrame(data, columns=['feature1', 'feature2', 'feature3', 'feature4', 'feature5'])
     df['category'] = np.random.choice(['A', 'B', 'C'], size=100)
 
-    # Create a StratifiedWithCategoryAdder instance
-    stratified_adder = StratifiedWithCategoryAdder(base_num_feature='feature1')
+    # Create a StratifyFromBaseFeature instance
+    stratified_adder = StratifyFromBaseFeature(base_feature='feature1')
 
     # Transform the data
     df_transformed, _ = stratified_adder.fit_transform(df)
@@ -349,8 +314,8 @@ def test_stratified_using_base_category():
     df = pd.DataFrame(data, columns=['feature1', 'feature2', 'feature3', 'feature4', 'feature5'])
     df['category'] = np.random.choice(['A', 'B', 'C'], size=100)
 
-    # Create a StratifiedUsingBaseCategory instance
-    stratified_base = StratifiedUsingBaseCategory(base_column='category')
+    # Create a CategoryBaseStratifier instance
+    stratified_base = CategoryBaseStratifier(base_column='category')
 
     # Transform the data
     df_transformed, _ = stratified_base.fit_transform(df)
@@ -455,8 +420,7 @@ def test_frame_union():
     X = frame_union.fit_transform(df)
     
     # Check the shape of the transformed DataFrame
-    assert X.shape == (3, 2)  # 2 scaled numeric columns
-    
+    assert X.shape == (3, 2)  # 2 scaled numeric columns  
 
 
 def test_text_feature_extractor():
@@ -472,9 +436,6 @@ def test_text_feature_extractor():
     # Check the shape of the transformed features
     assert features.shape == (2, 500)  # Assuming 500 max features
 
-# Add more test cases for TextFeatureExtractor if needed
-
-
 def test_date_feature_extractor():
     # Create a sample DataFrame with date columns
     date_data = pd.DataFrame({'date': ['2021-01-01', '2021-02-01']})
@@ -488,8 +449,7 @@ def test_date_feature_extractor():
     # Check the shape of the transformed features
     assert features.shape == (2, 3)  # Year, month, and day features added
 
-# Add more test cases for DateFeatureExtractor if needed
-
+#
 def test_feature_selector_by_model():
     # Create a sample dataset
     X = np.random.randn(10, 5)
@@ -505,14 +465,12 @@ def test_feature_selector_by_model():
     # Check the shape of the selected features
     assert X_selected.shape == (10, 5)  # No feature selection applied
 
-# Add more test cases for FeatureSelectorByModel if needed
-
 def test_categorical_encoder2():
     # Create a sample dataset
     X = [['Category A'], ['Category B'], ['Category A']]
     
     # Initialize CategoricalEncoder2
-    enc = CategoricalEncoder2()
+    enc = BaseCategoricalEncoder()
     
     # Fit and transform the dataset
     enc.fit(X)
@@ -520,8 +478,6 @@ def test_categorical_encoder2():
     
     # Check the shape of the encoded features
     assert X_encoded.shape == (2, 2)  # Encoded as one-hot
-
-# Add more test cases for CategoricalEncoder2 if needed
 
 
 def test_categorical_encoder():
@@ -538,8 +494,6 @@ def test_categorical_encoder():
     # Check the shape of the encoded features
     assert X_encoded.shape == (2, 4)  # Encoded as one-hot
 
-# Add more test cases for CategoricalEncoder if needed
-
 
 def test_polynomial_feature_combiner():
     # Create a sample dataset
@@ -554,9 +508,6 @@ def test_polynomial_feature_combiner():
     # Check the shape of the transformed features
     assert X_poly.shape == (3, 6)  # Polynomial features added
 
-# Add more test cases for PolynomialFeatureCombiner if needed
-
-
 def test_dimensionality_reducer():
     # Create a sample dataset
     X = np.array([[0, 0], [1, 1], [2, 2]])
@@ -570,15 +521,12 @@ def test_dimensionality_reducer():
     # Check the shape of the reduced features
     assert X_reduced.shape == (3, 1)  # Reduced to 1 component
 
-# Add more test cases for DimensionalityReducer if needed
-
-
 def test_column_selector2():
     # Create a sample DataFrame
     X = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6], 'C': [7, 8, 9]})
     
     # Initialize ColumnSelector2
-    selector = ColumnSelector2(column_names=['A', 'B'])
+    selector = BaseColumnSelector(column_names=['A', 'B'])
     
     # Fit and transform the DataFrame
     X_selected = selector.fit_transform(X)
@@ -610,7 +558,7 @@ def test_missing_value_imputer2():
     X = pd.DataFrame({'age': [25, np.nan, 50], 'income': [50000, 80000, np.nan]})
     
     # Initialize MissingValueImputer2
-    imputer = MissingValueImputer2(strategy='mean')
+    imputer = MissingValueImputer(strategy='mean')
     
     # Fit and transform the DataFrame
     X_imputed = imputer.fit_transform(X)
@@ -705,8 +653,6 @@ def test_image_edge_detector():
     # Check that the edges image is of the same shape
     assert edges.shape == (256, 256)
 
-# Add more test cases for ImageEdgeDetector if needed
-
 def test_image_histogram_equalizer():
     # Create a sample grayscale image
     image = np.random.rand(256, 256)
@@ -720,7 +666,6 @@ def test_image_histogram_equalizer():
     # Check that the equalized image is of the same shape
     assert equalized_image.shape == (256, 256)
 
-# Add more test cases for ImageHistogramEqualizer if needed
 
 def test_image_pca_color_augmenter():
     # Create a sample color image
@@ -735,49 +680,47 @@ def test_image_pca_color_augmenter():
     # Check that the PCA-augmented image is of the same shape
     assert pca_augmented_image.shape == (256, 256, 3)
 
-# Add more test cases for ImagePCAColorAugmenter if needed
-
 def test_image_batch_loader():
     # Create a list of image paths (replace with actual paths)
+    
     image_paths = ['image1.jpg', 'image2.jpg', 'image3.jpg']
     
     # Initialize ImageBatchLoader with batch size and image loading function
-    loader =ImageBatchLoader(batch_size=2, load_image_function=load_image)
+    loader =ImageBatchLoader(batch_size=2, directory='path/to/images')
     
     # Load images in batches
     for batch_images in loader.transform(image_paths):
         # Check that each batch of images is of the specified batch size
         assert len(batch_images) == 2
 
-# Run the tests
-if __name__ == "__main__":
-    test_combined_attributes_adder()
-    test_data_frame_selector()
-    test_frame_union()
-    # Add more test cases for CumulativeSumTransformer if needed
-    test_log_transformer()
-    test_time_series_feature_extractor()
-    test_category_frequency_encoder()
-    test_date_time_cyclical_encoder()
-    test_lag_feature_generator()
-    test_differencing_transformer()
-    test_moving_average_transformer()
-    test_cumulative_sum_transformer()
-    # Add more test cases for ImageAugmenter if needed
-    test_seasonal_decompose_transformer()
-    test_fourier_features_transformer()
-    test_trend_feature_extractor()
-    test_image_resizer()
-    test_image_normalizer()
-    test_image_to_grayscale()
-    test_image_augmenter()
-    test_image_augmenter()
-    test_image_channel_selector()
-    test_image_feature_extractor()
-    test_image_edge_detector()
-    test_image_histogram_equalizer()
-    test_image_pca_color_augmenter()
-    test_image_batch_loader()
+# # Run the tests
+# if __name__ == "__main__":
+#     test_combined_attributes_adder()
+#     test_data_frame_selector()
+#     test_frame_union()
+#     # Add more test cases for CumulativeSumTransformer if needed
+#     test_log_transformer()
+#     test_time_series_feature_extractor()
+#     test_category_frequency_encoder()
+#     test_date_time_cyclical_encoder()
+#     test_lag_feature_generator()
+#     test_differencing_transformer()
+#     test_moving_average_transformer()
+#     test_cumulative_sum_transformer()
+#     test_seasonal_decompose_transformer()
+#     test_fourier_features_transformer()
+#     test_trend_feature_extractor()
+#     test_image_resizer()
+#     test_image_normalizer()
+#     test_image_to_grayscale()
+#     test_image_augmenter()
+#     test_image_augmenter()
+#     test_image_channel_selector()
+#     test_image_feature_extractor()
+#     test_image_edge_detector()
+#     test_image_histogram_equalizer()
+#     test_image_pca_color_augmenter()
+#     test_image_batch_loader()
 
 # Run the tests
 if __name__ == "__main__":

@@ -29,13 +29,10 @@ from .factors import (
     samples_hotellings_t_square, 
     promax_rotation, 
     spectral_fa, 
-    )
+   )
 
 __all__= [ 
-    "nPCA", 
-    "kPCA", 
-    "LLE", 
-    "iPCA", 
+    "nPCA", "kPCA", "LLE", "iPCA", 
     "get_most_variance_component",
     "project_ndim_vs_explained_variance", 
     "get_eigen_components", 

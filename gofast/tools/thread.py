@@ -1,6 +1,6 @@
 """Compatibility fixes for older version of python, numpy and scipy
 If you add content to this file, please give the version of the package
-at which the fix is no longer needed and adapted from :mod:`sklearn.utils.fixes`
+at which the fix is no longer needed and adapted from :mod:`gofast.tools.fixes`
 """
 # Authors: Sckit-learn developers 
 # License: BSD 3 clause
@@ -8,7 +8,7 @@ at which the fix is no longer needed and adapted from :mod:`sklearn.utils.fixes`
 # from functools import update_wrapper
 # import functools
 import os 
-import watex
+import gofast
 import numpy as np
 import scipy
 import scipy.stats
@@ -32,10 +32,10 @@ def _get_threadpool_controller():
     if not hasattr(threadpoolctl, "ThreadpoolController"):
         return None
 
-    if not hasattr(watex, "_watex_threadpool_controller"):
-        watex._sklearn_threadpool_controller = threadpoolctl.ThreadpoolController()
+    if not hasattr(gofast, "_gofast_threadpool_controller"):
+        gofast._gofast_threadpool_controller = threadpoolctl.ThreadpoolController()
 
-    return watex._sklearn_threadpool_controller
+    return gofast._gofast_threadpool_controller
 
 
 def threadpool_limits(limits=None, user_api=None):
@@ -48,7 +48,6 @@ def threadpool_limits(limits=None, user_api=None):
 
 threadpool_limits.__doc__ = threadpoolctl.threadpool_limits.__doc__
 
-
 def threadpool_info():
     controller = _get_threadpool_controller()
     if controller is not None:
@@ -59,7 +58,6 @@ def threadpool_info():
 
 threadpool_info.__doc__ = threadpoolctl.threadpool_info.__doc__
 
-
 # TODO: Remove when SciPy 1.9 is the minimum supported version
 def _mode(a, axis=0):
     if sp_version >= parse_version("1.9.0"):
@@ -67,14 +65,13 @@ def _mode(a, axis=0):
     return scipy.stats.mode(a, axis=axis)
 
 
-
 _global_config = {
-    "assume_finite": bool(os.environ.get("WATEX_ASSUME_FINITE", False)),
-    "working_memory": int(os.environ.get("WATEX_WORKING_MEMORY", 1024)),
+    "assume_finite": bool(os.environ.get("GOFAST_ASSUME_FINITE", False)),
+    "working_memory": int(os.environ.get("GOFAST_WORKING_MEMORY", 1024)),
     "print_changed_only": True,
     "display": "diagram",
     "pairwise_dist_chunk_size": int(
-        os.environ.get("WATEX_PAIRWISE_DIST_CHUNK_SIZE", 256)
+        os.environ.get("GOFAST_PAIRWISE_DIST_CHUNK_SIZE", 256)
     ),
     "enable_cython_pairwise_dist": True,
     "array_api_dispatch": False,
@@ -97,8 +94,8 @@ def get_config():
         Keys are parameter names that can be passed to :func:`set_config`.
     See Also
     --------
-    config_context : Context manager for global scikit-learn configuration.
-    set_config : Set global scikit-learn configuration.
+    config_context : Context manager for global gofast configuration.
+    set_config : Set global gofast configuration.
     """
     # Return a copy of the threadlocal configuration so that users will
     # not be able to modify the configuration with the returned dict.

@@ -14,21 +14,8 @@ import copy
 import warnings  
 import numpy as np 
 from scipy.stats import spearmanr
-from sklearn import metrics 
 
-from ._docstring import ( 
-    DocstringComponents,
-    _core_docs,
-    )
-from ._gofastlog import gofastlog
-from ._typing import ( 
-    List, 
-    Optional, 
-    ArrayLike , 
-    NDArray,
-    _F
-    )
-from .exceptions import LearningError 
+from sklearn import metrics 
 from sklearn.metrics import (  
     precision_recall_curve,
     precision_score,
@@ -38,24 +25,35 @@ from sklearn.metrics import (
     roc_auc_score,
     accuracy_score, 
     confusion_matrix as cfsmx ,
+    classification_report, 
+    mean_squared_error, 
+    log_loss
     )
-from sklearn.model_selection import ( 
-    cross_val_predict 
-    )
+from sklearn.model_selection import cross_val_predict 
+
+from ._docstring import DocstringComponents,_core_docs
+from ._gofastlog import gofastlog
+from ._typing import _F, List, Optional, ArrayLike , NDArray 
+from .exceptions import LearningError 
 from .tools.box import Boxspace 
-from .tools.validator import ( 
-    get_estimator_name, 
-    _is_numeric_dtype,
-    check_consistent_length, 
-    check_y 
-    ) 
-from .tools.funcutils import ( 
-    is_iterable, 
-    _assert_all_types 
-    )
+from .tools.validator import ( get_estimator_name, _is_numeric_dtype,
+    check_consistent_length, check_y  )
+from .tools.coreutils import is_iterable, _assert_all_types 
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
+_SCORERS = {
+    "classification_report": classification_report,
+    'precision_recall': precision_recall_curve,
+    "confusion_matrix": cfsmx,
+    'precision': precision_score,
+    "accuracy": accuracy_score,
+    "mse": mean_squared_error,
+    "recall": recall_score,
+    'auc': roc_auc_score,
+    'roc': roc_curve,
+    'f1': f1_score,
+}
 __all__=[
     "precision_recall_tradeoff",
     "roc_curve_",
@@ -64,7 +62,7 @@ __all__=[
     "mean_squared_log_error",
     "balanced_accuracy",
     "information_value", 
-    "mean_absolute_error",
+    "mean_absolute_error_b",
     "mean_squared_error", 
     "root_mean_squared_error",
     "r_squared", 
@@ -88,7 +86,8 @@ __all__=[
     "ndcg_at_k", 
     "mean_reciprocal_rank", 
     "average_precision",
-    "jaccard_similarity_coeff"
+    "jaccard_similarity_coeff", 
+    "geo_iv", 
     
     ]
 
@@ -202,9 +201,128 @@ def balanced_accuracy(y_true, y_pred):
     specificity = cm[0, 0] / (cm[0, 0] + cm[0, 1])
     return (sensitivity + specificity) / 2
 
-def information_value (Xp:ArrayLike, /,  Np:ArrayLike, Sp:ArrayLike, *, 
+def information_value(y_true, y_pred, problem_type='binary', eps=1e-15):
+    """
+    Calculate Information Value (IV) for various types of classification 
+    and regression problems.
+
+    Parameters
+    ----------
+    y_true : array-like
+        True labels or values.
+    y_pred : array-like
+        Predicted probabilities or values.
+    problem_type : str, {'binary', 'multiclass', 'multilabel', 'regression'}, optional
+        The type of problem for which to calculate the Information Value:
+        - 'binary': Binary classification.
+        - 'multiclass': Multiclass classification.
+        - 'multilabel': Multilabel classification.
+        - 'regression': Regression.
+    eps : float, optional
+        A small epsilon value to prevent division by zero.
+
+    Returns
+    -------
+    float
+        Information Value (IV) score.
+
+    Notes
+    -----
+    The Information Value (IV) quantifies the predictive power of a model 
+    or variable.
+    
+    Mathematical Equation:
+    
+    - For binary classification:
+      \[ IV = \sum \left((\% \text{ of non-events} - \% \text{ of events}) \times \ln\left(\frac{\% \text{ of non-events} + \epsilon}{\% \text{ of events} + \epsilon}\right)\right) \]
+    
+    - For multiclass classification:
+      IV is calculated as the negative average log loss, normalized to binary IV scale.
+    
+    - For multilabel classification:
+      IV is calculated as the negative average binary cross-entropy loss, 
+      normalized to binary IV scale.
+    
+    - For regression:
+      IV is calculated as the negative mean squared error (MSE).
+    
+    Higher IV values indicate better predictive power:
+    - In binary classification, higher IV means a variable is more predictive.
+    - In multiclass classification, lower log loss (more negative IV) indicates 
+      better predictions.
+    - In multilabel classification, lower binary cross-entropy (more negative IV) 
+      indicates better predictions.
+    - In regression, lower MSE (more negative IV) indicates better predictions.
+
+    IV is useful for model evaluation and variable selection in credit scoring,
+    risk modeling, and any predictive modeling tasks where understanding the 
+    variable's predictive power is crucial.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sklearn.metrics import log_loss, mean_squared_error
+    >>> from gofast.metrics import information_value 
+    >>> y_true_binary = np.array([0, 1, 1, 0, 1, 0])
+    >>> y_pred_binary = np.array([0.2, 0.7, 0.6, 0.3, 0.8, 0.1])
+    >>> iv_binary = information_value(y_true_binary, y_pred_binary, 
+    ...                                  problem_type='binary')
+    >>> iv_binary
+    ... 0.7621407247492977
+ 
+    >>> y_true_multiclass = np.array([0, 1, 2, 1, 0])
+    >>> y_pred_multiclass = np.array([[0.2, 0.4, 0.4], [0.7, 0.1, 0.2],
+    ...                                  [0.1, 0.2, 0.7], [0.3, 0.3, 0.4], 
+    ...                                  [0.8, 0.1, 0.1]])
+    >>> iv_multiclass = information_value(y_true_multiclass, y_pred_multiclass,
+    ...                                      problem_type='multiclass')
+    >>> iv_multiclass
+    ... -0.6729845552217573
+ 
+    >>> y_true_multilabel = np.array([[1, 0, 1], [0, 1, 0], [1, 1, 0], [0, 0, 1]])
+    >>> y_pred_multilabel = np.array([[0.8, 0.2, 0.7], [0.1, 0.9, 0.3], 
+    ...                                  [0.9, 0.7, 0.1], [0.2, 0.1, 0.8]])
+    >>> iv_multilabel = information_value(y_true_multilabel, y_pred_multilabel,
+    ...                                      problem_type='multilabel')
+    >>> iv_multilabel
+    ... -0.4750837692748695
+ 
+    >>> y_true_regression = np.array([10.5, 12.1, 9.8, 11.2, 10.0])
+    >>> y_pred_regression = np.array([10.2, 12.3, 9.5, 11.0, 10.1])
+    >>> iv_regression = information_value(y_true_regression, y_pred_regression,
+    ...                                      problem_type='regression')
+    >>> iv_regression
+    ... -0.04239999999999994
+    """
+    if problem_type == 'binary':
+        # Binary Classification: Calculate IV based on binary classification formula
+        percent_events = y_true.mean()
+        percent_non_events = 1 - percent_events
+        iv = np.sum((percent_non_events - percent_events) * np.log(
+            (percent_non_events + eps) / (percent_events + eps)))
+
+    elif problem_type == 'multiclass':
+        # Multiclass Classification: Calculate average log loss
+        iv = -log_loss(y_true, y_pred) / np.log(2)  # Normalize to binary IV scale
+
+    elif problem_type == 'multilabel':
+        # Multilabel Classification: Calculate average binary cross-entropy loss
+        iv = -np.mean(y_true * np.log(y_pred + eps) + (
+            1 - y_true) * np.log(1 - y_pred + eps)) / np.log(2)
+
+    elif problem_type == 'regression':
+        # Regression: Calculate mean squared error (MSE)
+        iv = -mean_squared_error(y_true, y_pred)
+
+    else:
+        raise ValueError("Invalid 'problem_type'. Use 'binary', 'multiclass',"
+                         " 'multilabel', or 'regression'.")
+
+    return iv
+
+def geo_iv (Xp:ArrayLike, /,  Np:ArrayLike, Sp:ArrayLike, *, 
                        return_tot :bool = ... ): 
-    """The information value (InV) constructs with the influencing factors 
+    """The geo-information value (geo-InV) constructs with the influencing factors 
     landslide areas and calculates the sensitivity of each influencing 
     factor.
     
@@ -274,17 +392,16 @@ def information_value (Xp:ArrayLike, /,  Np:ArrayLike, Sp:ArrayLike, *,
     I = np.zeros_like ( Xp , dtype = float )
 
     for i in len(Xp ): 
-        Ii = _information_value ( Sp[i], Np[i], Sp, Np )
+        Ii = _get_geo_iv_value ( Sp[i], Np[i], Sp, Np )
         # Ii = np.log10 ( ( Sp[i] / Np[i])/( len(Sp)/len(Np) ))
         I[i]= Ii 
     return I if not return_tot else np.sum (I )
     
 
-def _information_value ( Si, Ni, S, N ): 
+def _get_geo_iv_value ( Si, Ni, S, N ): 
     """ Compute the information value :math:`I_i` of each causative factor
     :math:`X_i` """
     return np.log10 ( Si/Ni * ( S/ N )) 
-
 
 def get_metrics(): 
     """
@@ -911,7 +1028,7 @@ Examples
 )
 
 
-def mean_absolute_error(y_true, y_pred):
+def mean_absolute_error_b(y_true, y_pred):
     """
     Calculate the Mean Absolute Error (MAE).
 

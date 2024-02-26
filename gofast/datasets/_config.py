@@ -1,180 +1,234 @@
 # -*- coding: utf-8 -*-
-#   create date: Thu Sep 23 16:19:52 2021
-#   Author: L.Kouadio 
+#   Author: LKouadio <etanoyau@gmail.com>
 #   License: BSD-3-Clause
 
 """
-Dataset 
-==========
-Fetch data set from the local machine. If data does not exist, retrieve it 
-from the remote (repository or zenodo record ) 
+Config Dataset Module
+=====================
+
+The `Config Dataset` module serves as a dynamic and flexible gateway for accessing 
+and processing a variety of datasets, tailored to specific requirements in data 
+analysis and machine learning contexts. Utilizing the `_fetch_data` function, this 
+module enables users to fetch data corresponding to different stages of data processing 
+by specifying a 'tag'. Each tag represents a unique level or type of data processing 
+and provides access to a specific form of the dataset, whether it be raw, preprocessed, 
+encoded, or prepared for advanced analyses such as PCA or dimensionality reduction.
+
+This module is particularly adept at adapting to various dataset structures, as 
+demonstrated with the Bagoue dataset. Users can effortlessly retrieve original data, 
+stratified samples, cleaned datasets, or specific portions like the test set, 
+simply by specifying the relevant tag. The module ensures compatibility of datasets 
+with different stages of data analysis pipelines, from initial exploratory analysis 
+to advanced modeling. This functionality streamlines the data preparation workflow 
+and enhances the accessibility and usability of diverse datasets, making it an 
+invaluable tool in data-driven research and applications.
 """
+
 import re
 import joblib
-from importlib import resources 
-import pandas as pd 
-from .io import DMODULE 
-from ..tools.funcutils import ( 
-    smart_format 
-    )
+from importlib import resources
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from .io import DMODULE
+from ..tools.coreutils import smart_format
 from ..exceptions import DatasetError
 from .._gofastlog import gofastlog
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
+__all__ = ['_fetch_data']
 
-__all__=['_fetch_data']
-
-_BTAGS = ( 
-    'preprocessed', 
+_BTAGS = (
+    'preprocessed',
     'fitted',
-    'analysed', 
-    'encoded', 
-    'codifided', 
+    'analysed',
+    'encoded',
+    'codified',
     'pipe',
     'prepared'
-    )
+)
+# Regex for parsing tags
+TAG_REGEX = re.compile(r'|'.join(_BTAGS) + '|origin', re.IGNORECASE)
 
-_msg =dict (
-    origin = ("Can't fetch an original data <- dict contest details." ), 
-    )
+# Error messages
+_ERROR_MSGS = {
+    "origin": "Can't fetch an original data <- dict contest details.",
+    "pipe": "Can't build default transformer pipeline: <- 'default pipeline'",
+    **{key: f"Can't fetch {key} data: <- 'X' & 'y'" for key in _BTAGS if key != 'pipe'}
+}
 
-regex = re.compile ( r'|'.join(_BTAGS ) + '|origin' , re.IGNORECASE
-                    ) 
-for key in _BTAGS : 
-    _msg[key] = (
-        "Can't build default transformer pipeline: <-'default pipeline' "
-        )  if key =='pipe' else (
-            f"Can't fetching {key} data: <-'X' & 'y' "
-            )
-          
-try : 
-    with resources.path (DMODULE, 'b.pkl') as p : 
-        data_file = str(p) # for consistency
-        _BAG = joblib.load (data_file)
+def _fetch_data(tag, data_names=[], **kwargs):
+    """
+    Fetch dataset based on a specified tag and additional parameters.
 
-except :
-    pass 
+    Parameters
+    ----------
+    tag : str
+        The tag representing the dataset processing stage.
+    data_names : list, optional
+        List of available data names.
+    kwargs : dict
+        Additional keyword arguments for data loading.
 
-def _fetch_data(tag, data_names=[] , **kws): 
-    # PKGS ="gofast.etc"
-    Xy=None 
-    tag = str(tag)
-    is_test_in = True if tag.lower().find('test')>=0 else False 
+    Returns
+    -------
+    Object
+        The loaded dataset object or a DataFrame.
+
+    Raises
+    ------
+    DatasetError
+        If the tag name is unknown or data loading fails.
+    """
+    tag = str(tag).lower()
+    is_test = 'test' in tag
+    processing_mode = _determine_processing_mode(tag, data_names)
+    try:
+        with resources.path(DMODULE, 'b.pkl') as p:
+            _BAG = joblib.load(str(p))
+
+        data = _BAG.get(processing_mode)
+        if processing_mode =='pipe':
+            return data
+ 
+        X, y = data
+        if is_test:
+            return _handle_test_data_split(X, y, **kwargs)
     
-    if _tag_checker(tag.lower()): 
-        pm = 'analysed'
-    elif _tag_checker(tag.lower(), ('mid','semi', 'preprocess', 'fit')):
-        pm='preprocessed'
-    elif _tag_checker(tag.lower(), ('codif','categorized', 'prepared')): 
-        pm ='codified'
-    elif _tag_checker(tag.lower(), ('sparse','csr', 'encoded')):
-        pm='encoded'
-    else : 
-        pm =regex.search (tag)
-        if pm is None: 
-            data_names+= list(_BTAGS)
-            msg = (f"Unknow tag-name {tag!r}. None dataset is stored"
-                f" under the name {tag!r}. Available tags are: "
-                f"{smart_format (data_names, 'or')}"
-                )
-            raise DatasetError(msg)
-        pm= pm.group() 
-    
-    try: 
-        with resources.path (DMODULE, 'b.pkl') as p : 
-            data_file = str(p) # for consistency
-            _BAG = joblib.load (data_file)
+        return _prepare_final_output(X, y, kwargs.get('return_X_y', False))
+    except Exception as e:
+        _logger.error(_ERROR_MSGS.get(processing_mode, str(e)))
+        raise DatasetError(f"Error in processing data for tag '{tag}': {str(e)}")
 
-        Xy= _BAG.get(pm)
-        
-        return_X_y= kws.pop('return_X_y', False)
-        kind=kws.pop('kind', None ) 
-        
-        if str(kind).lower().strip().find ("bin")>=0: 
-            # create a binary target 
-            X, y = Xy 
-            y = y.apply ( lambda v: 1 if v !=0 else v, convert_dtype =True )
-            # rebuild the tuple 
-            Xy =(X, y)
-  
-        if pm in ('encoded', 'pipe'): 
-            return Xy 
-        
-        if is_test_in: 
-            random_state = kws.pop('random_state', None )
-            test_size = kws.pop('test_size', .3 )
-            split_X_y = kws.pop("split_X_y", False ) 
-            # tag=None , data_names=None, **kws
-            from sklearn.model_selection import train_test_split 
-            
-            X, y = Xy 
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y , test_size = test_size ,random_state =random_state )
-            
-            if split_X_y: 
-                return X_train, X_test, y_train, y_test
-            
-            return X_test, y_test 
-            
-    except : 
-            _logger.error (_msg[pm])
-            
-    if not return_X_y:
-        X, y = Xy 
-        Xy = pd.concat ((X, y), axis =1 ) 
+def _determine_processing_mode(tag, data_names):
+    """
+    Determine the data processing mode based on the tag.
 
-    return Xy
+    Parameters
+    ----------
+    tag : str
+        The tag representing the dataset processing stage.
 
-def _tag_checker (param, tag_id= ('analys', "scal") 
-                      # out = 'analysed'
-                      ):
-    for ix in tag_id: 
-        if param.lower().find(ix)>=0:
-            return True
-    return False 
-   
-    
-_fetch_data.__doc__ ="""\
-Fetch dataset from 'tag'. A tag correspond to each level of data 
-processing. 
+    Returns
+    -------
+    str
+        The determined processing mode.
+    """
+    if any(tag.find(t) >= 0 for t in ('analys', 'scal')):
+        return 'analysed'
+    if any(tag.find(t) >= 0 for t in ('mid', 'semi', 'preprocess', 'fit')):
+        return 'preprocessed'
+    if any(tag.find(t) >= 0 for t in ('codif', 'categorized', 'prepared')):
+        return 'codified'
+    if any(tag.find(t) >= 0 for t in ('sparse', 'csr', 'encoded')):
+        return 'encoded'
 
-Experiment an example of retrieving Bagoue dataset.
+    match = TAG_REGEX.search(tag)
+    if match:
+        return match.group()
 
-Parameters 
-------------
-tag: str,  
-    stage of data processing. Tthere are different options to retrieve data
-    Could be:
-        
-    * ['original'] => original or raw data -& returns a dict of details 
-        contex combine with get method to get the dataframe like::
-            
-            >>> fetch_data ('bagoue original').get ('data=df')
-            
-    * ['stratified'] => stratification data
-    * ['mid' |'semi'|'preprocess'|'fit']=> data cleaned with 
-        attributes experience combinaisons.
-    * ['pipe']=>  default pipeline created during the data preparing.
-    * ['analyses'|'pca'|'reduce dimension']=> data with text attributes
-        only encoded using the ordinal encoder +  attributes  combinaisons. 
-    * ['test'] => stratified test set data
+    raise DatasetError(f"Unknown tag-name '{tag}'. Available tags "
+                       f"are: {smart_format(data_names, 'or')}")
 
-       
-Returns
--------
-    `data`: Original data 
-    `X`, `y` : Stratified train set and training target 
-    `X0`, `y0`: data cleaned after dropping useless features and combined 
-        numerical attributes combinaisons if ``True``
-    `X_prepared`, `y_prepared`: Data prepared after applying  all the 
-       transformation via the transformer (pipeline). 
-    `XT`, `yT` : stratified test set and test label  
-    `_X`: Stratified training set for data analysis. So None sparse
-        matrix is contained. The text attributes (categorical) are converted 
-        using Ordianal Encoder.  
-    `_pipeline`: the default pipeline.    
-    
+def _handle_test_data_split(X, y, **kwargs):
+    """
+    Handle the data split for test data.
+
+    Parameters
+    ----------
+    X : DataFrame
+        Feature data.
+    y : Series
+        Target data.
+    kwargs : dict
+        Additional keyword arguments for train_test_split.
+
+    Returns
+    -------
+    tuple
+        Split test data (X_test, y_test) or (X_train, X_test, y_train, y_test).
+    """
+    test_size = kwargs.get('test_size', 0.3)
+    random_state = kwargs.get('random_state', None)
+    split_X_y = kwargs.get('split_X_y', False)
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=random_state)
+
+    return (X_train, X_test, y_train, y_test) if split_X_y else (X_test, y_test)
+
+def _prepare_final_output(X, y, return_X_y):
+    """
+    Prepare the final output format of the data.
+
+    Parameters
+    ----------
+    X : DataFrame
+        Feature data.
+    y : Series
+        Target data.
+    return_X_y : bool
+        Flag to determine the return format.
+
+    Returns
+    -------
+    DataFrame or tuple
+        Combined DataFrame or separate (X, y) depending on return_X_y.
+    """
+    if return_X_y:
+        return X, y
+    else:
+        return pd.concat((X, y), axis=1)
+ 
+_fetch_data.__doc__ += """\
+
+More Information
+----------------
+Fetch dataset based on a specified 'tag', which corresponds to each level 
+of data processing.
+
+Examples of Retrieving the Bagoue Dataset:
+For the Bagoue dataset, the `tag` refers to the stage of data processing. 
+There are various options to retrieve data, such as:
+
+- 'original': Retrieves original or raw data. Returns a dictionary of 
+   detailed context. 
+  Example usage to get a DataFrame:: 
+      
+      >>> fetch_data('bagoue original').get('data=df')
+
+- 'stratified': Retrieves stratification data.
+
+- 'mid', 'semi', 'preprocess', 'fit': Retrieves data cleaned with attribute 
+   experience combinations.
+
+- 'pipe': Retrieves the default pipeline created during data preparation.
+
+- 'analyses', 'pca', 'reduce dimension': Retrieves data with text attributes 
+   encoded using the ordinal encoder, plus attribute combinations.
+
+- 'test': Retrieves stratified test set data.
+
+Depending on the 'tag' used, the data returned can be one of the following:
+
+- 'data': The original dataset.
+
+- 'X', 'y': The stratified training set and its corresponding target labels.
+
+- 'X0', 'y0': Data cleaned by dropping useless features and applying numerical 
+   attribute combinations, if applicable.
+
+- 'X_prepared', 'y_prepared': Data prepared after applying all transformations 
+   via the transformer (pipeline).
+
+- 'XT', 'yT': The stratified test set and its corresponding test labels.
+
+- '_X': The stratified training set used for data analysis. This set contains 
+  non-sparse matrices. Categorical text attributes are converted using an 
+  Ordinal Encoder.
+
+- '_pipeline': The default pipeline used for data processing.
+
 """
 
 # pickle bag data details:
@@ -183,9 +237,6 @@ Returns
 # pandas_version : 1.4.4. 
 # numpy version: 1.23.3
 # scipy version:1.9.3 
- 
-    
-    
     
     
     

@@ -14,62 +14,467 @@ import itertools
 import scipy.stats
 import numpy as np
 import pandas as pd 
-import matplotlib as mpl 
-from matplotlib.axes import Axes
-from matplotlib.figure import Figure
-from matplotlib.patches import Ellipse
+import seaborn as sns 
+import matplotlib as mpl
+import scipy.sparse as sp
+import matplotlib.axes
+import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.transforms as transforms 
 from matplotlib.collections import EllipseCollection
-import seaborn as sns 
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+from matplotlib.patches import Ellipse
 from scipy.cluster.hierarchy import dendrogram, ward 
-import scipy.sparse as sp
-import matplotlib.pyplot as plt
+
+from sklearn.base import BaseEstimator
 from sklearn.cluster import KMeans 
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestClassifier 
+from sklearn.inspection import PartialDependenceDisplay
 from sklearn.linear_model import LogisticRegression 
-from sklearn.metrics import ( 
-    confusion_matrix , 
-    silhouette_samples, 
-    roc_curve, 
-    roc_auc_score, 
-    r2_score
-    )
-from sklearn.model_selection import (
-    learning_curve, KFold)
+from sklearn.metrics import confusion_matrix , silhouette_samples, roc_curve 
+from sklearn.metrics import roc_auc_score, r2_score
+from sklearn.model_selection import learning_curve, KFold 
 from sklearn.utils import resample
-from ..exceptions import ( 
-    TipError, 
-    PlotError, 
-    )
-from ..tools.funcutils import  ( 
-    _assert_all_types,
-    is_iterable, 
-    make_obj_consistent_if, 
-    str2columns, 
-    is_in_if, 
-    to_numeric_dtypes, 
-    fill_nan_in
-    )
-from ..tools.validator import  ( 
-    _check_array_in  , 
-    _is_cross_validated,
-    assert_xy_in, 
-    get_estimator_name,
-    check_array, 
-    check_X_y,
-    check_consistent_length, 
-    check_is_fitted, 
-    )
+
+from .._typing import Optional, Tuple, Any, List, Union 
+from .._typing import Dict, ArrayLike, DataFrame, Series
+from ..exceptions import  TipError, PlotError 
+from ..tools.coreutils import _assert_all_types, is_iterable, str2columns 
+from ..tools.coreutils import make_obj_consistent_if, is_in_if, to_numeric_dtypes 
+from ..tools.coreutils import fill_nan_in
+from ..tools.validator import _check_array_in , _is_cross_validated, is_frame 
+from ..tools.validator import  assert_xy_in, get_estimator_name, check_is_fitted
+from ..tools.validator import check_array, check_X_y, check_consistent_length 
 from ..tools._dependency import import_optional_dependency 
-try : from yellowbrick.classifier import ConfusionMatrix 
-except: pass 
-from .._typing import Optional, Tuple, Any, List, Union, ArrayLike, DataFrame
-from .._typing import Dict 
-from ._d_cms import D_COLORS, D_MARKERS, D_STYLES 
+from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
 
+def plot_pie_charts(
+    data: DataFrame, /, 
+    columns: Optional[Union[str, List[str]]] = None,
+    bin_numerical: bool = True,
+    num_bins: int = 4,
+    handle_missing: str = 'exclude',
+    explode: Optional[Union[Tuple[float, ...], str]] = None,
+    shadow: bool = True,
+    startangle: int = 90,
+    cmap: str = 'viridis',
+    autopct: str = '%1.1f%%',
+    verbose: int = 0
+):
+    """
+    Plots pie charts for categorical and numerical columns in a DataFrame. 
+    
+    Function automatically detects and appropriately treats each type. 
+    Numerical columns can be binned into categories.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame containing the data.
+    columns : str or list of str, optional
+        Specific columns to plot. If None, all columns are plotted.
+    bin_numerical : bool, optional
+        If True, numerical columns will be binned into categories before plotting.
+    num_bins : int, optional
+        Number of bins to use for numerical columns if bin_numerical is True.
+    handle_missing : {'exclude', 'include'}, optional
+        How to handle missing values in data. 'exclude' will ignore them,
+        while 'include' will treat them as a separate category.
+    explode, shadow, startangle, cmap, autopct : various
+        Formatting options for the pie charts, similar to matplotlib's pie 
+        chart configuration.
+    verbose : int, optional
+        Verbosity level. Higher values increase the amount of informational output.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.plot.utils import plot_pie_charts
+    >>> df = pd.DataFrame({
+    ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'D', 'D'],
+    ...     'Values': [1, 2, 3, 4, 5, 6, 7, 8]
+    ... })
+    >>> plot_pie_charts(df, bin_numerical=True, num_bins=3)
+    """
+    is_frame (data, df_only=True, raise_exception= True)
+    if columns is None:
+        columns = data.columns.tolist()
+    columns = is_iterable(columns, exclude_string= True, transform=True )
+    
+    valid_columns = [col for col in columns if col in data.columns]
+    n_cols = len(valid_columns)
+    rows, cols = (n_cols // 4 + (n_cols % 4 > 0), min(n_cols, 4)
+                  ) if n_cols > 1 else (1, 1)
+    fig, axs = plt.subplots(rows, cols, figsize=(cols*6, rows*5))
+    axs = np.array(axs).flatten()
+
+    for idx, column in enumerate(valid_columns):
+        column_data = data[column]
+        if column_data.dtype.kind in 'iufc' and bin_numerical:  # Numerical data
+            column_data = _handle_numerical_data(column_data, bin_numerical, num_bins)
+        column_data = _handle_missing_data(column_data, handle_missing)
+        labels, sizes = _compute_sizes_and_labels(column_data)
+
+        _plot_pie_chart(axs[idx], labels, sizes, explode, shadow, startangle, 
+                        cmap, autopct, f'{column} Distribution')
+
+    plt.tight_layout()
+    plt.show()
+    
+def _handle_numerical_data(column_data: pd.Series, bin_numerical: bool,
+                           num_bins: int) -> pd.Series:
+    """Bins numerical data into categories if specified."""
+    if bin_numerical:
+        return pd.cut(column_data, bins=num_bins, include_lowest=True)
+    return column_data
+
+def _handle_missing_data(
+        column_data: pd.Series, handle_missing: str  ) -> pd.Series:
+    """Handles missing data based on user preference."""
+    if handle_missing == 'exclude':
+        return column_data.dropna()
+    return column_data.fillna('Missing')
+
+def _compute_sizes_and_labels(
+        column_data: pd.Series) -> Tuple[List[str], List[float]]:
+    """Computes the sizes and labels for the pie chart."""
+    sizes = column_data.value_counts(normalize=True)
+    labels = sizes.index.astype(str).tolist()
+    sizes = sizes.values.tolist()
+    return labels, sizes
+
+def _plot_pie_chart(
+        ax, labels: List[str], sizes: List[float], 
+        explode: Optional[Union[Tuple[float, ...], str]], shadow: bool, 
+        startangle: int, cmap: str, autopct: str, title: str):
+    """Plots a single pie chart on the given axis."""
+    # Adjust explode based on the number of labels if 'auto' is selected
+    if explode == 'auto':
+        explode = [0.1 if i == sizes.index(max(sizes)) else 0 for i in range(len(labels))]
+    elif explode is None:
+        explode = (0,) * len(labels)
+    else:
+        # Ensure explode is correctly sized for the current pie chart
+        if len(explode) != len(labels):
+            raise ValueError(f"The length of 'explode' ({len(explode)}) does "
+                             f"not match the number of categories ({len(labels)}).")
+    
+    ax.pie(sizes, explode=explode, labels=labels, autopct=autopct,
+           shadow=shadow, startangle=startangle, colors=plt.get_cmap(cmap)(
+               np.linspace(0, 1, len(labels))))
+    ax.set_title(title)
+    ax.axis('equal')  # Ensures the pie chart is drawn as a circle
+
+def plot_dependences(
+    model: BaseEstimator, 
+    X: Union[ArrayLike, DataFrame], 
+    features: Union[List[int], List[str]], 
+    kind: str = 'average', 
+    grid_resolution: int = 100, 
+    feature_names: Optional[List[str]] = None, 
+    percentiles: Tuple[float, float] = (0.05, 0.95), 
+    n_jobs: Optional[int] = None, 
+    verbose: int = 0, 
+    ax: Optional[matplotlib.axes.Axes] = None
+) -> matplotlib.axes.Axes:
+    """
+    Generates Partial Dependence Plots (PDP) or Individual Conditional 
+    Expectation (ICE) plots for specified features using a fitted model.
+
+    Parameters
+    ----------
+    model : BaseEstimator
+        A fitted scikit-learn-compatible estimator that implements `predict` 
+        or `predict_proba`.
+    X : Union[np.ndarray, pd.DataFrame]
+        The input samples. Pass directly as a Fortran-contiguous NumPy array 
+        to avoid unnecessary memory duplication. For pandas DataFrame, 
+        ensure binary columns are used.
+    features : Union[List[int], List[str]]
+        The target features for which to create the PDPs or ICE plots. For 
+        `feature_names` provided, `features` can be a list of feature names.
+    kind : str, optional
+        The kind of plot to generate. 'average' generates the PDP, and 
+        'individual' generates the ICE plots. Defaults to 'average'.
+    grid_resolution : int, optional
+        The number of evenly spaced points where the partial dependence 
+        is evaluated. Defaults to 100.
+    feature_names : Optional[List[str]], optional
+        List of feature names if `X` is a NumPy array. `feature_names` is 
+        used for axis labels. Defaults to None.
+    percentiles : Tuple[float, float], optional
+        The lower and upper percentile used to create the extreme values 
+        for the PDP axes. Must be in [0, 1]. Defaults to (0.05, 0.95).
+    n_jobs : Optional[int], optional
+        The number of jobs to run in parallel for `plot_partial_dependence`. 
+        `None` means 1. Defaults to None.
+    verbose : int, optional
+        Verbosity level. Defaults to 0.
+    ax : Optional[matplotlib.axes.Axes], optional
+        Matplotlib axes object to plot on. If None, creates a new figure. 
+        Defaults to None.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+        The matplotlib axes object with the plot.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import make_friedman1
+    >>> from sklearn.ensemble import GradientBoostingRegressor
+    >>> from gofast.plot.utils import plot_dependences
+    >>> X, y = make_friedman1()
+    >>> model = GradientBoostingRegressor().fit(X, y)
+    >>> plot_dependences(model, X, features=[0, 1], kind='average')
+
+    See Also 
+    ---------
+    sklearn.inspection.PartialDependenceDisplay: 
+        Class simplifies generating PDP and ICE plots. 
+        
+    Note
+    ----
+    PDP and ICE plots are valuable  tools for understanding the effect of 
+    features on the prediction of a model, providing insights into the model's 
+    behavior over a range of feature values.
+    """
+    if not hasattr(model, 'predict') and not hasattr(model, 'predict_proba'):
+       raise TypeError("The model must implement predict or predict_proba method.")
+   
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(12, len(features) * 4))
+    
+    disp = PartialDependenceDisplay.from_estimator(
+        model, X, features, kind=kind, feature_names=feature_names, 
+        percentiles=percentiles, grid_resolution=grid_resolution, 
+        n_jobs=n_jobs, verbose=verbose, ax=ax,
+        line_kw={'color': 'gray', 'alpha': 0.5} if kind == 'individual' else {},
+        pd_line_kw={'color': 'red', 'linestyle': '--'} if kind == 'average' else {}
+    )
+    
+    plot_title = ("Partial Dependence Plots" if kind == 'average' 
+                  else "Individual Conditional Expectation Plots"
+                  )
+    disp.figure_.suptitle(plot_title)
+    plt.subplots_adjust(top=0.9)  # Adjust the title to not overlap with plots
+    plt.show()
+    
+    return ax
+
+def plot_variables(
+    data: DataFrame, 
+    target: Union[Optional[str], ArrayLike] = None,
+    kind: str = "cat", 
+    colors: Optional[List[str]] = None, 
+    target_labels: Optional[Union[List[str], ArrayLike]] = None,
+    fontsize: int = 12, 
+    ylabel: Optional[str] = None, 
+    figsize: Tuple[int, int] = (20, 16)
+    ) -> None:
+    """
+    Plot variables in the dataframe based on their type (categorical or numerical)
+    against a target variable.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The dataframe containing the variables to plot.
+    target : Optional[str], optional
+        The name of the target variable. If provided, it must exist in `data`.
+        If array is passed, it must be consistent with the data. 
+    kind : str, optional
+        The kind of variables to plot ('cat' for categorical, 'num' for numerical). 
+        Default is 'cat'.
+    colors : Optional[List[str]], optional
+        A list of colors to use for the plot. If not provided, defaults will be used.
+    target_labels : Optional[Union[List[str], np.ndarray]], optional
+        Labels for the different values of the target variable. If not provided,
+        values will be used as labels.
+    fontsize : int, optional
+        Font size for labels in the plot. Default is 12.
+    ylabel : Optional[str], optional
+        Label for the y-axis. If not provided, no label is set.
+    figsize : Tuple[int, int], optional
+        Figure size for the plot. Default is (20, 16).
+
+    Raises
+    ------
+    TypeError
+        If `data` is not a pandas DataFrame.
+    ValueError
+        If `target` is provided but does not exist in `data`.
+
+    Examples
+    --------
+    >>> import seaborn as sns
+    >>> from gofast.plot.utils import plot_variables
+    >>> df = sns.load_dataset('titanic')
+    >>> plot_variables(df, kind='cat', target='survived',
+                       colors=['blue', 'red'], target_labels=['Died', 'Survived'], 
+                       fontsize=10, ylabel='Count')
+    """
+
+    if not isinstance(data, pd.DataFrame):
+        raise TypeError("Expected data to be a pandas DataFrame."
+                        f" Got {type(data).__name__!r}")
+    if target is None:
+        raise ValueError("Target must be provided.")
+        
+    if isinstance ( target, str): 
+        if target not in data.columns:
+            raise ValueError(f"Target column '{target}' does not exist in"
+                             " the dataframe.")
+        target_data = data[target]
+        data = data.drop(columns=[target])
+    elif isinstance ( target, ( np.ndarray, pd.Series)): 
+        target_data = np.array (target).copy() 
+    
+    check_consistent_length(data, target_data)
+    # Determine categorical and numerical variables
+    data, num_vars, cat_vars= to_numeric_dtypes(data, return_feature_types=True)
+
+    if colors is None:
+        colors = ['royalblue', 'green'] +  list(make_mpl_properties (
+            len(np.unique (target_data))))
+    
+    if kind.lower() == 'cat':
+        _plot_categorical_variables(data, cat_vars, target_data, colors,
+                                    target_labels, fontsize, ylabel, figsize)
+    elif kind.lower() == 'num':
+        _plot_numerical_variables(data, num_vars, target_data, colors, 
+                                  target_labels, fontsize, ylabel, figsize)
+    else:
+        raise ValueError(f"Unsupported plot kind '{kind}'. Choose 'cat' for "
+                         "categorical or 'num' for numerical variables.")
+
+def _plot_categorical_variables(
+    data: DataFrame, cat_vars: List[str], target: Series, 
+    colors: Optional[List[str]], target_labels: Optional[Union[List[str], ArrayLike]],
+    fontsize: int, ylabel: Optional[str], figsize: Tuple[int, int]) -> None:
+    """
+    Helper function to plot categorical variables against a target variable.
+    """
+    if target_labels is None or len(target_labels) != len(np.unique(target)):
+        target_labels = [str(val) for val in np.unique(target)]
+
+    plt.figure(figsize=figsize)
+    for i, var in enumerate(cat_vars, 1):
+        plt.subplot(len(cat_vars)//3+1, 3, i)
+        for j, val in enumerate (np.unique(target)): 
+            data[target== val][var].hist(
+                bins=10, color= colors[j],  
+                label=target_labels [j], 
+                alpha=0.8 if j%2==0 else 0.5 )
+        plt.title(var)
+        plt.ylabel(ylabel if ylabel else 'Count')
+        plt.xticks(rotation=45)
+        plt.legend(labels=target_labels, fontsize=fontsize)
+    plt.tight_layout()
+
+def _plot_numerical_variables(
+    data: DataFrame, num_vars: List[str], target: Series, 
+    colors: Optional[List[str]], target_labels: Optional[Union[List[str], ArrayLike]],
+    fontsize: int, ylabel: Optional[str], figsize: Tuple[int, int]) -> None:
+    """
+    Helper function to plot numerical variables against a target variable.
+    """
+    if target_labels is None or len(target_labels) != len(np.unique(target)):
+        target_labels = [str(val) for val in np.unique(target)]
+
+    plt.figure(figsize=figsize)
+    for i, var in enumerate(num_vars, 1):
+        plt.subplot(len(num_vars)//2+1, 2, i)
+        for j, val in enumerate(np.unique(target)):
+            subset = data[target == val]
+            plt.hist(subset[var], bins=15, color=colors[j % len(colors)],
+                     alpha=0.75, label=str(target_labels[j]))
+        plt.title(var)
+        plt.xlabel(var)
+        plt.ylabel(ylabel if ylabel else 'Frequency')
+        plt.legend(fontsize=fontsize)
+    plt.tight_layout()
+
+def plot_correlation_with_target(
+    data: pd.DataFrame, 
+    target: Union[str, pd.Series], 
+    kind: str = 'bar', 
+    show_grid: bool = True, 
+    fig_size: Tuple[int, int] = (20, 8), 
+    title: Optional[str] = None, 
+    color: Optional[str] = None, 
+    sns_style: Optional[str] = None, 
+    **kwargs
+    ) -> plt.Axes:
+    """
+    Plot the correlation of each feature in the dataframe with a
+    specified target.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The dataset containing the features to be correlated with the target.
+    target : Union[str, pd.Series]
+        The target feature name (as a string) or a pandas Series object. 
+        If a string is provided, it should be a column name in `data`.
+    kind : str, optional
+        The kind of plot to generate. Default is 'bar'.
+    show_grid : bool, optional
+        Whether to show grid lines on the plot. Default is True.
+    fig_size : Tuple[int, int], optional
+        The figure size in inches (width, height). Default is (20, 8).
+    title : Optional[str], optional
+        The title of the plot. If None, defaults to "Correlation with target". 
+        Default is None.
+    color : Optional[str], optional
+        The color for the bars or lines in the plot. If None, defaults to 
+        "royalblue". Default is None.
+    sns_style : Optional[str], optional
+        The seaborn style to apply to the plot. If None, the default seaborn 
+        style is used. Default is None.
+    **kwargs : dict
+        Additional keyword arguments to be passed to the plot function.
+
+    Returns
+    -------
+    plt.Axes
+        The matplotlib Axes object with the plot.
+
+    Examples
+    --------
+    >>> import seaborn as sns
+    >>> from gofast.plot.utils import plot_correlation_with_target
+    >>> df = sns.load_dataset('iris')
+    >>> plot_correlation_with_target(df, 'petal_length', kind='bar', 
+                                     sns_style='whitegrid', color='green')
+    
+    """
+    if not isinstance(data, pd.DataFrame):
+        raise TypeError("Expected data to be a pandas DataFrame."
+                        f" Got {type(data).__name__!r}")
+
+    if isinstance(target, str):
+        if target not in data.columns:
+            raise ValueError(
+                f"Target column '{target}' does not exist in the dataframe.")
+        target_data = data[target]
+        data = data.drop(columns=target)
+    else:
+        target_data = target
+
+    if sns_style:
+        sns.set_style(sns_style)
+
+    correlation = data.corrwith(target_data)
+    ax = correlation.plot(kind=kind, grid=show_grid, figsize=fig_size,
+                          title=title or "Correlation with target",
+                          color=color or "royalblue", **kwargs)
+
+    return ax
+ 
 def plot_regression_diagnostics(
     x: ArrayLike,
     ys: List[ArrayLike],
@@ -233,8 +638,8 @@ def plot_residuals_vs_leverage(
     ax.set_title('Residuals vs Leverage')
     ax.set_xlabel('Leverage')
     ax.set_ylabel('Standardized Residuals')
-
     plt.show()
+    
     return ax
 
 def plot_residuals_vs_fitted(
@@ -570,14 +975,14 @@ def plot_venn_diagram(
     )
     >>> plt.show()
     
-    Using dictionaries
+    >>> # Using dictionaries
     >>> set1 = {1, 2, 3}
     >>> set2 = {2, 3, 4}
     >>> set3 = {4, 5, 6}
     >>> ax = plot_venn_diagram({'Set1': set1, 'Set2': set2, 'Set3': set3}, 
                            ('Set1', 'Set2', 'Set3'))
 
-    Using arrays
+    >>> # Using arrays
     >>> arr1 = np.array([1, 2, 3])
     >>> arr2 = np.array([2, 3, 4])
     >>> ax = plot_venn_diagram([arr1, arr2], ('Array1', 'Array2'))
@@ -628,7 +1033,6 @@ def plot_venn_diagram(
 
     return ax
 
-
 def create_upset_plot(
         data: Dict[str, set], sort_by: str = 'degree', 
         show_counts: bool = False):
@@ -657,6 +1061,7 @@ def create_upset_plot(
 
     Example
     -------
+    >>> from gofast.plot.utils import create_upset_plot
     >>> sets = {
         "Set1": {1, 2, 3},
         "Set2": {3, 4, 5},
@@ -697,6 +1102,7 @@ def plot_euler_diagram(sets: dict):
 
     Example
     -------
+    >>> from gofast.plot.utils import plot_euler_diagram
     >>> sets = {
         "Set1": {1, 2, 3},
         "Set2": {3, 4, 5},
@@ -758,7 +1164,6 @@ def plot_euler_diagram(sets: dict):
     plt.imshow(img)
     plt.axis('off')
     plt.show()
-
     # Remove the temporary file
     os.remove(tmpfile_name)
 
@@ -2650,6 +3055,7 @@ def plot_yb_confusion_matrix (
         " Alternatively, you may use ufunc `~.plot_confusion_matrix`,"
         " otherwise install it mannually.")
         )
+    from yellowbrick.classifier import ConfusionMatrix 
     fig, ax = plt.subplots(figsize = fig_size )
     cmo= ConfusionMatrix (clf, classes=labels, 
                          label_encoder = encoder, **kws

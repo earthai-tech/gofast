@@ -1,41 +1,29 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com> 
-#   Created on Sat Oct  1 15:24:33 2022
+
 """
 Remote Loader 
 ==============
-
 Fetch data online from zenodo record or repository.  
 """
-from __future__ import (
-    print_function , 
-    annotations 
-    )
+from __future__ import print_function , annotations 
 import os 
-import time
 import sys 
 import subprocess 
-import concurrent.futures
 import shutil  
 import zipfile
-import warnings 
-from six.moves import urllib 
 
-from .._typing import (
-    Optional, 
-    )
-from ..tools.funcutils import (
-    is_installing 
-)
-from ..exceptions import (
-    ExtractionError 
-)
-from ..tools.mlutils import (
-    fetchSingleTGZData, 
-    subprocess_module_installation
-    )
+from .._typing import Optional
+try: 
+    import tqdm
+    TQDM_AVAILABLE = True
+except ImportError:
+    TQDM_AVAILABLE = False
+
+from ..tools._dependency import import_optional_dependency
 from .._gofastlog import  gofastlog
+
 _logger = gofastlog().get_gofast_logger(__name__)
 
 ##### config repo data ################################################
@@ -56,104 +44,131 @@ _GIT_DICT = dict(
  )
 _GIT_DICT ['url_tgz'] = _GIT_DICT.get ('root') + _TGZ_DICT.get('tgz_f')
 
+# Default configuration for the Bagoue dataset
+DEFAULT_DATA_CONFIG = {
+    'data_path': 'data/geodata/main.bagciv.data.csv',
+    'zenodo_record': '10.5281/zenodo.5571534',
+    'tgz_file': 'data/__tar.tgz/fmain.bagciv.data.tar.gz',
+    'csv_file': '/__tar.tgz_files__/___fmain.bagciv.data.csv',
+    'git_root': 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/',
+    'repo_url': 'https://github.com/WEgeophysics/gofast',
+    'blob_root': 'https://github.com/WEgeophysics/gofast/blob/master/',
+    'url_tgz': 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/data/__tar.tgz/fmain.bagciv.data.tar.gz',
+    'zip_or_rar_file': 'BagoueCIV__dataset__main.rar'
+}
 
-def loadBagoueDataset (): 
-    """Load a Bagoue dataset  
-    
-    Example 
-    --------
-    >>> from gofast.datasets import Loader 
-    >>> loadBagoueDataset ()
-    ... dataset:   0%|                                          | 0/1 [00:00<?, ?B/s]
-    ... ### -> Wait while decompressing 'fmain.bagciv.data.tar.gz' file ... 
-    ... --- -> Fail to decompress 'fmain.bagciv.data.tar.gz' file
-    ... --- -> 'main.bagciv.data.csv' not found in the  local machine 
-    ... ### -> Wait while fetching data from 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/'...
-    ... +++ -> Load data from 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/' successfully done!
-    ... dataset: 100%|##################################| 1/1 [00:03<00:00,  3.38s/B]
-    
+__all__=["load_dataset", "RemoteLoader","extract_and_move_archive_file", 
+         "move_data", "extract_from_rar", "extract_from_zip", 
+         ]
+
+def load_dataset(data_config: dict=DEFAULT_DATA_CONFIG):
     """
-    # LOCAL_DIR = 'data/geodata'
-    # DATA_DIR= os.path.join(LOCAL_DIR, 'main.bagciv.data.csv')
-    # DATA_PATH = 'data/__tar.tgz' 
-    # TGZ_FILENAME = '/fmain.bagciv.data.tar.gz'
-    # CSV_FILENAME = '/__tar.tgz_files__/___fmain.bagciv.data.csv'
-    # DATA_URL = GIT_ROOT  + DATA_PATH  + TGZ_FILENAME 
-    # blob root = 'https://github.com/WEgeophysics/gofast/blob/master/'
-    # GIT_ROOT = 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/' 
-    # GIT_REPO= 'https://github.com/WEgeophysics/gofast'
-    # from Zenodo: 'https://zenodo.org/record/5560937#.YWQBOnzithE'
-    
-    Loader ( 
-        zenodo_record= _ZENODO_RECORD,
-        content_url=  _GIT_DICT.get('root'),
-        repo_url=  _GIT_DICT.get ('repo'),
-        tgz_file=_GIT_DICT.get('url_tgz'),
-        blobcontent_url =  _GIT_DICT.get ('blob_root'),
-        zip_or_rar_file= 'BagoueCIV__dataset__main.rar',
-        csv_file =  _TGZ_DICT.get('csv_f'),
-        verbose=  10 
-          ).fit(_DATA)
-    
-class Loader: 
-    """ Load data from online 
-    
-    Parameters 
+    Load a dataset based on the provided configuration. Defaults to the Bagoue dataset.
+
+    Parameters
     ----------
-    *zenodo_record*: str 
-        A zenod digital object identifier (doi) of filepath to zenodo record.
-        
-    *content_url*: str, 
-        File path to the repository user content. If your use GitHub where the 
-        data is located in default branch for example a master branch, it 
-        can be 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/' 
-    *repo_url*: str 
-        A url for repository that host the project 
-        
-    *tgzfile*: str, 
-        Data can be save in TGZ file format. It that is the case, can provide 
-        to fetch the data if all attempt to fetched the file failed. 
-    *verbose*: int, 
-        Level of verbosity. Higher equals to more messages. 
-        
-    *root2blobcontent*: str 
-        Root to blob master is a nested way to the convenient way to retrieve
-        raw data in GitHUB
-    *csv_file*: str 
-        Path to the main csv file to retreive in the record.   
+    data_config : dict
+        Configuration dictionary for the dataset.
+
+    Example
+    -------
+    # Usage example with default Bagoue dataset
+    # load_dataset()
+    # Usage example with a different dataset (user needs to provide a configuration dictionary)
+    # custom_data_config = { ... }  # Custom configuration
+    # load_dataset(custom_data_config)
+    >>> from gofast.datasets.rload import load_dataset
+
+    >>> load_dataset()
+    ... dataset:   0%|                                          | 0/1 [00:00<?, ?B/s]
+    ... ### -> Wait while decompressing 'fmain.bagciv.data.tar.gz' file ...
+    ... --- -> Fail to decompress 'fmain.bagciv.data.tar.gz' file
+    ... --- -> 'main.bagciv.data.csv' not found in the local machine
+    ... ### -> Wait while fetching data from GitHub...
+    ... +++ -> Load data from GitHub successfully done!
+    ... dataset: 100%|##################################| 1/1 [00:03<00:00,  3.38s/B]
     """
+    RemoteLoader(
+        zenodo_record=data_config['zenodo_record'],
+        content_url=data_config['git_root'],
+        repo_url=data_config['repo_url'],
+        tgz_file=data_config['url_tgz'],
+        blobcontent_url=data_config['blob_root'],
+        zip_or_rar_file=data_config['zip_or_rar_file'],
+        csv_file=data_config['csv_file'],
+        verbose=10
+    ).fit(data_config['data_path'])
 
-    def __init__(self, 
-                 zenodo_record:str = None, 
-                 content_url:str = None, 
-                 repo_url: str = None, 
-                 tgz_file:str = None, 
-                 blobcontent_url:str = None, 
-                 zip_or_rar_file:str = None, 
-                 csv_file: str = None, 
-                 verbose: int =0 ,  
-                 ): 
 
-        self.zenodo_record = zenodo_record 
+class RemoteLoader:
+    """
+    Load data from online sources like Zenodo, GitHub, or local files.
+
+    Parameters
+    ----------
+    zenodo_record : str, optional
+        A Zenodo digital object identifier (DOI) or filepath to a Zenodo record.
+    content_url : str, optional
+        URL to the repository user content. For GitHub, it can be in the format
+        'https://raw.githubusercontent.com/user/repo/branch/'.
+    repo_url : str, optional
+        URL for the repository hosting the project.
+    tgz_file : str, optional
+        If data is saved in a TGZ file format, provide the URL to fetch the data.
+    blobcontent_url : str, optional
+        Root URL to blob content for accessing raw data in GitHub.
+    zip_or_rar_file : str, optional
+        If data is in a ZIP or RAR file, provide the file name.
+    csv_file : str, optional
+        Path to the main CSV file to retrieve in the record.
+    verbose : int, optional
+        Level of verbosity. Higher values mean more messages (default is 0).
+
+    Examples
+    --------
+    >>> from gofast.datasets.rload import RemoteLoader 
+    >>> loader = RemoteLoader(
+            zenodo_record='10.5281/zenodo.5571534',
+            content_url='https://raw.githubusercontent.com/WEgeophysics/gofast/master/',
+            repo_url='https://github.com/WEgeophysics/gofast',
+            tgz_file='https://raw.githubusercontent.com/WEgeophysics/gofast/master/data/__tar.tgz/fmain.bagciv.data.tar.gz',
+            blobcontent_url='https://github.com/WEgeophysics/gofast/blob/master/',
+            zip_or_rar_file='BagoueCIV__dataset__main.rar',
+            csv_file='/__tar.tgz_files__/___fmain.bagciv.data.csv',
+            verbose=10
+        )
+    >>> loader.fit('data/geodata/main.bagciv.data.csv')
+    """
+    def __init__(
+        self,
+        zenodo_record: Optional[str] = None,
+        content_url: Optional[str] = None,
+        repo_url: Optional[str] = None,
+        tgz_file: Optional[str] = None,
+        blobcontent_url: Optional[str] = None,
+        zip_or_rar_file: Optional[str] = None,
+        csv_file: Optional[str] = None,
+        verbose: int = 0
+    ):
+        self.zenodo_record = zenodo_record
         self.content_url = content_url
-        self.blobcontent_url = blobcontent_url 
-        self.repo_url =repo_url
-        self.tgz_file = tgz_file 
-        self.zip_or_rar_file=zip_or_rar_file 
-        self.csv_file = csv_file 
-        
+        self.blobcontent_url = blobcontent_url
+        self.repo_url = repo_url
+        self.tgz_file = tgz_file
+        self.zip_or_rar_file = zip_or_rar_file
+        self.csv_file = csv_file
         self.verbose = verbose
-        
-        self.f_= None 
-        
-    @property 
-    def update_zenodo_record (self):
-        return self.zenodo_record 
-    
-    @update_zenodo_record.setter 
-    def update_zenodo_record(self, uzr): 
-        self.zenodo_record = uzr 
-        
+        self._f = None
+
+    @property
+    def zenodo_record(self) -> str:
+        """str: Zenodo record identifier."""
+        return self._zenodo_record
+
+    @zenodo_record.setter
+    def zenodo_record(self, value: str):
+        self._zenodo_record = value
+
     @property 
     def f(self): 
         return self.f_ 
@@ -161,707 +176,546 @@ class Loader:
     def f (self, file): 
         """ assert the file exists"""
         self.f_ = file 
-        
-        
-    def fit(self , f:str = None): 
-        
-        """ Retreive Bagoue dataset from Github repository or zenodo record. 
-        
-        It will take a while when fetching data for the first time outsite of 
-        this repository. Since cloning the repository come with examples dataset  
-        located to its appropriate directory. It's probably a rare to fectch using 
-        internet unless dataset  as well as the tarfile are  deleted from its
-        located directory.
-        
-        Parameters
-        ------------
-        f : str 
-            `f` is the reference to the main file containing the data acting 
-            like a path -like object.
-        
-        Returns 
-        -------
-        ``self``  :class:`~.Loader` instance
-        
-        Notes 
-        ---------
-        Retreiving  dataset line Bagoue dataset from Github repository or zenodo 
-        record. It could take a while to fetch data for the first time outsite of 
-        therepository. Since cloning the repository come with examples dataset  
-        located to its appropriate directory, it's probably not useful to fectch 
-        the data from internet unless the dataset ( with the tarfileor not ) are
-        deleted from the local directory. 
-        
-        Example
-        ---------
-        >>> from gofast.datasets.load import Loader 
-        >>> loadObj = Loader (
-                zenodo_record= '10.5281/zenodo.5571534',
-                content_url=  'https://raw.githubusercontent.com/WEgeophysics/gofast/master/',
-                repo_url= 'https://github.com/WEgeophysics/gofast',
-                tgz_file='https://raw.githubusercontent.com/WEgeophysics/gofast/master/data/__tar.tgz/fmain.bagciv.data.tar.gz',
-                blobcontent_url =   'https://github.com/WEgeophysics/gofast/blob/master/',
-                zip_or_rar_file= 'BagoueCIV__dataset__main.rar',
-                csv_file =  '/__tar.tgz_files__/___fmain.bagciv.data.csv',
-                verbose=  10
-                )
-        >>> loadObj.fit('data/geodata/main.bagciv.data.csv')
-        ... ### -> Wait while decompressing 'fmain.bagciv.data.tar.gz' file ... 
-        ... --- -> Fail to decompress 'fmain.bagciv.data.tar.gz' file
-        ... --- -> 'main.bagciv.data.csv' not found in the  local machine  
-        ... ### -> Wait while fetching data from 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/'...
-        ... +++ -> Load data from 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/' successfully done!
-        dataset: 100%|##################################| 1/1 [00:04<00:00,  4.95s/B]
-        Out[23]: <gofast.datasets.load.Loader at 0x2210bedf880>
-     
-        """
-        #--++++++-------import tqdm package 
-        TQDM= False 
-        try : 
-            import tqdm 
-        except ImportError: 
-            is_success = is_installing('tqdm'
-                                       )
-            if not is_success: 
-                warnings.warn("'Auto-install tqdm' failed. Could be installed it manually"
-                              " Can get 'tqdm' here <https://pypi.org/project/tqdm/> ")
-                _logger.info ("Failed to install automatically 'tqdm'. Can get the " 
-                              "package via  https://pypi.org/project/tqdm/")
-            else : TQDM = True 
-            
-        else: TQDM = True 
-        
-        #--++++++-------
-        
-        if f is not None: 
-            self.f= f 
-            
-        mess =f" Unable to load {os.path.basename(self.f)!r} from "
-        
-        if not TQDM: 
-            with concurrent.futures.ThreadPoolExecutor() as executor: 
-                modules =[ 'notebook', 'ipywidgets', 'tqdm']
-                try : 
-                    is_success =list(executor.map(
-                        subprocess_module_installation, modules))
-                except : 
-                    results = [executor.submit(
-                        subprocess_module_installation, args =[mod, True])
-                                               for mod in modules]
-                    is_success =[f.result() for f in 
-                           concurrent.futures.as_completed(results)]
-                    # if n all modules were executed successffuly 
-                    # force tqm 
-                    TQDM = is_success [0] if len(set(is_success))==1 else False 
-                
-        pbar = range(1) if not TQDM else tqdm.tqdm(range(1) ,ascii=True, 
-                     unit='B', desc ="dataset", ncols =77)
 
-        for _ in pbar :
-            total , start =0, time.perf_counter() 
-            if not os.path.isdir(os.path.dirname (self.f) ):
-                os.makedirs(os.path.dirname (self.f) )
-                
-            # --> seek local file 
-            is_file = self._fromlocal(self.f)
-            if not is_file: 
-                if self.verbose > 3: 
-                    print(f"--- -> {os.path.basename(self.f)!r} not found in the "
-                          " local machine  ")
-                    
-                _logger.info(f"{os.path.basename(self.f)!r} file is missing ")
-                
-                is_file =  self._fromgithub()
-                if not is_file :
-                    _logger.info(mess + 'Github')
-                    is_file = self._fromzenodo()
-        
-            if not is_file : 
-                _logger.info(mess + 'Zenodo')
-                _logger.info (f"Unable to fetch {os.path.basename(f)!r} from online")
-                end = time.perf_counter() 
-                time.sleep(abs(start -end))
-                pbar.update(total)
-                
-                return 
-            _logger.info(f"{os.path.basename(f)!r} was successfully loaded.")
-            
-            end = time.perf_counter() 
-            time.sleep(abs(start -end))
-            
-            if is_file: 
-                total =1
-                pbar.update(total)
-                
-        return self #f
-    
-    
-    def _fromzenodo(self,  
-            zenodo_record: str = None,  # ZENODO_RECORD_ID_OR_DOI, # LOCAL_DIR, 
-            f: str = None,  
-            zip_or_rar_file : str = None,
-            csv_file : Optional[str]= None, 
-            )-> str: 
-        """Fetch data from zenodo records with ``zenodo_record`` and ``f``
-        
-        Here is the way to fetch the main dataset from the record using the 
-        module `zenodo_get`  
-        
-        Parameters 
-        -----------
-        zenodo_record: str or Zenodo get obj 
-            Record of zenodo database. see https://zenodo.org/
-        f : str 
-             Path -like object. f is the main file containing the data 
-             
-        zip_or_rar: str 
-            Path like object to *.zip or *.rar file.
-            
-        csv_file: str 
-            Path to the main csv file to retreive in the record. 
-            
-        Returns 
-        ---------
-         str : File or record path
-            Here is the way to fetch the main dataset 
-            
-        Example 
+    def fit(self, f: str = None) -> 'RemoteLoader':
+        """
+        Retrieve dataset from GitHub repository, Zenodo record, or local file.
+
+        Parameters
+        ----------
+        f : str, optional
+            Path-like string to the main file containing the data.
+
+        Returns
+        -------
+        Loader
+            The instance of the Loader class.
+
+        Notes
+        -----
+        Retrieving a dataset like the Bagoue dataset from GitHub or Zenodo 
+        can take a while during the first fetch. The method attempts to fetch 
+        from local storage first, then GitHub, and finally Zenodo.
+
+        Examples
         --------
-        >>> from gofast.datasets.load import ( _DATA , _ZENODO_RECORD , 
-                                             _TGZ_DICT, _GIT_DICT, Loader)
-        >>> Loader (verbose = 10 )._fromzenodo(
-            f = _DATA, zenodo_record =_ZENODO_RECORD,
-            zip_or_rar_file= 'BagoueCIV__dataset__main.rar',
-            csv_file =  _TGZ_DICT.get('csv_f')
+        >>> from gofast.datasets.rload import RemoteLoader 
+        >>> loader = RemoteLoader(...)
+        >>> loader.fit('data/geodata/main.bagciv.data.csv')
+        """
+        if f is not None:
+            self.f = f
+
+        if not os.path.isdir(os.path.dirname(self.f)):
+            os.makedirs(os.path.dirname(self.f))
+
+        if self._try_load_from_local() or self._try_load_from_github() \
+            or self._try_load_from_zenodo():
+            _logger.info(f"{os.path.basename(self.f)!r} was successfully loaded.")
+        else:
+            _logger.error(f"Unable to load {os.path.basename(self.f)!r}"
+                          " from any source.")
+
+        return self
+
+    def _try_load_from_local(self) -> bool:
+        """
+        Try to load the dataset from a local file.
+
+        Returns
+        -------
+        bool
+            True if the file was successfully loaded, False otherwise.
+        """
+        if os.path.exists(self.f):
+            _logger.info(f"Found {self.f} locally.")
+            # Load the data from self.f
+            # Example: data = pd.read_csv(self.f)
+            return True
+        _logger.info(f"{self.f} not found locally.")
+        return False
+
+    def _try_load_from_github(self) -> bool:
+        """
+        Try to load the dataset from a GitHub repository.
+
+        Returns
+        -------
+        bool
+            True if the file was successfully loaded, False otherwise.
+        """
+        import_optional_dependency("requests")
+        import requests 
+        try:
+            response = requests.get(self.content_url + self.f)
+            if response.status_code == 200:
+                _logger.info(f"Successfully fetched {self.f} from GitHub.")
+                # Load the data from response.content
+                # Example: data = pd.read_csv(io.StringIO(response.text))
+                return True
+        except Exception as e:
+            _logger.error(f"Error fetching {self.f} from GitHub: {e}")
+        return False
+
+    def _try_load_from_zenodo(self) -> bool:
+        """
+        Try to load the dataset from a Zenodo record.
+
+        Returns
+        -------
+        bool
+            True if the file was successfully loaded, False otherwise.
+        """
+        import_optional_dependency("requests")
+        import requests 
+        # Assuming zenodo_record is a URL or identifier to fetch the data from Zenodo
+        try:
+            response = requests.get(self.zenodo_record)
+            if response.status_code == 200:
+                _logger.info("Successfully fetched data from Zenodo "
+                             f"record {self.zenodo_record}.")
+                # Load the data from response.content
+                # Example: data = pd.read_csv(io.StringIO(response.text))
+                return True
+        except Exception as e:
+            _logger.error(f"Error fetching data from Zenodo "
+                          f"record {self.zenodo_record}: {e}")
+        return False
+
+    def _initialize_progress_bar(self):
+        """
+        Initialize a tqdm progress bar if tqdm is available.
+
+        Returns
+        -------
+        tqdm.tqdm or range
+            A tqdm progress bar object or a range object if tqdm is not available.
+        """
+        if TQDM_AVAILABLE:
+            return tqdm.tqdm(range(1), ascii=True, unit='B', desc="dataset", ncols=77)
+        return range(1)
+
+    def from_zenodo(self,  
+        zenodo_record: Optional[str] = None, 
+        f: Optional[str] = None,  
+        zip_or_rar_file: Optional[str] = None,
+        csv_file: Optional[str] = None
+        ) -> Optional[str]: 
+        """
+        Fetch data from Zenodo records.
+
+        Parameters
+        ----------
+        zenodo_record : str, optional
+            Record ID or DOI from Zenodo database.
+        f : str, optional
+            Path-like object to the main file containing the data.
+        zip_or_rar_file : str, optional
+            Path to a .zip or .rar file in the record.
+        csv_file : str, optional
+            Path to the main CSV file to retrieve from the record.
+
+        Returns
+        -------
+        str or None
+            Path to the retrieved file, or None if the process fails.
+
+        Examples
+        --------
+        >>> loader = RemoteLoader(verbose=10)
+        >>> loader._fetch_data_from_zenodo(
+                zenodo_record='10.5281/zenodo.1234567',
+                zip_or_rar_file='dataset_main.zip',
+                csv_file='data.csv'
             )
         """
+        if zenodo_record is not None: 
+            self.zenodo_record = zenodo_record
+
         if f is not None: 
             self.f = f 
-        if zenodo_record is not None: 
-            self.zenodo_record= zenodo_record
-            
-        if zip_or_rar_file is not None: 
-            self.zip_or_rar_file = zip_or_rar_file 
-            
-        if self.zenodo_record  is None:
-            raise TypeError (
-                "Expect a zenodo record <'XXX/zenodo.YYYYY'>, get: 'None'")
-            
-        if not os.path.isdir(os.path.dirname(self.f ) ): 
-            os.makedirs(os.path.dirname(self.f ) )
-        success_import=False     
+
+        if not self.zenodo_record:
+            raise ValueError("Zenodo record ID or DOI is required.")
+
+        # Ensure the directory for `f` exists
+        if f and not os.path.isdir(os.path.dirname(f)):
+            os.makedirs(os.path.dirname(f))
+
+        # Try importing zenodo_get, install if not present
         try:
             import zenodo_get
-        except: 
-            # this will take a while if the connection is low. 
-            # Please be patient.
-            try: 
-                if self.verbose : 
-                    print("--- -> wait while zenodo_get is installing ...")
-                is_ = is_installing ('zenodo_get')
-                
-                if is_ : 
-                    _logger.info("'+++ -> zenodo_get' installation complete. ") 
-                    success_import=True
-                
-                    if self.verbose > 3 : 
-                        print("+++ -> zenodo_get' installation complete. ")
-            except : 
-                # Connection problem may happens. 
-                if self.verbose > 3 : 
-                    print('--- -> Fail to install Zenodo_get')
-                _logger.info("Fail to  install `zenodo_get`")
-                
-        else: 
-            success_import=True 
+        except ImportError:
+            if self._install_zenodo_get():
+                import zenodo_get
+            else:
+                _logger.error("Failed to install `zenodo_get`.")
+                return None
+        # Download data from Zenodo
+        if not self._download_from_zenodo():
+            return None
 
-        if not success_import: 
-            raise ConnectionError(
-                F"Unable to retrieve data from record= <{self.zenodo_record!r}>.")
-            
-        # if zenodo_get is already installed Then used to 
-        # downloaed the record by calling the subprocess methods
-        _logger.info(" 'zenodo_get' package already installed") 
-            
-        if self.verbose: 
-            print(f"### -> wait while the record {self.zenodo_record!r}"
-               " is downloading...")
-        try :
-            subprocess.check_call([sys.executable, '-m', 'zenodo_get',
-                                   self.zenodo_record])
-        except: 
-            raise ConnectionError (
-                f"CalledProcessError: {self.zenodo_record!r} returned "
-                "non-zero exit status 1. Please check your internet!")
-            
-        if self.verbose: 
-            print(f"+++ -> Record {self.zenodo_record!r} successfully downloaded.")
-        
-        if not os.path.isdir(os.path.dirname(self.f ) ): 
-            os.makedirs(os.path.dirname(self.f ) )
-            
-        # check whether Archive file is '.rar' or '.zip' 
-        _, ex = os.path.splitext (self.zip_or_rar_file) 
-        is_zipORrar =os.path.isfile (self.zip_or_rar_file )
-        
-        if is_zipORrar :
-            ziprar_file = os.path.basename (self.zip_or_rar_file ) # 
-            
-        # else: ziprar_file = 'BagoueCIV__dataset__main.zip'
-        
-        # is_zipORrar =os.path.isfile ('BagoueCIV__dataset__main.rar')
-        # if is_zipORrar : ziprar_file = 'BagoueCIV__dataset__main.rar'
-        # else: ziprar_file = 'BagoueCIV__dataset__main.zip'
-        
-        # For consistency add curent work directory and move zip_rar file to 
-        # the path =LOCAL_DIR and also move the md5sums file.
-        move_file(os.path.join(os.getcwd(),ziprar_file), 
-                  os.path.dirname(self.f ) )
-        
-        if os.path.isfile(os.path.join(os.getcwd(), 'md5sums.txt')):
-            move_file(os.path.join(os.getcwd(), 'md5sums.txt'), 
-                      os.path.dirname(self.f ) )
-            
-        if self.verbose > 3 :
-            print(f"### -> Record <{zenodo_record!r}={ziprar_file!r}> found in "
-                   f" {os.path.dirname(self.f )!r}.")
-            print(f"### -> Wait while {'unziping' if not is_zipORrar else 'unraring'}"
-                  " the record...")
-            
-        #Now unzip file in the LOCAL DIR then move the file to 
-        # it right place and rename it. 
-        f0=self.unZipFileFetchedFromZenodo(
-            f= os.path.dirname(self.f ) , 
-            zip_file =self.zip_or_rar_file, 
-            csv_file = self.csv_file , 
-            )
-        
-        try : 
-            # if file exists then remove the archive 
-            os.remove(os.path.join(self.f , ziprar_file))
-        except :  pass 
+        # Process the downloaded archive
+        return self._process_downloaded_archive(zip_or_rar_file, csv_file)
 
-        return f0
-    
-    def _fromgithub( self, 
-                    f: str=None , content_url:str=None  
-                    ) -> bool | str:
-        """ Fetch the data from repository if file is hosted there. It creates
-        path to the local matchine and save file.
-        
-        Parameters 
-        -----------
-        *f* : str 
-             Path -like object. f is the main file containing the data 
-        *content_url*: str, 
-            File path to the repository user content. If your use GitHub where the 
-            data is located in default branch for example a master branch, it 
-            can be 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/' 
-        *repo_url*: str 
-            A url for repository that host the project
-            
+    def _install_zenodo_get(self) -> bool:
+        """Install zenodo_get package if not already installed."""
+        try:
+            subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'zenodo_get'])
+            _logger.info("'zenodo_get' installation complete.")
+            return True
+        except subprocess.CalledProcessError:
+            _logger.error("Failed to install `zenodo_get`.")
+            return False
+
+    def _download_from_zenodo(self) -> bool:
+        """Download data from Zenodo using zenodo_get."""
+        try:
+            subprocess.check_call([sys.executable, '-m', 'zenodo_get', self.zenodo_record])
+            _logger.info(f"Record {self.zenodo_record!r} successfully downloaded.")
+            return True
+        except subprocess.CalledProcessError:
+            _logger.error(f"Failed to download record {self.zenodo_record!r}.")
+            return False
+
+    def _process_downloaded_archive(
+            self, zip_or_rar_file: Optional[str], csv_file: Optional[str]
+            ) -> Optional[str]:
         """
-        # make a request
-        
+        Process the downloaded archive file.
+
+        Parameters
+        ----------
+        zip_or_rar_file : str, optional
+            Path to the downloaded ZIP or RAR file.
+        csv_file : str, optional
+            Name of the CSV file to extract from the archive.
+
+        Returns
+        -------
+        str or None
+            Path to the extracted CSV file, or None if the process fails.
+        """
+        archive_path = os.path.join(os.getcwd(), zip_or_rar_file
+                                    ) if zip_or_rar_file else None
+        if archive_path.endswith(".rar"): 
+            import_optional_dependency("rarfile")
+            import  rarfile
+            
+        if archive_path and os.path.isfile(archive_path):
+            extracted_dir = os.path.join(os.path.dirname(archive_path), "extracted_files")
+            os.makedirs(extracted_dir, exist_ok=True)
+
+            if zipfile.is_zipfile(archive_path):
+                with zipfile.ZipFile(archive_path, 'r') as zip_ref:
+                    zip_ref.extractall(extracted_dir)
+            elif rarfile.is_rarfile(archive_path):
+                with rarfile.RarFile(archive_path, 'r') as rar_ref:
+                    rar_ref.extractall(extracted_dir)
+            else:
+                _logger.error(f"Unsupported archive format for {archive_path}.")
+                return None
+
+            if csv_file:
+                csv_path = self._find_and_move_csv(csv_file, extracted_dir)
+                return csv_path
+
+            return extracted_dir
+
+        return None
+
+    def _find_and_move_csv(self, csv_file: str, extracted_dir: str) -> Optional[str]:
+        """
+        Find and move the CSV file from the extracted directory to the desired location.
+
+        Parameters
+        ----------
+        csv_file : str
+            Name of the CSV file to find.
+        extracted_dir : str
+            Directory where files are extracted.
+
+        Returns
+        -------
+        str or None
+            Path to the moved CSV file, or None if not found.
+        """
+        for root, dirs, files in os.walk(extracted_dir):
+            if csv_file in files:
+                csv_path = os.path.join(root, csv_file)
+                desired_location = os.path.join(os.path.dirname(extracted_dir), csv_file)
+                shutil.move(csv_path, desired_location)
+                return desired_location
+
+        _logger.error(f"{csv_file} not found in the extracted files.")
+        return None
+
+    def from_git_repo(self, f: Optional[str] = None,
+                                content_url: Optional[str] = None
+                    ) -> Optional[str]:
+        """
+        Fetch data from a GitHub repository and save it to the local machine.
+
+        Parameters
+        ----------
+        f : str, optional
+            Path-like object representing the main file containing the data.
+        content_url : str, optional
+            URL to the repository user content. For example, it can be
+            'https://raw.githubusercontent.com/user/repo/branch/'.
+
+        Returns
+        -------
+        str or None
+            Path to the downloaded file, or None if the download fails.
+        """
         if f is not None: 
             self.f = f 
             
         if content_url is not None: 
-            self.content_url  = content_url
-            
+            self.content_url = content_url
+
+        if not self.content_url or not self.f:
+            _logger.error("Content URL and file path are required.")
+            return None
+
+        # Ensure the directory for `f` exists
         if not os.path.isdir(os.path.dirname(self.f)): 
             os.makedirs(os.path.dirname(self.f))
-            
-        success =False 
-        #'https://raw.githubusercontent.com/WEgeophysics/gofast/master/data/geo_fdata/main.bagciv.data.csv'
-        rootf = os.path.join(self.content_url,  self.f)
-        atp =[f"### -> Wait while fetching data from {self.content_url!r}...", 
-              '... ', '... ']
-        
-        for i in range(3): 
-            try : 
-                # first attemptts to 03
-                print(atp[i], end ='')
-                
-                urllib.request.urlretrieve(rootf, self.f)
-            except TimeoutError: 
-                if i ==2:
-                    if self.verbose> 3: 
-                        print("--- -> Established connection failed because "
-                              " connected host has failed to respond.")
-                success =False 
-            except:success =False 
-            else : success=True 
-            if success:
-                break 
-            
+
+        file_url = os.path.join(self.content_url, self.f)
+        success = self._attempt_download(file_url)
+
         if not success:
-            # CHANGEGIT Root 
-            try:
-                if self.verbose > 3 : 
-                    print("### -> An alternative way using <blob/master>...")
-                rootf0= self.blobcontent_url + self.f 
-                urllib.request.urlretrieve(rootf0, self.f )
-            except :success =False 
-            else:success =True 
-        if not success:
-            if self.verbose:
-                print("---> Coerce the root instead ...")
-            #'https://github.com/WEgeophysics/gofast/blob/master/data/geo_fdata/main.bagciv.data.csv'
-            #second attempts 
-            try : 
-                with urllib.request.urlopen(rootf) as testfile, open(f, 'w') as fs:
-                        fs.write(testfile.read().decode())
-            except : 
-                # third attempts
-                try:
-                    import requests 
-                    response = requests.get(rootf)
-                    with open(os.path.join(
-                            os.path.dirname (self.f),os.path.basename(self.f)),
-                            'wb') as fs:
-                        fs.write(response.content)
-                except: 
-                    success=False
-            else :
-                if self.verbose: 
-                    print(f"+++ -> Load data from {self.content_url!r} "
-                          "successfully done!")
-                success =True
-                
-        if not success: 
-            print(f"--- -> Fail to download data from {self.content_url!r} !")
-            return False   
-        
-        if success :
-            # assume the data is locate in current directory
-            # then move to the right place in Local dir 
-            if os.path.isfile(os.path.basename (self.f)):
-                move_file(os.path.basename (self.f), os.path.dirname (self.fn))
-            
-        # print("---> Fetching `main.bagciv.data.csv`from {GIT_REPO!r}"
-        #       " was successfully done!")
-        if success: 
-            print()
-            print( f"+++ -> Load data from {self.content_url!r} successfully done!") 
-        
-        return self.f 
-    
-    def _fromlocal (self, f: str = None # DATA_DIR
-                    ) -> str : 
-        """ Check whether the local file exists and return file name. 
-        
-        Turn on all the possibility i.e read the *.tgz and *.tar file if exist 
-        in the local machine. 
-        
-        Parameters 
-        -----------
-        f : str 
-             Path -like object. f is the main file containing the data 
-             
-        
+            _logger.error(f"Failed to download data from {file_url}")
+            return None
+
+        _logger.info(f"Successfully downloaded {file_url}")
+        return self.f
+
+    def _attempt_download(self, file_url: str) -> bool:
         """
-        if f is not None: 
-            self.f = f 
-        
-        is_file =os.path.isfile(self.f)
-        
-        if not is_file and self.tgz_file is not None:
-            tgz= os.path.basename(self.tgz_file)
-            
-            try: 
-                if self.verbose > 3 : 
-                    print()
-                    print(f"### -> Wait while decompressing {tgz!r} file ... ")
-                    
-                f0=fetchSingleTGZData(
-                    self.tgz_file, rename_outfile=os.path.basename(self.f)
-                    )
-                
-                _logger.info(f"Decompressed {tgz!r} successufully done.")
-                
-            except : 
-                _logger.info(f"Fail to decompres{tgz!r} ")
-                if self.verbose: 
-                    print(f"--- -> Fail to decompress {tgz!r} file")
-                
-                return False 
-            else : 
-                if self.verbose: 
-                    print(f"+++ -> Decompressed  {tgz!r} sucessfully done!")
-                # return new file if file alread created in the local 
-                # machine.
-       
-                self.f = f0
-                    
-        return self.f if os.path.isfile (self.f) else False 
-    
-    def unZipFileFetchedFromZenodo(self, 
-                                   f: str  = None , # LOCAL_DIR, 
-                                   #'BagoueCIV__dataset__main.rar',
-                                   zip_or_rar_file: str = None, 
-                                   #  '/__tar.tgz_files__/___fmain.bagciv.data.csv', 
-                                   csv_file:str =None, 
-                                    ):
-        """ Unzip or Unrar the archived file and shift from  the local 
-        directory created if not exits. 
-        
-        Parameters 
-        -----------
-        f : str 
-             Path -like object. f is the main file containing the data 
-             
-        zip_or_rar: str 
-            Path like object to *.zip or *.rar file.
-            
-        csv_file: str 
-            Path to the main csv file to retreive in the record. 
-            
-        Returns 
-        ---------
-         str : path like object to the unzipped File 
+        Attempt to download a file from the given URL.
 
+        Parameters
+        ----------
+        file_url : str
+            URL of the file to be downloaded.
 
+        Returns
+        -------
+        bool
+            True if the download was successful, False otherwise.
         """
-        # zipORrar_ex = zip_file.replace('BagoueCIV__dataset__main', '')
-        # zip_file=zip_file.replace(zipORrar_ex, '')
-        if f is not None: 
-            self.f = f 
-        if zip_or_rar_file  is not None: 
-            self.zip_or_rar_file = zip_or_rar_file 
-        if csv_file is not None: 
-            self.csv_file = csv_file  
-            
-        zipORrar_ex  = os.path.splitext(self.zip_or_rar_file )[1]
-        self.zip_or_rar_file=self.zip_or_rar_file.replace(zipORrar_ex, '')
+        import_optional_dependency("requests")
+        import requests 
         
-        # file is in zip #'/__tar.tgz_files__/___fmain.bagciv.data.csv'
-        raw_location = self.zip_or_rar_file + self.csv_file 
-        zipdir = os.path.dirname (self.f)
-        
-        if zipORrar_ex=='.zip':
-            try : 
-                # CSV_FILENAME[1:]= '__tar.tgz_files__/___fmain.bagciv.data.csv',
-                zip_location= os.path.join(zipdir, self.zip_or_rar_file +'.zip') 
-                fetchSingleZIPData(zip_file= zip_location, zipdir = zipdir , 
-                                   file_to_extract=self.csv_file[1:],
-                                   savepath=zipdir, 
-                                   rename_outfile=os.path.basename (self.f) ,
-                                   verbose= self.verbose 
-                                   )
-            except : 
-                raise OSError(f"Unzip {self.zip_or_rar_file +'.zip'}!r> failed."
-                              'Please try again.')
-     
-        elif zipORrar_ex=='.rar':
-            fetchSingleRARData(zip_file = self.zip_or_rar_file, 
-                               file_to_extract= raw_location, 
-                       zipdir =zipdir )
-            #'/___fmain.bagciv.data.csv'):
-        if os.path.isfile (zipdir + '/' + os.path.basename(self.csv_file)): 
-            os.rename(zipdir + '/' + os.path.basename(self.csv_file),
-                      zipdir + '/' + os.path.basename (self.f) #'main.bagciv.data.csv'
-                      )
+        try:
+            response = requests.get(file_url)
+            if response.status_code == 200:
+                with open(self.f, 'wb') as file:
+                    file.write(response.content)
+                return True
+        except requests.RequestException as e:
+            _logger.error(f"Request error: {e}")
+        return False
 
-        # Ascertain the file
-        f0 = self._fromlocal(zipdir + '/' + os.path.basename (self.f))
-        if f0 ==zipdir + '/' + os.path.basename (self.f):
-            print(f"+++ -> Extraction of {'/' + os.path.basename (self.f)} complete!")
-            
-        return f0 
-    
+    def from_local_machine(self, f: str = None) -> bool:
+        """
+        Check whether the local file exists and return file name.
 
-def fetchSingleRARData(
-        zip_file :str ,
-        member_to_extract:str,
-        zipdir: str , 
-        verbose: False, 
-        )-> None:
-    """ RAR archived file domwloading process."""
-    
-    rarmsg = ["--> Please wait while using `rarfile` module to "
-              f"<{zip_file}> decompressing...", 
-              "--> Please wait while using `unrar` module to "
-              f"<{zip_file}> decompressing..."]
-    
-    for i, name in enumerate('rarfile', 'unrar'):
-        installation_succeeded =False 
-        try :
-            if i==0: 
-                import rarfile
-            elif i==1: 
-                from unrar import rarfile
-        except : 
+        It also reads and extracts .tgz and .tar files if they exist locally.
+
+        Parameters
+        ----------
+        f : str
+            Path-like object representing the main file containing the data.
+
+        Returns
+        -------
+        bool
+            True if the file or extracted file is available, False otherwise.
+        """
+        if f is not None:
+            self.f = f
+
+        if os.path.isfile(self.f):
+            return True
+
+        return self._attempt_extract_tgz_or_tar()
+
+    def _attempt_extract_tgz_or_tar(self) -> bool:
+        """
+        Attempt to extract a .tgz or .tar file locally to find the required file.
+
+        This method also displays a progress bar during the extraction process.
+
+        Returns
+        -------
+        bool
+            True if the extraction is successful and the required file is found, 
+            False otherwise.
+        """
+        import_optional_dependency("tarfile")
+        import tarfile 
+        if self.tgz_file and os.path.isfile(self.tgz_file):
             try:
-                print(f"---> {name!r} is installing. Please wait ...")
-                is_installing(name)
-            except : 
-                print("--> Failed to install {name!r} module !")
-                if name =='unrar': 
-                    print("---> Couldn't find path to unrar library. Please refer"
-                          " to https://pypi.org/project/unrar/ and download the "
-                          "UnRAR library. src: http://www.rarlab.com/rar/unrarsrc-5.2.6.tar.gz "
-                          "or  src(Window): (http://www.rarlab.com/rar/UnRARDLL.exe)."
-                          )
-                    raise  ExtractionError (
-                       "Fail to install UnrarLibrary!") 
-                continue 
-            else :
-                _logger.info(f"Intallation of {name!r} was successfully done!") 
-                print(f"---> Installing of {name!r} is sucessfully done!")
-                installation_succeeded=True 
-    
-        if installation_succeeded : 
-            print(f"---> Please wait while `<{zip_file+'.rar'}="
-                  "main.bagciv.data.csv>`is unraring...")
-        # rarfile.RarFile.(os.path.join(zipdir, zip_file +'.rar'))
-        _logger.info("Extract {os.path.basename(CSV_FILENAME)!r}"
-                      " from {zip_file + '.rar'} file.")
-        #--------------------------work on the rar extraction since -----------
-        # rar can not extract larger file excceed fo 50
-        # we are working to find the way to automatically decompressed rarfile.
-        # and keep it to the local directory.
-        print(rarmsg[i])
-        decompress_succeed =False 
-        try : 
-            with rarfile.RarFile(os.path.join(zipdir,
-                                              zip_file +'.rar'))as rar_ref:
-                rar_ref.extract(member=member_to_extract, path = zipdir)
-        except :
-            print("--> Failed the read enough data: req=33345 got>=52 files.")
-            import warnings
-            warnings.warn("Minimal Rar version needed for decompressing. "
-                "As (major*10 + minor), so 2.9 is 29.RAR3: 10, 20, 29"
-                "RAR5 does not have such field in archive, it’s simply"
-                  " set to 50."
-                )
-            continue 
-        else : decompress_succeed=True 
-        
-        if decompress_succeed:
-            break 
-        
-    if not decompress_succeed:    
-    
-        print(f"---> Please unrar the <{zip_file!r}> with an appropriate !"
-              " software. Failed to read enough data more than 50. ")      
-        raise  ExtractionError (
-            "Failed the read enough data: req=33345 got>=52 files.")
-     
-    # rarfile.RarFile().extract(member=raw_location, path = zipdir)
-    #----------------------------------------------------------------------
-    if decompress_succeed:
-        print(f"---> Unraring the `{zip_file}=main.bagciv.data.csv`"
-          "was successfully done.")
-        
-def fetchSingleZIPData(
-        zip_file:str,
-        zipdir:str, 
-        **zip_kws 
-        )-> None: 
-    """ Find only the archived zip file and save to the current directory.
-    
-    Parameters 
-    -----------
-    zip_file: str or Path-like obj 
-        Name of archived zip file
-    zipdir : str or Path-like obj 
-        Directory where `zip_file` is located. 
-        
-    Examples
-    --------
-    >>> from gofast.datasets.property import fetchSingleZIPData
-    >>> fetchSingleZIPData(zip_file= zip_file, zipdir = zipdir, 
-         file_to_extract='__tar.tgz_files__/___fmain.bagciv.data.csv',
-        savepath=save_zip_file, rename_outfile='main.bagciv.data.csv')
+                with tarfile.open(self.tgz_file, 'r:*') as tar:
+                    members = tar.getmembers()
+                    # Setting up the progress bar
+                    with tqdm(total=len(members), desc="Extracting",
+                              unit="file", ascii=True, leave=False, ncols=77) as pbar:
+                        for member in members:
+                            tar.extract(member, path=os.path.dirname(self.f))
+                            pbar.update(1)
+                extracted_file = os.path.join(os.path.dirname(self.f),
+                                              os.path.basename(self.f))
+                if os.path.isfile(extracted_file):
+                    _logger.info(f"Successfully decompressed and found {extracted_file}.")
+                    self.f = extracted_file
+                    return True
+            except Exception as e:
+                _logger.error(f"Failed to decompress {self.tgz_file}: {e}")
+
+        return False
+
+def extract_and_move_archive_file(
+        archive_file: str, target_file: str, destination_dir: str, 
+        new_name: str = None) -> str:
     """
-    
-    is_zip_file = os.path.isfile(zip_file)
-    if not is_zip_file: 
-        raise FileNotFoundError(f"{os.path.basename(zip_file)!r} is wrong file!"
-                                " Please provide the right file.")
-    #ZipFile.extractall(path=None, members=None, pwd=None)
-    # path: location where zip file needs to be extracted; if not 
-    #     provided, it will extract the contents in the current
-    #     directory.
-    # members: list of files to be extracted. It will extract all 
-    #     the files in the zip if this argument is not provided.
-    # pwd: If the zip file is encrypted, then pass the password in
-    #     this argument default is None.
-    # remove the first '/'--> 
-    if not os.path.isfile(zip_file): 
-        zip_file=os.path.join(zipdir, zip_file)
-        
-    with zipfile.ZipFile(zip_file,'r') as zip_ref:
-        # try : 
-            # extract in the current directory 
-            fetchedfile = retrieveZIPmember(zip_ref, **zip_kws ) 
-        # except : 
-        #     raise  ExtractionError (
-        #     f"Unable to retreive file from zip {zip_file!r}")
-        # print(f"---> Dataset={os.path.basename(fetchedfile)!r} "
-        #       "was successfully retreived.")
-            
-    
-def retrieveZIPmember(
-        zipObj, *, 
-        file_to_extract:str ='__tar.tgz_files__/___fmain.bagciv.data.csv',
-        savepath: Optional[str] =None, 
-        rename_outfile: str ='main.bagciv.data.csv' 
-        ) -> str: 
-    """ Retreive  member from zip and collapse the extracted directory by "
-    "saving into a  new  directory
-    
+    Extract a specific file from a ZIP or RAR archive and optionally rename it.
+
     Parameters
-    -----------
-    ZipObj: Obj zip 
-        Reference zip object 
-    file_to_extract:str or Path-Like Object 
-        File to extract existing in zip archived. It should be a name list 
-        of archived file. 
-    savepath: str or Path-Like obj 
-        Destination path after fetching the single data from zip archive.
-        
-    rename_outfile:str or Path-Like obj 
-        Rename the `file_to_extract` if think it necessary. 
-    
+    ----------
+    archive_file : str
+        Path to the .zip or .rar archive.
+    target_file : str
+        File to extract from the archive.
+    destination_dir : str
+        Directory where the extracted file will be placed.
+    new_name : str, optional
+        New name for the extracted file.
+
     Returns
-    --------
-        The name of path retreived. If file is renamed than shoud take it 
-        new names.
+    -------
+    str
+        Path to the extracted (and possibly renamed) file.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the archive file does not exist.
+    ValueError
+        If the archive format is not supported.
+
+    Example
+    -------
+    >>> from gofast.datasets.rload import extract_and_move_archive_file 
+    >>> extract_and_move_archive_file('path/to/archive.zip', 'file_inside.zip',
+                                      'destination_dir', 'new_file_name.csv')
+    'destination_dir/new_file_name.csv'
     """
-    if savepath is None: 
-        savepath =os.getcwd()
-    if not os.path.isdir(savepath) :
-        os.makedirs(savepath)
-    
-    
-    if file_to_extract in zipObj.namelist(): 
-        member2extract=zipObj.getinfo(file_to_extract)
-        zipObj.extractall(members = [member2extract])
-        
-        shutil.move (os.path.join(os.getcwd(), file_to_extract), savepath)
-        # destroy the previous path 
-        if savepath != os.path.join(os.getcwd(),
-                                    os.path.dirname(file_to_extract)): 
-            # detroy the root if only if the savepath is different 
-            # from the raw then extract member into the directory created.
-            shutil.rmtree(os.path.join(os.getcwd(),
-                                   os.path.dirname(file_to_extract)))
-        
-        if rename_outfile is not None: 
-            os.rename(os.path.join(savepath, 
-                                   os.path.basename (file_to_extract)), 
-                      os.path.join(savepath, rename_outfile))
-        elif rename_outfile is None: 
-            rename_outfile= os.path.basename(file_to_extract)
-            
-    print(f"---> {rename_outfile!r} was successfully decompressed"
-          f"  and saved to {savepath!r}"
-          )
-    
-    return rename_outfile 
- 
-def move_file(filename:str , directory:str )-> str: 
-    if os.path.isfile(filename):
-        shutil.move(filename, directory)
+    if not os.path.isfile(archive_file):
+        raise FileNotFoundError(f"Archive file not found: {archive_file}")
+
+    _, ext = os.path.splitext(archive_file)
+    extracted_file_path = None
+
+    if ext.lower() == '.zip':
+        extracted_file_path = extract_from_zip(archive_file, target_file, destination_dir)
+    elif ext.lower() == '.rar':
+        extracted_file_path = extract_from_rar(archive_file, target_file, destination_dir)
+    else:
+        raise ValueError("Unsupported archive format")
+
+    if new_name:
+        new_path = os.path.join(destination_dir, new_name)
+        shutil.move(extracted_file_path, new_path)
+        return new_path
+
+    return extracted_file_path
+
+def extract_from_zip(zip_file: str, file_to_extract: str, destination: str) -> str:
+    """
+    Extract a single file from a ZIP archive.
+
+    Parameters
+    ----------
+    zip_file : str
+        Path to the ZIP file.
+    file_to_extract : str
+        File to extract from the ZIP archive.
+    destination : str
+        Destination directory for the extracted file.
+
+    Returns
+    -------
+    str
+        Path to the extracted file.
+
+    Example
+    -------
+    >>> from gofast.datasets.rload import extract_from_zip
+    >>> extract_from_zip('path/to/archive.zip', 'file_inside.zip', 'destination_dir')
+    'destination_dir/file_inside.zip'
+    """
+    with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+        zip_ref.extract(file_to_extract, destination)
+        return os.path.join(destination, file_to_extract)
+
+def extract_from_rar(rar_file: str, file_to_extract: str, destination: str) -> str:
+    """
+    Extract a single file from a RAR archive.
+
+    Parameters
+    ----------
+    rar_file : str
+        Path to the RAR file.
+    file_to_extract : str
+        File to extract from the RAR archive.
+    destination : str
+        Destination directory for the extracted file.
+
+    Returns
+    -------
+    str
+        Path to the extracted file.
+
+    Example
+    -------
+    >>> from gofast.datasets.rload import extract_from_rar
+    >>> extract_from_rar('path/to/archive.rar', 'file_inside.rar', 'destination_dir')
+    'destination_dir/file_inside.rar'
+    """
+    import_optional_dependency("rarfile")
+    import rarfile 
+    with rarfile.RarFile(rar_file, 'r') as rar_ref:
+        rar_ref.extract(file_to_extract, destination)
+        return os.path.join(destination, file_to_extract)
+
+def move_data(source: str, destination: str) -> None:
+    """
+    Move a data file from one location to another.
+
+    Parameters
+    ----------
+    source : str
+        Path to the source file.
+    destination : str
+        Path to the destination directory.
+
+    Returns
+    -------
+    None
+
+    Example
+    -------
+    >>> from gofast.datasets.rload import move_data
+    >>> move_data('path/to/source_file.txt', 'path/to/destination_dir')
+    """
+
+    if os.path.isfile(source):
+        shutil.move(source, destination)
+        _logger.info(f"File {source} moved to {destination}")
+    else:
+        _logger.error(f"File not found: {source}")

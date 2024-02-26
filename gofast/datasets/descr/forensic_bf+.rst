@@ -8,7 +8,7 @@ Forensic BF+ Dataset
     :Number of Instances: 472
     :Number of Attributes: 26
     :Attribute Information:
-        - timestamp
+        - date
         - gender
         - age
         - education_level
@@ -40,7 +40,7 @@ Forensic BF+ Dataset
     ============== ==== ==== ======= ===== ====================
                     Count  Missing Values
     ============== ==== ==== ======= ===== ====================
-    timestamp      472   0           
+    date           472   0           
     gender         472   0           
     age            472   0           
     education_lev  472   0           

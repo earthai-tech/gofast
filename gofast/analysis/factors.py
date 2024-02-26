@@ -30,7 +30,7 @@ from sklearn.covariance import LedoitWolf
 from sklearn.model_selection import cross_val_score
 
 from ..tools.validator import check_array 
-from ..tools.funcutils import _assert_all_types 
+from ..tools.coreutils import _assert_all_types 
 from .._docstring import _core_docs
 from .._typing import ArrayLike 
 

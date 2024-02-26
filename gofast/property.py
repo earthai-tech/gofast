@@ -22,7 +22,6 @@ from abc import (
 import pandas as pd 
 
 
-
 __all__ = [ 
     "BasePlot", 
     "Config", 
@@ -408,21 +407,21 @@ class Config:
     def geo_rocks_properties(self ):
         """ Get some sample of the geological rocks. """
         return {
-             "hard rock" :            [1e99,1e6 ],
-             "igneous rock":              [1e6, 1e3], 
+             "hard rock" :                 [1e99,1e6 ],
+             "igneous rock":               [1e6, 1e3], 
              "duricrust"   :               [5.1e3 , 5.1e2],
              "gravel/sand" :               [1e4  , 7.943e0],
              "conglomerate"    :           [1e4  , 8.913e1],
              "dolomite/limestone" :        [1e5 ,  1e3],
-            "permafrost"  :                [1e5  , 4.169e2],
-             "metamorphic rock" :         [5.1e2 , 1e1],
+             "permafrost"  :               [1e5  , 4.169e2],
+             "metamorphic rock" :          [5.1e2 , 1e1],
              "tills"  :                    [8.1e2 , 8.512e1],
              "standstone conglomerate" :   [1e4 , 8.318e1],
              "lignite/coal":               [7.762e2 , 1e1],
              "shale"   :                   [5.012e1 , 3.20e1],
              "clay"   :                    [1e2 ,  5.012e1],
              "saprolite" :                 [6.310e2 , 3.020e1],
-             "sedimentary rock":          [1e4 , 1e0],
+             "sedimentary rock":           [1e4 , 1e0],
              "fresh water"  :              [3.1e2 ,1e0],
              "salt water"   :              [1e0 , 1.41e0],
              "massive sulphide" :          [1e0   ,  1e-2],
@@ -461,8 +460,8 @@ class Config:
                 *   - stars
         """
         return  {
-             "hard rock" :      ['.+++++.', (.25, .5, .5)],
-             "igneous rock":        ['.o.o.', (1., 1., 1.)], 
+             "hard rock" :           ['.+++++.', (.25, .5, .5)],
+             "igneous rock":         ['.o.o.', (1., 1., 1.)], 
              "duricrust"   :         ['+.+',(1., .2, .36)],
              "gravel" :              ['oO',(.75,.86,.12)],
              "sand":                 ['....',(.23, .36, .45)],
@@ -470,7 +469,7 @@ class Config:
              "dolomite" :            ['.-.', (0., .75, .23)],
              "limestone" :           ['//.',(.52, .23, .125)],
             "permafrost"  :          ['o.', (.2, .26, .75)],
-             "metamorphic rock" :   ['*o.', (.2, .2, .3)],
+             "metamorphic rock" :    ['*o.', (.2, .2, .3)],
              "tills"  :              ['-.', (.7, .6, .9)],
              "standstone ":          ['..', (.5, .6, .9)],
              "lignite coal":         ['+/.',(.5, .5, .4)],
@@ -478,7 +477,7 @@ class Config:
              "shale"   :             ['=', (0., 0., 0.7)],
              "clay"   :              ['=.',(.9, .8, 0.8)],
              "saprolite" :           ['*/',(.3, 1.2, .4)],
-             "sedimentary rock":    ['...',(.25, 0., .25)],
+             "sedimentary rock":     ['...',(.25, 0., .25)],
              "fresh water"  :        ['.-.',(0., 1.,.2)],
              "salt water"   :        ['o.-',(.2, 1., .2)],
              "massive sulphide" :    ['.+O',(1.,.5, .5 )],

@@ -159,7 +159,8 @@ from typing import (
     NamedTuple,
     NewType, 
     TypeGuard, 
-    TypedDict
+    TypedDict, 
+    Generator
 )
 
 
@@ -198,6 +199,7 @@ __all__ = [
     "_TypedDict",
     "TypeGuard",  
     "TypedDict", 
+    "Generator"
 ]
 
 _T = TypeVar('_T')
@@ -208,7 +210,7 @@ N = TypeVar('N', bound=int)
 U = TypeVar('U')
 D = TypeVar('D', bound='DType')
 S = TypeVar('S', bound='Shape')
-
+# ArrayLike = Union[Sequence, np.ndarray, pd.Series, pd.DataFrame]
 class AddShape(Generic[S]): 
     """
     Represents an additional dimension for shapes beyond two dimensions.
@@ -374,6 +376,33 @@ class _TypedDict(TypedDict):
         ...     age: int
         >>> def check_typed_dict(d: MyDict): ...
     """
+    
+
+class BeautifulSoupTag(Generic[_T]):
+    """
+    A type hint for BeautifulSoup Tag objects, meant to provide clearer 
+    documentation and usage within type-checked Python code. This class does 
+    not implement functionality but serves as a type hint for functions or 
+    methods that expect or return BeautifulSoup Tag objects.
+
+    The generic type T is illustrative, representing the type of data expected
+    to be extracted from the Tag, such as strings for text, although
+    BeautifulSoup does not enforce this directly.
+
+    Example:
+        >>> from bs4 import BeautifulSoup
+        >>> def get_tag_text(tag: BeautifulSoupTag[str]) -> str:
+        ...     return tag.get_text()
+
+        >>> soup = BeautifulSoup('<p>Hello, world!</p>', 'html.parser')
+        >>> p_tag = soup.find('p')
+        >>> text = get_tag_text(p_tag)
+        >>> print(text)
+        Hello, world!
+    """
+    
+
+
 if __name__ == '__main__':
     # Test cases demonstrating the usage of defined generic types.
     ...

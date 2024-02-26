@@ -72,8 +72,8 @@ except NameError:
 if __GOFAST_SETUP__:
     sys.stderr.write("Partial import of gofast during the build process.\n")
 else:
-    from . import _distributor_init  # noqa: F401
-    from . import _build  # noqa: F401
+    # from . import _distributor_init  # noqa: F401
+    # from . import _build  # noqa: F401
     from .tools._show_versions import show_versions
 #https://github.com/pandas-dev/pandas
 # Let users know if they're missing any of our hard dependencies
@@ -102,22 +102,6 @@ with warnings.catch_warnings():
     warnings.filterwarnings(action='ignore', category=UserWarning)
     import sklearn 
 
-from .datasets import ( 
-    fetch_data, 
-    ) 
-
-from .tools import ( 
-    read_data,
-    cleaner, 
-    reshape, 
-    to_numeric_dtypes, 
-    smart_label_classifier,
-    select_features, 
-    soft_imputer, 
-    soft_scaler,  
-    make_pipe, 
-    bi_selector, 
-    )
 
 def setup_module(module):
     """Fixture for the tests to assure globally controllable seeding of RNGs"""
@@ -164,16 +148,5 @@ analysis, processing, and modeling.
 __all__ = [ 
     'show_versions',
     'sklearn',
-    'fetch_data', 
-    'read_data',
-    'cleaner', 
-    'reshape', 
-    'to_numeric_dtypes', 
-    'smart_label_classifier',
-    'select_features', 
-    'soft_imputer', 
-    'soft_scaler',  
-    'make_pipe', 
-    'bi_selector', 
     ]
 

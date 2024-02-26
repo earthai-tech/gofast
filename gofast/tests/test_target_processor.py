@@ -5,7 +5,7 @@ import pandas as pd
 import importlib.util
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from gofast.base import TargetProcessor
-from gofast.tools.funcutils import reshape 
+from gofast.tools.coreutils import reshape 
 # Sample data for testing
 y_binary = np.array([0, 1, 0, 1])
 y_multiclass = np.array(['A', 'B', 'C', 'A'])

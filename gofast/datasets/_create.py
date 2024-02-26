@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
-#   Author: LKouadio
+#   Author: LKouadio <etanoyau@gmail.com>
 """
 Created on Thu Dec 21 14:43:09 2023
 @author: a.k.a Daniel
@@ -15,9 +15,9 @@ from sklearn.model_selection import train_test_split
 from ..tools._dependency import import_optional_dependency 
 from ..tools.baseutils import run_shell_command, remove_target_from_array
 from ..tools.box import Boxspace 
-from ..tools.funcutils import ellipsis2false ,assert_ratio, is_iterable 
-from ..tools.funcutils import is_in_if, _assert_all_types,  add_noises_to 
-from ..tools.funcutils import smart_format, reshape 
+from ..tools.coreutils import ellipsis2false ,assert_ratio, is_iterable 
+from ..tools.coreutils import is_in_if, _assert_all_types,  add_noises_to 
+from ..tools.coreutils import smart_format # , reshape 
 from ._globals import AFRICAN_COUNTRIES 
 from ._globals import COMMON_PESTICIDES, COMMON_CROPS 
 from ._globals import WATER_QUAL_NEEDS, WATER_QUAN_NEEDS, SDG6_CHALLENGES
@@ -25,16 +25,32 @@ from ._globals import ORE_TYPE, EXPLOSIVE_TYPE, EQUIPMENT_TYPE
 
 
 def make_classification(
-    n_samples=70,
-    n_features=7, *,
+    n_samples=100,
+    n_features=20, *,
     n_classes=2,
     n_labels=1,
-    noise=0.1, 
+    noise=0.0, 
     bias=0.0, 
     scale=None, 
     class_sep=1.0,
+    n_informative=2,
+    n_redundant=2,
+    n_repeated=0,
+    n_clusters_per_class=2,
+    weights=None,
+    flip_y=0.01,
+    hypercube=True,
+    shift=0.0,
+    shuffle=True,
+    length=50,
+    allow_unlabeled=True,
+    sparse=False,
+    return_indicator="dense",
+    return_distributions=False,
+    return_X_y=True, 
     as_frame=False, 
-    return_X_y=False, 
+    feature_columns=None, 
+    target_columns=None,
     split_X_y=False, 
     test_size=0.3, 
     nan_percentage=None, 
@@ -45,47 +61,180 @@ def make_classification(
     Generate synthetic classification data for testing classification 
     algorithms. 
     
-    Funtion supports multilabel classification task.
+    Funtion supports multilabel classification task. It similary runs as 
+    scikit-learn `make_classification` and `make_multilabel_classification`
+    datasets.
 
     `make_classification` is designed to create datasets suitable for evaluating 
     and testing different classification algorithms. It allows control over the 
     number of classes, features, and offers various options for data scaling.
+    
+    This function generates a dataset by initially creating clusters centered 
+    around the vertices of an ``n_informative``-dimensional hypercube. The sides 
+    of this hypercube have a length of ``2*class_sep``, and clusters are 
+    distributed normally with a standard deviation of 1. Each class is 
+    assigned an equal number of clusters, introducing interdependencies 
+    among the generated features. Additionally, the function incorporates 
+    various types of noise to further diversify the data.
+
+    Feature composition in the dataset `X` is as follows, without shuffling:
+        
+    - The first `n_informative` features are the primary informative features.
+    - These are followed by `n_redundant` features, which are linear combinations
+      of the informative features.
+    - Next, `n_repeated` features are included, which are duplicates randomly 
+      selected with replacement from both informative and redundant features.
+    - The remainder of the features consist of random noise.
+    
+    Therefore, in the unshuffled dataset, all informative and potentially 
+    useful features are located within the columns 
+    ``X[:, :n_informative + n_redundant + n_repeated]``, providing a structured 
+    approach to evaluating feature relevance and redundancy.
 
     Parameters
     ----------
-    n_samples : int, default=70
+    n_samples : int, default=100
         Number of samples to generate in the dataset.
-    n_features : int, default=7
-        Number of features for each sample.
+        
+    n_features : int, default=20
+        Number of features for each sample. These comprise ``n_informative``
+        informative features, ``n_redundant`` redundant features,
+        ``n_repeated`` duplicated features and
+        ``n_features-n_informative-n_redundant-n_repeated`` useless features
+        drawn at random.
+        
     n_classes : int, default=2
         Number of distinct classes or labels in the dataset.
+        
     n_labels : int, default=1
         Number of labels per instance for multilabel classification.
-        For n_labels > 1, the output y will be a 2D array with multiple 
-        labels per instance.
+        For n_labels > 1, the output y will be a 2D array  with multiple 
+        labels per instance. `y` should be a sparse matrices if 
+        `return_indicator` is set to ``sparse``.
+        
     noise : float, default=0.1
         Standard deviation of Gaussian noise added to the output.
     bias : float, default=0.0
         Bias term to be added to the output.
+        
     scale : str or None, default=None
         Method used to scale the dataset. Options are 'standard', 'minmax',
-        and 'normalize'.
-        If None, no scaling is applied.
+        and 'normalize'. If None, no scaling is applied.
+        
     class_sep : float, default=1.0
         Factor multiplying the hypercube size. Larger values spread out 
         the classes.
+    
+    n_informative : int, default=2
+        The number of informative features. Each class is composed of a number
+        of gaussian clusters each located around the vertices of a hypercube
+        in a subspace of dimension ``n_informative``. For each cluster,
+        informative features are drawn independently from  N(0, 1) and then
+        randomly linearly combined within each cluster in order to add
+        covariance. The clusters are then placed on the vertices of the
+        hypercube. 
+        
+    n_redundant : int, default=2
+        The number of redundant features. These features are generated as
+        random linear combinations of the informative features.
+
+    n_repeated : int, default=0
+        The number of duplicated features, drawn randomly from the informative
+        and the redundant features.
+
+    n_classes : int, default=2
+        The number of classes (or labels) of the classification problem.
+
+    n_clusters_per_class : int, default=2
+        The number of clusters per class.
+
+    weights : array-like of shape (n_classes,) or (n_classes - 1,),\
+              default=None
+        The proportions of samples assigned to each class. If None, then
+        classes are balanced. Note that if ``len(weights) == n_classes - 1``,
+        then the last class weight is automatically inferred.
+        More than ``n_samples`` samples may be returned if the sum of
+        ``weights`` exceeds 1. Note that the actual class proportions will
+        not exactly match ``weights`` when ``flip_y`` isn't 0.
+
+    flip_y : float, default=0.01
+        The fraction of samples whose class is assigned randomly. Larger
+        values introduce noise in the labels and make the classification
+        task harder. Note that the default setting flip_y > 0 might lead
+        to less than ``n_classes`` in y in some cases.
+
+    class_sep : float, default=1.0
+        The factor multiplying the hypercube size.  Larger values spread
+        out the clusters/classes and make the classification task easier.
+
+    hypercube : bool, default=True
+        If True, the clusters are put on the vertices of a hypercube. If
+        False, the clusters are put on the vertices of a random polytope.
+
+    shift : float, ndarray of shape (n_features,) or None, default=0.0
+        Shift features by the specified value. If None, then features
+        are shifted by a random value drawn in [-class_sep, class_sep].
+
+    scale : float, ndarray of shape (n_features,) or None, default=1.0
+        Multiply features by the specified value. If None, then features
+        are scaled by a random value drawn in [1, 100]. Note that scaling
+        happens after shifting.
+
+    n_labels : int, default=2
+        The average number of labels per instance. More precisely, the number
+        of labels per sample is drawn from a Poisson distribution with
+        ``n_labels`` as its expected value, but samples are bounded (using
+        rejection sampling) by ``n_classes``, and must be nonzero if
+        ``allow_unlabeled`` is False.
+
+    length : int, default=50
+        The sum of the features (number of words if documents) is drawn from
+        a Poisson distribution with this expected value.
+
+    allow_unlabeled : bool, default=True
+        If ``True``, some instances might not belong to any class.
+
+    sparse : bool, default=False
+        If ``True``, return a sparse feature matrix.
+
+    return_indicator : {'dense', 'sparse'} or False, default='dense'
+        If ``'dense'`` return ``Y`` in the dense binary indicator format. If
+        ``'sparse'`` return ``Y`` in the sparse binary indicator format.
+        ``False`` returns a list of lists of labels. If `as_frame` is ``True``, 
+        it is ignored when `return_indicator=='sparse'`
+        
+    return_distributions : bool, default=False
+        If ``True``, return the prior class probability and conditional
+        probabilities of features given classes, from which the data was
+        drawn.
+
+    shuffle : bool, default=True
+        Shuffle the samples and the features.
+        
+    return_X_y : bool, default=True
+         If True, returns (data, target) instead of a single array.
+         
     as_frame : bool, default=False
         If True, the data is returned as a pandas DataFrame.
-    return_X_y : bool, default=False
-        If True, returns (data, target) instead of a single array.
+        
+    feature_columns, target_columns : list of str, optional
+        Custom names for the feature and target columns when `as_frame=True`. 
+        If omitted, feature columns are named as `feature_<index>` and 
+        target columns as `target_<index>` for multilabel classsification tasks. 
+        For a single target in a Series, it is named `target`. This allows for 
+        intuitive identification and access within the generated DataFrame.
+
     split_X_y : bool, default=False
         If True, the dataset is split into training and testing sets based on
         `test_size`.
+        
     test_size : float, default=0.3
         Proportion of the dataset to include in the test split.
+        
     nan_percentage : float or None, default=None
         The percentage of values to be replaced with NaN in each column. 
         This must be a number between 0 and 1.
+        
     seed : int, np.random.RandomState instance, or None, default=None
         Determines random number generation for dataset creation. Pass an int for
         reproducible output.
@@ -112,8 +261,9 @@ def make_classification(
       
     Examples
     --------
-    >>> X, y = make_classification(n_samples=100, n_features=2, scale='standard', 
-                                   n_classes=3, class_sep=2.0)
+    >>> from gofast.datasets import make_classification
+    >>> X, y = make_classification(n_samples=100, n_features=25, scale='standard', 
+                                   n_classes=2, class_sep=2.0)
     >>> X.shape, y.shape
     ((100, 2), (100,))
 
@@ -124,28 +274,78 @@ def make_classification(
     separability, making it suitable for testing the robustness of 
     classification models.
     """
-    # Set random seed for reproducibility
+    from sklearn.datasets import make_classification 
+    from sklearn.datasets import make_multilabel_classification 
+    # # Set random seed for reproducibility
     rng = np.random.RandomState(seed) if seed is not None else np.random
-    # Generate random features
-    X = rng.normal(size=(n_samples, n_features)) * class_sep
-    # Generate random labels for multilabel classification
-    y = rng.randint(0, n_classes, size=(n_samples, n_labels))
-    # Add noise and bias
-    X += noise * rng.normal(size=X.shape) + bias
+    # # Generate random features
+    # X = rng.normal(size=(n_samples, n_features)) * class_sep
+    # # Generate random labels for multilabel classification
+    # y = rng.randint(0, n_classes, size=(n_samples, n_labels))
+    
+    # Use sklearn's make_classification to generate the dataset
+    if n_labels < 2: 
+        X, y = make_classification(
+            n_samples=n_samples,
+            n_features=n_features,
+            n_informative=n_informative,
+            n_redundant=n_redundant,
+            n_repeated=n_repeated,
+            n_classes=n_classes,
+            n_clusters_per_class=n_clusters_per_class,
+            weights=weights,
+            flip_y=flip_y,
+            class_sep=class_sep,
+            hypercube=hypercube,
+            shuffle=shuffle,
+            random_state=seed,
+            # Apply scale for scikit only if float or int value. 
+            scale= 1.0 if ( scale is None or isinstance (scale, str)
+                           )  else scale 
+            **kws
+        )
+    elif n_labels >=2: 
+        XY= make_multilabel_classification( 
+            n_samples=n_samples,
+            n_features=n_features,
+            n_classes=n_classes,
+            n_labels=n_labels,
+            length=length,
+            allow_unlabeled=allow_unlabeled,
+            sparse=sparse,
+            return_indicator=return_indicator,
+            return_distributions=return_distributions,
+            random_state=seed,
+            ) 
+        if return_distributions: 
+            X, y ,  p_c, p_w_c = XY 
+        else: 
+            X, y = XY 
+            
+        if return_indicator=="sparse": 
+            return X, y 
 
     # Apply scaling if specified
-    if scale is not None:
+    if isinstance (scale , str):
         X, y = _apply_scaling(X, y, method=str(scale).lower() )
 
+    # Add noise and bias
+    X += noise * rng.normal(size=X.shape) + bias 
+    
     data = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
     
     if n_labels==1: 
-        data['target']=reshape (y[:, 0])
+        data['target']=y
     else: 
         for i in range(n_labels):
             data[f'target_{i}'] = y [:, i]       
     tnames = 'target' if n_labels ==1 else [f'target_{i}'for i in range(n_labels)]
-    return _manage_data(
+    # return X, y 
+    data = _rename_data_columns(data , feature_columns) 
+    _target= _rename_data_columns(data[tnames], target_columns ) 
+    tnames = _target.name if n_labels==1 else list(_target.columns )
+    
+    data = _manage_data(
         data,
         as_frame=as_frame, 
         tnames=tnames, 
@@ -155,6 +355,8 @@ def make_classification(
         noise=nan_percentage, 
         seed=seed
         ) 
+    return ( data,  p_c, p_w_c)  if return_distributions and n_labels >1 else data 
+
 
 def make_regression( 
     n_samples=70,
@@ -164,11 +366,13 @@ def make_regression(
     scale=None, 
     regression_type='linear', 
     as_frame=False, 
-    return_X_y=False, 
+    return_X_y=True, 
     split_X_y=False, 
     test_size=0.3, 
     target_indices=None, 
     nan_percentage=None, 
+    feature_columns=None, 
+    target_columns=None,
     seed=None, 
     **kws 
     ):
@@ -211,6 +415,12 @@ def make_regression(
     nan_percentage : float, Optional
         The percentage of values to be replaced with NaN in each column. 
         This must be a number between 0 and 1. Default is None.
+    feature_columns, target_columns : list of str, optional
+        Custom names for the feature and target columns when `as_frame=True`. 
+        If omitted, feature columns are named as `feature_<index>` and 
+        target columns as `target_<index>` for multilabel regression tasks. 
+        For a single target in a Series, it is named `target`. This allows for 
+        intuitive identification and access within the generated DataFrame.
     seed : int, np.random.RandomState instance, or None, default=None
         Determines random number generation for dataset creation. Pass an 
         int for reproducible output.
@@ -276,6 +486,11 @@ def make_regression(
     data = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
     data[tnames]=y
     
+    # return X, y 
+    data = _rename_data_columns(data , feature_columns) 
+    _target= _rename_data_columns(data[tnames], target_columns ) 
+    tnames = _target.name if len(target_indices)==1 else list(_target.columns )
+    
     return _manage_data(
         data,
         as_frame=as_frame, 
@@ -290,7 +505,7 @@ def make_regression(
 def make_social_media_comments(
     *, samples=1000, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
@@ -317,7 +532,7 @@ def make_social_media_comments(
         If `return_X_y` is True, then both `data` and `target` are returned 
         as pandas DataFrames or Series.
     
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns `(data, target)` instead of a Bowlspace object. 
         See the "Returns" section below for more information about the 
         `data` and `target` objects.
@@ -431,7 +646,7 @@ def make_african_demo(*,
     end_year=2020, 
     countries= None, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
@@ -468,7 +683,7 @@ def make_african_demo(*,
         If `return_X_y` is True, then both `data` and `target` are returned 
         as pandas DataFrames or Series.
     
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns `(data, target)` instead of a Bowlspace object. 
         See the "Returns" section below for more information about the 
         `data` and `target` objects.
@@ -591,7 +806,7 @@ def make_agronomy_feedback(*,
     num_years=5, 
     n_specimens:int =7, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
@@ -630,7 +845,7 @@ def make_agronomy_feedback(*,
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -767,7 +982,7 @@ def make_mining_ops(
     *, 
     samples=1000, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
@@ -854,7 +1069,7 @@ def make_mining_ops(
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -988,7 +1203,7 @@ def make_sounding(
     *, samples=100, 
     num_layers=5, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
@@ -1030,7 +1245,7 @@ def make_sounding(
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -1148,7 +1363,7 @@ def make_sounding(
 def make_medical_diagnosis(
     *,samples=1000, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
@@ -1182,7 +1397,7 @@ def make_medical_diagnosis(
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -1327,7 +1542,7 @@ def make_well_logging(*,
     depth_end=200., 
     depth_interval=.5, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
@@ -1364,7 +1579,7 @@ def make_well_logging(*,
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -1477,7 +1692,7 @@ def make_ert(
     samples=100, 
     equipment_type='SuperSting R8', 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
@@ -1515,7 +1730,7 @@ def make_ert(
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -1637,7 +1852,7 @@ def make_tem(
     time_range=(0.01, 10.0), 
     measurement_range=(100, 10000), 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
@@ -1673,7 +1888,7 @@ def make_tem(
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -1793,7 +2008,7 @@ def make_erp(*,
     lon_range =(-118.50, -117.00), 
     resistivity_range=(10, 1000),
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
@@ -1836,7 +2051,7 @@ def make_erp(*,
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -1961,7 +2176,7 @@ def make_elogging(
     samples=100, 
     log_levels=None, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
@@ -1994,7 +2209,7 @@ def make_elogging(
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -2112,7 +2327,7 @@ def make_gadget_sales(*,
     end_date='2022-01-10', 
     samples=500, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
@@ -2149,7 +2364,7 @@ def make_gadget_sales(*,
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -2263,7 +2478,7 @@ def make_gadget_sales(*,
 def make_retail_store(
     *, samples=1000, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
@@ -2422,7 +2637,7 @@ def make_cc_factors(
     *, samples=1000,  
     noise=.1, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
     tnames:list=None,  
     test_size:float =.3, 
@@ -2448,7 +2663,7 @@ def make_cc_factors(
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -2591,8 +2806,8 @@ def make_cc_factors(
 def make_water_demand(
     *, samples=700, 
     as_frame =..., 
-    return_X_y = ..., 
-    noise:float=None, 
+    return_X_y = True, 
+    noise=None, 
     split_X_y= ..., 
     tnames=None,  
     test_size =.3, 
@@ -2616,7 +2831,7 @@ def make_water_demand(
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -2681,7 +2896,7 @@ def make_water_demand(
      Examples
      --------
      >>> from gofast.datasets import make_water_demand 
-     >>> b = make_water_demand ()
+     >>> b = make_water_demand (return_X_y=False)
      >>> b.frame
      Out[80]: 
           Agri Demand  ...         SDG6_Challenge
@@ -2788,6 +3003,53 @@ def _apply_scaling(X, y, method):
         raise ValueError (f"Invalid scale method '{method}'. Expected"
                           f"{smart_format(scale_dict.keys(),'or')}")
     return scale_dict[method] ( X, y=y )
+
+def _rename_data_columns(data, new_columns=None):
+    """
+    Renames the columns of a pandas DataFrame or the name of a pandas Series.
+
+    This function adjusts the column names of a DataFrame or the name of a Series
+    to match the provided list of new column names. If the new column names list is
+    shorter than the number of existing columns, the remaining columns are 
+    left unchanged.
+
+    Parameters
+    ----------
+    data : pd.DataFrame or pd.Series
+        The DataFrame or Series whose columns or name are to be renamed.
+    new_columns : list or iterable, optional
+        The new column names or Series name. If None, no changes are made.
+
+    Returns
+    -------
+    pd.DataFrame or pd.Series
+        The DataFrame or Series with updated column names or name.
+
+    Example
+    -------
+    >>> import pandas as pd
+    >>> df = pd.DataFrame([[1, 2], [3, 4]], columns=['A', 'B'])
+    >>> rename_data_columns(df, ['X', 'Y'])
+       X  Y
+    0  1  2
+    1  3  4
+
+    >>> series = pd.Series([1, 2, 3], name='A')
+    >>> rename_data_columns(series, ['X'])
+    Name: X, dtype: int64
+    """
+    if new_columns is not None and hasattr(data, 'columns'):
+        # Ensure new_columns is a list and has the right length
+        new_columns = list(new_columns)
+        extra_columns = len(data.columns) - len(new_columns)
+        if extra_columns > 0:
+            # Extend new_columns with the remaining original columns if not 
+            # enough new names are provided
+            new_columns.extend(data.columns[-extra_columns:])
+        data.columns = new_columns[:len(data.columns)]
+    elif new_columns is not None and isinstance(data, pd.Series):
+        data.name = new_columns[0]
+    return data
 
 def _manage_data(
     data, /, 

@@ -3,9 +3,10 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """
-:mod:`~gofast.plot.explore` is a set of base plots for visualization, data exploratory and analyses. 
-T-E-Q Plots encompass the Exploratory plots ( :class:`~gofast.plot.QuestPlotter`) and 
-Quick analyses (:class:`~gofast.plot.EasyPlotter`) visualization. 
+:mod:`~gofast.plot.explore` is a set of base plots for visualization, data 
+exploratory and analyses. E-E-Q Plots encompass the Exploratory plots
+( :class:`~gofast.plot.QuestPlotter`) and Quick analyses 
+(:class:`~gofast.plot.EasyPlotter`) visualization. 
 """
 from __future__ import annotations 
 
@@ -26,11 +27,10 @@ from ..exceptions import PlotError, FeatureError, NotFittedError
 from ..property import BasePlot
 from ..tools._dependency import import_optional_dependency 
 from ..tools.baseutils import _is_readable
-from ..tools.funcutils import _assert_all_types , _isin,  repr_callable_obj 
-from ..tools.funcutils import smart_strobj_recognition, smart_format, reshape
-from ..tools.funcutils import  shrunkformat
-from ..tools.mlutils import existfeatures, formatGenericObj
-from ..tools.mlutils import select_features , export_target 
+from ..tools.coreutils import _assert_all_types , _isin,  repr_callable_obj 
+from ..tools.coreutils import smart_strobj_recognition, smart_format, reshape
+from ..tools.coreutils import  shrunkformat, exist_features
+from ..tools.mlutils import select_features , export_target, formatGenericObj
 from ..tools.validator import check_X_y 
 try: 
     import missingno as msno 
@@ -841,9 +841,9 @@ class QuestPlotter (BasePlot):
             self.tname = hue 
 
         if xname is not None: 
-            existfeatures( self.data, self.xname_ )
+            exist_features( self.data, self.xname_ )
         if yname is not None: 
-            existfeatures( self.data, self.yname_ )
+            exist_features( self.data, self.yname_ )
         
         # state the fig plot and change the figure size 
         sns.set(rc={"figure.figsize":self.fig_size}) #width=3, #height=4
@@ -923,7 +923,7 @@ class QuestPlotter (BasePlot):
             
         self.xname_ = xname or self.xname_ 
         
-        existfeatures(self.data, self.xname_) # assert the name in the columns
+        exist_features(self.data, self.xname_) # assert the name in the columns
         df = self.data.copy() 
        
         if str(kind).lower().strip().find('bin')>=0: 
@@ -1013,7 +1013,7 @@ class QuestPlotter (BasePlot):
         self.xname_ = xname or self.xname_ 
         xname = _assert_all_types(self.xname_,str )
         # assert whether whether  feature exists 
-        existfeatures(self.data, self.xname_)
+        exist_features(self.data, self.xname_)
     
         fig, ax = plt.subplots (figsize = self.fig_size or self.fig_size )
         self.data [self.xname_].plot(kind = kind , ax= ax  , **kws )

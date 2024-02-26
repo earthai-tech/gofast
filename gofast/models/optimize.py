@@ -1,12 +1,7 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-Created on Wed Dec 20 11:48:55 2023
-
-This script defines two functions: optimize_hyperparameters for optimizing a 
-single estimator and parallelize_estimators for handling multiple estimators 
-in parallel. The latter function also saves the best estimator and parameters 
-to disk using joblib.
+Optimizing searches helper functions
 """
 
 # import numpy as np
@@ -20,11 +15,13 @@ from sklearn.base import BaseEstimator
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 
 from .._typing import Any, Dict, List,Union, Tuple, Optional, ArrayLike
-from ..tools.funcutils import ellipsis2false , smart_format
+from ..tools.coreutils import ellipsis2false , smart_format
 from ..tools.validator import get_estimator_name 
 from ..tools.box import Boxspace 
 from .utils import get_optimizer_method, align_estimators_with_params
-from .utils import process_estimators_and_params
+
+__all__=["optimize_search", "optimize_search2", "parallelize_search", 
+         "optimize_hyperparams"]
 
 def optimize_search(
     estimators: Dict[str, BaseEstimator], 
@@ -220,7 +217,7 @@ def optimize_search2(estimators, param_grids, X, y, optimizer='GSCV',
 
     return result_dict
 
-def optimize_hyperparameters(
+def optimize_hyperparams(
     estimator, 
     param_grid, 
     X, y, 
@@ -291,7 +288,7 @@ def optimize_hyperparameters(
             optimizer.cv_results_
             )
 
-def parallelize_estimators(
+def parallelize_search(
     estimators, 
     param_grids, 
     X, y, 
@@ -348,12 +345,13 @@ def parallelize_estimators(
     >>> from sklearn.datasets import load_iris
     >>> from sklearn.svm import SVC
     >>> from sklearn.tree import DecisionTreeClassifier
+    >>> from gofast.models.optimize import parallelize_search
     >>> X, y = load_iris(return_X_y=True)
     >>> estimators = [SVC(), DecisionTreeClassifier()]
     >>> param_grids = [{'C': [1, 10], 'kernel': ['linear', 'rbf']}, 
                        {'max_depth': [3, 5, None], 'criterion': ['gini', 'entropy']}
                        ]
-    >>> o= parallelize_estimators(estimators, param_grids, X, y)
+    >>> o= parallelize_search(estimators, param_grids, X, y)
     >>> o.SVC.best_estimator_
     Out[294]: SVC(C=1, kernel='linear')
     >>> o.DecisionTreeClassifier.best_params_
@@ -366,7 +364,7 @@ def parallelize_estimators(
         futures = []
         for idx, (estimator, param_grid) in enumerate(zip(estimators, param_grids)):
             futures.append(executor.submit(
-                optimize_hyperparameters, estimator, 
+                optimize_hyperparams, estimator, 
                 param_grid, X, y, cv, scoring, optimizer, 
                 n_jobs, **kws))
 
