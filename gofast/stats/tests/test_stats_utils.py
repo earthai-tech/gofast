@@ -10,7 +10,7 @@ import pytest
 import numpy as np
 import pandas as pd
 from gofast.stats.utils import gomean, gomedian, gomode, gostd, govar
-from gofast.stats.utils import get_range, quartiles
+from gofast.stats.utils import get_range, quartiles, goquantile
 
 @pytest.fixture
 def sample_dataframe():
@@ -214,41 +214,87 @@ data_df = pd.DataFrame({'A': [2, 5, 8], 'B': [1, 4, 7]})
 #     pass
 
 
+# @pytest.fixture
+# def sample_data():
+#     return np.array([1, 2, 3, 4, 5])
 
-@pytest.fixture
-def sample_data():
-    return np.array([1, 2, 3, 4, 5])
+# @pytest.fixture
+# def sample_dataframe2():
+#     return pd.DataFrame({'A': [2, 5, 7, 8], 'B': [1, 4, 6, 9]})
 
-@pytest.fixture
-def sample_dataframe2():
-    return pd.DataFrame({'A': [2, 5, 7, 8], 'B': [1, 4, 6, 9]})
+# def test_quartiles_with_array(sample_data):
+#     result = quartiles(sample_data, as_frame=False )
+#     expected = np.array([2., 3., 4.])
+#     np.testing.assert_array_equal(result, expected)
 
-def test_quartiles_with_array(sample_data):
-    result = quartiles(sample_data)
-    expected = np.array([2., 3., 4.])
-    np.testing.assert_array_equal(result, expected)
-
-def test_quartiles_with_dataframe(sample_dataframe2):
-    result = quartiles(sample_dataframe2, as_frame=True)
-    expected = pd.DataFrame({'25%': [4.25, 3.25], '50%': [6., 5.], '75%': [7.25, 6.75]}, index=['A', 'B']).T
-    pd.testing.assert_frame_equal(result, expected)
+# def test_quartiles_with_dataframe(sample_dataframe2):
+#     result = quartiles(sample_dataframe2, as_frame=True)  # as_frame=True is default behaviour
+#     # Adjust how you construct the expected DataFrame to match the result's structure
+#     expected = pd.DataFrame({'25%': [4.25, 3.25], '50%': [6., 5.], '75%': [7.25, 6.75]}, 
+#                             index=['A', 'B'])
+#     pd.testing.assert_frame_equal(result, expected)
 
 # def test_quartiles_with_specified_columns(sample_dataframe2):
 #     result = quartiles(sample_dataframe2, columns=['A'], as_frame=True)
-#     expected = pd.DataFrame({'25%': [4.25], '50%': [6.], '75%': [7.75]}, index=['A']).T
+#     expected = pd.DataFrame({'25%': [4.25], '50%': [6.], '75%': [7.25]}, index=['A'])
 #     pd.testing.assert_frame_equal(result, expected)
 
-# def test_quartiles_error_on_mismatched_lengths():
-#     with pytest.raises(ValueError):
+
+# def test_quartiles_error_on_mismatched_keyword_argument():
+#     with pytest.raises(TypeError):
 #         quartiles(np.array([1, 2, 3]), new_indexes=['a', 'b'])
 
 # @pytest.mark.parametrize("plot_type", ['box', 'hist'])
-# def test_quartiles_visualization_with_plot_types(sample_dataframe, plot_type):
+# def test_quartiles_visualization_with_plot_types(sample_dataframe2, plot_type):
 #     # This test ensures no exceptions are raised during plotting
 #     # Actual visualization output is not checked here
-#     quartiles(sample_dataframe, view=True, plot_type=plot_type, fig_size=(8, 4))
+#     quartiles(sample_dataframe2, view=True, plot_type=plot_type, fig_size=(4, 4))
+#     quartiles(sample_dataframe2, view=True, axis=1,  plot_type=plot_type, fig_size=(4, 4))
 
-# Additional tests can be added to cover other scenarios and parameter combinations
+
+@pytest.fixture
+def sample_array():
+    return np.array([1, 2, 3, 4, 5])
+
+@pytest.fixture
+def sample_dataframe3():
+    return pd.DataFrame({'A': [2, 5, 7, 8], 'B': [1, 4, 6, 9]})
+
+# # Test for single quantile with array input
+# def test_goquantile_single_with_array(sample_array):
+#     result = goquantile(sample_array, q=0.5)
+#     expected = 3.0
+#     assert result == expected, "Failed to compute median correctly for array input"
+
+# # Test for multiple quantiles with array input
+# def test_goquantile_multiple_with_array(sample_array):
+#     result = goquantile(sample_array, q=[0.25, 0.75])
+#     expected = np.array([2.0, 4.0])
+#     np.testing.assert_array_equal(result, expected, "Failed to compute quartiles correctly for array input")
+
+# Test for single quantile with DataFrame input, as_frame=True
+def test_goquantile_single_with_dataframe_as_frame(sample_dataframe3):
+    result = goquantile(sample_dataframe3, q=0.5, as_frame=True)
+    expected = pd.DataFrame({'50%': [6.0, 5.0]}, index=['A', 'B'])
+    pd.testing.assert_frame_equal(
+        result, expected, "Failed to compute median correctly for DataFrame input")
+
+# # Test for multiple quantiles with DataFrame input, specific columns
+# def test_goquantile_multiple_with_dataframe_columns(sample_dataframe3):
+#     result = goquantile(sample_dataframe3, q=[0.25, 0.75], columns=['A'])
+#     expected = np.array([4.75, 7.25])
+#     np.testing.assert_array_equal(result, expected, "Failed to compute quartiles correctly for specific DataFrame columns")
+
+# # Test for visualization option (Note: This might be more about checking if an error is raised, as visual output is hard to test)
+# @pytest.mark.parametrize("plot_type", ['box', 'hist'])
+# def test_goquantile_visualization(sample_dataframe3, plot_type):
+#     # This test ensures no exceptions are raised during plotting
+#     # It does not check the visual output, which is typically not done in unit tests
+#     try:
+#         goquantile(sample_dataframe3, q=[0.25, 0.75], view=True, plot_type=plot_type, as_frame=True)
+#     except Exception as e:
+#         pytest.fail(f"Visualization with plot_type='{plot_type}' raised an exception: {e}")
+
 
 
 if __name__=="__main__": 

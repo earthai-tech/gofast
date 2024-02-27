@@ -29,7 +29,7 @@ from ..tools.coreutils import process_and_extract_data, to_series_if
 from ..tools.coreutils import get_colors_and_alphas
 from ..tools.funcutils import make_data_dynamic, ensure_pkg 
 from ..tools.funcutils import flatten_data_if, update_series_index 
-from ..tools.funcutils import update_index 
+from ..tools.funcutils import update_index, convert_and_format_data
 
 __all__= [ 
     "gomean", "gomedian", "gomode",  "govar", "gostd", "get_range", 
@@ -1022,7 +1022,7 @@ def quartiles(
     data: Union[ArrayLike, pd.DataFrame], 
     columns: Optional[List[str]] = None, 
     axis: int =0, 
-    as_frame: bool = False,
+    as_frame: bool = True,
     view: bool = False, 
     plot_type: str = 'box',  
     cmap: str = 'viridis', 
@@ -1111,7 +1111,7 @@ def quartiles(
     if isinstance(data, pd.DataFrame):
         data_selected = data.copy() 
         quartiles_result = data_selected.quantile(
-            [0.25, 0.5, 0.75],axis = axis, **kws)
+            [0.25, 0.5, 0.75], axis = axis,  **kws)
     else:
         data_selected = np.asarray(data)
         quartiles_result = np.percentile(
@@ -1119,51 +1119,46 @@ def quartiles(
 
     quartiles_result, view  = ensure_visualization_compatibility(
         quartiles_result, as_frame, view , func_name=quartiles )
-    
     if view:
-        _visualize_quartiles(quartiles_result, 
-            data, plot_type=plot_type, cmap=cmap, fig_size=fig_size, 
-             axis=axis )
-
+        _visualize_quartiles(quartiles_result, data, plot_type=plot_type,
+                             cmap=cmap, fig_size=fig_size, axis=axis )
     if as_frame: 
-        if isinstance(data, pd.DataFrame):
-            quartiles_result = pd.DataFrame(
-                quartiles_result, index=['25%', '50%', '75%']).T
-    # if isinstance ( data, (pd.DataFrame, pd.Series)): 
-        # update dataframe index 
-        data=update_index(
+        quartiles_result=update_index(
             quartiles_result, 
             new_indexes = ['25%', '50%', '75%'], 
             return_data= True, 
             allow_replace=True
-            )
+            ).T 
     else: 
-        quartiles_result = np.squeeze (quartiles_result) 
-        
+        quartiles_result = np.squeeze (np.asarray (quartiles_result)).T
+
     return quartiles_result 
 
 def _visualize_quartiles(
-        quartiles_result, data, plot_type, cmap, fig_size, axis=0, ):
+        quartiles_result, data, plot_type, cmap, fig_size, axis=0):
     """
     Visualizes quartiles using the specified plot type.
     """
     plt.figure(figsize=fig_size if fig_size else (10, 6))
-    _, data, cols = prepare_plot_data(quartiles_result, data , axis=axis )
-    colors, alphas = get_colors_and_alphas(cols, cmap )
+    quartiles_result, data, cols = prepare_plot_data(
+        quartiles_result, data , axis=axis )
+
+    colors, alphas = get_colors_and_alphas(
+        cols, cmap, convert_to_named_color=True)
     if plot_type == 'box':
-        if isinstance(data, pd.DataFrame):
-            data.boxplot(column=cols, grid=False, color=cmap)
+        if isinstance(quartiles_result, pd.DataFrame):
+            quartiles_result.boxplot(grid=True, color=colors[0])
         else:
-            plt.boxplot(data, patch_artist=True, 
-                        boxprops=dict(facecolor=cmap))
+            plt.boxplot(quartiles_result, patch_artist=True, 
+                        boxprops=dict(facecolor=colors[0]))
     elif plot_type == 'hist':
-        if isinstance(data, pd.DataFrame):
-            
+        if isinstance(quartiles_result, pd.DataFrame):
             for ii, col in enumerate (cols):
-                plt.hist(data[col], bins=30, alpha=alphas[ii],
+                plt.hist(quartiles_result[col], bins=30, alpha=alphas[ii],
                          label=f'{col} Distribution', color=colors [ii])
         else:
-            plt.hist(data, bins=30, alpha=0.5, color=cmap)
+            plt.hist(quartiles_result, bins=30, alpha=0.5, color=cmap)
+            
     plt.title('Data Distribution')
     plt.ylabel('Frequency' if plot_type == 'hist' else 'Value')
     plt.legend() if plot_type == 'hist' and isinstance(
@@ -1175,7 +1170,8 @@ def goquantile(
     data: Union[ArrayLike, DataFrame], 
     q: Union[float, List[float]], 
     columns: Optional[List[str]] = None, 
-    as_frame: bool = False, 
+    axis: Optional [int] = None, 
+    as_frame: bool = True, 
     view: bool = False, 
     plot_type: Optional[str] = 'box', 
     cmap: str = 'viridis', 
@@ -1183,9 +1179,10 @@ def goquantile(
     **kws):
     """
     Computes specified quantiles of numeric data provided either as an array-like 
-    structure or within a pandas DataFrame. This function is designed to offer 
-    flexibility in calculating quantiles across entire datasets or within specified 
-    columns of a DataFrame.
+    structure or within a pandas DataFrame. 
+    
+    Function is designed to offer flexibility in calculating quantiles across 
+    entire datasets or within specified columns of a DataFrame.
 
     Parameters
     ----------
@@ -1198,11 +1195,13 @@ def goquantile(
     columns : list of str, optional
         List of column names to consider for the calculation if `data` is a 
         DataFrame. If not provided, all numeric columns are considered.
-    as_frame : bool, default False
+        
+    axis : optional, {index (0), columns (1)}
+         Axis for the function to be applied on. Default is 0.
+    as_frame : bool, default=True
         Indicates whether to convert the input data to a DataFrame before 
         proceeding with the calculation. Relevant when input data is not 
         already a DataFrame.
-        
     view : bool, default False
         If True, visualizes the quartiles of the dataset along with 
         its distribution.
@@ -1229,6 +1228,7 @@ def goquantile(
 
     Examples
     --------
+    >>> import numpy as np
     >>> from gofast.stats.utils import goquantile
     >>> data_array = [1, 2, 3, 4, 5]
     >>> goquantile(data_array, q=0.5)
@@ -1254,61 +1254,84 @@ def goquantile(
     flexibility to compute quantiles for specific columns or entire datasets 
     enhances its utility in exploratory data analysis and data preprocessing.
     """
-    if isinstance(data, pd.DataFrame) and columns is not None:
-        data_selected = data[columns]
-    else:
-        data_selected = data
-    
+    axis = axis or 0
+    data_selected = data.copy() 
     # Compute the quantile or quantiles
-    if isinstance(data_selected, pd.DataFrame):
-        quantiles_result = data_selected.quantile(q, **kws)
-    else:
-        data_array = np.asarray(data_selected)
-        quantiles_result = np.quantile(data_array, q, **kws)
-
-    if as_frame:
-        if not isinstance(quantiles_result, pd.DataFrame):
-            quantiles_result = pd.DataFrame(
-                quantiles_result, index=[f'{q*100}%' for q in np.atleast_1d(q)]).T
-
-    if view:
-        _visualize_quantiles(data_selected, q, quantiles_result,
-                             plot_type=plot_type, cmap=cmap, 
-                             fig_size=fig_size, columns=columns)
-
+    quantiles_result = data_selected.quantile(q, axis=axis, **kws)
+ 
+    if view: # visualize box/hist quantiles
+        _visualize_quantiles(
+            data_selected, q, quantiles_result,
+            plot_type=plot_type, cmap=cmap, 
+            fig_size=fig_size, axis= axis
+        )
+    # update data frame indexes with string quantiles
+    quantiles_result=update_index( 
+        quantiles_result, 
+        new_indexes = [f'{q*100}%' for q in np.atleast_1d(q)], 
+        return_data= True, 
+        allow_replace=True
+        ).T 
+    # convert to series if applicable 
+    quantiles_result = convert_and_format_data(
+        quantiles_result,
+        out_as_frame =as_frame, 
+        series_name= f'{int(q*100)}%', 
+        force_array_output=True, 
+        condition = lambda s: isinstance (s, pd.Series)
+        )
+    
     return quantiles_result
 
-def _visualize_quantiles(data, q, quantiles_result, plot_type, cmap, fig_size,
-                         columns=None):
+def _visualize_quantiles(
+    data, q, 
+    quantiles_result, 
+    plot_type, 
+    cmap, 
+    fig_size,
+    axis=0 
+    ):
     """
     Visualizes the data and highlights the quantiles, based on the 
     specified plot type.
     """
     plt.figure(figsize=fig_size if fig_size else (10, 6))
+    
     q_list = np.atleast_1d(q)
+    quantiles_result, data, cols = prepare_plot_data(
+        quantiles_result, data , axis=axis )
+
+    colors, alphas = get_colors_and_alphas(
+        cols, cmap, convert_to_named_color=True)
+    
     if plot_type == 'box':
-        if isinstance(data, pd.DataFrame):
-            data.boxplot(column=columns, grid=False, color=cmap)
-        else:
-            plt.boxplot(data, patch_artist=True, 
+        try: 
+            data.boxplot( grid=False, color=cmap)
+        except: 
+            plt.boxplot(quantiles_result, patch_artist=True, 
                         boxprops=dict(facecolor=cmap))
         plt.title('Boxplot and Quantiles')
+        
     elif plot_type == 'hist':
-        if isinstance(data, pd.DataFrame):
-            for col in columns or data.columns:
-                plt.hist(data[col], bins=30, alpha=0.5,
+        try: 
+            for ii, col in enumerate (cols):
+                plt.hist(quantiles_result[col], 
+                         bins=colors[ii],
+                         alpha=colors[ii],
                          label=f'{col} Distribution',
                          color=cmap)
                 for quantile in q_list:
-                    plt.axvline(data[col].quantile(quantile),
+                    plt.axvline(quantiles_result[col].quantile(quantile),
                                 color='r', linestyle='--',
                                 label=f'{quantile*100}% Quantile')
-        else:
-            plt.hist(data, bins=30, alpha=0.5, color=cmap)
+        except: 
+            plt.hist(quantiles_result, bins=30, alpha=0.5, color=cmap)
             for quantile in q_list:
                 plt.axvline(np.quantile(data, quantile), color='r',
                             linestyle='--', label=f'{quantile*100}% Quantile')
+                
         plt.title('Histogram and Quantiles')
+        
     plt.xlabel('Value')
     plt.ylabel('Frequency')
     plt.legend()
@@ -1809,11 +1832,11 @@ def z_scores(
 
 @make_data_dynamic(capture_columns=True)
 def descriptive_stats(
-    data: Union[ArrayLike, DataFrame],
+    data: DataFrame,
     columns: Optional[List[str]] = None,
     include: Union[str, List[str]] = 'all',
     exclude: Union[str, List[str]] = None,
-    as_frame: bool = False,
+    as_frame: bool = True,
     view: bool = False, 
     plot_type: Optional[str] = 'box',   
     cmap: str = 'viridis', 
@@ -1848,7 +1871,7 @@ def descriptive_stats(
     exclude : list-like of dtypes or None (default=None), optional
         A black list of data types to exclude from the result. 
         Ignored for ArrayLike input.
-    as_frame : bool, default=False
+    as_frame : bool, default=True
         If True, the input array-like structure is converted to a Pandas DataFrame
         before calculating the descriptive statistics. This is useful if the input
         is a structured array or a sequence of sequences and you want the output
@@ -1895,26 +1918,16 @@ def descriptive_stats(
     making it a versatile tool for initial data exploration.
     """
     # Convert array-like input to DataFrame if necessary
-    # if not isinstance(data, pd.DataFrame):
-    #     if as_frame or view:
-    #         data = pd.DataFrame(
-    #             data, columns=columns if columns else range(len(data[0])))
-    #     else:
-    #         raise ValueError(
-    #             "Data must be a pandas DataFrame for 'view' and 'as_frame' options.")
-    
-    # Select specified columns if provided
-    # if columns is not None:
-    #     data = data[columns]
-    
     stats_result = data.describe(
         include=include, exclude=exclude, **kwargs)
     
     # Visualization
     if view:
+        colors, alphas = get_colors_and_alphas(
+            data.columns, cmap, convert_to_named_color= True )
         plt.figure(figsize=fig_size)
         if plot_type == 'box':
-            sns.boxplot(data=data, orient='h', palette=cmap)
+            sns.boxplot(data=data, orient='h', palette=colors[0])
             plt.title('Box Plot of Descriptive Statistics')
         elif plot_type == 'hist':
             data.plot(kind='hist', bins=30, alpha=0.6, colormap=cmap)
@@ -1928,9 +1941,14 @@ def descriptive_stats(
                 "Choose from 'box', 'hist', or 'density'.")
         plt.show()
     
+    stats_result= convert_and_format_data(
+        data, as_frame, series_name="Descr Stats", 
+        force_array_output=True, 
+        condition=lambda s: isinstance (s, pd.Series)
+        )
     return stats_result
 
-@make_data_dynamic(capture_columns=True)
+@make_data_dynamic(capture_columns=True, dynamize= False )
 def calculate_skewness(
     data: Union[ArrayLike, pd.DataFrame],
     columns: Optional[List[str]] = None,
@@ -2016,12 +2034,6 @@ def calculate_skewness(
     can indicate the need for data transformation or the use of non-parametric
     statistical methods.
     """
-    if isinstance(data, (list, np.ndarray)):
-        data = pd.DataFrame(
-            data, columns=columns if columns else range(len(data[0])))
-    # elif isinstance(data, pd.DataFrame) and columns:
-    #     data = data[columns]
-    
     # Ensuring numeric data type for calculation
     data_numeric = data.apply(pd.to_numeric, errors='coerce')
     skewness_value = data_numeric.skew(axis=0, **kwargs)
@@ -2047,7 +2059,10 @@ def calculate_skewness(
     
     return skewness_value
 
-@make_data_dynamic(capture_columns=True)
+@make_data_dynamic(
+    capture_columns=True, 
+    dynamize= False
+    )
 def calculate_kurtosis(
     data: Union[ArrayLike, DataFrame],
     columns: List[str] = None,
@@ -3833,8 +3848,8 @@ def get_columns_axis_plot ( values, data =None,  axis=None ):
     
 
 def prepare_plot_data(
-    values: Union[np.ndarray, pd.Series, pd.DataFrame],
-    data: Optional[Union[np.ndarray, pd.Series, pd.DataFrame]] = None,
+    values: ArrayLike,
+    data: Optional[ArrayLike] = None,
     axis: Optional[int] = None,
     transform: Optional[Callable[[Any], Any]] = None
 ) -> Tuple[Any, Any, Optional[Union[pd.Index, range]]]:
@@ -3904,10 +3919,6 @@ def prepare_plot_data(
 
     return values, data, None
 
-
-    
-    
-    
     
     
     

@@ -8991,81 +8991,104 @@ def decompose_colormap(cmap_name, n_colors=5):
     return colors
 
 def get_colors_and_alphas(
-        count, cmap=None, alpha_direction='decrease', start_alpha=0.1,
-        end_alpha=1.0, convert_to_named_color=True, single_color_as_string=False):
+    count, 
+    cmap=None, 
+    alpha_direction='decrease', 
+    start_alpha=0.1,
+    end_alpha=1.0, 
+    convert_to_named_color=True, 
+    single_color_as_string=False,
+    consider_alpha=False, 
+    ignore_color_names=False, 
+    color_space='rgb', 
+    error="ignore"
+):
     """
-    Generates a sequence of color codes and alpha (transparency) values. Colors 
-    can be sourced from a specified Matplotlib colormap or generated using 
-    predefined styles. Alpha values can be arranged in ascending or descending 
-    order to create a gradient effect.
+    Generates a sequence of color codes and alpha (transparency) values. 
+    
+    Colors can be sourced from a specified Matplotlib colormap or generated 
+    using predefined styles. Alpha values can be arranged in ascending or 
+    descending order to create a gradient effect.
 
-    This function also offers the option to convert a single color tuple (RGB or RGBA)
-    into the nearest Matplotlib named color. Additionally, if only one color is
-    generated, it can return that color directly as a string rather than wrapped
-    in a list, for convenience in functions that expect a single color string.
+    The function also supports converting color tuples to named colors and 
+    allows for customizing the transparency gradient. Additionally, if only 
+    one color is generated, it can return that color directly as a string
+    rather than wrapped in a list, for convenience in functions that expect a
+    single color string.
 
     Parameters
     ----------
     count : int or iterable
-        Specifies the number of colors and alpha values to generate. If an iterable
-        object is provided, the number of colors and alphas generated will match
-        its length.
+        Specifies the number of colors and alpha values to generate. If an iterable 
+        is provided, its length determines the number of colors and alphas.
     cmap : str, optional
-        Specifies the name of a Matplotlib colormap from which to generate color
-        codes. If not provided, predefined styles are used to generate colors.
-        Defaults to None.
+        The name of a Matplotlib colormap to generate colors. If None, colors are
+        generated using predefined styles. Defaults to ``None``.
     alpha_direction : str, optional
-        Determines whether the alpha values should be arranged in 'increase'ing or
-        'decrease'ing order. This can be used to create a gradient of transparency.
-        Defaults to 'decrease'.
+        Direction to arrange alpha values for creating a gradient effect. ``increase``
+        for ascending order, ``decrease`` for descending. Defaults to ``decrease``.
     start_alpha : float, optional
-        Sets the starting alpha value for the gradient range. Must be between 0
-        (fully transparent) and 1 (fully opaque). Defaults to 0.1.
+        The starting alpha value (transparency) in the gradient, between 0 (fully
+        transparent) and 1 (fully opaque). Defaults to ``0.1``.
     end_alpha : float, optional
-        Sets the ending alpha value for the gradient range. Must be between 0
-        (fully transparent) and 1 (fully opaque). Defaults to 1.0.
+        The ending alpha value in the gradient, between 0 and 1. 
+        Defaults to ``1.0``.
     convert_to_named_color : bool, optional
-        If True, and if a single color is generated as a tuple, this color will
-        be converted to the nearest named color that Matplotlib recognizes. This
-        is helpful when a human-readable color name is preferred over RGB values.
-        Defaults to True. This conversion only takes place when exactly one color
-        is generated.
+        Converts color tuples to the nearest Matplotlib named color. This 
+        conversion applies when exactly one color is generated. 
+        Defaults to ``True``.
     single_color_as_string : bool, optional
-        If True, and if only one color is generated, it will be returned as a
-        string rather than as a single-item list. This can simplify further
-        processing when only one color string is expected by subsequent code.
-        Defaults to False.
+        If True and only one color is generated, returns the color as a string 
+        instead of a list. Useful for functions expecting a single color string.
+        Defaults to ``False``.
+    consider_alpha : bool, optional
+        Includes the alpha channel in the conversion process to named colors.
+        Applicable only when `convert_to_named_color` is True. This is helpful
+        when a human-readable color name is preferred over RGB values.
+        Defaults to ``False``.
+    ignore_color_names : bool, optional
+        When True, any input color names (str) are ignored during conversion 
+        to named colors. Useful to exclude specific colors from conversion. 
+        Defaults to ``False``.
+    color_space : str, optional
+        The color space used for computing the closeness of colors. Can be 
+        ``rgb`` for RGB color space or ``lab`` for LAB color space, which is more 
+        perceptually uniform. Defaults to ``rgb``.
+    error : str, optional
+        Controls the error handling strategy when an invalid color is 
+        encountered during the conversion process. ``raise`` will throw an error,
+        while ``ignore`` will proceed without error. Defaults to ``ignore``.
 
     Returns
     -------
     tuple
-        A tuple containing either a list of RGBA color values or a single color
-        string, along with a corresponding list of alpha values.
+        A tuple containing either a list of color codes (RGBA or named color strings) 
+        and a corresponding list of alpha values, or a single color code and alpha 
+        value if `single_color_as_string` is True and only one color is generated.
 
     Examples
     --------
-    Generate 5 random colors with decreasing alpha values:
+    Generate 3 random colors with decreasing alpha values:
 
-    >>> from gofast.tools.coreutils import get_colors_and_alphas
-    >>> get_colors_and_alphas(5)
-    (['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd'], [1.0, 0.775, 0.55, 0.325, 0.1])
+    >>> get_colors_and_alphas(3)
+    (['#1f77b4', '#ff7f0e', '#2ca02c'], [1.0, 0.55, 0.1])
 
-    Generate 5 colors from the 'viridis' colormap with increasing alpha values:
+    Generate 4 colors from the 'viridis' colormap with increasing alpha values:
 
-    >>> get_colors_and_alphas(5, cmap='viridis', alpha_direction='increase')
-    (['#440154', '#3b528b', '#21918c', '#5ec962', '#fde725'], [0.1, 0.325, 0.55, 0.775, 1.0])
+    >>> get_colors_and_alphas(4, cmap='viridis', alpha_direction='increase')
+    (['#440154', '#3b528b', '#21918c', '#5ec962'], [0.1, 0.4, 0.7, 1.0])
 
-    Convert a single color tuple to a named color:
+    Convert a single generated color to a named color:
 
     >>> get_colors_and_alphas(1, convert_to_named_color=True)
-    ('blue', [1.0])
+    ('rebeccapurple', [1.0])
 
-    Get a single color string instead of a list:
+    Get a single color as a string instead of a list:
 
     >>> get_colors_and_alphas(1, single_color_as_string=True)
     ('#1f77b4', [1.0])
     """
-
+    
     if hasattr(count, '__iter__'):
         count = len(count)
     colors =[]
@@ -9082,16 +9105,87 @@ def get_colors_and_alphas(
     increase = alpha_direction == 'increase'
     alphas = generate_alpha_values(count, increase=increase,
                                    start=start_alpha, end=end_alpha)
-
+    
     # Convert tuple colors to named colors if applicable
-    if convert_to_named_color and len(colors) == 1 and isinstance(colors[0], tuple):
-        colors = [closest_color(colors[0])]
-
+    if convert_to_named_color: 
+        colors = colors_to_names(
+            *colors, consider_alpha= consider_alpha,
+            ignore_color_names=ignore_color_names,  
+            color_space= color_space, 
+            error= error,
+            )
     # If a single color is requested as a string, return it directly
     if single_color_as_string and len(colors) == 1:
+        if not convert_to_named_color: 
+            colors = [closest_color(colors[0], consider_alpha= consider_alpha, 
+                                color_space =color_space )]
         colors = colors[0]
-    
+
     return colors, alphas
+
+
+def colors_to_names(*colors, consider_alpha=False, ignore_color_names=False, 
+                    color_space='rgb', error='ignore'):
+    """
+    Converts a sequence of RGB or RGBA colors to their closest named color 
+    strings. 
+    
+    Optionally ignores input color names and handles colors in specified 
+    color spaces.
+    
+    Parameters
+    ----------
+    *colors : tuple
+        A variable number of RGB(A) color tuples or color name strings.
+    consider_alpha : bool, optional
+        If True, the alpha channel in RGBA colors is considered in the conversion
+        process. Defaults to False.
+    ignore_color_names : bool, optional
+        If True, input strings that are already color names are ignored. 
+        Defaults to False.
+    color_space : str, optional
+        Specifies the color space ('rgb' or 'lab') used for color comparison. 
+        Defaults to 'rgb'.
+    error : str, optional
+        Error handling strategy when encountering invalid colors. If 'raise', 
+        errors are raised. Otherwise, errors are ignored. Defaults to 'ignore'.
+    
+    Returns
+    -------
+    list
+        A list of color name strings corresponding to the input colors.
+
+    Examples
+    --------
+    >>> from gofast.tools.coreutils import colors_to_names
+    >>> colors_to_names((0.267004, 0.004874, 0.329415, 1.0), 
+                        (0.127568, 0.566949, 0.550556, 1.0), 
+                        consider_alpha=True)
+    ['rebeccapurple', 'mediumseagreen']
+    
+    >>> colors_to_names('rebeccapurple', ignore_color_names=True)
+    []
+    
+    >>> colors_to_names((123, 234, 45), color_space='lab', error='raise')
+    ['limegreen']
+    """
+    color_names = []
+    for color in colors:
+        if isinstance(color, str):
+            if ignore_color_names:
+                continue
+            else:
+                color_names.append(color)  # String color name is found
+        else:
+            try:
+                color_name = closest_color(color, consider_alpha=consider_alpha,
+                                           color_space=color_space)
+                color_names.append(color_name)
+            except Exception as e:
+                if error == 'raise':
+                    raise e
+                
+    return color_names
 
 def closest_color(rgb_color, consider_alpha=False, color_space='rgb'):
     """

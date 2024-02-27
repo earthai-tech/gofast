@@ -235,22 +235,26 @@ class DynamicMethod:
             data= pd.DataFrame(data)
         # Convert iterable (not DataFrame or np.ndarray) to DataFrame
         elif  hasattr(data, '__iter__') and not isinstance(
-                data, ( pd.DataFrame, np.ndarray)):  
+                data, ( pd.DataFrame, np.ndarray, pd.Series)):  
             try:
                 data =  np.array(data)
             except Exception:
                 raise ValueError(
                     "Expect the first argument to be an iterable object"
                     " with minimum samples equal 2.")
-        elif isinstance(data, np.ndarray):
+        if isinstance(data, np.ndarray):
             columns = kwargs.get('columns')
             if isinstance (columns, str): 
                 columns =[columns]
+                
             data = pd.DataFrame(data, columns=(
                 columns if columns and len(columns) == data.shape[1] else None))
             
-        # Validate DataFrame
-        elif not isinstance(data, pd.DataFrame):
+        elif isinstance ( data, pd.Series): 
+            data = pd.DataFrame ( data)
+            
+        # Finally validate  whether dataFrame if constructed.
+        if not isinstance(data, pd.DataFrame):
             raise ValueError(
                 "Input data must be a pd.DataFrame, dict, np.ndarray,"
                 " or iterable.")

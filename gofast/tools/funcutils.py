@@ -34,6 +34,23 @@ from .._gofastlog import gofastlog
 # Configure  logging
 _logger=gofastlog.get_gofast_logger(__name__)
 
+__all__=[ 
+    "compose", 
+    "memoize", 
+    "merge_dicts", 
+    "retry_operation", 
+    "flatten_list",
+    "install_package", 
+    "apply_transform", 
+    "to_pandas",
+    "flatten_data_if", 
+    "update_series_index", 
+    "update_dataframe_index", 
+    "convert_to_pandas", 
+    "update_index", 
+    "convert_and_format_data"
+  ]
+
 def curry(check_types=False, strict=False, allow_extra_args=False):
     """
     Decorator for currying a function, with options for type checking, 
@@ -2084,14 +2101,14 @@ def convert_to_pandas(
             return data
         
 def update_index(
-    data: Union[pd.Series, pd.DataFrame, list, dict, np.ndarray], 
+    data: Union[ArrayLike, list, dict], 
     new_indexes: Optional[Union[list, str]] = None, 
     axis: int = 0,
     allow_replace: bool = False, 
     return_data: bool = False, 
     on_error: str = 'ignore', 
     transform: Optional[Callable] = None, 
-    condition: Optional[ LambdaType|Callable[[Union[Series, DataFrame]], bool]] = None,
+    condition: Optional[LambdaType|Callable[[Union[Series, DataFrame]], bool]] = None,
     convert_to: Optional[str] = None
 ):
     """
@@ -2184,6 +2201,7 @@ def update_index(
     """
 
     # Convert input data to Series or DataFrame if specified
+    convert_to = str(convert_to).lower() 
     if convert_to == 'auto':
         data = convert_to_pandas(data, error=on_error)
     elif convert_to == 'series':
@@ -2216,4 +2234,153 @@ def update_index(
     else:
         raise ValueError("Input data must be a pandas Series or DataFrame,"
                          f" got {type(data).__name__}.")
+
+def convert_and_format_data(
+    data: Any,
+    output_as_frame: bool = False,
+    series_name: Optional[str] = None,
+    allow_series_conversion: bool = True,
+    force_array_output: bool = False,
+    custom_conversion: Optional[Callable[[Any], Union[DataFrame, Series]]] = None,
+    condition: Optional[LambdaType|Callable[[Union[Series, np.ndarray]], bool]] = None
+):
+    """
+    Converts the input data into a pandas DataFrame or Series, then formats it 
+    according to specified parameters. 
+    
+    Optionally applies a custom conversion function.
+
+    Parameters
+    ----------
+    data : Any
+        The input data to be converted. Can be any type that is supported by 
+        the custom conversion function or can be automatically handled by 
+        pandas.
+    output_as_frame : bool, default False
+        If True, ensures the output is a DataFrame. If False and the data 
+        can be represented as a Series (or an array if `force_array_output` 
+        is True), the output will not be a DataFrame.
+    series_name : str, optional
+        Specifies a new name for the Series if the output is a Series. 
+        This parameter is ignored if `output_as_frame` is True or if the 
+        data cannot be converted to a Series.
+    allow_series_conversion : bool, default True
+        Allows converting a single-column DataFrame into a Series if 
+        `output_as_frame` is False. If False, single-column DataFrames will 
+        not be converted to Series.
+    force_array_output : bool, default False
+        If True, converts the output to a numpy array, reducing its dimension 
+        if possible. This parameter is considered only if `output_as_frame` 
+        is False.
+    custom_conversion : Callable[[Any], pd.DataFrame], optional
+        A custom function that takes the input data and returns a pandas 
+        DataFrame. This function is used for conversion if provided. Otherwise,
+        automatic conversion attempts are made.
+    condition : Optional[Callable[[Union[pd.Series, np.ndarray]], bool]], default None
+        A condition function that takes the converted data (Series or ndarray)
+        as input and returns True if the output should be forced to a numpy
+        array. This function is considered only if `force_array_output` is True.
+
+    Returns
+    -------
+    output : pd.DataFrame, pd.Series, or np.ndarray
+        The converted and formatted data. The specific type depends on the 
+        input parameters and the nature of `data`.
+
+    Examples
+    --------
+    Convert a list to a pandas DataFrame:
+    
+    >>> from gofast.tools.funcutils import convert_and_format_data
+    >>> convert_and_format_data([1, 2, 3], output_as_frame=True)
+    pd.DataFrame(data=[1, 2, 3])
+
+    Convert a single-column DataFrame to a Series named 'my_series':
+
+    >>> convert_and_format_data(pd.DataFrame({'A': [1, 2, 3]}), 
+                                series_name='my_series')
+    pd.Series(data=[1, 2, 3], name='my_series')
+
+    Convert data using a custom conversion function and output as numpy array:
+
+    >>> def my_conversion(data):
+    ...     return pd.DataFrame(data)
+    >>> convert_and_format_data({'A': [1, 2], 'B': [3, 4]}, 
+                                custom_conversion=my_conversion, 
+                                force_array_output=True)
+    np.array([[1, 3], [2, 4]])
+    
+    >>> convert_and_format_data([1, 2, 3], output_as_frame=True)
+    pd.DataFrame(data=[1, 2, 3])
+
+    Convert a single-column DataFrame to a Series named 'my_series', then to an array:
+
+    >>> condition = lambda x: isinstance(x, pd.Series)
+    >>> convert_and_format_data(pd.DataFrame({'A': [1, 2, 3]}),
+                                series_name='my_series',
+                                force_array_output=True,
+                                condition=condition)
+    np.array([1, 2, 3])
+
+    Use a custom conversion function and force output as numpy array if data is a Series:
+
+    >>> def my_conversion(data):
+    ...     return pd.DataFrame(data)
+    >>> convert_and_format_data({'A': [1, 2], 'B': [3, 4]},
+                                custom_conversion=my_conversion,
+                                force_array_output=True,
+                                condition=lambda x: isinstance(x, pd.Series))
+    np.array([[1, 3], [2, 4]])
+    """
+    if custom_conversion:
+        data = custom_conversion(data)
+    else:
+        data = to_pandas(data, convert_single_column=allow_series_conversion)
+
+    if isinstance(data, pd.Series):
+        if series_name is not None:
+            data.name = series_name
+        if force_array_output and (condition is None or condition(data)):
+            return data.to_numpy()
+    elif isinstance(data, pd.DataFrame) and not output_as_frame:
+        if allow_series_conversion and data.shape[1] == 1:
+            data = data.squeeze()
+            if series_name:
+                data.name = series_name
+            if force_array_output and (condition is None or condition(data)):
+                return data.to_numpy()
+        elif force_array_output and (condition is None or condition(data.to_numpy())):
+            return data.to_numpy()
+
+    return data
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
