@@ -274,9 +274,11 @@ def sample_dataframe3():
 
 # Test for single quantile with DataFrame input, as_frame=True
 def test_goquantile_single_with_dataframe_as_frame(sample_dataframe3):
-    result = goquantile(sample_dataframe3, q=0.5, as_frame=True)
-    expected = pd.DataFrame({'50%': [6.0, 5.0]}, index=['A', 'B'])
-    pd.testing.assert_frame_equal(
+    result = goquantile(sample_dataframe3, q=0.5, as_frame=True )
+    print(result)
+    expected = pd.Series({'50%': [6.0, 5.0]}, index=['A', 'B'])
+    print(expected)
+    pd.testing.assert_series_equal(
         result, expected, "Failed to compute median correctly for DataFrame input")
 
 # # Test for multiple quantiles with DataFrame input, specific columns

@@ -878,3 +878,435 @@ DIAGNOSIS_UNITS = {
     'covid_19_vaccine': 'binary',
     'other_vaccines': 'binary'
 }
+
+#  all hydrogeological parameters with their definitions
+# DATAFRAME WITH has id and name and location in the world. 
+HYDRO_PARAMS = {
+    "porosity": (
+        "Measure of the void spaces in a material, indicating how much water"
+        " a rock formation can store."
+        ),
+    "permeability": "Indicates how easily water can flow through the rock formations.",
+    "hydraulic_conductivity": (
+        "Measures the ability of the formation to transmit water under a"
+        " hydraulic gradient."),
+    "transmissivity":(
+        "Measure of how much water can be transmitted horizontally through an aquifer."
+        ),
+    "storativity_or_specific_yield": (
+        "Reflects the volume of water that an aquifer can store and yield."),
+    "fracture_density_and_orientation":(
+        "Density and orientation of fractures, crucial for predicting water"
+        " flow patterns.")
+    ,
+    "water_table_depth": "Direct measurement of the depth to the water table.",
+    "aquifer_pressure": (
+        "Pressure within aquifers, affected by geological stresses, affecting"
+        " water storage and movement."
+        ),
+    "water_quality_parameters": ( 
+        "Includes salinity, pH, and presence of contaminants, determining "
+        "groundwater suitability for uses."
+        ),
+    "temperature_gradients": (
+        "Indicates geothermal gradients, affecting water quality and "
+        "geothermal energy potential."
+        )
+}
+
+# hydrogeological parameters crucial for deep mining with their roles
+RELEVANT_HYDRO_PARAMS = {
+    "permeability": (
+        "Indicates risk of water ingress by showing how easily water can"
+        " flow through rock formations, indicating risk of water ingress."
+        ),
+    "hydraulic_conductivity": (
+        "Measures the rock's ability to transmit water under a hydraulic "
+        "gradient, crucial for understanding water movement and "
+        "indicating risk of water ingress."
+        ),
+    "fracture_density_and_orientation": (
+        "Crucial for planning mine layouts to avoid water or gas ingress"
+        " hazards."
+        ),
+    "water_table_depth": ( 
+        "Helps predict potential for water inflow and the need for dewatering"
+        " operations.") ,
+    "storativity_or_specific_yield": ( 
+        "Important for managing water control measures and dewatering"
+        " strategies.") ,
+    "aquifer_pressure": ( 
+        "Affects the risk of water inflow from high-pressure aquifers, "
+        "requiring careful management."),
+    "temperature_gradients": ( 
+        "Affects working conditions and mine stability, important for "
+        "ventilation and cooling system design.") ,
+    "water_quality_parameters":(
+        "Important for environmental impact management and ensuring "
+        "safety of discharged water.")
+}
+
+HYDRO_PARAM_UNITS={
+    "porosity": "% (percentage)",
+    "permeability": "Darcy (D) or millidarcy (mD)",
+    "hydraulic_conductivity": "m/D (meters per darcies)",
+    "transmissivity": "m2/day (square meters per day)",
+    "storativity": "dimensionless (volume of water per volume of aquifer)",
+    "specific_yield": "% (percentage)",
+    "water_table_depth": "m (meters)",
+    "aquifer_pressure": "Pa (Pascal) or bar",
+    "temperature": "°C (degrees Celsius)"
+}
+
+# Note: The list and details are illustrative and based on generalized data; 
+# specific figures andBased on the insights gathered from various sources,
+# including the U.S. Geological Survey's Mineral Commodity Summaries 2023,
+# Wikipedia's list of countries by mineral production, and Yahoo Finance's 
+# including 68 countries known for their significant mineral production volumes,
+# reserves, production capacities, and exports. This comprehensive list aims
+# to highlight a diverse range of countries and their contributions to the 
+# global mining sector, focusing on various minerals and their economic impact.
+
+MINERAL_PROD_BY_COUNTRY = {
+    "Australia": [
+        "Vast reserves of bauxite, iron ore, lithium",
+        "High production capacity for iron ore, lithium", 
+        "Major exporter of lithium, iron ore"
+        ],
+    "China": [
+        "Large reserves of coal, rare earth elements",
+        "World's top producer of several minerals including rare earths, gold",
+        "Significant exporter of rare earth elements, gold"
+        ],
+    "Russia": [
+        "Significant reserves of palladium, nickel",
+        "Leading producer of palladium, nickel",
+        "Major exporter of palladium, nickel"
+        ],
+    "United States": [
+        "Large reserves of coal, copper", 
+        "Top producer of gypsum, and significant production of copper, gold",
+        "Major exporter of gypsum, significant exporter of copper, gold"
+        ],
+    "Canada": [
+        "Substantial reserves of potash, uranium",
+        "Leading producer of potash, uranium", 
+         "Key exporter of potash, uranium"
+         ],
+    "Brazil": [
+        "Rich in iron ore, niobium", 
+        "Top producer of iron ore, niobium",
+        "Leading exporter of iron ore, niobium"
+        ],
+    "South Africa": [
+        "Huge reserves of platinum, chromium",
+        "World's top producer of platinum, chromium",
+        "Major exporter of platinum, chromium"
+        ],
+    "India": [
+        "Significant reserves of coal, iron ore",
+        "Major producer of coal, iron ore",
+        "Substantial exporter of iron ore"
+        ],
+    "Indonesia": [
+        "Large coal reserves, significant gold, nickel", 
+        "Top coal exporter, major producer of gold, nickel",
+        "World's top coal exporter, significant exporter of gold, nickel"
+        ],
+    "Chile": [
+        "World's largest copper reserves", 
+        "Top producer and exporter of copper", 
+        "Leading exporter of copper"
+        ],
+    "Peru": [
+        "Significant silver, copper, gold reserves", 
+        "Major producer of silver, copper", 
+        "Important exporter of silver, copper"
+        ],
+    "Kazakhstan": [
+        "Large reserves of uranium, chromium",
+        "Top producer of uranium, significant producer of chromium", 
+        "Leading exporter of uranium"
+        ],
+    "Argentina": [
+        "Rich in lithium, silver, copper", 
+        "Growing producer of lithium",
+        "Emerging exporter of lithium and silver"
+        ],
+    "Philippines": [
+        "Significant nickel, gold reserves",
+        "Major producer of nickel",
+        "Top exporter of nickel"
+        ],
+    "Ghana": [
+        "Major gold producing country", 
+        "Significant gold production capacity", 
+        "Important gold exporter"
+        ],
+    "Mexico": [
+        "World's largest silver reserves",
+        "Top producer of silver", 
+        "Leading exporter of silver"
+        ],
+    "Sweden": [
+        "Significant iron ore, copper reserves",
+        "Major producer of iron ore", 
+        "Key exporter of iron ore, copper"
+        ],
+    "Zambia": [
+        "Large copper reserves", 
+        "Second-largest copper producer in Africa",
+        "Significant copper exporter"
+        ],
+    "Democratic Republic of Congo": [
+        "World's largest cobalt reserves",
+        "Top producer of cobalt", 
+        "Major exporter of cobalt"
+        ],
+    "Zimbabwe": [
+        "Significant platinum, diamonds",
+        "Major producer of platinum",
+        "Important exporter of platinum"
+        ],
+    "Mongolia": [
+        "Rich in coal, copper, gold",
+        "Significant coal and copper production", 
+        "Important exporter of coal"
+        ],
+    "Saudi Arabia": [
+        "Large reserves of phosphate, gold", 
+        "Major producer of phosphate", 
+        "Key exporter of phosphate"
+        ],
+    "United Arab Emirates": [
+        "Significant aluminum producer", 
+        "Major aluminum production capacity", 
+        "Leading exporter of aluminum"
+        ],
+    "Turkey": [
+        "Substantial marble, boron reserves",
+        "Top producer of boron", 
+        "Major exporter of marble, boron"
+        ],
+    "Norway": [
+        "Significant producer of petroleum, metals",
+        "Major oil exporter, significant metals production", 
+        "Key exporter of metals, oil"
+        ],
+    "Vietnam": [
+        "Rich in bauxite, rare earth elements",
+        "Growing bauxite producer",
+        "Emerging exporter of bauxite"
+        ],
+    "Nigeria": [
+        "Significant oil, gas reserves; emerging in minerals",
+        "Major oil producer, growing in minerals like gold",
+        "Top oil exporter, emerging mineral exporter"
+        ],
+    "Tanzania": [
+        "Rich in gold, diamonds, gemstones",
+        "Major gold producer",
+        "Important gold, gemstone exporter"
+        ],
+    "Papua New Guinea": [
+        "Significant gold, copper reserves",
+        "Major gold, copper producer", 
+        "Key exporter of gold, copper"
+        ],
+    "Iran": [
+        "Large reserves of copper, iron ore, zinc", 
+        "Significant producer of copper, iron ore", 
+        "Important exporter of minerals"
+        ],
+    "Ukraine": [
+        "Rich in iron ore, coal", 
+        "Significant production of iron ore, coal",
+        "Important exporter of iron ore"
+        ],
+    "Poland": [
+        "Substantial coal reserves",
+        "Major coal producer",
+        "Key coal exporter"
+        ],
+    "Bolivia": [
+        "Large deposits of silver, lithium",
+        "Major producer of silver, growing lithium production",
+        "Significant exporter of silver"
+        ],
+    "Namibia": [
+        "Significant uranium, diamonds",
+        "Major uranium producer",
+        "Important exporter of uranium, diamonds"
+        ],
+    "Botswana": [
+        "World-leading diamond reserves",
+        "Top diamond producer", 
+        "Major diamond exporter"
+        ],
+    "New Zealand": [
+        "Considerable coal, gold reserves",
+        "Significant coal and gold production", 
+        "Exporter of coal and gold"
+        ],
+    "Finland": [
+        "Rich in nickel, chromium",
+        "Significant producer of nickel", 
+        "Key exporter of nickel, chromium"
+        ],
+    "Mali": [
+        "Significant gold reserves",
+        "Major gold producer",
+        "Important gold exporter"
+        ],
+    "Burkina Faso": [
+        "Growing gold production", 
+        "Significant gold producer", 
+        "Emerging gold exporter"
+        ],
+    "Colombia": [
+        "Large coal, emerald reserves",
+        "Major coal producer and top emerald producer", 
+        "Key exporter of coal and emeralds"
+        ],
+    "Qatar": [
+        "Rich in petroleum, natural gas", 
+        "Major petroleum and natural gas producer",
+        "Top exporter of liquefied natural gas"
+        ],
+    "Egypt": [
+        "Substantial gold, phosphate", 
+        "Growing gold producer, major phosphate producer",
+        "Important exporter of phosphate"
+        ],
+    "Oman": [
+        "Significant gypsum, copper",
+        "Major gypsum producer",
+        "Leading exporter of gypsum"
+        ],
+    "Angola": [
+        "Rich in diamonds, oil", 
+        "Major diamond producer, significant oil production",
+        "Key exporter of diamonds and oil"
+        ],
+    "Kuwait": [
+        "Large petroleum reserves", 
+        "Significant petroleum production", 
+        "Major petroleum exporter"
+        ],
+    "Libya": [
+        "Substantial oil reserves",
+        "Major oil producer",
+        "Significant oil exporter"
+        ],
+    "Bahrain": [
+        "Significant oil, natural gas", 
+        "Major oil and natural gas production",
+        "Key exporter of petroleum products"
+        ],
+    "Bangladesh": [
+        "Considerable natural gas", 
+        "Significant natural gas production", 
+        "Emerging exporter of natural gas"
+        ],
+    "Cuba": [
+        "Rich in nickel, cobalt",
+        "Major nickel producer", 
+        "Important exporter of nickel and cobalt"
+        ],
+    "Venezuela": [
+        "Large petroleum reserves",
+        "Major oil producer", 
+        "Key oil exporter"
+        ],
+    "Suriname": [
+        "Significant bauxite reserves",
+        "Notable bauxite production",
+        "Bauxite exporter"
+        ],
+    "Guinea": [
+        "World-leading bauxite reserves",
+        "Top bauxite producer", 
+        "Major bauxite exporter"
+        ],
+    "Senegal": [
+        "Significant phosphate reserves",
+        "Phosphate production", 
+        "Phosphate exporter"
+        ],
+    "Cameroon": [
+        "Emerging iron ore, bauxite production",
+        "Developing mining sector",
+        "Potential exporter of iron ore and bauxite"
+        ],
+    "Sierra Leone": [
+        "Rich in diamonds", 
+        "Significant diamond producer",
+        "Diamond exporter"
+        ],
+    "Ivory Coast": [
+        "Growing gold, manganese production",
+        "Emerging in gold and manganese", 
+        "Potential gold and manganese exporter"
+        ],
+    "Liberia": [
+        "Iron ore reserves",
+        "Iron ore production",
+        "Iron ore exporter"
+        ],
+    "Mozambique": [
+        "Significant coal, titanium reserves",
+        "Coal and titanium production", 
+        "Coal and titanium exporter"
+        ],
+    "Madagascar": [
+        "Large graphite, nickel reserves",
+        "Graphite and nickel production", 
+        "Graphite and nickel exporter"
+        ],
+    "Lesotho": [
+        "Significant diamond reserves",
+        "Diamond production",
+        "Diamond exporter"
+        ],
+    "Ethiopia": [
+        "Emerging in opal, gold, and tantalum",
+        "Opal, gold, and tantalum production",
+        "Opal, gold, and tantalum exporter"
+        ],
+    "Kyrgyzstan": [
+        "Gold, coal, and antimony reserves", 
+        "Gold, coal, and antimony production",
+        "Gold, coal, and antimony exporter"
+        ],
+    "Tajikistan": [
+        "Significant silver and gold reserves",
+        "Silver and gold production",
+        "Silver and gold exporter"
+        ],
+    "Myanmar": [
+        "Rich in jade, gems, and tin",
+        "Jade, gems, and tin production", 
+        "Jade, gems, and tin exporter"
+        ],
+    "Laos": [
+        "Emerging potash and gold production",
+        "Developing mining sector for potash and gold", 
+        "Potential potash and gold exporter"
+        ],
+    "Brunei": [
+        "Petroleum and natural gas reserves",
+        "Petroleum and natural gas production",
+        "Petroleum and natural gas exporter"
+        ],
+    "Turkmenistan": [
+        "Significant natural gas reserves",
+        "Natural gas production", 
+        "Natural gas exporter"
+        ],
+    "Uzbekistan": [
+        "Gold, uranium, and copper reserves", 
+        "Gold, uranium, and copper production",
+        "Gold, uranium, and copper exporter"
+        ]
+}
+

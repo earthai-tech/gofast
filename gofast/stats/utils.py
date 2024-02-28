@@ -21,7 +21,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.manifold import MDS
 
 from .._typing import Optional, List, Dict, Union, Tuple, Callable, Any
-from .._typing import NumPyFunction, DataFrame, ArrayLike 
+from .._typing import NumPyFunction, DataFrame, ArrayLike, Array1D, Series
 from ..decorators import DynamicMethod, AppendDocFrom # AppendDocSection 
 from ..tools.validator import assert_xy_in, is_frame, check_consistent_length 
 from ..tools.coreutils import ensure_visualization_compatibility, ellipsis2false 
@@ -1258,29 +1258,31 @@ def goquantile(
     data_selected = data.copy() 
     # Compute the quantile or quantiles
     quantiles_result = data_selected.quantile(q, axis=axis, **kws)
- 
+  
     if view: # visualize box/hist quantiles
         _visualize_quantiles(
-            data_selected, q, quantiles_result,
+            data, q, quantiles_result,
             plot_type=plot_type, cmap=cmap, 
             fig_size=fig_size, axis= axis
         )
     # update data frame indexes with string quantiles
+    new_indexes= [f'{q*100}%' for q in np.atleast_1d(q)]
     quantiles_result=update_index( 
         quantiles_result, 
-        new_indexes = [f'{q*100}%' for q in np.atleast_1d(q)], 
+        new_indexes = new_indexes, 
         return_data= True, 
         allow_replace=True
         ).T 
     # convert to series if applicable 
+    condition = lambda x: {'return_df': True} if isinstance(x, list) else {}
     quantiles_result = convert_and_format_data(
         quantiles_result,
-        out_as_frame =as_frame, 
-        series_name= f'{int(q*100)}%', 
-        force_array_output=True, 
-        condition = lambda s: isinstance (s, pd.Series)
+        as_frame, 
+        allow_series_conversion= False if as_frame else True, 
+        series_name= f'{int(q*100)}%'if len(new_indexes)==1 else None, 
+        force_array_output=True if not as_frame else False, 
+        #condition = lambda s: isinstance (s, pd.Series) and not as_frame
         )
-    
     return quantiles_result
 
 def _visualize_quantiles(
@@ -1294,6 +1296,31 @@ def _visualize_quantiles(
     """
     Visualizes the data and highlights the quantiles, based on the 
     specified plot type.
+
+    Parameters
+    ----------
+    data : pd.DataFrame or np.ndarray
+        The dataset from which quantiles were computed.
+    q : float or list of float
+        The quantile(s) that were computed.
+    quantiles_result : pd.DataFrame or np.ndarray
+        The computed quantiles.
+    plot_type : str
+        The type of plot to generate ('box' or 'hist').
+    cmap : str
+        The colormap name to use for coloring the plot.
+    fig_size : tuple of int
+        The size of the figure to create.
+    axis : int, default 0
+        The axis along which the quantiles were computed.
+
+    Examples
+    --------
+    >>> data = pd.DataFrame({'A': np.random.normal(
+        size=100), 'B': np.random.normal(size=100)})
+    >>> q = [0.25, 0.5, 0.75]
+    >>> quantiles_result = data.quantile(q)
+    >>> _visualize_quantiles(data, q, quantiles_result, 'box', 'viridis', (10, 6))
     """
     plt.figure(figsize=fig_size if fig_size else (10, 6))
     
@@ -1306,20 +1333,20 @@ def _visualize_quantiles(
     
     if plot_type == 'box':
         try: 
-            data.boxplot( grid=False, color=cmap)
+            quantiles_result.boxplot( grid=True, color=colors[0])
         except: 
             plt.boxplot(quantiles_result, patch_artist=True, 
-                        boxprops=dict(facecolor=cmap))
+                        boxprops=dict(facecolor=colors[0]))
         plt.title('Boxplot and Quantiles')
         
     elif plot_type == 'hist':
         try: 
             for ii, col in enumerate (cols):
                 plt.hist(quantiles_result[col], 
-                         bins=colors[ii],
-                         alpha=colors[ii],
-                         label=f'{col} Distribution',
-                         color=cmap)
+                          bins=colors[ii],
+                          alpha=colors[ii],
+                          label=f'{col} Distribution',
+                          color=cmap)
                 for quantile in q_list:
                     plt.axvline(quantiles_result[col].quantile(quantile),
                                 color='r', linestyle='--',
@@ -1334,17 +1361,16 @@ def _visualize_quantiles(
         
     plt.xlabel('Value')
     plt.ylabel('Frequency')
-    plt.legend()
+    # Only add legend if labels are present
+    if plt.gca().get_legend_handles_labels()[0]:
+        plt.legend()
     plt.show()
 
-
-@DynamicMethod ( 
-    expected_type="both", 
-    capture_columns=True
-   )
+@DynamicMethod ( expected_type="both", capture_columns=True)
 def gocorr(
     data: Union[ArrayLike, DataFrame], /,  
     columns: List[str] = None,
+    method: str='pearson', 
     view: bool = False, 
     cmap: str = 'viridis', 
     fig_size: Optional[Tuple[int, int]] = None, 
@@ -1364,6 +1390,7 @@ def gocorr(
         List of column names for which to calculate the correlation if `data` 
         is a DataFrame. If not provided, the correlation is calculated for all 
         numeric columns in the DataFrame.
+    
     **kws : dict
         Additional keyword arguments for the pandas `corr()` method, allowing 
         customization of the correlation calculation, such as specifying the 
@@ -1404,11 +1431,7 @@ def gocorr(
     computation methods. For non-DataFrame inputs, the data is first converted 
     to a DataFrame, ensuring uniform processing.
     """
-    if isinstance(data, (list, np.ndarray)):
-        data = pd.DataFrame(
-            data, columns=columns if columns else range(len(data[0])))
-   
-    correlation_matrix = data.corr(**kws)
+    correlation_matrix = data.corr(method= method, **kws)
     if view:
         plt.figure(figsize=fig_size)
         sns.heatmap(correlation_matrix, annot=True, cmap=cmap, fmt=".2f")
@@ -1418,11 +1441,12 @@ def gocorr(
     return correlation_matrix
 
 def correlation(
-    x: Union[str, ArrayLike], 
-    y: Union[str, ArrayLike] = None, 
-    data: Optional[pd.DataFrame] = None,
+    x: str|ArrayLike, 
+    y: str|Array1D|Series = None, 
+    method: str|Callable[[np.ndarray, np.ndarray], float]='pearson', 
+    data: Optional[DataFrame] = None,
     view: bool = False, 
-    plot_type=None, 
+    plot_type: Optional[str]=None, 
     cmap: str = 'viridis', 
     fig_size: Optional[Tuple[int, int]] = None, 
     **kws):
@@ -1529,7 +1553,7 @@ def correlation(
         y = data[y] if isinstance(y, str) else y
 
     if isinstance(x, pd.DataFrame) and y is None:
-        correlation_matrix = x.corr(**kws)
+        correlation_matrix = x.corr(method=method,**kws)
         if view:
             plt.figure(figsize=fig_size)
             sns.heatmap(correlation_matrix, annot=True, cmap=cmap)

@@ -8934,7 +8934,6 @@ def generate_alpha_values(n, increase=True, start=0.1, end=1.0, epsilon=1e-10):
         The starting alpha value. Defaults to 0.1.
     end : float, optional
         The ending alpha value. Defaults to 1.0.
-        
     epsilon : float, optional
         Small value to avert division by zero. Defaults to 1e-10.
         
@@ -9094,7 +9093,7 @@ def get_colors_and_alphas(
     colors =[]
     if cmap is not None and cmap not in plt.colormaps(): 
         cmap=None 
-        colors =[cmap] # add it to add generate map
+        colors =[cmap] # add it to generate map
     # Generate colors
     if cmap is not None:
         colors = decompose_colormap(cmap, n_colors=count)

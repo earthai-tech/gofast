@@ -60,7 +60,7 @@ PACKAGE_DATA = {
 setup_kwargs = {
     'entry_points': {
         'gofast.commands': [
-            'wx=gofast.cli:cli',
+            'gf=gofast.cli:cli',
         ],
         'console_scripts': [
             'version=gofast.cli:version',
@@ -84,9 +84,10 @@ setup_kwargs = {
         'gofast.tools',
     ],
     'install_requires': [
+        "cython>=0.29.33",
+        "scikit-learn >=1.1.2",
         "seaborn>=0.12.0",
         "pandas>=1.4.0",
-        "cython>=0.29.33",
         "pyyaml>=5.0.0",
         "tqdm>=4.64.1",
         "joblib>=1.2.0",
@@ -96,14 +97,14 @@ setup_kwargs = {
         "numpy>=1.23.0",
         "scipy>=1.9.0",
         "h5py>=3.2.0",
-        "pytest",
-        "unittest",
+        # "pytest",
     ],
     'extras_require': {
         "dev": [
             "click",
             "pyproj>=3.3.0",
             "openpyxl>=3.0.3",
+            "tensorflow >=2.15.0"
         ]
     },
     'python_requires': '>=3.9'

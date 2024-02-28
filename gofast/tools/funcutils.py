@@ -2237,55 +2237,55 @@ def update_index(
 
 def convert_and_format_data(
     data: Any,
-    output_as_frame: bool = False,
+    return_df: bool = False,
     series_name: Optional[str] = None,
     allow_series_conversion: bool = True,
     force_array_output: bool = False,
     custom_conversion: Optional[Callable[[Any], Union[DataFrame, Series]]] = None,
-    condition: Optional[LambdaType|Callable[[Union[Series, np.ndarray]], bool]] = None
+    condition: Optional[LambdaType | Callable[[Any], dict]] = None, 
+    where: str = 'before'
 ):
     """
-    Converts the input data into a pandas DataFrame or Series, then formats it 
-    according to specified parameters. 
-    
-    Optionally applies a custom conversion function.
+    Converts the input data into a pandas DataFrame or Series, then formats it
+    according to specified parameters and an optional condition for dynamic
+    parameter adjustments. Optionally applies a custom conversion function.
 
     Parameters
     ----------
     data : Any
-        The input data to be converted. Can be any type that is supported by 
-        the custom conversion function or can be automatically handled by 
-        pandas.
-    output_as_frame : bool, default False
-        If True, ensures the output is a DataFrame. If False and the data 
-        can be represented as a Series (or an array if `force_array_output` 
-        is True), the output will not be a DataFrame.
-    series_name : str, optional
-        Specifies a new name for the Series if the output is a Series. 
-        This parameter is ignored if `output_as_frame` is True or if the 
-        data cannot be converted to a Series.
+        The input data to be converted. Can be any type that is supported by
+        the custom conversion function or can be automatically handled by pandas.
+    return_df : bool, default False
+        If True, ensures the output is a DataFrame. If False and the data can
+        be represented as a Series (or an array if `force_array_output` is True),
+        the output will not be a DataFrame.
+    series_name : Optional[str], default None
+        Specifies a new name for the Series if the output is a Series. This parameter
+        is ignored if `return_df` is True or if the data cannot be converted
+        to a Series.
     allow_series_conversion : bool, default True
-        Allows converting a single-column DataFrame into a Series if 
-        `output_as_frame` is False. If False, single-column DataFrames will 
-        not be converted to Series.
+        Allows converting a single-column DataFrame into a Series if `return_df`
+        is False. If False, single-column DataFrames will not be converted to Series.
     force_array_output : bool, default False
-        If True, converts the output to a numpy array, reducing its dimension 
-        if possible. This parameter is considered only if `output_as_frame` 
-        is False.
-    custom_conversion : Callable[[Any], pd.DataFrame], optional
-        A custom function that takes the input data and returns a pandas 
-        DataFrame. This function is used for conversion if provided. Otherwise,
-        automatic conversion attempts are made.
-    condition : Optional[Callable[[Union[pd.Series, np.ndarray]], bool]], default None
-        A condition function that takes the converted data (Series or ndarray)
-        as input and returns True if the output should be forced to a numpy
-        array. This function is considered only if `force_array_output` is True.
+        If True, converts the output to a numpy array, reducing its dimension if possible.
+        This parameter is considered only if `return_df` is False.
+    custom_conversion : Optional[Callable[[Any], pd.DataFrame]], default None
+        A custom function that takes the input data and returns a pandas DataFrame.
+        This function is used for conversion if provided.
+    condition : Optional[Callable[[Any], dict]], default None
+        A condition function that takes the input data as is and returns a dictionary
+        of parameter adjustments. For example, to modify `return_df` based on
+        data properties, return `{'return_df': True}` if the condition is met.
+    where : str, default 'before'
+        Determines when the condition is applied: 'before' applies the condition
+        before any conversion, and 'after' applies it after the initial conversion
+        but before any formatting.
 
     Returns
     -------
     output : pd.DataFrame, pd.Series, or np.ndarray
-        The converted and formatted data. The specific type depends on the 
-        input parameters and the nature of `data`.
+        The converted and formatted data. The specific type depends on the input
+        parameters and the nature of `data`.
 
     Examples
     --------
@@ -2331,29 +2331,56 @@ def convert_and_format_data(
                                 force_array_output=True,
                                 condition=lambda x: isinstance(x, pd.Series))
     np.array([[1, 3], [2, 4]])
+
+    >>> convert_and_format_data(pd.DataFrame({'A': [1, 2, 3]}), series_name='my_series')
+    pd.Series(data=[1, 2, 3], name='my_series')
+
+    >>> condition = lambda x: {'return_df': True} if isinstance(x, list) else {}
+    >>> convert_and_format_data([1, 2, 3], condition=condition, where='before')
+    pd.DataFrame(data=[1, 2, 3])
     """
+    adjustments = {}
+
+    # Apply condition based on 'where' parameter
+    if where == 'before':
+        if condition:
+            adjustments = condition(data)
+
     if custom_conversion:
         data = custom_conversion(data)
     else:
         data = to_pandas(data, convert_single_column=allow_series_conversion)
+    
+    # Apply condition after initial conversion if 'where' is 'after'
+    if where == 'after':
+        if condition:
+            adjustments = condition(data)
 
+    # Apply adjustments
+    return_df = adjustments.get('return_df', return_df)
+    series_name = adjustments.get('series_name', series_name)
+    allow_series_conversion = adjustments.get(
+        'allow_series_conversion', allow_series_conversion)
+    force_array_output = adjustments.get(
+        'force_array_output', force_array_output)
+    
+    # Proceed with data formatting based on adjusted parameters
     if isinstance(data, pd.Series):
         if series_name is not None:
             data.name = series_name
-        if force_array_output and (condition is None or condition(data)):
-            return data.to_numpy()
-    elif isinstance(data, pd.DataFrame) and not output_as_frame:
+        if return_df:
+            data = pd.DataFrame(data)
+        elif force_array_output:
+            data = data.to_numpy()
+    elif isinstance(data, pd.DataFrame) and not return_df:
         if allow_series_conversion and data.shape[1] == 1:
             data = data.squeeze()
             if series_name:
                 data.name = series_name
-            if force_array_output and (condition is None or condition(data)):
-                return data.to_numpy()
-        elif force_array_output and (condition is None or condition(data.to_numpy())):
-            return data.to_numpy()
+        if force_array_output:
+            data = data.to_numpy()
 
     return data
-
 
 
 
