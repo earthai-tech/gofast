@@ -24,15 +24,16 @@ from tqdm import tqdm
 from .._typing import Any,  List, NDArray, DataFrame, Optional, Series 
 from .._typing import Dict, Union, TypeGuard, Tuple, ArrayLike
 from .._typing import BeautifulSoupTag 
-from ..decorators import Deprecated
+from ..decorators import Deprecated, df_if, Dataify 
 from ..exceptions import FileHandlingError 
 from ..property import  Config
 from .coreutils import is_iterable, ellipsis2false,smart_format, validate_url 
 from .coreutils import to_numeric_dtypes, assert_ratio, exist_features
 from .coreutils import normalize_string
-from ..decorators import dataify 
+from .funcutils import ensure_pkg 
 
-from ._dependency import import_optional_dependency 
+
+
 from .validator import array_to_frame, build_data_if, is_frame 
 from .validator import check_consistent_length
 
@@ -444,7 +445,7 @@ def enrich_data_spectrum(
 
     return augmented_df.reset_index(drop=True)
 
-@dataify 
+@df_if 
 def sanitize(
     data:DataFrame, /, 
     fill_missing:Optional[str]=None, 
@@ -735,6 +736,7 @@ def _check_readable_file (f):
     if isinstance(f, str): f =f.strip() # for consistency 
     return f 
 
+@ensure_pkg("h5py")
 def array2hdf5 (
     filename: str, /, 
     arr: NDArray=None , 
@@ -775,7 +777,6 @@ def array2hdf5 (
     >>> load_data.shape 
     Out[177]: (100, 27)
     """
-    import_optional_dependency("h5py")
     import h5py 
     
     arr = is_iterable( arr, exclude_string =True, transform =True )
@@ -996,6 +997,7 @@ def save_or_load(
          
     return arr if task=='load' else None 
  
+@ensure_pkg("requests")
 def request_data(
     url: str, 
     method: str = 'get',
@@ -1063,7 +1065,7 @@ def request_data(
                                 auth=('user', 'pass'), as_json=True)
     >>> print(response)
     """
-    import_optional_dependency('requests' ) 
+
     import requests 
     
     (as_text, as_json, stream, raise_status, save_to_file,
@@ -1304,6 +1306,7 @@ def fetch_remote_data(
         handle_download_error(e, f"An unexpected error occurred during the download: {e}")
         return False
 
+@ensure_pkg("requests")
 def download_file(url, local_filename , dstpath =None ):
     """download a remote file. 
     
@@ -1330,7 +1333,6 @@ def download_file(url, local_filename , dstpath =None ):
     >>> download_file(url, local_filename, test_directory)    
     
     """
-    import_optional_dependency("requests") 
     import requests 
     print("{:-^70}".format(f" Please, Wait while {os.path.basename(local_filename)}"
                           " is downloading. ")) 
@@ -1348,6 +1350,7 @@ def download_file(url, local_filename , dstpath =None ):
     
     return None if dstpath else local_filename
 
+@ensure_pkg("requests")
 def fancier_downloader(url, local_filename, dstpath =None ):
     """ Download remote file with a bar progression. 
     
@@ -1373,10 +1376,9 @@ def fancier_downloader(url, local_filename, dstpath =None ):
     >>> download_file(url, local_filename)
 
     """
-    import_optional_dependency("requests") 
+    
     import requests 
     try : 
-        import_optional_dependency("tqdm")
         from tqdm import tqdm
     except: 
         # if tqm is not install 
@@ -1446,7 +1448,7 @@ def check_file_exists(package, resource):
         >>> file_exists = check_file_exists(package_name, file_name)
         >>> print(f"File exists: {file_exists}")
     """
-    import_optional_dependency("importlib")
+
     import importlib.resources as pkg_resources
     return pkg_resources.is_resource(package, resource)
 
@@ -1521,6 +1523,8 @@ def _is_readable (
 
     return f 
 
+@ensure_pkg("bs4", " Needs `BeautifulSoup` from `bs4` package" )
+@ensure_pkg("requests")
 def scrape_web_data(
     url: str, 
     element: str, 
@@ -1575,12 +1579,9 @@ def scrape_web_data(
     >>> for product in data:
     ...     print(product.text)  
     """
-    import_optional_dependency('requests' ) 
-    extra= (" Needs `BeautifulSoup` from `bs4` package" )
-    import_optional_dependency('bs4', extra = extra  ) 
+
     import requests
     from bs4 import BeautifulSoup
-    
     response = requests.get(url)
     if response.status_code == 200:
         html_content = response.text
@@ -3666,6 +3667,7 @@ def apply_bow_vectorization(
 
     return prepared_data
 
+@Dataify 
 def apply_word_embeddings(
     data: DataFrame,/, 
     text_columns: Union[str, List[str]],
@@ -3808,6 +3810,7 @@ def _generate_bow_features(
     feature_names = [f'bow_{i}' for i in range(bow_features.shape[1])]
     return pd.DataFrame(bow_features, columns=feature_names, index=text_data.index)
 
+@ensure_pkg("gensim","Word-Embeddings expect 'gensim'to be installed." )
 def _load_word_embeddings(embedding_file_path: str):
     """
     Loads pre-trained word embeddings from a file.
@@ -3822,9 +3825,6 @@ def _load_word_embeddings(embedding_file_path: str):
     KeyedVectors
         The loaded word embeddings.
     """
-    import_optional_dependency("gensim", extra=(
-        "Word-Embeddings expect 'gensim'to be installed.")
-        )
     from gensim.models import KeyedVectors
     embeddings = KeyedVectors.load_word2vec_format(embedding_file_path, binary=True)
     

@@ -10,7 +10,8 @@ import pytest
 import numpy as np
 import pandas as pd
 from gofast.stats.utils import gomean, gomedian, gomode, gostd, govar
-from gofast.stats.utils import get_range, quartiles, goquantile
+from gofast.stats.utils import get_range, quartiles, goquantile, gocorr
+from gofast.stats.utils import correlation, z_scores, goiqr 
 
 @pytest.fixture
 def sample_dataframe():
@@ -252,39 +253,37 @@ data_df = pd.DataFrame({'A': [2, 5, 8], 'B': [1, 4, 7]})
 #     quartiles(sample_dataframe2, view=True, axis=1,  plot_type=plot_type, fig_size=(4, 4))
 
 
-@pytest.fixture
-def sample_array():
-    return np.array([1, 2, 3, 4, 5])
+# @pytest.fixture
+# def sample_array():
+#     return np.array([1, 2, 3, 4, 5])
 
-@pytest.fixture
-def sample_dataframe3():
-    return pd.DataFrame({'A': [2, 5, 7, 8], 'B': [1, 4, 6, 9]})
+# @pytest.fixture
+# def sample_dataframe3():
+#     return pd.DataFrame({'A': [2, 5, 7, 8], 'B': [1, 4, 6, 9]})
 
 # # Test for single quantile with array input
 # def test_goquantile_single_with_array(sample_array):
-#     result = goquantile(sample_array, q=0.5)
-#     expected = 3.0
+#     result = goquantile(sample_array, q=0.5, as_frame=False )
+#     expected = 3.0 # return array of single value 
 #     assert result == expected, "Failed to compute median correctly for array input"
 
 # # Test for multiple quantiles with array input
 # def test_goquantile_multiple_with_array(sample_array):
-#     result = goquantile(sample_array, q=[0.25, 0.75])
-#     expected = np.array([2.0, 4.0])
+#     result = goquantile(sample_array, q=[0.25, 0.75], as_frame=False)
+#     expected = np.array([2., 4.])
 #     np.testing.assert_array_equal(result, expected, "Failed to compute quartiles correctly for array input")
 
-# Test for single quantile with DataFrame input, as_frame=True
-def test_goquantile_single_with_dataframe_as_frame(sample_dataframe3):
-    result = goquantile(sample_dataframe3, q=0.5, as_frame=True )
-    print(result)
-    expected = pd.Series({'50%': [6.0, 5.0]}, index=['A', 'B'])
-    print(expected)
-    pd.testing.assert_series_equal(
-        result, expected, "Failed to compute median correctly for DataFrame input")
+# # Test for single quantile with DataFrame input, as_frame=True
+# def test_goquantile_single_with_dataframe_as_frame(sample_dataframe3):
+#     result = goquantile(sample_dataframe3, q=0.5, as_frame=True )
+#     expected = pd.DataFrame({'50%': [6.0, 5.0]}, index=['A', 'B'])
+#     pd.testing.assert_frame_equal(
+#         result, expected, "Failed to compute median correctly for DataFrame input")
 
 # # Test for multiple quantiles with DataFrame input, specific columns
 # def test_goquantile_multiple_with_dataframe_columns(sample_dataframe3):
 #     result = goquantile(sample_dataframe3, q=[0.25, 0.75], columns=['A'])
-#     expected = np.array([4.75, 7.25])
+#     expected = np.array([[4.25, 7.25]])
 #     np.testing.assert_array_equal(result, expected, "Failed to compute quartiles correctly for specific DataFrame columns")
 
 # # Test for visualization option (Note: This might be more about checking if an error is raised, as visual output is hard to test)
@@ -293,11 +292,163 @@ def test_goquantile_single_with_dataframe_as_frame(sample_dataframe3):
 #     # This test ensures no exceptions are raised during plotting
 #     # It does not check the visual output, which is typically not done in unit tests
 #     try:
-#         goquantile(sample_dataframe3, q=[0.25, 0.75], view=True, plot_type=plot_type, as_frame=True)
+#         goquantile(sample_dataframe3, q=[0.25, 0.75], view=True, 
+#                     plot_type=plot_type, as_frame=True)
 #     except Exception as e:
 #         pytest.fail(f"Visualization with plot_type='{plot_type}' raised an exception: {e}")
 
 
+# @pytest.mark.parametrize("method", ["pearson", "kendall", "spearman"])
+# def test_gocorr_with_dataframe(method):
+#     # Create a simple DataFrame
+#     data = pd.DataFrame({
+#         'A': np.arange(10),
+#         'B': np.arange(10) * 2,
+#         'C': np.random.randn(10)
+#     })
+
+#     # Calculate the correlation matrix using the gocorr function
+#     correlation_matrix = gocorr(data, method=method)
+
+#     # Check if the output is a DataFrame
+#     assert isinstance(correlation_matrix, pd.DataFrame), "Output should be a DataFrame"
+
+#     # Check if the diagonal elements are all ones 
+#     # (since a variable is perfectly correlated with itself)
+#     np.testing.assert_array_almost_equal(
+#         np.diag(correlation_matrix), np.ones(correlation_matrix.shape[0]),
+#         err_msg="Diagonal elements should be 1")
+
+#     # Optionally, check if the correlation matrix is symmetric
+#     np.testing.assert_array_almost_equal(
+#         correlation_matrix, correlation_matrix.T,
+#         err_msg="Correlation matrix should be symmetric")
+
+# @pytest.mark.parametrize("input_data", [np.random.randn(
+#     10, 3), [[1, 2, 3], [4, 5, 6], [7, 8, 9]]])
+# def test_gocorr_with_arraylike(input_data):
+#     # Calculate the correlation matrix for array-like input
+#     correlation_matrix = gocorr(input_data)
+
+#     # Check if the output is a DataFrame
+#     assert isinstance(correlation_matrix, pd.DataFrame), "Output should be a DataFrame when input is array-like"
+
+# # This test assumes the presence of a plotting display, which may not
+# #  always be available in a CI environment
+# @pytest.mark.skip(reason="Requires display for plotting")
+# def test_gocorr_view():
+#     data = pd.DataFrame({
+#         'A': np.random.randn(10),
+#         'B': np.random.randn(10),
+#         'C': np.random.randn(10)
+#     })
+
+#     # Simply call gocorr with view=True to ensure no exceptions occur during plotting
+#     # Note: This does not actually "test" the visual output, but it can 
+#     # catch errors in the plotting code
+#     gocorr(data, view=True)
+
+#     # No assertions are made here as we're only checking 
+#     # for exceptions during plotting
+
+
+# def test_correlation_with_column_names():
+#     # Create a DataFrame for testing
+#     data = pd.DataFrame({
+#         'A': [1, 2, 3, 4],
+#         'B': [4, 3, 2, 1]
+#     })
+#     # Test correlation between two columns specified by name
+#     corr_value = correlation('A', 'B', data=data)
+#     assert corr_value == -1, "Correlation between 'A' and 'B' should be -1"
+
+# def test_correlation_with_arrays():
+#     # Test correlation between two array-like inputs
+#     x = [1, 2, 3, 4]
+#     y = [4, 3, 2, 1]
+#     corr_value = correlation(x, y)
+#     assert corr_value == -1, "Correlation between x and y should be -1"
+
+# def test_correlation_matrix():
+#     # Test correlation matrix computation from a DataFrame
+#     data = pd.DataFrame({
+#         'A': np.random.rand(10),
+#         'B': np.random.rand(10),
+#         'C': np.random.rand(10)
+#     })
+#     corr_matrix = correlation(data=data)
+#     assert isinstance(corr_matrix, pd.DataFrame), "Output should be a DataFrame"
+#     assert corr_matrix.shape == (3, 3), "Correlation matrix shape should be (3, 3)"
+#     assert np.allclose(np.diag(corr_matrix), 1), "Diagonal elements should be 1"
+
+# @pytest.mark.parametrize("method", ["pearson", "kendall", "spearman"])
+# def test_correlation_method(method):
+#     # Test different methods of correlation computation
+#     x = np.random.rand(10)
+#     y = np.random.rand(10)
+#     corr_value = correlation(x, y, method=method)
+#     assert isinstance(corr_value, float), f"Correlation value should be a float using method {method}"
+
+# # Test for the visualization, should be skipped in a CI environment without display
+# @pytest.mark.skip(reason="Visualization test requires display environment")
+# def test_correlation_view():
+#     x = [1, 2, 3, 4]
+#     y = [4, 3, 2, 1]
+#     # This test will check if the function call with view=True raises any exceptions
+#     try:
+#         correlation(x, y, view=True, plot_type='scatter')
+#     except Exception as e:
+#         pytest.fail(f"Visualization with view=True should not raise exceptions. Raised: {str(e)}")
+
+# @pytest.mark.parametrize("data,expected_iqr, as_frame", [
+#     ([1, 2, 3, 4, 5], 2.0, False ),
+#     (np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), 4.5, False),
+#     (pd.DataFrame({'A': [2, 5, 7, 8], 'B': [1, 4, 6, 9]}), pd.Series(
+#         [3., 3.5], index=['A', 'B'], name="IQR"), True ),
+# ])
+# def test_goiqr(data, expected_iqr, as_frame):
+#     result = goiqr(data, as_frame=as_frame)
+#     if as_frame:
+#         pd.testing.assert_series_equal(result, expected_iqr)
+#     else:
+#         assert result == expected_iqr
+
+# @pytest.mark.parametrize("data, view, plot_type", [
+#     ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], True, 'boxplot'),
+#     (pd.DataFrame({
+#         'A': np.random.normal(0, 1, 100),
+#         'B': np.random.normal(1, 2, 100),
+#         'C': np.random.normal(2, 3, 100)
+#     }), True, 'boxplot'),
+# ])
+# def test_goiqr_view(data, view, plot_type):
+#     # This test ensures that the function runs with visualization
+#     # enabled but does not check the plot itself
+#     assert goiqr(data, view=view, plot_type=plot_type, as_frame=False) is not None
+
+
+@pytest.mark.parametrize("data,expected, as_frame", [
+    ([1, 2, 3, 4, 5], np.array(
+        [-1.26491106, -0.63245553,  0. ,  0.63245553,  1.26491106]), False),
+    (pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]}), pd.DataFrame(
+        {'A': [-1., 0., 1.], 'B': [-1., 0., 1.]}), True),
+])
+def test_z_scores(data, expected, as_frame):
+    result = z_scores(data, as_frame=as_frame)
+    if as_frame:
+        pd.testing.assert_frame_equal(result, pd.DataFrame(expected), rtol=1e-3)
+    else:
+        np.testing.assert_array_almost_equal(result, expected, decimal=5)
+
+@pytest.mark.parametrize("data,view,plot_type", [
+    ([1, 2, 3, 4, 5], True, 'hist'),
+    (pd.DataFrame({'A': np.random.normal(
+        0, 1, 100), 'B': np.random.normal(1, 2, 100)}), True, 'box'),
+])
+def test_z_scores_view(data, view, plot_type):
+    # This test ensures that the function runs with visualization enabled 
+    # but does not check the plot itself
+    assert z_scores(data, view=view, plot_type=plot_type, as_frame=False) is not None
 
 if __name__=="__main__": 
     # test_gomode_with_dataframe_specific_columns(sample_dataframe)

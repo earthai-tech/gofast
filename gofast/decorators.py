@@ -394,12 +394,13 @@ class DynamicMethod:
         
         # Calculate the threshold for dropping based on the proportion 
         # if specified as a float less than 1
-        if 0 < self.na_thresh <= 1:
+        if self.na_thresh is None: 
+            thresh= self.na_thresh
+        elif 0 < self.na_thresh <= 1:
             total_elements = len(data.columns) if na_axis == 0 else len(data)
             thresh = int(total_elements * self.na_thresh)
         else:
             thresh = self.na_thresh
-        print("na-aixs=", na_axis , "na_thresh=",thresh)
         # Drop missing values based on the specified axis and threshold
         return data.dropna(axis=na_axis, thresh=thresh)
     
@@ -1544,7 +1545,7 @@ def available_if(check):
     return lambda fn: _AvailableIfDescriptor(fn, check, attribute_name=fn.__name__)
 
 
-def dataify(func: Callable) -> Callable:
+def df_if(func: Callable) -> Callable:
     """
     A decorator that ensures the first positional argument passed to the 
     decorated function is a pandas DataFrame.
@@ -1571,7 +1572,7 @@ def dataify(func: Callable) -> Callable:
     Examples
     --------
     >>> from gofast.decorators import dataify
-    >>> @dataify
+    >>> @df_if
     ... def my_function(data, /, columns=None, **kwargs):
     ...     print(data)
     ...     print("Columns:", columns)
@@ -1586,6 +1587,8 @@ def dataify(func: Callable) -> Callable:
     def wrapper(*args, **kwargs):
         data = args[0]
         columns = kwargs.get('columns', None)
+        if isinstance ( columns, str): 
+            columns =[columns]
         # Check if the first positional argument is not a DataFrame
         if not isinstance(data, pd.DataFrame):
             # Attempt to convert it into a DataFrame
@@ -1894,13 +1897,19 @@ class Dataify:
 
     Parameters
     ----------
-    enforce_dataframe : bool, optional
+    enforce_df : bool, optional
         Whether to enforce the conversion of the first positional argument 
         to a pandas DataFrame. Defaults to True.
+    auto_columns : bool, optional
+        Automatically generates column names if `columns` is not provided.
+        Defaults to False.
+    prefix : str, optional
+        The prefix for auto-generated column names, used only if `auto_columns`
+        is True. Defaults to 'col_'.
     columns : list of str, optional
         Specifies the column names for DataFrame conversion. If not provided, 
         and data conversion is necessary, default integer column names are used. 
-        This parameter is considered only if `enforce_dataframe` is True.
+        This parameter is considered only if `enforce_df` is True.
     ignore_mismatch : bool, optional
         If True, ignores the `columns` parameter if its length does not match 
         the data dimensions, using default integer column names instead. 
@@ -1913,7 +1922,7 @@ class Dataify:
     Examples
     --------
     >>> from gofast.decorators import Dataify
-    >>> @Dataify(enforce_dataframe=True, columns=['A', 'B'], ignore_mismatch=True)
+    >>> @Dataify(enforce_df=True, columns=['A', 'B'], ignore_mismatch=True)
     ... def process_data(data):
     ...     print(data)
 
@@ -1922,6 +1931,34 @@ class Dataify:
        A  B
     0  1  2
     1  3  4
+    
+    Automatically generate column names for conversion:
+
+    >>> @Dataify(enforce_df=True, auto_columns=True, prefix='feature_')
+    ... def process_data(data):
+    ...     print(data)
+
+    >>> process_data([[1, 2], [3, 4]])
+       feature_0  feature_1
+    0          1          2
+    1          3          4
+
+    Specify column names and handle mismatches silently:
+
+    >>> @Dataify(enforce_df=True, columns=['A'], ignore_mismatch=True)
+    ... def summarize_data(data):
+    ...     print(data.describe())
+
+    >>> summarize_data([[1, 2, 3], [4, 5, 6]])
+           col_0
+    count    2.0
+    mean     2.5
+    std      2.5
+    min      1.0
+    25%      1.75
+    50%      2.5
+    75%      3.25
+    max      4.0
 
     Notes
     -----
@@ -1931,12 +1968,16 @@ class Dataify:
     """
 
     def __init__(
-        self, enforce_dataframe=True, 
+        self, enforce_df=True, 
+        auto_columns=False,
+        prefix='col_', 
         columns=None, 
         ignore_mismatch=False, 
         fail_silently=False
         ):
-        self.enforce_dataframe = enforce_dataframe
+        self.enforce_df = enforce_df
+        self.auto_columns = auto_columns
+        self.prefix = prefix
         self.columns = columns
         self.ignore_mismatch = ignore_mismatch
         self.fail_silently = fail_silently
@@ -1944,14 +1985,13 @@ class Dataify:
     def __call__(self, func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            if not self.enforce_dataframe or not args:
+            if not self.enforce_df or not args:
                 return func(*args, **kwargs)
 
             data = args[0]
             if not isinstance(data, pd.DataFrame):
                 try:
                     data = self._attempt_dataframe_conversion(data, **kwargs)
-                    
                 except ValueError as e:
                     if self.fail_silently:
                         warnings.warn(f"Dataify Warning: {e}")
@@ -1986,21 +2026,47 @@ class Dataify:
         ValueError
             If the conversion fails due to incompatible data or column 
             specifications, unless `fail_silently` is True.
-
+            
+        Examples
+        --------
+        >>> @Dataify(auto_columns=True, prefix='feature_')
+        ... def process_data(data):
+        ...     print(data.head())
+        
+        >>> process_data(np.random.rand(5, 3))
+           feature_0  feature_1  feature_2
+        0   0.123456   0.654321   0.789012
+        1   0.234567   0.765432   0.890123
+        2   0.345678   0.876543   0.901234
+        3   0.456789   0.987654   0.012345
+        4   0.567890   0.098765   0.123456
         Notes
         -----
         This method is a private helper intended for internal use by the 
         Dataify decorator to manage DataFrame conversion.
         """
+        # implement the new parameters here
         columns = kwargs.get('columns', self.columns)
-        try:
-            if columns is not None and not self.ignore_mismatch:
-                return pd.DataFrame(data, columns=columns )
-            return pd.DataFrame(data)
-        except Exception as e:
-            raise ValueError(f"Error converting data to DataFrame: {e}")
+        if isinstance (columns, str): 
+            columns =[columns]
+        # Automatically generate column names if required
+        if self.auto_columns and columns is None:
+            num_cols = np.shape(data)[1] if np.ndim(data) > 1 else 1
+            columns = [f"{self.prefix}{i}" for i in range(num_cols)]
 
-# Example usage
+        try:
+            # Construct DataFrame, auto-generating column names if needed
+            df = pd.DataFrame(data, columns=columns)
+        except Exception as e:
+            if self.ignore_mismatch:
+                # Re-try without columns if ignoring mismatches
+                df = pd.DataFrame(data)
+            else:
+                raise ValueError(f"Error converting data to DataFrame: {e}")
+        
+        return df   
+    
+
 @NumpyDocstringFormatter(include_sections=['Parameters', 'Returns'], validate_with_sphinx=True)
 def example_function(param1, param2=None):
     """

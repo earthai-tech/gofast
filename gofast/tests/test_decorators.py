@@ -17,7 +17,7 @@ import numpy as np
 
 from gofast._gofastlog import gofastlog 
 from gofast.decorators import DynamicMethod  
-from gofast.decorators import ExportData , dataify, Dataify
+from gofast.decorators import ExportData , df_if, Dataify
 from gofast.decorators import Temp2D, CheckGDALData 
 from gofast.decorators import SignalFutureChange, RedirectToNew  
 from gofast.decorators  import AppendDocReferences, Deprecated
@@ -50,16 +50,17 @@ def test_column_naming():
     expected_columns = ['A', 'B']
     assert list(output_data.columns) == expected_columns
 
-# # Test use dataframe column prefix 
-# def test_ignore_column_prefix():
-#     @Dataify(columns="column_prefix")
-#     def process_data(data):
-#         return data
+# Test use dataframe column prefix 
+def test_ignore_column_prefix():
+    @Dataify(prefix="column_prefix_", auto_columns= True)
+    def process_data(data):
+        return data
 
-#     input_data = [[1, 2], [3, 4]]
-#     output_data = process_data(input_data)
-#     # Expect prefix column names 
-#     assert list(output_data.columns) == ["column_prefix_0", "column_prefix_1"]
+    input_data = [[1, 2], [3, 4]]
+    output_data = process_data(input_data)
+    # Expect prefix column names 
+    assert list(output_data.columns) == ["column_prefix_0", "column_prefix_1"]
+    
 # Test ignoring column mismatch when ignore_mismatch is True
 def test_ignore_column_mismatch():
     @Dataify(columns=['A', 'B', 'C'], ignore_mismatch=True)
@@ -164,8 +165,8 @@ def test_not_suppressing():
     assert "This error should appear" in captured_err.getvalue()
 
 # Test with DataFrame input
-def test_dataify_with_dataframe():
-    @dataify
+def test_df_if_with_dataframe():
+    @df_if
     def process_data(data):
         return data
 
@@ -174,8 +175,8 @@ def test_dataify_with_dataframe():
     pd.testing.assert_frame_equal(input_data, output_data)
 
 # Test with numpy array input
-def test_dataify_with_numpy_array():
-    @dataify
+def test_df_if_with_numpy_array():
+    @df_if
     def process_data(data):
         return data
 
@@ -185,8 +186,8 @@ def test_dataify_with_numpy_array():
     pd.testing.assert_frame_equal(expected_output, output_data)
 
 # Test with list input and columns argument
-def test_dataify_with_list_and_columns():
-    @dataify
+def test_df_if_with_list_and_columns():
+    @df_if
     def process_data(data, /, columns=None):
         return data
 
@@ -197,8 +198,8 @@ def test_dataify_with_list_and_columns():
     pd.testing.assert_frame_equal(expected_output, output_data)
 
 # Test with mismatched columns argument
-def test_dataify_with_mismatched_columns():
-    @dataify
+def test_df_if_with_mismatched_columns():
+    @df_if
     def process_data(data, /, columns=None):
         return data
 
@@ -208,8 +209,8 @@ def test_dataify_with_mismatched_columns():
         process_data(input_data, columns=columns)
 
 # Test with invalid input data type
-def test_dataify_with_invalid_input():
-    @dataify
+def test_df_if_with_invalid_input():
+    @df_if
     def process_data(data):
         return data
 

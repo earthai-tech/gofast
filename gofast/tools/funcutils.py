@@ -2235,12 +2235,14 @@ def update_index(
         raise ValueError("Input data must be a pandas Series or DataFrame,"
                          f" got {type(data).__name__}.")
 
+
 def convert_and_format_data(
     data: Any,
     return_df: bool = False,
     series_name: Optional[str] = None,
     allow_series_conversion: bool = True,
     force_array_output: bool = False,
+    condense: bool = False,
     custom_conversion: Optional[Callable[[Any], Union[DataFrame, Series]]] = None,
     condition: Optional[LambdaType | Callable[[Any], dict]] = None, 
     where: str = 'before'
@@ -2267,8 +2269,17 @@ def convert_and_format_data(
         Allows converting a single-column DataFrame into a Series if `return_df`
         is False. If False, single-column DataFrames will not be converted to Series.
     force_array_output : bool, default False
-        If True, converts the output to a numpy array, reducing its dimension if possible.
-        This parameter is considered only if `return_df` is False.
+        If True, converts the output to a numpy array, reducing its dimension 
+        if possible. This parameter is considered only if `return_df` is False.
+    condense : bool, default False
+        If True, simplifies the output in the following ways when 
+        `force_array_output` is True:
+        - Converts a single-value array or Series to a scalar (float or int).
+        - Reduces a two-dimensional array of shape (n, 1) or (1, n) to a 
+          one-dimensional array of shape (n,).
+        This simplification is considered only if `force_array_output` is 
+        True and `return_df` is False.
+
     custom_conversion : Optional[Callable[[Any], pd.DataFrame]], default None
         A custom function that takes the input data and returns a pandas DataFrame.
         This function is used for conversion if provided.
@@ -2338,6 +2349,35 @@ def convert_and_format_data(
     >>> condition = lambda x: {'return_df': True} if isinstance(x, list) else {}
     >>> convert_and_format_data([1, 2, 3], condition=condition, where='before')
     pd.DataFrame(data=[1, 2, 3])
+    
+
+    Convert a list to a pandas DataFrame:
+    
+    >>> convert_and_format_data([1, 2, 3], return_df=True)
+    pd.DataFrame(data=[1, 2, 3])
+    
+    Convert a single-column DataFrame to a Series named 'my_series',
+    then simplify to a one-dimensional array:
+    
+    >>> convert_and_format_data(pd.DataFrame({'A': [1, 2, 3]}), 
+    ...                            series_name='my_series',
+    ...                            force_array_output=True,
+    ...                            condense=True)
+    array([1, 2, 3])
+    
+    Simplify a two-dimensional array to a one-dimensional array:
+    
+    >>> convert_and_format_data(np.array([[1], [2], [3]]), 
+    ...                            force_array_output=True,
+    ...                            condense=True)
+    array([1, 2, 3])
+    
+    Convert a single-value Series to a scalar:
+    
+    >>> convert_and_format_data(pd.Series([100]), 
+                                force_array_output=True, condense=True)
+    100
+
     """
     adjustments = {}
 
@@ -2379,15 +2419,194 @@ def convert_and_format_data(
                 data.name = series_name
         if force_array_output:
             data = data.to_numpy()
+            
+    # Simplify output based on requested dimensions and content.
+    if condense: # and if force_array_outpout
+        # Use a single process to handle both DataFrame and Series to avoid repetition.
+        if isinstance(data, (pd.DataFrame, pd.Series)):
+            # Directly extract the scalar value if the data contains only one element.
+            data = data.squeeze().item() if data.size == 1 else data.squeeze()
+        elif isinstance(data, np.ndarray):
+            # For numpy arrays, `.squeeze()` removes axes of length one, 
+            # which simplifies the data to a lower dimension while `.item()`
+            # converts a single-value array to a scalar.
+            # Use `.squeeze()` first to handle both (n, 1) and (1, n) cases,
+            # then `.item()` if the result is a single value.
+            data = data.squeeze()
+            if data.size == 1:
+                data = data.item()  # Converts to a scalar
+
 
     return data
 
+def cast_numeric(
+    value, error='ignore',
+    on_success=None, 
+    on_failure=None
+    ):
+    """
+    Checks whether a given value is convertible to a numeric type (int or float).
 
+    Parameters
+    ----------
+    value : Any
+        The value to check for numeric convertibility.
+    error : str, optional
+        Specifies the error handling strategy. If 'raise', raises a ValueError
+        when `value` cannot be converted to a numeric type. If 'ignore', the function
+        returns False without raising an error. Default is 'ignore'.
+    on_success : Callable[[Union[int, float]], Any], optional
+        A callable that is executed with the converted numeric value if the conversion
+        is successful. The callable should accept a single numeric argument (int or float)
+        and return any value. If None, this step is skipped. Default is None.
+    on_failure : Callable[[Any], Any], optional
+        A callable that is executed if the conversion fails. The callable should
+        accept the original `value` as an argument and return any value. This allows
+        for custom handling or logging of failures. If None, this step is skipped.
+        Default is None.
 
+    Returns
+    -------
+    bool or Any
+        Returns True if the value is convertible to a numeric type, False otherwise.
+        If `on_success` is provided and the conversion is successful, returns
+        the result of `on_success` instead.
 
+    Raises
+    ------
+    ValueError
+        Raised if `error` is set to 'raise' and the value cannot be converted to
+        a numeric type.
 
+    Examples
+    --------
+    >>> from gofast.tools.funcutils import cast_numeric
+    >>> cast_numeric("100.5")
+    True
 
+    >>> cast_numeric("abc", error='raise')
+    ValueError: Value 'abc' is not convertible to numeric.
 
+    >>> cast_numeric("123", on_success=lambda x: x*2)
+    246
+
+    >>> cast_numeric("abc", on_failure=lambda x: f"Not convertible: {x}")
+    'Not convertible: abc'
+    """
+    try:
+        # First, try converting directly to an integer or float, without assuming it's a string
+        if isinstance(value, (int, float, np.integer, np.floating)):
+            return True  # Already numeric, no conversion needed
+        converted_value = float(value) if '.' in value or 'e' in value.lower() else int(value)
+        if on_success:
+            return on_success(converted_value)
+        return True
+    except (ValueError, TypeError):
+        if error == 'raise':
+            raise ValueError(f"Value '{value}' is not convertible to numeric.")
+        if on_failure:
+            return on_failure(value)
+        return False
+
+def serie_naming(name, data=None, error='ignore'):
+    """
+    Generates a condition function for renaming a pandas Series or single-column
+    DataFrame and optionally transforms and directly renames the provided data.
+
+    If `data` is provided, attempts to convert it to a pandas Series (if it's an
+    array-like structure) or rename it (if it's a single-column DataFrame) with
+    the specified name. If `data` is None, returns a condition function that can
+    be used to dynamically rename Series or single-column DataFrame based on
+    runtime evaluation.
+
+    Parameters
+    ----------
+    name : str
+        The new name to assign to the Series or single-column DataFrame.
+        This name is applied only if the current Series name or DataFrame 
+        column name is numeric or not explicitly set.
+    data : array-like, pd.DataFrame, optional
+        The data to be converted to a Series or whose single column is to be
+        renamed. Supported types include list, tuple, np.ndarray, and pd.DataFrame.
+        If None, no direct conversion or renaming is performed.
+    error : str, {'ignore', 'raise'}, default 'ignore'
+        Error handling strategy. If 'raise', errors during data conversion or
+        renaming will raise an exception. If 'ignore', errors are suppressed.
+
+    Returns
+    -------
+    function or pd.Series or pd.DataFrame
+        If `data` is None, returns a lambda function that applies the new name
+        based on conditions. If `data` is provided, attempts the conversion or
+        renaming operation and returns the transformed data.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.tools.funcutils import serie_naming
+    
+    >>> df = pd.DataFrame({'1': [1, 2, 3]})
+    >>> condition = serie_naming('NewName')
+    >>> result = condition(df)
+    >>> print(result)
+    {'series_name': 'NewName'}
+
+    >>> series = pd.Series([1, 2, 3], name='2')
+    >>> condition = serie_naming('SeriesName')
+    >>> result = condition(series)
+    >>> print(result)
+    {'series_name': 'SeriesName'}
+
+    >>> series = pd.Series([1, 2, 3], name='ExistingName')
+    >>> condition = serie_naming('NewSeriesName')
+    >>> result = condition(series)
+    >>> print(result)
+    {}
+    >>> serie_naming('NewName', data=[1, 2, 3])
+    0    1
+    1    2
+    2    3
+    Name: NewName, dtype: int64
+
+    >>> df = pd.DataFrame({'A': [1, 2, 3]})
+    >>> serie_naming('SingleCol', data=df)
+    0    1
+    1    2
+    2    3
+    Name: SingleCol, dtype: int64
+
+    >>> condition = serie_naming('DynamicName')
+    >>> series = pd.Series([1, 2, 3], name='1')
+    >>> condition(series)
+    {'series_name': 'DynamicName'}
+
+    Note
+    ----
+    This function supports both static and dynamic renaming of Series or DataFrame
+    columns. It facilitates maintaining consistent naming conventions across data
+    transformation workflows, especially when dealing with dynamically generated
+    or transformed data.
+    """
+    if data is not None:
+        try:
+            if isinstance(data, (list, tuple, np.ndarray)):
+                data = pd.Series(data, name=name)
+            elif isinstance(data, pd.DataFrame) and data.shape[1] == 1:
+                data = data.iloc[:, 0].rename(name)
+            elif error == 'raise':
+                raise ValueError("Data must be convertible to a Series.")
+        except Exception as e:
+            if error == 'raise':
+                raise e
+            print(f"Warning: {e}")
+        return data
+
+    # Return a condition function for dynamic renaming if data is not directly provided
+    return lambda s: {"series_name": name} if (
+        isinstance(s, pd.Series) and (cast_numeric(s.name, error='ignore') or s.name is None) or
+        isinstance(s, pd.DataFrame) and len(s.columns) == 1 and (
+            cast_numeric(s.columns[0], error='ignore') or s.columns[0] is None)
+    ) else {}
 
 
 

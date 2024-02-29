@@ -27,9 +27,10 @@ from ..tools.validator import assert_xy_in, is_frame, check_consistent_length
 from ..tools.coreutils import ensure_visualization_compatibility, ellipsis2false 
 from ..tools.coreutils import process_and_extract_data, to_series_if 
 from ..tools.coreutils import get_colors_and_alphas
-from ..tools.funcutils import make_data_dynamic, ensure_pkg 
+from ..tools.funcutils import make_data_dynamic, ensure_pkg, cast_numeric
 from ..tools.funcutils import flatten_data_if, update_series_index 
 from ..tools.funcutils import update_index, convert_and_format_data
+from ..tools.funcutils import serie_naming 
 
 __all__= [ 
     "gomean", "gomedian", "gomode",  "govar", "gostd", "get_range", 
@@ -1195,7 +1196,6 @@ def goquantile(
     columns : list of str, optional
         List of column names to consider for the calculation if `data` is a 
         DataFrame. If not provided, all numeric columns are considered.
-        
     axis : optional, {index (0), columns (1)}
          Axis for the function to be applied on. Default is 0.
     as_frame : bool, default=True
@@ -1266,7 +1266,8 @@ def goquantile(
             fig_size=fig_size, axis= axis
         )
     # update data frame indexes with string quantiles
-    new_indexes= [f'{q*100}%' for q in np.atleast_1d(q)]
+    new_indexes= [f'{int(q*100)}%' for q in np.atleast_1d(q)]
+    # print(new_indexes)
     quantiles_result=update_index( 
         quantiles_result, 
         new_indexes = new_indexes, 
@@ -1274,14 +1275,14 @@ def goquantile(
         allow_replace=True
         ).T 
     # convert to series if applicable 
-    condition = lambda x: {'return_df': True} if isinstance(x, list) else {}
     quantiles_result = convert_and_format_data(
         quantiles_result,
         as_frame, 
-        allow_series_conversion= False if as_frame else True, 
-        series_name= f'{int(q*100)}%'if len(new_indexes)==1 else None, 
-        force_array_output=True if not as_frame else False, 
-        #condition = lambda s: isinstance (s, pd.Series) and not as_frame
+        allow_series_conversion=False if as_frame else True,
+        series_name=new_indexes[0], 
+        condense=True, 
+        condition =lambda x:  {
+            "force_array_output": True}  if not as_frame else {} 
         )
     return quantiles_result
 
@@ -1322,10 +1323,10 @@ def _visualize_quantiles(
     >>> quantiles_result = data.quantile(q)
     >>> _visualize_quantiles(data, q, quantiles_result, 'box', 'viridis', (10, 6))
     """
-    plt.figure(figsize=fig_size if fig_size else (10, 6))
+    plt.figure(figsize=fig_size if fig_size else (4, 4))
     
     q_list = np.atleast_1d(q)
-    quantiles_result, data, cols = prepare_plot_data(
+    _, data, cols = prepare_plot_data(
         quantiles_result, data , axis=axis )
 
     colors, alphas = get_colors_and_alphas(
@@ -1333,30 +1334,30 @@ def _visualize_quantiles(
     
     if plot_type == 'box':
         try: 
-            quantiles_result.boxplot( grid=True, color=colors[0])
+            data.boxplot( grid=True, color=colors[0])
         except: 
-            plt.boxplot(quantiles_result, patch_artist=True, 
+            plt.boxplot(data, patch_artist=True, 
                         boxprops=dict(facecolor=colors[0]))
         plt.title('Boxplot and Quantiles')
         
     elif plot_type == 'hist':
         try: 
-            for ii, col in enumerate (cols):
-                plt.hist(quantiles_result[col], 
-                          bins=colors[ii],
-                          alpha=colors[ii],
-                          label=f'{col} Distribution',
-                          color=cmap)
-                for quantile in q_list:
-                    plt.axvline(quantiles_result[col].quantile(quantile),
-                                color='r', linestyle='--',
-                                label=f'{quantile*100}% Quantile')
-        except: 
-            plt.hist(quantiles_result, bins=30, alpha=0.5, color=cmap)
+            plt.hist(data, bins=30, alpha=0.5, color=colors[: len(cols)])
             for quantile in q_list:
                 plt.axvline(np.quantile(data, quantile), color='r',
                             linestyle='--', label=f'{quantile*100}% Quantile')
-                
+        except: 
+            for ii, col in enumerate (cols):
+                plt.hist(data[col], 
+                          bins=30,
+                          alpha=alphas[ii],
+                          label=f'{col} Distribution',
+                          color=colors[ii])
+                for quantile in q_list:
+                    plt.axvline(data[col].quantile(quantile),
+                                color='r', linestyle='--',
+                                label=f'{quantile*100}% Quantile')
+          
         plt.title('Histogram and Quantiles')
         
     plt.xlabel('Value')
@@ -1437,63 +1438,58 @@ def gocorr(
         sns.heatmap(correlation_matrix, annot=True, cmap=cmap, fmt=".2f")
         plt.title("Correlation Matrix")
         plt.show()
-
+    
     return correlation_matrix
 
 def correlation(
-    x: str|ArrayLike, 
-    y: str|Array1D|Series = None, 
-    method: str|Callable[[np.ndarray, np.ndarray], float]='pearson', 
-    data: Optional[DataFrame] = None,
-    view: bool = False, 
-    plot_type: Optional[str]=None, 
-    cmap: str = 'viridis', 
-    fig_size: Optional[Tuple[int, int]] = None, 
-    **kws):
+   x: Optional[Union[str, Array1D, Series]] = None,  
+   y: Optional[Union[str, Array1D, Series]] = None, 
+   method: str = 'pearson', 
+   data: Optional[DataFrame] = None,
+   view: bool = False, 
+   plot_type: Optional[str] = None, 
+   cmap: str = 'viridis', 
+   fig_size: Optional[Tuple[int, int]] = None, 
+   **kws):
     """
-    Computes the correlation between two datasets, or within a DataFrame. 
-    This function allows for flexible input types, including direct array-like 
-    inputs or specifying column names within a DataFrame.
+    Computes and optionally visualizes the correlation between two datasets 
+    or within a DataFrame. If both `x` and `y` are provided, calculates the 
+    pairwise correlation. If only `x` is provided as a DataFrame and `y` is None,
+    computes the correlation matrix for `x`.
 
     Parameters
     ----------
-    x : str or ArrayLike
-        The first dataset for correlation analysis. If `x` is a string, `data`
-        must be supplied, and `x` should be a column name of `data`. Otherwise,
-        `x` can be an array-like object (list, np.ndarray, or pd.Series).
-    y : str or ArrayLike, optional
-        The second dataset for correlation analysis. Similar to `x`, if `y` 
-        is a string, `data`  must be supplied, and `y` should be a column 
-        name of `data`. If omitted, and `x` is a DataFrame, calculates the 
-        correlation matrix of `x`.
-    data : pd.DataFrame, optional
-        The DataFrame containing the `x` and/or `y` columns if `x` and/or `y` 
-        are specified as column names.
+    x : Optional[Union[str, Array1D, Series]], default None
+        The first dataset for correlation analysis or the entire dataset 
+        if `y` is None. Can be an array-like object or a column name in `data`.
+    y : Optional[Union[str, Array1D, Series]], default None
+        The second dataset for correlation analysis. Can be an array-like object
+        or a column name in `data`. If omitted, and `x` is a DataFrame, calculates
+        the correlation matrix of `x`.
+    method : str, default 'pearson'
+        The method of correlation ('pearson', 'kendall', 'spearman') or a callable
+        with the signature (np.ndarray, np.ndarray) -> float.
+    data : Optional[DataFrame], default None
+        A DataFrame containing `x` and/or `y` columns if they are specified as 
+        column names.
     view : bool, default False
-        If True, visualizes the correlation using the specified `plot_type`. 
-        Visualization is supported for pairwise correlations (scatter plot) 
-        and correlation matrices (heatmap).
-    plot_type : str, optional, default 'scatter'
-        Specifies the type of plot for visualization. Options:
-        - 'scatter': Scatter plot for pairwise correlation.
-        - None: No visualization is produced.
+        If True, visualizes the correlation using a scatter plot (for pairwise 
+        correlation) or a heatmap (for correlation matrices).
+    plot_type : Optional[str], default None
+        Type of plot for visualization when `view` is True. Options are 'scatter'
+        for pairwise correlation or None for no visualization.
     cmap : str, default 'viridis'
-        The colormap for the visualization plot. Applicable if `view` is True.
-    fig_size : Tuple[int, int], optional
-        Specifies the figure size for the visualization plot.
-        Applicable if `view` is True.
-
+        Colormap for the visualization plot.
+    fig_size : Optional[Tuple[int, int]], default None
+        Size of the figure for visualization.
     **kws : dict
-        Additional keyword arguments passed to the correlation calculation 
-        method (e.g., pandas DataFrame `corr` method), allowing customization 
-        such as specifying the method ('pearson', 'kendall', 'spearman').
+        Additional keyword arguments for the correlation computation method.
 
     Returns
     -------
     correlation_value : float or pd.DataFrame
-        The correlation coefficient between `x` and `y` if both are provided 
-        and array-like, or the correlation matrix of `data` or `x` 
-        (if `x` is a DataFrame and `y` is None).
+        The correlation coefficient if `x` and `y` are provided, or the correlation
+        matrix if `x` is a DataFrame and `y` is None.
 
     Examples
     --------
@@ -1534,6 +1530,20 @@ def correlation(
     >>> y = [4, 3, 2, 1]
     >>> correlation(x, y, view=True, plot_type='scatter')
     -1.0
+
+    Compute pairwise correlation:
+    >>> x = [1, 2, 3]
+    >>> y = [4, 5, 6]
+    >>> correlation(x, y)
+    1.0
+
+    Compute and visualize the correlation matrix of a DataFrame:
+    >>> data = pd.DataFrame({'A': [1, 2, 3, 4], 'B': [4, 3, 2, 1]})
+    >>> correlation(data=data, view=True)
+
+    Compute pairwise correlation with column names from a DataFrame:
+    >>> correlation('A', 'B', data=data, view=True, plot_type='scatter')
+    -1.0
     Note
     ----
     The function is designed to provide a versatile interface for correlation 
@@ -1541,43 +1551,55 @@ def correlation(
     correlation methods through keyword arguments. It utilizes pandas' `corr()` 
     method for DataFrame inputs, enabling comprehensive correlation analysis within 
     tabular data.
+    
     """
-    if isinstance(x, str) or isinstance(y, str):
-        if data is None:
-            raise ValueError(
-                "Data cannot be None when 'x' or 'y' is specified as a column name.")
-        # Validate that data is a DataFrame
-        is_frame(data, df_only=True, raise_exception=True)  
-        
-        x = data[x] if isinstance(x, str) else x
-        y = data[y] if isinstance(y, str) else y
+    if x is None and y is None:
+        if data is not None:
+            cor_matrix= data.corr(method=method, **kws)
+            if view:
+                plt.figure(figsize=fig_size if fig_size else (8, 6))
+                sns.heatmap(cor_matrix, annot=True, cmap=cmap)
+                plt.title("Correlation Matrix")
+                plt.show()
+            return cor_matrix
+        else:
+            raise ValueError("At least one of 'x', 'y', or 'data' must be provided.")
+            
+    # Validate inputs
+    if data is None and (isinstance(x, str) or isinstance(y, str)):
+        raise ValueError("Data must be provided when 'x' or 'y' are column names.")
 
-    if isinstance(x, pd.DataFrame) and y is None:
-        correlation_matrix = x.corr(method=method,**kws)
-        if view:
-            plt.figure(figsize=fig_size)
+    # Extract series from data if x or y are column names
+    x_series = data[x] if isinstance(x, str) and data is not None else x
+    y_series = data[y] if isinstance(y, str) and data is not None else y
+
+    # If x is a DataFrame and y is None, compute the correlation matrix
+    if isinstance(x_series, pd.DataFrame) and y_series is None:
+        correlation_matrix = x_series.corr(method=method, **kws)
+    # If x and y are defined, compute pairwise correlation
+    elif x_series is not None and y_series is not None:
+        x_series = pd.Series(x_series) if not isinstance(x_series, pd.Series) else x_series
+        y_series = pd.Series(y_series) if not isinstance(y_series, pd.Series) else y_series
+        correlation_value = x_series.corr(y_series, method=method, **kws)
+    else:
+        raise ValueError("Invalid input: 'x' and/or 'y' must be provided.")
+
+    # Visualization
+    if view:
+        plt.figure(figsize=fig_size if fig_size else (6, 6))
+        if 'correlation_matrix' in locals():
             sns.heatmap(correlation_matrix, annot=True, cmap=cmap)
             plt.title("Correlation Matrix")
-            plt.show()
-        return correlation_matrix
-    
-    elif isinstance(x, (pd.Series, np.ndarray, list)) and isinstance(
-            y, (pd.Series, np.ndarray, list)):
-        x_series = pd.Series(x) if not isinstance(x, pd.Series) else x
-        y_series = pd.Series(y) if not isinstance(y, pd.Series) else y
-        correlation_value = x_series.corr(y_series, **kws)
-        if view and plot_type == 'scatter':
-            plt.figure(figsize=fig_size)
-            plt.scatter(x_series, y_series, color=cmap)
+        elif plot_type == 'scatter':
+            colors, _= get_colors_and_alphas(len(x_series), cmap=cmap  )
+            plt.scatter(x_series, y_series, color=colors )
             plt.title(f"Scatter Plot: Correlation = {correlation_value:.2f}")
             plt.xlabel("X")
             plt.ylabel("Y")
             plt.grid(True)
-            plt.show()
-        return correlation_value
-    else:
-        raise ValueError("Invalid input. x and y must be array-like objects"
-                         " or column names in the provided DataFrame.")
+        plt.show()
+
+    return correlation_matrix if 'correlation_matrix' in locals() else correlation_value
 
 @DynamicMethod ( 
     expected_type="both", 
@@ -1587,11 +1609,13 @@ def correlation(
 def goiqr(
     data: Union[ArrayLike, pd.DataFrame], 
     columns: Optional[List[str]] = None,
-    as_frame: bool = False,
+    axis: Optional[int] =None, 
+    as_frame: bool = True,
     view: bool = False, 
     plot_type: Optional[str] = 'boxplot', 
     cmap: str = 'viridis', 
-    fig_size: Optional[Tuple[int, int]] = (8, 6), 
+    fig_size: Optional[Tuple[int, int]] = (4, 4), 
+    orient: Optional [str] =None, 
     **kws):
     """
     Computes the interquartile range (IQR) for numeric data and optionally 
@@ -1604,7 +1628,8 @@ def goiqr(
         provided as a list, numpy array, or a pandas DataFrame. When provided 
         as a list or numpy array, the data is internally converted to a pandas 
         DataFrame for calculation.
-
+    axis : optional, {index (0), columns (1)}
+         Axis for the function to be applied on. Default is 0.
     columns : Optional[List[str]] (default=None)
         Relevant when `data` is a pandas DataFrame. Specifies the columns within 
         the DataFrame for which the IQR is to be calculated. If None, the IQR 
@@ -1637,6 +1662,9 @@ def goiqr(
         Specifies the size of the figure for the visualization plot when `view` is 
         True. Provided as a tuple (width, height) in inches.
 
+    orient: Optional [str], optional 
+       Orientation of box plot either vertical ( default) or horizontal 'h'. 
+       
     **kws : dict
         Additional keyword arguments passed directly to the numpy percentile 
         function when calculating the 25th and 75th percentiles. This allows 
@@ -1685,40 +1713,35 @@ def goiqr(
     especially useful in exploratory data analysis and for identifying potential 
     outliers.
     """
-
-    # Handle ArrayLike data by converting it to DataFrame for uniform processing
-    if isinstance(data, (list, np.ndarray)):
-        data = pd.DataFrame(data, columns=columns if columns else range(len(data[0])))
-    # elif isinstance(data, pd.DataFrame) and columns:
-    #     data = data[columns]
-
     # Calculate IQR
-    if as_frame and isinstance(data, pd.DataFrame):
-        Q1 = data.quantile(0.25)
-        Q3 = data.quantile(0.75)
-        iqr_values = Q3 - Q1
-    else:
-        Q1, Q3 = np.percentile(data, [25, 75], **kws)
-        iqr_values = Q3 - Q1
-
+    Q1 = data.quantile(0.25, axis = axis or 0 , **kws)
+    Q3 = data.quantile(0.75, axis = axis or 0 , **kws)
+    iqr_values = Q3 - Q1
+ 
     # Visualization
     if view:
+        _, data, cols = prepare_plot_data(
+            iqr_values, data, axis=axis )
         plt.figure(figsize=fig_size)
         if isinstance(data, pd.DataFrame):
-            sns.boxplot(data=data, orient='h', palette=cmap)
+            sns.boxplot(data=data, orient=orient, palette=cmap)
         else:
-            sns.boxplot(data=pd.DataFrame(data), orient='h', palette=cmap)
+            sns.boxplot(data=pd.DataFrame(data), orient=orient, palette=cmap)
         plt.title('IQR Visualization with Boxplot')
-        # Extend here with additional plot types if necessary
         plt.show()
-
+        
+    iqr_values = convert_and_format_data(
+        iqr_values, as_frame, 
+        force_array_output= True if not as_frame else False, 
+        condense= True, 
+        series_names= serie_naming("IQR"))
     return iqr_values
 
 @make_data_dynamic(capture_columns=True)
 def z_scores(
     data: Union[ArrayLike, DataFrame], 
     columns: Optional[List[str]] = None,
-    as_frame: bool = False,
+    as_frame: bool = True,
     view: bool = False, 
     plot_type: Optional[str] = 'hist', 
     cmap: str = 'viridis', 
@@ -1744,7 +1767,7 @@ def z_scores(
         Applicable only when `data` is a DataFrame. If None, Z-scores for 
         all columns are calculated.
         
-    as_frame : bool (default=False)
+    as_frame : bool (default=True)
         When True, returns the result as a pandas DataFrame or Series 
         (depending on the input). Useful for maintaining DataFrame structure
         in the output.
@@ -1758,10 +1781,13 @@ def z_scores(
         - 'hist': Histogram of the Z-scores distribution.
         - 'boxplot': Box plot showing the quartiles and outliers.
         - 'density': Density plot for a smooth distribution curve.
-
+    
     cmap : str (default='viridis')
         The colormap for the visualization plot. Applicable only if `view` is True.
-        
+    orient: str, {None,'h'}
+       Orientation of the boxplot. Use 'h' for horizontal orientation otherwise 
+       the default is vertical (``None``). 
+  
     fig_size : Optional[Tuple[int, int]] (default=(8, 6))
         Size of the figure for the visualization plot. Applicable only if `view` is True.
         
@@ -1789,9 +1815,8 @@ def z_scores(
     
     Calculating and visualizing Z-scores for DataFrame columns:
     >>> data_df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
-    >>> z_scores(data_df, as_frame=True, view=True, plot_type='boxplot')
+    >>> z_scores(data_df, as_frame=True, view=True, plot_type='boxt')
     
-    >>> from gofast.stats.utils import z_scores
     >>> data_array = [1, 2, 3, 4, 5]
     >>> z_scores(data_array)
     [-1.41421356, -0.70710678, 0., 0.70710678, 1.41421356]
@@ -1809,37 +1834,30 @@ def z_scores(
     to compare measurements across different scales. Visualization options 
     provide quick insights into the distribution and variance of standardized data.
     """
-    # Calculate Z-scores
-    if isinstance(data, (list, np.ndarray)):
-        data = np.array(data)
-        mean = np.mean(data)
-        std_dev = np.std(data)
-        result = (data - mean) / std_dev
-    elif isinstance(data, pd.DataFrame):
-        # if columns:
-        #     data = data[columns]
-        mean = data.mean()
-        std_dev = data.std()
-        result = (
-            data - mean) / std_dev if as_frame else (
-                data - mean) / std_dev.to_numpy()
+
+    mean = data.mean()
+    std_dev = data.std()
+    result = (data - mean) / std_dev 
 
     # Visualization
     if view:
-        plt.figure(figsize=fig_size)
+        colors,alphas = get_colors_and_alphas(result.columns)
+        # plt.figure(figsize=fig_size)
         if plot_type == 'hist':
             if isinstance(result, pd.DataFrame):
-                result.plot(kind='hist', alpha=0.5, bins=20, colormap=cmap, legend=True)
+                result.plot(kind='hist', alpha=0.5, bins=20, colormap=cmap,
+                            legend=True)
             else:
                 plt.hist(result, bins=20, alpha=0.5, color=cmap)
             plt.title('Z-Scores Distribution')
             plt.xlabel('Z-Score')
             plt.ylabel('Frequency')
-        elif plot_type == 'boxplot':
+        elif plot_type == 'box':
             if isinstance(result, pd.DataFrame):
-                sns.boxplot(data=result, orient='h', palette=cmap)
+                sns.boxplot(data=result, orient=orient, palette=cmap)
             else:
-                sns.boxplot(data=pd.DataFrame(result), orient='h', color=cmap)
+                sns.boxplot(
+                    data=pd.DataFrame(result), orient=orient, color=cmap)
             plt.title('Z-Scores Box Plot')
         elif plot_type == 'density':
             if isinstance(result, pd.DataFrame):
@@ -1850,7 +1868,12 @@ def z_scores(
             plt.xlabel('Z-Score')
 
         plt.show()
-
+    result = convert_and_format_data(
+        result, as_frame, 
+        force_array_output= True if not as_frame else False, 
+        condense= True, 
+        condition=serie_naming("z_scores"))
+    
     return result
 
 
