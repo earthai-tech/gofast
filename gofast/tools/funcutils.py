@@ -18,6 +18,7 @@ import time
 import functools
 import inspect
 import logging
+import warnings
 import subprocess
 import threading
  
@@ -2235,7 +2236,6 @@ def update_index(
         raise ValueError("Input data must be a pandas Series or DataFrame,"
                          f" got {type(data).__name__}.")
 
-
 def convert_and_format_data(
     data: Any,
     return_df: bool = False,
@@ -2435,12 +2435,10 @@ def convert_and_format_data(
             data = data.squeeze()
             if data.size == 1:
                 data = data.item()  # Converts to a scalar
-
-
     return data
 
 def cast_numeric(
-    value, error='ignore',
+    value, /, error='ignore',
     on_success=None, 
     on_failure=None
     ):
@@ -2598,7 +2596,7 @@ def serie_naming(name, data=None, error='ignore'):
         except Exception as e:
             if error == 'raise':
                 raise e
-            print(f"Warning: {e}")
+            warnings.warn(f"Warning: {e}")
         return data
 
     # Return a condition function for dynamic renaming if data is not directly provided

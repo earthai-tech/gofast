@@ -32,8 +32,6 @@ from .coreutils import to_numeric_dtypes, assert_ratio, exist_features
 from .coreutils import normalize_string
 from .funcutils import ensure_pkg 
 
-
-
 from .validator import array_to_frame, build_data_if, is_frame 
 from .validator import check_consistent_length
 
@@ -2435,6 +2433,7 @@ def convert_date_features(
 
     return (data, report) if return_report else data
 
+@df_if 
 def scale_data(
     data: DataFrame, /, 
     method: str = 'norm',
@@ -2507,7 +2506,7 @@ def scale_data(
     
     original_data = data.copy()
     _,method=normalize_string (method, target_strs=(
-        'MinMax', "Standard", "Normalization"),return_target_str=True, deep=True)
+        'minmax', "standard", "norm"),return_target_str=True, deep=True)
     # Determine which scaling method to use
     if method not in ['minmax', 'norm', 'standard']:
         raise ValueError("Invalid scaling method. Choose 'minmax',"
@@ -2644,7 +2643,7 @@ def handle_outliers_in_data(
 
     return (data, report) if return_report else data
 
-@dataify
+@df_if
 def handle_missing_data(
     data:DataFrame, /, 
     method: Optional[str] = None,  
@@ -3088,11 +3087,14 @@ def _prepare_data(
         X = data.drop(target_column, axis=1)
     elif isinstance(target_column, (pd.Series, np.ndarray)):
         # if len(target_column) != len(data):
-        #     raise ValueError("Length of the target array/Series must match the number of samples in 'data'.")
-        y = pd.Series(target_column, index=data.index) if isinstance(target_column, np.ndarray) else target_column
+        #     raise ValueError("Length of the target array/Series must 
+        #    match the number of samples in 'data'.")
+        y = pd.Series(target_column, index=data.index) if isinstance(
+            target_column, np.ndarray) else target_column
         X = data
     else:
-        raise ValueError("Invalid type for 'target_column'. Must be str, list, pd.Series, or np.ndarray.")
+        raise ValueError("Invalid type for 'target_column'. Must be str,"
+                         " list, pd.Series, or np.ndarray.")
     
     check_consistent_length(X, y)
     

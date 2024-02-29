@@ -1623,12 +1623,12 @@ def goiqr(
 
     Parameters
     ----------
-    data : Union[ArrayLike, pd.DataFrame]
+    data: Union[ArrayLike, pd.DataFrame]
         The dataset from which the IQR is calculated. This can be directly 
         provided as a list, numpy array, or a pandas DataFrame. When provided 
         as a list or numpy array, the data is internally converted to a pandas 
         DataFrame for calculation.
-    axis : optional, {index (0), columns (1)}
+    axis: optional, {index (0), columns (1)}
          Axis for the function to be applied on. Default is 0.
     columns : Optional[List[str]] (default=None)
         Relevant when `data` is a pandas DataFrame. Specifies the columns within 
@@ -1745,6 +1745,7 @@ def z_scores(
     view: bool = False, 
     plot_type: Optional[str] = 'hist', 
     cmap: str = 'viridis', 
+    orient: Optional [str]=None, 
     fig_size: Optional[Tuple[int, int]] = (8, 6), 
     **kws):
     """
@@ -1784,6 +1785,7 @@ def z_scores(
     
     cmap : str (default='viridis')
         The colormap for the visualization plot. Applicable only if `view` is True.
+        
     orient: str, {None,'h'}
        Orientation of the boxplot. Use 'h' for horizontal orientation otherwise 
        the default is vertical (``None``). 

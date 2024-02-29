@@ -647,7 +647,7 @@ class QuestPlotter (BasePlot):
         Example
         --------
         >>> from gofast.datasets import fetch_data 
-        >>> from gofast.view import QuestPlotter 
+        >>> from gofast.plot import QuestPlotter 
         >>> data = fetch_data ('bagoue original').get('data=dfy1') 
         >>> p= QuestPlotter(target_name='flow').fit(data)
         >>> p.plotPairGrid (vars = ['magnitude', 'power', 'ohmS'] ) 
