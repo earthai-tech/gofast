@@ -7071,6 +7071,7 @@ def normalize_string(
     num_chars_check: Optional[int] = None, 
     deep: bool = False, 
     return_target_str: bool = False,
+    return_target_only: bool=False, 
     raise_exception: bool = False,
     ignore_case: bool = True,
     match_method: str = 'exact',
@@ -7099,6 +7100,9 @@ def normalize_string(
     return_target_str : bool, optional
         If True and a target string matches, returns the matched target string 
         along with the normalized string.
+    return_target_only: bool, optional 
+       If True and a target string  matches, returns only the matched string
+       target. 
     raise_exception : bool, optional
         If True and the input string is not found in the target strings, 
         raises an exception.
@@ -7160,12 +7164,17 @@ def normalize_string(
             break
 
     if matched_target is not None:
+        if return_target_only: 
+            return matched_target 
         return (normalized_str, matched_target) if return_target_str else normalized_str
 
     if raise_exception:
         error_msg = error_msg or f"{input_str!r} not found in {target_strs}."
         raise ValueError(error_msg)
-
+    
+    if return_target_only: 
+        return matched_target 
+    
     return ('', None) if return_target_str else ''
 
 def format_and_print_dict(data_dict, front_space=4):
@@ -8718,7 +8727,7 @@ def to_series_if(
     name: Optional[str] = None,
     error: str = 'ignore',
     **kws
-) -> pd.Series:
+) -> Series:
     """
     Constructs a pandas Series from given values, optionally naming the series
     and its index.

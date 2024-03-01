@@ -1280,8 +1280,9 @@ def _check_and_convert_input(input_data):
         try:
             return to_numeric_dtypes (pd.DataFrame(np.array(input_data))) 
         except Exception:
-            raise ValueError("Expect the first argument to be an iterable object"
-                             " with minimum samples equal to two.")
+            raise ValueError(
+                "Expect the first argument to be a non-string iterable object"
+                 " with minimum samples equal to two.")
     else:
         raise ValueError("First argument must be a pd.DataFrame, dict,"
                          " np.ndarray, or an iterable object.")
@@ -2506,7 +2507,7 @@ def cast_numeric(
             return on_failure(value)
         return False
 
-def serie_naming(name, data=None, error='ignore'):
+def series_naming(name, data=None, error='ignore'):
     """
     Generates a condition function for renaming a pandas Series or single-column
     DataFrame and optionally transforms and directly renames the provided data.
@@ -2541,7 +2542,7 @@ def serie_naming(name, data=None, error='ignore'):
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.tools.funcutils import serie_naming
+    >>> from gofast.tools.funcutils import series_naming
     
     >>> df = pd.DataFrame({'1': [1, 2, 3]})
     >>> condition = serie_naming('NewName')
@@ -2550,13 +2551,13 @@ def serie_naming(name, data=None, error='ignore'):
     {'series_name': 'NewName'}
 
     >>> series = pd.Series([1, 2, 3], name='2')
-    >>> condition = serie_naming('SeriesName')
+    >>> condition = series_naming('SeriesName')
     >>> result = condition(series)
     >>> print(result)
     {'series_name': 'SeriesName'}
 
     >>> series = pd.Series([1, 2, 3], name='ExistingName')
-    >>> condition = serie_naming('NewSeriesName')
+    >>> condition = series_naming('NewSeriesName')
     >>> result = condition(series)
     >>> print(result)
     {}
@@ -2567,13 +2568,13 @@ def serie_naming(name, data=None, error='ignore'):
     Name: NewName, dtype: int64
 
     >>> df = pd.DataFrame({'A': [1, 2, 3]})
-    >>> serie_naming('SingleCol', data=df)
+    >>> series_naming('SingleCol', data=df)
     0    1
     1    2
     2    3
     Name: SingleCol, dtype: int64
 
-    >>> condition = serie_naming('DynamicName')
+    >>> condition = series_naming('DynamicName')
     >>> series = pd.Series([1, 2, 3], name='1')
     >>> condition(series)
     {'series_name': 'DynamicName'}

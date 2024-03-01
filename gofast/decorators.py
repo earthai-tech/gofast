@@ -1594,12 +1594,12 @@ def df_if(func: Callable) -> Callable:
             # Attempt to convert it into a DataFrame
             try:
                 data = pd.DataFrame(data, columns=columns)
-                # If columns are provided but do not match data dimensions, ignore them
+                # If columns are provided but do not match data dimensions,
+                # ignore them
                 if columns and len(columns) != data.shape[1]:
                     data = pd.DataFrame(data)
             except Exception as e:
                 raise ValueError(f"Error converting data to DataFrame: {e}")
-
             # Call the decorated function with the new DataFrame 
             # as the first argument
             return func(data, *args[1:], **kwargs)

@@ -279,6 +279,8 @@ def simple_extractive_summary(
 
     return texts[most_similar_idx]
 
+
+@df_if 
 def format_long_column_names(
     data:DataFrame, /,  
     max_length:int=10, 
@@ -2496,8 +2498,7 @@ def scale_data(
     -------
     >>> from gofast.tools.baseutils import scale_data
     >>> data = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
-    >>> scaled_data, report = scale_data(data, 'minmax',
-                                         return_report=True, view=True)
+    >>> scaled_data, report = scale_data(data, 'minmax', return_report=True, view=True)
     """
     is_frame (data, df_only=True, raise_exception=True, 
               objname="Exceptionnaly, scaling data")
@@ -2505,8 +2506,8 @@ def scale_data(
     report = {'method_used': method, 'columns_scaled': list(numeric_cols)}
     
     original_data = data.copy()
-    _,method=normalize_string (method, target_strs=(
-        'minmax', "standard", "norm"),return_target_str=True, deep=True)
+    method=normalize_string (method, target_strs=('minmax', "standard", "norm"),
+                             match_method='contains', return_target_only=True)
     # Determine which scaling method to use
     if method not in ['minmax', 'norm', 'standard']:
         raise ValueError("Invalid scaling method. Choose 'minmax',"

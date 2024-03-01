@@ -26,16 +26,17 @@ from ..decorators import DynamicMethod, AppendDocFrom # AppendDocSection
 from ..tools.validator import assert_xy_in, is_frame, check_consistent_length 
 from ..tools.coreutils import ensure_visualization_compatibility, ellipsis2false 
 from ..tools.coreutils import process_and_extract_data, to_series_if 
-from ..tools.coreutils import get_colors_and_alphas
-from ..tools.funcutils import make_data_dynamic, ensure_pkg, cast_numeric
+from ..tools.coreutils import get_colors_and_alphas, normalize_string 
+from ..tools.coreutils import smart_format 
+from ..tools.funcutils import make_data_dynamic, ensure_pkg
 from ..tools.funcutils import flatten_data_if, update_series_index 
 from ..tools.funcutils import update_index, convert_and_format_data
-from ..tools.funcutils import serie_naming 
+from ..tools.funcutils import series_naming 
 
 __all__= [ 
     "gomean", "gomedian", "gomode",  "govar", "gostd", "get_range", 
     "quartiles", "goquantile","gocorr", "correlation", "goiqr", "z_scores", 
-    "descriptive_stats","calculate_skewness", "calculate_kurtosis", 
+    "godescribe","goskew", "gokurtosis", 
     "t_test_independent", "perform_linear_regression", "chi_squared_test", 
     "anova_test", "perform_kmeans_clustering", "harmonic_mean", 
     "weighted_median", "bootstrap", "kaplan_meier_analysis", "gini_coeffs",
@@ -1628,13 +1629,15 @@ def goiqr(
         provided as a list, numpy array, or a pandas DataFrame. When provided 
         as a list or numpy array, the data is internally converted to a pandas 
         DataFrame for calculation.
-    axis: optional, {index (0), columns (1)}
-         Axis for the function to be applied on. Default is 0.
+    
     columns : Optional[List[str]] (default=None)
         Relevant when `data` is a pandas DataFrame. Specifies the columns within 
         the DataFrame for which the IQR is to be calculated. If None, the IQR 
         is calculated for all numeric columns in the DataFrame.
-
+        
+    axis: optional, {index (0), columns (1)}
+         Axis for the function to be applied on. Default is 0.
+         
     as_frame : bool (default=False)
         Determines the format of the return value. When True, the function returns 
         a pandas Series object representing the IQR for each column specified or 
@@ -1734,7 +1737,8 @@ def goiqr(
         iqr_values, as_frame, 
         force_array_output= True if not as_frame else False, 
         condense= True, 
-        series_names= serie_naming("IQR"))
+        condition= series_naming("IQR")
+        )
     return iqr_values
 
 @make_data_dynamic(capture_columns=True)
@@ -1843,8 +1847,11 @@ def z_scores(
 
     # Visualization
     if view:
+        plot_type= _validate_plot_type(
+            plot_type, target_strs= ['hist', 'box', 'density'],
+            raise_exception= True)
         colors,alphas = get_colors_and_alphas(result.columns)
-        # plt.figure(figsize=fig_size)
+
         if plot_type == 'hist':
             if isinstance(result, pd.DataFrame):
                 result.plot(kind='hist', alpha=0.5, bins=20, colormap=cmap,
@@ -1874,19 +1881,21 @@ def z_scores(
         result, as_frame, 
         force_array_output= True if not as_frame else False, 
         condense= True, 
-        condition=serie_naming("z_scores"))
+        condition=series_naming("z_scores")
+        )
     
     return result
 
 
 @make_data_dynamic(capture_columns=True)
-def descriptive_stats(
+def godescribe(
     data: DataFrame,
     columns: Optional[List[str]] = None,
     include: Union[str, List[str]] = 'all',
     exclude: Union[str, List[str]] = None,
     as_frame: bool = True,
     view: bool = False, 
+    orient: Optional[str]=None,
     plot_type: Optional[str] = 'box',   
     cmap: str = 'viridis', 
     fig_size: Optional[Tuple[int, int]] = (10, 6), 
@@ -1928,6 +1937,10 @@ def descriptive_stats(
     view : bool, optional
         If True, generates a visualization of the descriptive statistics 
         based on `plot_type`.  Default is False.
+    orient: str, {None,'h'}
+       Orientation of the boxplot. Use 'h' for horizontal orientation otherwise 
+       the default is vertical (``None``). 
+       
     plot_type : Optional[str], optional
         Specifies the type of plot for visualization: 'box', 'hist', or 
         'density'. Ignored if `view` is False. Default is 'box'.
@@ -1947,18 +1960,19 @@ def descriptive_stats(
     
     Examples
     --------
-    >>> from gofast.stats.utils import descriptive_stats
+    
     >>> import numpy as np
     >>> import pandas as pd
+    >>> from gofast.stats.utils import godescribe
     >>> data = np.random.rand(100, 4)
-    >>> descriptive_stats(data, as_frame=True)
+    >>> godescribe(data, as_frame=True)
     
     >>> import pandas as pd
     >>> df = pd.DataFrame(data, columns=['A', 'B', 'C', 'D'])
-    >>> descriptive_stats(df, columns=['A', 'B'])
+    >>> godescribe(df, columns=['A', 'B'])
     
     >>> df = pd.DataFrame(data, columns=['A', 'B', 'C', 'D'])
-    >>> descriptive_stats(df, columns=['A', 'B'], view=True, plot_type='hist')
+    >>> godescribe(df, columns=['A', 'B'], view=True, plot_type='hist')
     Note
     ----
     This function is a convenient wrapper around `pd.DataFrame.describe`,
@@ -1972,11 +1986,13 @@ def descriptive_stats(
     
     # Visualization
     if view:
+        plot_type= _validate_plot_type(
+            plot_type, target_strs= ['hist', 'box', 'density'],
+            raise_exception= True)
         colors, alphas = get_colors_and_alphas(
             data.columns, cmap, convert_to_named_color= True )
-        plt.figure(figsize=fig_size)
         if plot_type == 'box':
-            sns.boxplot(data=data, orient='h', palette=colors[0])
+            sns.boxplot(data=data, orient=orient, palette=cmap)
             plt.title('Box Plot of Descriptive Statistics')
         elif plot_type == 'hist':
             data.plot(kind='hist', bins=30, alpha=0.6, colormap=cmap)
@@ -1989,18 +2005,20 @@ def descriptive_stats(
                 f"Unsupported plot_type: {plot_type}."
                 "Choose from 'box', 'hist', or 'density'.")
         plt.show()
-    
+        
     stats_result= convert_and_format_data(
-        data, as_frame, series_name="Descr Stats", 
-        force_array_output=True, 
-        condition=lambda s: isinstance (s, pd.Series)
+        stats_result, as_frame, 
+        force_array_output= True if not as_frame else False, 
+        condense=True,
+        condition=series_naming ("descriptive_stats"), 
         )
     return stats_result
 
-@make_data_dynamic(capture_columns=True, dynamize= False )
-def calculate_skewness(
+@make_data_dynamic(capture_columns=True)
+def goskew(
     data: Union[ArrayLike, pd.DataFrame],
     columns: Optional[List[str]] = None,
+    axis: int =0, 
     as_frame: bool = False,
     view: bool = False, 
     plot_type: Optional[str] = 'density', 
@@ -2022,25 +2040,34 @@ def calculate_skewness(
     data : ArrayLike or pd.DataFrame
         The input data for which skewness is to be calculated. Can be a Pandas 
         DataFrame or any array-like structure containing numerical data.
+        
     columns : List[str], optional
         Specific columns to include in the analysis if `data` is a DataFrame.
         If None, all columns are included. Default is None.
+        
+    axis: optional, {index (0), columns (1)}
+         Axis for the function to be applied on. Default is 0. 
+         
     as_frame : bool, default=False
         If True and `data` is ArrayLike, converts `data` to a Pandas DataFrame
         before calculating skewness. Useful for structured array-like inputs.
+        
     view : bool, optional
         If True, visualizes the data distribution and its skewness using the
         specified `plot_type`. Defaults to False.
+        
     plot_type : Optional[str], optional
         Type of plot for visualizing the data distribution. Supported values
         are 'density' for a density plot and 'hist' for a histogram. Ignored
         if `view` is False. Defaults to 'density'.
+        
     cmap : str, optional
         Colormap for the plot. Defaults to 'viridis'.
     fig_size : Optional[Tuple[int, int]], optional
         Size of the figure for the plot. Defaults to (10, 6).
     **kwargs : dict
-        Additional keyword arguments passed to `pd.Series.skew` or `pd.DataFrame.skew`.
+        Additional keyword arguments passed to `pd.Series.skew`
+        or `pd.DataFrame.skew`.
 
 
     Returns
@@ -2053,10 +2080,11 @@ def calculate_skewness(
 
     Examples
     --------
-    >>> from gofast.stats.utils import calculate_skewness
+    >>> from gofast.stats.utils import goskew
     >>> import numpy as np
     >>> data = np.random.normal(loc=0, scale=1, size=1000)
     >>> calculate_skewness(data)
+    0.1205147559272991
     
     >>> import pandas as pd
     >>> df = pd.DataFrame({
@@ -2064,17 +2092,18 @@ def calculate_skewness(
     ...     'B': np.random.normal(loc=1, scale=2, size=1000),
     ...     'C': np.random.lognormal(mean=0, sigma=1, size=1000)
     ... })
-    >>> calculate_skewness(df)
+    >>> goskew(df)
+    array([-0.07039989, -0.04687687,  7.20119035])
     
     >>> data = [1, 2, 2, 3, 4, 7, 9]
-    >>> calculate_skewness(data)
-    0.782
+    >>> goskew(data)
+    0.9876939667076702
 
     >>> df = pd.DataFrame({
     ...     'normal': np.random.normal(0, 1, 1000),
     ...     'right_skewed': np.random.exponential(1, 1000)
     ... })
-    >>> calculate_skewness(df, view=True, plot_type='density')
+    >>> goskew(df, view=True, plot_type='density')
 
     Note
     ----
@@ -2083,13 +2112,15 @@ def calculate_skewness(
     can indicate the need for data transformation or the use of non-parametric
     statistical methods.
     """
-    # Ensuring numeric data type for calculation
+    # Ensuring numeric data type for calculation # for consisteny 
     data_numeric = data.apply(pd.to_numeric, errors='coerce')
-    skewness_value = data_numeric.skew(axis=0, **kwargs)
-    
-    # Visualization
+    skewness_value = data_numeric.skew(axis=0, **kwargs) 
+
     if view:
-        plt.figure(figsize=fig_size)
+        colors, alphas = get_colors_and_alphas( data_numeric.columns, cmap)
+        plot_type = _validate_plot_type(
+            plot_type, target_strs= ['hist', 'box', 'density'],
+            raise_exception= True)
         if plot_type == 'density':
             for column in data_numeric.columns:
                 sns.kdeplot(data_numeric[column],
@@ -2103,43 +2134,72 @@ def calculate_skewness(
                 label=f'{column} (Skewness: {skewness_value[column]:.2f})',
                 bins=30)
             plt.title('Histogram with Skewness')
-        plt.legend()
+        else: 
+            raise ValueError(
+                f"Unsupported type '{plot_type}'. Expect 'density' and 'hist'")
+        plt.xlabel("Value")
+        plt.ylabel ("Frequency")
+        if plt.gca().get_legend_handles_labels()[0]:
+            plt.legend()
         plt.show()
+        
+    skewness_value= convert_and_format_data(
+        skewness_value, as_frame, 
+        force_array_output= False if as_frame else True, 
+        condense=False if as_frame else True,
+        condition=series_naming ("skewness"),
+        )    
     
     return skewness_value
 
+
 @make_data_dynamic(
-    capture_columns=True, 
-    dynamize= False
-    )
-def calculate_kurtosis(
+    capture_columns=True)
+def gokurtosis(
     data: Union[ArrayLike, DataFrame],
     columns: List[str] = None,
+    axis: int= 0, 
     as_frame: bool = False,
     view: bool = False, 
     plot_type: str = 'density', 
     cmap: str = 'viridis', 
     fig_size: Optional[Tuple[int, int]] = (10, 6), 
     **kwargs
-):
+    ):
     """
     Calculates the kurtosis of the data distribution, offering insights into
     the tail heaviness compared to a normal distribution.
-    
+
     Kurtosis is a measure of whether the data are heavy-tailed or light-tailed
     relative to a normal distribution. Positive kurtosis indicates a distribution
     with heavier tails, while negative kurtosis indicates a distribution with
     lighter tails.
 
+    The formula for kurtosis is defined as:
+
+    .. math::
+
+        Kurtosis = \\frac{N\\sum_{i=1}^{N}(X_i - \\bar{X})^4}{(\\sum_{i=1}^{N}(X_i - \\bar{X})^2)^2} - 3
+
+    where:
+    
+    - :math:`N` is the number of observations,
+    - :math:`X_i` is each individual observation,
+    - :math:`\\bar{X}` is the mean of the observations.
+
+    The subtraction by 3 at the end adjusts the result to fit the standard 
+    definition of kurtosis, where a normal distribution has a kurtosis of 0.
+
     Parameters
     ----------
     data : ArrayLike or pd.DataFrame
-        The input data for which kurtosis is to be calculated.
-        Can be a Pandas DataFrame
-        or any array-like structure containing numerical data.
+        The input data for which kurtosis is to be calculated. Can be a Pandas
+        DataFrame or any array-like structure containing numerical data.
     columns : List[str], optional
         Specific columns to include in the analysis if `data` is a DataFrame.
         If None, all columns are included. Default is None.
+    axis : int, default=0
+        Axis along which the kurtosis is calculated.
     as_frame : bool, default=False
         If True and `data` is ArrayLike, converts `data` to a Pandas DataFrame
         before calculating kurtosis. Useful for structured array-like inputs.
@@ -2155,8 +2215,6 @@ def calculate_kurtosis(
         Size of the figure for the plot. Defaults to (10, 6).
     **kwargs : dict
         Additional keyword arguments passed to `scipy.stats.kurtosis`.
-    **kwargs : dict
-        Additional keyword arguments to be passed to the `stats.kurtosis` function.
 
     Returns
     -------
@@ -2168,26 +2226,24 @@ def calculate_kurtosis(
 
     Examples
     --------
-    >>> from gofast.stats.utils import calculate_kurtosis
+    >>> from gofast.stats.utils import gokurtosis
     >>> import numpy as np
     >>> data = np.random.normal(0, 1, 1000)
-    >>> calculate_kurtosis(data)
+    >>> print(gokurtosis(data))
     
     >>> import pandas as pd
-    >>> df = pd.DataFrame({
-    ...     'A': np.random.normal(0, 1, size=1000),
-    ...     'B': np.random.standard_t(10, size=1000)
-    ... })
-    >>> calculate_kurtosis(df, as_frame=True)
-
+    >>> df = pd.DataFrame({'A': np.random.normal(0, 1, size=1000),
+    ...                    'B': np.random.standard_t(10, size=1000)})
+    >>> print(gokurtosis(df, as_frame=True))
+    
     >>> data = np.random.normal(0, 1, 1000)
-    >>> print(calculate_kurtosis(data))
+    >>> print(gokurtosis(data))
     
     >>> df = pd.DataFrame({
     ...     'normal': np.random.normal(0, 1, 1000),
     ...     'leptokurtic': np.random.normal(0, 1, 1000) ** 3,
     ... })
-    >>> print(calculate_kurtosis(df, as_frame=True))
+    >>> print(gokurtosis(df, as_frame=True))
 
     Note
     ----
@@ -2195,30 +2251,34 @@ def calculate_kurtosis(
     propensity of data to produce outliers. A higher kurtosis can indicate
     a higher risk or potential for outlier values in the dataset.
     """
-    # if  isinstance(data, pd.DataFrame):
-    #     data = pd.DataFrame(data, columns=columns if columns else range(len(data[0])))
-    # elif isinstance(data, pd.DataFrame) and columns:
-    #     data = data[columns]
-
-    kurtosis_value = stats.kurtosis(data, axis=0, **kwargs)
-    
-    if as_frame:
-        kurtosis_value = pd.Series(
-            kurtosis_value, index=columns or data.columns)
-
+    kurtosis_value = data.kurtosis(axis=axis, **kwargs)
     if view:
-        plt.figure(figsize=fig_size)
+        plot_type= _validate_plot_type(
+            plot_type, target_strs= ['density', 'hist'],
+            raise_exception =True)
+        colors, alphas = get_colors_and_alphas(
+            len(kurtosis_value), cmap)
+        kvalue, data, cols = prepare_plot_data(kurtosis_value, data, axis = axis )
         if plot_type == 'density':
-            for col in data.columns:
-                sns.kdeplot(data[col], 
-                            label=f'{col} kurtosis={kurtosis_value[col]:.2f}',
-                            cmap=cmap)
+            for ii, col in enumerate (cols) :
+                sns.kdeplot(data[col], label=f'{col} kurtosis={kvalue[ii]:.2f}',
+                            color=colors [ii])
         elif plot_type == 'hist':
-            data.hist(bins=30, alpha=0.5, color=cmap, figsize=fig_size)
+            data.hist(bins=30, alpha=0.5, color=colors[0], figsize=fig_size)
         plt.title("Data Distribution and Kurtosis")
-        plt.legend()
+
+        plt.xlabel("Value")
+        plt.ylabel ("Frequency")
+        if plt.gca().get_legend_handles_labels()[0]:
+            plt.legend()
         plt.show()
 
+    kurtosis_value= convert_and_format_data(
+        kurtosis_value, as_frame, 
+        force_array_output= False if as_frame else True, 
+        condense=False if as_frame else True,
+        condition=series_naming ("kurtosis"),
+        )    
     return kurtosis_value
 
 def t_test_independent(
@@ -2233,55 +2293,63 @@ def t_test_independent(
     fig_size: Optional[Tuple[int, int]] = (10, 6),  
     **kws
 ) -> Tuple[float, float, bool]:
-    """
-    Performs an independent two-sample t-test to compare the means of two
-    independent samples. 
+    r"""
+    Conducts an independent two-sample t-test to evaluate the difference in
+    means between two independent samples. 
     
-    Funtion provides the t-statistic, p-value, and whether the
-    null hypothesis (that the samples have identical average values) 
-    can be rejected at the specified significance level.
+    This statistical test assesses whether there are statistically significant
+    differences between the means of two independent samples.
+
+    The t-statistic is computed as:
+    
+    .. math:: 
+        t = \frac{\bar{X}_1 - \bar{X}_2}{\sqrt{\frac{s_1^2}{n_1} + \frac{s_2^2}{n_2}}}
+    
+    
+    Where:
+    - \(\bar{X}_1\) and \(\bar{X}_2\) are the sample means,
+    - \(s_1^2\) and \(s_2^2\) are the sample variances,
+    - \(n_1\) and \(n_2\) are the sample sizes.
+    
+    The function returns the t-statistic, the two-tailed p-value, and a boolean
+    indicating if the null hypothesis 
+    (the hypothesis that the two samples have identical average values) 
+    can be rejected at the given significance level (\(\alpha\)).
 
     Parameters
     ----------
-    sample1 : array_like or str
-        The first sample, must be a list, array of numeric values, or the name
-        of a column in `data` if `data` is provided.
-    sample2 : array_like or str
-        The second sample, must be a list, array of numeric values, or the name
-        of a column in `data` if `data` is provided.
+    sample1 : Union[List[float], List[int], str]
+        The first sample or the name of a column in `data` if provided.
+    sample2 : Union[List[float], List[int], str]
+        The second sample or the name of a column in `data` if provided.
     alpha : float, optional
-        The significance level used to determine if the null hypothesis can be
-        rejected, default is 0.05.
+        The significance level, default is 0.05.
     data : pd.DataFrame, optional
-        A DataFrame containing the data for `sample1` and `sample2` if column
-        names are provided for these parameters. Required if `sample1` or
-        `sample2` is a string.
-    as_frame : bool, default=False
-        If True and `t_stat`, `p_value` and  `reject_null` results are 
-        in pandas Series. 
+        DataFrame containing the data if column names are provided for 
+        `sample1` or `sample2`.
+    as_frame : bool, optional
+        If True, returns results as a pandas DataFrame/Series.
     view : bool, optional
-        If True, generates a plot (boxplot or histogram) to visualize the 
-        sample distributions.
+        If True, generates a plot to visualize the sample distributions.
     plot_type : str, optional
-        Type of plot for visualization (
-            'box' for boxplot, 'hist' for histogram). Default is 'box'.
+        The type of plot for visualization ('box' or 'hist').
     cmap : str, optional
-        Color map for the plot. Default is 'viridis'.
+        Color map for the plot.
     fig_size : Optional[Tuple[int, int]], optional
-        Figure size for the plot. Default is (10, 6).
+        Size of the figure for the plot.
     **kwargs : dict
-        Additional keyword arguments to be passed to the
-        `stats.ttest_ind` function.
-        
+        Additional arguments passed to `stats.ttest_ind`.
+
     Returns
     -------
-    t_stat : float
-        The calculated t-statistic.
-    p_value : float
-        The two-tailed p-value.
-    reject_null : bool
-        A boolean indicating if the null hypothesis can be rejected 
-        (True) or not (False).
+    Tuple[float, float, bool]
+        t_stat : float
+            The calculated t-statistic.
+        p_value : float
+            The two-tailed p-value.
+        reject_null : bool
+            A boolean indicating if the null hypothesis can be rejected 
+            (True) or not (False).
 
     Examples
     --------
@@ -2295,17 +2363,16 @@ def t_test_independent(
     >>> df = pd.DataFrame({'Group1': [22, 23, 25, 27, 29], 'Group2': [18, 20, 21, 20, 19]})
     >>> t_stat, p_value, reject_null = t_test_independent('Group1', 'Group2', data=df)
     >>> print(f"T-statistic: {t_stat}, P-value: {p_value}, Reject Null: {reject_null}")
-
+    
     >>> df = pd.DataFrame({'Group1': [22, 23, 25, 27, 29], 'Group2': [18, 20, 21, 20, 19]})
     >>> t_stat, p_value, reject_null = t_test_independent('Group1', 'Group2', data=df)
     >>> print(f"T-statistic: {t_stat}, P-value: {p_value}, Reject Null: {reject_null}")
     Note
     ----
     This function is particularly useful for comparing the means of two 
-    independent samples,especially when assessing the difference in means
-    between two groups under different conditions or treatments. When providing
-    string arguments for `sample1` and `sample2`, ensure a DataFrame is also 
-    passed to the `data` parameter.
+    independent samples, especially in assessing differences under various 
+    conditions or treatments. Ensure a DataFrame is passed when `sample1` a
+    nd `sample2` are specified as column names.
     """
 
     if isinstance(sample1, str) or isinstance (sample2, str): 
@@ -2324,24 +2391,33 @@ def t_test_independent(
     reject_null = p_value < alpha
 
     if view:
-        plt.figure(figsize=fig_size)
+        
+        plot_type= _validate_plot_type(
+            plot_type, target_strs= ['box', 'hist'],
+            raise_exception =True)
+        colors, alphas = get_colors_and_alphas(2, cmap)
         if plot_type == 'box':
             sns.boxplot(data=[sample1, sample2], palette=cmap)
             plt.title('Sample Distributions - Boxplot')
         elif plot_type == 'hist':
-            sns.histplot(sample1, color=cmap, alpha=0.6, kde=True, 
+            sns.histplot(sample1, color=colors[0], alpha=alphas[0], kde=True, 
                          label='Sample 1')
-            sns.histplot(sample2, color=cmap, alpha=0.6, kde=True, 
+            sns.histplot(sample2, color=colors[1], alpha=alphas[1], kde=True, 
                          label='Sample 2')
             plt.title('Sample Distributions - Histogram')
-        plt.legend()
+        
+        plt.xlabel("Value")
+        plt.ylabel ("Frequency")
+        if plt.gca().get_legend_handles_labels()[0]:
+            plt.legend()
         plt.show()
     
     if as_frame: 
         return to_series_if(
             t_stat, p_value, reject_null, 
-            ["T-statistic", " P-value","Reject Null" ],
+            value_names= ["T-statistic", "P-value","Reject Null" ],
             name ="t_test_independent")
+    
     return t_stat, p_value, reject_null
 
 def perform_linear_regression(
@@ -2930,8 +3006,7 @@ def bootstrap(
     return np.array(bootstrapped_stats)
 
 @ensure_pkg(
-    "lifelines",
-    "The 'lifelines' package is required for this function to run.")
+    "lifelines","The 'lifelines' package is required for this function to run.")
 @make_data_dynamic("numeric", capture_columns=True, dynamize=False)
 def kaplan_meier_analysis(
     durations: DataFrame | np.ndarray,
@@ -3454,7 +3529,6 @@ def kolmogorov_smirnov_test(
 
     return statistic, p_value
 
-
 def cronbach_alpha(
     items_scores: Union[ArrayLike, pd.DataFrame],
     columns: Optional[list] = None,
@@ -3968,8 +4042,82 @@ def prepare_plot_data(
 
     return values, data, None
 
-    
-    
+def _validate_plot_type(
+        type_: str,
+        target_strs: List[str],
+        match_method: str = 'contains',
+        raise_exception: bool = False,
+        **kwargs) -> Optional[str]:
+    """
+    Validates the plot type against a list of acceptable types and returns
+    the normalized matching string.
+
+    This function checks if the given plot type matches any of the target strings
+    based on the specified match method. If a match is found, the function returns
+    the normalized string from the target list. It can optionally raise an exception
+    if no match is found.
+
+    Parameters
+    ----------
+    type_ : str
+        The plot type to validate.
+    target_strs : List[str]
+        A list of acceptable plot type strings to match against.
+    match_method : str, default 'contains'
+        The method used to match the plot type with the target strings. Options include:
+        - 'contains': Checks if `type_` is contained within any of the target strings.
+        - 'exact': Checks for an exact match between `type_` and the target strings.
+        - 'startswith': Checks if `type_` starts with any of the target strings.
+    raise_exception : bool, default False
+        If True, raises a ValueError when no match is found. Otherwise, returns None.
+    **kwargs : dict
+        Additional keyword arguments to be passed to the `normalize_string` function.
+
+    Returns
+    -------
+    Optional[str]
+        The normalized string from `target_strs` that matches `type_`, or None if
+        no match is found and `raise_exception` is False.
+
+    Raises
+    ------
+    ValueError
+        If `raise_exception` is True and no match is found.
+
+    Examples
+    --------
+    >>> _validate_plot_type('box', ['boxplot', 'histogram', 'density'],
+    ...                        match_method='startswith')
+    'boxplot'
+
+    >>> _validate_plot_type('exact_plot', ['boxplot', 'histogram', 'density'],
+    ...                        match_method='exact')
+    None
+
+    >>> _validate_plot_type('hist', ['boxplot', 'histogram', 'density'], 
+    ...                        match_method='contains')
+    'histogram'
+
+    >>> _validate_plot_type('unknown', ['boxplot', 'histogram', 'density'],
+    ...                        raise_exception=True)
+    ValueError: Plot type 'unknown' is not supported.
+
+    Note
+    ----
+    This utility function is designed to help in functions or methods where plot type
+    validation is necessary, improving error handling and user feedback for plotting
+    functionalities.
+    """
+    matched_type = normalize_string(
+        type_, target_strs=target_strs,
+        return_target_str=False, match_method=match_method,
+        return_target_only=True, **kwargs)
+
+    if matched_type is None and raise_exception:
+        raise ValueError(
+            f"Unsupported type '{type_}'. Expect {smart_format(target_strs)}.")
+
+    return matched_type
     
     
     
