@@ -3063,7 +3063,14 @@ def wmedian(
     # Convert data to numpy array and flatten if necessary
     data_values = data.to_numpy().flatten() if data.ndim > 1 else data.values
     weights = np.asarray(weights).flatten()
-    
+
+    try:
+        check_consistent_length(data_values, weights)
+    except ValueError as e:
+        raise ValueError(
+            "Data and weights must be of the same length. Received lengths:"
+            f" data_values={len(data_values)}, weights={len(weights)}") from e
+
     # Sort data and weights
     sorted_indices = np.argsort(data_values)
     sorted_data = data_values[sorted_indices]
