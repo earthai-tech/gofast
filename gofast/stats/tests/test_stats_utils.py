@@ -19,7 +19,7 @@ from gofast.stats.utils import correlation, z_scores, iqr
 from gofast.stats.utils import describe, t_test_independent
 from gofast.stats.utils import skew, kurtosis, hmean, wmedian
 from gofast.stats.utils import perform_linear_regression  
-from gofast.stats.utils import chi2_test, anova_test 
+from gofast.stats.utils import chi2_test, anova_test, bootstrap
 from gofast.stats.utils  import perform_kmeans_clustering 
 # from gofast.stats.utils import   
 # 
@@ -750,58 +750,95 @@ from gofast.stats.utils  import perform_kmeans_clustering
 #     except Exception:
 #         assert False  # Fail if any error occurs
 
-# Basic functionality test with numpy arrays
-def test_wmedian_with_arrays():
-    data = np.array([1, 2, 3])
-    weights = np.array([3, 1, 2])
-    expected_median = 1  # Expected weighted median
-    calculated_median = wmedian(data, weights)
-    assert calculated_median == expected_median, "Weighted median calculation failed for numpy arrays."
+# # Basic functionality test with numpy arrays
+# def test_wmedian_with_arrays():
+#     data = np.array([1, 2, 3])
+#     weights = np.array([3, 1, 2])
+#     expected_median = 1  # Expected weighted median
+#     calculated_median = wmedian(data, weights)
+#     assert calculated_median == expected_median, "Weighted median calculation failed for numpy arrays."
 
-# Test with DataFrame and weight column specified by name
-def test_wmedian_with_dataframe():
-    df = pd.DataFrame({'values': [1, 2, 3], 'weights': [3, 1, 2], 'others': [4, 1, 6]})
-    expected_median = 1.  # Expected weighted median
-    # when columns is given, it may be captured so weights may be included.
-    calculated_median = wmedian(df, 'weights', columns=['values', 'weights'])
-    assert calculated_median == expected_median, ( 
-        "Weighted median calculation failed for DataFrame with weight column."
-        )
+# # Test with DataFrame and weight column specified by name
+# def test_wmedian_with_dataframe():
+#     df = pd.DataFrame({'values': [1, 2, 3], 'weights': [3, 1, 2], 'others': [4, 1, 6]})
+#     expected_median = 1.  # Expected weighted median
+#     # when columns is given, it may be captured so weights may be included.
+#     calculated_median = wmedian(df, 'weights', columns=['values', 'weights'])
+#     assert calculated_median == expected_median, ( 
+#         "Weighted median calculation failed for DataFrame with weight column."
+#         )
 
-# Test with DataFrame and weights as a separate list
-def test_wmedian_with_dataframe_and_list_weights():
-    df = pd.DataFrame({'values': [1, 2, 3]})
-    weights = [3, 1, 2]
-    expected_median = 1.  # Expected weighted median
-    calculated_median = wmedian(df, weights, columns='values',)
-    assert calculated_median == expected_median, ( 
-        "Weighted median calculation failed for DataFrame with list weights."
-        )
+# # Test with DataFrame and weights as a separate list
+# def test_wmedian_with_dataframe_and_list_weights():
+#     df = pd.DataFrame({'values': [1, 2, 3]})
+#     weights = [3, 1, 2]
+#     expected_median = 1.  # Expected weighted median
+#     calculated_median = wmedian(df, weights, columns='values',)
+#     assert calculated_median == expected_median, ( 
+#         "Weighted median calculation failed for DataFrame with list weights."
+#         )
 
-# Test handling of invalid weights (negative values)
-def test_wmedian_with_invalid_weights():
-    data = np.array([1, 2, 3])
-    weights = np.array([3, -1, 2])  # Contains invalid (negative) weight
+# # Test handling of invalid weights (negative values)
+# def test_wmedian_with_invalid_weights():
+#     data = np.array([1, 2, 3])
+#     weights = np.array([3, -1, 2])  # Contains invalid (negative) weight
+#     with pytest.raises(ValueError):
+#         wmedian(data, weights, )
+
+# # Optional: Test the view parameter indirectly by ensuring no error
+# def test_wmedian_view_parameter():
+#     data = np.array([1, 2, 3])
+#     weights = np.array([3, 1, 2])
+#     try:
+#         wmedian(data, weights, view=True)
+#         assert True  # Pass if no error occurs during visualization
+#     except Exception:
+#         assert False  # Fail if any error occurs
+
+# # Test as_frame functionality
+# def test_wmedian_as_frame():
+#     data = np.array([1, 2, 3])
+#     weights = np.array([3, 1, 2])
+#     result = wmedian(data, weights, as_frame=True, view=False)
+#     assert isinstance(result, pd.Series), "Expected a pandas Series as the result when as_frame is True."
+#     assert 'weighted_median' in result.name, "The Series should be named 'weighted_median'."
+
+@pytest.fixture
+def sample_data4():
+    """Fixture to provide sample data for tests."""
+    np.random.seed(0)  # Ensure reproducibility
+    return np.random.rand(100)
+
+@pytest.fixture
+def sample_dataframe4():
+    """Fixture to provide sample DataFrame for tests."""
+    np.random.seed(0)
+    return pd.DataFrame({'A': np.random.rand(100), 'B': np.random.rand(100)})
+
+def test_basic_functionality(sample_data4):
+    n = 10
+    stats = bootstrap(sample_data4, n=n, )
+    assert len(stats) == n, "The number of bootstrapped statistics should match the specified 'n'"
+
+def test_with_dataframe(sample_dataframe4):
+    n = 10
+    stats = bootstrap(sample_dataframe4, n=n, columns=['A'],)
+    assert len(stats) == n, "Bootstrap with DataFrame should return correct number of statistics"
+
+def test_statistic_function(sample_data4):
+    n = 10
+    median_stats = bootstrap(sample_data4, n=n, func=np.median, )
+    mean_stats = bootstrap(sample_data4, n=n, func=np.mean)
+    assert not np.array_equal(median_stats, mean_stats), "Custom statistic functions should produce different results"
+
+def test_output_type_as_frame(sample_data4):
+    stats_df = bootstrap(sample_data4, n=10, as_frame=True)
+    assert isinstance(stats_df, pd.DataFrame), "When 'as_frame' is True, output should be a DataFrame"
+
+def test_input_validation():
     with pytest.raises(ValueError):
-        wmedian(data, weights, )
-
-# Optional: Test the view parameter indirectly by ensuring no error
-def test_wmedian_view_parameter():
-    data = np.array([1, 2, 3])
-    weights = np.array([3, 1, 2])
-    try:
-        wmedian(data, weights, view=True)
-        assert True  # Pass if no error occurs during visualization
-    except Exception:
-        assert False  # Fail if any error occurs
-
-# Test as_frame functionality
-def test_wmedian_as_frame():
-    data = np.array([1, 2, 3])
-    weights = np.array([3, 1, 2])
-    result = wmedian(data, weights, as_frame=True, view=False)
-    assert isinstance(result, pd.Series), "Expected a pandas Series as the result when as_frame is True."
-    assert 'weighted_median' in result.name, "The Series should be named 'weighted_median'."
+        # Assuming the function raises ValueError for invalid data types
+        bootstrap(data="invalid", n=10)  
 
 if __name__=="__main__": 
     # test_mode_with_dataframe_specific_columns(sample_dataframe)

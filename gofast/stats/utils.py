@@ -3111,26 +3111,37 @@ def visualize_weighted_median(data, weights, w_median, cmap, fig_size):
 
 @make_data_dynamic("numeric", capture_columns=True)
 def bootstrap(
-    data: Union[pd.DataFrame, np.ndarray],
+    data: ArrayLike,
     n: int = 1000,
     columns: Optional[List[str]] = None,
     func: Callable | NumPyFunction = np.mean,
+    as_frame: bool = False, 
     view: bool = True,
-    alpha=.7, 
+    alpha: float = .7, 
     cmap: str = 'viridis',
-    fig_size: Tuple[int, int] = (10, 6)
-):
+    fig_size: Tuple[int, int] = (10, 6),
+    random_state: Optional[int] = None,
+    return_ci: bool = False,
+    ci: float = 0.95
+) -> Union[Array1D, DataFrame, Tuple[Union[Array1D, DataFrame],
+                                     Tuple[float, float]]]:
     """
-    Perform bootstrapping to estimate the distribution of a statistic.
-
-    Bootstrapping is a resampling technique used to estimate statistics on a
-    population by sampling a dataset with replacement. This method allows for
+    Perform bootstrapping to estimate the distribution of a statistic and 
+    optionally its confidence interval.
+    
+    Bootstrapping is a resampling technique used to estimate statistics on a 
+    population by sampling a dataset with replacement. This method allows for 
     the estimation of the sampling distribution of almost any statistic.
+
+    Given a dataset :math:`D` of size :math:`N`, bootstrapping generates 
+    :math:`B` new datasets :math:`\{D_1, D_2, \ldots, D_B\}`, each of size
+    :math:`N` by sampling with replacement from :math:`D`. A statistic :math:`T` 
+    is computed on each of these bootstrapped datasets.
 
     Parameters
     ----------
     data : DataFrame or array_like
-        The data to bootstrap. If a DataFrame is provided and `columns` is
+        The data to bootstrap. If a DataFrame is provided and `columns` is 
         specified, only the selected columns are used.
     n : int, optional
         Number of bootstrap samples to generate, default is 1000.
@@ -3138,50 +3149,81 @@ def bootstrap(
         Specific columns to use if `data` is a DataFrame.
     func : callable, optional
         The statistic to compute from the resampled data, default is np.mean.
+    as_frame : bool, optional
+        If True, returns results in a pandas DataFrame. Default is False.
     view : bool, optional
-        If True, displays a histogram of the bootstrapped statistics.
+        If True, displays a histogram of the bootstrapped statistics. 
+        Default is True.
+    alpha : float, optional
+        Transparency level of the histogram bars. Default is 0.7.
     cmap : str, optional
-        Colormap for the histogram.
+        Colormap for the histogram. Default is 'viridis'.
     fig_size : Tuple[int, int], optional
-        Size of the figure for the histogram.
+        Size of the figure for the histogram. Default is (10, 6).
+    random_state : int, optional
+        Seed for the random number generator for reproducibility. 
+        Default is None.
+    return_ci : bool, optional
+        If True, returns a tuple with bootstrapped statistics and their 
+        confidence interval. Default is False.
+    ci : float, optional
+        The confidence level for the interval. Default is 0.95.
 
     Returns
     -------
-    bootstrapped_stats : ndarray
-        Array of bootstrapped statistic values.
+    bootstrapped_stats : ndarray or DataFrame
+        Array or DataFrame of bootstrapped statistic values. If `return_ci` 
+        is True, also returns a tuple containing
+        the lower and upper bounds of the confidence interval.
 
     Examples
     --------
     >>> from gofast.stats.utils import bootstrap
+    >>> import numpy as np
     >>> np.random.seed(0)
     >>> data = np.arange(10)
     >>> stats = bootstrap(data, n=100, func=np.mean)
     >>> print(stats[:5])
 
-    Using a DataFrame:
+    Using a DataFrame, returning confidence intervals:
     >>> df = pd.DataFrame({'A': np.random.rand(100), 'B': np.random.rand(100)})
-    >>> stats = bootstrap(df, n=1000, func=np.median, columns=['A'], view=True)
+    >>> stats, ci = bootstrap(df, n=1000, func=np.median, columns=['A'],
+                              view=True, return_ci=True, ci=0.95)
+    >>> print(f"Median CI: {ci}")
     """
-    if isinstance(data, pd.DataFrame) and columns is not None:
-        data = data[columns].to_numpy().flatten()
-    elif isinstance(data, pd.DataFrame):
-        data = data.to_numpy().flatten()
-    else:
-        data = np.asarray(data)
+    if random_state is not None:
+        np.random.seed(random_state)
+    data = data.to_numpy().flatten()
 
     bootstrapped_stats = [
-        func(np.random.choice(data, size=len(data), replace=True)) for _ in range(n)]
+        func(np.random.choice(data, size=len(data), replace=True)
+             ) for _ in range(n)]
 
     if view:
+        colors, alphas = get_colors_and_alphas(
+            bootstrapped_stats, cmap, convert_to_named_color=True)
         plt.figure(figsize=fig_size)
-        plt.hist(bootstrapped_stats, bins='auto', color=cmap,
+        plt.hist(bootstrapped_stats, bins='auto', color=colors[0],
                  alpha=alpha, rwidth=0.85)
         plt.title('Distribution of Bootstrapped Statistics')
         plt.xlabel('Statistic Value')
         plt.ylabel('Frequency')
         plt.show()
 
-    return np.array(bootstrapped_stats)
+    if return_ci:
+        lower_bound = np.percentile(bootstrapped_stats, (1 - ci) / 2 * 100)
+        upper_bound = np.percentile(bootstrapped_stats, (1 + ci) / 2 * 100)
+        result = (bootstrapped_stats, (lower_bound, upper_bound))
+    else:
+        result = bootstrapped_stats
+
+    if as_frame:
+        return convert_and_format_data( 
+            result if not return_ci else result[0], return_df=True,
+            series_name="bootstrap_stats"
+            ) if as_frame else np.array(bootstrapped_stats) 
+    
+    return result
 
 @ensure_pkg(
     "lifelines","The 'lifelines' package is required for this function to run.")
