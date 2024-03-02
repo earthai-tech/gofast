@@ -24,30 +24,29 @@ from .._typing import Optional, List, Dict, Union, Tuple, Callable, Any
 from .._typing import NumPyFunction, DataFrame, ArrayLike, Array1D, Series
 from ..decorators import DynamicMethod, AppendDocFrom # AppendDocSection 
 from ..tools.validator import assert_xy_in, is_frame, check_consistent_length 
+from ..tools.validator import _is_arraylike_1d 
 from ..tools.coreutils import ensure_visualization_compatibility, ellipsis2false 
 from ..tools.coreutils import process_and_extract_data, to_series_if 
 from ..tools.coreutils import get_colors_and_alphas, normalize_string 
-from ..tools.coreutils import smart_format 
+from ..tools.coreutils import smart_format, check_uniform_type 
 from ..tools.funcutils import make_data_dynamic, ensure_pkg
 from ..tools.funcutils import flatten_data_if, update_series_index 
 from ..tools.funcutils import update_index, convert_and_format_data
 from ..tools.funcutils import series_naming 
 
 __all__= [ 
-    "gomean", "gomedian", "gomode",  "govar", "gostd", "get_range", 
-    "quartiles", "goquantile","gocorr", "correlation", "goiqr", "z_scores", 
-    "godescribe","goskew", "gokurtosis", 
-    "t_test_independent", "perform_linear_regression", "chi_squared_test", 
-    "anova_test", "perform_kmeans_clustering", "harmonic_mean", 
-    "weighted_median", "bootstrap", "kaplan_meier_analysis", "gini_coeffs",
-    "mds_similarity", "dca_analysis", "spectral_clustering", "levene_test",
-    "kolmogorov_smirnov_test", "cronbach_alpha", "friedman_test",
-    "statistical_tests"
+    "mean", "median", "mode",  "var", "std", "get_range", "quartiles", 
+    "quantile","corr", "correlation", "iqr", "z_scores", "describe","skew",
+    "kurtosis", "t_test_independent","perform_linear_regression", "chi2_test",
+    "anova_test", "perform_kmeans_clustering", "hmean", "wmedian", "bootstrap",
+    "kaplan_meier_analysis", "gini_coeffs","mds_similarity", "dca_analysis",
+    "spectral_clustering", "levene_test","kolmogorov_smirnov_test", 
+    "cronbach_alpha", "friedman_test","statistical_tests"
    ]
 
 
 @make_data_dynamic(capture_columns=True)
-def gomean(
+def mean(
     data: Union[ArrayLike, DataFrame], 
     columns: Optional[List[str]] = None,
     axis: int =None, 
@@ -109,34 +108,34 @@ def gomean(
 
     Examples
     --------
-    >>> from gofast.stats.utils import gomean
+    >>> from gofast.stats.utils import mean
     >>> data_array = [1, 2, 3, 4, 5]
-    >>> gomean(data_array)
+    >>> mean(data_array)
     3.0
 
     >>> data_df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
-    >>> gomean(data_df, columns=['A'])
+    >>> mean(data_df, columns=['A'])
     2.0
 
-    >>> gomean(data_df, axis=0)
+    >>> mean(data_df, axis=0)
     array([2., 5.])
     
     Calculating mean from a list:
 
-    >>> gomean([1, 2, 3, 4, 5])
+    >>> mean([1, 2, 3, 4, 5])
     3.0
 
     Calculating mean from a DataFrame and converting to Series:
 
     >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
-    >>> print(gomean(df, as_frame=True))
+    >>> print(mean(df, as_frame=True))
     A    2.0
     B    5.0
     dtype: float64
 
     Visualizing data distribution and mean from DataFrame:
 
-    >>> gomean(df, view=True)
+    >>> mean(df, view=True)
     Note
     ----
     The function is wrapped by the `make_data_dynamic` decorator, which 
@@ -160,7 +159,7 @@ def gomean(
                 mean_values, index=columns if columns else None, name='Mean')
     
     mean_values, view = ensure_visualization_compatibility(
-        mean_values, as_frame, view, gomean )
+        mean_values, as_frame, view, mean )
     
     if view:
         _visualize_mean(
@@ -246,7 +245,7 @@ def _visualize_mean(
 
 
 @make_data_dynamic(capture_columns=True)
-def gomedian(
+def median(
     data: Union[ArrayLike, DataFrame], 
     columns: Optional[List[str]] = None,
     axis: Optional[int]=None, 
@@ -300,28 +299,28 @@ def gomedian(
 
     Examples
     --------
-    >>> from gofast.stats.utils import gomedian
+    >>> from gofast.stats.utils import median
     >>> data_array = [3, 1, 4, 1, 5]
-    >>> gomedian(data_array)
+    >>> median(data_array)
     3.0
 
     >>> data_df = pd.DataFrame({'A': [2, 4, 7], 'B': [1, 6, 5]})
-    >>> gomedian(data_df, columns=['A'])
+    >>> median(data_df, columns=['A'])
     4.0
 
-    >>> gomedian(data_df, axis=0)
+    >>> median(data_df, axis=0)
     array([4., 5.])
     
     Calculating median from a DataFrame and converting to Series:
 
     >>> df = pd.DataFrame({'A': [2, 4, 7], 'B': [1, 6, 5]})
-    >>> print(gomedian(df, columns=['A'], as_frame=True))
+    >>> print(median(df, columns=['A'], as_frame=True))
     A    4.0
     dtype: float64
 
     Visualizing data distribution and median from DataFrame:
 
-    >>> gomedian(df, view=True)
+    >>> median(df, view=True)
     
     Note
     ----
@@ -357,7 +356,7 @@ def gomedian(
 
     # Visualization of data distribution and median
     median_values, view = ensure_visualization_compatibility(
-        median_values, as_frame, view, gomedian )
+        median_values, as_frame, view, median )
     if view:
         _visualize_median(
             data, median_values, cmap=cmap, fig_size=fig_size, axis= axis )
@@ -392,7 +391,7 @@ def _visualize_median(
 
 
 @make_data_dynamic(capture_columns=True)
-def gomode(
+def mode(
     data: Union[ArrayLike, DataFrame], 
     columns: List[str] = None, 
     axis: Optional[int]=None, 
@@ -447,13 +446,13 @@ def gomode(
 
     Examples
     --------
-    >>> from gofast.stats.utils import gomode
+    >>> from gofast.stats.utils import mode
     >>> data_array = [1, 2, 2, 3, 4]
-    >>> gomode(data_array)
+    >>> mode(data_array)
     2
 
     >>> data_df = pd.DataFrame({'A': [1, 2, 2, 3], 'B': [4, 4, 5, 5]})
-    >>> gomode(data_df, as_frame=True)
+    >>> mode(data_df, as_frame=True)
     A    2
     B    4
     dtype: int64
@@ -476,7 +475,7 @@ def gomode(
         mode_result = pd.Series(mode_result) if as_frame else mode_result
     
     mode_result, view = ensure_visualization_compatibility(
-        mode_result, as_frame, view, gomode )
+        mode_result, as_frame, view, mode )
     if view:
         _visualize_mode(data, mode_result, cmap=cmap, fig_size=fig_size, axis=axis )
     
@@ -510,7 +509,7 @@ def _visualize_mode(data, mode_result, cmap='viridis', fig_size=None, axis=0):
 
 
 @make_data_dynamic(capture_columns=True, reset_index=True)
-def govar(
+def var(
     data: Union[ArrayLike, DataFrame], 
     columns: Optional[List[str]] = None, 
     axis: Optional[int] = None, 
@@ -573,27 +572,27 @@ def govar(
 
     Examples
     --------
-    >>> from gofast.stats.utils import govar
+    >>> from gofast.stats.utils import var
     >>> data_array = [1, 2, 3, 4, 5]
-    >>> govar(data_array)
+    >>> var(data_array)
     2.0
 
     >>> data_df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
-    >>> govar(data_df, columns=['A'], ddof=1)
+    >>> var(data_df, columns=['A'], ddof=1)
     1.0
 
-    >>> govar(data_df, as_frame=True)
+    >>> var(data_df, as_frame=True)
     A    1.0
     B    1.0
     dtype: float64
     
     >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
-    >>> govar(df, as_frame=True)
+    >>> var(df, as_frame=True)
     A    1.0
     B    1.0
     dtype: float64
 
-    >>> govar(df, view=True, fig_size=(8, 4))
+    >>> var(df, view=True, fig_size=(8, 4))
     Note
     ----
     The preprocessing steps, controlled by the `make_data_dynamic` decorator,
@@ -615,7 +614,7 @@ def govar(
             variance_result, index=columns if columns else ['Variance'])
 
     variance_result, view = ensure_visualization_compatibility(
-        variance_result, as_frame, view, govar )
+        variance_result, as_frame, view, var )
     
     if view:
         _visualize_variance(data, variance_result, columns=columns,
@@ -653,7 +652,7 @@ def _visualize_variance(data, variance_result, columns=None, cmap='viridis',
     capture_columns=True, 
     reset_index=True
     )    
-def gostd(
+def std(
     data: Union[ArrayLike, DataFrame], 
     columns: Optional[List[str]] = None, 
     axis: Optional[int] = None, 
@@ -719,26 +718,26 @@ def gostd(
 
     Examples
     --------
-    >>> from gofast.stats.utils import gostd
+    >>> from gofast.stats.utils import std
     >>> data_array = [1, 2, 3, 4, 5]
-    >>> gostd(data_array)
+    >>> std(data_array)
     1.4142135623730951
 
     >>> data_df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
-    >>> gostd(data_df, columns=['A'], ddof=1)
+    >>> std(data_df, columns=['A'], ddof=1)
     1.0
 
-    >>> gostd(data_df, as_frame=True)
+    >>> std(data_df, as_frame=True)
     A    1.0
     B    1.0
     dtype: float64
 
-    >>> gostd(df, as_frame=True)
+    >>> std(df, as_frame=True)
     A    1.0
     B    1.0
     dtype: float64
 
-    >>> gostd(df, view=True, fig_size=(8, 4))
+    >>> std(df, view=True, fig_size=(8, 4))
     Note
     ----
     The preprocessing steps, implied by the `make_data_dynamic` decorator 
@@ -761,7 +760,7 @@ def gostd(
     
     # Visualization of results if requested
     std_dev_result, view = ensure_visualization_compatibility(
-        std_dev_result, as_frame, view, gostd )
+        std_dev_result, as_frame, view, std )
     if view:
         _visualize_std_dev(data, std_dev_result, cmap=cmap, fig_size=fig_size, 
                            axis=axis )
@@ -859,7 +858,7 @@ def _statistical_function(
         result = convert_to_dataframe_or_series(result)
     
     result, view = ensure_visualization_compatibility(
-        result, as_frame, view, gostd )
+        result, as_frame, view, std )
     if view:
         # Visualization logic
         _visualize_data(data, result, cmap=cmap, fig_size=fig_size)
@@ -874,7 +873,8 @@ def _statistical_function(
    )
 @make_data_dynamic(
     capture_columns=True, 
-    reset_index=True
+    reset_index=True, 
+    dynamize=False, 
     )   
 def get_range(
     data: Union[ArrayLike, pd.DataFrame], 
@@ -1168,7 +1168,7 @@ def _visualize_quartiles(
     plt.show()
 
 @DynamicMethod (capture_columns=True)
-def goquantile(
+def quantile(
     data: Union[ArrayLike, DataFrame], 
     q: Union[float, List[float]], 
     columns: Optional[List[str]] = None, 
@@ -1230,23 +1230,23 @@ def goquantile(
     Examples
     --------
     >>> import numpy as np
-    >>> from gofast.stats.utils import goquantile
+    >>> from gofast.stats.utils import quantile
     >>> data_array = [1, 2, 3, 4, 5]
-    >>> goquantile(data_array, q=0.5)
+    >>> quantile(data_array, q=0.5)
     3.0
 
     >>> data_df = pd.DataFrame({'A': [2, 5, 7, 8], 'B': [1, 4, 6, 9]})
-    >>> goquantile(data_df, q=[0.25, 0.75], columns=['A'])
+    >>> quantile(data_df, q=[0.25, 0.75], columns=['A'])
     array([3.75, 7.25])
 
-    >>> goquantile(data_df, q=0.5, as_frame=True)
+    >>> quantile(data_df, q=0.5, as_frame=True)
        50%
     A  6.0
     B  5.0
-    >>> goquantile(data_array, q=0.5, view=True, plot_type='hist')
+    >>> quantile(data_array, q=0.5, view=True, plot_type='hist')
 
     >>> data_df = pd.DataFrame({'A': [2, 5, 7, 8], 'B': [1, 4, 6, 9]})
-    >>> goquantile(data_df, q=[0.25, 0.75], as_frame=True, view=True, plot_type='box')
+    >>> quantile(data_df, q=[0.25, 0.75], as_frame=True, view=True, plot_type='box')
     
     Note
     ----
@@ -1369,7 +1369,7 @@ def _visualize_quantiles(
     plt.show()
 
 @DynamicMethod ( expected_type="both", capture_columns=True)
-def gocorr(
+def corr(
     data: Union[ArrayLike, DataFrame], /,  
     columns: List[str] = None,
     method: str='pearson', 
@@ -1406,25 +1406,25 @@ def gocorr(
 
     Examples
     --------
-    >>> from gofast.stats.utils import gocorr
+    >>> from gofast.stats.utils import corr
     >>> data = pd.DataFrame({
     ...     'A': [1, 2, 3, 4],
     ...     'B': [4, 3, 2, 1],
     ...     'C': [1, 2, 3, 4]
     ... })
-    >>> gocorr(data)
+    >>> corr(data)
            A         B    C
     A  1.000000 -1.000000  1.000000
     B -1.000000  1.000000 -1.000000
     C  1.000000 -1.000000  1.000000
 
-    >>> gocorr2(data, columns=['A', 'C'])
+    >>> corr2(data, columns=['A', 'C'])
            A    C
     A  1.000000  1.000000
     C  1.000000  1.000000
-    >>> >>> gocorr(data, view=True)
+    >>> >>> corr(data, view=True)
 
-    >>> gocorr(data, columns=['A', 'C'], view=True, plot_type='heatmap',
+    >>> corr(data, columns=['A', 'C'], view=True, plot_type='heatmap',
     ...        cmap='coolwarm')
     Note
     ----
@@ -1497,12 +1497,12 @@ def correlation(
     >>> from gofast.stats.utils import correlation
     >>> import pandas as pd
     >>> data = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
-    >>> gocorr('A', 'B', data=data)
+    >>> corr('A', 'B', data=data)
     1.0
 
     >>> x = [1, 2, 3]
     >>> y = [4, 5, 6]
-    >>> gocorr(x, y)
+    >>> corr(x, y)
     1.0
 
     >>> correlation(data)
@@ -1607,7 +1607,7 @@ def correlation(
     capture_columns=True, 
     drop_na=True
    )
-def goiqr(
+def iqr(
     data: Union[ArrayLike, pd.DataFrame], 
     columns: Optional[List[str]] = None,
     axis: Optional[int] =None, 
@@ -1685,29 +1685,29 @@ def goiqr(
     --------
     >>> import numpy as np 
     >>> import pandas as pd 
-    >>> from gofast.stats.utils import goiqr
+    >>> from gofast.stats.utils import iqr
     >>> data_array = [1, 2, 3, 4, 5]
-    >>> goiqr(data_array)
+    >>> iqr(data_array)
     2.0
 
     >>> data_df = pd.DataFrame({'A': [2, 5, 7, 8], 'B': [1, 4, 6, 9]})
-    >>> goiqr(data_df, columns=['A'])
+    >>> iqr(data_df, columns=['A'])
     3.5
 
-    >>> goiqr(data_df, as_frame=True)
+    >>> iqr(data_df, as_frame=True)
     A    3.5
     B    4.0
     dtype: float64
     >>> data_array = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    >>> print("IQR for array:", goiqr(data_array, view=True, plot_type='boxplot'))
+    >>> print("IQR for array:", iqr(data_array, view=True, plot_type='boxplot'))
 
     >>> data_df = pd.DataFrame({
         'A': np.random.normal(0, 1, 100),
         'B': np.random.normal(1, 2, 100),
         'C': np.random.normal(2, 3, 100)
     })
-    >>> print("IQR for DataFrame:", goiqr(data_df, as_frame=True))
-    >>> goiqr(data_df, view=True, plot_type='boxplot')
+    >>> print("IQR for DataFrame:", iqr(data_df, as_frame=True))
+    >>> iqr(data_df, view=True, plot_type='boxplot')
     
     Note
     ----
@@ -1888,7 +1888,7 @@ def z_scores(
 
 
 @make_data_dynamic(capture_columns=True)
-def godescribe(
+def describe(
     data: DataFrame,
     columns: Optional[List[str]] = None,
     include: Union[str, List[str]] = 'all',
@@ -1963,16 +1963,16 @@ def godescribe(
     
     >>> import numpy as np
     >>> import pandas as pd
-    >>> from gofast.stats.utils import godescribe
+    >>> from gofast.stats.utils import describe
     >>> data = np.random.rand(100, 4)
-    >>> godescribe(data, as_frame=True)
+    >>> describe(data, as_frame=True)
     
     >>> import pandas as pd
     >>> df = pd.DataFrame(data, columns=['A', 'B', 'C', 'D'])
-    >>> godescribe(df, columns=['A', 'B'])
+    >>> describe(df, columns=['A', 'B'])
     
     >>> df = pd.DataFrame(data, columns=['A', 'B', 'C', 'D'])
-    >>> godescribe(df, columns=['A', 'B'], view=True, plot_type='hist')
+    >>> describe(df, columns=['A', 'B'], view=True, plot_type='hist')
     Note
     ----
     This function is a convenient wrapper around `pd.DataFrame.describe`,
@@ -2015,7 +2015,7 @@ def godescribe(
     return stats_result
 
 @make_data_dynamic(capture_columns=True)
-def goskew(
+def skew(
     data: Union[ArrayLike, pd.DataFrame],
     columns: Optional[List[str]] = None,
     axis: int =0, 
@@ -2080,7 +2080,7 @@ def goskew(
 
     Examples
     --------
-    >>> from gofast.stats.utils import goskew
+    >>> from gofast.stats.utils import skew
     >>> import numpy as np
     >>> data = np.random.normal(loc=0, scale=1, size=1000)
     >>> calculate_skewness(data)
@@ -2092,18 +2092,18 @@ def goskew(
     ...     'B': np.random.normal(loc=1, scale=2, size=1000),
     ...     'C': np.random.lognormal(mean=0, sigma=1, size=1000)
     ... })
-    >>> goskew(df)
+    >>> skew(df)
     array([-0.07039989, -0.04687687,  7.20119035])
     
     >>> data = [1, 2, 2, 3, 4, 7, 9]
-    >>> goskew(data)
+    >>> skew(data)
     0.9876939667076702
 
     >>> df = pd.DataFrame({
     ...     'normal': np.random.normal(0, 1, 1000),
     ...     'right_skewed': np.random.exponential(1, 1000)
     ... })
-    >>> goskew(df, view=True, plot_type='density')
+    >>> skew(df, view=True, plot_type='density')
 
     Note
     ----
@@ -2155,7 +2155,7 @@ def goskew(
 
 @make_data_dynamic(
     capture_columns=True)
-def gokurtosis(
+def kurtosis(
     data: Union[ArrayLike, DataFrame],
     columns: List[str] = None,
     axis: int= 0, 
@@ -2226,24 +2226,24 @@ def gokurtosis(
 
     Examples
     --------
-    >>> from gofast.stats.utils import gokurtosis
+    >>> from gofast.stats.utils import kurtosis
     >>> import numpy as np
     >>> data = np.random.normal(0, 1, 1000)
-    >>> print(gokurtosis(data))
+    >>> print(kurtosis(data))
     
     >>> import pandas as pd
     >>> df = pd.DataFrame({'A': np.random.normal(0, 1, size=1000),
     ...                    'B': np.random.standard_t(10, size=1000)})
-    >>> print(gokurtosis(df, as_frame=True))
+    >>> print(kurtosis(df, as_frame=True))
     
     >>> data = np.random.normal(0, 1, 1000)
-    >>> print(gokurtosis(data))
+    >>> print(kurtosis(data))
     
     >>> df = pd.DataFrame({
     ...     'normal': np.random.normal(0, 1, 1000),
     ...     'leptokurtic': np.random.normal(0, 1, 1000) ** 3,
     ... })
-    >>> print(gokurtosis(df, as_frame=True))
+    >>> print(kurtosis(df, as_frame=True))
 
     Note
     ----
@@ -2286,7 +2286,7 @@ def t_test_independent(
     sample2: Union[List[float], List[int], str],
     alpha: float = 0.05, 
     data: DataFrame = None, 
-    as_frame: bool=False, 
+    as_frame: bool=True, 
     view: bool = False, 
     plot_type: str = 'box', 
     cmap: str = 'viridis', 
@@ -2381,7 +2381,6 @@ def t_test_independent(
                 "Data cannot be None when 'x' or 'y' is specified as a column name.")
         # Validate that data is a DataFrame
         is_frame(data, df_only=True, raise_exception=True)  
-        
         sample1 = data[sample1] if isinstance(sample1, str) else sample1 
         sample2 = data[sample2] if isinstance(sample2, str) else  sample2 
 
@@ -2415,7 +2414,7 @@ def t_test_independent(
     if as_frame: 
         return to_series_if(
             t_stat, p_value, reject_null, 
-            value_names= ["T-statistic", "P-value","Reject Null" ],
+            value_names= ["T-statistic", "P-value","Reject-Null-Hypothesis"],
             name ="t_test_independent")
     
     return t_stat, p_value, reject_null
@@ -2425,41 +2424,59 @@ def perform_linear_regression(
     y: Union[ArrayLike, list, str] = None, 
     data: DataFrame = None,
     view: bool = False, 
+    sample_weight=None, 
+    as_frame=False, 
     plot_type: str = 'scatter_line', 
     cmap: str = 'viridis', 
     fig_size: Optional[Tuple[int, int]] = (10, 6), 
     **kwargs
 ) -> Tuple[LinearRegression, ArrayLike, float]:
     """
-    Performs linear regression analysis between an independent variable (x) and 
+    Performs linear regression analysis between an independent variable (x) and
     a dependent variable (y), returning the fitted model, its coefficients,
     and intercept.
 
+    Linear regression is modeled as:
+
+    .. math::
+        y = X\beta + \epsilon
+    
+    where:
+    
+    - :math:`y` is the dependent variable,
+    - :math:`X` is the independent variable(s),
+    - :math:`\beta` is the coefficient(s) of the model,
+    - :math:`\epsilon` is the error term.
+
     Parameters
     ----------
-    x : str, list, or array-like
+    x : str, list, or array-like, optional
         Independent variable(s). If a string is provided, `data` must
         also be supplied, and `x` should refer to a column name within `data`.
-    y : str, list, or array-like
-        Dependent variable. Similar to `x`, if a string is provided, 
+    y : str, list, or array-like, optional
+        Dependent variable. Similar to `x`, if a string is provided,
         it should refer to a column name within a supplied `data` DataFrame.
     data : pd.DataFrame, optional
-        DataFrame containing the variables specified in `x` and `y`. 
+        DataFrame containing the variables specified in `x` and `y`.
         Required if `x` or `y` are specified as strings.
     view : bool, optional
         If True, generates a plot to visualize the data points and the
         regression line. Default is False.
+    sample_weight : array-like of shape (n_samples,), default=None
+        Individual weights for each sample.
+    as_frame : bool, optional
+        If True, returns the output as a pandas Series. Default is False.
     plot_type : str, optional
         Type of plot for visualization. Currently supports 'scatter_line'.
         Default is 'scatter_line'.
     cmap : str, optional
         Color map for the plot. Default is 'viridis'.
-    fig_size : Optional[Tuple[int, int]], optional
+    fig_size : Tuple[int, int], optional
         Figure size for the plot. Default is (10, 6).
     **kwargs : dict
         Additional keyword arguments to pass to the `LinearRegression`
         model constructor.
-    
+
     Returns
     -------
     model : LinearRegression
@@ -2468,55 +2485,69 @@ def perform_linear_regression(
         Coefficients of the independent variable(s) in the model.
     intercept : float
         Intercept of the linear regression model.
-    
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from gofast.stats.utils import perform_linear_regression
-    >>> x = np.random.rand(100)
-    >>> y = 2.5 * x + np.random.normal(0, 0.5, 100)
-    >>> model, coefficients, intercept = perform_linear_regression(x, y)
-    >>> print(f"Coefficients: {coefficients}, Intercept: {intercept}")
-
-    Using a DataFrame:
-    >>> import pandas as pd
-    >>> df = pd.DataFrame({'X': np.random.rand(100), 
-                           'Y': 2.5 * np.random.rand(100) + np.random.normal(0, 0.5, 100)})
-    >>> model, coefficients, intercept = perform_linear_regression('X', 'Y', data=df)
-    >>> print(f"Coefficients: {coefficients}, Intercept: {intercept}")
 
     Note
     ----
     This function streamlines the process of performing linear regression analysis,
     making it straightforward to model relationships between two variables and 
     extract useful statistics such as the regression coefficients and intercept.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from sklearn.linear_model import LinearRegression
+    >>> x = np.random.rand(100)
+    >>> y = 2.5 * x + np.random.normal(0, 0.5, 100)
+    >>> model, coefficients, intercept = perform_linear_regression(x, y)
+    >>> print(f"Coefficients: {coefficients}, Intercept: {intercept}")
+
+    Using a DataFrame:
+    
+    >>> df = pd.DataFrame({'X': np.random.rand(100), 
+    ...                    'Y': 2.5 * np.random.rand(100) + np.random.normal(0, 0.5, 100)})
+    >>> model, coefficients, intercept = perform_linear_regression('X', 'Y', data=df)
+    >>> print(f"Coefficients: {coefficients}, Intercept: {intercept}")
     """
-    x_values, y_values = assert_xy_in(x, y, data=data, xy_numeric= True )
- 
+    x_values, y_values = assert_xy_in(
+        x, y,
+        data=data, 
+        xy_numeric= True
+    )
+    
+    if _is_arraylike_1d(x_values): 
+        x_values = x_values.reshape(-1, 1)
+        
     model = LinearRegression(**kwargs)
-    model.fit(x_values, y_values)
+    model.fit(x_values, y_values, sample_weight=sample_weight) 
     coefficients = model.coef_
     intercept = model.intercept_
 
     if view:
         plt.figure(figsize=fig_size)
-        plt.scatter(x_values, y_values, color='blue',
-                    label='Data Points')
-        plt.plot(x_values, model.predict(x_values), color='red',
-                 label='Regression Line')
+        plt.scatter(x_values, y_values, color='blue', label='Data Points')
+        plt.plot(x_values, model.predict(x_values), color='red', label='Regression Line')
         plt.title('Linear Regression Analysis')
         plt.xlabel('Independent Variable')
         plt.ylabel('Dependent Variable')
         plt.legend()
         plt.show()
         
+    if as_frame:
+        return to_series_if(
+            model, coefficients, intercept, 
+            value_names=['Linear-model', "Coefficients", "Intercept"], 
+            name='linear_regression'
+        )
     return model, coefficients, intercept
 
+
 @make_data_dynamic('numeric', capture_columns=True)
-def chi_squared_test(
-    data: Union[ArrayLike, pd.DataFrame],
+def chi2_test(
+    data: Union[ArrayLike, DataFrame],
     alpha: float = 0.05, 
     columns: List[str] = None,
+    as_frame=True, 
     view: bool = False,
     plot_type=None, 
     cmap: str = 'viridis',
@@ -2526,6 +2557,11 @@ def chi_squared_test(
     """
     Performs a Chi-Squared test for independence to assess the relationship 
     between two categorical variables represented in a contingency table.
+
+    The Chi-Squared test evaluates whether there is a significant association 
+    between two categorical variables by comparing the observed frequencies in 
+    the contingency table with the frequencies that would be expected if there 
+    was no association between the variables.
 
     Parameters
     ----------
@@ -2540,13 +2576,18 @@ def chi_squared_test(
     columns : List[str], optional
         Column names when converting `data` from array_like to a DataFrame.
         Required if `data` is array_like and `as_frame` is True.
-
+    as_frame : bool, optional
+        If True, returns the results in a pandas Series. Default is False.
     view : bool, optional
-        If True, displays a heatmap of the contingency table, default is False.
+        If True, displays a heatmap of the contingency table. Default is False.
+    plot_type : str or None, optional
+        The type of plot to display. Currently not implemented; reserved for future use.
     cmap : str, optional
-        Colormap for the heatmap, default is 'viridis'.
+        Colormap for the heatmap. Default is 'viridis'.
     fig_size : Tuple[int, int], optional
-        Figure size for the heatmap, default is (12, 5).
+        Figure size for the heatmap. Default is (12, 5).
+    **kwargs : dict
+        Additional keyword arguments to pass to `stats.chi2_contingency`.
 
     Returns
     -------
@@ -2560,25 +2601,28 @@ def chi_squared_test(
 
     Examples
     --------
-    Using a DataFrame directly:
-    
     >>> import numpy as np
     >>> import pandas as pd
-    >>> from gofast.stats.utils import perform_chi_squared_test
+    >>> from scipy import stats
+    >>> import seaborn as sns
+    >>> import matplotlib.pyplot as plt
+    >>> from gofast.stats.utils import chi2_test 
     >>> data = pd.DataFrame({'A': [10, 20, 30], 'B': [20, 15, 30]})
-    >>> chi2_stat, p_value, reject_null = perform_chi_squared_test(data)
+    >>> chi2_stat, p_value, reject_null = chi2_test(data)
     >>> print(f"Chi2 Statistic: {chi2_stat}, P-value: {p_value}, Reject Null: {reject_null}")
 
-    Using array_like with column names:
-    >>> data = np.array([[10, 20, 30], [20, 15, 30]])
-    >>> columns = ['A', 'B']
-    >>> chi2_stat, p_value, reject_null = perform_chi_squared_test(
-        data, columns=columns, as_frame=True)
-    >>> print(f"Chi2 Statistic: {chi2_stat}, P-value: {p_value}, Reject Null: {reject_null}")
+    Notes
+    -----
+    The mathematical formulation for the Chi-Squared test statistic is:
 
-    Note
-    ----
-    The Chi-Squared test is a statistical method to determine if there is a 
+    .. math::
+        \chi^2 = \sum \frac{(O_i - E_i)^2}{E_i}
+
+    where :math:`O_i` are the observed frequencies, and :math:`E_i` are the
+    expected frequencies under the null hypothesis that the variables are
+    independent.
+
+    The Chi-Squared test is a statistical method used to determine if there is a 
     significant association between two categorical variables. It's commonly 
     used in hypothesis testing to analyze the independence of variables in 
     contingency tables.
@@ -2592,6 +2636,12 @@ def chi_squared_test(
         plt.title('Contingency Table')
         plt.show()
         
+    if as_frame: 
+        return to_series_if(
+            chi2_stat, p_value, reject_null, 
+            value_names=['Chi2-statistic', 'P-value', "Reject-Null-Hypothesis"], 
+            name="chi_squared_test"
+            )
     return chi2_stat, p_value, reject_null
 
 @DynamicMethod( 
@@ -2601,15 +2651,25 @@ def chi_squared_test(
     encode_categories= True
   )
 def anova_test(
-    data: Union[Dict[str, List[float]], np.ndarray, pd.DataFrame], 
+    data: Union[Dict[str, List[float]], ArrayLike], 
     groups: Optional[Union[List[str], np.ndarray]]=None, 
+    columns: List[str] = None,
     alpha: float = 0.05,
     view: bool = False,
+    as_frame=True, 
     cmap: str = 'viridis',
     fig_size: Tuple[int, int] = (12, 5)
-) -> Tuple[float, float, bool]:
+):
     """
-    Perform an ANOVA test to compare means across multiple groups.
+    Perform an Analysis of Variance (ANOVA) test to compare means across 
+    multiple groups.
+
+    ANOVA is used to determine whether there are any statistically significant 
+    differences between the means of three or more independent (unrelated)
+    groups.
+
+    .. math::
+        F = \frac{\text{Between-group variability}}{\text{Within-group variability}}
 
     Parameters
     ----------
@@ -2621,44 +2681,56 @@ def anova_test(
         The names or indices of the groups to compare, extracted from `data`.
         If `data` is a DataFrame and `groups` is not provided, all columns 
         are used.
+    columns : List[str], optional
+        Specifies the column names for converting `data` from an array-like 
+        format to a DataFrame. Note that this parameter does not influence 
+        the function's behavior; it is included for API consistency.
     alpha : float, optional
         The significance level for the ANOVA test. Default is 0.05.
     view : bool, optional
-        If True, generates a box plot of the group distributions.
-        Default is False.
+        If True, generates a box plot of the group distributions. Default is False.
+    as_frame : bool, optional
+        If True, returns the result as a pandas Series. Default is True.
     cmap : str, optional
-        The colormap for the box plot. This parameter is currently not used 
-        as seaborn's boxplot does not support colormap directly but kept 
-        for future compatibility. Default is 'viridis'.
+        The colormap for the box plot. Not directly used for box plots in current
+        implementations but reserved for future compatibility. Default is 'viridis'.
     fig_size : Tuple[int, int], optional
         Figure size for the box plot. Default is (12, 5).
 
     Returns
     -------
     f_stat : float
-        The calculated F-statistic.
+        The calculated F-statistic from the ANOVA test.
     p_value : float
-        The p-value from the ANOVA test.
+        The p-value from the ANOVA test, indicating probability of 
+        observing the data if the null hypothesis is true.
     reject_null : bool
-        Indicates whether the null hypothesis can be rejected based on the alpha level.
+        Indicates whether the null hypothesis can be rejected based 
+        on the alpha level.
 
     Examples
     --------
-    >>> from gofast.stats.utils import anova_test
+    >>> from scipy import stats
+    >>> import seaborn as sns
+    >>> import matplotlib.pyplot as plt
+    >>> import numpy as np
+    >>> from gofast.stats.utils import goanova_test  
     >>> data = {'group1': [1, 2, 3], 'group2': [4, 5, 6], 'group3': [7, 8, 9]}
     >>> f_stat, p_value, reject_null = anova_test(data, alpha=0.05, view=True)
     >>> print(f"F-statistic: {f_stat}, P-value: {p_value}, Reject Null: {reject_null}")
+
+    Notes
+    -----
+    The F-statistic is calculated as the ratio of the variance between the 
+    groups to the variance within the groups. A higher F-statistic indicates a
+    greater degree of separation between the group means.
     """
-    # Decorator, handle this part. 
-    # if isinstance(data, dict):
-    #     groups_data = [data[group] for group in groups] 
-    #                     if groups else list(data.values())
+
     if isinstance(data, pd.DataFrame):
         if groups:
             groups_data = [data[group].dropna().values for group in groups]
         else:
             groups_data = [data[col].dropna().values for col in data.columns]
-            
     elif isinstance(data, np.ndarray):
         groups_data = [data[group].flatten() for group in groups]  
     else:
@@ -2677,23 +2749,42 @@ def anova_test(
             sns.boxplot(data=np.array(groups_data), palette=cmap)
         plt.title('Group Comparisons via ANOVA')
         plt.show()
-
+        
+    if as_frame: 
+        return to_series_if(
+            f_stat, p_value, reject_null, 
+            value_names=['F-statistic', 'P-value', 'Reject-Null-Hypothesis'], 
+            name='anova_test')
     return f_stat, p_value, reject_null
 
 @make_data_dynamic(capture_columns=True, dynamize= False )
 def perform_kmeans_clustering(
-    data: Union[np.ndarray, pd.DataFrame],
+    data: ArrayLike,
     n_clusters: int = 3,
+    n_init="auto", 
     columns: list = None,
     view: bool = True,
     cmap='viridis', 
-    fig_size: Tuple[int, int] = (10, 6),
+    fig_size: Tuple[int, int] = (8, 8),
     **kwargs
-) -> Tuple[KMeans, np.ndarray]:
-    """
+) -> Tuple[KMeans, ArrayLike]:
+    r"""
     Applies K-Means clustering to the dataset, returning the fitted model and 
     cluster labels for each data point.
-    
+
+    K-Means clustering aims to partition `n` observations into `k` clusters 
+    in which each observation belongs to the cluster with the nearest mean,
+    serving as a prototype of the cluster.
+
+    .. math::
+        \underset{S}{\mathrm{argmin}}\sum_{i=1}^{k}\sum_{x \in S_i}||x - \mu_i||^2
+
+    Where:
+    - :math:`S` is the set of clusters
+    - :math:`k` is the number of clusters
+    - :math:`x` is each data point
+    - :math:`\mu_i` is the mean of points in :math:`S_i`.
+
     Parameters
     ----------
     data : array_like or pd.DataFrame
@@ -2702,18 +2793,21 @@ def perform_kmeans_clustering(
         the selected columns are used for clustering.
     n_clusters : int, optional
         Number of clusters to form. Default is 3.
+    n_init : str or int, optional
+        Number of time the k-means algorithm will be run with different 
+        centroid seeds. The final results will be the best output of `n_init` 
+        consecutive runs in terms of inertia. If "auto", it is set to 10 or
+        max(1, 2 + log(n_clusters)), whichever is larger.
     columns : list, optional
         Specific columns to use for clustering if `data` is a DataFrame. 
         Ignored if `data` is an array_like. Default is None.
-    as_frame : bool, optional
-        If True and `data` is array_like, converts `data` to a DataFrame 
-        before clustering. Requires `columns` to specify column names. 
-        Default is False.
-    visualize : bool, optional
+    view : bool, optional
         If True, generates a scatter plot of the clusters with centroids.
         Default is True.
     cmap : str, optional
-        Colormap for the heatmap, default is 'viridis'.
+        Colormap for the scatter plot, default is 'viridis'.
+    fig_size : Tuple[int, int], optional
+        Figure size for the scatter plot. Default is (10, 6).
     **kwargs : dict
         Additional keyword arguments passed to the `KMeans` constructor.
 
@@ -2734,15 +2828,21 @@ def perform_kmeans_clustering(
     Using a DataFrame and selecting specific columns:
     >>> df = pd.DataFrame(X, columns=['feature1', 'feature2'])
     >>> model, labels = perform_kmeans_clustering(
-        df, columns=['feature1', 'feature2'], n_clusters=3)
+    ...     df, columns=['feature1', 'feature2'], n_clusters=3)
     >>> print(labels)
+
+    See Also
+    --------
+    sklearn.cluster.KMeans : 
+        The KMeans clustering algorithm provided by scikit-learn.
+        
     """
     if isinstance(data, pd.DataFrame) and columns is not None:
         data_for_clustering = data[columns]
     else:
         data_for_clustering = data
 
-    km = KMeans(n_clusters=n_clusters, **kwargs)
+    km = KMeans(n_clusters=n_clusters, n_init=n_init,  **kwargs)
     labels = km.fit_predict(data_for_clustering)
 
     if view:
@@ -2759,7 +2859,8 @@ def perform_kmeans_clustering(
         
         # Plot centroids
         centers = km.cluster_centers_
-        plt.scatter(centers[:, 0], centers[:, 1], c='red', s=200, alpha=0.5, marker='x')
+        plt.scatter(centers[:, 0], centers[:, 1], c='red',
+                    s=200, alpha=0.5, marker='+')
         plt.title('K-Means Clustering')
         plt.xlabel('Feature 1')
         plt.ylabel('Feature 2')
@@ -2768,11 +2869,11 @@ def perform_kmeans_clustering(
     return km, labels
 
 @make_data_dynamic('numeric', capture_columns=True)
-def harmonic_mean(
-    data: Union[pd.DataFrame, np.ndarray],
+def hmean(
+    data: ArrayLike,
     columns: List[str] = None,
     as_frame: bool = False,
-    view: bool = True,
+    view: bool = False,
     cmap: str = 'viridis',
     fig_size: Tuple[int, int] = (10, 6)
 ):
@@ -2780,28 +2881,30 @@ def harmonic_mean(
     Calculate the harmonic mean of a data set and optionally visualize the 
     data distribution through a histogram.
 
-    The harmonic mean is the reciprocal of the arithmetic mean of the reciprocals
-    of the data points. It is particularly useful for rates and ratios, offering
-    a measure of central tendency that is less affected by large outliers compared
-    to the arithmetic mean.
+    The harmonic mean, useful for rates and ratios, is less influenced by
+    large outliers compared to the arithmetic mean. It is defined as the 
+    reciprocal of the arithmetic mean of the reciprocals of the data points.
+
+    .. math::
+        H = \frac{n}{\sum_{i=1}^{n} \frac{1}{x_i}}
+
+    Where :math:`H` is the harmonic mean, :math:`n` is the number of observations, 
+    and :math:`x_i` are the data points.
 
     Parameters
     ----------
-    data : array_like
-        An array, any object exposing the array interface, containing
-        data for which the harmonic mean is desired. Values must be greater
-        than 0.If a DataFrame is provided and `columns` is specified, the 
-        calculation is limited to the selected columns.
     data : DataFrame or ArrayLike
-        The data for which the harmonic mean is desired. 
+        The data for which the harmonic mean is desired. Can be a pandas DataFrame 
+        or a numpy array. If a DataFrame and `columns` is specified, only the 
+        selected columns are used for the calculation.
     columns : List[str], optional
         Specific columns to use for the calculation if `data` is a DataFrame.
     as_frame : bool, optional
         If True and `data` is ArrayLike, converts `data` into a DataFrame
         using `columns` as column names. Ignored if `data` is already a DataFrame.
     view : bool, optional
-        If True, a histogram of the data set is displayed to visualize its
-        distribution. Default is True.
+        If True, displays a histogram of the data set to visualize its
+        distribution. Default is False.
     cmap : str, optional
         Colormap for the histogram. Default is 'viridis'.
     fig_size : Tuple[int, int], optional
@@ -2819,24 +2922,23 @@ def harmonic_mean(
 
     Examples
     --------
-    >>> from gofast.stats.utils import harmonic_mean
-    >>> harmonic_mean([1, 2, 4])
+    >>> from gofast.stats.utils import hmean
+    >>> hmean([1, 2, 4])
     1.7142857142857142
 
-    >>> harmonic_mean([1, 0, 2])
-    ValueError: Data points must be greater than 0.
-
-    >>> harmonic_mean(np.array([2.5, 3.0, 10.0]))
+    >>> hmean(np.array([2.5, 3.0, 10.0]))
     3.5294117647058822
     
     >>> df = pd.DataFrame({'A': [2.5, 3.0, 10.0], 'B': [1.5, 2.0, 8.0]})
-    >>> harmonic_mean(df, columns=['A'])
-    3.5294117647058822
+    >>> hmean(df, columns=['A'])
+    ValueError: Data points must be greater than 0.
+
+    See Also
+    --------
+    scipy.stats.hmean : Harmonic mean function in SciPy for one-dimensional arrays.
+    gofast.stats.mean : Arithmetic mean function.
     """
-    if isinstance(data, pd.DataFrame):
-        data_values = data.to_numpy().flatten()
-    else:
-        data_values = np.asarray(data).flatten()
+    data_values = data.to_numpy().flatten()
 
     if np.any(data_values <= 0):
         raise ValueError("Data points must be greater than 0.")
@@ -2845,7 +2947,8 @@ def harmonic_mean(
 
     if view:
         plt.figure(figsize=fig_size)
-        plt.hist(data_values, bins='auto', color=cmap, alpha=0.7, rwidth=0.85)
+        plt.hist(data_values, bins='auto',color=plt.get_cmap(cmap)(0.7),
+                 alpha=0.7, rwidth=0.85)
         plt.title('Data Distribution')
         plt.xlabel('Data Points')
         plt.ylabel('Frequency')
@@ -2854,82 +2957,150 @@ def harmonic_mean(
                  rotation=90, verticalalignment='center')
         plt.show()
 
+    if as_frame: 
+        return to_series_if (h_mean, value_names= ['H-mean'], name='harmonic_mean') 
     return h_mean
 
 @make_data_dynamic(capture_columns=True)
-def weighted_median(
-    data: Union[pd.DataFrame, np.ndarray],
-    weights: Union[str, int, np.ndarray, list],
+def wmedian(
+    data: ArrayLike,
+    weights:Union[str, int, Array1D],
     columns: Union[str, list] = None,
-    view: bool = True,
+    as_frame: bool = False,
+    view: bool = False,
     cmap: str = 'viridis',
-    fig_size: Tuple[int, int] = (10, 6)
-):
+    fig_size: Tuple[int, int] = (6, 4)
+) -> float | pd.Series:
     """
-    Compute the weighted median of a data set, with an option to visualize the
+    Compute the weighted median of a dataset, optionally visualizing the 
     distribution of data points and their weights.
 
-    The weighted median is determined such that the sum of weights is equal on both
-    sides of the median in the sorted list of data points.
+    The weighted median is defined as the value separating the higher half 
+    from the lower half of a data sample, a population, or a probability 
+    distribution, where each value has a corresponding weight. It is determined 
+    such that the sum of weights is equal on both sides of the median in the 
+    sorted list of data points.
+    
+    .. math::
+        WM = \text{{value}} \; x \; \text{{such that}} \; \sum_{x_i < WM} w_i < \frac{1}{2} \sum w_i 
+        \; \text{{and}} \; \sum_{x_i > WM} w_i \leq \frac{1}{2} \sum w_i
+
+    Where :math:`WM` is the weighted median, :math:`x_i` are the data points, 
+    and :math:`w_i` are the weights associated with each data point.
 
     Parameters
     ----------
     data : pd.DataFrame or np.ndarray
-        Data for which the weighted median is desired. If a DataFrame and `columns`
-        is specified, calculation uses the selected column.
+        Data for which the weighted median is desired. If a DataFrame 
+        and `columns` is specified, the calculation uses only the 
+        selected column(s).
     weights : str, int, np.ndarray, or list
-        Weights for each element in `data`. If a string or int, it specifies the column
-        in `data` DataFrame containing the weights.
+        Weights corresponding to each element in `data`. If a string or int, it 
+        specifies the column in the `data` DataFrame containing the weights.
     columns : str or list, optional
         Specific column(s) to use for the calculation if `data` is a DataFrame.
+    as_frame : bool, optional
+        If True, the function returns the result as a pandas Series. 
+        Default is False.
     view : bool, optional
         If True, displays a scatter plot of the data points with sizes 
-        proportional to their weights.
+        proportional to their weights. Default is False.
     cmap : str, optional
-        Colormap for the scatter plot.
+        Colormap for the scatter plot. Default is 'viridis'.
     fig_size : Tuple[int, int], optional
-        Size of the figure for the scatter plot.
+        Size of the figure for the scatter plot. Default is (8, 8).
 
     Returns
     -------
-    w_median : float
-        The weighted median of the data set.
+    float or pd.Series
+        The weighted median of the data set. Returns a pandas Series 
+        if `as_frame` is True.
 
-    Example
-    -------
-    >>> import numpy as np 
-    >>> from gofast.stats.utils import weighted_median
-    >>> weighted_median(np.array([1, 2, 3]), np.array([3, 1, 2]))
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.stats.utils import wmean 
+    >>> data = np.array([1, 2, 3])
+    >>> weights = np.array([3, 1, 2])
+    >>> wmedian(data, weights)
     2.0
-    """
-    if isinstance(data, pd.DataFrame):
-        if isinstance(weights, str) or isinstance(weights, int):
-            weights = data[weights].values
-    else:
-        data = np.asarray(data)
-    weights = np.asarray(weights)
 
-    sorted_indices = np.argsort(data)
-    sorted_data, sorted_weights = data[sorted_indices], weights[sorted_indices]
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({'values': [1, 2, 3], 'weights': [3, 1, 2]})
+    >>> wmedian(df, 'weights', columns='values', as_frame=True)
+    W-median    2.0
+    dtype: float64
+
+    Notes
+    -----
+    The weighted median is particularly useful in datasets where some values 
+    are inherently more important than others and should be more heavily 
+    considered in the central tendency measure.
+
+    See Also
+    --------
+    np.median : Compute the median along the specified axis.
+    pd.Series.median : Return the median of the values for the requested axis.
+    scipy.stats.weighted_median : Compute the weighted median of a data 
+      sample in SciPy.
+    """
+    # Ensure 'weights' is a column name in the DataFrame.
+    if isinstance(weights, str) and weights not in data.columns:
+        raise ValueError("The 'weights' parameter, when passed as a string, "
+                        "must match the name of a column in the DataFrame.")
+
+    # Extract the relevant columns and convert weights to a numpy array 
+    # if specified as a column name
+    if isinstance(weights, str):
+        weights = data.pop(weights).values
+
+    # re-convert weights to a numpy array for consistency 
+    # and check that all weights are positive
+    weights= np.asarray(weights)
+    if np.any(weights <= 0):
+        raise ValueError("All weights must be greater than 0.")
+    
+    # Convert data to numpy array and flatten if necessary
+    data_values = data.to_numpy().flatten() if data.ndim > 1 else data.values
+    weights = np.asarray(weights).flatten()
+    
+    # Sort data and weights
+    sorted_indices = np.argsort(data_values)
+    sorted_data = data_values[sorted_indices]
+    sorted_weights = weights[sorted_indices]
+    
+    # Calculate cumulative weights and find the median index
     cumulative_weights = np.cumsum(sorted_weights)
-    median_idx = np.where(cumulative_weights >= 0.5 * np.sum(sorted_weights))[0][0]
+    half_weight = cumulative_weights[-1] / 2
+    median_idx = np.searchsorted(cumulative_weights, half_weight)
+
+    # Handle edge case where searchsorted returns an index equal 
+    # to the size of data
+    if median_idx == len(sorted_data):
+        median_idx -= 1
+
     w_median = sorted_data[median_idx]
 
     if view:
-        plt.figure(figsize=fig_size)
-        plt.scatter(sorted_data, np.zeros_like(sorted_data), 
-                    s=sorted_weights * 100, c=sorted_data, 
-                    cmap=cmap, alpha=0.6)
-        plt.colorbar(label='Data Value')
-        plt.axvline(w_median, color='red', linestyle='dashed', 
-                    linewidth=2, label=f'Weighted Median: {w_median}')
-        plt.title('Weighted Median Visualization')
-        plt.xlabel('Data Points')
-        plt.yticks([])
-        plt.legend()
-        plt.show()
+        visualize_weighted_median(sorted_data, sorted_weights, w_median, cmap, fig_size)
 
-    return w_median
+    return to_series_if (w_median, value_names= ['W-median'], name='weighted_median'
+                          )  if as_frame else w_median
+
+def visualize_weighted_median(data, weights, w_median, cmap, fig_size):
+    plt.figure(figsize=fig_size)
+    plt.scatter(range(len(data)), [0] * len(data), 
+                s=weights * 100, c=data, 
+                cmap=cmap, alpha=0.6)
+    plt.colorbar(label='Data Value')
+    plt.axvline(w_median, color='red', linestyle='dashed', 
+                linewidth=2, label=f'Weighted Median: {w_median}')
+    plt.title('Weighted Median Visualization')
+    plt.xlabel('Sorted Data Points')
+    plt.yticks([])
+    plt.legend()
+    plt.show()
+
 
 @make_data_dynamic("numeric", capture_columns=True)
 def bootstrap(

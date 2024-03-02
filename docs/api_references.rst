@@ -865,21 +865,21 @@ user may visit other powerful libraries such as ``scipy.stats``, ``statsmodels``
    stats.mean
    stats.median
    stats.mode 
-   stats.variance
-   stats.std_dev
+   stats.var
+   stats.std
    stats.get_range
    stats.quartiles
    stats.correlation
    stats.iqr 
    stats.z_scores
-   stats.descr_stats_summary
-   stats.skewness 
+   stats.describe
+   stats.skew
    stats.kurtosis
    stats.t_test_independent
-   stats.linear_regression
-   stats.chi_squared_test
+   stats.perform_linear_regression
+   stats.chi2_test
    stats.anova_test
-   stats.kmeans
+   stats.perform_kmeans
    stats.normal_pdf
    stats.normal_cdf
    stats.binomial_pmf

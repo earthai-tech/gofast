@@ -1324,19 +1324,13 @@ def _add_dynamic_method(func):
         return
 
     for pandas_class in [pd.DataFrame, pd.Series]:
-        method_name = func.__name__
+        method_name = "go" + func.__name__
         if hasattr(pandas_class, method_name):
-            # _logger.warning(f"{pandas_class.__name__} already has a method "
-            #                f"'{method_name}'. Skipping addition.")
             continue
         try:
             setattr(pandas_class, method_name, func)
-            # _logger.info(f"Successfully added '{method_name}' to "
-            #             f"{pandas_class.__name__}.")
         except Exception as error: #noqa
             pass
-            # _logger.error(f"Failed to add method '{method_name}' to "
-            #              f"{pandas_class.__name__}: {error}", exc_info=True)
 
 def _preprocess_data(
         data, capture_columns, expected_type, drop_na, na_thresh, 

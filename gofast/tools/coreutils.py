@@ -9270,6 +9270,158 @@ def closest_color(rgb_color, consider_alpha=False, color_space='rgb'):
 
     return closest_name
 
+def check_uniform_type(
+    values: Union[Iterable[Any], Any],
+    items_to_compare: Union[Iterable[Any], Any] = None,
+    raise_exception: bool = True,
+    convert_values: bool = False,
+    return_types: bool = False,
+    target_type: type = None,
+    allow_mismatch: bool = True,
+    infer_types: bool = False,
+    comparison_method: str = 'intersection',
+    custom_conversion_func: _F[[Any], Any] = None,
+    return_func: bool = False
+) -> Union[bool, List[type], Tuple[Iterable[Any], List[type]], _F]:
+    """
+    Checks whether elements in `values` are of uniform type. 
+    
+    Optionally comparing them against another set of items or converting all 
+    values to a target type. Can return a callable for deferred execution of 
+    the specified logic.Function is useful for validating data uniformity, 
+    especially before performing operations that assume homogeneity of the 
+    input types.
+    
+
+    Parameters
+    ----------
+    values : Iterable[Any] or Any
+        An iterable containing items to check. If a non-iterable item is provided,
+        it is treated as a single-element iterable.
+    items_to_compare : Iterable[Any] or Any, optional
+        An iterable of items to compare against `values`. If specified, the
+        `comparison_method` is used to perform the comparison.
+    raise_exception : bool, default True
+        If True, raises an exception when a uniform type is not found or other
+        constraints are not met. Otherwise, issues a warning.
+    convert_values : bool, default False
+        If True, tries to convert all `values` to `target_type`. Requires
+        `target_type` to be specified.
+    return_types : bool, default False
+        If True, returns the types of the items in `values`.
+    target_type : type, optional
+        The target type to which `values` should be converted if `convert_values`
+        is True.
+    allow_mismatch : bool, default True
+        If False, requires all values to be of identical types; otherwise,
+        allows type mismatch.
+    infer_types : bool, default False
+        If True and different types are found, returns the types of each item
+        in `values` in order.
+    comparison_method : str, default 'intersection'
+        The method used to compare `values` against `items_to_compare`. Must
+        be one of the set comparison methods ('difference', 'intersection', etc.).
+    custom_conversion_func : Callable[[Any], Any], optional
+        A custom function for converting items in `values` to another type.
+    return_func : bool, default False
+        If True, returns a callable that encapsulates the logic based on the 
+        other parameters.
+
+    Returns
+    -------
+    Union[bool, List[type], Tuple[Iterable[Any], List[type]], Callable]
+        The result based on the specified parameters. This can be: 
+        - A boolean indicating whether all values are of the same type.
+        - The common type of all values if `return_types` is True.
+        - A tuple containing the converted values and their types if `convert_values`
+          and `return_types` are both True.
+        - a callable encapsulating the specified logic for deferred execution.
+
+    Examples
+    --------
+    >>> check_uniform_type([1, 2, 3])
+    True
+
+    >>> check_uniform_type([1, '2', 3], allow_mismatch=False, raise_exception=False)
+    False
+
+    >>> deferred_check = check_uniform_type([1, 2, '3'], convert_values=True, 
+    ...                                        target_type=int, return_func=True)
+    >>> deferred_check()
+    True
+
+    Notes
+    -----
+    The function is designed to be flexible, supporting immediate or deferred execution,
+    with options for type conversion and detailed type information retrieval.
+    """
+    def operation():
+        # Convert values and items_to_compare to lists if 
+        # they're not already iterable
+        if isinstance(values, Iterable) and not isinstance(values, str):
+            val_list = list(values)
+        else:
+            val_list = [values]
+
+        if items_to_compare is not None:
+            if isinstance(items_to_compare, Iterable) and not isinstance(
+                    items_to_compare, str):
+                comp_list = list(items_to_compare)
+            else:
+                comp_list = [items_to_compare]
+        else:
+            comp_list = []
+
+        # Extract types
+        val_types = set(type(v) for v in val_list)
+        comp_types = set(type(c) for c in comp_list) if comp_list else set()
+
+        # Compare types
+        if comparison_method == 'intersection':
+            common_types = val_types.intersection(comp_types) if comp_types else val_types
+        elif comparison_method == 'difference':
+            common_types = val_types.difference(comp_types)
+        else:
+            if raise_exception:
+                raise ValueError(f"Invalid comparison method: {comparison_method}")
+            return False
+
+        # Check for type uniformity
+        if not allow_mismatch and len(common_types) > 1:
+            if raise_exception:
+                raise ValueError("Not all values are of the same type.")
+            return False
+
+        # Conversion
+        if convert_values:
+            if not target_type and not custom_conversion_func:
+                if raise_exception:
+                    raise ValueError("Target type or custom conversion "
+                                     "function must be specified for conversion.")
+                return False
+            try:
+                if custom_conversion_func:
+                    converted_values = [custom_conversion_func(v) for v in val_list]
+                else:
+                    converted_values = [target_type(v) for v in val_list]
+            except Exception as e:
+                if raise_exception:
+                    raise ValueError(f"Conversion failed: {e}")
+                return False
+            if return_types:
+                return converted_values, [type(v) for v in converted_values]
+            return converted_values
+
+        # Return types
+        if return_types:
+            if infer_types or len(common_types) > 1:
+                return [type(v) for v in val_list]
+            return list(common_types)
+
+        return True
+
+    return operation if return_func else operation()
+
 
 # def closest_color(rgb_color):
 #     """

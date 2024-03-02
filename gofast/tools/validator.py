@@ -87,7 +87,6 @@ def validate_yy(
 
     return y_true, y_pred
 
-
 def check_mixed_data_types(data, /) -> bool:
     """
     Checks if the given data (DataFrame or numpy array) contains both numerical 

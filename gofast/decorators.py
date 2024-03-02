@@ -404,28 +404,57 @@ class DynamicMethod:
         # Drop missing values based on the specified axis and threshold
         return data.dropna(axis=na_axis, thresh=thresh)
     
+    # def _add_method_to_pandas(self, func):
+    #     """
+    #     Dynamically adds a new method to pandas DataFrame and Series objects.
+        
+    #     This function checks if the method named after `func.__name__` does 
+    #     not already exist in the pandas DataFrame and Series classes. If not,
+    #     it adds `func` as a method to these classes, allowing for seamless 
+    #     integration of custom functionality into pandas objects.
+        
+    #     Parameters
+    #     ----------
+    #     func : function
+    #         The function to add as a method to DataFrame and Series objects.
+    #         The name of the function (`func.__name__`) will be used as the 
+    #         method name.
+    #     """
+    #     for cls in [pd.DataFrame, pd.Series]:
+    #         if not hasattr(cls, func.__name__):
+    #             try:
+    #                 setattr(cls, func.__name__, func)
+    #             except Exception as e: # noqa
+    #                 pass 
+    #                 # Optionally log the error or handle it as needed
+    #                 # print(f"Error adding method {func.__name__} to {cls.__name__}: {e}")
+                    
     def _add_method_to_pandas(self, func):
         """
-        Dynamically adds a new method to pandas DataFrame and Series objects.
+        Dynamically adds a new method to pandas DataFrame and Series 
+        objects with a 'go' prefix.
         
-        This function checks if the method named after `func.__name__` does 
+        This function checks if the method named 'go' + `func.__name__` does 
         not already exist in the pandas DataFrame and Series classes. If not,
         it adds `func` as a method to these classes, allowing for seamless 
-        integration of custom functionality into pandas objects.
+        integration of custom functionality into pandas objects, accessible 
+        with a 'go' prefix.
         
         Parameters
         ----------
         func : function
             The function to add as a method to DataFrame and Series objects.
-            The name of the function (`func.__name__`) will be used as the 
-            method name.
+            The name of the function (`func.__name__`) prefixed with 'go' will 
+            be used as the method name.
         """
+        method_name = "go" + func.__name__
         for cls in [pd.DataFrame, pd.Series]:
-            if not hasattr(cls, func.__name__):
+            if not hasattr(cls, method_name):
                 try:
-                    setattr(cls, func.__name__, func)
-                except Exception as e: # noqa
-                    pass 
+                    setattr(cls, method_name, func)
+                except Exception as e:
+                    if self.verbose:
+                        print(f"Failed to add method {method_name}: {e}")
                     # Optionally log the error or handle it as needed
                     # print(f"Error adding method {func.__name__} to {cls.__name__}: {e}")
 class ExportData:
