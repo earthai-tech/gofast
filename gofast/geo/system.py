@@ -57,6 +57,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 
 from ..tools._dependency import import_optional_dependency
+from .tools.funcutils import ensure_pkg
 from ..exceptions import NotFittedError
 
 class GeoIntelligentSystem:
@@ -500,7 +501,7 @@ class GeoIntelligentSystem:
         # Return the nearest feature(s) as a GeoDataFrame
         return features_list.iloc[unique_indices]
 
-
+    @ensure_pkg ("networkx")
     def calculateShortestPath(self, graph, start_point, end_point, criteria='distance'):
         """
         Computes the shortest path between two points on a graph considering 
@@ -539,7 +540,6 @@ class GeoIntelligentSystem:
                                                  criteria='distance')
         >>> print(path)
         """
-        import_optional_dependency("networkx")
         import networkx as nx
         path = nx.shortest_path(graph, source=start_point, target=end_point,
                                 weight=criteria)
@@ -823,7 +823,8 @@ class GeoIntelligentSystem:
             plt.show()
 
         return model, metrics
-
+    
+    @ensure_pkg("folium")
     def visualizeData(self, gdf, plot_type='map', **kwargs):
         """
         Renders geographical data on maps or charts, supporting various 
@@ -850,7 +851,6 @@ class GeoIntelligentSystem:
         >>> geo_sys.visualizeData(gdf, plot_type='heatmap',
                                   column='population_density', cmap='viridis')
         """
-        import_optional_dependency ("folium")
         import folium
         from folium.plugins import HeatMap
         if plot_type == 'plot':
@@ -884,6 +884,7 @@ class GeoIntelligentSystem:
         else:
             raise ValueError(f"Unsupported plot_type: {plot_type}")
 
+    @ensure_pkg("folium")
     def interactiveQuery(self, gdf, query_action='info', **kwargs):
         """
         Allows users to interactively query geographical information on a map,
@@ -912,7 +913,6 @@ class GeoIntelligentSystem:
         >>> map  # This will display the interactive map in a Jupyter 
         >>> # notebook environment.
         """
-        import_optional_dependency ("folium")
         import folium
         if query_action == 'info':
             m = folium.Map(location=kwargs.get(

@@ -28,7 +28,7 @@ from ..tools.validator import _is_arraylike_1d
 from ..tools.coreutils import ensure_visualization_compatibility, ellipsis2false 
 from ..tools.coreutils import process_and_extract_data, to_series_if 
 from ..tools.coreutils import get_colors_and_alphas, normalize_string 
-from ..tools.coreutils import smart_format, check_uniform_type 
+from ..tools.coreutils import smart_format
 from ..tools.funcutils import make_data_dynamic, ensure_pkg
 from ..tools.funcutils import flatten_data_if, update_series_index 
 from ..tools.funcutils import update_index, convert_and_format_data
@@ -1886,7 +1886,6 @@ def z_scores(
     
     return result
 
-
 @make_data_dynamic(capture_columns=True)
 def describe(
     data: DataFrame,
@@ -2540,7 +2539,6 @@ def perform_linear_regression(
             name='linear_regression'
         )
     return model, coefficients, intercept
-
 
 @make_data_dynamic('numeric', capture_columns=True)
 def chi2_test(
@@ -3230,9 +3228,10 @@ def bootstrap(
 @make_data_dynamic("numeric", capture_columns=True, dynamize=False)
 def kaplan_meier_analysis(
     durations: DataFrame | np.ndarray,
-    event_observed: np.ndarray,
-    columns=None, 
-    view: bool = True,
+    event_observed: Array1D,
+    columns: Optional[List[str]]=None, 
+    as_frame: bool=False, 
+    view: bool = False,
     fig_size: Tuple[int, int] = (10, 6),
     **kws
 ):
@@ -3240,9 +3239,17 @@ def kaplan_meier_analysis(
     Perform Kaplan-Meier Survival Analysis and optionally visualize the 
     survival function.
 
-    Kaplan-Meier Survival Analysis is used to estimate the survival function
-    from lifetime data. It is a non-parametric statistic used to estimate the
-    survival probability from observed lifetimes.
+    The Kaplan-Meier estimator, also known as the product-limit estimator, is a 
+    non-parametric statistic used to estimate the survival probability from 
+    observed lifetimes. It is defined as:
+
+    .. math::
+        S(t) = \prod_{i: t_i < t} \left(1 - \frac{d_i}{n_i}\right)
+
+    where \( S(t) \) is the probability of survival until time \( t \), 
+    \( d_i \) is the number of death events at time \( t_i \), and \( n_i \) 
+    is the number of subjects at risk of death just prior to time \( t_i \).
+
 
     Parameters
     ----------
@@ -3284,9 +3291,8 @@ def kaplan_meier_analysis(
     >>> kmf = kaplan_meier_analysis(df['duration'], df['event'], view=True)
     """
     from lifelines import KaplanMeierFitter
-    if isinstance(durations, pd.DataFrame):
-        # Ensure it's a Series if only one column
-        durations = durations[columns].squeeze()  
+
+    durations = durations.squeeze()  
 
     kmf = KaplanMeierFitter(**kws)
     kmf.fit(durations, event_observed=event_observed)
@@ -3299,81 +3305,138 @@ def kaplan_meier_analysis(
         plt.ylabel('Survival Probability')
         plt.grid(True)
         plt.show()
+        
+    if as_frame: 
+        return to_series_if(
+            kmf , value_names=["KaplanMeier-model"], name="KM_estimate") 
     
     return kmf
 
 @make_data_dynamic(capture_columns=True, dynamize=False)
 def gini_coeffs(
     data: Union[pd.DataFrame, np.ndarray],
-    columns: Optional[Union[str, list]] = None,
+    columns: Optional[Union[str, List[str]]] = None,
+    as_frame: bool = False,
     view: bool = False,
-    cmap: str = 'viridis',
-    fig_size: Tuple[int, int] = (10, 6),
-    **kws
+    fig_size: Tuple[int, int] = (10, 6)
 ):
     """
     Calculate the Gini coefficient of a dataset and optionally visualize
     the Lorenz curve.
 
-    The Gini coefficient is a measure of inequality of a distribution,
-    ranging from 0 (perfect equality) to 1 (perfect inequality).
+    The Gini coefficient is a measure of statistical dispersion intended to 
+    represent the income or wealth distribution of a nation's residents, 
+    and is the most commonly used measurement of inequality. It is defined 
+    mathematically based on the Lorenz curve, which plots the proportion of 
+    the total income of a population that is cumulatively earned by the 
+    bottom x% of the population.
+
+    The Gini coefficient (G) can be calculated using the formula:
+
+    .. math:: G = \frac{\sum_{i=1}^{n} (2i - n - 1) x_{i}}{n \sum_{i=1}^{n} x_{i}}
+
+    where \( n \) is the number of values, \( x_{i} \) is the value after 
+    sorting the data in increasing order, and \( i \) is the rank of values 
+    in ascending order.
 
     Parameters
     ----------
-    data : DataFrame or array_like
-        Data set for which to calculate the Gini coefficient. If a DataFrame
-        is provided and `columns` is specified, only the selected columns are used.
-    columns : str or list, optional
-        Specific column(s) to use if `data` is a DataFrame.
+    data : Union[pd.DataFrame, np.ndarray]
+        Input data for which to calculate the Gini coefficient. Can be a 
+        pandas DataFrame or a numpy ndarray.
+    columns : Optional[Union[str, List[str]]], optional
+        If provided, specifies the column(s) to use when `data` is a DataFrame.
+        If a single string is provided, it will select a single column.
+        If a list of strings is provided, it will select multiple columns, 
+        and the Gini coefficient will be calculated for each column separately.
+    as_frame : bool, optional
+        If True, the result will be returned as a pandas DataFrame.
+        Default is False.
     view : bool, optional
-        If True, displays the Lorenz curve of the data set.
-    cmap : str, optional
-        Colormap for the Lorenz curve plot. This parameter is currently unused but
-        included for future compatibility.
+        If True, displays the Lorenz curve plot. Default is False.
     fig_size : Tuple[int, int], optional
-        Size of the figure for the Lorenz curve plot.
-    **kws : dict
-        Additional keyword arguments, unused but included for compatibility.
+        Size of the figure to display if `view` is True. Default is (10, 6).
 
     Returns
     -------
-    gini : float
-        The Gini coefficient of the data set.
+    Union[float, pd.DataFrame]
+        The Gini coefficient of the data. If `as_frame` is True, returns a 
+        pandas DataFrame with the Gini coefficient.
+
+    See Also
+    --------
+    plot_lorenz_curve : A function to plot the Lorenz curve.
+
+    Notes
+    -----
+    The Gini coefficient is a widely used measure of inequality. A Gini 
+    coefficient of zero expresses perfect equality where all values are the 
+    same. A Gini coefficient of one (or 100%) expresses maximal inequality 
+    among values (for example, where only one person has all the income).
 
     Examples
     --------
-    >>> get_gini_coeffs([1, 2, 3, 4, 5])
+    >>> import numpy as np 
+    >>> import pandas as pd 
+    >>> from gofast.stats.utils import gini_coeffs
+    >>> gini_coeffs(np.array([1, 2, 3, 4, 5]))
     0.26666666666666666
 
     >>> df = pd.DataFrame({'income': [1, 2, 3, 4, 5]})
-    >>> get_gini_coeffs(df, columns='income', view=True)
-    """
-    if isinstance(data, pd.DataFrame):
-        if columns is not None:
-            data = data[columns].squeeze()  ## Ensure it's a Series or single column DataFrame
-        else:
-            raise ValueError("Column name must be provided for DataFrame input.")
-    data = np.sort(np.array(data))
-    n = data.size
-    index = np.arange(1, n + 1)
-    gini = (np.sum((2 * index - n - 1) * data)) / (n * np.sum(data))
+    >>> gini_coeffs(df, columns='income', view=True)
+    # This will calculate the Gini coefficient for the 'income' column and 
+    # display the Lorenz curve.
 
+    >>> df = pd.DataFrame({'income': [1, 2, 3, 4, 5], 'wealth': [5, 4, 3, 2, 1]})
+    >>> gini_coeffs(df, columns=['income', 'wealth'], as_frame=True)
+    # This will calculate the Gini coefficient for both 'income' and 'wealth' 
+    # columns and return the results in a DataFrame.
+    """
+    # Ensure data is a 1D numpy array
+    data = np.ravel(data)
+    
+    # Sort data
+    data = np.sort(data)
+    
+    # Calculate Gini coefficient
+    n = len(data)
+    index = np.arange(1, n + 1)
+    gini = (2 * np.sum(index * data) - (n + 1) * np.sum(data)) / (n * np.sum(data))
+    
+    # Visualize Lorenz curve if requested
     if view:
-        plt.figure(figsize=fig_size)
-        lorenz_curve = np.cumsum(np.sort(data)) / np.sum(data)
-        lorenz_curve = np.insert(lorenz_curve, 0, 0)  # Start at 0
-        plt.plot(np.linspace(0.0, 1.0, lorenz_curve.size), lorenz_curve,
-                 label='Lorenz Curve', color='blue')
-        plt.plot([0, 1], [0, 1], label='Line of Equality', 
-                 linestyle='--', color='red')
-        plt.title('Lorenz Curve')
-        plt.xlabel('Cumulative share of population')
-        plt.ylabel('Cumulative share of wealth')
-        plt.legend()
-        plt.grid(True)
-        plt.show()
+        plot_lorenz_curve(data, fig_size)
+
+    if as_frame:
+        return pd.DataFrame({'Gini-coefficients': [gini]}, index=['gini_coeffs'])
 
     return gini
+
+def plot_lorenz_curve(data: np.ndarray, fig_size: Tuple[int, int]):
+    """
+    Plot the Lorenz curve for the given data.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Sorted 1D data array for which to plot the Lorenz curve.
+    fig_size : Tuple[int, int]
+        Size of the figure for the Lorenz curve plot.
+    """
+    lorenz_curve = np.cumsum(data) / np.sum(data)
+    lorenz_curve = np.insert(lorenz_curve, 0, 0)  # Start at 0
+    
+    plt.figure(figsize=fig_size)
+    plt.plot(np.linspace(0.0, 1.0, len(lorenz_curve)), lorenz_curve,
+             label='Lorenz Curve', color='blue')
+    plt.plot([0, 1], [0, 1], label='Line of Equality', 
+             linestyle='--', color='red')
+    plt.title('Lorenz Curve')
+    plt.xlabel('Cumulative share of population')
+    plt.ylabel('Cumulative share of wealth')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
 @make_data_dynamic(capture_columns=True, dynamize=False)
 def mds_similarity(

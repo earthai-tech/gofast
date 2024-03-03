@@ -9,7 +9,7 @@ __all__=[
     '_baseplot_params', 
     '_seealso_blurbs',
     '_core_returns', 
-    'wx_rst_epilog',
+    'gf_rst_epilog',
     '_core_params',
     'refglossary',
     '_core_docs',
@@ -648,7 +648,7 @@ _core_docs = dict(
 #.. |API change| replace:: :bdg-dark:`API change`
 # Define replacements (used in whatsnew bullets)
 
-wx_rst_epilog ="""
+gf_rst_epilog ="""
 
 .. role:: raw-html(raw)
    :format: html

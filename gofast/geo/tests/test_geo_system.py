@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 # test_geo_system.py
 import pytest
+from gofast.experimental import enable_geo_intel_system # noqa 
 from gofast.geo.system import GeoIntelligentSystem
+from gofast.tools.funcutils import ensure_pkg, install_package 
 import pandas as pd
 try:import geopandas as gpd
-except: pass 
+except: 
+    install_package("geopandas")
 
 @pytest.fixture
 def setup_geo_system():
@@ -43,10 +46,11 @@ def test_load_data(setup_geo_system, tmp_path):
     assert setup_geo_system.data is not None
     assert len(setup_geo_system.data) > 0
     assert 'name' in setup_geo_system.data.columns
-
-
+    
+@ensure_pkg("folium", auto_install= True, verbose =True )
 def test_visualize_data(setup_geo_system):
-    # Assuming the GeoIntelligentSystem class has been set up with a valid GeoDataFrame `self.data`
+    # Assuming the GeoIntelligentSystem class has been set up with a 
+    # valid GeoDataFrame `self.data`
     # and `visualizeData` returns a folium Map object for interactive map visualizations
     import folium
     # Setup: Create a mock GeoDataFrame
@@ -60,8 +64,6 @@ def test_visualize_data(setup_geo_system):
                                                 location=[10.1, 125.6], zoom_start=12)
     assert isinstance(map_result, folium.Map)
 
-    # Additional checks can be added for other visualization types and parameters
-
 def test_evaluate_impact(setup_geo_system):
     scenarios = ['Project A', 'Project B']
     criteria_weights = {'environmental': 0.7, 'cost': 0.3}
@@ -72,7 +74,6 @@ def test_evaluate_impact(setup_geo_system):
     })
     scores = setup_geo_system.evaluateImpact(scenarios, criteria_weights, impact_data)
     assert not scores.empty
-    # Further assertions can be made based on expected scores
 
 def test_recommend_actions(setup_geo_system):
     data = pd.DataFrame({
@@ -84,11 +85,10 @@ def test_recommend_actions(setup_geo_system):
     recommendations = setup_geo_system.recommendActions(
         data, objectives, optimization_method='maximize')
     assert not recommendations.empty
-    # Further assertions can be made based on expected recommendations
 
-import folium
-
+@ensure_pkg("folium", auto_install= True, verbose =True )
 def test_interactive_query(setup_geo_system):
+    import folium
     # Setup: Create a mock GeoDataFrame for the interactive query test
     gdf = gpd.GeoDataFrame({
         'name': ['Interactive Point'],
@@ -96,9 +96,11 @@ def test_interactive_query(setup_geo_system):
     })
 
     # Execute: Call the interactiveQuery method, assuming it returns a Folium map object
-    interactive_map = setup_geo_system.interactiveQuery(gdf, query_action='info', location=[10.1, 125.6], zoom_start=12)
+    interactive_map = setup_geo_system.interactiveQuery(
+        gdf, query_action='info', location=[10.1, 125.6], zoom_start=12)
 
-    # Verify: The map object is correctly instantiated and contains at least one layer (the base map counts as one)
+    # Verify: The map object is correctly instantiated and contains 
+    # at least one layer (the base map counts as one)
     assert isinstance(interactive_map, folium.Map)
     assert len(interactive_map._children) > 1  # Check if more than the base layer is present, indicating added interaction layers
 

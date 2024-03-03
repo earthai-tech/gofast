@@ -29,7 +29,7 @@ from .._typing import _T, Dict, Any, Callable, List, Type
 from .._typing import  Optional, Tuple , Union  
 from .._typing import Series, DataFrame, ArrayLike, Array1D, LambdaType
 from ._dependency import import_optional_dependency
-from .coreutils import to_numeric_dtypes, is_iterable
+from .coreutils import to_numeric_dtypes, is_iterable, is_module_installed
 from .._gofastlog import gofastlog 
 
 # Configure  logging
@@ -834,7 +834,12 @@ def install_package(
                 pbar.update(1)
             if process.wait() != 0:  # Non-zero exit code indicates failure
                 raise RuntimeError(f"Installation failed for package '{name}{extra}'.")
-
+    
+    # If the module is installed 
+    # dont install again.
+    if is_module_installed(name): 
+        return True
+    
     conda_available = _check_conda_installed()
 
     try:
@@ -1280,7 +1285,7 @@ def _check_and_convert_input(input_data):
         try:
             return to_numeric_dtypes (pd.DataFrame(np.array(input_data))) 
         except Exception:
-            raise ValueError(
+            raise TypeError(
                 "Expect the first argument to be a non-string iterable object"
                  " with minimum samples equal to two.")
     else:
