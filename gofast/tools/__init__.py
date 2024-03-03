@@ -1,9 +1,9 @@
 """
-Tools sub-package offers several tools for data handling, parameters computation 
+Tools sub-package offers several utilities for data handling, parameters computation 
 models estimation and evalution. The extension of the mathematical concepts, 
 via the module :mod:`~gofast.tools.mathex`. Whereas the machine learning 
 utilities and additional functionalities are performed with
- :mod:`~gofast.tools.mlutils` and :mod:`~gofast.tools.funcutils` respectively. 
+ :mod:`~gofast.tools.mlutils` and :mod:`~gofast.tools.coreutils` respectively. 
 """
 
 from .baseutils import (
@@ -30,7 +30,13 @@ from .baseutils import (
     handle_outliers_in_data,
     handle_missing_data, 
     augment_data, 
-    assess_outlier_impact
+    assess_outlier_impact, 
+    transform_dates, 
+    apply_bow_vectorization, 
+    apply_tfidf_vectorization, 
+    apply_word_embeddings, 
+    boxcox_transformation, 
+    check_missing_data
     )
 from .mathex import ( 
     interpolate1d, 
@@ -65,7 +71,7 @@ from .mathex import (
     infer_sankey_columns, 
     calculate_residuals, 
     )
-from .funcutils import ( 
+from .coreutils import ( 
     reshape, 
     to_numeric_dtypes, 
     smart_label_classifier, 
@@ -78,7 +84,16 @@ from .funcutils import (
     pair_data, 
     random_sampling, 
     replace_data, 
-    store_or_write_hdf5, 
+    store_or_write_hdf5,
+    projection_validator,
+    extract_coordinates, 
+    find_features_in, 
+    features_in, 
+    split_train_test_by_id, 
+    split_train_test, 
+    parallelize_jobs,
+    denormalize, 
+    resample_data, 
     )
 
 from .mlutils import ( 
@@ -86,38 +101,36 @@ from .mlutils import (
     select_features, 
     get_global_score,  
     get_correlated_features, 
-    find_features_in, 
     codify_variables, 
     categorize_target, 
     resampling, 
     bin_counting, 
     labels_validator, 
-    projection_validator, 
     rename_labels_in , 
     soft_imputer, 
     soft_scaler, 
     select_feature_importances, 
     make_pipe, 
     build_data_preprocessor, 
-    load_saved_model, 
+    load_model, 
     bi_selector, 
     get_target, 
-    export_target,  
+    extract_target,  
     stats_from_prediction, 
     fetch_tgz,  
     fetch_model, 
     load_csv, 
-    split_train_test_by_id, 
-    split_train_test, 
     discretize_categories, 
     stratify_categories, 
     serialize_data, 
     deserialize_data, 
     soft_data_split, 
     laplace_smoothing, 
-    features_in, 
     laplace_smoothing_categorical, 
-    laplace_smoothing_word
+    laplace_smoothing_word, 
+    handle_imbalance, 
+    smart_split, 
+    save_dataframes
     
     ) 
 __all__=[
@@ -167,7 +180,7 @@ __all__=[
     'build_data_preprocessor', 
     'bi_selector', 
     'get_target', 
-    'export_target',  
+    'extract_target',  
     'stats_from_prediction', 
     'fetch_tgz', 
     'fetch_model', 
@@ -201,7 +214,7 @@ __all__=[
     "resampling", 
     "bin_counting",
     "adaptive_moving_average", 
-    "load_saved_model", 
+    "load_model", 
     "butterworth_filter",
     "laplace_smoothing", 
     "features_in", 
@@ -237,6 +250,19 @@ __all__=[
     "compute_sunburst_data", 
     "infer_sankey_columns",
     "calculate_residuals", 
+    "extract_coordinates", 
+    "parallelize_jobs", 
+    "transform_dates", 
+    "apply_bow_vectorization", 
+    "apply_tfidf_vectorization", 
+    "apply_word_embeddings" , 
+    "boxcox_transformation", 
+    "check_missing_data", 
+    "handle_imbalance", 
+    "smart_split", 
+    "save_dataframes",
+    "denormalize", 
+    "resample_data"
     
     ]
 

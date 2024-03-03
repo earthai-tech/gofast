@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
-#   Author: LKouadio
+#   Author: LKouadio <etanoyau@gmail.com>
 """
 Created on Thu Dec 21 14:43:09 2023
 @author: a.k.a Daniel
@@ -12,29 +12,45 @@ import numpy as np
 import random
 from datetime import timedelta
 from sklearn.model_selection import train_test_split 
-from ..tools._dependency import import_optional_dependency 
-from ..tools.baseutils import run_shell_command, remove_target_from_array
+from ..tools.baseutils import remove_target_from_array
 from ..tools.box import Boxspace 
-from ..tools.funcutils import ellipsis2false ,assert_ratio, is_iterable 
-from ..tools.funcutils import is_in_if, _assert_all_types,  add_noises_to 
-from ..tools.funcutils import smart_format, reshape 
-from ._globals import AFRICAN_COUNTRIES 
+from ..tools.coreutils import ellipsis2false ,assert_ratio, is_iterable 
+from ..tools.coreutils import is_in_if, _assert_all_types,  add_noises_to 
+from ..tools.coreutils import smart_format, random_sampling
+from ..tools.funcutils import ensure_pkg
+from ._globals import AFRICAN_COUNTRIES, DIAGNOSIS_UNITS
 from ._globals import COMMON_PESTICIDES, COMMON_CROPS 
 from ._globals import WATER_QUAL_NEEDS, WATER_QUAN_NEEDS, SDG6_CHALLENGES
 from ._globals import ORE_TYPE, EXPLOSIVE_TYPE, EQUIPMENT_TYPE
 
 
 def make_classification(
-    n_samples=70,
-    n_features=7, *,
+    n_samples=100,
+    n_features=20, *,
     n_classes=2,
     n_labels=1,
-    noise=0.1, 
+    noise=0.0, 
     bias=0.0, 
     scale=None, 
     class_sep=1.0,
+    n_informative=2,
+    n_redundant=2,
+    n_repeated=0,
+    n_clusters_per_class=2,
+    weights=None,
+    flip_y=0.01,
+    hypercube=True,
+    shift=0.0,
+    shuffle=True,
+    length=50,
+    allow_unlabeled=True,
+    sparse=False,
+    return_indicator="dense",
+    return_distributions=False,
+    return_X_y=True, 
     as_frame=False, 
-    return_X_y=False, 
+    feature_columns=None, 
+    target_columns=None,
     split_X_y=False, 
     test_size=0.3, 
     nan_percentage=None, 
@@ -45,47 +61,180 @@ def make_classification(
     Generate synthetic classification data for testing classification 
     algorithms. 
     
-    Funtion supports multilabel classification task.
+    Funtion supports multilabel classification task. It similary runs as 
+    scikit-learn `make_classification` and `make_multilabel_classification`
+    datasets.
 
     `make_classification` is designed to create datasets suitable for evaluating 
     and testing different classification algorithms. It allows control over the 
     number of classes, features, and offers various options for data scaling.
+    
+    This function generates a dataset by initially creating clusters centered 
+    around the vertices of an ``n_informative``-dimensional hypercube. The sides 
+    of this hypercube have a length of ``2*class_sep``, and clusters are 
+    distributed normally with a standard deviation of 1. Each class is 
+    assigned an equal number of clusters, introducing interdependencies 
+    among the generated features. Additionally, the function incorporates 
+    various types of noise to further diversify the data.
+
+    Feature composition in the dataset `X` is as follows, without shuffling:
+        
+    - The first `n_informative` features are the primary informative features.
+    - These are followed by `n_redundant` features, which are linear combinations
+      of the informative features.
+    - Next, `n_repeated` features are included, which are duplicates randomly 
+      selected with replacement from both informative and redundant features.
+    - The remainder of the features consist of random noise.
+    
+    Therefore, in the unshuffled dataset, all informative and potentially 
+    useful features are located within the columns 
+    ``X[:, :n_informative + n_redundant + n_repeated]``, providing a structured 
+    approach to evaluating feature relevance and redundancy.
 
     Parameters
     ----------
-    n_samples : int, default=70
+    n_samples : int, default=100
         Number of samples to generate in the dataset.
-    n_features : int, default=7
-        Number of features for each sample.
+        
+    n_features : int, default=20
+        Number of features for each sample. These comprise ``n_informative``
+        informative features, ``n_redundant`` redundant features,
+        ``n_repeated`` duplicated features and
+        ``n_features-n_informative-n_redundant-n_repeated`` useless features
+        drawn at random.
+        
     n_classes : int, default=2
         Number of distinct classes or labels in the dataset.
+        
     n_labels : int, default=1
         Number of labels per instance for multilabel classification.
-        For n_labels > 1, the output y will be a 2D array with multiple 
-        labels per instance.
+        For n_labels > 1, the output y will be a 2D array  with multiple 
+        labels per instance. `y` should be a sparse matrices if 
+        `return_indicator` is set to ``sparse``.
+        
     noise : float, default=0.1
         Standard deviation of Gaussian noise added to the output.
     bias : float, default=0.0
         Bias term to be added to the output.
+        
     scale : str or None, default=None
         Method used to scale the dataset. Options are 'standard', 'minmax',
-        and 'normalize'.
-        If None, no scaling is applied.
+        and 'normalize'. If None, no scaling is applied.
+        
     class_sep : float, default=1.0
         Factor multiplying the hypercube size. Larger values spread out 
         the classes.
+    
+    n_informative : int, default=2
+        The number of informative features. Each class is composed of a number
+        of gaussian clusters each located around the vertices of a hypercube
+        in a subspace of dimension ``n_informative``. For each cluster,
+        informative features are drawn independently from  N(0, 1) and then
+        randomly linearly combined within each cluster in order to add
+        covariance. The clusters are then placed on the vertices of the
+        hypercube. 
+        
+    n_redundant : int, default=2
+        The number of redundant features. These features are generated as
+        random linear combinations of the informative features.
+
+    n_repeated : int, default=0
+        The number of duplicated features, drawn randomly from the informative
+        and the redundant features.
+
+    n_classes : int, default=2
+        The number of classes (or labels) of the classification problem.
+
+    n_clusters_per_class : int, default=2
+        The number of clusters per class.
+
+    weights : array-like of shape (n_classes,) or (n_classes - 1,),\
+              default=None
+        The proportions of samples assigned to each class. If None, then
+        classes are balanced. Note that if ``len(weights) == n_classes - 1``,
+        then the last class weight is automatically inferred.
+        More than ``n_samples`` samples may be returned if the sum of
+        ``weights`` exceeds 1. Note that the actual class proportions will
+        not exactly match ``weights`` when ``flip_y`` isn't 0.
+
+    flip_y : float, default=0.01
+        The fraction of samples whose class is assigned randomly. Larger
+        values introduce noise in the labels and make the classification
+        task harder. Note that the default setting flip_y > 0 might lead
+        to less than ``n_classes`` in y in some cases.
+
+    class_sep : float, default=1.0
+        The factor multiplying the hypercube size.  Larger values spread
+        out the clusters/classes and make the classification task easier.
+
+    hypercube : bool, default=True
+        If True, the clusters are put on the vertices of a hypercube. If
+        False, the clusters are put on the vertices of a random polytope.
+
+    shift : float, ndarray of shape (n_features,) or None, default=0.0
+        Shift features by the specified value. If None, then features
+        are shifted by a random value drawn in [-class_sep, class_sep].
+
+    scale : float, ndarray of shape (n_features,) or None, default=1.0
+        Multiply features by the specified value. If None, then features
+        are scaled by a random value drawn in [1, 100]. Note that scaling
+        happens after shifting.
+
+    n_labels : int, default=2
+        The average number of labels per instance. More precisely, the number
+        of labels per sample is drawn from a Poisson distribution with
+        ``n_labels`` as its expected value, but samples are bounded (using
+        rejection sampling) by ``n_classes``, and must be nonzero if
+        ``allow_unlabeled`` is False.
+
+    length : int, default=50
+        The sum of the features (number of words if documents) is drawn from
+        a Poisson distribution with this expected value.
+
+    allow_unlabeled : bool, default=True
+        If ``True``, some instances might not belong to any class.
+
+    sparse : bool, default=False
+        If ``True``, return a sparse feature matrix.
+
+    return_indicator : {'dense', 'sparse'} or False, default='dense'
+        If ``'dense'`` return ``Y`` in the dense binary indicator format. If
+        ``'sparse'`` return ``Y`` in the sparse binary indicator format.
+        ``False`` returns a list of lists of labels. If `as_frame` is ``True``, 
+        it is ignored when `return_indicator=='sparse'`
+        
+    return_distributions : bool, default=False
+        If ``True``, return the prior class probability and conditional
+        probabilities of features given classes, from which the data was
+        drawn.
+
+    shuffle : bool, default=True
+        Shuffle the samples and the features.
+        
+    return_X_y : bool, default=True
+         If True, returns (data, target) instead of a single array.
+         
     as_frame : bool, default=False
         If True, the data is returned as a pandas DataFrame.
-    return_X_y : bool, default=False
-        If True, returns (data, target) instead of a single array.
+        
+    feature_columns, target_columns : list of str, optional
+        Custom names for the feature and target columns when `as_frame=True`. 
+        If omitted, feature columns are named as `feature_<index>` and 
+        target columns as `target_<index>` for multilabel classsification tasks. 
+        For a single target in a Series, it is named `target`. This allows for 
+        intuitive identification and access within the generated DataFrame.
+
     split_X_y : bool, default=False
         If True, the dataset is split into training and testing sets based on
         `test_size`.
+        
     test_size : float, default=0.3
         Proportion of the dataset to include in the test split.
+        
     nan_percentage : float or None, default=None
         The percentage of values to be replaced with NaN in each column. 
         This must be a number between 0 and 1.
+        
     seed : int, np.random.RandomState instance, or None, default=None
         Determines random number generation for dataset creation. Pass an int for
         reproducible output.
@@ -112,8 +261,9 @@ def make_classification(
       
     Examples
     --------
-    >>> X, y = make_classification(n_samples=100, n_features=2, scale='standard', 
-                                   n_classes=3, class_sep=2.0)
+    >>> from gofast.datasets import make_classification
+    >>> X, y = make_classification(n_samples=100, n_features=25, scale='standard', 
+                                   n_classes=2, class_sep=2.0)
     >>> X.shape, y.shape
     ((100, 2), (100,))
 
@@ -124,37 +274,89 @@ def make_classification(
     separability, making it suitable for testing the robustness of 
     classification models.
     """
-    # Set random seed for reproducibility
+    from sklearn.datasets import make_classification 
+    from sklearn.datasets import make_multilabel_classification 
+    # # Set random seed for reproducibility
     rng = np.random.RandomState(seed) if seed is not None else np.random
-    # Generate random features
-    X = rng.normal(size=(n_samples, n_features)) * class_sep
-    # Generate random labels for multilabel classification
-    y = rng.randint(0, n_classes, size=(n_samples, n_labels))
-    # Add noise and bias
-    X += noise * rng.normal(size=X.shape) + bias
+    # # Generate random features
+    # X = rng.normal(size=(n_samples, n_features)) * class_sep
+    # # Generate random labels for multilabel classification
+    # y = rng.randint(0, n_classes, size=(n_samples, n_labels))
+    
+    # Use sklearn's make_classification to generate the dataset
+    if n_labels < 2: 
+        X, y = make_classification(
+            n_samples=n_samples,
+            n_features=n_features,
+            n_informative=n_informative,
+            n_redundant=n_redundant,
+            n_repeated=n_repeated,
+            n_classes=n_classes,
+            n_clusters_per_class=n_clusters_per_class,
+            weights=weights,
+            flip_y=flip_y,
+            class_sep=class_sep,
+            hypercube=hypercube,
+            shuffle=shuffle,
+            random_state=seed,
+            # Apply scale for scikit only if float or int value. 
+            scale= 1.0 if ( scale is None or isinstance (scale, str)
+                           )  else scale 
+            **kws
+        )
+    elif n_labels >=2: 
+        XY= make_multilabel_classification( 
+            n_samples=n_samples,
+            n_features=n_features,
+            n_classes=n_classes,
+            n_labels=n_labels,
+            length=length,
+            allow_unlabeled=allow_unlabeled,
+            sparse=sparse,
+            return_indicator=return_indicator,
+            return_distributions=return_distributions,
+            random_state=seed,
+            ) 
+        if return_distributions: 
+            X, y ,  p_c, p_w_c = XY 
+        else: 
+            X, y = XY 
+            
+        if return_indicator=="sparse": 
+            return X, y 
 
     # Apply scaling if specified
-    if scale is not None:
+    if isinstance (scale , str):
         X, y = _apply_scaling(X, y, method=str(scale).lower() )
 
+    # Add noise and bias
+    X += noise * rng.normal(size=X.shape) + bias 
+    
     data = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
     
     if n_labels==1: 
-        data['target']=reshape (y[:, 0])
+        data['target']=y
     else: 
         for i in range(n_labels):
             data[f'target_{i}'] = y [:, i]       
-    tnames = 'target' if n_labels ==1 else [f'target_{i}'for i in range(n_labels)]
-    return _manage_data(
+    target_names = 'target' if n_labels ==1 else [f'target_{i}'for i in range(n_labels)]
+    # return X, y 
+    data = _rename_data_columns(data , feature_columns) 
+    _target= _rename_data_columns(data[target_names], target_columns ) 
+    target_names = _target.name if n_labels==1 else list(_target.columns )
+    
+    data = _manage_data(
         data,
         as_frame=as_frame, 
-        tnames=tnames, 
+        target_names=target_names, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
         test_size=test_size, 
         noise=nan_percentage, 
         seed=seed
         ) 
+    return ( data,  p_c, p_w_c)  if return_distributions and n_labels >1 else data 
+
 
 def make_regression( 
     n_samples=70,
@@ -164,11 +366,13 @@ def make_regression(
     scale=None, 
     regression_type='linear', 
     as_frame=False, 
-    return_X_y=False, 
+    return_X_y=True, 
     split_X_y=False, 
     test_size=0.3, 
     target_indices=None, 
     nan_percentage=None, 
+    feature_columns=None, 
+    target_columns=None,
     seed=None, 
     **kws 
     ):
@@ -211,6 +415,12 @@ def make_regression(
     nan_percentage : float, Optional
         The percentage of values to be replaced with NaN in each column. 
         This must be a number between 0 and 1. Default is None.
+    feature_columns, target_columns : list of str, optional
+        Custom names for the feature and target columns when `as_frame=True`. 
+        If omitted, feature columns are named as `feature_<index>` and 
+        target columns as `target_<index>` for multilabel regression tasks. 
+        For a single target in a Series, it is named `target`. This allows for 
+        intuitive identification and access within the generated DataFrame.
     seed : int, np.random.RandomState instance, or None, default=None
         Determines random number generation for dataset creation. Pass an 
         int for reproducible output.
@@ -271,15 +481,20 @@ def make_regression(
        scale = str(scale).lower() 
        X, y = _apply_scaling(X, y, method=scale)   
         
-    tnames = 'target' if len(target_indices) ==1 else [
+    target_names = 'target' if len(target_indices) ==1 else [
         f'target_{i}'for i in range(len(target_indices) )]   
     data = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
-    data[tnames]=y
+    data[target_names]=y
+    
+    # return X, y 
+    data = _rename_data_columns(data , feature_columns) 
+    _target= _rename_data_columns(data[target_names], target_columns ) 
+    target_names = _target.name if len(target_indices)==1 else list(_target.columns )
     
     return _manage_data(
         data,
         as_frame=as_frame, 
-        tnames=tnames, 
+        target_names=target_names, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
         test_size=test_size,
@@ -287,12 +502,18 @@ def make_regression(
         seed=seed
         ) 
 
+@ensure_pkg(
+    "faker", 
+    auto_install=True,
+    use_conda=True, 
+    verbose=1  
+    )
 def make_social_media_comments(
     *, samples=1000, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -317,7 +538,7 @@ def make_social_media_comments(
         If `return_X_y` is True, then both `data` and `target` are returned 
         as pandas DataFrames or Series.
     
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns `(data, target)` instead of a Bowlspace object. 
         See the "Returns" section below for more information about the 
         `data` and `target` objects.
@@ -326,7 +547,7 @@ def make_social_media_comments(
         If True, the dataset is split into training (X, y) and testing (Xt, yt)
         sets according to the specified test size ratio.
     
-    tnames : str, optional
+    target_names : str, optional
         The name of the target column to retrieve. If `None`, the default 
         target columns are used, which may result in a multioutput `y`. For 
         single-output tasks in classification or regression, it's recommended 
@@ -395,14 +616,8 @@ def make_social_media_comments(
     >>> df = make_social_media_comments(n=100, seed=42)
     >>> print(df.head())
     """
-    if seed is not None:
-        np.random.seed(seed)
-    try: 
-        import_optional_dependency('faker')
-    except: 
-        run_shell_command(["pip", "install", "faker"])
-    # recheck whether faker is well installed
-    import_optional_dependency('Faker')
+    np.random.seed(seed)
+ 
     from faker import Faker
     fake = Faker()
     Faker.seed(seed)
@@ -413,14 +628,16 @@ def make_social_media_comments(
         'timestamp': [fake.date_time_this_year() for _ in range(samples)],
         'likes': np.random.randint(0, 1000, samples)
     }
-    tnames = list( is_iterable(
-        tnames or 'comment', exclude_string= True, transform =True ) ) 
+    data = pd.DataFrame (data)
+    target_names = list( is_iterable(
+        target_names or 'comment', exclude_string= True, transform =True ) ) 
+    
     return _manage_data(
         data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size,
         noise= noise, 
         seed=seed
@@ -431,9 +648,9 @@ def make_african_demo(*,
     end_year=2020, 
     countries= None, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -468,7 +685,7 @@ def make_african_demo(*,
         If `return_X_y` is True, then both `data` and `target` are returned 
         as pandas DataFrames or Series.
     
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns `(data, target)` instead of a Bowlspace object. 
         See the "Returns" section below for more information about the 
         `data` and `target` objects.
@@ -477,7 +694,7 @@ def make_african_demo(*,
         If True, the dataset is split into training (X, y) and testing (Xt, yt)
         sets according to the specified test size ratio.
     
-    tnames : str, optional
+    target_names : str, optional
         The name of the target column to retrieve. If `None`, the default 
         target columns are used, which may result in a multioutput `y`. For 
         single-output tasks in classification or regression, it's recommended 
@@ -559,26 +776,27 @@ def make_african_demo(*,
 
             data.append([country, year, population, birth_rate, death_rate,
                          urbanization_rate, gdp_per_capita])
+    columns = [
+        'country',
+        'year',
+        'population',
+        'birth_rate',
+        'death_rate',
+        'urbanization_rate',
+        'gdp_per_capita'
+    ]
 
-    columns = ['Country',
-               'Year', 
-               'Population', 
-               'BirthRate', 
-               'DeathRate', 
-               'UrbanizationRate', 
-               'GDP_PerCapita'
-               ]
     demo_data = pd.DataFrame(data, columns=columns)
   
-    tnames = list( is_iterable(
-        tnames or 'GDP_PerCapita', exclude_string= True, transform =True ) ) 
+    target_names = list( is_iterable(
+        target_names or 'gdp_per_capita', exclude_string= True, transform =True ) ) 
     
     demo_data = _manage_data(
         demo_data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size,
         noise= noise, 
         seed=seed
@@ -586,14 +804,15 @@ def make_african_demo(*,
 
     return demo_data
 
+
 def make_agronomy_feedback(*, 
     samples=100, 
     num_years=5, 
     n_specimens:int =7, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -630,7 +849,7 @@ def make_agronomy_feedback(*,
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -638,7 +857,7 @@ def make_agronomy_feedback(*,
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -736,40 +955,44 @@ def make_agronomy_feedback(*,
                              crop_yield]
                             )
 
-    columns = ['FarmID', 
-               'Year', 
-               'Crop', 
-               'SoilPH', 
-               'Temperature_C', 
-               'Rainfall_mm', 
-               'PesticideType', 
-               'PesticideAmount_kg_per_hectare', 
-               'CropYield_kg_per_hectare'
-               ]
-    
+    columns = [
+        'farm_id',
+        'year',
+        'crop',
+        'soil_ph',
+        'temperature_c',
+        'rainfall_mm',
+        'pesticide_type',
+        'pesticide_amount_kg_per_hectare',
+        'crop_yield_kg_per_hectare'
+    ]
+
     agronomy_dataset = pd.DataFrame(data, columns=columns)
-    tnames = list( is_iterable(
-        tnames or 'CropYield_kg_per_hectare',exclude_string= True,
+    target_names = list( is_iterable(
+        target_names or 'crop_yield_kg_per_hectare',exclude_string= True,
         transform =True ) ) 
-    agronomy_dataset = _manage_data(
+    
+    agronomy_dataset = random_sampling(
+        agronomy_dataset, samples, random_state=seed )
+    agronomy_dataset.reset_index (drop=True, inplace =True)
+    return _manage_data(
         agronomy_dataset,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
         seed=seed
         ) 
-    return agronomy_dataset
 
 def make_mining_ops(
     *, 
     samples=1000, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -854,7 +1077,7 @@ def make_mining_ops(
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -862,7 +1085,7 @@ def make_mining_ops(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -933,13 +1156,13 @@ def make_mining_ops(
     depths = np.random.uniform(0, 500, samples)  # in meters
 
     # Mineralogical data
-    ore_types = np.random.choice(ORE_TYPE.keys(), samples)
+    ore_types = np.random.choice(list(ORE_TYPE.keys()), samples)
     ore_concentrations = np.random.uniform(0.1, 20, samples)  # percentage
 
     # Drilling and blasting data
     drill_diameters = np.random.uniform(50, 200, samples)  # in mm
     blast_hole_depths = np.random.uniform(3, 15, samples)  # in meters
-    explosive_types = np.random.choice(EXPLOSIVE_TYPE.keys(), samples)
+    explosive_types = np.random.choice(list(EXPLOSIVE_TYPE.keys()), samples)
     explosive_amounts = np.random.uniform(10, 500, samples)  # in kg
 
     # Equipment details
@@ -951,33 +1174,36 @@ def make_mining_ops(
 
     # Construct the DataFrame
     mining_data = pd.DataFrame({
-        'Easting_m': eastings,
-        'Northing_m': northings,
-        'Depth_m': depths,
-        'OreType': ore_types,
-        'OreConcentration_Percent': ore_concentrations,
-        'DrillDiameter_mm': drill_diameters,
-        'BlastHoleDepth_m': blast_hole_depths,
-        'ExplosiveType': explosive_types,
-        'ExplosiveAmount_kg': explosive_amounts,
-        'EquipmentType': equipment_types,
-        'EquipmentAge_years': equipment_ages,
-        'DailyProduction_tonnes': daily_productions
+        'easting_m': eastings,
+        'northing_m': northings,
+        'depth_m': depths,
+        'ore_type': ore_types,
+        'ore_concentration_percent': ore_concentrations,
+        'drill_diameter_mm': drill_diameters,
+        'blast_hole_depth_m': blast_hole_depths,
+        'explosive_type': explosive_types,
+        'explosive_amount_kg': explosive_amounts,
+        'equipment_type': equipment_types,
+        'equipment_age_years': equipment_ages,
+        'daily_production_tonnes': daily_productions
     })
-    tnames = list (is_iterable ( 
-        tnames or 'DailyProduction_tonnes',exclude_string= True, transform =True )
+
+    target_names = list (is_iterable ( 
+        target_names or 'daily_production_tonnes',
+        exclude_string= True, transform =True )
         )
     # map to make it a little bit real.
-    for typ, rtype  in zip ( ("OreType", "ExplosiveType"), 
+    for typ, rtype  in zip ( ("ore_type", "explosive_type"), 
                        (ORE_TYPE, EXPLOSIVE_TYPE )) : 
         mining_data[typ] = mining_data[typ].map (rtype) 
         
+    # resample to fit the number of samples 
     mining_data = _manage_data(
         mining_data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size,
         noise= noise, 
         seed=seed, 
@@ -988,9 +1214,9 @@ def make_sounding(
     *, samples=100, 
     num_layers=5, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -1030,7 +1256,7 @@ def make_sounding(
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -1038,7 +1264,7 @@ def make_sounding(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -1125,21 +1351,23 @@ def make_sounding(
 
     # Constructing the DataFrame
     sounding_data = pd.DataFrame({
-        'SurveyPointID': survey_point_ids,
-        'LayerDepth_m': layer_depths,
-        'Resistivity_OhmMeter': resistivities,
-        'SeismicVelocity_m_s': velocities
+        'survey_point_id': survey_point_ids,
+        'layer_depth_m': layer_depths,
+        'resistivity_ohm_meter': resistivities,
+        'seismic_velocity_m_s': velocities
     })
-
-    tnames = list (is_iterable ( 
-        tnames or 'Resistivity_OhmMeter',exclude_string= True, transform =True )
+    # resample the data and reset index 
+    sounding_data = random_sampling(sounding_data, samples, random_state=seed )
+    sounding_data.reset_index (drop =True, inplace =True )
+    target_names = list (is_iterable ( 
+        target_names or 'resistivity_ohm_meter',exclude_string= True, transform =True )
         )
     return _manage_data(
         sounding_data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
         seed=seed
@@ -1148,9 +1376,9 @@ def make_sounding(
 def make_medical_diagnosis(
     *,samples=1000, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -1182,7 +1410,7 @@ def make_medical_diagnosis(
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -1190,7 +1418,7 @@ def make_medical_diagnosis(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -1248,8 +1476,9 @@ def make_medical_diagnosis(
     -------
     >>> from gofast.datasets import make_medical_diagnosis
     >>> samples = 1000
-    >>> medical_data = make_medical_diagnosis(samples)
-    >>> print(medical_data.head())
+    >>> medical_data = make_medical_diagnosis( samples, return_X_y=False, )
+    >>> # Display the feature units. 
+    >>> medical_data.feature_units 
 
     """
     # Random seed for reproducibility
@@ -1273,41 +1502,103 @@ def make_medical_diagnosis(
     blood_sugars = np.random.uniform(70, 150, samples)  # mg/dL
     cholesterol_levels = np.random.uniform(100, 250, samples)  # mg/dL
     hemoglobins = np.random.uniform(12, 18, samples)  # g/dL
-    # ... (more lab tests)
 
     # Medical history flags (binary: 0 or 1)
     history_of_diabetes = np.random.randint(0, 2, samples)
     history_of_hypertension = np.random.randint(0, 2, samples)
     history_of_heart_disease = np.random.randint(0, 2, samples)
-    # ... (more medical history flags)
-
-    # Additional clinical metrics
-    # ...
-    # (add more features to reach at least 55 in total)
-
-    # Combining all features into a DataFrame
+    # Additional Vital Signs
+    respiratory_rate = np.random.randint(12, 20, samples)  # Normal range
+    oxygen_saturation = np.random.uniform(95, 100, samples)  # Normal range
+    pain_score = np.random.randint(0, 11, samples)  # Scale from 0 to 10
+    
+    # Extended Laboratory Tests (Simplified example values)
+    alt_levels = np.random.uniform(7, 56, samples)  # ALT levels in U/L
+    creatinine_levels = np.random.uniform(0.5, 1.2, samples)  # Creatinine in mg/dL
+    wbc_count = np.random.uniform(4.0, 11.0, samples)  # WBC count in x10^3/uL
+    
+    # Nutritional Status
+    bmi = np.random.uniform(18.5, 30, samples)  # BMI range
+    daily_caloric_intake = np.random.randint(1500, 3000, samples)  # Example caloric intake
+    dietary_restrictions = np.random.randint(0, 2, samples)  # Binary flag for dietary restrictions
+    
+    # Lifestyle Factors
+    physical_activity_level = np.random.choice(
+        ['sedentary', 'light', 'moderate', 'high'], samples)
+    smoking_status = np.random.randint(0, 2, samples)  # Binary
+    alcohol_consumption = np.random.randint(0, 2, samples)  # Binary
+    
+    # Psychological/Well-being Metrics
+    stress_level = np.random.randint(0, 11, samples)  # Scale from 0 to 10
+    sleep_hours_per_night = np.random.uniform(4, 10, samples)  # Normal sleep duration range
+    mental_health_status = np.random.randint(0, 2, samples)  # Binary flag for common mental health conditions
+    
+    # Medical History Details
+    history_of_chronic_diseases = np.random.randint(0, 2, samples)  # Binary flag for chronic diseases
+    number_of_surgeries = np.random.randint(0, 5, samples)  # Number of surgeries
+    family_history_of_major_diseases = np.random.randint(0, 2, samples)  # Binary flag for family history
+    
+    # Current Medications and Allergies
+    number_of_current_medications = np.random.randint(0, 10, samples)  # Number of medications
+    allergy_flags = np.random.randint(0, 2, samples)  # Binary flag for common allergies
+    
+    # Social Determinants of Health
+    employment_status = np.random.randint(0, 2, samples)  # Binary
+    living_situation = np.random.choice(['alone', 'with_family', 'in_care_facility'], samples)
+    access_to_healthcare = np.random.randint(0, 2, samples)  # Binary
+    
+    # Immunization Status
+    flu_vaccine = np.random.randint(0, 2, samples)  # Binary
+    covid_19_vaccine = np.random.randint(0, 2, samples)  # Binary
+    other_vaccines = np.random.randint(0, 2, samples)  # Binary flag for other vaccines
+    
+    # Combining all features into a DataFrame 
     medical_dataset = pd.DataFrame({
-        'Age': ages,
-        'Gender': genders,
-        'Ethnicity': ethnicities,
-        'Weight_kg': weights,
-        'Height_cm': heights,
-        'SystolicBP': blood_pressures[:, 0],
-        'DiastolicBP': blood_pressures[:, 1],
-        'HeartRate': heart_rates,
-        'Temperature_C': temperatures,
-        'BloodSugar_mg_dL': blood_sugars,
-        'Cholesterol_mg_dL': cholesterol_levels,
-        'Hemoglobin_g_dL': hemoglobins,
-        # ...
-        'HistoryOfDiabetes': history_of_diabetes,
-        'HistoryOfHypertension': history_of_hypertension,
-        'HistoryOfHeartDisease': history_of_heart_disease,
-        # ...
-        # Add additional columns for other features
+        'age': ages,
+        'gender': genders,
+        'ethnicity': ethnicities,
+        'weight': weights,
+        'height': heights,
+        'systolic': blood_pressures[:, 0],
+        'diastolic': blood_pressures[:, 1],
+        'heart_rate': heart_rates,
+        'temperature': temperatures,
+        'blood_sugar': blood_sugars,
+        'cholesterol': cholesterol_levels,
+        'hemoglobin': hemoglobins,
+        'history_of_diabetes': history_of_diabetes,
+        'history_of_hypertension': history_of_hypertension,
+        'history_of_heart_disease': history_of_heart_disease,
+        'respiratory_rate': respiratory_rate,
+        'oxygen_saturation': oxygen_saturation,
+        'pain_score': pain_score,
+        'alt_levels': alt_levels,
+        'creatinine_levels': creatinine_levels,
+        'wbc_count': wbc_count,
+        'bmi': bmi,
+        'daily_caloric_intake': daily_caloric_intake,
+        'dietary_restrictions': dietary_restrictions,
+        'physical_activity_level': physical_activity_level,
+        'smoking_status': smoking_status,
+        'alcohol_consumption': alcohol_consumption,
+        'stress_level': stress_level,
+        'sleep_hours_per_night': sleep_hours_per_night,
+        'mental_health_status': mental_health_status,
+        'history_of_chronic_diseases': history_of_chronic_diseases,
+        'number_of_surgeries': number_of_surgeries,
+        'family_history_of_major_diseases': family_history_of_major_diseases,
+        'number_of_current_medications': number_of_current_medications,
+        'allergy_flags': allergy_flags,
+        'employment_status': employment_status,
+        'living_situation': living_situation,
+        'access_to_healthcare': access_to_healthcare,
+        'flu_vaccine': flu_vaccine,
+        'covid_19_vaccine': covid_19_vaccine,
+        'other_vaccines': other_vaccines
     })
-    tnames = list (is_iterable (tnames or [
-        'HistoryOfDiabetes','HistoryOfHypertension','HistoryOfHeartDisease'],
+
+    target_names = list (is_iterable (target_names or [
+        'history_of_diabetes','history_of_hypertension','history_of_heart_disease'],
         exclude_string= True, transform =True )
         )
     return _manage_data(
@@ -1315,10 +1606,11 @@ def make_medical_diagnosis(
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size,
         noise= noise, 
-        seed=seed
+        seed=seed, 
+        feature_units=DIAGNOSIS_UNITS
         ) 
 
 
@@ -1327,9 +1619,9 @@ def make_well_logging(*,
     depth_end=200., 
     depth_interval=.5, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -1364,7 +1656,7 @@ def make_well_logging(*,
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -1372,7 +1664,7 @@ def make_well_logging(*,
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -1449,14 +1741,14 @@ def make_well_logging(*,
 
     # Construct the DataFrame
     well_logging_dataset = pd.DataFrame({
-        'Depth_m': depths,
-        'GammaRay_API': gamma_ray,
-        'Resistivity_OhmMeter': resistivity,
-        'NeutronPorosity_Percent': neutron_porosity,
-        'Density_g_cm3': density
+        'depth_m': depths,
+        'gamma_ray_api': gamma_ray,
+        'resistivity_ohm_meter': resistivity,
+        'neutron_porosity_percent': neutron_porosity,
+        'density_g_cm3': density
     })
-    tnames = list (is_iterable ( 
-        tnames or 'NeutronPorosity_Percent', exclude_string= True,
+    target_names = list (is_iterable ( 
+        target_names or 'neutron_porosity_percent', exclude_string= True,
         transform =True )
         )
 
@@ -1465,7 +1757,7 @@ def make_well_logging(*,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
         seed=seed
@@ -1477,9 +1769,9 @@ def make_ert(
     samples=100, 
     equipment_type='SuperSting R8', 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -1515,7 +1807,7 @@ def make_ert(
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -1523,7 +1815,7 @@ def make_ert(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -1608,21 +1900,22 @@ def make_ert(
 
     # Construct the DataFrame
     ert_dataset = pd.DataFrame({
-        'ElectrodePosition_m': electrode_positions,
-        'CableLength_m': cable_lengths,
-        'Resistivity_OhmMeter': resistivity_measurements,
-        'BatteryVoltage_V': battery_voltage,
-        'EquipmentType': equipment_type
+        'electrode_position_m': electrode_positions,
+        'cable_length_m': cable_lengths,
+        'resistivity_ohm_meter': resistivity_measurements,
+        'battery_voltage_v': battery_voltage,
+        'equipment_type': equipment_type
     })
-    tnames = list (is_iterable ( 
-        tnames or 'Resistivity_OhmMeter', exclude_string= True, transform =True )
+
+    target_names = list (is_iterable ( 
+        target_names or 'resistivity_ohm_meter', exclude_string= True, transform =True )
         )
     return _manage_data(
         ert_dataset,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
         seed=seed
@@ -1637,9 +1930,9 @@ def make_tem(
     time_range=(0.01, 10.0), 
     measurement_range=(100, 10000), 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -1673,7 +1966,7 @@ def make_tem(
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -1681,7 +1974,7 @@ def make_tem(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -1767,21 +2060,21 @@ def make_tem(
 
     # Construct the DataFrame
     tem_survey_data = pd.DataFrame({
-        'Latitude': latitudes,
-        'Longitude': longitudes,
-        'Time_ms': times,
-        'TEM_Measurement': measurements,
-        'EquipmentType': equipment
+        'latitude': latitudes,
+        'longitude': longitudes,
+        'time_ms': times,
+        'tem_measurement': measurements,
+        'equipment_type': equipment
     })
-    tnames = list (is_iterable ( 
-        tnames or 'TEM_Measurement', exclude_string= True, transform =True )
+    target_names = list (is_iterable ( 
+        target_names or 'tem_measurement', exclude_string= True, transform =True )
         )
     return _manage_data(
         tem_survey_data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size,
         noise= noise, 
         seed=seed
@@ -1793,9 +2086,9 @@ def make_erp(*,
     lon_range =(-118.50, -117.00), 
     resistivity_range=(10, 1000),
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -1836,7 +2129,7 @@ def make_erp(*,
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -1844,7 +2137,7 @@ def make_erp(*,
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -1931,23 +2224,23 @@ def make_erp(*,
 
     # Construct the DataFrame
     data = pd.DataFrame({
-        'Easting': eastings,
-        'Northing': northings,
-        'Longitude': longitudes,
-        'Latitude': latitudes,
-        'Position': positions,
-        'Step': steps,
-        'Resistivity': resistivities
+        'easting': eastings,
+        'northing': northings,
+        'longitude': longitudes,
+        'latitude': latitudes,
+        'position': positions,
+        'step': steps,
+        'resistivity': resistivities
     })
-    tnames = list (is_iterable ( 
-        tnames or 'Resistivity', exclude_string= True, transform =True )
+    target_names = list (is_iterable ( 
+        target_names or 'resistivity', exclude_string= True, transform =True )
         )
     return _manage_data(
         data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
         seed=seed
@@ -1961,9 +2254,9 @@ def make_elogging(
     samples=100, 
     log_levels=None, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -1994,7 +2287,7 @@ def make_elogging(
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -2002,7 +2295,7 @@ def make_elogging(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -2087,20 +2380,20 @@ def make_elogging(
     messages = [f'This is a {level} message.' for level in levels]
 
     # Create DataFrame
-    log_data = pd.DataFrame({'Timestamp': timestamps,
-                             'LogLevel': levels, 
-                             'Message': messages})
-    log_data.sort_values(by='Timestamp', inplace=True)
+    log_data = pd.DataFrame({'timestamp': timestamps,
+                             'log_level': levels, 
+                             'message': messages})
+    log_data.sort_values(by='timestamp', inplace=True)
     
-    tnames = list (is_iterable ( 
-        tnames or 'LogLevel', exclude_string= True, transform =True )
+    target_names = list (is_iterable ( 
+        target_names or 'log_level', exclude_string= True, transform =True )
         )
     return _manage_data(
         log_data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
         seed=seed
@@ -2112,9 +2405,9 @@ def make_gadget_sales(*,
     end_date='2022-01-10', 
     samples=500, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -2149,7 +2442,7 @@ def make_gadget_sales(*,
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -2157,7 +2450,7 @@ def make_gadget_sales(*,
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -2240,20 +2533,23 @@ def make_gadget_sales(*,
     units_sold = [random.randint(1, 20) for _ in range(samples)]
 
     # Create DataFrame
-    sales_data = pd.DataFrame({'SaleDate': sale_dates, 
-                               'Gadget': gadgets, 'Gender': gender, 
-                               'UnitsSold': units_sold})
-    sales_data.sort_values(by='SaleDate', inplace=True)
+    sales_data = pd.DataFrame({
+                'sale_date': sale_dates,
+                'gadget': gadgets,
+                'gender': gender,
+                'units_sold': units_sold
+            })
+    sales_data.sort_values(by='sale_date', inplace=True)
     
-    tnames = list (is_iterable ( 
-        tnames or 'UnitsSold', exclude_string= True, transform =True )
+    target_names = list (is_iterable ( 
+        target_names or 'units_sold', exclude_string= True, transform =True )
         )
     return _manage_data(
         sales_data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
         seed=seed
@@ -2263,9 +2559,9 @@ def make_gadget_sales(*,
 def make_retail_store(
     *, samples=1000, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     noise: float=None, 
     seed:int | np.random.RandomState = None, 
@@ -2308,7 +2604,7 @@ def make_retail_store(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -2396,23 +2692,24 @@ def make_retail_store(
 
     # Construct the DataFrame
     data = pd.DataFrame({
-        'Age': ages,
-        'Income': incomes,
-        'ShoppingFrequency': shopping_frequency,
-        'LastPurchaseAmount': last_purchase_amount,
-        'PreferredCategory': preferred_category,
-        'LikelyToRespond': target
-    })
+        'age': ages,
+        'income': incomes,
+        'shopping_frequency': shopping_frequency,
+        'last_purchase_amount': last_purchase_amount,
+        'preferred_category': preferred_category,
+        'likely_to_respond': target
+     })
 
-    tnames = list (is_iterable ( 
-        tnames or 'Income', exclude_string= True, transform =True )
+
+    target_names = list (is_iterable ( 
+        target_names or 'income', exclude_string= True, transform =True )
         )
     return _manage_data(
         data,
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         test_size=test_size,
         noise= noise, 
         seed=seed
@@ -2422,9 +2719,9 @@ def make_cc_factors(
     *, samples=1000,  
     noise=.1, 
     as_frame:bool =..., 
-    return_X_y:bool = ..., 
+    return_X_y:bool = True, 
     split_X_y:bool= ..., 
-    tnames:list=None,  
+    target_names:list=None,  
     test_size:float =.3, 
     seed:int | np.random.RandomState = None, 
     **kws
@@ -2448,7 +2745,7 @@ def make_cc_factors(
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -2456,7 +2753,7 @@ def make_cc_factors(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -2523,30 +2820,31 @@ def make_cc_factors(
     """
 
     # Features influencing climate change
-    features= {
-        "GHG": "Greenhouse Gas Emissions (CO2, Methane, Nitrous Oxide)",
-        "Def&Land": "Deforestation and Land Use Changes",
-        "FossilFuels": "Burning of Fossil Fuels (Coal, Oil, Natural Gas)",
-        "IndustProc": "Industrial Processes and Manufacturing",
-        "Agri&Livestock": "Agriculture and Livestock Farming (Methane from Cattle)",
-        "Transport": "Transportation (Road, Air, Maritime)",
-        "EnergyProd": "Energy Production and Consumption",
-        "Urban&Infra": "Urbanization and Infrastructure Development",
-        "WasteMgmt": "Waste Management and Landfills",
-        "MeltPolar": "Melting of Polar Ice Caps and Glaciers",
-        "ChgLandAlbedo": "Changes in Land Surface Albedo",
-        "SolarIrr": "Solar Irradiance and Variability",
-        "Aerosols": "Aerosols and Particulate Matter in the Atmosphere",
-        "OzoneDepl": "Ozone Depletion in the Stratosphere",
-        "ChgOceanCirc": "Changes in Ocean Circulation and Currents",
-        "OceanAcid": "Ocean Acidification due to CO2 Absorption",
-        "Permafrost": "Permafrost Thawing and Release of Methane",
-        "ChgAtmWater": "Changes in Atmospheric Water Vapor",
-        "LandDeg&SoilErosion": "Land Degradation and Soil Erosion",
-        "HumanAct&Biodiv": "Human Activities Impacting Biodiversity",
-        "NatDisasters": "Natural Disasters (Floods, Hurricanes, Wildfires)",
-        "Feedbacks": "Feedback Mechanisms (Positive/Negative Climate Feedbacks)"
-    }
+    features = {
+        "ghg": "Greenhouse Gas Emissions (CO2, Methane, Nitrous Oxide)",
+        "def_land": "Deforestation and Land Use Changes",
+        "fossil_fuels": "Burning of Fossil Fuels (Coal, Oil, Natural Gas)",
+        "indust_proc": "Industrial Processes and Manufacturing",
+        "agri_livestock": "Agriculture and Livestock Farming (Methane from Cattle)",
+        "transport": "Transportation (Road, Air, Maritime)",
+        "energy_prod": "Energy Production and Consumption",
+        "urban_infra": "Urbanization and Infrastructure Development",
+        "waste_mgmt": "Waste Management and Landfills",
+        "melt_polar": "Melting of Polar Ice Caps and Glaciers",
+        "chg_land_albedo": "Changes in Land Surface Albedo",
+        "solar_irr": "Solar Irradiance and Variability",
+        "aerosols": "Aerosols and Particulate Matter in the Atmosphere",
+        "ozone_depl": "Ozone Depletion in the Stratosphere",
+        "chg_ocean_circ": "Changes in Ocean Circulation and Currents",
+        "ocean_acid": "Ocean Acidification due to CO2 Absorption",
+        "permafrost": "Permafrost Thawing and Release of Methane",
+        "chg_atm_water": "Changes in Atmospheric Water Vapor",
+        "land_deg_soil_erosion": "Land Degradation and Soil Erosion",
+        "human_act_biodiv": "Human Activities Impacting Biodiversity",
+        "nat_disasters": "Natural Disasters (Floods, Hurricanes, Wildfires)",
+        "feedbacks": "Feedback Mechanisms (Positive/Negative Climate Feedbacks)"
+     }
+
     # Random seed for reproducibility
     np.random.seed(seed)
     
@@ -2570,8 +2868,8 @@ def make_cc_factors(
     # Generating a Pandas DataFrame
     cc_data = pd.DataFrame(data, columns=list( features.keys()))
     
-    tnames = list (is_iterable ( 
-        tnames or 'Feedbacks', 
+    target_names = list (is_iterable ( 
+        target_names or 'feedbacks', 
         exclude_string= True, transform =True )
         )
     cc_data = add_noises_to(cc_data, noise = noise )
@@ -2581,8 +2879,8 @@ def make_cc_factors(
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
-        features_descr=features, 
+        target_names=target_names, 
+        descr=features, 
         test_size=test_size, 
         seed=seed
         ) 
@@ -2591,10 +2889,10 @@ def make_cc_factors(
 def make_water_demand(
     *, samples=700, 
     as_frame =..., 
-    return_X_y = ..., 
-    noise:float=None, 
+    return_X_y = True, 
+    noise=None, 
     split_X_y= ..., 
-    tnames=None,  
+    target_names=None,  
     test_size =.3, 
     seed = None, 
     ):
@@ -2616,7 +2914,7 @@ def make_water_demand(
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=False
+    return_X_y : bool, default=True
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -2624,7 +2922,7 @@ def make_water_demand(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -2681,7 +2979,7 @@ def make_water_demand(
      Examples
      --------
      >>> from gofast.datasets import make_water_demand 
-     >>> b = make_water_demand ()
+     >>> b = make_water_demand (return_X_y=False)
      >>> b.frame
      Out[80]: 
           Agri Demand  ...         SDG6_Challenge
@@ -2736,9 +3034,10 @@ def make_water_demand(
 
     # Create a DataFrame from the data dictionary
     water_data  = pd.DataFrame(data_dict)
+    water_data.columns = [ c.lower() for c in water_data.columns ]
 
-    tnames = list (is_iterable ( 
-        tnames or 'Drinking', 
+    target_names = list (is_iterable ( 
+        target_names or 'drinking', 
         exclude_string= True, transform =True )
         )
     return _manage_data(
@@ -2746,7 +3045,7 @@ def make_water_demand(
         as_frame=as_frame, 
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
-        tnames=tnames, 
+        target_names=target_names, 
         descr= { **WATER_QUAN_NEEDS, **WATER_QUAL_NEEDS,**SDG6_CHALLENGES}, 
         test_size=test_size, 
         noise = noise, 
@@ -2789,12 +3088,59 @@ def _apply_scaling(X, y, method):
                           f"{smart_format(scale_dict.keys(),'or')}")
     return scale_dict[method] ( X, y=y )
 
+def _rename_data_columns(data, new_columns=None):
+    """
+    Renames the columns of a pandas DataFrame or the name of a pandas Series.
+
+    This function adjusts the column names of a DataFrame or the name of a Series
+    to match the provided list of new column names. If the new column names list is
+    shorter than the number of existing columns, the remaining columns are 
+    left unchanged.
+
+    Parameters
+    ----------
+    data : pd.DataFrame or pd.Series
+        The DataFrame or Series whose columns or name are to be renamed.
+    new_columns : list or iterable, optional
+        The new column names or Series name. If None, no changes are made.
+
+    Returns
+    -------
+    pd.DataFrame or pd.Series
+        The DataFrame or Series with updated column names or name.
+
+    Example
+    -------
+    >>> import pandas as pd
+    >>> df = pd.DataFrame([[1, 2], [3, 4]], columns=['A', 'B'])
+    >>> rename_data_columns(df, ['X', 'Y'])
+       X  Y
+    0  1  2
+    1  3  4
+
+    >>> series = pd.Series([1, 2, 3], name='A')
+    >>> rename_data_columns(series, ['X'])
+    Name: X, dtype: int64
+    """
+    if new_columns is not None and hasattr(data, 'columns'):
+        # Ensure new_columns is a list and has the right length
+        new_columns = list(new_columns)
+        extra_columns = len(data.columns) - len(new_columns)
+        if extra_columns > 0:
+            # Extend new_columns with the remaining original columns if not 
+            # enough new names are provided
+            new_columns.extend(data.columns[-extra_columns:])
+        data.columns = new_columns[:len(data.columns)]
+    elif new_columns is not None and isinstance(data, pd.Series):
+        data.name = new_columns[0]
+    return data
+
 def _manage_data(
     data, /, 
     as_frame =..., 
     return_X_y = ..., 
     split_X_y= ..., 
-    tnames=None,  
+    target_names=None,  
     test_size =.3, 
     noise=None, 
     seed = None, 
@@ -2822,7 +3168,7 @@ def _manage_data(
         If True, the data is splitted to hold the training set (X, y)  and the 
         testing set (Xt, yt) with the according to the test size ratio. 
         
-    tnames: str, optional 
+    target_names: str, optional 
         the name of the target to retreive. If ``None`` the default target columns 
         are collected and may be a multioutput `y`. For a singular classification 
         or regression problem, it is recommended to indicate the name of the target 
@@ -2885,13 +3231,13 @@ def _manage_data(
         as_frame, return_X_y, split_X_y )
     
     frame = data.copy() 
-    if return_X_y : 
-        y = data [tnames] 
-        data.drop( columns = tnames, inplace =True )
-        
-    feature_names = (is_in_if(list( frame.columns), tnames, return_diff =True )
-                     if tnames else list(frame.columns ))
     
+    feature_names = (is_in_if(list( frame.columns), target_names, return_diff =True )
+                     if target_names else list(frame.columns ))
+    if return_X_y : 
+        y = data [target_names] 
+        data.drop( columns = target_names, inplace =True )
+ 
     # Noises only in the data not in target  
     data = add_noises_to(data, noise = noise , seed=seed )
     if not as_frame: 
@@ -2913,11 +3259,11 @@ def _manage_data(
     
     return Boxspace(
         data=data,
-        target=frame[tnames].values ,
+        target=frame[target_names].values ,
         frame=frame,
-        tnames=tnames,
-        target_names = tnames,
+        target_names=target_names,
         feature_names=feature_names,
+        **kws
         )
  
 def _get_item_from ( spec , /,  default_items, default_number = 7 ): 

@@ -3,13 +3,17 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 import os 
-# import sqlite3  # Example using SQLite
-import pandas as pd
-import sqlalchemy
 import re
+# import sqlite3  
+import pandas as pd
+
 from ._typing import Optional, DataFrame
 from .exceptions import NotFittedError 
-from .tools.funcutils import normalize_string
+from .tools._dependency import import_optional_dependency
+from .tools.coreutils import normalize_string
+
+try: import sqlalchemy
+except: pass 
 
 class DBAnalysis:
     """
@@ -146,6 +150,7 @@ class DBAnalysis:
         - If a database path is provided, the method checks if the specified 
           database exists. If not, it creates a new one.
         """
+        import_optional_dependency("sqlalchemy")
         self.db_path = self.db_path or ':memory:'
         if data is None:
             if self.db_path == ':memory:' or not os.path.exists(self.db_path):
@@ -825,7 +830,7 @@ class DBAnalysis:
         
         msg = ( "{expobj.__class__.__name__} instance is not fitted yet."
                " Call 'fit' with appropriate arguments before using"
-               " this method"
+               " this method."
                )
         if not hasattr ( self, 'cursor_'):  
             raise NotFittedError(msg.format(expobj=self))

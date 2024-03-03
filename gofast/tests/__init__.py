@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 
 import importlib.util
 # Function to check if skmultilearn is installed

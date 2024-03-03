@@ -1,7 +1,8 @@
 Code Style and Quality for GoFast
 =================================
 
-As a contributor to GoFast, it's important to maintain a high standard of code quality and adhere to the project's coding style guidelines.
+As a contributor to GoFast, it's important to maintain a high standard of code quality and 
+adhere to the project's coding style guidelines.
 
 Adhering to PEP8 Coding Standards
 ---------------------------------

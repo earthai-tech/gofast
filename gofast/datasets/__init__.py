@@ -16,8 +16,8 @@ Available Functions
 
 # Data loading functions
 from ._data_loader import (
-    load_bagoue, load_iris, load_hlogs, load_nlogs, load_mxs,
-    fetch_data, load_forensic, load_jrs_bet
+    load_bagoue, load_iris, load_hlogs, load_nansha, load_mxs, fetch_data, 
+    load_forensic, load_jrs_bet, load_dyspnea, load_statlog, load_hydro_metrics
 )
 
 # Data generation functions
@@ -30,11 +30,11 @@ from ._create import (
 )
 
 __all__ = [
-    "load_bagoue", "load_iris", "load_hlogs", "load_nlogs", "load_forensic",
-    "load_jrs_bet", "load_mxs", "fetch_data", "make_elogging", "make_erp",
-    "make_ert", "make_gadget_sales", "make_medical_diagnosis", "make_mining_ops",
-    "make_retail_store", "make_tem", "make_well_logging", "make_sounding",
-    "make_african_demo", "make_cc_factors", "make_agronomy_feedback",
+    "load_bagoue", "load_iris", "load_hlogs", "load_nansha", "load_forensic",
+    "load_jrs_bet", "load_dyspnea", "load_mxs", "fetch_data", "make_elogging", 
+    "make_erp","make_ert", "make_gadget_sales", "make_medical_diagnosis", 
+    "make_mining_ops","make_retail_store", "make_tem", "make_well_logging", 
+    "make_sounding","make_african_demo", "make_cc_factors", "make_agronomy_feedback",
     "make_social_media_comments", "make_water_demand", "make_regression",
-    "make_classification"
+    "make_classification", "load_statlog", "load_hydro_metrics"
 ]

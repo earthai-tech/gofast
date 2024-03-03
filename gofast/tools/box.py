@@ -275,7 +275,7 @@ def data2Box(
     AttributeError: code
     """
     from .validator import _is_numeric_dtype 
-    from .funcutils import is_iterable 
+    from .coreutils import is_iterable 
     
     if columns is not None: 
         columns = is_iterable (

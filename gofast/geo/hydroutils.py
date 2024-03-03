@@ -46,7 +46,7 @@ from ..exceptions import (
     AquiferGroupError
     )
 from ..tools.box import _Group, Boxspace
-from ..tools.funcutils import  (
+from ..tools.coreutils import  (
     _assert_all_types, 
     _isin ,
     is_iterable,
@@ -2376,7 +2376,7 @@ def check_flow_objectivity ( y ,/,  values, classes  ) :
     classes = classes or values 
     return y, classes 
  
-@catmapflow2(cat_classes=['FR0', 'FR1', 'FR2', 'FR3'])#, 'FR4'] )
+
 def categorize_flow(
         target: Series | ArrayLike[_T] ,
         flow_values: List [float],
@@ -2684,7 +2684,7 @@ def rename_labels_in (arr, new_names, coerce = False):
 
     
 def _cattarget (ar , labels , order=None): 
-    """ A shadow function of :func:`gofast.tools.funcutils.cattarget`. 
+    """ A shadow function of :func:`gofast.tools.coreutils.cattarget`. 
     
     :param ar: array-like of numerical values 
     :param labels: int or list of int, 

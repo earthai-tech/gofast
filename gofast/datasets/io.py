@@ -15,7 +15,8 @@ from importlib import resources
 from collections import namedtuple
 from ..tools.box import Boxspace 
 from ..tools.baseutils import _is_readable 
-from ..tools.funcutils import random_state_validator , is_iterable
+from ..tools.coreutils import random_state_validator, is_iterable
+from ..tools.coreutils import exist_features
 
 DMODULE = "gofast.datasets.data" ; DESCR = "gofast.datasets.descr"
 
@@ -61,9 +62,126 @@ def remove_data(data=None): #clear
     """
     data = get_data(data)
     shutil.rmtree(data)
-    
 
-def _to_dataframe(data, tnames=None , feature_names =None, target =None ): 
+
+def _to_dataframe(data, target_names=None, feature_names=None, target=None):
+    """
+    Refines input data into a structured DataFrame, distinguishing between
+    features and targets based on specified column names or a separate target array.
+
+    Parameters
+    ----------
+    data : str, path-like object, DataFrame, or array-like
+        Source data, which can be a file path, a DataFrame, or an array-like object.
+    tnames : list of str, optional
+        Column names in `data` designated as targets. If specified, these columns
+        are separated into the target DataFrame `y`.
+    feature_names : list of str, optional
+        Column names to retain as features in the output DataFrame `X`. If not provided,
+        all columns except those specified in `tnames` are used.
+    target : ndarray, pd.Series, pd.DataFrame, or None, optional
+        Explicit target data. If provided, this will be used as the target DataFrame `y`,
+        potentially in addition to any targets specified in `tnames`.
+
+    Returns
+    -------
+    DataFrame
+        The combined DataFrame including both features and target(s),
+        if applicable.
+    DataFrame
+        The features DataFrame `X`.
+    DataFrame or None
+        The target DataFrame `y`, if targets are specified either through
+        `tnames` or `target`.
+
+    Examples
+    --------
+    >>> from gofast.dataset.io import _to_dataframe
+    >>> import pandas as pd
+    >>> data = pd.DataFrame({
+    ...     'feature1': [1, 2, 3],
+    ...     'feature2': [4, 5, 6],
+    ...     'target': [0, 1, 0]
+    ... })
+    >>> feature_names = ['feature1', 'feature2']
+    >>> tnames = ['target']
+    >>> combined, X, y = _to_dataframe(data, tnames, feature_names)
+    >>> X
+       feature1  feature2
+    0         1         4
+    1         2         5
+    2         3         6
+    >>> y
+       target
+    0      0
+    1      1
+    2      0
+    """
+    
+    if isinstance(data, (str, bytes)):
+        data = _is_readable(data)  # Assumes CSV; adjust as necessary.
+    elif isinstance(data, np.ndarray) or isinstance(data, list):
+        try:
+            data = pd.DataFrame(data, columns=feature_names)
+        except: data =pd.DataFrame(data )
+        
+    if target_names is not None: 
+        target_names = is_iterable (target_names, exclude_string=True, transform=True)
+        
+    feature_data = data.drop(columns=target_names, errors='ignore') if target_names else data
+    try:
+        exist_features(data, target_names) # check whether tnames is on data 
+    except: target_from_data= pd.DataFrame()
+    else: 
+        target_from_data = data[target_names] if target_names else pd.DataFrame()
+
+    if target is not None:
+        if isinstance(target, (pd.Series, pd.DataFrame, np.ndarray)):
+            if isinstance(target, np.ndarray):
+                target = pd.DataFrame(target, columns=target_names
+                                      ) if target_names else pd.DataFrame(target)
+            elif isinstance(target, pd.Series):
+                target = pd.DataFrame(target)
+            # No need to filter out duplicates here, as we've preemptively handled them.
+            # Concatenate target_from_data and new target, handling duplicate columns
+            # target = pd.concat([target_from_data, target], axis=1
+            #                     ).loc[:, ~target.columns.duplicated()]
+            
+            # Before concatenating, ensure that the columns from 
+            #  'target_from_data' and 'target' do not overlap.
+            # This avoids the boolean indexing issue by never creating 
+            # duplicate columns in the first place.
+            # First, identify the duplicate columns that would result 
+            # from concatenation.
+            if not target_from_data.empty:
+                duplicate_columns = target_from_data.columns.intersection(
+                    target.columns)
+                # Drop duplicate columns from one of the DataFrames
+                # before concatenation.
+                target_from_data = target_from_data.drop(
+                    columns=duplicate_columns, errors='ignore')
+            # Now, concatenate 'target_from_data' and 'target' without 
+            # risking duplicate columns.
+            target = pd.concat([target_from_data, target], axis=1)
+        else:
+            raise TypeError("The 'target' parameter must be an ndarray,"
+                            " pd.Series, pd.DataFrame, or None.")
+    else:
+        target = target_from_data
+        
+    # for consistency, recheck the feature data. 
+    feature_data = feature_data [
+        feature_names] if feature_names is not None else feature_data 
+    # Ensure that `target` is either a DataFrame or None for 
+    # consistent return types
+    target = target if not target.empty else None
+    combined = pd.concat([feature_data, target], axis=1
+                         ) if target is not None else feature_data
+
+    return combined, feature_data, target
+
+
+def __to_dataframe(data, tnames=None , feature_names =None, target =None ): 
     """ Validate that data is readable by pandas rearder and parse the data.
      then separate data from training to target. Be sure that the target 
      must be included to the dataframe columns 
@@ -97,8 +215,8 @@ def _to_dataframe(data, tnames=None , feature_names =None, target =None ):
         and tnames is not None 
         and target is not None
             ) : 
-        if not is_iterable(tnames):
-            tnames = [tnames] 
+        
+        tnames = is_iterable(tnames, exclude_string= True, transform =True)
         target = pd.DataFrame(data =target , columns =tnames ) 
         # if target is not None: 
         df = pd.concat ([d0, target], axis =1 )# stack to columns 

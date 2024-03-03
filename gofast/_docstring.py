@@ -9,7 +9,7 @@ __all__=[
     '_baseplot_params', 
     '_seealso_blurbs',
     '_core_returns', 
-    'wx_rst_epilog',
+    'gf_rst_epilog',
     '_core_params',
     'refglossary',
     '_core_docs',
@@ -393,10 +393,10 @@ yt: array-like, shape (M,), where M = m-samples
     to evaluate the performance of predictive models. The test target helps 
     in assessing the generalization capabilities of the model to unseen data.
     """,
-    tname = """
-tname: str
+    target_name = """
+target_name: str
     Target name or label used in supervised learning. It serves as the reference name 
-    for the target variable (`y`) or label. Accurate identification of `tname` is 
+    for the target variable (`y`) or label. Accurate identification of `target_name` is 
     crucial for model training and interpretation, especially in datasets with multiple 
     potential targets.
 """,
@@ -436,7 +436,7 @@ target: Array-like or pandas.Series
     outcome variable, response variable, ground truth, or label. Scikit-learn handles 
     targets with minimal structure: a class from a finite set, a finite real-valued 
     number, multiple classes, or multiple numbers. In this library, `target` is 
-    conceptualized as a pandas Series with `tname` as its name, combining the 
+    conceptualized as a pandas Series with `target_name` as its name, combining the 
     identifier and the variable `y`.
     Refer to Scikit-learn's documentation on target types for more details:
     [Scikit-learn Target Types](https://scikit-learn.org/stable/glossary.html#glossary-target-types).
@@ -648,7 +648,7 @@ _core_docs = dict(
 #.. |API change| replace:: :bdg-dark:`API change`
 # Define replacements (used in whatsnew bullets)
 
-wx_rst_epilog ="""
+gf_rst_epilog ="""
 
 .. role:: raw-html(raw)
    :format: html

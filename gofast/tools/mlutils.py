@@ -6,10 +6,10 @@ Learning utilities for data transformation,
 model learning and inspections. 
 """
 from __future__ import annotations 
-import os 
+import os
+import re 
 import copy 
 import inspect 
-import hashlib 
 import tarfile 
 import warnings 
 import pickle 
@@ -20,34 +20,37 @@ from six.moves import urllib
 from collections import Counter 
 import numpy as np 
 import pandas as pd 
+from pathlib import Path
+from tqdm import tqdm
 
+from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer, make_column_selector
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import SelectFromModel, SelectKBest
 from sklearn.impute import SimpleImputer
-from sklearn.metrics import confusion_matrix, classification_report 
-from sklearn.metrics import mean_squared_error, f1_score, accuracy_score
-from sklearn.metrics import precision_recall_curve, precision_score, recall_score
-from sklearn.metrics import roc_auc_score, roc_curve, mean_absolute_error 
 from sklearn.model_selection import train_test_split, StratifiedShuffleSplit 
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.preprocessing import OneHotEncoder,RobustScaler ,OrdinalEncoder 
 from sklearn.preprocessing import StandardScaler,MinMaxScaler,  LabelBinarizer
 from sklearn.preprocessing import LabelEncoder,Normalizer, PolynomialFeatures 
+from sklearn.utils import all_estimators, resample
 
 from .._gofastlog import gofastlog
 from .._typing import List, Tuple, Any, Dict,  Optional,Union, Iterable,Series 
-from .._typing import _T, _F, _Sub,  ArrayLike, NDArray,DType, DataFrame, Set  
-from ._dependency import import_optional_dependency
-from ..exceptions import ParameterNumberError, EstimatorError, DatasetError
-from ..decorators import deprecated              
-from .funcutils import _assert_all_types, _isin,  is_in_if,  ellipsis2false
-from .funcutils import  smart_format, str2columns, is_iterable, assert_ratio
-from .funcutils import  is_classification_task, to_numeric_dtypes, fancy_printer
+from .._typing import _T, _F, ArrayLike, NDArray,  DataFrame, Set 
+# from ._dependency import import_optional_dependency
+from ..exceptions import ParameterNumberError, EstimatorError          
+from .coreutils import _assert_all_types, _isin,  is_in_if,  ellipsis2false
+from .coreutils import smart_format,  is_iterable, get_valid_kwargs
+from .coreutils import is_classification_task, to_numeric_dtypes, fancy_printer
+from .coreutils import validate_feature, download_progress_hook, exist_features
+from .coreutils import contains_delimiter 
+from .funcutils import ensure_pkg
 from .validator import get_estimator_name, check_array, check_consistent_length
 from .validator import  _is_numeric_dtype,  _is_arraylike_1d 
-from .validator import  is_frame, build_data_if
+from .validator import  is_frame, build_data_if, check_is_fitted
+from .validator import check_mixed_data_types 
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -57,66 +60,37 @@ __all__=[
     "select_features", 
     "get_global_score", 
     "get_correlated_features", 
-    "find_features_in", 
     "categorize_target", 
     "resampling", 
     "bin_counting", 
     "labels_validator", 
-    "projection_validator", 
     "rename_labels_in" , 
     "soft_imputer", 
     "soft_scaler", 
     "select_feature_importances", 
-    "load_saved_model", 
+    "load_model", 
     "make_pipe",
     "build_data_preprocessor", 
     "bi_selector", 
     "get_target", 
-    "export_target",  
+    "extract_target",  
     "stats_from_prediction", 
     "fetch_tgz", 
     "fetch_model", 
     "load_csv", 
-    "features_in", 
-    "split_train_test_by_id", 
-    "split_train_test", 
     "discretize_categories", 
     "stratify_categories", 
     "serialize_data", 
     "deserialize_data", 
     "soft_data_split",
-    "laplace_smoothing"
+    "laplace_smoothing", 
+    "laplace_smoothing_categorical", 
+    "laplace_smoothing_word", 
+    "handle_imbalance", 
+    "smart_split",
+    "save_dataframes"
     ]
 
-
-_scorers = { 
-    "classification_report":classification_report,
-    'precision_recall': precision_recall_curve,
-    "confusion_matrix":confusion_matrix,
-    'precision': precision_score,
-    "accuracy": accuracy_score,
-    "mse":mean_squared_error, 
-    "recall": recall_score, 
-    'auc': roc_auc_score, 
-    'roc': roc_curve, 
-    'f1':f1_score,
-    }
-
-_estimators ={
-        'dtc': ['DecisionTreeClassifier', 'dtc', 'dec', 'dt'],
-        'svc': ['SupportVectorClassifier', 'svc', 'sup', 'svm'],
-        'sdg': ['SGDClassifier','sdg', 'sd', 'sdg'],
-        'knn': ['KNeighborsClassifier','knn', 'kne', 'knr'],
-        'rdf': ['RandomForestClassifier', 'rdf', 'rf', 'rfc',],
-        'ada': ['AdaBoostClassifier','ada', 'adc', 'adboost'],
-        'vtc': ['VotingClassifier','vtc', 'vot', 'voting'],
-        'bag': ['BaggingClassifier', 'bag', 'bag', 'bagg'],
-        'stc': ['StackingClassifier','stc', 'sta', 'stack'],
-    'xgboost': ['ExtremeGradientBoosting', 'xgboost', 'gboost', 'gbdm', 'xgb'], 
-     'logit': ['LogisticRegression', 'logit', 'lr', 'logreg'], 
-     'extree': ['ExtraTreesClassifier', 'extree', 'xtree', 'xtr']
-        }  
-#------
 
 def codify_variables (
     data:DataFrame | ArrayLike, /, 
@@ -128,6 +102,10 @@ def codify_variables (
     return_cat_codes:bool=... 
     ) -> DataFrame: 
     """ Encode multiple categorical variables in a dataset. 
+    
+    Encodes categorical variables in a dataset by applying specified transformations,
+    mapping categories, or performing one-hot encoding. Supports DataFrame, 
+    array-like, or dictionary inputs for data.
 
     Parameters 
     -----------
@@ -181,7 +159,7 @@ def codify_variables (
        Height  Weight  Color  Size  Shape
     0     152      80      2     2      0
     1     175      75      0     0      1
-    >>> # nw return_map codes 
+    >>> # new return_map codes 
     >>> df_encoded , map_codes =codify_variables (
         data, return_cat_codes =True )
     >>> map_codes 
@@ -253,20 +231,22 @@ def codify_variables (
     # if categories is Note , get auto numeric and 
     # categoric variablees 
     num_columns, cat_columns = bi_selector (df ) 
-    #apply function if 
-    # function is given 
     
+    # apply function if 
     if func is not None: 
         # just get only the columns 
         if not callable (func): 
-            raise TypeError("Expect an universal function."
-                            f" Got {type(func).__name__!r}")
+            raise TypeError(
+                f"Provided func is not callable. Received: {type(func)}")
         if len(cat_columns)==0: 
             # no categorical data func. 
-            msg =("No categorical data detected. To transform numeric"
-                " values to labels, use `gofast.tools.smart_label_classifier`"
-                " or `gofast.tools.categorize_target` instead.")
-            warnings.warn (msg) 
+            warnings.warn(
+                "No categorical data were detected. To transform numeric"
+                " values into categorical labels, consider using either"
+                " `gofast.tools.smart_label_classifier` or"
+                " `gofast.tools.categorize_target`."
+                )
+    
             return df 
         
         for col in  cat_columns: 
@@ -277,16 +257,17 @@ def codify_variables (
     if categories is None: 
         categories ={}
         for col in cat_columns: 
+            #categories[col].fillna(pd.NA, inplace =True)
             categories[col] = list(np.unique (df[col]))
             
     # categories should be a mapping data 
     if not isinstance ( categories, dict ): 
-        raise TypeError("Expect a dictionnary {`column name`:`labels`}"
-                        "to categorize data.")
+        raise TypeError("Expected a dictionary with the format"
+                        " {'column name': 'labels'} to categorize data.")
+
         
     for col, values  in  categories.items():
         if col not in df.columns:
-            print(col)
             continue  
         values = is_iterable(
             values, exclude_string=True, transform =True )
@@ -304,6 +285,9 @@ def codify_variables (
         
     return (df, map_codes) if return_cat_codes else df 
 
+@ensure_pkg ("imblearn", extra= (
+    "`imblearn` is actually a shorthand for ``imbalanced-learn``.")
+   )
 def resampling( 
     X, 
     y, 
@@ -399,10 +383,9 @@ def resampling(
     --------- 
     >>> import gofast as gf 
     >>> from gofast.tools.mlutils import resampling 
-    >>> data, target = gf.fetch_data ('bagoue analysed', as_frame =True) 
+    >>> data, target = gf.fetch_data ('bagoue analysed', as_frame =True, return_X_y=True) 
     >>> data.shape, target.shape 
-    >>> data_us, target_us = resampling (data, target, kind ='under',
-                                         verbose=True)
+    >>> data_us, target_us = resampling (data, target, kind ='under',verbose=True)
     >>> data_us.shape, target_us.shape 
     Counters: Auto      
                          Raw counter y: Counter({0: 232, 1: 112})
@@ -410,9 +393,6 @@ def resampling(
     Out[43]: ((224, 8), (224,))
     
     """
-    msg =(" `imblearn` is the shorthand of the package 'imbalanced-learn'."
-          " Use `pip install imbalanced-learn` instead.")
-    import_optional_dependency ("imblearn", extra = msg )
     kind = str(kind).lower() 
     if kind =='under': 
         from imblearn.under_sampling import RandomUnderSampler
@@ -585,7 +565,7 @@ def bin_counting(
     tname = str(tname) ; #bin_column = str(bin_column)
     target_all_counts =[]
     
-    existfeatures(data, features =bin_columns + [tname] )
+    validate_feature(data, features =bin_columns + [tname] )
     d= data.copy() 
     # -convert all features dtype to float for consistency
     # except the binary target 
@@ -668,7 +648,7 @@ def _target_counting(d, / ,  bin_column, tname ):
     neg_action = pd.Series(d[d[tname] < 1][bin_column].value_counts(),
     name=f'no_{tname}')
      
-    counts = pd.DataFrame([pos_action,neg_action])._T.fillna('0')
+    counts = pd.DataFrame([pos_action,neg_action]).T.fillna('0')
     counts[f'total_{tname}'] = counts[tname].astype('int64') +\
     counts[f'no_{tname}'].astype('int64')
     
@@ -741,12 +721,13 @@ def laplace_smoothing_word(word, class_, /, word_counts, class_counts, V):
 
     Example
     -------
+    >>> from gofast.tools.mlutils import laplace_smoothing_word
     >>> word_counts = {('dog', 'animal'): 3, ('cat', 'animal'):
                        2, ('car', 'non-animal'): 4}
     >>> class_counts = {'animal': 5, 'non-animal': 4}
     >>> V = len(set([w for (w, c) in word_counts.keys()]))
-    >>> laplace_smoothing('dog', 'animal', word_counts, class_counts, V)
-    0.4444444444444444
+    >>> laplace_smoothing_word('dog', 'animal', word_counts, class_counts, V)
+    0.5
     
     References
     ----------
@@ -797,6 +778,8 @@ def laplace_smoothing_categorical(
 
     Example
     -------
+    >>> import pandas as pd 
+    >>> from gofast.tools.mlutils import laplace_smoothing_categorical
     >>> data = pd.DataFrame({'feature': ['cat', 'dog', 'cat', 'bird'],
                              'class': ['A', 'A', 'B', 'B']})
     >>> probabilities = laplace_smoothing_categorical(data, 'feature', 'class')
@@ -808,11 +791,12 @@ def laplace_smoothing_categorical(
     tasks, especially when the dataset may contain categories that do not 
     appear in the training data for every class.
     """
+    is_frame( data, df_only=True, raise_exception=True)
     if V is None:
         V = data[feature_col].nunique()
 
     class_counts = data[class_col].value_counts()
-    probability_table = pd.DataFrame()
+    probability_tables = []
 
     # Iterating over each class to calculate probabilities
     for class_value in data[class_col].unique():
@@ -820,172 +804,210 @@ def laplace_smoothing_categorical(
         feature_counts = class_subset[feature_col].value_counts()
         probabilities = (feature_counts + 1) / (class_counts[class_value] + V)
         probabilities.name = class_value
-        probability_table = probability_table.append(probabilities)
+        probability_tables.append(probabilities.to_frame().T)
 
-    return probability_table.fillna(1 / V)
+    # Using pandas.concat to combine the probability tables
+    probability_table = pd.concat(probability_tables, sort=False).fillna(1 / V)
+    # Transpose to match expected format: features as rows, classes as columns
+    probability_table = probability_table.T
+
+    return probability_table
 
 def laplace_smoothing(
-    data, /,  
-    alpha=1,
-    columns=None, 
-    as_frame=False, 
-    ):
+    data: Union[ArrayLike, DataFrame], 
+    alpha: float = 1.0, 
+    columns: Union[list, None] = None
+) -> Union[ArrayLike, DataFrame]:
     """
-    Apply Laplace Smoothing to a dataset.
+    Applies Laplace smoothing to  data to calculate smoothed probabilities.
 
     Parameters
     ----------
-    data : ndarray
-        An array-like object containing categorical data. Each column 
+    data : ndarray or DataFrame
+        An array-like or DataFrame object containing categorical data. Each column 
         represents a feature, and each row represents a data sample.
     alpha : float, optional
         The smoothing parameter, often referred to as 'alpha'. This is 
         added to the count for each category in each feature. 
         Default is 1 (Laplace Smoothing).
-    
-    columns: list, 
-       Columns to construct the data. 
-    as_frame: bool, default=False, 
-       To convert data as a frame before proceeding. 
-       
+    columns: list, optional
+        Columns to construct the DataFrame when `data` is an ndarray. The 
+        number of columns must match the second dimension of the ndarray.
+        
     Returns
     -------
-    smoothed_probs : ndarray
-        An array of the same shape as `data` containing the smoothed 
+    smoothed_probs : ndarray or DataFrame
+        An array or DataFrame of the same shape as `data` containing the smoothed 
         probabilities for each category in each feature.
 
-    References
-    ----------
-    - C.D. Manning, P. Raghavan, and H. Schütze, "Introduction to Information Retrieval",
-      Cambridge University Press, 2008.
-    - A detailed explanation of Laplace Smoothing can be found in Chapter 13 of 
-      "Introduction to Information Retrieval" by Manning et al.
-      
-    Notes
-    -----
-    This implementation assumes that the input data is categorical 
-    and encoded as non-negative integers, which are indices of categories.
+    Raises
+    ------
+    ValueError
+        If `columns` is provided and its length does not match the number 
+        of columns in `data`.
 
     Examples
     --------
+    >>> import numpy as np 
+    >>> import pandas as pd 
+    >>> from gofast.tools.mlutils import laplace_smoothing
     >>> data = np.array([[0, 1], [1, 0], [1, 1]])
     >>> laplace_smoothing(data, alpha=1)
     array([[0.4 , 0.6 ],
            [0.6 , 0.4 ],
            [0.6 , 0.6 ]])
+
+    >>> data_df = pd.DataFrame(data, columns=['feature1', 'feature2'])
+    >>> laplace_smoothing(data_df, alpha=1)
+       feature1  feature2
+    0       0.4       0.6
+    1       0.6       0.4
+    2       0.6       0.6
     """
-    data = build_data_if(data, columns= columns, to_frame =as_frame ) 
-    # Count the occurrences of each category in each feature
-    n_samples, n_features = data.shape
-    feature_counts = [np.bincount(data[:, i], minlength=np.max(data[:, i]) + 1)
-                      for i in range(n_features)]
+    if isinstance(data, np.ndarray):
+        if columns:
+            if len(columns) != data.shape[1]:
+                raise ValueError("Length of `columns` does not match the shape of `data`.")
+            data = pd.DataFrame(data, columns=columns)
+        input_type = 'ndarray'
+    elif isinstance(data, pd.DataFrame):
+        input_type = 'dataframe'
+    else:
+        raise TypeError("`data` must be either a numpy.ndarray or a pandas.DataFrame.")
 
-    # Apply Laplace smoothing
-    smoothed_counts = [counts + alpha for counts in feature_counts]
-    total_counts = [counts.sum() for counts in smoothed_counts]
+    smoothed_probs_list = []
+    features = data.columns if input_type == 'dataframe' else range(data.shape[1])
 
-    # Calculate probabilities
-    smoothed_probs = np.array([counts / total for counts, total in
-                               zip(smoothed_counts, total_counts)])
-    
-    # Transpose and return the probabilities corresponding to each data point
-    return smoothed_probs._T[data]
-  
+    for feature in features:
+        series = data[feature] if input_type == 'dataframe' else data[:, feature]
+        counts = np.bincount(series, minlength=series.max() + 1)
+        smoothed_counts = counts + alpha
+        total_counts = smoothed_counts.sum()
+        smoothed_probs = (series.map(lambda x: smoothed_counts[x] / total_counts)
+                          if input_type == 'dataframe' else smoothed_counts[series] / total_counts)
+        smoothed_probs_list.append(smoothed_probs)
+
+    if input_type == 'dataframe':
+        return pd.DataFrame({feature: probs for feature, probs in zip(features, smoothed_probs_list)})
+    else:
+        return np.column_stack(smoothed_probs_list)
+
 def evaluate_model(
-    model: _F, 
-    X:NDArray |DataFrame, 
-    y: ArrayLike |Series, 
-    Xt:NDArray |DataFrame, 
-    yt:ArrayLike |Series=None, 
-    scorer:str | _F = 'accuracy',
-    eval:bool =False,
-    **kws
-    ): 
-    """ Evaluate model and quick test the score with metric scorers. 
-    
-    Parameters
-    --------------
-    model: Callable, {'preprocessor + estimator } | estimator,
-        the preprocessor is list of step for data handling all encapsulated 
-        on the pipeline. model can also be a simple estimator with `fit`,
-        
-    X: N-d array, shape (N, M) 
-       the training set composed of N-columns and the M-samples. The 
-        feature set excludes the target `y`. 
-    y: arraylike , shape (M)
-        the target is composed of M-examples in supervised learning. 
-    
-    Xt: N-d array, shape (N, M) 
-        test set array composed of N-columns and the M-samples. The 
-        feature set excludes the target `y`. 
-    yt: arraylike , shape (M)
-        test label (or test target)  composed of M-examples in 
-        supervised learning.
-        
-    scorer: str, Callable, 
-        a scorer is a metric  function for model evaluation. If given as string 
-        it should be the prefix of the following metrics: 
-            
-            * "classification_report"     -> for classification_report,
-            * 'precision_recall'          -> for precision_recall_curve,
-            * "confusion_matrix"          -> for a confusion_matrix,
-            * 'precision'                 -> for  precision_score,
-            * "accuracy"                  -> for  accuracy_score
-            * "mse"                       -> for mean_squared_error, 
-            * "recall"                    -> for  recall_score, 
-            * 'auc'                       -> for  roc_auc_score, 
-            * 'roc'                       -> for  roc_curve 
-            * 'f1'                        -> for f1_score,
-            
-        Other string prefix values should raises an errors 
-        
-    kws: dict, 
-        Additionnal keywords arguments from scklearn metric function.
-        
-    Returns 
-    ----------
-    Tuple : (score, ypred)
-        the model score or the predicted y if `predict` is set to ``True``. 
-        
+    model: Optional[_F[[NDArray, NDArray], NDArray]] = None,
+    X: Optional[Union[NDArray, DataFrame]] = None,
+    Xt: Optional[Union[NDArray, DataFrame]] = None,
+    y: Optional[Union[NDArray, Series]] = None, 
+    yt: Optional[Union[NDArray, Series]] = None,
+    y_pred: Optional[Union[NDArray, Series]] = None,
+    scorer: Union[str, _F[[NDArray, NDArray], float]] = 'accuracy',
+    eval: bool = False,
+    **kws: Any
+) -> Union[Tuple[Optional[Union[NDArray, Series]], Optional[float]],
+           Optional[Union[NDArray, Series]]]:
     """
-    score = None 
-    if X.ndim ==1: 
-        X = X.reshape(-1, 1) 
-    if Xt.ndim ==1: 
-        Xt = Xt.reshape(-1, 1)
+    Evaluates a predictive model's performance or the effectiveness of predictions 
+    using a specified scoring metric.
+
+    Parameters
+    ----------
+    model : Callable, optional
+        A machine learning model that implements fit and predict methods.
+        Required if `y_pred` is not provided.
+    X : np.ndarray or pd.DataFrame, optional
+        Training data features. Required if `model` is provided and `y_pred` is None.
+    Xt : np.ndarray or pd.DataFrame, optional
+        Test data features. Required if `model` is provided and `y_pred` is None.
+    y : np.ndarray or pd.Series, optional
+        Training data labels. Required if `model` is provided and `y_pred` is None.
+    yt : np.ndarray or pd.Series, optional
+        Test data labels. Required if `eval` is True.
+    y_pred : np.ndarray or pd.Series, optional
+        Predictions for test data. Required if `model` is None.
+    scorer : str or Callable, default='accuracy'
+        The scoring metric name or a scorer callable object/function with signature 
+        scorer(y_true, y_pred, **kws). 
+    eval : bool, default=False
+        If True, performs evaluation using `scorer` on `yt` and `y_pred`.
+    **kws : Any
+        Additional keyword arguments to pass to the scoring function.
+
+    Returns
+    -------
+    predictions : np.ndarray or pd.Series
+        The predicted labels or probabilities.
+    score : float, optional
+        The score of the predictions based on `scorer`. Only returned if `eval` is True.
+
+    Raises
+    ------
+    ValueError
+        If required arguments are missing or if the provided arguments are invalid.
+    TypeError
+        If `scorer` is not a recognized scoring function.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import load_iris
+    >>> from sklearn.model_selection import train_test_split
+    >>> from sklearn.linear_model import LogisticRegression
+    >>> from gofast.tools.mlutils import evaluate_model
+    >>> iris = load_iris()
+    >>> X, y = iris.data, iris.target
+    >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+    >>> model = LogisticRegression()
+    >>> y_pred, score = evaluate_model(model=model, X=X_train, Xt=X_test,
+    ...                                y=y_train, yt=y_test, eval=True)
+    >>> print(f'Score: {score:.2f}')
+    
+    >>> # Providing predictions directly
+    >>> y_pred, _ = evaluate_model(y_pred=y_pred, yt=y_test, scorer='accuracy',
+    ...                            eval=True)
+    >>> print(f'Accuracy: {score:.2f}')
+    """
+    from ..metrics import _SCORERS
+    
+    if y_pred is None:
+        if model is None or X is None or y is None or Xt is None:
+            raise ValueError("Model, X, y, and Xt must be provided when y_pred"
+                             " is not provided.")
+        if not hasattr(model, 'fit') or not hasattr(model, 'predict'):
+            raise TypeError("The provided model does not implement fit and "
+                            "predict methods.")
         
-    model.fit(X, y)
-    # model.transform(X, y)
-    ypred = model.predict(Xt)
-    
-    if eval : 
-        if yt is None: 
-            raise TypeError(" NoneType 'yt' cannot be used for model evaluation.")
-            
-        if scorer is None: 
-           scorer =  _scorers['accuracy']
-           
-        if isinstance (scorer, str): 
-            if str(scorer) not in _scorers.keys(): 
-                raise ValueError (
-                    "Given scorer {scorer!r }is unknown. Accepts "
-                    f" only {smart_format(_scorers.keys())}") 
-                
-            scorer = _scorers.get(scorer)
-        elif not hasattr (scorer, '__call__'): 
-            raise TypeError ("scorer should be a callable object,"
-                             f" got {type(scorer).__name__!r}")
-            
-        score = scorer (yt, ypred, **kws)
-    
-    return  ypred, score  
+        # Check model if is fitted
+        try: check_is_fitted(model)
+        except: 
+            # If the model is not fitted, then fit it with X and y
+            if X is not None and y is not None:
+                if hasattr(X, 'ndim') and X.ndim == 1:
+                    X = X.reshape(-1, 1)
+                model.fit(X, y)
+            else:
+                raise ValueError("Model is not fitted, and no training data"
+                                 " (X, y) were provided.")
+        y_pred = model.predict(Xt)
+
+    if eval:
+        if yt is None:
+            raise ValueError("yt must be provided when eval is True.")
+        if not isinstance(scorer, (str, callable)):
+            raise TypeError("scorer must be a string or a callable,"
+                            f" got {type(scorer).__name__}.")
+            if isinstance (scorer , str) and scorer not in _SCORERS:
+                raise ValueError(f"Use {scorer!r} function instead.")
+        
+        score_func = _SCORERS[scorer] if isinstance(scorer, str) else scorer
+        score = score_func(yt, y_pred, **kws)
+        return y_pred, score
+
+    return y_pred
 
 def get_correlated_features(
-        df:DataFrame ,
-        corr:str ='pearson', 
-        threshold: float=.95 , 
-        fmt: bool= False 
-        )-> DataFrame: 
+    data:DataFrame ,
+    corr:str ='pearson', 
+    threshold: float=.95 , 
+    fmt: bool= False 
+    )-> DataFrame: 
     """Find the correlated features/columns in the dataframe. 
     
     Indeed, highly correlated columns don't add value and can throw off 
@@ -995,7 +1017,7 @@ def get_correlated_features(
     
     Parameters 
     -----------
-    df: Dataframe or shape (M, N) from :class:`pandas.DataFrame` 
+    data: Dataframe or shape (M, N) from :class:`pandas.DataFrame` 
         Dataframe containing samples M  and features N
     corr: str, ['pearson'|'spearman'|'covariance']
         Method of correlation to perform. Note that the 'person' and 
@@ -1039,7 +1061,7 @@ def get_correlated_features(
             f"Expect ['pearson'|'spearman'|'covariance'], got{corr!r} ")
     # collect numerical values and exclude cat values
     
-    df = select_features(df, include ='number')
+    df = select_features(data, include ='number')
         
     # use pipe to chain different func applied to df 
     c_df = ( 
@@ -1089,7 +1111,7 @@ def get_target (df, tname, inplace = True):
         
     """
     df = _assert_all_types(df, pd.DataFrame)
-    existfeatures(df, tname) # assert tname 
+    validate_feature(df, tname) # assert tname 
     if is_iterable(tname, exclude_string=True): 
         tname = list(tname)
         
@@ -1098,55 +1120,6 @@ def get_target (df, tname, inplace = True):
     
     return t, df
 
-def features_in (data, / ,  features, error ='raise'): 
-    """ Control whether the feature exists in the data
-    
-    :param data: dict, 
-    """ 
-    return existfeatures(build_data_if(data), features, error = error )
-
-def existfeatures (df, features, error='raise'): 
-    """Control whether the features exist or not  
-    
-    :param df: a dataframe for features selections 
-    :param features: list of features to select. Lits of features must be in the 
-        dataframe otherwise an error occurs. 
-    :param error: str - raise if the features don't exist in the dataframe. 
-        *default* is ``raise`` and ``ignore`` otherwise. 
-        
-    :return: bool 
-        assert whether the features exists 
-    """
-    isf = False  
-    
-    error= 'raise' if error.lower().strip().find('raise')>= 0  else 'ignore' 
-
-    if isinstance(features, str): 
-        features =[features]
-        
-    features = _assert_all_types(features, list, tuple, np.ndarray)
-    set_f =  set (features).intersection (set(df.columns))
-    if len(set_f)!= len(features): 
-        nfeat= len(features) 
-        msg = f"Feature{'s' if nfeat >1 else ''}"
-        if len(set_f)==0:
-            if error =='raise':
-                raise ValueError (f"{msg} {smart_format(features)} "
-                                  f"{'is' if nfeat <2 else 'are'}"
-                                  " missing in the data attributes.")
-            isf = False 
-        # get the difference 
-        diff = set (features).difference(set_f) if len(
-            features)> len(set_f) else set_f.difference (set(features))
-        nfeat= len(diff)
-        if error =='raise':
-            raise ValueError(f"{msg} {smart_format(diff)} not found in"
-                             " the dataframe.")
-        isf = False  
-    else : isf = True 
-    
-    return isf  
-    
 def select_features(
     data: DataFrame,
     features: List[str] =None, 
@@ -1216,7 +1189,7 @@ def select_features(
             features, exclude_string=True, transform=True, 
             parse_string = parse_features)
             )
-        existfeatures(data, features, error ='raise')
+        validate_feature(data, features, verbose ='raise')
     # change the dataype 
     data = data.astype (float, errors ='ignore', **kwd) 
     # assert whether the features are in the data columns
@@ -1283,8 +1256,8 @@ def get_global_score(
         mean_score = np.nanmean(cvres.get('mean_test_score'))
         mean_std = np.nanmean(cvres.get('std_test_score'))
     else:
-        mean_score = cvres.get('mean_test_score').mean()
-        mean_std = cvres.get('std_test_score').mean()
+        mean_score = np.mean( cvres.get('mean_test_score'))
+        mean_std = np.mean(cvres.get('std_test_score'))
 
     return mean_score, mean_std
 
@@ -1594,23 +1567,26 @@ def featureExistError(superv_features: Iterable[_T],
             f'Parameters number is ``{features}``. NoneType object is'
             ' not allowed in  dataframe columns ={0}'.
             format(list(features)))
-        
+
 def control_existing_estimator(
     estimator_name: str, 
+    predefined_estimators=None, 
     raise_error: bool = False
 ) -> Union[Tuple[str, str], None]:
     """
     Validates and retrieves the corresponding prefix for a given estimator name.
 
     This function checks if the provided estimator name exists in a predefined
-    list of estimators. If found, it returns the corresponding prefix and full name.
-    Otherwise, it either raises an error or returns None, based on the 
-    'raise_error' flag.
+    list of estimators or in scikit-learn. If found, it returns the corresponding
+    prefix and full name. Otherwise, it either raises an error or returns None,
+    based on the 'raise_error' flag.
 
     Parameters
     ----------
     estimator_name : str
         The name of the estimator to check.
+    predefined_estimators : dict, default _predefined_estimators
+        A dictionary of predefined estimators.
     raise_error : bool, default False
         If True, raises an error when the estimator is not found. Otherwise, 
         emits a warning.
@@ -1628,69 +1604,67 @@ def control_existing_estimator(
     >>> print(test_est)
     ('svc', 'SupportVectorClassifier')
     """
-
-    estimator_name = estimator_name.lower().strip()
-    for prefix, names in _estimators.items():
+    # Define a dictionary of predefined estimators
+    _predefined_estimators ={
+            'dtc': ['DecisionTreeClassifier', 'dtc', 'dec', 'dt'],
+            'svc': ['SupportVectorClassifier', 'svc', 'sup', 'svm'],
+            'sdg': ['SGDClassifier','sdg', 'sd', 'sdg'],
+            'knn': ['KNeighborsClassifier','knn', 'kne', 'knr'],
+            'rdf': ['RandomForestClassifier', 'rdf', 'rf', 'rfc',],
+            'ada': ['AdaBoostClassifier','ada', 'adc', 'adboost'],
+            'vtc': ['VotingClassifier','vtc', 'vot', 'voting'],
+            'bag': ['BaggingClassifier', 'bag', 'bag', 'bagg'],
+            'stc': ['StackingClassifier','stc', 'sta', 'stack'],
+            'xgb': ['ExtremeGradientBoosting', 'xgboost', 'gboost', 'gbdm', 'xgb'], 
+          'logit': ['LogisticRegression', 'logit', 'lr', 'logreg'], 
+          'extree': ['ExtraTreesClassifier', 'extree', 'xtree', 'xtr']
+            }
+    predefined_estimators = predefined_estimators or _predefined_estimators
+    
+    estimator_name= estimator_name.lower().strip() if isinstance (
+        estimator_name, str) else get_estimator_name(estimator_name)
+    
+    # Check if the estimator is in the predefined list
+    for prefix, names in predefined_estimators.items():
         lower_names = [name.lower() for name in names]
         
         if estimator_name in lower_names:
             return prefix, names[0]
 
+    # If not found in predefined list, check if it's a valid scikit-learn estimator
+    if estimator_name in _get_sklearn_estimator_names():
+        return estimator_name, estimator_name
+
+    # If XGBoost is installed, check if it's an XGBoost estimator
+    if 'xgb' in predefined_estimators and estimator_name.startswith('xgb'):
+        return 'xgb', estimator_name
+
+    # If raise_error is True, raise an error; otherwise, emit a warning
     if raise_error:
-        valid_names = [name for names in _estimators.values() for name in names]
+        valid_names = [name for names in predefined_estimators.values() for name in names]
         raise EstimatorError(f'Unsupported estimator {estimator_name!r}. '
                              f'Expected one of {valid_names}.')
     else:
-        available_estimators = [name for names in _estimators.values() 
-                                for name in names]
+        available_estimators = _get_available_estimators(predefined_estimators)
         warning_msg = (f"Estimator {estimator_name!r} not found. "
                        f"Expected one of: {available_estimators}.")
         warnings.warn(warning_msg)
 
     return None
-       
-def controlExistingEstimator(
-        estimator_name: str , raise_err =False ) -> Union [Dict[str, _T], None]: 
-    """ 
-    When estimator name is provided by user , will chech the prefix 
-    corresponding
 
-    Catching estimator name and find the corresponding prefix 
-        
-    :param estimator_name: Name of given estimator 
+def _get_sklearn_estimator_names():
+    # Retrieve all scikit-learn estimator names using all_estimators
+    sklearn_estimators = [name for name, _ in all_estimators(type_filter='classifier')]
+    sklearn_estimators += [name for name, _ in all_estimators(type_filter='regressor')]
+    return sklearn_estimators
+
+def _get_available_estimators(predefined_estimators):
+    # Combine scikit-learn and predefined estimators
+    sklearn_estimators = _get_sklearn_estimator_names()
+    xgboost_estimators = ['xgb' + name for name in predefined_estimators['xgb']]
     
-    :Example: 
-        
-        >>> from gofast.tools.mlutils import controlExistingEstimator 
-        >>> test_est =controlExistingEstimator('svm')
-        ('svc', 'SupportVectorClassifier')
-        
-    """
-    estimator_name = str(estimator_name).lower().strip() 
-    e = None ; efx = None 
-    for k, v in _estimators.items() : 
-        v_ = list(map(lambda o: str(o).lower(), v)) 
-        
-        if estimator_name in v_ : 
-            e, efx = k, v[0]
-            break 
-
-    if e is None: 
-        ef = map(lambda o: o[0], _estimators.values() )
-        if raise_err: 
-            raise EstimatorError(f'Unsupport estimator {estimator_name!r}.'
-                                 f' Expect {smart_format(ef)}') 
-        ef =list(ef)
-        emsg = f"Default estimator {estimator_name!r} not found!" +\
-            (" Expect: {}".format(formatGenericObj(ef)
-                                  ).format(*ef))
-
-        warnings.warn(emsg)
-        
-            
-        return 
-    
-    return e, efx 
+    available_estimators = sklearn_estimators + xgboost_estimators
+    return available_estimators
 
 def format_model_score(
     model_score: Union[float, Dict[str, float]] = None,
@@ -1729,49 +1703,6 @@ def format_model_score(
               ' a dictionary of scores.')
     print('-' * 77)
     
-def formatModelScore(
-        model_score: Union [float, Dict[str, float]] = None,
-        select_estimator: str = None ) -> None   : 
-    """
-    Format the result of `model_score`
-        
-    :param model_score: Can be float or dict of float where key is 
-                        the estimator name 
-    :param select_estimator: Estimator name 
-    
-    :Example: 
-        
-        >>> from gofast.tools.mlutils import formatModelScore 
-        >>>  formatModelScore({'DecisionTreeClassifier':0.26, 
-                      'BaggingClassifier':0.13}
-        )
-    """ 
-    print('-'*77)
-    if isinstance(model_score, dict): 
-        for key, val in model_score.items(): 
-            print('> {0:<30}:{1:^10}= {2:^10} %'.format( key,' Score', round(
-                val *100,3 )))
-    else : 
-        if select_estimator is None : 
-            select_estimator ='___'
-        if inspect.isclass(select_estimator): 
-            select_estimator =select_estimator.__class__.__name__
-        
-        try : 
-            _, select_estimator = controlExistingEstimator(select_estimator)
-        
-        except : 
-            if select_estimator is None :
-                select_estimator =str(select_estimator)
-            else: select_estimator = '___'
-            
-        print('> {0:<30}:{1:^10}= {2:^10} %'.format(select_estimator,
-                     ' Score', round(
-            model_score *100,3 )))
-        
-    print('-'*77)
-    
-
 def stats_from_prediction(y_true, y_pred, verbose=False):
     """
     Generate statistical summaries and accuracy metrics from actual values (y_true)
@@ -1801,6 +1732,8 @@ def stats_from_prediction(y_true, y_pred, verbose=False):
     >>> y_pred = [0, 1, 0, 0, 1]
     >>> stats_from_prediction(y_true, y_pred, verbose=True)
     """
+    from sklearn.metrics import ( 
+        mean_absolute_error, mean_squared_error, accuracy_score) 
     # Calculating statistics
     check_consistent_length(y_true, y_pred )
     stats = {
@@ -1830,297 +1763,558 @@ def stats_from_prediction(y_true, y_pred, verbose=False):
 
     return stats
 
-
-def write_excel(
-        listOfDfs: List[DataFrame],
-        csv: bool =False , 
-        sep:str =',') -> None: 
-    """ 
-    Rewrite excell workbook with dataframe for :ref:`read_from_excelsheets`. 
-    
-    Its recover the name of the files and write the data from dataframe 
-    associated with the name of the `erp_file`. 
-    
-    :param listOfDfs: list composed of `erp_file` name at index 0 and the
-     remains dataframes. 
-    :param csv: output workbook in 'csv' format. If ``False`` will return un 
-     `excel` format. 
-    :param sep: type of data separation. 'default is ``,``.'
-    
+def save_dataframes(
+    *data: Union[pd.DataFrame, Any],
+    file_name_prefix: str = 'data',
+    output_format: str = 'excel',
+    sep: str = ',',
+    start_index: int = 1
+    ) -> None:
     """
-    site_name = listOfDfs[0]
-    listOfDfs = listOfDfs[1:]
-    for ii , df in enumerate(listOfDfs):
-        
-        if csv:
-            df.to_csv(df, sep=sep)
-        else :
-            with pd.ExcelWriter(f"z{site_name}_{ii}.xlsx") as writer: 
+    Saves multiple dataframes to Excel or CSV files, with each dataframe in a
+    separate file.
+    
+    The files are named using a specified prefix and an index.
+
+    Parameters
+    ----------
+    *data : Union[pd.DataFrame, Any]
+        Variable number of arguments, where each argument is a dataframe or
+        data that can be converted to a dataframe.
+    file_name_prefix : str, optional
+        Prefix for the output file names. Default is 'data'.
+    output_format : str, optional
+        Output format of the files. Can be 'excel' or 'csv'. Default is 'excel'.
+    sep : str, optional
+        Separator character for CSV output. Default is ','.
+    start_index : int, optional
+        Starting index for numbering the output files. Default is 1.
+
+    Examples
+    --------
+    >>> from gofast.tools.mlutils import save_dataframes
+    >>> df1 = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
+    >>> df2 = pd.DataFrame({'C': [5, 6], 'D': [7, 8]})
+    >>> save_dataframes(df1, df2, file_name_prefix='mydata', output_format='csv')
+    # This will create 'mydata_1.csv' for df1 and 'mydata_2.csv' for df2
+
+    >>> save_dataframes(df1, output_format='excel', file_name_prefix='test')
+    # This will create 'test_1.xlsx' containing df1
+    """
+    for index, df in enumerate(data, start=start_index):
+        # Ensure the argument is a DataFrame
+        if not isinstance(df, pd.DataFrame):
+            df = pd.DataFrame(df)
+
+        # Determine the file name
+        file_name = f"{file_name_prefix}_{index}"
+        if output_format == 'csv':
+            df.to_csv(f"{file_name}.csv", sep=sep, index=False)
+        elif output_format == 'excel':
+            with pd.ExcelWriter(f"{file_name}.xlsx") as writer:
                 df.to_excel(writer, index=False)
-    
+        else:
+            raise ValueError("Unsupported output format. Choose 'excel' or 'csv'.")
 
-def fetch_tgz (
-    data_url:str ,
-    data_path:str ,
-    tgz_filename:str 
-   ) -> None: 
-    """ Fetch data from data repository in zip of 'targz_file. 
-    
-    I will create a `datasets/data` directory in your workspace, downloading
-     the `~.tgz_file and extract the `data.csv` from this directory.
-    
-    :param data_url: url to the datafilename where `tgz` filename is located  
-    :param data_path: absolute path to the `tgz` filename 
-    :param filename: `tgz` filename. 
+def fetch_tgz(
+    data_url: str,
+    tgz_filename: str,
+    data_path: Optional[str] = None,
+    show_progress: bool = False
+) -> None:
     """
-    if not os.path.isdir(data_path): 
-        os.makedirs(data_path)
+    Fetches and extracts a .tgz file from a specified URL, optionally into 
+    a target directory.
 
-    tgz_path = os.path.join(data_url, tgz_filename.replace('/', ''))
-    urllib.request.urlretrieve(data_url, tgz_path)
-    data_tgz = tarfile.open(tgz_path)
-    data_tgz.extractall(path = data_path )
-    data_tgz.close()
+    If `data_path` is provided and does not exist, it is created. If `data_path`
+    is not provided, a default directory named 'tgz_data' in the current working 
+    directory is used and created if necessary.
+
+    Parameters
+    ----------
+    data_url : str
+        The URL where the .tgz file is located.
+    tgz_filename : str
+        The filename of the .tgz file to download.
+    data_path : Optional[str], optional
+        The absolute path to the directory where the .tgz file will be extracted.
+        If None, uses a directory named ``'tgz_data'`` in the current working 
+        directory.
+    show_progress : bool, optional
+        If True, displays a progress bar during the file download. Default is False.
+
+    Examples
+    --------
+    >>> from gofast.tools.mlutils import fetch_tgz
+    >>> fetch_tgz(
+    ...     data_url="http://example.com/data",
+    ...     tgz_filename="data.tgz",
+    ...     show_progress=True
+    ... )
+
+    >>> fetch_tgz(
+    ...     data_url="http://example.com/data",
+    ...     tgz_filename="data.tgz",
+    ...     data_path="/path/to/custom/data",
+    ...     show_progress=True
+    ... )
+
+    Note
+    ----
+    The function requires `tqdm` library for showing the progress bar. Ensure
+    that `tqdm` is installed if `show_progress` is set to True.
+    """
+    # Use a default data directory if none is provided
+    data_path = data_path or os.path.join(os.getcwd(), 'tgz_data')
     
-def fetch_tgz_from_url (
-    data_url:str , 
-    data_path:str ,
-    tgz_file, 
-    file_to_retreive=None,
-    **kws
-    ) -> Union [str, None]: 
-    """ Fetch data from data repository in zip of 'targz_file. 
+    if not os.path.isdir(data_path):
+        os.makedirs(data_path, exist_ok=True)
+
+    tgz_path = os.path.join(data_path, tgz_filename)
     
-    I will create a `datasets/data` directory in your workspace, downloading
-     the `~.tgz_file and extract the `data.csv` from this directory.
+    # Define a simple progress function, if needed
+    def _progress(block_num, block_size, total_size):
+        if show_progress:
+            if tqdm is None:
+                raise ImportError("`tqdm` library is required for progress output.")
+            progress = tqdm(total=total_size, unit='iB', unit_scale=True, ascii=True, 
+                            ncols= 100) 
+            progress.n = block_num * block_size
+            progress.last_print_n = progress.n
+            progress.update()
+
+    # Download the .tgz file
+    urllib.request.urlretrieve(
+        data_url, tgz_path, _progress if show_progress else None)
+
+    # Extract the .tgz file
+    with tarfile.open(tgz_path) as data_tgz:
+        data_tgz.extractall(path=data_path)
     
-    :param data_url: url to the datafilename where `tgz` filename is located  
-    :param data_path: absolute path to the `tgz` filename 
-    :param filename: `tgz` filename. 
+    if show_progress:
+        print("Download and extraction complete.")
+
+def base_url_tgz_fetch(
+    data_url: str, tgz_filename: str,  
+    data_path: Optional[str]=None, 
+    file_to_retrieve: Optional[str] = None, 
+    **kwargs
+    ) -> Union[str, None]:
+    """
+    Fetches a .tgz file from a given URL, saves it to a specified directory, 
+    and optionally extracts a specific file from it.
+
+    This function downloads a .tgz file from the specified URL and saves it to 
+    the given directory. If a specific file  within the .tgz archive is 
+    specified, it attempts to extract this file. If no specific file is 
+    mentioned, it will extract all contents of the archive.
+
+    Parameters
+    ----------
+    data_url : str
+        The URL where the .tgz file is located.
+    data_path : str
+        The absolute path to the directory where the .tgz file will be saved.
+    tgz_filename : str
+        The name of the .tgz file to be downloaded.
+    file_to_retrieve : Optional[str], optional
+        The specific file within the .tgz archive to extract. If None, all 
+        contents of the archive are extracted, by default None.
+    **kwargs : dict
+        Additional keyword arguments to be passed to the extraction method.
+
+    Returns
+    -------
+    Union[str, None]
+        The path to the extracted file if a specific file is requested,
+        None otherwise.
+
+    Examples
+    --------
+    >>> from gofast.tools.mlutils import base_url_tgz_fetch
+    >>> data_url = 'https://example.com/data.tar.gz'
+    >>> data_path = '/path/to/save/data'
+    >>> tgz_filename = 'data.tar.gz'
+    >>> file_to_retrieve = 'data.csv'
+    >>> extracted_file_path = base_url_tgz_fetch(
+    ... data_url, tgz_filename, data_path,file_to_retrieve)
+    >>> print(extracted_file_path)
+
+    """
+    import urllib.request
+    # Use a default data directory if none is provided
+    data_path = data_path or os.path.join(os.getcwd(), 'tgz_data')
     
-    :example: 
+    if not os.path.isdir(data_path):
+        os.makedirs(data_path, exist_ok=True)
+        
+    tgz_path = os.path.join(data_path, tgz_filename)
+
+    # Attempt to download the .tgz file
+    try:
+        urllib.request.urlretrieve(data_url, tgz_path)
+    except Exception as e:
+        print(f"Failed to download {tgz_filename} from {data_url}. Error: {e}")
+        return None
+
+    # If a specific file to retrieve is not specified, extract all contents
+    if not file_to_retrieve:
+        try:
+            with tarfile.open(tgz_path, "r:gz") as tar:
+                tar.extractall(path=data_path)
+        except Exception as e:
+            print(f"Failed to extract {tgz_filename}. Error: {e}")
+            return None
+        return None
+
+    # If a specific file is specified, attempt to extract just that file
+    try:
+        with tarfile.open(tgz_path, "r:gz") as tar:
+            tar.extract(file_to_retrieve, path=data_path, **kwargs)
+            return os.path.join(data_path, file_to_retrieve)
+    except Exception as e:
+        print(f"Failed to extract {file_to_retrieve} from {tgz_filename}. Error: {e}")
+        return None
+
+def fetch_tgz_from_url(
+    data_url: str, tgz_filename: str, 
+    data_path: Optional[str, Path]=None, 
+    file_to_retrieve: Optional[str] = None, 
+    **kwargs
+    ) -> Optional[Path]:
+    """
+    Fetches a .tgz file from a given URL, saves it to a specified directory, 
+    and optionally extracts a specific file from it.
+
+    This function downloads a .tgz file from the specified URL and saves it to 
+    the given directory. If a specific file  within the .tgz archive is 
+    specified, it attempts to extract this file. If no specific file is 
+    mentioned, it will extract all contents of the archive.
+
+    Parameters
+    ----------
+    data_url : str
+        The URL where the .tgz file is located.
+    data_path : str
+        The absolute path to the directory where the .tgz file will be saved.
+    tgz_filename : str
+        The name of the .tgz file to be downloaded.
+    file_to_retrieve : Optional[str], optional
+        The specific file within the .tgz archive to extract. If None, all 
+        contents of the archive are extracted, by default None.
+    **kwargs : dict
+        Additional keyword arguments to be passed to the extraction method.
+
+    Returns
+    -------
+    Union[str, None]
+        The path to the extracted file if a specific file is requested,
+        None otherwise.
+
+    Examples
+    --------
     >>> from gofast.tools.mlutils import fetch_tgz_from_url
-    >>> DOWNLOAD_ROOT = 'https://raw.githubusercontent.com/WEgeophysics/watex/master/'
-    >>> # from Zenodo: 'https://zenodo.org/record/5560937#.YWQBOnzithE'
-    >>> DATA_PATH = 'data/__tar.tgz'  # 'BagoueCIV__dataset__main/__tar.tgz_files__'
-    >>> TGZ_FILENAME = '/fmain.bagciv.data.tar.gz'
-    >>> CSV_FILENAME = '/__tar.tgz_files__/___fmain.bagciv.data.csv'
-    >>> fetch_tgz_from_url (data_url= DATA_URL,data_path=DATA_PATH,
-                            tgz_filename=TGZ_FILENAME
-                            ) 
-    """
-    f= None
-    if data_url is not None: 
-        tgz_path = os.path.join(data_path, tgz_file.replace('/', ''))
-        try: 
-            urllib.request.urlretrieve(data_url, tgz_path)
-        except urllib.URLError: 
-            print("<urlopen error [WinError 10061] No connection could "
-                  "be made because the target machine actively refused it>")
-        except ConnectionError or ConnectionRefusedError: 
-            print("Connection failed!")
-        except: 
-            print(f"Unable to fetch {os.path.basename(tgz_file)!r}"
-                  f" from <{data_url}>")
-            
-        return False 
-    
-    if file_to_retreive is not None: 
-        f= fetch_tgz_locally(filename=file_to_retreive, **kws)
-        
-    return f
+    >>> data_url = 'https://example.com/data.tar.gz'
+    >>> data_path = '/path/to/save/data'
+    >>> tgz_filename = 'data.tar.gz'
+    >>> file_to_retrieve = 'data.csv'
+    >>> extracted_file_path = fetch_tgz_from_url(
+    ... data_url, tgz_filename, data_path,file_to_retrieve)
+    >>> print(extracted_file_path)
 
-def fetch_tgz_locally(tgz_file: str , filename: str ,
-        savefile: str ='tgz',rename_outfile: Optional [str]=None 
-        ) -> str :
-    """ Fetch single file from archived tar file and rename a file if possible.
-    
-    :param tgz_file: str or Path-Like obj 
-        Full path to tarfile. 
-    :param filename:str 
-        Tagert  file to fetch from the tarfile.
-    :savefile:str or Parh-like obj 
-        Destination path to save the retreived file. 
-    :param rename_outfile:str or Path-like obj
-        Name of of the new file to replace the fetched file.
-    :return: Location of the fetched file
-    :Example: 
-        >>> from gofast.tools.mlutils import fetch_tgz_locally
-        >>> fetch_tgz_locally('data/__tar.tgz/fmain.bagciv.data.tar.gz', 
-                               rename_outfile='main.bagciv.data.csv')
     """
-     # get the extension of the fetched file 
-    fetch_ex = os.path.splitext(filename)[1]
-    if not os.path.isdir(savefile):
-        os.makedirs(savefile)
+    # Use a default data directory if none is provided
+    data_path = data_path or os.path.join(os.getcwd(), 'tgz_data')
     
-    def retreive_main_member (tarObj): 
-        """ Retreive only the main member that contain the target filename."""
-        for tarmem in tarObj.getmembers():
-            if os.path.splitext(tarmem.name)[1]== fetch_ex: #'.csv': 
-                return tarmem 
-            
-    if not os.path.isfile(tgz_file):
-        raise FileNotFoundError(f"Source {tgz_file!r} is a wrong file.")
-   
-    with tarfile.open(tgz_file) as tar_ref:
-        tar_ref.extractall(members=[retreive_main_member(tar_ref)])
-        tar_name = [ name for name in tar_ref.getnames()
-                    if name.find(filename)>=0 ][0]
-        shutil.move(tar_name, savefile)
-        # for consistency ,tree to check whether the tar info is 
-        # different with the collapse file 
-        if tar_name != savefile : 
-            # print(os.path.join(os.getcwd(),os.path.dirname(tar_name)))
-            _fol = tar_name.split('/')[0]
-            shutil.rmtree(os.path.join(os.getcwd(),_fol))
-        # now rename the file to the 
-        if rename_outfile is not None: 
-            os.rename(os.path.join(savefile, filename), 
-                      os.path.join(savefile, rename_outfile))
-        if rename_outfile is None: 
-            rename_outfile =os.path.join(savefile, filename)
-            
-        print(f"---> {os.path.join(savefile, rename_outfile)!r} was "
-              f" successfully decompressed from {os.path.basename(tgz_file)!r}"
-              f"and saved to {savefile!r}")
+    if not os.path.isdir(data_path):
+        os.makedirs(data_path, exist_ok=True)
         
-    return os.path.join(savefile, rename_outfile)
-    
-def load_csv ( data: str = None, delimiter: str  =None ,**kws
-        )-> DataFrame:
-    """ Load csv file and convert to a frame. 
-    
-    :param data_path: path to data csv file 
-    :param delimiter: str, item for data  delimitations. 
-    :param kws: dict, additional keywords arguments passed 
-        to :class:`pandas.read_csv`
-    :return: pandas dataframe 
-    
-    """ 
-    if not os.path.isfile(data): 
-        raise TypeError("Expect a valid CSV file.")
-    if (os.path.splitext(data)[1].replace('.', '')).lower() !='csv': 
-        raise ValueError("Read only a csv file.")
+    data_path = Path(data_path)
+    tgz_path = data_path / tgz_filename
+
+    # Setup tqdm progress bar for the download
+    with tqdm(unit='B', unit_scale=True, miniters=1, desc=tgz_filename, ncols=100) as t:
+        urllib.request.urlretrieve(data_url, tgz_path, reporthook=download_progress_hook(t))
+
+    # Extract specified file or entire archive
+    try:
+        with tarfile.open(tgz_path, "r:gz") as tar:
+            if file_to_retrieve:
+                tar.extract(file_to_retrieve, path=data_path, **kwargs)
+                return data_path / file_to_retrieve
+            else:
+                tar.extractall(path=data_path)
+    except (tarfile.TarError, KeyError) as e:
+        print(f"Error extracting {'file' if file_to_retrieve else 'archive'}: {e}")
+        return None
+
+    return None
+
+def _extract_with_progress(
+        tar: tarfile.TarFile, member: tarfile.TarInfo, path: Path):
+    """
+    Extracts a single member from a tarfile with progress reporting.
+
+    Parameters
+    ----------
+    tar : tarfile.TarFile
+        The tarfile object opened in read mode.
+    member : tarfile.TarInfo
+        The specific member within the tarfile to extract.
+    path : Path
+        The path to extract the member to.
+    """
+    # Initialize a progress bar for the extraction process
+    with tqdm(total=member.size, desc=f"Extracting {member.name}",
+              unit='B', unit_scale=True) as progress_bar:
+        # Extract member and update the progress bar accordingly
+        def custom_read(size):
+            progress_bar.update(size)
+            return member_file.read(size)
         
-    return pd.read_csv(data, delimiter=delimiter, **kws) 
+        # Open the member file for reading and wrap the read method for progress updates
+        with tar.extractfile(member) as member_file:
+            with open(path / member.name, 'wb') as out_file:
+                shutil.copyfileobj(member_file, out_file, length=1024*1024,
+                                   callback=lambda x: progress_bar.update(1024*1024))
+
+def fetch_tgz_locally(
+    tgz_file: str, 
+    filename: str, 
+    savefile: str = 'tgz', 
+    rename_outfile: Optional[str] = None
+    ) -> str:
+    """
+    Fetches and optionally renames a file from a tar archive with progress reporting.
+    
+    Parameters
+    ----------
+    tgz_file : str or Path
+        The full path to the tar file.
+    filename : str
+        The target file to fetch from the tar archive.
+    savefile : str or Path, optional
+        The destination path to save the retrieved file.
+    rename_outfile : str or Path, optional
+        The new name for the fetched file, if desired.
+
+    Returns
+    -------
+    str
+        The path to the fetched and possibly renamed file.
+        
+    Example
+    -------
+    >>> from gofast.tools.mlutils import fetch_tgz_locally
+    >>> fetch_tgz_locally('data/__tar.tgz/fmain.bagciv.data.tar.gz',
+    ...                      'dataset.csv', 'extracted', 
+    ...                      rename_outfile='main.bagciv.data.csv')
+    >>> # This will extract 'dataset.csv' from the tar.gz, save it to 
+    >>> # 'extracted' directory, and rename it to 'main.bagciv.data.csv'.
+    
+    """
+    tgz_path = Path(tgz_file)
+    save_path = Path(savefile)
+    save_path.mkdir(parents=True, exist_ok=True)
+
+    if not tgz_path.is_file():
+        raise FileNotFoundError(f"Source {tgz_file!r} is not a valid file.")
+
+    with tarfile.open(tgz_path) as tar:
+        member = next((m for m in tar.getmembers() if m.name.endswith(filename)), None)
+        if member:
+            _extract_with_progress(tar, member, save_path)
+            extracted_file_path = save_path / member.name
+            final_file_path = save_path / (rename_outfile if rename_outfile else filename)
+            if extracted_file_path != final_file_path:
+                extracted_file_path.rename(final_file_path)
+                # Cleanup if the extracted file was within a subdirectory
+                if extracted_file_path.parent != save_path:
+                    shutil.rmtree(extracted_file_path.parent, ignore_errors=True)
+        else:
+            raise FileNotFoundError(f"File {filename} not found in {tgz_file}.")
+
+    print(f"--> '{final_file_path}' was successfully decompressed from"
+          f" '{tgz_path.name}' and saved to '{save_path}'.")
+    
+    return str(final_file_path)
+
+def base_local_tgz_fetch(
+    tgz_file: str, 
+    filename: str, 
+    savefile: str = 'tgz', 
+    rename_outfile: Optional[str] = None
+    ) -> str:
+    """
+    Fetches a single file from an archived tar file and optionally renames it.
+
+    Parameters
+    ----------
+    tgz_file : str or Path
+        The full path to the tar file.
+    filename : str
+        The target file to fetch from the tar archive.
+    savefile : str or Path, optional
+        The destination path to save the retrieved file. Defaults to 'tgz'.
+    rename_outfile : str or Path, optional
+        The new name for the fetched file. If not provided, the original name is used.
+
+    Returns
+    -------
+    str
+        The path to the fetched (and possibly renamed) file.
+
+    Example
+    -------
+    >>> fetch_tgz_locally('data/__tar.tgz/fmain.bagciv.data.tar.gz',
+    ...                      'dataset.csv', 'extracted', 
+    ...                      rename_outfile='main.bagciv.data.csv')
+    >>> # This will extract 'dataset.csv' from the tar.gz, save it to 
+    >>> # 'extracted' directory, and rename it to 'main.bagciv.data.csv'.
+    """
+    tgz_path = Path(tgz_file)
+    save_path = Path(savefile)
+    save_path.mkdir(parents=True, exist_ok=True)
+
+    def retrieve_target_member(tar_obj, target_extension):
+        """Retrieve the main member that matches the target filename extension."""
+        return next((m for m in tar_obj.getmembers() if Path
+                     (m.name).suffix == target_extension), None)
+
+    if not tgz_path.is_file():
+        raise FileNotFoundError(f"Source {tgz_file!r} is not a valid file.")
+
+    with tarfile.open(tgz_path) as tar:
+        target_extension = Path(filename).suffix
+        target_member = retrieve_target_member(tar, target_extension)
+        if target_member:
+            tar.extract(target_member, path=save_path)
+            extracted_file_path = save_path / target_member.name
+            final_file_path = save_path / (rename_outfile if rename_outfile else filename)
+            if extracted_file_path != final_file_path:
+                extracted_file_path.rename(final_file_path)
+                # Cleanup if the extracted file was within a subdirectory
+                if extracted_file_path.parent != save_path:
+                    shutil.rmtree(extracted_file_path.parent)
+        else:
+            raise FileNotFoundError(f"File {filename} not found in {tgz_file}.")
+
+    print(f"--> '{final_file_path}' was successfully decompressed from"
+          f" '{tgz_path.name}' and saved to '{save_path}'.")
+    
+    return str(final_file_path)
 
 
-def split_train_test (
-        df:DataFrame[DType[_T]],
-        test_ratio:float 
-        )-> Tuple [DataFrame[DType[_T]]]: 
-    """ A naive dataset split into train and test sets from a ratio and return 
-    a shuffled train set and test set.
-        
-    :param df: a dataframe containing features 
-    :param test_ratio: a ratio for test set batch. `test_ratio` is ranged 
-        between 0 to 1. Default is 20%.
-        
-    :returns: a tuple of train set and test set. 
-    
+def load_csv(data_path: str, delimiter: Optional[str] = ',', **kwargs
+             ) -> DataFrame:
     """
-    try: test_ratio = assert_ratio(test_ratio)
-    except: TypeError (f"Could not convert value to float: {test_ratio!r}")
-    if test_ratio <=0: 
-        raise ValueError ("Invalid ratio. Must greater than 0.")
-    elif test_ratio >=1: 
-        raise ValueError("Invalid ratio. Must be less than 1 and greater than 0.")
-        
-    shuffled_indices =np.random.permutation(len(df)) 
-    test_set_size = int(len(df)* test_ratio)
-    test_indices = shuffled_indices [:test_set_size]
-    train_indices = shuffled_indices[test_set_size:]
-    
-    return df.iloc[train_indices], df.iloc[test_indices]
-    
-def test_set_check_id (
-        identifier:int, 
-        test_ratio: float , 
-        hash:_F[_T]
-        ) -> bool: 
-    """ 
-    Get the test set id and set the corresponding unique identifier. 
-    
-    Compute the a hash of each instance identifier, keep only the last byte 
-    of the hash and put the instance in the testset if this value is lower 
-    or equal to 51(~20% of 256) 
-    has.digest()` contains object in size between 0 to 255 bytes.
-    
-    :param identifier: integer unique value 
-    :param ratio: ratio to put in test set. Default is 20%. 
-    
-    :param hash:  
-        Secure hashes and message digests algorithm. Can be 
-        SHA1, SHA224, SHA256, SHA384, and SHA512 (defined in FIPS 180-2) 
-        as well as RSA’s MD5 algorithm (defined in Internet RFC 1321). 
-        
-        Please refer to :ref:`<https://docs.python.org/3/library/hashlib.html>` 
-        for futher details.
-    """
-    return hash(np.int64(identifier)).digest()[-1]< 256 * test_ratio
+    Loads a CSV file into a pandas DataFrame.
 
-def split_train_test_by_id(
-    data:DataFrame,
-    test_ratio:float,
-    id_column:Optional[List[int]]=None,
-    keep_colindex:bool=True, 
-    hash : _F =hashlib.md5
-    )-> Tuple[ _Sub[DataFrame[DType[_T]]], _Sub[DataFrame[DType[_T]]]] : 
-    """
-    Ensure that data will remain consistent accross multiple runs, even if 
-    dataset is refreshed. 
-    
-    The new testset will contain 20%of the instance, but it will not contain 
-    any instance that was previously in the training set.
+    Parameters
+    ----------
+    data_path : str
+        The file path to the CSV file to be loaded.
+    delimiter : str, optional
+        The delimiter character used in the CSV file. Defaults to ','.
+    **kwargs : dict
+        Additional keyword arguments passed to `pandas.read_csv`.
 
-    :param data: Pandas.core.DataFrame 
-    :param test_ratio: ratio of data to put in testset 
-    :param id_colum: identifier index columns. If `id_column` is None,  reset  
-                dataframe `data` index and set `id_column` equal to ``index``
-    :param hash: secures hashes algorithms. Refer to 
-                :func:`~test_set_check_id`
-    :returns: consistency trainset and testset 
+    Returns
+    -------
+    DataFrame
+        A DataFrame containing the loaded data.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the specified file does not exist.
+    ValueError
+        If the specified file is not a CSV file.
+
+    Examples
+    --------
+    Assuming you have a CSV file named 'example.csv' with the following content:
+    
+    ```
+    name,age
+    Alice,30
+    Bob,25
+    ```
+
+    You can load this file into a DataFrame like this:
+
+    >>> from gofast.tools.mlutils import load_csv
+    >>> df = load_csv('example.csv')
+    >>> print(df)
+       name  age
+    0  Alice   30
+    1    Bob   25
     """
-    if isinstance(data, np.ndarray) : 
-        data = pd.DataFrame(data) 
-        if 'index' in data.columns: 
-            data.drop (columns='index', inplace=True)
-            
-    if id_column is None: 
-        id_column ='index' 
-        data = data.reset_index() # adds an `index` columns
-        
-    ids = data[id_column]
-    in_test_set =ids.apply(lambda id_:test_set_check_id(id_, test_ratio, hash))
-    if not keep_colindex: 
-        data.drop (columns ='index', inplace =True )
-        
-    return data.loc[~in_test_set], data.loc[in_test_set]
+    if not os.path.isfile(data_path):
+        raise FileNotFoundError(f"The file '{data_path}' does not exist.")
+    
+    if not data_path.lower().endswith('.csv'):
+        raise ValueError(
+            "The specified file is not a CSV file. Please provide a valid CSV file.")
+    
+    return pd.read_csv(data_path, delimiter=delimiter, **kwargs)
 
 def discretize_categories(
-        data: Union [ArrayLike, DataFrame],
-        in_cat:str =None,
-        new_cat:Optional [str] = None, 
-        **kws
-        ) -> DataFrame: 
-    """ Create a new category attribute to discretize instances. 
-    
-    A new category in data is better use to stratified the trainset and 
-    the dataset to be consistent and rounding using ceil values.
-    
-    :param in_cat: column name used for stratified dataset 
-    :param new_cat: new category name created and inset into the 
-                dataframe.
-    :return: new dataframe with new column of created category.
+    data: Union[pd.DataFrame, pd.Series],
+    in_cat: str,
+    new_cat: Optional[str] = None,
+    divby: float = 1.5,
+    higherclass: int = 5
+) -> DataFrame:
     """
-    divby = kws.pop('divby', 1.5) # normalize to hold raisonable number 
-    combined_cat_into = kws.pop('higherclass', 5) # upper class bound 
+    Discretizes a numerical column in the DataFrame into categories. 
     
-    data[new_cat]= np.ceil(data[in_cat]) /divby 
-    data[new_cat].where(data[in_cat] < combined_cat_into, 
-                             float(combined_cat_into), inplace =True )
-    return data 
+    Creating a new categorical column based on ceiling division and 
+    an upper class limit.
+
+    Parameters
+    ----------
+    data : DataFrame or Series
+        Input data containing the column to be discretized.
+    in_cat : str
+        Column name in `data` used for generating the new categorical attribute.
+    new_cat : str, optional
+        Name for the newly created categorical column. If not provided, 
+        a default name 'new_category' is used.
+    divby : float, default=1.5
+        The divisor used in the ceiling division to discretize the column values.
+    higherclass : int, default=5
+        The upper bound for the discretized categories. Values reaching this 
+        class or higher are grouped into this single upper class.
+
+    Returns
+    -------
+    DataFrame
+        A new DataFrame including the newly created categorical column.
+
+    Examples
+    --------
+    >>> df = pd.DataFrame({'age': [23, 45, 18, 27]})
+    >>> discretized_df = discretize_categories(df, 'age', 'age_cat', divby=10, higherclass=3)
+    >>> print(discretized_df)
+       age  age_cat
+    0   23      3.0
+    1   45      3.0
+    2   18      2.0
+    3   27      3.0
+
+    Note: The 'age_cat' column contains discretized categories based on the 
+    'age' column.
+    """
+    if new_cat is None:
+        new_cat = 'new_category'
+    
+    # Discretize the specified column
+    data[new_cat] = np.ceil(data[in_cat] / divby)
+    # Apply upper class limit
+    data[new_cat] = data[new_cat].where(data[new_cat] < higherclass, other=higherclass)
+    
+    return data
 
 def stratify_categories(
     data: Union[DataFrame, ArrayLike],
@@ -2201,86 +2395,96 @@ def stratify_categories(
 def fetch_model(
     file: str,
     path: Optional[str] = None,
-    default: bool = True,
+    default: bool = False,
     name: Optional[str] = None,
     verbose: int = 0
-) -> Union[Dict[str, Any], List[Tuple[Any, Dict[str, Any], Any]]]:
+    ) -> Union[Dict[str, Any], List[Tuple[Any, Dict[str, Any], Any]]]:
     """
     Fetches a model saved using the Python pickle module or joblib module.
 
     Parameters
     ----------
     file : str
-        The filename of the dumped model, saved using `joblib` or Python 
+        The filename of the dumped model, saved using `joblib` or Python
         `pickle` module.
-    
-    path : str, optional
-        The directory path containing the model file. If None, `file` is assumed 
+    path : Optional[str], optional
+        The directory path containing the model file. If None, `file` is assumed
         to be the full path to the file.
-
     default : bool, optional
-        If True, returns a tuple (model, best parameters, best scores).
-        If False, returns all values saved in the file.
-
-    name : str, optional
+        If True, returns a list of tuples (model, best parameters, best scores)
+        for each model in the file. If False, returns the entire contents of the
+        file.
+    name : Optional[str], optional
         The name of the specific model to retrieve from the file. If specified,
         only the named model and its parameters are returned.
-
     verbose : int, optional
         Verbosity level. More messages are displayed for values greater than 0.
 
     Returns
     -------
     Union[Dict[str, Any], List[Tuple[Any, Dict[str, Any], Any]]]
-    Depending on the default flag:
-        - If default is True, returns a list of tuples containing the model,
-        best parameters, and best scores for each model in the file.
-        - If default is False, returns the entire contents of the file,
-        which could include multiple models and their respective information.
-    
+        Depending on the `default` flag:
+        - If `default` is True, returns a list of tuples containing the model,
+          best parameters, and best scores for each model in the file.
+        - If `default` is False, returns the entire contents of the file, which
+          could include multiple models and their respective information.
+
     Raises
     ------
     FileNotFoundError
         If the specified model file is not found.
-    
     KeyError
         If `name` is specified but not found in the loaded model file.
-    
+
     Examples
     --------
-    >>> model_info = fetch_model('model.pkl', path='/models', 
+    >>> model_info = fetch_model('model.pkl', path='/models',
                                  name='RandomForest', default=True)
-    >>> model, best_params, best_scores = model_info
+    >>> model, best_params, best_scores = model_info[0]
     """
     full_path = os.path.join(path, file) if path else file
 
     if not os.path.isfile(full_path):
-        raise FileNotFoundError(f"File {full_path!r} not found!")
-    
+        raise FileNotFoundError(f"File {full_path!r} not found.")
+
     is_joblib = full_path.endswith('.pkl') or full_path.endswith('.joblib')
-    model_data = joblib.load(full_path) if is_joblib else pickle.load(open(full_path, 'rb'))
-    
-    if verbose:
+    load_func = joblib.load if is_joblib else pickle.load
+    with open(full_path, 'rb') as f:
+        model_data = load_func(f)
+
+    if verbose > 0:
         lib_used = "joblib" if is_joblib else "pickle"
         print(f"Model loaded from {full_path!r} using {lib_used}.")
-    
+
     if name:
         try:
-            model_info = model_data[name]
-            if default:
-                return (model_info['best_model'], model_info['best_params_'],
-                        model_info['best_scores'])
-            else:
-                return model_info
+            specific_model_data = model_data[name]
         except KeyError:
             available_models = list(model_data.keys())
-            raise KeyError(f"Model name '{name}' not found. Available models:"
-                           f" {available_models}")
-    
+            raise KeyError(f"Model name '{name}' not found. Available models: {available_models}")
+        
+        if default:
+            if not isinstance(specific_model_data, dict):
+                warnings.warn(
+                    "The retrieved model data does not follow the expected structure. "
+                    "Each model should be represented as a dictionary, with the model's "
+                    "name as the key and its details (including 'best_params_' and "
+                    "'best_scores_') as nested dictionaries. For instance: "
+                    "`model_data = {'ModelName': {'best_params_': <parameters>, "
+                    "'best_scores_': <scores>}}`. As the structure is unexpected, "
+                    "returning the raw model data instead of the processed tuple."
+                )
+                return specific_model_data
+            # Assuming model data structure for specific named model when default is True
+            return [(specific_model_data, specific_model_data.get('best_params_', {}),
+                     specific_model_data.get('best_scores_', {}))]
+        return specific_model_data
+
     if default:
-        return [(info['best_model'], info['best_params_'], info['best_scores'])
-                for info in model_data.values()]
-    
+        # Assuming model data structure contains 'best_model', 'best_params_', and 'best_scores'
+        return [(model, info.get('best_params_', {}), info.get('best_scores_', {})) 
+                for model, info in model_data.items()]
+
     return model_data
 
 def serialize_data(
@@ -2536,173 +2740,422 @@ def _assert_sl_target (target,  df=None, obj=None):
             
     return target
 
-def export_target(
-    ar, /, 
-    tname, 
-    drop=True , 
-    columns =None,
-    as_frame=False 
-    ): 
-    """ Extract target from multidimensional array or dataframe.  
+def extract_target(
+    data: Union[ArrayLike, DataFrame],/, 
+    target_names: Union[str, int, List[Union[str, int]]],
+    drop: bool = True,
+    columns: Optional[List[str]] = None,
+) -> Tuple[Union[ArrayLike, Series, DataFrame], Union[ArrayLike, DataFrame]]:
+    """
+    Extracts specified target column(s) from a multidimensional numpy array
+    or pandas DataFrame. 
     
-    Parameters 
-    ------------
-    ar: arraylike2d or pd.DataFrame 
-      Array that supposed to contain the target value. 
-      
-    tname: int/str, list of int/str 
-       index or the name of the target; if ``int`` is passed it should range 
-       ranged less than the columns number of the array i.e. a shape[1] in 
-       the case of np.ndarray. If the list of indexes or names are given, 
-       the return target should be in two dimensional array. 
-       
-    drop: bool, default=True 
-       Remove the target array in the 2D array or dataframe in the case 
-       the target exists and returns a data exluding the target array. 
-       
-    columns: list, default=False. 
-       composes the dataframe when the array is given rather than a dataframe. 
-       The list of column names must match the number of columns in the 
-       two dimensional array, otherwise an error occurs. 
-       
-    as_frame: bool, default=False, 
-       returns dataframe/series or the target rather than array when the array 
-       is supplied. This seems useful when column names are supplied. 
-       
+    with options to rename columns in a DataFrame and control over whether the 
+    extracted columns are dropped from the original data.
+
+    Parameters
+    ----------
+    data : Union[np.ndarray, pd.DataFrame]
+        The input data from which target columns are to be extracted. Can be a 
+        NumPy array or a pandas DataFrame.
+    target_names : Union[str, int, List[Union[str, int]]]
+        The name(s) or integer index/indices of the column(s) to extract. 
+        If `data` is a DataFrame, this can be a mix of column names and indices. 
+        If `data` is a NumPy array, only integer indices are allowed.
+    drop : bool, default True
+        If True, the extracted columns are removed from the original `data`. 
+        If False, the original `data` remains unchanged.
+    columns : Optional[List[str]], default None
+        If provided and `data` is a DataFrame, specifies new names for the 
+        columns in `data`. The length of `columns` must match the number of 
+        columns in `data`. This parameter is ignored if `data` is a NumPy array.
+
     Returns
+    -------
+    Tuple[Union[np.ndarray, pd.Series, pd.DataFrame], Union[np.ndarray, pd.DataFrame]]
+        A tuple containing two elements:
+        - The extracted column(s) as a NumPy array or pandas Series/DataFrame.
+        - The original data with the extracted columns optionally removed, as a
+          NumPy array or pandas DataFrame.
+
+    Raises
+    ------
+    ValueError
+        If `columns` is provided and its length does not match the number of 
+        columns in `data`.
+        If any of the specified `target_names` do not exist in `data`.
+        If `target_names` includes a mix of strings and integers for a NumPy 
+        array input.
+
+    Examples
     --------
-    t, ar : array-like/pd.Series , array-like/pd.DataFrame 
-      Return the targets and the array/dataframe of the target. 
-      
-    Examples 
-    ---------
-    >>>> import numpy as np 
     >>> import pandas as pd 
-    >>> from gofast.tools.mtutils import get_target 
-    >>> ar = np.random.randn ( 3,  3 )
-    >>> df0 = pd.DataFrame ( ar, columns = ['x1', 'x2', 'tname'])
-    >>> df= df0.copy() 
-    >>> get_target (df, 'tname', drop= False )
-    (      tname
-     0 -0.542861
-     1  0.781198,
-              x1        x2     tname
-     0 -1.424061 -0.493320 -0.542861
-     1  0.416050 -1.156182  0.781198)
-    >>> get_target (df, [ 'tname', 'x1']) # drop is True by default
-    (      tname        x1
-     0 -0.542861 -1.424061
-     1  0.781198  0.416050,
-              x2
-     0 -0.493320
-     1 -1.156182)
-    >>> df = df0.copy() 
-    >>> # when array is passed 
-    >>> get_target (df.values , '2', drop= False )
-    (array([[-0.54286148],
-            [ 0.7811981 ]]),
-     array([[-1.42406091, -0.49331988, -0.54286148],
-            [ 0.41605005, -1.15618243,  0.7811981 ]]))
-    >>> get_target (df.values , 'tname') # raise error 
-    ValueError: 'tname' ['tname'] is not valid...
-    
+    >>> from gofast.tools.mlutils import extract_target
+    >>> df = pd.DataFrame({
+    ...     'A': [1, 2, 3],
+    ...     'B': [4, 5, 6],
+    ...     'C': [7, 8, 9]
+    ... })
+    >>> target, remaining = extract_target(df, 'B', drop=True)
+    >>> print(target)
+    0    4
+    1    5
+    2    6
+    Name: B, dtype: int64
+    >>> print(remaining)
+       A  C
+    0  1  7
+    1  2  8
+    2  3  9
+    >>> arr = np.random.rand(5, 3)
+    >>> target, modified_arr = extract_target(arr, 2, )
+    >>> print(target)
+    >>> print(modified_arr)
     """
-    emsg =("Array is passed.'tname' must be a list of indexes or column names"
-           " that fit the shape[axis=1] of the given array. Expect {}, got {}.")
-    emsgc =("'tname' {} {} not valid. Array is passed while columns are not "
-            "supplied. Expect 'tname' in the range of numbers betwen 0- {}")
-    is_arr=False 
-    tname =[ str(i) for i in is_iterable(
-        tname, exclude_string =True, transform =True)] 
+    is_frame = isinstance(data, pd.DataFrame)
     
-    if isinstance (ar, np.ndarray): 
-        columns = columns or [str(i) for i in range(ar.shape[1])]
-        if len(columns) < ar.shape [1]: 
-            raise ValueError(emsg.format(ar.shape[1], len(tname)))
-        ar = pd.DataFrame (ar, columns = columns) 
-        if not existfeatures(ar, tname, error='ignore'): 
-            raise ValueError(emsgc.format(tname, "is" if len(tname)==1 else "are", 
-                                         len(columns)-1)
-                             )
-        is_arr=True if not as_frame else False 
-        
-    t, ar =get_target(ar, tname , inplace = drop ) 
+    if is_frame and columns is not None:
+        if len(columns) != data.shape[1]:
+            raise ValueError("`columns` must match the number of columns in"
+                             f" `data`. Expected {data.shape[1]}, got {len(columns)}.")
+        data.columns = columns
 
-    return (t.values, ar.values ) if is_arr  else (t, ar) 
+    if isinstance(target_names, (int, str)):
+        target_names = [target_names]
+
+    if all(isinstance(name, int) for name in target_names):
+        if max(target_names, default=-1) >= data.shape[1]:
+            raise ValueError("All integer indices must be within the"
+                             " column range of the data.")
+    elif any(isinstance(name, int) for name in target_names) and is_frame:
+        target_names = [data.columns[name] if isinstance(name, int) 
+                        else name for name in target_names]
+
+    if is_frame:
+        missing_cols = [name for name in target_names 
+                        if name not in data.columns]
+        if missing_cols:
+            raise ValueError(f"Column names {missing_cols} do not match "
+                             "any column in the DataFrame.")
+        target = data.loc[:, target_names]
+        if drop:
+            data = data.drop(columns=target_names)
+    else:
+        if any(isinstance(name, str) for name in target_names):
+            raise ValueError("String names are not allowed for target names"
+                             " when data is a NumPy array.")
+        target = data[:, target_names]
+        if drop:
+            data = np.delete(data, target_names, axis=1)
+            
+    if  isinstance (target, np.ndarray): # squeeze the array 
+        target = np.squeeze (target)
         
-def naive_data_split(
-    X, y=None, *,  
-    test_size =0.2, 
-    target =None,
-    random_state=42, 
-    fetch_target =False,
-    **skws): 
-    """ Splitting data function naively. 
-    
-    Split data into the training set and test set. If target `y` is not
-    given and you want to consider a specific array as a target for 
-    supervised learning, just turn `fetch_target` argument to ``True`` and 
-    set the `target` argument as a numpy columns index or pandas dataframe
-    colums name. 
-    
-    :param X: np.ndarray or pd.DataFrame 
-    :param y: array_like 
-    :param test_size: If float, should be between 0.0 and 1.0 and represent
-        the proportion of the dataset to include in the test split. 
-    :param random_state: int, Controls the shuffling applied to the data
-        before applying the split. Pass an int for reproducible output across
-        multiple function calls
-    :param fetch_target: bool, use to retrieve the targetted value from 
-        the whole data `X`. 
-    :param target: int, str 
-        If int itshould be the index of the targetted value otherwise should 
-        be the columns name of pandas DataFrame.
-    :param skws: additional scikit-lean keywords arguments 
-        https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.train_test_split.html
-    
-    :returns: list, length -List containing train-test split of inputs.
-        
-    :Example: 
-        
-        >>> from gofast.datasets import fetch_data 
-        >>> data = fetch_data ('Bagoue original').get('data=df')
-        >>> X, XT, y, yT= default_data_splitting(data.values,
-                                     fetch_target=True,
-                                     target =12 )
-        >>> X, XT, y, yT= default_data_splitting(data,
-                             fetch_target=True,
-                             target ='flow' )
-        >>> X0= data.copy()
-        >>> X0.drop('flow', axis =1, inplace=True)
-        >>> y0 = data ['flow']
-        >>> X, XT, y, yT= default_data_splitting(X0, y0)
+    return target, data
+
+def _extract_target(
+        X, target: Union[ArrayLike, int, str, List[Union[int, str]]]):
     """
+    Extracts and validates the target variable(s) from the dataset.
 
-    if fetch_target: 
-        target = _assert_sl_target (target, df =X)
-        s='could not be ' if target is None else 'was succesffully '
-        wmsg = ''.join([
-            f"Target {'index' if isinstance(target, int) else 'value'} "
-            f"{str(target)!r} {s} used to fetch the `y` value from "
-            "the whole data set."])
-        if isinstance(target, str): 
-            y = X[target]
-            X= X.copy()
-            X.drop(target, axis =1, inplace=True)
-        if isinstance(target, (float, int)): 
-            y=X[:, target]
-            X = np.delete (X, target, axis =1)
-        warnings.warn(wmsg, category =UserWarning)
-        
-    V= train_test_split(X, y, random_state=random_state, **skws) \
-        if y is not None else train_test_split(
-                X,random_state=random_state, **skws)
-    if y is None: 
-        X, XT , yT = *V,  None 
+    Parameters
+    ----------
+    X : pd.DataFrame or np.ndarray
+        The dataset from which to extract the target variable(s).
+    target : ArrayLike, int, str, or list of int/str
+        The target variable(s) to be used. If an array-like or DataFrame, 
+        it's directly used as `y`. If an int or str (or list of them), it 
+        indicates the column(s) in `X` to be used as `y`.
+
+    Returns
+    -------
+    X : pd.DataFrame or np.ndarray
+        The dataset without the target column(s).
+    y : pd.Series, np.ndarray, pd.DataFrame
+        The target variable(s).
+    target_names : list of str
+        The names of the target variable(s) for labeling purposes.
+    """
+    target_names = []
+
+    if isinstance(target, (list, pd.DataFrame)) or (
+            isinstance(target, pd.Series) and not isinstance(X, np.ndarray)):
+        if isinstance(target, list):  # List of column names or indexes
+            if all(isinstance(t, str) for t in target):
+                y = X[target]
+                target_names = target
+            elif all(isinstance(t, int) for t in target):
+                y = X.iloc[:, target]
+                target_names = [X.columns[i] for i in target]
+            X = X.drop(columns=target_names)
+        elif isinstance(target, pd.DataFrame):
+            y = target
+            target_names = target.columns.tolist()
+            # Assuming target DataFrame is not part of X
+        elif isinstance(target, pd.Series):
+            y = target
+            target_names = [target.name] if target.name else ["target"]
+            if target.name and target.name in X.columns:
+                X = X.drop(columns=target.name)
+                
+    elif isinstance(target, (int, str)):
+        if isinstance(target, str):
+            y = X.pop(target)
+            target_names = [target]
+        elif isinstance(target, int):
+            y = X.iloc[:, target]
+            target_names = [X.columns[target]]
+            X = X.drop(columns=X.columns[target])
+    elif isinstance(target, np.ndarray) or (
+            isinstance(target, pd.Series) and isinstance(X, np.ndarray)):
+        y = np.array(target)
+        target_names = ["target"]
+    else:
+        raise ValueError("Unsupported target type or target does not match X dimensions.")
+    
+    check_consistent_length(X, y)
+    
+    return X, y, target_names
+
+def smart_split(
+    X, 
+    target: Optional[Union[ArrayLike, int, str, List[Union[int, str]]]] = None,
+    test_size: float = 0.2, 
+    random_state: int = 42,
+    stratify: bool = False,
+    shuffle: bool = True,
+    return_df: bool = False,
+    **skws
+) -> Union[
+    Tuple[DataFrame, DataFrame], 
+    Tuple[ArrayLike, ArrayLike],
+    Tuple[DataFrame, DataFrame, Series, Series], 
+    Tuple[DataFrame, DataFrame, DataFrame, DataFrame], 
+    Tuple[ArrayLike, ArrayLike, ArrayLike, ArrayLike]
+    ]:
+    """
+    Splits data into training and test sets, with the option to extract and 
+    handle multiple target variables. 
+    
+    Function supports both single and multi-label targets and maintains 
+    compatibility with pandas DataFrame and numpy ndarray.
+
+    Parameters
+    ----------
+    X : np.ndarray or pd.DataFrame
+        The input data to be split. This can be either feature data alone or 
+        include the target column(s) if the `target` parameter is used to specify 
+        target column(s) for extraction.
+    target : int, str, list of int/str, pd.Series, pd.DataFrame, optional
+        Specifies the target variable(s) for supervised learning problems. 
+        It can be:
+        - An integer or string specifying the column index or name in `X` to 
+          be used as the target variable.
+        - A list of integers or strings for multi-label targets.
+        - A pandas Series or DataFrame directly specifying the target variable(s).
+        If `target` is provided as an array-like object or DataFrame, its 
+        length must match the number of samples in `X`.
+    test_size : float, optional
+        Represents the proportion of the dataset to include in the test split. 
+        Must be between 0.0 and 1.0.
+    random_state : int, optional
+        Sets the seed for random operations, ensuring reproducible splits.
+    stratify : bool, optional
+        Ensures that the train and test sets have approximately the same 
+        percentage of samples of each target class if set to True.
+    shuffle : bool, optional
+        Determines whether to shuffle the dataset before splitting. 
+    return_df : bool, optional
+        If True and `X` is a DataFrame, returns the splits as pandas DataFrames/Series. 
+        Otherwise, returns numpy ndarrays.
+    skws : dict
+        Additional keyword arguments for `train_test_split`, allowing customization 
+        of the split beyond the parameters explicitly mentioned here.
+
+    Returns
+    -------
+    Depending on the inputs and `return_df`:
+    - If `target` is not specified: X_train, X_test
+    - If `target` is specified: X_train, X_test, y_train, y_test
+    `X_train` and `X_test` are the splits of the input data, while `y_train` and 
+    `y_test` are the splits of the target variable(s) if provided.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.tools.mlutils import smart_split
+    >>> data = pd.DataFrame({
+    ...     'Feature1': [1, 2, 3, 4],
+    ...     'Feature2': [4, 3, 2, 1],
+    ...     'Target': [0, 1, 0, 1]
+    ... })
+    >>> # Single target specified as a column name
+    >>> X_train, X_test, y_train, y_test = smart_split(
+    ... data, target='Target', return_df=True)
+    >>> print(X_train.shape, X_test.shape, y_train.shape, y_test.shape)
+    """
+    if target is not None:
+        X, y, target_names = _extract_target(X, target)
+    else:
+        y, target_names = None, []
+
+    stratify_param = y if stratify and y is not None else None
+    if y is not None: 
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=test_size, random_state=random_state, shuffle=shuffle, 
+            stratify=stratify_param, **skws)
     else: 
-        X, XT, y, yT= V
+        X_train, X_test= train_test_split(
+            X, test_size=test_size, random_state=random_state, shuffle=shuffle, 
+            stratify=stratify_param, **skws)
+
+    if return_df and isinstance(X, pd.DataFrame):
+        X_train, X_test = pd.DataFrame(X_train, columns=X.columns
+                                       ), pd.DataFrame(X_test, columns=X.columns)
+        if y is not None:
+            if isinstance(y, pd.DataFrame):
+                y_train, y_test = pd.DataFrame(
+                    y_train, columns=target_names), pd.DataFrame(
+                        y_test, columns=target_names)
+            else:
+                y_train, y_test = pd.Series(
+                    y_train, name=target_names[0]), pd.Series(
+                        y_test, name=target_names[0])
+
+    return (X_train, X_test, y_train, y_test) if y is not None else (X_train, X_test)
+
+def handle_imbalance(
+    X, y=None, strategy='oversample', 
+    random_state=42, 
+    target_col='target'
+    ):
+    """
+    Handles imbalanced datasets by either oversampling the minority class or 
+    undersampling the majority class.
     
-    return  X, XT, y, yT
+    It supports inputs as pandas DataFrame/Series, numpy arrays, and allows 
+    specifying the target variable either as a separate argument or as part 
+    of the DataFrame.
+
+    Parameters
+    ----------
+    X : pd.DataFrame, np.ndarray
+        The features of the dataset. If `y` is None, `X` is expected to include 
+        the target variable.
+    y : pd.Series, np.ndarray, optional
+        The target variable of the dataset. If None, `target_col` must be 
+        specified, and `X` must be a DataFrame containing the target.
+    strategy : str, optional
+        The strategy to apply for handling imbalance: 'oversample' or 
+        'undersample'. Default is 'oversample'.
+    random_state : int, optional
+        The random state for reproducible results. Default is 42.
+    target_col : str, optional
+        The name of the target column in `X` if `X` is a DataFrame and 
+        `y` is None. Default is 'target'.
+    
+    Returns
+    -------
+    X_resampled, y_resampled : Resampled features and target variable.
+        The types of `X_resampled` and `y_resampled` match the input types.
+
+    Examples
+    --------
+    Using with numpy arrays:
+    
+    >>> import numpy as np 
+    >>> import pandas as pd 
+    >>> from gofast.tools.mlutils import handle_imbalance
+    >>> X = np.array([[1, 2], [2, 3], [3, 4]])
+    >>> y = np.array([0, 1, 0])
+    >>> X_resampled, y_resampled = handle_imbalance(X, y)
+    >>> print(X_resampled.shape, y_resampled.shape)
+    (3, 2) (3,)
+    Using with pandas DataFrame (including target column):
+    
+    >>> df = pd.DataFrame({'feature1': [1, 2, 3], 'feature2': [2, 3, 4], 'target': [0, 1, 0]})
+    >>> X_resampled, y_resampled = handle_imbalance(df, target_col='target')
+    >>> print(X_resampled.shape, y_resampled.value_counts())
+
+    Using with pandas DataFrame and Series:
+    
+    >>> X = pd.DataFrame({'feature1': [1, 2, 3], 'feature2': [2, 3, 4]})
+    >>> y = pd.Series([0, 1, 0], name='target')
+    >>> X_resampled, y_resampled = handle_imbalance(X, y)
+    >>> print(X_resampled.shape, y_resampled.value_counts())
+    """
+    if y is None:
+        if not isinstance(X, pd.DataFrame):
+            raise ValueError("`X` must be a DataFrame when `y` is None.")
+        exist_features(X, target_col, name =target_col)
+        y = X[target_col]
+        X = X.drop(target_col, axis=1)
+
+    if not _is_arraylike_1d(y): 
+        raise TypeError ("Check `y`. Expect one-dimensional array.")
+
+    if not isinstance (y, pd.Series) : 
+        # squeeze y to keep 1d array for skipping value error 
+        # when constructing pd.Series and 
+        # ensure `y` is a Series with the correct name for 
+        # easy concatenation and manipulation
+        y =pd.Series (np.squeeze (y), name =target_col ) 
+    else : target_col = y.name # reset the default target_col 
+ 
+    # Check consistent length 
+    check_consistent_length(X, y )
+    
+    if isinstance(X, pd.DataFrame):
+        data = pd.concat([X, y], axis=1)
+    elif isinstance (X, np.ndarray ): 
+        # Ensure `data` from `X` is a DataFrame with correct 
+        # column names for subsequent operations
+        data = pd.DataFrame(
+            np.column_stack([X, y]), columns=[*X.columns, y.name]
+            if isinstance(X, pd.DataFrame) else [
+                    *[f"feature_{i}" for i in range(X.shape[1])], y.name])
+    else: 
+        TypeError("Unsupported type for X. Must be np.ndarray or pd.DataFrame.")
+        
+    # Identify majority and minority classes
+    majority_class = y.value_counts().idxmax()
+    minority_class = y.value_counts().idxmin()
+
+    # Correctly determine the number of samples for resampling
+    num_majority = y.value_counts()[majority_class]
+    num_minority = y.value_counts()[minority_class]
+
+    # Apply resampling strategy
+    if strategy == 'oversample':
+        minority_upsampled = resample(
+            data[data[target_col] == minority_class],
+            replace=True,
+            n_samples=num_majority,
+            random_state=random_state
+            )
+        resampled = pd.concat(
+            [data[data[target_col] == majority_class], minority_upsampled])
+    elif strategy == 'undersample':
+        majority_downsampled = resample(
+            data[data[target_col] == majority_class],
+            replace=False,
+            n_samples=num_minority,
+            random_state=random_state
+            )
+        resampled = pd.concat(
+            [data[data[target_col] == minority_class], majority_downsampled])
+
+    # Prepare the output
+    X_resampled = resampled.drop(target_col, axis=1)
+    y_resampled = resampled[target_col]
+
+    # Convert back to the original input type if necessary
+    if isinstance(X, np.ndarray):
+        X_resampled = X_resampled.to_numpy()
+        y_resampled = y_resampled.to_numpy()
+
+    return X_resampled, y_resampled
+
 
 def soft_data_split(
     X, y=None, *,
@@ -2768,38 +3221,36 @@ def soft_data_split(
         return train_test_split(X, y, test_size=test_size, 
                                 random_state=random_state, **split_kwargs)
     else:
-        X_train, X_test = train_test_split(X, test_size=test_size,
-                                           random_state=random_state, 
-                                           **split_kwargs)
-        return X_train, X_test, None, None
-
-def load_saved_model(
+        return  train_test_split(
+            X, test_size=test_size,random_state=random_state, **split_kwargs)
+ 
+def load_model(
     file_path: str,
     *,
     retrieve_default: bool = True,
     model_name: Optional[str] = None,
-    storage_format: Optional[str] = None,
-) -> Union[object, Tuple[object, Dict[str, Any]]]:
+    storage_format: Optional[str] = None
+    ) -> Union[Any, Tuple[Any, Dict[str, Any]]]:
     """
-    Load a saved model or data using Python's pickle or joblib module.
+    Loads a saved model or data using Python's pickle or joblib module.
 
     Parameters
     ----------
     file_path : str
         The path to the saved model file. Supported formats are `.pkl` and `.joblib`.
-    retrieve_default : bool, default=True
+    retrieve_default : bool, optional, default=True
         If True, returns the model along with its best parameters. If False,
         returns the entire contents of the saved file.
-    model_name : str, optional
+    model_name : Optional[str], optional
         The name of the specific model to retrieve from the saved file. If None,
         the entire file content is returned.
-    storage_format : str, optional
+    storage_format : Optional[str], optional
         The format used for saving the file. If None, the format is inferred
         from the file extension. Supported formats are 'joblib' and 'pickle'.
 
     Returns
     -------
-    object or Tuple[object, Dict[str, Any]]
+    Union[Any, Tuple[Any, Dict[str, Any]]]
         The loaded model or a tuple of the model and its parameters, depending
         on the `retrieve_default` value.
 
@@ -2810,202 +3261,70 @@ def load_saved_model(
     KeyError
         If the specified model name is not found in the file.
     ValueError
-        If the storage format is not supported.
+        If the storage format is not supported or if the loaded data is not
+        a dictionary when a model name is specified.
 
     Example
     -------
-    >>> from gofast.tools.mlutils import load_saved_model
-    >>> model, params = load_saved_model('path_to_file.pkl', model_name='SVC')
+    >>> model, params = load_model('path_to_file.pkl', model_name='SVC')
+    >>> print(model)
+    >>> print(params)
     """
-
     if not os.path.isfile(file_path):
-        raise FileNotFoundError(f"File {file_path!r} not found.")
+        raise FileNotFoundError(f"File '{file_path}' not found.")
 
-    # Infer storage format from file extension if not specified
-    storage_format = storage_format or os.path.splitext(
-        file_path)[-1].lower().lstrip('.')
+    storage_format = storage_format or os.path.splitext(file_path)[-1].lower().lstrip('.')
     if storage_format not in {"joblib", "pickle"}:
-        raise ValueError(f"Unsupported storage format {storage_format!r}."
-                         " Use 'joblib' or 'pickle'.")
+        raise ValueError(f"Unsupported storage format '{storage_format}'. "
+                         "Use 'joblib' or 'pickle'.")
 
-    # Load the saved file
-    if storage_format == 'joblib':
-        loaded_data = joblib.load(file_path)
-    elif storage_format == 'pickle':
-        with open(file_path, 'rb') as file:
-            loaded_data = pickle.load(file)
+    load_func = joblib.load if storage_format == 'joblib' else pickle.load
+    with open(file_path, 'rb') as file:
+        loaded_data = load_func(file)
 
-    # If a specific model name is provided, extract it
     if model_name:
-        if model_name not in loaded_data:
-            raise KeyError(f"Model {model_name!r} not found in the file."
-                           f" Available models: {list(loaded_data.keys())}")
+        if not isinstance(loaded_data, dict):
+            warnings.warn(
+                f"Expected loaded data to be a dictionary for model name retrieval. "
+               f"Received type '{type(loaded_data).__name__}'. Returning loaded data.")
+            return loaded_data
+
+        model_info = loaded_data.get(model_name)
+        if model_info is None:
+            available = ', '.join(loaded_data.keys())
+            raise KeyError(f"Model '{model_name}' not found. Available models: {available}")
+
         if retrieve_default:
-            return ( loaded_data[model_name]['best_model'],
-                    loaded_data[model_name]['best_params_'])
-        else:
-            return loaded_data[model_name]
+            if not isinstance(model_info, dict):
+                # Check if 'best_model_' and 'best_params_' are among the keys
+                main_keys = [key for key in loaded_data if key in (
+                    'best_model_', 'best_params_')]
+                if len(main_keys) == 0:
+                    warnings.warn(
+                    "The structure of the default model data is not correctly "
+                    "formatted. Expected 'best_model_' and 'best_params_' to be "
+                    "present within a dictionary keyed by the model's name. Each key "
+                    "should map to a dictionary containing the model itself and its "
+                    "parameters, for example: `{'ModelName': {'best_model_': <Model>, "
+                    "'best_params_': <Parameters>}}`. Since the expected keys were "
+                    "not found, returning the unprocessed model data."
+                    )
+                    return model_info
+                else:
+                    # Extract 'best_model_' and 'best_params_' from loaded_data
+                    best_model = loaded_data.get('best_model_', None)
+                    best_params = loaded_data.get('best_params_', {})
+            else:
+                # Direct extraction from model_info if it's properly structured
+                best_model = model_info.get('best_model_', None)
+                best_params = model_info.get('best_params_', {})
+
+            return best_model, best_params
+
+        return model_info
 
     return loaded_data
 
-@deprecated ("Deprecated function. It should be removed soon in"
-             " the next realease...")
-def fetchModel(
-    file: str,
-    *, 
-    default: bool = True,
-    name: Optional[str] = None,
-    storage=None, 
-)-> object: 
-    """ Fetch your data/model saved using Python pickle or joblib module. 
-    
-    Parameters 
-    ------------
-    file: str or Path-Like object 
-        dumped model file name saved using `joblib` or Python `pickle` module.
-    path: path-Like object , 
-        Path to model dumped file =`modelfile`
-    default: bool, 
-        Model parameters by default are saved into a dictionary. When default 
-        is ``True``, returns a tuple of pair (the model and its best parameters).
-        If ``False`` return all values saved from `~.MultipleGridSearch`
-    storage: str, default='joblib'
-        kind of module use to pickling the data
-    name: str 
-        Is the name of model to retreived from dumped file. If name is given 
-        get only the model and its best parameters. 
-        
-    Returns
-    --------
-    - `data`: Tuple (Dict, )
-        data composed of models, classes and params for 'best_model', 
-        'best_params_' and 'best_scores' if default is ``True``,
-        and model dumped and all parameters otherwise.
-
-    Example
-    ---------
-        >>> from gofast.bases import fetch_model 
-        >>> my_model, = fetchModel ('SVC__LinearSVC__LogisticRegression.pkl',
-                                    default =False,  modname='SVC')
-        >>> my_model
-    """
-    
-    if not os.path.isfile (file): 
-        raise FileNotFoundError (f"File {file!r} not found. Please check"
-                                 " your filename.")
-    st = storage 
-    if storage is None: 
-        ex = os.path.splitext (file)[-1] 
-        storage = 'joblib' if ex =='.joblib' else 'pickle'
-
-    storage = str(storage).lower().strip() 
-    
-    assert storage in {"joblib", "pickle"}, (
-        "Data pickling supports only the Python's built-in persistence"
-        f" model'pickle' or 'joblib' as replacement of pickle: got{st!r}"
-        )
-    _logger.info(f"Loading models {os.path.basename(file)}")
-    
-    if storage =='joblib':
-        pickledmodel = joblib.load(file)
-        if len(pickledmodel)>=2 : 
-            pickledmodel = pickledmodel[0]
-    elif storage =='pickle': 
-        with open(file, 'rb') as modf: 
-            pickledmodel= pickle.load (modf)
-            
-    data= copy.deepcopy(pickledmodel)
-    if name is not None: 
-        name =_assert_all_types(name, str, objname="Model to pickle ")
-        if name not in pickledmodel.keys(): 
-            raise KeyError(
-                f"Model {name!r} is missing in the dumped models."
-                f" Available pickled models: {list(pickledmodel.keys())}"
-                         )
-        if default: 
-            data =[pickledmodel[name][k] for k in (
-                "best_model", "best_params_", "best_scores")
-                ]
-        else:
-            # When using storage as joblib
-            # trying to unpickle estimator directly other
-            # format than dict from version 1.1.1 
-            # might lead to breaking code or invalid results. 
-            # Use at your own risk. For more info please refer to:
-            # https://scikit-learn.org/stable/modules/model_persistence.html#security-maintainability-limitations
-            
-            # pickling all data
-            data= pickledmodel.get(name)
-        
-    return data,       
-
-def find_features_in( 
-    df: DataFrame= None, 
-    features: List[str]= None,  
-    parse_features: bool=False, 
-    return_frames: bool= False, 
-    ) -> Tuple[List[str] | DataFrame, List[str] |DataFrame]: 
-    """ 
-    Retrieve the categorial or numerical features on whole features 
-    of dataset. 
-    
-    Parameters 
-    -----------
-    df: Dataframe 
-        Dataframe with columns composing the features
-        
-    features: list of str, 
-        list of the column names. If the dataframe is big, can set the only 
-        required features. If features are provided, frame should be shrunked 
-        to match the only given features before the numerical and categorical 
-        features search. Note that an error will raises if any of one features 
-        is missing in the dataframe. 
-        
-    return_frames: bool, 
-        if set to ``True``, it returns two separated dataframes (cat & num) 
-        otherwise, it only returns the cat and num columns names. 
-    parse_features: bool, default=False, 
-       Use default parsers to parse string items into an interable object. 
-       
-    Returns
-    ---------
-    Tuple:  `cat_features` and  `num_features` names or frames 
-       
-    Examples 
-    ----------
-    >>> from gofast.datasets import fetch_data 
-    >>>> from gofast.tools.mlutils import find_features_in
-    >>> data = fetch_data ('bagoue original').get('data=dfy2')
-    >>> cat, num = find_features_in(data)
-    >>> cat, num 
-    ... (['type', 'geol', 'shape', 'name', 'flow'],
-     ['num', 'east', 'north', 'power', 'magnitude', 'sfi', 'ohmS', 'lwi'])
-    >>> cat, num = find_features_in(
-        data, features = ['geol', 'ohmS', 'sfi'])
-    ... (['geol'], ['ohmS', 'sfi'])
-        
-    """
-    if not is_frame (df, df_only =True ):
-        raise TypeError(
-            f"Expect a dataframe. Got {type(df).__name__!r}")
-    if features is not None: 
-        features = list( is_iterable(
-            features, exclude_string= True, transform =True, 
-            parse_string= parse_features) 
-                        )
-    if features is None: # get  the whole features 
-        features = list(df.columns) 
-        
-    existfeatures(df, list(features))
-    df = df[features].copy() 
-    
-    # get num features 
-    num = select_features(df, include = 'number')
-    catnames = findDifferenceGenObject (df.columns, num.columns ) 
-    if catnames is None: catnames =[]
-    return ( df[catnames], num) if return_frames else (
-        list(catnames), list(num.columns)  )
-   
 def categorize_target(
     arr :ArrayLike |Series , /, 
     func: _F = None,  
@@ -3246,215 +3565,7 @@ def _cattarget (ar , labels , order=None):
         new_arr= np.hstack (l).astype (np.int32)  
         
     return new_arr.astype (np.int32)       
-        
-def projection_validator (X, Xt=None, columns =None ):
-    """ Retrieve x, y coordinates of a datraframe ( X, Xt ) from columns 
-    names or indexes. 
-    
-    If X or Xt are given as arrays, `columns` may hold integers from 
-    selecting the the coordinates 'x' and 'y'. 
-    
-    Parameters 
-    ---------
-    X:  Ndarray ( M x N matrix where ``M=m-samples``, & ``N=n-features``)
-        training set; Denotes data that is observed at training and prediction 
-        time, used as independent variables in learning. The notation 
-        is uppercase to denote that it is ordinarily a matrix. When a matrix, 
-        each sample may be represented by a feature vector, or a vector of 
-        precomputed (dis)similarity with each training sample. 
 
-    Xt: Ndarray ( M x N matrix where ``M=m-samples``, & ``N=n-features``)
-        Shorthand for "test set"; data that is observed at testing and 
-        prediction time, used as independent variables in learning. The 
-        notation is uppercase to denote that it is ordinarily a matrix.
-    columns: list of str or index, optional 
-        columns is usefull when a dataframe is given  with a dimension size 
-        greater than 2. If such data is passed to `X` or `Xt`, columns must
-        hold the name to consider as 'easting', 'northing' when UTM 
-        coordinates are given or 'latitude' , 'longitude' when latlon are 
-        given. 
-        If dimension size is greater than 2 and columns is None , an error 
-        will raises to prevent the user to provide the index for 'y' and 'x' 
-        coordinated retrieval. 
-      
-    Returns 
-    -------
-    ( x, y, xt, yt ), (xname, yname, xtname, ytname), Tuple of coordinate 
-        arrays and coordinate labels 
- 
-    """
-    # initialize arrays and names 
-    init_none = [None for i in range (4)]
-    x,y, xt, yt = init_none
-    xname,yname, xtname, ytname = init_none 
-    
-    m="{0} must be an iterable object, not {1!r}"
-    ms= ("{!r} is given while columns are not supplied. set the list of "
-        " feature names or indexes to fetch 'x' and 'y' coordinate arrays." )
-    
-    # args = list(args) + [None for i in range (5)]
-    # x, y, xt, yt, *_ = args 
-    X =_assert_all_types(X, np.ndarray, pd.DataFrame ) 
-    
-    if Xt is not None: 
-        Xt = _assert_all_types(Xt, np.ndarray, pd.DataFrame)
-        
-    if columns is not None: 
-        if isinstance (columns, str): 
-            columns = str2columns(columns )
-        
-        if not is_iterable(columns): 
-            raise ValueError(m.format('columns', type(columns).__name__))
-        
-        columns = list(columns) + [ None for i in range (5)]
-        xname , yname, xtname, ytname , *_= columns 
-
-    if isinstance(X, pd.DataFrame):
-      
-        x, xname, y, yname = _validate_columns(X, xname, yname)
-        
-    elif isinstance(X, np.ndarray):
-        x, y = _is_valid_coordinate_arrays (X, xname, yname )    
-        
-        
-    if isinstance (Xt, pd.DataFrame) :
-        # the test set holds the same feature names
-        # as the train set 
-        if xtname is None: 
-            xtname = xname
-        if ytname is None: 
-            ytname = yname 
-            
-        xt, xtname, yt, ytname = _validate_columns(Xt, xname, yname)
-
-    elif isinstance(Xt, np.ndarray):
-        
-        if xtname is None: 
-            xtname = xname
-        if ytname is None: 
-            ytname = yname 
-            
-        xt, yt = _is_valid_coordinate_arrays (Xt, xtname, ytname , 'test')
-        
-    if (x is None) or (y is None): 
-        raise ValueError (ms.format('X'))
-    if Xt is not None: 
-        if (xt is None) or (yt is None): 
-            warnings.warn (ms.format('Xt'))
-
-    return  (x, y , xt, yt ) , (
-        xname, yname, xtname, ytname ) 
-    
-
-def _validate_columns (df, xni, yni ): 
-    """ Validate the feature name  in the dataframe using either the 
-    string litteral name of the index position in the columns.
-    
-    :param df: pandas.DataFrame- Dataframe with feature names as columns. 
-    :param xni: str, int- feature name  or position index in the columns for 
-        x-coordinate 
-    :param yni: str, int- feature name  or position index in the columns for 
-        y-coordinate 
-    
-    :returns: (x, ni) Tuple of (pandas.Series, and names) for x and y 
-        coordinates respectively.
-    
-    """
-    def _r (ni): 
-        if isinstance(ni, str): # feature name
-            existfeatures(df, ni ) 
-            s = df[ni]  
-        elif isinstance (ni, (int, float)):# feature index
-            s= df.iloc[:, int(ni)] 
-            ni = s.name 
-        return s, ni 
-        
-    xs , ys = [None, None ]
-    if df.ndim ==1: 
-        raise ValueError ("Expect a dataframe of two dimensions, got '1'")
-        
-    elif df.shape[1]==2: 
-       warnings.warn("columns are not specify while array has dimension"
-                     "equals to 2. Expect indexes 0 and 1 for (x, y)"
-                     "coordinates respectively.")
-       xni= df.iloc[:, 0].name 
-       yni= df.iloc[:, 1].name 
-    else: 
-        ms = ("The matrix of features is greater than 2. Need column names or"
-              " indexes to  retrieve the 'x' and 'y' coordinate arrays." ) 
-        e =' Only {!r} is given.' 
-        me=''
-        if xni is not None: 
-            me =e.format(xni)
-        if yni is not None: 
-            me=e.format(yni)
-           
-        if (xni is None) or (yni is None ): 
-            raise ValueError (ms + me)
-            
-    xs, xni = _r (xni) ;  ys, yni = _r (yni)
-  
-    return xs, xni , ys, yni 
-
-
-def _validate_array_indexer (arr, index): 
-    """ Select the appropriate coordinates (x,y) arrays from indexes.  
-    
-    Index is used  to retrieve the array of (x, y) coordinates if dimension 
-    of `arr` is greater than 2. Since we expect x, y coordinate for projecting 
-    coordinates, 1-d  array `X` is not acceptable. 
-    
-    :param arr: ndarray (n_samples, n_features) - if nfeatures is greater than 
-        2 , indexes is needed to fetch the x, y coordinates . 
-    :param index: int, index to fetch x, and y coordinates in multi-dimension
-        arrays. 
-    :returns: arr- x or y coordinates arrays. 
-
-    """
-    if arr.ndim ==1: 
-        raise ValueError ("Expect an array of two dimensions.")
-    if not isinstance (index, (float, int)): 
-        raise ValueError("index is needed to coordinate array with "
-                         "dimension greater than 2.")
-        
-    return arr[:, int (index) ]
-
-def _is_valid_coordinate_arrays (arr, xind, yind, ptype ='train'): 
-    """ Check whether array is suitable for projecting i.e. whether 
-    x and y (both coordinates) can be retrived from `arr`.
-    
-    :param arr: ndarray (n_samples, n_features) - if nfeatures is greater than 
-        2 , indexes is needed to fetch the x, y coordinates . 
-        
-    :param xind: int, index to fetch x-coordinate in multi-dimension
-        arrays. 
-    :param yind: int, index to fetch y-coordinate in multi-dimension
-        arrays
-    :param ptype: str, default='train', specify whether the array passed is 
-        training or test sets. 
-    :returns: (x, y)- array-like of x and y coordinates. 
-    
-    """
-    xn, yn =('x', 'y') if ptype =='train' else ('xt', 'yt') 
-    if arr.ndim ==1: 
-        raise ValueError ("Expect an array of two dimensions.")
-        
-    elif arr.shape[1] ==2 : 
-        x, y = arr[:, 0], arr[:, 1]
-        
-    else :
-        msg=("The matrix of features is greater than 2; Need index to  "
-             " retrieve the {!r} coordinate array in param 'column'.")
-        
-        if xind is None: 
-            raise ValueError(msg.format(xn))
-        else : x = _validate_array_indexer(arr, xind)
-        if yind is None : 
-            raise ValueError(msg.format(yn))
-        else : y = _validate_array_indexer(arr, yind)
-        
-    return x, y         
-        
 def labels_validator (t, /, labels, return_bool = False): 
     """ Assert the validity of the label in the target  and return the label 
     or the boolean whether all items of label are in the target. 
@@ -3815,26 +3926,36 @@ def make_pipe(
     return  ( full_pipeline.fit_transform (X) if y is None else (
         full_pipeline.fit_transform (X), y ) 
              ) if transform else full_pipeline
-       
+
+@ensure_pkg (
+    "imblearn", 
+    partial_check=True, 
+    condition="balance_classes", 
+    extra= (
+        "Synthetic Minority Over-sampling Technique (SMOTE) cannot be used."
+        " Note,`imblearn` is actually a shorthand for ``imbalanced-learn``."
+        ), 
+   )
 def build_data_preprocessor(
-    X, y=None, *,  
-    num_features=None, 
-    cat_features=None, 
-    custom_transformers=None,
-    label_encoding='LabelEncoder', 
-    scaler='StandardScaler', 
-    missing_values=np.nan, 
-    impute_strategy='median', 
-    feature_interaction=False,
-    dimension_reduction=None,
-    feature_selection=None,
-    balance_classes=False,
-    advanced_imputation=None,
-    verbose=False,
-    output_format='array',
-    transform=False,
-    **kwargs
-    ):
+    X: Union [NDArray, DataFrame], 
+    y: Optional[ArrayLike] = None, *,  
+    num_features: Optional[List[str]] = None, 
+    cat_features: Optional[List[str]] = None, 
+    custom_transformers: Optional[List[Tuple[str, TransformerMixin]]] = None,
+    label_encoding: Union[str, TransformerMixin] = 'LabelEncoder', 
+    scaler: Union[str, TransformerMixin] = 'StandardScaler', 
+    missing_values: Union[int, float, str, np.nan, None] = np.nan, 
+    impute_strategy: str = 'median', 
+    feature_interaction: bool = False,
+    dimension_reduction: Optional[Union[str, TransformerMixin]] = None,
+    feature_selection: Optional[Union[str, TransformerMixin]] = None,
+    balance_classes: bool = False,
+    advanced_imputation: Optional[TransformerMixin] = None,
+    verbose: bool = False,
+    output_format: str = 'array',
+    transform: bool = False,
+    **kwargs: Any
+) -> Any:
     """
     Create a preprocessing pipeline for data transformation and feature engineering.
 
@@ -3845,8 +3966,8 @@ def build_data_preprocessor(
 
     Parameters
     ----------
-    X : DataFrame
-        Input features dataframe.
+    X : np.ndarray or DataFrame
+        Input features dataframe or arraylike. Must be two dimensional array.
     y : array-like, optional
         Target variable. Required for supervised learning tasks.
     num_features : list of str, optional
@@ -3892,13 +4013,17 @@ def build_data_preprocessor(
     --------
     >>> from gofast.tools.mlutils import build_data_preprocessor
     >>> from gofast.datasets import load_hlogs
-    >>> X, y = load_hlogs(as_frame=True)
+    >>> X, y = load_hlogs(as_frame=True, return_X_y=True)
     >>> pipeline = build_data_preprocessor(X, y, scaler='RobustScaler')
     >>> X_transformed = pipeline.fit_transform(X)
     
     """
     sc= {"StandardScaler": StandardScaler ,"MinMaxScaler": MinMaxScaler , 
          "Normalizer":Normalizer , "RobustScaler":RobustScaler}
+
+    if not isinstance (X, pd.DataFrame): 
+        # create fake dataframe for handling columns features 
+        X= pd.DataFrame(X)
     # assert scaler value 
     if get_estimator_name (scaler) in sc.keys(): 
         scaler = sc.get (get_estimator_name(scaler ))() 
@@ -3948,7 +4073,7 @@ def build_data_preprocessor(
 
    # Advanced imputation logic if required
     if advanced_imputation:
-        from sklearn.experimental import enable_iterative_imputer
+        from sklearn.experimental import enable_iterative_imputer # noqa
         from sklearn.impute import IterativeImputer
         if advanced_imputation == 'IterativeImputer':
             steps.insert(0, ('advanced_imputer', IterativeImputer(
@@ -3962,601 +4087,553 @@ def build_data_preprocessor(
     # Class balancing logic if required
     if balance_classes and y is not None:
         if str(balance_classes).upper() == 'SMOTE':
-            msg =(" Missing 'imblearn'package. 'SMOTE` can't be used. Note that"
-                  " `imblearn` is the shorthand of the package 'imbalanced-learn'."
-                  " Use `pip install imbalanced-learn` instead.")
-            import_optional_dependency("imblearn", extra = msg )
-            #-----------------------------------------
             from imblearn.over_sampling import SMOTE
-            #-----------------------------------------
             # Note: SMOTE works on numerical data, so it's applied after initial pipeline
             pipeline = Pipeline([('preprocessing', pipeline), (
                 'smote', SMOTE(random_state=42))])
 
     # Transform data if transform flag is set
+    # if transform:
+    output_format = output_format or 'array' # force none to hold array
+    if str(output_format) not in ('array', 'dataframe'): 
+        raise ValueError(f"Invalid '{output_format}', expect 'array' or 'dataframe'.")
+        
+    return _execute_transformation(
+        pipeline, X, y, transform, output_format, label_encoding)
+
+def _execute_transformation(
+        pipeline, X, y, transform, output_format, label_encoding):
+    """ # Transform data if transform flag is set or return pipeline"""
     if transform:
-        if output_format == 'dataframe':
-            return pd.DataFrame(pipeline.fit_transform(X), columns=X.columns)
-        else:
-            return pipeline.fit_transform(X)
-
+        X_transformed = pipeline.fit_transform(X)
+        if y is not None:
+            y_transformed = _transform_target(y, label_encoding) if label_encoding else y
+            return (X_transformed, y_transformed) if output_format == 'array' else (
+                pd.DataFrame(X_transformed), pd.Series(y_transformed))
+        
+        return X_transformed if output_format == 'array' else pd.DataFrame(X_transformed)
+    
     return pipeline
- 
-def select_feature_importances (
-    clf, 
-    X, 
-    y=None, *,  
-    threshold = .1 , 
-    prefit = True , 
-    verbose = 0 ,
-    return_selector =False, 
-    **kws
-    ): 
-    """
-    Select feature importance  based on a user-specified threshold 
-    after model fitting. 
-    
-    This is useful if one want to use `RandomForestClassifier` as a feature 
-    selector and intermediate step in scikit-learn ``Pipeline`` object, which 
-    allows us to connect different processing steps  with an estimator. 
-  
-    Parameters 
-    ----------
-    clf : estimator object
-        The base estimator from which the transformer is built.
-        This can be both a fitted (if ``prefit`` is set to True)
-        or a non-fitted estimator. The estimator should have a
-        ``feature_importances_`` or ``coef_`` attribute after fitting.
-        Otherwise, the ``importance_getter`` parameter should be used.
-        
-    X : array-like of shape (n_samples, n_features)
-        Training vector, where `n_samples` is the number of samples and
-        `n_features` is the number of features.
-        
-    y: array-like of shape (n_samples, ) 
-        Target vector where `n_samples` is the number of samples. If given, 
-        set `prefit=False` for estimator to fit and transform the data for 
-        feature importance selecting. If estimator is already fitted  i.e.
-        `prefit=True`, 'y' is not needed.
 
-    threshold : str or float, default=None
-        The threshold value to use for feature selection. Features whose
-        absolute importance value is greater or equal are kept while the others
-        are discarded. If "median" (resp. "mean"), then the ``threshold`` value
-        is the median (resp. the mean) of the feature importances. A scaling
-        factor (e.g., "1.25*mean") may also be used. If None and if the
-        estimator has a parameter penalty set to l1, either explicitly
-        or implicitly (e.g, Lasso), the threshold used is 1e-5.
-        Otherwise, "mean" is used by default.
-
-    prefit : bool, default=False
-        Whether a prefit model is expected to be passed into the constructor
-        directly or not.
-        If `True`, `estimator` must be a fitted estimator.
-        If `False`, `estimator` is fitted and updated by calling
-        `fit` and `partial_fit`, respectively.
-
-    importance_getter : str or callable, default='auto'
-        If 'auto', uses the feature importance either through a ``coef_``
-        attribute or ``feature_importances_`` attribute of estimator.
-
-        Also accepts a string that specifies an attribute name/path
-        for extracting feature importance (implemented with `attrgetter`).
-        For example, give `regressor_.coef_` in case of
-        :class:`~sklearn.compose.TransformedTargetRegressor`  or
-        `named_steps.clf.feature_importances_` in case of
-        :class:`~sklearn.pipeline.Pipeline` with its last step named `clf`.
-
-        If `callable`, overrides the default feature importance getter.
-        The callable is passed with the fitted estimator and it should
-        return importance for each feature.
-    
-    norm_order : non-zero int, inf, -inf, default=1
-        Order of the norm used to filter the vectors of coefficients below
-        ``threshold`` in the case where the ``coef_`` attribute of the
-        estimator is of dimension 2.
-
-    max_features : int, callable, default=None
-        The maximum number of features to select.
-
-        - If an integer, then it specifies the maximum number of features to
-          allow.
-        - If a callable, then it specifies how to calculate the maximum number of
-          features allowed by using the output of `max_feaures(X)`.
-        - If `None`, then all features are kept.
-
-        To only select based on ``max_features``, set ``threshold=-np.inf``.
-        
-    return_selector: bool, default=False, 
-        Returns selector object if ``True``., otherwise returns the transformed
-        `X`. 
-        
-    verbose: int, default=0 
-        display the number of features that meet the criterion according to 
-        their importance range. 
-    
-    Returns 
-    --------
-    Xs or selector : ndarray (n_samples, n_criterion_features), or \
-        :class:`sklearn.feature_selection.SelectFromModel`
-        Ndarray of number of samples and features that meet the criterion
-        according to the importance range or selector object 
-        
-        
-    Examples
-    --------
-    >>> from gofast.tools.mlutils import select_feature_importances
-    >>> from gofast.exlib.sklearn import LogisticRegression
-    >>> X0 = [[ 0.87, -1.34,  0.31 ],
-    ...      [-2.79, -0.02, -0.85 ],
-    ...      [-1.34, -0.48, -2.55 ],
-    ...      [ 1.92,  1.48,  0.65 ]]
-    >>> y0 = [0, 1, 0, 1]
-    
-    (1) use prefit =True and get the Xs importance features 
-    >>> Xs = select_feature_importances (
-        LogisticRegression().fit(X0, y0), 
-        X0 , prefit =True )
-    >>> Xs 
-    array([[ 0.87, -1.34,  0.31],
-           [-2.79, -0.02, -0.85],
-           [-1.34, -0.48, -2.55],
-           [ 1.92,  1.48,  0.65]])
-    
-    (2) Set off prefix  and return selector obj 
-    
-    >>> selector= select_feature_importances (
-        LogisticRegression(), X= X0 , 
-        y =y0  ,
-        prefit =False , return_selector= True 
-        )
-    >>> selector.estimator_.coef_
-    array([[-0.3252302 ,  0.83462377,  0.49750423]])
-    >>> selector.threshold_
-    0.1
-    >>> selector.get_support()
-    array([ True,  True,  True])
-    
-    >>> selector = SelectFromModel(estimator=LogisticRegression()).fit(X, y)
-    >>> selector.estimator_.coef_
-    array([[-0.3252302 ,  0.83462377,  0.49750423]])
-    >>> selector.threshold_
-    0.55245...
-    >>> selector.get_support()
-    array([False,  True, False])
-    >>> selector.transform (X0) 
-    array([[ 0.87, -1.34,  0.31],
-           [-2.79, -0.02, -0.85],
-           [-1.34, -0.48, -2.55],
-           [ 1.92,  1.48,  0.65]])
-    
-    """
-    if ( hasattr (clf, 'feature_names_in_') 
-        or hasattr(clf, "feature_importances_")
-        or hasattr (clf, 'coef_')
-        ): 
-        if not prefit: 
-            warnings.warn(f"It seems the estimator {get_estimator_name (clf)!r}"
-                          "is fitted. 'prefit' is set to 'True' to call "
-                          "transform directly.")
-            prefit =True 
-            
-    selector = SelectFromModel(
-        clf, 
-        threshold= threshold , 
-        prefit= prefit, 
-        **kws
-        )
-    
-    if prefit:
-        Xs = selector.transform(X) 
+def _transform_target(y, label_encoding:BaseEstimator|TransformerMixin ):
+    if label_encoding == 'LabelEncoder':
+        encoder = LabelEncoder()
+        return encoder.fit_transform(y)
+    elif isinstance(label_encoding, (BaseEstimator, TransformerMixin)):
+        return label_encoding.fit_transform(y)
     else:
-        Xs = selector.fit_transform(X, y =y)
-        
-    if verbose: 
-        print(f"Number of features that meet the 'threshold={threshold}'" 
-              " criterion: ", Xs.shape[1]
-              ) 
-        
-    return selector if return_selector else Xs 
-
- 
-def soft_imputer (
-    X, 
-    y=None, 
-    strategy = 'mean', 
-    mode=None,  
-    drop_features =False,  
-    missing_values= np.nan ,
-    fill_value = None , 
-    verbose = "deprecated",
-    add_indicator = False,  
-    copy = True, 
-    keep_empty_features=False, 
-    **fit_params 
- ): 
-    """ Imput missing values in the data. 
-    
-    Whatever data contains categorial features, 'bi-impute' argument passed to 
-    'kind' parameters has a strategy to both impute the numerical and 
-    categorical features rather than raising an error when the 'strategy' is 
-    not set to 'most_frequent'.
+        raise ValueError("Unsupported label_encoding value: {}".format(label_encoding)) 
+         
+def select_feature_importances(
+        clf, X, y=None, *, threshold=0.1, prefit=True, 
+        verbose=0, return_selector=False, **kwargs
+        ):
+    """
+    Select features based on importance thresholds after model fitting.
     
     Parameters
     ----------
-    X : {array-like, sparse matrix} of shape (n_samples, n_features)
-        The data used to compute the mean and standard deviation
-        used for later scaling along the features axis.
+    clf : estimator object
+        The estimator from which the feature importances are derived. Must have
+        either `feature_importances_` or `coef_` attributes after fitting, unless
+        `importance_getter` is specified in `kwargs`.
         
-    y : None
-        Not used, present here for API consistency by convention.
+    X : {array-like, sparse matrix} of shape (n_samples, n_features)
+        The training input samples.
+        
+    y : array-like of shape (n_samples,), default=None
+        The target values (class labels) as integers or strings.
+        
+    threshold : float, default=0.1
+        The threshold value to use for feature selection. Features with importance
+        greater than or equal to this value are retained.
+        
+    prefit : bool, default=True
+        Whether the estimator is expected to be prefit. If `True`, `clf` should
+        already be fitted; otherwise, it will be fitted on `X` and `y`.
+        
+    verbose : int, default=0
+        Controls the verbosity: the higher, the more messages.
+        
+    return_selector : bool, default=False
+        Whether to return the selector object instead of the transformed data.
+        
+    **kwargs : additional keyword arguments
+        Additional arguments passed to `SelectFromModel`.
+    
+    Returns
+    -------
+    X_selected or selector : array or SelectFromModel object
+        The selected features in `X` if `return_selector` is False, or the
+        selector object itself if `return_selector` is True.
+        
+    Examples
+    --------
+    >>> from sklearn.datasets import make_classification
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from gofast.tools.mlutils import select_feature_importances
+    >>> X, y = make_classification(n_samples=1000, n_features=10, n_informative=3)
+    >>> clf = RandomForestClassifier()
+    >>> X_selected = select_feature_importances(clf, X, y, threshold="mean", prefit=False)
+    >>> X_selected.shape
+    (1000, n_selected_features)
+    
+    Using `return_selector=True` to get the selector object:
+    
+    >>> selector = select_feature_importances(
+        clf, X, y, threshold="mean", prefit=False, return_selector=True)
+    >>> selector.get_support()
+    array([True, False, ..., True])
+    """
+    # Check if the classifier is fitted based on the presence of attributes
+    if not prefit and (hasattr(clf, 'feature_importances_') or hasattr(clf, 'coef_')):
+        warnings.warn(f"The estimator {clf.__class__.__name__} appears to be fitted. "
+                      "Consider setting `prefit=True` or refit the estimator.",UserWarning)
+    try:threshold = float(threshold ) 
+    except: pass 
+
+    selector = SelectFromModel(clf, threshold=threshold, prefit=prefit, **kwargs)
+    
+    if not prefit:
+        selector.fit(X, y)
+    
+    if verbose:
+        n_features = selector.transform(X).shape[1]
+        print(f"Number of features meeting the threshold={threshold}: {n_features}")
+    
+    return selector if return_selector else selector.transform(X)
+
+def soft_imputer(
+    X, 
+    strategy='mean', 
+    missing_values=np.nan, 
+    fill_value=None, 
+    drop_features=False, 
+    mode=None, 
+    copy=True, 
+    verbose=0, 
+    add_indicator=False,
+    keep_empty_features=False, 
+    **kwargs
+    ):
+    """
+    Impute missing values in a dataset, optionally dropping features and handling 
+    both numerical and categorical data.
+
+    This function extends the functionality of scikit-learn's SimpleImputer to 
+    support dropping specified features and a ``bi-impute`` mode for handling 
+    both numerical and categorical data. It ensures API consistency with 
+    scikit-learn's transformers and allows for flexible imputation strategies.
+
+    Parameters
+    ----------
+    X : array-like or sparse matrix of shape (n_samples, n_features)
+        The input data to impute.
         
     strategy : str, default='mean'
-       The imputation strategy.
-
-       - If "mean", then replace missing values using the mean along
-         each column. Can only be used with numeric data.
-       - If "median", then replace missing values using the median along
-         each column. Can only be used with numeric data.
-       - If "most_frequent", then replace missing using the most frequent
-         value along each column. Can be used with strings or numeric data.
-         If there is more than one such value, only the smallest is returned.
-       - If "constant", then replace missing values with fill_value. Can be
-         used with strings or numeric data.
-
-          strategy="constant" for fixed value imputation.
+        The imputation strategy:
+        - 'mean': Impute using the mean of each column. Only for numeric data.
+        - 'median': Impute using the median of each column. Only for numeric data.
+        - 'most_frequent': Impute using the most frequent value of each column. 
+          For numeric and categorical data.
+        - 'constant': Impute using the specified `fill_value`.
         
-    mode: str, [bi-impute'], default= None
-        If mode is set to 'bi-impute', it imputes the both numerical and 
-        categorical features and returns a single imputed 
-        dataframe.
-        
-    drop_features: bool or list, default =False, 
-        drop a list of features in the dataframe before imputation. 
-        If ``True`` and no list of features is supplied, the categorial 
-        features are dropped. 
-        
-    missing_values : int, float, str, np.nan, None or pandas.NA, default=np.nan
+    missing_values : int, float, str, np.nan, None, or pd.NA, default=np.nan
         The placeholder for the missing values. All occurrences of
-        `missing_values` will be imputed. For pandas' dataframes with
-        nullable integer dtypes with missing values, `missing_values`
-        can be set to either `np.nan` or `pd.NA`.
-
-    fill_value : str or numerical value, default=None
-        When strategy == "constant", fill_value is used to replace all
-        occurrences of missing_values.
-        If left to the default, fill_value will be 0 when imputing numerical
-        data and "missing_value" for strings or object data types.
+        `missing_values` will be imputed.
         
-    keep_empty_features : bool, default=False
-        If True, features that consist exclusively of missing values when
-        `fit` is called are returned in results when `transform` is called.
-        The imputed value is always `0` except when `strategy="constant"`
-        in which case `fill_value` will be used instead.
-
-        .. versionadded:: 0.2.0
-         
-    verbose : int, default=0
-        Controls the verbosity of the imputer.
-
+    fill_value : str or numerical value, default=None
+        When `strategy` == 'constant', `fill_value` is used to replace all
+        occurrences of `missing_values`. If left to the default, `fill_value` 
+        will be 0 when imputing numerical data and 'missing_value' for strings 
+        or object data types.
+        For 'constant' strategy, specifies the value used for replacement.
+        In 'bi-impute' mode, allows specifying separate fill values for
+        numerical and categorical data using a delimiter from the set
+        {"__", "--", "&", "@", "!"}. For example, "0.5__missing" indicates
+        0.5 as fill value for numerical data and "missing" for categorical.
+        
+    drop_features : bool or list, default=False
+        If True, drops all categorical features before imputation. If a list, 
+        drops specified features.
+    mode : str, optional
+        If set to 'bi-impute', imputes both numerical and categorical features 
+        and returns a single imputed dataframe. Only 'bi-impute' is supported.
     copy : bool, default=True
         If True, a copy of X will be created. If False, imputation will
-        be done in-place whenever possible. Note that, in the following cases,
-        a new copy will always be made, even if `copy=False`:
-
-        - If `X` is not an array of floating values;
-        - If `X` is encoded as a CSR matrix;
-        - If `add_indicator=True`.
-
+        be done in-place whenever possible.
+    verbose : int, default=0
+        Controls the verbosity of the imputer.
     add_indicator : bool, default=False
-        If True, a :class:`MissingIndicator` transform will stack onto output
-        of the imputer's transform. This allows a predictive estimator
-        to account for missingness despite imputation. If a feature has no
-        missing values at fit/train time, the feature won't appear on
-        the missing indicator even if there are missing values at
-        transform/test time.
-        
-    fit_params: dict, 
-        keywords arguments passed to the scikit-learn fitting parameters 
-        More details on https://scikit-learn.org/stable/ 
-    Returns 
+        If True, a `MissingIndicator` transform will be added to the output 
+        of the imputer's transform.
+    keep_empty_features : bool, default=False
+        If True, features that are all missing when `fit` is called are 
+        included in the transform output.
+    **kwargs : dict
+        Additional fitting parameters.
+
+    Returns
+    -------
+    Xi : array-like or sparse matrix of shape (n_samples, n_features)
+        The imputed dataset.
+
+    Examples
     --------
-    Xi: Dataframe, array-like, sparse matrix of shape (n_samples, n_features)
-        Data imputed 
+    >>> X = np.array([[1, np.nan, 3], [4, 5, np.nan], [np.nan, np.nan, 9]])
+    >>> soft_imputer(X, strategy='mean')
+    array([[ 1. ,  5. ,  3. ],
+           [ 4. ,  5. ,  6. ],
+           [ 2.5,  5. ,  9. ]])
+    
+    >>> df = pd.DataFrame({'A': [1, 2, np.nan], 'B': ['a', np.nan, 'b']})
+    >>> soft_imputer(df, strategy='most_frequent', mode='bi-impute')
+               A  B
+        0    1.0  a
+        1    2.0  a
+        2    1.5  b
+
+    Notes
+    -----
+    The 'bi-impute' mode requires categorical features to be explicitly indicated
+    as such by using pandas Categorical dtype or by specifying features to drop.
+    """
+    X, is_frame  = _convert_to_dataframe(X)
+    X = _drop_features(X, drop_features)
+    
+    if mode == 'bi-impute':
+        fill_values, strategies = _enabled_bi_impute_mode (strategy, fill_value)
+        try: 
+            num_imputer = SimpleImputer(
+                strategy=strategies[0], missing_values=missing_values,
+                fill_value=fill_values[0])
+        except ValueError as e: 
+            msg= (" Consider using the {'__', '--', '&', '@', '!'} delimiter"
+                  " for mixed numeric and categorical fill values.")
+            # Improve the error message 
+            raise ValueError(
+                f"Imputation failed due to: {e}." +
+                msg if check_mixed_data_types(X) else ''
+                )
+        cat_imputer = SimpleImputer(strategy= strategies[1], 
+                                    missing_values=missing_values,
+                                    fill_value = fill_values [1]
+                                    )
+        num_imputed, cat_imputed, num_columns, cat_columns = _separate_and_impute(
+            X, num_imputer, cat_imputer)
+        Xi = np.hstack((num_imputed, cat_imputed))
+        new_columns = num_columns + cat_columns
+        Xi = pd.DataFrame(Xi, index=X.index, columns=new_columns)
+    else:
+        try:
+            Xi, imp = _impute_data(
+                X, strategy, missing_values, fill_value, add_indicator, copy)
+        except Exception as e : 
+            raise ValueError( f"Imputation failed due to: {e}. Consider using"
+                             " the 'bi-impute' mode for mixed data types.")
+        if isinstance(X, pd.DataFrame):
+            Xi = pd.DataFrame(Xi, index=X.index, columns=imp.feature_names_in_)
+            
+    if not is_frame: # revert back to array
+        Xi = np.array ( Xi )
+    return Xi
+
+def _convert_to_dataframe(X):
+    """Ensure input is a pandas DataFrame."""
+    is_frame=True 
+    if not isinstance(X, pd.DataFrame):
+        X = pd.DataFrame(check_array(X, dtype=None, force_all_finite='allow-nan'), 
+                         columns=[f'feature_{i}' for i in range(X.shape[1])])
+        is_frame=False 
+    return X, is_frame 
+
+def _drop_features(X, drop_features):
+    """Drop specified features from the DataFrame."""
+    if isinstance(drop_features, bool) and drop_features:
+        X = X.select_dtypes(exclude=['object', 'category'])
+    elif isinstance(drop_features, list):
+        X = X.drop(columns=drop_features, errors='ignore')
+    return X
+
+def _impute_data(X, strategy, missing_values, fill_value, add_indicator, copy):
+    """Impute the dataset using SimpleImputer."""
+    imp = SimpleImputer(strategy=strategy, missing_values=missing_values, 
+                        fill_value=fill_value, add_indicator=add_indicator, 
+                        copy=copy)
+    Xi = imp.fit_transform(X)
+    return Xi, imp
+
+def _separate_and_impute(X, num_imputer, cat_imputer):
+    """Separate and impute numerical and categorical features."""
+    X, num_columns, cat_columns= to_numeric_dtypes(X, return_feature_types=True )
+
+    if len(num_columns) > 0:
+        num_imputed = num_imputer.fit_transform(X[num_columns])
+    else:
+        num_imputed = np.array([]).reshape(X.shape[0], 0)
+    
+    if len(cat_columns) > 0:
+        cat_imputed = cat_imputer.fit_transform(X[cat_columns])
+    else:
+        cat_imputed = np.array([]).reshape(X.shape[0], 0)
+    return num_imputed, cat_imputed, num_columns, cat_columns
+
+
+def _enabled_bi_impute_mode(
+    strategy: str, fill_value: Union[str, float, None]
+     ) -> Tuple[List[Union[None, float, str]], List[str]]:
+    """
+    Determines strategies and fill values for numerical and categorical data
+    in bi-impute mode based on the provided strategy and fill value.
+
+    Parameters
+    ----------
+    strategy : str
+        The imputation strategy to use.
+    fill_value : Union[str, float, None]
+        The fill value to use for imputation, which can be a float, string, 
+        or None. When a string containing delimiters is provided, it indicates
+        separate fill values for numerical and categorical data.
+
+    Returns
+    -------
+    Tuple[List[Union[None, float, str]], List[str]]
+        A tuple containing two lists: the first with fill values for numerical
+        and categorical data, and the second with strategies for numerical and
+        categorical data.
+
+    Examples
+    --------
+    >>> from gofast.tools.mlutils import enabled_bi_impute_mode
+    >>> enabled_bi_impute_mode('mean', None)
+    ([None, None], ['mean', 'most_frequent'])
+
+    >>> enabled_bi_impute_mode('constant', '0__missing')
+    ([0.0, 'missing'], ['constant', 'constant'])
+    
+    >>> enabled_bi_impute_mode (strategy='constant', fill_value="missing")
+    ([0.0, 'missing'], ['constant', 'constant'])
+    
+    >>> enabled_bi_impute_mode('constant', 9.) 
+    ([9.0, None], ['constant', 'most_frequent'])
+    
+    >>> enabled_bi_impute_mode(strategy='constant', fill_value="mean__missing",)
+    ([None, 'missing'], ['mean', 'constant'])
+    """
+    num_strategy, cat_strategy = 'most_frequent', 'most_frequent'
+    fill_values = [None, None]
+    
+    if fill_value is None or isinstance(fill_value, (float, int)):
+        if strategy in ["mean", 'median', 'constant']:
+            num_strategy = strategy
+            fill_values[0] = ( 
+                0.0 if strategy == 'constant' 
+                and fill_value is None else fill_value
+                )
+        return fill_values, [num_strategy, cat_strategy]
+
+    if contains_delimiter(fill_value,{"__", "--", "&", "@", "!"} ):
+        fill_values, strategies = _manage_fill_value(fill_value, strategy)
+    else:
+        fill_value = (
+            f"{strategy}__{fill_value}" if strategy in ['mean', 'median'] 
+            else ( f"0__{fill_value}" if strategy =="constant" else fill_value )
+        )
+        fill_values, strategies = _manage_fill_value(fill_value, strategy)
+    
+    return fill_values, strategies
+
+def _manage_fill_value(
+    fill_value: str, strategy: str
+    ) -> Tuple[List[Union[None, float, str]], List[str]]:
+    """
+    Parses and manages fill values for bi-impute mode, supporting mixed types.
+
+    Parameters
+    ----------
+    fill_value : str
+        The fill value string potentially containing mixed types for numerical
+        and categorical data.
+    strategy : str
+        The imputation strategy to determine how to handle numerical fill values.
+
+    Returns
+    -------
+    Tuple[List[Union[None, float, str]], List[str]]
+        A tuple containing two elements: the first is a list with numerical and
+        categorical fill values, and the second is a list of strategies for 
+        numerical and categorical data.
+
+    Raises
+    ------
+    ValueError
+        If the fill value does not contain a proper separator or if the numerical
+        fill value is incompatible with the specified strategy.
+
+    Examples
+    --------
+    >>> from gofast.tools.mlutils import _manage_fill_value
+    >>> _manage_fill_value("0__missing", "constant")
+    ([0.0, 'missing'], ['constant', 'constant'])
+
+    >>> _manage_fill_value("mean__missing", "mean")
+    ([None, 'missing'], ['mean', 'constant'])
+    """
+    regex = re.compile(r'(__|--|&|@|!)')
+    parts = regex.split(fill_value)
+    if len(parts) < 3:
+        raise ValueError("Fill value must contain a separator (__|--|&|@|!)"
+                         " between numerical and categorical fill values.")
+
+    num_fill, cat_fill = parts[0], parts[-1]
+    num_fill_value = None if strategy in ['mean', 'median'] and num_fill.lower(
+        ) in ['mean', 'median'] else num_fill
+
+    try:
+        num_fill_value = float(num_fill) if num_fill.replace('.', '', 1).isdigit() else num_fill
+    except ValueError:
+        raise ValueError(f"Numerical fill value '{num_fill}' must be a float"
+                         f" for strategy '{strategy}'.")
+    strategies =[ strategy if strategy in ['mean', 'median', 'constant']
+                 else 'most_frequent', 'constant'] 
+    if num_fill.lower() in ['mean', 'median'] and strategy=='constant': 
+        # Permutate the strategy and fill value. 
+        strategies [0]= num_fill.lower()
+        num_fill_value =None ; 
+    
+    return [num_fill_value, cat_fill], strategies
+
+def soft_scaler(
+    X, *, 
+    kind=StandardScaler, 
+    copy=True, 
+    with_mean=True, 
+    with_std=True, 
+    feature_range=(0, 1), 
+    clip=False, 
+    norm='l2',
+    verbose=0, 
+    **kwargs
+    ):
+    """
+    Scale data using specified scaling strategy from scikit-learn. 
+    
+    Function excludes categorical features from scaling and provides 
+    feedback via verbose parameter.
+
+    Parameters
+    ----------
+    X : DataFrame or array-like of shape (n_samples, n_features)
+        The data to scale, can contain both numerical and categorical features.
+    kind : str, default='StandardScaler'
+        The kind of scaling to apply to numerical features. One of 'StandardScaler', 
+        'MinMaxScaler', 'Normalizer', or 'RobustScaler'.
+    copy : bool, default=True
+        If False, avoid a copy and perform inplace scaling instead.
+    with_mean : bool, default=True
+        If True, center the data before scaling. Only applicable when kind is
+        'StandardScaler' or 'RobustScaler'.
+    with_std : bool, default=True
+        If True, scale the data to unit variance. Only applicable when kind is
+        'StandardScaler' or 'RobustScaler'.
+    feature_range : tuple (min, max), default=(0, 1)
+        Desired range of transformed data. Only applicable when kind 
+        is 'MinMaxScaler'.
+    clip : bool, default=False
+        Set to True to clip transformed values to the provided feature range.
+        Only applicable when kind is 'MinMaxScaler'.
+    norm : {'l1', 'l2', 'max'}, default='l2'
+        The norm to use to normalize each non-zero sample or feature.
+        Only applicable when kind is 'Normalizer'.
         
-    Examples 
+    verbose : int, default=0
+        If > 0, print messages about the processing.
+        
+    **kwargs : additional keyword arguments
+        Additional fitting parameters to pass to the scaler.
+        
+    Returns
+    -------
+    X_scaled : {ndarray, sparse matrix, dataframe} of shape (n_samples, n_features)
+        The scaled data. The scaled data with numerical features scaled according
+        to the specified kind, and categorical features returned unchanged. 
+        The return type matches the input type.
+
+    Examples
     --------
     >>> import numpy as np 
     >>> import pandas as pd 
-    >>> from gofast.tools.mlutils import soft_imputer 
-    >>> X= np.random.randn ( 7, 4 ) 
-    >>> X[3, :] =np.nan  ; X[:, 3][-4:]=np.nan 
-    >>> soft_imputer  (X)
-    ... array([[ 1.34783528,  0.53276798, -1.57704281,  0.43455785],
-               [ 0.36843174, -0.27132106, -0.38509441, -0.29371997],
-               [-1.68974996,  0.15268509, -2.54446498,  0.18939122],
-               [ 0.06013775,  0.36687602, -0.21973368,  0.11007637],
-               [-0.27129147,  1.18103398,  1.78985393,  0.11007637],
-               [ 1.09223954,  0.12924661,  0.52473794,  0.11007637],
-               [-0.48663864,  0.47684353,  0.87360825,  0.11007637]])
-    >>> frame = pd.DataFrame (X, columns =['a', 'b', 'c', 'd']  ) 
-    >>> # change [bc] types to categorical values.
-    >>> frame['b']=['pineaple', '', 'cabbage', 'watermelon', 'onion', 
-                    'cabbage', 'onion']
-    >>> frame['c']=['lion', '', 'cat', 'cat', 'dog', '', 'mouse']
-    >>> soft_imputer(frame, kind ='bi-impute')
-    ...             b      c         a         d
-        0    pineaple   lion  1.347835  0.434558
-        1     cabbage    cat  0.368432 -0.293720
-        2     cabbage    cat -1.689750  0.189391
-        3  watermelon    cat  0.060138  0.110076
-        4       onion    dog -0.271291  0.110076
-        5     cabbage    cat  1.092240  0.110076
-        6       onion  mouse -0.486639  0.110076
-        
+    >>> from gofast.tools.mlutils import soft_scaler
+    >>> X = np.array([[1, -1, 2], [2, 0, 0], [0, 1, -1]])
+    >>> X_scaled = soft_scaler(X, kind='StandardScaler')
+    >>> print(X_scaled)
+    [[ 0.  -1.22474487  1.33630621]
+     [ 1.22474487  0.  -0.26726124]
+     [-1.22474487  1.22474487 -1.06904497]]
+
+    >>> df = pd.DataFrame(X, columns=['a', 'b', 'c'])
+    >>> df_scaled = soft_scaler(df, kind='RobustScaler', with_centering=True,
+                                with_scaling=True)
+    >>> print(df_scaled)
+              a    b    c
+        0 -0.5 -1.0  1.0
+        1  0.5  0.0  0.0
+        2 -0.5  1.0 -1.0
     """
-    X_cat, _isframe =None , True  
+    X= to_numeric_dtypes(X)
+    input_is_dataframe = isinstance(X, pd.DataFrame)
+    cat_features = X.select_dtypes(
+        exclude=['number']).columns if input_is_dataframe else []
+
+    if verbose > 0 and len(cat_features) > 0:
+        print("Note: Categorical data detected and excluded from scaling.")
+
+    kind= kind if isinstance(kind, str) else kind.__name__
+    scaler = _determine_scaler(
+        kind, copy=copy, with_mean=with_mean, with_std=with_std, norm=norm, 
+        feature_range=feature_range, clip=clip, **kwargs)
+
+    if input_is_dataframe:
+        num_features = X.select_dtypes(include=['number']).columns
+        X_scaled_numeric = _scale_numeric_features(X, scaler, num_features)
+        X_scaled = _concat_scaled_numeric_with_categorical(
+            X_scaled_numeric, X, cat_features)
+    else:
+        X_scaled = scaler.fit_transform(X)
     
-    X = check_array (
-        X, 
-        dtype=object, 
-        force_all_finite="allow-nan", 
-        to_frame=True, 
-        input_name="X"
-        )
- 
-    if drop_features :
-        if not hasattr(X, 'columns'): 
-            raise ValueError ("Drop feature is possible only if  X is a"
-                              f" dataframe. Got {type(X).__name__!r}") 
-        
-        if ( str(drop_features).lower().find ('cat') >=0 
-                or  str(drop_features).lower()=='true' 
-                    ) :
-            # drop cat features
-            X= to_numeric_dtypes(X, pop_cat_features=True, verbose =True )
+    return X_scaled
 
-        else : 
-            if not is_iterable(drop_features): 
-                raise TypeError ("Expects a list of features to drop;"
-                                 " not {type(drop_features).__name__!r}")
-        # drop_feature is a list assert whether features exist in X
-            existfeatures(X, features = drop_features ) 
-            diff_features = is_in_if(X.columns, drop_features, return_diff= True
-                                     )
-            if diff_features is None:
-                raise DatasetError(
-                    "It seems all features in X have been dropped. "
-                    "Cannot impute a dataset with no features."
-                    f" Drop features: '{drop_features}'")
-                
-            X= X[diff_features ]
-            
-    # ====> implement bi-impute strategy.  
-    # strategy expects at the same time 
-    # categorical  and num features 
-    err_msg =(". Use 'bi-impute' strategy passed to"
-              " the parameter 'mode' to coerce the categorical"
-              " besides the numerical features."
-    )
-    if strategy =="most_frequent": 
-       # altered the bi-impute strategy 
-       # since most_frequent imputes at 
-       # the same time num and cat features 
-       
-       mode =None 
-    if mode is not None: 
-        mode = str(mode).lower().strip () 
-        if ( mode.find ('bi-')>=0
-            or mode.find( 'bii')>=0 
-            or mode.find('bim')>=0
-            ): 
-            mode='bi-impute'
-            
-        assert mode in {'bi-impute'} , (
-            f"Strategy passed to 'mode' supports only 'bi-impute', not {mode!r}")
-
-    if mode=='bi-impute':
-        if not hasattr (X, 'columns'): 
-            # "In pratice, the bi-Imputation is only allowed"
-            # " with adataframe so create naive columns rather"
-            # than raise error
-            X= pd.DataFrame(X, columns =[f"bi_{i}" for i in range(X.shape[1])]
-                            )
-            _isframe =False 
-            
-        # recompute the num and cat features
-        # since drop features can remove the
-        # the cat features 
-        X , nf, cf = to_numeric_dtypes(X, return_feature_types= True ) 
-        if (len(nf) and len(cf) ) !=0 :
-            # keep strategy to bi-impute 
-            mode='bi-impute'
-            X_cat , X = X [cf] ,  X[nf] 
-            
-        elif len(nf) ==0 and len(cf)!=0: 
-            strategy ='most_frequent'
-            mode =None # reset the kind method 
-            X = X [cf]
-        else: # if numeric 
-            mode =None 
-            
-    # <==== end bi-impute strategy
-    imp = SimpleImputer(strategy= strategy , 
-                        missing_values= missing_values , 
-                        fill_value = fill_value , 
-                        # verbose = verbose, 
-                        add_indicator=False, 
-                        copy = copy, 
-                        keep_empty_features=keep_empty_features, 
-                        )
-    try : 
-        Xi = imp.fit_transform (X, y =y, **fit_params )
-    except Exception as err :
-        #improve error msg 
-        raise ValueError (str(err) + err_msg)
-
-    if hasattr (imp , 'feature_names_in_'): 
-        Xi = pd.DataFrame( Xi , columns = imp.feature_names_in_)  
-    # commonly when strategy is most frequent
-    # categorical features are also imputed.
-    # so dont need to use bi-impute strategy
-    if  mode=='bi-impute':
-        imp.strategy ='most_frequent'
-        Xi_cat  = imp.fit_transform (X_cat, y =y, **fit_params ) 
-        Xi_cat = pd.DataFrame( Xi_cat , columns = imp.feature_names_in_)
-        Xi = pd.concat ([Xi_cat, Xi], axis =1 )
-        
-        if not _isframe : 
-            Xi = Xi.values 
-            
-    return Xi
-
-    
-def soft_scaler(
-    X,
-    y =None, *, 
-    kind= StandardScaler, 
-    copy =True, 
-    with_mean = True, 
-    with_std= True , 
-    feature_range =(0 , 1), 
-    clip = False,
-    norm ='l2',  
-    **fit_params  
-    ): 
-    """ Quick data scaling using both strategies implemented in scikit-learn 
-    with StandardScaler and MinMaxScaler. 
-    
-    Function returns scaled frame if dataframe is passed or ndarray. For other 
-    scaling, call scikit-learn instead. 
-    
-    Parameters 
-    ------------
-    X : {array-like, sparse matrix} of shape (n_samples, n_features)
-        The data used to compute the mean and standard deviation
-        used for later scaling along the features axis.
-
-    y : None
-        Ignored.
-        
-    kind: str, default='StandardScaler' 
-        Kind of data scaling. Can also be ['MinMaxScaler', 'Normalizer']. The 
-        default is 'StandardScaler'
-    copy : bool, default=True
-        If False, try to avoid a copy and do inplace scaling instead.
-        This is not guaranteed to always work inplace; e.g. if the data is
-        not a NumPy array or scipy.sparse CSR matrix, a copy may still be
-        returned.
-
-    with_mean : bool, default=True
-        If True, center the data before scaling.
-        This does not work (and will raise an exception) when attempted on
-        sparse matrices, because centering them entails building a dense
-        matrix which in common use cases is likely to be too large to fit in
-        memory.
-
-    with_std : bool, default=True
-        If True, scale the data to unit variance (or equivalently,
-        unit standard deviation).
-        
-    feature_range : tuple (min, max), default=(0, 1)
-        Desired range of transformed data.
-
-    norm : {'l1', 'l2', 'max'}, default='l2'
-        The norm to use to normalize each non zero sample. If norm='max'
-        is used, values will be rescaled by the maximum of the absolute
-        values.
-
-    clip : bool, default=False
-        Set to True to clip transformed values of held-out data to
-        provided `feature range`.
-        
-    fit_params: dict, 
-        keywords arguments passed to the scikit-learn fitting parameters 
-        More details on https://scikit-learn.org/stable/ 
-            
-    Returns
-    -------
-    X_sc : {ndarray, sparse matrix} or dataframe of  shape \
-        (n_samples, n_features)
-        Transformed array.
-        
-    Examples 
-    ----------
-    >>> import numpy as np  
-    >>> import pandas as pd 
-    >>> from gofast.tools.mlutils import naive_scaler 
-    >>> X= np.random.randn (7 , 3 ) 
-    >>> X_std = naive_scaler (X ) 
-    ... array([[ 0.17439644,  1.55683005,  0.24115109],
-           [-0.59738672,  1.3166854 ,  1.23748004],
-           [-1.6815365 , -1.19775838,  0.71381357],
-           [-0.1518278 , -0.32063059, -0.47483155],
-           [-0.41335886,  0.13880519,  0.69258621],
-           [ 1.45221902, -1.03852015, -0.40157981],
-           [ 1.21749443, -0.45541153, -2.00861955]])
-    >>> # use dataframe 
-    >>> Xdf = pd.DataFrame (X, columns =['a', 'c', 'c'])
-    >>> naive_scaler (Xdf , kind='Normalizer') # return data frame 
-    ...           a         c         c
-        0  0.252789  0.967481 -0.008858
-        1 -0.265161  0.908862  0.321961
-        2 -0.899863 -0.416231  0.130380
-        3  0.178203  0.039443 -0.983203
-        4 -0.418487  0.800306  0.429394
-        5  0.933933 -0.309016 -0.179661
-        6  0.795234 -0.051054 -0.604150
+def _determine_scaler(kind, **kwargs):
     """
-    msg =("Supports only the 'standardization','normalization' and  'minmax'"
-          " scaling types, not {!r}")
-    
-    kind = kind or 'standard'
-    
-    if   ( 
-            str(kind).lower().strip().find ('standard')>=0 
-            or get_estimator_name(kind) =='StandardScaler'
-            ): 
-        kind = 'standard'
-    elif ( 
-            str(kind).lower().strip().find ('minmax')>=0 
-            or get_estimator_name (kind) =='MinMaxScaler'
-            ): 
-        kind = 'minmax'
-    elif  ( 
-            str(kind).lower().strip().find ('norm')>=0  
-            or get_estimator_name(kind)=='Normalizer'
-            ):
-        kind ='norm'
-        
-    assert kind in {"standard", 'minmax', 'norm'} , msg.format(kind)
-    
-    if kind =='standard': 
-        sc = StandardScaler(
-            copy=copy, with_mean= with_mean , with_std= with_std ) 
-    elif kind == 'minmax': 
-        sc = MinMaxScaler(feature_range= feature_range, 
-                          clip = clip, copy =copy  ) 
-    elif kind=='norm': 
-        
-        sc = Normalizer(copy= copy , norm = norm ) 
-        
-    X_sc = sc.fit_transform (X, y=y, **fit_params)
-    
-    if hasattr (sc , 'feature_names_in_'): 
-        X_sc = pd.DataFrame( X_sc , columns = sc.feature_names_in_)  
-    return X_sc 
+    Determines the scaler based on the kind parameter.
+    """
+    scaler_classes = {
+        'StandardScaler': StandardScaler,
+        'MinMaxScaler': MinMaxScaler,
+        'Normalizer': Normalizer,
+        'RobustScaler': RobustScaler
+    }
+    scaler_class = scaler_classes.get(kind, None)
+    if scaler_class is None:
+        raise ValueError(f"Unsupported scaler kind: {kind}. Supported scalers"
+                         f" are: {', '.join(scaler_classes.keys())}.")
+    kwargs= get_valid_kwargs(scaler_class, **kwargs)
+    return scaler_class(**kwargs)
 
-    
+def _scale_numeric_features(X, scaler, num_features):
+    """
+    Scales numerical features of the DataFrame X using the provided scaler.
+    """
+    return scaler.fit_transform(X[num_features])
 
-
-
-
-
-
-
-
-
+def _concat_scaled_numeric_with_categorical(X_scaled_numeric, X, cat_features):
+    """
+    Concatenates scaled numerical features with original categorical features.
+    """
+    X_scaled = pd.concat([pd.DataFrame(X_scaled_numeric, index=X.index, 
+                        columns=X.select_dtypes(include=['number']).columns),
+                          X[cat_features]], axis=1)
+    return X_scaled[X.columns]  # Maintain original column order
 
 
         

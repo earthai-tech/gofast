@@ -2,7 +2,8 @@
 Installation of GoFast
 ==================================
 
-GoFast is a Python library designed to accelerate your machine learning workflow. This page guides you through the process of installing GoFast.
+GoFast is a Python library designed to accelerate your machine learning workflow. This page 
+guides you through the process of installing GoFast.
 
 Requirements
 ------------
@@ -43,16 +44,20 @@ After installation, you can verify that GoFast is installed correctly by running
     import gofast
     print(gofast.__version__)
 
-This command should output the version number of GoFast, indicating that it has been installed successfully.
+This command should output the version number of GoFast, indicating that it has been 
+installed successfully.
 
 Troubleshooting
 ---------------
 
-If you encounter any issues during the installation of GoFast, please refer to our [Troubleshooting Guide](https://gofast-docs.org/troubleshooting) or open an issue on our [GitHub repository](https://github.com/WEgeophysics/gofast/issues).
+If you encounter any issues during the installation of GoFast, please refer to our 
+[Troubleshooting Guide](https://gofast-docs.org/troubleshooting) or open an issue on our 
+[GitHub repository](https://github.com/WEgeophysics/gofast/issues).
 
 Support
 -------
 
-For further assistance, you can reach out to our community support channels or consult the GoFast documentation at [https://gofast-docs.org](https://gofast-docs.org).
+For further assistance, you can reach out to our community support channels or consult 
+the GoFast documentation at [https://gofast-docs.org](https://gofast-docs.org).
 
 .. note:: This documentation is always evolving and can be contributed to on our GitHub repository.

@@ -3,9 +3,10 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """
-:mod:`~gofast.plot.explore` is a set of base plots for visualization, data exploratory and analyses. 
-T-E-Q Plots encompass the Exploratory plots ( :class:`~gofast.plot.QuestPlotter`) and 
-Quick analyses (:class:`~gofast.plot.EasyPlotter`) visualization. 
+:mod:`~gofast.plot.explore` is a set of base plots for visualization, data 
+exploratory and analyses. E-E-Q Plots encompass the Exploratory plots
+( :class:`~gofast.plot.QuestPlotter`) and Quick analyses 
+(:class:`~gofast.plot.EasyPlotter`) visualization. 
 """
 from __future__ import annotations 
 
@@ -26,11 +27,10 @@ from ..exceptions import PlotError, FeatureError, NotFittedError
 from ..property import BasePlot
 from ..tools._dependency import import_optional_dependency 
 from ..tools.baseutils import _is_readable
-from ..tools.funcutils import _assert_all_types , _isin,  repr_callable_obj 
-from ..tools.funcutils import smart_strobj_recognition, smart_format, reshape
-from ..tools.funcutils import  shrunkformat
-from ..tools.mlutils import existfeatures, formatGenericObj
-from ..tools.mlutils import select_features , export_target 
+from ..tools.coreutils import _assert_all_types , _isin,  repr_callable_obj 
+from ..tools.coreutils import smart_strobj_recognition, smart_format, reshape
+from ..tools.coreutils import  shrunkformat, exist_features
+from ..tools.mlutils import select_features , export_target, formatGenericObj
 from ..tools.validator import check_X_y 
 try: 
     import missingno as msno 
@@ -92,7 +92,7 @@ classes: list of int | float, [categorized classes]
     mapflow ="""   
 mapflow: bool, 
     Is refer to the flow rate prediction using DC-resistivity features and 
-    work when the `tname` is set to ``flow``. If set to True, value 
+    work when the `target_name` is set to ``flow``. If set to True, value 
     in the target columns should map to categorical values. Commonly the 
     flow rate values are given as a trend of numerical values. For a 
     classification purpose, flow rate must be converted to categorical 
@@ -127,13 +127,13 @@ class QuestPlotter (BasePlot):
     
     def __init__(
         self, 
-        tname:str = None, 
+        target_name:str = None, 
         inplace:bool = False, 
         **kws
         ):
         super().__init__(**kws)
         
-        self.tname= tname
+        self.target_name= target_name
         self.inplace= inplace 
         self.data= None 
         self.target_= None
@@ -186,9 +186,9 @@ class QuestPlotter (BasePlot):
         """
         if data is not None: 
             self.data = _is_readable(data, **fit_params)
-        if self.tname is not None:
+        if self.target_name is not None:
             self.target_, self.data  = export_target(
-                self.data , self.tname, self.inplace ) 
+                self.data , self.target_name, self.inplace ) 
             self.y_ = reshape (self.target_.values ) # for consistency 
             
         return self 
@@ -235,9 +235,9 @@ class QuestPlotter (BasePlot):
         >>> from gofast.datasets import fetch_data 
         >>> from gofast.view import QuestPlotter 
         >>> data =fetch_data('original data').get('data=dfy1')
-        >>> p = QuestPlotter (tname ='flow').fit(data)
+        >>> p = QuestPlotter (target_name ='flow').fit(data)
         >>> p.plotClusterParallelCoords(pkg='yb')
-        ... <'QuestPlotter':xname=None, yname=None , tname='flow'>
+        ... <'QuestPlotter':xname=None, yname=None , target_name='flow'>
          
         """
         self.inspect 
@@ -272,10 +272,10 @@ class QuestPlotter (BasePlot):
             pc.show()
             
         elif pkg =='pd': 
-            if self.tname is not None: 
-                if self.tname not in df.columns :
-                    df[self.tname ]= self.y_ 
-            parallel_coordinates(df, class_column= self.tname, 
+            if self.target_name is not None: 
+                if self.target_name not in df.columns :
+                    df[self.target_name ]= self.y_ 
+            parallel_coordinates(df, class_column= self.target_name, 
                                  ax= ax, **kwd
                                  )
         self.save (fig)
@@ -320,16 +320,16 @@ class QuestPlotter (BasePlot):
         >>> from gofast.datasets import fetch_data 
         >>> from gofast.view import QuestPlotter 
         >>> data0 = fetch_data('bagoue original').get('data=dfy1')
-        >>> p = QuestPlotter(tname ='flow').fit(data0)
+        >>> p = QuestPlotter(target_name ='flow').fit(data0)
         >>> p.plotRadViz(classes= [0, 1, 2, 3] ) # can set to None 
         
         (2) -> Using pandas radviz plot 
         
         >>> # use pandas with 
         >>> data2 = fetch_data('bagoue original').get('data=dfy2')
-        >>> p = QuestPlotter(tname ='flow').fit(data2)
+        >>> p = QuestPlotter(target_name ='flow').fit(data2)
         >>> p.plotRadViz(classes= None, pkg='pd' )
-        ... <'QuestPlotter':xname=None, yname=None , tname='flow'>
+        ... <'QuestPlotter':xname=None, yname=None , target_name='flow'>
         """
         self.inspect 
         
@@ -341,7 +341,7 @@ class QuestPlotter (BasePlot):
         else: pkg ='pd' 
         
         if classes is None :  
-            if self.tname is None: 
+            if self.target_name is None: 
                 raise TypeError (
                     "target name is missing. Can not fetch the target."
                     " Provide the target name instead."
@@ -362,9 +362,9 @@ class QuestPlotter (BasePlot):
             rv.show()
             
         elif pkg =='pd': 
-            if (self.tname is not None)  and (self.y_ is not None) :
-                df [self.tname] = self.y_ 
-            radviz (df , class_column= self.tname , ax = ax, 
+            if (self.target_name is not None)  and (self.y_ is not None) :
+                df [self.target_name] = self.y_ 
+            radviz (df , class_column= self.target_name , ax = ax, 
                     **kwd 
                     )
             
@@ -406,13 +406,13 @@ class QuestPlotter (BasePlot):
         >>> from gofast.datasets import fetch_data 
         >>> from gofast.view import QuestPlotter 
         >>> data = fetch_data ('bagoue original').get('data=dfy1') 
-        >>> p= QuestPlotter(tname='flow').fit(data)
+        >>> p= QuestPlotter(target_name='flow').fit(data)
         >>> p.plotPairwiseFeatures(fmt='.2f', corr='spearman', pkg ='yb',
                                      annot=True, 
                                      cmap='RdBu_r', 
                                      vmin=-1, 
                                      vmax=1 )
-        ... <'QuestPlotter':xname='sfi', yname='ohmS' , tname='flow'>
+        ... <'QuestPlotter':xname='sfi', yname='ohmS' , target_name='flow'>
         """
         self.inspect 
         
@@ -502,7 +502,7 @@ class QuestPlotter (BasePlot):
         >>> from gofast.datasets import fetch_data 
         >>> from gofast.view import QuestPlotter 
         >>> data = fetch_data ('bagoue original').get('data=dfy1') 
-        >>> p= QuestPlotter(tname='flow').fit(data)
+        >>> p= QuestPlotter(target_name='flow').fit(data)
         >>> p.plotCutQuantiles(xname ='sfi', yname='ohmS')
         """
         self.inspect 
@@ -569,7 +569,7 @@ class QuestPlotter (BasePlot):
         >>> from gofast.datasets import fetch_data 
         >>> from gofast.view import QuestPlotter 
         >>> data = fetch_data ('bagoue original').get('data=dfy1') 
-        >>> p= QuestPlotter(tname='flow').fit(data)
+        >>> p= QuestPlotter(target_name='flow').fit(data)
         >>> p.plotDistributions(xname='flow', yname='sfi', kind='violin')
         
         """
@@ -586,8 +586,8 @@ class QuestPlotter (BasePlot):
         else : kind ='box'
         
         df = self.data.copy() 
-        if (self.tname not in df.columns) and (self.y_ is not None): 
-            df [self.tname] = self.y_  
+        if (self.target_name not in df.columns) and (self.y_ is not None): 
+            df [self.target_name] = self.y_  
         
         if kind =='box': 
             g= sns.boxplot( 
@@ -647,11 +647,11 @@ class QuestPlotter (BasePlot):
         Example
         --------
         >>> from gofast.datasets import fetch_data 
-        >>> from gofast.view import QuestPlotter 
+        >>> from gofast.plot import QuestPlotter 
         >>> data = fetch_data ('bagoue original').get('data=dfy1') 
-        >>> p= QuestPlotter(tname='flow').fit(data)
+        >>> p= QuestPlotter(target_name='flow').fit(data)
         >>> p.plotPairGrid (vars = ['magnitude', 'power', 'ohmS'] ) 
-        ... <'QuestPlotter':xname=(None,), yname=None , tname='flow'>
+        ... <'QuestPlotter':xname=(None,), yname=None , target_name='flow'>
         
         """
         self.inspect 
@@ -660,13 +660,13 @@ class QuestPlotter (BasePlot):
         self.yname_ = yname or self.yname_ 
 
         df = self.data.copy() 
-        if (self.tname not in df.columns) and (self.y_ is not None): 
-            df [self.tname] = self.y_ # set new dataframe with a target
+        if (self.target_name not in df.columns) and (self.y_ is not None): 
+            df [self.target_name] = self.y_ # set new dataframe with a target
         if vars is None : 
             vars = [self.xname_, self.y_name ]
             
         sns.set(rc={"figure.figsize":self.fig_size}) 
-        g = sns.pairplot (df, vars= vars, hue = self.tname, 
+        g = sns.pairplot (df, vars= vars, hue = self.target_name, 
                             **kwd, 
                              )
         self.save(g)
@@ -744,22 +744,22 @@ class QuestPlotter (BasePlot):
                 #columns =self.xname_,   # self.data.columns, 
                 correlation=corr, 
                 # feature=self.xname_, 
-                # target=self.tname, 
+                # target=self.target_name, 
                 kind= kind , 
                 fig = fig, 
                 **yb_kws
                 )
             jpv.fit(
                 self.data [self.xname_], 
-                self.data [self.tname] if self.y_ is None else self.y_,
+                self.data [self.target_name] if self.y_ is None else self.y_,
                     ) 
             jpv.show()
         elif pkg =='sns': 
             sns.set(rc={"figure.figsize":self.fig_size}) 
             sns.set_style (self.sns_style)
             df = self.data.copy() 
-            if (self.tname not in df.columns) and (self.y_ is not None): 
-                df [self.tname] = self.y_ # set new dataframe with a target 
+            if (self.target_name not in df.columns) and (self.y_ is not None): 
+                df [self.target_name] = self.y_ # set new dataframe with a target 
                 
             fig = sns.jointplot(
                 data= df, 
@@ -817,10 +817,10 @@ class QuestPlotter (BasePlot):
         Example 
         ---------
         >>> from gofast.view import QuestPlotter 
-        >>> p = QuestPlotter(tname='flow').fit(data).plotScatter (
+        >>> p = QuestPlotter(target_name='flow').fit(data).plotScatter (
             xname ='sfi', yname='ohmS')
         >>> p
-        ...  <'QuestPlotter':xname='sfi', yname='ohmS' , tname='flow'>
+        ...  <'QuestPlotter':xname='sfi', yname='ohmS' , target_name='flow'>
         
         References 
         ------------
@@ -838,12 +838,12 @@ class QuestPlotter (BasePlot):
         self.yname_ = yname or self.yname_ 
         
         if hue is not None: 
-            self.tname = hue 
+            self.target_name = hue 
 
         if xname is not None: 
-            existfeatures( self.data, self.xname_ )
+            exist_features( self.data, self.xname_ )
         if yname is not None: 
-            existfeatures( self.data, self.yname_ )
+            exist_features( self.data, self.yname_ )
         
         # state the fig plot and change the figure size 
         sns.set(rc={"figure.figsize":self.fig_size}) #width=3, #height=4
@@ -851,7 +851,7 @@ class QuestPlotter (BasePlot):
            sns.set_style(self.sns_style)
         # try : 
         fig= sns.scatterplot( data = self.data, x = self.xname_,
-                             y=self.yname_, hue =self.tname, 
+                             y=self.yname_, hue =self.target_name, 
                         # ax =ax , # call matplotlib.pyplot.gca() internally
                         **kwd)
         # except : 
@@ -909,21 +909,21 @@ class QuestPlotter (BasePlot):
         >>> from gofast.utils import read_data 
         >>> from gofast.view import QuestPlotter
         >>> data = read_data  ( 'data/geodata/main.bagciv.data.csv' ) 
-        >>> p = QuestPlotter(tname ='flow').fit(data)
+        >>> p = QuestPlotter(target_name ='flow').fit(data)
         >>> p.fig_size = (7, 5)
         >>> p.savefig ='bbox.png'
         >>> p.plotHistBinTarget (xname= 'sfi', c = 0, kind = 'binarize',  kde=True, 
                           posilabel='dried borehole (m3/h)',
                           neglabel = 'accept. boreholes'
                           )
-        Out[95]: <'QuestPlotter':xname='sfi', yname=None , tname='flow'>
+        Out[95]: <'QuestPlotter':xname='sfi', yname=None , target_name='flow'>
         """
      
         self.inspect 
             
         self.xname_ = xname or self.xname_ 
         
-        existfeatures(self.data, self.xname_) # assert the name in the columns
+        exist_features(self.data, self.xname_) # assert the name in the columns
         df = self.data.copy() 
        
         if str(kind).lower().strip().find('bin')>=0: 
@@ -933,7 +933,7 @@ class QuestPlotter (BasePlot):
             _assert_all_types(c, float, int)
             
             if self.y_ is None: 
-                raise ValueError ("target name is missing. Specify the `tname`"
+                raise ValueError ("target name is missing. Specify the `target_name`"
                                   f" and refit {self.__class__.__name__!r} ")
             if not _isin(self.y_, c ): 
                 raise ValueError (f"c-value should be a class label, got '{c}'"
@@ -947,10 +947,10 @@ class QuestPlotter (BasePlot):
 
         else: 
   
-            if self.tname is None: 
+            if self.target_name is None: 
                 raise ValueError("Can't plot binary classes with missing"
                                  " target name ")
-            df[self.tname] = df [self.tname].map(
+            df[self.target_name] = df [self.target_name].map(
                 lambda x : 1 if ( x == c if isinstance(c, str) else x <=c 
                                  )  else 0  # mapping binary target
                 )
@@ -973,7 +973,7 @@ class QuestPlotter (BasePlot):
         else : 
             g=sns.histplot (data =df , 
                               x = self.xname_,
-                              hue= self.tname,
+                              hue= self.target_name,
                               linewidth = self.lw, 
                           **kws
                         )
@@ -1013,7 +1013,7 @@ class QuestPlotter (BasePlot):
         self.xname_ = xname or self.xname_ 
         xname = _assert_all_types(self.xname_,str )
         # assert whether whether  feature exists 
-        existfeatures(self.data, self.xname_)
+        exist_features(self.data, self.xname_)
     
         fig, ax = plt.subplots (figsize = self.fig_size or self.fig_size )
         self.data [self.xname_].plot(kind = kind , ax= ax  , **kws )
@@ -1139,15 +1139,15 @@ class QuestPlotter (BasePlot):
     
     def __repr__(self): 
         """ Represent the output class format """
-        return  "<{0!r}:xname={1!r}, yname={2!r} , tname={3!r}>".format(
-            self.__class__.__name__, self.xname_ , self.yname_ , self.tname 
+        return  "<{0!r}:xname={1!r}, yname={2!r} , target_name={3!r}>".format(
+            self.__class__.__name__, self.xname_ , self.yname_ , self.target_name 
             )
               
 class EasyPlotter (BasePlot): 
     def __init__(
         self,  
         classes = None, 
-        tname= None, 
+        target_name= None, 
         mapflow=False, 
         **kws
         ): 
@@ -1155,7 +1155,7 @@ class EasyPlotter (BasePlot):
         
         self._logging =gofastlog().get_gofast_logger(self.__class__.__name__)
         self.classes=classes
-        self.tname=tname
+        self.target_name=target_name
         self.mapflow=mapflow
         
     @property 
@@ -1165,14 +1165,14 @@ class EasyPlotter (BasePlot):
     @data.setter 
     def data (self, data):
         """ Read the data file and separate the target from the features 
-        if  the target name `tnames` is given.
+        if  the target name `target_names` is given.
         """
         self.data_ = _is_readable(
             data , input_name="'data'")
         
-        if str(self.tname).lower() in self.data_.columns.str.lower(): 
+        if str(self.target_name).lower() in self.data_.columns.str.lower(): 
             ix = list(self.data.columns.str.lower()).index (
-                self.tname.lower() )
+                self.target_name.lower() )
             self.y = self.data_.iloc [:, ix ]
 
             self.X_ = self.data_.drop(columns =self.data_.columns[ix] , 
@@ -1214,12 +1214,12 @@ class EasyPlotter (BasePlot):
         >>> from gofast.plot.explore  import EasyPlotter
         >>> qplotObj= EasyPlotter(xlabel = 'Flow classes in m3/h',
                                 ylabel='Number of  occurence (%)')
-        >>> qplotObj.tname= None # eith nameof target set to None 
+        >>> qplotObj.target_name= None # eith nameof target set to None 
         >>> qplotObj.fit(data)
         >>> qplotObj.data.iloc[1:2, :]
         ...     num name      east      north  ...         ohmS        lwi      geol flow
             1  2.0   b2  791227.0  1159566.0  ...  1135.551531  21.406531  GRANITES  0.0
-        >>> qplotObj.tname= 'flow'
+        >>> qplotObj.target_name= 'flow'
         >>> qplotObj.mapflow= True # map the flow from num. values to categ. values
         >>> qplotObj.fit(data)
         >>> qplotObj.data.iloc[1:2, :]
@@ -1241,9 +1241,9 @@ class EasyPlotter (BasePlot):
                     f"y and data must have the same length but {len(y)} and"
                     f" {len(self.data)} were given respectively.")
             
-            self.y = pd.Series (y , name = self.tname or 'none')
+            self.y = pd.Series (y , name = self.target_name or 'none')
             # for consistency get the name of target 
-            self.tname = self.y.name 
+            self.target_name = self.y.name 
             
         return self 
     
@@ -1330,20 +1330,20 @@ class EasyPlotter (BasePlot):
         >>> data = load_bagoue ().frame
         >>> qplotObj= EasyPlotter(xlabel = 'Flow classes',
                                 ylabel='Number of  occurence (%)',
-                                lc='b', tname='flow')
+                                lc='b', target_name='flow')
         >>> qplotObj.sns_style = 'darkgrid'
         >>> qplotObj.fit(data)
         >>> qplotObj. plotHistCatDistribution()
         
         """
         self._logging.info('Quick plot of categorized classes distributions.'
-                           f' the target name: {self.tname!r}')
+                           f' the target name: {self.target_name!r}')
         
         self.inspect 
     
-        if self.tname is None and self.y is None: 
+        if self.target_name is None and self.y is None: 
             raise FeatureError(
-                "Please specify 'tname' as the name of the target")
+                "Please specify 'target_name' as the name of the target")
 
         # reset index 
         df_= self.data_.copy()  #make a copy for safety 
@@ -1353,7 +1353,7 @@ class EasyPlotter (BasePlot):
             self.bins = kws.pop ('bins', None)
             
         plt.figure(figsize =self.fig_size)
-        plt.hist(df_[self.tname], bins=self.bins ,
+        plt.hist(df_[self.target_name], bins=self.bins ,
                   stacked = stacked , color= self.lc , **kws)
 
         plt.xlabel(self.xlabel)
@@ -1427,7 +1427,7 @@ class EasyPlotter (BasePlot):
         >>> data = load_bagoue ().frame
         >>> qplotObj= EasyPlotter(xlabel = 'Anomaly type',
                                 ylabel='Number of  occurence (%)',
-                                lc='b', tname='flow')
+                                lc='b', target_name='flow')
         >>> qplotObj.sns_style = 'darkgrid'
         >>> qplotObj.fit(data)
         >>> qplotObj. plotBarCatDistribution(basic_plot =False, 
@@ -1451,8 +1451,8 @@ class EasyPlotter (BasePlot):
             basic_plot =True
             
         if basic_plot : 
-            ax.bar(list(set(df_[self.tname])), 
-                        df_[self.tname].value_counts(normalize =True),
+            ax.bar(list(set(df_[self.target_name])), 
+                        df_[self.target_name].value_counts(normalize =True),
                         label= self.fig_title, color = self.lc, )  
     
         if groupby is not None : 
@@ -1463,7 +1463,7 @@ class EasyPlotter (BasePlot):
             if isinstance(groupby , dict):
                 groupby =list(groupby.keys())
             for sll in groupby :
-                ax= sns.countplot(x= sll,  hue=self.tname, 
+                ax= sns.countplot(x= sll,  hue=self.target_name, 
                                   data = df_, orient = self.sns_orient,
                                   ax=ax ,**kws)
 
@@ -1644,7 +1644,7 @@ class EasyPlotter (BasePlot):
         >>> from gofast.plot.explore  import EasyPlotter 
         >>> from gofast.datasets import load_bagoue 
         >>> data = load_bagoue ().frame
-        >>> qplotObj= EasyPlotter(lc='b', tname='flow')
+        >>> qplotObj= EasyPlotter(lc='b', target_name='flow')
         >>> qplotObj.sns_style = 'darkgrid'
         >>> qplotObj.mapflow=True # to categorize the flow rate 
         >>> qplotObj.fit(data)
@@ -1896,7 +1896,7 @@ class EasyPlotter (BasePlot):
         >>> from gofast.plot.explore  import EasyPlotter 
         >>> from gofast.datasets import load_bagoue 
         >>> data = load_bagoue ().frame
-        >>> qkObj = EasyPlotter(mapflow =False, tname='flow'
+        >>> qkObj = EasyPlotter(mapflow =False, target_name='flow'
                                   ).fit(data)
         >>> qkObj.sns_style ='darkgrid', 
         >>> qkObj.fig_title='Quantitative features correlation'
@@ -1928,7 +1928,7 @@ class EasyPlotter (BasePlot):
                                   " the numerical insights")
 
         df_= select_features(df_, include ='number')
-        ax =sns.pairplot(data =df_, hue=self.tname,**sns_kws)
+        ax =sns.pairplot(data =df_, hue=self.target_name,**sns_kws)
         
         if map_lower_kws is not None : 
             try : 
@@ -2132,7 +2132,7 @@ class EasyPlotter (BasePlot):
         ...             ylabel='Flow rate in m3/h'
         ...            ) 
         >>>
-        >>> qkObj.tname='flow' # target the DC-flow rate prediction dataset
+        >>> qkObj.target_name='flow' # target the DC-flow rate prediction dataset
         >>> qkObj.mapflow=True  # to hold category FR0, FR1 etc..
         >>> qkObj.fit(data) 
         >>> marker_list= ['o','s','P', 'H']
@@ -2273,7 +2273,7 @@ class EasyPlotter (BasePlot):
         >>> qkObj = EasyPlotter(  leg_kws={'loc':'upper right'},
         ...          fig_title = '`sfi` vs`ohmS|`geol`',
         ...            ) 
-        >>> qkObj.tname='flow' # target the DC-flow rate prediction dataset
+        >>> qkObj.target_name='flow' # target the DC-flow rate prediction dataset
         >>> qkObj.mapflow=True  # to hold category FR0, FR1 etc..
         >>> qkObj.fit(data) 
         >>> sns_pkws={'aspect':2 , 
@@ -2573,7 +2573,7 @@ Parameters
 -------------
 {params.core.data}
 {params.core.y}
-{params.core.tname}
+{params.core.target_name}
 {params.qdoc.classes}
 {params.qdoc.mapflow}
 {params.base.savefig}
@@ -2642,7 +2642,7 @@ Examples
 >>> qkObj = EasyPlotter(  leg_kws= dict( loc='upper right'),
 ...          fig_title = '`sfi` vs`ohmS|`geol`',
 ...            ) 
->>> qkObj.tname='flow' # target the DC-flow rate prediction dataset
+>>> qkObj.target_name='flow' # target the DC-flow rate prediction dataset
 >>> qkObj.mapflow=True  # to hold category FR0, FR1 etc..
 >>> qkObj.fit(data) 
 >>> sns_pkws= dict ( aspect = 2 , 

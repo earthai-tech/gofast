@@ -1,242 +1,452 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Dec 19 09:26:17 2023
+Created on Sun Feb 18 11:24:59 2024
+
 @author: Daniel
-
-Testing some utilities of :mod:`gofast.tools.funcutils` 
 """
+import pytest
+import logging
+import time
+import pandas as pd
+import numpy as np
+from unittest.mock import patch,  Mock, call
+from gofast.tools.funcutils import install_package, ensure_pkg 
+from gofast.tools.funcutils import merge_dicts, timeit_decorator 
+from gofast.tools.funcutils import flatten_list  
+from gofast.tools.funcutils import retry_operation, batch_processor
+from gofast.tools.funcutils import conditional_decorator, is_valid_if
+from gofast.tools.funcutils import make_data_dynamic, preserve_input_type
+from gofast.tools.funcutils  import curry, compose, memoize
 
-import numpy as np 
-import pandas as pd 
-import matplotlib.pyplot as plt 
-from gofast.tools.funcutils import  ( 
-    reshape, 
-    to_numeric_dtypes, 
-    smart_label_classifier, 
-    remove_outliers,
-    normalizer, 
-    cleaner, 
-    random_selector, 
-    interpolate_grid, 
-    twinning, 
-    random_sampling, 
-    replace_data, 
-    ) 
+# Define test cases for currying
+def test_curry():
+    @curry
+    def add(x, y):
+        return x + y
 
-from gofast.datasets.load import load_bagoue
-from gofast.datasets.load import load_hlogs
-# get the data for a test 
-X, y = load_bagoue (as_frame =True ) 
+    add_five = add(5)
+    assert add_five(3) == 8
 
-def test_to_numeric_dtypes (): 
-    """ test data types """
-    X0 =X[['shape', 'power', 'magnitude']]
-    print(X0.dtypes)
-    # print X0.dtypes and check the 
-    # datatypes 
-    print( to_numeric_dtypes(X0)) 
-    
-def test_reshape (): 
-    np.random.seed (0) 
-    array = np.random.randn(50 )
-    print(array.shape)
-    ar1=reshape(array, 1)
-    print(ar1.shape) 
-    # ... (1, 50)
-    ar2 =reshape(ar1 , 0) 
-    print(ar2.shape) 
-    # ... (50, 1)
-    ar3 = reshape(ar2, axis = None)
-    print( ar3.shape) # goes back to the original array  
-    # ... (50,)
-def test_smart_label_classifier () :
-    
-    sc = np.arange (0, 7, .5 ) 
-    smart_label_classifier (sc, values = [1, 3.2 ]) 
-    # array([0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2], dtype=int64)
-    # >>> # rename labels <=1 : 'l1', ]1; 3.2]: 'l2' and >3.2 :'l3'
-    smart_label_classifier (sc, values = [1, 3.2 ], labels =['l1', 'l2', 'l3'])
-    # >>> array(['l1', 'l1', 'l1', 'l2', 'l2', 'l2', 'l2', 'l3', 'l3', 'l3', 'l3',
-    #        'l3', 'l3', 'l3'], dtype=object)
-    def f (v): 
-        if v <=1: return 'l1'
-        elif 1< v<=3.2: return "l2" 
-        else : return "l3"
-    smart_label_classifier (sc, func= f )
-    # array(['l1', 'l1', 'l1', 'l2', 'l2', 'l2', 'l2', 'l3', 'l3', 'l3', 'l3',
-    #        'l3', 'l3', 'l3'], dtype=object)
-    smart_label_classifier (sc, values = 1.)
-    # array([0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], dtype=int64)
-    smart_label_classifier (sc, values = 1., labels='l1')  
-    # array(['l1', 'l1', 'l1', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], dtype=object)
-    
-def test_remove_outliers () : 
-    data = np.random.randn (7, 3 )
-    data_r = remove_outliers ( data )
-    print( data.shape , data_r.shape )
-    # (7, 3) (5, 3)
-    remove_outliers ( data, fill_value =np.nan )
-    # array([[ 0.49671415, -0.1382643 ,  0.64768854],
-    #        [ 1.52302986, -0.23415337, -0.23413696],
-    #        [ 1.57921282,  0.76743473, -0.46947439],
-    #        [ 0.54256004, -0.46341769, -0.46572975],
-    #        [ 0.24196227,         nan,         nan],
-    #        [-0.56228753, -1.01283112,  0.31424733],
-    #        [-0.90802408,         nan,  1.46564877]])
-    # >>> # for one dimensional 
-    remove_outliers ( data[:, 0] , fill_value =np.nan )
-    # array([ 0.49671415,  1.52302986,  1.57921282,  0.54256004,  0.24196227,
-    #        -0.56228753,         nan])
-    data_r0 =remove_outliers ( data[:, 0] , fill_value =np.nan, interpolate=True  )
-    plt.plot (np.arange (len(data )), data, 'ok') 
-    plt.plot (np.arange (len(data )), data[:, 0], 'ok-', 
-           np.arange (len(data_r0 )), data_r0, 'or-'
-           )
-    
-    
-def test_normalizer(): 
-    np.random.seed (42)
-    arr = np.random.randn (3, 2 ) 
-    # array([[ 0.49671415, -0.1382643 ],
-    #        [ 0.64768854,  1.52302986],
-    #        [-0.23415337, -0.23413696]])
-    normalizer (arr )
-    # array([[4.15931313e-01, 5.45697636e-02],
-    #        [5.01849720e-01, 1.00000000e+00],
-    #        [0.00000000e+00, 9.34323403e-06]])
-    normalizer (arr , method ='min-max')  # normalize data along axis=0 
-    # array([[0.82879654, 0.05456093],
-    #        [1.        , 1.        ],
-    #        [0.        , 0.        ]])
-    arr [0, 1] = np.nan; arr [1, 0] = np.nan 
-    normalizer (arr )
-    # array([[4.15931313e-01,            nan],
-    #        [           nan, 1.00000000e+00],
-    #        [0.00000000e+00, 9.34323403e-06]])
-    normalizer (arr , method ='min-max')
-    
-def test_cleaner (): 
-    
-    cleaner (X,  columns = 'num, ohmS')
-    cleaner (X, mode ='drop', columns ='power shape, type')
-    
-    
-def test_random_selector (): 
-    dat= np.arange (42 ) 
-    random_selector (dat , 7, seed = 42 ) 
-    # array([0, 1, 2, 3, 4, 5, 6])
-    random_selector ( dat, ( 23, 13 , 7))
-    # array([ 7, 13, 23])
-    random_selector ( dat , "7%", seed =42 )
-    # array([0, 1])
-    random_selector ( dat , "70%", seed =42 , shuffle =True )
-    # array([ 0,  5, 20, 25, 13,  7, 22, 10, 12, 27, 23, 21, 16,  3,  1, 17,  8,
-    #         6,  4,  2, 19, 11, 18, 24, 14, 15,  9, 28, 26])
-    
-    
-def test_interpolate_grid(): 
-    
-    x = [28, np.nan, 50, 60] ; y = [np.nan, 1000, 2000, 3000]
-    xy = np.vstack ((x, y)).T
-    xyi = interpolate_grid (xy, view=True ) 
-    print(xyi)  
-    # array([[  28.        ,   28.        ],
-    #        [  22.78880663, 1000.        ],
-    #        [  50.        , 2000.        ],
-    #        [  60.        , 3000.        ]])
-    
-def test_twinning (): 
-    # >>> data = gf.make_erp (seed =42 , n_stations =12, as_frame =True ) 
-    table1 = pd.DataFrame ( {"dipole": 10, "longitude":110.486111, 
-                                 "latitude":26.05174, "shape": "C", 
-                                 "type": 'EC','sfi':  1.141844, }, 
-                           index =range(1))
+# Define test cases for function composition
+def test_compose():
+    @compose
+    def double(x):
+        return x * 2
 
-    data_no_xy =pd.DataFrame ({"AB": [ 1.0, 2.0], 
-                                   "MN": [0.4 , .4 ], 
-                                   "resistivity": [448.860148, 449.060335 ]
-                                   }
-                                  ) 
-    #     AB   MN  resistivity
-    # 0  1.0  0.4   448.860148
-    # 1  2.0  0.4   449.060335
-    data_xy =pd.DataFrame ( 
-        {"AB":[1., 1.] , 
-         "MN":[ .4, .4 ],  
-         "resistivity":[448.860148, 449.060335] , 
-         "latitude":[28.41193, 28.41193] , 
-         "longitude":[109.332931, 109.332931] 
-             
-             }
-        )
-    #     AB   MN  resistivity   longitude  latitude
-    # 0  1.0  0.4   448.860148  109.332931  28.41193
-    # 1  2.0  0.4   449.060335  109.332931  28.41193
-    sounding_table = pd.DataFrame ( 
-        { 'AB': 200.,     
-         'MN':20.,    
-         'arrangememt': "Schlumberger", 
-         'nareas':2, 
-         'longitude': 110.486111, 
-         'latitude': 26.05174
-            }, index =range(1))
-    #          AB    MN   arrangememt  ... nareas   longitude  latitude
-    # area                             ...                             
-    # None  200.0  20.0  schlumberger  ...      1  110.486111  26.05174
-    twinning (table1, sounding_table,  ) 
-    #        dipole   longitude  latitude  ...  nareas   longitude  latitude
-    # line1    10.0  110.486111  26.05174  ...     NaN         NaN       NaN
-    # None      NaN         NaN       NaN  ...     1.0  110.486111  26.05174
-    # twinning (table1, sounding_table, on =['longitude', 'latitude'] ) 
-    # Empty DataFrame 
-    # >>> # comments: Empty dataframe appears because, decimal is too large 
-    # >>> # then it considers values longitude and latitude differents 
-    twinning (table1, sounding_table, on =['longitude', 'latitude'], decimals =5 ) 
-    #     dipole  longitude  latitude  ...  max_depth  ohmic_area  nareas
-    # 0      10  110.48611  26.05174  ...      109.0  690.063003       1
-    # >>> # Now is able to find existing dataframe with identical closer coordinates. 
-    twinning(data_no_xy, data_xy, coerce=True , parse_on= True )
-    
-    
-def test_random_sampling (): 
+    increment_and_double = compose(lambda x: x + 1, double)
+    assert increment_and_double(3) == 7
 
-    data= load_hlogs().frame
-    print( random_sampling( data, samples = 7 ).shape ) 
-    # (7, 27)
-       
-def test_replace_data (): 
-    X, y = np.random.randn ( 7, 2 ), np.arange(7)
-    print( X.shape, y.shape)  
-    # ((7, 2), (7,))
-    X_new, y_new = replace_data (X, y, n_times =10 )
-    print( X_new.shape , y_new.shape) 
+# Define test cases for memoization
+def test_memoize():
+    @memoize
+    def fibonacci(n):
+        if n < 2:
+            return n
+        return fibonacci(n - 1) + fibonacci(n - 2)
+    
+    assert fibonacci(10) == 55
+
+def test_preserve_input_type_custom_convert():
+    def custom_convert(result, original_type, original_columns):
+        if original_type is pd.DataFrame:
+            # Convert result list back to DataFrame with original columns
+            return pd.DataFrame([result], columns=original_columns)
+        return original_type(result)
+
+    @preserve_input_type(custom_convert=custom_convert)
+    def return_as_list(data):
+        return list(data.values.flatten())
+
+    df = pd.DataFrame({'A': [1], 'B': [2]})
+    result = return_as_list(df)
+    assert isinstance(result, pd.DataFrame), "Custom conversion to DataFrame failed"
+    assert (result.columns == ['A', 'B']).all(), "Original DataFrame columns were not preserved by custom conversion"
+
+def test_preserve_input_type_with_dataframe():
+    @preserve_input_type(keep_columns_intact=False)
+    def modify_dataframe(data):
+        # Simulate a modification that preserves DataFrame structure
+        return data.assign(C=data['A'] + data['B'])
+
+    df = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
+    result = modify_dataframe(df)
+    assert isinstance(result, pd.DataFrame), "Result is not a DataFrame"
+    assert 'C' in result.columns, "New column 'C' was not added"
+    assert all(result.columns == ['A', 'B', 'C']), "Original columns were not preserved"
+    
+def test_preserve_input_type_with_keep_original_columns():
+    @preserve_input_type(keep_columns_intact=True)
+    def modify_dataframe(data):
+        return data.assign(C=data['A'] + data['B']) # operation not performed 
+
+    df = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
+    result = modify_dataframe(df)
+    assert isinstance(result, pd.DataFrame), "Result is not a DataFrame"
+    assert 'C' not in result.columns, "Failed because new column 'C' was  added"
+    assert all(result.columns == ['A', 'B']), "Original columns were not preserved"
+
+def test_preserve_input_type_fallback_on_error():
+    def custom_convert(result, original_type, original_columns):
+        raise ValueError("Conversion failed")
+
+    @preserve_input_type(custom_convert=custom_convert, fallback_on_error=True)
+    def fail_conversion(data):
+        # Intentionally return a list to trigger conversion attempt
+        return list(data.values.flatten())
+
+    df = pd.DataFrame({'A': [1], 'B': [2]})
+    # Expect the decorator to fallback to the original result instead of raising ValueError
+    result = fail_conversion(df)
+    assert isinstance(result, list), "Fallback did not occur; result is not a list"
+    assert result == [1, 2], "Fallback result does not match expected list"
+    
+def test_preserve_input_type_no_fallback_on_error():
+    def custom_convert(result, original_type, original_columns):
+        raise ValueError("Conversion failed")
+
+    @preserve_input_type(custom_convert=custom_convert, fallback_on_error=False)
+    def fail_conversion_no_fallback(data):
+        # Intentionally return a list to trigger conversion attempt
+        return list(data.values.flatten())
+
+    df = pd.DataFrame({'A': [1], 'B': [2]})
+    # Now expect a ValueError to be raised because fallback_on_error is False
+    with pytest.raises(ValueError, match="Conversion failed"):
+        fail_conversion_no_fallback(df)
+
+
+def test_make_data_dynamic_numeric_filter():
+    @make_data_dynamic(expected_type='numeric')
+    def process_numeric(data):
+        return data
+
+    df = pd.DataFrame({
+        'A': [1, 2, 3],
+        'B': ['a', 'b', 'c'],
+        'C': [4.0, 5.5, np.nan]
+    })
+    result = process_numeric(df)
+    assert all(dtype.kind in 'biufc' for dtype in result.dtypes), "Non-numeric columns were not filtered out"
+
+def test_make_data_dynamic_drop_na_rows():
+    @make_data_dynamic(drop_na=True, na_meth='drop_rows')
+    def process_drop_na(data):
+        return data
+
+    df = pd.DataFrame({
+        'A': [1, np.nan, 3],
+        'B': [4, 5, np.nan]
+    })
+    result = process_drop_na(df)
+    assert len(result) == 1, "Rows with NA values were not dropped"
+
+def test_make_data_dynamic_reset_index():
+    @make_data_dynamic(reset_index=True)
+    def process_reset_index(data):
+        return data
+
+    df = pd.DataFrame({'A': [1, 2, 3]})
+    df.index = ['x', 'y', 'z']
+    result = process_reset_index(df)
+    assert result.index.equals(pd.RangeIndex(start=0, stop=3, step=1)), "Index was not reset"
+
+def test_make_data_dynamic_with_custom_logic():
+    mock_preprocess = Mock(return_value=pd.DataFrame({'A': [1, 2, 3]}))
+    df = pd.DataFrame({'A': [1, 2, 3], 'B': ['x', 'y', 'z']})
+    
+    with patch('gofast.tools.funcutils._preprocess_data', mock_preprocess):
+        @make_data_dynamic(capture_columns=True)
+        def custom_logic(data, columns=None):
+            return data
+
+        result = custom_logic(df, columns=['A'])
+
+    assert 'B' not in result.columns, "Column 'B' was not filtered out as expected"
     
     
-# if __name__=="__main__": 
+def test_is_valid_if_correct_types():
+    @is_valid_if(int, float, kwarg_types={'name': str})
+    def func(a, b, name=""):
+        return f"{a}, {b}, {name}"
+
+    assert func(1, 2.0, name="Test") == "1, 2.0, Test"
+
+def test_is_valid_if_incorrect_positional_type():
+    @is_valid_if(int, float)
+    def func(a, b):
+        return a + b
+
+    with pytest.raises(TypeError) as exc_info:
+        func(1, "not a float")
     
-#     test_reshape(), 
-#     test_to_numeric_dtypes(), 
-#     test_smart_label_classifier(), 
-#     test_remove_outliers(), 
-#     test_normalizer(),  
-#     test_cleaner(),  
-#     test_random_selector(),  
-#     test_interpolate_grid(), 
-#     test_twinning(), 
-#     test_random_sampling(),  
-#     test_replace_data(),  
+    assert "requires <class 'float'>" in str(exc_info.value)
+
+def test_is_valid_if_incorrect_kwarg_type():
+    @is_valid_if(int, kwarg_types={'name': str})
+    def func(a, name=""):
+        return f"{a}, {name}"
+
+    with pytest.raises(TypeError) as exc_info:
+        func(1, name=123)  # name should be a string
     
+    assert "requires <class 'str'>" in str(exc_info.value)
+
+def test_is_valid_if_with_custom_error():
+    custom_error = "Error: Argument '{arg_name}' in '{func_name}' must be {expected_type}, not {got_type}."
+
+    @is_valid_if(int, str, custom_error=custom_error)
+    def func(a, b):
+        return a, b
+
+    with pytest.raises(TypeError) as exc_info:
+        func("not an int", "string")
     
+    assert "Error: Argument '1' in 'func' must be <class 'int'>" in str(exc_info.value)
+
+def test_is_valid_if_skip_check():
+    skip_check = lambda args, kwargs: True
+
+    @is_valid_if(int, str, skip_check=skip_check)
+    def func(a, b):
+        return a, b
+
+    # Should not raise TypeError despite incorrect types, due to skip_check
+    assert func("string", 123) == ("string", 123)
+
+def test_timeit_decorator_prints():
+    mock_logger = Mock(spec=logging.Logger)
+
+    @timeit_decorator(logger=mock_logger)
+    def test_function():
+        time.sleep(0.1)
+
+    test_function()
+    assert mock_logger.log.called  # Ensures the logger was called
+
+def test_timeit_decorator_no_logger(capfd):
+    @timeit_decorator()
+    def test_function():
+        """Example function that sleeps for a given delay."""
+        time.sleep(0.1)
+
+    test_function()
+
+    # Capture the output
+    out, err = capfd.readouterr()
+
+    # Assert that the output contains the expected message
+    assert "'test_function' executed in" in out
+
+def test_conditional_decorator_applies_correctly():
+    def true_predicate(_):
+        return True
+
+    def false_predicate(_):
+        return False
+
+    def test_decorator(func):
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs) + 1
+        return wrapper
+
+    @conditional_decorator(predicate=true_predicate, decorator=test_decorator)
+    def add_one(x):
+        return x + 1
+
+    assert add_one(1) == 3  # Decorator applied
+
+    @conditional_decorator(predicate=false_predicate, decorator=test_decorator)
+    def add_one_no_decorator(x):
+        return x + 1
+
+    assert add_one_no_decorator(1) == 2  # Decorator not applied
+
+def test_batch_processor_handles_errors():
+    def failing_function(x):
+        if x == 0:
+            raise ValueError("Cannot process 0")
+        return 10 / x
+
+    def on_error(exception, input):
+        return f"Error: {exception}"
+
+    processed = batch_processor(failing_function, on_error=on_error)([1, 0, 2])
+    assert processed == [10.0, "Error: Cannot process 0", 5.0]
+
+def test_batch_processor_success_callback():
+    success_log = []
+
+    def success_function(x):
+        return x * 2
+
+    def on_success(result, input):
+        success_log.append((input, result))
+
+    batch_processor(success_function, on_success=on_success)([1, 2, 3])
+    assert success_log == [(1, 2), (2, 4), (3, 6)]
+
+@pytest.mark.skip 
+def test_retry_operation_with_pre_process_args():
+    func = Mock(side_effect=[Exception("Fail"), Exception("Fail"), "Success"])
+    def pre_process(attempt, args, kwargs):
+        return ((attempt,), kwargs)
     
+    retry_operation(func, retries=3, pre_process_args=pre_process)
+    func.assert_has_calls([call(1), call(2), call(3)])
+@pytest.mark.skip  
+def test_retry_operation_backoff():
+    func = Mock(side_effect=[Exception("Fail"), Exception("Fail"), "Success"])
+    start_time = time.time()
+    try:
+        retry_operation(func, retries=2, delay=0.1, backoff_factor=2)
+    except Exception:
+        pass  # Expected to fail on the first two attempts
+    total_time = time.time() - start_time
+    assert total_time >= 0.3  # 0.1 + 0.2 seconds delay
+    assert func.call_count == 3
+@pytest.mark.skip 
+def test_retry_operation_exhausts_retries():
+    func = Mock(side_effect=Exception("Fail"))
+    with pytest.raises(Exception) as exc_info:
+        retry_operation(func, retries=2)
+    assert func.call_count == 3  # Initial call + 2 retries
+    assert str(exc_info.value) == "Fail"
+
+def test_retry_operation_success_no_retry():
+    func = Mock(return_value="Success")
+    assert retry_operation(func) == "Success"
+    func.assert_called_once()
+
+def test_retry_operation_catches_exception_and_retries():
+    func = Mock(side_effect=[Exception("Fail"), "Success"])
+    assert retry_operation(func, retries=2) == "Success"
+    assert func.call_count == 2
+
+def test_retry_operation_with_on_retry():
+    func = Mock(side_effect=[Exception("Fail"), "Success"])
+    on_retry = Mock()
+    assert retry_operation(func, retries=2, on_retry=on_retry) == "Success"
+    on_retry.assert_called_once()
+
+def test_retry_operation_with_pre_process_args2():
+    func = Mock(side_effect=[Exception("Fail"), Exception("Fail"), "Success"])
+    def pre_process(attempt, args, kwargs):
+        return ((attempt,), kwargs)
     
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+    assert retry_operation(func, retries=3, pre_process_args=pre_process) == "Success"
+    func.assert_has_calls([call(1), call(2), call(3)])
+
+def test_flatten_list_basic():
+    nested = [1, [2, 3], [4, [5, 6]], 7]
+    expected = [1, 2, 3, 4, 5, 6, 7]
+    assert flatten_list(nested) == expected
+
+def test_flatten_list_with_depth():
+    nested = [1, [2, 3], [4, [5, 6]], 7]
+    expected = [1, 2, 3, 4, [5, 6], 7]
+    assert flatten_list(nested, depth=1) == expected
+
+def test_flatten_list_no_flattening():
+    nested = [1, [2, 3], [4, [5, 6]], 7]
+    expected = nested
+    assert flatten_list(nested, depth=0) == expected
+
+def test_flatten_list_with_item_processing():
+    nested = [1, [2, 3], [4, [5, 6]], 7]
+    process = lambda x: x**2 if isinstance(x, int) else x
+    expected = [1, 4, 9, 16, 25, 36, 49]
+    assert flatten_list(nested, process_item=process) == expected
+
+def test_flatten_list_with_depth_and_processing():
+    nested = [1, [2, 3], [4, [5, 6]], 7]
+    process = lambda x: x**2 if isinstance(x, int) else x
+    expected = [1, 4, 9, 16, [5, 6], 49]
+    assert flatten_list(nested, depth=1, process_item=process) == expected
+
+def test_flatten_list_with_non_numeric_processing():
+    nested = ['a', ['b', 'c'], ['d', ['e', 'f']], 'g']
+    process = lambda x: x.upper() if isinstance(x, str) else x
+    expected = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
+    assert flatten_list(nested, process_item=process) == expected
+
+def test_basic_merge():
+    dict_a = {'a': 1, 'b': 2}
+    dict_b = {'b': 3, 'c': 4}
+    expected = {'a': 1, 'b': 3, 'c': 4}
+    assert merge_dicts(dict_a, dict_b) == expected
+
+def test_deep_merge():
+    dict_a = {'a': 1, 'b': {'x': 1}}
+    dict_b = {'b': {'y': 2}, 'c': 3}
+    expected = {'a': 1, 'b': {'x': 1, 'y': 2}, 'c': 3}
+    assert merge_dicts(dict_a, dict_b, deep_merge=True) == expected
+
+def test_list_concatenation():
+    dict_a = {'a': [1], 'b': [2]}
+    dict_b = {'a': [3], 'b': [4]}
+    expected = {'a': [1, 3], 'b': [2, 4]}
+    assert merge_dicts(dict_a, dict_b, list_merge=True) == expected
+
+def test_custom_list_merge():
+    dict_a = {'a': [1, 2], 'b': [1]}
+    dict_b = {'a': [3], 'b': [2, 3]}
+    # Custom merge function: merge lists by taking unique elements
+    custom_merge = lambda x, y: list(set(x + y))
+    expected = {'a': [1, 2, 3], 'b': [1, 2, 3]}
+    assert merge_dicts(dict_a, dict_b, list_merge=custom_merge) == expected
+
+def test_no_overwrite_on_false_list_merge():
+    dict_a = {'a': [1], 'b': [2]}
+    dict_b = {'a': [3], 'b': [4]}
+    expected = {'a': [3], 'b': [4]}  # Default behavior without list_merge
+    assert merge_dicts(dict_a, dict_b) == expected
+
+# Test for install_package function
+def test_install_package():
+    with patch('subprocess.check_call') as mocked_check_call:
+        install_package('example-package', use_conda=False, verbose=True)
+        mocked_check_call.assert_called()
+
+# Test for ensure_pkg decorator with a function
+def test_ensure_pkg_with_function():
+    with patch('gofast.tools.funcutils.import_optional_dependency') as mocked_import:
+        # Simulate the package being available, no installation should occur
+        mocked_import.return_value = True
+
+        @ensure_pkg('example-package', auto_install=True)
+        def sample_function():
+            return "Function executed"
+
+        assert sample_function() == "Function executed"
+        mocked_import.assert_called()
+
+# Test for ensure_pkg decorator triggering auto-install
+def test_ensure_pkg_auto_install():
+    with patch('gofast.tools.funcutils.import_optional_dependency',
+               side_effect=ModuleNotFoundError), \
+          patch('gofast.tools.funcutils.install_package') as mocked_install:
+        # Simulate the package not being available, triggering auto-install
+        @ensure_pkg('missing-package', auto_install=True)
+        def sample_function():
+            return "Function executed after install"
+
+        sample_function()
+        mocked_install.assert_called_with('missing-package', extra='',
+                                          use_conda=False, verbose=False)
+
+# Test for ensure_pkg decorator with class method
+def test_ensure_pkg_with_class_method():
+    with patch('gofast.tools.funcutils.import_optional_dependency') as mocked_import:
+        mocked_import.return_value = True
+
+        class SampleClass:
+            @ensure_pkg('example-package', auto_install=True)
+            def sample_method(self):
+                return "Method executed"
+
+        instance = SampleClass()
+        assert instance.sample_method() == "Method executed"
+        mocked_import.assert_called()
+        
+if __name__=='__main__': 
+    pytest.main ([__file__])

@@ -1,3 +1,7 @@
+<img src="docs/_static/gofast_logo.svg"><br>
+
+-----------------------------------------------------
+
 # gofast: _Accelerate Your Machine Learning Workflow_
 
 **gofast** is a comprehensive machine learning toolbox designed to streamline and accelerate every step of your data science workflow. This project is focused on delivering high-speed tools and utilities that assist users in swiftly navigating through the critical stages of data analysis, processing, and modeling.
