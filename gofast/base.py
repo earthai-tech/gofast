@@ -14,14 +14,15 @@ import seaborn as sns
 from ._docstring import DocstringComponents, _core_docs
 from ._gofastlog import gofastlog
 from ._typing import List, Optional, DataFrame, Tuple
-from .tools.baseutils import _is_readable
+
 from .exceptions import NotFittedError
-from .tools._dependency import import_optional_dependency
+from .tools.baseutils import _is_readable
 from .tools.coreutils import sanitize_frame_cols, exist_features
 from .tools.coreutils import _assert_all_types, repr_callable_obj, reshape 
 from .tools.coreutils import smart_strobj_recognition, is_iterable
 from .tools.coreutils import format_to_datetime, fancier_repr_formatter
 from .tools.coreutils import to_numeric_dtypes
+from .tools.funcutils import ensure_pkg
 from .tools.validator import array_to_frame, check_array, build_data_if
 from .tools.validator import is_time_series, is_frame, _is_arraylike_1d  
 
@@ -30,7 +31,7 @@ _logger = gofastlog().get_gofast_logger(__name__)
 
 __all__ = [
     "Data", 
-    "Missing",
+    "MissingHandler",
     "MergeableSeries",
     "MergeableFrames",
     "FrameOperations",
@@ -594,6 +595,10 @@ class TargetProcessor:
         self.target_ = y_resampled
         return (self, X_resampled) if return_resampled else self
 
+    @ensure_pkg("imblearn", extra = (
+        "Missing 'imbalanced-learn' package. Note `imblearn` is the "
+         "shorthand of the package 'imbalanced-learn'.")
+        )
     def _get_sampler(self, method):
         """
         Retrieves the appropriate sampler based on the specified balancing method.
@@ -618,9 +623,7 @@ class TargetProcessor:
         This method simplifies the selection of samplers based on the method string.
         It is used internally in the balance_data method.
         """
-        msg =("Missing 'imbalanced-learn' package. Note `imblearn` is the "
-              "shorthand of the package 'imbalanced-learn'.")
-        import_optional_dependency("imblearn", extra=msg )
+
         from imblearn.over_sampling import SMOTE, RandomOverSampler
         from imblearn.under_sampling import RandomUnderSampler
         
@@ -915,7 +918,8 @@ class TargetProcessor:
                 correlation_dict[feature] = correlation_value
 
         return correlation_dict
-
+    
+    @ensure_pkg ("skmultilearn")
     def transform_multi_label(
             self, method='binary_relevance', return_transformed=False):
         """
@@ -967,7 +971,6 @@ class TargetProcessor:
         but are sensitive to the order of labels. Label powerset captures label 
         correlations but can lead to a large number of classes in case of many labels.
         """
-        import_optional_dependency( "skmultilearn")
         from skmultilearn.problem_transform import ( 
             BinaryRelevance, ClassifierChain, LabelPowerset) 
 
@@ -2121,6 +2124,14 @@ class FeatureProcessor:
         self.update_features 
         return self
 
+    @ensure_pkg("skimage", 
+                extra= ( 
+                        "Image Feature Extraction expects 'scikit-image'"
+                        " package to be installed."
+                        ), 
+                condition=lambda *args, **kwargs: kwargs.get(
+                    'method', args[1] if len(args) > 1 else '') == 'hog'
+            )
     def image_feature_extraction(
         self, image_column, 
         method='hog', **kwargs
@@ -2166,9 +2177,6 @@ class FeatureProcessor:
 
         # Image Feature Extraction
         if method == 'hog':
-            msg = ("Image Feature Extraction expects 'scikit-image' package"  
-                   " to be installed.")
-            import_optional_dependency ("skimage", extra =msg )
             from skimage.feature import hog
             extractor_function = lambda image: hog(image, **kwargs)
         elif callable(method):
@@ -2393,6 +2401,10 @@ class Data:
             )
         return 1
 
+    @ensure_pkg("pandas_profiling", 
+                extra= ("'Data.profilingReport' method uses"
+                        " 'pandas-profiling' as a dependency.")
+                )
     def profilingReport(self, data: str | DataFrame = None, **kwd):
         """Generate a report in a notebook. 
 
@@ -2416,10 +2428,6 @@ class Data:
         >>> Data().fit(data).profilingReport()
 
         """
-        extra_msg = ("'Data.profilingReport' method uses 'pandas-profiling'"
-                     " as a dependency.")
-        import_optional_dependency("pandas_profiling", extra=extra_msg)
-
         self.inspect
         self.data = data or self.data
 
@@ -2599,7 +2607,7 @@ Examples
 )
 
 
-class Missing (Data):
+class MissingHandler (Data):
     """ Deal with missing values in Data 
 
     Most algorithms will not work with missing data. Notable exceptions are the 
@@ -2651,7 +2659,7 @@ class Missing (Data):
 
     Examples 
     --------
-    >>> from gofast.base import Missing
+    >>> from gofast.base import MissingHandler
     >>> data ='data/geodata/main.bagciv.data.csv' 
     >>> ms= Missing().fit(data) 
     >>> ms.plot_.fig_size = (12, 4 ) 
@@ -2836,74 +2844,100 @@ class Missing (Data):
 
         return self.data.isna().any().any()
 
+    @ensure_pkg("pyjanitor", condition = "return_non_null")
     def replace(
         self,
         data: str | DataFrame = None,
-        columns: List[str] = None,
+        columns: str| List[str] = None,
         fill_value: float = None,
         new_column_name: str = None,
         return_non_null: bool = False,
-        **kwd):
-        """ 
-        Replace the missing values to consider. 
-
-        Use the :code:`coalease` function of :mod:`pyjanitor`. It takes a  
-        dataframe and a list of columns to consider. This is a similar to 
-        functionality found in Excel and SQL databases. It returns the first 
-        non null value of each row. 
-
-        Parameters 
-        -----------
-        data: Dataframe of shape (M, N) from :class:`pandas.DataFrame` 
-            Dataframe containing samples M  and features N
-
-        columns: str or list of str 
-            columns to replace which contain the missing data. Can use the axis 
-            equals to '1'.
-
-        axis: {0 or 'index', 1 or 'columns'}, default 0
-            Determine if rows or columns which contain missing values are 
-            removed.
-            * 0, or 'index' : Drop rows which contain missing values.
-
-            * 1, or 'columns' : Drop columns which contain missing value.
-            Changed in version 1.0.0: Pass tuple or list to drop on multiple 
-            axes. Only a single axis is allowed.
-
-         Returns 
-         -------
-         ``self``: :class:`~gofast.base.Missing` instance 
-             returns ``self`` for easy method chaining.
-
+        **kwargs
+    ) -> 'MissingHandler':
         """
+        Replace missing values in the DataFrame.
 
+        This method can either fill missing values with a specified value 
+        or leverage the `coalesce` function from the `pyjanitor` library to 
+        find and return the first non-null value across columns for each row.
+
+        Parameters
+        ----------
+        data : pd.DataFrame, optional
+            DataFrame containing the data. If not provided, uses the 
+            instance's data.
+        columns : str or List[str], optional
+            Columns to consider when replacing missing values. If not provided,
+            all columns are considered.
+        fill_value : float, optional
+            Value to replace missing values with. If not provided, no fill 
+            operation is performed.
+        new_column_name : str, optional
+            Name for the new column generated by coalesce when 
+            `return_non_null` is True.
+        return_non_null : bool, default False
+            If True, uses `pyjanitor.coalesce` to return the first non-null 
+            value acrossspecified columns for each row.
+        **kwargs
+            Additional keyword arguments to pass to `fillna` method if 
+            `fill_value` is used.
+
+        Returns
+        -------
+        self : MissingHandler
+            The instance itself for method chaining.
+
+        Examples
+        --------
+        >>> handler = MissingHandler(data)
+        >>> handler.replace(fill_value=0).data
+        >>> handler.replace(return_non_null=True, new_column_name='first_non_null').data
+        """
         if data is not None:
             self.data = data
 
-        self.inspect
-        exist_features(self.data, columns)
+        if isinstance(columns, str):
+            columns = [columns]
 
         if return_non_null:
-            new_column_name = _assert_all_types(new_column_name, str)
-            import_optional_dependency("pyjanitor")
-            import pyjanitor as jn
-            return jn.coalease(
+            from pyjanitor import coalesce  
+            new_column_name = self._assert_str (new_column_name, "new_column_name")
+            self.data = coalesce(
                 self.data,
                 columns=columns,
-                new_column_name=new_column_name,
-                )
-        if fill_value is not None:
-            # fill missing values with a particular values.
-
-            try:
-                jn.fill_empty(self.data, columns=columns or list(self.data.columns),
-                    value=fill_value
+                new_column_name=new_column_name
             )
-            except:
-                self.data = self.data .fillna(fill_value, **kwd)
-                    
+        elif fill_value is not None:
+            self.data.fillna(value=fill_value, inplace=True, **kwargs)
 
         return self
+
+    @staticmethod
+    def _assert_str(obj, name: str) -> str:
+        """
+        Ensure an object is a string, raising a TypeError otherwise.
+
+        Parameters
+        ----------
+        obj : Any
+            The object to check.
+        name : str
+            The name of the parameter for error messages.
+
+        Returns
+        -------
+        str
+            The object if it is a string.
+
+        Raises
+        ------
+        TypeError
+            If `obj` is not a string.
+        """
+        if not isinstance(obj, str):
+            raise TypeError(f"{name} must be a string.")
+        return obj
+
 
 def select_features(
     df: DataFrame,

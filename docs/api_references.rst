@@ -137,7 +137,7 @@ data-centric tasks and workflows.
    base.FrameOperations
    base.MergeableSeries
    base.MergeableFrames
-   base.Missing
+   base.MissingHandler
    base.TargetProcessor
 
 .. _datasets_ref:
