@@ -1049,8 +1049,8 @@ def test_levene_with_dataframe():
     })
     
     # Perform Levene's test specifying columns
-    stat, p_value = levene_test(df, columns=['sample1', 'sample2', 'sample3'], as_frame=False)
-    
+    stat, p_value = levene_test(
+        df, columns=['sample1', 'sample2', 'sample3'], as_frame=False)
     # Check if returned values are floats
     assert isinstance(stat, float) and isinstance(p_value, float), "Should return float values"
 
@@ -1061,12 +1061,8 @@ def test_levene_with_as_frame_option():
     
     # Perform Levene's test with as_frame=True
     results = levene_test(sample1, sample2, as_frame=True)
-    
     # Assert that the function returns a DataFrame
-    assert isinstance(results, pd.Series), "Should return a DataFrame/Series when as_frame=True"
-    assert 'L-statistic' in results.index and 'P-value' in results.index, ( 
-        "Series should include  'statistic' and 'P-value' indexes"
-        )
+    _assert_value_in_index_or_columns(results, 'L-statistic', 'P-value')
 
 @pytest.mark.parametrize("center", ['mean', 'median', 'trimmed'])
 def test_levene_center_option(center):
