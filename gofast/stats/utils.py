@@ -40,7 +40,7 @@ __all__= [
     "kurtosis", "t_test_independent","perform_linear_regression", "chi2_test",
     "anova_test", "perform_kmeans_clustering", "hmean", "wmedian", "bootstrap",
     "kaplan_meier_analysis", "gini_coeffs","mds_similarity", "dca_analysis",
-    "spectral_clustering", "levene_test","kolmogorov_smirnov_test", 
+    "perform_spectral_clustering", "levene_test","kolmogorov_smirnov_test", 
     "cronbach_alpha", "friedman_test","statistical_tests"
    ]
 
@@ -3440,73 +3440,110 @@ def plot_lorenz_curve(data: np.ndarray, fig_size: Tuple[int, int]):
 
 @make_data_dynamic(capture_columns=True, dynamize=False)
 def mds_similarity(
-    data: Union[pd.DataFrame, np.ndarray],
+    data,
     n_components: int = 2,
     columns: Optional[list] = None,
+    as_frame: bool = False,
     view: bool = False,
     cmap: str = 'viridis',
     fig_size: Optional[tuple] = (10, 6),
     **kws
 ):
     """
-    Perform Multidimensional Scaling (MDS) to visualize the level of similarity
-    of individual cases of a dataset in a lower-dimensional space.
+    Perform Multidimensional Scaling (MDS) to project the dataset into a 
+    lower-dimensional space while preserving the pairwise distances between 
+    points as much as possible.
+
+    MDS seeks a low-dimensional representation of the data in which the 
+    distances respect well the distances in the original high-dimensional space.
+
+    .. math::
+        \min_{X} \sum_{i<j} (||x_i - x_j|| - d_{ij})^2
+
+    where :math:`d_{ij}` are the distances in the original space, :math:`x_i` and 
+    :math:`x_j` are the coordinates in the lower-dimensional space, and 
+    :math:`||\cdot||` denotes the Euclidean norm.
 
     Parameters
     ----------
     data : DataFrame or ArrayLike
-        Data set for MDS. If a DataFrame and `columns` is specified,
+        The dataset to perform MDS on. If a DataFrame and `columns` is specified,
         only the selected columns are used.
     n_components : int, optional
-        Number of dimensions in which to immerse the dissimilarities, 
-        default is 2.
+        The number of dimensions in which to immerse the dissimilarities,
+        by default 2.
     columns : list, optional
-        Specific columns to use if `data` is a DataFrame.
+        Specific columns to use if `data` is a DataFrame, by default None.
+    as_frame : bool, optional
+        If True, the function returns the result as a pandas DataFrame,
+        by default False.
     view : bool, optional
-        If True, displays a scatter plot of the MDS results.
+        If True, displays a scatter plot of the MDS results, by default False.
     cmap : str, optional
-        Colormap for the scatter plot.
+        Colormap for the scatter plot, by default 'viridis'.
     fig_size : tuple, optional
-        Size of the figure for the scatter plot, default is (10, 6).
+        Size of the figure for the scatter plot, by default (10, 6).
     **kws : dict
         Additional keyword arguments passed to `sklearn.manifold.MDS`.
 
     Returns
     -------
-    mds_result : ndarray
-        Coordinates of the data in the MDS space.
+    mds_result : ndarray or DataFrame
+        The coordinates of the data in the MDS space as a NumPy array or
+        pandas DataFrame, depending on the `as_frame` parameter.
 
     Examples
     --------
-    >>> import gofast.stats.utils import mds_similarity
-    >>> from sklearn.datasets import load_iris
-    >>> iris = load_iris()
-    >>> mds_coordinates = mds_similarity(iris.data, n_components=2, view=True)
+    >>> from sklearn.datasets import load_digits
+    >>> from gofast.stats.utils import mds_similarity
+    >>> digits = load_digits()
+    >>> mds_coordinates = mds_similarity(digits.data, n_components=2, view=True)
     >>> print(mds_coordinates.shape)
-    (150, 2)
+    (1797, 2)
+
+    Using with a DataFrame and custom columns:
+
+    >>> import pandas as pd
+    >>> df = pd.DataFrame(digits.data, columns=[f'pixel_{i}' for i in range(
+    ...    digits.data.shape[1])])
+    >>> mds_df = mds_similarity(df, columns=['pixel_0', 'pixel_64'], as_frame=True, view=True)
+    >>> print(mds_df.head())
+
+    This function is particularly useful for visualizing high-dimensional 
+    data in two or three dimensions, allowing insights into the structure and
+    relationships within the data that are not readily apparent in 
+    the high-dimensional space.
     """
-    if isinstance(data, pd.DataFrame) and columns is not None:
-        data = data[columns]
-    
+    # Ensure the data is an array for MDS processing
+    data_array = np.asarray(data)
+
+    # Initialize and apply MDS
     mds = MDS(n_components=n_components, **kws)
-    mds_result = mds.fit_transform(data)
+    mds_result = mds.fit_transform(data_array)
     
+    # Visualization
     if view:
         plt.figure(figsize=fig_size)
-        plt.scatter(mds_result[:, 0], mds_result[:, 1], cmap=cmap)
+        scatter = plt.scatter(mds_result[:, 0], mds_result[:, 1], cmap=cmap)
         plt.title('Multidimensional Scaling (MDS) Results')
         plt.xlabel('Component 1')
         plt.ylabel('Component 2')
-        plt.colorbar(label='Data Value')
+        plt.colorbar(scatter, label='Data Value')
         plt.show()
+    
+    # Convert the result to a DataFrame if requested
+    if as_frame:
+        columns = [f'Component {i+1}' for i in range(n_components)]
+        mds_result = pd.DataFrame(mds_result, columns=columns)
     
     return mds_result
 
-@ensure_pkg ("skbio","The 'skbio' package is required for `dca_analysis` to run." )
+@ensure_pkg("skbio", "'scikit-bio' package is required for `dca_analysis` to run.")
 @make_data_dynamic(capture_columns=True, dynamize=False)
 def dca_analysis(
-    data: Union[DataFrame, ArrayLike],
+    data,
     columns: Optional[list] = None,
+    as_frame: bool = False,
     view: bool = False,
     cmap: str = 'viridis',
     fig_size: Optional[Tuple[int, int]] = (10, 6),
@@ -3514,58 +3551,92 @@ def dca_analysis(
 ):
     """
     Perform Detrended Correspondence Analysis (DCA) on ecological data to identify
-    the main gradients. Optionally, visualize the species scores in the DCA space.
+    the main gradients in species abundance or occurrence data across sites.
+    Optionally, visualize the species scores in the DCA space.
+
+    DCA is an indirect gradient analysis approach which focuses on non-linear 
+    relationships among variables. It's particularly useful in ecology for 
+    analyzing species distribution patterns across environmental gradients.
+
+    .. math::
+        \\text{DCA is based on the eigen decomposition: } X = U \\Sigma V^T
+
+    Where:
+    - :math:`X` is the data matrix,
+    - :math:`U` and :math:`V` are the left and right singular vectors,
+    - :math:`\\Sigma` is a diagonal matrix containing the singular values.
 
     Parameters
     ----------
     data : DataFrame or ArrayLike
-        Ecological data set for DCA, typically species occurrence or abundance.
-        If a DataFrame and `columns` is specified, only the selected columns are used.
+        Ecological dataset for DCA. If a DataFrame and `columns` is specified,
+        only the selected columns are used.
     columns : list, optional
-        Specific columns to use if `data` is a DataFrame.
+        Specific columns to use if `data` is a DataFrame. Useful for specifying
+        subset of data for analysis.
+    as_frame : bool, optional
+        If True, returns the result as a pandas DataFrame. Useful for further
+        data manipulation and analysis.
     view : bool, optional
-        If True, displays a scatter plot of species scores in the DCA space.
+        If True, displays a scatter plot of species scores in the DCA space. 
+        Helpful for visual examination of species distribution patterns.
     cmap : str, optional
-        Colormap for the scatter plot.
+        Colormap for the scatter plot. Enhances plot aesthetics.
     fig_size : tuple, optional
-        Size of the figure for the scatter plot.
+        Size of the figure for the scatter plot. Allows customization of the plot size.
     **kws : dict
-        Additional keyword arguments passed to `detrended_correspondence_analysis`.
+        Additional keyword arguments passed to the DCA function in `skbio`.
 
     Returns
     -------
-    dca_result : OrdinationResults
-        Results of DCA, including axis scores and explained variance.
+    dca_result : OrdinationResults or DataFrame
+        Results of DCA, including axis scores and explained variance. The format
+        of the result is determined by the `as_frame` parameter.
 
     Examples
     --------
-    >>> from gofast.stats.utils import dca_analysis 
-    >>> import pandas as pd
-    >>> data = pd.DataFrame({'species1': [1, 0, 3], 'species2': [0, 4, 1]})
-    >>> dca_result = dca_analysis(data, view=True)
-    >>> print(dca_result.axes)
-    """
+    >>> from sklearn.datasets import make_classification
+    >>> from gofast.stats.utils import dca_analysis
+    >>> X, y = make_classification(n_samples=100, n_features=5, n_informative=2)
+    >>> dca_result = dca_analysis(X, as_frame=True, view=True)
+    >>> print(dca_result.head())
 
+    This function is an essential tool for ecologists and environmental scientists 
+    looking to explore and visualize complex ecological datasets, revealing patterns 
+    and relationships that might not be apparent from raw data alone.
+    """
     from skbio.stats.ordination import detrended_correspondence_analysis
+    
+    # Perform DCA
     dca_result = detrended_correspondence_analysis(data, **kws)
     
+    # Visualization
     if view:
         species_scores = dca_result.samples
         plt.figure(figsize=fig_size)
-        plt.scatter(species_scores.iloc[:, 0], species_scores.iloc[:, 1], cmap=cmap)
+        scatter = plt.scatter(species_scores.iloc[:, 0],
+                              species_scores.iloc[:, 1], cmap=cmap)
         plt.title('DCA Species Scores')
         plt.xlabel('DCA Axis 1')
         plt.ylabel('DCA Axis 2')
-        plt.colorbar(label='Species Abundance')
+        plt.colorbar(scatter, label='Species Abundance')
         plt.show()
+    
+    # Convert to DataFrame if requested
+    if as_frame:
+        # Assuming 'samples' attribute contains species scores 
+        # which are typical in DCA results
+        dca_df = pd.DataFrame(dca_result.samples, columns=['DCA Axis 1', 'DCA Axis 2'])
+        return dca_df
     
     return dca_result
 
 @make_data_dynamic(capture_columns=True, dynamize=False)
-def spectral_clustering(
+def perform_spectral_clustering(
     data: Union[DataFrame, ArrayLike],
     n_clusters: int = 2,
     assign_labels: str = 'discretize',
+    as_frame: bool=False, 
     random_state: int = None,
     columns: Optional[list] = None,
     view: bool = False,
@@ -3577,9 +3648,16 @@ def spectral_clustering(
     Perform Spectral Clustering on a dataset, with an option to visualize
     the clustering results.
 
-    Spectral Clustering leverages the eigenvalues of a similarity matrix to reduce
-    dimensionality before applying a conventional clustering technique. It's
-    well-suited for identifying non-convex clusters.
+    Spectral Clustering uses the eigenvalues of a similarity matrix to perform
+    dimensionality reduction before clustering in fewer dimensions. This method
+    is particularly effective for identifying clusters that are not necessarily
+    globular.
+
+    .. math::
+        L = D^{-1/2} (D - W) D^{-1/2} = I - D^{-1/2} W D^{-1/2}
+
+    Where :math:`W` is the affinity matrix, :math:`D` is the diagonal degree matrix,
+    and :math:`L` is the normalized Laplacian.
 
     Parameters
     ----------
@@ -3596,25 +3674,14 @@ def spectral_clustering(
         ways to assign labels after the Laplacian embedding. k-means is a
         popular choice, but it can be sensitive to initialization.
         Discretization is another approach which is less sensitive to random
-        initialization [3]_.
-        The cluster_qr method [5]_ directly extract clusters from eigenvectors
-        in spectral clustering. In contrast to k-means and discretization, cluster_qr
-        has no tuning parameters and runs no iterations, yet may outperform
-        k-means and discretization in terms of both quality and speed.
-        
+        initialization .
+
     random_state : int, RandomState instance, default=None
         A pseudo random number generator used for the initialization
         of the lobpcg eigenvectors decomposition when `eigen_solver ==
         'amg'`, and for the K-Means initialization. Use an int to make
         the results deterministic across calls.
 
-        .. note::
-            When using `eigen_solver == 'amg'`,
-            it is necessary to also fix the global numpy seed with
-            `np.random.seed(int)` to get deterministic results. See
-            https://github.com/pyamg/pyamg/issues/139 for further
-            information.
-            
     columns : list, optional
         Specific columns to use if `data` is a DataFrame.
     view : bool, optional
@@ -3625,46 +3692,70 @@ def spectral_clustering(
         Size of the figure for the scatter plot.
     **kws : dict
         Additional keyword arguments passed to `SpectralClustering`.
-
+    
+    See Also
+    --------
+    sklearn.cluster.SpectralClustering: Spectral clustering
+    sklearn.cluster.KMeans : K-Means clustering.
+    sklearn.cluster.DBSCAN : Density-Based Spatial Clustering of
+        Applications with Noise.
+        
     Returns
     -------
-    labels : ndarray
-        Labels of each data point.
+    labels : ndarray or DataFrame
+        Labels of each point. Returns a DataFrame if `as_frame=True`, 
+        containing the original data and a 'cluster' column with labels.
 
     Examples
     --------
-    >>> from sklearn.datasets import make_moons
-    >>> from gofast.stats.utils import spectral_clustering
-    >>> X, _ = make_moons(n_samples=200, noise=0.05, random_state=0)
-    >>> labels = spectral_clustering(X, n_clusters=2, view=True)
-    
-    Using a DataFrame:
-    >>> df = pd.DataFrame(X, columns=['feature1', 'feature2'])
-    >>> labels = spectral_clustering(df, n_clusters=2, columns=['feature1', 'feature2'], view=True)
+    >>> from sklearn.datasets import make_circles
+    >>> from gofast.stats import perform_spectral_analysis 
+    >>> X, _ = make_circles(n_samples=300, noise=0.1, factor=0.2, random_state=42)
+    >>> labels = perform_spectral_clustering(X, n_clusters=2, view=True)
+
+    Using a DataFrame and returning results as a DataFrame:
+    >>> df = pd.DataFrame(X, columns=['x', 'y'])
+    >>> results_df = perform_spectral_clustering(df, n_clusters=2, as_frame=True)
+    >>> print(results_df.head())
     """
+    data_for_clustering = np.asarray(data)
+
     clustering = SpectralClustering(
-        n_clusters=n_clusters, 
+        n_clusters=n_clusters,
         assign_labels=assign_labels,
-        random_state=random_state, 
-        **kws)
-    labels = clustering.fit_predict(data)
+        random_state=random_state,
+        **kws
+    )
+    labels = clustering.fit_predict(data_for_clustering)
 
     if view:
-        plt.figure(figsize=fig_size if fig_size else (10, 6))
-        plt.scatter(data[:, 0], data[:, 1], c=labels, cmap=cmap, alpha=0.6)
-        plt.title('Spectral Clustering Results')
-        plt.xlabel('Feature 1')
-        plt.ylabel('Feature 2')
-        plt.colorbar(label='Cluster Label')
-        plt.show()
-    
+        _plot_clustering_results(data_for_clustering, labels, cmap, fig_size)
+
+    if as_frame:
+        results_df = pd.DataFrame(
+            data_for_clustering, columns=columns if columns else [
+                'feature_{}'.format(i) for i in range(data_for_clustering.shape[1])])
+        results_df['cluster'] = labels
+        return results_df
+
     return labels
 
+def _plot_clustering_results(data, labels, cmap, fig_size):
+    """Helper function to plot clustering results."""
+    plt.figure(figsize=fig_size if fig_size else (10, 6))
+    plt.scatter(data[:, 0], data[:, 1], c=labels, cmap=cmap, alpha=0.6)
+    plt.title('Spectral Clustering Results')
+    plt.xlabel('Feature 1')
+    plt.ylabel('Feature 2')
+    plt.colorbar(label='Cluster Label')
+    plt.show()
+
 def levene_test(
-    *samples: Union[List[np.ndarray], pd.DataFrame], 
+    *samples: Union[List[Array1D], DataFrame], 
     columns: Optional[List[str]] = None,
     center: str = 'median', 
     proportiontocut: float = 0.05, 
+    as_frame=True, 
     view: bool = False, 
     cmap: str = 'viridis', 
     fig_size: Optional[Tuple[int, int]] = None,
@@ -3674,29 +3765,48 @@ def levene_test(
     Perform Levene's test for equal variances across multiple samples, with an
     option to visualize the sample distributions.
 
-    This function adapts to input data structures. If a DataFrame and column
-    names are provided, it extracts the specified columns to compose samples.
+    Levene's test is used to assess the equality of variances for a variable
+    calculated for two or more groups. It is more robust to departures from
+    normality than Bartlett's test. The test statistic is based on a measure
+    of central tendency (mean, median, or trimmed mean).
+
+    .. math:: 
+        
+        W = \\frac{(N - k)}{(k - 1)} \\frac{\\sum_{i=1}^{k} n_i (Z_{i\\cdot} - Z_{\\cdot\\cdot})^2}
+        \; {\\sum_{i=1}^{k} \\sum_{j=1}^{n_i} (Z_{ij} - Z_{i\\cdot})^2}
+
+    where :math:`W` is the test statistic, :math:`N` is the total number of 
+    observations,:math:`k` is the number of groups, :math:`n_i` is the number
+    of observations in group :math:`i`, :math:`Z_{ij}` is the deviation from 
+    the group mean or median, depending on the centering
+    method used.
 
     Parameters
     ----------
     *samples : Union[List[np.ndarray], pd.DataFrame]
-        The sample data, possibly with different lengths. If a DataFrame and
-        `columns` are specified, extracts data for each column name to compose samples.
+        The sample data, possibly with different lengths. If a DataFrame is
+        provided and `columns` are specified, it extracts data for each
+        column name to compose samples.
     columns : List[str], optional
         Column names to extract from the DataFrame to compose samples.
-    center : str, optional
-        Specifies which measure of central tendency ('median', 'mean', or 'trimmed')
-        to use in computing the test statistic.
+        Ignored if direct arrays are provided.
+    center : {'median', 'mean', 'trimmed'}, optional
+        Specifies which measure of central tendency to use in computing the
+        test statistic. Default is 'median'.
     proportiontocut : float, optional
-        Proportion of data to cut from each end when center is 'trimmed'.
+        Proportion (0 to 0.5) of data to cut from each end when center is 
+        'trimmed'. Default is 0.05.
+    as_frame : bool, optional
+        If True, returns the results as a pandas DataFrame. Default is True.
     view : bool, optional
-        If True, displays a boxplot of the samples.
+        If True, displays a boxplot of the samples. Default is False.
     cmap : str, optional
-        Colormap for the boxplot. Currently unused but included for compatibility.
+        Colormap for the boxplot. Currently unused but included for future 
+        compatibility.
     fig_size : Tuple[int, int], optional
-        Size of the figure for the boxplot.
+        Size of the figure for the boxplot if `view` is True.
     **kws : dict
-        Additional keyword arguments for `stats.levene`.
+        Additional keyword arguments passed to `stats.levene`.
 
     Returns
     -------
@@ -3706,7 +3816,9 @@ def levene_test(
         The p-value for the test.
 
     Examples
-    -------
+    --------
+    Using direct array inputs:
+
     >>> import numpy as np 
     >>> import pandas as pd 
     >>> from gofast.stats.utils import levene_test
@@ -3715,11 +3827,14 @@ def levene_test(
     >>> sample3 = np.random.normal(loc=-0.5, scale=0.5, size=50)
     >>> statistic, p_value = levene_test(sample1, sample2, sample3, view=True)
     >>> print(f"Statistic: {statistic}, p-value: {p_value}")
-    
+
+    Using a DataFrame and specifying columns:
+
     >>> df = pd.DataFrame({'A': np.random.normal(0, 1, 50),
     ...                    'B': np.random.normal(0, 2, 50),
     ...                    'C': np.random.normal(0, 1.5, 50)})
     >>> statistic, p_value = levene_test(df, columns=['A', 'B', 'C'], view=True)
+    >>> print(f"Statistic: {statistic}, p-value: {p_value}")
     """
     # Check if *samples contains a single DataFrame and columns are specified
     samples = process_and_extract_data(
@@ -3728,228 +3843,293 @@ def levene_test(
         *samples, center=center, proportiontocut=proportiontocut, **kws)
 
     if view:
-        plt.figure(figsize=fig_size if fig_size else (10, 6))
-        plt.boxplot(samples, patch_artist=True, vert=True)
-        plt.xticks(ticks=np.arange(1, len(columns) + 1),
-                   labels=columns if columns else range(1, len(samples) + 1))
-        plt.title('Sample Distributions - Levene’s Test for Equal Variances')
-        plt.ylabel('Values')
-        plt.xlabel('Samples/Groups')
-        plt.grid(axis='y', linestyle='--', alpha=0.7)
-        plt.show()
+        _visualize_samples(samples, columns=columns, fig_size=fig_size)
 
+    if as_frame: # return series by default 
+        return to_series_if(
+            statistic, p_value, value_names=['L-statistic', "P-value"], 
+            name ='levene_test'
+            )
     return statistic, p_value
 
+def _visualize_samples(samples, columns=None, fig_size=None):
+    """
+    Visualizes sample distributions using boxplots.
+    """
+    plt.figure(figsize=fig_size if fig_size else (10, 6))
+    plt.boxplot(samples, patch_artist=True, vert=True)
+    labels = columns if columns else [f'Sample {i+1}' for i in range(len(samples))]
+    plt.xticks(ticks=np.arange(1, len(samples) + 1), labels=labels)
+    plt.title('Sample Distributions - Levene’s Test for Equal Variances')
+    plt.ylabel('Values')
+    plt.xlabel('Samples/Groups')
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.show()
+
 def kolmogorov_smirnov_test(
-    data1: Union[ArrayLike, str],
-    data2: Union[ArrayLike, str],  
+    data1: Union[Array1D, str],
+    data2: Union[Array1D, str],  
+    as_frame: bool = False, 
     alternative: str = 'two-sided',
-    data: Optional[pd.DataFrame] = None, 
+    data: Optional[DataFrame] = None, 
     method: str = 'auto', 
     view: bool = False, 
     cmap: str = 'viridis', 
     fig_size: Optional[Tuple[int, int]] = None,
 ):
     """
-    Perform the Kolmogorov-Smirnov test for goodness of fit and optionally 
-    visualize the distribution comparison.
+    Perform the Kolmogorov-Smirnov (KS) test for goodness of fit between two
+    samples, with an option to visualize the cumulative distribution functions
+    (CDFs).
 
-    This test compares the distributions of two independent samples.
+    The KS test is a nonparametric test that compares the empirical 
+    distribution functions of two samples to assess whether they come from 
+    the same distribution. It is based on the maximum difference between the 
+    two cumulative distributions.
+
+    .. math::
+        D_{n,m} = \\sup_x |F_{1,n}(x) - F_{2,m}(x)|
+
+    where :math:`\\sup_x` is the supremum of the set of distances, 
+    :math:`F_{1,n}` and :math:`F_{2,m}` are the empirical distribution 
+    functions of the first and second sample, respectively, and
+    :math:`n` and :math:`m` are the sizes of the first and second sample.
 
     Parameters
     ----------
-    data1, data2 : ArrayLike or str
-        Two arrays of sample observations assumed to be drawn from a 
-        continuous distribution,or column names in the provided DataFrame `data`.
-    alternative : str, optional
-        Defines the alternative hypothesis ('two-sided', 'less', or 'greater').
+    data1, data2 : Union[np.ndarray, str]
+        The sample observations, assumed to be drawn from a continuous distribution.
+        If strings are provided, they should correspond to column names in `data`.
+    as_frame : bool, optional
+        If True, returns the test results as a pandas DataFrame if shape is 
+        greater than 1 and pandas Series otherwise.
+    alternative : {'two-sided', 'less', 'greater'}, optional
+        Defines the null hypothesis ('two-sided' default).
     data : pd.DataFrame, optional
-        DataFrame containing the columns referred to by `data1` and `data2` 
-        if they are strings.
-    method : str, optional
-        Method used to compute the p-value ('auto', 'exact', or 'approx').
+        DataFrame containing the columns referred to by `data1` and `data2`.
+    method : {'auto', 'exact', 'approx'}, optional
+        Method used to compute the p-value.
     view : bool, optional
         If True, visualizes the cumulative distribution functions of both samples.
     cmap : str, optional
-        Colormap for the visualization.
+        Colormap for the visualization (currently not used).
     fig_size : Tuple[int, int], optional
-        Size of the figure for the visualization.
+        Size of the figure for the visualization if `view` is True.
 
     Returns
     -------
     statistic : float
-        KS statistic.
+        The KS statistic.
     p_value : float
-        Two-tailed p-value.
+        The p-value for the test.
 
     Examples
     --------
-    >>> from gofast.stats.utils import kolmogorov_smirnov_test
-    >>> kolmogorov_smirnov_test([1, 2, 3, 4], [1, 2, 3, 5])
-    (0.25, 0.9999999999999999)
+    >>> import numpy as np
+    >>> from your_module import kolmogorov_smirnov_test
+    >>> data1 = np.random.normal(loc=0, scale=1, size=100)
+    >>> data2 = np.random.normal(loc=0.5, scale=1.5, size=100)
+    >>> statistic, p_value = kolmogorov_smirnov_test(data1, data2)
+    >>> print(f"KS statistic: {statistic}, p-value: {p_value}")
 
-    Using DataFrame columns:
+    Using a DataFrame and specifying columns:
+
+    >>> import pandas as pd
     >>> df = pd.DataFrame({'group1': np.random.normal(0, 1, 100),
                            'group2': np.random.normal(0.5, 1, 100)})
-    >>> kolmogorov_smirnov_test('group1', 'group2', data=df, view=True)
+    >>> statistic, p_value = kolmogorov_smirnov_test('group1', 'group2', data=df, view=True)
+    >>> print(f"KS statistic: {statistic}, p-value: {p_value}")
     """
 
-    data1, data2 = assert_xy_in(data1, data2 , data=data, xy_numeric= True )
+    data1, data2 = assert_xy_in(data1, data2 , data=data, xy_numeric= True ) 
     statistic, p_value = stats.ks_2samp(
-        data1, data2, alternative=alternative, method=method)
+        data1, data2, alternative=alternative, mode=method)
 
     if view:
-        plt.figure(figsize=fig_size if fig_size else (10, 6))
-        for sample, label in zip([data1, data2], ['Data1', 'Data2']):
-            ecdf = lambda x: np.arange(1, len(x) + 1) / float(len(x))
-            plt.step(sorted(sample), ecdf(sample), label=f'CDF of {label}')
-        plt.title('CDF Comparison')
-        plt.xlabel('Value')
-        plt.ylabel('Cumulative Probability')
-        plt.legend()
-        plt.grid(True)
-        plt.show()
+        _visualize_cdf_comparison(data1, data2, fig_size)
 
-    return statistic, p_value
+    return to_series_if(
+        statistic, p_value, value_names=['K-statistic', "P-value"], 
+        name ='levene_test'
+        ) if as_frame else ( statistic, p_value) 
 
+def _visualize_cdf_comparison(data1, data2, fig_size):
+    plt.figure(figsize=fig_size if fig_size else (10, 6))
+    for sample, label in zip([data1, data2], ['Data1', 'Data2']):
+        ecdf = lambda x: np.arange(1, len(x) + 1) / len(x)
+        plt.step(sorted(sample), ecdf(sample), label=f'CDF of {label}')
+    plt.title('CDF Comparison')
+    plt.xlabel('Value')
+    plt.ylabel('Cumulative Probability')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+@make_data_dynamic(capture_columns= True, dynamize =False )
 def cronbach_alpha(
-    items_scores: Union[ArrayLike, pd.DataFrame],
+    items_scores: ArrayLike,
     columns: Optional[list] = None,
+    as_frame: bool = False, 
     view: bool = False,
     cmap: str = 'viridis',
     fig_size: Optional[Tuple[int, int]] = None
-) -> float:
+) -> Union[float, pd.Series]:
     """
-    Calculate Cronbach's Alpha for a set of test items to assess internal 
-    consistency.
-    That is, how closely  related a set of items are as a group.
+    Calculate Cronbach's Alpha for assessing the internal consistency or reliability 
+    of a set of test or survey items.
 
+    Cronbach's Alpha is defined as:
+
+    .. math:: 
+        
+        \\alpha = \\frac{N \\bar{\\sigma_{item}^2}}{\\sigma_{total}^2}
+        \; (1 - \\frac{\\sum_{i=1}^{N} \\sigma_{item_i}^2}{\\sigma_{total}^2})
+
+    where :math:`N` is the number of items, :math:`\\sigma_{item}^2` is the variance 
+    of each item, and :math:`\\sigma_{total}^2` is the total variance of the scores.
+    
     Parameters
     ----------
-    items_scores : Union[ArrayLike, pd.DataFrame]
-        A 2D array or DataFrame where rows represent items and columns 
-        represent scoring for each item.
+    items_scores : Union[np.ndarray, pd.DataFrame]
+        A 2D array or DataFrame where rows represent scoring for each item and 
+        columns represent items.
     columns : Optional[list], default=None
         Specific columns to use if `items_scores` is a DataFrame. If None, 
         all columns are used.
+    as_frame : bool, default=False
+        If True, returns the results as a pandas DataFrame or Series.
     view : bool, default=False
         If True, displays a bar plot showing the variance of each item.
     cmap : str, default='viridis'
-        Colormap for the bar plot. This parameter is currently unused but 
-        included for future compatibility.
+        Colormap for the bar plot. Currently unused but included for future 
+        compatibility.
     fig_size : Optional[Tuple[int, int]], default=None
         Size of the figure for the bar plot. If None, defaults to matplotlib's default.
 
     Returns
     -------
-    alpha : float
-        Cronbach's Alpha, a measure of internal consistency.
+    float or pd.Series
+        Cronbach's Alpha as a float or as a pandas Series if `as_frame` is True.
 
+    Notes
+    -----
+    Cronbach's Alpha values range from 0 to 1, with higher values indicating 
+    greater internal consistency of the items. Values above 0.7 are typically 
+    considered acceptable, though this threshold may vary depending on the context.
+    
     Examples
     --------
     Using a numpy array:
-    >>> scores = np.array([[2, 3, 4], [4, 4, 5], [3, 5, 4]])
-    >>> print(cronbach_alpha(scores))
     
+    >>> import numpy as np 
+    >>> from gofast.stats.utils import cronbach_alpha
+    >>> scores = np.array([[2, 3, 4], [4, 4, 5], [3, 5, 4]])
+    >>> cronbach_alpha(scores)
+    0.75
+
     Using a pandas DataFrame:
+        
+    >>> import pandas as pd 
     >>> df_scores = pd.DataFrame({'item1': [2, 4, 3], 'item2': [3, 4, 5], 'item3': [4, 5, 4]})
-    >>> print(cronbach_alpha(df_scores))
+    >>> cronbach_alpha(df_scores)
+    0.75
 
     Visualizing item variances:
+
     >>> cronbach_alpha(df_scores, view=True)
+    Displays a bar plot of item variances.
+
     """
-    if isinstance(items_scores, pd.DataFrame):
-        if columns is not None:
-            items_scores = items_scores[columns]
-        else:
-            items_scores = items_scores.values
-    else:
-        items_scores = np.asarray(items_scores)
+    items_scores = np.asarray(items_scores)
+    if items_scores.ndim == 1:
+        items_scores = items_scores.reshape(-1, 1)
 
     item_variances = items_scores.var(axis=0, ddof=1)
     total_variance = items_scores.sum(axis=1).var(ddof=1)
     n_items = items_scores.shape[1]
 
     alpha = (n_items / (n_items - 1)) * (1 - item_variances.sum() / total_variance)
-
+    
     if view:
-        plt.figure(figsize=fig_size if fig_size else (10, 6))
-        plt.bar(range(n_items), item_variances, color=cmap)
-        plt.title("Item Variances")
-        plt.xlabel("Item")
-        plt.ylabel("Variance")
-        plt.xticks(ticks=range(n_items), 
-                   labels=columns if columns else range(1, n_items + 1))
-        plt.show()
-
+        _visualize_item_variances(item_variances, n_items, columns, fig_size, cmap)
+        
+    if as_frame:
+        return pd.Series([alpha], index=['Cronbach\'s Alpha'],
+                         name="cronbach_alpha")
     return alpha
 
+def _visualize_item_variances(item_variances, n_items, columns, fig_size, cmap):
+    plt.figure(figsize=fig_size if fig_size else (10, 6))
+    colors = plt.cm.get_cmap(cmap, n_items)
+    plt.bar(range(1, n_items + 1), item_variances, color=[
+        colors(i) for i in range(n_items)])
+    plt.title("Item Variances")
+    plt.xlabel("Item")
+    plt.ylabel("Variance")
+    plt.xticks(ticks=range(1, n_items + 1), labels=columns if columns else [
+        f'Item {i}' for i in range(1, n_items + 1)])
+    plt.show()
+
 def friedman_test(
-    *samples: ArrayLike, 
+    *samples: Union[np.ndarray, pd.DataFrame], 
     columns: Optional[List[str]] = None, 
-    method: str = 'auto',  
+    method: str = 'auto', 
+    as_frame: bool = False, 
     view: bool = False,
     cmap: str = 'viridis',
     fig_size: Optional[Tuple[int, int]] = None
-):
+) -> Union[Tuple[float, float], Series]:
     """
-    Perform a Friedman test to compare more than two related groups,
-    with an option to control the test method.
+    Perform the Friedman test, a non-parametric statistical test used to detect 
+    differences between groups on a dependent variable across multiple test 
+    attempts.
 
-    The Friedman test is a non-parametric test used to detect differences
-    in treatments across multiple test attempts. It is particularly useful
-    for small sample sizes and for data that do not follow a normal
-    distribution.
+    The Friedman test [1]_ is used when the data violate the assumptions of parametric 
+    tests, such as the normality and homoscedasticity assumptions required for 
+    repeated measures ANOVA.
+
+    The test statistic is calculated as follows:
+
+    .. math:: 
+        Q = \\frac{12N}{k(k+1)}\\left[\\sum_{j=1}^{k}R_j^2 - \\frac{k(k+1)^2}{4}\\right]
+
+    where :math:`N` is the number of subjects, :math:`k` is the number of groups, 
+    and :math:`R_j` is the sum of ranks for the :math:`j`th group.
 
     Parameters
     ----------
-    *args : array_like
-        The arrays must have the same number of elements, each representing
-        a related group. These groups are typically different treatments
-        applied to the same subjects.
-    columns: List[str]] 
-        if columns *args must contain single dataframe where columnames can be 
-        extracted as array for operations. 
-        
+    *samples : Union[np.ndarray, pd.DataFrame]
+        The sample groups as separate arrays or a single DataFrame. If a DataFrame 
+        is provided and `columns` are specified, it will extract data for each 
+        column name to compose samples.
+    columns : Optional[List[str]], optional
+        Column names to extract from the DataFrame to compose samples, 
+        by default None.
     method : {'auto', 'exact', 'asymptotic'}, optional
-        The method to use for the test:
+        The method used for the test:
         - 'auto' : Use exact method for small sample sizes and asymptotic
           method for larger samples.
         - 'exact' : Use the exact distribution of the test statistic.
         - 'asymptotic' : Use the asymptotic distribution of the test statistic.
+        The method to use for computing p-values, by default 'auto'.
+        The actual friedmanchisquare only supports sample sizes and asymptotic
+        method for larger samples.
+    as_frame : bool, optional
+        If True, returns the test statistic and p-value as a pandas Series, 
+        by default False.
+    view : bool, optional
+        If True, displays a box plot of the sample distributions, by default False.
+    cmap : str, optional
+        Colormap for the box plot, by default 'viridis'. Currently unused.
+    fig_size : Optional[Tuple[int, int]], optional
+        Size of the figure for the box plot, by default None.
 
     Returns
     -------
-    statistic : float
-        The test statistic, in this case, the Friedman statistic.
-    p_value : float
-        The p-value for the test. A p-value less than a significance level
-        (commonly 0.05) indicates significant differences among the groups.
+    Union[Tuple[float, float], pd.Series]
+        The Friedman statistic and p-value, either as a tuple or as a pandas 
+        Series if `as_frame` is True.
 
-    Raises
-    ------
-    ValueError
-        If the input arrays have different lengths.
-
-    Example
-    -------
-    >>> from gofast.stats import friedman_test
-    >>> group1 = [20, 21, 19, 20, 21]
-    >>> group2 = [19, 20, 18, 21, 20]
-    >>> group3 = [21, 22, 20, 22, 21]
-    >>> statistic, p_value = friedman_test(group1, group2, group3, 
-                                           method='auto')
-    >>> print(f'Friedman statistic: {statistic}, p-value: {p_value}')
-    
-    Example with DataFrame input
-    >>> df = pd.DataFrame({
-        'group1': group1,
-        'group2': group2,
-        'group3': group3
-     })
-    >>> statistic, p_value = friedman_test(df, columns=['group1', 'group2', 'group3'], view=True)
-    print(f'Friedman statistic with DataFrame input: {statistic}, p-value: {p_value}')
-    
     Notes
     -----
     The Friedman test is widely used in scenarios where you want to compare
@@ -3959,45 +4139,60 @@ def friedman_test(
 
     References
     ----------
-    Friedman, Milton. (1937). The use of ranks to avoid the assumption
-    of normality implicit in the analysis of variance. Journal of the
-    American Statistical Association.
-    """
-    # Check that all input arrays have the same length
-    if len(set(map(len, samples))) != 1:
-        raise ValueError("All input arrays must have the same length.")
+    .. [1] Friedman, Milton. (1937). The use of ranks to avoid the assumption
+          of normality implicit in the analysis of variance. Journal of the
+          American Statistical Association.
+    
+    Examples
+    --------
+    Using array inputs:
+     
+    >>> from gofast.stats import friedman_test
+    >>> group1 = [20, 21, 19, 20, 21]
+    >>> group2 = [19, 20, 18, 21, 20]
+    >>> group3 = [21, 22, 20, 22, 21]
+    >>> statistic, p_value = friedman_test(group1, group2, group3, method='auto')
+    >>> print(f'Friedman statistic: {statistic}, p-value: {p_value}')
 
-    # Data extraction if a DataFrame is provided in samples
-    if len(samples) == 1 and isinstance(
-            samples[0], pd.DataFrame) and columns is not None:
-        df = samples[0]
-        samples = [df[col].values for col in columns]
-    
+    Using DataFrame input:
+
+    >>> df = pd.DataFrame({'group1': group1, 'group2': group2, 'group3': group3})
+    >>> statistic, p_value = friedman_test(df, columns=['group1', 'group2', 'group3'], view=True)
+    >>> print(f'Friedman statistic with DataFrame input: {statistic}, p-value: {p_value}')
+
+    """
+    # Check if *samples contains a single DataFrame and columns are specified
+    samples = process_and_extract_data(
+        *samples, columns =columns, allow_split= True ) 
+    # Convert all inputs to numpy arrays for consistency
+    samples = [np.asarray(sample) for sample in samples]
+
     # Perform the Friedman test
-    statistic, p_value = stats.friedmanchisquare(*samples, method=method)
-    
+    statistic, p_value = stats.friedmanchisquare(*samples)
+
     if view:
-        # Visualization logic
-        plt.figure(figsize=fig_size if fig_size else (10, 6))
-        data_for_plot = np.vstack(samples)
-        plt.boxplot(data_for_plot.T, patch_artist=True, 
-                    labels=columns if columns 
-                    else range(1, len(samples) + 1))
-        plt.title('Sample Distributions - Friedman Test')
-        plt.xlabel('Groups')
-        plt.ylabel('Scores')
-        plt.grid(True, axis='y', linestyle='--', alpha=0.7)
-        plt.show()
+        _visualize_friedman_test_samples(samples, columns, fig_size)
 
     return to_series_if(
-        statistic, p_value, ["statistic", "p-value"],"friedman_test")
+        statistic, p_value, ["F-statistic", "P-value"],name="friedman_test"
+        )if as_frame else ( statistic, p_value )
 
-    
+def _visualize_friedman_test_samples(samples, columns, fig_size):
+    plt.figure(figsize=fig_size if fig_size else (10, 6))
+    # Assume samples are already in the correct format for plotting
+    plt.boxplot(samples, patch_artist=True, labels=columns if columns else [
+        f'Group {i+1}' for i in range(len(samples))])
+    plt.title('Sample Distributions - Friedman Test')
+    plt.xlabel('Groups')
+    plt.ylabel('Scores')
+    plt.grid(True, axis='y', linestyle='--', alpha=0.7)
+    plt.show()
+
 @ensure_pkg(
     "statsmodels", 
-    "'rm_anova' and 'mcnemar' tests expect statsmodels' to be installed.",
+    extra="'rm_anova' and 'mcnemar' tests expect statsmodels' to be installed.",
     partial_check=True,
-    condition=lambda type_test : type_test in ["rm_anova", "mcnemar"]
+    condition=lambda *args, **kwargs: kwargs.get("type_test") in ["rm_anova", "mcnemar"]
     )
 def statistical_tests(
     *args, 

@@ -7040,30 +7040,171 @@ def validate_url_by_validators(url: str):
         raise ValueError("The provided string is not a valid URL.")
     return True
 
-def is_module_installed(module_name: str) -> bool:
+def is_module_installed(module_name: str, distribution_name: str = None) -> bool:
     """
-    Check if a Python module is installed.
+    Check if a Python module is installed by attempting to import it.
+    Optionally, a distribution name can be provided if it differs from the module name.
 
     Parameters
     ----------
     module_name : str
-        The name of the module to check.
+        The import name of the module to check.
+    distribution_name : str, optional
+        The distribution name of the package as known by package managers (e.g., pip).
+        If provided and the module import fails, an additional check based on the
+        distribution name is performed. This parameter is useful for packages where
+        the distribution name differs from the importable module name.
 
     Returns
     -------
     bool
-        True if the module is installed, False otherwise.
+        True if the module can be imported or the distribution package is installed,
+        False otherwise.
 
     Examples
     --------
-    >>> is_module_installed("numpy")
+    >>> is_module_installed("sklearn")
+    True
+    >>> is_module_installed("scikit-learn", "scikit-learn")
     True
     >>> is_module_installed("some_nonexistent_module")
     False
     """
-    import importlib.util
-    module_spec = importlib.util.find_spec(module_name)
-    return module_spec is not None
+    if _try_import_module(module_name):
+        return True
+    if distribution_name and _check_distribution_installed(distribution_name):
+        return True
+    return False
+
+def _try_import_module(module_name: str) -> bool:
+    """
+    Attempt to import a module by its name.
+
+    Parameters
+    ----------
+    module_name : str
+        The import name of the module.
+
+    Returns
+    -------
+    bool
+        True if the module can be imported, False otherwise.
+    """
+    # import importlib.util
+    # module_spec = importlib.util.find_spec(module_name)
+    # return module_spec is not None
+    import importlib
+    try:
+        importlib.import_module(module_name)
+        return True
+    except ImportError:
+        return False 
+    
+def _check_distribution_installed(distribution_name: str) -> bool:
+    """
+    Check if a distribution package is installed by its name.
+
+    Parameters
+    ----------
+    distribution_name : str
+        The distribution name of the package.
+
+    Returns
+    -------
+    bool
+        True if the distribution package is installed, False otherwise.
+    """
+    try:
+        # Prefer importlib.metadata for Python 3.8 and newer
+        from importlib.metadata import distribution
+        distribution(distribution_name)
+        return True
+    except ImportError:
+        # Fallback to pkg_resources for older Python versions
+        try:
+            from pkg_resources import get_distribution, DistributionNotFound
+            get_distribution(distribution_name)
+            return True
+        except DistributionNotFound:
+            return False
+    except Exception:
+        return False
+    
+def get_installation_name(
+        module_name: str, distribution_name: Optional[str] = None, 
+        return_bool: bool = False) -> Union[str, bool]:
+    """
+    Determines the appropriate name for installing a package, considering potential
+    discrepancies between the distribution name and the module import name. Optionally,
+    returns a boolean indicating if the distribution name matches the import name.
+
+    Parameters
+    ----------
+    module_name : str
+        The import name of the module.
+    distribution_name : str, optional
+        The distribution name of the package. If None, the function attempts to infer
+        the distribution name from the module name.
+    return_bool : bool, optional
+        If True, returns a boolean indicating whether the distribution name matches
+        the module import name. Otherwise, returns the name recommended for installation.
+
+    Returns
+    -------
+    Union[str, bool]
+        Depending on `return_bool`, returns either a boolean indicating if the distribution
+        name matches the module name, or the name (distribution or module) recommended for
+        installation.
+    """
+    inferred_name = _infer_distribution_name(module_name)
+
+    # If a distribution name is provided, check if it matches the inferred name
+    if distribution_name:
+        if return_bool:
+            return distribution_name.lower() == inferred_name.lower()
+        return distribution_name
+
+    # If no distribution name is provided, return the inferred name or module name
+    if return_bool:
+        return inferred_name.lower() == module_name.lower()
+
+    return inferred_name or module_name
+
+def _infer_distribution_name(module_name: str) -> str:
+    """
+    Attempts to infer the distribution name of a package from its module name
+    by querying the metadata of installed packages.
+
+    Parameters
+    ----------
+    module_name : str
+        The import name of the module.
+
+    Returns
+    -------
+    str
+        The inferred distribution name. If no specific inference is made, returns
+        the module name.
+    """
+    try:
+        # Use importlib.metadata for Python 3.8+; use importlib_metadata for older versions
+        from importlib.metadata import distributions
+    except ImportError:
+        from importlib_metadata import distributions
+    #  Loop through all installed distributions
+    for distribution in distributions():
+        # Check if the module name matches the distribution name directly
+        if module_name == distribution.metadata.get('Name').replace('-', '_'):
+            return distribution.metadata['Name']
+
+        # Safely attempt to read and split 'top_level.txt'
+        top_level_txt = distribution.read_text('top_level.txt')
+        if top_level_txt:
+            top_level_packages = top_level_txt.split()
+            if any(module_name == pkg.split('.')[0] for pkg in top_level_packages):
+                return distribution.metadata['Name']
+
+    return module_name
 
 def normalize_string(
     input_str: str, 

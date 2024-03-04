@@ -11,10 +11,18 @@ import numpy as np
 import pandas as pd
 from scipy.stats import hmean as scipy_hmean
 
-from sklearn.datasets import make_blobs
+from sklearn.datasets import make_blobs 
+from sklearn.datasets import  make_classification 
+from sklearn.datasets import make_moons
 from sklearn.cluster import KMeans
 from sklearn.linear_model import LinearRegression
-
+# Attempt to import skbio. If not installed, mark 
+# all tests in this module to be skipped.
+try:
+    import skbio # noqa 
+except ImportError:
+    pytestmark = pytest.mark.require_skbio
+    
 from gofast.tools.funcutils import install_package 
 try:from lifelines import KaplanMeierFitter
 except: 
@@ -27,10 +35,12 @@ from gofast.stats.utils import describe, t_test_independent
 from gofast.stats.utils import skew, kurtosis, hmean, wmedian
 from gofast.stats.utils import perform_linear_regression  
 from gofast.stats.utils import chi2_test, anova_test, bootstrap
-from gofast.stats.utils import perform_kmeans_clustering 
-from gofast.stats.utils import kaplan_meier_analysis
-from gofast.stats.utils import gini_coeffs  
-
+from gofast.stats.utils import perform_kmeans_clustering, levene_test
+from gofast.stats.utils import kaplan_meier_analysis, dca_analysis
+from gofast.stats.utils import gini_coeffs, mds_similarity  
+from gofast.stats.utils import perform_spectral_clustering
+from gofast.stats.utils import kolmogorov_smirnov_test, cronbach_alpha
+from gofast.stats.utils import friedman_test
 
 @pytest.fixture
 def sample_dataframe():
@@ -891,7 +901,7 @@ def test_gini_with_multiple_columns():
     # expected_gini_wealth = expected_gini_income  # Symmetrical data
     result = gini_coeffs(df, columns=['income', 'wealth'], as_frame=True)
     assert all(result['Gini-coefficients'] == pytest.approx(expected_gini_income)
-               ), "Gini coefficient calculation failed for multiple columns"
+                ), "Gini coefficient calculation failed for multiple columns"
 
 # Test as_frame parameter
 def test_gini_as_frame():
@@ -914,6 +924,282 @@ def test_gini_view(mock_show):
 def test_gini_with_invalid_data():
     with pytest.raises(TypeError):
         gini_coeffs("invalid data type")
+
+def test_mds_with_array():
+    # Create a simple dataset
+    X, _ = make_blobs(n_samples=100, centers=3, n_features=5, random_state=42)
+    
+    # Test with default parameters
+    result = mds_similarity(X)
+    assert result.shape == (100, 2), "MDS did not produce the correct shape output for n_components=2"
+
+def test_mds_with_dataframe():
+    # Create a DataFrame from a simple dataset
+    X, _ = make_blobs(n_samples=50, centers=2, n_features=4, random_state=42)
+    df = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
+    
+    # Test with DataFrame input
+    result = mds_similarity(df, as_frame=True)
+    assert isinstance(result, pd.DataFrame), "MDS did not return a DataFrame when requested"
+    assert result.shape == (50, 2), "MDS did not produce the correct shape output for n_components=2"
+
+def test_mds_with_custom_components():
+    # Create a simple dataset
+    X, _ = make_blobs(n_samples=30, centers=3, n_features=3, random_state=42)
+    
+    # Test with a different number of components
+    n_components = 3
+    result = mds_similarity(X, n_components=n_components)
+    assert result.shape == (30, n_components), f"MDS did not produce the correct shape output for n_components={n_components}"
+
+def test_mds_view_option():
+    # This test ensures that no error is thrown when view=True, although it doesn't check the plot.
+    X, _ = make_blobs(n_samples=20, centers=2, n_features=2, random_state=42)
+    
+    # Simply run to ensure no errors
+    try:
+        mds_similarity(X, view=True)
+        assert True
+    except Exception:
+        assert False, "MDS raised an error when trying to view the plot"
+
+# def test_dca_with_arraylike_input():
+#     X, _ = make_classification(n_samples=100, n_features=5)
+#     result = dca_analysis(X)
+#     assert isinstance(result, np.ndarray), "Result should be an ndarray when as_frame=False"
+#     assert result.shape == (100, 2), "Result shape does not match expected dimensions"
+
+# def test_dca_with_dataframe_input():
+#     X, _ = make_classification(n_samples=50, n_features=4)
+#     df = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
+#     result = dca_analysis(df, as_frame=True)
+#     assert isinstance(result, pd.DataFrame), "Result should be a DataFrame when as_frame=True"
+#     assert result.shape == (50, 2), "DataFrame result shape does not match expected dimensions"
+
+# def test_dca_with_custom_columns():
+#     X, _ = make_classification(n_samples=30, n_features=4)
+#     df = pd.DataFrame(X, columns=['A', 'B', 'C', 'D'])
+#     result = dca_analysis(df, columns=['A', 'B'], as_frame=True)
+    
+#     assert 'A' in result.columns and 'B' in result.columns, "Specified columns are not present in the result"
+
+# @pytest.mark.parametrize("n_components", [2, 3])
+# def test_dca_with_different_components(n_components):
+#     X, _ = make_classification(n_samples=20, n_features=5)
+#     result = dca_analysis(X, n_components=n_components, as_frame=True)
+#     assert result.shape[1] == n_components, f"Number of components in result does not match {n_components}"
+
+# def test_dca_view_option():
+#     X, _ = make_classification(n_samples=10, n_features=4)
+#     try:
+#         dca_analysis(X, view=True)
+#         assert True
+#     except Exception:
+#         assert False, "dca_analysis raised an error with view=True"
+
+def test_spectral_clustering_with_array():
+    X, _ = make_moons(n_samples=100, noise=0.05)
+    labels = perform_spectral_clustering(X, n_clusters=2, as_frame=False)
+    assert isinstance(labels, np.ndarray), "Expected labels to be a numpy array"
+    assert len(labels) == 100, "Expected 100 labels for 100 samples"
+
+def test_spectral_clustering_with_dataframe():
+    X, _ = make_moons(n_samples=100, noise=0.05)
+    df = pd.DataFrame(X, columns=['feature1', 'feature2'])
+    labels_df = perform_spectral_clustering(df, n_clusters=2, as_frame=True)
+    assert isinstance(labels_df, pd.DataFrame), "Expected labels to be a DataFrame"
+    assert 'cluster' in labels_df.columns, "DataFrame should include a 'cluster' column"
+    assert len(labels_df) == 100, "Expected 100 labels for 100 samples"
+
+@pytest.mark.parametrize("n_clusters", [2, 3, 4])
+def test_spectral_clustering_number_of_clusters(n_clusters):
+    X, _ = make_moons(n_samples=100, noise=0.05)
+    labels = perform_spectral_clustering(X, n_clusters=n_clusters, as_frame=False)
+    assert len(np.unique(labels)) == n_clusters, f"Expected {n_clusters} unique cluster labels"
+
+# Optional: Testing visualization might involve checking for no exceptions and is typically skipped in automated tests.
+@pytest.mark.skip(reason="Visualization testing is not performed in automated tests.")
+def test_spectral_clustering_visualization():
+    X, _ = make_moons(n_samples=100, noise=0.05)
+    try:
+        perform_spectral_clustering(X, n_clusters=2, view=True)
+        assert True, "Visualization test passed"
+    except Exception as e:
+        pytest.fail(f"Visualization test failed with exception: {e}")
+
+def test_levene_with_numpy_arrays():
+    # Generate three sample datasets with different variances
+    sample1 = np.random.normal(0, 1, size=100)
+    sample2 = np.random.normal(0, 2, size=100)
+    sample3 = np.random.normal(0, 3, size=100)
+    
+    # Perform Levene's test
+    stat, p_value = levene_test(sample1, sample2, sample3, as_frame=False)
+    
+    # Assert that the function returns a float statistic and p-value
+    assert isinstance(stat, float), "Statistic should be a float"
+    assert isinstance(p_value, float), "P-value should be a float"
+
+def test_levene_with_dataframe():
+    # Create a DataFrame with three columns representing different samples
+    df = pd.DataFrame({
+        'sample1': np.random.normal(0, 1, size=100),
+        'sample2': np.random.normal(0, 2, size=100),
+        'sample3': np.random.normal(0, 3, size=100)
+    })
+    
+    # Perform Levene's test specifying columns
+    stat, p_value = levene_test(
+        df, columns=['sample1', 'sample2', 'sample3'], as_frame=False)
+    # Check if returned values are floats
+    assert isinstance(stat, float) and isinstance(p_value, float), "Should return float values"
+
+def test_levene_with_as_frame_option():
+    # Generate sample data
+    sample1 = np.random.normal(0, 1, size=50)
+    sample2 = np.random.normal(0, 2, size=50)
+    
+    # Perform Levene's test with as_frame=True
+    results = levene_test(sample1, sample2, as_frame=True)
+    # Assert that the function returns a DataFrame
+    _assert_value_in_index_or_columns(results, 'L-statistic', 'P-value')
+
+@pytest.mark.parametrize("center", ['mean', 'median', 'trimmed'])
+def test_levene_center_option(center):
+    # Generate sample data with the same variance but different centers
+    sample1 = np.random.normal(0, 1, size=100)
+    sample2 = np.random.normal(5, 1, size=100)
+    
+    # Perform Levene's test with different centering options
+    stat, p_value = levene_test(sample1, sample2, center=center, as_frame=False)
+    
+    # Assert that valid results are returned
+    assert isinstance(stat, float) and isinstance(p_value, float),( 
+        f"Levene's test with center={center} should return valid float values"
+        )
+def test_ks_test_with_numpy_arrays():
+    # Generate two sample datasets
+    data1 = np.random.normal(loc=0, scale=1, size=100)
+    data2 = np.random.normal(loc=0.5, scale=1.5, size=100)
+    
+    # Perform KS test
+    stat, p_value = kolmogorov_smirnov_test(data1, data2, as_frame=False)
+    
+    # Assert the output types and basic validity
+    assert isinstance(stat, float), "Statistic should be a float"
+    assert isinstance(p_value, float), "P-value should be a float"
+    assert 0 <= p_value <= 1, "P-value should be between 0 and 1"
+
+def test_ks_test_with_dataframe_input():
+    # Create a DataFrame with two samples
+    df = pd.DataFrame({'data1': np.random.normal(0, 1, 100),
+                        'data2': np.random.normal(0.5, 1.5, 100)})
+    
+    # Perform KS test using column names
+    stat, p_value = kolmogorov_smirnov_test('data1', 'data2', data=df, as_frame=False)
+    
+    # Check the output types and validity
+    assert isinstance(stat, float) and isinstance(p_value, float), "Output should be floats"
+    assert 0 <= p_value <= 1, "P-value should be in the valid range"
+
+def test_ks_test_with_as_frame_option():
+    data1 = np.random.normal(loc=0, scale=1, size=50)
+    data2 = np.random.normal(loc=0.5, scale=1.5, size=50)
+    
+    # Perform KS test with as_frame=True
+    results = kolmogorov_smirnov_test(data1, data2, as_frame=True)
+    
+    # Assert the function returns a DataFrame when as_frame=True
+    _assert_value_in_index_or_columns(results,'K-statistic', 'P-value' )
+
+# Testing visualization might involve checking for no exceptions,
+#  typically skipped in automated tests.
+@pytest.mark.skip(reason="Visualization testing not performed in automated tests.")
+def test_ks_test_visualization():
+    data1 = np.random.normal(loc=0, scale=1, size=100)
+    data2 = np.random.normal(loc=0.5, scale=1.5, size=100)
+    
+    # Simply run to ensure no errors - does not assert plot correctness
+    try:
+        kolmogorov_smirnov_test(data1, data2, view=True)
+        assert True, "Visualization test passed"
+    except Exception as e:
+        pytest.fail(f"Visualization test failed with exception: {e}")
+
+def _assert_value_in_index_or_columns (
+        result, *str_values, err_message=None): 
+    assert isinstance(result, ( pd.DataFrame, pd.Series)), ( 
+        "Should return a DataFrame/Series when as_frame=True") 
+    valid_columns = result.columns if isinstance ( result, pd.DataFrame) else result.index 
+    names =("DataFrame", "columns") if isinstance (result, pd.DataFrame) else ("Series", "indexes") 
+    err_message= err_message or "{} should include expected {}".format(*names )
+    for value in str_values:
+        assert value in valid_columns,  err_message 
+
+def test_cronbach_alpha_with_numpy_array():
+    # Simulate item scores with some variance among items
+    scores = np.array([[2, 3, 4], [4, 4, 5], [3, 5, 4]])
+    alpha = cronbach_alpha(scores, as_frame=False)
+    assert isinstance(alpha, float), "Alpha should be a float"
+    assert 0 <= alpha <= 1, "Alpha should be between 0 and 1"
+
+def test_cronbach_alpha_with_dataframe():
+    # Create a DataFrame of item scores
+    df_scores = pd.DataFrame({'item1': [2, 4, 3], 'item2': [3, 4, 5], 'item3': [4, 5, 4]})
+    alpha = cronbach_alpha(df_scores, as_frame=False)
+    assert isinstance(alpha, float), "Alpha should be a float when as_frame=False"
+    assert 0 <= alpha <= 1, "Alpha should be in the valid range"
+
+def test_cronbach_alpha_as_frame():
+    scores = np.array([[2, 3, 4], [4, 4, 5], [3, 5, 4]])
+    result = cronbach_alpha(scores, as_frame=True)
+    assert isinstance(result, pd.Series), "Result should be a pandas Series when as_frame=True"
+    assert 'Cronbach\'s Alpha' in result.index, "Series should contain 'Cronbach\'s Alpha'"
+
+@pytest.mark.skip(reason="Visualization output not easily testable in automated tests.")
+def test_cronbach_alpha_view():
+    # This test would normally check if the function runs without error when view=True
+    # Since visual output isn't easily testable in an automated way, we skip this test
+    scores = np.array([[2, 3, 4], [4, 4, 5], [3, 5, 4]])
+    try:
+        cronbach_alpha(scores, view=True)
+    except Exception as e:
+        pytest.fail(f"View=True caused an error: {e}")
+
+def test_friedman_test_with_numpy_arrays():
+    group1 = np.array([20, 21, 19, 20, 21])
+    group2 = np.array([19, 20, 18, 21, 20])
+    group3 = np.array([21, 22, 20, 22, 21])
+    statistic, p_value = friedman_test(group1, group2, group3)
+    assert isinstance(statistic, float) and isinstance(p_value, float), "Statistic and p-value should be float"
+
+def test_friedman_test_with_dataframe_columns():
+    df = pd.DataFrame({
+        'group1': [20, 21, 19, 20, 21],
+        'group2': [19, 20, 18, 21, 20],
+        'group3': [21, 22, 20, 22, 21]
+    })
+    statistic, p_value = friedman_test(df, columns=['group1', 'group2', 'group3'])
+    assert isinstance(statistic, float) and isinstance(p_value, float), "Statistic and p-value should be float"
+
+def test_friedman_test_as_frame():
+    group1 = [20, 21, 19, 20, 21]
+    group2 = [19, 20, 18, 21, 20]
+    group3 = [21, 22, 20, 22, 21]
+    results = friedman_test(group1, group2, group3, as_frame=True)
+    _assert_value_in_index_or_columns (results,'F-statistic',  'P-value')
+
+@pytest.mark.skip(reason="Visual output not easily testable in automated tests.")
+def test_friedman_test_view_option():
+    group1 = [20, 21, 19, 20, 21]
+    group2 = [19, 20, 18, 21, 20]
+    group3 = [21, 22, 20, 22, 21]
+    # This test is to ensure no errors are raised when view=True
+    try:
+        friedman_test(group1, group2, group3, view=True)
+    except Exception as e:
+        pytest.fail(f"View=True caused an error: {e}")
+
 
 if __name__=="__main__": 
     # test_mode_with_dataframe_specific_columns(sample_dataframe)

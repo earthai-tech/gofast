@@ -29,7 +29,8 @@ from .._typing import _T, Dict, Any, Callable, List, Type
 from .._typing import  Optional, Tuple , Union  
 from .._typing import Series, DataFrame, ArrayLike, Array1D, LambdaType
 from ._dependency import import_optional_dependency
-from .coreutils import to_numeric_dtypes, is_iterable, is_module_installed
+from .coreutils import to_numeric_dtypes, is_iterable
+from .coreutils import get_installation_name, is_module_installed 
 from .._gofastlog import gofastlog 
 
 # Configure  logging
@@ -766,7 +767,10 @@ def is_valid_if(
     return decorator
 
 def install_package(
-    name: str, extra: str = '', 
+    name: str, 
+    dist_name: Optional[str]=None,
+    infer_dist_name: bool=False, 
+    extra: str = '', 
     use_conda: bool = False, 
     verbose: bool = True
     ) -> None:
@@ -783,6 +787,12 @@ def install_package(
     ----------
     name : str
         Name of the package to install. Version specification can be included.
+    dist_name : str, optional
+        The distribution name of the package. Useful for packages where
+        the import name differs from the distribution name.
+    infer_dist_name : bool, optional
+        If True, attempt to infer the distribution name for pip installation,
+        defaults to False.
     extra : str, optional
         Additional options or version specifier for the package, by default ''.
     use_conda : bool, optional
@@ -835,13 +845,18 @@ def install_package(
             if process.wait() != 0:  # Non-zero exit code indicates failure
                 raise RuntimeError(f"Installation failed for package '{name}{extra}'.")
     
-    # If the module is installed 
-    # dont install again.
-    if is_module_installed(name): 
+    # If the module is installed don't install again.
+    if is_module_installed(name, distribution_name= dist_name ): 
+        if verbose:
+           print(f"{name} is already installed.")
+           
         return True
-    
+    # If the distribution to pkg name if the pkg name 
+    # is different to distribution name .
+    if infer_dist_name: 
+        name = get_installation_name(name, dist_name)  
+        
     conda_available = _check_conda_installed()
-
     try:
         if use_conda and conda_available:
             if verbose:
@@ -885,6 +900,8 @@ def ensure_pkg(
     errors: str = "raise",
     min_version: str | None = None,
     exception: Exception = None, 
+    dist_name: Optional[str]=None, 
+    infer_dist_name: bool=False, 
     auto_install: bool = False,
     use_conda: bool = False, 
     partial_check: bool = False,
@@ -913,6 +930,14 @@ def ensure_pkg(
     exception : Exception, optional
         A custom exception to raise if the package is missing and `errors`
         is 'raise'.
+    dist_name : str, optional
+        The distribution name of the package as known by package managers (e.g., pip).
+        If provided and the module import fails, an additional check based on the
+        distribution name is performed. This parameter is useful for packages where
+        the distribution name differs from the importable module name.
+    infer_dist_name : bool, optional
+        If True, attempt to infer the distribution name for pip installation,
+        defaults to False.
     auto_install : bool, optional
         Whether to automatically install the package if missing. 
         Defaults to False.
@@ -921,7 +946,8 @@ def ensure_pkg(
     partial_check : bool, optional
         If True, checks the existence of the package only if the `condition` 
         is met. This allows for conditional package checking based on the 
-        function's arguments or other criteria. Defaults to False.
+        function's arguments or other criteria. If `False`, the check is always
+        performed. Defaults to False.
     condition : Any, optional
         A condition that determines whether to check for the package's existence. 
         This can be a callable that takes the same arguments as the decorated function 
@@ -955,45 +981,68 @@ def ensure_pkg(
     ...     import matplotlib.pyplot as plt
     ...     plt.plot(x, y)
     ...     plt.show()
+    
+    >>> @ensure_pkg("skimage", partial_check=True, condition=(
+    ...     lambda *args, **kwargs: 'method' in kwargs and kwargs['method'] == 'hog')
+    ...     )
+    >>> def check_package_installed(data, method='hog', **kwargs):
+    ...     extractor_function = None
+    ...     if method == 'hog':
+    ...         from skimage.feature import hog
+    ...         extractor_function = lambda image: hog(image, **kwargs)
+    ...     return extractor_function
     """
     def decorator(func: _T) -> _T:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            if _should_check_condition(
-                    partial_check, condition, *args, **kwargs):
+            # Check condition if partial_check is True 
+            # or perform check unconditionally
+            if not partial_check or _should_check_condition(
+                    condition, *args, **kwargs):
                 try:
-                    # Attempts to import the package, installing 
+                    # Attempt to import the package, installing 
                     # if necessary and permitted
                     import_optional_dependency(
-                        name, extra=extra, errors=errors, 
-                        min_version=min_version, exception=exception,
+                        name, extra=extra, 
+                        errors=errors, 
+                        min_version=min_version,
+                        exception=exception
                     )
-                except (ModuleNotFoundError, ImportError) as e: #noqa
+                except (ModuleNotFoundError, ImportError):
                     if auto_install:
-                        install_package(name, extra=extra, use_conda=use_conda,
-                                        verbose=verbose)
+                        # Attempt package installation
+                        install_package(name, dist_name= dist_name, 
+                                        infer_dist_name=infer_dist_name, 
+                                        extra=extra,use_conda=use_conda,
+                                        verbose=verbose, 
+                                        )
+                    elif exception is not None:
+                        raise exception
                     else:
-                        # Reraises the exception with optional custom handling
-                        if exception is not None:
-                            raise exception
                         raise
-                        
+                    
             return func(*args, **kwargs)
+        
         return wrapper
     return decorator
 
-def _should_check_condition(
-        partial_check: bool, condition: Any, *args, **kwargs) -> bool:
+def _should_check_condition(condition: Any, *args, **kwargs) -> bool:
     """
-    Determines if the condition for checking the package's existence is met.
+    Determines whether the condition(s) for checking a package's existence are met, 
+    based on the provided arguments and keyword arguments of a decorated function.
+
+    This function offers enhanced flexibility by allowing conditions to be specified 
+    as callable functions, tuples for positional argument checks, strings for keyword 
+    argument checks, or a list combining any of these types for multiple conditions.
 
     Parameters
     ----------
-    partial_check : bool
-        Indicates if the package existence check should be conditional.
     condition : Any
-        The condition that determines whether to perform the package check.
-        This can be a callable, a specific argument name, or any value.
+        The condition(s) that determine whether to perform the package check. Can be:
+        - A callable that takes `*args` and `**kwargs` and returns a boolean.
+        - A string specifying a keyword argument name that should be truthy.
+        - A tuple `(index, value)` for checking a specific value of a positional argument.
+        - A list of any combination of the above to specify multiple conditions.
     *args : tuple
         Positional arguments passed to the decorated function.
     **kwargs : dict
@@ -1002,17 +1051,54 @@ def _should_check_condition(
     Returns
     -------
     bool
-        True if the package check should be performed, False otherwise.
+        `True` if the package check should be performed based on the evaluation of 
+        `condition`, `False` otherwise.
+
+    Examples
+    --------
+    Checking with a single callable condition for partial_check is ``True``:
+
+    >>> _should_check_condition(lambda x, y: x > y, 5, 3)
+    True
+
+    Checking with a string condition (keyword argument name):
+
+    >>> _should_check_condition('method', method='hog')
+    True
+
+    Checking with a tuple for positional argument value:
+
+    >>> _should_check_condition((0, 'data'), 'data', method='hog')
+    True
+
+    Checking with multiple conditions:
+
+    >>> conditions = [(1, 'hog'), lambda *args, **kwargs: kwargs.get('filter', False)]
+    >>> _should_check_condition( conditions, 'data', 'hog', filter=True)
+    True
+
+    In the last example, the package check is performed because both conditions are met:
+    the second positional argument equals 'hog', and the 'filter' keyword argument is `True`.
     """
-    if not partial_check:
-        return True
+
+    def eval_condition(cond):
+        # Callable condition with direct application
+        if callable(cond):
+            return cond(*args, **kwargs)
+        # String condition indicating a key in kwargs
+        elif isinstance(cond, str) and cond in kwargs:
+            return bool(kwargs[cond])
+        # Tuple condition indicating positional argument check
+        elif isinstance(cond, tuple) and len(cond) == 2:
+            index, value = cond
+            return index < len(args) and args[index] == value
+        return False
     
-    if callable(condition):
-        return condition(*args, **kwargs)
-    elif isinstance(condition, str) and condition in kwargs:
-        return bool(kwargs[condition])
+    # Support for list of conditions: all must be True
+    if isinstance(condition, list):
+        return all(eval_condition(cond) for cond in condition)
     else:
-        return bool(condition)
+        return eval_condition(condition)
 
 def drop_nan_if(thresh: float, meth: str = 'drop_cols'):
     """

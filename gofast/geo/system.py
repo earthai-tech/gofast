@@ -56,9 +56,8 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 
-from ..tools._dependency import import_optional_dependency
-from .tools.funcutils import ensure_pkg
 from ..exceptions import NotFittedError
+from ..tools.funcutils import ensure_pkg
 
 class GeoIntelligentSystem:
     """
@@ -545,6 +544,8 @@ class GeoIntelligentSystem:
                                 weight=criteria)
         return path
     
+    @ensure_pkg("networkx")
+    @ensure_pkg ("osmnx")
     def generateRoute(self, waypoints, constraints=None):
         """
         Generates a route based on a set of waypoints and constraints, 
@@ -581,9 +582,7 @@ class GeoIntelligentSystem:
         route = geo_sys.generateRoute(waypoints)
         print(route)
         """
-        for pkg in ("osmnx", "networkx"):
-            import_optional_dependency(pkg)
-            
+
         import osmnx as ox
         import networkx as nx
         # Ensure osmnx is configured to use the desired travel mode, e.g., 'drive'
