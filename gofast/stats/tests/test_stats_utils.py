@@ -7,6 +7,27 @@ test_stats_utils.py
 
 import pytest 
 from unittest.mock import patch
+# Attempt to import skbio. If not installed, mark 
+# all tests in this module to be skipped.
+try:
+    import skbio # noqa 
+except ImportError:
+    pytestmark = pytest.mark.require_skbio
+# Utility function to check 
+# if statsmodels is installed
+def is_statsmodels_installed():
+    try:
+        import statsmodels # noqa
+        return True
+    except ImportError:
+        return False
+def is_skbio_installed (): 
+    try: 
+        import skbio.stats.ordination #noqa
+        return True 
+    except ImportError: 
+        return False
+    
 import numpy as np
 import pandas as pd
 from scipy.stats import hmean as scipy_hmean
@@ -16,13 +37,7 @@ from sklearn.datasets import  make_classification
 from sklearn.datasets import make_moons
 from sklearn.cluster import KMeans
 from sklearn.linear_model import LinearRegression
-# Attempt to import skbio. If not installed, mark 
-# all tests in this module to be skipped.
-try:
-    import skbio # noqa 
-except ImportError:
-    pytestmark = pytest.mark.require_skbio
-    
+
 from gofast.tools.funcutils import install_package 
 try:from lifelines import KaplanMeierFitter
 except: 
@@ -40,7 +55,14 @@ from gofast.stats.utils import kaplan_meier_analysis, dca_analysis
 from gofast.stats.utils import gini_coeffs, mds_similarity  
 from gofast.stats.utils import perform_spectral_clustering
 from gofast.stats.utils import kolmogorov_smirnov_test, cronbach_alpha
-from gofast.stats.utils import friedman_test
+from gofast.stats.utils import friedman_test, statistical_tests
+from gofast.stats.utils import mcnemar_test, kruskal_wallis_test
+from gofast.stats.utils import wilcoxon_signed_rank_test, paired_t_test
+from gofast.stats.utils import check_and_fix_rm_anova_data
+from gofast.stats.utils import mixed_effects_model
+
+STATSMODELS_INSTALLED = is_statsmodels_installed()
+SKBIO_INSTALLED = is_skbio_installed() 
 
 @pytest.fixture
 def sample_dataframe():
@@ -227,7 +249,7 @@ def test_get_range_axis(axis, expected_result):
     pd.testing.assert_series_equal(result, expected_result)
 
 @pytest.mark.parametrize("input_data, expected_exception", [
-    ('invalid_data_type', ValueError), 
+    ('invalid_data_type', TypeError), 
     ])
 def test_get_range_errors(input_data, expected_exception):
     # Testing with invalid input data type
@@ -448,7 +470,6 @@ def test_iqr_view(data, view, plot_type):
     # enabled but does not check the plot itself
     assert iqr(data, view=view, plot_type=plot_type, as_frame=False) is not None
 
-
 @pytest.mark.parametrize("data,expected, as_frame", [
     ([1, 2, 3, 4, 5], np.array(
         [-1.26491106, -0.63245553,  0. ,  0.63245553,  1.26491106]), False),
@@ -611,7 +632,6 @@ def test_as_frame_option():
     assert isinstance(result, pd.Series)
     assert 'T-statistic' in result.index and 'P-value' in result.index and 'Reject-Null-Hypothesis' in result.index
 
-
 # Test with numeric list inputs
 def test_perform_linear_regression_with_list():
     x = [i for i in range(10)]
@@ -663,8 +683,8 @@ def test_chi_squared_test_with_array_as_frame():
 # Test significance level (alpha) impact
 @pytest.mark.parametrize("alpha,expected_reject", [(0.05, False), (0.15, True)])
 def test_chi_squared_test_alpha_impact(alpha, expected_reject):
-    data = pd.DataFrame({'A': [10, 20, 30], 'B': [20, 15, 30]}, as_frame=False )
-    _, p_value, reject_null = chi2_test(data, alpha=alpha)
+    data = pd.DataFrame({'A': [10, 20, 30], 'B': [20, 15, 30]})
+    _, p_value, reject_null = chi2_test(data, alpha=alpha, as_frame=False )
     assert reject_null == expected_reject
 
 
@@ -900,8 +920,8 @@ def test_gini_with_multiple_columns():
     expected_gini_income = 0.26666666666666666
     # expected_gini_wealth = expected_gini_income  # Symmetrical data
     result = gini_coeffs(df, columns=['income', 'wealth'], as_frame=True)
-    assert all(result['Gini-coefficients'] == pytest.approx(expected_gini_income)
-                ), "Gini coefficient calculation failed for multiple columns"
+    assert result['Gini-coefficients'].squeeze() == pytest.approx(expected_gini_income), ( 
+        "Gini coefficient calculation failed for multiple columns")
 
 # Test as_frame parameter
 def test_gini_as_frame():
@@ -963,39 +983,45 @@ def test_mds_view_option():
     except Exception:
         assert False, "MDS raised an error when trying to view the plot"
 
-# def test_dca_with_arraylike_input():
-#     X, _ = make_classification(n_samples=100, n_features=5)
-#     result = dca_analysis(X)
-#     assert isinstance(result, np.ndarray), "Result should be an ndarray when as_frame=False"
-#     assert result.shape == (100, 2), "Result shape does not match expected dimensions"
-
-# def test_dca_with_dataframe_input():
-#     X, _ = make_classification(n_samples=50, n_features=4)
-#     df = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
-#     result = dca_analysis(df, as_frame=True)
-#     assert isinstance(result, pd.DataFrame), "Result should be a DataFrame when as_frame=True"
-#     assert result.shape == (50, 2), "DataFrame result shape does not match expected dimensions"
-
-# def test_dca_with_custom_columns():
-#     X, _ = make_classification(n_samples=30, n_features=4)
-#     df = pd.DataFrame(X, columns=['A', 'B', 'C', 'D'])
-#     result = dca_analysis(df, columns=['A', 'B'], as_frame=True)
+@pytest.mark.skipif( 
+    not SKBIO_INSTALLED, reason="'scikit-bio' package is required for 'dc_analysis' tests.")
+def test_dca_with_arraylike_input():
+    X, _ = make_classification(n_samples=100, n_features=5)
+    result = dca_analysis(X)
+    assert isinstance(result, np.ndarray), "Result should be an ndarray when as_frame=False"
+    assert result.shape == (100, 2), "Result shape does not match expected dimensions"
+@pytest.mark.skipif( 
+    not SKBIO_INSTALLED, reason="'scikit-bio' package is required for 'dc_analysis' tests.")
+def test_dca_with_dataframe_input():
+    X, _ = make_classification(n_samples=50, n_features=4)
+    df = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
+    result = dca_analysis(df, as_frame=True)
+    assert isinstance(result, pd.DataFrame), "Result should be a DataFrame when as_frame=True"
+    assert result.shape == (50, 2), "DataFrame result shape does not match expected dimensions"
+@pytest.mark.skipif( 
+    not SKBIO_INSTALLED, reason="'scikit-bio' package is required for 'dc_analysis' tests.")
+def test_dca_with_custom_columns():
+    X, _ = make_classification(n_samples=30, n_features=4)
+    df = pd.DataFrame(X, columns=['A', 'B', 'C', 'D'])
+    result = dca_analysis(df, columns=['A', 'B'], as_frame=True)
     
-#     assert 'A' in result.columns and 'B' in result.columns, "Specified columns are not present in the result"
-
-# @pytest.mark.parametrize("n_components", [2, 3])
-# def test_dca_with_different_components(n_components):
-#     X, _ = make_classification(n_samples=20, n_features=5)
-#     result = dca_analysis(X, n_components=n_components, as_frame=True)
-#     assert result.shape[1] == n_components, f"Number of components in result does not match {n_components}"
-
-# def test_dca_view_option():
-#     X, _ = make_classification(n_samples=10, n_features=4)
-#     try:
-#         dca_analysis(X, view=True)
-#         assert True
-#     except Exception:
-#         assert False, "dca_analysis raised an error with view=True"
+    assert 'A' in result.columns and 'B' in result.columns, "Specified columns are not present in the result"
+@pytest.mark.skipif( 
+    not SKBIO_INSTALLED, reason="'scikit-bio' package is required for 'dc_analysis' tests.")
+@pytest.mark.parametrize("n_components", [2, 3])
+def test_dca_with_different_components(n_components):
+    X, _ = make_classification(n_samples=20, n_features=5)
+    result = dca_analysis(X, n_components=n_components, as_frame=True)
+    assert result.shape[1] == n_components, f"Number of components in result does not match {n_components}"
+@pytest.mark.skipif( 
+    not SKBIO_INSTALLED, reason="'scikit-bio' package is required for 'dc_analysis' tests.")
+def test_dca_view_option():
+    X, _ = make_classification(n_samples=10, n_features=4)
+    try:
+        dca_analysis(X, view=True)
+        assert True
+    except Exception:
+        assert False, "dca_analysis raised an error with view=True"
 
 def test_spectral_clustering_with_array():
     X, _ = make_moons(n_samples=100, noise=0.05)
@@ -1126,15 +1152,7 @@ def test_ks_test_visualization():
     except Exception as e:
         pytest.fail(f"Visualization test failed with exception: {e}")
 
-def _assert_value_in_index_or_columns (
-        result, *str_values, err_message=None): 
-    assert isinstance(result, ( pd.DataFrame, pd.Series)), ( 
-        "Should return a DataFrame/Series when as_frame=True") 
-    valid_columns = result.columns if isinstance ( result, pd.DataFrame) else result.index 
-    names =("DataFrame", "columns") if isinstance (result, pd.DataFrame) else ("Series", "indexes") 
-    err_message= err_message or "{} should include expected {}".format(*names )
-    for value in str_values:
-        assert value in valid_columns,  err_message 
+
 
 def test_cronbach_alpha_with_numpy_array():
     # Simulate item scores with some variance among items
@@ -1200,6 +1218,236 @@ def test_friedman_test_view_option():
     except Exception as e:
         pytest.fail(f"View=True caused an error: {e}")
 
+# Test McNemar's test functionality
+@pytest.mark.parametrize("test_type", ["mcnemar", "rm_anova"])
+def test_conditional_statsmodels_dependency(test_type):
+    if not STATSMODELS_INSTALLED:
+        pytest.skip("statsmodels is required but not installed.")
+    # Example data for McNemar's test
+    data = np.array([[10, 2], [3, 5]])
+    kwargs = {"test_type": test_type}
+    if test_type =="rm_anova": 
+        data= {
+            'subject_id': [1, 1, 1, 1, 1, 1, 1, 1, 1,
+                           2, 2, 2, 2, 2, 2, 2, 2, 2,
+                           3, 3, 3, 3, 3, 3, 3, 3, 3],
+            'score': [5, 3, 8, 4, 6, 7, 6, 5, 8,
+                      5, 3, 8, 4, 6, 7, 6, 5, 8,
+                      5, 3, 8, 4, 6, 7, 6, 5, 8],  
+            'time': ['pre', 'pre', 'pre', 'mid', 'mid', 'mid', 'post', 'post', 'post', 
+                     'pre', 'pre', 'pre', 'mid', 'mid', 'mid', 'post', 'post', 'post', 
+                     'pre', 'pre', 'pre', 'mid', 'mid', 'mid', 'post', 'post', 'post'],
+            'treatment': ['A', 'B', 'C', 'A', 'B', 'C', 'A', 'B', 'C', 
+                          'A', 'B', 'C', 'A', 'B', 'C', 'A', 'B', 'C', 
+                          'A', 'B', 'C', 'A', 'B', 'C', 'A', 'B', 'C']
+            }
+        data =pd.DataFrame ( data)
+        result, = statistical_tests(
+            data, depvar='score', subject='subject_id', within=['time', 'treatment'], 
+            test_type ="rm_anova")
+    else: result = statistical_tests(data, **kwargs)
+    assert result is not None, "Result should not be None when statsmodels is installed."
+
+# Test a test type that does not require statsmodels
+def test_kruskal_wallis_without_statsmodels():
+    group1 = np.random.normal(0, 1, 50)
+    group2 = np.random.normal(0, 1, 50)
+    group3 = np.random.normal(0, 1, 50)
+    result = statistical_tests(group1, group2, group3, test_type="kruskal_wallis")
+    assert result is not None, "Kruskal Wallis test should not require statsmodels."
+
+# Conditional skip if statsmodels is not installed for certain tests
+@pytest.mark.skipif(
+    not STATSMODELS_INSTALLED, reason=( "'statsmodels' package is required for"
+                                       " 'rm_anova' and 'mcnemar' tests.")
+    )
+def test_rm_anova_with_dataframe():
+    # Example data for Repeated Measures ANOVA
+    df = pd.DataFrame({
+        'subject': [1, 2, 3, 4, 5],
+        'condition1': [20, 19, 22, 21, 18],
+        'condition2': [22, 20, 24, 23, 19]
+    })
+    with pytest.raises (ValueError) as excinfo: 
+        # ValueError: Data is unbalanced.
+        statistical_tests(df, test_type="rm_anova", subject='subject', 
+                                within=['condition1', 'condition2'])
+    assert "Data is unbalanced" in str(excinfo.value), ( 
+        "Function should raise ValueError for unbalanced data" )
+# Test Wilcoxon Signed-Rank Test with numpy arrays
+def test_wilcoxon_signed_rank():
+    data1 = np.random.normal(0, 1, 30)
+    data2 = data1 + np.random.normal(0, 0.5, 30)
+    result = statistical_tests(data1, data2, test_type="wilcoxon")
+    assert result is not None, "Wilcoxon Signed-Rank Test should return a result."
+
+# Test Independent t-Test with pandas DataFrame input
+def test_ttest_indep_with_dataframe():
+    df = pd.DataFrame({
+        'group1': np.random.normal(0, 1, 100),
+        'group2': np.random.normal(0.5, 1, 100)
+    })
+    result = statistical_tests('group1', 'group2', data=df, test_type="ttest_indep")
+    assert result is not None, "Independent t-Test should return a result object."
+
+# Test visualization option without requiring statsmodels
+@pytest.mark.skipif(not STATSMODELS_INSTALLED, reason="Visualization test does not require statsmodels.")
+def test_visualization_option():
+    # This test checks that the function does not raise an error with view=True
+    # It does not check the correctness of the plot
+    data1 = np.random.normal(0, 1, 30)
+    data2 = data1 + np.random.normal(0, 0.5, 30)
+    try:
+        statistical_tests(data1, data2, test_type="wilcoxon", view=True)
+    except Exception as e:
+        pytest.fail(f"Visualization option caused an error: {e}")
+
+# Test handling of unsupported test types
+def test_unsupported_test_type():
+    data1 = np.random.normal(0, 1, 30)
+    data2 = data1 + np.random.normal(0, 0.5, 30)
+    with pytest.raises(ValueError) as excinfo:
+        statistical_tests(data1, data2, test_type="unsupported_test")
+    assert "Invalid test type" in str(excinfo.value), ( 
+        "Function should raise ValueError for unsupported test types."
+        )
+
+# Test with as_frame option
+def test_as_frame_option2():
+    group1 = np.random.normal(0, 1, 50)
+    group2 = np.random.normal(0.5, 1, 50)
+    result = statistical_tests(group1, group2, test_type="kruskal_wallis", as_frame=True)
+    _assert_value_in_index_or_columns(result,  "Statistic",  "P-value")
+    
+@pytest.mark.skipif(
+    not STATSMODELS_INSTALLED, reason="'statsmodels' package is required for 'mcnemar' tests.")
+def test_mcnemar_test():
+    # Example data for McNemar's test
+    data = np.array([[10, 2], [3, 5]])
+    statistic, p_value = mcnemar_test(data)
+    assert isinstance(statistic, float), "Statistic should be a float"
+    assert isinstance(p_value, float), "P-value should be a float"
+@pytest.mark.skipif(
+    not STATSMODELS_INSTALLED, reason="'statsmodels' package is required for 'mcnemar' tests.")   
+def test_mcnemar_test_with_invalid_data():
+    # Test with invalid data to check error handling
+    with pytest.raises(ValueError):
+        mcnemar_test(np.array([1, 2]), np.array([1, 2, 3])) 
+        
+def test_kruskal_test():
+    # Example data for Kruskal-Wallis H Test
+    group1 = np.random.normal(10, 2, 30)
+    group2 = np.random.normal(12, 2, 30)
+    group3 = np.random.normal(11, 2, 30)
+    statistic, p_value = kruskal_wallis_test(group1, group2, group3)
+    assert isinstance(statistic, float), "Statistic should be a float"
+    assert isinstance(p_value, float), "P-value should be a float"
+def test_kruskal_test_with_identical_groups():
+    # Test with identical groups where no significant difference is expected
+    group1 = np.random.normal(10, 2, 30)
+    statistic, p_value = kruskal_wallis_test(group1, group1)
+    assert p_value > 0.05, "P-value should indicate no significant difference"
+    
+def test_wilcoxon_signed_rank_test():
+    # Example data for Wilcoxon Signed-Rank Test
+    data1 = np.random.normal(10, 2, 30)
+    data2 = data1 + np.random.normal(0, 1, 30)
+    statistic, p_value = wilcoxon_signed_rank_test(data1, data2)
+    assert isinstance(statistic, float), "Statistic should be a float"
+    assert isinstance(p_value, float), "P-value should be a float"
+
+def test_wilcoxon_signed_rank_test_with_zero_differences():
+
+    # Test with zero differences where no significant difference is expected
+    data = np.random.normal(10, 2, 30)
+    statistic, p_value = wilcoxon_signed_rank_test(data, data, zero_method='auto')
+    assert p_value > 0.05, "P-value should indicate no significant difference"
+
+def test_paired_t_test_with_large_sample():
+    # Test with a larger sample size to check for performance or numerical issues
+    data1 = np.random.normal(10, 2, 1000)
+    data2 = data1 + np.random.normal(0, 1, 1000)
+    statistic, p_value = paired_t_test(data1, data2)
+    assert isinstance(statistic, float) and isinstance(p_value, float), ( 
+        "Should return float statistic and p-value")
+
+def test_paired_t_test():
+    # Example data for Paired t-Test
+    data1 = np.random.normal(10, 2, 30)
+    data2 = data1 + np.random.normal(0, 1, 30)
+    statistic, p_value = paired_t_test(data1, data2)
+    assert isinstance(statistic, float), "Statistic should be a float"
+    assert isinstance(p_value, float), "P-value should be a float"
+
+@pytest.mark.skipif('not _can_visualize()')
+def test_visualization_aspect():
+    # Placeholder test to illustrate how one might approach testing visualization
+    # This requires a more complex setup, potentially including a headless browser
+    # or matplotlib's testing utilities
+    data1 = np.random.normal(10, 2, 30)
+    data2 = data1 + np.random.normal(0, 1, 30)
+    try:
+        paired_t_test(data1, data2, view=True)
+        assert True, "Visualization code runs without errors"
+    except Exception as e:
+        assert False, f"Visualization raised an error: {e}"
+
+def _can_visualize():
+    # Utility function to determine if visualization tests should run
+    # This could check for an appropriate environment, graphical backend, etc.
+    return True 
+
+def _assert_value_in_index_or_columns (
+        result, *str_values, err_message=None): 
+    """ Helper function to items existing in series or Dataframe. """
+    assert isinstance(result, ( pd.DataFrame, pd.Series)), ( 
+        "Should return a DataFrame/Series when as_frame=True") 
+    valid_columns = result.columns if isinstance ( result, pd.DataFrame) else result.index 
+    names =("DataFrame", "columns") if isinstance (result, pd.DataFrame) else ("Series", "indexes") 
+    err_message= err_message or "{} should include expected {}".format(*names )
+    for value in str_values:
+        assert value in valid_columns,  err_message 
+
+@pytest.mark.skipif(
+    not STATSMODELS_INSTALLED, reason=( "'statsmodels' package is required"
+                                       " for 'check_and_fix_rm_anova_data' tests.")
+    )
+def test_check_and_fix_rm_anova_data():
+    # Sample dataset
+    data = {
+        'subject_id': [1, 1, 1, 2, 2, 2],
+        'score': [5, 3, 8, 4, 6, 7],
+        'time': ['pre', 'mid', 'post', 'pre', 'mid', 'post'],
+        'treatment': ['A', 'A', 'A', 'B', 'B', 'B']
+    }
+    df = pd.DataFrame(data)
+
+    # Test without fixing issues
+    fixed_df = check_and_fix_rm_anova_data(
+        df, 'score', 'subject_id', ['time', 'treatment'], False)
+    assert isinstance(fixed_df, pd.DataFrame), "The function should return a DataFrame"
+    _assert_value_in_index_or_columns(fixed_df, "time","treatment" )
+  
+@pytest.mark.skipif(
+    not STATSMODELS_INSTALLED, reason=(
+        "'statsmodels' package is required"
+        " for 'check_and_fix_rm_anova_data' tests.")
+    )
+def test_mixed_effects_model():
+    # Sample dataset
+    data = {
+        'subject_id': [1, 1, 2, 2],
+        'score': [5.5, 6.5, 5.0, 6.0],
+        'time': ['pre', 'post', 'pre', 'post'],
+        'treatment': ['A', 'A', 'B', 'B']
+    }
+    df = pd.DataFrame(data)
+
+    # Assuming your function can return the model fit object when summary=False
+    model_fit = mixed_effects_model(df, 'score ~ time', 'subject_id', summary=False)
+    
+    # Check if the model fit object is of the correct type
+    assert hasattr(model_fit, "summary"), "The function should return a MixedLMResults object"
 
 if __name__=="__main__": 
     # test_mode_with_dataframe_specific_columns(sample_dataframe)

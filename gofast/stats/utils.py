@@ -2,14 +2,13 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-Created on Wed Dec 20 10:01:24 2023
-
-These functions provide a comprehensive toolkit for performing basic 
-statistical analyses. They can be easily integrated into 
-data analysis workflows and are versatile enough to handle a wide range 
+:func:`gofast.stats.utils` provides a comprehensive toolkit for performing basic 
+statistical analyses. They can be easily integrated into data analysis 
+workflows and are versatile enough to handle a wide range 
 of data types and structures.
 """
 from __future__ import annotations 
+from itertools import product
 import numpy as np
 from scipy import stats
 import pandas as pd
@@ -22,28 +21,59 @@ from sklearn.manifold import MDS
 
 from .._typing import Optional, List, Dict, Union, Tuple, Callable, Any
 from .._typing import NumPyFunction, DataFrame, ArrayLike, Array1D, Series
-from ..decorators import DynamicMethod, AppendDocFrom # AppendDocSection 
+from ..decorators import DynamicMethod
 from ..tools.validator import assert_xy_in, is_frame, check_consistent_length 
 from ..tools.validator import _is_arraylike_1d 
 from ..tools.coreutils import ensure_visualization_compatibility, ellipsis2false 
 from ..tools.coreutils import process_and_extract_data, to_series_if 
 from ..tools.coreutils import get_colors_and_alphas, normalize_string 
-from ..tools.coreutils import smart_format
+from ..tools.coreutils import smart_format, check_uniform_type
 from ..tools.funcutils import make_data_dynamic, ensure_pkg
 from ..tools.funcutils import flatten_data_if, update_series_index 
 from ..tools.funcutils import update_index, convert_and_format_data
 from ..tools.funcutils import series_naming 
 
-__all__= [ 
-    "mean", "median", "mode",  "var", "std", "get_range", "quartiles", 
-    "quantile","corr", "correlation", "iqr", "z_scores", "describe","skew",
-    "kurtosis", "t_test_independent","perform_linear_regression", "chi2_test",
-    "anova_test", "perform_kmeans_clustering", "hmean", "wmedian", "bootstrap",
-    "kaplan_meier_analysis", "gini_coeffs","mds_similarity", "dca_analysis",
-    "perform_spectral_clustering", "levene_test","kolmogorov_smirnov_test", 
-    "cronbach_alpha", "friedman_test","statistical_tests"
-   ]
-
+__all__= [
+    "anova_test",
+    "bootstrap",
+    "check_and_fix_rm_anova_data",
+    "chi2_test",
+    "corr",
+    "correlation",
+    "cronbach_alpha",
+    "dca_analysis",
+    "describe",
+    "friedman_test",
+    "gini_coeffs",
+    "get_range",
+    "hmean",
+    "iqr",
+    "kaplan_meier_analysis",
+    "kolmogorov_smirnov_test",
+    "kruskal_wallis_test",#
+    "kurtosis",
+    "levene_test",
+    "mean",
+    "mds_similarity",
+    "median",
+    "mcnemar_test",
+    "mixed_effects_model", 
+    "mode",
+    "perform_kmeans_clustering",
+    "perform_linear_regression",
+    "perform_spectral_clustering",
+    "quantile",
+    "quartiles",
+    "skew",
+    "std",
+    "statistical_tests",
+    "t_test_independent",
+    "var",
+    "wmedian",
+    "wilcoxon_signed_rank_test",
+    "z_scores",
+    "paired_t_test"
+]
 
 @make_data_dynamic(capture_columns=True)
 def mean(
@@ -198,7 +228,7 @@ def _visualize_mean(
     """
     
     plt.figure(figsize=fig_size if fig_size else (10, 6))
-    mean_values, data, cols= prepare_plot_data(mean_values, data, axis=axis)
+    mean_values, data, cols= _prepare_plot_data(mean_values, data, axis=axis)
     if isinstance(data, pd.DataFrame):
         # Generate distinct colors for each column from cmap 
         colors, alphas = get_colors_and_alphas( cols, cmap) 
@@ -369,7 +399,7 @@ def _visualize_median(
     Visualizes the distribution of the data and highlights the median values.
     """
     plt.figure(figsize=fig_size if fig_size else (10, 6))
-    _, data, cols= prepare_plot_data(median_values, data, axis=axis)
+    _, data, cols= _prepare_plot_data(median_values, data, axis=axis)
     if isinstance(data, pd.DataFrame):
         # Generate distinct colors for each column from cmap 
         colors, alphas = get_colors_and_alphas( cols, cmap) 
@@ -486,7 +516,7 @@ def _visualize_mode(data, mode_result, cmap='viridis', fig_size=None, axis=0):
     Visualizes the data distribution and highlights the mode values.
     """
     plt.figure(figsize=fig_size if fig_size else (10, 6))
-    _, data, cols= prepare_plot_data(mode_result, data, axis=axis)
+    _, data, cols= _prepare_plot_data(mode_result, data, axis=axis)
     if isinstance(data, pd.DataFrame):
         colors, alphas = get_colors_and_alphas( cols, cmap)
         for ii, col in enumerate (cols) :
@@ -627,7 +657,7 @@ def _visualize_variance(data, variance_result, columns=None, cmap='viridis',
     Visualizes the distribution of the data and highlights the variance values.
     """
     plt.figure(figsize=fig_size if fig_size else (10, 6))
-    _, data, cols= prepare_plot_data(variance_result, data, axis=axis)
+    _, data, cols= _prepare_plot_data(variance_result, data, axis=axis)
     if isinstance(data, pd.DataFrame):
         colors, alphas = get_colors_and_alphas( cols, cmap)
         for ii, col in enumerate(cols):
@@ -781,7 +811,7 @@ def _visualize_std_dev(data, std_dev_result, cmap='viridis', fig_size=None,
     Visualizes the distribution of the data and highlights the standard deviation.
     """
     plt.figure(figsize=fig_size if fig_size else (10, 6))
-    _, data, cols= prepare_plot_data(std_dev_result, data, axis=axis)
+    _, data, cols= _prepare_plot_data(std_dev_result, data, axis=axis)
     if isinstance(data, pd.DataFrame):
         colors, alphas = get_colors_and_alphas( cols, cmap)
         for ii, col in enumerate(cols):
@@ -810,67 +840,6 @@ def _visualize_std_dev(data, std_dev_result, cmap='viridis', fig_size=None,
     plt.legend()
     plt.show()
         
-def _statistical_function(
-    data: Union[ArrayLike, pd.DataFrame], 
-    perform_statistical_analysis, 
-    convert_to_dataframe_or_series, 
-    view: bool = False, 
-    cmap: str = 'viridis', 
-    as_frame: bool = False, 
-    fig_size: Optional[Tuple[int, int]] = None, 
-    **kws
-):
-    """
-    Performs a statistical operation on the provided data and optionally 
-    visualizes the results.
-
-    Parameters
-    ----------
-    view : bool, default=False
-        If True, visualizes the statistical analysis results or the data distribution.
-    cmap : str, default='viridis'
-        Colormap for the visualization. Only applicable if `view` is True.
-    as_frame : bool, default=False
-        If True, the result is returned as a pandas DataFrame or Series, depending
-        on the dimensionality of the output. Otherwise, the result is returned in
-        its native format (e.g., float, np.ndarray).
-    fig_size : Optional[Tuple[int, int]], default=None
-        Size of the figure for the visualization. Only applicable if `view` is True.
-
-    Returns
-    -------
-    The statistical analysis result, formatted according to the `as_frame` parameter.
-
-    Examples
-    --------
-    >>> data = np.random.normal(0, 1, 100)
-    >>> result = statistical_function(data, view=True, as_frame=True)
-    """
-    # statistical analysis logic
-    # Note: The actual implementation of `perform_statistical_analysis` 
-    # and `convert_to_dataframe_or_series`
-    # functions will depend on the specific statistical 
-    # operation being performed.
-    result = perform_statistical_analysis(data, **kws)
-    
-    if as_frame:
-        # Convert result to pandas DataFrame or Series if applicable
-        result = convert_to_dataframe_or_series(result)
-    
-    result, view = ensure_visualization_compatibility(
-        result, as_frame, view, std )
-    if view:
-        # Visualization logic
-        _visualize_data(data, result, cmap=cmap, fig_size=fig_size)
-    
-    return result
-
-   
-@AppendDocFrom (
-    _statistical_function,
-    "Parameters",
-    "Returns",
-   )
 @make_data_dynamic(
     capture_columns=True, 
     reset_index=True, 
@@ -908,6 +877,18 @@ def get_range(
         Indicates whether to convert the input data to a DataFrame before 
         proceeding with the calculation. Relevant when input data is not 
         already a DataFrame.
+    view : bool, default=False
+        If True, visualizes the statistical analysis results or the data 
+        distribution.
+    cmap : str, default='viridis'
+        Colormap for the visualization. Only applicable if `view` is True.
+    as_frame : bool, default=False
+        If True, the result is returned as a pandas DataFrame or Series, depending
+        on the dimensionality of the output. Otherwise, the result is returned in
+        its native format (e.g., float, np.ndarray).
+    fig_size : Optional[Tuple[int, int]], default=None
+        Size of the figure for the visualization. Only applicable if `view` 
+        is True.
     **kws : dict
         Additional keyword arguments for data preprocessing, not directly 
         used in range calculation but may be used for data sanitization.
@@ -992,7 +973,7 @@ def _visualize_range(data, range_values, columns=None,
     Visualizes the data distribution and highlights the range values.
     """
     plt.figure(figsize=fig_size if fig_size else (10, 6))
-    _, data, cols = prepare_plot_data(range_values, data, axis=axis )
+    _, data, cols = _prepare_plot_data(range_values, data, axis=axis )
     if isinstance(data, pd.DataFrame):
         colors, alphas = get_colors_and_alphas( cols, cmap)
         for ii, col in enumerate(cols):
@@ -1142,7 +1123,7 @@ def _visualize_quartiles(
     Visualizes quartiles using the specified plot type.
     """
     plt.figure(figsize=fig_size if fig_size else (10, 6))
-    quartiles_result, data, cols = prepare_plot_data(
+    quartiles_result, data, cols = _prepare_plot_data(
         quartiles_result, data , axis=axis )
 
     colors, alphas = get_colors_and_alphas(
@@ -1327,7 +1308,7 @@ def _visualize_quantiles(
     plt.figure(figsize=fig_size if fig_size else (4, 4))
     
     q_list = np.atleast_1d(q)
-    _, data, cols = prepare_plot_data(
+    _, data, cols = _prepare_plot_data(
         quantiles_result, data , axis=axis )
 
     colors, alphas = get_colors_and_alphas(
@@ -1723,7 +1704,7 @@ def iqr(
  
     # Visualization
     if view:
-        _, data, cols = prepare_plot_data(
+        _, data, cols = _prepare_plot_data(
             iqr_values, data, axis=axis )
         plt.figure(figsize=fig_size)
         if isinstance(data, pd.DataFrame):
@@ -2257,7 +2238,7 @@ def kurtosis(
             raise_exception =True)
         colors, alphas = get_colors_and_alphas(
             len(kurtosis_value), cmap)
-        kvalue, data, cols = prepare_plot_data(kurtosis_value, data, axis = axis )
+        kvalue, data, cols = _prepare_plot_data(kurtosis_value, data, axis = axis )
         if plot_type == 'density':
             for ii, col in enumerate (cols) :
                 sns.kdeplot(data[col], label=f'{col} kurtosis={kvalue[ii]:.2f}',
@@ -3975,8 +3956,8 @@ def cronbach_alpha(
     fig_size: Optional[Tuple[int, int]] = None
 ) -> Union[float, pd.Series]:
     """
-    Calculate Cronbach's Alpha for assessing the internal consistency or reliability 
-    of a set of test or survey items.
+    Calculate Cronbach's Alpha for assessing the internal consistency or 
+    reliability of a set of test or survey items.
 
     Cronbach's Alpha is defined as:
 
@@ -4174,7 +4155,7 @@ def friedman_test(
         _visualize_friedman_test_samples(samples, columns, fig_size)
 
     return to_series_if(
-        statistic, p_value, ["F-statistic", "P-value"],name="friedman_test"
+        statistic, p_value, value_names=["F-statistic", "P-value"],name="friedman_test"
         )if as_frame else ( statistic, p_value )
 
 def _visualize_friedman_test_samples(samples, columns, fig_size):
@@ -4188,6 +4169,593 @@ def _visualize_friedman_test_samples(samples, columns, fig_size):
     plt.grid(True, axis='y', linestyle='--', alpha=0.7)
     plt.show()
 
+
+@ensure_pkg("statsmodels")
+def mcnemar_test(
+    *samples: [Array1D, DataFrame, str], 
+    data: Optional [DataFrame]=None, 
+    as_frame:bool=False, 
+    exact:bool=True, 
+    correction:bool=True, 
+    view:bool=False, 
+    cmap: str='viridis', 
+    fig_size: Tuple [int, int]=(10, 6)
+    ):
+    """
+    Perform McNemar's test to compare two related samples on categorical data,
+    with an option to visualize the contingency table.
+
+    McNemar's test is a non-parametric method used to determine whether there 
+    are differences between two related samples. It is suitable for binary
+    categorical data to compare the proportion of discrepant observations.
+
+    Parameters
+    ----------
+    *samples : str or array-like
+        Names of columns in `data` DataFrame or two arrays containing the samples.
+        When `data` is provided, `samples` must be the names of the columns to compare.
+    data : DataFrame, optional
+        DataFrame containing the samples if column names are specified in `samples`.
+    as_frame : bool, default=False
+        If True, returns the result as a pandas Series.
+    exact : bool, default=True
+        If True, uses the exact binomial distribution for the test. Otherwise, 
+        an asymptotic chi-squared approximation is used.
+    correction : bool, default=True
+        If True, applies continuity correction in the chi-squared approximation
+        of the test statistic.
+    view : bool, default=False
+        If True, visualizes the contingency table as a heatmap.
+    cmap : str, default='viridis'
+        Colormap for the heatmap visualization.
+    fig_size : tuple, default=(10, 6)
+        Size of the figure for the heatmap.
+
+    Returns
+    -------
+    statistic, p_value : float or pd.Series
+        The test statistic and p-value of McNemar's test. Returns as a tuple
+        or pandas Series based on the value of `as_frame`.
+    
+    Raises
+    ------
+    TypeError
+        If `data` is not a DataFrame when column names are specified in `samples`.
+    ValueError
+        If the number of samples provided is not equal to two.
+
+    Notes
+    -----
+    McNemar's test evaluates the null hypothesis that the row and column marginal
+    frequencies are equal. It is commonly used in before-after studies, matched
+    pair studies, or repeated measures design where the subjects are the same.
+
+    The test statistic is calculated as follows:
+
+    .. math:: 
+        Q = \\frac{(b - c)^2}{b + c}
+
+    where :math:`b` and :math:`c` are the off-diagonal elements of the 2x2 
+    contingency table formed by the two samples.
+
+    Examples
+    --------
+    Performing McNemar's test with array inputs:
+
+    >>> from gofast.stats.utils import mcnemar_test
+    >>> sample1 = [0, 1, 0, 1]
+    >>> sample2 = [1, 0, 1, 1]
+    >>> statistic, p_value = mcnemar_test(sample1, sample2)
+    >>> print(statistic, p_value)
+
+    Performing McNemar's test with DataFrame column names:
+
+    >>> df = pd.DataFrame({'before': sample1, 'after': sample2})
+    >>> result = mcnemar_test('before', 'after', data=df, view=True, as_frame=True)
+    >>> print(result)
+    """
+    from statsmodels.stats.contingency_tables import mcnemar
+    
+    # Process input samples
+    if isinstance(data, pd.DataFrame) and all(isinstance(s, str) for s in samples):
+        samples = [data[col] for col in samples]
+    elif not isinstance(data, pd.DataFrame) and len(samples) == 2:
+        samples = list(samples)
+    else:
+        try: 
+            samples = process_and_extract_data(*samples, allow_split= True ) 
+        except: 
+            print(samples)
+            raise TypeError("Invalid input: `data` must be a DataFrame and `samples`"
+                            " must be column names, or `samples` must be two sequences.")
+
+    # Ensure there are exactly two samples
+    if len(samples) != 2:
+        raise ValueError("McNemar's test requires exactly two related samples.")
+
+    # Create the contingency table and perform McNemar's test
+    contingency_table = pd.crosstab(samples[0], samples[1])
+    result = mcnemar(contingency_table, exact=exact, correction=correction)
+
+    # Visualization
+    if view:
+        _visualize_contingency_table(contingency_table, cmap=cmap, fig_size=fig_size)
+
+    # Return results
+    if as_frame:
+        return pd.Series({"M-statistic": result.statistic, "P-value": result.pvalue},
+                         name='McNemar_test')
+    
+    return result.statistic, result.pvalue
+
+def _visualize_contingency_table(
+        contingency_table, cmap='viridis', fig_size=(10, 6)):
+    """
+    Visualizes the contingency table of McNemar's test as a heatmap.
+    """
+    plt.figure(figsize=fig_size)
+    sns.heatmap(contingency_table, annot=True, cmap=cmap, fmt='d')
+    plt.title("McNemar's Test Contingency Table")
+    plt.ylabel('Sample 1')
+    plt.xlabel('Sample 2')
+    plt.show()
+
+def kruskal_wallis_test(
+    *samples: Array1D|DataFrame|str, 
+    data: Optional [DataFrame]=None, 
+    as_frame:bool=False, 
+    view:bool=False, 
+    cmap: str='viridis', 
+    fig_size: Tuple [int, int]=(10, 6),
+    **kruskal_kws
+    ):
+    """
+    Perform the Kruskal-Wallis H test for comparing more than two independent samples
+    to determine if there are statistically significant differences between their 
+    population medians. Optionally, visualize the distribution of each sample.
+
+    The Kruskal-Wallis H test is a non-parametric version of ANOVA. It's used when the 
+    assumptions of ANOVA are not met, especially the assumption of normally distributed 
+    data. It ranks all data points together and then compares the sums of ranks between 
+    groups.
+
+    Parameters
+    ----------
+    *samples : sequence of array-like or str
+        Input data for the test. When `data` is a DataFrame, `samples` can be
+        column names.
+    data : DataFrame, optional
+        DataFrame containing the data if column names are specified in `samples`.
+    as_frame : bool, default=False
+        If True, returns the result as a pandas Series.
+    view : bool, default=False
+        If True, generates boxplots of the sample distributions. Default is False.
+    cmap : str, default='viridis'
+        Colormap for the boxplot visualization.
+    fig_size : tuple, default=(10, 6)
+        Size of the figure for the boxplot visualization.
+    kruskal_kws: dict, 
+        Keywords arguments passed to :func:`scipy.stats.kruskal`.
+        
+    Returns
+    -------
+    statistic, p_value : float or pd.Series
+        The Kruskal-Wallis H statistic and the associated p-value. Returns as a tuple
+        or pandas Series based on the value of `as_frame`.
+    
+    Raises
+    ------
+    TypeError
+        If `data` is not a DataFrame when column names are specified in `samples`.
+    ValueError
+        If less than two samples are provided.
+
+    Notes
+    -----
+    The Kruskal-Wallis test evaluates the null hypothesis that the population medians 
+    of all groups are equal. It is recommended for use with ordinal data or when the 
+    assumptions of one-way ANOVA are not met.
+
+    The test statistic is calculated as follows:
+
+    .. math:: 
+        H = \\frac{12}{N(N+1)} \\sum_{i=1}^{g} \\frac{R_i^2}{n_i} - 3(N+1)
+
+    where :math:`N` is the total number of observations across all groups, :math:`g` 
+    is the number of groups, :math:`n_i` is the number of observations in the i-th 
+    group, and :math:`R_i` is the sum of ranks in the i-th group.
+
+    Examples
+    --------
+    Performing a Kruskal-Wallis H Test with array inputs:
+    
+    >>> import numpy as np 
+    >>> from gofast.stats.utils import kruskal_wallis_test
+    >>> sample1 = np.random.normal(loc=10, scale=2, size=30)
+    >>> sample2 = np.random.normal(loc=12, scale=2, size=30)
+    >>> sample3 = np.random.normal(loc=11, scale=2, size=30)
+    >>> statistic, p_value = kruskal_wallis_test(sample1, sample2, sample3)
+    >>> print(statistic, p_value)
+
+    Performing a Kruskal-Wallis H Test with DataFrame column names:
+
+    >>> df = pd.DataFrame({'group1': sample1, 'group2': sample2, 'group3': sample3})
+    >>> result = kruskal_wallis_test('group1', 'group2', 'group3', data=df, view=True, as_frame=True)
+    >>> print(result)
+    """
+    # Process input samples
+    if isinstance(data, pd.DataFrame) and all(isinstance(s, str) for s in samples):
+        samples = [data[col] for col in samples]
+    elif not isinstance(data, pd.DataFrame) and len(samples) >= 2:
+        samples = list(samples)
+    else:
+        try: 
+            samples = process_and_extract_data(*samples, allow_split= True ) 
+        except: 
+            raise TypeError("Invalid input: `data` must be a DataFrame and `samples`"
+                        " must be column names, or `samples` must be two or more sequences.")
+
+    # Ensure there are at least two samples
+    if len(samples) < 2:
+        raise ValueError("Kruskal-Wallis H test requires at least two independent samples.")
+
+    # Perform the Kruskal-Wallis H test
+    statistic, p_value = stats.kruskal(*samples, **kruskal_kws)
+
+    # Visualization
+    if view:
+        _visualize_sample_distributions(samples, cmap=cmap, fig_size=fig_size)
+
+    # Return results
+    if as_frame:
+        return pd.Series({"H-statistic": statistic, "P-value": p_value},
+                         name='Kruskal_Wallis_test')
+    return statistic, p_value
+
+def _visualize_sample_distributions(samples, cmap='viridis', fig_size=(10, 6)):
+    """
+    Visualizes the distribution of each sample using boxplots.
+
+    Parameters
+    ----------
+    samples : list of array-like
+        The samples to visualize.
+    cmap : str, default='viridis'
+        Colormap for the boxplot visualization.
+    fig_size : tuple, default=(10, 6)
+        Size of the figure for the boxplot visualization.
+    """
+    plt.figure(figsize=fig_size)
+    plt.boxplot(samples, patch_artist=True)
+    plt.xticks(range(1, len(samples) + 1), ['Sample ' + str(i) for i in range(
+        1, len(samples) + 1)])
+    plt.title('Sample Distributions - Kruskal-Wallis H Test')
+    plt.ylabel('Values')
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.show()
+
+def wilcoxon_signed_rank_test(
+     *samples: Array1D|DataFrame|str, 
+     data: Optional [DataFrame]=None, 
+     alternative:str='two-sided', 
+     zero_method:str='auto', 
+     as_frame:bool=False, 
+     view:bool=False, 
+     cmap:str='viridis', 
+     fig_size:Tuple[int, int]=(10, 6), 
+     **wilcoxon_kws
+    ):
+    """
+    Perform the Wilcoxon Signed-Rank Test on two related samples and optionally
+    visualize the distribution of differences between pairs.
+
+    The Wilcoxon Signed-Rank Test is a non-parametric test used to compare two
+    related samples, matched samples, or repeated measurements on a single
+    sample to assess whether their population mean ranks differ. It is a paired
+    difference test that can be used as an alternative to the paired Student's
+    t-test when the data cannot be assumed to be normally distributed.
+
+    Parameters
+    ----------
+    *samples : array-like or str
+        The two sets of related samples as arrays, column names if `data` is 
+        provided, or a single DataFrame.
+    data : DataFrame, optional
+        DataFrame containing the data if `samples` are specified as column names.
+    alternative : {'two-sided', 'greater', 'less'}, optional
+        Specifies the alternative hypothesis to test against the null hypothesis
+        that there is no difference between the paired samples. The options are:
+
+        - ``two-sided``: Tests for any difference between the pairs without 
+          assuming a direction (i.e., it tests for the possibility of the 
+                                differences being either positive or negative).
+          This is the most common choice for hypothesis testing as it does 
+          not require a prior assumption about the direction of the effect.
+
+        - ``greater``: Tests for the possibility that the differences between 
+          the pairs are consistently greater than zero. This option is selected
+          when there is a theoretical basis or prior evidence to suggest that 
+          the first sample is expected to be larger than the second.
+
+        - ``less``: Tests for the possibility that the differences between the 
+          pairs are consistently less than zero. This option is appropriate 
+          when the first sample is theorized or known to be smaller than the 
+          second based on prior knowledge or evidence.
+
+        The choice of the alternative hypothesis affects the interpretation 
+        of the test results and should be made based on the specific research 
+        question and the directionality of the expected effect. The default is 
+        ``two-sided``, which does not assume any direction of the effect and 
+        allows for testing differences in both directions.
+
+    zero_method : {'pratt', 'wilcox', 'zsplit', 'auto'}, optional
+        Defines how to handle zero differences between paired samples, which 
+        can occur when the measurements for both samples are identical. 
+        The options are:
+
+        - ``pratt``: Includes zero differences in the ranking process, adjusting
+           ranks accordingly.
+        - ``wilcox``: Discards all zero differences before the test without 
+           considering them for ranking.
+        - ``zsplit``: Splits zero differences evenly between positive and 
+           negative ranks.
+        - ``auto``: Automatically selects between 'zsplit' and 'pratt' based on 
+          the presence of zero differences in the data. If zero differences 
+          are detected, ``zsplit`` is used to ensure that the test accounts 
+          for these observations without excluding them. If no zero differences
+          are present, ``pratt`` is used to include all non-zero differences 
+          in the ranking process. This option aims to balance sensitivity and 
+          specificity by adapting to the data characteristics.
+
+        The choice of method can affect the test's sensitivity to differences
+        and is particularly relevant in small samples or when a significant 
+        proportion of the data pairs are identical.
+        The default method is ``auto``, which provides a data-driven approach 
+        to handling zero differences.
+    
+    as_frame : bool, default=False
+        If True, returns the result as a pandas Series.
+    view : bool, default=False
+        If True, generates a distribution plot of the differences with a zero line
+        indicating no difference. Default is False.
+    cmap : str, default='viridis'
+        Colormap for the distribution plot.
+    fig_size : tuple, default=(10, 6)
+        Size of the figure for the distribution plot.
+    **wilcoxon_kws : keyword arguments
+        Additional keyword arguments passed to :func:`scipy.stats.wilcoxon`.
+
+    Returns
+    -------
+    statistic, p_value : float or pd.Series
+        The Wilcoxon Signed-Rank test statistic and the associated p-value. Returns as
+        a tuple or pandas Series based on the value of `as_frame`.
+    
+    Notes
+    -----
+    The test statistic is the sum of the ranks of the differences between the paired
+    samples, where the ranks are taken with respect to the absolute values of the
+    differences.
+
+    .. math:: 
+        W = \\sum_{i=1}^{n} \\text{sgn}(x_{2i} - x_{1i})R_i
+
+    where :math:`x_{1i}` and :math:`x_{2i}` are the observations in the first and
+    second sample respectively, :math:`\\text{sgn}` is the sign function, and
+    :math:`R_i` is the rank of the absolute difference :math:`|x_{2i} - x_{1i}|`.
+
+    Examples
+    --------
+    Performing a Wilcoxon Signed-Rank Test:
+
+    >>> from gofast.stats.utils import wilcoxon_signed_rank_test
+    >>> data1 = np.random.normal(loc=10, scale=2, size=30)
+    >>> data2 = data1 + np.random.normal(loc=0, scale=1, size=30)
+    >>> statistic, p_value = wilcoxon_signed_rank_test(data1, data2)
+    >>> print(statistic, p_value)
+
+    Visualizing the distribution of differences:
+
+    >>> wilcoxon_signed_rank_test(data1, data2, view=True, as_frame=True)
+    """
+    # Extract samples from DataFrame if specified
+    if isinstance(data, pd.DataFrame) and all(isinstance(s, str) for s in samples):
+        if len(samples) != 2:
+            raise ValueError("Two column names must be provided with `data`.")
+        data1, data2 = data[samples[0]].values, data[samples[1]].values
+    elif len(samples) == 2 and all(isinstance(s, np.ndarray) for s in samples):
+        data1, data2 = samples
+    else:
+        try: 
+            data1, data2 = process_and_extract_data(*samples, allow_split= True ) 
+        except: 
+            raise ValueError(
+                "Samples must be two arrays or two column names with `data`.")
+
+    # Check for zero differences and adjust zero_method if 'auto'
+    differences = data2 - data1
+    if zero_method == 'auto':
+        if np.any(differences == 0):
+            zero_method = 'zsplit'
+            print("Zero differences detected. Using 'zsplit' method for zero_method.")
+        else:
+            zero_method = 'pratt'
+
+    # Perform the Wilcoxon Signed-Rank Test
+    try:
+        statistic, p_value = stats.wilcoxon(
+            data1, data2, zero_method=zero_method, alternative=alternative, 
+            **wilcoxon_kws)
+    except ValueError as e:
+        raise ValueError(f"An error occurred during the Wilcoxon test: {e}")
+
+    # Visualization
+    if view:
+        _visualize_differences(data1, data2, cmap, fig_size)
+
+    # Return results
+    if as_frame:
+        return pd.Series({"W-statistic": statistic, "P-value": p_value},
+                         name='Wilcoxon_Signed_Rank_test')
+    return statistic, p_value
+
+def _visualize_differences(data1, data2, cmap='viridis', fig_size=(10, 6)):
+    """
+    Visualizes the distribution of differences between paired samples using a
+    distribution plot with a line indicating no difference (zero).
+
+    Parameters
+    ----------
+    data1, data2 : array-like
+        The two sets of related samples.
+    cmap : str, default='viridis'
+        Colormap for the distribution plot.
+    fig_size : tuple, default=(10, 6)
+        Size of the figure for the distribution plot.
+    """
+    differences = data2 - data1
+    plt.figure(figsize=fig_size)
+    sns.histplot(differences, kde=True, color=cmap)
+    plt.axvline(x=0, color='red', linestyle='--')
+    plt.title('Distribution of Differences - Wilcoxon Signed-Rank Test')
+    plt.xlabel('Difference')
+    plt.ylabel('Frequency')
+    plt.show()
+
+def paired_t_test(
+    *samples: Array1D|DataFrame|str, 
+    data: Optional [DataFrame]=None, 
+    as_frame: bool=False, 
+    alternative:str='two-sided', 
+    view:bool=False, 
+    cmap:str='viridis', 
+    fig_size:Tuple[int, int]=(10, 6), 
+    **paired_test_kws
+    ):
+    """
+    Perform the Paired t-Test on two related samples and optionally visualize
+    the distribution of differences between pairs.
+
+    The Paired t-Test is a parametric test used to compare two related samples,
+    matched samples, or repeated measurements on a single sample to assess
+    whether their population mean ranks differ. It assumes that the differences
+    between the pairs are normally distributed.
+
+    Parameters
+    ----------
+    *samples : array-like or str
+        The two sets of related samples as arrays, column names if `data` is 
+        provided, or a single DataFrame.
+    data : DataFrame, optional
+        DataFrame containing the data if `samples` are specified as column names.
+    as_frame : bool, default=False
+        If True, returns the result as a pandas Series.
+    alternative : {'two-sided', 'greater', 'less'}, optional
+        Defines the alternative hypothesis. The default is 'two-sided'.
+    view : bool, default=False
+        If True, generates a distribution plot of the differences with a zero line
+        indicating no difference. Default is False.
+    cmap : str, default='viridis'
+        Colormap for the distribution plot.
+    fig_size : tuple, default=(10, 6)
+        Size of the figure for the distribution plot.
+    **paired_test_kws : keyword arguments
+        Additional keyword arguments passed to :func:`scipy.stats.ttest_rel`.
+    Returns
+    -------
+    statistic, p_value : float or pd.Series
+        The Paired t-Test statistic and the associated p-value. Returns as
+        a tuple or pandas Series based on the value of `as_frame`.
+
+    Notes
+    -----
+    The Paired t-Test is based on the differences between the pairs of 
+    observations.The test statistic is computed as follows:
+
+    .. math::
+        t = \\frac{\\bar{d}}{s_{d}/\\sqrt{n}}
+
+    where :math:`\\bar{d}` is the mean of the differences between all pairs, 
+    :math:`s_{d}` is the standard deviation of these differences, and 
+    :math:`n` is the number of pairs. This formula assumes that the differences 
+    between pairs are normally distributed.
+
+    The null hypothesis for the test is that the mean difference between the paired 
+    samples is zero. Depending on the alternative hypothesis specified, the test can 
+    be two-tailed (default), left-tailed, or right-tailed.
+
+    Examples
+    --------
+    Performing a Paired t-Test:
+
+    >>> from gofast.stats.utils import paired_t_test
+    >>> data1 = np.random.normal(loc=10, scale=2, size=30)
+    >>> data2 = data1 + np.random.normal(loc=0, scale=1, size=30)
+    >>> statistic, p_value = paired_t_test(data1, data2)
+    >>> print(statistic, p_value)
+
+    Visualizing the distribution of differences:
+
+    >>> paired_t_test(data1, data2, view=True, as_frame=True)
+    """
+    # Extract samples from DataFrame if necessary
+    if data is not None:
+        if len(samples) == 2 and all(isinstance(s, str) for s in samples):
+            data1, data2 = data[samples[0]], data[samples[1]]
+        else:
+            raise ValueError("If `data` is provided, `samples`"
+                             " must be two column names.")
+    elif len(samples) == 2 and all(isinstance(s, np.ndarray) for s in samples):
+        data1, data2 = samples
+    else:
+        try: 
+            data1, data2  = process_and_extract_data(*samples, allow_split= True ) 
+        except: 
+            raise ValueError("`samples` must be two arrays or "
+                             "two column names with `data`.")
+    
+    # Perform the Paired t-Test
+    statistic, p_value = stats.ttest_rel(
+        data1, data2, alternative=alternative, **paired_test_kws)
+
+    # Visualization
+    if view:
+        _visualize_paired_ttest_differences(data1, data2, cmap=cmap, fig_size=fig_size)
+
+    # Return results
+    if as_frame:
+        return pd.Series({"T-statistic": statistic, "P-value": p_value},
+                         name='Paired_T_Test')
+    return statistic, p_value
+
+def _visualize_paired_ttest_differences(
+        data1, data2, cmap='viridis', fig_size=(10, 6)):
+    """
+    Visualizes the distribution of differences between paired samples using a
+    distribution plot with a line indicating no difference (zero).
+
+    Parameters
+    ----------
+    data1, data2 : array-like
+        The two sets of related samples.
+    cmap : str, default='viridis'
+        Colormap for the distribution plot. This will select a color from the colormap.
+    fig_size : tuple, default=(10, 6)
+        Size of the figure for the distribution plot.
+    """
+    differences = data2 - data1
+    plt.figure(figsize=fig_size)
+    
+    # Select a color from the colormap
+    color = plt.get_cmap(cmap)(0.5)  # 0.5 denotes the midpoint of the colormap
+    
+    sns.histplot(differences, kde=True, color=color)
+    plt.axvline(x=0, color='red', linestyle='--')
+    plt.title('Distribution of Differences - Paired t-Test')
+    plt.xlabel('Difference')
+    plt.ylabel('Frequency')
+    plt.show()
+
 @ensure_pkg(
     "statsmodels", 
     extra="'rm_anova' and 'mcnemar' tests expect statsmodels' to be installed.",
@@ -4197,153 +4765,305 @@ def _visualize_friedman_test_samples(samples, columns, fig_size):
 def statistical_tests(
     *args, 
     test_type="mcnemar", 
-    view: bool = False, 
-    cmap: str = 'viridis', 
-    fig_size: Optional[Tuple[int, int]] = None, 
+    data: Optional[DataFrame]=None, 
     error_type: str = 'ci', 
     confidence_interval: float = 0.95, 
-    error_bars: bool = True, annot: bool = True, 
+    error_bars: bool = True, 
+    annot: bool = True, 
+    depvar:str=None, 
+    subject:str=None, 
+    within: List[str] =None, 
     showmeans: bool = True, 
     split: bool = True, 
     trend_line: bool = True, 
     density_overlay: bool = False,
+    as_frame: bool=False, 
+    view: bool = False, 
+    cmap: str = 'viridis', 
+    fig_size: Optional[Tuple[int, int]] = None, 
     **kwargs
-    ):
+   ):
     """
-    Perform various statistical tests including Repeated Measures ANOVA, 
-    Cochran’s Q Test, McNemar’s Test, Kruskal-Wallis H Test, 
-    Wilcoxon Signed-Rank Test, and t-Test (Paired or Independent).
+    Perform a variety of statistical tests to analyze data and assess hypotheses.
+    
+    Function supports both parametric and non-parametric tests, catering
+    to datasets with different characteristics and research designs.
 
     Parameters
     ----------
-    data : DataFrame or array_like
-        The data to be used in the test. Format and structure depend on the test.
-    test_type : str
-        Type of the test to perform. Options include 'rm_anova', 'cochran_q', 
-        'mcnemar', 'kruskal_wallis', 'wilcoxon', 'ttest_paired', 'ttest_indep'.
+    *args : sequence of array-like or DataFrame
+        Input data for performing the statistical test. Each array-like object
+        represents a group or condition in the analysis. When `data` is a 
+        DataFrame,`args` should be the names of columns in the DataFrame that 
+        represent the groups or conditions to be analyzed. This flexible input
+        format allows for easy integration of the function within data analysis
+        workflows.
+    
+    test_type : str, optional
+        The specific statistical test to be performed. This parameter determines
+        the statistical methodology and assumptions underlying the analysis. 
+        Supported tests and their applications are as follows:
+            
+        - ``rm_anova``: Repeated Measures ANOVA, for comparing means across more 
+          than two related groups over time or in different conditions.
+        - ``cochran_q``: Cochran’s Q Test, for comparing binary outcomes across 
+          more than two related groups.
+        - ``mcnemar``: McNemar’s Test, for comparing binary outcomes in paired 
+          samples.
+        - ``kruskal_wallis``: Kruskal-Wallis H Test, a non-parametric test for 
+          comparing more than two independent groups.
+        - ``wilcoxon``: Wilcoxon Signed-Rank Test, a non-parametric test for 
+          comparing paired samples.
+        - ``ttest_paired``: Paired t-Test, for comparing means of paired samples.
+        - ``ttest_indep``: Independent t-Test, for comparing means of two 
+          independent groups.
+          
+        The default test is ``mcnemar``, which is suitable for categorical data
+        analysis.
+    
+    data : DataFrame, optional
+        A pandas DataFrame containing the dataset if column names are specified 
+        in `args`. This parameter allows the function to directly interface with
+        DataFrame structures, facilitating the extraction and manipulation of 
+        specific columns for analysis. If `data` is provided, `args` should 
+        correspond to column names within this DataFrame.
+        It must not be None when `test_type` is set to ``rm_anova``.
         
-    *args : variable length argument list
-        Arguments specific to the statistical test being performed.
-    test_type : str, default "mcnemar"
-        Type of the statistical test to perform. Options include 'rm_anova', 'cochran_q',
-        'mcnemar', 'kruskal_wallis', 'wilcoxon', 'ttest_paired', 'ttest_indep'.
-    view : bool, default False
-        If True, visualizes the test results or data distributions.
-    cmap : str, default 'viridis'
-        Colormap for the visualization.
-    fig_size : Optional[Tuple[int, int]], default None
-        Size of the figure for the visualization.
+    depvar : str
+        The name of the dependent variable within the dataset. This variable 
+        is what you are trying to predict or explain, and is the main focus 
+        of the ANOVA test. It should be numeric and typically represents the 
+        outcome or measure that varies across different conditions or groups.
+        It must not be None when `test_type` is set to ``rm_anova``.
+        
+    subject : str
+        The name of the variable in the dataset that identifies the subject or
+        participant. This variable is used to indicate which observations 
+        belong to the same subject, as repeated measures ANOVA assumes multiple
+        measurements are taken from the same subjects. Identifying subjects 
+        allows the model to account for intra-subject variability, treating it 
+        as a random effect.
+        It must not be None when `test_type` is set to ``rm_anova``.
+        
+    within : list of str
+        A list of strings where each string is the name of a within-subject 
+        factor in the dataset. Within-subject factors are conditions or groups 
+        that all subjects are exposed to, allowing the analysis to examine the
+        effects of these factors on the dependent variable. Each factor 
+        must have two or more levels (e.g., pre-test and post-test), and the 
+        analysis will assess how the dependent variable changes in relation to 
+        these levels, taking into account the  repeated measures nature of the data.
+        
+    as_frame: bool, optional 
+        Returns a pandas Series or DataFrame based on number of items that 
+        may compose the colums. 
+       
+    view : bool, optional
+        Controls the generation of visualizations for the data distributions 
+        or test results. If set to ``True``, the function will produce plots 
+        that offer graphical representations of the analysis, enhancing 
+        interpretability and insight into the data. Default is ``False``.
+    
+    cmap : str, optional
+        Specifies the colormap to be used in the visualizations. This parameter 
+        allows for customization of the plot aesthetics, providing flexibility 
+        in matching visualizations to the overall theme or style of the analysis.
+        Default colormap is ``viridis``.
+    
+    fig_size : tuple, optional
+        Determines the size of the figure for the generated visualizations. 
+        This tuple should contain two values representing the width and height 
+        of the figure. Specifying `fig_size` allows for control over the 
+        appearance of the plots, ensuring that they are appropriately sized for
+        the context in which they are presented. Default is None, which will use
+        matplotlib's default figure size.
+    
     **kwargs : dict
-        Additional keyword arguments specific to the statistical test 
-        being performed.
-        
-    *args : additional arguments
-        Additional arguments required by the specific test.
-    **kwargs : additional keyword arguments
-        Additional keyword arguments required by the specific test.
+        Additional keyword arguments that are specific to the chosen statistical
+        test. These arguments allow for fine-tuning of the test parameters 
+        and control over aspects of the analysis that are unique to each 
+        statistical method. The availability and effect of these
+        parameters vary depending on the `test_type` selected.
 
     Returns
     -------
     result : Result object
-        The result of the statistical test. Includes test statistic and p-value.
-
+        The result of the statistical test, including the test statistic and the
+        p-value. The exact structure of this result object may vary depending on the
+        specific test performed, but it generally provides key information needed
+        for interpretation of the test outcomes.
+    
     Test Details
     ------------
     - Repeated Measures ANOVA ('rm_anova'):
-        Used for comparing the means of three or more groups on the same subjects.
-        Commonly used in experiments where subjects undergo multiple treatments.
+        Used for comparing the means of three or more groups on the same subjects,
+        commonly in experiments where subjects undergo multiple treatments. The 
+        test statistic is calculated based on the within-subject variability and
+        between-group differences [1]_.
         
+        .. math::
+            F = \\frac{MS_{between}}{MS_{within}}
+    
     - Cochran’s Q Test ('cochran_q'):
-        A non-parametric test for comparing three or more matched groups. It is the 
-        extension of the McNemar test and is used for binary (two-outcome) data.
-
-    - McNemar’s Test ('mcnemar'):
-        Used for binary classification to compare the proportion of misclassified 
-        instances between two models on the same dataset.
-
-    - Kruskal-Wallis H Test ('kruskal_wallis'):
-        A non-parametric version of ANOVA, used for comparing two or more independent 
-        groups. Suitable when the data does not meet ANOVA assumptions.
-
-    - Wilcoxon Signed-Rank Test ('wilcoxon'):
-        A non-parametric test to compare two related samples. It's used when the 
-        population cannot be assumed to be normally distributed.
-
-    - Paired t-Test ('ttest_paired'):
-        Compares the means of two related groups. It's used when the same subjects 
-        are used in both groups (e.g., before-after studies).
-
-    - Independent t-Test ('ttest_indep'):
-        Compares the means of two independent groups. Used when different subjects 
-        are used in each group or condition.
+        A non-parametric test for comparing three or more matched groups on binary
+        outcomes. It extends McNemar's test for situations with more than two 
+        related groups.
         
+        .. math::
+            Q = \\frac{12}{nk(k-1)} \\sum_{j=1}^{k} (T_j - \\bar{T})^2
+    
+    - McNemar’s Test ('mcnemar'):
+        Used for binary classification to compare the proportion of misclassified
+        instances between two models on the same dataset [2]_.
+        
+        .. math::
+            b + c - |b - c| \\over 2
+    
+    - Kruskal-Wallis H Test ('kruskal_wallis'):
+        A non-parametric version of ANOVA for comparing two or more independent
+        groups. Suitable for data that do not meet the assumptions of normality
+        required for ANOVA [3].
+        
+        .. math::
+            H = \\frac{12}{N(N+1)} \\sum_{i=1}^{k} \\frac{R_i^2}{n_i} - 3(N+1)
+    
+    - Wilcoxon Signed-Rank Test ('wilcoxon'):
+        A non-parametric test to compare two related samples, used when the
+        population cannot be assumed to be normally distributed [4]_.
+        
+        .. math::
+            W = \\sum_{i=1}^{n} rank(|x_i - y_i|) \\cdot sign(x_i - y_i)
+    
+    - Paired t-Test ('ttest_paired'):
+        Compares the means of two related groups, such as in before-and-after
+        studies, using the same subjects in both groups.
+        
+        .. math::
+            t = \\frac{\\bar{d}}{s_d / \\sqrt{n}}
+    
+    - Independent t-Test ('ttest_indep'):
+        Compares the means of two independent groups, used when different subjects
+        are in each group or condition.
+        
+        .. math::
+            t = \\frac{\\bar{X}_1 - \\bar{X}_2}{\\sqrt{\\frac{s_1^2}{n_1} + \\frac{s_2^2}{n_2}}}
+    
+    Notes:
+    - The formulas provided are simplified representations of the test statistics
+      used in each respective test. They serve as a conceptual guide to understanding
+      the mathematical foundations of the tests.
+    - The specific assumptions and conditions under which each test is appropriate
+      should be carefully considered when interpreting the results.
+
     Examples
     --------
-    >>> import numpy as np 
-    >>> import pandas as pd 
-    >>> from gofasts.stats import statistical_tests
+    Using the function for a paired t-test:
     
-    For Repeated Measures ANOVA:
-    >>> data = pd.DataFrame({'subject': [1, 2, 3, 4, 5],
-                             'condition1': [20, 19, 22, 21, 18],
-                             'condition2': [22, 20, 24, 23, 19]})
-    >>> result = statistical_tests(data, 'rm_anova', subject='subject', 
-                                   within=['condition1', 'condition2'])
+    >>> from gofast.stats.utils import statistical_tests
+    >>> data1 = np.random.normal(loc=10, scale=2, size=30)
+    >>> data2 = np.random.normal(loc=12, scale=2, size=30)
+    >>> result = statistical_tests(data1, data2, test_type='ttest_paired')
+    >>> print(result)
     
-    For Cochran’s Q Test:
-    >>> data = np.array([[1, 1, 0], [1, 1, 1], [0, 1, 1]])
-    >>> result = statistical_tests(data, 'cochran_q')
-
-    For McNemar’s Test:
-    >>> data = np.array([[10, 2], [3, 5]])
-    >>> result = statistical_tests(data, 'mcnemar')
-
-    For Kruskal-Wallis H Test:
-    >>> group1 = [20, 21, 19, 20, 21]
-    >>> group2 = [19, 20, 18, 21, 20]
-    >>> group3 = [21, 22, 20, 22, 21]
-    >>> result = statistical_tests([group1, group2, group3], 'kruskal_wallis')
-
-    For Wilcoxon Signed-Rank Test:
-    >>> data1 = [20, 21, 19, 20, 21]
-    >>> data2 = [19, 20, 18, 21, 20]
-    >>> result = statistical_tests((data1, data2), 'wilcoxon')
-
-    For Paired t-Test:
-    >>> data1 = [20, 21, 19, 20, 21]
-    >>> data2 = [19, 20, 18, 21, 20]
-    >>> result = statistical_tests((data1, data2), 'ttest_paired')
-
-    For Independent t-Test:
-    >>> data1 = [20, 21, 19, 20, 21]
-    >>> data2 = [22, 23, 21, 22, 24]
-    >>> result = statistical_tests((data1, data2), 'ttest_indep')
+    Performing a Kruskal-Wallis H Test with DataFrame input:
+    
+    >>> df = pd.DataFrame({'group1': np.random.normal(10, 2, 30),
+    ...                       'group2': np.random.normal(12, 2, 30),
+    ...                       'group3': np.random.normal(11, 2, 30)})
+    >>> result = statistical_tests(df, test_type='kruskal_wallis', 
+                                   columns=['group1', 'group2', 'group3'])
+    >>> print(result)
+    # Sample dataset
+    >>> data = {
+    ...     'subject_id': [1, 1, 1, 2, 2, 2, 3, 3, 3],
+    ...     'score': [5, 3, 8, 4, 6, 7, 6, 5, 8],
+    ...     'time': ['pre', 'mid', 'post', 'pre', 'mid', 'post', 'pre', 'mid', 'post'],
+    ...     'treatment': ['A', 'A', 'A', 'B', 'B', 'B', 'C', 'C', 'C']
+    ... }
+    >>> df = pd.DataFrame(data)
+    # Perform repeated measures ANOVA
+    >>> result = statistical_tests(df, depvar='score', subject='subject_id',
+    ...                 within=['time', 'treatment'], test_type ='rm_anova')
+    # Display the ANOVA table
+    >>> print(result)
 
     Notes
     -----
-    Ensure that the data is prepared according to the requirements of each test.
-    For example, data for Repeated Measures ANOVA should be in long format.
+    - The `rm_anova` and `mcnemar` tests require the `statsmodels` package.
+    - Visualization is supported for all tests but is particularly informative
+      for distribution-based tests like the Kruskal-Wallis H Test and Wilcoxon 
+      Signed-Rank Test.
+    
+    The choice of test depends on the research question, data characteristics, 
+    and assumptions about the data. It is crucial to select the appropriate test 
+    to ensure valid and reliable results.
+    
+    See Also
+    --------
+    - `scipy.stats.ttest_rel` : For details on the paired t-test.
+    - `scipy.stats.kruskal` : For details on the Kruskal-Wallis H Test.
+    - `statsmodels.stats.anova.AnovaRM` : For details on Repeated Measures ANOVA.
+    - `statsmodels.stats.contingency_tables.mcnemar` : For details on McNemar's Test.
+    
+    References
+    ----------
+    .. [1] Friedman, M. (1937). The use of ranks to avoid the assumption of 
+           normality implicit in the analysis of variance. 
+           *Journal of the American Statistical Association*, 32(200), 675-701.
+    .. [2] McNemar, Q. (1947). Note on the sampling error of the difference
+          between correlated proportions or percentages. *Psychometrika*, 
+          12(2), 153-157.
+    .. [3] Kruskal, W. H., & Wallis, W. A. (1952). Use of ranks in one-criterion 
+           variance analysis. *Journal of the American Statistical Association*,
+           47(260), 583-621.
+    .. [4] Wilcoxon, F. (1945). Individual comparisons by ranking methods. 
+          *Biometrics Bulletin*, 1(6), 80-83.
     """
-
-    from statsmodels.stats.anova import AnovaRM
-    from statsmodels.stats.contingency_tables import mcnemar
+    available_tests = ["cochran_q", "kruskal_wallis", "wilcoxon", "ttest_paired", 
+        "ttest_indep", "rm_anova", "mcnemar"]
+    error_msg = ( 
+        f"Invalid test type '{test_type}'. Supported tests"
+        f" are: {smart_format(available_tests)}"
+        )
+    test_type= normalize_string(test_type, target_strs= available_tests, 
+                                match_method='contains', return_target_only=True, 
+                                raise_exception=True, error_msg= error_msg,
+                                deep=True)
+    
     # Define test functions
     test_functions = {
-        'rm_anova': lambda: AnovaRM(*args, **kwargs).fit(),
         'cochran_q': lambda: stats.cochran.q(*args, **kwargs),
-        'mcnemar': lambda: mcnemar(*args, **kwargs),
         'kruskal_wallis': lambda: stats.kruskal(*args),
         'wilcoxon': lambda: stats.wilcoxon(*args),
         'ttest_paired': lambda: stats.ttest_rel(*args),
         'ttest_indep': lambda: stats.ttest_ind(*args)
     }
-
-    # Execute the specified test                       
-    try:
-        test_result = test_functions[test_type]()
-    except KeyError:
-        raise ValueError(f"Invalid test type '{test_type}' specified.")
-
+    if isinstance (data, pd.DataFrame): 
+        if all ([ isinstance (arg, str) for arg in args]): 
+            # use the args as columns of the dataframe and 
+            # extract arrays from this datasets 
+            args = process_and_extract_data(
+                *[data], columns =args, allow_split= True ) 
+        else: 
+            raise
+            
+    if test_type in ["rm_anova", "mcnemar"]: 
+        from statsmodels.stats.anova import AnovaRM
+        from statsmodels.stats.contingency_tables import mcnemar
+        if test_type =='rm_anova': 
+           test_result= AnovaRM(*args, depvar=depvar, subject=subject, 
+                                within=within, **kwargs).fit() 
+        elif test_type =="mcnemar": 
+            test_result=mcnemar(*args, **kwargs)
+    else: 
+        # Execute the specified test                       
+        try:
+            test_result = test_functions[test_type]()
+        except KeyError:
+            raise ValueError(f"Invalid test type '{test_type}' specified.")
+        except Exception as e : 
+            raise e 
+            
     # Visualization part
     if view:
         plt.figure(figsize=fig_size if fig_size else (10, 6))
@@ -4370,8 +5090,10 @@ def statistical_tests(
 
         elif test_type == 'ttest_indep':
             x, y = args[0], args[1]
-            sns.histplot(x, kde=density_overlay, color='blue', label='Group 1', alpha=0.6)
-            sns.histplot(y, kde=density_overlay, color='red', label='Group 2', alpha=0.6)
+            sns.histplot(x, kde=density_overlay, color='blue', 
+                         label='Group 1', alpha=0.6)
+            sns.histplot(y, kde=density_overlay, color='red', 
+                         label='Group 2', alpha=0.6)
             plt.legend()
             plt.title('Independent Samples T-test')
 
@@ -4392,63 +5114,77 @@ def statistical_tests(
             plt.title('Cochran\'s Q Test')
 
         plt.show()
+   
+    return _extract_statistical_test_results (test_result, as_frame )
 
-    return test_result
-
-def _visualize_data(data, result, cmap='viridis', fig_size=None):  
+def _extract_statistical_test_results(
+        test_result_object, return_as_frame):
     """
-    Visualizes the data distribution and highlights the statistical analysis result.
+    Extracts statistical test results, including the statistic and p-value,
+    from a given object.
+    
+    Parameters
+    ----------
+    test_result_object : object
+        The object containing the statistical test results. It must 
+        have attributes for the statistic value (`statistic` or similar) 
+        and the p-value (`p_value` or `pvalue`).
+    return_as_frame : bool
+        Determines whether to return the results as a pandas DataFrame. 
+        If False, the results are returned as a tuple.
+    
+    Returns
+    -------
+    tuple or pandas.DataFrame
+        The statistical test results. If `return_as_frame` is True, returns
+        a pandas DataFrame with columns ["Statistic", "P-value"]. Otherwise, 
+        returns a tuple containing the statistic and p-value.
+    
+    Examples
+    --------
+    >>> from scipy.stats import ttest_1samp
+    >>> import numpy as np
+    >>> data = np.random.normal(0, 1, size=100)
+    >>> test_result = ttest_1samp(data, 0)
+    >>> extract_statistical_test_results(test_result, False)
+    (statistic_value, p_value)
+    
+    >>> extract_statistical_test_results(test_result, True)
+        Statistic    P-value
+    0   statistic_value p_value
     """
-    plt.figure(figsize=fig_size if fig_size else (10, 6))
-    # Example visualization: Histogram for data distribution
-    plt.hist(data, bins=30, alpha=0.7, color=cmap)
-    # Highlighting the statistical result (e.g., mean or median)
-    plt.axvline(result, color='red', linestyle='dashed', linewidth=2)
-    plt.title('Data Distribution and Statistical Result')
-    plt.xlabel('Data Values')
-    plt.ylabel('Frequency')
-    plt.show()
-
-def get_columns_axis_plot ( values, data =None,  axis=None ): 
-    # get the appropriate columns from the values and axis for to iterable . 
-    # values if the results of mean, median, var, mode, etc of data applying 
-    # on a specific axis. 
-    # data can be numpy array, series, dataframe. 
-    # axis can be None, 0 and 1. 
+    statistic = None
+    p_value = None
+    # Extract statistic and p-value from the test_result_object
+    if hasattr(test_result_object, "statistic"):
+        statistic = test_result_object.statistic
+    if hasattr(test_result_object, "p_value"):
+        p_value = test_result_object.p_value
+    elif hasattr(test_result_object, 'pvalue'):
+        p_value = test_result_object.pvalue
     
-    # finding the best columns of index to iterate when plotting eleemnt in 
-    # axis. 
-    if axis is None:
-        # we assume is Numpy array, preferably plot 
-        return values, data, None 
-    if isinstance (values, pd.Series): 
-        # columns should be the index 
-        # dans transpose data for looping columns 
-        # here axis is not so importance 
-        
-        return values.T, data.T, values.index 
-    elif isinstance (values, pd.DataFrame): 
-        if axis ==0: 
-            return values, data, values.columns 
-        elif axis ==1 : 
-            # iterate over row and plot values of each rows. 
-            # so columns become index 
-            return values.T, data.T, values.T.index 
-    elif isinstance ( values, np.ndarray): 
-        # try to squeeze value to reduce dimensionallity if possible 
-        values = np.squeeze ( values )
-        if np.ndarray.ndim ==1: 
-            return values,  data, range (len(values))
-        # for 2D array 
-        if axis==0: 
-            return values, data, range (values.shape [1])
-        elif axis ==1: 
-            return values.T, data.T, range ( len(values))
-        
-    return values, data, None 
+    # Determine the name based on object class or a custom name attribute
+    name = getattr(test_result_object, '__class__', None).__name__.lower(
+        ) if hasattr(test_result_object, '__class__') else getattr(
+            test_result_object, 'name', '').lower()
+    name = name.replace("result", "").replace("test", "") + '_test'
     
+    if statistic is not None and p_value is not None:
+        test_results = (statistic, p_value)
+    else:
+        test_results = (test_result_object,)
+    
+    # Convert to pandas DataFrame if requested
+    if return_as_frame:
+        import pandas as pd
+        test_results_df = pd.DataFrame([test_results], columns=["Statistic", "P-value"])
+        test_results_df.rename(index={0: name}, inplace=True)
+        return test_results_df
+    else:
+        return test_results
 
-def prepare_plot_data(
+
+def _prepare_plot_data(
     values: ArrayLike,
     data: Optional[ArrayLike] = None,
     axis: Optional[int] = None,
@@ -4480,15 +5216,15 @@ def prepare_plot_data(
     Examples
     --------
     >>> values = pd.Series([1, 2, 3], index=['a', 'b', 'c'])
-    >>> prepare_plot_data(values)
+    >>> _prepare_plot_data(values)
     (Series([1, 2, 3], index=['a', 'b', 'c']), None, Index(['a', 'b', 'c']))
 
     >>> values = pd.DataFrame({'A': [1, 2], 'B': [3, 4]}, index=['x', 'y'])
-    >>> prepare_plot_data(values, axis=1)
+    >>> _prepare_plot_data(values, axis=1)
     (Transposed DataFrame, Transposed DataFrame, Index(['x', 'y']))
 
     >>> values = np.array([1, 2, 3])
-    >>> prepare_plot_data(values, transform=np.square)
+    >>> _prepare_plot_data(values, transform=np.square)
     (array([1, 4, 9]), None, range(0, 3))
     """
     if transform is not None and callable(transform):
@@ -4596,10 +5332,316 @@ def _validate_plot_type(
             f"Unsupported type '{type_}'. Expect {smart_format(target_strs)}.")
 
     return matched_type
+
+def check_and_fix_rm_anova_data(
+    data: DataFrame, 
+    depvar: str, 
+    subject: str, 
+    within: List[str], 
+    fix_issues: bool = False,
+    strategy: str ="mean", 
+    fill_value: Optional[Union[str, float, int]]=None, 
+) -> DataFrame:
+    """
+    Checks and optionally fixes a DataFrame for repeated measures ANOVA analysis.
+
+    This function verifies if each subject in the dataset has measurements for every 
+    combination of within-subject factors. If `fix_issues` is set to True, the dataset 
+    will be modified to include missing combinations, assigning `None` to the dependent 
+    variable values of these new rows.
+
+    Parameters
+    ----------
+    data : DataFrame
+        The pandas DataFrame containing the data for ANOVA analysis.
+    depvar : str
+        The name of the dependent variable column in `data`.
+    subject : str
+        The name of the column identifying subjects in `data`.
+    within : List[str]
+        A list of column names representing within-subject factors.
+    fix_issues : bool, optional
+        If True, the dataset will be altered to include missing combinations 
+        of within-subject factors for each subject. Default is False.
+     strategy : str, optional
+         The strategy to use for filling missing depvar values. Options are "mean",
+         "median", or None. Default is "mean".
+     fill_value : Optional[Union[str, float, int]], optional
+         A specific value to fill missing depvar values if the strategy is None.
+         Default is None, which leaves missing values as None.
+    Returns
+    -------
+    DataFrame
+        The original `data` DataFrame if `fix_issues` is False or no issues are found. 
+        A modified DataFrame with issues fixed if `fix_issues` is True.
+
+    Raises
+    ------
+    TypeError
+        If input types for `data`, `depvar`, `subject`, or `within` are incorrect.
+    ValueError
+        If columns specified by `depvar`, `subject`, or `within` do not exist in `data`.
+
+    Notes
+    -----
+    The mathematical formulation for identifying missing combinations involves 
+    creating a Cartesian product of unique values within each within-subject 
+    factor and then verifying these combinations against the existing dataset. 
     
+    .. math::
     
+        S = \\{s_1, s_2, ..., s_n\\} \quad \\text{(Subjects)}
+        
+        W_i = \\{w_{i1}, w_{i2}, ..., w_{im}\\} \quad \\text{(Within-subject factors for } i \\text{th factor)}
+        
+        C = W_1 \\times W_2 \\times ... \\times W_k \quad \\text{(Cartesian product of all within-subject factors)}
+        
+        \\text{For each subject } s \\text{ in } S, \\text{ verify } (s, c) \\in D \\text{ for all } c \\in C
+        
+    If combinations are missing, new rows are appended to the dataset to include 
+    these missing combinations, ensuring that every subject has measurements 
+    across all factor levels.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.stats.utils import check_and_fix_rm_anova_data
+    >>> data = {
+    ...     'subject_id': [1, 1, 1, 2, 2, 2, 3, 3, 3],
+    ...     'score': [5, 3, 8, 4, 6, 7, 6, 5, 8],
+    ...     'time': ['pre', 'mid', 'post', 'pre', 'mid', 'post', 'pre', 'mid', 'post'],
+    ...     'treatment': ['A', 'A', 'A', 'B', 'B', 'B', 'C', 'C', 'C']
+    ... }
+    >>> df = pd.DataFrame(data)
+    >>> fixed_df = check_and_fix_rm_anova_data(
+    ...     df, depvar='score', subject='subject_id', within=['time', 'treatment'],
+    ...     fix_issues=True)
+    >>> fixed_df
+    """
+    # Validate input types
+    if not isinstance(data, pd.DataFrame):
+        raise TypeError(f"Expected 'data' to be a DataFrame, but got {type(data).__name__}.")
     
+    if not isinstance(depvar, str):
+        raise TypeError(f"'depvar' should be a string, but got {type(depvar).__name__}.")
     
+    if not isinstance(subject, str):
+        raise TypeError(f"'subject' should be a string, but got {type(subject).__name__}.")
     
+    if not check_uniform_type (within):
+        raise TypeError("All items in 'within' should be strings.")
+
+    # Check for necessary columns in the DataFrame
+    missing_columns = [col for col in [depvar, subject] + within if col not in data.columns]
+    if missing_columns:
+        raise ValueError(f"Missing columns in DataFrame: {', '.join(missing_columns)}.")
+
+    # Check combinations
+    combinations_df = data.groupby([subject] + within).size().reset_index(name='counts')
+    expected_combinations = len(data[within[0]].unique()) * len(data[within[1]].unique())
+    subject_combination_counts = combinations_df.groupby(subject).size()
     
+    missing_combinations_subjects = subject_combination_counts[
+        subject_combination_counts < expected_combinations]
     
+    if missing_combinations_subjects.empty:
+        print("All subjects have measurements for every combination of within-subject factors.")
+    else:
+        missing_info = ", ".join(map(str, missing_combinations_subjects.index.tolist()))
+        print(f"Subjects with missing combinations: {missing_info}")
+        
+        if fix_issues:
+            fixed_data = _fix_rm_anova_dataset(data, depvar, subject, within)
+            print("Dataset issues fixed.")
+            return fixed_data
+    
+    return data
+
+def _fix_rm_anova_dataset(
+    data: DataFrame, 
+    depvar: str, 
+    subject: str, 
+    within: List[str], 
+    strategy: str = "mean", 
+    fill_value: Optional[Union[str, float, int]] = None
+) -> DataFrame:
+    """
+    Generate all possible combinations of within-subject factors and fill missing 
+    depvar values based on the specified strategy.
+
+    Parameters
+    ----------
+    data : DataFrame
+        The dataset to be processed.
+    depvar : str
+        The dependent variable whose missing values need to be filled.
+    subject : str
+        The subject column in the dataset.
+    within : List[str]
+        A list of columns representing within-subject factors.
+    strategy : str, optional
+        The strategy to use for filling missing depvar values. Options are "mean",
+        "median", or None. Default is "mean".
+    fill_value : Optional[Union[str, float, int]], optional
+        A specific value to fill missing depvar values if the strategy is None.
+        Default is None, which leaves missing values as None.
+
+    Returns
+    -------
+    DataFrame
+        The modified dataset with missing combinations filled.
+    """
+    all_combinations = list(product(*[data[factor].unique() for factor in within]))
+    fixed_data = []
+
+    for subj in data[subject].unique():
+        subj_data = data[data[subject] == subj].copy()
+        if strategy == "mean":
+            fill = subj_data[depvar].mean()
+        elif strategy == "median":
+            fill = subj_data[depvar].median()
+        elif fill_value is not None:
+            fill = fill_value if strategy is None else None
+        else:
+            fill = None
+        for combination in all_combinations:
+            if combination not in list(zip(*[subj_data[factor].values for factor in within])):
+                new_row = {subject: subj, depvar: fill}
+                new_row.update(dict(zip(within, combination)))
+                subj_data = pd.concat([subj_data, pd.DataFrame([new_row])], ignore_index=True)
+
+        fixed_data.append(subj_data)
+
+    return pd.concat(fixed_data, ignore_index=True)
+
+
+@ensure_pkg ("statsmodels")
+def mixed_effects_model(
+    data: pd.DataFrame, 
+    formula: str, 
+    groups: str, 
+    re_formula: Optional[str] = None,
+    data_transforms: Optional[List[Union[str, callable]]] = None,
+    categorical: Optional[List[str]] = None,
+    treatment: Optional[str] = None,
+    order: Optional[List[str]] = None,
+    summary: bool = True
+) :
+    """
+    Fits a mixed-effects linear model to the data, accommodating both fixed 
+    and random effects. 
+    
+    This approach is particularly useful for analyzing datasets with nested 
+    structures or hierarchical levels, such as measurements taken from the 
+    same subject over time or data clustered by groups. 
+    
+    Mixed-effects models account for both within-group (or subject) variance 
+    and between-group variance.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The dataset containing the dependent variable, independent variables, 
+        subject identifiers, and other covariates.
+    formula : str
+        A Patsy formula string specifying the fixed effects in the model. 
+        E.g., 'score ~ time + treatment'.
+    groups : str
+        The column name in `data` that identifies the clustering unit or subject.
+        Random effects are grouped by this identifier.
+    re_formula : Optional[str], default None
+        A Patsy formula string defining the structure of the random effects. 
+        E.g., '~time' for random slopes for time.
+        If None, only random intercepts for `groups` are included.
+    data_transforms : Optional[List[Union[str, callable]]], default None
+        Transformations to apply to the dataset before fitting the model. 
+        This can be a list of column names to convert to categorical or callable
+        functions that take the DataFrame as input and return a modified
+        DataFrame.
+    categorical : Optional[List[str]], default None
+        Columns to convert to categorical variables. This is useful for 
+        ensuring that categorical predictors use the
+        correct data type.
+    treatment : Optional[str], default None
+        If specified, indicates the column to be treated as an ordered 
+        categorical variable, useful for ordinal predictors.
+    order : Optional[List[str]], default None
+        The order of categories for the `treatment` column, necessary if 
+        `treatment` is specified. Defines the levels and their order for an 
+        ordered categorical variable.
+    summary : bool, default True
+        If True, prints a summary of the fitted model. Otherwise, returns 
+        the model fit object.
+
+    Returns
+    -------
+    sm.regression.mixed_linear_model.MixedLMResults
+        The results instance for the fitted mixed-effects model.
+
+    Mathematical Formulation
+    ------------------------
+    The model can be described by the equation:
+
+    .. math:: y = X\\beta + Z\\gamma + \\epsilon
+
+    where :math:`y` is the dependent variable, :math:`X` and :math:`Z` are 
+    matrices of covariates for fixed and random effects,
+    :math:`\\beta` and :math:`\\gamma` are vectors of fixed and random effects 
+    coefficients, and :math:`\\epsilon` is the error term.
+
+    Usage and Application Areas
+    ---------------------------
+    Mixed-effects models are particularly useful in studies where data are 
+    collected in groups or hierarchies, such as longitudinal studies, clustered 
+    randomized trials, or when analyzing repeated measures data. They allow for
+    individual variation in response to treatments and can handle unbalanced 
+    datasets or missing data more gracefully than traditional repeated measures 
+    ANOVA.
+
+    Examples
+    --------
+    Fitting a mixed-effects model to a dataset where scores are measured across 
+    different times and treatments for each subject, with subjects as a 
+    random effect:
+        
+    >>> import numpy as np 
+    >>> import pandas as pd 
+    >>> df = pd.DataFrame({
+    ...     'subject_id': [1, 1, 2, 2],
+    ...     'score': [5.5, 6.5, 5.0, 6.0],
+    ...     'time': ['pre', 'post', 'pre', 'post'],
+    ...     'treatment': ['A', 'A', 'B', 'B']
+    ... })
+    >>> mixed_effects_model(df, 'score ~ time * treatment', 'subject_id',
+    ...                            re_formula='~time')
+    In this example, 'score' is modeled as a function of time, treatment, 
+    and their interaction, with random slopes for time grouped by 'subject_id'.
+    """
+    
+    import statsmodels.formula.api as smf
+    # Apply data transformations if specified
+    if data_transforms:
+        for transform in data_transforms:
+            if callable(transform):
+                data = transform(data)
+            elif transform in data.columns:
+                data[transform] = data[transform].astype('category')
+    
+    # Convert specified columns to categorical if requested
+    if categorical:
+        for col in categorical:
+            data[col] = data[col].astype('category')
+    
+    # Set treatment column as ordered categorical if requested
+    if treatment and order:
+        data[treatment] = pd.Categorical(data[treatment], categories=order, ordered=True)
+    
+    # Fit the model
+    model = smf.mixedlm(formula, data, groups=data[groups], re_formula=re_formula)
+    model_fit = model.fit()
+    
+    # Print or return summary
+    if summary:
+        print(model_fit.summary())
+    else:
+        return model_fit

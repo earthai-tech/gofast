@@ -2,8 +2,6 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-Created on Wed Dec 20 11:34:33 2023
-
 These functions offer a range of probability utilities suitable for large 
 datasets, leveraging the power of NumPy and SciPy for efficient computation. 
 They cover various aspects of probability calculations, from simple PDF and 
@@ -15,10 +13,9 @@ import numpy as np
 from scipy.stats import norm
 from scipy.stats import binom
 from scipy.stats import poisson
+from ..tools.funcutils import ensure_pkg 
 
-from ..tools._dependency import import_optional_dependency 
-
-
+@ensure_pkg("pymc3")
 def stochastic_volatility_model(arr, /, ):
     """
     Stochastic Volatility Model using PyMC3.
@@ -49,7 +46,6 @@ def stochastic_volatility_model(arr, /, ):
     >>> returns = np.random.normal(0, 1, 100)
     >>> model = stochastic_volatility_model(returns)
     """
-    import_optional_dependency('pymc3')
     import pymc3 as pm
     with pm.Model() as model:
         sigma = pm.Exponential('sigma', 1.0)
@@ -58,6 +54,7 @@ def stochastic_volatility_model(arr, /, ):
         
     return model
 
+@ensure_pkg("pymc3")
 def hierarchical_linear_model(X, y, groups):
     """
     Hierarchical Linear Model using PyMC3.
@@ -95,7 +92,7 @@ def hierarchical_linear_model(X, y, groups):
     >>> groups = np.random.randint(0, 5, 100)
     >>> model = hierarchical_linear_model(X, y, groups)
     """
-    import_optional_dependency('pymc3')
+
     import pymc3 as pm
     with pm.Model() as model:
         # Group-specific parameters

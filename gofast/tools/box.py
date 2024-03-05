@@ -1,212 +1,477 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
-#   created on Thu Oct 13 14:52:26 2022
 
 import itertools
 import numpy as np
 import pandas as pd 
-from .._typing import List 
+from .._typing import List, Optional, Union, DataFrame 
 
-class Boxspace(dict):  
-    """Is a container object exposing keys as attributes.
+class Bunch:
+    """
+    A utility class for storing collections of results or data attributes.
     
-    BowlSpace objects are sometimes used as an output for functions and methods.
-    They extend dictionaries by enabling values to be accessed by key,
-    `Boxspace["value_key"]`, or by an attribute, `Boxspace.value_key`.
-    Another option is to use Namespace of collection modules as: 
-        
-        >>> from collections import namedtuple
-        >>> Boxspace = namedtuple ('Boxspace', [< attribute names >] )
-        
-    However the explicit class that inhers from build-in dict is easy to 
-    handle attributes and to avoid multiple error where the given name 
-    in the `names` attributes does not match the expected attributes to fetch. 
+    This class is designed to bundle various attributes and provide a 
+    convenient way to access them using attribute-style access instead of 
+    dictionary-style. It overrides the `__repr__` and `__str__`
+    methods to offer informative and readable representations of its contents.
+    
+    Methods
+    -------
+    __repr__()
+        Provides a basic representation of the object, indicating it contains 
+        results.
+    
+    __str__()
+        Returns a string representation of the object's contents in a nicely 
+        formatted way, showing each attribute and its corresponding value.
     
     Examples
     --------
-    >>> from gofast.tools.box import Boxspace 
-    >>> bs = Boxspace(pkg='gofast',  objective ='give water', version ='0.1.dev')
+    >>> from gofast.tools.box import Bunch 
+    >>> results = Bunch()
+    >>> results.accuracy = 0.95
+    >>> results.loss = 0.05
+    >>> print(results)
+    accuracy   0.95
+    loss       0.05
+    
+    >>> results
+    <Bunch object containing results. Use print() to see contents>
+    
+    Note
+    ----
+    This class is intended to be a simple container for dynamically added attributes. 
+    It provides a more intuitive and accessible way to handle grouped data without 
+    the syntax of dictionaries, enhancing code readability and convenience.
+    """
+ 
+    def __init__(self, **kwargs):
+        """
+        Initialize a Bunch object with optional keyword arguments.
+
+        Each keyword argument provided is set as an attribute of the Bunch object.
+
+        Parameters
+        ----------
+        **kwargs : dict, optional
+            Arbitrary keyword arguments which are set as attributes of the Bunch object.
+        """
+        self.__dict__.update(kwargs)
+        
+    def __repr__(self):
+        """
+        Returns a simple representation of the _Bunch object.
+        
+        This representation indicates that the object is a 'bunch' containing 
+        results,suggesting to print the object to see its contents.
+        
+        Returns
+        -------
+        str
+            A string indicating the object contains results.
+        """
+        return "<Bunch object containing results. Use print() to see contents>"
+
+    def __str__(self):
+        """
+        Returns a detailed string representation of the _Bunch object's contents.
+        
+        This method lists all attributes of the _Bunch object in alphabetical order,
+        along with their values in a formatted string. This provides a clear overview
+        of all stored data for easy readability.
+        
+        Returns
+        -------
+        str
+            A string representation of the _Bunch object's contents, including attribute
+            names and their values, formatted in a tabular style.
+        """
+        if not self.__dict__:
+            return "<empty Bunch>"
+        keys = sorted(self.__dict__.keys())
+        max_key_length = max(len(key) for key in keys)
+        formatted_attrs = [f"{key:{max_key_length}} : {self.__dict__[key]}" for key in keys]
+        return "\n".join(formatted_attrs)
+    
+        # keys = [key for key, _ in self.__dict__.items()]
+        # keys.sort()
+        # max_key_length = max([len(key) for key in keys])
+        # tabulated_contents = []
+        # format_string = "{:" + str(max_key_length) + "}   {}"
+        # for key in keys:
+        #     tabulated_contents.append(format_string.format(key, self.__dict__[key]))
+        # return "\n".join(tabulated_contents)
+
+    def __delattr__(self, name):
+        """
+        Delete an attribute from the Bunch object.
+
+        Parameters
+        ----------
+        name : str
+            The name of the attribute to delete.
+
+        Raises
+        ------
+        AttributeError
+            If the specified attribute does not exist.
+        """
+        if name in self.__dict__:
+            del self.__dict__[name]
+        else:
+            raise AttributeError(f"'Bunch' object has no attribute '{name}'")
+
+    def __contains__(self, name):
+        """
+        Check if an attribute exists in the Bunch object.
+
+        Parameters
+        ----------
+        name : str
+            The name of the attribute to check for existence.
+
+        Returns
+        -------
+        bool
+            True if the attribute exists, False otherwise.
+        """
+        return name in self.__dict__
+
+    def __iter__(self):
+        """
+        Return an iterator over the Bunch object's attribute names and values.
+
+        Yields
+        ------
+        tuple
+            Pairs of attribute names and their corresponding values.
+        """
+        for item in self.__dict__.items():
+            yield item
+
+    def __len__(self):
+        """
+        Return the number of attributes stored in the Bunch object.
+
+        Returns
+        -------
+        int
+            The number of attributes.
+        """
+        return len(self.__dict__)
+
+    def __getattr__(self, name):
+        """
+        Get an attribute's value, raising an AttributeError if it doesn't exist.
+
+        Parameters
+        ----------
+        name : str
+            The name of the attribute to access.
+
+        Raises
+        ------
+        AttributeError
+            If the specified attribute does not exist.
+        """
+        raise AttributeError(f"'Bunch' object has no attribute '{name}'")
+
+    def __eq__(self, other):
+        """
+        Compare this Bunch object to another for equality.
+
+        Parameters
+        ----------
+        other : Bunch
+            Another Bunch object to compare against.
+
+        Returns
+        -------
+        bool
+            True if the other object is a Bunch with the same attributes and 
+            values, False otherwise.
+        """
+        return isinstance(other, Bunch) and self.__dict__ == other.__dict__
+
+ 
+class Boxspace(dict):
+    """
+    A container object that extends dictionaries by enabling attribute-like 
+    access to its items.
+    
+    `Boxspace` allows accessing values using the standard dictionary key 
+    access method or directly as attributes. This feature provides a more 
+    convenient and intuitive way to handle data, especially when dealing with 
+    configurations or loosely structured objects.
+    
+    Examples
+    --------
+    >>> bs = Boxspace(pkg='gofast', objective='give water', version='0.1.dev')
     >>> bs['pkg']
-    ... 'gofast'
+    'gofast'
     >>> bs.pkg
-    ... 'gofast'
-    >>> bs.objective 
-    ... 'give water'
+    'gofast'
+    >>> bs.objective
+    'give water'
     >>> bs.version
-    ... '0.1.dev'
+    '0.1.dev'
+    
+    Notes
+    -----
+    While `Boxspace` provides a flexible way to access dictionary items, it's 
+    important to ensure that key names do not conflict with the dictionary's 
+    method names, as this could lead to unexpected behavior.
     """
 
-    def __init__(self, **kws):
-        super().__init__(kws)
-
-    def __setattr__(self, key, value):
-        self[key] = value
-
-    def __dir__(self):
-        return self.keys()
+    def __init__(self, **kwargs):
+        """
+        Initializes a Boxspace object with optional keyword arguments.
+        
+        Parameters
+        ----------
+        **kwargs : dict
+            Arbitrary keyword arguments which are set as the initial 
+            items of the dictionary.
+        """
+        super().__init__(**kwargs)
 
     def __getattr__(self, key):
+        """
+        Allows attribute-like access to dictionary items.
+        
+        Parameters
+        ----------
+        key : str
+            The attribute name corresponding to the dictionary key.
+        
+        Returns
+        -------
+        The value associated with 'key' in the dictionary.
+        
+        Raises
+        ------
+        AttributeError
+            If the key is not found in the dictionary.
+        """
         try:
             return self[key]
         except KeyError:
-            raise AttributeError(key)
+            raise AttributeError(f"'Boxspace' object has no attribute '{key}'")
+
+    def __setattr__(self, key, value):
+        """
+        Allows setting dictionary items as attributes.
+        
+        Parameters
+        ----------
+        key : str
+            The attribute name to be added or updated in the dictionary.
+        value : any
+            The value to be associated with 'key'.
+        """
+        self[key] = value
 
     def __setstate__(self, state):
-        # Overriding __setstate__ to be a noop has the effect of
-        # ignoring the pickled __dict__
-        pass
-    
-class _Group:
-    """ Group of Aquifer is mostly related to area information after multiple 
-    boreholes collected. 
-    
-    However when predicted 'k' with a missing k-values using the Mixture 
-    Learning Strategy (MXS), we intend to solve this problem by creating 
-    a Naive Group of Aquifer (NGA) to compensate the missing k-values in the 
-    dataset. This could be a good idea to avoid introducing a lot of bias since 
-    the group of aquifer is mostly tied to the permeability coefficient 'k'. 
-    To do this, an unsupervised learning is used to predict the NGA labels then 
-    the NGA labels are used in turn to fill the missing k-values. The best 
-    strategy for operting this trick is to  seek for some importances between
-    the true k-values with their corresponding aquifer groups at each depth, 
-    and find the most representative group. Once the most representative group 
-    is found for each true label 'k', the group of aquifer can be renamed as 
-    the naive similarity with the true k-label. For instance if true k-value 
-    is the label 1 and label 1 is most representative with the group of aquifer
-    'IV', therefore this group can be replaced throughout the column 
-    with 'k1'+'IV=> i.e. 'k14'. This becomes a new label created and is used to 
-    fill the true label 'y_true' to become a MXS target ( include NGA label). 
-    Note that the true label with valid 'k-value' remained intach and unchanged.
-    The same process is done for label 2, 3 and so on. The selection of MXS 
-    label from NGA strongly depends on its preponderance or importance rate in 
-    the whole dataset. 
-    
-    The following example is the demonstration to how to compute the group 
-    representativity in datasets. 
-    
-    Parameters 
-    ----------
-    g:dict, 
-        Dictionnary compose of occurence between the true labels 
-        and the group of aquifer  as a function of occurence and
-        repesentativity 
-        
-    Example 
-    --------
-    >>> from gofast.utils import naive_imputer, read_data , reshape 
-    >>> from gofast.datasets import load_hlogs 
-    >>> from gofast.tools.hydroutils import classify_k, find_aquifer_groups 
-    >>> b= load_hlogs () #just taking the target names
-    >>> data = read_data ('data/boreholes/hf.csv') # read complete data
-    >>> y = data [b.target_names]
-    >>> # impute the missing values found in aquifer group columns
-    >>> # reshape 1d array along axis 0 for imputation 
-    >>> agroup_imputed = naive_imputer ( reshape (y.aquifer_group, axis =0 ) , 
-                                        strategy ='most_frequent') 
-    >>> # reshape back to array_like 1d 
-    >>> y.aquifer_group =reshape (agroup_imputed) 
-    >>> # categorize the 'k' continous value in 'y.k' using the default 
-    >>> # 'k' mapping func 
-    >>> y.k = classify_k (y.k , default_func =True)
-    >>> # get the group obj
-    >>> group_obj = find_aquifer_groups(y.k, y.aquifer_group,  ) 
-    >>> group_obj 
-    ... _Group(Label=[' 1 ', 
-                       Preponderance( rate = '53.141  %', 
-                                    [('Groups', {'V': 0.32, 'IV': 0.266, 
-                                                 'II': 0.236, 'III': 0.158, 
-                                                 'IV&V': 0.01, 'II&III': 0.005, 
-                                                 'III&IV': 0.005}),
-                                     ('Representativity', ( 'V', 0.32)),
-                                     ('Similarity', 'V')])],
-                 Label=[' 2 ', 
-                       Preponderance( rate = ' 19.11  %', 
-                                    [('Groups', {'III': 0.274, 'II': 0.26, 
-                                                 'V': 0.26, 'IV': 0.178, 
-                                                 'III&IV': 0.027}),
-                                     ('Representativity', ( 'III', 0.27)),
-                                     ('Similarity', 'III')])],
-                 Label=[' 3 ', 
-                       Preponderance( rate = '27.749  %', 
-                                    [('Groups', {'V': 0.443, 'IV': 0.311, 
-                                                 'III': 0.245}),
-                                     ('Representativity', ( 'V', 0.44)),
-                                     ('Similarity', 'V')])],
-                 )
-                                      
-    """
-    def __init__ (self, g=None, /  ): 
-        self.g_ = g
-        
-    @property 
-    def g(self): 
-        return self.g_
-    @property 
-    def similarity (self): 
-        """return label similarities with NGA labels  """
-        return (
-            (label, list(rep_val [1])[0] ) 
-            for label, rep_val in self.g_.items()
-                )
-    @property 
-    def preponderance (self): 
-        """ Returns label occurences in the datasets """
-        return   (
-            (label, rep_val[0]) 
-            for label, rep_val in self.g_.items()
-             )
-    @property 
-    def representativity (self): 
-        """ Returns the representativity of each labels"""
-        return ( (label, round(rep_val[1].get(list(rep_val [1])[0]), 2))  
-                    for label, rep_val in self.g_.items()
-                     )
-    @property 
-    def groups (self): 
-        """Return groups for each label """
-        return ((label, {k: v for k, v in repr_val[1].items()}) 
-                  for label, repr_val in self.g_.items () 
-                  )
-
-    def __repr__ (self ) :
-        return  self.__class__.__name__  + "(" +  self._format (
-            self.g) + "{:>13}".format(")")
-
-    def _format (self, gdict): 
-        """ Format representativity of Aquifer groups 
-        Parameters 
-        ----------
-        gdict: dict, 
-            Dictionnary compose of occurence of the group as a function
-            of aquifer group repesentativity 
         """
-        ag=[]
-        for k, (label, repr_val ) in enumerate ( gdict.items() ): 
-            prep , g  = repr_val 
-            
-            ag+=["{:5}=['{:^3}', \n".format(
-                "Label" if k==0 else "{:>17}".format("Label"), label
-                                               ) 
-                ]
-            ag +=["{:>32}( rate = '{:^7} %', \n".format(
-                "Preponderance", round (prep *100, 3 )
-                                                  )] 
-            ag += ["{:>34}'Groups', {}),\n".format("[(",
-                # str({ k: "{:>5}".format(round (v, 3)) for k , v in g.items()}) 
-                str({ k: round (v, 3) for k , v in g.items()}) 
-                    )
-                ]
-            ag +=["{:>34}'Representativity', ( '{}', {})),\n".format("(", 
-                 list(g)[0], round ( g.get(list(g)[0]), 2))
-                ]
-            ag += ["{:>34}'Similarity', '{}')])],\n ".format("(", list(g)[0] )
-                   ]
-            # ag+=['{:>30}'.format("])],\n ")] 
-        #ag+=["{:>7}".format(")")]
+        Overrides __setstate__ to ensure the object can be unpickled correctly.
+        
+        This method is a no-op, effectively ignoring the pickled __dict__, which is
+        necessary because `Boxspace` objects use the dictionary itself for item storage.
+        """
+        pass
+
+    def __dir__(self):
+        """
+        Ensures that autocompletion works in interactive environments.
+        
+        Returns
+        -------
+        list
+            A list of keys in the dictionary, which are exposed as attributes.
+        """
+        return super().__dir__() + list(self.keys()) # self.keys()
     
-        return ''.join (ag) 
+class AquiferGroupAnalyzer:
+    """
+    Analyzes and represents aquifer groups, particularly focusing on the 
+    relationship between permeability coefficient ``K`` values and aquifer
+    groupings. It utilizes a Mixture Learning Strategy (MXS) to impute missing
+    'k' values by creating Naive Group of Aquifer (NGA) labels based on 
+    unsupervised learning predictions.
     
+    This approach aims to minimize bias by considering the permeability coefficient
+    'k' closely tied to aquifer groups. It determines the most representative aquifer
+    group for given 'k' values, facilitating the filling of missing 'k' values in the dataset.
+    
+    Parameters
+    ----------
+    group_data : dict, optional
+        A dictionary mapping labels to their occurrences, representativity, and
+        similarity within aquifer groups.
+    
+    Example
+    -------
+    See class documentation for a detailed example of usage.
+    
+    Attributes
+    ----------
+    group_data : dict
+        Accessor for the aquifer group data.
+    similarity : generator
+        Yields label similarities with NGA labels.
+    preponderance : generator
+        Yields label occurrences in the dataset.
+    representativity : generator
+        Yields the representativity of each label.
+    groups : generator
+        Yields groups for each label.
+    """
+
+    def __init__(self, group_data=None):
+        """
+        Initializes the AquiferGroupAnalyzer with optional group data.
+        """
+        self.group_data = group_data if group_data is not None else {}
+
+    @property
+    def similarity(self):
+        """Yields label similarities with NGA labels."""
+        return ((label, list(rep_val[1])[0]) for label, rep_val in self.group_data.items())
+
+    @property
+    def preponderance(self):
+        """Yields label occurrences in the dataset."""
+        return ((label, rep_val[0]) for label, rep_val in self.group_data.items())
+
+    @property
+    def representativity(self):
+        """Yields the representativity of each label."""
+        return ((label, round(rep_val[1].get(list(rep_val[1])[0]), 2))
+                for label, rep_val in self.group_data.items())
+
+    @property
+    def groups(self):
+        """Yields groups for each label."""
+        return ((label, {k: v for k, v in repr_val[1].items()})
+                for label, repr_val in self.group_data.items())
+
+    def __repr__(self):
+        """
+        Returns a string representation of the AquiferGroupAnalyzer object,
+        formatting the representativity of aquifer groups.
+        """
+        formatted_data = self._format(self.group_data)
+        return f"{self.__class__.__name__}({formatted_data})"
+
+    def _format(self, group_dict):
+        """
+        Formats the representativity of aquifer groups into a string.
+        
+        Parameters
+        ----------
+        group_dict : dict
+            Dictionary composed of the occurrence of the group as a function
+            of aquifer group representativity.
+        
+        Returns
+        -------
+        str
+            A formatted string representing the aquifer group data.
+        """
+        formatted_groups = []
+        for index, (label, (preponderance, groups)) in enumerate(group_dict.items()):
+            label_str = f"{'Label' if index == 0 else ' ':>17}=['{label:^3}',\n"
+            preponderance_str = f"{'>32'}(rate = '{preponderance * 100:^7}%',\n"
+            groups_str = f"{'>34'}'Groups', {groups}),\n"
+            representativity_key, representativity_value = next(iter(groups.items()))
+            representativity_str = f"{'>34'}'Representativity', ('{representativity_key}', {representativity_value}),\n"
+            similarity_str = f"{'>34'}'Similarity', '{representativity_key}')])],\n"
+
+            formatted_groups.extend([
+                label_str, preponderance_str, groups_str,
+                representativity_str, similarity_str
+            ])
+        
+        return ''.join(formatted_groups).rstrip(',\n')
+
+def DataToBox(
+    data: Union[DataFrame, dict, List], 
+    entity_name: Optional[str] = None, 
+    use_column_as_name: bool = False, 
+    keep_name_column: bool = True, 
+    columns: Optional[List[str]] = None):
+    """
+    Transforms each row of a DataFrame or a similar iterable structure into 
+    :class:`Boxspace` objects.
+    
+    Parameters
+    ----------
+    data : DataFrame, dict, or List
+        The data to transform. If not a DataFrame, an attempt is made to 
+        convert it into one.
+    
+    entity_name : str, optional
+        Base name for the entities in the BoxSpace. If `use_column_as_name` is 
+        True, this refersto a column name whose values are used as entity names.
+    
+    use_column_as_name : bool, default False
+        If True, `entity_name` must be a column name in `data`, and its values 
+        are used as names
+        for the entities.
+    
+    keep_name_column : bool, default True
+        Whether to keep the column used for naming entities in the data.
+    
+    columns : list of str, optional
+        Specifies column names when `data` is a list or an array-like structure. 
+        Ignored if `data` is already a DataFrame.
+    
+    Returns
+    -------
+    BoxSpace
+        A BoxSpace object containing named entities corresponding to each 
+        row of the input `data`.
+        
+    Raises
+    ------
+    ValueError
+        If `use_column_as_name` is True but `entity_name` is not a 
+        column in `data`.
+    
+    TypeError
+        If the input `data` cannot be converted into a DataFrame.
+    
+    Examples
+    --------
+    >>> from gofast.tools.box import DataToBox 
+    >>> DataToBox([2, 3, 4], entity_name='borehole')
+    >>> DataToBox({"x": [2, 3, 4], "y": [8, 7, 5]}, entity_name='borehole')
+    >>> DataToBox([2, 3, 4], entity_name='borehole', columns=['id'])
+    >>> DataToBox({"x": [2, 3, 4], "y": [8, 7, 5], "code": ['h2', 'h7', 'h12']},
+                            entity_name='code', use_column_as_name=True)
+    """
+    if not isinstance(data, pd.DataFrame):
+        if columns is None and isinstance(data, dict):
+            columns = list(data.keys())
+        data = pd.DataFrame(data, columns=columns)
+
+    if entity_name is not None and use_column_as_name:
+        if entity_name not in data.columns:
+            raise ValueError(f"Column '{entity_name}' must exist in the data.")
+        names = data[entity_name].astype(str)
+        if not keep_name_column:
+            data = data.drop(columns=[entity_name])
+    else:
+        if entity_name is None:
+            entity_name = 'object'
+        names = [f"{entity_name}{i}" for i in range(len(data))]
+
+    box_space_objects = {
+        name: Boxspace(**data.iloc[i].to_dict()) for i, name in enumerate(names)}
+
+    return Boxspace(**box_space_objects)
+
 def data2Box(
     data, /,  
     name: str = None, 

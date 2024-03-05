@@ -2692,7 +2692,139 @@ def series_naming(name, data=None, error='ignore'):
             cast_numeric(s.columns[0], error='ignore') or s.columns[0] is None)
     ) else {}
 
+@make_data_dynamic("both")
+def summary(
+    df, 
+    include_correlation=False, 
+    include_uniques=False, 
+    statistics=None,
+    include_sample=False, sample_size=5):
+    """
+    Generate a customizable summary for a pandas DataFrame.
 
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame for which the summary is generated.
+    include_correlation : bool, optional
+        If True, include the correlation matrix for numerical features in the
+        summary. Default is False.
+    include_uniques : bool, optional
+        If True, include unique counts for categorical features in the summary.
+        Default is False.
+    statistics : list of str, optional
+        A list of descriptive statistics to include in the summary for 
+        numerical columns. 
+        Default is ['mean', 'std', 'min', '25%', '50%', '75%', 'max'].
+    include_sample : bool, optional
+        If True, include a random sample of the data in the summary. Default is False.
+    sample_size : int, optional
+        The number of samples to include if `include_sample` is True. Default is 5.
+
+    Returns
+    -------
+    summary : dict
+        A dictionary containing the requested summary information of the DataFrame.
+
+    Examples
+    --------
+    >>> data = {
+    ...     'A': [1, 2, 3, 4, 5],
+    ...     'B': [5, 6, None, 8, 9],
+    ...     'C': ['foo', 'bar', 'baz', 'qux', 'quux']
+    ... }
+    >>> df = pd.DataFrame(data)
+    >>> summary = dataframe_summary(df, include_correlation=True, include_uniques=True, 
+                                    include_sample=True)
+    >>> print(summary.keys())
+    dict_keys(['Shape', 'Data Types', 'Missing Values', 'Basic Statistics', 
+               'Correlation Matrix', 'Unique Counts', 'Sample Data'])
+    """
+    summary = {
+        "Shape": df.shape,
+        "Data Types": df.dtypes.to_dict(),
+        "Missing Values": df.isnull().sum().to_dict(),
+        "Basic Statistics": {}
+    }
+    # Basic statistics for numeric columns
+    if statistics:
+        statistics= ['mean', 'std', 'min', '25%', '50%', '75%', 'max']
+        summary["Basic Statistics"] = df.describe().loc[statistics].to_dict()
+    
+    # Correlation matrix for numeric columns
+    if include_correlation and df.select_dtypes(include=['number']).shape[1] > 1:
+        summary["Correlation Matrix"] = df.corr().round(2).to_dict()
+    
+    # Unique counts for categorical columns
+    if include_uniques:
+        cat_cols = df.select_dtypes(include=['object', 'category']).columns
+        summary["Unique Counts"] = {col: df[col].nunique() for col in cat_cols}
+    
+    # Sample of the data
+    if include_sample:
+        if sample_size > len(df):
+            sample_size = len(df)
+        summary["Sample Data"] = df.sample(n=sample_size).to_dict(orient='list')
+    
+    return summary
+
+
+class CustomDataFrame(pd.DataFrame):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+    
+    def summary(self, include_correlation=False, include_uniques=False, 
+                statistics=['mean', 'std', 'min', '25%', '50%', '75%', 'max'],
+                include_sample=False, sample_size=5):
+        summary = {
+            "Shape": self.shape,
+            "Data Types": self.dtypes.to_dict(),
+            "Missing Values": self.isnull().sum().to_dict(),
+            "Basic Statistics": {}
+        }
+        
+        # Basic statistics for numeric columns based on user-selected statistics
+        if statistics:
+            summary["Basic Statistics"] = self.describe().loc[statistics].to_dict()
+        
+        # Correlation matrix for numeric columns
+        if include_correlation and self.select_dtypes(include=['number']).shape[1] > 1:
+            summary["Correlation Matrix"] = self.corr().round(2).to_dict()
+        
+        # Unique counts for categorical columns
+        if include_uniques:
+            cat_cols = self.select_dtypes(include=['object', 'category']).columns
+            summary["Unique Counts"] = {col: self[col].nunique() for col in cat_cols}
+        
+        # Sample of the data
+        if include_sample:
+            if sample_size > len(self):
+                sample_size = len(self)
+            summary["Sample Data"] = self.sample(n=sample_size).to_dict(orient='list')
+        
+        return summary
+
+# Example usage
+if __name__ == "__main__":
+    # Creating an example DataFrame
+    df_data = {
+        'A': [1, 2, 3, 4, 5],
+        'B': [5, 6, None, 8, 9],
+        'C': ['foo', 'bar', 'baz', 'qux', 'quux'],
+        'D': [0.1, 0.2, 0.3, np.nan, 0.5]
+    }
+    df = CustomDataFrame(df_data)
+    
+    # Customizing the summary
+    summary_ = df.summary(include_correlation=True, include_uniques=True, 
+                         statistics=['mean', '50%', 'max'], include_sample=True)
+    for key, value in summary_.items():
+        print(f"{key}:")
+        if isinstance(value, dict):
+            for subkey, subvalue in value.items():
+                print(f"  {subkey}: {subvalue}")
+        else:
+            print(f"  {value}")
 
 
 

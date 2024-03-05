@@ -85,17 +85,6 @@ gofastlog.load_configuration(config_file_path)
 # Public API
 # __all__ = ['show_versions']
 
-# Seed control function, consider moving it to a utilities module
-def setup_module(module):
-    """Fixture for the tests to assure globally controllable seeding of RNGs"""
-    import numpy as np
-    import random
-
-    _random_seed = os.environ.get("GOFAST_SEED", np.random.randint(0, 2**32 - 1))
-    print(f"I: Seeding RNGs with {_random_seed}")
-    np.random.seed(int(_random_seed))
-    random.seed(int(_random_seed))
-
 # Reset warnings to default
 warnings.simplefilter(action='default', category=FutureWarning)
 
