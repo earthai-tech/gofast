@@ -50,7 +50,7 @@ __all__= [
     "iqr",
     "kaplan_meier_analysis",
     "kolmogorov_smirnov_test",
-    "kruskal_wallis_test",#
+    "kruskal_wallis_test",
     "kurtosis",
     "levene_test",
     "mean",
@@ -536,8 +536,6 @@ def _visualize_mode(data, mode_result, cmap='viridis', fig_size=None, axis=0):
     plt.legend()
     plt.show()
     
-
-
 @make_data_dynamic(capture_columns=True, reset_index=True)
 def var(
     data: Union[ArrayLike, DataFrame], 

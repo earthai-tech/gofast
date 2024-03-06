@@ -25,9 +25,54 @@ from gofast.decorators import PlotPrediction, PlotFeatureImportance
 from gofast.decorators import AppendDocSection, SuppressOutput
 from gofast.decorators import AppendDocFrom, NumpyDocstringFormatter
 from gofast.decorators import NumpyDocstring, sanitize_docstring
+from gofast.decorators import DataTransformer, Extract1dArrayOrSeries
 # Define a logger mock to capture warnings
 _logger = gofastlog.get_gofast_logger(__name__)
 # Source function with a comprehensive docstring
+# tests/test_decorators.py
+
+def test_data_transformer_dataframe():
+    @DataTransformer(rename_columns=True, verbose=True)
+    def process_data():
+        # This function intentionally returns a DataFrame with different column names
+        # than those specified in the original_attrs for testing purposes.
+        return pd.DataFrame([[1, 2], [3, 4]], columns=['X', 'Y'])
+    # Mocking original attributes to check if columns are renamed
+    process_data.original_attrs = {'columns': ['A', 'B']}
+    
+    df = process_data()
+    assert list(df.columns) == ['A', 'B'], "DataTransformer failed to rename columns"
+
+def test_data_transformer_series():
+    @DataTransformer(set_index=True, verbose=True)
+    def process_series():
+        return pd.Series([10, 20, 30])
+    
+    # Mocking original attributes to check if index is set
+    process_series.original_attrs = {'index': [1, 2, 3]}
+    
+    series = process_series()
+    assert list(series.index) == [1, 2, 3], "DataTransformer failed to set index"
+
+def test_extract_1d_array_or_series_from_dataframe():
+    df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
+    
+    @Extract1dArrayOrSeries(column='A', as_series=True)
+    def summarize_data(data):
+        return data.mean()
+
+    result = summarize_data(df)
+    assert result == 2, "Extract1dArrayOrSeries failed to extract column and calculate mean"
+
+def test_extract_1d_array_or_series_from_ndarray():
+    ndarray = np.array([[1, 2, 3], [4, 5, 6]])
+    
+    @Extract1dArrayOrSeries(axis=1, column=0, as_series=False)
+    def compute_average(data):
+        return np.mean(data)
+    
+    result = compute_average(ndarray)
+    assert result == 2.5, "Extract1dArrayOrSeries failed to extract axis and calculate mean"
 
 # Test that input data is converted to a DataFrame
 def test_data_conversion():
@@ -582,8 +627,6 @@ def test_signal_future_change_warning():
     # Verify that the warning was issued
     assert len(record) == 1
     assert "This function will be deprecated in future releases." in str(record[0].message)
-
-
 
 @pytest.fixture
 def mock_plot_data():

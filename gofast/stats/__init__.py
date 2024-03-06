@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from .proba import (
+from .probs import (
     binomial_pmf,
     hierarchical_linear_model,
     normal_cdf,

@@ -60,6 +60,470 @@ _logger = gofastlog.get_gofast_logger(__name__)
 
 __docformat__='restructuredtext'
 
+class DataTransformer:
+    """
+    A decorator class for transforming the output of functions that return
+    pandas DataFrames or Series. It can adjust the return value based on
+    specified parameters, including renaming columns, resetting indexes, or
+    setting a specific index. This class is useful for ensuring that the
+    output of data processing functions conforms to a specific structure or
+    naming convention.
+
+    Parameters
+    ----------
+    name : str, optional
+        The name of the keyword argument in the decorated function that 
+        contains the data to be transformed. If not specified, the first 
+        positional argument is used.
+    data_index : int, optional
+        The index of the data within the return value if the return is a 
+        tuple or list. This parameter is only used if the return value is 
+        not a single DataFrame or Series. Default is None, which implies 
+        that the first item in the return tuple/list is used in 'lazy' mode.
+    reset_index : bool, optional
+        If True, the index of the DataFrame or Series is reset. Default is False.
+    mode : {'lazy', 'hardworker'}, optional
+        The mode of operation. In 'lazy' mode, minimal changes are made to the 
+        return value. In 'hardworker' mode, the decorator attempts more 
+        extensive transformations. Default is 'lazy'.
+    verbose : bool, optional
+        If True, the decorator will print information about the transformations
+        it performs and any errors or warnings. Default is False.
+    set_index : bool, optional
+        If True and `original_attrs` has an 'index', the decorator will set 
+        this index to the return value. Default is False.
+    rename_columns : bool, optional
+        If True and `original_attrs` has 'columns', the decorator will rename 
+        the columns of the return value. This is only applicable if the return 
+        value is a DataFrame. Default is False.
+
+    Examples
+    --------
+    Use as a decorator to automatically convert the return value of a function 
+    to a DataFrame and rename columns based on a predefined structure:
+
+    >>> import pandas as pd
+    >>> from gofast.decorators import DataTransformer
+    >>> @DataTransformer(rename_columns=True, verbose=True)
+    ... def process_data():
+    ...     return pd.DataFrame([[1, 2], [3, 4]], columns=['A', 'B'])
+    ...
+    >>> df = process_data()
+    DataTransformer: Finished processing the result.
+    
+    The `process_data` function will return a DataFrame with columns renamed 
+    according to `original_attrs`, if they were collected and `rename_columns`
+    was set to True.
+
+    """
+    def __init__(
+        self, 
+        name=None, 
+        data_index=None, 
+        reset_index=False, 
+        mode='lazy', 
+        verbose=False, 
+        set_index=False, 
+        rename_columns=False
+    ):
+        self.name = name
+        self.data_index = data_index
+        self.reset_index = reset_index
+        self.mode = mode
+        self.verbose = verbose
+        self.set_index = set_index
+        self.rename_columns = rename_columns
+        self.original_attrs = {}
+
+    def __call__(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            # Pre-function execution: Data collection and attribute setup
+            if args:
+                self._collect_data_attributes(*args, **kwargs)
+            result = func(*args, **kwargs)
+            # Post-function execution: Data re-construction and manipulation
+            result = self._reconstruct_data(result)
+            return result
+        return wrapper
+    
+    def _collect_data_attributes(self, *args, **kwargs):
+        if self.name:
+            data = kwargs.get(self.name)
+        else:
+            data = args[0]  # Use the first positional argument if name is not specified
+        # Use tolist() to ensure JSON serializability if needed
+        if isinstance(data, pd.DataFrame):
+            self.original_attrs['columns'] = data.columns.tolist()  
+            self.original_attrs['index'] = data.index.tolist()
+        elif isinstance(data, pd.Series):
+            self.original_attrs['name'] = data.name
+            self.original_attrs['index'] = data.index.tolist()
+
+    def _reconstruct_data(self, result):
+        is_tuple_result = isinstance(result, (tuple, list))
+        data_index = self.data_index if self.data_index is not None else 0
+        
+        if is_tuple_result:
+            if data_index >= len(result):
+                if self.verbose:
+                    print(f"DataTransformer: Data position {data_index} is out"
+                          f" of range for the result size {len(result)}.")
+                return result
+            data = result[data_index]
+        else:
+            data = result
+        
+        # In lazy mode and data is already in the correct format, no need to reconstruct
+        if self.mode == 'lazy' and isinstance(data, (pd.DataFrame, pd.Series)):
+            return result
+
+        data = self._convert_and_adjust_data(data)
+        
+        # Re-insert transformed data into the original result structure if needed
+        if is_tuple_result:
+            result = list(result)  # Convert to list for mutability
+            result[data_index] = data
+            result = tuple(result)  # Convert back if originally a tuple
+        else:
+            result = data
+        
+        return result
+
+    def _convert_and_adjust_data(self, data):
+        if isinstance(data, np.ndarray):
+            data = self._convert_ndarray_to_pandas(data)
+        # Add additional conversion logic here for other data 
+        # types like lists or dictionaries
+
+        if isinstance(data, pd.DataFrame) and self.rename_columns:
+            data = self._rename_columns(data)
+
+        if (isinstance(data, (pd.DataFrame, pd.Series)) and self.set_index) or self.reset_index:
+            data = self._apply_index_and_name_settings(data)
+
+        return data
+
+    def _convert_ndarray_to_pandas(self, ndarray):
+        try:
+            if ndarray.ndim == 1:
+                return pd.Series(ndarray, name=self.original_attrs.get('name'))
+            elif ndarray.ndim > 1:
+                return pd.DataFrame(ndarray, columns=self.original_attrs.get('columns'))
+        except Exception as e:
+            if self.verbose:
+                print(f"DataTransformer: Error converting numpy array to DataFrame/Series - {e}")
+        return ndarray
+
+    def _rename_columns(self, dataframe):
+        try:
+            dataframe.columns = self.original_attrs['columns']
+        except Exception as e:
+            if self.verbose:
+                print(f"DataTransformer: Error renaming columns - {e}")
+        return dataframe
+
+    def _apply_index_and_name_settings(self, data):
+        if self.reset_index:
+            data.reset_index(drop=True, inplace=True)
+        elif self.set_index:
+            try:
+                data.index = self.original_attrs['index']
+            except Exception as e:
+                if self.verbose:
+                    print(f"DataTransformer: Error setting index - {e}")
+        return data
+    
+class Extract1dArrayOrSeries:
+    """
+    A decorator and callable that preprocesses input data to ensure it is 
+    provided to the decorated/called function as a one-dimensional NumPy 
+    array or Pandas Series.
+
+    This utility is designed to facilitate data extraction and conversion 
+    from various input formats (lists, dictionaries, Pandas DataFrames, 
+    and NumPy ndarrays) into a one-dimensional array or series. It is 
+    particularly useful for functions expecting standardized input data 
+    formats. The class supports dynamic parameter updates for `column`, 
+    `index`, `axis`, and `verbose` when used as a decorator.
+
+    Parameters
+    ----------
+    func : callable, optional
+        The function to be decorated. If None, the instance acts as a 
+        factory for partials with preset parameters.
+    column : str or int, optional
+        Specifies which column to extract from the input if it is a DataFrame
+        or multidimensional ndarray. Use an integer for index selection or a 
+        string for a DataFrame column name.
+    index : int, optional
+        Specifies which row to extract from the input if it is a DataFrame 
+        or ndarray.
+    axis : int, optional
+        Specifies the axis along which to extract a one-dimensional array 
+        from an ndarray. Valid values are 0 or 1.
+    method : {'strict', 'soft'}, default 'strict'
+        Specifies the behavior when a specified column or index is not found,
+        or when no specification is provided. 'soft' uses the first column 
+        if the specified one is missing without raising an error.
+    as_series : bool, default False
+        Determines whether the output should be a Pandas Series. If False, 
+        the output is a NumPy array.
+    verbose : int, default 0
+        Controls the verbosity of the process. A value greater than 0 
+        activates verbose output.
+    squeeze_arr : bool, default True
+        Determines whether to squeeze the input array to one dimension. 
+        Applicable to ndarrays only.
+
+    Returns
+    -------
+    The decorator returns the modified function with input data processed 
+    according to the specified parameters.
+
+    Raises
+    ------
+    TypeError
+        If the input is not a list, dictionary, Pandas DataFrame, or 
+        NumPy ndarray.
+    ValueError
+        If the specified conditions (e.g., column/index out of range, 
+        incorrect axis specification) are not met.
+
+    Examples
+    --------
+    Using as a decorator to ensure input data is a one-dimensional array:
+
+    >>> import numpy as np 
+    >>> import pandas as pd 
+    >>> from gofast.decorators import Extract1dArrayOrSeries
+    >>> @Extract1dArrayOrSeries(column=0, as_series=True, verbose=1)
+    >>> def compute_average(data):
+    ...     return data.mean()
+
+    >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
+    >>> print(compute_average(df))
+
+    Dynamically overriding decorator parameters in function call:
+
+    >>> @Extract1dArrayOrSeries(column='A', as_series=True)
+    >>> def summarize_data(data):
+    ...     return {'mean': data.mean(), 'std': data.std()}
+
+    >>> new_df = pd.DataFrame({'A': [10, 20, 30], 'B': [40, 50, 60]})
+    >>> # Overriding the 'column' parameter dynamically
+    >>> print(summarize_data(new_df, column='B'))
+    
+    Using as a callable:
+
+    >>> def process_data(data):
+    ...     # Expect data to be a one-dimensional NumPy array or Pandas Series
+    ...     return np.mean(data)
+
+    >>> decorated_function = Extract1dArrayOrSeries(process_data, column=0, as_series=False)
+    >>> ndarray = np.array([[1, 2, 3], [4, 5, 6]])
+    >>> print(decorated_function(ndarray))
+    """
+    def __init__(
+        self, 
+        func=None, *, 
+        column=None, 
+        index=None, 
+        axis=None, 
+        method='strict',
+        as_series=False, 
+        verbose=0, 
+        squeeze_arr=True
+        ):
+        self.func = func
+        self.column = column
+        self.index = index
+        self.axis = axis
+        self.method = method
+        self.as_series = as_series
+        self.verbose = verbose
+        self.squeeze_arr = squeeze_arr
+        
+        if func is not None:
+            functools.wraps(func)(self)
+
+    def __call__(self, *args, **kwargs):
+        # Dynamically update only specific 
+        # parameters if they are explicitly passed
+        dynamic_params = ['column', 'index', 'axis', 'verbose']
+        for param in dynamic_params:
+            if param in kwargs:
+                setattr(self, param, kwargs[param])
+        if self.func:
+            # Proceed with the possibly updated instance attributes
+            return self._wrapper(*args, **kwargs)
+        else:
+            return self._partial(*args, **kwargs)
+
+    def _partial(self, func):
+        @functools.wraps(func)
+        def wrapped(*args, **kwargs):
+            return self.__class__(
+                func, column=self.column, 
+                index=self.index, 
+                axis=self.axis,
+                method=self.method, 
+                as_series=self.as_series,
+                verbose=self.verbose, 
+                squeeze_arr=self.squeeze_arr
+            )(*args, **kwargs)
+        return wrapped
+    
+    def _wrapper(self, arr, *args, **kwargs):
+        arr = self._convert_input(arr)
+        
+        if isinstance(arr, pd.DataFrame):
+            result = self._extract_from_dataframe(arr)
+        elif isinstance(arr, np.ndarray):
+            result = self._extract_from_ndarray(arr)
+        else:
+            raise TypeError("The input must be either a Pandas DataFrame or a NumPy ndarray.")
+        
+        if self.as_series and isinstance(result, np.ndarray):
+            result = pd.Series(result)
+        elif not self.as_series and isinstance(result, pd.Series):
+            result = result.to_numpy()
+        
+        return self.func(result, *args, **kwargs)
+    
+    def __get__(self, instance, owner):
+        return self.__class__(
+            self.func.__get__(instance, owner), column=self.column, 
+            index=self.index, axis=self.axis,
+            method=self.method, as_series=self.as_series, verbose=self.verbose, 
+            squeeze_arr=self.squeeze_arr)
+
+    def _convert_input(self, arr):
+        """Convert input data to numpy array or pandas DataFrame if
+        it's a list or dictionary, respectively."""
+        if isinstance(arr, list):
+            arr = np.array(arr)
+        elif isinstance(arr, dict):
+            arr = pd.DataFrame(arr)
+        return arr
+        
+    def _extract_from_dataframe(self, arr):
+        """Extract data from a pandas DataFrame based on the 
+        specified column or index."""
+        if self.column is not None:
+            if isinstance(self.column, int):  # Column by integer index
+                self._validate_column_index(arr, self.column)
+                result = arr.iloc[:, self.column]
+            elif isinstance(self.column, str):  # Column by name
+                self._validate_column_name(arr, self.column)
+                result = arr[self.column]
+        elif self.index is not None:
+            result = arr.iloc[self.index]
+        else:
+            result = self._default_dataframe_extraction(arr)
+        return result
+    
+    def _extract_from_ndarray(self, arr):
+        """Extract a specific slice from a numpy ndarray based on 
+        the provided parameters."""
+        if arr.ndim > 1:
+            result = self._handle_multidimensional_array(arr)
+        else:
+            result = np.squeeze(arr) if self.squeeze_arr else arr
+        return result
+    
+    def _validate_column_index(self, arr, index):
+        """Validate if the provided column index is within the valid range."""
+        if index < 0 or index >= arr.shape[1]:
+            raise ValueError("The specified column index is out of range."
+                             " Please provide a valid index.")
+            
+    def _validate_column_name(self, arr, name):
+        """Validate if the provided column name exists in the DataFrame."""
+        if name not in arr.columns:
+            raise ValueError(f"The specified column name '{name}' does"
+                             " not exist in the DataFrame.")
+            
+    def _default_dataframe_extraction(self, arr):
+        """Extract the first column from a DataFrame by default when no 
+        specific column or index is provided."""
+        if self.method == 'soft':
+            if self.verbose:
+                print("No specific column or index provided; extracting"
+                      " the first column by default.")
+            return arr.iloc[:, 0]
+        else:
+            raise ValueError("No specific column or index was provided while "
+                             "a DataFrame was passed, and 'soft' method is not"
+                             " enabled.")
+    
+    def _handle_multidimensional_array(self, arr):
+        """
+        Handle the extraction from a multidimensional numpy array
+        based on axis and other parameters.
+        
+        This method takes into account the specified axis, column, index, and
+        the extraction method to retrieve a one-dimensional array from a 
+        multidimensional numpy array.
+        """
+        if self.axis is not None:
+            if self.axis == 0:
+                if self.index is not None:
+                    # Extract specific row
+                    result = arr[self.index, :]
+                else:
+                    if self.method == "soft":
+                        if self.column is not None and isinstance(self.column, int):
+                            self._validate_column_index(arr, self.column)
+                            result = arr[:, self.column]
+                            if self.verbose:
+                                print("Column specified, extracting based on "
+                                      "column index in 'soft' mode.")
+                        else:
+                            raise ValueError("Column must be an integer for "
+                                             "ndarray when 'soft' method is "
+                                             "used and axis=0.")
+                    else:
+                        raise ValueError("Column cannot be used for axis=0 "
+                                         "unless method is set to 'soft'.")
+            elif self.axis == 1:
+                if self.column is not None and isinstance(self.column, int):
+                    # Extract specific column
+                    self._validate_column_index(arr, self.column)
+                    result = arr[:, self.column]
+                elif self.index is not None:
+                    # Index behaves dually; here it acts 
+                    # as column extraction for axis=1
+                    if self.verbose:
+                        print("Index is treated as column for numpy array when axis=1.")
+                    self._validate_column_index(arr, self.index)
+                    result = arr[:, self.index]
+                else:
+                    raise ValueError("Either column or index needs to be "
+                                     "specified when axis is 1.")
+            else:
+                raise ValueError("Axis must be 0 or 1.")
+        else:
+            if self.squeeze_arr:
+                result = np.squeeze(arr)
+                if result.ndim >= 2:
+                    # Squeeze failed to convert to 1D; likely 
+                    # a matrix without a specified axis
+                    raise ValueError("Unable to automatically convert 2D array"
+                                     " to 1D without axis specification.")
+            else:
+                # No squeezing; ensure arr is already 1D or has a 
+                # single dimension to be treated as 1D
+                if arr.ndim == 2 and (arr.shape[0] == 1 or arr.shape[1] == 1):
+                    # Treat as 1D if one of the dimensions is 1,
+                    # regardless of orientation
+                    result = arr.flatten()
+                else:
+                    raise ValueError("Array is multidimensional and requires"
+                                     " axis specification for extraction.")
+        
+        return result
+
 class DynamicMethod:
     """
     A class-based decorator designed to preprocess data before it's passed to 
@@ -201,7 +665,6 @@ class DynamicMethod:
         
         return wrapper
 
-    
     def _validate_and_prepare_data(self, data, **kwargs):
         """
         Validates the input data and converts it to a pandas DataFrame if
