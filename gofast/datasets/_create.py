@@ -6,23 +6,21 @@ Created on Thu Dec 21 14:43:09 2023
 @author: a.k.a Daniel
 """
 from __future__ import annotations 
-
-import pandas as pd
-import numpy as np
+import warnings 
 import random
 from datetime import timedelta
+import pandas as pd
+import numpy as np
 from sklearn.model_selection import train_test_split 
 from ..tools.baseutils import remove_target_from_array
+
 from ..tools.box import Boxspace 
 from ..tools.coreutils import ellipsis2false ,assert_ratio, is_iterable 
 from ..tools.coreutils import is_in_if, _assert_all_types,  add_noises_to 
 from ..tools.coreutils import smart_format, random_sampling
 from ..tools.funcutils import ensure_pkg
-from ._globals import AFRICAN_COUNTRIES, DIAGNOSIS_UNITS
-from ._globals import COMMON_PESTICIDES, COMMON_CROPS 
-from ._globals import WATER_QUAL_NEEDS, WATER_QUAN_NEEDS, SDG6_CHALLENGES
-from ._globals import ORE_TYPE, EXPLOSIVE_TYPE, EQUIPMENT_TYPE
-
+from ._globals import HYDRO_PARAMS, HYDRO_PARAM_UNITS 
+from ._globals import RELEVANT_HYDRO_PARAMS, HYDRO_PARAM_RANGES  
 
 def make_classification(
     n_samples=100,
@@ -757,6 +755,7 @@ def make_african_demo(*,
     >>> print(demography_data.head())
 
     """ 
+    from ._globals import AFRICAN_COUNTRIES
     # Random seed for reproducibility
     np.random.seed(seed); data = []
     # check the given data 
@@ -920,6 +919,7 @@ def make_agronomy_feedback(*,
     >>> print(agronomy_data.head())
 
     """
+    from ._globals import COMMON_PESTICIDES, COMMON_CROPS 
     # Random seed for reproducibility
     np.random.seed(seed)
     n_specimens = int(_assert_all_types(n_specimens, int, float,
@@ -1147,6 +1147,7 @@ def make_mining_ops(
     >>> print(mining_data.head())
 
     """
+    from ._globals import ORE_TYPE, EXPLOSIVE_TYPE, EQUIPMENT_TYPE
     # Random seed for reproducibility
     np.random.seed(seed)
     
@@ -1481,6 +1482,7 @@ def make_medical_diagnosis(
     >>> medical_data.feature_units 
 
     """
+    from ._globals import DIAGNOSIS_UNITS, WATER_QUAL_NEEDS
     # Random seed for reproducibility
     np.random.seed(seed)
     
@@ -2997,6 +2999,7 @@ def make_water_demand(
 
      [700 rows x 39 columns]
     """
+    from ._globals import WATER_QUAL_NEEDS, WATER_QUAN_NEEDS, SDG6_CHALLENGES
     # Random seed for reproducibility
     np.random.seed(seed)
     
@@ -3051,8 +3054,205 @@ def make_water_demand(
         noise = noise, 
         seed=seed
         )
+
+def make_drill_ops(
+    *, samples=1000,
+    as_frame=False,
+    return_X_y=True,
+    split_X_y=False,
+    target_names=None,
+    ops='deep_mining',
+    test_size=0.3,
+    noise=None,
+    seed=None,
+    **kwargs):
+    """
+    Generate synthetic hydrogeological data tailored for drilling operations,
+    specifically designed for deep mining and hydrogeological exploration.
+    
+    This data can be utilized for training and testing machine learning models,
+    enabling predictive analyses and operational planning.
+
+    Parameters
+    ----------
+    samples : int, optional
+        The number of synthetic drilling operation samples to generate.
+        Each sample represents a unique set of conditions encountered during
+        drilling, based on the specified hydrogeological parameters. Default is 1000.
+    as_frame : bool, optional
+        Determines the format of the returned dataset. If set to True, the dataset
+        is returned as a pandas DataFrame, facilitating easier data manipulation and
+        analysis. Default is False.
+    return_X_y : bool, optional
+        If True, separates the dataset into features (X) and targets (y).
+        This is particularly useful for supervised learning tasks. Default is True.
+    split_X_y : bool, optional
+        If True and return_X_y is also True, further splits the dataset into
+        training and testing subsets based on the `test_size` parameter. This
+        split facilitates the evaluation of machine learning models. Default is False.
+    target_names : list of str, optional
+        Specifies the target hydrogeological parameters for prediction. If not provided,
+        default targets are selected based on the `ops` parameter, focusing on parameters
+        critical for the specified type of drilling operations. Default is None.
+    ops : str, optional
+        Specifies the type of drilling operations the synthetic data should represent,
+        influencing the selection of default target parameters. Options are 'deep_mining'
+        for operations focused on deep mineral extraction and 'regular' for standard
+        hydrogeological explorations. Default is 'deep_mining'.
+    test_size : float, optional
+        Proportion of the dataset to include in the test split when `split_X_y` is True.
+        This parameter is ignored if `split_X_y` is False. Default is 0.3.
+    noise : float, optional
+        Introduces Gaussian noise to the dataset to simulate measurement errors and
+        natural variability in hydrogeological parameters. The value represents the
+        standard deviation of the noise. Default is None.
+    seed : int or np.random.RandomState, optional
+        Provides a seed for the random number generator to ensure reproducible results.
+        Default is None.
+
+    Returns
+    -------
+    Bunch or tuple
+        If `return_X_y` is False, returns a Bunch object containing the dataset and
+        metadata. If `return_X_y` is True, returns the features (X) and targets (y) as
+        separate entities, optionally split into training and testing subsets if
+        `split_X_y` is also True.
+
+    Examples
+    --------
+    Generating a simple dataset with default settings:
+    
+    >>> from gofast.datasets import make_drill_ops
+    >>> data = make_drill_ops(samples=500)
+    
+    Generating and splitting a dataset for a 'regular' hydrogeological operation:
+    
+    >>> X_train, X_test, y_train, y_test = make_drill_ops(
+    ... samples=500, ops='regular',split_X_y=True, test_size=0.25,seed=42)
+
+    Note
+    ----
+    The synthetic data generated by this function is intended for simulation and
+    modeling purposes within the domain of hydrogeology and deep mining. It is
+    vital to consult with domain experts when applying insights derived from
+    this data to real-world scenarios.
+    """
+    ops_details = {
+        "deep_mine_targets": [
+            'aquifer_pressure', 
+            'temperature_gradients', 
+            'water_table_depth', 
+            'storativity_or_specific_yield'
+        ], 
+        "deep_mine_recommendations": (
+            "{} may not be the most relevant target for deep mining operations, "
+            "which typically prioritize parameters like {} due to their impact "
+            "on mine safety, water ingress risk, and thermal management. Consider "
+            "reassessing your operational focus or selecting a parameter that "
+            "aligns more closely with deep mining requirements."
+        ), 
+        "regular_targets": [
+            'hydraulic_conductivity', 
+            'permeability',
+            'fracture_density_and_orientation'
+        ], 
+        "regular_recommendations": ( 
+            "{} may not be the most relevant target for standard hydrogeological "
+            "operations, which often focus on parameters like {} due to their "
+            "significance in understanding water flow through rock formations "
+            "and planning dewatering strategies. Consider setting `ops` to a more "
+            "appropriate value or choosing a parameter more aligned with standard "
+            "hydrogeological assessments."
+        )
+    }
+    target_names= _validate_and_warn(target_names, ops, ops_details) 
+    ops_data = _make_drill_ops(samples = samples, as_frame=as_frame, seed=seed,
+                           split_X_y = split_X_y, target_names= target_names, 
+                           test_size = test_size, ops= ops, return_X_y= return_X_y) 
+    return _manage_data(
+        ops_data,
+        as_frame=as_frame, 
+        return_X_y= return_X_y, 
+        split_X_y=split_X_y, 
+        target_names=target_names, 
+        feature_units= HYDRO_PARAM_UNITS, 
+        test_size=test_size, 
+        noise = noise, 
+        seed=seed
+        )
+
+# --functions -utilities ----- 
+def _validate_and_warn(targets, ops, ops_details):
+    """
+    Validate target parameters against operation type and issue warnings if necessary.
+    Parameters:
+    - targets: list of target parameter names.
+    - ops: operation type, such as 'deep_mining', 'deep_mine', 'regular', or 'standards'.
+    """
+    default_target = 'aquifer_pressure' if str(ops).lower() in [
+        'deep_mining', 'deep_mine', 'deep_mine'] else 'hydraulic_conductivity'
+    targets = targets or [default_target]
+
+    for target in targets:
+        if target not in RELEVANT_HYDRO_PARAMS.keys():
+            if ops in ['deep_mining', 'deep_mine'] and target not in ops_details["deep_mine_targets"]:
+                warnings.warn(ops_details["deep_mine_recommendations"].format(
+                    target, smart_format(ops_details["deep_mine_targets"])), UserWarning)
+            elif ops in ['regular', 'standards'] and target not in ops_details["regular_targets"]:
+                warnings.warn(ops_details["regular_recommendations"].format(
+                    target, smart_format(ops_details["regular_targets"])), UserWarning)
+            else:
+                warnings.warn(
+                    f"The selected target '{target}' is not among the recommended"
+                    " parameters for '{ops}' operations. It's important to select"
+                    " targets that are critical to the specific operational goals."
+                    " If unsure, consider consulting with a hydrogeology or mining"
+                    " expert to ensure the selection of appropriate parameters for "
+                    "your study or operational planning.", UserWarning)
+    return targets 
+
+def _make_drill_ops(
+    *, samples=1000, as_frame=False, return_X_y=True, split_X_y=False,
+    target_names=None, ops='deep_mining', test_size=0.3, noise=None,
+    seed=None, **kwargs):
+    """ A miror of `make_drill_ops`. """
+    np.random.seed(seed)
+    data = {}
+    features = list(HYDRO_PARAMS.keys()) + list(RELEVANT_HYDRO_PARAMS.keys())
+    # Define categories for categorical features
+    CATEGORY_MAPS = {
+        "water_quality_parameters": ["Potable", "Non-potable", "Industrial", "Agricultural"],
+        "fracture_density_and_orientation": ["Low Density", "Medium Density", "High Density"]
+    }
+    for feature in features:
+        if feature in CATEGORY_MAPS:
+            categories = CATEGORY_MAPS[feature]
+            data[feature] = _generate_categorical_values(samples, categories, seed)
+        else:# Default range if not specified use (0,1)
+            min_val, max_val = HYDRO_PARAM_RANGES.get(feature, (0, 1)) 
+            data[feature] = _generate_synthetic_values(samples, min_val, max_val, noise, seed)
+
+    return pd.DataFrame(data)
+
+def _generate_synthetic_values(
+        samples, range_min, range_max, noise=None, seed=None):
+    """
+    Generate synthetic data within a given range, optionally adding noise.
+    """
+    np.random.seed(seed)
+    values = np.random.uniform(range_min, range_max, samples)
+    if noise:
+        values += np.random.normal(0, noise, samples)
+    return values
  
-# --func -utilities -----  
+def _generate_categorical_values(samples, categories, seed=None):
+    """
+    Generate synthetic categorical data based on specified categories.
+    """
+    np.random.seed(seed)
+    values = np.random.choice(categories, size=samples)
+    return values
+
 def _generate_regression_output(X, coef, bias, noise, regression_type):
     """
     Generates the regression output based on the specified regression type.
@@ -3241,8 +3441,8 @@ def _manage_data(
     # Noises only in the data not in target  
     data = add_noises_to(data, noise = noise , seed=seed )
     if not as_frame: 
-        data = np.array (data )
-        y = np.array(y ) 
+        data =  np.asarray (data ) 
+        y = np.asarray(y ) 
             
     if split_X_y: 
         return train_test_split ( 

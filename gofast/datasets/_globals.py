@@ -879,71 +879,121 @@ DIAGNOSIS_UNITS = {
     'other_vaccines': 'binary'
 }
 
-#  all hydrogeological parameters with their definitions
-# DATAFRAME WITH has id and name and location in the world. 
+# Hydrogeological parameters with their definitions and importance in 
+# assessing groundwater resources, mining operations, and environmental 
+# management.
 HYDRO_PARAMS = {
     "porosity": (
-        "Measure of the void spaces in a material, indicating how much water"
-        " a rock formation can store."
-        ),
-    "permeability": "Indicates how easily water can flow through the rock formations.",
+        "Measure of the void spaces in a material, indicating how much water "
+        "a rock formation can store. Porosity is expressed as a percentage, "
+        "reflecting the volume of voids within the material compared to its "
+        "total volume."
+    ),
+    "permeability": (
+        "Indicates how easily water can flow through rock formations, measured "
+        "in Darcy (D) or millidarcy (mD). High permeability suggests that water "
+        "can move freely through the rock, while low permeability indicates "
+        "restricted water flow."
+    ),
     "hydraulic_conductivity": (
-        "Measures the ability of the formation to transmit water under a"
-        " hydraulic gradient."),
-    "transmissivity":(
-        "Measure of how much water can be transmitted horizontally through an aquifer."
-        ),
-    "storativity_or_specific_yield": (
-        "Reflects the volume of water that an aquifer can store and yield."),
-    "fracture_density_and_orientation":(
-        "Density and orientation of fractures, crucial for predicting water"
-        " flow patterns.")
-    ,
-    "water_table_depth": "Direct measurement of the depth to the water table.",
+        "Measures the ability of a formation to transmit water under a "
+        "hydraulic gradient, typically expressed in meters per day (m/d). "
+        "This parameter is essential for understanding the movement of water "
+        "through aquifers and the potential for dewatering in mining operations."
+    ),
+    "transmissivity": (
+        "Measure of how much water can be transmitted horizontally through an "
+        "aquifer layer, expressed in square meters per day (m2/day). It integrates "
+        "the hydraulic conductivity over the thickness of the aquifer, providing "
+        "an overall estimate of the aquifer's capacity to convey water."
+    ),
+    "storativity": (
+        "Also known as the storage coefficient, storativity reflects the volume "
+        "of water an aquifer can release from storage per unit decline in hydraulic "
+        "head, dimensionless for confined aquifers and typically very low."
+    ),
+    "specific_yield": (
+        "The ratio of the volume of water that drains from a material due to "
+        "gravity to the total volume of the material, expressed as a percentage. "
+        "Specific yield is a critical parameter for evaluating water availability "
+        "in unconfined aquifers."
+    ),
+    "fracture_density_and_orientation": (
+        "Describes the density and orientation of fractures within rock formations, "
+        "which are crucial for predicting water flow patterns and managing the risks "
+        "associated with water or gas ingress in mining and hydrogeological studies."
+    ),
+    "water_table_depth": (
+        "Direct measurement of the depth to the water table from the surface, "
+        "expressed in meters (m). Understanding the water table depth is essential "
+        "for groundwater exploration, well drilling, and assessing the potential "
+        "for water inflow into mines."
+    ),
     "aquifer_pressure": (
-        "Pressure within aquifers, affected by geological stresses, affecting"
-        " water storage and movement."
-        ),
-    "water_quality_parameters": ( 
-        "Includes salinity, pH, and presence of contaminants, determining "
-        "groundwater suitability for uses."
-        ),
+        "The pressure within an aquifer, which can be affected by geological "
+        "stresses and is crucial for understanding water storage and movement. "
+        "Aquifer pressure is measured in Pascals (Pa) or bars and influences the "
+        "risk of water inflow into mining operations."
+    ),
+    "water_quality_parameters": (
+        "Includes critical factors such as salinity, pH, and the presence of "
+        "contaminants. These parameters determine the groundwater's suitability "
+        "for various uses, including drinking, agriculture, and industrial processes, "
+        "and are vital for environmental impact assessments."
+    ),
     "temperature_gradients": (
-        "Indicates geothermal gradients, affecting water quality and "
-        "geothermal energy potential."
-        )
+        "Represents the variation in temperature with depth, indicating geothermal "
+        "gradients. Temperature gradients are essential for understanding water "
+        "quality, geothermal energy potential, and designing effective mine "
+        "ventilation and cooling systems."
+    )
 }
 
 # hydrogeological parameters crucial for deep mining with their roles
 RELEVANT_HYDRO_PARAMS = {
     "permeability": (
-        "Indicates risk of water ingress by showing how easily water can"
-        " flow through rock formations, indicating risk of water ingress."
-        ),
+        "Indicates risk of water ingress by showing how easily water can "
+        "flow through rock formations. Essential for assessing the risk of "
+        "water ingress into mining operations."
+    ),
     "hydraulic_conductivity": (
         "Measures the rock's ability to transmit water under a hydraulic "
-        "gradient, crucial for understanding water movement and "
-        "indicating risk of water ingress."
-        ),
+        "gradient. This parameter is crucial for understanding water movement "
+        "and managing the risk of water ingress."
+    ),
     "fracture_density_and_orientation": (
-        "Crucial for planning mine layouts to avoid water or gas ingress"
-        " hazards."
-        ),
+        "Density and orientation of fractures are crucial for planning mine "
+        "layouts to avoid water or gas ingress hazards."
+    ),
     "water_table_depth": ( 
-        "Helps predict potential for water inflow and the need for dewatering"
-        " operations.") ,
-    "storativity_or_specific_yield": ( 
-        "Important for managing water control measures and dewatering"
-        " strategies.") ,
+        "The depth to the water table helps predict the potential for water "
+        "inflow and the need for dewatering operations."
+    ),
+    "storativity": ( 
+        "Storativity (or the storage coefficient) reflects the volume of "
+        "water an aquifer can release from storage. Important for managing "
+        "water control measures in confined aquifers."
+    ),
+    "specific_yield": ( 
+        "Specific yield is the ratio of the volume of water that drains from "
+        "a material due to gravity to the total volume of the material. "
+        "Critical for evaluating water availability in unconfined aquifers."
+    ),
     "aquifer_pressure": ( 
-        "Affects the risk of water inflow from high-pressure aquifers, "
-        "requiring careful management."),
+        "Aquifer pressure, influenced by geological stresses, affects the "
+        "risk of water inflow from high-pressure aquifers, requiring careful "
+        "management in mining operations."
+    ),
     "temperature_gradients": ( 
-        "Affects working conditions and mine stability, important for "
-        "ventilation and cooling system design.") ,
+        "Temperature gradients within the earth's crust can affect working "
+        "conditions and mine stability. This parameter is important for "
+        "the design of ventilation and cooling systems."
+    ),
     "water_quality_parameters":(
-        "Important for environmental impact management and ensuring "
-        "safety of discharged water.")
+        "Parameters such as salinity, pH, and the presence of contaminants "
+        "are important for environmental impact management and ensuring the "
+        "safety of discharged water from mining operations."
+    )
 }
 
 HYDRO_PARAM_UNITS={
@@ -958,6 +1008,72 @@ HYDRO_PARAM_UNITS={
     "temperature": "°C (degrees Celsius)"
 }
 
+HYDRO_PARAM_RANGES = {
+    "porosity": (
+        0.01, 0.35, 
+        # Porosity indicates the fraction of void space within a rock formation, 
+        # expressed as a percentage. It plays a crucial role in determining 
+        # the rock's ability to store water. Typical values range from 1% to 35%, 
+        # varying widely across different geological formations.
+    ),
+    "permeability": (
+        1e-5, 1e3, 
+        # Permeability measures the ease with which fluids can flow through 
+        # rock formations, quantified in Darcies. This parameter spans a broad 
+        # spectrum, from less than one millidarcy in tight formations to 
+        # thousands of Darcies in highly permeable sands or gravels.
+    ),
+    "hydraulic_conductivity": (
+        1e-6, 1e-1, 
+        # Hydraulic conductivity quantifies the capacity of a rock formation to 
+        # transmit water under a hydraulic gradient, with units of meters per second (m/s). 
+        # Values range from very low for materials like clay to moderately high for 
+        # gravelly soils, reflecting the diverse hydrogeological characteristics.
+    ),
+    "transmissivity": (
+        1e-4, 1e3, 
+        # Transmissivity represents the ability of an aquifer to transmit water 
+        # horizontally, measured in square meters per day (m2/day). It integrates 
+        # hydraulic conductivity across the thickness of the aquifer, covering 
+        # a wide range from low productivity to highly productive aquifers.
+    ),
+    "storativity": (
+        1e-5, 0.2, 
+        # Storativity, or the storage coefficient, describes the amount of water 
+        # an aquifer releases or absorbs per unit area per unit change in head. 
+        # For confined aquifers, this value is typically very low, whereas for 
+        # unconfined aquifers, it can be as high as 20%.
+    ),
+    "specific_yield": (
+        0.01, 0.3, 
+        # Specific yield refers to the proportion of water that can be drained 
+        # from the material due to gravity, applicable to unconfined aquifers. 
+        # It is similar to porosity but only considers the water that can be 
+        # freely mobilized and used.
+    ),
+    "water_table_depth": (
+        1, 500, 
+        # The depth to the water table, measured in meters, indicates the distance 
+        # from the ground surface to the upper boundary of the groundwater. This 
+        # depth can significantly vary depending on the geographical and 
+        # hydrological conditions.
+    ),
+    "aquifer_pressure": (
+        1e5, 1e7, 
+        # Aquifer pressure, measured in Pascals, influences the movement and 
+        # storage of groundwater. Values can range from relatively low pressures 
+        # in shallow aquifers to very high pressures in deeper geological 
+        # formations.
+    ),
+    "temperature": (
+        10, 60, 
+        # Groundwater temperature, measured in degrees Celsius, is affected by 
+        # geothermal gradients and surface conditions. This parameter is essential 
+        # for understanding thermal dynamics in aquifers and designing 
+        # geothermal energy systems.
+    )
+}
+
 # Note: The list and details are illustrative and based on generalized data; 
 # specific figures andBased on the insights gathered from various sources,
 # including the U.S. Geological Survey's Mineral Commodity Summaries 2023,
@@ -966,7 +1082,6 @@ HYDRO_PARAM_UNITS={
 # reserves, production capacities, and exports. This comprehensive list aims
 # to highlight a diverse range of countries and their contributions to the 
 # global mining sector, focusing on various minerals and their economic impact.
-
 MINERAL_PROD_BY_COUNTRY = {
     "Australia": [
         "Vast reserves of bauxite, iron ore, lithium",
