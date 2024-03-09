@@ -677,9 +677,6 @@ def plot_normal_cdf2(
     line_width : float, optional
         The width of the plot line. Defaults to 2.
 
-    Returns
-    -------
-    None
     """
     if x_range is None:
         x_range = (mean - 4*std_dev, mean + 4*std_dev)
