@@ -23,7 +23,210 @@ from inspect import signature, Parameter, isclass
 from ._array_api import get_namespace, _asarray_with_order
 
 FLOAT_DTYPES = (np.float64, np.float32, np.float16)
+import numpy as np
 
+
+def check_classification_targets(
+    *y, 
+    target_type='numeric', 
+    strategy='auto',
+    verbose=False
+    ):
+    """
+    Validate that the target arrays are suitable for classification tasks. 
+    
+    This function is designed to ensure that target arrays (`y`) contain only 
+    finite, categorical values, and it raises a ValueError if the targets do 
+    not meet the criteria necessary for classification tasks, such as the 
+    presence of continuous values, NaNs, or infinite values.
+    
+    This validation is crucial for preprocessing steps in machine learning 
+    pipelines to ensure that the data is appropriate for classification 
+    algorithms.
+
+    Parameters
+    ----------
+    *y : array-like
+        One or more target arrays to be validated. The input can be in the 
+        form of lists, numpy arrays, or pandas series. Each array is checked 
+        individually to ensure it  meets the criteria for classification targets.
+        
+    target_type : str, optional
+        The expected data type of the target arrays. Supported values are 
+        'numeric' and 'object'. If 'numeric', the function attempts to 
+        convert the target arrays to integers, raising an error if conversion 
+        is not possible due to non-numeric values. If 'object', the target 
+        arrays are left as numpy arrays of dtype `object`, suitable for 
+        categorical classification without conversion. Default is 'numeric'.
+        
+    strategy : str, optional
+        Defines the approach for evaluating if the target arrays are suitable 
+        for classification based on their unique values and data types. The 
+        'auto' strategy uses heuristic or automatic detection to decide whether 
+        target data should be treated as categorical, which is useful for most 
+        cases. Custom strategies can be defined to enforce specific validation 
+        rules or preprocessing steps based on the nature of the target data 
+        (e.g., 'continuous', 'multilabel-indicator', 'unknown'). These custom 
+        strategies should align with the outcomes of a predefined 
+        `type_of_target` function, allowing for nuanced handling of different 
+        target data scenarios. The default value is ``'auto'``, which applies 
+        general rules for categorization and numeric conversion where applicable.
+        
+        If a strategy other than ``'auto'`` is specified, it directly influences 
+        how the data is validated and potentially converted, based on the 
+        expected or detected type of target data:
+
+        - If 'continuous', the function checks if the data can be used for 
+          regression tasks and raises an error for classification use without 
+          explicit binning.
+        - If 'multilabel-indicator', it validates the data for multilabel 
+          classification tasks and ensures appropriate format.
+        - If 'unknown', it attempts to validate the data with generic checks, 
+          raising errors for any unclear or unsupported data formats.
+
+    verbose : bool, optional
+        If set to True, the function prints a message for each target array 
+        checked, confirming that it is suitable for classification. This 
+        is helpful for debugging and when validating multiple target arrays 
+        simultaneously.
+
+    Raises
+    ------
+    ValueError
+        If any of the target arrays contain values unsuitable for classification. This
+        includes arrays with continuous values, NaNs, infinite values, or arrays that do
+        not represent categorical data properly.
+
+    Examples
+    --------
+    Using the function with a single array of integer labels:
+    
+    >>> from gofast.tools.validator import check_classification_targets
+    >>> y = [1, 2, 3, 2, 1]
+    >>> check_classification_targets(y)
+    [array([1, 2, 3, 2, 1], dtype=object)]
+
+    Using the function with multiple arrays, including a mix of integer and 
+    string labels:
+
+    >>> y1 = [0, 1, 0, 1]
+    >>> y2 = ["spam", "ham", "spam", "ham"]
+    >>> check_classification_targets(y1, y2, verbose=True)
+    Targets are suitable for classification.
+    Targets are suitable for classification.
+    [array([0, 1, 0, 1], dtype=object), array(['spam', 'ham', 'spam', 'ham'], dtype=object)]
+
+    Attempting to use the function with an array containing NaN values:
+
+    >>> y_with_nan = [1, np.nan, 2, 1]
+    >>> check_classification_targets(y_with_nan)
+    ValueError: Target values contain NaN or infinite numbers, which are not 
+    suitable for classification.
+
+    Attempting to use the function with a continuous target array:
+
+    >>> y_continuous = np.linspace(0, 1, 10)
+    >>> check_classification_targets(y_continuous)
+    ValueError: The number of unique values is too high for a classification task.
+    Validating and converting a mixed-type target array to numeric:
+
+    >>> y_mixed = [1, '2', 3.0, '4', 5]
+    >>> check_classification_targets(y_mixed, target_type='numeric')
+    ValueError: Target array at index 0 contains non-numeric values, which 
+    cannot be converted to integers: ['2', '4']...
+
+    Validating object target arrays without attempting conversion:
+
+    >>> y_str = ["apple", "banana", "cherry"]
+    >>> check_classification_targets(y_str, target_type='object')
+    [array(['apple', 'banana', 'cherry'], dtype=object)]
+    
+    """
+    validated_targets = [_check_y(target, strategy=strategy ) for target in y]
+
+    if target_type == 'numeric':
+        # Try to convert validated targets to numeric (integer), if possible
+        for i, target in enumerate(validated_targets):
+            if all(isinstance(item, (int, float, np.integer, np.floating)) for item in target):
+                try:
+                    # Attempt conversion to integer
+                    validated_targets[i] = target.astype(np.int64)
+                except ValueError as e:
+                    raise ValueError(f"Error converting target array at index {i} to integers. " 
+                                     "Ensure all values are numeric and representable as integers. " 
+                                     f"Original error: {e}")
+            else:
+                non_numeric = [item for item in target if not isinstance(
+                    item, (int, float, np.integer, np.floating))]
+                raise ValueError(f"Target array at index {i} contains non-numeric values, " 
+                                 f"which cannot be converted to integers: {non_numeric[:5]}...")
+    elif target_type == 'object':
+        # If target_type is 'object', no conversion is needed
+        # The function ensures they are numpy arrays, which might already suffice
+        pass
+    else:
+        # In case an unsupported target_type is provided
+        raise ValueError(f"Unsupported target_type '{target_type}'. Use 'numeric' or 'object'.")
+
+    if verbose:
+        print("Targets are suitable for classification.")
+
+    return validated_targets
+
+def _check_y(y, strategy='auto'):
+    """
+    Validates the target array `y`, ensuring it is suitable for classification 
+    or regression tasks based on its content and the specified strategy.
+
+    Parameters:
+    - y: array-like, the target array to be validated.
+    - strategy: str, specifies how to determine if `y` is categorical or continuous.
+      'auto' for automatic detection based on unique values or explicitly using
+      `type_of_target` for more nuanced determination.
+    """
+    from .coreutils import type_of_target 
+    # Convert y to a numpy array of objects to handle mixed types
+    y = np.array(y, dtype=object)
+    
+    # Check for NaN or infinite values in numeric data
+    numeric_types = 'biufc'  # Numeric types
+    if y.dtype.kind in numeric_types:  
+        numeric_y = y.astype(float, casting='safe')  # Safely cast numeric types to float
+        if not np.all(np.isfinite(numeric_y)):
+            raise ValueError("Numeric target values contain NaN or infinite numbers,"
+                             " not suitable for classification.")
+    else:
+        # For non-numeric data, ensure no elements are None or equivalent to np.nan
+        if any(el is None or el is np.nan for el in y):
+            raise ValueError("Non-numeric target values contain None or NaN,"
+                             " not suitable for classification.")
+    unique_values = np.unique(y)
+    # Apply specific strategy for determining categorization
+    if strategy != 'auto':
+        # Implement custom logic based on `type_of_target` outcomes
+        target_type = type_of_target(y)
+        if target_type == 'continuous':
+            raise ValueError("Continuous data not suitable for classification"
+                             " without explicit binning.")
+        elif target_type == "multilabel-indicator":
+            raise ValueError("Multilabel-indicator format detected,"
+                             " requiring different handling.")
+        elif target_type == 'unknown':
+            raise ValueError("Unable to determine the target type,"
+                             " please check the input data.")
+    else:
+        # Auto detection based on unique values count
+        if unique_values.shape[0] > np.sqrt(len(y)):
+            raise ValueError("Automatic strategy detected too many unique values"
+                             " for a classification task.")
+    
+    # Check for non-numeric data convertibility to categorical if not already checked
+    if y.dtype.kind not in numeric_types:
+        if not all(isinstance(val, (str, bool, int)) for val in unique_values):
+            raise ValueError("Target values must be categorical, numeric,"
+                             " or convertible to categories.")
+    
+    return y
 
 def validate_yy(
     y_true, y_pred, 

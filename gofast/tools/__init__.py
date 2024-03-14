@@ -68,6 +68,8 @@ from .coreutils import (
 from .mathex import (
     adaptive_moving_average,
     binning_statistic,
+    calculate_binary_iv, 
+    calculate_optimal_bins, 
     calculate_residuals,
     category_count,
     compute_effort_yield,
@@ -152,6 +154,8 @@ __all__=[
      'boxcox_transformation',
      'build_data_preprocessor',
      'butterworth_filter',
+     'calculate_binary_iv', 
+     'calculate_optimal_bins', 
      'calculate_residuals',
      'categorize_target',
      'category_count',

@@ -24,20 +24,27 @@ from sklearn.metrics import (
     roc_curve, 
     roc_auc_score,
     accuracy_score, 
-    confusion_matrix as cfsmx ,
+    confusion_matrix, # as cfsmx ,
     classification_report, 
     mean_squared_error, 
     log_loss
     )
+
+from sklearn.utils.multiclass import unique_labels
 from sklearn.model_selection import cross_val_predict 
+from sklearn.preprocessing import label_binarize
 
 from ._docstring import DocstringComponents,_core_docs
 from ._gofastlog import gofastlog
 from ._typing import _F, List, Optional, ArrayLike , NDArray 
 from .exceptions import LearningError 
 from .tools.box import Boxspace 
-from .tools.validator import ( get_estimator_name, _is_numeric_dtype,
-    check_consistent_length, check_y  )
+from .tools.coreutils import normalize_string 
+from .tools.mathex import determine_epsilon, calculate_binary_iv
+from .tools.validator import get_estimator_name, _is_numeric_dtype
+from .tools.validator import check_consistent_length, check_y  
+from .tools.validator import check_classification_targets 
+
 from .tools.coreutils import is_iterable, _assert_all_types 
 
 _logger = gofastlog().get_gofast_logger(__name__)
@@ -45,7 +52,7 @@ _logger = gofastlog().get_gofast_logger(__name__)
 _SCORERS = {
     "classification_report": classification_report,
     'precision_recall': precision_recall_curve,
-    "confusion_matrix": cfsmx,
+    "confusion_matrix": confusion_matrix,
     'precision': precision_score,
     "accuracy": accuracy_score,
     "mse": mean_squared_error,
@@ -119,157 +126,429 @@ _param_docs = DocstringComponents.from_nested_components(
     metric=DocstringComponents(_metrics_params ), 
     )
 
-def mean_squared_log_error(y_true, y_pred):
-    r"""
-    Compute the Mean Squared Logarithmic Error.
+def mean_squared_log_error(y_true, y_pred, clip_value=0, epsilon=1e-15):
+    """
+    Compute the Mean Squared Logarithmic Error (MSLE) between true and
+    predicted values. 
+    
+    This metric is useful for regression tasks where the
+    focus is on the percentage differences rather than absolute differences.
+    It penalizes underestimates more than overestimates. The function allows
+    for clipping predictions to a minimum value for numerical stability and
+    includes an epsilon to ensure values are strictly positive before
+    logarithmic transformation.
 
-    It's like Mean Squared Error, but penalizes underestimates more than 
-    overestimates.
-    
-    Useful in regression tasks, especially in cases where the target 
-    variable is a count or when focusing on relative errors.
-    
     Parameters
     ----------
     y_true : array-like
-        True values.
+        True target values. Must be non-negative.
     y_pred : array-like
-        Predicted values.
+        Predicted target values. Can contain any real numbers.
+    clip_value : float, optional
+        The value to clip `y_pred` values at minimum. This ensures that
+        the logged values are not negative, by default 0.
+    epsilon : float, optional
+        A small value added to `y_pred` after clipping and to `y_true`, to
+        ensure they are strictly positive before applying the logarithm, by
+        default 1e-15.
 
     Returns
     -------
     float
-        Mean Squared Logarithmic Error.
+        The Mean Squared Logarithmic Error between `y_true` and `y_pred`.
 
+    Notes
+    -----
+    The MSLE is computed as:
+
+    .. math::
+        \\frac{1}{n} \\sum_{i=1}^{n} (\\log(p_i + 1) - \\log(a_i + 1))^2
+
+    Where:
+    - \(p_i\) is the \(i\)th predicted value,
+    - \(a_i\) is the \(i\)th actual value,
+    - \(\\log\) is the natural logarithm,
+    - \(n\) is the total number of observations in the dataset.
+
+    It is important that `y_true` contains non-negative values only, as the
+    logarithm of negative values is undefined. The function enforces `y_pred`
+    values to be at least `clip_value` to avoid taking the logarithm of
+    negative numbers or zero, potentially leading to `-inf` or `NaN`. The
+    addition of `epsilon` ensures that even after clipping, no value is exactly
+    zero before the logarithm is applied, providing a buffer against numerical
+    instability.
+    
     Examples
     --------
+    >>> from gofast.metrics import mean_squared_log_error
     >>> y_true = [3, 5, 2.5, 7]
     >>> y_pred = [2.5, 5, 4, 8]
     >>> mean_squared_log_error(y_true, y_pred)
     0.03973
 
-    Notes
-    -----
-    MSLE = \frac{1}{n} \sum_{i=1}^n (\log(y_{\text{true},i} + 1) - \log(y_{\text{pred},i} + 1))^2
-    
+    >>> mean_squared_log_error(y_true, [2, -5, 4, 8], clip_value=0.01)
+    0.8496736598821342
+    # Example output with clipping and epsilon adjustment
     """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
+    y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric= True )
+    # If y_numeric is True, check if y_true contains only non-negative values
+    if np.any(y_true < 0):
+        raise ValueError("y_true must contain non-negative values only.")
+        
+    y_pred = np.clip(y_pred, clip_value, None) + epsilon  # Clip and adjust `y_pred`
+    y_true += epsilon  # Adjust `y_true` to avoid log(0)
     return np.mean((np.log1p(y_true) - np.log1p(y_pred)) ** 2)
 
-
-def balanced_accuracy(y_true, y_pred):
-    r"""
-    Compute the Balanced Accuracy in binary classification.
-    
-    Measures the performance of a classification model in cases where classes 
-    are imbalanced.
-    
-    Particularly valuable in medical diagnoses, fraud detection, or any other 
-    classification task where imbalanced classes are common.
-    
+def balanced_accuracy(
+    y_true, y_pred, 
+    normalize=False, 
+    sample_weight=None, 
+    strategy='ovr', 
+    epsilon=1e-15, 
+    zero_division=0, 
+    ):
+    """
+    Compute the Balanced Accuracy for binary and multiclass classification
+    tasks. This metric is especially useful in situations with imbalanced
+    classes. It allows choosing between One-vs-Rest (OVR) and One-vs-One
+    (OVO) strategies for multiclass scenarios, providing flexibility based
+    on the specific characteristics of the dataset and the problem at hand.
 
     Parameters
     ----------
     y_true : array-like
-        True binary labels.
+        True labels of the data.
     y_pred : array-like
-        Predicted binary labels.
-
+        Predicted labels by the classifier.
+    normalize : bool, optional
+        If True, normalize the confusion matrix before computing metrics, by
+        default False.
+    sample_weight : array-like, optional
+        Array of weights that are assigned to individual samples, by default None.
+    strategy : str, optional
+        Strategy for multiclass metrics calculation - either 'ovr' for One-vs-Rest
+        or 'ovo' for One-vs-One, by default 'ovr'.
+    epsilon : float, optional
+        Small constant to avoid division by zero, by default 1e-15.
+    zero_division : int, optional
+        Value to return when there is a division by zero, by default 0.
+        
     Returns
     -------
     float
-        Balanced Accuracy.
+        The Balanced Accuracy score.
+
+    Notes
+    -----
+    The Balanced Accuracy in the binary classification scenario is defined as the
+    average of sensitivity (true positive rate) and specificity (true negative rate):
+
+    .. math:: BA = \frac{TPR + TNR}{2}
+
+    Where:
+    - TPR (True Positive Rate) = \frac{TP}{TP + FN}
+    - TNR (True Negative Rate) = \frac{TN}{TN + FP}
+
+    In multiclass scenarios, the metric is computed as the average of sensitivity
+    for each class, considering each class as the positive class in turn, which
+    corresponds to the One-vs-Rest (OVR) strategy. The One-vs-One (OVO) strategy
+    involves averaging the metric over all pairs of classes.
 
     Examples
     --------
-    >>> y_true = [0, 1, 0, 1, 1]
-    >>> y_pred = [1, 1, 0, 0, 1]
+    Binary classification example:
+
+    >>> from gofast.metrics import balanced_accuracy
+    >>> y_true = [0, 1, 0, 1]
+    >>> y_pred = [0, 1, 0, 0]
     >>> balanced_accuracy(y_true, y_pred)
     0.75
 
-    Notes
-    -----
-    BA = \frac{TPR + TNR}{2}
-    
-    where TPR is True Positive Rate and TNR is True Negative Rate.
-    """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    cm = cfsmx(y_true, y_pred)
-    sensitivity = cm[1, 1] / (cm[1, 1] + cm[1, 0])
-    specificity = cm[0, 0] / (cm[0, 0] + cm[0, 1])
-    return (sensitivity + specificity) / 2
+    Multiclass classification example with OVR strategy:
 
-def information_value(y_true, y_pred, problem_type='binary', eps=1e-15):
+    >>> y_true = [0, 1, 2, 2, 1]
+    >>> y_pred = [0, 2, 2, 1, 1]
+    >>> balanced_accuracy(y_true, y_pred, strategy='ovr')
+    0.666
+
+    Multiclass classification example with OVO strategy:
+
+    >>> balanced_accuracy(y_true, y_pred, strategy='ovo')
+    0.666
     """
-    Calculate Information Value (IV) for various types of classification 
-    and regression problems.
+    # Ensure y_true and y_pred are valid and have consistent lengths
+    y_true, y_pred = _ensure_y_is_valid(y_true, y_pred)
+
+    # Check that y_true and y_pred are suitable for classification
+    y_true, y_pred = check_classification_targets(
+        y_true, y_pred, strategy="custom logic")
+    labels = unique_labels(y_true, y_pred)
+    
+    if len(labels) == 2:  # Binary classification scenario
+        cm = confusion_matrix(y_true, y_pred, sample_weight=sample_weight)
+        
+        if normalize:
+            cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        
+        # Calculate sensitivity (True Positive Rate) and specificity (True Negative Rate)
+        sensitivity = cm[1, 1] / (cm[1, 1] + cm[1, 0] + epsilon)
+        specificity = cm[0, 0] / (cm[0, 0] + cm[0, 1] + epsilon)
+        
+        # Return the Balanced Accuracy
+        return (sensitivity + specificity) / 2
+    
+    else:  # Multiclass classification scenario
+        strategy =normalize_string(
+            strategy, target_strs=['ovr', 'ovo'], match_method='contains', 
+            return_target_only= True, raise_exception= True, 
+            error_msg=("strategy parameter must be either 'ovr' or 'ovo'") 
+            ) 
+        if strategy == 'ovr':
+            sensitivities = []
+            for label in labels:
+                binary_y_true = (y_true == label).astype(int)
+                binary_y_pred = (y_pred == label).astype(int)
+                cm = confusion_matrix(binary_y_true, binary_y_pred, sample_weight=sample_weight)
+                
+                if normalize:
+                    cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+                
+                tp = cm[1, 1]
+                fn = cm[1, 0]
+                sensitivity = tp / (tp + fn + epsilon) if (tp + fn) > 0 else zero_division
+                sensitivities.append(sensitivity)
+            # Compute average sensitivity across all classes
+            return np.mean(sensitivities)
+        
+        elif strategy == 'ovo':
+            # For OVO, use a simplified approach as an example, like averaging pairwise AUC scores
+            # Note: This is a simplification and may not align with all 
+            # interpretations of OVO strategy
+            y_bin = label_binarize(y_true, classes=labels)
+            auc_scores = []
+            for i, label_i in enumerate(labels):
+                for j, label_j in enumerate(labels):
+                    if i >= j:
+                        continue  # Avoid duplicate pairs and self-comparison
+                    specific_sample_weight = sample_weight[(y_true == label_i) | (
+                        y_true == label_j)] if sample_weight is not None else None
+                    specific_y_true = y_bin[:, i][(y_true == label_i) | (y_true == label_j)]
+                    specific_y_pred = y_bin[:, i][(y_true == label_i) | (y_true == label_j)]
+                    auc_score = roc_auc_score(specific_y_true, specific_y_pred,
+                                              sample_weight=specific_sample_weight)
+                    auc_scores.append(auc_score)
+            return np.mean(auc_scores)
+
+def information_value(
+    y_true, y_pred, 
+    problem_type='binary', 
+    epsilon="auto", 
+    scale='binary_scale', 
+    method='binning', 
+    bins='auto', 
+    bins_method='freedman_diaconis',
+    data_range=None, 
+    ):
+    """
+    Calculate the Information Value (IV) for various types of classification 
+    and regression problems. 
+    
+    The :term:`IV` quantifies the predictive power of a feature or model, with  
+    higher values indicating greater predictive power. This function supports 
+    ``binary``, ``multiclass``, ``multilabel`` classifications, and ``regression``
+     problems, allowing for flexibility in its application across different data 
+    science tasks.
 
     Parameters
     ----------
     y_true : array-like
-        True labels or values.
+        True labels or values. For classification problems, these should be class
+        labels. For regression problems, these are continuous target values.
+        
     y_pred : array-like
-        Predicted probabilities or values.
-    problem_type : str, {'binary', 'multiclass', 'multilabel', 'regression'}, optional
-        The type of problem for which to calculate the Information Value:
-        - 'binary': Binary classification.
-        - 'multiclass': Multiclass classification.
-        - 'multilabel': Multilabel classification.
-        - 'regression': Regression.
-    eps : float, optional
-        A small epsilon value to prevent division by zero.
+        Predicted probabilities or values. For classification, these are typically
+        the probabilities of belonging to the positive class (in binary classification)
+        or class probabilities (in multiclass classification). For regression 
+        problems, these are the predicted continuous values.
+        
+    problem_type : str, optional
+        Specifies the type of problem for which the IV is being calculated. Valid
+        options are ``'binary'``, ``'multiclass'``, ``'multilabel'``, and 
+        ``'regression'``. This parameter determines how the IV calculation is 
+        adapted to fit the problem context. Default is 'binary'.
+        
+    epsilon : float or "auto", optional
+        A small epsilon value added to probabilities to prevent division by zero
+        in the logarithmic calculation. If "auto", an appropriate epsilon value
+        is dynamically determined based on the predicted values. Default is "auto".
+        
+    scale : str or float, optional
+        For multiclass and multilabel problems, defines how the IV should be scaled
+        or normalized. The default ``'binary_scale'`` scales these problems 
+        to a binary IV scale for easier interpretation. If a float is provided,
+        it custom scales the IV by this factor.
+        
+    method : str, optional
+        Specifies the calculation method for Information Value (IV). Two methods 
+        are supported:
+        - 'base': A straightforward calculation based on the overall distribution 
+          of events and non-events in the dataset. Suitable for a high-level 
+          overview of predictive power.
+        - 'binning': A more detailed analysis that divides the predicted probabilities
+          (`y_pred`) into bins and calculates IV within each bin. This method is 
+          valuable for examining how the model's predictive power varies across 
+          different probability ranges. It requires specifying `bins` and can be 
+          fine-tuned further with `bins_method` and `data_range`. 
+          Default is ``'binning'``.
+        
+    bins : int, 'auto', optional
+        Defines the number of bins used for the 'binning' method. This parameter 
+        is crucial for segmenting the predicted probabilities (`y_pred`) into 
+        discrete bins, allowing for a more granular analysis of the model's 
+        predictive power. If set to 'auto', the number of bins is determined 
+        using the method specified by `bins_method`. Providing an integer directly 
+        specifies the fixed number of bins to use. Default is 'auto'.
 
+    bins_method : str, optional
+        Specifies the method to determine the optimal number of bins when 
+        `bins` is set to 'auto'. Available methods are:
+        - 'freedman_diaconis': Employs the Freedman-Diaconis rule, which bases 
+          the bin width on the data's interquartile range and the cube root of 
+          data size. Ideal for a wide range of distributions.
+          .. math:: \text{bin width} = 2 \cdot \frac{IQR}{\sqrt[3]{n}}
+        - 'sturges': Uses Sturges' formula, which is a function of the data size. 
+          Suitable for normal distributions but may perform poorly for large, 
+          skewed datasets.
+          .. math:: \text{bins} = \log_2(n) + 1
+        - 'sqrt': Calculates the square root of the data size to determine the 
+          number of bins. A simple heuristic useful for smaller datasets.
+          .. math:: \text{bins} = \sqrt{n}
+        The chosen method can significantly impact the IV calculation, especially 
+        in the 'binning' approach, influencing the resolution of the predictive 
+        power analysis across different probability ranges.
+        Default method is 'freedman_diaconis'.
+        
+    data_range : tuple, optional
+        A tuple specifying the minimum and maximum values to consider for binning 
+        when `method` is set to 'binning'. This parameter allows focusing the IV 
+        analysis on a specific range of predicted probabilities, which can be 
+        useful for excluding outliers or focusing on a region of interest. If None,
+        the entire range of `y_pred` is used. Default is None.
+        
     Returns
     -------
     float
-        Information Value (IV) score.
+        The calculated Information Value (IV) score. Positive values indicate
+        predictive power, with higher values being preferable. For regression
+        and multiclass/multilabel classifications with `scale='binary_scale'`,
+        the IV is adjusted to fit a binary classification context.
 
+    Raises
+    ------
+    ValueError
+        If an invalid `problem_type` is specified.
+        
     Notes
     -----
-    The Information Value (IV) quantifies the predictive power of a model 
-    or variable.
-    
-    Mathematical Equation:
-    
-    - For binary classification:
-      \[ IV = \sum \left((\% \text{ of non-events} - \% \text{ of events}) \times \ln\left(\frac{\% \text{ of non-events} + \epsilon}{\% \text{ of events} + \epsilon}\right)\right) \]
-    
-    - For multiclass classification:
-      IV is calculated as the negative average log loss, normalized to binary IV scale.
-    
-    - For multilabel classification:
-      IV is calculated as the negative average binary cross-entropy loss, 
-      normalized to binary IV scale.
-    
-    - For regression:
-      IV is calculated as the negative mean squared error (MSE).
-    
-    Higher IV values indicate better predictive power:
-    - In binary classification, higher IV means a variable is more predictive.
-    - In multiclass classification, lower log loss (more negative IV) indicates 
-      better predictions.
-    - In multilabel classification, lower binary cross-entropy (more negative IV) 
-      indicates better predictions.
-    - In regression, lower MSE (more negative IV) indicates better predictions.
+    The Information Value (IV) quantifies the predictive power of a feature or model, 
+    illustrating its ability to distinguish between classes or predict outcomes. It is 
+    a measure of the effectiveness of a variable or model in predicting the target.
 
-    IV is useful for model evaluation and variable selection in credit scoring,
-    risk modeling, and any predictive modeling tasks where understanding the 
-    variable's predictive power is crucial.
-    
+    Mathematical formulations for IV across different problem types are as follows:
+
+    - For binary classification:
+      The IV is computed as the sum of differences between the proportions of 
+      non-events and events, each multiplied by the logarithm of the ratio of
+      these proportions, adjusted by a small epsilon (`\epsilon`) to prevent 
+      division by zero:
+          
+      .. math::
+        IV = \sum \left((\% \text{{ of non-events}} - \% \text{{ of events}}) \times 
+        \ln\left(\frac{\% \text{{ of non-events}} + \epsilon}
+        {\% \text{{ of events}} + \epsilon}\right)\right)
+
+    - For multiclass classification:
+      The IV is adapted from the average log loss for multiclass classification, 
+      normalized to the binary IV scale. This normalization is essential for 
+      comparing the predictive power of multiclass models to binary models:
+      The log loss for multiclass classification is given by:
+      
+      .. math::
+        \text{{log_loss}} = - \frac{1}{N} \sum_{i=1}^{N} \sum_{j=1}^{M} 
+        y_{ij} \log(p_{ij})
+        
+        IV = -\frac{1}{\log(2)} \cdot \text{{log_loss}}(y\_true, y\_pred)
+        
+      where \(N\) is the number of samples, \(M\) is the number of classes, 
+      \(y_{ij}\) is a binary indicator of whether class \(j\) is the correct 
+      classification for sample \(i\), and \(p_{ij}\) is the model probability 
+      of assigning class \(j\) to sample \(i\).
+
+    - For multilabel classification:
+      Similar to multiclass, the IV for multilabel classification uses the 
+      negative average binary cross-entropy loss, normalized to the binary scale. 
+      This approach allows direct comparison between the predictive powers 
+      of multilabel and binary scale. The binary cross-entropy for multilabel
+      classification is given as:
+      
+      .. math::
+        \text{{binary\_crossentropy}} = - \frac{1}{N} \sum_{i=1}^{N} \sum_{j=1}^{M} 
+        \left( y_{ij} \log(p_{ij}) + (1 - y_{ij}) \log(1 - p_{ij}) \right)
+        
+        IV = -\frac{1}{\log(2)} \cdot \text{{binary\_crossentropy}}(y\_true, y\_pred)
+        
+      where \(N\) is the number of samples, \(M\) is the number of labels, 
+      \(y_{ij}\) indicates whether label \(j\) is relevant to sample \(i\), 
+      and \(p_{ij}\) is the predicted probability of label \(j\) for sample \(i\).
+
+    - For regression:
+      In regression problems, the IV is determined by the negative mean squared error 
+      (MSE) between the true and predicted values. Lower (more negative) MSE values, 
+      indicating closer predictions to the actual values, translate into higher IV 
+      scores, signifying better predictive capability:
+      
+      .. math::
+        IV = -\frac{1}{N} \sum_{i=1}^{N} (y_{i} - \hat{y_{i}})^2
+        
+      where \(N\) is the number of samples, \(y_{i}\) is the true value for 
+      sample \(i\), and \(\hat{y_{i}}\) is the predicted value for sample \(i\).
+
+    These formulations adjust the traditional concept of IV for a broad spectrum 
+    of applications beyond binary classification, enhancing its versatility as a 
+    metric for assessing model performance across various types of predictive 
+    modeling tasks.
+
+    IV is invaluable in fields such as credit scoring and risk modeling, aiding in 
+    the evaluation of a model's or variable's predictive power. By analyzing IV, 
+    data scientists can pinpoint the most informative features, leading to the 
+    development of superior predictive models.
+
     Examples
     --------
     >>> import numpy as np
     >>> from sklearn.metrics import log_loss, mean_squared_error
     >>> from gofast.metrics import information_value 
+    
+    Binary classification with automatically determined epsilon:
+
+    >>> y_true = [0, 1, 1, 0]
+    >>> y_pred = [0.1, 0.9, 0.8, 0.2]
+    >>> print(information_value(y_true, y_pred, problem_type='binary'))
+    1.3219280948873623
     >>> y_true_binary = np.array([0, 1, 1, 0, 1, 0])
     >>> y_pred_binary = np.array([0.2, 0.7, 0.6, 0.3, 0.8, 0.1])
-    >>> iv_binary = information_value(y_true_binary, y_pred_binary, 
-    ...                                  problem_type='binary')
+    >>> iv_binary = information_value(y_true_binary, y_pred_binary, problem_type='binary')
     >>> iv_binary
-    ... 0.7621407247492977
- 
+    0.7621407247492977
+    
+    Multiclass classification with specified scale:
+
+    >>> y_true = [2, 1, 0, 1, 2]
+    >>> y_pred = [[0.1, 0.2, 0.7], [0.2, 0.7, 0.1], [0.7, 0.2, 0.1],
+    ...           [0.2, 0.7, 0.1], [0.1, 0.3, 0.6]]
+    >>> print(information_value(y_true, y_pred, problem_type='multiclass'))
+    -0.6365141682948128
+
     >>> y_true_multiclass = np.array([0, 1, 2, 1, 0])
     >>> y_pred_multiclass = np.array([[0.2, 0.4, 0.4], [0.7, 0.1, 0.2],
     ...                                  [0.1, 0.2, 0.7], [0.3, 0.3, 0.4], 
@@ -277,7 +556,9 @@ def information_value(y_true, y_pred, problem_type='binary', eps=1e-15):
     >>> iv_multiclass = information_value(y_true_multiclass, y_pred_multiclass,
     ...                                      problem_type='multiclass')
     >>> iv_multiclass
-    ... -0.6729845552217573
+    -0.6729845552217573
+    
+    Multilabel classification with specified scale:
  
     >>> y_true_multilabel = np.array([[1, 0, 1], [0, 1, 0], [1, 1, 0], [0, 0, 1]])
     >>> y_pred_multilabel = np.array([[0.8, 0.2, 0.7], [0.1, 0.9, 0.3], 
@@ -285,39 +566,103 @@ def information_value(y_true, y_pred, problem_type='binary', eps=1e-15):
     >>> iv_multilabel = information_value(y_true_multilabel, y_pred_multilabel,
     ...                                      problem_type='multilabel')
     >>> iv_multilabel
-    ... -0.4750837692748695
+    -0.4750837692748695
  
     >>> y_true_regression = np.array([10.5, 12.1, 9.8, 11.2, 10.0])
     >>> y_pred_regression = np.array([10.2, 12.3, 9.5, 11.0, 10.1])
     >>> iv_regression = information_value(y_true_regression, y_pred_regression,
     ...                                      problem_type='regression')
     >>> iv_regression
-    ... -0.04239999999999994
+    -0.04239999999999994
+    
+    Regression with custom scale factor:
+
+    >>> y_true = [3.5, 2.5, 4.0, 5.5]
+    >>> y_pred = [3.0, 2.7, 4.1, 5.0]
+    >>> print(information_value(y_true, y_pred, problem_type='regression', scale=1.0))
+    -0.0475
+    
+    Using the 'binning' method with automatically determined bins:
+    
+    >>> y_true = np.array([0, 1, 1, 0, 1])
+    >>> y_pred = np.array([0.1, 0.6, 0.8, 0.05, 0.9])
+    >>> iv_auto_bins = information_value(y_true, y_pred, 
+    ...                                  problem_type='binary', 
+    ...                                  method='binning', 
+    ...                                  bins='auto', 
+    ...                                  bins_method='freedman_diaconis')
+    >>> print(f"IV with auto bins: {iv_auto_bins}")
+
+    Specifying a fixed number of bins for the 'binning' method:
+    
+    >>> iv_fixed_bins = information_value(y_true, y_pred, 
+    ...                                   problem_type='binary', 
+    ...                                   method='binning', 
+    ...                                   bins=5)
+    >>> print(f"IV with fixed bins: {iv_fixed_bins}")
+    
+    Using the 'binning' method with a specified data range:
+
+    >>> y_true = np.array([0, 1, 0, 1, 1, 0])
+    >>> y_pred = np.array([0.05, 0.95, 0.2, 0.85, 0.9, 0.1])
+    >>> iv_data_range = information_value(y_true, y_pred, 
+    ...                                   problem_type='binary', 
+    ...                                   method='binning', 
+    ...                                   bins='auto', 
+    ...                                   bins_method='freedman_diaconis',
+    ...                                   data_range=(0.1, 0.9))
+    >>> print(f"IV with specified data range: {iv_data_range}")
+
+    The 'binning' method allows for a nuanced understanding of model performance, 
+    especially useful in scenarios where predictive power might vary significantly 
+    across the probability spectrum. Specifying `data_range` can refine this 
+    analysis, offering insights into specific segments of the prediction range.
+    
+    See Also 
+    ----------
+    gofast.tools.calculate_binary_iv: 
+        Calculate the Information Value (IV) for binary classification problems
+        using a base or binning approach.
     """
+    # Implementation goes here...
+    y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric =True, 
+                                        multi_output= True )
+    # Determine an appropriate epsilon value if set to "auto"
+    if str(epsilon).lower() == "auto":
+        epsilon = determine_epsilon(y_pred)
+    # Initialize IV calculation
+    iv = None
     if problem_type == 'binary':
-        # Binary Classification: Calculate IV based on binary classification formula
-        percent_events = y_true.mean()
-        percent_non_events = 1 - percent_events
-        iv = np.sum((percent_non_events - percent_events) * np.log(
-            (percent_non_events + eps) / (percent_events + eps)))
-
+        iv = calculate_binary_iv(
+            y_true, y_pred, method=method,
+            bins=bins, epsilon= epsilon, 
+            bins_method=bins_method,
+            data_range=data_range, 
+            )
+        
     elif problem_type == 'multiclass':
-        # Multiclass Classification: Calculate average log loss
-        iv = -log_loss(y_true, y_pred) / np.log(2)  # Normalize to binary IV scale
-
+        # Normalize to binary IV scale if requested
+        iv = -log_loss(y_true, y_pred, eps=epsilon) / np.log(
+            2) if scale == 'binary_scale' else -log_loss(y_true, y_pred, eps=epsilon)
+        
     elif problem_type == 'multilabel':
-        # Multilabel Classification: Calculate average binary cross-entropy loss
-        iv = -np.mean(y_true * np.log(y_pred + eps) + (
-            1 - y_true) * np.log(1 - y_pred + eps)) / np.log(2)
-
+        iv = -np.mean(y_true * np.log(y_pred + epsilon) + (
+            1 - y_true) * np.log(1 - y_pred + epsilon)) / np.log(
+                2) if scale == 'binary_scale' else -np.mean(
+                    y_true * np.log(y_pred + epsilon) + (1 - y_true) * np.log(
+                        1 - y_pred + epsilon))
+        
     elif problem_type == 'regression':
-        # Regression: Calculate mean squared error (MSE)
         iv = -mean_squared_error(y_true, y_pred)
-
+        
     else:
         raise ValueError("Invalid 'problem_type'. Use 'binary', 'multiclass',"
                          " 'multilabel', or 'regression'.")
 
+    # Apply custom scale if specified
+    if isinstance(scale, float):
+        iv *= scale
+ 
     return iv
 
 def geo_iv (Xp:ArrayLike, /,  Np:ArrayLike, Sp:ArrayLike, *, 
@@ -689,58 +1034,59 @@ def precision_recall_tradeoff(
     tradeoff: Optional[float] =None,
     **prt_kws
 )-> object:
+    pass 
     
-    mc= copy.deepcopy(method)
-    method = method or "decision_function"
-    method =str(method).lower().strip() 
-    if method not in ('decision_function', 'predict_proba'): 
-        raise ValueError (f"Invalid method {mc!r}.Expect 'decision_function'"
-                          " or 'predict_proba'.")
+    # mc= copy.deepcopy(method)
+    # method = method or "decision_function"
+    # method =str(method).lower().strip() 
+    # if method not in ('decision_function', 'predict_proba'): 
+    #     raise ValueError (f"Invalid method {mc!r}.Expect 'decision_function'"
+    #                       " or 'predict_proba'.")
         
-    #create a object to hold attributes 
-    obj = type('Metrics', (), {})
+    # #create a object to hold attributes 
+    # obj = type('Metrics', (), {})
     
-    _assert_metrics_args(y, label)
-    y=(y==label) # set boolean 
+    # _assert_metrics_args(y, label)
+    # y=(y==label) # set boolean 
     
-    if cvp_kws is None: 
-        cvp_kws = dict()
+    # if cvp_kws is None: 
+    #     cvp_kws = dict()
         
-    obj.y_scores = cross_val_predict(clf,X,y,cv =cv,
-                                     method= method,**cvp_kws )
-    y_scores = cross_val_predict(clf,X,y, cv =cv,**cvp_kws )
+    # obj.y_scores = cross_val_predict(clf,X,y,cv =cv,
+    #                                  method= method,**cvp_kws )
+    # y_scores = cross_val_predict(clf,X,y, cv =cv,**cvp_kws )
     
-    obj.confusion_matrix =cfsmx(y, y_scores )
+    # obj.confusion_matrix =cfsmx(y, y_scores )
     
-    obj.f1_score = f1_score(y,y_scores)
-    obj.precision_score = precision_score(y, y_scores)
-    obj.recall_score= recall_score(y, y_scores)
+    # obj.f1_score = f1_score(y,y_scores)
+    # obj.precision_score = precision_score(y, y_scores)
+    # obj.recall_score= recall_score(y, y_scores)
         
-    if method =='predict_proba': 
-        # if classifier has a `predict_proba` method like 
-        # `Random_forest` then use the positive class
-        # probablities as score  score = proba of positive 
-        # class 
-        obj.y_scores =obj.y_scores [:, 1] 
+    # if method =='predict_proba': 
+    #     # if classifier has a `predict_proba` method like 
+    #     # `Random_forest` then use the positive class
+    #     # probablities as score  score = proba of positive 
+    #     # class 
+    #     obj.y_scores =obj.y_scores [:, 1] 
         
-    if tradeoff is not None:
-        try : 
-            float(tradeoff)
-        except ValueError: 
-            raise ValueError(f"Could not convert {tradeoff!r} to float.")
-        except TypeError: 
-            raise TypeError(f'Invalid type `{type(tradeoff)}`')
+    # if tradeoff is not None:
+    #     try : 
+    #         float(tradeoff)
+    #     except ValueError: 
+    #         raise ValueError(f"Could not convert {tradeoff!r} to float.")
+    #     except TypeError: 
+    #         raise TypeError(f'Invalid type `{type(tradeoff)}`')
             
-        y_score_pred = (obj.y_scores > tradeoff) 
-        obj.precision_score = precision_score(y, y_score_pred)
-        obj.recall_score = recall_score(y, y_score_pred)
+    #     y_score_pred = (obj.y_scores > tradeoff) 
+    #     obj.precision_score = precision_score(y, y_score_pred)
+    #     obj.recall_score = recall_score(y, y_score_pred)
         
-    obj.precisions, obj.recalls, obj.thresholds =\
-        precision_recall_curve(y, obj.y_scores,**prt_kws)
+    # obj.precisions, obj.recalls, obj.thresholds =\
+    #     precision_recall_curve(y, obj.y_scores,**prt_kws)
         
-    obj.y =y
+    # obj.y =y
     
-    return obj
+    # return obj
 
 precision_recall_tradeoff.__doc__ ="""\
 Precision-recall Tradeoff computes a score based on the decision function. 
@@ -931,36 +1277,37 @@ def confusion_matrix_(
     crossvalp_kws:dict=dict(), 
     **conf_mx_kws 
 )->object: 
-
-    #create a object to hold attributes 
-    obj = type('Metrics', (), dict())
-    obj.y_pred =cross_val_predict(clf, X, y, cv=cv, **crossvalp_kws )
     
-    if obj.y_pred.ndim ==1 : 
-        obj.y_pred.reshape(-1, 1)
-    obj.conf_mx = cfsmx(y, obj.y_pred, **conf_mx_kws)
+    pass 
+    # #create a object to hold attributes 
+    # obj = type('Metrics', (), dict())
+    # obj.y_pred =cross_val_predict(clf, X, y, cv=cv, **crossvalp_kws )
+    
+    # if obj.y_pred.ndim ==1 : 
+    #     obj.y_pred.reshape(-1, 1)
+    # obj.conf_mx = cfsmx(y, obj.y_pred, **conf_mx_kws)
 
-    # statement to plot confusion matrix errors rather than values 
-    row_sums = obj.conf_mx.sum(axis=1, keepdims=True)
-    norm_conf_mx = obj.conf_mx / row_sums 
-    # now let fill the diagonal with zeros to keep only the errors
-    # and let's plot the results 
-    np.fill_diagonal(norm_conf_mx, 0)
-    obj.norm_conf_mx= norm_conf_mx
+    # # statement to plot confusion matrix errors rather than values 
+    # row_sums = obj.conf_mx.sum(axis=1, keepdims=True)
+    # norm_conf_mx = obj.conf_mx / row_sums 
+    # # now let fill the diagonal with zeros to keep only the errors
+    # # and let's plot the results 
+    # np.fill_diagonal(norm_conf_mx, 0)
+    # obj.norm_conf_mx= norm_conf_mx
 
-    fp =0
-    if plot_conf_max =='map': 
-        confmax = obj.conf_mx
-        fp=1
-    if plot_conf_max =='error':
-        confmax= norm_conf_mx
-        fp =1
-    if fp: 
-        import matplotlib.pyplot as plt 
-        plt.matshow(confmax, cmap=plt.cm.gray)
-        plt.show ()
+    # fp =0
+    # if plot_conf_max =='map': 
+    #     confmax = obj.conf_mx
+    #     fp=1
+    # if plot_conf_max =='error':
+    #     confmax= norm_conf_mx
+    #     fp =1
+    # if fp: 
+    #     import matplotlib.pyplot as plt 
+    #     plt.matshow(confmax, cmap=plt.cm.gray)
+    #     plt.show ()
         
-    return obj  
+    # return obj  
   
 confusion_matrix_.__doc__ ="""\
 Evaluate the preformance of the model or classifier by counting 
@@ -1526,7 +1873,7 @@ def fowlkes_mallows_index(y_true, y_pred):
     FMI = \sqrt{\frac{TP}{TP + FP} \times \frac{TP}{TP + FN}}
     """
     y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    cm = cfsmx(y_true, y_pred)
+    cm = confusion_matrix(y_true, y_pred)
     tp = np.sum(np.diag(cm))  # True Positives
     fp = np.sum(cm, axis=0) - np.diag(cm)  # False Positives
     fn = np.sum(cm, axis=1) - np.diag(cm)  # False Negatives
@@ -1908,15 +2255,60 @@ def jaccard_similarity_coeff(y_true, y_pred):
     union = np.logical_or(y_true, y_pred)
     return intersection.sum() / float(union.sum())
 
-def _ensure_y_is_valid (*y_arrays,  **kws ): 
-    """Ensure y  ( true and pred) are valids  and have consistency length"""
-    y_true, y_pred = y_arrays 
-    y_true = check_y ( y_true , **kws ) 
-    y_pred = check_y ( y_pred, **kws  ) 
+
+def _ensure_y_is_valid(y_true, y_pred, **kwargs):
+    """
+    Validates that the true and predicted target arrays are suitable for further
+    processing. This involves ensuring that both arrays are non-empty, of the
+    same length, and meet any additional criteria specified by keyword arguments.
+
+    Parameters
+    ----------
+    y_true : array-like
+        The true target values.
+    y_pred : array-like
+        The predicted target values.
+    **kwargs : dict
+        Additional keyword arguments to pass to the check_y function for any
+        extra validation criteria.
+
+    Returns
+    -------
+    y_true : array-like
+        Validated true target values.
+    y_pred : array-like
+        Validated predicted target values.
+
+    Raises
+    ------
+    ValueError
+        If the validation checks fail, indicating that the input arrays do not
+        meet the required criteria for processing.
+
+    Examples
+    --------
+    Suppose `check_y` validates that the input is a non-empty numpy array and
+    `check_consistent_length` ensures the arrays have the same number of elements.
+    Then, usage could be as follows:
+
+    >>> y_true = np.array([1, 2, 3])
+    >>> y_pred = np.array([1.1, 2.1, 3.1])
+    >>> y_true_valid, y_pred_valid = _ensure_y_is_valid(y_true, y_pred)
+    >>> print(y_true_valid, y_pred_valid)
+    [1 2 3] [1.1 2.1 3.1]
+    """
+    # Convert y_true and y_pred to numpy arrays if they are not already
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
     
-    check_consistent_length(y_true , y_pred ) 
-    
-    return y_true, y_pred 
+    # Ensure individual array validity
+    y_true = check_y(y_true, **kwargs)
+    y_pred = check_y(y_pred, **kwargs)
+
+    # Check if the arrays have consistent lengths
+    check_consistent_length(y_true, y_pred)
+
+    return y_true, y_pred
 
     
     

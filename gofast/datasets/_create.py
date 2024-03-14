@@ -18,7 +18,7 @@ from ..tools.box import Boxspace
 from ..tools.coreutils import ellipsis2false ,assert_ratio, is_iterable 
 from ..tools.coreutils import is_in_if, _assert_all_types,  add_noises_to 
 from ..tools.coreutils import smart_format, random_sampling
-from ..tools.funcutils import ensure_pkg, validate_years
+from ..tools.funcutils import ensure_pkg
 from ._globals import HYDRO_PARAMS, HYDRO_PARAM_UNITS 
 from ._globals import RELEVANT_HYDRO_PARAMS, HYDRO_PARAM_RANGES  
 
@@ -355,7 +355,6 @@ def make_classification(
         ) 
     return ( data,  p_c, p_w_c)  if return_distributions and n_labels >1 else data 
 
-
 def make_regression( 
     n_samples=70,
     n_features=7, *, 
@@ -640,7 +639,7 @@ def make_social_media_comments(
         noise= noise, 
         seed=seed
         ) 
-# @validate_years(start_year="start_year", end_year="end_year")
+
 def make_african_demo(*, 
     start_year=1960,
     end_year=2020, 
@@ -3523,7 +3522,8 @@ def _validate_years(start_year, end_year):
     Raises
     ------
     ValueError
-        If the start_year is not less than end_year or if the inputs are not valid years.
+        If the start_year is not less than end_year or if the inputs are not
+        valid years.
     """
 
     # Attempt to convert start_year and end_year to integers
@@ -3536,13 +3536,18 @@ def _validate_years(start_year, end_year):
     # Check if start_year is less than end_year
     if start_year >= end_year:
         raise ValueError("start_year must be less than end_year.")
+        
     from datetime import datetime
     # Optionally, you could check if the years are within a reasonable range
     current_year = datetime.now().year
     if not (1900 <= start_year <= current_year):
-        raise ValueError("start_year is out of the valid range.")
+        raise ValueError(
+            "start_year is out of the valid range."
+            f" Validated range: 1900 to {current_year}.")
     if not (1900 <= end_year <= current_year):
-        raise ValueError("end_year is out of the valid range.")
+        raise ValueError(
+            "end_year is out of the valid range."
+            f" Validated range: 1900 to {current_year}.")
 
     return start_year, end_year
 

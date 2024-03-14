@@ -48,6 +48,7 @@ from .coreutils import (
     concat_array_from_list, 
     remove_outliers, 
     find_close_position,
+    normalize_string, 
     to_numeric_dtypes, 
     ellipsis2false, 
     fancy_printer,
@@ -73,6 +74,276 @@ _logger =gofastlog.get_gofast_logger(__name__)
 
 mu0 = 4 * np.pi * 1e-7 
 
+import numpy as np
+
+def calculate_optimal_bins(y_pred, method='freedman_diaconis', data_range=None):
+    """
+    Calculate the optimal number of bins for histogramming a given set of 
+    predictions, utilizing various heuristics. This function supports the 
+    Freedman-Diaconis rule, Sturges' formula, and the Square-root choice, 
+    allowing users to select the most appropriate method based on their data 
+    distribution and size.
+
+    Parameters
+    ----------
+    y_pred : array-like
+        Predicted probabilities for the positive class. This array should be 
+        one-dimensional.
+    method : str, optional
+        The binning method to use. Options include:
+        - 'freedman_diaconis': Uses the Freedman-Diaconis rule, which is 
+          particularly useful for data with skewed distributions.
+          .. math:: \text{bin width} = 2 \cdot \frac{IQR}{\sqrt[3]{n}}
+        - 'sturges': Uses Sturges' formula, ideal for normal distributions 
+          but may be suboptimal for large datasets or non-normal distributions.
+          .. math:: \text{bins} = \lceil \log_2(n) + 1 \rceil
+        - 'sqrt': Employs the Square-root choice, a simple rule that works well 
+          for small datasets.
+          .. math:: \text{bins} = \lceil \sqrt{n} \rceil
+        Default is 'freedman_diaconis'.
+    data_range : tuple, optional
+        A tuple specifying the range of the data as (min, max). If None, the 
+        minimum and maximum values in `y_pred` are used. Default is None.
+
+    Returns
+    -------
+    int
+        The calculated optimal number of bins.
+
+    Raises
+    ------
+    ValueError
+        If an invalid `method` is specified.
+
+    Examples
+    --------
+    Calculate the optimal number of bins for a dataset of random predictions 
+    using different methods:
+    
+    >>> from gofast.tools.mathex import calculate_optimal_bins
+    >>> y_pred = np.random.rand(100)
+    >>> print(calculate_optimal_bins(y_pred, method='freedman_diaconis'))
+    9
+    >>> print(calculate_optimal_bins(y_pred, method='sturges'))
+    7
+    >>> print(calculate_optimal_bins(y_pred, method='sqrt'))
+    10
+
+    References
+    ----------
+    - Freedman, D. and Diaconis, P. (1981). On the histogram as a density estimator:
+      L2 theory. Zeitschrift für Wahrscheinlichkeitstheorie und verwandte Gebiete, 
+      57(4), 453-476.
+    - Sturges, H. A. (1926). The choice of a class interval. Journal of the American 
+      Statistical Association, 21(153), 65-66.
+    """
+    y_pred = np.asarray(y_pred)
+    
+    if data_range is not None:
+        if not isinstance(data_range, tuple) or len(data_range) != 2:
+            raise ValueError("data_range must be a tuple of two numeric values (min, max).")
+        if any(not np.isscalar(v) or not np.isreal(v) for v in data_range):
+            raise ValueError("data_range must contain numeric values.")
+        data_min, data_max = data_range
+    else:
+        data_min, data_max = np.min(y_pred), np.max(y_pred)
+    # Handle case where data is uniform
+    if data_min == data_max:
+        return 1
+
+    n = len(y_pred)
+    
+    method = normalize_string(
+        method, target_strs=["freedman_diaconis","sturges","sqrt"], 
+        return_target_only= True, match_method="contains", raise_exception=True,
+        error_msg=(
+            "Invalid method specified. Choose among 'freedman_diaconis', 'sturges', 'sqrt'.")
+        )
+    if method == 'freedman_diaconis':
+        iqr = np.subtract(*np.percentile(y_pred, [75, 25]))  # Interquartile range
+        if iqr == 0:  # Handle case where IQR is 0
+            return max(1, n // 2)  # Fallback to avoid division by zero
+        
+        bin_width = 2 * iqr * (n ** (-1/3))
+        optimal_bins = int(np.ceil((data_max - data_min) / bin_width))
+    elif method == 'sturges':
+        optimal_bins = int(np.ceil(np.log2(n) + 1))
+    elif method == 'sqrt':
+        optimal_bins = int(np.ceil(np.sqrt(n)))
+ 
+    return max(1, optimal_bins)  # Ensure at least one bin
+
+def calculate_binary_iv(
+    y_true, 
+    y_pred, 
+    epsilon=1e-15, 
+    method='base', 
+    bins='auto',
+    bins_method='freedman_diaconis', 
+    data_range=None):
+    """
+    Calculate the Information Value (IV) for binary classification problems
+    using a base or binning approach. This function provides flexibility in
+    IV calculation by allowing for simple percentage-based calculations or
+    detailed binning techniques to understand the predictive power across
+    the distribution of predicted probabilities.
+
+    Parameters
+    ----------
+    y_true : array-like
+        True binary labels.
+    y_pred : array-like
+        Predicted probabilities for the positive class.
+    epsilon : float or 'auto', optional
+        A small epsilon value added to probabilities to prevent division
+        by zero in logarithmic calculations. If 'auto', dynamically determines
+        an appropriate epsilon based on `y_pred`. Default is 1e-15.
+    method : str, optional
+        The method for calculating IV. Options are 'base' for a direct approach
+        using the overall percentage of events, and 'binning' for a detailed
+        analysis using bins of predicted probabilities. Default is 'base'.
+    bins : int or 'auto', optional
+        The number of bins to use for the 'binning' method. If 'auto', the
+        optimal number of bins is calculated based on `bins_method`.
+        Default is 'auto'.
+    bins_method : str, optional
+        Method to use for calculating the optimal number of bins when
+        `bins` is 'auto'. Options include 'freedman_diaconis', 'sturges', 
+        and 'sqrt'. Default is 'freedman_diaconis'.
+    data_range : tuple, optional
+        A tuple specifying the range of the data as (min, max) for bin
+        calculation. If None, the range is derived from `y_pred`. Default is None.
+
+    Returns
+    -------
+    float
+        The calculated Information Value (IV).
+
+    Raises
+    ------
+    ValueError
+        If an invalid method is specified.
+
+    Examples
+    --------
+    >>> import numpy as np 
+    >>> from gofast.tools.mathex import calculate_binary_iv
+    >>> y_true = np.array([0, 1, 0, 1, 1])
+    >>> y_pred = np.array([0.1, 0.8, 0.2, 0.7, 0.9])
+    >>> print(calculate_binary_iv(y_true, y_pred, method='base'))
+    1.6094379124341003
+
+    >>> print(calculate_binary_iv(y_true, y_pred, method='binning', bins=3,
+    ...                           bins_method='sturges'))
+    0.6931471805599453
+
+    Notes
+    -----
+    The Information Value (IV) quantifies the predictive power of a feature or
+    model in binary classification, illustrating its ability to distinguish
+    between classes.
+
+    - The 'base' method calculates IV using the overall percentage of events
+      and non-events:
+
+      .. math::
+        IV = \sum ((\% \text{{ of non-events}} - \% \text{{ of events}}) \times
+        \ln\left(\frac{\% \text{{ of non-events}} + \epsilon}
+        {\% \text{{ of events}} + \epsilon}\right))
+
+    - The 'binning' method divides `y_pred` into bins and calculates IV for
+      each bin, summing up the contributions from all bins.
+
+    References
+    ----------
+    - Freedman, D. and Diaconis, P. (1981). "On the histogram as a density estimator:
+      L2 theory." Zeitschrift für Wahrscheinlichkeitstheorie und verwandte Gebiete.
+    - Sturges, H. A. (1926). "The choice of a class interval." Journal of the American
+      Statistical Association.
+      
+    """
+
+    if epsilon=='auto': 
+        epsilon= determine_epsilon( y_pred )
+    
+    method = normalize_string(
+        method, target_strs= ['base', 'binning'], match_method='contains', 
+        return_target_only=True, raise_exception=True , error_msg= (
+            "Invalid method specified. Use 'base' or 'binning'.")
+        )
+    if method == 'base':
+        percent_events = np.mean(y_true)
+        percent_non_events = 1 - percent_events
+        iv = np.sum((percent_non_events - percent_events) * np.log(
+            (percent_non_events + epsilon) / (percent_events + epsilon)))
+
+    elif method == 'binning':
+        if bins == 'auto':
+            bins = calculate_optimal_bins(
+                y_pred, method =bins_method, data_range=data_range )
+        # Create bins for y_pred
+        bins = np.linspace(0, 1, bins + 1)
+        digitized = np.digitize(y_pred, bins) - 1  # Bin indices for each prediction
+        iv = 0
+        for i in range(len(bins)-1):
+            indices = digitized == i
+            if np.sum(indices) == 0:
+                continue  # Skip empty bins
+            bin_true = y_true[indices]
+            percent_events_bin = np.mean(bin_true)
+            percent_non_events_bin = 1 - percent_events_bin
+            bin_contribution = (percent_non_events_bin - percent_events_bin) * np.log(
+                (percent_non_events_bin + epsilon) / (percent_events_bin + epsilon))
+            iv += bin_contribution if not np.isnan(bin_contribution) else 0
+    
+    return iv 
+
+def determine_epsilon(y_pred, base_epsilon=1e-15, scale_factor=1e-5):
+    """
+    Determine an appropriate epsilon value based on the predictions.
+
+    If any predicted value is greater than 0, epsilon is set as a fraction 
+    of the smallest non-zero prediction to avoid division by zero in 
+    logarithmic calculations. Otherwise, a default small epsilon value is used.
+
+    Parameters
+    ----------
+    y_pred : array-like
+        Predicted probabilities or values.
+    base_epsilon : float, optional
+        The minimum allowed epsilon value to ensure it's not too small, 
+        by default 1e-15.
+    scale_factor : float, optional
+        The factor to scale the minimum non-zero prediction by to determine 
+        epsilon, by default 1e-5.
+
+    Returns
+    -------
+    float
+        The determined epsilon value.
+    """
+    if not isinstance (y_pred, np.ndarray): 
+        y_pred = np.asarray(y_pred )
+    # if np.any(y_pred > 0):
+    #     # Find the minimum non-zero predicted probability/value
+    #     min_non_zero_pred = np.min(y_pred[y_pred > 0])
+    #     # Use a fraction of the smallest non-zero prediction
+    #     epsilon = min_non_zero_pred * scale_factor  
+    #     # Ensure epsilon is not too small, applying a lower bound
+    #     epsilon = max(epsilon, base_epsilon)
+    # else:
+    #     # Use the base epsilon if no predictions are greater than 0
+    #     epsilon = base_epsilon
+
+    # return epsilon
+    positive_preds = y_pred[y_pred > 0]
+    if positive_preds.size > 0:
+        min_non_zero_pred = np.min(positive_preds)
+        epsilon = max(min_non_zero_pred * scale_factor, base_epsilon)
+    else:
+        epsilon = base_epsilon
+        
+    return epsilon
 
 def calculate_residuals(
     actual: ArrayLike, 

@@ -17,7 +17,8 @@ class Summary:
 
     def summary1(self):
         """
-        Display basic statistics of a DataFrame, with numerical values rounded to 4 decimal places.
+        Display basic statistics of a DataFrame, with numerical values rounded 
+        to 4 decimal places.
         """
         if isinstance(self.data, pd.DataFrame):
             # Basic info
@@ -32,7 +33,8 @@ class Summary:
             print("-"*75)
             
             # Using pandas describe to get summary statistics and rounding
-            desc = self.data.describe(include='all').applymap(lambda x: f'{x:.4f}' if isinstance(x, (int, float)) else x)
+            desc = self.data.describe(include='all').applymap(
+                lambda x: f'{x:.4f}' if isinstance(x, (int, float)) else x)
             for feature in desc.columns:
                 stats = desc[feature]
                 print(f"{feature:<12}", end="")
