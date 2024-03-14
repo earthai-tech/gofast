@@ -2847,37 +2847,90 @@ def validate_years(
     >>> print(f"Validated range: {start} to {end}")
     Validated range: 2001 to 2020
     """
-    if range_validator is None:
-        range_validator = lambda x: (1900 <= x <= datetime.now().year, (
-            1900, datetime.now().year))
+#     if range_validator is None:
+#         range_validator = lambda x: (1900 <= x <= datetime.now().year, (
+#             1900, datetime.now().year))
     
-    def decorator(func):
+#     def decorator(func):
+#         @functools.wraps(func)
+#         def wrapper(*args, **kwargs):
+#             nonlocal start_year, end_year
+#             sy = _get_param_value(start_year, args, kwargs, func)
+#             ey = _get_param_value(end_year, args, kwargs, func)
+#             sy = _parse_year(sy, 'start_year')
+#             ey = _parse_year(ey, 'end_year')
+#             _check_year_order(sy, ey)
+#             if check_range:
+#                 _check_year_range(sy, range_validator)
+#                 _check_year_range(ey, range_validator)
+#             return func(*args, **kwargs)
+#         return wrapper
+
+    
+#     # If used as a normal function, directly validate the years
+#     if not callable(start_year) and not callable(end_year):
+#         sy = _parse_year(start_year, 'start_year')
+#         ey = _parse_year(end_year, 'end_year')
+#         _check_year_order(sy, ey)
+#         if check_range:
+#             _check_year_range(sy, range_validator)
+#             _check_year_range(ey, range_validator)
+#         return sy, ey
+
+#     # Otherwise, return the decorator
+#     return decorator
+
+# def validate_years(
+#     start_year: Optional[Union[int, str]] = None, 
+#     end_year: Optional[Union[int, str]] = None, *, 
+#     check_range: bool = True,
+#     range_validator: Optional[Callable[[int], Union[bool, Tuple[bool, Tuple[int, int]]]]] = None
+# ) -> Union[Callable, tuple]:
+    # Adjusting the range validator default to return a tuple
+    if range_validator is None:
+        range_validator = lambda x: (1900 <= x <= datetime.now().year, (1900, datetime.now().year))
+    
+    # Decorator function
+    def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             nonlocal start_year, end_year
-            sy = _get_param_value(start_year, args, kwargs, func)
-            ey = _get_param_value(end_year, args, kwargs, func)
-            sy = _parse_year(sy, 'start_year')
-            ey = _parse_year(ey, 'end_year')
+            # If start_year and end_year are string, try getting the value from args or kwargs
+            if isinstance(start_year, str) or isinstance(end_year, str):
+                sy = _get_param_value(start_year, args, kwargs, func)
+                ey = _get_param_value(end_year, args, kwargs, func)
+            else:
+                # Otherwise, parse them directly
+                sy = _parse_year(start_year, 'start_year')
+                ey = _parse_year(end_year, 'end_year')
+            
+            # Validation logic remains unchanged
             _check_year_order(sy, ey)
             if check_range:
                 _check_year_range(sy, range_validator)
                 _check_year_range(ey, range_validator)
+                
             return func(*args, **kwargs)
         return wrapper
 
-    # If used as a normal function, directly validate the years
-    if not callable(start_year) and not callable(end_year):
-        sy = _parse_year(start_year, 'start_year')
-        ey = _parse_year(end_year, 'end_year')
-        _check_year_order(sy, ey)
-        if check_range:
-            _check_year_range(sy, range_validator)
-            _check_year_range(ey, range_validator)
-        return sy, ey
-
-    # Otherwise, return the decorator
-    return decorator
+    # Improved condition to determine function usage based on argument types
+    if ((isinstance(start_year, (int, str)) or start_year is None) and 
+        (isinstance(end_year, (int, str)) or end_year is None)):
+        # Direct function usage, assuming start_year and end_year are not both callables
+        if not callable(start_year) and not callable(end_year):
+            sy = _parse_year(start_year, 'start_year') if start_year is not None else None
+            ey = _parse_year(end_year, 'end_year') if end_year is not None else None
+            if sy is not None and ey is not None:
+                _check_year_order(sy, ey)
+                if check_range:
+                    _check_year_range(sy, range_validator)
+                    _check_year_range(ey, range_validator)
+                return sy, ey
+        return decorator
+    else:
+        # Otherwise, assume decorator usage with function to decorate
+        # being passed later
+        return decorator
 
 def _parse_year(year: Union[int, str], name: str) -> int:
     """
@@ -2903,7 +2956,7 @@ def _parse_year(year: Union[int, str], name: str) -> int:
     try:
         return int(year)
     except ValueError:
-        raise ValueError(f"{name} must be convertible to an integer.")
+        raise ValueError(f"'{name}' must be convertible to an integer.")
 
 
 def _check_year_order(start_year: int, end_year: int) -> None:
@@ -2981,10 +3034,9 @@ def _check_year_range(
     if not is_valid:
         error_message = f"The year {year} is out of the valid range."
         if valid_range:
-            error_message += f" Validated range: {valid_range[0]} to {valid_range[1]}."
+            error_message += f" Valid range is {valid_range[0]} to {valid_range[1]}."
         raise ValueError(error_message)
 
-    
 def _get_param_value(param_name: Union[int, str], args, kwargs, func) -> int:
     """
     Get the value of a parameter by name from args or kwargs of a function.
@@ -3016,6 +3068,137 @@ def _get_param_value(param_name: Union[int, str], args, kwargs, func) -> int:
         else:
             raise ValueError(f"The parameter {param_name} was not provided to the function.")
 
+def context_checker(
+    return_context_as_bool: bool = False,  
+    custom_logic: Optional[Callable[[Callable], Callable]] = None,
+    verbose: bool = False
+    ) -> Callable:
+    """
+    A versatile decorator to introspect and modify the behavior of functions
+    based on their context of usage. It can determine whether a function is
+    being used as a decorator for another function or called directly. This
+    decorator also supports executing with custom or default logic.
+    
+    Parameters
+    ----------
+    return_context_as_bool : bool, optional
+        If True, the decorator returns a boolean value indicating the context
+        instead of modifying or executing the target function. ``True`` means 
+        the function is used as a decorator, and ``False`` indicates it is called
+        directly. Defaults to ``False``.
+    
+    custom_logic : Optional[Callable[[Callable], Callable]], optional
+        A function that defines custom logic to apply to the decorated function.
+        If provided, this logic supersedes the default decoration logic.
+        If ``None``, default logic is applied.
+        
+    verbose : bool, optional
+        If ``True``, prints messages indicating the detected usage context. 
+        Useful for debugging purposes. Defaults to ``False``.
+        
+    Returns
+    -------
+    Callable
+        Depending on `return_context_as_bool`, the function either returns a
+        boolean indicating the usage context or modifies the target function
+        based on the specified logic (`custom_logic` or default).
+
+    Examples
+    --------
+    Direct call returning context as boolean:
+    
+    >>> import functools 
+    >>> from gofast.tools.funcutils import context_checker
+    >>> @context_checker(return_context_as_bool=True)
+    ... def my_function():
+    ...     pass
+    >>> print(my_function())
+    Detected direct call or dual-use scenario.
+    True
+    
+    Used as a decorator with custom logic, printing before and after:
+    
+    >>> def custom_logic(func):
+    ...     @functools.wraps(func)
+    ...     def wrapper(*args, **kwargs):
+    ...         print("Before function call")
+    ...         result = func(*args, **kwargs)
+    ...         print("After function call")
+    ...         return result
+    ...     return wrapper
+    >>> @context_checker(custom_logic=custom_logic)
+    ... def another_function():
+    ...     print("Function logic here.")
+    >>> another_function()
+    Detected dual-use or direct call scenario.
+    Before function call
+    Function logic here.
+    After function call
+    
+    Using as a dual-use decorator without providing function (useful for
+    decorators that can operate without arguments):
+    
+    >>> @context_checker(verbose=True)
+    ... def dual_use_decorator(func=None):
+    ...     if func is not None:
+    ...         return context_checker(func)
+    ...     def inner_decorator(f):
+    ...         @functools.wraps(f)
+    ...         def wrapper(*args, **kwargs):
+    ...             print("Dual-use logic applied.")
+    ...             return f(*args, **kwargs)
+    ...         return wrapper
+    ...     return inner_decorator
+    >>> @dual_use_decorator()
+    ... def decorated_function():
+    ...     print("Decorated function executed.")
+    >>> decorated_function()
+    Detected dual-use or direct call scenario.
+    Dual-use logic applied.
+    Decorated function executed.
+    """
+    def wrapper(target: Optional[Callable] = None) -> Any:
+        def apply_logic(func: Callable) -> Callable:
+            logic_to_apply = custom_logic if custom_logic else _apply_default_logic
+            return logic_to_apply(func)
+        
+        if target and callable(target):
+            if return_context_as_bool:
+                if verbose:
+                    print("Detected as a decorator.")
+                return False
+            return apply_logic(target)
+        
+        if return_context_as_bool:
+            if verbose:
+                print("Detected direct call or dual-use scenario.")
+            return True
+        
+        def dual_use_decorator(func: Optional[Callable] = None) -> Any:
+            if callable(func):
+                if verbose:
+                    print("Detected dual-use or direct call scenario.")
+                return apply_logic(func)
+            else:
+                if verbose:
+                    print("Detected function definition missing, applying logic directly.")
+                # Handle the case where the decorator is used without ()
+                return apply_logic(dual_use_decorator)
+        
+        return dual_use_decorator if not target else apply_logic(target)
+    
+    def _apply_default_logic(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def decorated(*args, **kwargs) -> Any:
+            if verbose:
+                print("Default decoration logic applied.")
+            return func(*args, **kwargs)
+        return decorated
+    
+    return wrapper if not return_context_as_bool else wrapper(None)
+
+
+#XXXTODO 
 class CustomDataFrame(pd.DataFrame):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
