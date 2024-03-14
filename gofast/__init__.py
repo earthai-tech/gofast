@@ -54,6 +54,7 @@ _main_dependencies = {
     "pandas": None,
     "seaborn": None,
     "tqdm":None,
+    "statsmodels": None, 
 }
 
 _missing_dependencies = []
