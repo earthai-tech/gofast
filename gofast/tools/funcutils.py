@@ -15,12 +15,14 @@ Features:
 """
 import sys 
 import time
+
 import functools
 import inspect
 import logging
 import warnings
 import subprocess
 import threading
+from datetime import datetime
  
 import numpy as np
 import pandas as pd
@@ -50,7 +52,8 @@ __all__=[
     "update_dataframe_index", 
     "convert_to_pandas", 
     "update_index", 
-    "convert_and_format_data"
+    "convert_and_format_data", 
+    "validate_years"
   ]
 
 def curry(check_types=False, strict=False, allow_extra_args=False):
@@ -2768,6 +2771,250 @@ def summary(
     
     return summary
 
+def validate_years(
+    start_year: Optional[Union[int, str]] = None, 
+    end_year: Optional[Union[int, str]] = None, *, 
+    check_range: bool = True,
+    range_validator: Optional[Callable[[int], bool]] = None
+) -> Union[Callable, tuple]:
+    """
+    Validate the years provided to a function or use as a decorator.
+    
+    This function checks if the `start_year` and `end_year` are valid integer 
+    years and whether `start_year` is before `end_year`. Optionally, it 
+    validates if the years are within a reasonable range defined by the 
+    `range_validator`. The function can be used as a decorator to enforce 
+    this validation on function arguments named `start_year` and `end_year`, 
+    or as a standalone function that validates and returns the years.
+    
+    Parameters
+    ----------
+    start_year : int, str, or None, optional
+        The starting year as an integer, a string representing a year, or 
+        the name of the  parameter representing the starting year in the 
+        decorated function. If `None`, it will be treated as a decorator, 
+        and the parameter will be dynamically determined.
+        
+    end_year : int, str, or None, optional
+        The ending year as an integer, a string representing a year, or the 
+        name of the parameter representing the ending year in the decorated 
+        function. If `None`, it will be treated as a decorator, and the 
+        parameter will be dynamically determined.
+        
+    check_range : bool, default=True
+        If `True`, enables the range check of the years using the 
+        `range_validator`. If `False`, this check is bypassed.
+        
+    range_validator : Callable[[int], bool], optional
+        A function that accepts an integer year and returns `True` if the year 
+        is within an acceptable range. If not provided, the default validator 
+        checks if the year is between 1900 and the current year.
+        
+    Returns
+    -------
+    Callable or tuple
+        If used as a decorator, it returns the wrapped function. If used as 
+        a standalone function, it returns a tuple of validated 
+        `(start_year, end_year)` as integers.
+        
+    Raises
+    ------
+    ValueError
+        If the years cannot be parsed as integers, `start_year` is not less 
+        than `end_year`, or the years are not within the valid range as 
+        determined by `range_validator`.
+        
+    Examples
+    --------
+    As a decorator, using parameter names of the decorated function:
+    
+    >>> @validate_years(start_year='start', end_year='end')
+    ... def some_function(start: int, end: int):
+    ...     return f"Range: {start} to {end}"
+    
+    Using a custom `range_validator` to enforce that years must be in the
+    21st century:
+
+    >>> def is_21st_century(year: int) -> bool:
+    ...     return 2000 <= year <= 2100
+    >>> start, end = validate_years('2001', '2020', range_validator=is_21st_century)
+    >>> print(f"Validated range: {start} to {end}")
+    Validated range: 2001 to 2020
+    
+    As a standalone function:
+    
+    >>> start, end = validate_years('2001', '2020')
+    >>> print(f"Validated range: {start} to {end}")
+    Validated range: 2001 to 2020
+    """
+    if range_validator is None:
+        range_validator = lambda x: (1900 <= x <= datetime.now().year, (
+            1900, datetime.now().year))
+    
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            nonlocal start_year, end_year
+            sy = _get_param_value(start_year, args, kwargs, func)
+            ey = _get_param_value(end_year, args, kwargs, func)
+            sy = _parse_year(sy, 'start_year')
+            ey = _parse_year(ey, 'end_year')
+            _check_year_order(sy, ey)
+            if check_range:
+                _check_year_range(sy, range_validator)
+                _check_year_range(ey, range_validator)
+            return func(*args, **kwargs)
+        return wrapper
+
+    # If used as a normal function, directly validate the years
+    if not callable(start_year) and not callable(end_year):
+        sy = _parse_year(start_year, 'start_year')
+        ey = _parse_year(end_year, 'end_year')
+        _check_year_order(sy, ey)
+        if check_range:
+            _check_year_range(sy, range_validator)
+            _check_year_range(ey, range_validator)
+        return sy, ey
+
+    # Otherwise, return the decorator
+    return decorator
+
+def _parse_year(year: Union[int, str], name: str) -> int:
+    """
+    Parse the year from a string or integer to an integer.
+    
+    Parameters
+    ----------
+    year : int or str
+        The year to parse.
+    name : str
+        The name of the parameter (start_year or end_year) for error messaging.
+        
+    Returns
+    -------
+    int
+        The parsed year as an integer.
+    
+    Raises
+    ------
+    ValueError
+        If the year cannot be converted to an integer.
+    """
+    try:
+        return int(year)
+    except ValueError:
+        raise ValueError(f"{name} must be convertible to an integer.")
+
+
+def _check_year_order(start_year: int, end_year: int) -> None:
+    """
+    Check if start_year is less than end_year.
+    
+    Parameters
+    ----------
+    start_year : int
+        The starting year.
+    end_year : int
+        The ending year.
+    
+    Raises
+    ------
+    ValueError
+        If start_year is not less than end_year.
+    """
+    if start_year >= end_year:
+        raise ValueError(f"{start_year} must be less than {end_year}.")
+
+
+def _check_year_range(
+        year: int, 
+        range_validator: Callable[[int], Union[bool, Tuple[bool, Tuple[int, int]]]]
+        ) -> None:
+    """
+    Validates if a given year is within an acceptable range as determined by
+    the range_validator. The range_validator function can return either a 
+    boolean indicating the validity of the year, or a tuple comprising a 
+    boolean and another tuple detailing the valid range (start, end).
+
+    Parameters
+    ----------
+    year : int
+        The year to be validated.
+    range_validator : Callable[[int], Union[bool, Tuple[bool, Tuple[int, int]]]]
+        A function that returns either a boolean indicating if the year is valid,
+        or a tuple containing a boolean and the valid range. If the year is
+        not valid and a range is provided, a ValueError will be raised including
+        the valid range in its message.
+
+    Raises
+    ------
+    ValueError
+        If the year is not within the valid range. The exception message will
+        include the valid range if it is provided by the range_validator.
+
+    Examples
+    --------
+    Using a range_validator that returns a boolean:
+    
+    >>> def simple_validator(year: int) -> bool:
+    ...     return 2000 <= year <= 2100
+    >>> try:
+    ...     _check_year_range(1999, simple_validator)
+    ... except ValueError as e:
+    ...     print(e)
+    The year 1999 is out of the valid range.
+
+    Using a range_validator that returns a tuple with the valid range:
+    
+    >>> def detailed_validator(year: int) -> Tuple[bool, Tuple[int, int]]:
+    ...     return 2000 <= year <= 2100, (2000, 2100)
+    >>> try:
+    ...     _check_year_range(1999, detailed_validator)
+    ... except ValueError as e:
+    ...     print(e)
+    The year 1999 is out of the valid range. Valid range is 2000 to 2100.
+    """
+    result = range_validator(year)
+    is_valid = result if isinstance(result, bool) else result[0]
+    valid_range = None if isinstance(result, bool) else result[1]
+
+    if not is_valid:
+        error_message = f"The year {year} is out of the valid range."
+        if valid_range:
+            error_message += f" Validated range: {valid_range[0]} to {valid_range[1]}."
+        raise ValueError(error_message)
+
+    
+def _get_param_value(param_name: Union[int, str], args, kwargs, func) -> int:
+    """
+    Get the value of a parameter by name from args or kwargs of a function.
+    
+    Parameters
+    ----------
+    param_name : int, str
+        The name of the parameter to retrieve the value for, or its actual value.
+    args : tuple
+        The positional arguments passed to the function.
+    kwargs : dict
+        The keyword arguments passed to the function.
+    func : Callable
+        The function from which to retrieve the parameter value.
+    
+    Returns
+    -------
+    int
+        The value of the parameter as an integer.
+    """
+    if isinstance(param_name, int):
+        return param_name
+    elif param_name in kwargs:
+        return kwargs[param_name]
+    else:
+        param_index = func.__code__.co_varnames.index(param_name)
+        if param_index < len(args):
+            return args[param_index]
+        else:
+            raise ValueError(f"The parameter {param_name} was not provided to the function.")
 
 class CustomDataFrame(pd.DataFrame):
     def __init__(self, *args, **kwargs):
@@ -2803,6 +3050,7 @@ class CustomDataFrame(pd.DataFrame):
             summary["Sample Data"] = self.sample(n=sample_size).to_dict(orient='list')
         
         return summary
+
 
 # Example usage
 if __name__ == "__main__":

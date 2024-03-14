@@ -18,7 +18,7 @@ from ..tools.box import Boxspace
 from ..tools.coreutils import ellipsis2false ,assert_ratio, is_iterable 
 from ..tools.coreutils import is_in_if, _assert_all_types,  add_noises_to 
 from ..tools.coreutils import smart_format, random_sampling
-from ..tools.funcutils import ensure_pkg
+from ..tools.funcutils import ensure_pkg #validate_years
 from ._globals import HYDRO_PARAMS, HYDRO_PARAM_UNITS 
 from ._globals import RELEVANT_HYDRO_PARAMS, HYDRO_PARAM_RANGES  
 
@@ -756,6 +756,7 @@ def make_african_demo(*,
 
     """ 
     from ._globals import AFRICAN_COUNTRIES
+    start_year, end_year = _validate_years(start_year, end_year)
     # Random seed for reproducibility
     np.random.seed(seed); data = []
     # check the given data 
@@ -802,7 +803,6 @@ def make_african_demo(*,
         ) 
 
     return demo_data
-
 
 def make_agronomy_feedback(*, 
     samples=100, 
@@ -3503,5 +3503,47 @@ def _get_item_from ( spec , /,  default_items, default_number = 7 ):
     
     return spec 
     
+def _validate_years(start_year, end_year):
+    """
+    Validate the start_year and end_year ensuring that both are valid years
+    and that start_year is less than end_year.
+
+    Parameters
+    ----------
+    start_year : int or str
+        The starting year for the data range.
+    end_year : int or str
+        The ending year for the data range.
+
+    Returns
+    -------
+    tuple
+        A tuple containing the validated start and end years as integers.
+
+    Raises
+    ------
+    ValueError
+        If the start_year is not less than end_year or if the inputs are not valid years.
+    """
+
+    # Attempt to convert start_year and end_year to integers
+    try:
+        start_year = int(start_year)
+        end_year = int(end_year)
+    except ValueError:
+        raise ValueError("start_year and end_year must be convertible to integers.")
+    
+    # Check if start_year is less than end_year
+    if start_year >= end_year:
+        raise ValueError("start_year must be less than end_year.")
+    from datetime import datetime
+    # Optionally, you could check if the years are within a reasonable range
+    current_year = datetime.now().year
+    if not (1900 <= start_year <= current_year):
+        raise ValueError("start_year is out of the valid range.")
+    if not (1900 <= end_year <= current_year):
+        raise ValueError("end_year is out of the valid range.")
+
+    return start_year, end_year
 
 
