@@ -3190,7 +3190,7 @@ def _validate_and_warn(targets, ops, ops_details):
     - ops: operation type, such as 'deep_mining', 'deep_mine', 'regular', or 'standards'.
     """
     default_target = 'aquifer_pressure' if str(ops).lower() in [
-        'deep_mining', 'deep_mine', 'deep_mine'] else 'hydraulic_conductivity'
+        'deep_mining', 'deep_mine', 'deep mine'] else 'hydraulic_conductivity'
     targets = targets or [default_target]
 
     for target in targets:
@@ -3204,7 +3204,7 @@ def _validate_and_warn(targets, ops, ops_details):
             else:
                 warnings.warn(
                     f"The selected target '{target}' is not among the recommended"
-                    " parameters for '{ops}' operations. It's important to select"
+                    f" parameters for '{ops}' operations. It's important to select"
                     " targets that are critical to the specific operational goals."
                     " If unsure, consider consulting with a hydrogeology or mining"
                     " expert to ensure the selection of appropriate parameters for "
