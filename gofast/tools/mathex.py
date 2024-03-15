@@ -141,7 +141,8 @@ def calculate_optimal_bins(y_pred, method='freedman_diaconis', data_range=None):
     
     if data_range is not None:
         if not isinstance(data_range, tuple) or len(data_range) != 2:
-            raise ValueError("data_range must be a tuple of two numeric values (min, max).")
+            raise ValueError(
+                "data_range must be a tuple of two numeric values (min, max).")
         if any(not np.isscalar(v) or not np.isreal(v) for v in data_range):
             raise ValueError("data_range must contain numeric values.")
         data_min, data_max = data_range
@@ -156,8 +157,8 @@ def calculate_optimal_bins(y_pred, method='freedman_diaconis', data_range=None):
     method = normalize_string(
         method, target_strs=["freedman_diaconis","sturges","sqrt"], 
         return_target_only= True, match_method="contains", raise_exception=True,
-        error_msg=(
-            "Invalid method specified. Choose among 'freedman_diaconis', 'sturges', 'sqrt'.")
+        error_msg=("Invalid method specified. Choose among"
+                   " 'freedman_diaconis', 'sturges', 'sqrt'.")
         )
     if method == 'freedman_diaconis':
         iqr = np.subtract(*np.percentile(y_pred, [75, 25]))  # Interquartile range
@@ -262,41 +263,71 @@ def calculate_binary_iv(
       Statistical Association.
       
     """
-
-    if epsilon=='auto': 
-        epsilon= determine_epsilon( y_pred )
+    # Ensure y_true and y_pred are numpy arrays for efficient computation
+    y_true, y_pred = np.asarray(y_true), np.asarray(y_pred)
     
+    # Validate and process epsilon
+    if isinstance(epsilon, str):
+        if epsilon == 'auto':
+            epsilon = determine_epsilon(y_pred)
+        else:
+            raise ValueError(
+                "Epsilon value 'auto' is acceptable or should be a numeric value.")
+            
+    elif not isinstance(epsilon, (int, float)):
+        raise ValueError("Epsilon must be a numeric value or 'auto'.")
+    else:
+        epsilon = float(epsilon)
+
+    # Validate method parameter
+    msg_meth=copy.deepcopy(method)
     method = normalize_string(
         method, target_strs= ['base', 'binning'], match_method='contains', 
         return_target_only=True, raise_exception=True , error_msg= (
-            "Invalid method specified. Use 'base' or 'binning'.")
+            f"Invalid method '{msg_meth}'. Use 'base' or 'binning'.")
         )
+    # Base method for IV calculation
     if method == 'base':
-        percent_events = np.mean(y_true)
+        percent_events = y_true.mean()
         percent_non_events = 1 - percent_events
-        iv = np.sum((percent_non_events - percent_events) * np.log(
+        return np.sum((percent_non_events - percent_events) * np.log(
             (percent_non_events + epsilon) / (percent_events + epsilon)))
-
+    
+    # Binning method for IV calculation
     elif method == 'binning':
-        if bins == 'auto':
+        if isinstance (bins, str):
+            if bins=='auto' and bins_method is None: 
+                warnings.warn(
+                    "The 'bins' parameter is set to 'auto', but no 'bins_method'"
+                    " has been specified. Defaulting to the 'freedman_diaconis'"
+                    " method for determining the optimal number of bins.")
+                bins_method="freedman_diaconis" 
             bins = calculate_optimal_bins(
-                y_pred, method =bins_method, data_range=data_range )
-        # Create bins for y_pred
-        bins = np.linspace(0, 1, bins + 1)
-        digitized = np.digitize(y_pred, bins) - 1  # Bin indices for each prediction
+                y_pred, method=bins_method, data_range=data_range)
+            
+        elif not isinstance(bins, (int, float)) or bins < 1:
+            raise ValueError("Bins must be 'auto' or a positive integer.")
+            
+        if isinstance ( bins, float): 
+            bins =int (bins )
+    
+        bins_array = np.linspace(0, 1, bins + 1)
+        digitized = np.digitize(y_pred, bins_array) - 1
         iv = 0
-        for i in range(len(bins)-1):
-            indices = digitized == i
-            if np.sum(indices) == 0:
-                continue  # Skip empty bins
-            bin_true = y_true[indices]
-            percent_events_bin = np.mean(bin_true)
+        
+        for bin_index in range(len(bins_array) - 1):
+            in_bin = digitized == bin_index
+            if not in_bin.any(): # if np.sum(indices) == 0:
+                continue # # Skip empty bins
+            
+            bin_true = y_true[in_bin]
+            percent_events_bin = bin_true.mean()
             percent_non_events_bin = 1 - percent_events_bin
             bin_contribution = (percent_non_events_bin - percent_events_bin) * np.log(
                 (percent_non_events_bin + epsilon) / (percent_events_bin + epsilon))
             iv += bin_contribution if not np.isnan(bin_contribution) else 0
-    
-    return iv 
+        
+        return iv
 
 def determine_epsilon(y_pred, base_epsilon=1e-15, scale_factor=1e-5):
     """

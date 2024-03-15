@@ -10,7 +10,7 @@ management or analysts review on a regular basis to maintain performance
 assessments, opinions, and business strategies.
 """
 from __future__ import annotations 
-import copy
+import itertools 
 import warnings  
 import numpy as np 
 from scipy.stats import spearmanr
@@ -27,7 +27,9 @@ from sklearn.metrics import (
     confusion_matrix, # as cfsmx ,
     classification_report, 
     mean_squared_error, 
-    log_loss
+    log_loss, 
+    mean_absolute_error, 
+    r2_score
     )
 
 from sklearn.utils.multiclass import unique_labels
@@ -36,16 +38,16 @@ from sklearn.preprocessing import label_binarize
 
 from ._docstring import DocstringComponents,_core_docs
 from ._gofastlog import gofastlog
-from ._typing import _F, List, Optional, ArrayLike , NDArray 
-from .exceptions import LearningError 
-from .tools.box import Boxspace 
+# from ._typing import _F, List, Optional, ArrayLike , NDArray 
+# from .exceptions import LearningError 
+from .tools.box import Bunch 
 from .tools.coreutils import normalize_string 
 from .tools.mathex import determine_epsilon, calculate_binary_iv
-from .tools.validator import get_estimator_name, _is_numeric_dtype
+# from .tools.validator import get_estimator_name, _is_numeric_dtype
 from .tools.validator import check_consistent_length, check_y  
-from .tools.validator import check_classification_targets 
+from .tools.validator import check_classification_targets, check_is_fitted
 
-from .tools.coreutils import is_iterable, _assert_all_types 
+# from .tools.coreutils import is_iterable, _assert_all_types 
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -63,21 +65,19 @@ _SCORERS = {
 }
 __all__=[
     "precision_recall_tradeoff",
-    "roc_curve_",
-    "confusion_matrix_", 
-    "get_eval_scores", 
+    "roc_tradeoff",
+    "evaluate_confusion_matrix", 
     "mean_squared_log_error",
     "balanced_accuracy",
     "information_value", 
-    "mean_absolute_error_b",
-    "mean_squared_error", 
-    "root_mean_squared_error",
-    "r_squared", 
+    "flexible_mae",
+    "flexible_mse", 
+    "flexible_rmse",
+    "flexible_r2", 
     "mean_absolute_percentage_error", 
     "explained_variance_score", 
     "median_absolute_error",
     "max_error",
-    "mean_squared_log_error",
     "mean_poisson_deviance", 
     "mean_gamma_deviance",
     "mean_absolute_deviation", 
@@ -94,8 +94,13 @@ __all__=[
     "mean_reciprocal_rank", 
     "average_precision",
     "jaccard_similarity_coeff", 
-    "geo_iv", 
-    
+    "geo_information_value", 
+    "assess_regression_metrics", 
+    "assess_classifier_metrics", 
+    "adjusted_r2_score", 
+    "display_confusion_matrix", 
+    "display_roc", 
+    "display_precision_recall"
     ]
 
 #----add metrics docs 
@@ -126,7 +131,19 @@ _param_docs = DocstringComponents.from_nested_components(
     metric=DocstringComponents(_metrics_params ), 
     )
 
-def mean_squared_log_error(y_true, y_pred, clip_value=0, epsilon=1e-15):
+def get_metrics(): 
+    """
+    Get the list of  available gofast metrics. 
+    
+    Metrics are measures of quantitative assessment commonly used for 
+    assessing, comparing, and tracking performance or production. Generally,
+    a group of metrics will typically be used to build a dashboard that
+    management or analysts review on a regular basis to maintain performance
+    assessments, opinions, and business strategies.
+    """
+    return tuple(metrics.SCORERS.keys())
+
+def mean_squared_log_error(y_true, y_pred, *,  clip_value=0, epsilon=1e-15):
     """
     Compute the Mean Squared Logarithmic Error (MSLE) between true and
     predicted values. 
@@ -342,7 +359,7 @@ def balanced_accuracy(
 def information_value(
     y_true, y_pred, 
     problem_type='binary', 
-    epsilon="auto", 
+    epsilon='auto', 
     scale='binary_scale', 
     method='binning', 
     bins='auto', 
@@ -407,11 +424,11 @@ def information_value(
         discrete bins, allowing for a more granular analysis of the model's 
         predictive power. If set to 'auto', the number of bins is determined 
         using the method specified by `bins_method`. Providing an integer directly 
-        specifies the fixed number of bins to use. Default is 'auto'.
+        specifies the fixed number of bins to use. Default is ``'auto'``.
 
     bins_method : str, optional
         Specifies the method to determine the optimal number of bins when 
-        `bins` is set to 'auto'. Available methods are:
+        `bins` is set to ``'auto'``. Available methods are:
         - 'freedman_diaconis': Employs the Freedman-Diaconis rule, which bases 
           the bin width on the data's interquartile range and the cube root of 
           data size. Ideal for a wide range of distributions.
@@ -639,7 +656,6 @@ def information_value(
             bins_method=bins_method,
             data_range=data_range, 
             )
-        
     elif problem_type == 'multiclass':
         # Normalize to binary IV scale if requested
         iv = -log_loss(y_true, y_pred, eps=epsilon) / np.log(
@@ -665,719 +681,1278 @@ def information_value(
  
     return iv
 
-def geo_iv (Xp:ArrayLike, /,  Np:ArrayLike, Sp:ArrayLike, *, 
-                       return_tot :bool = ... ): 
-    """The geo-information value (geo-InV) constructs with the influencing factors 
-    landslide areas and calculates the sensitivity of each influencing 
-    factor.
-    
-    InV method is a statistical approach for the prediction of spatial events
-    on the basis of associated parameters and landslide relationships [1]_. 
-    The inV :math:`I_i` of each causative factor :math:`X_i` can be 
-    expressed as: 
-        
-    .. math:: 
-        
-        I_i= \log \frac{\frac{S_i}{N_i}{\frac{S}{N}} 
-                        
-    where :math:`S_i`  is the landslide pixel number in the presence of a 
-    causative factor ܺ:math:`X_i`, :math:`N_i` is the number of pixels 
-    associated with causative factor ܺ:math:`X_i` . :math:`S` is the total 
-    number of landslide pixels, and:math:`N` is the total number of pixels in 
-    the study area. Then, the overall information value :math:`I` can be 
-    calculated by:
-        
-    .. math:: 
-        
-        I_i= \sum{i=1}{n} \log \frac{\frac{S_i}{N_i}}{\frac{S}{N}}
-        
-    Thus Negative and positive values of :math:\I_i` irrepresent the relevant  
-    and relevant correlation between the presence of a certain causative factor 
-    and landslide event, respectively. The stronger the correlation is, the 
-    higher the value of :math:`I_i`. See more details in the paper of Chen 
-    Tao with the following :doi:`https://doi.org/10.1007/s11629-019-5839-3` .
-    
-    
-    Parameters 
+def geo_information_value(
+        Xp, Np, Sp, *, aggregate=True, epsilon=1e-15, clip_upper_bound=None):
+    """
+    Calculate the Geographic Information Value (Geo-IV) for assessing the influence
+    of various factors on landslide occurrences. Geo-IV quantifies the sensitivity 
+    and relevance of each factor in predicting spatial events such as landslides.
+
+    This metric implements the Information Value (InV) method, a statistical 
+    approach that evaluates the predictive power of spatial parameters and their 
+    relationships with landslide occurrences. The method is particularly useful in 
+    geosciences for landslide susceptibility mapping and risk assessment.
+
+    Parameters
     ----------
-    
-    Xp: Arraylike, Shape (n_samples ) of pixels 
-       Causative factor. 
-       
-    Sp: Arraylike ,Shape of (n_samples) of pixels  
-        The landslide pixel number in the presence of a causative factor 
-        :math:`X_i`.
-    Np: Arraylike, Shape of n_samples of pixels 
-       Number of pixels associated to the causative factor :math:`X_i`. 
-       
-    return_tot: bool, default=False 
-      Returns the overall information value. 
+    Xp : array-like
+        An array representing causative factors, with shape (n_samples,).
+    Np : array-like
+        The number of pixels associated with each causative factor `Xp`,
+        with shape (n_samples,).
+    Sp : array-like
+        The number of landslide pixels in the presence of causative factor `Xp`,
+        with shape (n_samples,).
+    aggregate : bool, optional, default=True
+        If True, returns the overall Geo-IV value by summing up individual
+        information values.
+    epsilon : float, optional, default=1e-15
+        A small value added to avoid division by zero during calculations.
+    clip_upper_bound : float, optional
+        An upper bound for clipping `Np` values to prevent excessively high
+        ratios. If None, clipping is only applied at the lower bound (`epsilon`).
 
-    Returns 
-    ---------
-    I: Arraylike 
-       Information value of caustive factor :math:`X_p`. 
-       
-    
-    References 
-    ------------
-    .. [1] Sarkar S, Kanungo D, Patra A (2006) GIS Based Landslide 
-           Susceptibility Mapping - A Case Study in Indian Himalaya in 
-           Disaster Mitigation of Debris Flows, Slope Failures and 
-           Landslides, Universal Academic Press, Tokyo, 617-624 
+    Returns
+    -------
+    array-like or float
+        The calculated Geo-IV for each causative factor, or the overall Geo-IV
+        if `aggregate` is True.
+
+    Notes
+    -----
+    The Geo-IV of each causative factor `X_i` is calculated using the formula:
+
+    .. math::
+        I_i = \log\left(\frac{S_i / N_i}{S / N}\right)
+
+    where `S_i` is the landslide pixel number in the presence of `X_i`, `N_i` is
+    the number of pixels associated with `X_i`, `S` is the total number of
+    landslide pixels, and `N` is the total number of pixels in the study area.
+
+    Positive values of Geo-IV indicate a factor's relevance in the occurrence
+    of landslides, while negative values suggest irrelevance. The magnitude
+    of the value reflects the strength of the correlation [1]_.
+
+    References
+    ----------
+    .. [1] Sarkar S, Kanungo D, Patra A (2006). GIS-Based Landslide Susceptibility
+           Mapping: A Case Study in the Indian Himalayas. In: Disaster Mitigation
+           of Debris Flows, Slope Failures, and Landslides. Universal Academic
+           Press, Tokyo, pp. 617-624.
+           DOI: https://doi.org/10.1007/s11629-019-5839-3
+
+    Examples
+    --------
+    >>> import numpy as np 
+    >>> from gofast.metrics import geo_information_value
+    >>> Xp = np.array([1, 2, 3])  # Example causative factors
+    >>> Np = np.array([100, 200, 300])  # Pixels associated with each factor
+    >>> Sp = np.array([10, 20, 30])  # Landslide pixels for each factor
+    >>> geo_iv = geo_information_value(Xp, Np, Sp, aggregate=True)
+    >>> print(f"Overall Geographic Information Value: {geo_iv}")
     """
-    if not _is_numeric_dtype(Xp, to_array= True ): 
-        raise TypeError ("Causative factor expect a numeric array."
-                         f" Got {np.array(Xp).dtype!r}")
-    Xp = np.array ( is_iterable(Xp , transform =True ))
+    # Ensure inputs are numpy arrays and convert single numbers to arrays
+    try: 
+        Xp, Np, Sp = map(lambda x: np.asarray(x, dtype=float), [Xp, Np, Sp])
+    except ValueError:
+        raise ValueError(
+            "All inputs (Xp, Np, Sp) must be convertible to float arrays.")
+    # Ensure all inputs have compatible shapes
+    if not (Xp.shape == Np.shape == Sp.shape):
+        raise ValueError(
+            "Shapes of Xp, Np, and Sp must be identical. Received shapes"
+            f" Xp: {Xp.shape}, Np: {Np.shape}, Sp: {Sp.shape}.")
     
-    if Np: Np = _assert_all_types(Np , float , int, 
-                                  objname= "Number of pixel 'Ni'")
-
-    I = np.zeros_like ( Xp , dtype = float )
-
-    for i in len(Xp ): 
-        Ii = _get_geo_iv_value ( Sp[i], Np[i], Sp, Np )
-        # Ii = np.log10 ( ( Sp[i] / Np[i])/( len(Sp)/len(Np) ))
-        I[i]= Ii 
-    return I if not return_tot else np.sum (I )
+    # Validate inputs are not empty
+    if Xp.size == 0 or Np.size == 0 or Sp.size == 0:
+        raise ValueError("Inputs Xp, Np, and Sp must not be empty.")
     
-
-def _get_geo_iv_value ( Si, Ni, S, N ): 
-    """ Compute the information value :math:`I_i` of each causative factor
-    :math:`X_i` """
-    return np.log10 ( Si/Ni * ( S/ N )) 
-
-def get_metrics(): 
-    """
-    Get the list of  available metrics. 
-    
-    Metrics are measures of quantitative assessment commonly used for 
-    assessing, comparing, and tracking performance or production. Generally,
-    a group of metrics will typically be used to build a dashboard that
-    management or analysts review on a regular basis to maintain performance
-    assessments, opinions, and business strategies.
-    """
-    return tuple(metrics.SCORERS.keys())
-
-def get_eval_scores (
-    model, 
-    Xt, 
-    yt, 
-    *,average="binary", 
-    multi_class="raise", 
-    normalize=True, 
-    sample_weight=None,
-    verbose = False, 
-    **scorer_kws, 
-    ): 
-    ypred = model.predict(Xt) 
-    acc_scores = accuracy_score(yt, ypred, normalize=normalize, 
-                                sample_weight= sample_weight) 
-    rec_scores = recall_score(
-        yt, ypred, average =average, sample_weight = sample_weight, 
-        **scorer_kws)
-    prec_scores = precision_score(
-        yt, ypred, average =average,sample_weight = sample_weight, 
-        **scorer_kws)
-    try:
-        #compute y_score when predict_proba is available 
-        # or  when  probability=True
-        ypred = model.predict_proba(Xt) if multi_class !='raise'\
-            else model.predict(Xt) 
-    except: rocauc_scores=None 
-    else :
-        rocauc_scores= roc_auc_score (
-            yt, ypred, average=average, multi_class=multi_class, 
-            sample_weight = sample_weight, **scorer_kws)
-
-    scores= Boxspace (**dict ( 
-        accuracy = acc_scores , recall = rec_scores, 
-        precision= prec_scores, auc = rocauc_scores 
-        ))
-    if verbose: 
-        mname=get_estimator_name(model)
-        print(f"{mname}:\n")
-        print("accuracy -score = ", acc_scores)
-        print("recall -score = ", rec_scores)
-        print("precision -score = ", prec_scores)
-        print("ROC AUC-score = ", rocauc_scores)
-    return scores 
-
-get_eval_scores.__doc__ ="""\
-Compute the `accuracy`,  `precision`, `recall` and `AUC` scores.
-
-Parameters 
-------------
-{params.core.model}
-{params.core.Xt} 
-{params.core.yt}
-
-average : {{'micro', 'macro', 'samples', 'weighted', 'binary'}} or None, \
-        default='binary'
-    This parameter is required for multiclass/multilabel targets.
-    If ``None``, the scores for each class are returned. Otherwise, this
-    determines the type of averaging performed on the data:
-
-    ``'binary'``:
-        Only report results for the class specified by ``pos_label``.
-        This is applicable only if targets (``y_{{true,pred}}``) are binary.
-    ``'micro'``:
-        Calculate metrics globally by counting the total true positives,
-        false negatives and false positives.
-    ``'macro'``:
-        Calculate metrics for each label, and find their unweighted
-        mean.  This does not take label imbalance into account.
-    ``'weighted'``:
-        Calculate metrics for each label, and find their average weighted
-        by support (the number of true instances for each label). This
-        alters 'macro' to account for label imbalance; it can result in an
-        _F-score that is not between precision and recall. Weighted recall
-        is equal to accuracy.
-    ``'samples'``:
-        Calculate metrics for each instance, and find their average (only
-        meaningful for multilabel classification where this differs from
-        :func:`accuracy_score`).
-        Will be ignored when ``y_true`` is binary.
-        Note: multiclass ROC AUC currently only handles the 'macro' and
-        'weighted' averages.
+    # Apply clipping with epsilon as lower bound and clip_upper_bound as upper bound
+    Np = np.clip(Np, epsilon, clip_upper_bound if clip_upper_bound is not None else np.max(Np))
+    total_N = np.sum(Np)
+    if total_N <= 0:
+        raise ValueError("Sum of Np must be greater than zero after applying epsilon.")
         
-multi_class : {{'raise', 'ovr', 'ovo'}}, default='raise'
-    Only used for multiclass targets. Determines the type of configuration
-    to use. The default value raises an error, so either
-    ``'ovr'`` or ``'ovo'`` must be passed explicitly.
+    total_S = np.sum(Sp)
+    if total_S <= 0:
+        raise ValueError("Sum of Sp must be greater than zero.")
 
-    ``'ovr'``:
-        Stands for One-vs-rest. Computes the AUC of each class
-        against the rest [1]_ [2]_. This
-        treats the multiclass case in the same way as the multilabel case.
-        Sensitive to class imbalance even when ``average == 'macro'``,
-        because class imbalance affects the composition of each of the
-        'rest' groupings.
-    ``'ovo'``:
-        Stands for One-vs-one. Computes the average AUC of all
-        possible pairwise combinations of classes [3]_.
-        Insensitive to class imbalance when
-        ``average == 'macro'``.
-        
-normalize : bool, default=True
-    If ``False``, return the number of correctly classified samples.
-    Otherwise, return the fraction of correctly classified samples.
-
-sample_weight : array-like of shape (n_samples,), default=None
-    Sample weights.
+    # Calculate the Geo-IV for each element
+    Iv = np.log10((Sp / Np) / (total_S / total_N))
     
-{params.core.verbose}
+    # Aggregate the Geo-IV values if requested
+    return np.sum(Iv) if aggregate else Iv
 
-scorer_kws: dict, 
-    Additional keyword arguments passed to the scorer metrics: 
-    :func:`~sklearn.metrics.accuracy_score`, 
-    :func:`~sklearn.metrics.precision_score`, 
-    :func:`~sklearn.metrics.recall_score`, 
-    :func:`~sklearn.metrics.roc_auc_score`
+def assess_regression_metrics(
+    y_true, 
+    y_pred=None, 
+    X=None, 
+    model=None, *,
+    sample_weight=None, 
+    multioutput='uniform_average',
+    force_finite=True, 
+    clip_value=0, 
+    epsilon=1e-15
+    ):
+    """
+    Assess a comprehensive set of metrics for evaluating the performance of
+    regression models. 
     
-Returns 
---------
-scores: :class:`gofast.tools.box.Boxspace`. , 
-    A dictionnary object to retain all the scores from metrics evaluation such as 
-    - accuracy , 
-    - recall 
-    - precision 
-    - ROC AUC ( Receiving Operating Characteric Area Under the Curve)
-    Each score can be fetch as an attribute. 
+    Function simplifies the process of model evaluation by computing common 
+    regression metrics including Mean Absolute Error (MAE), Mean Squared Error
+    (MSE), Root Mean Squared Error (RMSE), :math:`R^2` (coefficient of determination),
+    adjusted :math:`R^2`, Mean Squared Logarithmic Error (MSLE), and
+    Median Absolute Error (MedAE) [1]_.
     
-Notes 
--------
-Note that if `yt` is given, it computes `y_score` known as array-like of 
-shape (n_samples,) or (n_samples, n_classes)Target scores following the 
-scheme below: 
+    Parameters
+    ----------
+    y_true : array-like
+        True target values.
+    y_pred : array-like, optional
+        Predicted target values. If None, `model` and `X` must be provided to
+        generate predictions.
+    X : array-like, optional
+        Feature dataset. Required if `y_pred` is None.
+    model : estimator object implementing 'fit', optional
+        The object to use to fit the data and generate predictions. Required if
+        `y_pred` is None.
+    sample_weight : array-like, optional
+        Sample weights.
+    multioutput : str, optional
+        Defines aggregating of multiple output scores. Default is
+        'uniform_average'.
+    force_finite : bool, optional
+        Forces the output scores to be finite by clipping. Default is True.
+    clip_value : float, optional
+        Minimum log value to use for mean_squared_log_error to avoid taking log
+        of zero. Default is 0.
+    epsilon : float, optional
+        Small offset to add to input values to avoid division by zero or taking
+        log of zero in metrics calculation. Default is 1e-15.
 
-* In the binary case, it corresponds to an array of shape
-  `(n_samples,)`. Both probability estimates and non-thresholded
-  decision values can be provided. The probability estimates correspond
-  to the **probability of the class with the greater label**,
-  i.e. `estimator.classes_[1]` and thus
-  `estimator.predict_proba(X, y)[:, 1]`. The decision values
-  corresponds to the output of `estimator.decision_function(X, y)`.
-  See more information in the :ref:`User guide <roc_auc_binary>`;
-* In the multiclass case, it corresponds to an array of shape
-  `(n_samples, n_classes)` of probability estimates provided by the
-  `predict_proba` method. The probability estimates **must**
-  sum to 1 across the possible classes. In addition, the order of the
-  class scores must correspond to the order of ``labels``,
-  if provided, or else to the numerical or lexicographical order of
-  the labels in ``y_true``. See more information in the
-  :ref:`User guide <roc_auc_multiclass>`;
-* In the multilabel case, it corresponds to an array of shape
-  `(n_samples, n_classes)`. Probability estimates are provided by the
-  `predict_proba` method and the non-thresholded decision values by
-  the `decision_function` method. The probability estimates correspond
-  to the **probability of the class with the greater label for each
-  output** of the classifier. See more information in the
-  :ref:`User guide <roc_auc_multilabel>`.
+    Returns
+    -------
+    scores : Bunch
+        A dictionary-like object containing the calculated metrics.
+
+    Notes
+    -----
+    - The function assumes `y_true` and `y_pred` are already validated for
+      their shapes and data types.
+    - Adjusted R² is calculated only if `X` is provided and has more than one
+      feature, otherwise, it's set to None.
+    - Mean Squared Logarithmic Error (MSLE) uses `clip_value` and `epsilon` to
+      ensure stability in its calculation.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LinearRegression
+    >>> from sklearn.model_selection import train_test_split
+    >>> from sklearn.datasets import fetch_california_housing
+    >>> from gofast.metrics import assess_regression_metrics
+    >>> X, y = fetch_california_housing(return_X_y=True)
+    >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+    >>> model = LinearRegression()
+    >>> model.fit(X_train, y_train)
+    >>> metrics = assess_regression_metrics(y_test, model=model, X=X_test)
+    >>> print(metrics)
+
+    References
+    ----------
+    .. [1] James, G., Witten, D., Hastie, T., & Tibshirani, R. (2013). 
+       An Introduction to Statistical Learning. Springer. 
+       DOI: 10.1007/978-1-4614-7138-7
+
+    See Also
+    --------
+    sklearn.metrics.mean_absolute_error : 
+        Compute the mean absolute error regression loss.
+    sklearn.metrics.mean_squared_error : 
+        Compute the mean squared error regression loss.
+    sklearn.metrics.r2_score : 
+        Compute R², the coefficient of determination.
+    sklearn.metrics.mean_squared_log_error :
+        Compute the mean squared logarithmic error regression loss.
+    sklearn.metrics.median_absolute_error : 
+        Compute the median absolute error regression loss.
+    sklearn.metrics.make_scorer :
+        Make a scorer from a performance metric or loss function.
+
+    Examples of other libraries that provide similar functionality:
+    - scikit-learn (sklearn.metrics): Offers a comprehensive set of metrics 
+      for evaluating regression models.
+    - Statsmodels: Provides classes and functions for the estimation of many 
+      different statistical models, as well as for conducting statistical tests,
+      and statistical data exploration which includes some regression metrics.
+    
+    """
+    y_true = np.asarray(y_true)
+    if y_pred is None:
+        if X is None or model is None:
+            raise ValueError("When 'y_pred' is None, both 'X' and 'model' must be provided.")
+        check_is_fitted(model)
+        y_pred = model.predict(X)
+    
+    # Ensure y_true and y_pred are valid.
+    # Assuming _ensure_y_is_valid is defined to validate the inputs
+    y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True)
+    # Calculate common regression evaluation scores
+    scores = Bunch(
+        mean_absolute_error=mean_absolute_error(
+            y_true, y_pred, sample_weight=sample_weight, multioutput=multioutput),
+        mean_squared_error=mean_squared_error(y_true, y_pred),
+        rmse=np.sqrt(mean_squared_error(y_true, y_pred)),
+        r2_score=r2_score(
+            y_true, y_pred, sample_weight=sample_weight, multioutput= multioutput,
+            force_finite=force_finite) ,
+        # Adjusted R2 can be calculated if X is provided and has more than one feature
+        adjusted_r2_score=adjusted_r2_score(y_true, y_pred, X) if X is not None else None,
+        mean_squared_log_error=mean_squared_log_error(
+            y_true, y_pred, clip_value=clip_value, epsilon =epsilon
+            ) if not np.any (y_true < 0 ) else None,
+        median_absolute_error=median_absolute_error(y_true, y_pred),
+    )
+    return scores
+
+def assess_classifier_metrics(
+    y_true, y_pred=None, X=None, model=None, *,
+    average="binary", multi_class="raise", 
+    normalize=True, sample_weight=None, 
+    **scorer_kws):
+    """
+    Evaluate classification model performance through a comprehensive 
+    set of metrics, including accuracy, recall, precision, F1 score, and 
+    ROC-AUC score. This function provides a unified approach to model 
+    evaluation across binary, multiclass, and multilabel classification 
+    scenarios.
+    
+    Parameters
+    ----------
+    y_true : array-like
+        True labels for classification.
+    y_pred : array-like, optional
+        Predicted labels or probabilities. Required unless `X` and `model` 
+        are provided.
+    X : array-like, optional
+        Feature set for making predictions using `model`. Required if `y_pred` 
+        is None.
+    model : object
+        A fitted classifier object that has a `predict` or `predict_proba` method.
+        Required if `y_pred` is None.
+    average : str, optional
+        Strategy for averaging binary metrics in multiclass/multilabel 
+        scenarios. Default is "binary".
+    multi_class : str, optional
+        Strategy for treating multiclass data for ROC-AUC score calculation. 
+        Default is "raise".
+    normalize : bool, optional
+        Whether to normalize the accuracy score. Default is True.
+    sample_weight : array-like, optional
+        Sample weights for metrics calculation.
+    **scorer_kws : dict
+        Additional keyword arguments for metric functions.
+
+    Returns
+    -------
+    scores : Bunch
+        Dictionary-like object containing evaluation metrics: accuracy, 
+        recall, precision, F1 score, and ROC-AUC score.
+
+    Notes
+    -----
+    - The ROC-AUC score calculation depends on the `predict_proba` method. 
+      If it is not available or `multi_class` is "raise", ROC-AUC score 
+      calculation will be skipped with a warning.
+    - This function automatically validates input shapes and data types 
+      for `y_true` and `y_pred`.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import make_classification
+    >>> from sklearn.model_selection import train_test_split
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from gofast.metrics import assess_classifier_metrics
+    >>> X, y = make_classification(n_samples=1000, n_features=20,
+    ...                            n_classes=2, random_state=42)
+    >>> X_train, X_test, y_train, y_test = train_test_split(
+    ... X, y, test_size=0.25, random_state=42)
+    >>> model = RandomForestClassifier(random_state=42)
+    >>> model.fit(X_train, y_train)
+    >>> metrics = assess_classifier_metrics(
+    ...    y_test, model=model, X=X_test,average='macro')
+    >>> print(metrics)
+
+    See Also
+    --------
+    sklearn.metrics.accuracy_score : 
+        Compute the accuracy classification score.
+    sklearn.metrics.recall_score : 
+        Compute the recall, the ability of the classifier to find all positive samples.
+    sklearn.metrics.precision_score : 
+        Compute the precision, the ability of the classifier not to label as 
+        positive a sample that is negative.
+    sklearn.metrics.f1_score : 
+        Compute the F1 score, the weighted average of precision and recall.
+    sklearn.metrics.roc_auc_score : 
+        Compute the Area Under the Receiver Operating Characteristic 
+        Curve (ROC AUC) from prediction scores.
+    sklearn.metrics.classification_report :
+        Build a text report showing the main classification metrics.
+    
+    Examples of other libraries that provide similar functionality:
+    - scikit-learn (sklearn.metrics): Offers a wide range of performance metrics
+      for classification, including those used here.
+    - Yellowbrick: A suite of visual diagnostic tools built on Scikit-Learn 
+      and Matplotlib that also offers model evaluation metrics visualization.
       
-References
-----------
-
-.. [1] Provost, _F., Domingos, P. (2000). Well-trained PETs: Improving
-       probability estimation trees (Section 6.2), CeDER Working Paper
-       #IS-00-04, Stern School of Business, New York University.
-
-.. [2] `Fawcett, T. (2006). An introduction to ROC analysis. Pattern
-        Recognition Letters, 27(8), 861-874.
-        <https://www.sciencedirect.com/science/article/pii/S016786550500303X>`_
-         
-.. [3] `Hand, D.J., Till, R.J. (2001). A Simple Generalisation of the Area
-        Under the ROC Curve for Multiple Class Classification Problems.
-        Machine Learning, 45(2), 171-186.
-        <http://link.springer.com/article/10.1023/A:1010920819831>`_
-See Also
---------
-average_precision_score : Area under the precision-recall curve.
-roc_curve : Compute Receiver operating characteristic (ROC) curve.
-RocCurveDisplay.from_estimator : Plot Receiver Operating Characteristic
-    (ROC) curve given an estimator and some data.
-RocCurveDisplay.from_predictions : Plot Receiver Operating Characteristic
-    (ROC) curve given the true and predicted values.
-    
-Examples
---------
-Binary case:
-
->>> from sklearn.datasets import load_breast_cancer
->>> from sklearn.linear_model import LogisticRegression
->>> from sklearn.metrics import roc_auc_score
->>> X, y = load_breast_cancer(return_X_y=True)
->>> clf = LogisticRegression(solver="liblinear", random_state=0).fit(X, y)
->>> roc_auc_score(y, clf.predict_proba(X)[:, 1])
-0.99...
->>> roc_auc_score(y, clf.decision_function(X))
-0.99...
-
-Multiclass case:
-
->>> from sklearn.datasets import load_iris
->>> X, y = load_iris(return_X_y=True)
->>> clf = LogisticRegression(solver="liblinear").fit(X, y)
->>> roc_auc_score(y, clf.predict_proba(X), multi_class='ovr')
-0.99...
-
-Multilabel case:
-
->>> import numpy as np
->>> from sklearn.datasets import make_multilabel_classification
->>> from sklearn.multioutput import MultiOutputClassifier
->>> X, y = make_multilabel_classification(random_state=0)
->>> clf = MultiOutputClassifier(clf).fit(X, y)
->>> # get a list of n_output containing probability arrays of shape
->>> # (n_samples, n_classes)
->>> y_pred = clf.predict_proba(X)
->>> # extract the positive columns for each output
->>> y_pred = np.transpose([pred[:, 1] for pred in y_pred])
->>> roc_auc_score(y, y_pred, average=None)
-array([0.82..., 0.86..., 0.94..., 0.85... , 0.94...])
->>> from sklearn.linear_model import RidgeClassifierCV
->>> clf = RidgeClassifierCV().fit(X, y)
->>> roc_auc_score(y, clf.decision_function(X), average=None)
-array([0.81..., 0.84... , 0.93..., 0.87..., 0.94...])
-""".format(params =_param_docs
-)
-    
-def _assert_metrics_args(y, label): 
-    """ Assert metrics argument 
-    
-    :param y: array-like, 
-        label for prediction. `y` is binary label by default. 
-        If `y` is composed of multilabel, specify  the `classe_` 
-        argumentto binarize the label(`True` ot `False`). ``True``  
-        for `classe_`and ``False`` otherwise. 
-    :param label:float, int 
-        Specific class to evaluate the tradeoff of precision 
-        and recall. If `y` is already a binary classifer, `classe_` 
-        does need to specify.     
+    References
+    ----------
+    - Powers, D.M.W. (2011). "Evaluation: From Precision, Recall and F-Score 
+      to ROC, Informedness, Markedness & Correlation." Journal of Machine 
+      Learning Technologies.
     """
-    # check y if value to plot is binarized ie.True of false 
-    msg = ("Precision-recall metrics are fundamentally metrics for"
-           " binary classification. ")
-    y_unik = np.unique(y)
-    if len(y_unik )!=2 and label is None: 
-        warnings.warn( msg + f"Classes values of 'y' is '{len(y_unik )}', "
-                      "while expecting '2'. Can not set the tradeoff for "
-                      " non-binarized classifier ",  UserWarning
-                       )
-        _logger.warning('Expect a binary classifier(2), but %s are given'
-                              %len(y_unik ))
-        raise LearningError(f'Expect a binary labels but {len(y_unik )!r}'
-                         f' {"are" if len(y_unik )>1 else "is"} given')
-        
-    if label is not None: 
-        try : 
-            label= int(label)
-        except ValueError: 
-            raise ValueError('Need integer value; Could not convert to Float.')
-        except TypeError: 
-            raise TypeError(f'Could not convert {type(label).__name__!r}') 
+    # Convert y_true to numpy array for consistency
+    y_true = np.asarray(y_true)
     
-    if label not in y: 
-        raise ValueError("Value '{}' must be a label of a binary target"
-                         .format(label))
-  
+    # Validate model and prediction logic
+    if y_pred is None:
+        if X is None or model is None:
+            raise ValueError("When 'y_pred' is None, both 'X' and 'model' must be provided.")
+        # Check if the model is fitted
+        check_is_fitted(model)
+        y_pred = model.predict(X)
+        
+    # Ensure y_true and y_pred are valid. 
+    y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric =True )
+    # Calculate evaluation scores
+    scores = Bunch(
+        accuracy_score=accuracy_score(
+            y_true, y_pred, normalize=normalize, sample_weight=sample_weight),
+        recall_score=recall_score(
+            y_true, y_pred, average=average, sample_weight=sample_weight, 
+            **scorer_kws),
+        precision_score=precision_score(
+            y_true, y_pred, average=average, sample_weight=sample_weight,
+            **scorer_kws),
+        f1_score=f1_score(
+            y_true, y_pred, average=average, sample_weight=sample_weight,
+            **scorer_kws),
+    )
+    # Attempt to compute ROC-AUC score if possible
+    try:
+        if multi_class != 'raise':
+            y_score = model.predict_proba(X)
+        else:
+            # Use y_pred as y_score if predict_proba is not 
+            # available or not applicable
+            y_score = y_pred 
+        scores.roc_auc_score = roc_auc_score(
+            y_true, y_score, average=average, multi_class=multi_class, 
+            sample_weight=sample_weight, **scorer_kws)
+    except Exception as e:
+        scores.roc_auc_score = None
+        warnings.warn(f"Unable to compute ROC-AUC score: {e}")
+
+    return scores
+
+def adjusted_r2_score(
+        y_true, y_pred, X, sample_weight=None, epsilon=1e-7, zero_division="warn"):
+    """
+    Calculate the adjusted R-squared score, a modification of the R-squared
+    score that accounts for the number of predictors in the model.
+
+    The adjusted R-squared increases only if the new term improves the model
+    more than would be expected by chance. It decreases when a predictor improves
+    the model by less than expected by chance. It is thus especially useful for
+    comparing models with different numbers of independent variables.
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        Ground truth (correct) target values.
+    y_pred : array-like of shape (n_samples,)
+        Estimated target values.
+    X : array-like of shape (n_samples, n_features)
+        Input features matrix.
+    sample_weight : array-like of shape (n_samples,), default=None
+        Sample weights.
+    epsilon : float, default=1e-7
+        A small value added to the denominator to prevent division by zero.
+    zero_division : {"warn", "error"} or numeric, default="warn"
+        Defines how to handle the case when the calculation denominator is zero:
+        - "warn": issues a warning and returns `np.nan`
+        - "error": raises a `ZeroDivisionError`
+        - numeric: returns this value
+
+    Returns
+    -------
+    float
+        The adjusted R-squared score.
+
+    Notes
+    -----
+    The adjusted R-squared is calculated as:
+
+    .. math::
+        1 - (1-R^2)\\frac{n-1}{n-p-1}
+
+    where:
+    - :math:`R^2` is the coefficient of determination,
+    - :math:`n` is the number of samples,
+    - :math:`p` is the number of independent variables.
+
+    Examples
+    --------
+    >>> from gofast.metrics import adjusted_r2_score
+    >>> y_true = [3, -0.5, 2, 7]
+    >>> y_pred = [2.5, 0.0, 2, 8]
+    >>> X = [[1], [2], [3], [4]]
+    >>> adjusted_r2_score(y_true, y_pred, X)
+    0.948...
+
+    References
+    ----------
+    - Wikipedia entry for the Coefficient of determination:
+      https://en.wikipedia.org/wiki/Coefficient_of_determination
+
+    See Also
+    --------
+    r2_score : R^2 (coefficient of determination) regression score function.
+    mean_squared_error : Mean squared error regression loss.
+    """
+    # Implementation details skipped for brevity
+
+    # Ensure X is a numeric numpy array
+    if not isinstance(X, np.ndarray):
+        X = np.asarray(X, dtype=float)
+    
+    n, p = X.shape  # Number of observations and independent variables
+    y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True)
+    r2 = r2_score(y_true, y_pred, sample_weight=sample_weight)
+    
+    denominator = n - p - 1
+    
+    if denominator <= 0:
+        if zero_division == "warn":
+            warnings.warn(
+                "The calculation of the adjusted R-squared involves division"
+                " by zero or a negative number, which can lead to overfitting."
+                " Result may not be reliable.", UserWarning)
+            adjusted_r2 = np.nan # Return NaN to indicate the calculation isn't reliable
+        elif zero_division == "error":
+            raise ZeroDivisionError(
+                "The calculation of the adjusted R-squared involves division"
+                " by zero or a negative number.")
+        elif isinstance(zero_division, (int, float)):
+            adjusted_r2 = zero_division # Custom Fallback Value:
+        else:
+            raise ValueError("zero_division must be 'warn', 'error', or a numeric value.")
+    else:
+        # Adjusted R-squared calculation
+        adjusted_r2 = 1 - (1 - r2) * (n - 1) / max(denominator, epsilon)
+    
+    return adjusted_r2
+
+def _assert_binary_classification_args(y, target_class=None):
+    """
+    Ensures that the arguments passed for evaluating a binary classification 
+    are valid. It checks if 'y' is binary and if the 'target_class' specified 
+    exists within 'y'.
+
+    Parameters
+    ----------
+    y : array-like
+        Target labels. Expected to be binary for precision-recall metrics.
+    target_class : int, optional
+        The class of interest for which to evaluate metrics. If 'y' is binary,
+        'target_class' is optional. If specified, it must exist in 'y'.
+
+    Raises
+    ------
+    ValueError
+        - If 'y' is not binary and 'target_class' is not specified.
+        - If 'target_class' is specified but does not exist in 'y'.
+    TypeError
+        - If 'target_class' cannot be converted to an integer.
+    """
+    unique_labels = np.unique(y)
+
+    # Validate binary nature of 'y'
+    if len(unique_labels) != 2:
+        if target_class is None:
+            raise ValueError(
+                "Precision-recall metrics require binary classification, but "
+                f"{len(unique_labels)} unique labels were found. Please specify "
+                "'target_class' for multiclass data."
+            )
+
+    # Validate 'target_class'
+    if target_class is not None:
+        try:
+            target_class = int(target_class)
+        except (ValueError, TypeError) as e:
+            raise TypeError(
+                "Expected 'target_class' to be an integer,"
+                f" got {type(target_class).__name__}: {e}"
+            )
+
+        if target_class not in unique_labels:
+            raise ValueError(
+                f"Specified 'target_class' ({target_class}) does"
+                " not exist in the target labels."
+            )
 def precision_recall_tradeoff(
-    clf:_F, 
-    X:NDArray,
-    y:ArrayLike,
+    y_true, 
+    y_scores=None, 
+    X=None, 
+    estimator=None, 
     *,
-    cv:int =7,
-    label: str | Optional[List[str]]=None,
-    method:Optional[str] =None,
-    cvp_kws: Optional[dict]  =None,
-    tradeoff: Optional[float] =None,
-    **prt_kws
-)-> object:
-    pass 
+    cv=None,
+    label=None,
+    scoring_method="decision_function",
+    pos_label=None, 
+    sample_weight=None, 
+    threshold=None,
+    return_scores=False, 
+    display_chart=False, 
+    **cv_kwargs
+):
+    """
+    Evaluate and visualize the precision-recall tradeoff for classification models.
+
+    This function computes precision, recall, and F1 scores for binary classification
+    tasks. It supports direct score inputs or model predictions. If `display_chart`
+    is True, it also plots the precision-recall curve.
+
+    Parameters
+    ----------
+    y_true : array-like
+        True binary labels.
+    y_scores : array-like, optional
+        Scores or probabilities for the positive class. If None, scores are 
+        computed using the `estimator` and `X`.
+    X : {array-like, sparse matrix}, shape (n_samples, n_features), optional
+        Input features matrix. Required if `y_scores` is None.
+    estimator : estimator object implementing 'fit', optional
+        A trained classifier instance. Required if `y_scores` is None.
+    cv : int, cross-validation generator or an iterable, optional
+        Determines the cross-validation splitting strategy. 
+        Only used when `y_scores` is None.
+    label : int or str, optional
+        The label of the positive class. Required for multiclass classification.
+    scoring_method : {'decision_function', 'predict_proba'}, default='decision_function'
+        The method to call on `estimator` to obtain scores.
+    pos_label : int or str, optional
+        The label of the positive class. Required if `y_true` contains more 
+        than two classes.
+    sample_weight : array-like, shape (n_samples,), optional
+        Optional array of weights for the samples.
+    threshold : float, optional
+        A threshold to determine the binary classification from scores. If not set,
+        the threshold that maximizes the F1 score is used.
+    return_scores : bool, default=False
+        If True, return the scores array along with the metrics.
+    display_chart : bool, default=False
+        If True, display the precision-recall curve.
+
+    Returns
+    -------
+    scores : Bunch
+        A `Bunch` object with the precision, recall, F1 score, and optionally the
+        scores array if `return_scores` is True.
+
+    Notes
+    -----
+    The precision-recall curve plots the tradeoff between precision and recall for
+    different threshold values. Precision is defined as the number of true positives
+    divided by the number of true positives plus the number of false positives. Recall
+    is defined as the number of true positives divided by the number of true positives
+    plus the number of false negatives [1]_.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import make_classification
+    >>> from sklearn.model_selection import train_test_split
+    >>> from sklearn.linear_model import LogisticRegression
+    >>> from gofast.metrics import precision_recall_tradeoff
+    >>> X, y = make_classification(n_samples=1000, n_features=20,
+    ...                            n_classes=2, random_state=42)
+    >>> X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42)
+    >>> clf = LogisticRegression()
+    >>> clf.fit(X_train, y_train)
+    >>> precision_recall_tradeoff(y_test, X=X_test, estimator=clf,
+    ...                           scoring_method='predict_proba',
+    ...                           display_chart=True)
+
+    References
+    ----------
+    .. [1] Davis, J. & Goadrich, M. (2006). The relationship between Precision-Recall
+       and ROC curves. Proceedings of the 23rd International Conference on Machine
+       learning (pp. 233-240).
+    """
+    # Validate scoring method
+    scoring_method = normalize_string(
+        scoring_method, target_strs= ['decision_function', 'predict_proba'], 
+        match_method= "contains", return_target_only= True, 
+        error_msg= (f"Invalid scoring method '{scoring_method}'. Expected"
+                    " 'decision_function' or 'predict_proba'.")
+        )
+
+    _assert_binary_classification_args(y_true, label)
+    if label is not None: 
+        # Ensure binary classification
+        y_true = np.asarray(y_true == label, dtype=int)  
     
-    # mc= copy.deepcopy(method)
-    # method = method or "decision_function"
-    # method =str(method).lower().strip() 
-    # if method not in ('decision_function', 'predict_proba'): 
-    #     raise ValueError (f"Invalid method {mc!r}.Expect 'decision_function'"
-    #                       " or 'predict_proba'.")
-        
-    # #create a object to hold attributes 
-    # obj = type('Metrics', (), {})
+    # Validate and predict scores if not provided
+    if y_scores is None:
+        if X is None or estimator is None:
+            raise ValueError(
+                "When 'y_scores' is None, both 'X' and 'estimator' must be provided.")
+        if not isinstance (X, np.ndarray): 
+            X = np.asarray(X )
+        y_scores = cross_val_predict(
+            estimator, X, y_true, cv=cv, method=scoring_method, **cv_kwargs)
     
-    # _assert_metrics_args(y, label)
-    # y=(y==label) # set boolean 
+    #y_true, y_scores = _ensure_y_is_valid(y_true, y_scores, y_numeric =True )
     
-    # if cvp_kws is None: 
-    #     cvp_kws = dict()
-        
-    # obj.y_scores = cross_val_predict(clf,X,y,cv =cv,
-    #                                  method= method,**cvp_kws )
-    # y_scores = cross_val_predict(clf,X,y, cv =cv,**cvp_kws )
+    # Handle 'predict_proba' scoring for classifiers
+    if scoring_method == 'predict_proba' and y_scores.ndim > 1:
+        y_scores = y_scores[:, 1]  # Use probabilities for the positive class
     
-    # obj.confusion_matrix =cfsmx(y, y_scores )
+    # Calculate precision, recall, and F1 scores
+    metrics = Bunch(
+        f1_score=f1_score(y_true, y_scores >= (threshold or 0.5)),
+        precision_score=precision_score(y_true, y_scores >= (threshold or 0.5)),
+        recall_score=recall_score(y_true, y_scores >= (threshold or 0.5))
+    )
+
+    # Calculate precision-recall curve
+    metrics.precisions, metrics.recalls, metrics.thresholds = precision_recall_curve(
+        y_true, y_scores, pos_label=pos_label, sample_weight=sample_weight)
     
-    # obj.f1_score = f1_score(y,y_scores)
-    # obj.precision_score = precision_score(y, y_scores)
-    # obj.recall_score= recall_score(y, y_scores)
-        
-    # if method =='predict_proba': 
-    #     # if classifier has a `predict_proba` method like 
-    #     # `Random_forest` then use the positive class
-    #     # probablities as score  score = proba of positive 
-    #     # class 
-    #     obj.y_scores =obj.y_scores [:, 1] 
-        
-    # if tradeoff is not None:
-    #     try : 
-    #         float(tradeoff)
-    #     except ValueError: 
-    #         raise ValueError(f"Could not convert {tradeoff!r} to float.")
-    #     except TypeError: 
-    #         raise TypeError(f'Invalid type `{type(tradeoff)}`')
-            
-    #     y_score_pred = (obj.y_scores > tradeoff) 
-    #     obj.precision_score = precision_score(y, y_score_pred)
-    #     obj.recall_score = recall_score(y, y_score_pred)
-        
-    # obj.precisions, obj.recalls, obj.thresholds =\
-    #     precision_recall_curve(y, obj.y_scores,**prt_kws)
-        
-    # obj.y =y
+    # Display precision-recall chart if requested
+    if display_chart:
+        display_precision_recall(metrics.precisions, metrics.recalls,
+                                       metrics.thresholds)
     
-    # return obj
+    return y_scores if return_scores else metrics
 
-precision_recall_tradeoff.__doc__ ="""\
-Precision-recall Tradeoff computes a score based on the decision function. 
+def display_precision_recall(precisions, recalls, thresholds):
+    """
+    Displays a precision-recall tradeoff chart for given precision, recall,
+    and threshold values, aiding in the visualization of the tradeoff between
+    precision and recall across different threshold settings.
 
-Is assign the instance to the positive class if that score on 
-the left is greater than the `threshold` else it assigns to negative 
-class. 
+    Parameters
+    ----------
+    precisions : array-like
+        An array of precision scores corresponding to various 
+        threshold levels.
+    recalls : array-like
+        An array of recall scores corresponding to various threshold levels.
+    thresholds : array-like
+        An array of decision thresholds corresponding to the precision 
+        and recall scores.
 
-Parameters
-----------
-{params.core.clf}
-{params.core.X}
-{params.core.y}
-{params.core.cv}
+    Notes
+    -----
+    The precision-recall tradeoff chart is a useful tool for understanding the
+    balance between the true positive rate (recall) and the positive 
+    predictive value (precision) at various threshold levels. High precision
+    relates to a low false positive rate, while high recall relates to a low 
+    false negative rate. Adjusting the decision threshold can control the 
+    balance between precision and recall.
 
-label: float, int 
-    Specific class to evaluate the tradeoff of precision 
-    and recall. If `y` is already a binary classifer, `classe_` 
-    does need to specify. 
-method: str
-    Method to get scores from each instance in the trainset. 
-    Ciuld be ``decison_funcion`` or ``predict_proba`` so 
-    Scikit-Learn classifier generally have one of the method. 
-    Default is ``decision_function``.
-tradeoff: float, optional,
-    check your `precision score` and `recall score`  with a 
-    specific tradeoff. Suppose  to get a precision of 90%, you 
-    might specify a tradeoff and get the `precision score` and 
-    `recall score` by setting a `y-tradeoff` value.
+    This function plots precision and recall as functions of the decision 
+    threshold. The precision array must have one more element than the 
+    thresholds array, representing the precision at threshold set to 
+    `-inf` (recall at 100%).
 
-Notes
-------
+    Examples
+    --------
+    >>> from sklearn.model_selection import train_test_split
+    >>> from sklearn.datasets import make_classification
+    >>> from sklearn.linear_model import LogisticRegression
+    >>> from sklearn.metrics import precision_recall_curve
+    >>> from gofast.metrics import display_precision_recall
+    >>> X, y = make_classification(n_samples=1000, n_classes=2, random_state=42)
+    >>> X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42)
+    >>> clf = LogisticRegression()
+    >>> clf.fit(X_train, y_train)
+    >>> y_scores = clf.decision_function(X_test)
+    >>> precisions, recalls, thresholds = precision_recall_curve(y_test, y_scores)
+    >>> display_precision_recall(precisions, recalls, thresholds)
+
+    This function produces a line plot with the decision thresholds on the x-axis
+    and precision and recall scores on the y-axis, showcasing how precision and recall
+    vary with different threshold settings.
+
+    References
+    ----------
+    .. [1] Davis, J. and Goadrich, M., 2006, June. The relationship between 
+       Precision-Recall and ROC curves. In Proceedings of the 23rd international
+       conference on Machine learning (pp. 233-240).
+    """
+    import matplotlib.pyplot as plt
+
+    # Convert inputs to numpy arrays and validate their dimensions
+    precisions = np.asarray(precisions)
+    recalls = np.asarray(recalls)
+    thresholds = np.asarray(thresholds)
+
+    if not (precisions.ndim == recalls.ndim == thresholds.ndim == 1):
+        raise ValueError("All inputs must be 1-dimensional arrays.")
+
+    if not (len(precisions) == len(recalls) == len(thresholds) + 1):
+        raise ValueError("Length of precisions and recalls must be equal"
+                         " and one more than the length of thresholds.")
+
+    plt.figure(figsize=(8, 6))
+    plt.plot(thresholds, precisions[:-1], "b--", label="Precision", linewidth=2)
+    plt.plot(thresholds, recalls[:-1], "g-", label="Recall", linewidth=2)
+
+    plt.xlabel("Threshold", fontsize=14)
+    plt.ylabel("Score", fontsize=14)
+    plt.legend(loc="best", fontsize=12)
+    plt.title("Precision-Recall Tradeoff", fontsize=16)
+    plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+    plt.tight_layout()
+    plt.show()
+
+def roc_tradeoff(
+    y_true, 
+    y_scores=None, 
+    X=None, 
+    estimator=None, 
+    *,
+    cv=None,
+    pos_label=None, 
+    sample_weight=None, 
+    return_scores=False, 
+    display_chart=False, 
+    **cv_kwargs
+):
+    """
+    Evaluates and visualizes the Receiver Operating Characteristic (ROC) curve and
+    computes the Area Under the Curve (AUC) for classification models. This
+    function is flexible, allowing for direct input of scores or computation
+    from a provided estimator and features.
+
+    Parameters
+    ----------
+    y_true : array-like
+        True labels of the classification targets.
+    y_scores : array-like, optional
+        Scores predicted by the classifier. Required unless `X` and `estimator`
+        are provided.
+    X : {array-like, sparse matrix}, shape (n_samples, n_features), optional
+        Input features, required if `y_scores` is not provided.
+    estimator : estimator object implementing 'fit', optional
+        The classification estimator. Required if `y_scores` is not provided.
+    cv : int, cross-validation generator or an iterable, optional
+        Determines the cross-validation splitting strategy.
+    pos_label : int or str, optional
+        The label of the positive class.
+    sample_weight : array-like, optional
+        Optional array of weights to be applied to the samples.
+    return_scores : bool, default=False
+        Whether to return the computed scores along with the ROC metrics.
+    display_chart : bool, default=False
+        If True, the ROC curve will be plotted.
+    cv_kwargs : dict, optional
+        Additional parameters to pass to `cross_val_predict`.
+
+    Returns
+    -------
+    scores : Bunch
+        A dictionary-like object with keys `auc_score`, `fpr`, `tpr`, `thresholds`,
+        and optionally `y_scores` (if `return_scores` is True). 
+
+        - `auc_score` : float
+            The area under the ROC curve.
+        - `fpr` : array
+            False Positive Rates.
+        - `tpr` : array
+            True Positive Rates.
+        - `thresholds` : array
+            Thresholds on the decision function used to compute `fpr` and `tpr`.
+
+    Notes
+    -----
+    The ROC curve is a graphical plot that illustrates the diagnostic ability of a
+    binary classifier system as its discrimination threshold is varied. The curve
+    is created by plotting the True Positive Rate (TPR) against the False Positive
+    Rate (FPR) at various threshold settings. The AUC score represents the measure
+    of separability. It tells how much the model is capable of distinguishing
+    between classes.
     
-Contreverse to the `confusion matrix`, a precision-recall 
-tradeoff is very interesting metric to get the accuracy of the 
-positive prediction named ``precison`` of the classifier with 
-equation is:
+    The ROC curve is defined by:
 
-.. math:: precision = TP/(TP+FP)
+    .. math::
+        \text{TPR} = \frac{TP}{TP + FN}
+
+    .. math::
+        \text{FPR} = \frac{FP}{FP + TN}
+
+    Where:
+    - TP is the number of true positives
+    - FN is the number of false negatives
+    - FP is the number of false positives
+    - TN is the number of true negatives
     
-where ``TP`` is the True Positive and ``FP`` is the False Positive
-A trival way to have perfect precision is to make one single 
-positive precision (`precision` = 1/1 =100%). This would be usefull 
-since the calssifier would ignore all but one positive instance. So 
-`precision` is typically used along another metric named `recall`,
- also `sensitivity` or `true positive rate(TPR)`:This is the ratio of 
-positive instances that are corectly detected by the classifier.  
-Equation of`recall` is given as:
-
-.. math:: recall = TP/(TP+FN)
+    Examples
+    --------
+    >>> from sklearn.model_selection import train_test_split
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from sklearn.datasets import make_classification
+    >>> X, y = make_classification(n_samples=1000, n_features=20,
+    ...                            n_classes=2, random_state=42)
+    >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2,
+    ...                                                     random_state=42)
+    >>> clf = RandomForestClassifier(random_state=42)
+    >>> clf.fit(X_train, y_train)
+    >>> evaluate_roc(y_test, estimator=clf, X=X_test, display_chart=True)
     
-where ``FN`` is of couse the number of False Negatives. 
-It's often convenient to combine `preicion`and `recall` metrics into
-a single metric call the `F1 score`, in particular if you need a 
-simple way to compared two classifiers. The `F1 score` is the harmonic 
-mean of the `precision` and `recall`. Whereas the regular mean treats 
-all  values equaly, the harmony mean gives much more weight to low 
-values. As a result, the classifier will only get the `F1 score` if 
-both `recalll` and `preccion` are high. The equation is given below:
+    This will display the ROC curve for the RandomForestClassifier on the test data.
+    """
+    if y_scores is None:
+        if X is None or estimator is None:
+            raise ValueError("When 'y_scores' is None, both 'X' and"
+                             " 'estimator' must be provided.")
+        # Check if the estimator is fitted and predict the scores
+        check_is_fitted(estimator)
+        if hasattr(estimator, "decision_function"):
+            y_scores = cross_val_predict(
+                estimator, X, y_true, cv=cv, method="decision_function", **cv_kwargs)
+        elif hasattr(estimator, "predict_proba"):
+            y_scores = cross_val_predict(
+                estimator, X, y_true, cv=cv, method="predict_proba", **cv_kwargs)[:, 1]
+        elif hasattr ( estimator, 'predict'): 
+            y_scores = cross_val_predict(
+                estimator, X, y_true, cv=cv, **cv_kwargs)
+        else:
+            raise ValueError("Estimator must have a 'decision_function',"
+                             " 'predict_proba' or 'predict' method .")
 
-.. math::
-    
-    F1 &= 2/((1/precision)+(1/recall))= 2* precision*recall /(precision+recall) \\ 
-       &= TP/(TP+ (FN +FP)/2)
-    
-The way to increase the precion and reduce the recall and vice versa
-is called `preicionrecall tradeoff`.
+    y_true, y_scores = _ensure_y_is_valid(y_true, y_scores, y_numeric=True)
 
-Returns 
---------
-obj: object, an instancied metric tying object 
-    The metric object is composed of the following attributes:
-        
-    * `confusion_matrix` 
-    * `f1_score`
-    * `precision_score`
-    * `recall_score`
-    * `precisions` from `precision_recall_curve` 
-    * `recalls` from `precision_recall_curve` 
-    * `thresholds` from `precision_recall_curve` 
-    * `y` classified 
-    
-    and can be retrieved for plot purpose.    
-  
-Examples
---------
->>> from gofast.exlib import SGDClassifier
->>> from gofast.metrics import precision_recall_tradeoff
->>> from gofast.datasets import fetch_data 
->>> X, y= fetch_data('Bagoue analysed')
->>> sgd_clf = SGDClassifier()
->>> mObj = precision_recall_tradeoff (clf = sgd_clf, X= X, y = y,
-                                label=1, cv=3 , y_tradeoff=0.90) 
->>> mObj.confusion_matrix
-""".format(
-    params =_param_docs
-)
-    
-def roc_curve_( 
-    roc_kws:dict =None, 
-    **tradeoff_kws
-)-> object: 
+    fpr, tpr, thresholds = roc_curve(
+        y_true, y_scores, pos_label=pos_label, sample_weight=sample_weight)
+    auc_score = roc_auc_score(y_true, y_scores, sample_weight=sample_weight)
 
-    obj= precision_recall_tradeoff(**tradeoff_kws)
-    # for key in obj.__dict__.keys():
-    #     setattr(mObj, key, obj.__dict__[key])
-    if roc_kws is None: roc_kws =dict()
-    obj.fpr , obj.tpr , thresholds = roc_curve(obj.y, 
-                                       obj.y_scores,
-                                       **roc_kws )
-    obj.roc_auc_score = roc_auc_score(obj.y, obj.y_scores)
+    if display_chart:
+        # Example of plotting
+        display_roc (fpr, tpr, auc_score)
 
-    return obj 
+    scores = Bunch(auc_score=auc_score, fpr=fpr, tpr=tpr, thresholds=thresholds)
 
-roc_curve_.__doc__ ="""\
-The Receiving Operating Characteric (ROC) curve is another common
-tool  used with binary classifiers. 
+    return y_scores if return_scores else scores
 
-It's very similar to precision/recall , but instead of plotting 
-precision versus recall, the ROC curve plots the `true positive rate`
-(TNR)another name for recall) against the `false positive rate`(FPR). 
-The FPR is the ratio of negative instances that are correctly classified 
-as positive.It is equal to one minus the TNR, which is the ratio 
-of  negative  isinstance that are correctly classified as negative.
-The TNR is also called `specify`. Hence the ROC curve plot 
-`sensitivity` (recall) versus 1-specifity.
+def display_roc(fpr, tpr, auc_score, *, title=None, figsize=None):
+    """
+    Visualize the Receiver Operating Characteristic (ROC) curve along with the
+    area under the ROC curve (AUC) for a classification model's performance.
 
-Parameters 
-----------
-{params.core.clf}
-{params.core.X}
-{params.core.y}
-{params.core.cv}
-{params.metric.label}
-{params.metric.method}
-{params.metric.tradeoff}
+    The ROC curve is a graphical representation of the tradeoff between 
+    the true positive rate (TPR) and false positive rate (FPR) across a 
+    series of thresholds. The AUC provides a scalar measure of the model's 
+    ability to distinguish between classes, with a higher value indicating 
+    better performance [1]_.
 
-roc_kws: dict 
-    roc_curve additional keywords arguments
-    
-See also
----------
-gofast.view.mlplot.MLPlot.precisionRecallTradeoff:  
-    plot consistency precision recall curve. 
-    
-    
-Returns 
----------
-obj: object, an instancied metric tying object 
-    The metric object hold the following attributes additional to the return
-    attributes from :func:~.precision_recall_tradeoff`:: 
-        * `roc_auc_score` for area under the curve
-        * `fpr` for false positive rate 
-        * `tpr` for true positive rate 
-        * `thresholds` from `roc_curve` 
-        * `y` classified 
-    and can be retrieved for plot purpose.    
-    
-Note 
--------
-:func:`~roc_curve_` returns a ROC object for plotting purpose. ``_`` is used 
-to differentiate it with the `roc_curve` metric provided by scikit-learn.
-To get the `roc_curve` score, use  ``obj.<obj.roc_auc_score>`` instead.
+    Parameters
+    ----------
+    fpr : array-like
+        False positive rates for each threshold.
+    tpr : array-like
+        True positive rates for each threshold.
+    auc_score : float
+        The area under the ROC curve.
+    title : str, optional
+        The title for the plot. Defaults to "Receiver Operating Characteristic (ROC)"
+        if not specified.
+    figsize : tuple, optional
+        Figure size as a tuple (width, height). Defaults to (10, 8).
 
-Examples
---------
->>> from gofast.exlib import SGDClassifier
->>> from gofast.metrics import ROC_curve
->>> from gofast.datasets import fetch_data 
->>> X, y= fetch_data('Bagoue prepared')
->>> rocObj =ROC_curve(clf = sgd_clf,  X= X, 
-               y = y, classe_=1, cv=3 )                                
->>> rocObj.__dict__.keys()
->>> rocObj.roc_auc_score 
->>> rocObj.fpr
+    Raises
+    ------
+    ValueError
+        If `fpr` and `tpr` are not 1-dimensional arrays or if `auc_score` 
+        is not a scalar.
 
-""".format(
-    params =_param_docs
-)   
+    Notes
+    -----
+    The ROC curve is defined by:
 
-def confusion_matrix_(
-    clf:_F, 
-    X:NDArray, 
-    y:ArrayLike,
+    .. math::
+        \text{TPR} = \frac{TP}{TP + FN}
+
+    .. math::
+        \text{FPR} = \frac{FP}{FP + TN}
+
+    Where:
+    - TP is the number of true positives
+    - FN is the number of false negatives
+    - FP is the number of false positives
+    - TN is the number of true negatives
+
+    Examples
+    --------
+    >>> from sklearn.metrics import roc_curve, roc_auc_score
+    >>> y_true = [0, 1, 1, 0, 1]
+    >>> y_scores = [0.1, 0.4, 0.35, 0.8, 0.7]
+    >>> fpr, tpr, thresholds = roc_curve(y_true, y_scores)
+    >>> auc_score = roc_auc_score(y_true, y_scores)
+    >>> display_roc(fpr, tpr, auc_score)
+
+    References
+    ----------
+    .. [1] Fawcett, T. (2006). An introduction to ROC analysis. Pattern 
+       Recognition Letters,27(8), 861-874.
+    """
+    import matplotlib.pyplot as plt
+
+    # Validate inputs
+    fpr, tpr, auc_score = map(np.asarray, [fpr, tpr, auc_score])
+    if not (fpr.ndim == tpr.ndim == 1):
+        raise ValueError("fpr and tpr must be 1-dimensional arrays.")
+    if not np.isscalar(auc_score):
+        raise ValueError("auc_score must be a scalar value.")
+
+    plt.figure(figsize=figsize or (10, 8))
+    plt.plot(fpr, tpr, color='darkorange', lw=2,
+             label=f'ROC curve (area = {auc_score:.2f})')
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate', fontsize=14)
+    plt.ylabel('True Positive Rate', fontsize=14)
+    plt.title(title or "Receiver Operating Characteristic (ROC)", fontsize=16)
+    plt.legend(loc="lower right", fontsize=12)
+    plt.grid(color='gray', linestyle='--', linewidth=0.5)
+    plt.tight_layout()
+    plt.show()
+
+def evaluate_confusion_matrix(
+    y_true, 
+    y_pred=None, 
+    classifier=None, 
+    X=None, 
     *, 
-    cv:int =7, 
-    plot_conf_max:bool =False, 
-    crossvalp_kws:dict=dict(), 
-    **conf_mx_kws 
-)->object: 
-    
-    pass 
-    # #create a object to hold attributes 
-    # obj = type('Metrics', (), dict())
-    # obj.y_pred =cross_val_predict(clf, X, y, cv=cv, **crossvalp_kws )
-    
-    # if obj.y_pred.ndim ==1 : 
-    #     obj.y_pred.reshape(-1, 1)
-    # obj.conf_mx = cfsmx(y, obj.y_pred, **conf_mx_kws)
+    cv=None, 
+    labels=None, 
+    sample_weight=None, 
+    normalize=False, 
+    display=False, 
+    cmap='viridis', 
+    **cv_kwargs
+):
+    """
+    Evaluates the confusion matrix for a classification model, optionally using
+    cross-validation. This function can also normalize and display the confusion
+    matrix for visual analysis.
 
-    # # statement to plot confusion matrix errors rather than values 
-    # row_sums = obj.conf_mx.sum(axis=1, keepdims=True)
-    # norm_conf_mx = obj.conf_mx / row_sums 
-    # # now let fill the diagonal with zeros to keep only the errors
-    # # and let's plot the results 
-    # np.fill_diagonal(norm_conf_mx, 0)
-    # obj.norm_conf_mx= norm_conf_mx
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        True labels for the classification tasks.
+    y_pred : array-like of shape (n_samples,), optional
+        Predicted labels. If None, predictions will be made using the
+        classifier and X.
+    classifier : object implementing 'fit', optional
+        The classifier instance to use if `y_pred` is None.
+    X : array-like of shape (n_samples, n_features), optional
+        Input features, required if `y_pred` is None.
+    cv : int, cross-validation generator or iterable, optional
+        Cross-validation strategy, used if `y_pred` is None.
+    labels : array-like, optional
+        The list of labels to index the matrix. This may be used to reorder
+        or select a subset of labels.
+    sample_weight : array-like of shape (n_samples,), optional
+        Weights of samples.
+    normalize : bool, default=False
+        If True, the confusion matrix will be normalized.
+    display : bool, default=False
+        If True, the confusion matrix will be displayed using matplotlib.
+    cmap : str or matplotlib Colormap, default='viridis'
+        The colormap for displaying the confusion matrix.
+    **cv_kwargs : additional keyword arguments
+        Additional arguments passed to `cross_val_predict` if `y_pred` is None.
 
-    # fp =0
-    # if plot_conf_max =='map': 
-    #     confmax = obj.conf_mx
-    #     fp=1
-    # if plot_conf_max =='error':
-    #     confmax= norm_conf_mx
-    #     fp =1
-    # if fp: 
-    #     import matplotlib.pyplot as plt 
-    #     plt.matshow(confmax, cmap=plt.cm.gray)
-    #     plt.show ()
+    Returns
+    -------
+    Bunch
+        A Bunch object with the confusion matrix, and optionally the normalized
+        confusion matrix if 'normalize' is True.
+
+    Notes
+    -----
+    The confusion matrix \(C\) is defined as:
+    
+    .. math:: C_{i, j} = \text{number of observations known to be in group } i
+             \text{ and predicted to be in group } j.
+    
+    For normalized confusion matrix, each element of \(C\) is divided by the sum
+    of its row.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import make_classification
+    >>> from sklearn.model_selection import train_test_split
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> X, y = make_classification(
+    ...    n_samples=1000, n_features=4, n_classes=2, random_state=42)
+    >>> X_train, X_test, y_train, y_test = train_test_split(
+    ...    X, y, test_size=0.25, random_state=42)
+    >>> clf = RandomForestClassifier(random_state=42)
+    >>> clf.fit(X_train, y_train)
+    >>> evaluate_confusion_matrix(
+    ...    y_test, classifier=clf, X=X_test, display=True, normalize=True)
+    
+    This will output a Bunch object containing the confusion matrix and display
+    the normalized confusion matrix.
+
+    See Also
+    --------
+    display_confusion_matrix : Function to visualize the confusion matrix.
+    sklearn.metrics.confusion_matrix : The confusion matrix computation.
+    """
+
+    if y_pred is None:
+        if not (X is not None and classifier is not None):
+            raise ValueError("Provide 'y_pred' or both 'X' and 'classifier'.")
+        check_is_fitted(classifier, 'predict')
+        y_pred = cross_val_predict(classifier, X, y_true, cv=cv, **cv_kwargs)
+    
+    y_true, y_pred =_ensure_y_is_valid(y_true, y_pred, y_numeric=True )
+    cm = confusion_matrix(y_true, y_pred, labels=labels, sample_weight=sample_weight)
+
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        np.fill_diagonal(cm, 0)
+
+    if display:
+        display_confusion_matrix(cm, labels=labels, cmap=cmap, normalize=normalize)
+
+    return Bunch(confusion_matrix=cm)
+
+def display_confusion_matrix(cm, labels=None, cmap='viridis', normalize=False):
+    """
+    Displays a confusion matrix using matplotlib, providing options for 
+    normalization and color mapping.
+
+    Parameters
+    ----------
+    cm : array-like of shape (n_classes, n_classes)
+        The confusion matrix to be displayed.
+    labels : list of strings, optional
+        The labels for the classes corresponding to the indices of the 
+        confusion matrix. If None, labels will be inferred from the indices 
+        of the confusion matrix.
+    cmap : str or matplotlib.colors.Colormap, default='viridis'
+        The colormap for the matrix visualization. Can be any valid colormap 
+        recognized by matplotlib.
+    normalize : bool, default=False
+        If True, the confusion matrix will be normalized before display.
+        Normalization is performed by dividing each element by the sum of its row.
+
+    Notes
+    -----
+    The confusion matrix \(C\) is defined as:
+    
+    .. math:: C_{i, j} = \text{number of observations known to be in group } i
+             \text{ and predicted to be in group } j.
+    
+    For a normalized confusion matrix, each element of \(C\) is divided by 
+    the sum of its row to represent the proportion of predictions.
+
+    Examples
+    --------
+    >>> from sklearn.metrics import confusion_matrix
+    >>> y_true = [2, 0, 2, 2, 0, 1]
+    >>> y_pred = [0, 0, 2, 2, 0, 2]
+    >>> cm = confusion_matrix(y_true, y_pred)
+    >>> display_confusion_matrix(cm, labels=['Class 0', 'Class 1', 'Class 2'], 
+    ...                          normalize=True)
+    
+    This will display a normalized confusion matrix for the provided true 
+    and predicted labels with custom class labels.
+
+    See Also
+    --------
+    evaluate_confusion_matrix : 
+        Function to compute and optionally display a confusion matrix.
+    matplotlib.pyplot.imshow : 
+        Used to display the confusion matrix as an image.
+
+    """
+    import matplotlib.pyplot as plt
+ 
+    # Validate cm is a square matrix
+    if not isinstance(cm, np.ndarray) or cm.ndim != 2 or cm.shape[0] != cm.shape[1]:
+        raise ValueError("cm must be a square matrix (2D numpy array).")
+    
+    # Validate labels, if provided
+    if labels is not None:
+        if not isinstance(labels, (list, np.ndarray)) or len(labels) != cm.shape[0]:
+            raise ValueError(
+                "labels must be a list or array of length matching cm dimensions.")
+
+    title = 'Normalized Confusion Matrix' if normalize else 'Confusion Matrix'
+    plt.figure(figsize=(10, 7))
+    plt.imshow(cm, interpolation='nearest', cmap=cmap)
+    plt.title(title)
+    plt.colorbar()
+    tick_marks = np.arange(len(labels)) if labels is not None else np.arange(cm.shape[0])
+    plt.xticks(tick_marks, labels, rotation=45)
+    plt.yticks(tick_marks, labels)
+    
+    fmt = '.2f' if normalize else 'd'
+    thresh = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        plt.text(j, i, format(cm[i, j], fmt),
+                 horizontalalignment="center",
+                 color="white" if cm[i, j] > thresh else "black")
+
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+    plt.tight_layout()
+    plt.show()
+
+
+def flexible_mae(
+    y_true, y_pred, *, 
+    detailed=False, 
+    scale_errors=False, 
+    epsilon='auto', 
+    zero_division='warn'
+    ):
+    """
+    Compute the Mean Absolute Error (MAE) with options for detailed error 
+    analysis, error scaling, and handling of insignificant errors, encapsulated
+    in a Bunch object.
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        Ground truth (correct) target values.
+    y_pred : array-like of shape (n_samples,)
+        Estimated target values.
+    detailed : bool, optional
+        If True, return detailed error statistics in addition to MAE.
+    scale_errors : bool, optional
+        If True, scale errors based on the magnitude of y_true.
+    epsilon : {'auto'} or float, optional
+        Threshold for considering an error significant. If 'auto', an
+        appropriate epsilon is determined automatically. Must be a positive 
+        value or 'auto'.
+    zero_division : {'warn', 'ignore'}, optional
+        How to handle division by zero during error scaling.
+
+    Returns
+    -------
+    Bunch
+        An object containing the MAE and, optionally, detailed error statistics
+        and scaled MAE.
+
+    Notes
+    -----
+    The MAE is defined as the average of the absolute differences between the 
+    predicted values and the true values. It provides a straightforward measure 
+    of prediction accuracy for regression models. This implementation allows for 
+    the exclusion of insignificant errors (smaller than `epsilon`) from the MAE 
+    calculation, and for scaling errors relative to the true values, providing
+    a more nuanced error analysis [1]_.
+
+    The mathematical expression of the modified MAE when considering `epsilon` is:
+
+    .. math::
+
+        \text{MAE} = \frac{1}{n} \sum_{i=1}^{n} \max(0, |y_{\text{true},i} - 
+        y_{\text{pred},i}| - \epsilon)
+
+    References
+    ----------
+    .. [1] Hyndman, R.J., Koehler, A.B. (2006). Another look at measures of forecast 
+          accuracy. International Journal of Forecasting, 22(4), 679-688.
+    
+    See Also
+    --------
+    mean_squared_error : Mean Squared Error metric.
+    mean_absolute_percentage_error : Mean Absolute Percentage Error metric.
+
+    Examples
+    --------
+    >>> from gofast.metrics import flexible_mae
+    >>> y_true = [3, -0.5, 2, 7]
+    >>> y_pred = [2.5, 0.0, 2, 8]
+    >>> result = flexible_mae(y_true, y_pred)
+    >>> print(result.MAE)
+    0.5
+    >>> result_detailed = flexible_mae(y_true, y_pred, detailed=True)
+    >>> print(result_detailed.MAE, result_detailed.min_error)
+    0.5 0.0
+    """
+    # Ensure y_true and y_pred are valid and have the same shape
+    y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True)
+    
+    if str(epsilon).lower() == 'auto':
+        # Assuming this function determines a suitable epsilon value
+        epsilon = determine_epsilon(y_pred)  
+    
+    # Validation for epsilon
+    if not isinstance(epsilon, (int, float)):
+        raise ValueError("epsilon must be 'auto' or a numeric value.")
+    
+    # Calculate the absolute errors
+    errors = np.abs(y_true - y_pred)
+    
+    # Update errors based on epsilon, if necessary
+    # Only consider errors significant if they are greater than epsilon
+    significant_errors = np.where(errors > epsilon, errors, 0)
+    
+    # Compute the modified MAE using significant errors
+    mae = np.mean(significant_errors)
+    
+    result = Bunch(MAE=mae)
+    
+    if detailed:
+        result.min_error = np.min(significant_errors)
+        result.max_error = np.max(significant_errors)
+        result.std_error = np.std(significant_errors)
+    
+    if scale_errors:
+        if zero_division == 'warn' and np.any(y_true == 0):
+            # Implement warning for zero division if needed
+            warnings.warn("Division by zero encountered in scale_errors computation.")
+        # Handle zero division according to the zero_division parameter
+        with np.errstate(divide='ignore' if zero_division == 'ignore' else 'warn'):
+            scaled_errors = np.divide(
+                significant_errors, np.abs(y_true) + epsilon, where=y_true != 0)
         
-    # return obj  
-  
-confusion_matrix_.__doc__ ="""\
-Evaluate the preformance of the model or classifier by counting 
-the number of the times instances of class A are classified in class B. 
-
-To compute a confusion matrix, you need first to have a set of 
-prediction, so they can be compared to the actual targets. You could 
-make a prediction using the test set, but it's better to keep it 
-untouch since you are not ready to make your final prediction. Remember 
-that we use the test set only at very end of the project, once you 
-have a classifier that you are ready to lauchn instead. 
-The confusion metric give a lot of information but sometimes we may 
-prefer a more concise metric like `precision` and `recall` metrics. 
-
-Parameters 
-----------
-{params.core.clf}
-{params.core.X}
-{params.core.y}
-{params.core.cv}
-{params.metric.label}
-{params.metric.method}
-{params.metric.tradeoff}
-
-plot_conf_max: bool, str 
-    can be `map` or `error` to visualize the matshow of prediction 
-    and errors 
-crossvalp_kws: dict 
-    crossvalpredict additional keywords arguments 
-conf_mx_kws: dict 
-    Additional confusion matrix keywords arguments.
-
-Returns 
----------
-obj: object, an instancied metric tying object 
-    The metric object hold the following attributes additional to the return
-    attributes from :func:~.confusion_matrix_`:: 
-        * `conf_mx` returns the score computed between `y_true` and `y_pred`. 
-        * `norm_conf_mx` returns the normalized values. 
-    and can be retrieved for plot purpose.    
+        result.scaled_MAE = np.mean(scaled_errors)
+        if detailed:
+            result.min_scaled_error = np.min(
+                scaled_errors, initial=np.inf, where=y_true != 0)
+            result.max_scaled_error = np.max(
+                scaled_errors, initial=-np.inf, where=y_true != 0)
+            result.std_scaled_error = np.std(
+                scaled_errors, where=y_true != 0)
     
-Note 
--------
-:func:`~confusion_matrix_` returns a ROC object for plotting purpose. ``_`` 
-is used to differentiate it with the `confusion_matrix` metric provided 
-by scikit-learn. To get the `confusion_matrix` score, use  
-``obj.<obj.conf_mx>`` instead.
+    return result
 
-
-Examples
---------
->>> from sklearn.svm import SVC 
->>> from gofast.tools.metrics import Metrics 
->>> from gofast.datasets import fetch_data 
->>> X,y = fetch_data('Bagoue dataset prepared') 
->>> svc_clf = SVC(C=100, gamma=1e-2, kernel='rbf',
-...              random_state =42) 
->>> confObj =confusion_matrix_(svc_clf,X=X,y=y,
-...                        plot_conf_max='error')
->>> confObj.norm_conf_mx
->>> confObj.conf_mx
->>> confObj.__dict__.keys()  
-""".format(
-    params =_param_docs
-)
-
-
-def mean_absolute_error_b(y_true, y_pred):
+def flexible_mse(
+    y_true, y_pred, *, 
+    detailed=False, 
+    scale_errors=False, 
+    epsilon='auto', 
+    zero_division='warn'
+    ):
     """
-    Calculate the Mean Absolute Error (MAE).
+    Compute the Mean Squared Error (MSE) with options for detailed error 
+    analysis, error scaling, and handling of insignificant errors, 
+    encapsulated in a Bunch object. This flexible version allows for more 
+    nuanced error analysis by providing additional controls over the 
+    computation.
 
     Parameters
     ----------
@@ -1385,92 +1960,126 @@ def mean_absolute_error_b(y_true, y_pred):
         Ground truth (correct) target values.
     y_pred : array-like of shape (n_samples,)
         Estimated target values.
+    detailed : bool, optional
+        If True, return detailed error statistics (minimum, maximum, and 
+        standard deviation of squared errors) in addition to MSE.
+    scale_errors : bool, optional
+        If True, scale squared errors based on the magnitude of y_true.
+    epsilon : {'auto'} or float, optional
+        Threshold for considering a squared error significant. If 'auto', an
+        appropriate epsilon is determined automatically. Must be a positive 
+        value or 'auto'.
+    zero_division : {'warn', 'ignore'}, optional
+        How to handle division by zero during error scaling.
 
     Returns
     -------
-    float
-        The MAE value.
+    Bunch
+        An object containing the MSE and, optionally, detailed error statistics
+        and scaled MSE.
 
-    Formula (ASciimath):
-    -------------------
-    MAE = (1 / n) * Σ |y_true - y_pred|
+    Notes
+    -----
+    The MSE is defined as the average of the squared differences between the 
+    predicted values and the true values. This implementation allows for the 
+    exclusion of insignificant errors (smaller than `epsilon` squared) from 
+    the MSE calculation, and for scaling errors relative to the true values, 
+    providing a more nuanced error analysis.
 
-    Example:
-    --------
-    >>> y_true = np.array([3, 5, 2, 7])
-    >>> y_pred = np.array([2, 6, 3, 8])
-    >>> mean_absolute_error(y_true, y_pred)
-    1.0
-    """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    return np.mean(np.abs(y_true - y_pred))
+    The mathematical expression of the modified MSE when considering `epsilon` 
+    is:
 
+    .. math::
 
-def mean_squared_error(y_true, y_pred):
-    """
-    Calculate the Mean Squared Error (MSE).
+        \text{MSE} = \frac{1}{n} \sum_{i=1}^{n} \max(0, (y_{\text{true},i} - 
+        y_{\text{pred},i})^2 - \epsilon^2)
 
-    Parameters
+    References
     ----------
-    y_true : array-like of shape (n_samples,)
-        Ground truth (correct) target values.
-    y_pred : array-like of shape (n_samples,)
-        Estimated target values.
+    .. [1] Gneiting, T., Raftery, A.E. (2007). Strictly Proper Scoring Rules, 
+           Prediction, and Estimation. Journal of the American Statistical 
+           Association, 102(477), 359-378.
 
-    Returns
-    -------
-    float
-        The MSE value.
-
-    Formula (ASciimath):
-    -------------------
-    MSE = (1 / n) * Σ (y_true - y_pred)^2
-
-    Example:
+    See Also
     --------
-    >>> y_true = np.array([3, 5, 2, 7])
-    >>> y_pred = np.array([2, 6, 3, 8])
-    >>> mean_squared_error(y_true, y_pred)
-    1.25
-    """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    return np.mean((y_true - y_pred) ** 2)
+    flexible_mae : A flexible version of Mean Absolute Error.
+    mean_squared_log_error : Mean Squared Logarithmic Error metric.
+    mean_absolute_error : Mean Absolute Error metric.
 
-
-def root_mean_squared_error(y_true, y_pred):
-    """
-    Calculate the Root Mean Squared Error (RMSE).
-
-    Parameters
-    ----------
-    y_true : array-like of shape (n_samples,)
-        Ground truth (correct) target values.
-    y_pred : array-like of shape (n_samples,)
-        Estimated target values.
-
-    Returns
-    -------
-    float
-        The RMSE value.
-
-    Formula (ASciimath):
-    -------------------
-    RMSE = √(MSE)
-
-    Example:
+    Examples
     --------
-    >>> y_true = np.array([3, 5, 2, 7])
-    >>> y_pred = np.array([2, 6, 3, 8])
-    >>> root_mean_squared_error(y_true, y_pred)
-    1.118033988749895
+    >>> from gofast.metrics import flexible_mse
+    >>> y_true = [3, -0.5, 2, 7]
+    >>> y_pred = [2.5, 0.0, 2, 8]
+    >>> result = flexible_mse(y_true, y_pred)
+    >>> print(result.MSE)
+    0.375
+    >>> result_detailed = flexible_mse(y_true, y_pred, detailed=True)
+    >>> print(result_detailed.MSE, result_detailed.min_error)
+    0.375 0.0
     """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    return np.sqrt(mean_squared_error(y_true, y_pred))
-
+    # Ensure y_true and y_pred are valid and have the same shape
+    y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True)
     
-def r_squared(y_true, y_pred):
-    r"""
-    Calculate the Coefficient of Determination (R-squared).
+    if str(epsilon).lower() == 'auto':
+        # Assuming this function determines a suitable epsilon value
+        epsilon = determine_epsilon(y_pred)  
+    
+    # Validation for epsilon
+    if not isinstance(epsilon, (int, float)):
+        raise ValueError("epsilon must be 'auto' or a numeric value.")
+    
+    # Calculate the squared errors
+    squared_errors = (y_true - y_pred) ** 2
+    
+    # Update squared errors based on epsilon, if necessary
+    # Only consider errors significant if they are greater
+    # than epsilon squared
+    significant_squared_errors = np.where(
+        squared_errors > epsilon**2, squared_errors, 0)
+    
+    # Compute the modified MSE using significant squared errors
+    mse = np.mean(significant_squared_errors)
+    
+    result = Bunch(MSE=mse)
+    
+    if detailed:
+        result.min_error = np.min(significant_squared_errors)
+        result.max_error = np.max(significant_squared_errors)
+        result.std_error = np.std(significant_squared_errors)
+    
+    if scale_errors:
+        if zero_division == 'warn' and np.any(y_true == 0):
+            warnings.warn("Division by zero encountered in scale_errors computation.")
+        # Handle zero division according to the zero_division parameter
+        with np.errstate(divide='ignore' if zero_division == 'ignore' else 'warn'):
+            scaled_squared_errors = np.divide(
+                significant_squared_errors, (
+                    np.abs(y_true) + epsilon)**2, where=y_true != 0)
+        
+        result.scaled_MSE = np.mean(scaled_squared_errors)
+        if detailed:
+            result.min_scaled_error = np.min(
+                scaled_squared_errors, initial=np.inf, where=y_true != 0)
+            result.max_scaled_error = np.max(
+                scaled_squared_errors, initial=-np.inf, where=y_true != 0)
+            result.std_scaled_error = np.std(
+                scaled_squared_errors, where=y_true != 0)
+    return result
+
+def flexible_rmse(
+    y_true, y_pred, *, 
+    detailed=False, 
+    scale_errors=False, 
+    epsilon='auto', 
+    zero_division='warn'
+    ):
+    """
+    Compute the Root Mean Squared Error (RMSE) with options for detailed error
+    analysis, error scaling, and handling of insignificant errors, 
+    encapsulated in a Bunch object. This flexible version allows for more
+    nuanced error analysis by providing additional controls over the
+    computation.
 
     Parameters
     ----------
@@ -1478,29 +2087,253 @@ def r_squared(y_true, y_pred):
         Ground truth (correct) target values.
     y_pred : array-like of shape (n_samples,)
         Estimated target values.
+    detailed : bool, optional
+        If True, return detailed error statistics (minimum, maximum, and 
+        standard deviation of squared errors) in addition to RMSE.
+    scale_errors : bool, optional
+        If True, scale squared errors based on the magnitude of y_true.
+    epsilon : {'auto'} or float, optional
+        Threshold for considering a squared error significant. If 'auto', an
+        appropriate epsilon is determined automatically. Must be a positive 
+        value or 'auto'.
+    zero_division : {'warn', 'ignore'}, optional
+        How to handle division by zero during error scaling.
 
     Returns
     -------
-    float
-        The R-squared value.
+    Bunch
+        An object containing the RMSE and, optionally, detailed error statistics
+        and scaled RMSE.
 
-    Formula (ASciimath):
-    -------------------
-    R^2 = 1 - (Σ (y_true - y_pred)^2) / (Σ (y_true - mean(y_true))^2)
+    Notes
+    -----
+    The RMSE is defined as the square root of the average of the squared 
+    differences between the predicted values and the true values. This 
+    implementation allows for the exclusion of insignificant errors 
+    (smaller than `epsilon` squared) from the RMSE calculation, and for 
+    scaling errors relative to the true values, providing a more nuanced 
+    error analysis [1]_.
 
-    Example:
+    The mathematical expression of the modified RMSE when considering 
+    `epsilon` is:
+
+    .. math::
+
+        \text{RMSE} = \sqrt{\frac{1}{n} \sum_{i=1}^{n} \max(0, (y_{\text{true},i} - 
+        y_{\text{pred},i})^2 - \epsilon^2)}
+
+    References
+    ----------
+    .. [1] Chai, T. and Draxler, R.R. (2014). Root mean square error (RMSE) or mean 
+          absolute error (MAE)? – Arguments against avoiding RMSE in the literature.
+          Geoscientific Model Development, 7, 1247–1250.
+
+    See Also
     --------
-    >>> y_true = np.array([3, 5, 2, 7])
-    >>> y_pred = np.array([2, 6, 3, 8])
-    >>> r_squared(y_true, y_pred)
-    0.4210526315789472
+    flexible_mae : A flexible version of Mean Absolute Error.
+    flexible_mse : A flexible version of Mean Squared Error.
+    sklearn.metrics.mean_squared_error : Mean Squared Error metric.
+
+    Examples
+    --------
+    >>> from gofast.metrics import flexible_rmse
+    >>> y_true = [3, -0.5, 2, 7]
+    >>> y_pred = [2.5, 0.0, 2, 8]
+    >>> result = flexible_rmse(y_true, y_pred)
+    >>> print(result.RMSE)
+    0.612...
+    >>> result_detailed = flexible_rmse(y_true, y_pred, detailed=True)
+    >>> print(result_detailed.RMSE, result_detailed.min_error)
+    0.612... 0.0
     """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred )
+    # Ensure y_true and y_pred are valid and have the same shape
+    y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True)
+    
+    if str(epsilon).lower() == 'auto':
+        # Assuming this function determines a suitable epsilon value
+        epsilon = determine_epsilon(y_pred)  
+    
+    # Validation for epsilon
+    if not isinstance(epsilon, (int, float)):
+        raise ValueError("epsilon must be 'auto' or a numeric value.")
+    
+    # Calculate the squared errors
+    squared_errors = (y_true - y_pred) ** 2
+    
+    # Update squared errors based on epsilon, if necessary
+    # Only consider errors significant if they are greater than epsilon squared
+    significant_squared_errors = np.where(
+        squared_errors > epsilon**2, squared_errors, 0)
+    
+    # Compute the RMSE using significant squared errors
+    rmse = np.sqrt(np.mean(significant_squared_errors))
+    
+    result = Bunch(RMSE=rmse)
+    
+    if detailed:
+        result.min_error = np.min(significant_squared_errors)
+        result.max_error = np.max(significant_squared_errors)
+        result.std_error = np.std(significant_squared_errors)
+    
+    if scale_errors:
+        if zero_division == 'warn' and np.any(y_true == 0):
+            warnings.warn("Division by zero encountered in scale_errors computation.")
+        # Handle zero division according to the zero_division parameter
+        with np.errstate(divide='ignore' if zero_division == 'ignore' else 'warn'):
+            scaled_squared_errors = np.divide(
+                significant_squared_errors, (
+                    np.abs(y_true) + epsilon)**2, where=y_true != 0)
+        
+        result.scaled_RMSE = np.sqrt(np.mean(scaled_squared_errors))
+        if detailed:
+            result.min_scaled_error = np.min(
+                scaled_squared_errors, initial=np.inf, where=y_true != 0)
+            result.max_scaled_error = np.max(
+                scaled_squared_errors, initial=-np.inf, where=y_true != 0)
+            result.std_scaled_error = np.std(
+                scaled_squared_errors, where=y_true != 0)
+    
+    return result
+
+def flexible_r2(
+    y_true, y_pred, *, 
+    epsilon=1e-15, 
+    adjust_for_n=False,
+    n_predictors=None  
+    ):
+    """
+    Compute the R-squared (Coefficient of Determination) with options to handle
+    edge cases and to adjust for the number of predictors. 
+    
+    Funtion offers enhanced flexibility by allowing for a minimum variance 
+    threshold (epsilon) and providing an option to calculate an adjusted 
+    R-squared value, making it more robust against overfitting when using 
+    models with multiple predictors.
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        Ground truth (correct) target values.
+    y_pred : array-like of shape (n_samples,)
+        Estimated target values.
+    epsilon : float, default=1E-15
+        A small value to prevent division by zero in the total sum of squares
+        calculation, ensuring numerical stability. This value is used as the
+        minimum allowable variance.
+    adjust_for_n : bool, default=False
+        If True, the adjusted R-squared value is computed to account for the
+        number of predictors in the model. This can provide a more accurate
+        measure of the model's explanatory power when comparing models with
+        different numbers of predictors.
+    n_predictors : int, optional
+        The number of predictors used in the model. This parameter is required
+        if `adjust_for_n` is True to properly calculate the adjusted R-squared.
+
+    Returns
+    -------
+    Bunch
+        An object containing the R-squared value and, if `adjust_for_n` is True,
+        the adjusted R-squared value.
+
+    Notes
+    -----
+    The standard R-squared is calculated as 1 minus the ratio of the residual
+    sum of squares (RSS) to the total sum of squares (TSS). The adjusted
+    R-squared additionally considers the number of predictors in the model to
+    adjust for the penalty of model complexity.
+
+    Adjusted R-squared is especially useful in multiple regression models to
+    prevent the R-squared value from artificially inflating when additional
+    predictors are added to the model.
+
+    R-squared is defined as:
+
+    .. math::
+        R^2 = 1 - \frac{SS_{res}}{SS_{tot}}
+
+    Where:
+
+    - \(SS_{res}\) is the sum of squares of residuals.
+    - \(SS_{tot}\) is the total sum of squares.
+    
+    Adjusted R-squared is calculated as:
+
+    .. math::
+        \text{Adjusted } R^2 = 1 - (1-R^2)\frac{n-1}{n-p-1}
+
+    Where:
+
+    - \(n\) is the number of samples.
+    - \(p\) is the number of predictors.
+
+    The `epsilon` parameter helps to ensure \(SS_{tot}\) is not zero by providing
+    a minimum value, thereby preventing undefined R-squared values.
+
+    References
+    ----------
+    .. [1] James, G., Witten, D., Hastie, T., and Tibshirani, R. (2013). 
+           An Introduction to Statistical Learning. New York: Springer.
+
+    See Also
+    --------
+    flexible_mae : Mean Absolute Error with flexibility.
+    flexible_mse : Mean Squared Error with flexibility.
+    flexible_rmse : Root Mean Squared Error with flexibility.
+
+    Examples
+    --------
+    >>> from gofast.metrics import flexible_r2
+    >>> y_true = np.array([3, 5, 2, 7])
+    >>> y_pred = np.array([2.5, 0.5, 2, 8])
+    >>> result = flexible_r2(y_true, y_pred)
+    >>> print(result.R2)
+    -0.4576271186440677...
+    >>> result_adjusted = flexible_r2(y_true, y_pred, adjust_for_n=True, n_predictors=1)
+    >>> print(result_adjusted.adjusted_R2)
+    -1.1864406779661016...
+    """
+    # Ensure y_true and y_pred are valid and have the same shape
+    y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True)
+    
+    # Validation for epsilon
+    if not isinstance(epsilon, (int, float)):
+        raise ValueError("epsilon must be 'auto' or a numeric value.")
+    
+    # Calculate R-squared
     ssr = np.sum((y_true - y_pred) ** 2)
     sst = np.sum((y_true - np.mean(y_true)) ** 2)
-    return 1 - (ssr / sst)
+    r2 = 1 - (ssr / max (sst, epsilon)) # Prevent division by zero
+    
+    result = Bunch(R2=r2)
+    
+    if n_predictors is None: 
+        n_predictors = max (1, epsilon)
+        
+    # Check if n_predictors is a numeric type, including NumPy numeric types
+    if isinstance(n_predictors, (int, float, np.integer, np.floating)):
+        n_predictors = int(n_predictors)  # Convert to int (handles float and np.floating)
+    else:
+        raise ValueError("n_predictors must be a numeric value.")
 
-     
+    # Adjusted R-squared calculation if requested 
+    # and if n_predictors is specified
+    if adjust_for_n:
+        n = len(y_true)
+        p = n_predictors  # Use the specified number of predictors
+        if n == 1 or n - p - 1 == 0:
+            warnings.warn ("Adjustment for n is not meaningful with only"
+                           " one sample or one predictor.")
+        elif n <= p:
+            warnings.warn("Cannot compute adjusted R2 with number of"
+                          " samples <= number of predictors.")
+        else:
+            result.adjusted_R2 = 1 - (1 - r2) * (n - 1) / (n - p - 1)
+            
+    elif adjust_for_n and n_predictors is None:
+        warnings.warn("Number of predictors must be specified to adjust R2.")
+    
+    return result
+
 def mean_absolute_percentage_error(y_true, y_pred):
     r"""
     Calculate the Mean Absolute Percentage Error (MAPE).

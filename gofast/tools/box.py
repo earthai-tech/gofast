@@ -91,17 +91,94 @@ class Bunch:
             return "<empty Bunch>"
         keys = sorted(self.__dict__.keys())
         max_key_length = max(len(key) for key in keys)
-        formatted_attrs = [f"{key:{max_key_length}} : {self.__dict__[key]}" for key in keys]
+        formatted_attrs = [
+            f"{key:{max_key_length}} : {self._format_iterable(self.__dict__[key])}" 
+            for key in keys]
         return "\n".join(formatted_attrs)
     
-        # keys = [key for key, _ in self.__dict__.items()]
-        # keys.sort()
-        # max_key_length = max([len(key) for key in keys])
-        # tabulated_contents = []
-        # format_string = "{:" + str(max_key_length) + "}   {}"
-        # for key in keys:
-        #     tabulated_contents.append(format_string.format(key, self.__dict__[key]))
-        # return "\n".join(tabulated_contents)
+    def _format_iterable(self, attr):
+        """
+        Processes iterable attributes of a Bunch object, providing a formatted string
+        representation based on the type and content of the iterable. This method
+        supports lists, tuples, sets, NumPy arrays, pandas Series, and pandas DataFrames.
+    
+        For numeric iterables (lists, tuples, sets, NumPy arrays), it calculates and
+        includes statistics such as minimum value, maximum value, mean, and length
+        (or dimensions and dtype for NumPy arrays). For pandas Series and DataFrames,
+        it also considers data type and, when applicable, provides a summary including
+        minimum value, maximum value, mean, number of rows, number of columns, and dtypes.
+        If the Series or DataFrame contains non-numeric data or a mix of types, it adjusts
+        the output to exclude statistical summaries that are not applicable.
+    
+        Parameters
+        ----------
+        attr : iterable
+            The iterable attribute of the Bunch object to be formatted. This can be a
+            list, tuple, set, NumPy ndarray, pandas Series, or pandas DataFrame.
+    
+        Returns
+        -------
+        str
+            A string representation of the iterable attribute, formatted according to
+            its type and contents. This includes a concise summary of statistical
+            information for numeric data and relevant structural information for all
+            types.
+            
+        Notes
+        -----
+        - Numeric summaries (minval, maxval, mean) are rounded to 4 decimal places.
+        - For NumPy arrays, the shape is presented in an 'n_rows x m_columns' format.
+        - For pandas DataFrames with uniform dtypes, the dtype is directly mentioned;
+          if the DataFrame contains a mix of dtypes, 'dtypes=object' is used instead.
+        """
+     
+        if isinstance(attr, (list, tuple, set)):
+            numeric = all(isinstance(item, (int, float)) for item in attr)
+            if numeric:
+                minval, maxval= round(min(attr), 4), round(max(attr), 4)
+                mean = round(np.mean(list(attr)), 4)
+                return ( 
+                    f"{type(attr).__name__} (minval={minval}, maxval={maxval},"
+                    f" mean={mean}, len={len(attr)})"
+                    )
+            return f"{type(attr).__name__} (len={len(attr)})"
+        
+        elif isinstance(attr, np.ndarray):
+            numeric = np.issubdtype(attr.dtype, np.number)
+            if numeric:
+                minval, maxval= round(attr.min(), 4), round(attr.max(), 4)
+                mean= round(attr.mean(), 4)
+                return (
+                    f"Array (minval={minval}, maxval={maxval}, mean={mean}, "
+                    f"ndim={attr.ndim}, shape={'x'.join(map(str, attr.shape))},"
+                    f" dtype={attr.dtype})")
+            return (
+                f"Array (ndim={attr.ndim}, shape={'x'.join(map(str, attr.shape))},"
+                f" dtype={attr.dtype})"
+                )
+        
+        elif isinstance(attr, pd.Series):
+            if attr.dtype == 'object':
+                return f"Series (len={attr.size}, dtype={attr.dtype})"
+            minval, maxval= round(attr.min(), 4), round(attr.max(), 4)
+            mean= round(attr.mean(), 4)
+            return ( f"Series (minval={minval}, maxval={maxval}, mean={mean},"
+                    f" len={attr.size}, dtype={attr.dtype})"
+                    )
+        
+        elif isinstance(attr, pd.DataFrame):
+            dtypes_set = set(attr.dtypes)
+            dtypes = 'object' if len(dtypes_set) > 1 else list(dtypes_set)[0]
+            if 'object' not in dtypes_set:
+                numeric_cols = attr.select_dtypes(include=np.number).columns.tolist()
+                minval = round(attr[numeric_cols].min().min(), 4)
+                maxval= round(attr[numeric_cols].max().max(), 4)
+                mean=round(attr[numeric_cols].mean().mean(), 4)
+                return (f"DataFrame (minval={minval}, maxval={maxval}, mean={mean}, "
+                        f"n_rows={attr.shape[0]}, n_cols={attr.shape[1]}, dtypes={dtypes})")
+            return f"DataFrame (n_rows={attr.shape[0]}, n_cols={attr.shape[1]}, dtypes={dtypes})"
+        
+        return str(attr)
 
     def __delattr__(self, name):
         """
