@@ -67,6 +67,7 @@ from .coreutils import (
 
 from .mathex import (
     adaptive_moving_average,
+    adjust_for_control_vars, 
     binning_statistic,
     calculate_binary_iv, 
     calculate_optimal_bins, 
@@ -89,8 +90,10 @@ from .mathex import (
     minmax_scaler,
     moving_average,
     normalize,
+    optimized_spearmanr, 
     quality_control,
     quadratic_regression,
+    rank_data, 
     savgol_filter,
     scale_y,
     sinusoidal_regression,
@@ -99,6 +102,7 @@ from .mathex import (
     soft_bin_stat,
     standard_scaler,
     step_regression,
+    weighted_spearman_rank, 
 )
 
 from .mlutils import (
@@ -140,6 +144,7 @@ from .mlutils import (
 
 __all__=[
      'adaptive_moving_average',
+     'adjust_for_control_vars', 
      'apply_bow_vectorization',
      'apply_tfidf_vectorization',
      'apply_word_embeddings',
@@ -215,6 +220,7 @@ __all__=[
      'moving_average',
      'normalize',
      'normalizer',
+     'optimized_spearmanr', 
      'pair_data',
      'parallelize_jobs',
      'projection_validator',
@@ -222,6 +228,7 @@ __all__=[
      'quality_control',
      'random_sampling',
      'random_selector',
+     'rank_data', 
      'read_data',
      'remove_outliers',
      'rename_labels_in',
@@ -268,7 +275,8 @@ __all__=[
      'summarize_text_columns',
      'to_numeric_dtypes',
      'transform_dates',
-     'verify_data_integrity'
+     'verify_data_integrity', 
+     'weighted_spearman_rank', 
  ]
 
 

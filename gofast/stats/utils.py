@@ -364,7 +364,6 @@ def median(
     # Preprocess data based on input type and selected columns
     # if isinstance(data, pd.DataFrame) and columns is not None:
     #     data = data[columns]
-    
     # Calculate the median
     if isinstance(data, pd.DataFrame):
         axis = axis or 0
@@ -573,9 +572,9 @@ def var(
         N - ddof, where N represents the number of elements. By default, ddof 
         is set to 1, which computes the sample variance. If ddof is set to 0, 
         the population variance is calculated. 
-        \[
-        \text{Variance} = \frac{\sum (x_i - \bar{x})^2}{N - ddof}
-        \]
+        
+        .. math:: \text{Variance} = \frac{\sum (x_i - \bar{x})^2}{N - ddof}
+ 
     as_frame : bool, default False
         Indicates whether to convert the input data to a DataFrame before 
         proceeding with the calculation. This parameter is particularly relevant 
@@ -717,9 +716,11 @@ def std(
         is set to 1, which computes the sample standard deviation. If ddof is 
         set to 0, the population standard deviation is calculated. The standard 
         deviation is the square root of variance:
-        \[
-        \text{Standard Deviation} = \sqrt{\frac{\sum (x_i - \bar{x})^2}{N - ddof}}
-        \]
+            
+        .. math:: 
+            
+           \text{Standard Deviation} = \sqrt{\frac{\sum (x_i - \bar{x})^2}{N - ddof}}
+       
     as_frame : bool, default False
         Indicates whether to convert the input data to a DataFrame before 
         proceeding with the calculation. This parameter is relevant when 
@@ -4167,7 +4168,6 @@ def _visualize_friedman_test_samples(samples, columns, fig_size):
     plt.grid(True, axis='y', linestyle='--', alpha=0.7)
     plt.show()
 
-
 @ensure_pkg("statsmodels")
 def mcnemar_test(
     *samples: [Array1D, DataFrame, str], 
@@ -4263,7 +4263,6 @@ def mcnemar_test(
         try: 
             samples = process_and_extract_data(*samples, allow_split= True ) 
         except: 
-            print(samples)
             raise TypeError("Invalid input: `data` must be a DataFrame and `samples`"
                             " must be column names, or `samples` must be two sequences.")
 
@@ -5180,7 +5179,6 @@ def _extract_statistical_test_results(
         return test_results_df
     else:
         return test_results
-
 
 def _prepare_plot_data(
     values: ArrayLike,

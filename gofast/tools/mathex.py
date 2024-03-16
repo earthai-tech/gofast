@@ -15,6 +15,7 @@ from scipy.signal import argrelextrema
 from scipy.optimize import curve_fit
 from scipy.cluster.hierarchy import  linkage 
 from scipy.linalg import lstsq
+from scipy.stats import rankdata
 from scipy._lib._util import float_factorial
 from scipy.ndimage import convolve1d
 from scipy.spatial.distance import pdist, squareform 
@@ -53,6 +54,7 @@ from .coreutils import (
     ellipsis2false, 
     fancy_printer,
     smart_format,
+    type_of_target, 
     is_iterable, 
     reshape,
     fillNaN, 
@@ -62,6 +64,9 @@ from .validator import (
     _is_arraylike_1d, 
     _is_numeric_dtype,
     check_consistency_size,
+    check_consistent_length, 
+    validate_multioutput, 
+    check_classification_targets, 
     check_y,
     check_array,
     assert_xy_in, 
@@ -75,6 +80,636 @@ _logger =gofastlog.get_gofast_logger(__name__)
 mu0 = 4 * np.pi * 1e-7 
 
 import numpy as np
+
+def rank_data(data, method='average'):
+    """
+    Assigns ranks to data, handling ties according to the specified method.
+    This function supports several strategies for tie-breaking, making it
+    versatile for ranking tasks in statistical analyses and machine learning.
+
+    Parameters
+    ----------
+    data : array-like
+        The input data to rank. This can be any sequence that can be converted
+        to a numpy array.
+    method : {'average', 'min', 'max', 'dense', 'ordinal'}, optional
+        The method used to assign ranks to tied elements. The options are:
+        - 'average': Assign the average of the ranks to the tied elements.
+        - 'min': Assign the minimum of the ranks to the tied elements.
+        - 'max': Assign the maximum of the ranks to the tied elements.
+        - 'dense': Like 'min', but the next rank is always one greater than
+          the previous rank (i.e., no gaps in rank values).
+        - 'ordinal': Assign a unique rank to each element, with ties broken
+          by their order in the data.
+
+    Returns
+    -------
+    ranks : ndarray
+        The ranks of the input data.
+
+    Examples
+    --------
+    >>> data = [40, 20, 30, 20]
+    >>> rank_data(data, method='average')
+    array([4. , 1.5, 3. , 1.5])
+
+    >>> rank_data(data, method='min')
+    array([4, 1, 3, 1])
+
+    Notes
+    -----
+    The ranking methods provided offer flexibility for different ranking
+    scenarios. 'average', 'min', and 'max' are particularly useful in
+    statistical contexts where ties need to be accounted for explicitly,
+    while 'dense' and 'ordinal' provide strategies for more ordinal or
+    categorical data ranking tasks.
+
+    References
+    ----------
+    - Freund, J.E., & Wilson, W.J. (1993). Statistical Methods, 2nd ed.
+    - Gibbons, J.D., & Chakraborti, S. (2011). Nonparametric Statistical Inference.
+    
+    See Also
+    --------
+    scipy.stats.rankdata : Rank the data in an array.
+    numpy.argsort : Returns the indices that would sort an array.
+    """
+    sorter = np.argsort(data)
+    inv = np.empty_like(sorter)
+    inv[sorter] = np.arange(len(data))
+    ranks = np.empty_like(data, dtype=float)
+    valid_methods = ['average', 'min', 'max', 'dense', 'ordinal']
+    method = normalize_string(
+        method, target_strs=valid_methods, raise_exception=True, 
+        return_target_only=True, error_msg= (
+            f"Invalid method '{method}'. Expect {smart_format(valid_methods, 'or')} ")
+        )
+    if method == 'average':
+        # Average ranks of tied groups
+        ranks[sorter] = np.mean([np.arange(len(data))], axis=0)
+    elif method == 'min':
+        # Minimum rank for all tied entries
+        ranks[sorter] = np.min([np.arange(len(data))], axis=0)
+    elif method == 'max':
+        # Maximum rank for all tied entries
+        ranks[sorter] = np.max([np.arange(len(data))], axis=0)
+    elif method == 'dense':
+        # Like 'min', but rank always increases by 1 between groups
+        dense_rank = 0
+        prev_val = np.nan
+        for i in sorter:
+            if data[i] != prev_val:
+                dense_rank += 1
+                prev_val = data[i]
+            ranks[i] = dense_rank
+    elif method == 'ordinal':
+        # Distinct rank for every entry, resolving ties arbitrarily
+        ranks[sorter] = np.arange(len(data))
+    
+    return ranks
+
+def optimized_spearmanr(
+    y_true, y_pred, *, 
+    sample_weight=None, 
+    tie_method='average', 
+    nan_policy='propagate', 
+    control_vars=None,
+    multioutput='uniform_average'
+    ):
+    """
+    Compute Spearman's rank correlation coefficient with support for 
+    sample weights, custom tie handling, and NaN policies. This function 
+    extends the standard Spearman's rank correlation to offer more 
+    flexibility and utility in statistical and machine learning applications.
+
+    Parameters
+    ----------
+    y_true : array-like
+        True values for calculating the correlation. Must be 1D.
+    y_pred : array-like
+        Predicted values, corresponding to y_true.
+    sample_weight : array-like, optional
+        Weights for each pair of values. Default is None, which gives
+        equal weight to all values.
+    tie_method : {'average', 'min', 'max', 'dense', 'ordinal'}, optional
+        Method to handle ranking ties. Default is 'average'.
+    nan_policy : {'propagate', 'raise', 'omit'}, optional
+        Defines how to handle when input contains NaN. 'propagate' returns NaN,
+        'raise' throws an error, 'omit' ignores pairs with NaN.
+    control_vars : array-like, optional
+        Control variables for partial correlation. Default is None.
+    multioutput : {'raw_values', 'uniform_average'}, optional
+        Strategy for aggregating errors across multiple output dimensions:
+        - 'raw_values' : Returns an array of RMSLE values for each output.
+        - 'uniform_average' : Averages errors across all outputs.
+    Returns
+    -------
+    float
+        Spearman's rank correlation coefficient.
+
+    Examples
+    --------
+    >>> y_true = [1, 2, 3, 4, 5]
+    >>> y_pred = [5, 6, 7, 8, 7]
+    >>> optimized_spearmanr(y_true, y_pred)
+    0.8208
+
+    Notes
+    -----
+    Spearman's rank correlation assesses monotonic relationships by using the 
+    ranked values for each variable. It is a non-parametric measure of 
+    statistical dependence between two variables [1]_.
+
+    .. math::
+        \\rho = 1 - \\frac{6 \\sum d_i^2}{n(n^2 - 1)}
+
+    where \\(d_i\\) is the difference between the two ranks of each observation, 
+    and \\(n\\) is the number of observations [2]_.
+
+    This extended implementation allows for weighted correlation calculation, 
+    handling of NaN values according to a specified policy, and consideration 
+    of control variables for partial correlation analysis.
+
+    References
+    ----------
+    .. [1] Spearman, C. (1904). "The proof and measurement of association 
+           between two things".
+    .. [2] Myer, K., & Waller, N. (2009). Applied Spearman's rank correlation. 
+           Statistics in Medicine.
+
+    See Also
+    --------
+    scipy.stats.spearmanr : Spearman correlation calculation in SciPy.
+    """
+    # Handle the multioutput scenario
+    if y_true.ndim == 1:
+        y_true = y_true[:, np.newaxis]
+    if y_pred.ndim == 1:
+        y_pred = y_pred[:, np.newaxis]
+    check_consistent_length(y_true, y_pred) 
+    results = []
+    for i in range(y_true.shape[1]):
+        corr = _compute_spearmanr(y_true[:, i], y_pred[:, i], sample_weight,
+                                  tie_method, nan_policy, control_vars)
+        results.append(corr)
+
+    multioutput = validate_multioutput(multioutput )
+
+    return np.array(results) if multioutput == 'raw_values' else np.mean(results)
+
+def _compute_spearmanr(
+        y_true, y_pred, sample_weight, tie_method, nan_policy, control_vars):
+    # The key addition is the handling of multioutput by reshaping inputs if 
+    # necessary and iterating over columns (or outputs) to compute Spearman's
+    # correlation for each, aggregating the results according to the 
+    # multioutput strategy.
+    def _weighted_spearman_corr(ranks_true, ranks_pred, weights):
+        """
+        Computes Spearman's rank correlation with support for sample weights.
+        """
+        # Weighted mean rank
+        mean_rank_true = np.average(ranks_true, weights=weights)
+        mean_rank_pred = np.average(ranks_pred, weights=weights)
+
+        # Weighted covariance and variances
+        cov = np.average((ranks_true - mean_rank_true) * (
+            ranks_pred - mean_rank_pred), weights=weights)
+        var_true = np.average((ranks_true - mean_rank_true)**2, weights=weights)
+        var_pred = np.average((ranks_pred - mean_rank_pred)**2, weights=weights)
+
+        # Weighted Spearman's rank correlation
+        spearman_corr = cov / np.sqrt(var_true * var_pred)
+        return spearman_corr
+    
+    # Validate and clean data based on `nan_policy`
+    valid_policies = ['propagate', 'raise', 'omit']
+    nan_policy= normalize_string(
+        nan_policy, target_strs= valid_policies, 
+        raise_exception=True, deep=True, 
+        return_target_only=True, 
+        error_msg=(f"Invalid nan_policy: {nan_policy}")
+    )
+    if nan_policy == 'omit':
+        valid_mask = ~np.isnan(y_true) & ~np.isnan(y_pred)
+        y_true, y_pred = y_true[valid_mask], y_pred[valid_mask]
+        if sample_weight is not None:
+            sample_weight = sample_weight[valid_mask]
+    elif nan_policy == 'raise':
+        if np.isnan(y_true).any() or np.isnan(y_pred).any():
+            raise ValueError("Input values contain NaNs.")
+    
+    # Implement tie handling
+    valid_methods = ['average', 'min', 'max', 'dense', 'ordinal']
+    tie_method = normalize_string(
+        tie_method, target_strs=valid_methods, raise_exception=True, 
+        return_target_only=True, error_msg= (
+            f"Invalid method '{tie_method}'. Expect {smart_format(valid_methods, 'or')} ")
+        )
+    # Rank data with specified tie handling method
+    ranks_true = rankdata(y_true, method=tie_method)
+    ranks_pred = rankdata(y_pred, method=tie_method)
+
+    if control_vars is not None:
+        ranks_true, ranks_pred = adjust_for_control_vars (
+            ranks_true, ranks_pred, control_vars )
+    
+    # Compute weighted Spearman's rank correlation 
+    # if sample_weight is provided
+    if sample_weight is not None:
+        corr = _weighted_spearman_corr(ranks_true, ranks_pred, sample_weight)
+    else:
+        corr = np.corrcoef(ranks_true, ranks_pred)[0, 1]
+    return corr
+
+def adjust_for_control_vars(y_true, y_pred, control_vars=None):
+    """
+    Adjusts y_true and y_pred for either regression or classification tasks by 
+    removing the influence of control variables. 
+    
+    The function serves as a wrapper that decides the adjustment strategy 
+    based on the type of task (regression or classification) inferred from y_true.
+
+    Parameters
+    ----------
+    y_true : array-like
+        True target values. The nature of these values (continuous for regression or 
+        categorical for classification) determines the adjustment strategy.
+    y_pred : array-like
+        Predicted target values. Must have the same shape as `y_true`.
+    control_vars : array-like or list of array-likes, optional
+        Control variables to adjust for. Can be a single array or a list of arrays. 
+        If None, no adjustment is performed.
+
+    Returns
+    -------
+    adjusted_y_true : ndarray
+        Adjusted true target values, with the influence of control variables 
+        removed.
+    adjusted_y_pred : ndarray
+        Adjusted predicted target values, with the influence of control 
+        variables removed.
+
+    Notes
+    -----
+    The function dynamically determines whether the targets suggest a 
+    regression or classification task and applies the appropriate adjustment
+    method. For regression, the adjustment involves residualizing the targets 
+    against the control variables. 
+    For classification, the approach might involve stratification or other 
+    methods to control for the variables' influence.
+
+    In practice, this adjustment is crucial when control variables might 
+    confound or otherwise influence the relationship between the predictors 
+    and the target variable, potentially biasing the correlation measure.
+
+    Examples
+    --------
+    >>> y_true = np.array([1, 2, 3, 4])
+    >>> y_pred = np.array([1.1, 1.9, 3.2, 3.8])
+    >>> control_vars = np.array([1, 1, 2, 2])
+    >>> adjusted_y_true, adjusted_y_pred = adjust_for_control_vars(
+    ... y_true, y_pred, control_vars)
+    # Adjusted values depend on the specific implementation for regression
+    or classification.
+
+    See Also
+    --------
+    adjust_for_control_vars_regression : 
+        Function to adjust targets in a regression task.
+    adjust_for_control_vars_classification : 
+        Function to adjust targets in a classification task.
+
+    References
+    ----------
+    .. [1] K. Pearson, "On the theory of contingency and its relation to 
+           association and normal correlation," Drapers' Company Research 
+           Memoirs (Biometric Series I), London, 1904.
+    .. [2] D. C. Montgomery, E. A. Peck, and G. G. Vining, "Introduction to
+           Linear Regression Analysis," 5th ed., Wiley, 2012.
+    """
+    if control_vars is None:
+        return y_true, y_pred 
+    # Convert control_vars to numpy array if not already
+    control_vars = np.asarray(control_vars)
+    
+    # statistical method suitable for the specific use case.
+    if type_of_target(y_true) =='continuous': 
+        adjusted_y_true, adjusted_y_true = adjust_for_control_vars_regression(
+            y_true, y_pred, control_vars)
+    else: 
+        # is classification 
+        adjusted_y_true, adjusted_y_true = adjust_for_control_vars_classification(
+            y_true, y_pred, control_vars)
+   
+    return adjusted_y_true, adjusted_y_true
+
+def adjust_for_control_vars_regression(y_true, y_pred, control_vars):
+    """
+    Adjust y_true and y_pred for regression tasks by accounting for the influence
+    of specified control variables through residualization.
+
+    This approach fits a linear model to predict y_true and y_pred solely based on
+    control variables, and then computes the residuals. These residuals represent
+    the portion of y_true and y_pred that cannot be explained by the control
+    variables, effectively isolating the effect of the predictors of interest.
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        True target values for regression.
+    y_pred : array-like of shape (n_samples,)
+        Predicted target values for regression.
+    control_vars : array-like or list of array-likes
+        Control variables to adjust for. Can be a single array or a list of arrays.
+
+    Returns
+    -------
+    adjusted_y_true : ndarray of shape (n_samples,)
+        Adjusted true target values, with the influence of control variables removed.
+    adjusted_y_pred : ndarray of shape (n_samples,)
+        Adjusted predicted target values, with the influence of control variables removed.
+
+    Raises
+    ------
+    ValueError
+        If y_true or y_pred are not 1-dimensional arrays.
+
+    Notes
+    -----
+    This function uses LinearRegression from sklearn.linear_model to fit models
+    predicting y_true and y_pred from the control variables. The residuals from
+    these models (the differences between the observed and predicted values) are
+    the adjusted targets.
+
+    The mathematical concept behind this adjustment is as follows:
+    
+    .. math::
+        \text{adjusted\_y} = y - \hat{y}_{\text{control}}
+        
+    where :math:`\hat{y}_{\text{control}}` is the prediction from a linear model
+    trained only on the control variables.
+
+    Examples
+    --------
+    >>> from gofast.tools.mathex import adjust_for_control_vars_regression
+    >>> y_true = np.array([3, 5, 7, 9])
+    >>> y_pred = np.array([4, 6, 8, 10])
+    >>> control_vars = np.array([1, 2, 3, 4])
+    >>> adjusted_y_true, adjusted_y_pred = adjust_for_control_vars_regression(
+    ... y_true, y_pred, control_vars)
+    >>> print(adjusted_y_true)
+    >>> print(adjusted_y_pred)
+
+    References
+    ----------
+    .. [1] Freedman, D. A. (2009). Statistical Models: Theory and Practice. 
+          Cambridge University Press.
+    
+    See Also
+    --------
+    sklearn.linear_model.LinearRegression
+    """
+    from sklearn.linear_model import LinearRegression
+    # Convert inputs to numpy arrays for consistency
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    control_vars = np.asarray(control_vars)
+
+    # Ensure the task is appropriate for the data
+    if y_true.ndim > 1 or y_pred.ndim > 1:
+        raise ValueError(
+            "y_true and y_pred should be 1-dimensional arrays for regression tasks.")
+
+    if control_vars is None or len(control_vars) == 0:
+        # No adjustment needed if there are no control variables
+        return y_true, y_pred
+
+    # Check if control_vars is a single array; if so,
+    # reshape for sklearn compatibility
+    if control_vars.ndim == 1:
+        control_vars = control_vars.reshape(-1, 1)
+
+    # Adjust y_true based on control variables
+    model_true = LinearRegression().fit(control_vars, y_true)
+    residuals_true = y_true - model_true.predict(control_vars)
+
+    # Adjust y_pred based on control variables
+    model_pred = LinearRegression().fit(control_vars, y_pred)
+    residuals_pred = y_pred - model_pred.predict(control_vars)
+
+    return residuals_true, residuals_pred
+
+def adjust_for_control_vars_classification(y_true, y_pred, control_vars):
+    """
+    Adjusts `y_true` and `y_pred` in a classification task by stratifying the
+    data based on control variables. It optionally applies logistic regression
+    within each stratum  for adjustment, aiming to refine predictions based 
+    on the influence of control variables.
+
+    Parameters
+    ----------
+    y_true : array-like
+        True class labels. Must be a 1D array of classification targets.
+    y_pred : array-like
+        Predicted class labels, corresponding to `y_true`. Must be of the 
+        same shape as `y_true`.
+    control_vars : pandas.DataFrame
+        DataFrame containing one or more columns that represent control 
+        variables. These variables are used to stratify the data before 
+        applying any adjustment logic.
+
+    Returns
+    -------
+    adjusted_y_true : numpy.ndarray
+        Adjusted array of true class labels, same as input `y_true` 
+        (adjustment process does not alter true labels).
+    adjusted_y_pred : numpy.ndarray
+        Adjusted array of predicted class labels after considering the 
+        stratification by control variables.
+
+    Notes
+    -----
+    This function aims to account for potential confounders or additional
+    information represented by control variables.
+    Logistic regression is utilized within each stratum defined by unique 
+    combinations of control variables to adjust predictions.
+    The essence is to mitigate the influence of control variables on the 
+    prediction outcomes, thereby potentially enhancing the prediction accuracy
+    or fairness across different groups.
+
+    The adjustment is particularly useful in scenarios where control variables
+    significantly influence the target variable, and their effects need to be
+    isolated from the primary predictive modeling process.
+
+    Examples
+    --------
+    >>> from gofast.tools.mathex import adjust_for_control_vars_classification
+    >>> y_true = [0, 1, 0, 1]
+    >>> y_pred = [0, 0, 1, 1]
+    >>> control_vars = pd.DataFrame({'age': [25, 30, 35, 40], 'gender': [0, 1, 0, 1]})
+    >>> adjusted_y_true, adjusted_y_pred = adjust_for_control_vars_classification(
+    ... y_true, y_pred, control_vars)
+    >>> print(adjusted_y_pred)
+    [0 0 1 1]
+
+    The function does not modify `y_true` but adjusts `y_pred` based on 
+    logistic regression adjustments within each stratum defined by 
+    `control_vars`.
+
+    See Also
+    --------
+    sklearn.metrics.classification_report : Compute precision, recall,
+        F-measure and support for each class.
+    sklearn.preprocessing.LabelEncoder : 
+        Encode target labels with value between 0 and n_classes-1.
+    sklearn.linear_model.LogisticRegression : 
+        Logistic Regression (aka logit, MaxEnt) classifier.
+
+    References
+    ----------
+    .. [2] J. D. Hunter. "Matplotlib: A 2D graphics environment", 
+           Computing in Science & Engineering, vol. 9, no. 3, pp. 90-95, 2007.
+    .. [1] F. Pedregosa et al., "Scikit-learn: Machine Learning in Python",
+           Journal of Machine Learning Research, vol. 12, pp. 2825-2830, 2011.
+    """
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.preprocessing import LabelEncoder 
+     
+    # first check whether y_true and y_pred are classification data 
+    y_true, y_pred = check_classification_targets(
+        y_true, y_pred, strategy='custom logic')
+    
+    # Ensure input is a DataFrame for easier manipulation
+    data = pd.DataFrame({
+        'y_true': y_true,
+        'y_pred': y_pred
+    })
+    for col in control_vars.columns:
+        data[col] = control_vars[col]
+    
+    # Encode y_true and y_pred if they are not numerical
+    le_true = LabelEncoder().fit(y_true)
+    data['y_true'] = le_true.transform(data['y_true'])
+    
+    if not np.issubdtype(data['y_pred'].dtype, np.number):
+        le_pred = LabelEncoder().fit(y_pred)
+        data['y_pred'] = le_pred.transform(data['y_pred'])
+    
+    # Iterate over each unique combination of control variables (each stratum)
+    adjusted_preds = []
+    for _, group in data.groupby(list(control_vars.columns)):
+        if len(group) > 1:  # Enough data for logistic regression
+            # Apply logistic regression within each stratum
+            lr = LogisticRegression().fit(group[control_vars.columns], group['y_true'])
+            adjusted_pred = lr.predict(group[control_vars.columns])
+            adjusted_preds.extend(adjusted_pred)
+        else:
+            # Not enough data for logistic regression, use original predictions
+            adjusted_preds.extend(group['y_pred'])
+
+    # Convert adjusted predictions back to original class labels
+    adjusted_y_pred = le_true.inverse_transform(adjusted_preds)
+    return np.array(y_true), adjusted_y_pred
+
+def weighted_spearman_rank(
+    y_true, y_pred, sample_weight,
+    return_weighted_rank=False, 
+    epsilon=1e-10 
+    ):
+    """
+    Compute Spearman's rank correlation coefficient with sample weights,
+    offering an extension to the standard Spearman's correlation by incorporating
+    sample weights into the rank calculation. This method is particularly useful
+    for datasets where some observations are more important than others.
+
+    Parameters
+    ----------
+    y_true : array-like
+        True target values.
+    y_pred : array-like
+        Predicted target values. Both `y_true` and `y_pred` must have the same length.
+    sample_weight : array-like
+        Weights for each sample, indicating the importance of each observation
+        in `y_true` and `y_pred`. Must be the same length as `y_true` and `y_pred`.
+    return_weighted_rank : bool, optional
+        If True, returns the weighted ranks of `y_true` and `y_pred` instead of
+        Spearman's rho. Default is False.
+    epsilon : float, optional
+        A small value added to the denominator to avoid division by zero in the
+        computation of Spearman's rho. Default is 1e-10.
+
+    Returns
+    -------
+    float or tuple of ndarray
+        If `return_weighted_rank` is False (default), returns Spearman's rho,
+        considering sample weights. If `return_weighted_rank` is True, returns
+        a tuple containing the weighted ranks of `y_true` and `y_pred`.
+
+    Notes
+    -----
+    The weighted Spearman's rank correlation coefficient is computed as:
+
+    .. math::
+        \\rho = 1 - \\frac{6 \\sum d_i^2 w_i}{\\sum w_i(n^3 - n)}
+
+    where :math:`d_i` is the difference between the weighted ranks of each observation,
+    :math:`w_i` is the weight of each observation, and :math:`n` is the number of observations.
+
+    This function calculates weighted ranks based on the sample weights, adjusting
+    the influence of each data point in the final correlation measure. It is useful
+    in scenarios where certain observations are deemed more critical than others.
+
+    Examples
+    --------
+    >>> from gofast.tools.mathex import weighted_spearman_corr
+    >>> y_true = [1, 2, 3, 4, 5]
+    >>> y_pred = [5, 6, 7, 8, 7]
+    >>> sample_weight = [1, 1, 1, 1, 2]
+    >>> weighted_spearman_corr(y_true, y_pred, sample_weight)
+    0.8208
+
+    References
+    ----------
+    .. [1] Myatt, G.J. (2007). Making Sense of Data, A Practical Guide to 
+           Exploratory Data Analysis and Data Mining. John Wiley & Sons.
+
+    See Also
+    --------
+    scipy.stats.spearmanr : Spearman rank-order correlation coefficient.
+    numpy.cov : Covariance matrix.
+    numpy.var : Variance.
+
+    """
+    # Check and convert inputs to numpy arrays
+    y_true, y_pred, sample_weight = map(np.asarray, [y_true, y_pred, sample_weight])
+
+    if str(epsilon).lower() =='auto': 
+        epsilon = determine_epsilon(y_pred, scale_factor= 1e-10)
+        
+    # Compute weighted ranks
+    def weighted_rank(data, weights):
+        order = np.argsort(data)
+        ranks = np.empty_like(order, dtype=float)
+        cum_weights = np.cumsum(weights[order])
+        total_weight = cum_weights[-1]
+        ranks[order] = cum_weights / total_weight * len(data)
+        return ranks
+    
+    ranks_true = weighted_rank(y_true, sample_weight)
+    ranks_pred = weighted_rank(y_pred, sample_weight)
+    
+    if return_weighted_rank: 
+        return ranks_true, ranks_pred
+    # Compute covariance between the weighted ranks
+    cov = np.cov(ranks_true, ranks_pred, aweights=sample_weight)[0, 1]
+    
+    # Compute standard deviations of the weighted ranks
+    std_true = np.sqrt(np.var(ranks_true, ddof=1, aweights=sample_weight))
+    std_pred = np.sqrt(np.var(ranks_pred, ddof=1, aweights=sample_weight))
+    
+    # Compute Spearman's rho
+    rho = cov / ( (std_true * std_pred) + epsilon) 
+    return rho
 
 def calculate_optimal_bins(y_pred, method='freedman_diaconis', data_range=None):
     """

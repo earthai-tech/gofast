@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # BSD-3-Clause License
-# Copyright (c) 2022 gofast developers.
+# Copyright (c) 2024 gofast developers.
 # All rights reserved.
 
 # Utilities for input validation
@@ -23,8 +23,347 @@ from inspect import signature, Parameter, isclass
 from ._array_api import get_namespace, _asarray_with_order
 
 FLOAT_DTYPES = (np.float64, np.float32, np.float16)
-import numpy as np
 
+def validate_nan_policy(nan_policy, *arrays, sample_weights=None):
+    """
+    Validates and applies a specified nan_policy to input arrays and
+    optionally to sample weights. This utility is essential for pre-processing
+    data prior to statistical analyses or model training, where appropriate
+    handling of NaN values is critical to ensure accurate and reliable outcomes.
+
+    Parameters
+    ----------
+    nan_policy : {'propagate', 'raise', 'omit'}
+        Defines how to handle NaNs in the input arrays. 'propagate' returns the
+        input data without changes. 'raise' throws an error if NaNs are detected.
+        'omit' removes rows with NaNs across all input arrays and sample weights.
+    *arrays : array-like
+        Variable number of input arrays to be validated and adjusted based on
+        the specified nan_policy.
+    sample_weights : array-like, optional
+        Sample weights array to be validated and adjusted in tandem with the
+        input arrays according to nan_policy. Defaults to None.
+
+    Returns
+    -------
+    arrays : tuple of np.ndarray
+        Adjusted input arrays, with modifications applied based on nan_policy.
+        The order of arrays in the tuple corresponds to the order of input.
+    sample_weights : np.ndarray or None
+        Adjusted sample weights, modified according to nan_policy if provided.
+        Returns None if no sample_weights were provided.
+
+    Raises
+    ------
+    ValueError
+        If `nan_policy` is not among the valid options ('propagate', 'raise',
+        'omit') or if NaNs are detected when `nan_policy` is set to 'raise'.
+
+    Notes
+    -----
+    Handling NaN values is a critical step in data preprocessing, especially
+    in datasets with missing values. The choice of nan_policy can significantly
+    impact subsequent statistical analysis or predictive modeling by either
+    including, excluding, or signaling errors for observations with missing
+    values. This function ensures consistent application of the chosen policy
+    across multiple datasets, facilitating robust and error-free analyses.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.tools.validator import validate_nan_policy
+    >>> y_true = np.array([1, np.nan, 3])
+    >>> y_pred = np.array([1, 2, 3])
+    >>> sample_weights = np.array([0.5, 0.5, 1.0])
+    >>> arrays, sw = validate_nan_policy('omit', y_true, y_pred, sample_weights=sample_weights)
+    >>> arrays
+    (array([1., 3.]), array([1., 3.]))
+    >>> sw
+    array([0.5, 1. ])
+    """
+    nan_policy= str(nan_policy).lower() 
+    valid_policies = ['propagate', 'raise', 'omit']
+    if nan_policy not in valid_policies:
+        raise ValueError(
+            f"Invalid nan_policy: {nan_policy}. Valid options are {valid_policies}.")
+
+    if nan_policy == 'omit':
+        # Find indices that are not NaN in all arrays
+        not_nan_mask = ~np.isnan(np.column_stack(arrays)).any(axis=1)
+        if sample_weights is not None:
+            not_nan_mask &= ~np.isnan(sample_weights)
+        
+        # Filter out NaNs from all arrays and sample_weights
+        arrays = tuple(array[not_nan_mask] for array in arrays)
+        if sample_weights is not None:
+            sample_weights = sample_weights[not_nan_mask]
+
+    elif nan_policy == 'raise':
+        # Check for NaNs in any of the arrays or sample_weights
+        if any(np.isnan(array).any() for array in arrays) or (
+                sample_weights is not None and np.isnan(sample_weights).any()):
+            raise ValueError("Input values contain NaNs and nan_policy is 'raise'.")
+
+    # Return adjusted arrays and sample_weights
+    if sample_weights is not None:
+        return arrays, sample_weights
+
+    return arrays 
+
+def validate_multioutput(value, extra=''):
+    """
+    Validate the `multioutput` parameter value and handle special cases.
+
+    This function checks if the provided `multioutput` value is one of the
+    accepted strings ('raw_values', 'uniform_average', 'raise', 'warn'). It
+    warns or raises an error based on the value if it's applicable.
+
+    Parameters
+    ----------
+    value : str
+        The value of the `multioutput` parameter to be validated. Accepted
+        values are 'raw_values', 'uniform_average', 'raise', 'warn'.
+    extra : str, optional
+        Additional text to include in the warning or error message if
+        `multioutput` is not applicable.
+
+    Returns
+    -------
+    str
+        The validated `multioutput` value in lowercase if it's one of the
+        accepted values. If the value is 'warn' or 'raise', the function
+        handles the case accordingly without returning a value.
+
+    Raises
+    ------
+    ValueError
+        If `value` is not one of the accepted strings and is not 'raise'.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import validate_multioutput
+    >>> validate_multioutput('raw_values')
+    'raw_values'
+
+    >>> validate_multioutput('warn', extra=' for Dice Similarity Coefficient')
+    # This will warn that multioutput parameter is not applicable for Dice
+    # Similarity Coefficient.
+
+    >>> validate_multioutput('raise', extra=' for Gini Coefficient')
+    # This will raise a ValueError indicating that multioutput parameter
+    # is not applicable for Gini Coefficient.
+
+    >>> validate_multioutput('average')
+    # This will raise a ValueError indicating 'average' is an invalid value
+    # for multioutput parameter.
+
+    Note
+    ----
+    The function is designed to ensure API consistency across various metrics
+    functions by providing a standard way to handle `multioutput` parameter
+    values, especially in contexts where multiple outputs are not applicable.
+    """
+    valid_values = ['raw_values', 'uniform_average']
+    value_lower = str(value).lower()
+
+    if value_lower in ['raise', 'warn']:
+        warn_msg = ("The `multioutput` parameter is not applicable" + extra +
+                    " as it inherently combines outputs into a single score.")
+        if value_lower == 'warn':
+            warnings.warn(warn_msg, UserWarning)
+        elif value_lower == 'raise':
+            raise ValueError(warn_msg)
+    elif value_lower not in valid_values:
+        raise ValueError(
+            "Invalid value for multioutput parameter. Expect 'raw_values' or "
+            f"'uniform_average'. Got '{value}'.")
+
+    return value_lower
+
+def ensure_non_negative(*arrays, err_msg=None):
+    """
+    Ensure that provided arrays contain only non-negative values.
+
+    This function checks each provided array for non-negativity. If any negative
+    values are found in any array, it raises a ValueError. This check is crucial
+    for computations or algorithms where negative values are not permissible, such
+    as logarithmic transformations.
+
+    Parameters
+    ----------
+    *arrays : array-like
+        One or more array-like structures (e.g., lists, numpy arrays). Each array
+        is checked for non-negativity.
+    err_msg: str, optional 
+        Specify a custom error message if negative values are found.
+        
+    Raises
+    ------
+    ValueError
+        If any array contains negative values, a ValueError is raised with a message
+        indicating that only non-negative values are expected.
+
+    Examples
+    --------
+    >>> y_true = [0, 1, 2, 3]
+    >>> y_pred = [0.5, 2.1, 3.5, -0.1]
+    >>> ensure_non_negative(y_true, y_pred)
+    ValueError: Negative value found. Expect only non-negative values.
+
+    Note
+    ----
+    The function uses a variable number of arguments, allowing flexibility in the number
+    of arrays checked in a single call.
+    """
+    for i, array in enumerate(arrays, start=1):
+        if np.any(np.asarray(array) < 0):
+            err_msg = err_msg or ( 
+                f"Array at index {i} contains negative values."
+                " Expect only non-negative values.")
+            raise ValueError(err_msg)
+   
+def check_epsilon(
+    eps, 
+    y_true=None, 
+    y_pred=None, 
+    base_epsilon=1e-10, 
+    scale_factor=1e-5
+):
+    """
+    Dynamically determine or validate an epsilon value for numerical computations.
+
+    This function either validates a provided epsilon if it is a numeric value, or 
+    calculates an appropriate epsilon dynamically based on the input data. The dynamic
+    calculation aims to adjust epsilon based on the scale of the input data, providing
+    flexibility and adaptability in algorithms where numerical stability is critical.
+
+    Parameters
+    ----------
+    eps : {'auto', float}
+        The epsilon value to use. If 'auto', the function dynamically determines an
+        appropriate epsilon based on `y_true` and `y_pred`. If a float, it validates
+        this as the epsilon value.
+    y_true : array-like, optional
+        True values array. Used in conjunction with `y_pred` to dynamically determine
+        epsilon if `eps` is 'auto'. If `None`, this input is ignored.
+    y_pred : array-like, optional
+        Predicted values array. Used alongside `y_true` for epsilon determination.
+        If `None`, this input is ignored.
+    base_epsilon : float, optional
+        Base epsilon value used as a starting point in dynamic determination. This
+        value is adjusted based on the `scale_factor` and the input data to compute
+        the final epsilon.
+    scale_factor : float, optional
+        Scaling factor applied to adjust the base epsilon in relation to the scale
+        of the input data. Helps tailor the epsilon to the problem's numerical scale.
+
+    Returns
+    -------
+    float
+        The determined or validated epsilon value. Ensures numerical operations
+        are conducted with an appropriate epsilon to avoid division by zero or
+        other numerical instabilities.
+
+    Examples
+    --------
+    >>> y_true = [1, 2, 3]
+    >>> y_pred = [1.1, 1.9, 3.05]
+    >>> check_epsilon('auto', y_true, y_pred)
+    0.00001  # Example output, actual value depends on `determine_epsilon` implementation.
+
+    >>> check_epsilon(1e-8)
+    1e-8
+
+    Notes
+    -----
+    Using 'auto' for `eps` allows algorithms to adapt to different scales of data,
+    enhancing numerical stability without manually tuning the epsilon value.
+    """
+    from .mathex import determine_epsilon 
+    # Initialize a list to hold arrays for dynamic epsilon determination
+    y_arrays = []
+    
+    # Convert inputs to numpy arrays and add to y_arrays if they are not None
+    if y_true is not None:
+        y_true = np.asarray(y_true, dtype=np.float64)
+        y_arrays.append(y_true)
+    if y_pred is not None:
+        y_pred = np.asarray(y_pred, dtype=np.float64)
+        y_arrays.append(y_pred)
+
+    # Ensure y_true and y_pred have consistent lengths if both are provided
+    if y_true is not None and y_pred is not None:
+        check_consistent_length(y_true, y_pred)
+
+    # If both arrays are provided, concatenate them for epsilon determination
+    if len(y_arrays) == 2:
+        y_arrays = [np.concatenate(y_arrays)]
+    
+    # Dynamically determine epsilon if 'auto', else ensure it's a float
+    if str(eps).lower() == 'auto' and y_arrays:
+        eps = determine_epsilon(y_arrays[0], base_epsilon=base_epsilon,
+                                scale_factor=scale_factor)
+    else:
+        try: 
+            eps = float(eps)
+        except ValueError: 
+            raise ValueError(f"Epsilon must be 'auto' or convertible to float. Got '{eps}'")
+    
+    return eps
+
+def _ensure_y_is_valid(y_true, y_pred, **kwargs):
+    """
+    Validates that the true and predicted target arrays are suitable for further
+    processing. This involves ensuring that both arrays are non-empty, of the
+    same length, and meet any additional criteria specified by keyword arguments.
+
+    Parameters
+    ----------
+    y_true : array-like
+        The true target values.
+    y_pred : array-like
+        The predicted target values.
+    **kwargs : dict
+        Additional keyword arguments to pass to the check_y function for any
+        extra validation criteria.
+
+    Returns
+    -------
+    y_true : array-like
+        Validated true target values.
+    y_pred : array-like
+        Validated predicted target values.
+
+    Raises
+    ------
+    ValueError
+        If the validation checks fail, indicating that the input arrays do not
+        meet the required criteria for processing.
+
+    Examples
+    --------
+    Suppose `check_y` validates that the input is a non-empty numpy array and
+    `check_consistent_length` ensures the arrays have the same number of elements.
+    Then, usage could be as follows:
+
+    >>> y_true = np.array([1, 2, 3])
+    >>> y_pred = np.array([1.1, 2.1, 3.1])
+    >>> y_true_valid, y_pred_valid = _ensure_y_is_valid(y_true, y_pred)
+    >>> print(y_true_valid, y_pred_valid)
+    [1 2 3] [1.1 2.1 3.1]
+    """
+    # Convert y_true and y_pred to numpy arrays if they are not already
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    
+    # Ensure individual array validity
+    y_true = check_y(y_true, **kwargs)
+    y_pred = check_y(y_pred, **kwargs)
+
+    # Check if the arrays have consistent lengths
+    check_consistent_length(y_true, y_pred)
+
+    return y_true, y_pred
 
 def check_classification_targets(
     *y, 

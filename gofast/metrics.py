@@ -13,7 +13,6 @@ from __future__ import annotations
 import itertools 
 import warnings  
 import numpy as np 
-from scipy.stats import spearmanr
 
 from sklearn import metrics 
 from sklearn.metrics import (  
@@ -24,14 +23,13 @@ from sklearn.metrics import (
     roc_curve, 
     roc_auc_score,
     accuracy_score, 
-    confusion_matrix, # as cfsmx ,
+    confusion_matrix, 
     classification_report, 
     mean_squared_error, 
     log_loss, 
     mean_absolute_error, 
     r2_score
     )
-
 from sklearn.utils.multiclass import unique_labels
 from sklearn.model_selection import cross_val_predict 
 from sklearn.preprocessing import label_binarize
@@ -42,12 +40,11 @@ from ._gofastlog import gofastlog
 # from .exceptions import LearningError 
 from .tools.box import Bunch 
 from .tools.coreutils import normalize_string 
-from .tools.mathex import determine_epsilon, calculate_binary_iv
-from .tools.validator import _is_numeric_dtype
-from .tools.validator import check_consistent_length, check_y  
-from .tools.validator import check_classification_targets, check_is_fitted
-
-# from .tools.coreutils import is_iterable, _assert_all_types 
+from .tools.mathex import calculate_binary_iv, optimized_spearmanr 
+from .tools.validator import _is_numeric_dtype, _ensure_y_is_valid
+from .tools.validator import check_epsilon, check_is_fitted
+from .tools.validator import check_classification_targets, validate_nan_policy
+from .tools.validator import ensure_non_negative, validate_multioutput 
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -73,6 +70,7 @@ __all__=[
     "flexible_mae",
     "flexible_mse", 
     "flexible_rmse",
+    "flexible_madev", 
     "flexible_r2", 
     "mean_absolute_percentage_error", 
     "explained_variance_score", 
@@ -85,10 +83,10 @@ __all__=[
     "gini_coeff",
     "hamming_loss", 
     "fowlkes_mallows_index",
-    "rmse_log_error", 
+    "root_mean_squared_log_error", 
     "mean_percentage_error",
     "percentage_bias", 
-    "spearmans_rank_correlation",
+    "spearmans_rank_coeff",
     "precision_at_k", 
     "ndcg_at_k", 
     "mean_reciprocal_rank", 
@@ -143,50 +141,193 @@ def get_metrics():
     """
     return tuple(metrics.SCORERS.keys())
 
-def mean_squared_log_error(y_true, y_pred, *,  clip_value=0, epsilon=1e-15):
+def percentage_bias(
+    y_true, y_pred, *, 
+    sample_weight=None, 
+    epsilon='auto', 
+    zero_division='warn', 
+    multi_output='uniform_average',
+):
     """
-    Compute the Mean Squared Logarithmic Error (MSLE) between true and
-    predicted values. 
-    
-    This metric is useful for regression tasks where the
-    focus is on the percentage differences rather than absolute differences.
-    It penalizes underestimates more than overestimates. The function allows
-    for clipping predictions to a minimum value for numerical stability and
-    includes an epsilon to ensure values are strictly positive before
-    logarithmic transformation.
+    Calculates the Percentage Bias (PBIAS) between true and predicted values.
 
+    The Percentage Bias measures the average tendency of the predictions to
+    overestimate or underestimate the actual values, expressed as a percentage.
+    PBIAS is particularly valuable in hydrology [1]_, environmental science, 
+    and economics for evaluating model performance in simulation and forecasting.
+    It indicates the model's average deviation from observed values, allowing
+    for the assessment of model bias.
+
+    See more in :ref:`User Guide` 
+    
     Parameters
     ----------
-    y_true : array-like
-        True target values. Must be non-negative.
-    y_pred : array-like
-        Predicted target values. Can contain any real numbers.
-    clip_value : float, optional
-        The value to clip `y_pred` values at minimum. This ensures that
-        the logged values are not negative, by default 0.
-    epsilon : float, optional
-        A small value added to `y_pred` after clipping and to `y_true`, to
-        ensure they are strictly positive before applying the logarithm, by
-        default 1e-15.
+    y_true : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        True target values. Must be non-negative. Represents observed or 
+        actual values in the context of the model evaluation.
+    y_pred : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        Predicted target values by the model. Represents estimated values 
+        that are compared against `y_true`.
+    sample_weight : array-like of shape (n_samples,), optional
+        Individual weights for each sample, allowing for the differential 
+        consideration of the importance of each prediction.
+    epsilon : {'auto', float}, optional
+        Small constant added to `y_true` to avoid division by zero. If 'auto',
+        dynamically determined based on the range of `y_true` values.
+    zero_division : {'warn', 'ignore'}, optional
+        Specifies how to handle the division by zero: 'warn' raises a warning;
+        'ignore' suppresses the warning and proceeds with the calculation.
+    multi_output : {'raw_values', 'uniform_average'}, optional
+        Defines how multiple output values are aggregated: 'raw_values' returns 
+        a full set of errors, 'uniform_average' averages errors across all outputs.
 
     Returns
     -------
-    float
-        The Mean Squared Logarithmic Error between `y_true` and `y_pred`.
+    float or ndarray
+        The PBIAS value. If `multi_output` is 'raw_values', returns an array of
+        PBIAS values for each output. A positive PBIAS indicates a model tendency
+        to overestimate, and a negative value indicates an underestimation.
 
     Notes
     -----
-    The MSLE is computed as:
+    The Percentage Bias is crucial for understanding model accuracy in terms of
+    systemic bias. It helps identify whether a model consistently overpredicts or
+    underpredicts the observed values[2]_. In water resources and climate modeling,
+    PBIAS provides insights into the reliability of hydrological forecasts and
+    their potential biases [3]_.
+    
+    The Percentage Bias is defined as:
 
-    .. math::
-        \\frac{1}{n} \\sum_{i=1}^{n} (\\log(p_i + 1) - \\log(a_i + 1))^2
+    .. math:: \text{PBIAS} = \frac{100}{n} \sum_{i=1}^{n}\\
+        \left( \frac{y_{\text{pred},i} - y_{\text{true},i}}{y_{\text{true},i}} \right)
 
-    Where:
-    - \(p_i\) is the \(i\)th predicted value,
-    - \(a_i\) is the \(i\)th actual value,
-    - \(\\log\) is the natural logarithm,
-    - \(n\) is the total number of observations in the dataset.
+    where `n` is the number of samples, `y_pred` is the predicted value, and `y_true`
+    is the actual value. A positive value indicates a tendency to overestimate, while
+    a negative value indicates a tendency to underestimate.
+    
+    See Also
+    --------
+    mean_absolute_error : Compute the mean absolute error.
+    mean_squared_error : Compute mean squared error.
+    mean_absolute_percentage_error : Compute mean absolute percentage error.
+    
+    References
+    ----------
+    .. [1] Gelete, Gebre (2023). "Application of hybrid machine learning-based ensemble
+          techniques for rainfall-runoff modeling". Earth Sciences Informatics, 2475-2495,
+          https://doi.org/10.1007/s12145-023-01041-4.
+          
+    .. [2] Gupta, H.V., Sorooshian, S., and Yapo, P.O. (1999). Status of Automatic
+          Calibration for Hydrologic Models: Comparison with Multilevel 
+          Expert Calibration. Journal of Hydrologic Engineering, 4(2), 135-143.
+          
+    .. [3] Moriasi, D.N., Arnold, J.G., Van Liew, M.W., Bingner, R.L., Harmel,
+         R.D., and Veith, T.L. (2007). Model evaluation guidelines for 
+         systematic quantification of accuracy in watershed simulations. 
+         Transactions of the ASABE, 50(3), 885-900.
+         
+    Examples
+    --------
+    >>> from gofast.metrics import percentage_bias
+    >>> y_true = [100, 150, 200, 250, 300]
+    >>> y_pred = [110, 140, 210, 230, 310]
+    >>> print(percentage_bias(y_true, y_pred))
+    1.3333
+    
+    """
+    y_true, y_pred = _ensure_y_is_valid(
+        y_true, y_pred, y_numeric=True, multi_output=True )
+    ensure_non_negative(y_true, 
+        err_msg="y_true must contain non-negative values for PBIAS calculation."
+    )
+    # Determine epsilon value
+    epsilon = check_epsilon(epsilon, y_true, scale_factor=1e-15)
+    
+    # Adjust y_true to avoid division by zero
+    adjusted_y_true = np.clip(y_true, epsilon, np.inf)
 
+    # Compute percentage bias
+    percentage_bias = (y_pred - adjusted_y_true) / adjusted_y_true
+    
+    # Apply sample weights if provided
+    if sample_weight is not None:
+        sample_weight = np.asarray(sample_weight, dtype=np.float64)
+        weighted_percentage_bias = np.average(percentage_bias, weights=sample_weight)
+    else:
+        weighted_percentage_bias = np.mean(percentage_bias)
+
+    # Handle zero division if necessary
+    if zero_division == 'warn' and np.any(adjusted_y_true == epsilon):
+        warnings.warn("Potential division by zero encountered in"
+                      " Percentage Bias calculation.", UserWarning)
+
+    # Handle multioutput aggregation
+    multi_output=validate_multioutput(multi_output)
+    if multi_output == 'uniform_average':
+        return np.mean(weighted_percentage_bias) * 100
+    elif multi_output == 'raw_values':
+        return weighted_percentage_bias * 100
+    
+def mean_squared_log_error(
+    y_true, y_pred, *,  
+    sample_weight=None, 
+    clip_value=0, 
+    epsilon="auto", 
+    zero_division='warn', 
+    multioutput='uniform_average'
+):
+    """
+    Compute the Mean Squared Logarithmic Error (MSLE) between true and 
+    predicted values.
+    
+    This metric is especially useful for regression problems where the target 
+    values are expected to be in a multiplicative scale, as it penalizes 
+    underestimates more than overestimates. The function allows for clipping 
+    predictions to a minimum value for numerical stability and includes an 
+    epsilon to ensure values are strictly positive before logarithmic 
+    transformation.
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        True target values. Must be non-negative.
+    y_pred : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        Predicted target values. Can contain any real numbers.
+    sample_weight : array-like of shape (n_samples,), optional
+        Individual weights for each sample.
+    clip_value : float, optional
+        The value to clip `y_pred` values at minimum. This ensures that
+        the logged values are not negative, by default 0.
+    epsilon : float or "auto", optional
+        A small value added to `y_pred` and `y_true` after clipping, to
+        ensure they are strictly positive before applying the logarithm.
+        If "auto", epsilon is dynamically determined based on the data.
+    zero_division : {'warn', 'ignore'}, optional
+        How to handle division by zero during MSLE calculation.
+    multioutput : {'raw_values', 'uniform_average'}, optional
+        Defines aggregating of multiple output values. Default is 'uniform_average'.
+
+    Returns
+    -------
+    float or ndarray
+        The MSLE between `y_true` and `y_pred`. If `multioutput` is 'raw_values',
+        returns an array of MSLE values for each output.
+
+    Notes
+    -----
+    The MSLE is defined as:
+
+    .. math:: \mathrm{MSLE} = \frac{1}{n} \sum_{i=1}^{n} (\log(p_i + 1) - \log(a_i + 1))^2
+
+    where :math:`p_i` and :math:`a_i` are the predicted and actual values, respectively,
+    and :math:`n` is the number of samples.
+
+    MSLE can be interpreted as a measure of the ratio between the true and 
+    predicted values. By using the logarithmic scale, it penalizes relative 
+    differences - making it useful for predicting exponential growths without 
+    being too sensitive to large errors when the predicted and true values are
+    both large numbers [1]_.
+    
     It is important that `y_true` contains non-negative values only, as the
     logarithm of negative values is undefined. The function enforces `y_pred`
     values to be at least `clip_value` to avoid taking the logarithm of
@@ -194,7 +335,18 @@ def mean_squared_log_error(y_true, y_pred, *,  clip_value=0, epsilon=1e-15):
     addition of `epsilon` ensures that even after clipping, no value is exactly
     zero before the logarithm is applied, providing a buffer against numerical
     instability.
-    
+
+    See Also
+    --------
+    mean_squared_error : Compute the mean squared error.
+    mean_absolute_error : Compute the mean absolute error.
+    r2_score : R^2 (coefficient of determination) regression score function.
+
+    References
+    ----------
+    .. [1] Wikipedia, "Mean squared logarithmic error",
+           https://en.wikipedia.org/wiki/Mean_squared_logarithmic_error
+           
     Examples
     --------
     >>> from gofast.metrics import mean_squared_log_error
@@ -202,19 +354,50 @@ def mean_squared_log_error(y_true, y_pred, *,  clip_value=0, epsilon=1e-15):
     >>> y_pred = [2.5, 5, 4, 8]
     >>> mean_squared_log_error(y_true, y_pred)
     0.03973
-
+    
     >>> mean_squared_log_error(y_true, [2, -5, 4, 8], clip_value=0.01)
     0.8496736598821342
     # Example output with clipping and epsilon adjustment
+    
     """
-    y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric= True )
-    # If y_numeric is True, check if y_true contains only non-negative values
-    if np.any(y_true < 0):
-        raise ValueError("y_true must contain non-negative values only.")
-        
-    y_pred = np.clip(y_pred, clip_value, None) + epsilon  # Clip and adjust `y_pred`
-    y_true += epsilon  # Adjust `y_true` to avoid log(0)
-    return np.mean((np.log1p(y_true) - np.log1p(y_pred)) ** 2)
+    y_true, y_pred = _ensure_y_is_valid(
+        y_true, y_pred, y_numeric= True, multi_output =True  )
+
+    # Ensure non-negativity of y_true 
+    ensure_non_negative(y_true, "y_true must contain non-negative values only.")
+
+    # Check epsilon 
+    epsilon = check_epsilon(epsilon, y_true, scale_factor= 1e-15)
+    # Adjust y_pred for log calculation
+    y_pred = np.clip(y_pred, clip_value, np.inf) + epsilon
+    y_true = np.clip(y_true, 0, np.inf) + epsilon
+
+    # Compute squared log error
+    squared_log_error = (np.log1p(y_pred) - np.log1p(y_true)) ** 2
+
+    # Apply sample weights if provided
+    if sample_weight is not None:
+        sample_weight = np.asarray(sample_weight, dtype=np.float64)
+        squared_log_error *= sample_weight
+        denominator = np.sum(sample_weight)
+    else:
+        denominator = y_true.size 
+    # Avoid division by zero
+    if zero_division == 'warn' and denominator == 0:
+        warnings.warn("Division by zero encountered in MSLE calculation.",
+                      UserWarning)
+        return 0.0 if epsilon > 0 else np.nan
+
+    msle = np.sum(squared_log_error) / denominator
+
+    # Handle multioutput
+    validate_multioutput(multioutput)
+    
+    if multioutput == 'uniform_average':
+        # Ensure msle is not an array when calculating uniform average
+        msle = np.mean(msle) if np.ndim(msle) > 0 else msle
+
+    return msle 
 
 def balanced_accuracy(
     y_true, y_pred, *, 
@@ -645,8 +828,7 @@ def information_value(
     y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric =True, 
                                         multi_output= True )
     # Determine an appropriate epsilon value if set to "auto"
-    if str(epsilon).lower() == "auto":
-        epsilon = determine_epsilon(y_pred)
+    epsilon = check_epsilon(epsilon, y_pred)
     # Initialize IV calculation
     iv = None
     if problem_type == 'binary':
@@ -1894,10 +2076,10 @@ def flexible_mae(
     # Ensure y_true and y_pred are valid and have the same shape
     y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True)
     
-    if str(epsilon).lower() == 'auto':
-        # Assuming this function determines a suitable epsilon value
-        epsilon = determine_epsilon(y_pred)  
-    
+    # Assuming this function determines a suitable 
+    # epsilon value if set to ``auto``.
+    epsilon= check_epsilon(epsilon, y_pred )
+
     # Validation for epsilon
     if not isinstance(epsilon, (int, float)):
         raise ValueError("epsilon must be 'auto' or a numeric value.")
@@ -2020,9 +2202,8 @@ def flexible_mse(
     # Ensure y_true and y_pred are valid and have the same shape
     y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True)
     
-    if str(epsilon).lower() == 'auto':
-        # Assuming this function determines a suitable epsilon value
-        epsilon = determine_epsilon(y_pred)  
+    # Assuming this function determines a suitable epsilon value
+    epsilon= check_epsilon(epsilon, y_pred )
     
     # Validation for epsilon
     if not isinstance(epsilon, (int, float)):
@@ -2148,9 +2329,8 @@ def flexible_rmse(
     # Ensure y_true and y_pred are valid and have the same shape
     y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True)
     
-    if str(epsilon).lower() == 'auto':
-        # Assuming this function determines a suitable epsilon value
-        epsilon = determine_epsilon(y_pred)  
+    # Assuming this function determines a suitable epsilon value
+    epsilon= check_epsilon(epsilon, y_pred )
     
     # Validation for epsilon
     if not isinstance(epsilon, (int, float)):
@@ -2295,9 +2475,8 @@ def flexible_r2(
     y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True)
     
     # Validation for epsilon
-    if not isinstance(epsilon, (int, float)):
-        raise ValueError("epsilon must be 'auto' or a numeric value.")
-    
+    epsilon= check_epsilon(epsilon, y_pred )
+  
     # Calculate R-squared
     ssr = np.sum((y_true - y_pred) ** 2)
     sst = np.sum((y_true - np.mean(y_true)) ** 2)
@@ -2334,9 +2513,7 @@ def flexible_r2(
     return result
 
 def mean_absolute_percentage_error(
-    y_true, 
-    y_pred, 
-    *, 
+    y_true, y_pred, *, 
     epsilon=1e-15, 
     zero_division='warn', 
     sample_weight=None, 
@@ -2420,7 +2597,9 @@ def mean_absolute_percentage_error(
             raise ValueError("Encountered zero in y_true, leading to division"
                              " by zero in MAPE computation.")
     
-    # Calculate the absolute percentage error, adding epsilon to avoid division by zero
+    # Calculate the absolute percentage error, 
+    # adding epsilon to avoid division by zero
+    epsilon= check_epsilon(epsilon, y_true )
     ape = np.abs((y_true - y_pred) / (y_true + epsilon))
     
     # Handling sample weights if provided
@@ -2442,9 +2621,7 @@ def mean_absolute_percentage_error(
         raise ValueError(f"Invalid multioutput value: {multioutput}")
 
 def explained_variance_score(
-    y_true, 
-    y_pred, 
-    *, 
+    y_true, y_pred, *, 
     sample_weight=None, 
     multioutput='uniform_average',
     epsilon=1e-8,
@@ -2523,7 +2700,8 @@ def explained_variance_score(
     
     # Compute weights only once if provided
     weights = sample_weight if sample_weight is not None else np.ones_like(y_true)
-    
+    # Check epsilon 
+    epsilon= check_epsilon(epsilon, y_pred , scale_factor=1e-8)
     # Compute the weighted mean of y_true directly
     mean_y_true = np.average(y_true, weights=weights)
     
@@ -2546,19 +2724,16 @@ def explained_variance_score(
     explained_variance = 1 - var_res / var_true_adjusted
     
     # Handle multioutput scenarios efficiently
+    multioutput= validate_multioutput(multioutput)
     if multioutput == 'raw_values':
         return explained_variance
     elif multioutput == 'uniform_average':
         if np.isnan(explained_variance).all():
             return np.nan
         return np.nanmean(explained_variance)
-    else:
-        raise ValueError(f"Invalid value for multioutput: {multioutput}")
 
 def median_absolute_error(
-    y_true, 
-    y_pred, 
-    *, 
+    y_true, y_pred, *, 
     sample_weight=None,
     multioutput='uniform_average',
     ignore_nan=False
@@ -2658,18 +2833,12 @@ def median_absolute_error(
     else:
         medAE = np.median(absolute_errors, axis=0)
     
-    if multioutput == 'raw_values':
-        return medAE
-    elif multioutput == 'uniform_average':
-        return np.average(medAE)
-    else:
-        raise ValueError(f"Invalid value for multioutput: {multioutput}")
+    multioutput= validate_multioutput(multioutput )
 
+    return medAE if multioutput == 'raw_values' else np.average(medAE)
 
 def max_error_score(
-    y_true, 
-    y_pred, 
-    *, 
+    y_true, y_pred,  *, 
     sample_weight=None, 
     multioutput='uniform_average',
     ignore_nan=False
@@ -2756,6 +2925,8 @@ def max_error_score(
     else:
         max_error_value = np.max(errors)
     
+    multioutput= validate_multioutput(multioutput)
+    
     if multioutput == 'raw_values':
         return max_error_value
     elif multioutput == 'uniform_average':
@@ -2763,13 +2934,9 @@ def max_error_score(
         # since max_error is a scalar
         # This branch is kept for consistency with other metrics' API
         return np.average(max_error_value)
-    else:
-        raise ValueError(f"Invalid value for multioutput: {multioutput}")
-
+  
 def mean_poisson_deviance(
-    y_true, 
-    y_pred, 
-    *, 
+    y_true, y_pred, *, 
     sample_weight=None, 
     epsilon=1e-8,
     ignore_nan=False,
@@ -2858,6 +3025,7 @@ def mean_poisson_deviance(
         raise ValueError("zero_division must be either 'warn' or 'ignore'")
     
     # Adjust predictions to ensure they are positive
+    epsilon= check_epsilon(epsilon, y_pred, scale_factor=1e-8)
     y_pred = np.maximum(y_pred, epsilon)
     
     with np.errstate(divide=zero_division, invalid=zero_division):
@@ -2869,6 +3037,7 @@ def mean_poisson_deviance(
                           " `mean_poisson_deviance` calculation.")
     
     # Handling multioutput scenarios
+    multioutput= validate_multioutput(multioutput)
     if multioutput == 'raw_values':
         mean_deviance = deviance
     elif multioutput == 'uniform_average':
@@ -2879,9 +3048,7 @@ def mean_poisson_deviance(
             mean_deviance = np.mean(deviance, axis=0)
         # Further average if multiple outputs    
         mean_deviance = np.average(mean_deviance)  
-    else:
-        raise ValueError(f"Invalid value for multioutput: {multioutput}")
-    
+  
     return mean_deviance
 
 def mean_gamma_deviance(
@@ -3395,13 +3562,7 @@ def dice_similarity_coeff(
         valid_mask = ~np.isnan(y_true) & ~np.isnan(y_pred)
         y_true, y_pred = y_true[valid_mask], y_pred[valid_mask]
 
-    if str(epsilon).lower() == 'auto':
-        epsilon_value = determine_epsilon(y_pred)
-    else:
-        try:
-            epsilon_value = float(epsilon)
-        except ValueError:
-            raise ValueError("`epsilon` must be 'auto' or convertible to float.")
+    epsilon_value = check_epsilon ( epsilon, y_pred)
 
     intersection = np.sum(y_true & y_pred)
     sum_total = np.sum(y_true) + np.sum(y_pred)
@@ -3414,9 +3575,7 @@ def dice_similarity_coeff(
     dice_score = 2. * intersection / (np.sum(y_true) + np.sum(y_pred) + epsilon_value)
 
     if multioutput != 'uniform_average':
-        warnings.warn("The `multioutput` parameter is not applicable for Dice"
-                      " Similarity Coefficient as it inherently combines "
-                      "outputs into a single score.", UserWarning)
+        validate_multioutput('warn', extra=' for Dice Similarity Coefficient')
 
     return dice_score
 
@@ -3519,15 +3678,8 @@ def gini_coeff(
         y_true, y_pred = y_true[valid_mask], y_pred[valid_mask]
         if sample_weight is not None:
             sample_weight = np.asarray(sample_weight)[valid_mask]
-
-    if str(epsilon).lower() == 'auto':
-        epsilon_value = determine_epsilon(np.concatenate([y_true, y_pred]))
-    else:
-        try:
-            epsilon_value = float(epsilon)
-        except ValueError:
-            raise ValueError("`epsilon` must be 'auto' or convertible to float.")
-
+    
+    epsilon_value = check_epsilon(epsilon, y_true, y_pred)
     abs_diff = np.abs(np.subtract.outer(y_true, y_pred))
     gini_sum = np.sum(abs_diff)
 
@@ -3542,13 +3694,12 @@ def gini_coeff(
     gini_coefficient = weighted_gini_sum / (2 * len(y_true) * total_weighted + epsilon_value)
 
     if zero_division == 'warn' and total_weighted + epsilon_value == 0:
-        warnings.warn("Division by zero encountered in Gini Coefficient calculation.", UserWarning)
+        warnings.warn("Division by zero encountered in Gini"
+                      " Coefficient calculation.", UserWarning)
         gini_coefficient = np.nan  # or return np.nan as per handling strategy
 
-    if multioutput != 'uniform_average':
-        warnings.warn(
-            "`multioutput` parameter is not applicable for Gini"
-            " Coefficient calculation.", UserWarning) # keep it for API consistency
+    if multioutput != 'uniform_average': # keep it for API consistency
+        validate_multioutput('warn', extra=' for Gini Coefficient calculation')
 
     if detailed_output:
         gini_coefficient=Bunch (
@@ -3558,11 +3709,11 @@ def gini_coeff(
             )
 
     return gini_coefficient
-     
+    
 def hamming_loss(
     y_true, y_pred,*,  
     sample_weight=None, 
-    ignore_nan=False,
+    nan_policy='propagate',  
     epsilon=1e-8,  
     zero_division='warn', 
     normalize=True, 
@@ -3585,9 +3736,12 @@ def hamming_loss(
     sample_weight : array-like of shape (n_samples,), optional
         Sample weights. If provided, the Hamming loss will be averaged across
         the samples accordingly.
-    ignore_nan : bool, optional
-        If True, ignore NaN values in both y_true and y_pred during the loss
-        calculation. This is particularly useful in datasets with missing labels.
+    nan_policy : {'propagate', 'raise', 'omit'}, optional
+        Defines how to handle NaNs in the input data. 'propagate' returns NaN if
+        NaNs are detected, 'raise' throws an error, and 'omit' ignores elements
+        with NaNs. If 'omit', ignore NaN values in both y_true and y_pred 
+        during the loss calculation. This is particularly useful in datasets 
+        with missing labels.
     epsilon : float, optional
         A small value to prevent division by zero. This is useful in ensuring
         numerical stability of the loss calculation.
@@ -3645,16 +3799,23 @@ def hamming_loss(
         y_true, y_pred, allow_nan=True, 
         multi_output=True 
     )
+    # validate epsilon 
+    epsilon= check_epsilon(epsilon, y_pred , scale_factor=1e-8)
      # Optionally convert inputs to boolean for binary classification tasks
     if to_boolean:
         y_true = y_true.astype(bool)
         y_pred = y_pred.astype(bool)
-    # Handle NaN values if ignore_nan is True
-    if ignore_nan:
-        valid_mask = ~np.isnan(y_true).any(axis=1) & ~np.isnan(y_pred).any(axis=1)
-        y_true, y_pred = y_true[valid_mask], y_pred[valid_mask]
-        if sample_weight is not None:
-            sample_weight = np.asarray(sample_weight)[valid_mask]
+        
+    # Directly unpack the result from validate_nan_policy function 
+    # call into y_true, y_pred, and possibly sample_weight
+    # The use of * in the assignment allows it to work with
+    # or without sample_weight being returned
+    y_true, y_pred, *optional_sample_weight = validate_nan_policy(
+        nan_policy, y_true, y_pred, sample_weights=sample_weight 
+    )
+    # If sample_weight was provided and thus returned, update sample_weight
+    # variable, else keep it unchanged
+    sample_weight = optional_sample_weight[0] if optional_sample_weight else sample_weight 
 
     # Calculate mismatches between y_true and y_pred
     mismatch = y_true != y_pred
@@ -3672,6 +3833,7 @@ def hamming_loss(
         hamming_loss_value = np.average(mismatch_sum, weights=sample_weight)
     else:
         hamming_loss_value = np.mean(mismatch_sum)
+        
     # Handling division by zero based on zero_division paramete
     if zero_division == 'warn' and np.isclose(hamming_loss_value, 0, atol=epsilon):
         warnings.warn("Potential division by zero encountered in Hamming"
@@ -3765,6 +3927,7 @@ def fowlkes_mallows_index(
     
     """
     y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True )
+    epsilon= check_epsilon (epsilon, y_pred, scale_factor=1e-10)
     cm = confusion_matrix(y_true, y_pred, sample_weight=sample_weight)
     tp = np.diag(cm)  # True Positives
     fp = np.sum(cm, axis=0) - tp  # False Positives
@@ -3774,7 +3937,7 @@ def fowlkes_mallows_index(
     precision = tp / (tp + fp + epsilon)
     recall = tp / (tp + fn + epsilon)
 
-    average = normalize_string( average, target_strs= ['average', 'macro'], 
+    average = normalize_string(average, target_strs= ['average', 'macro'], 
                                match_method='contains',raise_exception=True, 
                                return_target_only=True,
                                error_msg=f"Invalid average method: {average}"
@@ -3790,9 +3953,8 @@ def fowlkes_mallows_index(
     fmi = np.sqrt(precision_avg * recall_avg)
 
     if multioutput != 'uniform_average':
-        warnings.warn("`multioutput` parameter is not applicable for"
-                      " Fowlkes-Mallows Index.", UserWarning)
-
+        validate_multioutput('warn', extra =' for Fowlkes-Mallows Index')
+    
     # Handle division by zero after calculations
     if zero_division == 'warn' and (fmi == 0 or np.isnan(fmi)):
         warnings.warn("Division by zero encountered in Fowlkes-Mallows"
@@ -3801,157 +3963,377 @@ def fowlkes_mallows_index(
 
     return fmi
 
-def rmse_log_error(y_true, y_pred):
+def root_mean_squared_log_error(
+    y_true, y_pred, *, 
+    sample_weight=None, 
+    clip_value=0,  
+    multioutput='uniform_average',
+):
     """
-    Compute the Root Mean Squared Logarithmic Error.
+    Compute the Root Mean Squared Logarithmic Error (RMSLE) between true
+    and predicted values. The RMSLE is a measure of accuracy for predictions
+    of positive-valued targets, emphasizing the relative error between
+    predictions and actual values and penalizing underestimates more than
+    overestimates.
 
-    Provides a measure of accuracy in predicting quantitative data where 
-    the emphasis is on the relative rather than the absolute difference.
-    
-    Often used in forecasting and regression problems, especially when 
-    dealing with exponential growth, like in population studies or viral 
-    growth modeling.
-    
     Parameters
     ----------
-    y_true : array-like
-        True values.
-    y_pred : array-like
-        Predicted values.
+    y_true : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        True target values. Must be non-negative.
+    y_pred : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        Predicted target values. Must be non-negative and have the same shape
+        as `y_true`.
+    sample_weight : array-like of shape (n_samples,), optional
+        Individual weights for each sample, contributing to the calculation
+        of the average error.
+    clip_value : float, optional
+        Minimum value for `y_true` and `y_pred` after clipping to avoid taking
+        a logarithm of zero. Defaults to 0, ensuring non-negativity.
+    multioutput : {'raw_values', 'uniform_average'}, optional
+        Strategy for aggregating errors across multiple output dimensions:
+        - 'raw_values' : Returns an array of RMSLE values for each output.
+        - 'uniform_average' : Averages errors across all outputs.
 
     Returns
     -------
-    float
-        Root Mean Squared Logarithmic Error.
+    float or ndarray
+        The RMSLE between `y_true` and `y_pred`. If `multioutput` is 'raw_values',
+        an array of RMSLE values for each output is returned. If 'uniform_average',
+        a single float value is returned.
+
+    Notes
+    -----
+    RMSLE is defined as the square root of the average squared difference between
+    the logarithms (base e) of the predicted and actual values, incremented by one:
+
+    .. math:: \sqrt{\frac{1}{n} \sum_{i=1}^{n} [\log(p_i + 1) - \log(a_i + 1)]^2}
+
+    Here, :math:`p_i` and :math:`a_i` are the predicted and actual values,
+    respectively, for each sample :math:`i`. The addition of one inside the 
+    logarithm allows handling of zero values in inputs.
+
+    The RMSLE is less sensitive to large errors when both predicted and true 
+    values are large numbers. Unlike mean squared error (MSE) or root mean 
+    squared error (RMSE), RMSLE does not penalize overestimates more than 
+    underestimates, making it particularly suitable for data and models where 
+    underestimates are more undesirable.
 
     Examples
     --------
+    >>> from gofast.metrics import root_mean_squared_log_error
     >>> y_true = [3, 5, 2.5, 7]
     >>> y_pred = [2.5, 5, 4, 8]
-    >>> root_mean_squared_log_error(y_true, y_pred)
-    0.1993
+    >>> rmse_log_error(y_true, y_pred)
+    0.199
 
-    Notes
-    -----
-    RMSLE = \sqrt{\frac{1}{n} \sum_{i=1}^n (\log(y_{\text{pred},i} + 1) - \log(y_{\text{true},i} + 1))^2}
-    """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
-    return np.sqrt(np.mean((np.log1p(y_pred) - np.log1p(y_true)) ** 2))
+    See Also
+    --------
+    mean_squared_error : Compute mean squared error.
+    mean_absolute_error : Compute mean absolute error.
+    r2_score : R^2 (coefficient of determination) regression score function.
 
-def mean_percentage_error(y_true, y_pred):
+    References
+    ----------
+    .. [1] Wikipedia on Root Mean Squared Logarithmic Error: 
+           https://en.wikipedia.org/wiki/Root-mean-square_deviation#RMSLE
     """
-    Compute the Mean Percentage Error.
+    y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric =True )
+
+    # Ensure non-negativity for log calculation
+    if clip_value is not None: 
+        y_true = np.clip(y_true, clip_value, None) 
+        y_pred = np.clip(y_pred, clip_value, None)  
+
+    # Check to ensure non-negativity
+    ensure_non_negative(y_true, y_pred)
+
+    # Compute log1p = log(x + 1) to ensure no log(0)
+    log_true = np.log1p(y_true)
+    log_pred = np.log1p(y_pred)
+
+    # Compute squared log error
+    squared_log_error = (log_pred - log_true) ** 2
+
+    # Apply sample weights if provided
+    if sample_weight is not None:
+        sample_weight = np.asarray(sample_weight, dtype=np.float64).reshape(-1, 1)
+        squared_log_error *= sample_weight
+
+    # Compute mean squared log error
+    msle = np.mean(squared_log_error, axis=0)
+
+    # Compute root mean squared log error
+    rmsle = np.sqrt(msle)
+
+    # Aggregate outputs
+    multioutput =validate_multioutput(multioutput)
     
-    Measures the average of the percentage errors by which forecasts of a 
-    model differ from actual values of the quantity being forecasted.
-    
-    Applicability: Common in various forecasting models, particularly in 
-    finance and operations management.
-    
+    return rmsle if multioutput == 'raw_values' else  np.mean(rmsle)
+
+def mean_percentage_error(
+    y_true, y_pred, *, 
+    sample_weight=None, 
+    epsilon='auto', 
+    zero_division='warn', 
+    multioutput='uniform_average',
+):
+    """
+    Compute the Mean Percentage Error (MPE) between true and predicted values,
+    offering options for handling edge cases and applying weights to the errors.
 
     Parameters
     ----------
-    y_true : array-like
-        True values.
-    y_pred : array-like
-        Predicted values.
+    y_true : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        True target values. Can be a 1D array for single-output regression, or a
+        2D array for multi-output regression, where each column represents a
+        different output to predict.
+
+    y_pred : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        Predicted target values by the model. Must have the same shape as `y_true`.
+        Predictions provided by the model for evaluation against `y_true`.
+
+    sample_weight : array-like of shape (n_samples,), optional
+        Individual weights for each sample. This parameter assigns a specific weight
+        to each observation, allowing for differential importance to be given to
+        certain observations over others during error calculation.
+
+    epsilon : {'auto'} or float, optional
+        Threshold for considering values as non-zero to prevent division by zero.
+        If 'auto', the threshold is determined dynamically based on the data range
+        and scale. This prevents infinite or undefined percentage errors when
+        `y_true` contains zeros.
+
+    zero_division : {'warn', 'ignore'}, optional
+        How to handle cases when division by zero might occur during percentage
+        error calculation. If 'warn', a warning message is displayed. If 'ignore',
+        these cases are silently passed over without raising a warning.
+
+    multioutput : {'raw_values', 'uniform_average'}, optional
+        Defines the method for aggregating percentage errors across multiple outputs
+        (for multi-output models). 'raw_values' returns an array with an error value
+        for each output, while 'uniform_average' averages errors across all outputs
+        to provide a single error score.
 
     Returns
     -------
-    float
-        Mean Percentage Error.
+    float or ndarray
+        The Mean Percentage Error value. For `multioutput='raw_values'`, it returns
+        an array with the MPE for each output. For `multioutput='uniform_average'`,
+        it returns a single float representing the average MPE across all outputs.
 
-    Examples
+    Notes
+    -----
+    The MPE is calculated using the formula:
+
+    .. math:: 
+        MPE = \frac{100}{n} \sum_{i=1}^{n}\\
+            \frac{(y_{\text{pred},i} - y_{\text{true},i})}{y_{\text{true},i}}
+
+    where :math:`n` is the number of samples, :math:`y_{\text{pred},i}` is the 
+    predicted value, and :math:`y_{\text{true},i}` is the actual value. The MPE can 
+    indicate a model's tendency to overestimate or underestimate the values, with 
+    positive values indicating overestimation and negative values indicating 
+    underestimation [1]_.
+    
+    The function provides insights into the relative forecasting accuracy of a
+    model, making it particularly useful in financial and operational forecasting
+    models where percentage differences are more meaningful than absolute 
+    differences.
+
+    See Also
     --------
-    >>> y_true = [100, 200, 300]
-    >>> y_pred = [110, 190, 295]
+    mean_absolute_error : Compute the mean absolute error.
+    mean_squared_error : Compute mean squared error.
+    mean_squared_log_error : Compute mean squared logarithmic error.
+
+    References
+    ----------
+    .. [1] Hyndman, R.J., Koehler, A.B. (2006). Another look at measures of forecast
+           accuracy. International Journal of Forecasting, 22(4), 679-688.
+           
+    Example
+    -------
+    >>> from gofast.metrics import mean_percentage_error
+    >>> y_true = [100, 150, 200, 250]
+    >>> y_pred = [110, 140, 210, 240]
     >>> mean_percentage_error(y_true, y_pred)
-    -1.6667
+    0.5
+    >>> from gofast.metrics import mean_percentage_error
+    >>> y_true = [3, 5, 7.5, 10]
+    >>> y_pred = [2.5, 5, 8, 9.5]
+    >>> mean_percentage_error(y_true, y_pred)
+    -2.5
 
-    Notes
-    -----
-    MPE = \frac{100}{n} \sum_{i=1}^n \frac{y_{\text{pred},i} - y_{\text{true},i}}{y_{\text{true},i}}
     """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
-    return np.mean((y_pred - y_true) / y_true) * 100
+    y_true, y_pred = _ensure_y_is_valid(
+        y_true, y_pred, y_numeric=True,mutli_output =True)
+    # Check to ensure non-negativity for division
+    ensure_non_negative(y_true, 
+        err_msg="y_true must contain non-negative values for MPE calculation.")
 
+    # Determine epsilon value
+    epsilon = check_epsilon(epsilon, y_true, y_pred, base_epsilon=1e-10)
 
-def percentage_bias(y_true, y_pred):
+    # Compute percentage error
+    percentage_error = (y_pred - y_true) / np.clip(
+        y_true, epsilon, np.max(y_true)) * 100
+
+    # Apply sample weights if provided
+    if sample_weight is not None:
+        sample_weight = np.asarray(sample_weight, dtype=np.float64)
+        weighted_percentage_error = np.average(percentage_error, weights=sample_weight)
+    else:
+        weighted_percentage_error = np.mean(percentage_error)
+
+    # Handle zero division if necessary
+    if zero_division == 'warn' and np.any(y_true == 0):
+        warnings.warn("Division by zero encountered in Mean Percentage"
+                      " Error calculation.", UserWarning)
+    # Aggregate outputs
+    multioutput = validate_multioutput(multioutput)
+
+    if multioutput == 'uniform_average':
+        weighted_percentage_error=  np.mean(weighted_percentage_error) if np.ndim(
+            weighted_percentage_error) > 0 else weighted_percentage_error
+        
+    return weighted_percentage_error 
+
+def spearmans_rank_coeff(
+    y_true,  y_pred, *, 
+    sample_weight=None,  
+    multioutput='uniform_average',
+    tie_method='average',  
+    nan_policy='propagate',  
+    control_vars=None, 
+):
     """
-    Compute the Percentage Bias between true and predicted values.
+    Calculate Spearman's rank correlation coefficient, with options for 
+    handling ties, NaNs, control variables, and multi-output data. This 
+    non-parametric measure assesses the monotonic relationship between 
+    two datasets without making any assumptions about their frequency 
+    distribution.
 
-    Indicates the average tendency of the predictions to overestimate or 
-    underestimate against actual values.
-    
-    Used in forecasting models, such as in weather forecasting,
-    economic forecasting, or any model where the direction 
-    of bias is crucial.
-    
     Parameters
     ----------
     y_true : array-like
-        True values.
+        True values to compare against predictions.
     y_pred : array-like
-        Predicted values.
+        Predicted values to be compared to the true values.
+    sample_weight : array-like, optional
+        Weights for each sample, allowing for weighted correlation calculation.
+    multioutput : {'raw_values', 'uniform_average'}, optional
+        Determines how to aggregate results for multiple outputs. 'raw_values'
+        returns an array of correlations for each output, while 'uniform_average'
+        returns the average of all correlations.
+    tie_method : {'average', 'min', 'max', 'dense', 'ordinal'}, optional
+        Specifies how to assign ranks to tied elements in the data. The default
+        'average' assigns the average of the ranks that would have been assigned
+        to all tied values.
+    nan_policy : {'propagate', 'raise', 'omit'}, optional
+        Defines how to handle NaNs in the input data. 'propagate' returns NaN if
+        NaNs are detected, 'raise' throws an error, and 'omit' ignores elements
+        with NaNs.
+    control_vars : array-like or list of array-likes, optional
+        Control variables for adjusting the calculation of Spearman's rank 
+        correlation, used for partial correlation analysis.
 
     Returns
     -------
-    float
-        The percentage bias of the predictions.
-
-    Examples
-    --------
-    >>> y_true = [100, 150, 200, 250, 300]
-    >>> y_pred = [110, 140, 210, 230, 310]
-    >>> percentage_bias(y_true, y_pred)
-    1.3333
-
+    float or ndarray
+        Spearman's rank correlation coefficient. If `multioutput` is 'raw_values',
+        an array with a correlation coefficient for each output is returned.
+        
     Notes
     -----
-    Percentage Bias = \frac{100}{n} \sum_{i=1}^n \frac{y_{\text{pred},i} - y_{\text{true},i}}{y_{\text{true},i}}
-    """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
-    return 100 * np.sum((y_pred - y_true) / y_true) / len(y_true)
+    Spearman's rank correlation coefficient (\(\rho\)) is a non-parametric measure
+    of rank correlation, meaning it assesses how well the relationship between two
+    variables can be described using a monotonic function. It evaluates the 
+    monotonic relationship by comparing the ranked values for each variable rather
+    than the raw data. This method makes it suitable for use with non-linear data
+    and data that does not follow a normal distribution, differentiating it from
+    Pearson's correlation coefficient which assumes a linear relationship and
+    normally distributed data.
+    
+    The coefficient ranges from -1 to 1, inclusive. A \(\rho\) value of 1 indicates
+    a perfect positive monotonic relationship between the two datasets, meaning as
+    one variable increases, the other also increases. Conversely, a \(\rho\) value
+    of -1 indicates a perfect negative monotonic relationship, signifying that as
+    one variable increases, the other decreases. A \(\rho\) value of 0 suggests no
+    monotonic relationship between the variables.
+    
+    The Spearman's rank correlation is especially useful when examining relationships
+    involving ordinal variables where the precise differences between ranks are not
+    of primary concern but the order of those ranks is important. It is also robust
+    to outliers, as it depends on the rank order of values rather than their
+    specific magnitudes.
+    
+    The mathematical expression for Spearman's rank correlation coefficient is:
+    
+    .. math::
+        \\rho = 1 - \\frac{6 \\sum d_i^2}{n(n^2 - 1)}
+    
+    where \(d_i\) represents the difference between the ranks of corresponding values
+    in the two datasets, and \(n\) is the number of observations. The term \(d_i^2\)
+    highlights that the correlation is based on the squared differences in ranks,
+    ensuring that the direction of the difference does not affect the calculation,
+    only its magnitude.
+    
+    Handling ties in the data (where two or more values receive the same rank) and
+    how missing values are treated can affect the computation of Spearman's \(\rho\).
+    The `tie_method` parameter allows for different strategies in ranking ties,
+    while the `nan_policy` parameter defines the approach towards handling missing
+    values. Control variables, if present, are considered through partial
+    correlation techniques to isolate the effect of the primary variables of interest.
 
-def spearmans_rank_correlation(y_true, y_pred):
-    """
-    Compute Spearman's Rank Correlation Coefficient, a nonparametric 
-    measure of rank correlation.
-
-    Parameters
+    References
     ----------
-    y_true : array-like
-        True rankings.
-    y_pred : array-like
-        Predicted rankings.
+    - Spearman, C. (1904). "The proof and measurement of association between two things".
+    - Myer, K., & Waller, N. (2009). "Applied Spearman's rank correlation". 
+      Statistics in Medicine.
 
-    Returns
-    -------
-    float
-        Spearman's Rank Correlation Coefficient.
+    See Also
+    --------
+    scipy.stats.spearmanr : 
+        Spearman rank-order correlation coefficient calculation in SciPy.
+    pandas.DataFrame.corr:
+        Compute pairwise correlation of columns, excluding NA/null values.
+    gofast.tools.mathex.optimized_spearmanr: 
+        Compute Spearman's rank correlation coefficient with support for 
+        sample weights, custom tie handling, and NaN policies.
 
     Examples
     --------
+    >>> from gofast.metrics import spearmans_rank_coeff
     >>> y_true = [1, 2, 3, 4, 5]
     >>> y_pred = [5, 6, 7, 8, 7]
-    >>> spearmans_rank_correlation(y_true, y_pred)
+    >>> spearmans_rank_coeff(y_true, y_pred)
     0.8208
 
-    Notes
-    -----
-    \rho = 1 - \frac{6 \sum d_i^2}{n(n^2 - 1)}
-    where d_i is the difference between the two ranks of each observation, 
-    and n is the number of observations.
+    >>> y_true = np.array([1, 2, np.nan, 4])
+    >>> y_pred = np.array([4, np.nan, 3, 1])
+    >>> spearmans_rank_coeff(y_true, y_pred, nan_policy='omit')
+    -0.9999999999999999
     """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    return spearmanr(y_true, y_pred)[0]
 
+    y_true, y_pred = _ensure_y_is_valid(
+        y_true, y_pred, y_numeric=True, allow_nan=True,
+        multi_output =True 
+        )
+    # Check for non-negativity and other conditions as needed
+    ensure_non_negative(y_true, y_pred )
+    # If control_vars is specified, compute partial correlation
+    result= optimized_spearmanr(
+        y_true, y_pred, 
+        sample_weight= sample_weight, 
+        tie_method=tie_method, 
+        nan_policy=nan_policy, 
+        control_vars= control_vars, 
+        multioutput= multioutput 
+        ) 
+
+    return result
+
+    
 def precision_at_k(y_true, y_pred, k):
     """
     Compute Precision at K for ranking problems.
@@ -4180,59 +4562,8 @@ def jaccard_similarity_coeff(y_true, y_pred):
     return intersection.sum() / float(union.sum())
 
 
-def _ensure_y_is_valid(y_true, y_pred, **kwargs):
-    """
-    Validates that the true and predicted target arrays are suitable for further
-    processing. This involves ensuring that both arrays are non-empty, of the
-    same length, and meet any additional criteria specified by keyword arguments.
 
-    Parameters
-    ----------
-    y_true : array-like
-        The true target values.
-    y_pred : array-like
-        The predicted target values.
-    **kwargs : dict
-        Additional keyword arguments to pass to the check_y function for any
-        extra validation criteria.
 
-    Returns
-    -------
-    y_true : array-like
-        Validated true target values.
-    y_pred : array-like
-        Validated predicted target values.
+  
 
-    Raises
-    ------
-    ValueError
-        If the validation checks fail, indicating that the input arrays do not
-        meet the required criteria for processing.
-
-    Examples
-    --------
-    Suppose `check_y` validates that the input is a non-empty numpy array and
-    `check_consistent_length` ensures the arrays have the same number of elements.
-    Then, usage could be as follows:
-
-    >>> y_true = np.array([1, 2, 3])
-    >>> y_pred = np.array([1.1, 2.1, 3.1])
-    >>> y_true_valid, y_pred_valid = _ensure_y_is_valid(y_true, y_pred)
-    >>> print(y_true_valid, y_pred_valid)
-    [1 2 3] [1.1 2.1 3.1]
-    """
-    # Convert y_true and y_pred to numpy arrays if they are not already
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
-    
-    # Ensure individual array validity
-    y_true = check_y(y_true, **kwargs)
-    y_pred = check_y(y_pred, **kwargs)
-
-    # Check if the arrays have consistent lengths
-    check_consistent_length(y_true, y_pred)
-
-    return y_true, y_pred
-
-    
-    
+            
