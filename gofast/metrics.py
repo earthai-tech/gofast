@@ -43,7 +43,7 @@ from ._gofastlog import gofastlog
 from .tools.box import Bunch 
 from .tools.coreutils import normalize_string 
 from .tools.mathex import determine_epsilon, calculate_binary_iv
-# from .tools.validator import get_estimator_name, _is_numeric_dtype
+from .tools.validator import _is_numeric_dtype
 from .tools.validator import check_consistent_length, check_y  
 from .tools.validator import check_classification_targets, check_is_fitted
 
@@ -77,7 +77,7 @@ __all__=[
     "mean_absolute_percentage_error", 
     "explained_variance_score", 
     "median_absolute_error",
-    "max_error",
+    "max_error_score",
     "mean_poisson_deviance", 
     "mean_gamma_deviance",
     "mean_absolute_deviation", 
@@ -92,7 +92,7 @@ __all__=[
     "precision_at_k", 
     "ndcg_at_k", 
     "mean_reciprocal_rank", 
-    "average_precision",
+    "average_precision_score",
     "jaccard_similarity_coeff", 
     "geo_information_value", 
     "assess_regression_metrics", 
@@ -217,7 +217,7 @@ def mean_squared_log_error(y_true, y_pred, *,  clip_value=0, epsilon=1e-15):
     return np.mean((np.log1p(y_true) - np.log1p(y_pred)) ** 2)
 
 def balanced_accuracy(
-    y_true, y_pred, 
+    y_true, y_pred, *, 
     normalize=False, 
     sample_weight=None, 
     strategy='ovr', 
@@ -357,7 +357,7 @@ def balanced_accuracy(
             return np.mean(auc_scores)
 
 def information_value(
-    y_true, y_pred, 
+    y_true, y_pred, *, 
     problem_type='binary', 
     epsilon='auto', 
     scale='binary_scale', 
@@ -1818,7 +1818,6 @@ def display_confusion_matrix(cm, labels=None, cmap='viridis', normalize=False):
     plt.tight_layout()
     plt.show()
 
-
 def flexible_mae(
     y_true, y_pred, *, 
     detailed=False, 
@@ -2334,383 +2333,1473 @@ def flexible_r2(
     
     return result
 
-def mean_absolute_percentage_error(y_true, y_pred):
-    r"""
-    Calculate the Mean Absolute Percentage Error (MAPE).
-    
-    Measures the average of the percentage errors by which forecasts of a 
-    model differ from actual values of the quantity being forecasted.
-    
-    Applicability: Common in various forecasting models, particularly in finance
-    and operations management.
+def mean_absolute_percentage_error(
+    y_true, 
+    y_pred, 
+    *, 
+    epsilon=1e-15, 
+    zero_division='warn', 
+    sample_weight=None, 
+    multioutput='uniform_average'
+):
+    """
+    Compute the Mean Absolute Percentage Error (MAPE).
+
+    The MAPE measures the average of the percentage errors by which
+    forecasts of a model differ from actual values of the quantity being
+    forecasted. It is commonly used in financial and operational forecasting
+    to express the predictive accuracy of a model as a percentage.
 
     Parameters
     ----------
     y_true : array-like of shape (n_samples,)
-        Ground truth (correct) target values.
+        True target values.
     y_pred : array-like of shape (n_samples,)
-        Estimated target values.
+        Predicted target values.
+    epsilon : float, optional
+        Small value to avoid division by zero, default is 1e-15.
+    zero_division : {'warn', 'raise'}, optional
+        Action to perform if zero is encountered in `y_true`. 
+        'warn' issues a warning, and 'raise' raises a ValueError, 
+        default is 'warn'.
+    sample_weight : array-like of shape (n_samples,), optional
+        Individual weights for each sample.
+    multioutput : {'uniform_average', 'raw_values'}, optional
+        Defines aggregating of multiple output scores. 
+        'uniform_average' to average an array of errors or 'raw_values'
+        to return a full error array, default is 'uniform_average'.
 
     Returns
     -------
-    float
-        The MAPE value.
+    float or ndarray
+        The MAPE value. If `multioutput` is 'raw_values', then MAPE is
+        returned for each output separately. If `multioutput` is
+        'uniform_average', the average MAPE across all outputs is returned.
 
-    Formula (ASciimath):
-    -------------------
-    MAPE = (1 / n) * Σ |(y_true - y_pred) / y_true| * 100
+    Notes
+    -----
+    The MAPE is defined as:
 
-    Example:
+    .. math:: \text{MAPE} = \left( \frac{1}{n} \sum_{i=1}^{n} 
+              \left| \frac{y_{\text{true}_i} - y_{\text{pred}_i}}
+              {y_{\text{true}_i}} \right| \right) \times 100
+
+    The `epsilon` parameter is used to modify the denominator as 
+    \(y_{\text{true}_i} + \epsilon\) to ensure numerical stability. 
+    This is especially useful when `y_true` contains zeros.
+
+    References
+    ----------
+    .. [1] Hyndman, R.J., & Koehler, A.B. (2006). Another look at measures
+       of forecast accuracy. International Journal of Forecasting, 22(4), 679-688.
+
+    See Also
     --------
-    >>> y_true = np.array([3, 5, 2, 7])
-    >>> y_pred = np.array([2, 6, 3, 8])
+    mean_squared_error : Compute mean square error.
+    mean_absolute_error : Compute mean absolute error.
+    
+    Examples
+    --------
+    >>> from gofast.metrics import mean_absolute_percentage_error
+    >>> y_true = np.array([3, 5, 2.5, 7])
+    >>> y_pred = np.array([2.5, 5.5, 2, 8])
     >>> mean_absolute_percentage_error(y_true, y_pred)
-    26.190476190476193
+    12.8
     """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+    y_true, y_pred = _ensure_y_is_valid(
+        y_true, y_pred, y_numeric =True, multi_output=True)
+    
+    if np.any(y_true == 0) and zero_division in ['warn', 'raise']:
+        if zero_division == 'warn':
+            # Issue a warning when encountering zero in y_true
+            warnings.warn("Encountered zero in y_true, which may lead to"
+                          " infinite values or NaNs in MAPE computation.",
+                          UserWarning)
+        elif zero_division == 'raise':
+            # Raise an error if 'raise' is specified
+            raise ValueError("Encountered zero in y_true, leading to division"
+                             " by zero in MAPE computation.")
+    
+    # Calculate the absolute percentage error, adding epsilon to avoid division by zero
+    ape = np.abs((y_true - y_pred) / (y_true + epsilon))
+    
+    # Handling sample weights if provided
+    if sample_weight is not None:
+        sample_weight = np.asarray(sample_weight)
+        weighted_ape = np.average(ape, weights=sample_weight)
+    else:
+        weighted_ape = np.mean(ape)
+    
+    # Scale the result by 100 to get a percentage
+    mape = weighted_ape * 100
+    
+    if multioutput == 'raw_values':
+        return mape
+    elif multioutput == 'uniform_average':
+        # Return the average MAPE if multioutput is set to 'uniform_average'
+        return np.average(mape) if mape.ndim != 0 else mape
+    else:
+        raise ValueError(f"Invalid multioutput value: {multioutput}")
 
-
-def explained_variance_score(y_true, y_pred):
+def explained_variance_score(
+    y_true, 
+    y_pred, 
+    *, 
+    sample_weight=None, 
+    multioutput='uniform_average',
+    epsilon=1e-8,
+    zero_division='warn'
+):
     """
-    Calculate the Explained Variance Score.
+    Compute the Explained Variance Score (EVS) for regression models.
+
+    The EVS measures the proportion of variance in the dependent variable 
+    that is predictable from the independent variable(s). It is an indicator
+    of the goodness of fit of a model, with 1 indicating perfect prediction 
+    and 0 indicating that the model performs no better than a trivial baseline
+    that simply predicts the mean of the dependent variable [1]_.
 
     Parameters
     ----------
     y_true : array-like of shape (n_samples,)
-        Ground truth (correct) target values.
+        True target values.
     y_pred : array-like of shape (n_samples,)
-        Estimated target values.
+        Predicted target values from the regression model.
+    sample_weight : array-like of shape (n_samples,), optional
+        Individual weights for each sample, default is None.
+    multioutput : {'uniform_average', 'raw_values'}, optional
+        Defines aggregating of multiple output values. 'uniform_average' to
+        average all outputs (default). 'raw_values' to return a full set of scores.
+    epsilon : float, optional
+        Tolerance for variance near zero, preventing division by zero errors,
+        default is 1e-8.
+    zero_division : {'warn', 'raise'}, optional
+        Behavior when the variance of `y_true` is zero or near zero. 'warn'
+        returns 0.0 after printing a warning; 'raise' raises a ZeroDivisionError,
+        default is 'warn'.
 
     Returns
     -------
-    float
-        The Explained Variance Score.
+    float or ndarray
+        The explained variance score, a single float if multioutput is 
+        'uniform_average' or an array if 'raw_values'.
 
-    Formula (ASciimath):
-    -------------------
-    Explained Variance Score = 1 - (Var(y_true - y_pred) / Var(y_true))
+    Notes
+    -----
+    The explained variance score is defined as:
 
-    Example:
+    .. math:: EVS = 1 - \\frac{Var(y_{true} - y_{pred})}{Var(y_{true})}
+
+    Where:
+    - :math:`Var` is the variance,
+    - :math:`y_{true}` are the true target values,
+    - :math:`y_{pred}` are the predicted target values.
+
+    The score can be negative if the model is arbitrarily worse than the simple
+    mean predictor.
+
+    Examples
     --------
-    >>> y_true = np.array([3, 5, 2, 7])
-    >>> y_pred = np.array([2, 6, 3, 8])
+    >>> from gofast.metrics import explained_variance_score
+    >>> y_true = np.array([3, 5, 2.5, 7])
+    >>> y_pred = np.array([2.5, 5.5, 2, 8])
     >>> explained_variance_score(y_true, y_pred)
-    0.576923076923077
-    """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    return 1 - (np.var(y_true - y_pred) / np.var(y_true))
+    0.957...
 
+    References
+    ----------
+    .. [1] G. Hughes. On the mean accuracy of statistical pattern recognizers.
+           IEEE Transactions on Information Theory, 14(1):55–63, January 1968.
 
-def median_absolute_error(y_true, y_pred):
+    See Also
+    --------
+    sklearn.metrics.mean_squared_error : Mean squared error regression loss.
+    sklearn.metrics.mean_absolute_error : Mean absolute error regression loss.
+    sklearn.metrics.r2_score : R^2 (coefficient of determination) regression score function.
     """
-    Calculate the Median Absolute Error (MedAE).
+
+    y_true, y_pred = _ensure_y_is_valid(
+        y_true, y_pred, y_numeric =True, multi_output=True)
+    
+    # Compute weights only once if provided
+    weights = sample_weight if sample_weight is not None else np.ones_like(y_true)
+    
+    # Compute the weighted mean of y_true directly
+    mean_y_true = np.average(y_true, weights=weights)
+    
+    # Compute variance residuals and total variance using weighted averages
+    var_res = np.average((y_true - y_pred) ** 2, weights=weights)
+    var_true = np.average((y_true - mean_y_true) ** 2, weights=weights)
+    
+    # Adjust variances near zero according to zero_division strategy
+    if zero_division == 'warn' and np.isclose(var_true, 0, atol=epsilon):
+        warnings.warn("Variance of `y_true` is near zero; returning 0.0"
+                      " for indeterminate forms.")
+        var_true_adjusted = np.inf
+    elif zero_division == 'raise' and np.isclose(var_true, 0, atol=epsilon):
+        raise ZeroDivisionError("Variance of `y_true` is too close to zero,"
+                                " causing division by zero.")
+    else:
+        var_true_adjusted = np.where(
+            np.isclose(var_true, 0, atol=epsilon), np.nan, var_true)
+    
+    explained_variance = 1 - var_res / var_true_adjusted
+    
+    # Handle multioutput scenarios efficiently
+    if multioutput == 'raw_values':
+        return explained_variance
+    elif multioutput == 'uniform_average':
+        if np.isnan(explained_variance).all():
+            return np.nan
+        return np.nanmean(explained_variance)
+    else:
+        raise ValueError(f"Invalid value for multioutput: {multioutput}")
+
+def median_absolute_error(
+    y_true, 
+    y_pred, 
+    *, 
+    sample_weight=None,
+    multioutput='uniform_average',
+    ignore_nan=False
+):
+    """
+    Compute the Median Absolute Error (MedAE) between true and predicted values,
+    optionally handling sample weights, multiple outputs, and missing values.
+
+    MedAE is a robust measure of the accuracy of a prediction model. It represents
+    the median of the absolute differences between the predicted and actual values,
+    providing a measure of the central tendency of the prediction error that is
+    less sensitive to outliers than the mean absolute error.
 
     Parameters
     ----------
-    y_true : array-like of shape (n_samples,)
-        Ground truth (correct) target values.
-    y_pred : array-like of shape (n_samples,)
-        Estimated target values.
+    y_true : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        True target values.
+    y_pred : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        Predicted target values.
+    sample_weight : array-like of shape (n_samples,), optional
+        Individual weights for each sample, default is None.
+    multioutput : {'uniform_average', 'raw_values'}, optional
+        Defines aggregating of multiple output values. 'uniform_average' to
+        average all outputs (default). 'raw_values' to return a full set of
+        scores for each output.
+    ignore_nan : bool, default=False
+        If True, ignore NaN values in `y_true` and `y_pred`. Useful for datasets
+        with missing values.
 
     Returns
     -------
-    float
-        The Median Absolute Error (MedAE).
+    float or ndarray
+        The median absolute error or an array of errors for each output if
+        `multioutput='raw_values'`. If `multioutput='uniform_average'`, the
+        average MedAE across all outputs is returned.
 
-    Formula (ASciimath):
-    -------------------
-    MedAE = median(|y_true - y_pred|)
+    Notes
+    -----
+    The MedAE is defined as:
 
-    Example:
+    .. math:: \text{MedAE} = \text{median}(\left| y_{true} - y_{pred} \right|)
+
+    For weighted MedAE, each absolute error is multiplied by its corresponding
+    sample weight before computing the median.
+
+    When `ignore_nan` is True, NaN values in `y_true` and `y_pred` are ignored,
+    allowing the calculation to proceed with valid pairs only.
+
+    Examples
     --------
-    >>> y_true = np.array([3, 5, 2, 7])
-    >>> y_pred = np.array([2, 6, 3, 8])
+    >>> from gofast.metrics import median_absolute_error
+    >>> y_true = np.array([3, -0.5, 2, 7])
+    >>> y_pred = np.array([2.5, 0.0, 2, 8])
     >>> median_absolute_error(y_true, y_pred)
     0.5
+
+    References
+    ----------
+    Rousseeuw, P.J., Leroy, A.M., 1987. Robust Regression and Outlier Detection.
+    John Wiley & Sons, Inc.
+
+    See Also
+    --------
+    mean_absolute_error : Mean absolute error regression loss.
+    mean_squared_error : Mean squared error regression loss.
+    mean_absolute_percentage_error : Mean absolute percentage error.
     """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    return np.median(np.abs(y_true - y_pred))
+    y_true, y_pred = _ensure_y_is_valid(
+        y_true, y_pred, y_numeric =True, allow_nan=True, multi_output=True)
+
+    if ignore_nan:
+        # Mask to filter out NaN values
+        valid_mask = ~np.isnan(y_true) & ~np.isnan(y_pred)
+        y_true = y_true[valid_mask]
+        y_pred = y_pred[valid_mask]
+        if sample_weight is not None:
+            sample_weight = np.asarray(sample_weight)[valid_mask]
+    
+    absolute_errors = np.abs(y_true - y_pred)
+    
+    if sample_weight is not None:
+        sample_weight = np.asarray(sample_weight)
+        sample_weight /= np.sum(sample_weight)  # Normalize sample weights
+        
+        # Compute weighted median using np.average with quantiles
+        def weighted_median(data, weights):
+            sorter = np.argsort(data)
+            sorted_data = data[sorter]
+            sorted_weights = weights[sorter]
+            cumulative_weights = np.cumsum(sorted_weights)
+            # Find the position where cumulative weight equals or exceeds 0.5
+            median_idx = np.searchsorted(cumulative_weights, 0.5)
+            return sorted_data[median_idx]
+        
+        medAE = np.apply_along_axis(
+            weighted_median, 0, absolute_errors, sample_weight)
+    else:
+        medAE = np.median(absolute_errors, axis=0)
+    
+    if multioutput == 'raw_values':
+        return medAE
+    elif multioutput == 'uniform_average':
+        return np.average(medAE)
+    else:
+        raise ValueError(f"Invalid value for multioutput: {multioutput}")
 
 
-def max_error(y_true, y_pred):
+def max_error_score(
+    y_true, 
+    y_pred, 
+    *, 
+    sample_weight=None, 
+    multioutput='uniform_average',
+    ignore_nan=False
+):
     """
-    Calculate the Maximum Error.
+    Compute the maximum absolute error between true and predicted values,
+    with support for sample weights, multi-output responses, and handling 
+    of NaN values.
+
+    The maximum error metric captures the worst case error between the predicted
+    value and the true value. It is particularly useful in applications where
+    the maximum possible error has special significance.
 
     Parameters
     ----------
-    y_true : array-like of shape (n_samples,)
-        Ground truth (correct) target values.
-    y_pred : array-like of shape (n_samples,)
-        Estimated target values.
+    y_true : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        True target values.
+    y_pred : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        Predicted target values.
+    sample_weight : array-like of shape (n_samples,), optional
+        Individual weights for each sample.
+    multioutput : {'uniform_average', 'raw_values'}, optional
+        Specifies how to aggregate errors for multiple output predictions.
+        'uniform_average' calculates an average of all output errors.
+        'raw_values' returns a full set of errors for each output.
+    ignore_nan : bool, default=False
+        If True, NaN values in `y_true` or `y_pred` are ignored.
 
     Returns
     -------
-    float
-        The Maximum Error.
+    float or ndarray
+        The maximum absolute error. If `multioutput` is 'raw_values', an array
+        of maximum errors is returned, one for each output. If
+        `multioutput` is 'uniform_average', the average of all maximum errors
+        across outputs is returned.
 
-    Formula (ASciimath):
-    -------------------
-    Max Error = max(|y_true - y_pred|)
+    Notes
+    -----
+    The maximum error is defined as:
 
-    Example:
+    .. math:: \text{Max Error} = \max(\left| y_{true} - y_{pred} \right|)
+
+    If `sample_weight` is provided, the maximum error is calculated after
+    applying the weights to the absolute errors.
+
+    Examples
     --------
-    >>> y_true = np.array([3, 5, 2, 7])
-    >>> y_pred = np.array([2, 6, 3, 8])
-    >>> max_error(y_true, y_pred)
-    1
-    """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    return np.max(np.abs(y_true - y_pred))
+    >>> from gofast.metrics import max_error_score
+    >>> y_true = np.array([3, -0.5, 2, 7])
+    >>> y_pred = np.array([2.5, 0.0, 2, 8])
+    >>> max_error_score(y_true, y_pred)
+    1.5
 
+    References
+    ----------
+    .. [1] Willmott, C.J., & Matsuura, K. (2005). Advantages of the mean absolute
+           error (MAE) over the root mean square error (RMSE) in assessing average
+           model performance. Climate Research, 30, 79-82.
 
-def mean_poisson_deviance(y_true, y_pred):
+    See Also
+    --------
+    sklearn.metrics.mean_absolute_error : Compute the mean absolute error.
+    sklean.metrics.mean_squared_error : Compute the mean squared error.
+    mean_absolute_percentage_error : Compute the mean absolute percentage error.
     """
-    Calculate the Mean Poisson Deviance.
+    y_true, y_pred = _ensure_y_is_valid(
+        y_true, y_pred, y_numeric =True, allow_nan=True, multi_output=True)
+    
+    if ignore_nan:
+        # Filter out NaN values from both y_true and y_pred
+        valid_mask = ~np.isnan(y_true) & ~np.isnan(y_pred)
+        y_true = y_true[valid_mask]
+        y_pred = y_pred[valid_mask]
+        if sample_weight is not None:
+            sample_weight = np.asarray(sample_weight)[valid_mask]
+    
+    errors = np.abs(y_true - y_pred)
+    
+    if sample_weight is not None:
+        sample_weight = np.asarray(sample_weight)
+        # Apply sample weights to errors
+        weighted_errors = errors * sample_weight
+        max_error_value = np.max(weighted_errors)
+    else:
+        max_error_value = np.max(errors)
+    
+    if multioutput == 'raw_values':
+        return max_error_value
+    elif multioutput == 'uniform_average':
+        # For uniform average, the behavior is the same as raw_values 
+        # since max_error is a scalar
+        # This branch is kept for consistency with other metrics' API
+        return np.average(max_error_value)
+    else:
+        raise ValueError(f"Invalid value for multioutput: {multioutput}")
+
+def mean_poisson_deviance(
+    y_true, 
+    y_pred, 
+    *, 
+    sample_weight=None, 
+    epsilon=1e-8,
+    ignore_nan=False,
+    zero_division='warn',
+    multioutput='uniform_average'
+):
+    """
+    Compute the Mean Poisson Deviance between true and predicted values,
+    with support for sample weights, handling of NaNs, and multi-output targets.
+
+    The Mean Poisson Deviance is a metric that quantifies the goodness of fit
+    for models predicting counts or rates. It is especially useful in Poisson 
+    regression and other count-based model assessments [1]_.
 
     Parameters
     ----------
-    y_true : array-like of shape (n_samples,)
-        Ground truth (correct) target values.
-    y_pred : array-like of shape (n_samples,)
-        Estimated target values.
+    y_true : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        True target values.
+    y_pred : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        Predicted target values.
+    sample_weight : array-like of shape (n_samples,), optional
+        Individual weights for each sample.
+    epsilon : float, optional
+        Small value added to predictions to avoid taking the log of zero,
+        default is 1e-8.
+    ignore_nan : bool, default=False
+        If True, NaN values in `y_true` or `y_pred` are ignored.
+    zero_division : {'warn', 'ignore'}, optional
+        Behavior when division by zero is encountered in the deviance 
+        calculation, default is 'warn'.
+    multioutput : {'uniform_average', 'raw_values'}, optional
+        Specifies how to aggregate errors for multiple output predictions,
+        default is 'uniform_average'.
 
     Returns
     -------
-    float
-        The Mean Poisson Deviance.
+    float or ndarray
+        The Mean Poisson Deviance score. If `multioutput` is 'raw_values',
+        an array of deviance scores for each output is returned. If
+        `multioutput` is 'uniform_average', the average of all deviance scores
+        across outputs is returned.
 
-    Formula (ASciimath):
-    -------------------
-    Mean Poisson Deviance = (1 / n) * Σ (2 * (y_pred - y_true * log(y_pred / y_true)))
+    Notes
+    -----
+    The Mean Poisson Deviance is defined as:
 
-    Example:
+    .. math:: \frac{1}{n} \sum_{i=1}^{n} 2 \left( y_{\text{pred}_i} - 
+              y_{\text{true}_i} \log{\frac{y_{\text{pred}_i}}
+              {\max(y_{\text{true}_i}, \epsilon)}} \right)
+
+    This metric is suitable for models where the target variable follows a
+    Poisson distribution, typically involving counting processes.
+
+    Examples
     --------
+    >>> from gofast.metrics import mean_poisson_deviance
     >>> y_true = np.array([3, 5, 2, 7])
     >>> y_pred = np.array([2, 6, 3, 8])
     >>> mean_poisson_deviance(y_true, y_pred)
-    0.3504668404698445
+    0.5
+
+    References
+    ----------
+    .. [1] Cameron, A.C., & Trivedi, P.K. (1998). Regression Analysis of Count Data.
+           Cambridge University Press.
+
+    See Also
+    --------
+    mean_squared_error : Compute the mean squared error.
+    mean_absolute_error : Compute the mean absolute error.
+    mean_absolute_percentage_error : Compute the mean absolute percentage error.
     """
+    
+    y_true, y_pred = _ensure_y_is_valid(
+        y_true, y_pred, y_numeric =True, allow_nan=True, multi_output=True)
+    
+    if ignore_nan:
+        # Filter out NaN values from both y_true and y_pred
+        valid_mask = ~np.isnan(y_true) & ~np.isnan(y_pred)
+        y_true = y_true[valid_mask]
+        y_pred = y_pred[valid_mask]
+        if sample_weight is not None:
+            sample_weight = np.asarray(sample_weight)[valid_mask]
+    
+    if zero_division not in ['warn', 'ignore']:
+        raise ValueError("zero_division must be either 'warn' or 'ignore'")
+    
+    # Adjust predictions to ensure they are positive
+    y_pred = np.maximum(y_pred, epsilon)
+    
+    with np.errstate(divide=zero_division, invalid=zero_division):
+        deviance_components = y_pred - y_true * np.log(
+            y_pred / np.maximum(y_true, epsilon))
+        deviance = 2 * deviance_components
+        if zero_division == 'warn' and np.isinf(deviance).any():
+            warnings.warn("Encountered division by zero in"
+                          " `mean_poisson_deviance` calculation.")
+    
+    # Handling multioutput scenarios
+    if multioutput == 'raw_values':
+        mean_deviance = deviance
+    elif multioutput == 'uniform_average':
+        # Compute the average of the deviance scores across all outputs
+        if sample_weight is not None:
+            mean_deviance = np.average(deviance, weights=sample_weight, axis=0)
+        else:
+            mean_deviance = np.mean(deviance, axis=0)
+        # Further average if multiple outputs    
+        mean_deviance = np.average(mean_deviance)  
+    else:
+        raise ValueError(f"Invalid value for multioutput: {multioutput}")
+    
+    return mean_deviance
 
-    return np.mean(2 * (y_pred - y_true * np.log(y_pred / y_true)))
-
-
-def mean_gamma_deviance(y_true, y_pred):
+def mean_gamma_deviance(
+    y_true, 
+    y_pred, 
+    *, 
+    sample_weight=None, 
+    epsilon=1e-8,
+    clip_value=None,
+    ignore_nan=False,
+    zero_division='warn',
+    multioutput='uniform_average'
+):
     """
-    Calculate the Mean Gamma Deviance.
+    Compute the Mean Gamma Deviance, a measure of fit for models predicting
+    positive continuous quantities that are assumed to follow a gamma
+    distribution.
+
+    Function is particularly useful for models where the target variable
+    is strictly positive and the variance of each measurement is proportional
+    to its mean [1]_.
 
     Parameters
     ----------
-    y_true : array-like of shape (n_samples,)
-        Ground truth (correct) target values.
-    y_pred : array-like of shape (n_samples,)
-        Estimated target values.
+    y_true : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        True target values.
+    y_pred : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        Predicted target values, must be non-negative.
+    sample_weight : array-like of shape (n_samples,), optional
+        Individual weights for each sample.
+    epsilon : float, optional
+        Small value to offset predictions to ensure positivity and stability
+        in division and logarithmic operations, default=1e-8.
+    clip_value : float, optional
+        Minimum value to clip predictions, ensuring no prediction is below
+        this value. Used to avoid undefined logarithmic operations and division
+        by zero. If None, epsilon is used as the minimum value.
+    ignore_nan : bool, default=False
+        If True, samples with NaN values in `y_true` or `y_pred` are ignored.
+    zero_division : {'warn', 'ignore'}, optional
+        Behavior when a zero division occurs, default='warn'.
+    multioutput : {'uniform_average', 'raw_values'}, optional
+        Aggregation method for multiple outputs, default='uniform_average'.
 
     Returns
     -------
-    float
-        The Mean Gamma Deviance.
+    float or ndarray
+        The computed mean gamma deviance. If `multioutput` is 'raw_values',
+        an array of deviance scores for each output is returned. If
+        `multioutput` is 'uniform_average', the average of all deviance scores
+        across outputs is returned.
 
-    Formula (ASciimath):
-    -------------------
-    Mean Gamma Deviance = (1 / n) * Σ (2 * (log(y_true / y_pred) - (y_true / y_pred)))
+    Notes
+    -----
+    The mean gamma deviance is defined as:
 
-    Example:
+    .. math:: \frac{1}{n} \sum_{i=1}^{n} 2 \left( \log{\frac{y_{\text{true}_i}}
+              {y_{\text{pred}_i}}} + \frac{y_{\text{pred}_i} - y_{\text{true}_i}}
+              {y_{\text{pred}_i}} \right)
+
+    This metric assumes both the predictions and true values are strictly positive.
+
+    Examples
     --------
+    >>> import numpy as np 
+    >>> from gofast.metrics import mean_gamma_deviance
     >>> y_true = np.array([3, 5, 2, 7])
     >>> y_pred = np.array([2, 6, 3, 8])
     >>> mean_gamma_deviance(y_true, y_pred)
-    0.09310805868940843
-    """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    return np.mean(2 * (np.log(y_true / y_pred) - (y_true / y_pred)))
+    0.087
 
+    References
+    ----------
+    .. [1] McCullagh, P., & Nelder, J. A. (1989). Generalized Linear Models.
+          Chapman and Hall/CRC.
 
-def mean_absolute_deviation(data):
+    See Also
+    --------
+    mean_squared_error : Compute mean squared error.
+    mean_absolute_error : Compute mean absolute error.
+    mean_poisson_deviance : Compute mean Poisson deviance.
     """
-    Compute the Mean Absolute Deviation of a dataset.
+    y_true, y_pred = _ensure_y_is_valid(
+        y_true, y_pred, y_numeric =True,
+        allow_nan=True, multi_output=True
+    )
+    
+    # Clip y_pred to a minimum of epsilon or clip_value if specified
+    if clip_value is not None:
+        y_pred = np.clip(y_pred, clip_value, np.max(y_pred))
+    else:
+        y_pred = np.maximum(y_pred, epsilon)
+    
+    if ignore_nan:
+        # Filter out NaN values from both y_true and y_pred
+        valid_mask = ~np.isnan(y_true) & ~np.isnan(y_pred)
+        y_true = y_true[valid_mask]
+        y_pred = y_pred[valid_mask]
+        if sample_weight is not None:
+            sample_weight = np.asarray(sample_weight)[valid_mask]
+    
+    with np.errstate(divide=zero_division, invalid=zero_division):
+        gamma_deviance = 2 * (np.log(y_true / y_pred) + (y_pred - y_true) / y_pred)
+        
+        if zero_division == 'warn' and (
+                np.isinf(gamma_deviance).any() or np.isnan(gamma_deviance).any()):
+            warnings.warn("Encountered zero division or invalid value in"
+                          " `mean_gamma_deviance` calculation.")
+    
+    if sample_weight is not None:
+        sample_weight = np.asarray(sample_weight)
+        mean_deviance = np.average(gamma_deviance, weights=sample_weight)
+    else:
+        mean_deviance = np.mean(gamma_deviance)
+    
+    # Handling multioutput scenarios
+    if multioutput == 'raw_values':
+        return mean_deviance
+    elif multioutput == 'uniform_average':
+        if np.ndim(mean_deviance) > 0:
+            return np.average(mean_deviance)
+        else:
+            return mean_deviance
+    else:
+        raise ValueError(f"Invalid value for multioutput: {multioutput}")
+
+def mean_absolute_deviation(
+    y_true, y_pred, *, 
+    sample_weight=None, 
+    epsilon=1e-8,
+    ignore_nan=False,
+    zero_division='warn',
+    multioutput='uniform_average'
+):
+    """
+    Compute the Mean Absolute Deviation (MADev) between true and predicted 
+    values, offering flexibility in handling NaNs, applying sample weights, 
+    and controlling division by near-zero values.
+
+    Parameters
+    ----------
+    y_true : array-like
+        True target values. It can be a list, numpy array, or a pandas series.
+    y_pred : array-like
+        Predicted target values, must have the same shape as y_true.
+        Predictions from a model or any estimations corresponding to y_true.
+    sample_weight : array-like of shape (n_samples,), optional
+        Individual weights for each sample. If specified, the MAD calculation 
+        will be weighted, giving more importance to certain samples. Defaults
+        to None, treating all samples equally.
+    epsilon : float, optional
+        A small positive value to prevent division by zero when calculating
+        scaled MAD or handling edge cases. Defaults to 1e-8.
+    ignore_nan : bool, optional
+        If True, NaN values in both y_true and y_pred are ignored during the
+        MAD computation. This allows for handling datasets with missing values.
+    zero_division : {'warn', 'ignore'}, optional
+        Strategy for handling division by zero errors during computation. 'warn'
+        issues a warning, while 'ignore' suppresses warning and proceeds with
+        the calculation, potentially resulting in infinite or NaN values.
+    multioutput : {'raw_values', 'uniform_average'}, optional
+        Determines how to aggregate the outputs. 'raw_values' returns an array
+        with the MAD for each output. 'uniform_average' computes the average of
+        these values, providing a single summary statistic. Defaults to 
+        'uniform_average'.
+
+    Returns
+    -------
+    float or ndarray
+        The Mean Absolute Deviation (MADev). If `multioutput` is 'raw_values',
+        returns an array of MAD values for each output variable. If 
+        'uniform_average', returns the overall average MADev [1]_.
+
+    Notes
+    -----
+    The Mean Absolute Deviation is a measure of dispersion around the mean, 
+    showing how much the data varies from the average value:
+
+    .. math:: \text{MAD} = \frac{1}{n} \sum_{i=1}^{n} |y_{\text{true},i} - y_{\text{pred},i}|
+
+    It is less sensitive to outliers than variance-based measures, making it
+    a robust statistic for indicating prediction accuracy and variability in
+    data analysis and forecasting models [2]_.
+
+    Examples
+    --------
+    >>> from gofast.metrics import mean_absolute_deviation
+    >>> y_true = [3, -0.5, 2, 7]
+    >>> y_pred = [2.5, 0.0, 2, 8]
+    >>> mean_absolute_deviation(y_true, y_pred)
+    0.5
+
+    See Also
+    --------
+    mean_squared_error : Compute mean squared error for regression models.
+    mean_absolute_error : Compute mean absolute error between true and predicted values.
+    r2_score : Compute the coefficient of determination, indicating prediction accuracy.
+
+    References
+    ----------
+    .. [1] Rousseeuw, P.J., Croux, C. (1993). "Alternatives to the Median Absolute
+           Deviation," Journal of the American Statistical Association, 88(424),
+           1273-1283. This paper discusses robust measures of scale and the
+           MAD's role as a highly robust estimator of scale.
+    .. [2] Lehmann, E. L. (1998). Nonparametrics: Statistical Methods Based on Ranks.
+           Prentice Hall.
+    """
+
+    # Validate and prepare the inputs
+    y_true, y_pred = _ensure_y_is_valid(
+        y_true, y_pred, y_numeric =True,
+        allow_nan=True, multi_output=True
+    )
+    # Calculate the absolute deviations
+    deviations = np.abs(y_true - y_pred)
+    
+    if ignore_nan:
+        # Handle NaN values in deviations
+        mask = ~np.isnan(deviations)
+        deviations = deviations[mask]
+        if sample_weight is not None:
+            sample_weight = np.asarray(sample_weight)[mask]
+    
+    if sample_weight is not None:
+        # Apply sample weights
+        weighted_deviations = deviations * sample_weight
+        sum_weights = np.sum(sample_weight) + epsilon  # Avoid division by zero
+        madev = np.sum(weighted_deviations) / sum_weights
+    else:
+        madev = np.mean(deviations)
+    
+    if zero_division == 'warn' and np.isclose(madev, 0.0, atol=epsilon):
+        warnings.warn("MADev calculation resulted in division by zero"
+                      " or near-zero value.")
+    # Handle multioutput scenarios
+    if multioutput == 'raw_values':
+        return madev
+    elif multioutput == 'uniform_average':
+        # This conditional is redundant for MADev but included for API consistency
+        # Average MADev across all outputs, if y_true/y_pred were multi-dimensional
+        return np.mean(madev)  
+    else:
+        raise ValueError("Invalid value for multioutput parameter.")
+
+def flexible_madev(
+    data, 
+    *, 
+    sample_weight=None,
+    ignore_nan=False,
+    epsilon=1e-8, 
+    axis=None, 
+    detailed=False, 
+    scale_errors=False, 
+    zero_division='warn'
+):
+    """
+    Compute the flexible Mean Absolute Deviation (MADev) with options for
+    handling NaN values, scaling errors, and providing detailed statistics.
+    This version allows for more nuanced analysis and robust handling of
+    data, encapsulated in a Bunch object.
 
     Parameters
     ----------
     data : array-like
-        The data for which the mean absolute deviation is to be computed.
+        The dataset for which the Mean Absolute Deviation (MADev) is to be 
+        computed. This can be a list, numpy array, or a pandas DataFrame/Series.
+        The data should represent a sample or population from which to measure
+        central dispersion.
+
+    sample_weight : array-like of shape (n_samples,), optional
+        Weights associated with the elements of `data`, representing the importance
+        or frequency of each data point. Useful in weighted statistical analyses
+        where some observations are considered more significant than others. 
+        Default is None, where each data point has equal weight.
+
+    ignore_nan : bool, optional
+        If set to True, the function will ignore NaN (Not a Number) values 
+        in the `data`. This is particularly useful when dealing with datasets
+        that have missing values, ensuring they do not affect the computation 
+        of the MADev. Default is ``False``.
+
+    epsilon : float, optional
+        A small positive constant added to the denominator to prevent division
+        by zero when calculating scaled deviations or when the mean of 
+        `data` is zero. Default value is ``1e-8``, which is sufficiently small
+        to not distort the calculations.
+
+    axis : int, optional
+        The axis along which to compute the mean absolute deviation. For a 2D 
+        array, ``axis=0`` computes the deviation column-wise, while ``axis=1``
+        row-wise. Default is None, flattening the `data` and computing the 
+        deviation for the entire dataset.
+
+    detailed : bool, optional
+        If True, the function returns detailed statistics including the minimum,
+        maximum, and standard deviation of the absolute deviations. This provides
+        a deeper insight into the variability and dispersion of the dataset.
+        Default is False.
+
+    scale_errors : bool, optional
+        If True, the absolute deviations are scaled by the mean value of `data`,
+        resulting in a relative measure of dispersion. This is useful for comparing
+        the variability of datasets with different scales. Default is False.
+
+    zero_division : {'warn', 'ignore'}, optional
+        Specifies how to handle situations where division by zero might occur
+        during the computation. 'warn' will issue a warning, and 'ignore' will 
+        suppress the warning and proceed with the calculation. 
+        Default is ``'warn'``.
 
     Returns
     -------
-    float
-        The mean absolute deviation of the data.
-
-    Examples
-    --------
-    >>> data = [1, 2, 3, 4, 5]
-    >>> mean_absolute_deviation(data)
-    1.2
+    Bunch
+        A Bunch object containing the computed Mean Absolute Deviation (MADev) 
+        and,optionally, detailed and scaled error statistics based on the 
+        specified parameters. This structured output allows for easy access 
+        to the results of the computation.
 
     Notes
     -----
-    MAD = \frac{1}{n} \sum_{i=1}^n |x_i - \bar{x}|
-    where \bar{x} is the mean of the data, and n is the number of observations.
+    The Mean Absolute Deviation (MADev) is a robust measure of variability that
+    quantifies the average absolute dispersion of a dataset around its mean.
+    Unlike variance or standard deviation, MADev is not influenced as heavily
+    by extreme values, making it a reliable measure of spread, especially in
+    datasets with outliers [1]_.
+
+    This flexible implementation of MADev allows for detailed and scaled analysis,
+    handling of missing values, and application to multi-dimensional datasets,
+    enhancing its utility for a broad range of statistical and data analysis tasks.
+
+    The Mean Absolute Deviation is defined as:
+
+    .. math:: \text{MADev} = \frac{1}{n} \sum_{i=1}^{n} |x_i - \bar{x}|
+
+    where :math:`\bar{x}` is the mean of the data and :math:`n` is the number
+    of observations.
+
+    Examples
+    --------
+    >>> from gofast.metrics import flexible_madev
+    >>> data = [1, 2, 3, 4, 5]
+    >>> result=flexible_madev(data)
+    >>> result.MADev
+    1.2
+
+    >>> result= flexible_madev(data, detailed=True)
+    >>> print(result)
+    MADev         : 1.2
+    max_deviation : 2.0
+    min_deviation : 0.0
+    std_deviation : 0.7483314773547883
+
+    >>> result=flexible_madev(data, scale_errors=True)
+    >>> result.scaled_MADev 
+    0.4
+
+    References
+    ----------
+    .. [1] Lehmann, E. L. (1998). Nonparametrics: Statistical Methods Based on Ranks.
+           Prentice Hall.
+
+    See Also
+    --------
+    numpy.mean : Compute the arithmetic mean along the specified axis.
+    numpy.nanmean : Compute the arithmetic mean along the specified axis,
+                    ignoring NaNs.
     """
     data = np.asarray(data)
-    mean = np.mean(data)
-    return np.mean(np.abs(data - mean))
-
-  
-def dice_similarity_coeff(y_true, y_pred):
-    """
-    Compute the Dice Similarity Coefficient between two boolean 1D arrays.
-
-    Measures the similarity between two sets, often used in image segmentation 
-    and binary classification tasks.
+    if not _is_numeric_dtype(data): 
+        raise TypeError("MADev computation expects `data` to be numeric.")
+        
+    if ignore_nan:
+        # Handle NaN values by filtering them out
+        valid_mask = ~np.isnan(data)
+        data = data[valid_mask]
+        if sample_weight is not None:
+            sample_weight = np.asarray(sample_weight)[valid_mask]
     
-    Particularly useful in medical image analysis for comparing the pixel-wise 
-    agreement between a ground truth segmentation and a predicted segmentation.
+    # Calculate the mean, taking into account whether NaN values should be ignored
+    mean = np.nanmean(data, axis=axis) if ignore_nan else np.mean(data, axis=axis)
+    
+    # Calculate absolute deviation from the mean
+    abs_deviation = np.abs(data - mean)
+    
+    if sample_weight is not None:
+        sample_weight = np.asarray(sample_weight)
+        # Compute weighted absolute deviation
+        weighted_abs_deviation = abs_deviation * sample_weight
+        sum_weights = np.sum(sample_weight, axis=axis)
+        
+        # Ensure that division by zero is handled according to zero_division parameter
+        with np.errstate(divide=zero_division, invalid=zero_division):
+            madev = np.sum(weighted_abs_deviation, axis=axis) / np.maximum(
+                sum_weights, epsilon)
+    else:
+        madev = np.mean(abs_deviation, axis=axis)
+    
+    result = Bunch(MADev=madev)
+    
+    if detailed:
+        # Add detailed statistics if requested
+        result.min_deviation = np.min(abs_deviation, axis=axis)
+        result.max_deviation = np.max(abs_deviation, axis=axis)
+        result.std_deviation = np.std(abs_deviation, axis=axis)
+    
+    if scale_errors:
+        # Scale errors relative to the mean, with protection against division by zero
+        scaled_abs_deviation = abs_deviation / np.maximum(mean, epsilon)
+        scaled_madev = np.mean(scaled_abs_deviation, axis=axis)
+        result.scaled_MADev = scaled_madev
+        
+        if detailed:
+            # Include detailed statistics for scaled deviations if requested
+            result.min_scaled_deviation = np.min(scaled_abs_deviation, axis=axis)
+            result.max_scaled_deviation = np.max(scaled_abs_deviation, axis=axis)
+            result.std_scaled_deviation = np.std(scaled_abs_deviation, axis=axis)
+    
+    return result
+
+def dice_similarity_coeff(
+    y_true, y_pred, *, 
+    sample_weight=None, 
+    ignore_nan=False,
+    epsilon='auto', 
+    zero_division='warn', 
+    multioutput='uniform_average',
+    to_boolean=True  
+):
+    """
+    Compute the Dice Similarity Coefficient (DSC) between two boolean arrays,
+    providing flexibility in handling NaN values, converting non-boolean arrays
+    to boolean, and adjusting for division by near-zero values.
 
     Parameters
     ----------
     y_true : array-like of bool
-        True labels of the data.
+        Ground truth binary labels.
     y_pred : array-like of bool
-        Predicted labels of the data.
+        Predicted binary labels. Must have the same shape as `y_true`.
+    sample_weight : array-like of shape (n_samples,), optional
+        Sample weights. If specified, each sample contributes its associated
+        weight towards the DSC calculation.
+    ignore_nan : bool, optional
+        If True, NaN values in `y_true` and `y_pred` are ignored.
+    epsilon : {'auto'} or float, optional
+        A small positive value to prevent division by zero. If 'auto',
+        `epsilon` is dynamically determined based on `y_pred`.
+    zero_division : {'warn', 'ignore'}, optional
+        Specifies how to handle division by zero. If 'warn', a warning is
+        issued. If 'ignore', the case is silently ignored, and NaN is returned.
+    multioutput : {'uniform_average'}, optional
+        Due to DSC inherently producing a single score, `multioutput` only
+        supports 'uniform_average'. Any deviation from this default emits
+        a warning.
+    to_boolean : bool, optional
+        If True, automatically convert `y_true` and `y_pred` to boolean
+        arrays if they are not already. Defaults to True.
 
     Returns
     -------
     float
-        Dice Similarity Coefficient.
+        The Dice Similarity Coefficient, ranging from 0 (no overlap) to 1
+        (perfect overlap) between the predicted and true labels.
+
+    Notes
+    -----
+    The Dice Similarity Coefficient is defined as:
+
+    .. math:: DSC = \frac{2 |Y_{true} \cap Y_{pred}|}{|Y_{true}| + |Y_{pred}|}
+
+    It measures the overlap between two sets, making it suitable for binary
+    classification tasks and image segmentation in medical imaging [1]_. The DSC
+    is particularly useful in datasets where the positive class is rare [2]_.
 
     Examples
     --------
+    >>> from gofast.metrics import dice_similarity_coeff
     >>> y_true = [True, False, True, False, True]
     >>> y_pred = [True, True, True, False, False]
-    >>> dice_similarity_coefficient(y_true, y_pred)
+    >>> dice_similarity_coeff(y_true, y_pred)
     0.6
 
-    Notes
-    -----
-    DSC = 2 * (|y_true ∩ y_pred|) / (|y_true| + |y_pred|)
+    See Also
+    --------
+    jaccard_score : Similarity measure for label sets.
+    sklearn.metrics.f1_score : Harmonic mean of precision and recall.
+
+    References
+    ----------
+    .. [1] Dice, L. R. (1945). Measures of the Amount of Ecologic Association
+           Between Species. Ecology, 26(3), 297-302.
+    .. [2] Zou, K. H., Warfield, S. K., Bharatha, A., et al. (2004). Statistical
+          Validation of Image Segmentation Quality Based on a Spatial Overlap
+          Index. Academic Radiology, 11(2), 178-189.
+
     """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
+    y_true, y_pred = _ensure_y_is_valid(
+        y_true, y_pred, allow_nan=True, 
+        multi_output=True # We keep it just to warn user
+    )
+    if not np.issubdtype(y_true.dtype, np.bool_) or not np.issubdtype(
+            y_pred.dtype, np.bool_):
+        if to_boolean:
+            y_true, y_pred = np.asarray(
+                y_true, dtype=bool), np.asarray(y_pred, dtype=bool)
+        else:
+            raise ValueError("y_true and y_pred must be boolean arrays. "
+                             "Use `to_boolean=True` to auto-convert.")
+    
+    if ignore_nan:
+        valid_mask = ~np.isnan(y_true) & ~np.isnan(y_pred)
+        y_true, y_pred = y_true[valid_mask], y_pred[valid_mask]
+
+    if str(epsilon).lower() == 'auto':
+        epsilon_value = determine_epsilon(y_pred)
+    else:
+        try:
+            epsilon_value = float(epsilon)
+        except ValueError:
+            raise ValueError("`epsilon` must be 'auto' or convertible to float.")
+
     intersection = np.sum(y_true & y_pred)
-    return 2. * intersection / (np.sum(y_true) + np.sum(y_pred))
+    sum_total = np.sum(y_true) + np.sum(y_pred)
 
-def gini_coeff(y_true, y_pred):
+    if zero_division == 'warn' and sum_total + epsilon_value == 0:
+        warnings.warn("Division by zero encountered in Dice Similarity"
+                      " Coefficient calculation.", UserWarning)
+        return np.nan  # or 0.0 based on how you want to handle this case
+
+    dice_score = 2. * intersection / (np.sum(y_true) + np.sum(y_pred) + epsilon_value)
+
+    if multioutput != 'uniform_average':
+        warnings.warn("The `multioutput` parameter is not applicable for Dice"
+                      " Similarity Coefficient as it inherently combines "
+                      "outputs into a single score.", UserWarning)
+
+    return dice_score
+
+def gini_coeff(
+     y_true, y_pred, *,  
+     sample_weight=None, 
+     ignore_nan=False,
+     epsilon='auto', 
+     zero_division='warn', 
+     multioutput='uniform_average',
+     detailed_output=False
+):
     """
-    Compute the Gini Coefficient, a measure of inequality among values.
+    Compute the Gini Coefficient, offering a normalized measure of inequality
+    among predicted and true values. This metric is traditionally used in economics
+    to assess income or wealth distribution but can be adapted to assess the
+    inequality of predictive error distributions in various fields, including
+    machine learning and statistics.
 
-    A measure of statistical dispersion intended to represent the income or 
-    wealth distribution of a nation's residents.
-    
-    Widely used in economics for inequality measurement, but also applicable 
-    in machine learning for assessing inequality in error distribution
-    
     Parameters
     ----------
     y_true : array-like
-        Observed values.
+        True observed values. Must be a 1-dimensional array of numeric data.
     y_pred : array-like
-        Predicted values.
+        Predicted values by the model. Must have the same shape as `y_true`.
+    sample_weight : array-like of shape (n_samples,), optional
+        Individual weights for each sample. Each weight contributes to the
+        overall calculation of the Gini coefficient, allowing for unequal impact
+        of different observations.
+    ignore_nan : bool, optional
+        If set to True, NaN values in both `y_true` and `y_pred` are ignored,
+        ensuring the calculation only considers valid numerical entries.
+    epsilon : {'auto'} or float, optional
+        A small positive value added to the denominator to prevent division by
+        zero. When set to 'auto', the epsilon value is dynamically determined
+        based on the range and scale of `y_pred`.
+    zero_division : {'warn', 'ignore'}, optional
+        Defines the behavior when the calculation encounters a division by zero.
+        'warn' issues a user warning and returns NaN, while 'ignore' silently
+        returns NaN without issuing a warning.
+    multioutput : {'uniform_average'}, optional
+        This parameter is included for compatibility with other metrics' API and
+        does not affect the computation since Gini coefficient inherently provides
+        a single scalar value regardless of the number of outputs.
+    detailed_output : bool, optional
+        When set to True, the function returns a detailed Bunch object containing
+        the Gini coefficient, total weighted observations, and the weighted sum of
+        absolute differences. This can be useful for in-depth analysis.
 
     Returns
     -------
-    float
-        Gini Coefficient.
+    float or Bunch
+        The Gini Coefficient as a float if `detailed_output=False`. If
+        `detailed_output=True`, returns a Bunch object containing the Gini
+        coefficient along with additional detailed information.
+
+    Notes
+    -----
+    The Gini Coefficient is a measure of statistical dispersion intended to
+    represent the inequality among values of a frequency distribution (for
+    example, levels of income) [1]_. It is defined mathematically as:
+
+    .. math::
+        G = \frac{\sum_i \sum_j |y_{\text{true},i} - \\
+                  y_{\text{pred},j}|}{2n\sum_i y_{\text{true},i}}
+
+    where `n` is the number of observations. The coefficient ranges from 0,
+    indicating perfect equality (where all values are the same), to 1,
+    indicating maximum inequality among values [2]_.
 
     Examples
     --------
+    >>> from gofast.metrics import gini_coeff
     >>> y_true = [1, 2, 3, 4, 5]
     >>> y_pred = [2, 2, 3, 4, 4]
-    >>> gini_coefficient(y_true, y_pred)
+    >>> gini_coeff(y_true, y_pred)
     0.2
 
-    Notes
-    -----
-    G = \frac{\sum_i \sum_j |y_{\text{true},i} - y_{\text{pred},j}|}{2n\sum_i y_{\text{true},i}}
+    The Gini coefficient of 0.2 in this example indicates a low level of
+    inequality between the true and predicted values.
+
+    See Also
+    --------
+    sklearn.metrics.mean_squared_error : Mean squared error regression loss.
+    sklearn.metrics.mean_absolute_error : Mean absolute error regression loss.
+
+    References
+    ----------
+    .. [1] Gini, C. (1912). "Variability and Mutability". C. Cuppini, Bologna, 156 pages.
+    .. [2] Yitzhaki, S. (1983). "On an Extension of the Gini Inequality Index".
+           International Economic Review, 24(3), 617-628.
     """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
+
+    y_true, y_pred = _ensure_y_is_valid(
+        y_true, y_pred, allow_nan=True, 
+        multi_output=True # We keep it just to warn user
+    )
+    if ignore_nan:
+        valid_mask = ~np.isnan(y_true) & ~np.isnan(y_pred)
+        y_true, y_pred = y_true[valid_mask], y_pred[valid_mask]
+        if sample_weight is not None:
+            sample_weight = np.asarray(sample_weight)[valid_mask]
+
+    if str(epsilon).lower() == 'auto':
+        epsilon_value = determine_epsilon(np.concatenate([y_true, y_pred]))
+    else:
+        try:
+            epsilon_value = float(epsilon)
+        except ValueError:
+            raise ValueError("`epsilon` must be 'auto' or convertible to float.")
+
     abs_diff = np.abs(np.subtract.outer(y_true, y_pred))
-    return np.sum(abs_diff) / (2 * len(y_true) * np.sum(y_true))
+    gini_sum = np.sum(abs_diff)
 
-def hamming_loss(y_true, y_pred):
+    if sample_weight is not None:
+        # Apply weights to each pair's absolute difference
+        weighted_gini_sum = np.sum(abs_diff * sample_weight[:, None])
+        total_weighted = np.sum(y_true * sample_weight)
+    else:
+        weighted_gini_sum = gini_sum
+        total_weighted = np.sum(y_true)
+
+    gini_coefficient = weighted_gini_sum / (2 * len(y_true) * total_weighted + epsilon_value)
+
+    if zero_division == 'warn' and total_weighted + epsilon_value == 0:
+        warnings.warn("Division by zero encountered in Gini Coefficient calculation.", UserWarning)
+        gini_coefficient = np.nan  # or return np.nan as per handling strategy
+
+    if multioutput != 'uniform_average':
+        warnings.warn(
+            "`multioutput` parameter is not applicable for Gini"
+            " Coefficient calculation.", UserWarning) # keep it for API consistency
+
+    if detailed_output:
+        gini_coefficient=Bunch (
+            GINIcoeff = gini_coefficient, 
+            total_weighted = total_weighted, 
+            weighted_gini_sum= weighted_gini_sum 
+            )
+
+    return gini_coefficient
+     
+def hamming_loss(
+    y_true, y_pred,*,  
+    sample_weight=None, 
+    ignore_nan=False,
+    epsilon=1e-8,  
+    zero_division='warn', 
+    normalize=True, 
+    to_boolean=False        
+):
     """
-    Compute the Hamming loss, the fraction of labels that are 
-    incorrectly predicted.
+    Compute the Hamming loss, the fraction of labels that are incorrectly predicted.
 
-    Measures the fraction of wrong labels to the total number of labels.
-    Useful in multi-label classification problems, such as text 
-    categorization or image classification where each instance might 
-    have multiple labels.
+    The Hamming loss is the fraction of labels that are incorrectly predicted,
+    relative to the total number of labels. It is a useful metric in multi-label
+    classification tasks, where each instance may have multiple labels.
 
     Parameters
     ----------
     y_true : array-like
-        True labels of the data.
+        True labels of the data. Can be a 1D array for single-label tasks or
+        a 2D array for multi-label tasks.
     y_pred : array-like
-        Predicted labels of the data.
+        Predicted labels of the data, must have the same shape as y_true.
+    sample_weight : array-like of shape (n_samples,), optional
+        Sample weights. If provided, the Hamming loss will be averaged across
+        the samples accordingly.
+    ignore_nan : bool, optional
+        If True, ignore NaN values in both y_true and y_pred during the loss
+        calculation. This is particularly useful in datasets with missing labels.
+    epsilon : float, optional
+        A small value to prevent division by zero. This is useful in ensuring
+        numerical stability of the loss calculation.
+    zero_division : {'warn', 'ignore'}, optional
+        Defines how to handle the scenario when division by zero occurs. If 'warn',
+        a warning is issued. If 'ignore', the division by zero is silently ignored.
+    normalize : bool, optional
+        If True, normalizes the Hamming loss by the total number of labels per sample.
+        This is recommended for multi-label classification tasks to ensure the loss
+        is within a [0, 1] range.
+    to_boolean : bool, optional
+        If True, automatically convert y_true and y_pred to boolean arrays. 
+        This is useful for binary classification tasks where labels might
+        not be in boolean format.
 
     Returns
     -------
     float
-        Hamming loss.
-
-    Examples
-    --------
-    >>> y_true = [1, 2, 3, 4]
-    >>> y_pred = [2, 2, 3, 4]
-    >>> hamming_loss(y_true, y_pred)
-    0.25
+        The Hamming loss, ranging from 0 (perfect match) to 1 (complete mismatch)
+        if `normalize` is True. Otherwise, it returns the average number of label
+        mismatches per sample.
 
     Notes
     -----
-    HL = \frac{1}{n} \sum_{i=1}^n 1(y_{\text{true},i} \neq y_{\text{pred},i})
-    """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
-    return np.mean(y_true != y_pred)
+    The Hamming loss is defined as:
 
-def fowlkes_mallows_index(y_true, y_pred):
-    """
-    Compute the Fowlkes-Mallows Index for clustering 
-    performance.
-    
-    A measure of similarity between two sets of clusters.
-    
-    Used in clustering and image segmentation to evaluate the similarity 
-    between the actual and predicted clusters.
+    .. math::
+        HL = \frac{1}{N} \sum_{i=1}^{N} \frac{1}{L_i} \sum_{j=1}^{L_i}\\
+            1(y_{\text{true},ij} \neq y_{\text{pred},ij})
 
+    where `N` is the number of samples, `L_i` is the number of labels for the 
+    `i`-th sample,and `1(.)` is the indicator function.
+
+    Examples
+    --------
+    >>> from gofast.metrics import hamming_loss
+    >>> y_true = np.array([[1, 1], [1, 0]])
+    >>> y_pred = np.array([[1, 0], [1, 1]])
+    >>> print(hamming_loss(y_true, y_pred, normalize=True))
+    0.5
+
+    References
+    ----------
+    - Zhao, M., & Zhang, Z. (2012). Multi-label learning by exploiting label dependency.
+      In Proceedings of the 16th ACM SIGKDD international conference on Knowledge 
+      discovery and data mining (pp. 999-1008).
+
+    See Also
+    --------
+    sklearn.metrics.accuracy_score : Compute the accuracy.
+    sklearn.metrics.jaccard_score : Jaccard similarity coefficient score.
+
+    """
+    y_true, y_pred = _ensure_y_is_valid(
+        y_true, y_pred, allow_nan=True, 
+        multi_output=True 
+    )
+     # Optionally convert inputs to boolean for binary classification tasks
+    if to_boolean:
+        y_true = y_true.astype(bool)
+        y_pred = y_pred.astype(bool)
+    # Handle NaN values if ignore_nan is True
+    if ignore_nan:
+        valid_mask = ~np.isnan(y_true).any(axis=1) & ~np.isnan(y_pred).any(axis=1)
+        y_true, y_pred = y_true[valid_mask], y_pred[valid_mask]
+        if sample_weight is not None:
+            sample_weight = np.asarray(sample_weight)[valid_mask]
+
+    # Calculate mismatches between y_true and y_pred
+    mismatch = y_true != y_pred
+    
+    if normalize:
+        # Normalize the Hamming loss by the total number of labels
+        n_labels = np.size(y_true, axis=1)
+        mismatch_sum = np.sum(mismatch, axis=1) / n_labels
+    else:
+        # Count mismatches without normalization
+        mismatch_sum = np.sum(mismatch, axis=1)
+
+    # Apply sample weights if provided
+    if sample_weight is not None:
+        hamming_loss_value = np.average(mismatch_sum, weights=sample_weight)
+    else:
+        hamming_loss_value = np.mean(mismatch_sum)
+    # Handling division by zero based on zero_division paramete
+    if zero_division == 'warn' and np.isclose(hamming_loss_value, 0, atol=epsilon):
+        warnings.warn("Potential division by zero encountered in Hamming"
+                      " loss calculation.", UserWarning)
+
+    return hamming_loss_value
+
+def fowlkes_mallows_index(
+    y_true, y_pred, *, 
+    sample_weight=None, 
+    average='macro', 
+    epsilon=1e-10, 
+    zero_division='warn', 
+    multioutput='uniform_average', 
+):
+    """
+    Compute the Fowlkes-Mallows Index (FMI) between true and predicted 
+    cluster labels.
+    
+    The FMI is a measure of similarity between two sets of clusters, defined as the
+    geometric mean of the pairwise precision and recall. It is particularly useful
+    in clustering validation by evaluating the similarity between the ground truth
+    clustering and the predicted clustering.
+    
     Parameters
     ----------
-    y_true : array-like
-        True cluster labels.
-    y_pred : array-like
-        Predicted cluster labels.
+    y_true : array-like of shape (n_samples,)
+        True labels or clusters.
+    y_pred : array-like of shape (n_samples,)
+        Predicted labels or clusters.
+    sample_weight : array-like of shape (n_samples,), optional
+        Weights assigned to the samples.
+    average : {'macro', 'weighted'}, optional
+        Determines the type of averaging performed on the data:
+        
+        - 'macro': Calculate metrics for each label, and find their unweighted
+           mean. This does not take label imbalance into account.
+        - 'weighted': Calculate metrics for each label, and find their average 
+           weighted by support (the number of true instances for each label).
+          
+    epsilon : float, optional
+        A small constant added to denominators to prevent division by zero.
+    zero_division : {'warn', 'ignore'}, optional
+        Defines how to handle the case when there is a zero division:
+        
+        - 'warn': Emit a warning and return 0.0
+        - 'ignore': Return `np.nan`
+          
+    multioutput : {'uniform_average'}, optional
+        Currently only supports 'uniform_average' for API consistency. The
+        Fowlkes-Mallows index inherently combines multiple outputs into a
+        single score.
 
     Returns
     -------
     float
-        Fowlkes-Mallows Index.
-
+        The Fowlkes-Mallows Index, ranging from 0 (no shared members) to
+        1 (all members shared).
+        
+    Notes
+    -----
+    The Fowlkes-Mallows Index is defined as:
+    
+    .. math::
+        FMI = \sqrt{\frac{TP}{TP + FP} \cdot \frac{TP}{TP + FN}}
+    
+    where `TP` is the number of True Positive (pairwise instances correctly classified as
+    belonging to the same cluster), `FP` is the number of False Positives, and `FN` is the
+    number of False Negatives.
+    
+    References
+    ----------
+    .. [1] Fowlkes, E. B., & Mallows, C. L. (1983). A method for comparing 
+          two hierarchical clusterings. Journal of the American Statistical 
+          Association, 78(383), 553-569.
+    
+    See Also
+    --------
+    sklearn.metrics.adjusted_rand_score : 
+        Adjusted Rand index for clustering performance evaluation.
+    sklearn.metrics.silhouette_score : 
+        Mean silhouette coefficient for all samples.
+    
     Examples
     --------
+    >>> from gofast.metrics import fowlkes_mallows_index
     >>> y_true = [1, 1, 2, 2, 3, 3]
     >>> y_pred = [1, 1, 1, 2, 3, 3]
     >>> fowlkes_mallows_index(y_true, y_pred)
-    0.7717
-
-    Notes
-    -----
-    FMI = \sqrt{\frac{TP}{TP + FP} \times \frac{TP}{TP + FN}}
+    0.8606
+    
     """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    cm = confusion_matrix(y_true, y_pred)
-    tp = np.sum(np.diag(cm))  # True Positives
-    fp = np.sum(cm, axis=0) - np.diag(cm)  # False Positives
-    fn = np.sum(cm, axis=1) - np.diag(cm)  # False Negatives
-    return np.sqrt(np.sum(tp / (tp + fp)) * np.sum(tp / (tp + fn)))
+    y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True )
+    cm = confusion_matrix(y_true, y_pred, sample_weight=sample_weight)
+    tp = np.diag(cm)  # True Positives
+    fp = np.sum(cm, axis=0) - tp  # False Positives
+    fn = np.sum(cm, axis=1) - tp  # False Negatives
+
+    # Adjusted calculations with epsilon to avoid division by zero
+    precision = tp / (tp + fp + epsilon)
+    recall = tp / (tp + fn + epsilon)
+
+    average = normalize_string( average, target_strs= ['average', 'macro'], 
+                               match_method='contains',raise_exception=True, 
+                               return_target_only=True,
+                               error_msg=f"Invalid average method: {average}"
+                               )
+    if average == 'macro':
+        precision_avg = np.mean(precision)
+        recall_avg = np.mean(recall)
+    elif average == 'weighted':
+        weights = np.sum(cm, axis=1)
+        precision_avg = np.average(precision, weights=weights)
+        recall_avg = np.average(recall, weights=weights)
+ 
+    fmi = np.sqrt(precision_avg * recall_avg)
+
+    if multioutput != 'uniform_average':
+        warnings.warn("`multioutput` parameter is not applicable for"
+                      " Fowlkes-Mallows Index.", UserWarning)
+
+    # Handle division by zero after calculations
+    if zero_division == 'warn' and (fmi == 0 or np.isnan(fmi)):
+        warnings.warn("Division by zero encountered in Fowlkes-Mallows"
+                      " calculation.", UserWarning)
+        return 0.0 if zero_division == 'warn' else np.nan
+
+    return fmi
 
 def rmse_log_error(y_true, y_pred):
     """
@@ -2896,7 +3985,9 @@ def precision_at_k(y_true, y_pred, k):
 
     Notes
     -----
-    P@K = \frac{1}{|U|} \sum_{u=1}^{|U|} \frac{|{ \text{relevant items at k for user } u } \cap { \text{recommended items at k for user } u }|}{k}
+    P@K = \frac{1}{|U|} \sum_{u=1}^{|U|} \frac{|{
+        \text{relevant items at k for user } u } \cap {
+            \text{recommended items at k for user } u }|}{k}
     """
     assert len(y_true) == len(y_pred),(
         "Length of true and predicted lists must be equal.")
@@ -3003,7 +4094,7 @@ def mean_reciprocal_rank(y_true, y_pred):
     
     return np.mean(reciprocal_ranks)
 
-def average_precision(y_true, y_pred):
+def average_precision_score(y_true, y_pred):
     """
     Compute Average Precision for binary classification problems.
 
