@@ -1782,7 +1782,6 @@ def make_ert(
     Generates a dataset for electrical resistivity tomography (ERT) 
     based on the specified equipment type.
 
-
     This function creates a DataFrame with synthetic data representing an 
     ERT survey. The data includes electrode positions, cable lengths, 
     resistivity measurements, and battery voltages 
@@ -1921,7 +1920,6 @@ def make_ert(
         noise= noise, 
         seed=seed
         ) 
-
 
 def make_tem(
     *, 
@@ -2247,7 +2245,6 @@ def make_erp(*,
         seed=seed
         ) 
 
-
 def make_elogging(
     *, 
     start_date='2021-01-01', 
@@ -2399,7 +2396,6 @@ def make_elogging(
         noise= noise, 
         seed=seed
         ) 
-
 
 def make_gadget_sales(*, 
     start_date='2021-12-26', 
@@ -2555,7 +2551,6 @@ def make_gadget_sales(*,
         noise= noise, 
         seed=seed
         ) 
-
 
 def make_retail_store(
     *, samples=1000, 
@@ -2885,7 +2880,6 @@ def make_cc_factors(
         test_size=test_size, 
         seed=seed
         ) 
-
 
 def make_water_demand(
     *, samples=700, 
@@ -3387,7 +3381,7 @@ def _manage_data(
        If np.random.RandomState or np.random.Generator, use as given.
        
     Returns 
-    ---------
+    -------
     data : :class:`~gofast.tools.box.Boxspace` object
         Dictionary-like object, with the following attributes.
         data : {ndarray, dataframe} 

@@ -68,6 +68,7 @@ __all__=[
     "evaluate_confusion_matrix", 
     "mean_squared_log_error",
     "balanced_accuracy",
+    "balanced_accuracy_score", 
     "information_value", 
     "flexible_mae",
     "flexible_mse", 
@@ -5148,19 +5149,22 @@ def balanced_accuracy_score(
     
     if strategy == 'ovr':
         score = _balanced_accuracy_ovr(
-            y_true, y_pred, labels, epsilon, zero_division, normalize)
+            y_true, y_pred, labels, epsilon, zero_division, normalize, sample_weight)
     elif strategy == 'ovo':
         score = _balanced_accuracy_ovo(y_true, y_pred, labels, sample_weight)
   
     if multioutput == 'uniform_average':
         # Average the scores if multioutput is 'uniform_average'
-        return np.mean(score) if isinstance(score, np.ndarray) else score
+        return np.average(score) if isinstance(score, np.ndarray) else score
   
     return score
 
 def _compute_balanced_accuracy_binary(
-        y_true, y_pred, epsilon=1e-15, zero_division=0, normalize =False):
-    cm = confusion_matrix(y_true, y_pred)
+    y_true, y_pred, epsilon=1e-15,
+    zero_division=0, normalize =False, 
+    sample_weight=None
+ ):
+    cm = confusion_matrix(y_true, y_pred, sample_weight=sample_weight )
     if normalize:
         cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
     sensitivity = cm[1, 1] / (cm[1, 1] + cm[1, 0] + epsilon)
@@ -5169,16 +5173,19 @@ def _compute_balanced_accuracy_binary(
         sensitivity + specificity) else zero_division
 
 def _balanced_accuracy_ovr(
-        y_true, y_pred, labels, epsilon=1e-15, zero_division=0, normalize=False):
+    y_true, y_pred, labels, epsilon=1e-15,
+    zero_division=0, normalize=False, 
+    sample_weight =None
+  ):
     bal_acc_scores = []
     for label in labels:
         binary_y_true = (y_true == label).astype(int)
         binary_y_pred = (y_pred == label).astype(int)
         score = _compute_balanced_accuracy_binary(
             binary_y_true, binary_y_pred, epsilon, zero_division,
-            normalize=normalize )
+            normalize=normalize, sample_weight= sample_weight )
         bal_acc_scores.append(score)
-    return np.mean(bal_acc_scores)
+    return np.array(bal_acc_scores)
 
 def _balanced_accuracy_ovo(y_true, y_pred, labels, sample_weight=None):
     le = LabelEncoder()
@@ -5193,7 +5200,7 @@ def _balanced_accuracy_ovo(y_true, y_pred, labels, sample_weight=None):
             auc_score = roc_auc_score(
                 specific_y_true, specific_y_pred, sample_weight=sample_weight)
             bal_acc_scores.append(auc_score)
-    return np.mean(bal_acc_scores)
+    return np.array(bal_acc_scores)
 
 
 
