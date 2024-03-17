@@ -3,7 +3,6 @@
 # Copyright (c) 2024 gofast developers.
 # All rights reserved.
 
-# Utilities for input validation
 from functools import wraps
 from typing import Any, Callable, Optional
 import inspect 
@@ -15,14 +14,264 @@ import joblib
 
 import numpy as np
 import pandas as pd
-from numpy.core.numeric import ComplexWarning  # type: ignore
+from numpy.core.numeric import ComplexWarning  
 from contextlib import suppress
 import scipy.sparse as sp
 from inspect import signature, Parameter, isclass 
 
 from ._array_api import get_namespace, _asarray_with_order
-
 FLOAT_DTYPES = (np.float64, np.float32, np.float16)
+
+def filter_nan_entries(nan_policy, *listof, sample_weights=None):
+    """
+    Filters out NaN values from multiple lists of lists, or arrays, 
+    based on the specified NaN handling policy ('omit', 'propagate', 'raise'), 
+    and adjusts the sample weights accordingly if provided.
+
+    This function is particularly useful when preprocessing data for
+    machine learning algorithms that do not support NaN values or when NaN values
+    signify missing data that should be excluded from analysis.
+
+    Parameters
+    ----------
+    nan_policy : {'omit', 'propagate', 'raise'}
+        The policy for handling NaN values.
+        - 'omit': Exclude NaN values from all lists in `listof`. 
+        - 'propagate': Keep NaN values, which may result in NaN values in output.
+        - 'raise': If NaN values are detected, raise a ValueError.
+    *listof : array-like sequences
+        Variable number of list-like sequences from which NaN values are to be filtered out.
+        Each sequence in `listof` must have the same length.
+    sample_weights : array-like, optional
+        Weights corresponding to the elements in each sequence in `listof`.
+        Must have the same length as the sequences. If `nan_policy` is 'omit',
+        weights are adjusted to match the filtered sequences.
+
+    Returns
+    -------
+    tuple of lists
+        A tuple containing the filtered list-like sequences as per the specified
+        `nan_policy`.
+        If `nan_policy` is 'omit', sequences with NaN values removed are 
+        returned.
+    np.ndarray or None
+        The adjusted sample weights matching the filtered sequences if 
+        `nan_policy` is 'omit'.
+        If `sample_weights` is not provided, None is returned.
+
+    Raises
+    ------
+    ValueError
+        If `nan_policy` is 'raise' and NaN values are present in any input sequence.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import filter_nan_entries
+    >>> list1 = [1, 2, np.nan, 4]
+    >>> list2 = [np.nan, 2, 3, 4]
+    >>> weights = [0.5, 1.0, 1.5, 2.0]
+    >>> validate_nan_policy_from_list('omit', list1, list2, sample_weights=weights)
+    ([1, 2, 4], [2, 3, 4], array([0.5, 1. , 2. ]))
+
+    >>> filter_nan_entries('raise', list1, list2)
+    ValueError: NaN values present and nan_policy is 'raise'.
+
+    Notes
+    -----
+    This function is designed to work with numerical data where NaN values
+    may indicate missing data. It allows for flexible preprocessing by supporting
+    multiple NaN handling strategies, making it suitable for various machine learning
+    and data analysis workflows.
+
+    When using 'omit', it's important to ensure that all sequences in `listof`
+    and the corresponding `sample_weights` (if provided) are correctly aligned
+    so that filtering does not introduce misalignments in the data.
+    """
+    if nan_policy not in ['omit', 'propagate', 'raise']:
+        raise ValueError(f"Invalid nan_policy: {nan_policy}. Must be one of"
+                         " 'omit', 'propagate', 'raise'.")
+
+    arrays = [np.array(lst, dtype=np.float_) for lst in listof]
+
+    if nan_policy == 'omit':
+        non_nan_mask = np.logical_not(np.any([np.isnan(arr) for arr in arrays], axis=0))
+        filtered_arrays = [arr[non_nan_mask] for arr in arrays]
+        if sample_weights is not None:
+            sample_weights = np.asarray(sample_weights)[non_nan_mask]
+    elif nan_policy == 'raise' and any(np.isnan(arr).any() for arr in arrays):
+        raise ValueError("NaN values present and nan_policy is 'raise'.")
+    else:  # nan_policy == 'propagate'
+        filtered_arrays = arrays
+
+    filtered_listof = [arr.tolist() for arr in filtered_arrays]
+    # Return adjusted arrays and sample_weights
+    if sample_weights is not None:
+        return  (*tuple(filtered_listof), sample_weights)
+
+    return tuple(filtered_listof)
+
+def filter_nan_from( *listof, sample_weights=None):
+    """
+    Filters out NaN values from multiple lists of lists, adjusting 
+    sample_weights accordingly.
+
+    Parameters
+    ----------
+    *listof : tuple of list of lists
+        Variable number of list of lists from which NaN values need to be 
+        filtered out.
+    sample_weights : list or np.ndarray, optional
+        Sample weights corresponding to each sublist in the input list of lists.
+        Must have the same outer length as each list in *listof.
+
+    Returns
+    -------
+    filtered_listof : tuple of list of lists
+        The input list of lists with NaN values removed.
+    adjusted_sample_weights : np.ndarray or None
+        The sample weights adjusted to match the filtered data. Same length as
+        the filtered list of lists.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import filter_nan_from
+    >>> list1 = [[1, 2, np.nan], [4, np.nan, 6]]
+    >>> list2 = [[np.nan, 8, 9], [10, 11, np.nan]]
+    >>> weights = [0.5, 1.0]
+    >>> filtered_lists, adjusted_weights = filter_nan_from(
+        list1, list2, sample_weights=weights)
+    >>> print(filtered_lists)
+    ([[1, 2], [4, 6]], [[8, 9], [10, 11]])
+    >>> print(adjusted_weights)
+    [0.5 1. ]
+
+    Notes
+    -----
+    This function assumes that all lists in *listof and sample_weights have 
+    compatible shapes. Each sublist is expected to correspond to a set of 
+    sample_weights, which are adjusted based on the presence of NaNs in 
+    the sublist.
+    """
+    import math 
+    if sample_weights is not None and len(sample_weights) != len(listof[0]):
+        raise ValueError(
+            "sample_weights length must match the number of sublists in listof.")
+
+    # Convert sample_weights to a numpy array for easier manipulation
+    if sample_weights is not None:
+        sample_weights = np.asarray(sample_weights)
+
+    filtered_listof = []
+    valid_indices = set(range(len(listof[0])))  # Initialize with all indices as valid
+
+    # Identify indices with NaNs across all lists
+    for lst in listof:
+        for idx, sublist in enumerate(lst):
+            if any(math.isnan(item) if isinstance(item, (
+                    float, np.floating)) else False for item in sublist):
+                valid_indices.discard(idx)
+
+    # Filter lists based on valid indices
+    for lst in listof:
+        filtered_list = [lst[idx] for idx in sorted(valid_indices)]
+        filtered_listof.append(filtered_list)
+
+    # Adjust sample_weights based on valid indices
+    adjusted_sample_weights = sample_weights[
+        sorted(valid_indices)] if sample_weights is not None else None
+
+    return tuple(filtered_listof), adjusted_sample_weights
+
+def standardize_input(*arrays):
+    """
+    Standardizes input formats for comparison metrics, converting input data
+    into a uniform format of lists of sets. This function can handle a variety
+    of input formats, including 1D and 2D numpy arrays, lists of lists, and
+    tuples, making it versatile for tasks that involve comparing lists of items
+    like ranking or recommendation systems.
+
+    Parameters
+    ----------
+    *arrays : variable number of array-like or list of lists
+        Each array-like argument represents a set of labels or items, such as 
+        `y_true` and `y_pred`. The function is designed to handle:
+        
+        - 1D arrays where each element represents a single item.
+        - 2D arrays where rows represent samples and columns represent items
+          (for multi-output scenarios).
+        - Lists of lists or tuples, where each inner list or tuple represents 
+          a set of items for a sample.
+
+    Returns
+    -------
+    standardized : list of lists of set
+        A list containing the standardized inputs as lists of sets. Each outer
+        list corresponds to one of the input arrays, and each inner list 
+        corresponds to a sample within that array.
+
+    Raises
+    ------
+    ValueError
+        If the lengths of the input arrays are inconsistent.
+    TypeError
+        If the inputs are not array-like, lists of lists, or lists of tuples,
+        or if an ndarray has more than 2 dimensions.
+
+    Examples
+    --------
+    >>> from numpy import array
+    >>> from gofast.tools.validator import standardize_input
+    >>> y_true = [[1, 2], [3]]
+    >>> y_pred = array([[2, 1], [3]])
+    >>> standardized_inputs = standardize_input(y_true, y_pred)
+    >>> for standardized in standardized_inputs:
+    ...     print([list(s) for s in standardized])
+    [[1, 2], [3]]
+    [[2, 1], [3]]
+
+    >>> y_true_1d = array([1, 2, 3])
+    >>> y_pred_1d = [4, 5, 6]
+    >>> standardized_inputs = standardize_input(y_true_1d, y_pred_1d)
+    >>> for standardized in standardized_inputs:
+    ...     print([list(s) for s in standardized])
+    [[1], [2], [3]]
+    [[4], [5], [6]]
+
+    Notes
+    -----
+    The function is particularly useful for preprocessing inputs to metrics 
+    that require comparison of sets of items across samples, such as precision
+    at K, recall at K, or NDCG. By standardizing the inputs to lists of sets,
+    the function facilitates consistent handling of these computations
+    regardless of the original format of the input data. This standardization
+    is critical when working with real-world data, which can vary widely in
+    format and structure.
+    """
+    standardized = []
+    for data in arrays:
+        # Transform ndarray based on its dimensions
+        if isinstance(data, np.ndarray):
+            if data.ndim == 1:
+                standardized.append([set([item]) for item in data])
+            elif data.ndim == 2:
+                standardized.append([set(row) for row in data])
+            else:
+                raise TypeError("Unsupported ndarray shape. Must be 1D or 2D.")
+        # Transform lists or tuples
+        elif isinstance(data, (list, tuple)):
+            if all(isinstance(item, (list, tuple, np.ndarray)) for item in data):
+                standardized.append([set(item) for item in data])
+            else:
+                standardized.append([set([item]) for item in data])
+        else:
+            raise TypeError(
+                "Inputs must be array-like, lists of lists, or lists of tuples.")
+    
+    # Check consistent length across all transformed inputs
+    if any(len(standardized[0]) != len(arr) for arr in standardized[1:]):
+        raise ValueError("All inputs must have the same length.")
+    
+    return standardized
 
 def validate_nan_policy(nan_policy, *arrays, sample_weights=None):
     """
@@ -75,7 +324,8 @@ def validate_nan_policy(nan_policy, *arrays, sample_weights=None):
     >>> y_true = np.array([1, np.nan, 3])
     >>> y_pred = np.array([1, 2, 3])
     >>> sample_weights = np.array([0.5, 0.5, 1.0])
-    >>> arrays, sw = validate_nan_policy('omit', y_true, y_pred, sample_weights=sample_weights)
+    >>> arrays, sw = validate_nan_policy('omit', y_true, y_pred, 
+    ...                                  sample_weights=sample_weights)
     >>> arrays
     (array([1., 3.]), array([1., 3.]))
     >>> sw
@@ -106,7 +356,7 @@ def validate_nan_policy(nan_policy, *arrays, sample_weights=None):
 
     # Return adjusted arrays and sample_weights
     if sample_weights is not None:
-        return arrays, sample_weights
+        return (*arrays, sample_weights)
 
     return arrays 
 
@@ -165,7 +415,7 @@ def validate_multioutput(value, extra=''):
     """
     valid_values = ['raw_values', 'uniform_average']
     value_lower = str(value).lower()
-
+    if value_lower=="average_uniform": value_lower ="uniform_average"
     if value_lower in ['raise', 'warn']:
         warn_msg = ("The `multioutput` parameter is not applicable" + extra +
                     " as it inherently combines outputs into a single score.")

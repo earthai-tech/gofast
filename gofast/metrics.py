@@ -28,11 +28,12 @@ from sklearn.metrics import (
     mean_squared_error, 
     log_loss, 
     mean_absolute_error, 
-    r2_score
+    r2_score, 
+    jaccard_score
     )
 from sklearn.utils.multiclass import unique_labels
 from sklearn.model_selection import cross_val_predict 
-from sklearn.preprocessing import label_binarize
+from sklearn.preprocessing import label_binarize, LabelEncoder
 
 from ._docstring import DocstringComponents,_core_docs
 from ._gofastlog import gofastlog
@@ -45,6 +46,7 @@ from .tools.validator import _is_numeric_dtype, _ensure_y_is_valid
 from .tools.validator import check_epsilon, check_is_fitted
 from .tools.validator import check_classification_targets, validate_nan_policy
 from .tools.validator import ensure_non_negative, validate_multioutput 
+from .tools.validator import standardize_input, filter_nan_entries
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -79,26 +81,26 @@ __all__=[
     "mean_poisson_deviance", 
     "mean_gamma_deviance",
     "mean_absolute_deviation", 
-    "dice_similarity_coeff", 
-    "gini_coeff",
+    "dice_similarity_score", 
+    "gini_score",
     "hamming_loss", 
-    "fowlkes_mallows_index",
+    "fowlkes_mallows_score",
     "root_mean_squared_log_error", 
     "mean_percentage_error",
     "percentage_bias", 
-    "spearmans_rank_coeff",
+    "spearmans_rank_score",
     "precision_at_k", 
     "ndcg_at_k", 
-    "mean_reciprocal_rank", 
-    "average_precision_score",
-    "jaccard_similarity_coeff", 
+    "mean_reciprocal_score", 
+    "flexible_jaccard", 
     "geo_information_value", 
     "assess_regression_metrics", 
     "assess_classifier_metrics", 
     "adjusted_r2_score", 
     "display_confusion_matrix", 
     "display_roc", 
-    "display_precision_recall"
+    "display_precision_recall", 
+    "ndcg_at_k_with_controls"
     ]
 
 #----add metrics docs 
@@ -405,10 +407,10 @@ def balanced_accuracy(
     sample_weight=None, 
     strategy='ovr', 
     epsilon=1e-15, 
-    zero_division=0, 
+    zero_division=0,
     ):
     """
-    Compute the Balanced Accuracy for binary and multiclass classification
+    Compute the Balanced Accuracy score for binary and multiclass classification
     tasks. This metric is especially useful in situations with imbalanced
     classes. It allows choosing between One-vs-Rest (OVR) and One-vs-One
     (OVO) strategies for multiclass scenarios, providing flexibility based
@@ -538,7 +540,7 @@ def balanced_accuracy(
                                               sample_weight=specific_sample_weight)
                     auc_scores.append(auc_score)
             return np.mean(auc_scores)
-
+        
 def information_value(
     y_true, y_pred, *, 
     problem_type='binary', 
@@ -2736,7 +2738,7 @@ def median_absolute_error(
     y_true, y_pred, *, 
     sample_weight=None,
     multioutput='uniform_average',
-    ignore_nan=False
+    nan_policy='propagate', 
 ):
     """
     Compute the Median Absolute Error (MedAE) between true and predicted values,
@@ -2759,10 +2761,12 @@ def median_absolute_error(
         Defines aggregating of multiple output values. 'uniform_average' to
         average all outputs (default). 'raw_values' to return a full set of
         scores for each output.
-    ignore_nan : bool, default=False
-        If True, ignore NaN values in `y_true` and `y_pred`. Useful for datasets
-        with missing values.
-
+    nan_policy : bool, {'omit', 'propagate', 'raise'}, default='propagate'
+        Defines how to handle NaNs in the input arrays. 'propagate' returns the
+        input data without changes. 'raise' throws an error if NaNs are detected.
+        If 'omit', ignore NaN values in `y_true` and `y_pred`. Useful for 
+        datasets with missing values.
+        
     Returns
     -------
     float or ndarray
@@ -2803,15 +2807,14 @@ def median_absolute_error(
     """
     y_true, y_pred = _ensure_y_is_valid(
         y_true, y_pred, y_numeric =True, allow_nan=True, multi_output=True)
-
-    if ignore_nan:
-        # Mask to filter out NaN values
-        valid_mask = ~np.isnan(y_true) & ~np.isnan(y_pred)
-        y_true = y_true[valid_mask]
-        y_pred = y_pred[valid_mask]
-        if sample_weight is not None:
-            sample_weight = np.asarray(sample_weight)[valid_mask]
-    
+  
+    y_true, y_pred, *opt_sample_weight = validate_nan_policy(
+    nan_policy, y_true, y_pred, sample_weights=sample_weight 
+    )
+    # If sample_weight was provided and thus returned, update sample_weight
+    # variable, else keep it unchanged
+    sample_weight = opt_sample_weight[0] if opt_sample_weight else sample_weight
+        
     absolute_errors = np.abs(y_true - y_pred)
     
     if sample_weight is not None:
@@ -2841,7 +2844,7 @@ def max_error_score(
     y_true, y_pred,  *, 
     sample_weight=None, 
     multioutput='uniform_average',
-    ignore_nan=False
+    nan_policy='propagate', 
 ):
     """
     Compute the maximum absolute error between true and predicted values,
@@ -2864,8 +2867,10 @@ def max_error_score(
         Specifies how to aggregate errors for multiple output predictions.
         'uniform_average' calculates an average of all output errors.
         'raw_values' returns a full set of errors for each output.
-    ignore_nan : bool, default=False
-        If True, NaN values in `y_true` or `y_pred` are ignored.
+    nan_policy : bool, {'omit', 'propagate', 'raise'}, default='propagate'
+        Defines how to handle NaNs in the input arrays. 'propagate' returns the
+        input data without changes. 'raise' throws an error if NaNs are detected.
+        If 'omit', NaN values in `y_true` or `y_pred` are ignored.
 
     Returns
     -------
@@ -2907,13 +2912,11 @@ def max_error_score(
     y_true, y_pred = _ensure_y_is_valid(
         y_true, y_pred, y_numeric =True, allow_nan=True, multi_output=True)
     
-    if ignore_nan:
-        # Filter out NaN values from both y_true and y_pred
-        valid_mask = ~np.isnan(y_true) & ~np.isnan(y_pred)
-        y_true = y_true[valid_mask]
-        y_pred = y_pred[valid_mask]
-        if sample_weight is not None:
-            sample_weight = np.asarray(sample_weight)[valid_mask]
+    # Filter out NaN values from both y_true and y_pred
+    y_true, y_pred, *opt_sample_weight = validate_nan_policy(
+        nan_policy, y_true, y_pred, sample_weights=sample_weight 
+    )
+    sample_weight = opt_sample_weight[0] if opt_sample_weight else sample_weight
     
     errors = np.abs(y_true - y_pred)
     
@@ -2939,7 +2942,7 @@ def mean_poisson_deviance(
     y_true, y_pred, *, 
     sample_weight=None, 
     epsilon=1e-8,
-    ignore_nan=False,
+    nan_policy='propagate', 
     zero_division='warn',
     multioutput='uniform_average'
 ):
@@ -2962,8 +2965,10 @@ def mean_poisson_deviance(
     epsilon : float, optional
         Small value added to predictions to avoid taking the log of zero,
         default is 1e-8.
-    ignore_nan : bool, default=False
-        If True, NaN values in `y_true` or `y_pred` are ignored.
+    nan_policy : bool, {'omit', 'propagate', 'raise'}, default='propagate'
+        Defines how to handle NaNs in the input arrays. 'propagate' returns the
+        input data without changes. 'raise' throws an error if NaNs are detected.
+        If 'omit', ignore NaN values in `y_true` and `y_pred`.
     zero_division : {'warn', 'ignore'}, optional
         Behavior when division by zero is encountered in the deviance 
         calculation, default is 'warn'.
@@ -3012,14 +3017,12 @@ def mean_poisson_deviance(
     
     y_true, y_pred = _ensure_y_is_valid(
         y_true, y_pred, y_numeric =True, allow_nan=True, multi_output=True)
-    
-    if ignore_nan:
-        # Filter out NaN values from both y_true and y_pred
-        valid_mask = ~np.isnan(y_true) & ~np.isnan(y_pred)
-        y_true = y_true[valid_mask]
-        y_pred = y_pred[valid_mask]
-        if sample_weight is not None:
-            sample_weight = np.asarray(sample_weight)[valid_mask]
+
+    # Filter out NaN values from both y_true and y_pred
+    y_true, y_pred, *opt_sample_weight = validate_nan_policy(
+        nan_policy, y_true, y_pred, sample_weights=sample_weight 
+    )
+    sample_weight = opt_sample_weight[0] if opt_sample_weight else sample_weight
     
     if zero_division not in ['warn', 'ignore']:
         raise ValueError("zero_division must be either 'warn' or 'ignore'")
@@ -3052,13 +3055,11 @@ def mean_poisson_deviance(
     return mean_deviance
 
 def mean_gamma_deviance(
-    y_true, 
-    y_pred, 
-    *, 
+    y_true, y_pred, *, 
     sample_weight=None, 
     epsilon=1e-8,
     clip_value=None,
-    ignore_nan=False,
+    nan_policy='propagate',
     zero_division='warn',
     multioutput='uniform_average'
 ):
@@ -3086,8 +3087,10 @@ def mean_gamma_deviance(
         Minimum value to clip predictions, ensuring no prediction is below
         this value. Used to avoid undefined logarithmic operations and division
         by zero. If None, epsilon is used as the minimum value.
-    ignore_nan : bool, default=False
-        If True, samples with NaN values in `y_true` or `y_pred` are ignored.
+    nan_policy : bool, {'omit', 'propagate', 'raise'}, default='propagate'
+        Defines how to handle NaNs in the input arrays. 'propagate' returns the
+        input data without changes. 'raise' throws an error if NaNs are detected.
+        If 'omit', samples with NaN values in `y_true` or `y_pred` are ignored.
     zero_division : {'warn', 'ignore'}, optional
         Behavior when a zero division occurs, default='warn'.
     multioutput : {'uniform_average', 'raw_values'}, optional
@@ -3135,20 +3138,17 @@ def mean_gamma_deviance(
         y_true, y_pred, y_numeric =True,
         allow_nan=True, multi_output=True
     )
-    
     # Clip y_pred to a minimum of epsilon or clip_value if specified
     if clip_value is not None:
         y_pred = np.clip(y_pred, clip_value, np.max(y_pred))
     else:
         y_pred = np.maximum(y_pred, epsilon)
     
-    if ignore_nan:
-        # Filter out NaN values from both y_true and y_pred
-        valid_mask = ~np.isnan(y_true) & ~np.isnan(y_pred)
-        y_true = y_true[valid_mask]
-        y_pred = y_pred[valid_mask]
-        if sample_weight is not None:
-            sample_weight = np.asarray(sample_weight)[valid_mask]
+    # Filter out NaN values from both y_true and y_pred
+    y_true, y_pred, *opt_sample_weight = validate_nan_policy(
+        nan_policy, y_true, y_pred, sample_weights=sample_weight 
+    )
+    sample_weight = opt_sample_weight[0] if opt_sample_weight else sample_weight
     
     with np.errstate(divide=zero_division, invalid=zero_division):
         gamma_deviance = 2 * (np.log(y_true / y_pred) + (y_pred - y_true) / y_pred)
@@ -3165,6 +3165,7 @@ def mean_gamma_deviance(
         mean_deviance = np.mean(gamma_deviance)
     
     # Handling multioutput scenarios
+    multioutput = validate_multioutput(multioutput)
     if multioutput == 'raw_values':
         return mean_deviance
     elif multioutput == 'uniform_average':
@@ -3172,14 +3173,12 @@ def mean_gamma_deviance(
             return np.average(mean_deviance)
         else:
             return mean_deviance
-    else:
-        raise ValueError(f"Invalid value for multioutput: {multioutput}")
 
 def mean_absolute_deviation(
     y_true, y_pred, *, 
     sample_weight=None, 
     epsilon=1e-8,
-    ignore_nan=False,
+    nan_policy='propagate',
     zero_division='warn',
     multioutput='uniform_average'
 ):
@@ -3202,8 +3201,10 @@ def mean_absolute_deviation(
     epsilon : float, optional
         A small positive value to prevent division by zero when calculating
         scaled MAD or handling edge cases. Defaults to 1e-8.
-    ignore_nan : bool, optional
-        If True, NaN values in both y_true and y_pred are ignored during the
+    nan_policy : bool, {'omit', 'propagate', 'raise'}, default='propagate'
+        Defines how to handle NaNs in the input arrays. 'propagate' returns the
+        input data without changes. 'raise' throws an error if NaNs are detected.
+        If 'omit', NaN values in both y_true and y_pred are ignored during the
         MAD computation. This allows for handling datasets with missing values.
     zero_division : {'warn', 'ignore'}, optional
         Strategy for handling division by zero errors during computation. 'warn'
@@ -3265,17 +3266,18 @@ def mean_absolute_deviation(
     # Calculate the absolute deviations
     deviations = np.abs(y_true - y_pred)
     
-    if ignore_nan:
-        # Handle NaN values in deviations
-        mask = ~np.isnan(deviations)
-        deviations = deviations[mask]
-        if sample_weight is not None:
-            sample_weight = np.asarray(sample_weight)[mask]
+    # Filter out NaN values from both y_true and y_pred
+    deviations, *opt_sample_weight = validate_nan_policy(
+        nan_policy, deviations, sample_weights=sample_weight 
+    )
+    sample_weight = opt_sample_weight[0] if opt_sample_weight else sample_weight
+     
+    epsilon = check_epsilon(epsilon, deviations, scale_factor=1e-8) 
     
     if sample_weight is not None:
         # Apply sample weights
         weighted_deviations = deviations * sample_weight
-        sum_weights = np.sum(sample_weight) + epsilon  # Avoid division by zero
+        sum_weights = np.sum(sample_weight) + epsilon  
         madev = np.sum(weighted_deviations) / sum_weights
     else:
         madev = np.mean(deviations)
@@ -3284,20 +3286,15 @@ def mean_absolute_deviation(
         warnings.warn("MADev calculation resulted in division by zero"
                       " or near-zero value.")
     # Handle multioutput scenarios
-    if multioutput == 'raw_values':
-        return madev
-    elif multioutput == 'uniform_average':
-        # This conditional is redundant for MADev but included for API consistency
-        # Average MADev across all outputs, if y_true/y_pred were multi-dimensional
-        return np.mean(madev)  
-    else:
-        raise ValueError("Invalid value for multioutput parameter.")
+    multioutput = validate_multioutput(multioutput)
+    # This conditional is redundant for MADev but included for API consistency
+    # Average MADev across all outputs, if y_true/y_pred were multi-dimensional
+    return madev if multioutput == 'raw_values' else np.mean(madev)  
 
 def flexible_madev(
-    data, 
-    *, 
+    data, *, 
     sample_weight=None,
-    ignore_nan=False,
+    nan_policy='propagate',
     epsilon=1e-8, 
     axis=None, 
     detailed=False, 
@@ -3324,11 +3321,12 @@ def flexible_madev(
         where some observations are considered more significant than others. 
         Default is None, where each data point has equal weight.
 
-    ignore_nan : bool, optional
-        If set to True, the function will ignore NaN (Not a Number) values 
+    nan_policy : str, {'omit', 'propagate', 'raise'}, defaut = 'propagate'
+        If set to 'omit', the function will ignore NaN (Not a Number) values 
         in the `data`. This is particularly useful when dealing with datasets
         that have missing values, ensuring they do not affect the computation 
-        of the MADev. Default is ``False``.
+        of the MADev. Default is ``propagate`` which returns the input data 
+        without changes. 'raise' throws an error if NaNs are detected.
 
     epsilon : float, optional
         A small positive constant added to the denominator to prevent division
@@ -3420,15 +3418,13 @@ def flexible_madev(
     if not _is_numeric_dtype(data): 
         raise TypeError("MADev computation expects `data` to be numeric.")
         
-    if ignore_nan:
-        # Handle NaN values by filtering them out
-        valid_mask = ~np.isnan(data)
-        data = data[valid_mask]
-        if sample_weight is not None:
-            sample_weight = np.asarray(sample_weight)[valid_mask]
+    # Handle NaN values by filtering them out
+    data, *opt_sample_weight= validate_nan_policy(
+        nan_policy, data, sample_weight= sample_weight ) 
+    sample_weight = opt_sample_weight[0] if opt_sample_weight else sample_weight
     
     # Calculate the mean, taking into account whether NaN values should be ignored
-    mean = np.nanmean(data, axis=axis) if ignore_nan else np.mean(data, axis=axis)
+    mean = np.nanmean(data, axis=axis) if nan_policy=='omit' else np.mean(data, axis=axis)
     
     # Calculate absolute deviation from the mean
     abs_deviation = np.abs(data - mean)
@@ -3439,7 +3435,8 @@ def flexible_madev(
         weighted_abs_deviation = abs_deviation * sample_weight
         sum_weights = np.sum(sample_weight, axis=axis)
         
-        # Ensure that division by zero is handled according to zero_division parameter
+        # Ensure that division by zero is handled according to 
+        # zero_division parameter
         with np.errstate(divide=zero_division, invalid=zero_division):
             madev = np.sum(weighted_abs_deviation, axis=axis) / np.maximum(
                 sum_weights, epsilon)
@@ -3455,7 +3452,8 @@ def flexible_madev(
         result.std_deviation = np.std(abs_deviation, axis=axis)
     
     if scale_errors:
-        # Scale errors relative to the mean, with protection against division by zero
+        # Scale errors relative to the mean, with protection
+        # against division by zero
         scaled_abs_deviation = abs_deviation / np.maximum(mean, epsilon)
         scaled_madev = np.mean(scaled_abs_deviation, axis=axis)
         result.scaled_MADev = scaled_madev
@@ -3468,10 +3466,10 @@ def flexible_madev(
     
     return result
 
-def dice_similarity_coeff(
+def dice_similarity_score(
     y_true, y_pred, *, 
     sample_weight=None, 
-    ignore_nan=False,
+    nan_policy='propagate',
     epsilon='auto', 
     zero_division='warn', 
     multioutput='uniform_average',
@@ -3491,8 +3489,10 @@ def dice_similarity_coeff(
     sample_weight : array-like of shape (n_samples,), optional
         Sample weights. If specified, each sample contributes its associated
         weight towards the DSC calculation.
-    ignore_nan : bool, optional
-        If True, NaN values in `y_true` and `y_pred` are ignored.
+    nan_policy : bool, {'omit', 'propagate', 'raise'}, default='propagate'
+        Defines how to handle NaNs in the input arrays. 'propagate' returns the
+        input data without changes. 'raise' throws an error if NaNs are detected.
+        If 'omit', NaN values in `y_true` and `y_pred` are ignored.
     epsilon : {'auto'} or float, optional
         A small positive value to prevent division by zero. If 'auto',
         `epsilon` is dynamically determined based on `y_pred`.
@@ -3525,10 +3525,10 @@ def dice_similarity_coeff(
 
     Examples
     --------
-    >>> from gofast.metrics import dice_similarity_coeff
+    >>> from gofast.metrics import dice_similarity_score
     >>> y_true = [True, False, True, False, True]
     >>> y_pred = [True, True, True, False, False]
-    >>> dice_similarity_coeff(y_true, y_pred)
+    >>> dice_similarity_score(y_true, y_pred)
     0.6
 
     See Also
@@ -3557,11 +3557,11 @@ def dice_similarity_coeff(
         else:
             raise ValueError("y_true and y_pred must be boolean arrays. "
                              "Use `to_boolean=True` to auto-convert.")
-    
-    if ignore_nan:
-        valid_mask = ~np.isnan(y_true) & ~np.isnan(y_pred)
-        y_true, y_pred = y_true[valid_mask], y_pred[valid_mask]
 
+    y_true, y_pred, *opt_sample_weight= validate_nan_policy(
+        nan_policy, y_true, y_pred, sample_weight= sample_weight ) 
+    sample_weight = opt_sample_weight[0] if opt_sample_weight else sample_weight
+    
     epsilon_value = check_epsilon ( epsilon, y_pred)
 
     intersection = np.sum(y_true & y_pred)
@@ -3579,10 +3579,10 @@ def dice_similarity_coeff(
 
     return dice_score
 
-def gini_coeff(
+def gini_score(
      y_true, y_pred, *,  
      sample_weight=None, 
-     ignore_nan=False,
+     nan_policy='propagate',
      epsilon='auto', 
      zero_division='warn', 
      multioutput='uniform_average',
@@ -3605,8 +3605,10 @@ def gini_coeff(
         Individual weights for each sample. Each weight contributes to the
         overall calculation of the Gini coefficient, allowing for unequal impact
         of different observations.
-    ignore_nan : bool, optional
-        If set to True, NaN values in both `y_true` and `y_pred` are ignored,
+    nan_policy : bool, {'omit', 'propagate', 'raise'}, default='propagate'
+        Defines how to handle NaNs in the input arrays. 'propagate' returns the
+        input data without changes. 'raise' throws an error if NaNs are detected.
+        If set to 'omit', NaN values in both `y_true` and `y_pred` are ignored,
         ensuring the calculation only considers valid numerical entries.
     epsilon : {'auto'} or float, optional
         A small positive value added to the denominator to prevent division by
@@ -3648,10 +3650,10 @@ def gini_coeff(
 
     Examples
     --------
-    >>> from gofast.metrics import gini_coeff
+    >>> from gofast.metrics import gini_score
     >>> y_true = [1, 2, 3, 4, 5]
     >>> y_pred = [2, 2, 3, 4, 4]
-    >>> gini_coeff(y_true, y_pred)
+    >>> gini_score(y_true, y_pred)
     0.2
 
     The Gini coefficient of 0.2 in this example indicates a low level of
@@ -3669,15 +3671,13 @@ def gini_coeff(
            International Economic Review, 24(3), 617-628.
     """
 
-    y_true, y_pred = _ensure_y_is_valid(
-        y_true, y_pred, allow_nan=True, 
-        multi_output=True # We keep it just to warn user
+    y_true, y_pred = _ensure_y_is_valid(# We keep it just to warn user
+        y_true, y_pred, allow_nan=True, multi_output=True 
     )
-    if ignore_nan:
-        valid_mask = ~np.isnan(y_true) & ~np.isnan(y_pred)
-        y_true, y_pred = y_true[valid_mask], y_pred[valid_mask]
-        if sample_weight is not None:
-            sample_weight = np.asarray(sample_weight)[valid_mask]
+    
+    y_true, y_pred, *opt_sample_weight= validate_nan_policy(
+        nan_policy, y_true, y_pred, sample_weight= sample_weight ) 
+    sample_weight = opt_sample_weight[0] if opt_sample_weight else sample_weight
     
     epsilon_value = check_epsilon(epsilon, y_true, y_pred)
     abs_diff = np.abs(np.subtract.outer(y_true, y_pred))
@@ -3720,11 +3720,12 @@ def hamming_loss(
     to_boolean=False        
 ):
     """
-    Compute the Hamming loss, the fraction of labels that are incorrectly predicted.
+    Compute the Hamming loss, the fraction of labels that are incorrectly 
+    predicted.
 
     The Hamming loss is the fraction of labels that are incorrectly predicted,
     relative to the total number of labels. It is a useful metric in multi-label
-    classification tasks, where each instance may have multiple labels.
+    classification tasks, where each instance may have multiple labels [1]_.
 
     Parameters
     ----------
@@ -3785,9 +3786,9 @@ def hamming_loss(
 
     References
     ----------
-    - Zhao, M., & Zhang, Z. (2012). Multi-label learning by exploiting label dependency.
-      In Proceedings of the 16th ACM SIGKDD international conference on Knowledge 
-      discovery and data mining (pp. 999-1008).
+    .. [1] Zhao, M., & Zhang, Z. (2012). Multi-label learning by exploiting 
+           label dependency. In Proceedings of the 16th ACM SIGKDD international
+           conference on Knowledge discovery and data mining (pp. 999-1008).
 
     See Also
     --------
@@ -3819,7 +3820,6 @@ def hamming_loss(
 
     # Calculate mismatches between y_true and y_pred
     mismatch = y_true != y_pred
-    
     if normalize:
         # Normalize the Hamming loss by the total number of labels
         n_labels = np.size(y_true, axis=1)
@@ -3841,7 +3841,7 @@ def hamming_loss(
 
     return hamming_loss_value
 
-def fowlkes_mallows_index(
+def fowlkes_mallows_score(
     y_true, y_pred, *, 
     sample_weight=None, 
     average='macro', 
@@ -3850,7 +3850,7 @@ def fowlkes_mallows_index(
     multioutput='uniform_average', 
 ):
     """
-    Compute the Fowlkes-Mallows Index (FMI) between true and predicted 
+    Compute the Fowlkes-Mallows Index (FMI) score between true and predicted 
     cluster labels.
     
     The FMI is a measure of similarity between two sets of clusters, defined as the
@@ -3919,10 +3919,10 @@ def fowlkes_mallows_index(
     
     Examples
     --------
-    >>> from gofast.metrics import fowlkes_mallows_index
+    >>> from gofast.metrics import fowlkes_mallows_score
     >>> y_true = [1, 1, 2, 2, 3, 3]
     >>> y_pred = [1, 1, 1, 2, 3, 3]
-    >>> fowlkes_mallows_index(y_true, y_pred)
+    >>> fowlkes_mallows_score(y_true, y_pred)
     0.8606
     
     """
@@ -3937,11 +3937,12 @@ def fowlkes_mallows_index(
     precision = tp / (tp + fp + epsilon)
     recall = tp / (tp + fn + epsilon)
 
-    average = normalize_string(average, target_strs= ['average', 'macro'], 
-                               match_method='contains',raise_exception=True, 
-                               return_target_only=True,
-                               error_msg=f"Invalid average method: {average}"
-                               )
+    average = normalize_string(
+        average, target_strs= ['average', 'macro'], 
+        match_method='contains',raise_exception=True, 
+        return_target_only=True,
+        error_msg=f"Invalid average method: '{average}'"
+    )
     if average == 'macro':
         precision_avg = np.mean(precision)
         recall_avg = np.mean(recall)
@@ -4198,7 +4199,7 @@ def mean_percentage_error(
         
     return weighted_percentage_error 
 
-def spearmans_rank_coeff(
+def spearmans_rank_score(
     y_true,  y_pred, *, 
     sample_weight=None,  
     multioutput='uniform_average',
@@ -4207,7 +4208,7 @@ def spearmans_rank_coeff(
     control_vars=None, 
 ):
     """
-    Calculate Spearman's rank correlation coefficient, with options for 
+    Calculate Spearman's rank correlation coefficient score, with options for 
     handling ties, NaNs, control variables, and multi-output data. This 
     non-parametric measure assesses the monotonic relationship between 
     two datasets without making any assumptions about their frequency 
@@ -4333,78 +4334,171 @@ def spearmans_rank_coeff(
 
     return result
 
-    
-def precision_at_k(y_true, y_pred, k):
+def precision_at_k(
+    y_true, y_pred, k, *,
+    sample_weight=None,
+    multioutput='uniform_average'
+):
     """
-    Compute Precision at K for ranking problems.
+    Compute the precision at rank k between lists of true relevant items
+    and predicted items. This metric evaluates the proportion of relevant items
+    found in the top-k positions of the ranked prediction list, which is 
+    particularly useful in recommendation systems and information retrieval.
     
-    Measures the proportion of relevant items found in the top-k recommendations.
-    
-    Widely used in information retrieval and recommendation systems, like in 
-    search engine result ranking or movie recommendation.
-    
+    See more in :ref:`User Guide`. 
+
     Parameters
     ----------
     y_true : list of list of int
-        List of lists containing the true relevant items.
+        True labels of each sample. Each inner list contains the labels of
+        the relevant items for the corresponding sample.
     y_pred : list of list of int
-        List of lists containing the top-k predicted items.
+        Predicted labels for each sample. Each inner list is the ranked list
+        of predicted items for the corresponding sample.
     k : int
-        The rank at which precision is evaluated.
+        The rank at which the precision is evaluated. Precision considers only
+        the top-k items in the predicted list.
+    sample_weight : array-like of shape (n_samples,), optional
+        Weights applied to each sample in the calculation of the average precision.
+    multioutput : {'raw_values', 'uniform_average'}, optional
+        Specifies how to aggregate results across multiple outputs. If 
+        'raw_values', returns a score for each sample. If 'uniform_average',
+        returns the average precision score.
 
     Returns
     -------
-    float
-        Precision at K.
+    float or np.ndarray
+        The precision score(s). If `multioutput` is 'raw_values', returns an array
+        with a precision score for each sample. If 'uniform_average', returns the
+        overall average precision.
+
+    Notes
+    -----
+    Precision at k (P@k) is defined as:
+
+    .. math::
+        P@k = \\frac{1}{|U|} \\sum_{u=1}^{|U|} \\frac{|\\{
+            \\text{relevant items at k for user } u\\} \\cap \\{
+                \\text{recommended items at k for user } u\\}|}{k}
+
+    where \(|U|\) is the number of users, \(k\) is the rank threshold, and
+    the intersection considers the number of true relevant items that appear in
+    the top-k predicted items. This metric emphasizes the importance of having
+    relevant items at the top of the recommendation list.
 
     Examples
     --------
-    >>> y_true = [[1, 2], [1, 2, 3]]
-    >>> y_pred = [[2, 3, 4], [2, 3, 5]]
+    >>> from gofast.metrics import precision_at_k
+    >>> y_true = [[1, 2, 3], [1, 2]]
+    >>> y_pred = [[2, 1, 4], [1, 2, 3]]
     >>> k = 2
     >>> precision_at_k(y_true, y_pred, k)
     0.75
 
-    Notes
-    -----
-    P@K = \frac{1}{|U|} \sum_{u=1}^{|U|} \frac{|{
-        \text{relevant items at k for user } u } \cap {
-            \text{recommended items at k for user } u }|}{k}
-    """
-    assert len(y_true) == len(y_pred),(
-        "Length of true and predicted lists must be equal.")
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    precision_scores = []
-    for true, pred in zip(y_true, y_pred):
-        num_relevant = len(set(true) & set(pred[:k]))
-        precision_scores.append(num_relevant / k)
-    
-    return np.mean(precision_scores)
+    References
+    ----------
+    .. [1] Manning, C.D., Raghavan, P., Schütze, H. (2008). Introduction to 
+           Information Retrieval. Cambridge University Press.
 
-def ndcg_at_k(y_true, y_pred, k):
+    See Also
+    --------
+    recall_at_k : Calculate recall at rank k.
+    f1_score_at_k : Calculate the F1 score at rank k.
     """
-    Compute Normalized Discounted Cumulative Gain at K for 
-    ranking problems.
-    
-    Evaluates the quality of rankings by considering the position of the 
-    relevant items.
-    
-    Crucial in search engines, recommender systems, and any other system 
-    where the order of predictions is important.
+    # Ensure y_true and y_pred are standardized 
+    y_true, y_pred = standardize_input(y_true, y_pred)
+
+    # Convert k to int if it's float or a NumPy numeric type
+    if not isinstance(k, (int, float, np.integer, np.floating)):
+        raise TypeError("k must be an integer or floating point number.")
+    k = int(k)
+
+    # Check that k is a positive integer after conversion
+    if k <= 0:
+        raise ValueError("k must be a positive integer after conversion.")
+
+    precision_scores = []
+    weights = []
+
+    # Calculate precision scores
+    for idx, (true_items, pred_items) in enumerate(zip(y_true, y_pred)):
+        if len(pred_items) < k:
+            raise ValueError(f"Predicted items for instance {idx} has fewer than k items.")
+        num_relevant = len(set(true_items) & set(pred_items[:k]))
+        precision_score = num_relevant / k
+        precision_scores.append(precision_score)
+
+        # Append corresponding weight or 1 if no sample_weight is provided
+        weights.append(sample_weight[idx] if sample_weight is not None else 1)
+
+    # Normalize weights if provided
+    weights = np.array(weights)
+    weights = weights / np.sum(weights) if sample_weight is not None else weights
+
+    # Validate multioutput parameter
+    multioutput = validate_multioutput(multioutput)
+
+    # Return the appropriate output based on multioutput parameter
+    if multioutput == 'raw_values':
+        return np.array(precision_scores)
+    elif multioutput == 'uniform_average':
+        return np.average(precision_scores, weights=weights)
+
+def ndcg_at_k(
+    y_true, y_pred, k, *, 
+    sample_weight=None, 
+    multioutput='uniform_average', 
+    nan_policy='omit'
+):
+    """
+    Compute Normalized Discounted Cumulative Gain (NDCG) at rank K, a widely
+    recognized measure in information retrieval and ranking problems. This 
+    metric assesses the quality of the ranking by considering the order of
+    relevance scores assigned to the set of items up to position K. It's
+    particularly useful in evaluating the performance of search engines and
+    recommender systems.
 
     Parameters
     ----------
-    y_true : list of list of int
+    y_true :  list of list of int
         List of lists containing the true relevant items with their grades.
     y_pred : list of list of int
-        List of lists containing the predicted items.
+        List of lists containing the predicted items up to position K.
     k : int
-        The rank at which NDCG is evaluated.
+        The rank at which the NDCG is calculated.
+    sample_weight : array-like, optional
+        Weights for each sample in y_true and y_pred. Default is None.
+    multioutput : {'raw_values', 'uniform_average'}, optional
+        Determines the type of averaging performed on the data:
+        'raw_values' returns an array with NDCG score per each set of predictions;
+        'uniform_average' calculates an average of all NDCG scores.
+        Default is 'uniform_average'.
+    nan_policy : {'omit', 'raise', 'propagate'}, optional
+        Defines how to handle when input contains NaN. Currently, only 'omit'
+        is supported, which excludes NaNs from the calculation. 
+        Default is 'omit'.
 
     Returns
     -------
-    float
-        NDCG at K.
+    float or np.ndarray
+        The NDCG score at K. Returns a single float value if 'uniform_average' 
+        is selected for `multioutput`, or an array of scores if 'raw_values'.
+
+    Notes
+    -----
+    The NDCG at position K is calculated as the ratio of the Discounted 
+    Cumulative Gain (DCG) at K to the Ideal DCG (IDCG) at K, ensuring the 
+    score is normalized to the range [0, 1]:
+
+    .. math::
+        \mathrm{NDCG@K} = \frac{\mathrm{DCG@K}}{\mathrm{IDCG@K}}
+
+    where:
+
+    .. math::
+        \mathrm{DCG@K} = \sum_{i=1}^{K} \frac{2^{rel_i} - 1}{\log_2(i + 1)}
+
+    and `rel_i` is the graded relevance of the result at position `i`.
 
     Examples
     --------
@@ -4414,152 +4508,692 @@ def ndcg_at_k(y_true, y_pred, k):
     >>> ndcg_at_k(y_true, y_pred, k)
     0.9203
 
-    Notes
-    -----
-    DCG@K = \sum_{i=1}^k \frac{2^{rel_i} - 1}{\log_2(i + 1)}
-    NDCG@K = \frac{DCG@K}{IDCG@K}
-    where rel_i is the relevance of the item at position i.
+    References
+    ----------
+    .. [1] Järvelin, K., & Kekäläinen, J. (2002). Cumulated gain-based evaluation 
+           of IR techniques. ACM Transactions on Information Systems (TOIS), 
+           20(4), 422-446.
+
+    See Also
+    --------
+    precision_at_k : Precision at rank K for ranking problems.
     """
-    def dcg_at_k(rel, k):
-        rel = np.asfarray(rel)[:k]
-        discounts = np.log2(np.arange(2, rel.size + 2))
-        return np.sum(rel / discounts)
+    # Ensure y_true and y_pred are standardized 
+    y_true, y_pred = standardize_input(y_true, y_pred)
+    # Handle NaN values according to nan_policy
+    y_true, y_pred, *opt_weights = filter_nan_entries(
+        nan_policy, y_true, y_pred, sample_weight =sample_weight ) 
+    sample_weight = opt_weights[0] if opt_weights else sample_weight 
     
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+    # Calculate DCG@k and IDCG@k for each pair of true and predicted rankings
+    def dcg_at_k(scores, k):
+        return np.sum([(2**scores[i] - 1) / np.log2(i + 2) for i in range(
+            min(len(scores), k))])
+
+    # Convert k to int if it's float or a NumPy numeric type
+    if not isinstance(k, (int, float, np.integer, np.floating)):
+        raise TypeError("k must be an integer or floating point number.")
+    k = int(k)
+
+    # Check that k is a positive integer after conversion
+    if k <= 0:
+        raise ValueError("k must be a positive integer.")
+        
     ndcg_scores = []
-    for true, pred in zip(y_true, y_pred):
-        idcg = dcg_at_k(sorted(true, reverse=True), k)
-        dcg = dcg_at_k([true[pred.index(d)] if d in pred else 0 for d in pred], k)
-        ndcg_scores.append(dcg / idcg if idcg > 0 else 0)
-    
-    return np.mean(ndcg_scores)
+    for idx, (true, pred) in enumerate(zip(y_true, y_pred)):
+        actual_scores = np.array([true.get(item, 0) for item in pred[:k]])
+        ideal_scores = np.sort(list(true.values()))[::-1][:k]
 
-def mean_reciprocal_rank(y_true, y_pred):
+        dcg_score = dcg_at_k(actual_scores, k)
+        idcg_score = dcg_at_k(ideal_scores, k)
+
+        ndcg_score = dcg_score / idcg_score if idcg_score > 0 else 0
+        ndcg_scores.append(ndcg_score)
+
+    if sample_weight is not None:
+        ndcg_scores = np.average(ndcg_scores, weights=sample_weight)
+
+    multioutput = validate_multioutput(multioutput)
+    return np.array(ndcg_scores) if multioutput == 'raw_values' else np.mean(ndcg_scores)
+
+def ndcg_at_k_with_controls(
+    y_true, y_pred, k, *,
+    sample_weight=None,
+    multioutput='uniform_average',
+    nan_policy='propagate',
+    epsilon=1e-10,
+    clip_value=0
+):
     """
-    Compute Mean Reciprocal Rank for ranking problems.
+    Compute the Normalized Discounted Cumulative Gain (NDCG) at rank K, incorporating
+    advanced controls such as handling missing values, adjusting for sample weights,
+    and clipping predictions. NDCG quantifies the effectiveness of a ranking model 
+    based on the graded relevance of the recommended items.
 
-    Averages the reciprocal ranks of the first correct answer in a list of 
-    predictions.
-    
-    Applicability: Commonly used in information retrieval and natural 
-    language processing, particularly for evaluating query response 
-    systems
-    
     Parameters
     ----------
-    y_true : list of int
-        List containing the true relevant item.
-    y_pred : list of list of int
-        List of lists containing the predicted ranked items.
+    y_true : array-like
+        True relevance scores for each item, indicating the ideal order.
+    y_pred : array-like
+        Predicted relevance scores for each item, given by the ranking model.
+    k : int
+        Rank position at which NDCG is evaluated, considering only the top-k items.
+    sample_weight : array-like, optional
+        Weights for each pair of values, emphasizing some over others.
+    multioutput : {'uniform_average', 'raw_values'}, optional
+        Aggregation method for multiple outputs. 'uniform_average' returns 
+        the average NDCG across all outputs, while 'raw_values' returns NDCG 
+        scores for each output.
+    nan_policy : {'propagate', 'raise', 'omit'}, optional
+        Strategy for handling NaN values in `y_true` and `y_pred`. 'propagate' 
+        allows NaNs to affect the score, 'omit' ignores them, and 'raise' throws 
+        an error if NaNs are detected.
+    epsilon : float, optional
+        Small constant added to prevent division by zero in logarithmic calculations.
+    clip_value : float, optional
+        Minimum threshold to clip predicted relevance scores, ensuring they 
+        remain non-negative.
 
     Returns
     -------
-    float
-        Mean Reciprocal Rank.
+    float or ndarray
+        The calculated NDCG score at rank K. Returns a single float if 
+        `multioutput` is 'uniform_average' or an array of scores if 
+        `multioutput` is 'raw_values'.
+
+    Notes
+    -----
+    NDCG is essential in evaluating ranking algorithms where the order of 
+    items is crucial, such as search engines and recommender systems. It 
+    provides insight into the model's ability to rank items in order of 
+    their relevance, which is particularly valuable when the relevance 
+    is graded rather than binary.
+
+    The NDCG score is derived by comparing the DCG of the predicted ranking 
+    to the ideal DCG (IDCG), ensuring that the score is normalized to a 
+    range of 0 (worst) to 1 (best):
+
+    .. math::
+        \mathrm{DCG@K} &= \sum_{i=1}^{k} \frac{2^{rel_i} - 1}{\log_2(i + 1)} \\
+        \mathrm{IDCG@K} &= \sum_{i=1}^{k} \frac{2^{rel_i^*} - 1}{\log_2(i + 1)} \\
+        \mathrm{NDCG@K} &= \frac{DCG@K}{IDCG@K}
+
+    where :math:`rel_i` is the relevance score of the item at position :math:`i`
+    in the predicted ranking, and :math:`rel_i^*` is the relevance score of the 
+    item at position :math:`i` in the ideal (perfect) ranking.
+
+    This metric is particularly useful for assessing the performance of ranking
+    models in situations where the position of an item in the list (and its 
+    relative relevance) significantly impacts the user experience or the 
+    effectiveness of the model.
 
     Examples
     --------
-    >>> y_true = [1, 2]
-    >>> y_pred = [[1, 2, 3], [1, 3, 2]]
+    >>> from gofast.metrics import ndcg_at_k_with_controls
+    >>> y_true = [[3, 2, 3], [2, 1, 2]]
+    >>> y_pred = [[1, 2, 3], [1, 2, 3]]
+    >>> k = 3
+    >>> ndcg_at_k_with_controls(y_true, y_pred, k)
+    0.8192
+
+    References
+    ----------
+    .. [1] Järvelin, K., & Kekäläinen, J. (2002). Cumulated gain-based evaluation 
+           of IR techniques.
+    .. [2] Wang, Y., et al. (2013). Theoretical analysis of normalized 
+           discounted cumulative gain (NDCG) ranking measures.
+    """
+    y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric =True, 
+                                        allow_nan=True, multi_output =True)
+    epsilon = check_epsilon(epsilon, y_true, scale_factor=1e-10)
+
+    def dcg_at_k(scores, true_relevances, k, epsilon):
+        """
+        Calculate Discounted Cumulative Gain at rank K.
+
+        Parameters:
+        - scores: list or ndarray, predicted relevance scores (clipped).
+        - true_relevances: list or ndarray, true relevance scores.
+        - k: int, rank at which to calculate DCG.
+        - epsilon: float, small value to prevent division by zero.
+
+        Returns:
+        - float, the DCG score at K.
+        """
+        scores = np.asfarray(scores)[:k]
+        discounts = np.log2(np.arange(2, len(scores) + 2)) + epsilon
+        return np.sum(scores / discounts)
+    
+    # Handle NaN values according to nan_policy
+    # Implementation would involve filtering or warnings based on nan_policy
+    # Handle NaN values according to nan_policy
+    y_true, y_pred, *opt_weights = validate_nan_policy(
+        nan_policy, y_true, y_pred, sample_weights =sample_weight ) 
+    sample_weight = opt_weights[0] if opt_weights else sample_weight 
+    
+    # Convert k to int if it's float or a NumPy numeric type
+    if not isinstance(k, (int, float, np.integer, np.floating)):
+        raise TypeError("k must be an integer or floating point number.")
+    k = int(k)
+
+    # Check that k is a positive integer after conversion
+    if k <= 0:
+        raise ValueError("k must be a positive integer.")
+
+    # Initialize NDCG scores list
+    ndcg_scores = []
+
+    for true_items, pred_items in zip(y_true, y_pred):
+        # Clip predicted relevance scores
+        pred_items_clipped = np.maximum(pred_items, clip_value)
+
+        # Compute DCG@k
+        dcg_k = dcg_at_k(pred_items_clipped, true_items, k, epsilon)
+
+        # Compute IDCG@k
+        idcg_k = dcg_at_k(sorted(true_items, reverse=True), true_items, k, epsilon)
+
+        # Calculate NDCG@k and append to scores list
+        ndcg_score = dcg_k / idcg_k if idcg_k > 0 else 0
+        ndcg_scores.append(ndcg_score)
+
+    # Aggregate NDCG scores. Apply weights if provided and adjust based 
+    # on `multioutput` setting.
+    if sample_weight is not None:
+        # Calculate a weighted average if sample weights are provided.
+        aggregated_ndcg_score = np.average(ndcg_scores, weights=sample_weight)
+    else:
+        # Use a simple mean for aggregation when no weights are specified.
+        aggregated_ndcg_score = np.mean(ndcg_scores)
+    
+    # Return the aggregated score or raw scores depending on 
+    # `multioutput` preference.
+    multioutput= validate_multioutput(multioutput)
+    if multioutput == 'uniform_average':
+        return aggregated_ndcg_score
+    else:  # multioutput == 'raw_values'
+        return np.array(ndcg_scores)
+
+def mean_reciprocal_score(
+    y_true, y_pred, *, 
+    sample_weight=None,
+    nan_policy='propagate',
+    epsilon=1e-10,
+    zero_division='warn',
+    multioutput='uniform_average'
+):
+    """
+    Compute the Mean Reciprocal Rank (MRR) for ranking predictions, with support 
+    for handling missing data, applying sample weights, and controlling zero division 
+    behavior.
+
+    The MRR is a statistic measure for evaluating any process that produces a list 
+    of possible responses to a sample of queries, ordered by the probability of 
+    correctness. The reciprocal rank of a query response is the multiplicative 
+    inverse of the rank of the first correct answer.
+
+    Parameters
+    ----------
+    y_true : array-like
+        True labels or relevant items. Must be a 1D array of the same length as y_pred.
+    y_pred : array-like of list
+        Predicted rankings for each query. Each element must be a list of items ranked 
+        by predicted relevance.
+    sample_weight : array-like of shape (n_samples,), optional
+        Weights for each sample in the calculation of the mean.
+    nan_policy : {'propagate', 'raise', 'omit'}, default='propagate'
+        Policy to handle NaNs in the input. If 'omit', ignores samples with NaNs.
+    epsilon : float, default=1e-10
+        Small value to prevent division by zero in reciprocal rank computation.
+    zero_division : {'warn', 'ignore'}, default='warn'
+        How to handle scenarios where the correct label is not among the predictions.
+    multioutput : {'uniform_average', 'raw_values'}, default='uniform_average'
+        Aggregation method for multiple outputs or ranks.
+
+    Returns
+    -------
+    float or np.ndarray
+        The mean reciprocal rank. If `multioutput` is 'raw_values', returns an array
+        of reciprocal ranks for each sample.
+
+    Notes
+    -----
+    The MRR is defined as:
+
+    .. math:: \text{MRR} = \frac{1}{Q} \sum_{i=1}^{Q} \frac{1}{\text{rank}_i}
+
+    where \(Q\) is the number of queries, \(\text{rank}_i\) is the rank of the first 
+    correct answer for the \(i\)-th query. The rank is 1-indexed. If the correct answer 
+    does not appear in the predictions, \(\text{rank}_i\) is set to \(\infty\) (or handled 
+    according to `zero_division`).
+
+    This metric is particularly useful in search engine optimization and recommendation 
+    systems where the position of the relevant item (e.g., document, product) within 
+    the search results or recommendations list is critical [2]_.
+
+    Examples
+    --------
+    >>> from gofast.metrics import mean_reciprocal_rank
+    >>> y_true = [2, 1]
+    >>> y_pred = [[1, 2, 3], [1, 2, 3]]
     >>> mean_reciprocal_rank(y_true, y_pred)
     0.75
 
-    Notes
-    -----
-    MRR = \frac{1}{|Q|} \sum_{i=1}^{|Q|} \frac{1}{\text{rank of first relevant item for query } i}
+    See Also
+    --------
+    average_precision_score : Compute average precision (AP) from prediction scores.
+    ndcg_score : Compute Normalized Discounted Cumulative Gain.
+
+    References
+    ----------
+    .. [1] Voorhees, E. M. (1999). The TREC-8 Question Answering Track Report. In 
+           TREC.
+    .. [2] Craswell, N. (2009). Mean Reciprocal Rank. In Encyclopedia of Database 
+           Systems.
     """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
+
+    # Ensure y_true and y_pred are numpy arrays for consistency
+    y_true, y_pred = _ensure_y_is_valid(
+        y_true, y_pred, y_numeric=True, allow_nan=True, multi_output =True
+    )
+    # check epsilon 
+    epsilon = check_epsilon(epsilon, y_true)
+    # Apply nan_policy
+    y_true, y_pred, *opt_sample_weight= validate_nan_policy(
+        nan_policy, y_true, y_pred, sample_weights= sample_weight ) 
+    sample_weight = opt_sample_weight[0] if opt_sample_weight else sample_weight 
+
+    # Compute reciprocal ranks with epsilon to prevent zero division
     reciprocal_ranks = []
-    for true, preds in zip(y_true, y_pred):
-        rank = next((1 / (i + 1) for i, pred in enumerate(preds) if pred == true), 0)
+    for idx, true_label in enumerate(y_true):
+        match_indices = np.where(y_pred[idx] == true_label)[0]
+        if match_indices.size > 0:
+            rank = 1 / (match_indices[0] + 1 + epsilon)
+        else:
+            rank = 0
+            if zero_division == 'warn':
+                warnings.warn("Zero division encountered in"
+                              " reciprocal rank computation.")
         reciprocal_ranks.append(rank)
-    
-    return np.mean(reciprocal_ranks)
 
-def average_precision_score(y_true, y_pred):
+    # Apply sample weights
+    if sample_weight is not None:
+        weighted_reciprocal_ranks = np.average(
+            reciprocal_ranks, weights=sample_weight)
+    else:
+        weighted_reciprocal_ranks = np.mean(reciprocal_ranks)
+
+    # Handle multioutput
+    multioutput = validate_multioutput(multioutput)
+    return ( 
+        np.array(reciprocal_ranks) if  multioutput == 'raw_values' 
+        else weighted_reciprocal_ranks
+        )
+
+def flexible_jaccard(
+    y_true, y_pred, *, 
+    labels=None,
+    pos_label=1, 
+    average='binary', 
+    detailed=False, 
+    scale_errors=False, 
+    epsilon='auto', 
+    zero_division='warn', 
+    multioutput='average_uniform'
+):
     """
-    Compute Average Precision for binary classification problems.
+    Compute the Jaccard Similarity Coefficient, extending functionality to 
+    support detailed output and handling of multi-class/multi-label cases.
 
-    Measures the average precision of a classifier at different threshold 
-    levels.
-    
-    Widely used in binary classification tasks and ranking problems in 
-    information retrieval, like document retrieval and object 
-    detection in images.
-    
+    This metric measures the similarity and diversity between sample sets, 
+    making it useful in various fields including ecology, gene sequencing 
+    analysis, and machine learning for clustering accuracy evaluation [1]_.
+
     Parameters
     ----------
     y_true : array-like
-        True binary labels.
+        True labels or binary indicators of membership.
     y_pred : array-like
-        Predicted probabilities.
+        Predicted labels or binary indicators of membership.
+    labels : array-like, optional
+        The set of labels to include when `average` is not 'binary', 
+        and their order if `average` is None.
+    pos_label : int or str, default=1
+        The label of the positive class.
+    average : {'binary', 'micro', 'macro', 'samples', 'weighted'}, default='binary'
+        Determines the type of averaging performed on the data.
+    detailed : bool, default=False
+        If True, return detailed metrics in the output.
+    scale_errors : bool, default=False
+        If True, scale intersection and union by the mean value of `y_true`.
+    epsilon : float or 'auto', default='auto'
+        A small value to avoid division by zero. Automatically determined if 'auto'.
+    zero_division : str or int, default='warn'
+        Sets the value to return when there is a zero division.
+    multioutput : {'average_uniform', 'raw_values'}, default='average_uniform'
+        Defines how to aggregate scores for multiple outputs.
 
     Returns
     -------
-    float
-        Average Precision.
+    Bunch
+        A bunch containing the Jaccard score, and if `detailed` is True, additional
+        metrics like intersection and union sizes, potentially scaled by `scale_errors`.
+
+    Notes
+    -----
+    The Jaccard Similarity Coefficient (J) is defined as:
+
+    .. math::
+        J = \\frac{|y_{\\text{true}} \\cap y_{\\text{pred}}|}{|y_{\\text{true}} \\cup y_{\\text{pred}}|}
+
+    This function supports both binary and multi-class/multi-label tasks by binarizing 
+    labels in a multi-class/multi-label setting [2]_.
 
     Examples
     --------
+    >>> from gofast.metrics import flexible_jaccard 
+    >>> y_true = [0, 1, 2, 1, 2, 0]
+    >>> y_pred = [0, 2, 1, 0, 0, 1]
+    >>> flexible_jaccard(y_true, y_pred, average='macro')
+    Bunch(score=0.333...)
+
+    References
+    ----------
+    .. [1] Scikit-learn documentation on Jaccard score:
+          https://scikit-learn.org/stable/modules/generated/sklearn.metrics.jaccard_score.html
+    .. [2] Wikipedia entry for the Jaccard index:
+           https://en.wikipedia.org/wiki/Jaccard_index
+
+    See Also
+    --------
+    sklearn.metrics.jaccard_score : Jaccard similarity coefficient score.
+    
+    """
+    # Ensure inputs are numpy arrays for consistency
+    y_true, y_pred = _ensure_y_is_valid(
+        y_true, y_pred, y_numeric=True, allow_nan=True, multi_output =True
+    )
+    # Initialize Bunch object to store results
+    b = Bunch()
+    # Determine epsilon dynamically if required
+    epsilon = check_epsilon(epsilon, y_pred, scale_factor= np.finfo(float).eps)
+
+    # Handle multi-class/multi-label cases
+    if labels is None:
+        labels = np.unique(np.concatenate([y_true, y_pred]))
+    
+    # Binarize labels in a multi-class/multi-label setting
+    if average != 'binary' or len(labels) > 2:
+        y_true = label_binarize(y_true, classes=labels)
+        y_pred = label_binarize(y_pred, classes=labels)
+    
+    # Calculate Jaccard score
+    b.score = jaccard_score(y_true, y_pred, labels=labels, pos_label=pos_label,
+                          average=average, zero_division=zero_division)
+    
+    # Store basic result
+    # Calculate detailed statistics if requested
+    if detailed:
+        intersect = np.logical_and(y_true, y_pred)
+        union = np.logical_or(y_true, y_pred)
+        b.intersection = np.sum(intersect, axis=0)
+        b.union = np.sum(union, axis=0)
+        if scale_errors:
+            # Scale the intersection and union by the mean value of y_true
+            mean_val = np.mean(y_true, axis=0) + epsilon  # Avoid division by zero
+            b.scaled_intersection = b.intersection / mean_val
+            b.scaled_union = b.union / mean_val
+    
+    # Handle multioutput
+    multioutput = validate_multioutput(multioutput)
+    if multioutput == 'raw_values':
+        b.raw_scores = jaccard_score(
+            y_true, y_pred, labels=labels, pos_label=pos_label, 
+            average=None, zero_division=zero_division)
+    return b
+
+def balanced_accuracy_score(
+    y_true, y_pred, *, 
+    sample_weight=None, 
+    normalize=False, 
+    strategy='ovr', 
+    epsilon=1e-15, 
+    zero_division=0,
+    multioutput='uniform_average', 
+    nan_policy='propagate'
+):
+    """
+    Calculate the balanced accuracy score, a metric that accounts for class 
+    imbalance by averaging sensitivity and specificity across classes. 
+    
+    This function supports both binary and multiclass classification tasks 
+    and offers strategies for handling multiclass scenarios through 
+    One-vs-Rest (OVR) or One-vs-One (OVO) approaches.
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        Ground truth (correct) target values. For binary and multiclass
+        classification, `y_true` should be a 1D array of class labels. For
+        multioutput and multilabel classification, `y_true` can be a 2D array
+        with each column representing a class.
+
+    y_pred : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        Estimated targets as returned by a classifier. The shape and type
+        should match those of `y_true`. For classifications that involve
+        ranking or probability estimates, `y_pred` might require preprocessing
+        to fit into the expected binary or multiclass form.
+
+    sample_weight : array-like of shape (n_samples,), optional
+        Sample weights. If None, all samples are given equal weight. If provided,
+        these should be positive values that sum to 1 for proper normalization.
+        Sample weights modify the influence of individual samples on the computed
+        metric, emphasizing or de-emphasizing their impact.
+
+    normalize : bool, optional, default=False
+        If True, each element of the confusion matrix is divided by the sum of
+        elements in its corresponding row. This normalization can be helpful
+        when comparing results across datasets with different total numbers of
+        samples.
+
+    strategy : {'ovr', 'ovo'}, default='ovr'
+        Strategy to compute the score for multiclass classification. The 'ovr'
+        (One-vs-Rest) considers each class against all other classes to compute
+        an average score. The 'ovo' (One-vs-One) strategy computes the average
+        score over all pairs of classes. Not applicable for binary classification.
+
+    epsilon : float, default=1e-15
+        A small constant added to denominators to avoid division by zero in
+        cases where a class is either perfectly predicted or not present at all
+        in `y_pred`. This is particularly useful in metrics like specificity or
+        sensitivity, where the denominators can be zero due to the absence of
+        positive or negative samples.
+
+    zero_division : {0, 1}, default=0
+        Determines the value to return when there is a division by zero during
+        the computation. If set to 0, a score of 0 is returned whenever division
+        by zero occurs. If set to 1, a score of 1 is returned. This parameter
+        helps manage undefined metrics in datasets with skewed class distributions.
+
+    multioutput : {'uniform_average', 'raw_values'}, default='uniform_average'
+        Defines the method to aggregate scores for multioutput (multilabel or
+        multi-class) data. 'uniform_average' calculates the mean of the scores
+        for all outputs, treating each output equally. 'raw_values' returns a
+        score for each output without averaging.
+
+    nan_policy : {'propagate', 'raise', 'omit'}, default='propagate'
+        Determines how to handle the occurrence of NaNs (Not a Number) in the
+        input labels `y_true` and `y_pred`. If 'propagate', NaNs are allowed to
+        propagate through the metric calculation, possibly resulting in NaN
+        scores. If 'raise', an error is raised upon detecting NaN values. If
+        'omit', rows with NaNs are excluded from the calculation, potentially
+        resulting in a subset of the original data being evaluated.
+
+   Returns
+    -------
+    float or ndarray
+        The Balanced Accuracy score. For binary and multiclass classification
+        scenarios without `multioutput='raw_values'`, this will be a single
+        float value representing the overall balanced accuracy across all
+        classes. If `multioutput='raw_values'`, an array of balanced accuracy
+        scores for each output (class or sample, depending on the context)
+        is returned.
+
+    Notes
+    -----
+    Balanced Accuracy (BA) compensates for the imbalance in the distribution
+    of the classes. It is calculated as the average of the proportion of
+    correct predictions in each class relative to the number of instances
+    in that class. In binary classification, it can be interpreted as the
+    average of recall obtained on each class:
+
+    .. math::
+        BA = \frac{1}{2} \left( \frac{TP}{TP + FN} + \frac{TN}{TN + FP} \right)
+
+    where \(TP\), \(TN\), \(FP\), and \(FN\) represent the number of true
+    positives, true negatives, false positives, and false negatives,
+    respectively.
+
+    For multiclass scenarios, Balanced Accuracy extends this concept by
+    considering each class as the positive class in turn and calculating
+    the average recall across all classes:
+
+    .. math::
+        BA = \frac{1}{N} \sum_{i=1}^{N} \frac{TP_i}{TP_i + FN_i}
+
+    where \(N\) is the number of classes, \(TP_i\) and \(FN_i\) are the
+    number of true positives and false negatives for class \(i\),
+    respectively. The `strategy` parameter ('ovr' or 'ovo') influences
+    how these metrics are averaged across classes.
+
+    The use of Balanced Accuracy helps to provide a clearer picture of the
+    model's performance across all classes, especially in cases where one
+    or more classes are underrepresented in the dataset.
+
+    References
+    ----------
+    .. [1] Brodersen, K. H., Ong, C. S., Stephan, K. E., & Buhmann, J. M. (2010). The
+           balanced accuracy and its posterior distribution. 2010 20th International
+           Conference on Pattern Recognition, 3121-3124.
+    .. [2] Sokolova, M., & Lapalme, G. (2009). A systematic analysis of performance
+           measures for classification tasks. Information Processing & Management,
+           45(4), 427-437.
+
+    See Also
+    --------
+    accuracy_score : Calculate accuracy classification score.
+    precision_score : 
+        Calculate precision score for binary and multiclass classification tasks.
+    recall_score : 
+        Calculate recall score to measure the ability of a classifier to
+        find all positive samples.
+    f1_score :
+        Calculate the F1 score, the weighted average of precision and recall.
+
+    Examples
+    --------
+    >>> from gofast.metrics import balanced_accuracy_score
     >>> y_true = [0, 1, 0, 1]
-    >>> y_pred = [0.1, 0.4, 0.35, 0.8]
-    >>> average_precision(y_true, y_pred)
-    0.8333
+    >>> y_pred = [0, 1, 0, 0]
+    >>> balanced_accuracy_score(y_true, y_pred)
+    0.75
 
-    Notes
-    -----
-    AP = \sum_{k=1}^n P(k) \Delta r(k)
-    where P(k) is the precision at cutoff k, and \Delta r(k) is the change 
-    in recall from items k-1 to k.
+    Multiclass example with One-vs-Rest strategy:
+
+    >>> y_true = [0, 1, 2, 2, 1]
+    >>> y_pred = [0, 2, 2, 1, 1]
+    >>> balanced_accuracy_score(y_true, y_pred, strategy='ovr')
+    0.6666666666666666
+
+    Multiclass example with One-vs-One strategy:
+
+    >>> balanced_accuracy_score(y_true, y_pred, strategy='ovo')
+    0.6666666666666666
+
+    Using sample weights:
+
+    >>> weights = [0.5, 1, 1, 1, 1]
+    >>> balanced_accuracy_score(y_true, y_pred, sample_weight=weights)
+    0.75
+
+    Note: The output value may differ due to the calculation method and rounding.
+
     """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    sorted_indices = np.argsort(y_pred)[::-1]
-    y_true_sorted = np.asarray(y_true)[sorted_indices]
-
-    tp = np.cumsum(y_true_sorted)
-    fp = np.cumsum(~y_true_sorted)
-    precision_at_k = tp / (tp + fp)
-
-    return np.sum(precision_at_k * y_true_sorted) / np.sum(y_true_sorted)
-
-def jaccard_similarity_coeff(y_true, y_pred):
-    """
-    Compute the Jaccard Similarity Coefficient for binary 
-    classification.
+    # validation 
+    # --
+    # Ensure y_true and y_pred are valid and
+    # have consistent lengths
+    y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, 
+        allow_nan=True, multi_output=True )
+    # Check that y_true and y_pred are suitable for classification
+    y_true, y_pred = check_classification_targets(
+        y_true, y_pred, strategy="custom logic")
+    # validate epsilon 'auto' or float
+    epsilon = check_epsilon(epsilon , y_true, scale_factor=1e-15)
+    multioutput = validate_multioutput( multioutput)
+    # validate strategy input 
+    strategy =normalize_string(
+       strategy, target_strs=['ovr', 'ovo'], match_method='contains', 
+       return_target_only= True, raise_exception= True, 
+       error_msg=("strategy parameter must be either 'ovr' or 'ovo'") 
+       ) 
+    # validate nan_policy 
+    y_true, y_pred, *opt_sample_weight = validate_nan_policy(
+        nan_policy, y_true, y_pred, sample_weights = sample_weight ) 
+    sample_weight = opt_sample_weight[0] if opt_sample_weight else sample_weight 
     
-    Measures the similarity and diversity of sample sets.
+    # --
+    labels = unique_labels(y_true, y_pred)
+    labels = np.unique(np.concatenate([y_true, y_pred]))
     
-    Useful in many fields including ecology, gene sequencing analysis, and 
-    also in machine learning for evaluating the accuracy of clustering.
+    if strategy == 'ovr':
+        score = _balanced_accuracy_ovr(
+            y_true, y_pred, labels, epsilon, zero_division, normalize)
+    elif strategy == 'ovo':
+        score = _balanced_accuracy_ovo(y_true, y_pred, labels, sample_weight)
+  
+    if multioutput == 'uniform_average':
+        # Average the scores if multioutput is 'uniform_average'
+        return np.mean(score) if isinstance(score, np.ndarray) else score
+  
+    return score
+
+def _compute_balanced_accuracy_binary(
+        y_true, y_pred, epsilon=1e-15, zero_division=0, normalize =False):
+    cm = confusion_matrix(y_true, y_pred)
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+    sensitivity = cm[1, 1] / (cm[1, 1] + cm[1, 0] + epsilon)
+    specificity = cm[0, 0] / (cm[0, 0] + cm[0, 1] + epsilon)
+    return (sensitivity + specificity) / 2  if not np.isnan(
+        sensitivity + specificity) else zero_division
+
+def _balanced_accuracy_ovr(
+        y_true, y_pred, labels, epsilon=1e-15, zero_division=0, normalize=False):
+    bal_acc_scores = []
+    for label in labels:
+        binary_y_true = (y_true == label).astype(int)
+        binary_y_pred = (y_pred == label).astype(int)
+        score = _compute_balanced_accuracy_binary(
+            binary_y_true, binary_y_pred, epsilon, zero_division,
+            normalize=normalize )
+        bal_acc_scores.append(score)
+    return np.mean(bal_acc_scores)
+
+def _balanced_accuracy_ovo(y_true, y_pred, labels, sample_weight=None):
+    le = LabelEncoder()
+    y_true_encoded = le.fit_transform(y_true)
+    y_bin = label_binarize(y_true_encoded, classes=range(len(labels)))
     
-    Parameters
-    ----------
-    y_true : array-like
-        True binary labels.
-    y_pred : array-like
-        Predicted binary labels.
-
-    Returns
-    -------
-    float
-        Jaccard Similarity Coefficient.
-
-    Examples
-    --------
-    >>> y_true = [1, 1, 0, 0]
-    >>> y_pred = [1, 0, 0, 1]
-    >>> jaccard_similarity_coefficient(y_true, y_pred)
-    0.3333
-
-    Notes
-    -----
-    J = \frac{|y_{\text{true}} \cap y_{\text{pred}}|}{|y_{\text{true}} \cup y_{\text{pred}}|}
-    """
-    y_true, y_pred = _ensure_y_is_valid (y_true, y_pred ) 
-    
-    intersection = np.logical_and(y_true, y_pred)
-    union = np.logical_or(y_true, y_pred)
-    return intersection.sum() / float(union.sum())
+    bal_acc_scores = []
+    for i, label_i in enumerate(labels[:-1]):
+        for j, label_j in enumerate(labels[i+1:]):
+            specific_y_true = y_bin[:, i]
+            specific_y_pred = y_bin[:, j]
+            auc_score = roc_auc_score(
+                specific_y_true, specific_y_pred, sample_weight=sample_weight)
+            bal_acc_scores.append(auc_score)
+    return np.mean(bal_acc_scores)
 
 
 
