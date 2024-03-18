@@ -39,7 +39,6 @@ from sklearn.utils import all_estimators, resample
 from .._gofastlog import gofastlog
 from .._typing import List, Tuple, Any, Dict,  Optional,Union, Iterable,Series 
 from .._typing import _T, _F, ArrayLike, NDArray,  DataFrame, Set 
-# from ._dependency import import_optional_dependency
 from ..exceptions import ParameterNumberError, EstimatorError          
 from .coreutils import _assert_all_types, _isin,  is_in_if,  ellipsis2false
 from .coreutils import smart_format,  is_iterable, get_valid_kwargs
@@ -53,7 +52,6 @@ from .validator import  is_frame, build_data_if, check_is_fitted
 from .validator import check_mixed_data_types 
 
 _logger = gofastlog().get_gofast_logger(__name__)
-
 
 __all__=[ 
     "evaluate_model",
@@ -899,7 +897,7 @@ def evaluate_model(
     y: Optional[Union[NDArray, Series]] = None, 
     yt: Optional[Union[NDArray, Series]] = None,
     y_pred: Optional[Union[NDArray, Series]] = None,
-    scorer: Union[str, _F[[NDArray, NDArray], float]] = 'accuracy',
+    scorer: Union[str, _F[[NDArray, NDArray], float]] = 'accuracy_score',
     eval: bool = False,
     **kws: Any
 ) -> Union[Tuple[Optional[Union[NDArray, Series]], Optional[float]],
@@ -964,7 +962,7 @@ def evaluate_model(
     ...                            eval=True)
     >>> print(f'Accuracy: {score:.2f}')
     """
-    from ..metrics import _SCORERS
+    from ..metrics import get_scorer
     
     if y_pred is None:
         if model is None or X is None or y is None or Xt is None:
@@ -993,10 +991,8 @@ def evaluate_model(
         if not isinstance(scorer, (str, callable)):
             raise TypeError("scorer must be a string or a callable,"
                             f" got {type(scorer).__name__}.")
-            if isinstance (scorer , str) and scorer not in _SCORERS:
-                raise ValueError(f"Use {scorer!r} function instead.")
-        
-        score_func = _SCORERS[scorer] if isinstance(scorer, str) else scorer
+
+        score_func = get_scorer(scorer, include_sklearn= True )
         score = score_func(yt, y_pred, **kws)
         return y_pred, score
 

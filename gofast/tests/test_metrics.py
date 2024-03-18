@@ -19,7 +19,7 @@ from gofast.metrics import assess_classifier_metrics
 from gofast.metrics import assess_regression_metrics  
 from gofast.metrics import mean_squared_log_error, balanced_accuracy
 from gofast.metrics import information_value, geo_information_value 
-from gofast.metrics import flexible_mae, flexible_mse, flexible_rmse, flexible_r2
+from gofast.metrics import mae_flex, mse_flex, rmse_flex, r2_flex
 from gofast.metrics import adjusted_r2_score  
 from gofast.metrics import precision_recall_tradeoff, roc_tradeoff
 from gofast.metrics import evaluate_confusion_matrix, display_precision_recall
@@ -149,27 +149,27 @@ def test_assess_classifier_metrics():
 y_true = np.array([3, -0.5, 2, 7])
 y_pred = np.array([2.5, 0.0, 2, 8])
 def test_flexible_mae():
-    result = flexible_mae(y_true, y_pred)
+    result = mae_flex(y_true, y_pred)
     assert 'MAE' in result
     assert result.MAE >= 0  # MAE should always be non-negative
 
 def test_flexible_mse():
-    result = flexible_mse(y_true, y_pred)
+    result = mse_flex(y_true, y_pred)
     assert 'MSE' in result
     assert result.MSE>= 0  # MSE should always be non-negative
 
 def test_flexible_rmse():
-    result = flexible_rmse(y_true, y_pred)
+    result = rmse_flex(y_true, y_pred)
     assert 'RMSE' in result
     assert result.RMSE >= 0  # RMSE should always be non-negative
 
 def test_flexible_r2():
-    result = flexible_r2(y_true, y_pred)
+    result = r2_flex(y_true, y_pred)
     assert  'R2' in result
     assert -1 <= result.R2 <= 1  # R2 should be in the range [-1, 1]
 
     # Test with adjustment for the number of predictors
-    result_adjusted = flexible_r2(y_true, y_pred, adjust_for_n=True, n_predictors=1)
+    result_adjusted = r2_flex(y_true, y_pred, adjust_for_n=True, n_predictors=1)
     assert 'adjusted_R2' in result_adjusted
     # adjusted R2 should also be in the range [-1, 1]
     assert -1 <= result_adjusted.adjusted_R2 <= 1 

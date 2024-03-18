@@ -6,7 +6,111 @@ Created on Wed Mar 13 22:29:22 2024
 """
 import numpy as np
 import pandas as pd
+from . import summary2 
 
+class ModelPerformanceReport:
+    def __init__(self, model, X_test, y_test, metrics):
+        """
+        Initializes the report with model performance metrics.
+        
+        Parameters:
+        - model: The trained model.
+        - X_test: Test features DataFrame.
+        - y_test: Test target variable.
+        - metrics: List of metrics to calculate and display.
+        """
+        
+    def display_summary(self):
+        """Prints a summary of the model's performance."""
+        
+    def plot_metrics(self):
+        """Generates plots for the specified metrics, such as ROC curves."""
+        
+    def detailed_report(self):
+        """Generates a detailed text report on model's performance metrics."""
+        
+class DataFrameReport:
+    def __init__(self, before_df, after_df, transformations):
+        """
+        Initializes the report with DataFrame transformations.
+        
+        Parameters:
+        - before_df: DataFrame before transformations.
+        - after_df: DataFrame after transformations.
+        - transformations: List or dictionary of applied transformations.
+        """
+        
+    def summary(self):
+        """Displays summary statistics of the DataFrame before and after transformations."""
+        
+    def transformation_details(self):
+        """Describes each transformation applied, including parameters and effects."""
+        
+class OptimizationReport:
+    
+    def __init__(self, optimization_result):
+        """
+        Initializes the report with optimization results.
+        
+        Parameters:
+        - optimization_result: Object containing results from optimization.
+        """
+        
+    def best_params(self):
+        """Displays the best parameters found."""
+        
+    def performance_overview(self):
+        """Displays performance metrics for the best model."""
+        
+    def convergence_plot(self):
+        """Generates a plot showing the optimization process over iterations."""
+        
+class ReportFactory:
+    @staticmethod
+    def create_report(report_type, *args, **kwargs):
+        """
+        Factory method to create different types of reports.
+        
+        Parameters:
+        - report_type: Type of the report to create (e.g., 'model_performance', 'dataframe', 'optimization').
+        - args, kwargs: Arguments required to instantiate the report classes.
+        """
+        if report_type == 'model_performance':
+            return ModelPerformanceReport(*args, **kwargs)
+        elif report_type == 'dataframe':
+            return DataFrameReport(*args, **kwargs)
+        elif report_type == 'optimization':
+            return OptimizationReport(*args, **kwargs)
+        else:
+            raise ValueError("Unknown report type")
+
+class AnovaResults:
+    """
+    Anova results class
+
+    Attributes
+    ----------
+    anova_table : DataFrame
+    """
+    def __init__(self, anova_table):
+        self.anova_table = anova_table
+
+    def __str__(self):
+        return self.summary().__str__()
+
+    def summary(self):
+        """create summary results
+
+        Returns
+        -------
+        summary : summary2.Summary instance
+        """
+        summ = summary2.Summary()
+        summ.add_title('Anova')
+        summ.add_df(self.anova_table)
+
+        return summ
+    
 class Summary:
     def __init__(self, data):
         """

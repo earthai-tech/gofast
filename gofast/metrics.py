@@ -14,31 +14,17 @@ import itertools
 import warnings  
 import numpy as np 
 
-from sklearn import metrics 
-from sklearn.metrics import (  
-    precision_recall_curve,
-    precision_score,
-    recall_score,
-    f1_score,
-    roc_curve, 
-    roc_auc_score,
-    accuracy_score, 
-    confusion_matrix, 
-    classification_report, 
-    mean_squared_error, 
-    log_loss, 
-    mean_absolute_error, 
-    r2_score, 
-    jaccard_score
-    )
+
+from sklearn.metrics import precision_recall_curve, precision_score
+from sklearn.metrics import recall_score, f1_score, roc_curve, roc_auc_score
+from sklearn.metrics import accuracy_score, confusion_matrix, log_loss
+from sklearn.metrics import classification_report, mean_squared_error  
+from sklearn.metrics import mean_absolute_error, r2_score, jaccard_score
 from sklearn.utils.multiclass import unique_labels
 from sklearn.model_selection import cross_val_predict 
 from sklearn.preprocessing import label_binarize, LabelEncoder
 
-from ._docstring import DocstringComponents,_core_docs
 from ._gofastlog import gofastlog
-# from ._typing import _F, List, Optional, ArrayLike , NDArray 
-# from .exceptions import LearningError 
 from .tools.box import Bunch 
 from .tools.coreutils import normalize_string 
 from .tools.mathex import calculate_binary_iv, optimized_spearmanr 
@@ -50,18 +36,7 @@ from .tools.validator import standardize_input, filter_nan_entries
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
-_SCORERS = {
-    "classification_report": classification_report,
-    'precision_recall': precision_recall_curve,
-    "confusion_matrix": confusion_matrix,
-    'precision': precision_score,
-    "accuracy": accuracy_score,
-    "mse": mean_squared_error,
-    "recall": recall_score,
-    'auc': roc_auc_score,
-    'roc': roc_curve,
-    'f1': f1_score,
-}
+
 __all__=[
     "precision_recall_tradeoff",
     "roc_tradeoff",
@@ -70,11 +45,11 @@ __all__=[
     "balanced_accuracy",
     "balanced_accuracy_score", 
     "information_value", 
-    "flexible_mae",
-    "flexible_mse", 
-    "flexible_rmse",
-    "flexible_madev", 
-    "flexible_r2", 
+    "mae_flex",
+    "mse_flex", 
+    "rmse_flex",
+    "madev_flex", 
+    "r2_flex", 
     "mean_absolute_percentage_error", 
     "explained_variance_score", 
     "median_absolute_error",
@@ -93,7 +68,7 @@ __all__=[
     "precision_at_k", 
     "ndcg_at_k", 
     "mean_reciprocal_score", 
-    "flexible_jaccard", 
+    "jaccard_flex", 
     "geo_information_value", 
     "assess_regression_metrics", 
     "assess_classifier_metrics", 
@@ -101,48 +76,14 @@ __all__=[
     "display_confusion_matrix", 
     "display_roc", 
     "display_precision_recall", 
-    "ndcg_at_k_with_controls"
+    "ndcg_at_k_with_controls", 
+    "make_scorer", 
+    "get_scorer", 
+    "fetch_sklearn_scorers", 
+    "fetch_scorer_functions", 
+    "get_scorer_names", 
+    "SCORERS"
     ]
-
-#----add metrics docs 
-_metrics_params =dict (
-    label="""
-label: float, int 
-    Specific class to evaluate the tradeoff of precision 
-    and recall. If `y` is already a binary classifer (0 & 1), `label` 
-    does need to specify.     
-    """, 
-    method="""
-method: str
-    Method to get scores from each instance in the trainset. 
-    Could be a ``decison_funcion`` or ``predict_proba``. When using the  
-    scikit-Learn classifier, it generally has one of the method. 
-    Default is ``decision_function``.   
-    """, 
-    tradeoff="""
-tradeoff: float
-    check your `precision score` and `recall score`  with a 
-    specific tradeoff. Suppose  to get a precision of 90%, you 
-    might specify a tradeoff and get the `precision score` and 
-    `recall score` by setting a `y-tradeoff` value.
-    """
-    )
-_param_docs = DocstringComponents.from_nested_components(
-    core=_core_docs["params"],
-    metric=DocstringComponents(_metrics_params ), 
-    )
-
-def get_metrics(): 
-    """
-    Get the list of  available gofast metrics. 
-    
-    Metrics are measures of quantitative assessment commonly used for 
-    assessing, comparing, and tracking performance or production. Generally,
-    a group of metrics will typically be used to build a dashboard that
-    management or analysts review on a regular basis to maintain performance
-    assessments, opinions, and business strategies.
-    """
-    return tuple(metrics.SCORERS.keys())
 
 def percentage_bias(
     y_true, y_pred, *, 
@@ -367,7 +308,9 @@ def mean_squared_log_error(
         y_true, y_pred, y_numeric= True, multi_output =True  )
 
     # Ensure non-negativity of y_true 
-    ensure_non_negative(y_true, "y_true must contain non-negative values only.")
+    ensure_non_negative(
+        y_true, err_msg= "y_true must contain non-negative values only."
+    ) 
 
     # Check epsilon 
     epsilon = check_epsilon(epsilon, y_true, scale_factor= 1e-15)
@@ -2003,7 +1946,7 @@ def display_confusion_matrix(cm, labels=None, cmap='viridis', normalize=False):
     plt.tight_layout()
     plt.show()
 
-def flexible_mae(
+def mae_flex(
     y_true, y_pred, *, 
     detailed=False, 
     scale_errors=False, 
@@ -2066,13 +2009,13 @@ def flexible_mae(
 
     Examples
     --------
-    >>> from gofast.metrics import flexible_mae
+    >>> from gofast.metrics import mae_flex
     >>> y_true = [3, -0.5, 2, 7]
     >>> y_pred = [2.5, 0.0, 2, 8]
-    >>> result = flexible_mae(y_true, y_pred)
+    >>> result = mae_flex(y_true, y_pred)
     >>> print(result.MAE)
     0.5
-    >>> result_detailed = flexible_mae(y_true, y_pred, detailed=True)
+    >>> result_detailed = mae_flex(y_true, y_pred, detailed=True)
     >>> print(result_detailed.MAE, result_detailed.min_error)
     0.5 0.0
     """
@@ -2124,7 +2067,7 @@ def flexible_mae(
     
     return result
 
-def flexible_mse(
+def mse_flex(
     y_true, y_pred, *, 
     detailed=False, 
     scale_errors=False, 
@@ -2186,19 +2129,19 @@ def flexible_mse(
 
     See Also
     --------
-    flexible_mae : A flexible version of Mean Absolute Error.
+    mae_flex : A flexible version of Mean Absolute Error.
     mean_squared_log_error : Mean Squared Logarithmic Error metric.
     mean_absolute_error : Mean Absolute Error metric.
 
     Examples
     --------
-    >>> from gofast.metrics import flexible_mse
+    >>> from gofast.metrics import mse_flex
     >>> y_true = [3, -0.5, 2, 7]
     >>> y_pred = [2.5, 0.0, 2, 8]
-    >>> result = flexible_mse(y_true, y_pred)
+    >>> result = mse_flex(y_true, y_pred)
     >>> print(result.MSE)
     0.375
-    >>> result_detailed = flexible_mse(y_true, y_pred, detailed=True)
+    >>> result_detailed = mse_flex(y_true, y_pred, detailed=True)
     >>> print(result_detailed.MSE, result_detailed.min_error)
     0.375 0.0
     """
@@ -2250,7 +2193,7 @@ def flexible_mse(
                 scaled_squared_errors, where=y_true != 0)
     return result
 
-def flexible_rmse(
+def rmse_flex(
     y_true, y_pred, *, 
     detailed=False, 
     scale_errors=False, 
@@ -2313,19 +2256,19 @@ def flexible_rmse(
 
     See Also
     --------
-    flexible_mae : A flexible version of Mean Absolute Error.
-    flexible_mse : A flexible version of Mean Squared Error.
+    mae_flex : A flexible version of Mean Absolute Error.
+    mse_flex : A flexible version of Mean Squared Error.
     sklearn.metrics.mean_squared_error : Mean Squared Error metric.
 
     Examples
     --------
-    >>> from gofast.metrics import flexible_rmse
+    >>> from gofast.metrics import rmse_flex
     >>> y_true = [3, -0.5, 2, 7]
     >>> y_pred = [2.5, 0.0, 2, 8]
-    >>> result = flexible_rmse(y_true, y_pred)
+    >>> result = rmse_flex(y_true, y_pred)
     >>> print(result.RMSE)
     0.612...
-    >>> result_detailed = flexible_rmse(y_true, y_pred, detailed=True)
+    >>> result_detailed = rmse_flex(y_true, y_pred, detailed=True)
     >>> print(result_detailed.RMSE, result_detailed.min_error)
     0.612... 0.0
     """
@@ -2377,7 +2320,7 @@ def flexible_rmse(
     
     return result
 
-def flexible_r2(
+def r2_flex(
     y_true, y_pred, *, 
     epsilon=1e-15, 
     adjust_for_n=False,
@@ -2458,19 +2401,19 @@ def flexible_r2(
 
     See Also
     --------
-    flexible_mae : Mean Absolute Error with flexibility.
-    flexible_mse : Mean Squared Error with flexibility.
-    flexible_rmse : Root Mean Squared Error with flexibility.
+    mae_flex : Mean Absolute Error with flexibility.
+    mse_flex : Mean Squared Error with flexibility.
+    rmse_flex : Root Mean Squared Error with flexibility.
 
     Examples
     --------
-    >>> from gofast.metrics import flexible_r2
+    >>> from gofast.metrics import r2_flex
     >>> y_true = np.array([3, 5, 2, 7])
     >>> y_pred = np.array([2.5, 0.5, 2, 8])
-    >>> result = flexible_r2(y_true, y_pred)
+    >>> result = r2_flex(y_true, y_pred)
     >>> print(result.R2)
     -0.4576271186440677...
-    >>> result_adjusted = flexible_r2(y_true, y_pred, adjust_for_n=True, n_predictors=1)
+    >>> result_adjusted = r2_flex(y_true, y_pred, adjust_for_n=True, n_predictors=1)
     >>> print(result_adjusted.adjusted_R2)
     -1.1864406779661016...
     """
@@ -3292,7 +3235,7 @@ def mean_absolute_deviation(
     # Average MADev across all outputs, if y_true/y_pred were multi-dimensional
     return madev if multioutput == 'raw_values' else np.mean(madev)  
 
-def flexible_madev(
+def madev_flex(
     data, *, 
     sample_weight=None,
     nan_policy='propagate',
@@ -3387,20 +3330,20 @@ def flexible_madev(
 
     Examples
     --------
-    >>> from gofast.metrics import flexible_madev
+    >>> from gofast.metrics import madev_flex
     >>> data = [1, 2, 3, 4, 5]
-    >>> result=flexible_madev(data)
+    >>> result=madev_flex(data)
     >>> result.MADev
     1.2
 
-    >>> result= flexible_madev(data, detailed=True)
+    >>> result= madev_flex(data, detailed=True)
     >>> print(result)
     MADev         : 1.2
     max_deviation : 2.0
     min_deviation : 0.0
     std_deviation : 0.7483314773547883
 
-    >>> result=flexible_madev(data, scale_errors=True)
+    >>> result=madev_flex(data, scale_errors=True)
     >>> result.scaled_MADev 
     0.4
 
@@ -4831,7 +4774,7 @@ def mean_reciprocal_score(
         else weighted_reciprocal_ranks
         )
 
-def flexible_jaccard(
+def jaccard_flex(
     y_true, y_pred, *, 
     labels=None,
     pos_label=1, 
@@ -4892,10 +4835,10 @@ def flexible_jaccard(
 
     Examples
     --------
-    >>> from gofast.metrics import flexible_jaccard 
+    >>> from gofast.metrics import jaccard_flex 
     >>> y_true = [0, 1, 2, 1, 2, 0]
     >>> y_pred = [0, 2, 1, 0, 0, 1]
-    >>> flexible_jaccard(y_true, y_pred, average='macro')
+    >>> jaccard_flex(y_true, y_pred, average='macro')
     Bunch(score=0.333...)
 
     References
@@ -5155,7 +5098,7 @@ def balanced_accuracy_score(
   
     if multioutput == 'uniform_average':
         # Average the scores if multioutput is 'uniform_average'
-        return np.average(score) if isinstance(score, np.ndarray) else score
+        return np.average(score) 
   
     return score
 
@@ -5202,9 +5145,380 @@ def _balanced_accuracy_ovo(y_true, y_pred, labels, sample_weight=None):
             bal_acc_scores.append(auc_score)
     return np.array(bal_acc_scores)
 
+def fetch_sklearn_scorers(scorer):
+    """
+    Fetches a scoring function from scikit-learn's predefined scorers or a custom
+    callable scorer based on the provided identifier. If the identifier matches
+    a predefined scorer name, that scorer is returned. If the identifier is a
+    custom callable scorer, it is returned directly. If no match is found, a
+    `ValueError` is raised.
+
+    Parameters
+    ----------
+    scorer : str or callable
+        The name of the predefined scikit-learn scorer or a custom scorer function.
+        If a string is provided, it should match one of scikit-learn's predefined
+        scoring function names. If a callable is provided, it is used directly as the scorer.
+
+    Returns
+    -------
+    scorer_function : callable
+        The scoring function corresponding to the provided `scorer` identifier.
+        This function can be used directly to evaluate the performance of models.
+
+    Raises
+    ------
+    ValueError
+        If the provided `scorer` identifier does not match any predefined scorers
+        in scikit-learn and is not a callable function.
+
+    Examples
+    --------
+    Fetch a predefined scoring function by name:
+
+    >>> from gofast.metrics import fetch_sklearn_scorers
+    >>> accuracy_scorer = fetch_sklearn_scorers('accuracy')
+    >>> print(accuracy_scorer)
+    make_scorer(accuracy_score)
+
+    Fetch a custom callable scorer:
+
+    >>> custom_scorer = lambda estimator, X, y: np.mean(estimator.predict(X) == y)
+    >>> fetched_scorer = fetch_sklearn_scorers(custom_scorer)
+    >>> print(fetched_scorer)
+    <function <lambda> at 0x...>
+
+    Attempt to fetch a non-existing scorer:
+
+    >>> fetch_sklearn_scorers('non_existing_scorer')
+    ValueError: Scorer 'non_existing_scorer' not recognized. Must be one of [...]
+    """
+
+    predefined_scorers = {
+        "classification_report": classification_report,
+        "precision_recall": precision_recall_curve,
+        "confusion_matrix": confusion_matrix,
+        "precision": precision_score,
+        "accuracy": accuracy_score,
+        "mse": mean_squared_error,
+        "recall": recall_score,
+        "auc": roc_auc_score,
+        "roc": roc_curve,
+        "f1": f1_score,
+    }
+
+    if isinstance(scorer, str):
+        scorer_name = scorer.lower()
+        if scorer_name in predefined_scorers:
+            return predefined_scorers[scorer_name]
+        try:
+            return get_scorer(scorer_name)
+        except ValueError:
+            raise ValueError(f"Scorer '{scorer}' not recognized. Must be one"
+                             f" of {list(predefined_scorers.keys())} or a valid"
+                             " scorer name available in scikit-learn.")
+
+    elif callable(scorer):
+        return scorer
+    else:
+        raise ValueError("Scorer must be a string name of a predefined scorer or a callable.")
+
+# Mapping of metric names to their respective functions
+SCORERS = {
+    "precision_recall_tradeoff": precision_recall_tradeoff,
+    "roc_tradeoff": roc_tradeoff,
+    "mean_squared_log_error": mean_squared_log_error,
+    "balanced_accuracy": balanced_accuracy,
+    "balanced_accuracy_score": balanced_accuracy_score,
+    "information_value": information_value,
+    "mean_absolute_percentage_error": mean_absolute_percentage_error,
+    "explained_variance_score": explained_variance_score,
+    "median_absolute_error": median_absolute_error,
+    "max_error_score": max_error_score,
+    "mean_poisson_deviance": mean_poisson_deviance,
+    "mean_gamma_deviance": mean_gamma_deviance,
+    "mean_absolute_deviation": mean_absolute_deviation,
+    "dice_similarity_score": dice_similarity_score,
+    "gini_score": gini_score,
+    "hamming_loss": hamming_loss,
+    "fowlkes_mallows_score": fowlkes_mallows_score,
+    "root_mean_squared_log_error": root_mean_squared_log_error,
+    "mean_percentage_error": mean_percentage_error,
+    "percentage_bias": percentage_bias,
+    "spearmans_rank_score": spearmans_rank_score,
+    "precision_at_k": precision_at_k,
+    "ndcg_at_k": ndcg_at_k,
+    "mean_reciprocal_score": mean_reciprocal_score,
+    "geo_information_value": geo_information_value,
+    "adjusted_r2_score": adjusted_r2_score,
+}
+
+def get_scorer(scoring,  include_sklearn=True):
+    """
+    Fetches a scoring function from gofast's predefined scorers or, optionally,
+    scikit-learn's scoring functions, based on the `scoring` argument. It allows
+    the use of both named scoring strategies and custom callable scoring functions.
+    
+    Parameters
+    ----------
+    scoring : str or callable
+        The name of the predefined scoring function as a string, or a custom
+        callable scoring function.
+    include_sklearn : bool, default=True
+        If True, includes scikit-learn's predefined scoring functions in the
+        search scope in addition to gofast's predefined scorers.
+    
+    Returns
+    -------
+    scorer : callable
+        The scoring function.
+    
+    Raises
+    ------
+    ValueError
+        If `scoring` is a string not found among the predefined scorers or
+        if a callable `scoring` function is not recognized as a valid scorer.
+    
+    Examples
+    --------
+    Using a predefined scorer name:
+    
+    >>> from gofast.metrics import get_scorer 
+    >>> scorer = get_scorer('accuracy')
+    >>> print(scorer)
+    <function accuracy_score at ...>
+    
+    Using a custom callable scoring function:
+    
+    >>> def custom_scorer(y_true, y_pred):
+    ...     return np.mean(y_true == y_pred)
+    >>> scorer = get_scorer(custom_scorer)
+    >>> print(scorer)
+    <function custom_scorer at ...>
+    
+    Including scikit-learn scorers:
+    
+    >>> scorer = get_scorer('neg_mean_squared_error', include_sklearn=True)
+    >>> print(scorer)
+    make_scorer(mean_squared_error, greater_is_better=False, ...)
+    
+    Notes
+    -----
+    If `include_sklearn` is True and `scoring` is a named scoring strategy not
+    found among gofast's predefined scorers, this function will attempt to fetch
+    the scorer from scikit-learn's scoring functions.
+    """
+    # Validate if the callable is a function and not a class or method
+    import types 
+       
+    if callable(scoring):
+        if not isinstance(scoring, types.FunctionType):
+            raise ValueError("Scoring must be a function. Methods or classes"
+                             " are not supported.")
+        # Validate if the callable is among predefined scorers or sklearn scorers
+        scorer_name = scoring.__name__
+        if scorer_name in SCORERS:
+            return scoring
+        if include_sklearn:
+            from sklearn.metrics import get_scorer_names as sklearn_get_scorer_names
+            if scorer_name in sklearn_get_scorer_names():
+                return scoring
+        raise ValueError(f"The callable scorer '{scorer_name}' is not recognized"
+                         " among gofast or sklearn scorers.")
+
+    # Attempt to fetch scorer from gofast's predefined list
+    scorer = SCORERS.get(scoring)
+    if scorer is not None:
+        return scorer
+
+    # Optionally include sklearn scorers in the search
+    if include_sklearn:
+        from sklearn.metrics import get_scorer as sklearn_get_scorer
+        try:
+            return sklearn_get_scorer(scoring)
+        except ValueError:
+            pass
+
+    # Compile a list of all valid scorers for error message
+    valid_scorers = list(SCORERS.keys())
+    if include_sklearn:
+        from sklearn.metrics import get_scorer_names as sklearn_get_scorer_names
+        valid_scorers += sklearn_get_scorer_names()
+
+    raise ValueError(f"Scorer '{scoring}' is not recognized."
+                     f" Available scorers are: {valid_scorers}.")
 
 
+def get_scorer_names(include_sklearn=True):
+    """
+    Retrieves a list of the names of all predefined scoring functions from both
+    gofast and, optionally, scikit-learn.
 
+    This function provides a convenient way to explore available scoring functions,
+    facilitating the selection of appropriate metrics for evaluating machine learning
+    models. By integrating scoring functions from both gofast and scikit-learn, it
+    offers a comprehensive view of the metrics that can be used for model assessment.
+
+    Parameters
+    ----------
+    include_sklearn : bool, optional
+        If True, includes scikit-learn's predefined scorers in the returned list.
+        Defaults to False.
+
+    Returns
+    -------
+    list of str
+        A sorted list of unique scoring function names from gofast and, optionally,
+        scikit-learn.
+
+    Examples
+    --------
+    >>> from gofast.metrics import get_scorer_names 
+    >>> gofast_scorers = get_scorer_names()
+    >>> print(gofast_scorers)
+    ['accuracy', 'f1_score', 'precision', ...]
+
+    >>> all_scorers = get_scorer_names(include_sklearn=True)
+    >>> print(all_scorers)
+    ['accuracy', 'adjusted_rand_score', 'auc', 'f1_score', ...]
+
+    Note
+    ----
+    Including scikit-learn scorers requires scikit-learn to be installed in your
+    environment. This function dynamically aggregates scorer names, reflecting
+    the current capabilities of both libraries.
+
+    See Also
+    --------
+    gofast.metrics : Module containing custom scoring functions.
+    sklearn.metrics.get_scorer_names : Function to list all scorer names available in scikit-learn.
+    """
+    scorers = list(SCORERS.keys())
+    if include_sklearn:
+        from sklearn.metrics import get_scorer_names as sklearn_get_scorer_names
+        scorers.extend(sklearn_get_scorer_names())
+    # Use sorted and set to remove duplicates and sort the list.   
+    return sorted(set(scorers))
+
+def fetch_scorer_functions():
+    """
+    Retrieves a dictionary of scorer functions from both scikit-learn and gofast.
+    
+    This function scans through all scoring and error functions defined in
+    sklearn.metrics, filtering out private functions (those starting with '_') and
+    selecting those with 'score' or 'error' in their names. It combines these with
+    the predefined scoring functions from gofast, providing a comprehensive dictionary
+    of available scoring methods.
+
+    Returns
+    -------
+    dict
+        A dictionary where keys are the names of the scoring functions and values
+        are the scoring function objects themselves.
+
+    Examples
+    --------
+    >>> from gofast.metrics import fetch_scorer_functions
+    >>> scorer_functions = fetch_scorer_functions()
+    >>> print(list(scorer_functions.keys()))
+    ['accuracy_score', 'adjusted_rand_score', 'mean_squared_error', ...]
+
+    Note
+    ----
+    This function is particularly useful for dynamically accessing and utilizing
+    scoring functions across different modules, facilitating flexible evaluation
+    strategies in machine learning workflows.
+
+    See Also
+    --------
+    sklearn.metrics : Module in scikit-learn containing scoring and error functions.
+    gofast.metrics : Module in gofast containing custom scoring functions.
+    """
+    import inspect
+    import sklearn.metrics as sklearn_metrics  
+    scorer_functions = {}
+    for name, obj in inspect.getmembers(sklearn_metrics):
+        if inspect.isfunction(obj) and not name.startswith('_') and (
+                "score" in name or "error" in name):
+            scorer_functions[name] = obj
+    # Include gofast metrics gofast's custom scoring functions
+    scorer_functions.update(SCORERS)  
+                
+    return scorer_functions
+
+def make_scorer(
+    score_func, *, 
+    greater_is_better=True, 
+    needs_proba=False, 
+    needs_threshold=False, 
+    **kwargs
+    ):
+    """
+    Creates a scorer callable for gofast.metrics that can be used in model evaluation.
+
+    This function wraps scoring functions from the gofast.metrics module 
+    (or any custom scoring function) to make them compatible with scikit-learn's
+    model evaluation tools, such as cross-validation and grid search.
+
+    Parameters
+    ----------
+    score_func : callable
+        A scoring function with signature `score_func(y_true, y_pred, **kwargs)` where:
+            - `y_true` is an array-like of true labels,
+            - `y_pred` is an array-like of predicted labels or probabilities 
+               (depending on `needs_proba`),
+            - `**kwargs` are additional arguments to the scoring function.
+    greater_is_better : bool, optional
+        Whether score_func is a score function, meaning high is good, or a 
+        loss function, meaning low is good. By default, it's assumed to be a
+        score function (True).
+    needs_proba : bool, optional
+        Whether score_func requires predict_proba to get probability estimates
+        out of a classifier.
+        Set to True if `score_func` requires probability estimates instead of 
+        just labels.
+    needs_threshold : bool, optional
+        Whether the score function requires a decision threshold 
+        (only meaningful for binary classification).
+    **kwargs : additional arguments
+        Additional parameters to be passed to the scoring function.
+
+    Returns
+    -------
+    scorer : callable
+        A callable scorer that takes two arguments `estimator, X` where `X` 
+        is the data to be passed to `estimator.predict` or 
+        `estimator.predict_proba`, and returns a float representing the score.
+
+    Examples
+    --------
+    >>> from gofast.metrics import make_scorer
+    >>> pbias_scorer = make_scorer(percentage_bias)
+    >>> from sklearn.model_selection import cross_val_score
+    >>> from sklearn.tree import DecisionTreeClassifier
+    >>> from sklearn.datasets import load_iris
+    >>> X, y = load_iris(return_X_y=True)
+    >>> clf = DecisionTreeClassifier()
+    >>> scores = cross_val_score(clf, X, y, scoring=pbias_scorer)
+    >>> print(scores)
+    
+    >>> from gofast.metrics import information_value 
+    >>> scores = cross_val_score(clf, X, y, scoring=iv_scorer)
+    >>> print(scores)
+    Note
+    ----
+    This is a wrapper around `sklearn.metrics.make_scorer`, designed to facilitate the use of custom
+    scoring functions from the gofast.metrics module in scikit-learn's model evaluation process.
+    """
+    from sklearn.metrics import make_scorer as sklearn_make_scorer 
+
+    return sklearn_make_scorer(
+        score_func, 
+        greater_is_better=greater_is_better, 
+        needs_proba=needs_proba, 
+        needs_threshold=needs_threshold,
+        **kwargs
+    )
   
 
             
