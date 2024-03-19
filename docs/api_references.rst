@@ -925,6 +925,7 @@ users to prepare their datasets for machine learning and analysis.
 
    transformers.AttributesCombinator
    transformers.SequentialBackwardSelection
+   transformers.FloatCategoricalToIntTransformer
    transformers.KMeansFeaturizer
    transformers.StratifyFromBaseFeature
    transformers.BaseColumnSelector 

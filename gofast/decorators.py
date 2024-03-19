@@ -650,7 +650,6 @@ class DynamicMethod:
         condition: Optional[Callable[[pd.DataFrame], bool]] = None, 
         reset_index: bool = False,
         prefixer:Optional[str]=None, 
-        set_dynamic_id=True, 
         ):
         self.expected_type = expected_type
         self.capture_columns = capture_columns
@@ -2068,7 +2067,53 @@ def available_if(check):
     return lambda fn: _AvailableIfDescriptor(fn, check, attribute_name=fn.__name__)
 
 
-def df_if(func: Callable) -> Callable:
+def isdf(func):
+    """
+    Advanced decorator that ensures the first positional argument (after `self` for methods)
+    passed to the decorated callable is a pandas DataFrame. If it's not, attempts to convert
+    it to a DataFrame using an optional `columns` keyword argument. This implementation
+    is designed to be flexible and efficient, suitable for both functions and methods.
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        # Determine if we're decorating a method or a function
+        args_list = list(args)
+        if args and hasattr(args_list[0], func.__name__):
+            # If the first argument has an attribute with the same name as `func`,
+            # it's likely an instance method where `self` or `cls` is the first argument.
+            self_or_cls, data_arg_index = args_list[0], 1
+        else:
+            self_or_cls, data_arg_index = None, 0
+
+        # Retrieve the data argument and `columns` keyword argument if provided
+        data = args_list[data_arg_index]
+        columns = kwargs.get('columns', None)
+        if isinstance(columns, str):
+            columns = [columns]
+
+        # Proceed with conversion if necessary
+        if not isinstance(data, pd.DataFrame):
+            try:
+                data = pd.DataFrame(data, columns=columns)
+                if columns and len(columns) != data.shape[1]:
+                    data = pd.DataFrame(data)
+            except Exception as e:
+                raise ValueError(f"Unable to convert to DataFrame: {e}")
+            # Update the data argument in the arguments list
+            args_list[data_arg_index] = data
+            
+            # Reconstruct args from the potentially modified args_list
+            args = tuple(args_list)
+
+        # Call the original function or method, passing `self` or `cls` explicitly if necessary
+        if self_or_cls is not None:
+            return func(self_or_cls, *args[1:], **kwargs)
+        else:
+            return func(*args, **kwargs)
+
+    return wrapper
+
+def isdf0(func: Callable) -> Callable:
     """
     A decorator that ensures the first positional argument passed to the 
     decorated function is a pandas DataFrame.
@@ -2094,8 +2139,8 @@ def df_if(func: Callable) -> Callable:
 
     Examples
     --------
-    >>> from gofast.decorators import dataify
-    >>> @df_if
+    >>> from gofast.decorators import isdf
+    >>> @isdf
     ... def my_function(data, /, columns=None, **kwargs):
     ...     print(data)
     ...     print("Columns:", columns)

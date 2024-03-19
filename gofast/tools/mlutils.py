@@ -19,6 +19,7 @@ import shutil
 from six.moves import urllib 
 from collections import Counter 
 import numpy as np 
+from scipy import sparse
 import pandas as pd 
 from pathlib import Path
 from tqdm import tqdm
@@ -39,7 +40,9 @@ from sklearn.utils import all_estimators, resample
 from .._gofastlog import gofastlog
 from .._typing import List, Tuple, Any, Dict,  Optional,Union, Iterable,Series 
 from .._typing import _T, _F, ArrayLike, NDArray,  DataFrame, Set 
-from ..exceptions import ParameterNumberError, EstimatorError          
+from ..compat.sklearn import get_feature_names 
+from ..decorators import isdf
+from ..exceptions import ParameterNumberError, EstimatorError    
 from .coreutils import _assert_all_types, _isin,  is_in_if,  ellipsis2false
 from .coreutils import smart_format,  is_iterable, get_valid_kwargs
 from .coreutils import is_classification_task, to_numeric_dtypes, fancy_printer
@@ -88,6 +91,152 @@ __all__=[
     "smart_split",
     "save_dataframes"
     ]
+
+#XXXTODO
+@isdf 
+def basic_preprocess(
+    data, 
+    target_columns=None,
+    columns=None, 
+    impute_strategy=None,
+    seed=None, 
+    **process_kws
+    ):
+    """
+    Apply basic preprocessing steps to a pandas DataFrame.
+
+    This function prepares a DataFrame for further analysis or modeling by
+    applying scaling, encoding categorical variables, imputing missing values,
+    and optionally adding noise to simulate missing data. The function allows
+    for specifying which columns to preprocess and which to treat as targets,
+    which are excluded from certain preprocessing steps.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame to preprocess.
+    target_columns : str or list of str, optional
+        The name(s) of the column(s) to be treated as the target variable(s).
+        These columns will not be scaled or imputed. Default is None, meaning
+        no columns are treated as target variables.
+    columns : str or list of str, optional
+        Specific column(s) to include in the preprocessing. If None (default),
+        all columns are included.
+    impute_strategy : dict, optional
+        Strategy for imputation of missing values. Should contain separate
+        strategies for 'numeric' and 'categorical' data as keys. Default is
+        {'numeric': 'median', 'categorical': 'constant'}.
+    seed : int, optional
+        Seed for the random number generator. Default is None.
+    **process_kws : keyword arguments, optional
+        Additional keyword arguments to pass to preprocessing steps.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The preprocessed DataFrame.
+
+    Notes
+    -----
+    This function uses the ColumnTransformer from scikit-learn to apply
+    different preprocessing steps to numeric and categorical columns. It
+    relies on pandas for data manipulation and scikit-learn for preprocessing.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from numpy import nan
+    >>> from gofast.tools.mlutils import basic_preprocess
+    >>> data = pd.DataFrame({
+    ...     'Age': [25, nan, 37, 59],
+    ...     'City': ['New York', 'Paris', 'Berlin', nan],
+    ...     'Income': [58000, 67000, nan, 120000]
+    ... })
+    >>> processed_data = basic_preprocess(
+    ...     data,
+    ...     seed=42
+    ... )
+    >>> processed_data.head()
+    
+    After preprocessing, the data will have imputed missing values, scaled
+    numeric features, and encoded categorical variables. 
+    """
+
+    np.random.seed(seed)
+    impute_strategy = impute_strategy or {'numeric': 'median', 
+                                          'categorical': 'constant'
+        }
+    # Validate impute_strategy is a dictionary 
+    # with keys 'numeric' and 'categorical'
+    if  ( 
+        not isinstance(impute_strategy, dict) 
+        or 'numeric' not in impute_strategy 
+        or 'categorical' not in impute_strategy
+    ):
+        raise ValueError(
+            "impute_strategy must be a dictionary"
+            " with 'numeric' and 'categorical' keys"
+    )
+    
+    handle_unknown= process_kws.pop("handle_unknown", 'ignore')
+    fill_value = process_kws.pop("fill_value", 'missing')
+    remainder= process_kws.pop("remainder", 'passthrough')
+    
+    np.random.seed(seed)
+    
+    if columns:
+        data = data[columns] if isinstance(columns, list) else data[[columns]]
+    
+    if target_columns:
+        target_columns = [target_columns] if isinstance(
+            target_columns, str) else target_columns
+    
+    numeric_features = data.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    categorical_features = data.select_dtypes(include=['object']).columns.tolist()
+    
+    if target_columns:
+        numeric_features =( 
+            [col for col in numeric_features if col not in target_columns]
+        )
+    
+    numeric_transformer = Pipeline(steps=[
+        ('imputer', SimpleImputer(strategy=impute_strategy['numeric'])),
+        ('scaler', StandardScaler())
+    ])
+    
+    categorical_transformer = Pipeline(steps=[
+        ('imputer', SimpleImputer(strategy=impute_strategy['categorical'],
+                                  fill_value=fill_value)),
+        ('onehot', OneHotEncoder(handle_unknown=handle_unknown))
+    ])
+    
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', numeric_transformer, numeric_features),
+            ('cat', categorical_transformer, categorical_features)
+        ],
+        remainder=remainder
+    )
+    data_processed = preprocessor.fit_transform(data)
+    try: 
+        processed_columns =( 
+            numeric_features + list(get_feature_names(
+                preprocessor.named_transformers_['cat']['onehot'], categorical_features)
+                ) + [col for col in data.columns 
+                      if col not in numeric_features + categorical_features]
+        )
+    except: 
+        # For older versions of scikit-learn or custom compatibility function
+        cat_features_names = get_feature_names(preprocessor.named_transformers_['cat'])
+        processed_columns = numeric_features + list(cat_features_names)
+    # Convert sparse matrix to a dense array if necessary
+    if sparse.issparse(data_processed):
+        data_processed = data_processed.toarray()
+    
+    data_processed = pd.DataFrame(data_processed, columns=processed_columns,
+                                  index=data.index)
+
+    return data_processed
 
 
 def codify_variables (

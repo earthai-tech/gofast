@@ -26,7 +26,7 @@ from .._typing import Dict, Union, TypeGuard, Tuple, ArrayLike
 from .._typing import BeautifulSoupTag
  
 from ..compat.sklearn import get_feature_names
-from ..decorators import Deprecated, df_if, Dataify, DynamicMethod
+from ..decorators import Deprecated, isdf, Dataify, DynamicMethod
 from ..decorators import DataTransformer 
 from ..exceptions import FileHandlingError 
 from ..property import  Config
@@ -283,7 +283,7 @@ def simple_extractive_summary(
     return texts[most_similar_idx]
 
 
-@df_if 
+@isdf 
 def format_long_column_names(
     data:DataFrame, /,  
     max_length:int=10, 
@@ -448,7 +448,7 @@ def enrich_data_spectrum(
 
     return augmented_df.reset_index(drop=True)
 
-@df_if 
+@isdf 
 def sanitize(
     data:DataFrame, /, 
     fill_missing:Optional[str]=None, 
@@ -2438,7 +2438,7 @@ def convert_date_features(
 
     return (data, report) if return_report else data
 
-@df_if 
+@isdf 
 def scale_data(
     data: DataFrame, /, 
     method: str = 'norm',
@@ -2647,7 +2647,7 @@ def handle_outliers_in_data(
 
     return (data, report) if return_report else data
 
-@df_if
+@isdf
 def handle_missing_data(
     data:DataFrame, /, 
     method: Optional[str] = None,  
@@ -2747,6 +2747,7 @@ def handle_missing_data(
     
     return (data, data_report) if return_report else data
 
+@isdf
 def inspect_data(
     data: DataFrame, /, 
     correlation_threshold: float = 0.8, 
@@ -3889,8 +3890,6 @@ def _reduce_dimensions(
     reduced_embeddings = pca.fit_transform(embeddings)
     return reduced_embeddings
 
-
-
 def boxcox_transformation(
     data: DataFrame, 
     columns: Optional[Union[str, List[str]]] = None, 
@@ -4033,6 +4032,7 @@ def boxcox_transformation(
     
     return transformed_data, lambda_values
 
+@isdf 
 def check_missing_data(
     data: DataFrame, /, 
     view: bool = False,
@@ -4150,7 +4150,6 @@ def check_missing_data(
         plt.show()
 
     return missing_stats
-
 
 @DataTransformer('data', mode='lazy')
 @DynamicMethod(
@@ -4270,83 +4269,19 @@ def base_transform(
     # Apply noise to non-target numeric columns if specified
     if noise_level is not None:
         noise_level = assert_ratio ( noise_level )
+        # Add noise if specified
+        # if  noise_level > 0:
+        #     noise_mask = np.random.rand(*data_processed.shape) < noise_level
+        #     data_processed.where(~noise_mask, other=np.nan, inplace=True)
         assert 0 <= noise_level <= 1, "noise_level must be between 0 and 1"
         for column in numeric_features:
             noise_mask = np.random.rand(data.shape[0]) < noise_level
             data_processed.loc[noise_mask, column] = np.nan
-            
     # now rearrange the columns back 
     try:
         return  data_processed [original_columns ]
     except:
         return data_processed # if something wrong, return it
-    
+ 
 
-def minimum_transformer(
-        data, target_columns=None, columns=None, noise_level=None,
-        seed=None ):
-    """
-    Apply transformations such as noise addition, scaling, and imputation 
-    to a pandas DataFrame.
-    
-    [Your docstring here]
-    """
-    from sklearn.compose import ColumnTransformer
-    from sklearn.pipeline import Pipeline
-    from sklearn.preprocessing import StandardScaler, OneHotEncoder
-    from sklearn.impute import SimpleImputer
-    import numpy as np
-    import pandas as pd
-
-    np.random.seed(seed)
-    
-    if columns:
-        data = data[columns] if isinstance(columns, list) else data[[columns]]
-    
-    if target_columns:
-        target_columns = [target_columns] if isinstance(target_columns, str) else target_columns
-    
-    numeric_features = data.select_dtypes(include=['int64', 'float64']).columns.tolist()
-    categorical_features = data.select_dtypes(include=['object']).columns.tolist()
-    
-    if target_columns:
-        numeric_features = [col for col in numeric_features if col not in target_columns]
-    
-    numeric_transformer = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy='median')),
-        ('scaler', StandardScaler())
-    ])
-    
-    categorical_transformer = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
-        ('onehot', OneHotEncoder(handle_unknown='ignore'))
-    ])
-    
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ('num', numeric_transformer, numeric_features),
-            ('cat', categorical_transformer, categorical_features)
-        ],
-        remainder='passthrough'
-    )
-    
-    data_processed = preprocessor.fit_transform(data)
-    processed_columns =( 
-        numeric_features + list(get_feature_names(
-            preprocessor.named_transformers_['cat']['onehot'], categorical_features)
-            ) + [col for col in data.columns 
-                 if col not in numeric_features + categorical_features]
-    )
-
-    # Convert sparse matrix to a dense array if necessary
-    if sparse.issparse(data_processed):
-        data_processed = data_processed.toarray()
-    
-    data_processed = pd.DataFrame(data_processed, columns=processed_columns, index=data.index)
-
-    if noise_level:
-        noise_mask = np.random.rand(*data_processed.shape) < noise_level
-        data_processed = data_processed.mask(noise_mask, np.nan)
-    
-    return data_processed
 

@@ -5084,7 +5084,6 @@ def balanced_accuracy_score(
     y_true, y_pred, *opt_sample_weight = validate_nan_policy(
         nan_policy, y_true, y_pred, sample_weights = sample_weight ) 
     sample_weight = opt_sample_weight[0] if opt_sample_weight else sample_weight 
-    
     # --
     labels = unique_labels(y_true, y_pred)
     labels = np.unique(np.concatenate([y_true, y_pred]))

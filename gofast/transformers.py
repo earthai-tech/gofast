@@ -40,6 +40,7 @@ except : pass
 
 from ._gofastlog import gofastlog 
 from ._typing import _F 
+from .decorators import isdf
 from .exceptions import EstimatorError, NotFittedError 
 from .tools.coreutils import  parse_attrs, assert_ratio, validate_feature
 from .tools.coreutils import  ellipsis2false, to_numeric_dtypes, is_iterable
@@ -60,6 +61,7 @@ __docformat__='restructuredtext'
 _logger = gofastlog().get_gofast_logger(__name__)
 
 __all__= ['SequentialBackwardSelection',
+          'FloatCategoricalToIntTransformer', 
           'KMeansFeaturizer',
           'AttributesCombinator', 
           'StratifyFromBaseFeature',
@@ -104,6 +106,109 @@ __all__= ['SequentialBackwardSelection',
           'ImageBatchLoader', 
           ]
 
+class FloatCategoricalToIntTransformer(BaseEstimator, TransformerMixin):
+    """
+    A transformer that detects floating-point columns in a DataFrame 
+    representing categorical variables and converts them to integers.
+
+    This transformer is useful when dealing with datasets where categorical 
+    variables are represented as floating-point numbers but essentially 
+    contain integer values, for example, [0.0, 1.0, 2.0] representing different 
+    categories.
+
+    Attributes
+    ----------
+    columns_to_transform_ : list
+        List of column names in the DataFrame that are identified as 
+        floating-point columns to be transformed to integers.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from sklearn.pipeline import Pipeline
+    >>> from gofast.transformers import FloatCategoricalToIntTransformer
+    >>> data = {'category': [0.0, 1.0, 2.0, 1.0], 'value': [23.5, 12.6, 15.0, 22.1]}
+    >>> df = pd.DataFrame(data)
+    >>> transformer = FloatCategoricalToIntTransformer()
+    >>> transformer.fit(df)
+    >>> transformed = transformer.transform(df)
+    >>> print(transformed)
+       category  value
+    0         0   23.5
+    1         1   12.6
+    2         2   15.0
+    3         1   22.1
+
+    Notes
+    -----
+    The fit method determines which columns are to be transformed by checking 
+    if the unique values in each floating-point column are integers ending with 
+    .0. During the transform phase, these columns are then cast to the integer 
+    type, preserving their categorical nature but in a more memory-efficient 
+    format.
+
+    The transformer does not modify the input DataFrame directly; instead, it 
+    returns a transformed copy.
+    """
+    
+    def fit(self, X, y=None):
+        """
+        Fit the transformer to the DataFrame.
+
+        Parameters
+        ----------
+        X : pandas.DataFrame
+            The input DataFrame.
+        y : Ignored
+            Not used, present here for API consistency by convention.
+
+        Returns
+        -------
+        self : object
+            Returns the instance itself.
+        """
+        build_data_if()
+        if not isinstance(X, pd.DataFrame): 
+            try : # Default construct data
+                X=build_data_if(X, input_name='feature_', 
+                                raise_exception=True, force=True
+                ) 
+            except Exception as e :
+                raise TypeError(
+                    "Expect a DataFrame 'X'. Got {type(X).__name__!r}"
+                    ) from e 
+        # Identify columns to transform based on their unique values
+        self.columns_to_transform_ = []
+        for col in X.columns:
+            if X[col].dtype == float:
+                unique_vals = np.unique(X[col])
+                # Check if unique values are integers ending with .0 (e.g., 0.0, 1.0)
+                if all(np.mod(unique_vals, 1) == 0):
+                    self.columns_to_transform_.append(col)
+        return self
+    
+    def transform(self, X):
+        """
+        Transform the DataFrame by converting identified floating-point columns
+        to integers.
+
+        Parameters
+        ----------
+        X : pandas.DataFrame
+            The input DataFrame to transform.
+
+        Returns
+        -------
+        X_transformed : pandas.DataFrame
+            The transformed DataFrame with floating-point columns converted 
+            to integers.
+        """
+        # Copy DataFrame to avoid modifying the original data
+        X_transformed = X.copy()
+        # Convert identified columns to integer type
+        for col in self.columns_to_transform_:
+            X_transformed[col] = X_transformed[col].astype(int)
+        return X_transformed
 
 class SequentialBackwardSelection(BaseEstimator, TransformerMixin):
     r"""
