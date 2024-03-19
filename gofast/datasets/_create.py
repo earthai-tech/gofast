@@ -15,10 +15,11 @@ from sklearn.model_selection import train_test_split
 from ..tools.baseutils import remove_target_from_array
 
 from ..tools.box import Boxspace 
-from ..tools.coreutils import ellipsis2false ,assert_ratio, is_iterable 
-from ..tools.coreutils import is_in_if, _assert_all_types,  add_noises_to 
-from ..tools.coreutils import smart_format, random_sampling
+from ..tools.coreutils import assert_ratio, is_iterable 
+from ..tools.coreutils import _assert_all_types, add_noises_to 
+from ..tools.coreutils import is_in_if, smart_format, random_sampling 
 from ..tools.funcutils import ensure_pkg
+from ..tools.validator import validate_and_adjust_ranges, validate_years
 from ._globals import HYDRO_PARAMS, HYDRO_PARAM_UNITS 
 from ._globals import RELEVANT_HYDRO_PARAMS, HYDRO_PARAM_RANGES  
 
@@ -507,13 +508,13 @@ def make_regression(
     )
 def make_social_media_comments(
     *, samples=1000, 
-    as_frame:bool =..., 
-    return_X_y:bool = True, 
-    split_X_y:bool= ..., 
-    target_names:list=None,  
-    test_size:float =.3, 
-    noise: float=None, 
-    seed:int | np.random.RandomState = None, 
+    as_frame=False, 
+    return_X_y= True, 
+    split_X_y=False, 
+    target_names=None,  
+    test_size=.3, 
+    noise=None, 
+    seed= None, 
     **kws 
     ):
     """
@@ -644,13 +645,13 @@ def make_african_demo(*,
     start_year=1960,
     end_year=2020, 
     countries= None, 
-    as_frame:bool =..., 
-    return_X_y:bool = True, 
-    split_X_y:bool= ..., 
-    target_names:list=None,  
-    test_size:float =.3, 
-    noise: float=None, 
-    seed:int | np.random.RandomState = None, 
+    as_frame=False, 
+    return_X_y=True, 
+    split_X_y=False, 
+    target_names=None,  
+    test_size=.3, 
+    noise=None, 
+    seed=None, 
     **kws
     ):
     """
@@ -755,7 +756,7 @@ def make_african_demo(*,
 
     """ 
     from ._globals import AFRICAN_COUNTRIES
-    start_year, end_year = _validate_years(start_year, end_year)
+    start_year, end_year = validate_years(start_year, end_year)
     # Random seed for reproducibility
     np.random.seed(seed); data = []
     # check the given data 
@@ -806,14 +807,14 @@ def make_african_demo(*,
 def make_agronomy_feedback(*, 
     samples=100, 
     num_years=5, 
-    n_specimens:int =7, 
-    as_frame:bool =..., 
-    return_X_y:bool = True, 
-    split_X_y:bool= ..., 
-    target_names:list=None,  
-    test_size:float =.3, 
-    noise: float=None, 
-    seed:int | np.random.RandomState = None, 
+    n_specimens=7, 
+    as_frame=False, 
+    return_X_y= True, 
+    split_X_y=False, 
+    target_names=None,  
+    test_size=.3, 
+    noise=None, 
+    seed= None, 
     **kws
     ):
     """
@@ -988,13 +989,13 @@ def make_agronomy_feedback(*,
 def make_mining_ops(
     *, 
     samples=1000, 
-    as_frame:bool =..., 
-    return_X_y:bool = True, 
-    split_X_y:bool= ..., 
-    target_names:list=None,  
-    test_size:float =.3, 
-    noise: float=None, 
-    seed:int | np.random.RandomState = None, 
+    as_frame=False, 
+    return_X_y= True, 
+    split_X_y=False, 
+    target_names=None,  
+    test_size=.3, 
+    noise=None, 
+    seed= None, 
     **kws
     ):
     """
@@ -1213,13 +1214,13 @@ def make_mining_ops(
 def make_sounding(
     *, samples=100, 
     num_layers=5, 
-    as_frame:bool =..., 
-    return_X_y:bool = True, 
-    split_X_y:bool= ..., 
-    target_names:list=None,  
-    test_size:float =.3, 
-    noise: float=None, 
-    seed:int | np.random.RandomState = None, 
+    as_frame=False, 
+    return_X_y= True, 
+    split_X_y=False, 
+    target_names=None,  
+    test_size=.3, 
+    noise=None, 
+    seed= None, 
     **kws
     ):
     """
@@ -1375,13 +1376,13 @@ def make_sounding(
 
 def make_medical_diagnosis(
     *,samples=1000, 
-    as_frame:bool =..., 
-    return_X_y:bool = True, 
-    split_X_y:bool= ..., 
-    target_names:list=None,  
-    test_size:float =.3, 
-    noise: float=None, 
-    seed:int | np.random.RandomState = None, 
+    as_frame=False, 
+    return_X_y= True, 
+    split_X_y=False, 
+    target_names=None,  
+    test_size=.3, 
+    noise=None, 
+    seed= None, 
     **kws
     ):
     """
@@ -1619,13 +1620,13 @@ def make_well_logging(*,
     depth_start=0., 
     depth_end=200., 
     depth_interval=.5, 
-    as_frame:bool =..., 
-    return_X_y:bool = True, 
-    split_X_y:bool= ..., 
-    target_names:list=None,  
-    test_size:float =.3, 
-    noise: float=None, 
-    seed:int | np.random.RandomState = None, 
+    as_frame=False, 
+    return_X_y= True, 
+    split_X_y=False, 
+    target_names=None,  
+    test_size=.3, 
+    noise=None, 
+    seed= None, 
     **kws
     ):
     """
@@ -1764,18 +1765,17 @@ def make_well_logging(*,
         seed=seed
         ) 
 
-
 def make_ert(
     *, 
     samples=100, 
     equipment_type='SuperSting R8', 
-    as_frame:bool =..., 
-    return_X_y:bool = True, 
-    split_X_y:bool= ..., 
-    target_names:list=None,  
-    test_size:float =.3, 
-    noise: float=None, 
-    seed:int | np.random.RandomState = None, 
+    as_frame=False, 
+    return_X_y=True, 
+    split_X_y=False, 
+    target_names=None,  
+    test_size=.3, 
+    noise=None, 
+    seed= None, 
     **kws
     ):
     """
@@ -1928,13 +1928,13 @@ def make_tem(
     lon_range=(-118.50, -117.00), 
     time_range=(0.01, 10.0), 
     measurement_range=(100, 10000), 
-    as_frame:bool =..., 
-    return_X_y:bool = True, 
-    split_X_y:bool= ..., 
-    target_names:list=None,  
-    test_size:float =.3, 
-    noise: float=None, 
-    seed:int | np.random.RandomState = None, 
+    as_frame=False, 
+    return_X_y=True, 
+    split_X_y=False, 
+    target_names=None,  
+    test_size=.3, 
+    noise=None, 
+    seed= None, 
     **kws
     ):
     """
@@ -2040,6 +2040,15 @@ def make_tem(
     >>> print(tem_data.head())
 
     """
+    # Adjust ranges
+    ranges = validate_and_adjust_ranges(lat_range=lat_range, lon_range=lon_range, 
+                                        time_range=time_range,
+                                        measurement_range=measurement_range)
+    lat_range = ranges['lat_range']
+    lon_range = ranges['lon_range']
+    time_range = ranges['time_range']
+    measurement_range = ranges['measurement_range']
+    
     # Random seed for reproducibility
     np.random.seed(seed)
     
@@ -2084,13 +2093,13 @@ def make_erp(*,
     lat_range=(34.00, 36.00), 
     lon_range =(-118.50, -117.00), 
     resistivity_range=(10, 1000),
-    as_frame:bool =..., 
-    return_X_y:bool = True, 
-    split_X_y:bool= ..., 
-    target_names:list=None,  
-    test_size:float =.3, 
-    noise: float=None, 
-    seed:int | np.random.RandomState = None, 
+    as_frame=False, 
+    return_X_y=True, 
+    split_X_y=False, 
+    target_names=None,  
+    test_size=.3, 
+    noise=None, 
+    seed= None, 
     **kws
     ):
     """
@@ -2202,6 +2211,14 @@ def make_erp(*,
     >>> print(dataset.head())
 
     """
+    # Adjust ranges
+    ranges = validate_and_adjust_ranges(lat_range=lat_range, lon_range=lon_range, 
+                                        resistivity_range=resistivity_range,
+                                       )
+    lat_range = ranges['lat_range']
+    lon_range = ranges['lon_range']
+    resistivity_range = ranges['resistivity_range']
+
     # Random seed for reproducibility
     np.random.seed(seed)
     
@@ -2246,18 +2263,17 @@ def make_erp(*,
         ) 
 
 def make_elogging(
-    *, 
+    *, samples=100, 
     start_date='2021-01-01', 
     end_date='2021-01-31', 
-    samples=100, 
     log_levels=None, 
-    as_frame:bool =..., 
-    return_X_y:bool = True, 
-    split_X_y:bool= ..., 
-    target_names:list=None,  
-    test_size:float =.3, 
-    noise: float=None, 
-    seed:int | np.random.RandomState = None, 
+    as_frame=False, 
+    return_X_y=True, 
+    split_X_y=False, 
+    target_names=None,  
+    test_size=.3, 
+    noise=None, 
+    seed= None, 
     **kws
     ):
     """
@@ -2265,14 +2281,14 @@ def make_elogging(
 
     Parameters
     ----------
+    samples : int
+        The number of log entries to generate.
+        
     start_date : str
         The start date for the logging data in 'YYYY-MM-DD' format.
 
     end_date : str
         The end date for the logging data in 'YYYY-MM-DD' format.
-
-    samples : int
-        The number of log entries to generate.
 
     log_levels : list of str, optional
         A list of log levels (e.g., ['INFO', 'WARNING', 'ERROR']). 
@@ -2354,10 +2370,12 @@ def make_elogging(
     >>> start_date = '2021-01-01'
     >>> end_date = '2021-01-31'
     >>> samples = 100
-    >>> log_data = make_elogging(start_date, end_date, samples)
+    >>> log_data = make_elogging(samples=samples, start_date= start_date, end_date=end_date, )
     >>> print(log_data.head())
 
     """
+    start_date, end_date = validate_years(
+        start_date, end_date, return_as_date_str= True)
     # Random seed for reproducibility
     np.random.seed(seed)
     
@@ -2397,17 +2415,17 @@ def make_elogging(
         seed=seed
         ) 
 
-def make_gadget_sales(*, 
+def make_gadget_sales(
+    *, samples=500, 
     start_date='2021-12-26', 
     end_date='2022-01-10', 
-    samples=500, 
-    as_frame:bool =..., 
-    return_X_y:bool = True, 
-    split_X_y:bool= ..., 
-    target_names:list=None,  
-    test_size:float =.3, 
-    noise: float=None, 
-    seed:int | np.random.RandomState = None, 
+    as_frame=False, 
+    return_X_y=True, 
+    split_X_y=False, 
+    target_names=None,  
+    test_size=.3, 
+    noise=None, 
+    seed= None, 
     **kws
     ):
     """
@@ -2512,6 +2530,8 @@ def make_gadget_sales(*,
     >>> print(sales_data.head())
 
     """
+    start_date, end_date = validate_years(
+        start_date, end_date, return_as_date_str= True)
     # Random seed for reproducibility
     np.random.seed(seed)
     
@@ -2554,13 +2574,13 @@ def make_gadget_sales(*,
 
 def make_retail_store(
     *, samples=1000, 
-    as_frame:bool =..., 
-    return_X_y:bool = True, 
-    split_X_y:bool= ..., 
-    target_names:list=None,  
-    test_size:float =.3, 
-    noise: float=None, 
-    seed:int | np.random.RandomState = None, 
+    as_frame=False, 
+    return_X_y=True, 
+    split_X_y=False, 
+    target_names=None,  
+    test_size=.3, 
+    noise=None, 
+    seed= None, 
     **kws
     ):
     """
@@ -2713,13 +2733,14 @@ def make_retail_store(
 
 def make_cc_factors(
     *, samples=1000,  
+    as_frame=False, 
+    return_X_y=True, 
+    split_X_y=False, 
+    target_names=None, 
+    feedback_threshold='auto',
+    test_size=.3, 
     noise=.1, 
-    as_frame:bool =..., 
-    return_X_y:bool = True, 
-    split_X_y:bool= ..., 
-    target_names:list=None,  
-    test_size:float =.3, 
-    seed:int | np.random.RandomState = None, 
+    seed= None, 
     **kws
     ):
     """
@@ -2841,55 +2862,72 @@ def make_cc_factors(
         "feedbacks": "Feedback Mechanisms (Positive/Negative Climate Feedbacks)"
      }
 
-    # Random seed for reproducibility
     np.random.seed(seed)
-    
-    # # Generate synthetic data for the features
-    # data = np.random.rand(samples, len(features))
-
-    # # Introduce missing values randomly (replace some values with NaN)
-    # num_missing = int(np.round(samples * len(features) * missing_percentage))
-    # indices_to_replace = np.random.choice(range(samples * len(features)), 
-    #                                       num_missing, replace=False)
-    # data_flattened = data.flatten()
-    # data_flattened[indices_to_replace] = np.nan
-    # data = data_flattened.reshape((samples, len(features)))
-
-    # df = pd.DataFrame ( data , columns = features )
     noise = assert_ratio(noise)
-    data = np.random.randn(samples, len(features)) * 10  # Random data generation
-    missing_mask = np.random.random(size=data.shape) < noise
+    
+    # Define the scales and means for each factor
+    # feedbacks initialized here for scaling purposes
+    scales = {
+        "ghg": 10, "def_land": 5, "fossil_fuels": 8, "indust_proc": 7, 
+        "agri_livestock": 6, "transport": 9, "energy_prod": 10, 
+        "urban_infra": 4, "waste_mgmt": 3, "melt_polar": 2, 
+        "chg_land_albedo": 1, "solar_irr": 5, "aerosols": 4, 
+        "ozone_depl": 3, "chg_ocean_circ": 2, "ocean_acid": 2, 
+        "permafrost": 3, "chg_atm_water": 4, "land_deg_soil_erosion": 5, 
+        "human_act_biodiv": 6, "nat_disasters": 7, "feedbacks": 0 # 8
+    }
+    means = {key: 100 for key in scales}
+    
+    data = np.zeros((samples, len(scales)))
+    
+    for idx, (factor, scale) in enumerate(scales.items()):
+        data[:, idx] = np.random.randn(samples) * scale + means[factor]
+    
+    missing_mask = np.random.rand(samples, len(scales)) < noise
     data[missing_mask] = np.nan  # Introduce missing values based on the probability
+
+    # Dynamically adjust the threshold for "feedbacks" 
+    # based on the auto setting or provided value. 1.001( 10001/1000) 
+    # can be used as opinions coefficient to balance the binary 
+    # feedbacks for samples <= 1000 and 1.0002 ( 50001/5000) otherwise 
+    opinions_coeff = 1.001 if samples <= 1000 else 1.0002
+    threshold = feedback_threshold if isinstance(
+        feedback_threshold, (int, float)) else np.nanmedian(data) * opinions_coeff
+    feedbacks = np.where(np.nanmean(data, axis=1) > threshold, 1, 0)
     
-    # Generating a Pandas DataFrame
-    cc_data = pd.DataFrame(data, columns=list( features.keys()))
-    
-    target_names = list (is_iterable ( 
-        target_names or 'feedbacks', 
-        exclude_string= True, transform =True )
-        )
-    cc_data = add_noises_to(cc_data, noise = noise )
-    
+    cc_data = pd.DataFrame(data, columns=list(scales.keys()))
+    cc_data['feedbacks'] = feedbacks
+
+    if not target_names:
+        # Ensure feedbacks is included as the target if not specified
+        target_names = ['feedbacks']  
+
+    # Ensure the target 'feedbacks' does not contain 
+    # NaN by replacing any potential NaN values
+    cc_data['feedbacks'].fillna(0, inplace=True)
+
     return _manage_data(
         cc_data,
-        as_frame=as_frame, 
-        return_X_y= return_X_y, 
-        split_X_y=split_X_y, 
-        target_names=target_names, 
+        as_frame=as_frame,
+        return_X_y=return_X_y,
+        split_X_y=split_X_y,
+        target_names=target_names,
+        test_size=test_size,
         descr=features, 
-        test_size=test_size, 
-        seed=seed
-        ) 
+        seed=seed,
+        **kws
+    )
 
 def make_water_demand(
     *, samples=700, 
-    as_frame =..., 
-    return_X_y = True, 
-    noise=None, 
-    split_X_y= ..., 
+    as_frame=False, 
+    return_X_y=True, 
+    split_X_y=False, 
     target_names=None,  
-    test_size =.3, 
-    seed = None, 
+    test_size=.3, 
+    noise=None, 
+    seed= None, 
+    **kws
     ):
     """
     Generate a synthetic water demand needs dataset.
@@ -3045,7 +3083,8 @@ def make_water_demand(
         descr= { **WATER_QUAN_NEEDS, **WATER_QUAL_NEEDS,**SDG6_CHALLENGES}, 
         test_size=test_size, 
         noise = noise, 
-        seed=seed
+        seed=seed, 
+        **kws
         )
 
 def make_drill_ops(
@@ -3329,16 +3368,17 @@ def _rename_data_columns(data, new_columns=None):
     return data
 
 def _manage_data(
-    data, /, 
-    as_frame =..., 
-    return_X_y = ..., 
-    split_X_y= ..., 
-    target_names=None,  
-    test_size =.3, 
-    noise=None, 
-    seed = None, 
-    **kws
-     ): 
+    data, 
+    as_frame= False, 
+    return_X_y= False, 
+    split_X_y= False, 
+    target_names= None, 
+    test_size= 0.3, 
+    noise= None, 
+    seed= None, 
+    **kwargs
+):
+
     """ Manage the data and setup into an Object 
     
     Parameters
@@ -3419,46 +3459,94 @@ def _manage_data(
         samples.
     
     """
-    y =None, 
-    as_frame, return_X_y, split_X_y = ellipsis2false(
-        as_frame, return_X_y, split_X_y )
+    # y =None, 
+    # as_frame, return_X_y, split_X_y = ellipsis2false(
+    #     as_frame, return_X_y, split_X_y )
     
-    frame = data.copy() 
-    
-    feature_names = (is_in_if(list( frame.columns), target_names, return_diff =True )
-                     if target_names else list(frame.columns ))
-    if return_X_y : 
-        y = data [target_names] 
-        data.drop( columns = target_names, inplace =True )
+    # frame = data.copy() 
+    # feature_names = (is_in_if(list( frame.columns), target_names, return_diff =True )
+    #                  if target_names else list(frame.columns ))
+    # if return_X_y : 
+    #     y = data [target_names] 
+    #     data.drop( columns = target_names, inplace =True )
  
-    # Noises only in the data not in target  
-    data = add_noises_to(data, noise = noise , seed=seed )
-    if not as_frame: 
-        data =  np.asarray (data ) 
-        y = np.asarray(y ) 
+    # # Noises only in the data not in target  
+    # data = add_noises_to(data, noise = noise , seed=seed )
+    # if not as_frame: 
+    #     data =  np.asarray (data ) 
+    #     y = np.squeeze ( np.asarray(y) ) 
             
-    if split_X_y: 
-        return train_test_split ( 
-            data, y , test_size =assert_ratio (test_size),
-            random_state=seed) 
+    # if split_X_y: 
+    #     return train_test_split ( 
+    #         data, y, test_size =assert_ratio (test_size),
+    #         random_state=seed) 
 
-    if return_X_y : 
-        return data, y 
+    # if return_X_y : 
+    #     return data, y 
     
-    frame [feature_names] = add_noises_to( 
-        frame [feature_names], noise =noise, seed=seed  )
+    # frame [feature_names] = add_noises_to( 
+    #     frame [feature_names], noise =noise, seed=seed  )
+    
+    # if as_frame:
+    #     return frame
+    
+    # return Boxspace(
+    #     data=data,
+    #     target=frame[target_names].values ,
+    #     frame=frame,
+    #     target_names=target_names,
+    #     feature_names=feature_names,
+    #     **kws
+    #     )
+
+    # Ensure the correct data types for the parameters
+    as_frame, return_X_y, split_X_y = map(
+        lambda x: bool(x), [as_frame, return_X_y, split_X_y]
+    )
+    test_size = float(test_size)
+    if noise is not None:
+        noise = float(noise)
+    if seed is not None:
+        seed = int(seed)
+    
+    frame = data.copy()
+    feature_names = (
+        is_in_if(list( frame.columns), target_names, return_diff =True )
+        if target_names else list(frame.columns )
+    )
+    y = None
+    if return_X_y:
+        y = data [target_names].squeeze ()  
+        data.drop( columns = target_names, inplace =True )
+        
+    # Noises only in the data not in target
+    data = add_noises_to(data, noise=noise, seed=seed)
+
+    if not as_frame:
+        data = np.asarray(data)
+        y = np.squeeze(np.asarray(y))
+    
+    if split_X_y:
+        return train_test_split(data, y, test_size=test_size, random_state=seed)
+    
+    if return_X_y:
+        return data, y
+    
+    frame[feature_names] = add_noises_to(frame[feature_names], noise=noise, seed=seed)
+    
     if as_frame:
         return frame
     
     return Boxspace(
         data=data,
-        target=frame[target_names].values ,
+        target=frame[target_names].values if target_names else None,
         frame=frame,
-        target_names=target_names,
+        target_names=[target_names] if target_names else [],
         feature_names=feature_names,
-        **kws
-        )
- 
+        **kwargs
+    )
+
+
 def _get_item_from ( spec , /,  default_items, default_number = 7 ): 
     """ Accept either interger or a list. 
     
@@ -3496,53 +3584,7 @@ def _get_item_from ( spec , /,  default_items, default_number = 7 ):
     
     return spec 
     
-def _validate_years(start_year, end_year):
-    """
-    Validate the start_year and end_year ensuring that both are valid years
-    and that start_year is less than end_year.
 
-    Parameters
-    ----------
-    start_year : int or str
-        The starting year for the data range.
-    end_year : int or str
-        The ending year for the data range.
 
-    Returns
-    -------
-    tuple
-        A tuple containing the validated start and end years as integers.
-
-    Raises
-    ------
-    ValueError
-        If the start_year is not less than end_year or if the inputs are not
-        valid years.
-    """
-
-    # Attempt to convert start_year and end_year to integers
-    try:
-        start_year = int(start_year)
-        end_year = int(end_year)
-    except ValueError:
-        raise ValueError("start_year and end_year must be convertible to integers.")
-    
-    # Check if start_year is less than end_year
-    if start_year >= end_year:
-        raise ValueError("start_year must be less than end_year.")
-        
-    from datetime import datetime
-    # Optionally, you could check if the years are within a reasonable range
-    current_year = datetime.now().year
-    if not (1900 <= start_year <= current_year):
-        raise ValueError(
-            "start_year is out of the valid range."
-            f" Validated range: 1900 to {current_year}.")
-    if not (1900 <= end_year <= current_year):
-        raise ValueError(
-            "end_year is out of the valid range."
-            f" Validated range: 1900 to {current_year}.")
-
-    return start_year, end_year
 
 

@@ -11,6 +11,7 @@ import warnings
 import numbers
 import operator
 import joblib
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -979,6 +980,171 @@ def has_required_attributes(model: Any, attributes: list[str]) -> bool:
         True if the model contains all specified attributes, False otherwise.
     """
     return all(hasattr(model, attr) for attr in attributes)
+
+
+def validate_years(
+        start_year, end_year, return_as_date_str=False, date_format="%Y-%m-%d"):
+    """
+    Validates and parses start and end years/dates, with options for output formatting.
+
+    This function ensures the validity of provided start and end years or dates, checks
+    if they fall within a reasonable range, and allows the option to return the validated
+    years or dates in a specified string format.
+
+    Parameters
+    ----------
+    start_year : int, float, or str
+        The starting year or date. Can be an integer, float (converted to integer),
+        or string in "YYYY" or "YYYY-MM-DD" format.
+    end_year : int, float, or str
+        The ending year or date, with the same format options as `start_year`.
+    return_as_date_str : bool, optional
+        If True, returns the start and end dates as strings in the specified format.
+        Default is False, returning years as integers.
+    date_format : str, optional
+        The format string for output dates if `return_as_date_str` is True.
+        Default format is "%Y-%m-%d".
+
+    Returns
+    -------
+    tuple
+        A tuple of two elements, either integers (years) or strings (formatted dates),
+        representing the validated start and end years or dates.
+
+    Raises
+    ------
+    ValueError
+        If the input years or dates are invalid, out of the acceptable range,
+        or if the start year/date does not precede the end year/date.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import validate_years
+    >>> validate_years(1999, 2001)
+    (1999, 2001)
+
+    >>> validate_years("1999/01/01", "2001/12/31", return_as_date_str=True)
+    ('1999-01-01', '2001-12-31')
+
+    >>> validate_years("1999", "1998")
+    ValueError: The start date/time must precede the end date/time.
+
+    >>> validate_years("1899", "2001")
+    ValueError: Years must be within the valid range: 1900 to [current year].
+
+    Notes
+    -----
+    The function supports flexible input formats for years and dates, including
+    handling both slash "/" and dash "-" separators in date strings. It enforces
+    logical and chronological order between start and end inputs and allows
+    customization of the output format for date strings.
+    """
+    def parse_year_input(year_input):
+        if isinstance(year_input, (int, float)):
+            return datetime(int(year_input), 1, 1)
+        elif isinstance(year_input, str):
+            year_input = year_input.replace("/", "-")
+            try:
+                return  datetime.strptime(year_input, date_format)
+            except ValueError:
+                try: 
+                    # Fallback to parsing as year only
+                    return datetime(int(year_input), 1, 1)
+                except TypeError as ve: 
+                    raise TypeError (
+                        "Expected int, float, or str for"
+                        f" year, got {type(year_input)}."
+                        ) from ve 
+        raise TypeError(f"Invalid input '{year_input}'."
+                        " Expected format: YYYY or YYYY-MM-DD.")
+
+    start_date, end_date = map(parse_year_input, [start_year, end_year])
+
+    if start_date >= end_date:
+        raise ValueError("Start date/time must be earlier than end date/time.")
+
+    if return_as_date_str:
+        return start_date.strftime(date_format), end_date.strftime(date_format)
+
+    current_year = datetime.now().year
+    for year in (start_date.year, end_date.year):
+        if not 1900 <= year <= current_year:
+            raise ValueError(f"Year {year} is out of the valid"
+                             f" range: 1900 to {current_year}.")
+
+    # Additional validation for non-string return format
+    if ( 
+        start_date.year == end_date.year 
+        and start_date != end_date 
+        and not return_as_date_str
+        ):
+        raise ValueError(
+            "Start and end dates are within the same year but not the same date. "
+            "Consider using return_as_date_str=True or providing specific dates.")
+
+    return start_date.year, end_date.year
+
+def validate_and_adjust_ranges(**kwargs):
+    """
+    Validates and adjusts the provided range tuples to ensure each is
+    composed of two numerical values and is sorted in ascending order.
+
+    This function takes multiple range specifications as keyword arguments,
+    each expected to be a tuple of two numerical values (min, max). It validates
+    the format and contents of each range, adjusting them if necessary to ensure
+    that each tuple is ordered as (min, max).
+
+    Parameters
+    ----------
+    **kwargs : dict
+        Keyword arguments where each key is the name of a range (e.g., 'lat_range')
+        and its corresponding value is a tuple of two numerical values representing
+        the minimum and maximum of that range.
+
+    Returns
+    -------
+    dict
+        A dictionary with the same keys as the input, but with each tuple value
+        adjusted to ensure it is in the format (min, max).
+
+    Raises
+    ------
+    ValueError
+        If any provided range tuple does not contain exactly two values, contains
+        non-numerical values, or if the min value is not less than the max value.
+
+    Examples
+    --------
+    >>> validate_and_adjust_ranges(lat_range=(34.00, 36.00), lon_range=(-118.50, -117.00))
+    {'lat_range': (34.00, 36.00), 'lon_range': (-118.50, -117.00)}
+
+    >>> validate_and_adjust_ranges(time_range=(10.0, 0.01))
+    {'time_range': (0.01, 10.0)}
+
+    >>> validate_and_adjust_ranges(invalid_range=(1, 'a'))
+    ValueError: invalid_range must contain numerical values.
+
+    Notes
+    -----
+    This function is particularly useful for preprocessing input ranges for
+    various analyses, ensuring consistency and correctness of range specifications.
+    It automates the adjustment of provided ranges, simplifying the setup process
+    for further data processing or modeling tasks.
+    """
+    adjusted_ranges = {}
+
+    for range_name, range_tuple in kwargs.items():
+        if not isinstance(range_tuple, tuple) or len(range_tuple) != 2:
+            raise ValueError(f"{range_name} must be a tuple of two values.")
+
+        if not all(isinstance(value, (int, float)) for value in range_tuple):
+            raise ValueError(f"{range_name} must contain numerical values.")
+
+        # Ensure the range is in (min, max) format
+        min_value, max_value = sorted(range_tuple)
+        adjusted_ranges[range_name] = (min_value, max_value)
+
+    return adjusted_ranges
 
 def validate_keras_model(
         model: Any, custom_check: Optional[Callable[[Any], bool]] = None,

@@ -14,7 +14,6 @@ import itertools
 import warnings  
 import numpy as np 
 
-
 from sklearn.metrics import precision_recall_curve, precision_score
 from sklearn.metrics import recall_score, f1_score, roc_curve, roc_auc_score
 from sklearn.metrics import accuracy_score, confusion_matrix, log_loss
@@ -166,9 +165,9 @@ def percentage_bias(
           Expert Calibration. Journal of Hydrologic Engineering, 4(2), 135-143.
           
     .. [3] Moriasi, D.N., Arnold, J.G., Van Liew, M.W., Bingner, R.L., Harmel,
-         R.D., and Veith, T.L. (2007). Model evaluation guidelines for 
-         systematic quantification of accuracy in watershed simulations. 
-         Transactions of the ASABE, 50(3), 885-900.
+           R.D., and Veith, T.L. (2007). Model evaluation guidelines for 
+           systematic quantification of accuracy in watershed simulations. 
+           Transactions of the ASABE, 50(3), 885-900.
          
     Examples
     --------

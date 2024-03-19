@@ -1418,7 +1418,7 @@ def _add_dynamic_method(func):
         return
 
     for pandas_class in [pd.DataFrame, pd.Series]:
-        method_name = "go" + func.__name__
+        method_name = "go_" + func.__name__
         if hasattr(pandas_class, method_name):
             continue
         try:

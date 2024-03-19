@@ -539,61 +539,75 @@ class DynamicMethod:
         - 'numeric': Only numeric columns are considered.
         - 'categorical': Only categorical columns are considered.
         - 'both': Both numeric and categorical columns are considered.
-        Defaults to 'numeric'.
+        Defaults to ``'numeric'``.
 
     capture_columns : bool, optional
         If set to True, the decorator filters the DataFrame columns to those 
-        specified in the 'columns' keyword argument passed to the decorated function.
-        Defaults to False.
+        specified in the 'columns' keyword argument passed to the decorated 
+        function. 
+        Defaults to ``False``.
 
     treat_int_as_categorical : bool, optional
-        When True, integer columns in the DataFrame are treated as categorical data,
-        which can be particularly useful for statistical operations that distinguish
-        between numeric and categorical data types, such as ANOVA tests.
-        Defaults to False.
+        When True, integer columns in the DataFrame are treated as categorical 
+        data, which can be particularly useful for statistical operations that
+        distinguish between numeric and categorical data types, such as ANOVA 
+        tests. 
+        Defaults to ``False``.
 
     encode_categories : bool, optional
-        If True, categorical columns are encoded into integer values. This is especially
-        useful for models that require numerical input for categorical data.
-        Defaults to False.
+        If True, categorical columns are encoded into integer values. This is
+        especially useful for models that require numerical input for 
+        categorical data.
+        Defaults to ``False``.
 
     drop_na : bool, optional
-        Determines whether rows or columns with missing values should be dropped. The
-        specific rows or columns to drop are dictated by `na_axis` and `na_thresh`.
-        Defaults to False.
+        Determines whether rows or columns with missing values should be dropped.
+        The specific rows or columns to drop are dictated by `na_axis` and
+        `na_thresh`.
+        Defaults to ``False``.
 
     na_axis : Union[int, str], optional
-        Specifies the axis along which to drop missing values. Acceptable values are:
+        Specifies the axis along which to drop missing values. Acceptable 
+        values are:
         - 0 or 'row': Drop rows with missing values.
         - 1 or 'col': Drop columns with missing values.
-        Defaults to 0.
+        Defaults to ``0``.
 
     na_thresh : Optional[float], optional
-        Sets a threshold for dropping rows or columns with missing values. This can be
-        specified as an absolute number of non-NA values or a proportion (0 < value <= 1)
-        of the total number of values in a row or column.
-        Defaults to None.
+        Sets a threshold for dropping rows or columns with missing values. 
+        This can be specified as an absolute number of non-NA values or a
+        proportion (0 < value <= 1) of the total number of values in a row
+        or column.
+        Defaults to ``None``.
 
     transform_func : Optional[Callable], optional
-        A custom function to apply to the DataFrame before passing it to the decorated
-        function. This allows for flexible data transformations as needed.
-        Defaults to None.
+        A custom function to apply to the DataFrame before passing it to the
+        decorated function. This allows for flexible data transformations 
+        as needed.
+        Defaults to ``None``.
 
     condition : Optional[Callable[[pd.DataFrame], bool]], optional
-        A condition function that takes the DataFrame as an argument and returns True
-        if the decorated function should be executed. This enables conditional processing
-        based on the data.
-        Defaults to None.
+        A condition function that takes the DataFrame as an argument and 
+        returns ``True`` if the decorated function should be executed. This
+        enables conditional processing based on the data.
+        Defaults to ``None``.
 
     reset_index : bool, optional
-        If True, the DataFrame index is reset before processing. This is useful after
-        filtering rows to ensure the index is continuous.
-        Defaults to False.
-
+        If True, the DataFrame index is reset before processing. This is useful
+        after filtering rows to ensure the index is continuous.
+        Defaults to ``False``.
+        
+    prefixer : str or None, optional
+        A string to prefix the function name with when adding it as a method 
+        to DataFrame and Series objects. If set to "exclude" or 'false' 
+        (case-insensitive), the prefix is omitted, and the original function 
+        name is used. If None or not provided, a default prefix of 'go' is 
+        used to denote the method's origin from the gofast package.
+        
     verbose : bool, optional
-        Controls the verbosity of the decoration process. If True, detailed information
-        about the preprocessing steps is printed.
-        Defaults to False.
+        Controls the verbosity of the decoration process. If True, detailed 
+        information about the preprocessing steps is printed.
+        Defaults to ``False``.
 
     Raises
     ------
@@ -634,7 +648,9 @@ class DynamicMethod:
         na_thresh: Optional[float] = None, 
         transform_func: Optional[Callable] = None, 
         condition: Optional[Callable[[pd.DataFrame], bool]] = None, 
-        reset_index: bool = False
+        reset_index: bool = False,
+        prefixer:Optional[str]=None, 
+        set_dynamic_id=True, 
         ):
         self.expected_type = expected_type
         self.capture_columns = capture_columns
@@ -646,6 +662,7 @@ class DynamicMethod:
         self.transform_func = transform_func
         self.condition = condition
         self.reset_index = reset_index
+        self.prefixer = prefixer
         self.verbose = verbose
 
     def __call__(self, func: Callable):
@@ -661,7 +678,8 @@ class DynamicMethod:
             data = self._process_data(data, **kwargs)
             return func(data, *args[1:], **kwargs)
         
-        self._add_method_to_pandas (wrapper)
+        self._add_method_to_pandas (
+            wrapper, prefixer= self.prefixer)
         
         return wrapper
 
@@ -866,26 +884,64 @@ class DynamicMethod:
             thresh = self.na_thresh
         # Drop missing values based on the specified axis and threshold
         return data.dropna(axis=na_axis, thresh=thresh)
-                    
-    def _add_method_to_pandas(self, func):
+                                  
+    def _add_method_to_pandas(self, func, prefixer=None):
         """
-        Dynamically adds a new method to pandas DataFrame and Series 
-        objects with a 'go' prefix.
-        
-        This function checks if the method named 'go' + `func.__name__` does 
-        not already exist in the pandas DataFrame and Series classes. If not,
-        it adds `func` as a method to these classes, allowing for seamless 
-        integration of custom functionality into pandas objects, accessible 
-        with a 'go' prefix.
-        
+        Dynamically adds a custom method to pandas DataFrame and Series classes. 
+        This enhancement allows for extending pandas objects with additional 
+        functionality in a flexible manner. The method can be optionally prefixed 
+        to denote its origin or purpose, enhancing readability and avoiding 
+        namespace collisions.
+    
+        The method checks if a function, optionally prefixed, already exists 
+        as a method within the pandas DataFrame and Series classes. If the 
+        method does not exist, it is added, making it accessible directly 
+        from DataFrame and Series instances.
+    
         Parameters
         ----------
         func : function
-            The function to add as a method to DataFrame and Series objects.
-            The name of the function (`func.__name__`) prefixed with 'go' will 
-            be used as the method name.
+            The function to be added as a method. This function should accept a 
+            DataFrame or Series as its first argument, followed by any additional 
+            arguments or keyword arguments the function requires.
+        prefixer : str or None, optional
+            A string to prefix the function name with when adding it as a method 
+            to DataFrame and Series objects. If set to "exclude" or 'false' 
+            (case-insensitive), the prefix is omitted, and the original function 
+            name is used. If None or not provided, a default prefix of 'go' is 
+            used to denote the method's origin from the gofast package.
+    
+        Examples
+        --------
+        Suppose `custom_func` is a function intended to be added to DataFrame and 
+        Series objects, and we want to prefix it with 'go_':
+    
+            >>> def custom_func(df, *args, **kwargs):
+            ...     # Implementation here
+            ...     pass
+            >>> gofast_instance._add_method_to_pandas(custom_func)
+    
+        Now, `custom_func` can be called on DataFrame and Series objects like so:
+    
+            >>> df.go_custom_func(*args, **kwargs)
+    
+        If `dynamic_prefixer` is set to "exclude", the 'go_' prefix is omitted:
+    
+            >>> gofast_instance._add_method_to_pandas(custom_func, dynamic_prefixer="exclude")
+            >>> df.custom_func(*args, **kwargs)
+    
+        Raises
+        ------
+        Exception
+            If an error occurs while adding the method, it is caught and a message 
+            is printed. This behavior can be modified to log the error or handle 
+            it as needed.
         """
-        method_name = "go" + func.__name__
+        # Determine whether to use a prefix based on `prefixer`
+        method_name = func.__name__ if prefixer in (
+            "exclude", 'false') else "go_" + func.__name__
+    
+        # Attempt to add the method to both DataFrame and Series classes
         for cls in [pd.DataFrame, pd.Series]:
             if not hasattr(cls, method_name):
                 try:
@@ -893,8 +949,8 @@ class DynamicMethod:
                 except Exception as e:
                     if self.verbose:
                         print(f"Failed to add method {method_name}: {e}")
-                    # Optionally log the error or handle it as needed
-                    # print(f"Error adding method {func.__name__} to {cls.__name__}: {e}")
+                    # Optionally log or handle the error as needed
+                    
 class ExportData:
     """
     A decorator for exporting data into various formats post-function execution. 

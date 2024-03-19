@@ -12,7 +12,7 @@ import pathlib
 import warnings 
 import threading
 import subprocess
-from scipy import stats
+from scipy import stats, sparse
 from six.moves import urllib 
 from joblib import Parallel, delayed
 import numpy as np 
@@ -23,8 +23,11 @@ from tqdm import tqdm
 
 from .._typing import Any,  List, NDArray, DataFrame, Optional, Series 
 from .._typing import Dict, Union, TypeGuard, Tuple, ArrayLike
-from .._typing import BeautifulSoupTag 
-from ..decorators import Deprecated, df_if, Dataify 
+from .._typing import BeautifulSoupTag
+ 
+from ..compat.sklearn import get_feature_names
+from ..decorators import Deprecated, df_if, Dataify, DynamicMethod
+from ..decorators import DataTransformer 
 from ..exceptions import FileHandlingError 
 from ..property import  Config
 from .coreutils import is_iterable, ellipsis2false,smart_format, validate_url 
@@ -4147,4 +4150,203 @@ def check_missing_data(
         plt.show()
 
     return missing_stats
+
+
+@DataTransformer('data', mode='lazy')
+@DynamicMethod(
+    'both', 
+    capture_columns=True, 
+    prefixer='exclude' 
+   )
+def base_transform(
+    data: DataFrame, 
+    target_columns:Optional[str|List[str]]=None, 
+    columns: Optional[str|List[str]]=None, 
+    noise_level: float=None, 
+    seed: int=None):
+    """
+    Applies preprocessing transformations to the specified DataFrame, including 
+    handling of missing values, feature scaling, encoding categorical variables, 
+    and optionally introducing noise to numeric features. Transformations can 
+    be selectively applied to specified columns.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame to undergo preprocessing transformations.
+    target_columns : str or list of str, optional
+        The name(s) of the column(s) considered as target variable(s). 
+        These columns are excluded from transformations to prevent leakage. 
+        Default is None, indicating
+        no columns are treated as targets.
+    columns : str or list of str, optional
+        Specific columns to which transformations should be applied. 
+        If None, transformations
+        are applied to all columns excluding `target_columns`. 
+        Default is None.
+    noise_level : float, optional
+        The level of noise (as a fraction between 0 and 1) to introduce into 
+        the numeric columns. If None, no noise is added. Default is None.
+    seed : int, optional
+        Seed for the random number generator, ensuring reproducibility of the noise
+        and other random aspects of preprocessing. Default is None.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The preprocessed DataFrame with numeric features scaled, missing values imputed,
+        categorical variables encoded, and optionally noise added.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from sklearn.datasets import make_classification
+
+    # Generating a synthetic dataset
+    >>> X, y = make_classification(n_samples=100, n_features=4, random_state=42)
+    >>> data = pd.DataFrame(X, columns=['feature_1', 'feature_2', 'feature_3',
+    ...                                 'feature_4'])
+    >>> data['target'] = y
+
+    # Apply base_transform to preprocess features, excluding the target column
+    >>> from gofast.tools.baseutils import base_transform 
+    >>> preprocessed_data = base_transform(data, target_columns='target', 
+    ...                                    noise_level=0.1, seed=42)
+    >>> print(preprocessed_data.head())
+
+    Note
+    ----
+    This function is designed to be flexible, allowing selective preprocessing
+    on parts of the DataFrame. It leverages `ColumnTransformer` to efficiently 
+    process columns based on their data type. The inclusion of `noise_level` 
+    allows for simulating real-world data imperfections.
+    """
+    from sklearn.compose import ColumnTransformer
+    from sklearn.impute import SimpleImputer
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+    np.random.seed(seed)
+    target_columns = [target_columns] if isinstance(
+        target_columns, str) else target_columns
+
+    if target_columns is not None:
+        data = data.drop(columns=target_columns, errors='ignore')
+    # get original data columns 
+    original_columns = list(data.columns  )
+    # Identify numeric and categorical features for transformation
+    numeric_features = data.select_dtypes(
+        include=['int64', 'float64']).columns.tolist()
+    categorical_features = data.select_dtypes(
+        include=['object']).columns.tolist()
+
+    # Define transformations for numeric and categorical features
+    numeric_transformer = Pipeline(steps=[
+        ('imputer', SimpleImputer(strategy='median')),
+        ('scaler', StandardScaler())
+    ])
+
+    categorical_transformer = Pipeline(steps=[
+        ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
+        ('encoder', OneHotEncoder(handle_unknown='ignore'))
+    ])
+
+    # Apply ColumnTransformer to handle each feature type
+    preprocessor = ColumnTransformer(transformers=[
+        ('num', numeric_transformer, numeric_features),
+        ('cat', categorical_transformer, categorical_features)
+    ], remainder='passthrough')
+
+    data_processed = preprocessor.fit_transform(data)
+    processed_columns = numeric_features + categorical_features 
+    try: 
+        data_processed = pd.DataFrame(
+            data_processed, columns=processed_columns,  
+            index=data.index)
+    except : 
+        data_processed = pd.DataFrame(
+            data_processed, index=data.index)
+
+    # Apply noise to non-target numeric columns if specified
+    if noise_level is not None:
+        noise_level = assert_ratio ( noise_level )
+        assert 0 <= noise_level <= 1, "noise_level must be between 0 and 1"
+        for column in numeric_features:
+            noise_mask = np.random.rand(data.shape[0]) < noise_level
+            data_processed.loc[noise_mask, column] = np.nan
+            
+    # now rearrange the columns back 
+    try:
+        return  data_processed [original_columns ]
+    except:
+        return data_processed # if something wrong, return it
+    
+
+def minimum_transformer(
+        data, target_columns=None, columns=None, noise_level=None,
+        seed=None ):
+    """
+    Apply transformations such as noise addition, scaling, and imputation 
+    to a pandas DataFrame.
+    
+    [Your docstring here]
+    """
+    from sklearn.compose import ColumnTransformer
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler, OneHotEncoder
+    from sklearn.impute import SimpleImputer
+    import numpy as np
+    import pandas as pd
+
+    np.random.seed(seed)
+    
+    if columns:
+        data = data[columns] if isinstance(columns, list) else data[[columns]]
+    
+    if target_columns:
+        target_columns = [target_columns] if isinstance(target_columns, str) else target_columns
+    
+    numeric_features = data.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    categorical_features = data.select_dtypes(include=['object']).columns.tolist()
+    
+    if target_columns:
+        numeric_features = [col for col in numeric_features if col not in target_columns]
+    
+    numeric_transformer = Pipeline(steps=[
+        ('imputer', SimpleImputer(strategy='median')),
+        ('scaler', StandardScaler())
+    ])
+    
+    categorical_transformer = Pipeline(steps=[
+        ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
+        ('onehot', OneHotEncoder(handle_unknown='ignore'))
+    ])
+    
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', numeric_transformer, numeric_features),
+            ('cat', categorical_transformer, categorical_features)
+        ],
+        remainder='passthrough'
+    )
+    
+    data_processed = preprocessor.fit_transform(data)
+    processed_columns =( 
+        numeric_features + list(get_feature_names(
+            preprocessor.named_transformers_['cat']['onehot'], categorical_features)
+            ) + [col for col in data.columns 
+                 if col not in numeric_features + categorical_features]
+    )
+
+    # Convert sparse matrix to a dense array if necessary
+    if sparse.issparse(data_processed):
+        data_processed = data_processed.toarray()
+    
+    data_processed = pd.DataFrame(data_processed, columns=processed_columns, index=data.index)
+
+    if noise_level:
+        noise_mask = np.random.rand(*data_processed.shape) < noise_level
+        data_processed = data_processed.mask(noise_mask, np.nan)
+    
+    return data_processed
 

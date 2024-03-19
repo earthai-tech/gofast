@@ -4888,10 +4888,10 @@ def get_confidence_ratio (
     return ratio 
     
 def assert_ratio(
-        v, /, bounds: List[float] = None , 
-        exclude_value:float= None, 
-        in_percent:bool =False , name:str ='rate' 
-        ): 
+    v, /, bounds: List[float] = None , 
+    exclude_value:float= None, 
+    in_percent:bool =False , name:str ='rate' 
+    ): 
     """ Assert rate value between a specific range. 
     
     Parameters 
@@ -4908,9 +4908,6 @@ def assert_ratio(
     in_percent: bool, default=False, 
        Convert the value into a percentage.
        
-       .. versionchanged:: 0.2.3 
-          `as_percent` parameter is changed to `in_percent`. 
-          
     name: str, default='rate' 
        the name of the value for assertion. 
        
@@ -4968,8 +4965,8 @@ def assert_ratio(
 
     if len(bounds)!=0:
         if ( 
-                low is not None  # use is not None since 0. is
-                and up is not None # consider as False value
+            low is not None  # use is not None since 0. is
+            and up is not None # consider as False value
             and  (v < low or v > up)
             ) :
                 raise err 
