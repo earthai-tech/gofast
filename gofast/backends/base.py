@@ -49,25 +49,29 @@ Example Usage:
 Note:
 - The BaseBackend and its subclasses aim to simplify the computational aspects of
   data processing and machine learning workflows, allowing users to focus on 
-  problem-solving rather than the intricacies of the underlying computational frameworks.
-- It is important to select the appropriate backend based on the computational requirements
-  and available resources (e.g., use CuPyBackend for GPU acceleration or DaskBackend for
+  problem-solving rather than the intricacies of the underlying computational 
+  frameworks.
+- It is important to select the appropriate backend based on the computational 
+  requirements and available resources (e.g., use CuPyBackend for GPU 
+                                        acceleration or DaskBackend for
   handling large datasets).
 
-By providing a consistent interface across different computational environments, gofast
-ensures that users can easily switch between backends without significant changes to
-their code, enhancing productivity and facilitating experimentation with different
-computational strategies.
+By providing a consistent interface across different computational environments,
+gofast ensures that users can easily switch between backends without significant
+changes to their code, enhancing productivity and facilitating experimentation
+with different computational strategies.
 """
 
 class BaseBackend:
     """
     Base class for all computational backends in gofast.
-    This class defines a common interface for backend operations, ensuring consistency
-    and facilitating ease of use across different computational environments.
+    This class defines a common interface for backend operations, ensuring 
+    consistency and facilitating ease of use across different computational
+    environments.
 
-    Derived classes (NumpyBackend, CupyBackend, ScipyBackend, and DaskBackend) are expected
-    to implement these methods, tailored to their specific computational frameworks.
+    Derived classes (NumpyBackend, CupyBackend, ScipyBackend, and DaskBackend)
+    are expected to implement these methods, tailored to their specific 
+    computational frameworks.
     """
 
     def array(self, data, dtype =None, *,  copy=True, order='K', 
@@ -76,9 +80,10 @@ class BaseBackend:
         Convert input data to an array.
         
         Parameters:
-        - data: Data to be converted to an array. Can be a list, tuple, or any array-like object.
-        - dtype: Desired data type of the array, optional. If not specified, the data type will
-                 be inferred.
+        - data: Data to be converted to an array. Can be a list, tuple, or any
+          array-like object.
+        - dtype: Desired data type of the array, optional. If not specified,
+          the data type will be inferred.
         
         Returns:
         - An array object.

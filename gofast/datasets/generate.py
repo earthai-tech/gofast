@@ -1,10 +1,7 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
-"""
-Created on Thu Dec 21 14:43:09 2023
-@author: a.k.a Daniel
-"""
+
 from __future__ import annotations 
 import warnings 
 import random
@@ -12,6 +9,8 @@ from datetime import timedelta
 import pandas as pd
 import numpy as np
 
+from ._globals import HYDRO_PARAMS, HYDRO_PARAM_UNITS 
+from ._globals import RELEVANT_HYDRO_PARAMS, HYDRO_PARAM_RANGES  
 
 from ..tools.baseutils import remove_target_from_array
 from ..tools.coreutils import assert_ratio, is_iterable 
@@ -19,8 +18,7 @@ from ..tools.coreutils import _assert_all_types
 from ..tools.coreutils import smart_format, random_sampling 
 from ..tools.funcutils import ensure_pkg
 from ..tools.validator import validate_and_adjust_ranges, validate_years
-from ._globals import HYDRO_PARAMS, HYDRO_PARAM_UNITS 
-from ._globals import RELEVANT_HYDRO_PARAMS, HYDRO_PARAM_RANGES  
+
 from .util import manage_data, get_item_from, generate_synthetic_values
 from .util import generate_categorical_values, generate_regression_output
 from .util import apply_scaling, rename_data_columns 

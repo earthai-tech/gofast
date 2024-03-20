@@ -26,63 +26,30 @@ import subprocess
 import multiprocessing
 from zipfile import ZipFile
 from six.moves import urllib 
+from collections import defaultdict 
 from collections.abc import Sequence
-from concurrent.futures import (ThreadPoolExecutor, ProcessPoolExecutor, 
-                                as_completed)
+from concurrent.futures import as_completed 
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor 
+
 import numpy as np 
 import pandas as pd 
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
 from .._gofastlog import gofastlog
-from .._typing import ( 
-    _F,
-    _T,
-    _Sub,
-    Tuple,
-    Dict,
-    Optional,
-    Iterable,
-    Any,
-    ArrayLike,
-    List ,
-    DataFrame, 
-    NDArray, 
-    Text, 
-    Union, 
-    Series, 
-    Set
-    )
+from .._typing import Union, Series,Tuple,Dict,Optional,Iterable, Any, Set
+from .._typing import _T,_Sub, _F, ArrayLike,List, DataFrame, NDArray, Text  
 from ._dependency import import_optional_dependency
+from ..compat.scipy import ensure_scipy_compatibility 
+from ..compat.scipy import check_scipy_interpolate
+
 _logger = gofastlog.get_gofast_logger(__name__)
 
-_msg= ''.join([
-    'Note: need scipy version 0.14.0 or higher or interpolation,',
-    ' might not work.']
-)
-_msg0 = ''.join([
-    'Could not find scipy.interpolate, cannot use method interpolate'
-     'check installation you can get scipy from scipy.org.']
-)
+if ensure_scipy_compatibility():
+    _logger.info("Ready to use scipy.interpolate and scipy.spatial.distance.")
+else:
+    _logger.error("Failed to import scipy.interpolate and/or scipy.spatial.distance.")
 
-try:
-    scipy_version = [int(ss) for ss in scipy.__version__.split('.')]
-    if scipy_version[0] == 0:
-        if scipy_version[1] < 14:
-            warnings.warn(_msg, ImportWarning)
-            _logger.warning(_msg)
-            
-    import scipy.interpolate as spi
-    from scipy.spatial import distance 
-    
-    interp_import = True
- # pragma: no cover
-except ImportError: 
-    warnings.warn(_msg0)
-    _logger.warning(_msg0)
-    interp_import = False
-    
-# xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 def format_to_datetime(data, date_col, verbose=0, **dt_kws):
     """
@@ -142,6 +109,43 @@ def format_to_datetime(data, date_col, verbose=0, **dt_kws):
         return data
 
     return data
+
+def unpack_list_of_dicts(list_of_dicts):
+    """
+    Unpacks a list of dictionaries into a single dictionary,
+    merging all keys and values.
+
+    Parameters:
+    ----------
+    list_of_dicts : list of dicts
+        A list where each element is a dictionary with a single key-value pair, 
+        the value being a list.
+
+    Returns:
+    -------
+    dict
+        A single dictionary with all keys from the original list of dictionaries, 
+        each associated with its combined list of values from all occurrences 
+        of the key.
+
+    Example:
+    --------
+    >>> from gofast.tools.coreutils import unpack_list_of_dicts
+    >>> list_of_dicts = [
+            {'key1': ['value10', 'value11']},
+            {'key2': ['value20', 'value21']},
+            {'key1': ['value12']},
+            {'key2': ['value22']}
+        ]
+    >>> unpacked_dict = unpack_list_of_dicts(list_of_dicts)
+    >>> print(unpacked_dict)
+    {'key1': ['value10', 'value11', 'value12'], 'key2': ['value20', 'value21', 'value22']}
+    """
+    unpacked_dict = defaultdict(list)
+    for single_dict in list_of_dicts:
+        for key, values in single_dict.items():
+            unpacked_dict[key].extend(values)
+    return dict(unpacked_dict)  # Convert defaultdict back to dict if required
 
 def get_params (obj: object 
                 ) -> dict: 
@@ -1243,78 +1247,70 @@ def format_notes(text:str , cover_str: str ='~', inline=70, **kws):
         
     print('{0}{1:>51}'.format(' '* (margin -1), cover_str * (inline -margin+1 ))) 
     
-        
-def interpol_scipy (
+
+def interpol_scipy(
         x_value,
         y_value,
         x_new,
         kind="linear",
         plot=False,
-        fill="extrapolate"
-        ):
-    
+        fill_value="extrapolate"
+):
     """
-    function to interpolate data 
+    Function to interpolate data using scipy's interp1d if available.
     
     Parameters 
     ------------
     * x_value : np.ndarray 
-        value on array data : original abscissA 
+        Original abscissa values.
                 
     * y_value : np.ndarray 
-        value on array data : original coordinates (slope)
+        Original ordinate values (slope).
                 
-    * x_new  : np.ndarray 
-        new value of absciss you want to interpolate data 
+    * x_new : np.ndarray 
+        New abscissa values for which you want to interpolate data.
                 
-    * kind  : str 
-        projection kind maybe : "linear", "cubic"
+    * kind : str 
+        Type of interpolation, e.g., "linear", "cubic".
                 
-    * fill : str 
-        kind of extraolation, if None , *spi will use constraint interpolation 
-        can be "extrapolate" to fill_value.
+    * fill_value : str 
+        Extrapolation method. If None, scipy's interp1d will use constrained 
+        interpolation. 
+        Can be "extrapolate" to use fill_value.
         
-    * plot : Boolean 
-        Set to True to see a wiewer graph
+    * plot : bool 
+        Set to True to plot a graph of the original and interpolated data.
 
     Returns 
     --------
-        np.ndarray 
-            y_new ,new function interplolate values .
-            
-    :Example: 
-        
-        >>> import numpy as np 
-        >>>  fill="extrapolate"
-        >>>  x=np.linspace(0,15,10)
-        >>>  y=np.random.randn(10)
-        >>>  x_=np.linspace(0,20,15)
-        >>>  ss=interpol_Scipy(x_value=x, y_value=y, x_new=x_, kind="linear")
-        >>>  ss
+    np.ndarray 
+        Interpolated ordinate values for 'x_new'.
     """
-    
-    func_=spi.interp1d(
-        x_value, 
-        y_value, 
-        kind=kind,
-        fill_value=fill
-        )
-    y_new=func_(x_new)
-    if plot :
-        plt.plot(
-        x_value,
-        y_value,
-        "o",
-        x_new,
-        y_new,
-        "--"
-        )
-        plt.legend(["data", "linear","cubic"],loc="best")
-        plt.show()
-    
-    return y_new
 
+    spi = check_scipy_interpolate()
+    if spi is None:
+        return None
+    
+    try:
+        func_ = spi.interp1d(x_value, y_value, kind=kind, fill_value=fill_value)
+        y_new = func_(x_new)
+        
+        if plot:
+            import matplotlib.pyplot as plt
+            plt.plot(x_value, y_value, "o", x_new, y_new, "--")
+            plt.legend(["Data", kind.capitalize()], loc="best")
+            plt.title(f"Interpolation: {kind.capitalize()}")
+            plt.xlabel("x")
+            plt.ylabel("y")
+            plt.grid(True)
+            plt.show()
 
+        return y_new
+
+    except Exception as e:
+        _logger.error(f"An unexpected error occurred during interpolation: {e}")
+        return None
+    
 def _remove_str_word (char, word_to_remove, deep_remove=False):
     """
     Small funnction to remove a word present on  astring character 
@@ -5030,6 +5026,7 @@ def exist_features (df, features, error='raise', name="Feature"):
     
     return isf    
     
+
 def interpolate_grid (
     arr, / , 
     method ='cubic', 
@@ -5084,6 +5081,10 @@ def interpolate_grid (
            [  60.        , 3000.        ]])
 
     """
+    spi = check_scipy_interpolate()
+    if spi is None:
+        return None
+    
     is2d = True 
     if not hasattr(arr, '__array__'): 
         arr = np.array (arr) 
@@ -9380,6 +9381,8 @@ def closest_color(rgb_color, consider_alpha=False, color_space='rgb'):
     if color_space not in ['rgb', 'lab']:
         raise ValueError(f"Invalid color space '{color_space}'. Choose 'rgb' or 'lab'.")
 
+    if ensure_scipy_compatibility(): 
+        from scipy.spatial import distance 
     # Adjust input color based on consider_alpha flag
     
     # Include alpha channel if consider_alpha is True

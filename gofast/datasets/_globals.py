@@ -1084,47 +1084,47 @@ HYDRO_PARAM_RANGES = {
 # global mining sector, focusing on various minerals and their economic impact.
 MINERAL_PROD_BY_COUNTRY = {
     "Australia": [
-        "Vast reserves of bauxite, iron ore, lithium",
+        "Vast reserves of bauxite, [iron ore, lithium]",
         "High production capacity for iron ore, lithium", 
         "Major exporter of lithium, iron ore"
         ],
     "China": [
-        "Large reserves of coal, rare earth elements",
-        "World's top producer of several minerals including rare earths, gold",
-        "Significant exporter of rare earth elements, gold"
+        "Large reserves of [coal, rare earth elements]",
+        "World's top producer of several minerals including rare earths, coal",
+        "Significant exporter of rare earth elements, coal"
         ],
     "Russia": [
-        "Significant reserves of palladium, nickel",
+        "Significant reserves of [palladium, nickel]",
         "Leading producer of palladium, nickel",
         "Major exporter of palladium, nickel"
         ],
     "United States": [
-        "Large reserves of coal, copper", 
+        "Large reserves of [gold, copper]", 
         "Top producer of gypsum, and significant production of copper, gold",
         "Major exporter of gypsum, significant exporter of copper, gold"
         ],
     "Canada": [
-        "Substantial reserves of potash, uranium",
+        "Substantial reserves of [potash, uranium]",
         "Leading producer of potash, uranium", 
          "Key exporter of potash, uranium"
          ],
     "Brazil": [
-        "Rich in iron ore, niobium", 
+        "Rich in [iron ore, niobium]", 
         "Top producer of iron ore, niobium",
         "Leading exporter of iron ore, niobium"
         ],
     "South Africa": [
-        "Huge reserves of platinum, chromium",
+        "Huge reserves of [platinum, chromium]",
         "World's top producer of platinum, chromium",
         "Major exporter of platinum, chromium"
         ],
     "India": [
-        "Significant reserves of coal, iron ore",
+        "Significant reserves of [coal, iron ore]",
         "Major producer of coal, iron ore",
         "Substantial exporter of iron ore"
         ],
     "Indonesia": [
-        "Large coal reserves, significant gold, nickel", 
+        "Large coal reserves, significant [gold, nickel]", 
         "Top coal exporter, major producer of gold, nickel",
         "World's top coal exporter, significant exporter of gold, nickel"
         ],
@@ -1134,294 +1134,431 @@ MINERAL_PROD_BY_COUNTRY = {
         "Leading exporter of copper"
         ],
     "Peru": [
-        "Significant silver, copper, gold reserves", 
+        "Significant [silver, copper], gold reserves", 
         "Major producer of silver, copper", 
         "Important exporter of silver, copper"
         ],
     "Kazakhstan": [
-        "Large reserves of uranium, chromium",
+        "Large reserves of [uranium, chromium]",
         "Top producer of uranium, significant producer of chromium", 
         "Leading exporter of uranium"
         ],
     "Argentina": [
-        "Rich in lithium, silver, copper", 
+        "Rich in [lithium, silver], copper", 
         "Growing producer of lithium",
         "Emerging exporter of lithium and silver"
         ],
     "Philippines": [
-        "Significant nickel, gold reserves",
+        "Significant [nickel], gold reserves",
         "Major producer of nickel",
         "Top exporter of nickel"
         ],
     "Ghana": [
-        "Major gold producing country", 
+        "Major [gold] producing country", 
         "Significant gold production capacity", 
         "Important gold exporter"
         ],
     "Mexico": [
-        "World's largest silver reserves",
+        "World's largest [silver] reserves",
         "Top producer of silver", 
         "Leading exporter of silver"
         ],
     "Sweden": [
-        "Significant iron ore, copper reserves",
+        "Significant [iron ore, copper] reserves",
         "Major producer of iron ore", 
         "Key exporter of iron ore, copper"
         ],
     "Zambia": [
-        "Large copper reserves", 
+        "Large [copper] reserves", 
         "Second-largest copper producer in Africa",
         "Significant copper exporter"
         ],
     "Democratic Republic of Congo": [
-        "World's largest cobalt reserves",
+        "World's largest [cobalt] reserves",
         "Top producer of cobalt", 
         "Major exporter of cobalt"
         ],
     "Zimbabwe": [
-        "Significant platinum, diamonds",
+        "Significant [platinum, diamonds]",
         "Major producer of platinum",
         "Important exporter of platinum"
         ],
     "Mongolia": [
-        "Rich in coal, copper, gold",
+        "Rich in [coal], copper, gold",
         "Significant coal and copper production", 
         "Important exporter of coal"
         ],
     "Saudi Arabia": [
-        "Large reserves of phosphate, gold", 
+        "Large reserves of [phosphate], gold", 
         "Major producer of phosphate", 
         "Key exporter of phosphate"
         ],
     "United Arab Emirates": [
-        "Significant aluminum producer", 
+        "Significant [aluminum] producer", 
         "Major aluminum production capacity", 
         "Leading exporter of aluminum"
         ],
     "Turkey": [
-        "Substantial marble, boron reserves",
+        "Substantial [marble, boron] reserves",
         "Top producer of boron", 
         "Major exporter of marble, boron"
         ],
     "Norway": [
-        "Significant producer of petroleum, metals",
+        "Significant producer of petroleum, [metals]",
         "Major oil exporter, significant metals production", 
         "Key exporter of metals, oil"
         ],
     "Vietnam": [
-        "Rich in bauxite, rare earth elements",
+        "Rich in [bauxite], rare earth elements",
         "Growing bauxite producer",
         "Emerging exporter of bauxite"
         ],
     "Nigeria": [
-        "Significant oil, gas reserves; emerging in minerals",
+        "Significant [oil], gas reserves; emerging in minerals",
         "Major oil producer, growing in minerals like gold",
         "Top oil exporter, emerging mineral exporter"
         ],
     "Tanzania": [
-        "Rich in gold, diamonds, gemstones",
+        "Rich in [gold, gemstones], diamonds",
         "Major gold producer",
         "Important gold, gemstone exporter"
         ],
     "Papua New Guinea": [
-        "Significant gold, copper reserves",
+        "Significant [gold, copper] reserves",
         "Major gold, copper producer", 
         "Key exporter of gold, copper"
         ],
     "Iran": [
-        "Large reserves of copper, iron ore, zinc", 
+        "Large reserves of copper, iron ore, [zinc]", 
         "Significant producer of copper, iron ore", 
         "Important exporter of minerals"
         ],
     "Ukraine": [
-        "Rich in iron ore, coal", 
+        "Rich in [iron ore], coal", 
         "Significant production of iron ore, coal",
         "Important exporter of iron ore"
         ],
     "Poland": [
-        "Substantial coal reserves",
+        "Substantial [coal] reserves",
         "Major coal producer",
         "Key coal exporter"
         ],
     "Bolivia": [
-        "Large deposits of silver, lithium",
+        "Large deposits of [silver], lithium",
         "Major producer of silver, growing lithium production",
         "Significant exporter of silver"
         ],
     "Namibia": [
-        "Significant uranium, diamonds",
+        "Significant [uranium], diamonds",
         "Major uranium producer",
         "Important exporter of uranium, diamonds"
         ],
     "Botswana": [
-        "World-leading diamond reserves",
+        "World-leading [diamond] reserves",
         "Top diamond producer", 
         "Major diamond exporter"
         ],
     "New Zealand": [
-        "Considerable coal, gold reserves",
+        "Considerable [coal, gold] reserves",
         "Significant coal and gold production", 
         "Exporter of coal and gold"
         ],
     "Finland": [
-        "Rich in nickel, chromium",
+        "Rich in [nickel, chromium]",
         "Significant producer of nickel", 
         "Key exporter of nickel, chromium"
         ],
     "Mali": [
-        "Significant gold reserves",
+        "Significant [gold] reserves",
         "Major gold producer",
         "Important gold exporter"
         ],
     "Burkina Faso": [
-        "Growing gold production", 
+        "Growing [gold] production", 
         "Significant gold producer", 
         "Emerging gold exporter"
         ],
     "Colombia": [
-        "Large coal, emerald reserves",
+        "Large [coal, emerald] reserves",
         "Major coal producer and top emerald producer", 
         "Key exporter of coal and emeralds"
         ],
     "Qatar": [
-        "Rich in petroleum, natural gas", 
+        "Rich in petroleum, [natural gas]", 
         "Major petroleum and natural gas producer",
         "Top exporter of liquefied natural gas"
         ],
     "Egypt": [
-        "Substantial gold, phosphate", 
+        "Substantial gold, [phosphate]", 
         "Growing gold producer, major phosphate producer",
         "Important exporter of phosphate"
         ],
     "Oman": [
-        "Significant gypsum, copper",
+        "Significant [gypsum], copper",
         "Major gypsum producer",
         "Leading exporter of gypsum"
         ],
     "Angola": [
-        "Rich in diamonds, oil", 
+        "Rich in [diamonds, oil]", 
         "Major diamond producer, significant oil production",
         "Key exporter of diamonds and oil"
         ],
     "Kuwait": [
-        "Large petroleum reserves", 
+        "Large [petroleum] reserves", 
         "Significant petroleum production", 
         "Major petroleum exporter"
         ],
     "Libya": [
-        "Substantial oil reserves",
+        "Substantial [oil] reserves",
         "Major oil producer",
         "Significant oil exporter"
         ],
     "Bahrain": [
-        "Significant oil, natural gas", 
+        "Significant [oil, natural gas]", 
         "Major oil and natural gas production",
         "Key exporter of petroleum products"
         ],
     "Bangladesh": [
-        "Considerable natural gas", 
+        "Considerable [natural gas]", 
         "Significant natural gas production", 
         "Emerging exporter of natural gas"
         ],
     "Cuba": [
-        "Rich in nickel, cobalt",
+        "Rich in [nickel, cobalt]",
         "Major nickel producer", 
         "Important exporter of nickel and cobalt"
         ],
     "Venezuela": [
-        "Large petroleum reserves",
+        "Large petroleum, [oil] reserves",
         "Major oil producer", 
         "Key oil exporter"
         ],
     "Suriname": [
-        "Significant bauxite reserves",
+        "Significant [bauxite] reserves",
         "Notable bauxite production",
         "Bauxite exporter"
         ],
     "Guinea": [
-        "World-leading bauxite reserves",
+        "World-leading [bauxite] reserves",
         "Top bauxite producer", 
         "Major bauxite exporter"
         ],
     "Senegal": [
-        "Significant phosphate reserves",
+        "Significant [phosphate] reserves",
         "Phosphate production", 
         "Phosphate exporter"
         ],
     "Cameroon": [
-        "Emerging iron ore, bauxite production",
+        "Emerging [iron ore, bauxite] production",
         "Developing mining sector",
         "Potential exporter of iron ore and bauxite"
         ],
     "Sierra Leone": [
-        "Rich in diamonds", 
+        "Rich in [diamonds]", 
         "Significant diamond producer",
         "Diamond exporter"
         ],
-    "Ivory Coast": [
-        "Growing gold, manganese production",
+    "Cote d'Ivoire": [
+        "Growing [gold, manganese] production",
         "Emerging in gold and manganese", 
         "Potential gold and manganese exporter"
         ],
     "Liberia": [
-        "Iron ore reserves",
+        "Significant [iron ore] reserves",
         "Iron ore production",
         "Iron ore exporter"
         ],
     "Mozambique": [
-        "Significant coal, titanium reserves",
+        "Significant coal, [titanium] reserves",
         "Coal and titanium production", 
         "Coal and titanium exporter"
         ],
     "Madagascar": [
-        "Large graphite, nickel reserves",
+        "Large [graphite, nickel] reserves",
         "Graphite and nickel production", 
         "Graphite and nickel exporter"
         ],
     "Lesotho": [
-        "Significant diamond reserves",
+        "Significant [diamond] reserves",
         "Diamond production",
         "Diamond exporter"
         ],
     "Ethiopia": [
-        "Emerging in opal, gold, and tantalum",
+        "Emerging in [opal, gold, tantalum]",
         "Opal, gold, and tantalum production",
         "Opal, gold, and tantalum exporter"
         ],
     "Kyrgyzstan": [
-        "Gold, coal, and antimony reserves", 
+        "large [gold, coal, antimony] reserves", 
         "Gold, coal, and antimony production",
         "Gold, coal, and antimony exporter"
         ],
     "Tajikistan": [
-        "Significant silver and gold reserves",
+        "Significant [silver, gold] reserves",
         "Silver and gold production",
         "Silver and gold exporter"
         ],
     "Myanmar": [
-        "Rich in jade, gems, and tin",
+        "Rich in [jade, gems, tin]",
         "Jade, gems, and tin production", 
         "Jade, gems, and tin exporter"
         ],
     "Laos": [
-        "Emerging potash and gold production",
+        "Emerging [potash, gold] production",
         "Developing mining sector for potash and gold", 
         "Potential potash and gold exporter"
         ],
     "Brunei": [
-        "Petroleum and natural gas reserves",
+        "Large [petroleum, natural gas] reserves",
         "Petroleum and natural gas production",
         "Petroleum and natural gas exporter"
         ],
     "Turkmenistan": [
-        "Significant natural gas reserves",
+        "Significant [natural gas] reserves",
         "Natural gas production", 
         "Natural gas exporter"
         ],
     "Uzbekistan": [
-        "Gold, uranium, and copper reserves", 
+        "Large [gold, uranium, copper] reserves", 
         "Gold, uranium, and copper production",
         "Gold, uranium, and copper exporter"
         ]
 }
+COUNTRY_REGION = {
+ 'Australia': 'Oceania',
+ 'China': 'Asia',
+ 'Russia': 'Europe/Asia',
+ 'United States': 'North America',
+ 'Canada': 'North America',
+ 'Brazil': 'South America',
+ 'South Africa': 'Africa',
+ 'India': 'Asia',
+ 'Indonesia': 'Asia',
+ 'Chile': 'South America',
+ 'Peru': 'South America',
+ 'Kazakhstan': 'Europe/Asia',
+ 'Argentina': 'South America',
+ 'Philippines': 'Asia',
+ 'Ghana': 'Africa',
+ 'Mexico': 'North America',
+ 'Sweden': 'Europe',
+ 'Zambia': 'Africa',
+ 'Democratic Republic of Congo': 'Africa',
+ 'Zimbabwe': 'Africa',
+ 'Mongolia': 'Asia',
+ 'Saudi Arabia': 'Asia',
+ 'United Arab Emirates': 'Asia',
+ 'Turkey': 'Europe/Asia',
+ 'Norway': 'Europe',
+ 'Vietnam': 'Asia',
+ 'Nigeria': 'Africa',
+ 'Tanzania': 'Africa',
+ 'Papua New Guinea': 'Oceania',
+ 'Iran': 'Asia',
+ 'Ukraine': 'Europe',
+ 'Poland': 'Europe',
+ 'Bolivia': 'South America',
+ 'Namibia': 'Africa',
+ 'Botswana': 'Africa',
+ 'New Zealand': 'Oceania',
+ 'Finland': 'Europe',
+ 'Mali': 'Africa',
+ 'Burkina Faso': 'Africa',
+ 'Colombia': 'South America',
+ 'Qatar': 'Asia',
+ 'Egypt': 'Africa',
+ 'Oman': 'Asia',
+ 'Angola': 'Africa',
+ 'Kuwait': 'Asia',
+ 'Libya': 'Africa',
+ 'Bahrain': 'Asia',
+ 'Bangladesh': 'Asia',
+ 'Cuba': 'North America',
+ 'Venezuela': 'South America',
+ 'Suriname': 'South America',
+ 'Guinea': 'Africa',
+ 'Senegal': 'Africa',
+ 'Cameroon': 'Africa',
+ 'Sierra Leone': 'Africa',
+ "Cote d'Ivoire": 'Africa',
+ 'Liberia': 'Africa',
+ 'Mozambique': 'Africa',
+ 'Madagascar': 'Africa',
+ 'Lesotho': 'Africa',
+ 'Ethiopia': 'Africa',
+ 'Kyrgyzstan': 'Asia',
+ 'Tajikistan': 'Asia',
+ 'Myanmar': 'Asia',
+ 'Laos': 'Asia',
+ 'Brunei': 'Asia',
+ 'Turkmenistan': 'Asia',
+ 'Uzbekistan': 'Asia'
+}
+
+WATER_RESERVES_LOC = [
+    "Emerald City", "Silver Lake", "Mystic River", "Crescent Reservoir", "Twin Peaks",
+    "Golden Valley", "Sapphire Bay", "Echo Lake", "Willow Creek", "Ravenwood Forest",
+    "Crystal Springs", "Marble City", "Iron Mountain", "Velvet River", "Azure Dam",
+    "Falcon Heights", "Garnet Town", "Diamond Desert", "Amber Plains", "Obsidian Island",
+    "Jade Harbor", "Quartz Quarry", "Coral Cove", "Opal Ocean", "Moonlight City",
+    "Starfall River", "Sunrise Reservoir", "Twilight Town", "Midnight Lake", "Dawn Valley",
+    "Dusk Dam", "Aurora Bay", "Solstice Spring", "Equinox Estate", "Zenith Peak",
+    "Nadir City", "Phoenix River", "Serenity Lake", "Arcadia", "Utopia",
+    "Atlantis", "El Dorado", "Avalon", "Shangri-La", "Camelot",
+    "Brigadoon", "Olympus", "Eden", "Nirvana", "Elysium",
+    "Babylon", "Zion", "Arcane River", "Mystic Marsh", "Celestial City",
+    "Pegasus Plains", "Dragon's Den", "Griffin Grove", "Hydra Lake", "Chimera Creek",
+    "Mermaid Lagoon", "Centaur Field", "Titan Town", "Valkyrie Valley", "Oracle Ocean",
+    "Minotaur Mountain", "Siren Sea", "Cyclops City", "Elfwood", "Goblin Gorge",
+    "Hobbiton Hills", "Dwarf Dam", "Vampire Village", "Werewolf Woods", "Zombie Zone",
+    "Ghost Town", "Witchwater", "Wizard's Way", "Fairy Forest", "Demon's Desert",
+    "Angel's Aerie", "Necropolis", "Spartan Springs", "Viking Village", "Samurai Sanctuary",
+    "Pirate's Port", "Knight's Keep", "Galaxy Garden", "Meteor Meadow", "Comet Cove",
+    "Planet Plaza", "Starlight Strand", "Moonbeam Marina", "Solaris", "Cosmos City",
+    "Nebula Nook", "Quantum Quay", "Interstellar Inlet", "Galactic Gate", "Celestia",
+    "Ruby Ridge", "Sapphire Shore", "Emerald Estuary", "Diamond Dale", "Amethyst Arbor",
+    "Turquoise Trail", "Opal Outpost", "Pearl Port", "Quartz Quay", "Topaz Terrace",
+    "Garnet Glen", "Jade Junction", "Lapis Lane", "Moonstone Meadow", "Sunstone Square",
+    
+    "Aquamarine Alley", "Citrine Court", "Peridot Park", "Zircon Zephyr", "Onyx Oasis",
+    "Beryl Boulevard", "Malachite Mount", "Agate Avenue", "Rhodolite Road", "Spinel Street",
+    "Tanzanite Town", "Tourmaline Trail", "Iolite Island", "Kunzite Key", "Larimar Land",
+    "Morganite Mountain", "Heliodor Harbor", "Sphene Springs", "Zoisite Zone", "Chalcedony City",
+    "Moon Harbour", "Starlight Bay", "Comet Corner", "Asteroid Arch", "Meteorite Meadow",
+    "Galaxy Gateway", "Nebular Nook", "Stellar Stream", "Cosmic Cove", "Aurora Alley",
+    "Eclipse Estate", "Solaris Station", "Planetoid Plaza", "Meteor Marsh", "Black Hole Basin",
+    "Quasar Quarter", "Pulsar Path", "Supernova Sector", "Event Horizon Estate", "Wormhole Way",
+    "Lightyear Lane", "Gravity Grove", "Orbit Orchard", "Cosmos Canyon", "Astro Arch",
+    "Nova Neighborhood", "Lunar Lake", "Satellite Street", "Rocket Ridge", "Milky Way Meadow",
+    "Interplanetary Park", "Exoplanet Estate", "Solar Flare Square", "Magnetar Mount", 
+    "Neutron Star Nook", "Gamma Ray Garden", "Spaceport Spire", "Alien Alley", "UFO Upland",
+    "Extraterrestrial Terrace","Singularity Street", "Dimensional Drive", "Time Traveler's Trail",
+    "Multiverse Manor","Quantum Quarters", "Parallel Universe Path", "Void Valley", 
+    "Cosmic Cluster Court", "Galactic Gateway", "Starship Street","Astrophysics Avenue",
+    "Celestial Circuit", "Orbital Outpost", "Space Station Square", "Astronaut's Aisle",
+    "Rocket Range", "Intergalactic Inn", "Mars Meadow", "Venus Valley", "Jupiter Junction",
+    "Saturn Street", "Mercury Mount", "Neptune Nook", "Uranus Upland", "Pluto Path", 
+
+    "Nile Vista", "Sahara Solitude", "Kilimanjaro Peak", "Serengeti Plains", "Zanzibar Shore",
+    "Timbuktu Trails", "Cairo Crossroads", "Marrakech Market", "Okavango Oasis", "Victoria Falls View",
+    "Atlas Ascent", "Limpopo Lane", "Cape Town Corner", "Kalahari Keep", "Madagascar Haven",
+    "Giza Gateway", "Luxor Landing", "Aswan Acre", "Djibouti Dunes", "Mombasa Marina",
+    "Namib Nook", "Tangier Terrace", "Freetown Freeway", "Lagos Lagoon", "Accra Avenue",
+    "Dakar Drive", "Addis Ababa Alley", "Harare Heights", "Luanda Loop", "Maputo Mews",
+    "Algiers Arch", "Benin Bay", "Casablanca Cove", "Dar Es Salaam Dock", "Entebbe Edge",
+    "Fes Fountain", "Gaborone Grove", "Hargeisa Hill", "Ibadan Isle", "Jinja Junction",
+    "Kampala Knoll", "Libreville Lane", "Maseru Meadow", "Nairobi Niche", "Ouagadougou Outpost",
+    "Porto-Novo Path", "Quelimane Quay", "Rabat Ridge", "Sfax Stream", "Tripoli Trail",
+    "Umtata Upland", "Vilankulo Valley", "Windhoek Way", "Xai-Xai Xanadu", "Yamoussoukro Yard",
+    "Zinder Zone", "Abeokuta Avenue", "Bamako Bend", "Conakry Crescent", "Djenné Dome",
+    "Eldoret Expanse", "Fianarantsoa Field", "Goma Gateway", "Hwange Horizon", "Inhambane Inlet",
+    "Juba Junction", "Kisumu Knoll", "Luangwa Loop", "Mopti Mount", "Nouakchott Nook",
+    "Oran Oasis", "Pemba Port", "Qunu Quarry", "Rustenburg Ridge", "Sokoto Spring",
+    "Toubkal Tower", "Ubombo Utopia", "Volta Vista", "Wadi Waterfall", "eXplore eXpanse",
+    "Yankari Yard", "Zambezi Zenith", "Agadez Arch", "Bujumbura Beach", "Chobe Chateau",
+    "Draa Drift", "Etosha Edge", "Fish River Fault", "Giraffe Grounds", "Hippo Haven",
+    "Cote d'Ivoire Isle", "Jozini Jewel", "Kafue Key", "Lalibela Loft", "Mali Mesa",
+    "Ngorongoro Niche", "Omo Outback", "Pilanesberg Peak", "Quagga Quarters", "Rovos Rail",
+    "Swakopmund Sands", "Tsavo Terrace", "Uganda Uplift", "Virunga Valley", "Watamu Wave"
+]
 

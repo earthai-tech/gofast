@@ -28,7 +28,6 @@ __all__ = [
     "SKLEARN_LT_0_24"
 ]
 
-
 def get_column_transformer_feature_names(column_transformer, input_features=None):
     """
     Get feature names from a ColumnTransformer.
