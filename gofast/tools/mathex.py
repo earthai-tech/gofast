@@ -57,8 +57,7 @@ from .coreutils import (
     type_of_target, 
     is_iterable, 
     reshape,
-    fillNaN, 
-    spi,     
+    fillNaN,    
 )
 from .validator import ( 
     _is_arraylike_1d, 
@@ -74,7 +73,7 @@ from .validator import (
     )
 try: import scipy.stats as spstats
 except: pass 
-
+from ..compat.scipy import check_scipy_interpolate
 _logger =gofastlog.get_gofast_logger(__name__)
 
 mu0 = 4 * np.pi * 1e-7 
@@ -3256,6 +3255,7 @@ def interpolate1d (
     # and take only the valid values 
     t_arr = arr.copy() 
     
+    spi = check_scipy_interpolate() 
     if method =='base':
         mask = ~np.ma.masked_invalid(arr).mask  
         arr = arr[mask] # keep the valid values

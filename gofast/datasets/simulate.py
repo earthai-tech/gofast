@@ -7,7 +7,13 @@ import numpy as np
 
 from ..tools.coreutils import unpack_list_of_dicts 
 from ..tools.validator import validate_years 
-from .util import manage_data 
+from .util import manage_data, validate_region 
+from ._globals import MINERAL_PROD_BY_COUNTRY
+from .util import find_mineral_distributions, extract_minerals_from_countries
+from .util import find_countries_by_minerals, find_countries_and_minerals_by_region
+from .util import find_countries_by_distributions, generate_ore_infos
+from .util import extract_minerals_from_regions, build_distributions_from
+from .util import check_distributions
 
 def simulate_water_reserves(
     *, n_samples=300, start_date="2024-01-01", 
@@ -163,100 +169,121 @@ def simulate_water_reserves(
         feature_descr=feature_descr,
         **kws
     )
-#XXX TODO 
+
 def simulate_world_mineral_reserves(
-        *, n_samples=300, as_frame=False, 
-        return_X_y=False, target_names=None, 
-        noise=None, seed=None, 
-        region=None, 
-        distributions=None, 
-        mineral_types=['Gold', 'Silver', 'Copper', 'Iron', 'Coal'], 
-        economic_impact_factor=0.05,
-        
-        **kws
-        ):
-    
-    from ._globals import MINERAL_PROD_BY_COUNTRY
-    from .util import find_mineral_distributions, extract_minerals_from_countries
-    from .util import find_countries_by_minerals
+    *, n_samples=300, 
+    as_frame=False, 
+    return_X_y=False, 
+    target_names=None, 
+    noise=None, seed=None, 
+    regions=None, 
+    distributions=None, 
+    mineral_types=None, 
+    countries=None, 
+    economic_impact_factor=0.05, 
+    **kws
+):  
+    # Initialize country dict 
+    countries_dict ={}
+    # Set a seed for reproducibility of results
     np.random.seed(seed)
+
+    # Normalize region input and validate regions if provided
+    if regions:
+        regions = [validate_region(region, mode='soft') for region in regions] 
+
+    # Normalize mineral_types to a list and find corresponding countries if specified
+    if mineral_types:
+        if isinstance(mineral_types, str): 
+            mineral_types = [mineral_types]
+        countries, countries_dict = find_countries_by_minerals(
+            mineral_types, return_minerals_and_countries= True
+        )
+
+    # Extract minerals from regions if mineral_types are not explicitly provided
+    if mineral_types is None and regions:  
+        mineral_types = extract_minerals_from_regions(regions) 
     
-    # Geographical distribution influences the quantity and type of minerals
+    # Create distributions mapping if both regions and mineral types are available
+    if regions and mineral_types: 
+        distributions = build_distributions_from(regions, mineral_types)
+        
+    # Validate the structure of distributions, falling back to default if incorrect
+    if distributions:
+        if not check_distributions(distributions):
+            # If distributions are invalid, revert to None and possibly warn the user
+            distributions = None 
 
-    if distributions is not None:
-        # distribution should be a dictionnary with key equals the region
-        # and value the list and minerals. like: Region: Mineral list. 
-        # as : 
-        distributions = {'Africa': ['Gold', 'Diamond', 'Copper'],
-        'Asia': ['Coal', 'Iron', 'Silver'],
-        'Europe': ['Coal', 'Copper'],
-        'America': ['Gold', 'Silver', 'Coal'],
-        'Oceania': ['Gold', 'Iron']
-        }
-        
-        # and associate for each minerals the countries 
-        # collect all minerals of the given distributions 
-        
-        minerals = [ values for values in distribitions.values]
-        
-        find_countries_by_minerals('Europe', minerals=['Gold', 'Silver', 'Copper', 'Iron', 'Coal'], 
-                                   return_countries_only= True )
-        # If not the case , raise a warnings 
-        # indicating wrong arrangement and fall back to default. 
-        ...
-    elif region is not None: 
-        distributions = find_mineral_distributions(region)
-        
-    if distributions is None: 
+    # Use default distributions if none provided or after fallback
+    if distributions is None:
+        regions = ["Africa", "Asia", "Europe", "America", "Oceania"]
+        distributions = unpack_list_of_dicts(
+            [find_mineral_distributions(region) for region in regions])
+        mineral_types = extract_minerals_from_regions(regions) 
+    # Find countries based on mineral types if countries are not explicitly provided
+    if not countries:
+        countries, countries_dict = find_countries_by_minerals(
+            mineral_types, return_minerals_and_countries= True 
+        )
 
-        # get the whole distributiosn of 5 continents 
-        # distributions is a list of 
-        distributions = [find_mineral_distributions(region) for region in [
-                "Africa", "Asia", "Europe", "America", "Oceania"]]
-        distributions = unpack_list_of_dicts (distributions)
-        locations = 
-        
-       
-    if mineral_types is not None: 
-        if isinstance ( mineral_types , str): 
-            mineral_types = [mineral_types ] 
-        
+    # Generate information related to each country
+    infos_dict = generate_ore_infos(countries, raise_error="ignore")
+
+    # Simulate mineral reserve data for each sample
+    # print(distributions)
     data = []
-    
     for i in range(n_samples):
-        region = np.random.choice(list(distributions.keys()))
-        available_minerals = distributions[region]
+        selected_region = np.random.choice(list(distributions.keys()))
+        available_minerals = distributions[selected_region]
         mineral_type = np.random.choice(available_minerals)
-        
-        # Simulate base reserve quantity
         base_quantity = np.random.uniform(100, 10000)
-        # Apply economic impact factor
         economic_impact = 1 + (np.random.rand() * economic_impact_factor - (
             economic_impact_factor / 2))
-        quantity = base_quantity * economic_impact
+        quantity = max(0, base_quantity * economic_impact + (
+            np.random.normal(0, noise) if noise else 0))
         
-        # Adding noise if specified
-        if noise:
-            quantity += np.random.normal(0, noise)
+        if countries_dict: 
+            # if ',' or ';' in str split and random selected one 
+            if ';' in mineral_type: 
+                mineral_type = np.random.choice ( mineral_type.split(';') ).lower() 
+            elif ',' in mineral_type: 
+                mineral_type = np.random.choice (mineral_type.split(',') ).lower()  
+            # now select one location in the 
+            # country_dict = {'gold': ['United States',
+            #   'Indonesia',
+            #   'Ghana',
+            #   'Tanzania',
+            #   'Papua New Guinea',
+            #   'New Zealand',
+            #   'Mali',
+            #   'Burkina Faso',
+            #   "Cote d'Ivoire",
+            #   'Ethiopia',
+            #   'Kyrgyzstan', 
+            #   'Tajikistan',
+            #   'Laos',
+            #   'Uzbekistan']}
+            #print(countries_dict[mineral_type.lower()])
+            location = np.random.choice (countries_dict[mineral_type] )
+        else : location = np.random.choice(countries)
+        
+        info = infos_dict.get(location, "No information available.")
         
         data.append({
             'sample_id': i + 1,
-            'region': region,
+            'region': selected_region,
+            'location': location,
             'mineral_type': mineral_type,
-            # Ensure quantity isn't negative after noise adjustment
-            'quantity': max(0, quantity)  
+            'info': info,
+            'quantity': quantity
         })
     
+    # Convert simulated data into a DataFrame
     mineral_reserves_df = pd.DataFrame(data)
     
-    if target_names is None:
-        target_names =['quantity']
-    
+    # Handle data return format based on function parameters
     return manage_data(
         data=mineral_reserves_df, as_frame=as_frame, return_X_y=return_X_y,
-        target_names=target_names, noise=noise, seed=seed,
-        DESCR="Simulated water reserves dataset",
-        feature_descr=MINERAL_PROD_BY_COUNTRY,
-        **kws
+        target_names=target_names if target_names else ['quantity'],
+        DESCR="Simulated mineral reserves dataset", **kws
     )
-
