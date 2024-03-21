@@ -1129,7 +1129,7 @@ MINERAL_PROD_BY_COUNTRY = {
         "World's top coal exporter, significant exporter of gold, nickel"
         ],
     "Chile": [
-        "World's largest copper reserves", 
+        "World's largest [copper] reserves", 
         "Top producer and exporter of copper", 
         "Leading exporter of copper"
         ],

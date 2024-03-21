@@ -13,6 +13,7 @@ from ..compat.sklearn import  train_test_split
 from ..tools.box import Boxspace
 
 
+
 def validate_region(region, mode="strict"):
     """
     Validates and normalizes a region name based on the specified mode.
@@ -525,7 +526,6 @@ def is_structure_nested(input_structure, check_for=list):
     
     return False
 
-
 def extract_minerals_from_countries(
     mineral_prod_by_country=None,
     use_default=True,
@@ -624,6 +624,207 @@ def extract_minerals_from_countries(
 
     return country_minerals_dict
 
+
+def select_location_for_mineral(
+    mineral,
+    mineral_country_mapping=None,
+    fallback_countries=None,
+    selected_region=None, 
+    raise_error='ignore', 
+    substitute_for_missing='Unknown'
+):
+    """
+    Selects a random country that produces a specified mineral.
+    
+    The function can operate based on a provided mapping of minerals to 
+    producing countries or fallback to a predefined list of countries if the 
+    mapping is not provided or the mineral is not found.
+
+    Parameters
+    ----------
+    mineral : str
+        The name of the mineral for which to find a producing country.
+    mineral_country_mapping : dict, optional
+        A dictionary mapping minerals (str) to lists of countries (list of str)
+        that produce them.
+        If not provided, `fallback_countries` is used instead. Default is None.
+    fallback_countries : list of str or str, optional
+        A list of countries to randomly choose from if `mineral_country_mapping`
+        is not provided or the mineral is not found within it. Can also be 
+        a single country as a string.
+        Default is None.
+    selected_region : str, optional
+        The geographical region within which to limit the country selection. 
+        This parameter is considered only if `mineral_country_mapping` is provided. 
+        Default is None.
+    raise_error : str, optional
+        Determines how to handle cases when the mineral is not found in 
+        `mineral_country_mapping`. Options are 'ignore', 'warn', and 'raise'.
+        Default is 'ignore'.
+    substitute_for_missing : str, optional
+        The substitute value to return when the mineral is not found and 
+        `error_handling` is set to 'ignore' or 'warn'. Default is 'Unknown'.
+
+    Returns
+    -------
+    str
+        A random country that produces the specified mineral. 
+        Returns `substitute_for_missing` if the mineral is not found and 
+        error handling is set to 'ignore' or 'warn'.
+
+    Raises
+    ------
+    ValueError
+        If both `mineral_country_mapping` and `fallback_countries` are None,
+        or if `error_handling` is set to 'raise' and the mineral is not 
+        found in the provided mapping.
+
+    Examples
+    --------
+    Using a mineral-country mapping:
+
+    >>> from gofast.datasets.util import select_location_for_mineral
+    >>> mineral_country_mapping = {'gold': ['Canada', 'South Africa', 'Australia']}
+    >>> select_location_for_mineral(
+    ... 'gold', mineral_country_mapping=mineral_country_mapping)
+    'Canada'  # Randomly selected from the list
+
+    Fallback to a list of countries when the mapping is not provided:
+
+    >>> select_location_for_mineral('gold', fallback_countries=['Canada', 'France'])
+    'France'  # Randomly selected from the fallback list
+
+    Handling missing minerals with warning:
+
+    >>> select_location_for_mineral(
+    ... 'diamond', mineral_country_mapping=mineral_country_mapping,
+    ...  raise_error='warn', substitute_for_missing='None')
+    Warning: Mineral 'diamond' not found. Returning substitute location: 'None'.
+    'None'
+    """
+    mineral_country_mapping = ( 
+        mineral_country_mapping if mineral_country_mapping else None 
+    )
+
+    # Ensure either mineral_country_mapping or fallback_countries is provided
+    if mineral_country_mapping is None and fallback_countries is None:
+        raise ValueError("Either mineral_country_mapping or "
+                         "fallback_countries must be provided.")
+    
+    # Normalize the mineral name to lowercase
+    mineral_lower = str(mineral).lower()
+    
+    # Randomly select a mineral if it's listed with multiple options (';' or ',')
+    if ';' in mineral_lower or ',' in mineral_lower:
+        delimiter = ';' if ';' in mineral_lower else ','
+        mineral_lower = np.random.choice(mineral_lower.split(delimiter)).strip()
+    
+    # If only fallback_countries is provided, select a location from them
+    if mineral_country_mapping is None:
+        if isinstance(fallback_countries, str):
+            fallback_countries = [fallback_countries]
+        return np.random.choice(fallback_countries)
+    
+    # Check if the mineral is in the mapping
+    if mineral_lower not in {key.lower() for key in mineral_country_mapping}:
+        if raise_error == 'raise':
+            raise ValueError(f"Mineral '{mineral}' not found in "
+                             "the provided mineral-country mapping.")
+        elif raise_error == 'warn':
+            print(f"Warning: Mineral '{mineral}' not found. Returning"
+                  f" substitute location: '{substitute_for_missing}'.")
+        return substitute_for_missing
+    # Select and return a random country from the list associated with the mineral
+    return _select_location_from (mineral, selected_region, mineral_country_mapping)
+
+def _select_location_from(
+    mineral, selected_region, mineral_country_mapping, 
+    error_handling='ignore',
+    ):
+    """
+    Selects a random location from countries that produce the specified 
+    mineral within a selected region.
+    """
+    # Normalize the mineral name to lowercase for consistency
+    mineral_lower = mineral.lower()
+    # Ensure the mineral is present in the mapping; otherwise, return an empty list
+    mineral_countries_list = mineral_country_mapping.get(mineral_lower, [])
+    
+    # Build the continent to country mapping
+    region_map_list = build_continent_country_dict()
+
+    # Extract the list of countries for the selected region
+    countries_list = region_map_list.get(selected_region.capitalize(), [])  # Capitalize for matching
+    # Calculate the intersection if a region is specified and intersection is possible
+    if selected_region and mineral_countries_list:
+        intersection_list = list(set(mineral_countries_list) & set(countries_list))
+        # Handle cases with no intersection
+        if not intersection_list:
+            message = f"No countries found for '{mineral}' in region '{selected_region}'."
+            if error_handling == 'warn':
+                print(f"Warning: {message}" )
+            elif error_handling == 'raise':
+                raise ValueError(message)
+            # Fallback to the mineral's countries list if 'ignore'
+            intersection_list = mineral_countries_list
+    else:
+        intersection_list = mineral_countries_list
+
+    # If there's no country to select (list is empty), return None or a meaningful default
+    if not intersection_list:
+        return None  # Could be adjusted to return a meaningful default if necessary
+    # Randomly select and return a country from the intersection list
+    return np.random.choice(intersection_list)
+
+def get_default_location(
+    strategy='global_hq',
+    mineral_country_mapping=None, 
+    mineral=None
+    ):
+    """
+    Returns a default location based on the specified strategy when there's no
+    intersection between a mineral's producing countries and a selected region.
+
+    Parameters
+    ----------
+    strategy : str, optional
+        The strategy to use for determining the default location. Options include:
+        'global_hq' for a global default location,
+        'unknown' for a generic unknown placeholder,
+        'largest_producer' for selecting the country that is the largest producer
+        of the mineral,
+        'random_from_all' for a random selection from all producing countries.
+        Default is 'global_hq'.
+    mineral_country_mapping : dict, optional
+        A dictionary mapping minerals to lists of countries that produce them. 
+        Required for 'largest_producer' and 'random_from_all' strategies.
+    mineral : str, optional
+        The mineral in question. Required for the 'largest_producer' strategy.
+
+    Returns
+    -------
+    str
+        The default location based on the chosen strategy.
+    """
+    if strategy == 'global_hq':
+        return "Global HQ"
+    elif strategy == 'unknown':
+        return "Unknown"
+    elif ( 
+            strategy == 'largest_producer' 
+            and mineral_country_mapping is not None 
+            and mineral is not None
+            ):
+        # Assuming additional data exists mapping minerals to their largest producer
+        largest_producer_mapping = {m: max(countries, key=lambda k: k.production)
+                                    for m, countries in mineral_country_mapping.items()}
+        return largest_producer_mapping.get(mineral.lower(), "Unknown")
+    elif strategy == 'random_from_all' and mineral_country_mapping is not None:
+        all_countries = sum(mineral_country_mapping.values(), [])
+        return np.random.choice(all_countries) if all_countries else "Unknown"
+    else:
+        return "Invalid Strategy or Missing Data"
+
 def find_countries_by_distributions(distributions, return_countries_only=False):
     """
     Aggregates countries based on their mineral distributions across different
@@ -709,7 +910,7 @@ def find_countries_by_distributions(distributions, return_countries_only=False):
     # Convert defaultdict back to dict for the return value, if necessary
     return dict(region_countries)  
             
-def find_countries_by_minerals1(
+def find_countries_by_minerals(
     minerals, 
     mineral_prod_by_country=None, 
     return_countries_only=False, 
@@ -808,7 +1009,6 @@ def find_countries_by_minerals1(
     else:
         return dict(mineral_by_country)
        
-        
 def find_mineral_by_country(country, mineral_prod_by_country=None):
     """
     Finds and returns the mineral production data for a given country, 
@@ -971,7 +1171,6 @@ def find_mineral_distributions(
     
     # Default return: a list of unique minerals found in the region
     return {region: list(region_minerals)}
-
 
 def find_countries_and_minerals_by_region (
     region, 
@@ -1435,5 +1634,30 @@ def get_mineral_production_by_country():
                           " a mineral production dictionary.")
 
 
+def build_continent_country_dict():
+    """
+    Constructs a dictionary mapping each of the five continents to a list of
+    countries belonging to them based on a global COUNTRY_REGION mapping.
 
+    Returns
+    -------
+    dict
+        A dictionary where keys are continent names (capitalized) and values
+        are lists of countries belonging to those continents.
+    """
+    from ._globals import COUNTRY_REGION 
+    region_country_dict = defaultdict(list)
+    
+    # Define the continents
+    continents = ['Africa', 'America', 'Asia', 'Oceania', 'Europe']
+    
+    # Populate the dictionary
+    for country, region in COUNTRY_REGION.items():
+        # Split the region by '/' in case a country belongs to multiple regions
+        split_regions = region.split('/')
+        for continent in continents:
+            if any(continent.lower() in region_part.lower() for region_part in split_regions):
+                region_country_dict[continent].append(country)
+    
+    return region_country_dict
 

@@ -8,18 +8,22 @@ import numpy as np
 from ..tools.coreutils import unpack_list_of_dicts 
 from ..tools.validator import validate_years 
 from .util import manage_data, validate_region 
-from ._globals import MINERAL_PROD_BY_COUNTRY
-from .util import find_mineral_distributions, extract_minerals_from_countries
-from .util import find_countries_by_minerals, find_countries_and_minerals_by_region
-from .util import find_countries_by_distributions, generate_ore_infos
+
+from .util import find_mineral_distributions, find_countries_by_minerals
 from .util import extract_minerals_from_regions, build_distributions_from
-from .util import check_distributions
+from .util import check_distributions, select_location_for_mineral
+from .util import generate_ore_infos
 
 def simulate_water_reserves(
-    *, n_samples=300, start_date="2024-01-01", 
-    end_date="2024-01-31", as_frame=False, 
-    return_X_y=False, target_names=None, noise=None, 
-    seed=None, **kws):
+    *, n_samples=300, 
+    start_date="2024-01-01", 
+    end_date="2024-01-31", 
+    as_frame=False, 
+    return_X_y=False, 
+    target_names=None, 
+    noise=None, 
+    seed=None, **kws
+  ):
     """
     Generate a simulated dataset of water reserve measurements across various
     locations over a specified time period. The dataset includes measurements
@@ -171,7 +175,7 @@ def simulate_water_reserves(
     )
 
 def simulate_world_mineral_reserves(
-    *, n_samples=300, 
+    *, n_samples=100, 
     as_frame=False, 
     return_X_y=False, 
     target_names=None, 
@@ -181,10 +185,92 @@ def simulate_world_mineral_reserves(
     mineral_types=None, 
     countries=None, 
     economic_impact_factor=0.05, 
+    default_location='Global HQ',
     **kws
-):  
+):
+    """
+    Simulates a dataset of world mineral reserves, providing insights into global 
+    mineral production. This function allows for the generation of data reflecting 
+    mineral reserve quantities across different countries and regions, incorporating
+    economic impact factors and statistical noise to mimic real-world variability.
+
+    The simulation process involves selecting countries known for producing specified
+    minerals, calculating reserve quantities, and optionally assigning a default location 
+    for minerals with undetermined origins. The function offers flexibility in focusing 
+    the simulation on specific minerals, regions, or countries, catering to diverse 
+    geoscientific research needs.
+
+    Parameters
+    ----------
+    n_samples : int, optional
+        Number of data points to generate, representing individual mineral reserve 
+        instances. Default is 300.
+    as_frame : bool, optional
+        If set to True, outputs the dataset as a pandas DataFrame, facilitating 
+        data analysis and visualization. Default is False.
+    return_X_y : bool, optional
+        If True, separates the features and target variable into two entities, 
+        supporting machine learning applications. Default is False.
+    target_names : list of str, optional
+        Specifies the names for the target variables, enhancing dataset 
+        interpretability. Default is None.
+    noise : float, optional
+        Specifies the standard deviation of Gaussian noise added to reserve quantities,
+        simulating measurement errors or estimation uncertainties. Default is None.
+    seed : int, optional
+        Seed for the random number generator, ensuring reproducibility of the simulated
+        dataset. Default is None.
+    regions : list of str, optional
+        Filters the simulation to include countries within specified geographical regions,
+        reflecting regional mineral production characteristics. Default is None.
+    distributions : dict, optional
+        Custom mapping of regions to mineral types for targeted simulation scenarios.
+        Default is None.
+    mineral_types : list of str, optional
+        Filters the dataset to simulate reserves for specified minerals, aiding in 
+        focused geoscientific studies. Default is None.
+    countries : list of str, optional
+        Specifies a list of countries to be included in the simulation, enabling 
+        country-specific mineral production analysis. Default is None.
+    economic_impact_factor : float, optional
+        Adjusts the simulated quantity of reserves based on economic conditions, 
+        introducing variability in mineral production estimates. Default is 0.05.
+    default_location : str, optional
+        Placeholder for the location when a mineral's producing country is 
+        undetermined, typically a headquarters or primary research center. 
+        Default is 'Global HQ'.
+
+    Returns
+    -------
+    pandas.DataFrame or tuple
+        The simulated dataset of mineral reserves. The structure of the returned
+        data depends on the `as_frame` and `return_X_y` parameters.
+
+    Raises
+    ------
+    ValueError
+        Raised if required parameters are not provided or if the simulation 
+        process encounters an error due to invalid parameter values.
+
+    Examples
+    --------
+    Generate a simple dataset of mineral reserves:
+    
+    >>> simulate_world_mineral_reserves()
+    
+    Simulate reserves focusing on gold and diamonds in Africa and Asia:
+    
+    >>> simulate_world_mineral_reserves(regions=['Africa', 'Asia'],
+    ...                                 mineral_types=['gold', 'diamond'],
+    ...                                 n_samples=100, as_frame=True)
+    
+    Handle undetermined production countries with a custom default location:
+    
+    >>> simulate_world_mineral_reserves(default_location='Research Center',
+    ...                                 noise=0.1, seed=42)
+    """
     # Initialize country dict 
-    countries_dict ={}
+    mineral_countries_map ={}
     # Set a seed for reproducibility of results
     np.random.seed(seed)
 
@@ -196,7 +282,7 @@ def simulate_world_mineral_reserves(
     if mineral_types:
         if isinstance(mineral_types, str): 
             mineral_types = [mineral_types]
-        countries, countries_dict = find_countries_by_minerals(
+        countries, mineral_countries_map = find_countries_by_minerals(
             mineral_types, return_minerals_and_countries= True
         )
 
@@ -222,15 +308,13 @@ def simulate_world_mineral_reserves(
         mineral_types = extract_minerals_from_regions(regions) 
     # Find countries based on mineral types if countries are not explicitly provided
     if not countries:
-        countries, countries_dict = find_countries_by_minerals(
+        countries, mineral_countries_map = find_countries_by_minerals(
             mineral_types, return_minerals_and_countries= True 
         )
-
     # Generate information related to each country
     infos_dict = generate_ore_infos(countries, raise_error="ignore")
-
+    
     # Simulate mineral reserve data for each sample
-    # print(distributions)
     data = []
     for i in range(n_samples):
         selected_region = np.random.choice(list(distributions.keys()))
@@ -238,46 +322,26 @@ def simulate_world_mineral_reserves(
         mineral_type = np.random.choice(available_minerals)
         base_quantity = np.random.uniform(100, 10000)
         economic_impact = 1 + (np.random.rand() * economic_impact_factor - (
-            economic_impact_factor / 2))
+            economic_impact_factor / 2)) # make sure to not have negative quantities
         quantity = max(0, base_quantity * economic_impact + (
             np.random.normal(0, noise) if noise else 0))
-        
-        if countries_dict: 
-            # if ',' or ';' in str split and random selected one 
-            if ';' in mineral_type: 
-                mineral_type = np.random.choice ( mineral_type.split(';') ).lower() 
-            elif ',' in mineral_type: 
-                mineral_type = np.random.choice (mineral_type.split(',') ).lower()  
-            # now select one location in the 
-            # country_dict = {'gold': ['United States',
-            #   'Indonesia',
-            #   'Ghana',
-            #   'Tanzania',
-            #   'Papua New Guinea',
-            #   'New Zealand',
-            #   'Mali',
-            #   'Burkina Faso',
-            #   "Cote d'Ivoire",
-            #   'Ethiopia',
-            #   'Kyrgyzstan', 
-            #   'Tajikistan',
-            #   'Laos',
-            #   'Uzbekistan']}
-            #print(countries_dict[mineral_type.lower()])
-            location = np.random.choice (countries_dict[mineral_type] )
-        else : location = np.random.choice(countries)
-        
+        # Select location 
+        location= select_location_for_mineral (
+            mineral_type, mineral_countries_map,
+            fallback_countries=countries, 
+            selected_region =selected_region, 
+            substitute_for_missing= default_location 
+        )
         info = infos_dict.get(location, "No information available.")
-        
         data.append({
             'sample_id': i + 1,
             'region': selected_region,
             'location': location,
             'mineral_type': mineral_type,
             'info': info,
+            # production soon 
             'quantity': quantity
         })
-    
     # Convert simulated data into a DataFrame
     mineral_reserves_df = pd.DataFrame(data)
     
