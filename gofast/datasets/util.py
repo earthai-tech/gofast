@@ -13,7 +13,6 @@ from ..compat.sklearn import  train_test_split
 from ..tools.box import Boxspace
 
 
-
 def validate_region(region, mode="strict"):
     """
     Validates and normalizes a region name based on the specified mode.
@@ -88,21 +87,116 @@ def validate_region(region, mode="strict"):
     parts = region_lower.split()
 
     # Normalize based on mode
+    error_msg = f"Invalid region name '{region}'. Expected one of the continents."
     if mode == "strict":
         # Remove cardinal directions if present
         normalized_region = next((part for part in parts if part in continents), None)
         if normalized_region is None:
-            raise ValueError(f"Invalid region name '{region}'. Expected one of the continents.")
+            raise ValueError(error_msg)
     elif mode == "soft":
         # Keep the cardinal direction but ensure it's the correct form
         normalized_region = " ".join(part.capitalize() for part in parts 
                                      if part in continents + cardinal_points)
         if not normalized_region:
-            raise ValueError(f"Invalid region name '{region}'.")
+            raise ValueError(error_msg)
     else:
         raise ValueError(f"Unknown mode '{mode}'. Use 'strict' or 'soft'.")
 
-    return normalized_region
+    return normalized_region.title()
+
+def validate_country(name, error="warn"):
+    """
+    Validates a given country name against a global dictionary of mineral 
+    production by country, considering alternative names and abbreviations.
+
+    Parameters
+    ----------
+    name : str
+        The country name to validate. The function is case-insensitive and
+        supports common abbreviations and alternative names (e.g., "USA" or
+        "U.S.A" for "United States").
+    error : str, optional
+        Specifies the error handling behavior when the country name is not
+        found. Options are "raise" to raise a ValueError, "warn" to issue a
+        warning, or "ignore" to silently ignore the error. The default is "warn".
+
+    Returns
+    -------
+    str
+        The validated country name as it appears in the mineral production
+        dictionary. Returns an empty string if the name is not found and
+        the error parameter is set to "warn" or "ignore".
+
+    Raises
+    ------
+    ValueError
+        If the country name does not exist in the mineral production
+        dictionary and the error parameter is set to "raise".
+
+    Examples
+    --------
+    >>> from gofast.datasets.util import validate_country
+    >>> validate_country("USA")
+    'United States'
+
+    >>> validate_country("U.S.A")
+    'United States'
+
+    >>> validate_country("PRC")
+    'China'
+
+    >>> validate_country("UK", error="raise")
+    ValueError: The country name 'UK' does not exist in the mineral production dictionary.
+
+    >>> validate_country("UK", error="warn")
+    UserWarning: The country name 'UK' does not exist in the mineral production dictionary.
+    ''
+
+    Note
+    ----
+    This function relies on a predefined mapping of common abbreviations and
+    alternative country names to their official names as listed in the global
+    dictionary `MINERAL_PROD_BY_COUNTRY`. It is designed to facilitate user
+    input by allowing flexibility in how country names are specified.
+    """
+
+    from ._globals import MINERAL_PROD_BY_COUNTRY
+    
+    map_names = {
+        "USA": "United States",
+        "PRC": "China",
+        "DRC": "Democratic Republic of Congo",
+        "IVORY COAST": "Cote d'Ivoire",
+        "UAE": "United Arab Emirates"
+    }
+    
+    # Normalize name to handle common variations and casing
+    normalized_name = name.upper().replace('.', '')
+    if normalized_name in map_names:
+        normalized_name = map_names[normalized_name].upper()
+
+    # Check if the normalized name is in the MINERAL_PROD_BY_COUNTRY keys
+    if any(normalized_name == country.upper() 
+            for country in MINERAL_PROD_BY_COUNTRY.keys()):
+        # Return the proper name from MINERAL_PROD_BY_COUNTRY
+        return next((country for country in MINERAL_PROD_BY_COUNTRY 
+                      if country.upper() == normalized_name), None)
+    else:
+        # Handle error based on the 'error' parameter
+        message =( 
+            f"The country name '{name}' does not "
+            "exist in the mineral production dictionary."
+            )
+        if error == "raise":
+            raise ValueError(message)
+        elif error == "warn":
+            import warnings
+            warnings.warn(message)
+        elif error == "ignore":
+            pass  # Do nothing
+        # Return an empty string for 'warn' and 'ignore' if the name is not found
+        return ""  
+
 
 def find_countries_by_region(
     region, 
@@ -275,7 +369,7 @@ def extract_minerals_from_regions(
         # Remove duplicates and return the list
         return list(set([mineral.strip() for mineral in  split_minerals]))
 
-def check_distributions(distributions, raise_error='warn'):
+def check_distributions(distributions, error='warn'):
     """
     Validates the structure of the distributions dictionary to ensure it
     adheres to the expected format: a dictionary with region names as keys
@@ -285,7 +379,7 @@ def check_distributions(distributions, raise_error='warn'):
     ----------
     distributions : dict
         The distributions dictionary to validate.
-    raise_error : str, optional
+    error : str, optional
         Controls error handling behavior. Accepts 'raise' to raise exceptions,
         'warn' to issue a warning, or 'ignore' to do nothing on failure.
         Default is 'warn'.
@@ -294,7 +388,7 @@ def check_distributions(distributions, raise_error='warn'):
     -------
     bool
         True if the distributions dictionary fits the expected arrangement,
-        otherwise False if 'raise_error' is set to 'ignore' or 'warn'.
+        otherwise False if 'error' is set to 'ignore' or 'warn'.
     """
 
     error_message = ""
@@ -324,17 +418,21 @@ def check_distributions(distributions, raise_error='warn'):
                 break
 
     if error_message:
-        if raise_error == 'raise':
+        if error == 'raise':
             raise ValueError(error_message)
-        elif raise_error == 'warn':
+        elif error == 'warn':
             warnings.warn(error_message)
             return False
-        elif raise_error == 'ignore':
+        elif error == 'ignore':
             return False
     
     return True
   
-def build_distributions_from(regions, minerals, raise_error='warn'):
+def build_distributions_from(
+    regions, 
+    minerals, 
+    error='warn',  
+    ):
     """
     Constructs a dictionary mapping each region to its corresponding list of 
     minerals.
@@ -353,7 +451,7 @@ def build_distributions_from(regions, minerals, raise_error='warn'):
         the corresponding region in the `regions` list. If `regions` contains
         only one region, `minerals` can be a single list which will be automatically
         nested into a list of lists.
-    raise_error : {'warn', 'ignore', 'raise'}, optional
+    error : {'warn', 'ignore', 'raise'}, optional
         Controls the error handling behavior when the lengths of `regions` and
         `minerals` do not match. 'warn' issues a warning and returns `None`,
         'ignore' silently ignores the discrepancy and also returns `None`, and
@@ -364,13 +462,13 @@ def build_distributions_from(regions, minerals, raise_error='warn'):
     dict or None
         A dictionary where keys are region names and values are lists of minerals
         associated with each region. Returns `None` if there is a discrepancy
-        between the lengths of `regions` and `minerals` and `raise_error` is
+        between the lengths of `regions` and `minerals` and `error` is
         set to 'warn' or 'ignore'.
 
     Raises
     ------
     ValueError
-        If `raise_error` is set to 'raise' and the lengths of `regions` and
+        If `error` is set to 'raise' and the lengths of `regions` and
         `minerals` do not match, indicating an inability to map each region to
         a specific list of minerals.
 
@@ -389,12 +487,12 @@ def build_distributions_from(regions, minerals, raise_error='warn'):
 
     Handling mismatched lengths with 'raise':
 
-    >>> build_distributions_from(['Africa', 'Asia'], ['Gold'], raise_error='raise')
+    >>> build_distributions_from(['Africa', 'Asia'], ['Gold'], error='raise')
     ValueError: Mismatch in list lengths: expected regions and minerals to have the same length, ...
 
     Using 'warn' with mismatched lengths (will print a warning and return `None`):
 
-    >>> build_distributions_from(['Africa', 'Asia'], ['Gold'], raise_error='warn')
+    >>> build_distributions_from(['Africa', 'Asia'], ['Gold'], error='warn')
     UserWarning: Mismatch in list lengths: expected regions and minerals to have the same length, ...
     """
     regions = is_iterable(regions, exclude_string=True, transform=True)
@@ -412,18 +510,66 @@ def build_distributions_from(regions, minerals, raise_error='warn'):
                    f" prevents accurate distribution mapping. Please ensure"
                    " each region is paired with a corresponding list of minerals."
                    )
-        if raise_error == 'raise':
+        if error == 'raise':
             raise ValueError(message)
-        elif raise_error == 'warn':
+        elif error == 'warn':
             warnings.warn(message)
-        elif raise_error == 'ignore':
+        elif error == 'ignore':
             pass  # Explicitly handling 'ignore' for clarity
         return None
-
+    
+    minerals = minerals_normalizer(minerals ,)
     # Building the distributions dictionary
-    distributions = {region: mineral for region, mineral in zip(regions, minerals)}
+    distributions = {
+        region: [mineral] if isinstance ( mineral, str) else mineral 
+        for region, mineral in zip(regions, minerals)
+    }
     
     return distributions
+
+def minerals_normalizer(minerals, tolist=False, unpack=False):
+    """
+    Normalize a given input of minerals to lowercase. Can output as a single 
+    string, a list of strings, or a flattened list from nested lists depending
+    on parameters.
+
+    Parameters:
+    ----------
+    minerals : str or list
+        The input minerals, can be a string, a list of strings, or a nested 
+        list of strings.
+    tolist : bool, optional
+        If True, the output will be a list even if the input is a single string.
+        Default is False.
+    unpack : bool, optional
+        If True and the input is a nested list, the output will be a flattened
+        list. Default is False.
+
+    Returns:
+    -------
+    str or list
+        The normalized minerals, either as a lowercase string, a list of 
+        lowercase strings, or a flattened list of lowercase strings, 
+        based on input parameters.
+    """
+
+    # Normalize single string directly
+    if isinstance(minerals, str):
+        return [minerals.lower()] if tolist else minerals.lower()
+
+    # Handle list input, including nested lists
+    if isinstance(minerals, list):
+        if unpack:
+            # Flatten and normalize nested list
+            flattened_list = [item.lower() for sublist in minerals for item in sublist]
+            return flattened_list
+        else:
+            # Normalize list without unpacking
+            return [mineral.lower() if isinstance(mineral, str) else
+                    [m.lower() for m in mineral] for mineral in minerals]
+    # Fallback for unrecognized input types
+    return minerals
+
 
 def manage_nested_lists(elements, mode='unpack', pack_criteria=None):
     """
@@ -528,7 +674,7 @@ def is_structure_nested(input_structure, check_for=list):
 
 def extract_minerals_from_countries(
     mineral_prod_by_country=None,
-    use_default=True,
+    use_default=False,
     split_minerals=True,
 ):
     """
@@ -597,8 +743,9 @@ def extract_minerals_from_countries(
     from structured textual data where specific information is enclosed in
     square brackets or separated by commas/semicolons.
     """
-    if mineral_prod_by_country is None and use_default:
+    if mineral_prod_by_country is None: 
         mineral_prod_by_country = get_mineral_production_by_country()
+        use_default=True 
         
     country_minerals_dict = {}
     
@@ -619,7 +766,8 @@ def extract_minerals_from_countries(
                 if sep in minerals:
                     minerals = [mineral.strip() for mineral in minerals.split(sep)]
                     break  # Break after the first separator is found and used
-
+        if split_minerals and isinstance ( minerals, str): 
+            minerals =[minerals] # put mineral on list even single 
         country_minerals_dict[country] = minerals
 
     return country_minerals_dict
@@ -630,7 +778,7 @@ def select_location_for_mineral(
     mineral_country_mapping=None,
     fallback_countries=None,
     selected_region=None, 
-    raise_error='ignore', 
+    error='ignore', 
     substitute_for_missing='Unknown'
 ):
     """
@@ -657,7 +805,7 @@ def select_location_for_mineral(
         The geographical region within which to limit the country selection. 
         This parameter is considered only if `mineral_country_mapping` is provided. 
         Default is None.
-    raise_error : str, optional
+    error : str, optional
         Determines how to handle cases when the mineral is not found in 
         `mineral_country_mapping`. Options are 'ignore', 'warn', and 'raise'.
         Default is 'ignore'.
@@ -698,7 +846,7 @@ def select_location_for_mineral(
 
     >>> select_location_for_mineral(
     ... 'diamond', mineral_country_mapping=mineral_country_mapping,
-    ...  raise_error='warn', substitute_for_missing='None')
+    ...  error='warn', substitute_for_missing='None')
     Warning: Mineral 'diamond' not found. Returning substitute location: 'None'.
     'None'
     """
@@ -727,15 +875,18 @@ def select_location_for_mineral(
     
     # Check if the mineral is in the mapping
     if mineral_lower not in {key.lower() for key in mineral_country_mapping}:
-        if raise_error == 'raise':
+        if error == 'raise':
             raise ValueError(f"Mineral '{mineral}' not found in "
                              "the provided mineral-country mapping.")
-        elif raise_error == 'warn':
+        elif error == 'warn':
             print(f"Warning: Mineral '{mineral}' not found. Returning"
                   f" substitute location: '{substitute_for_missing}'.")
         return substitute_for_missing
     # Select and return a random country from the list associated with the mineral
-    return _select_location_from (mineral, selected_region, mineral_country_mapping)
+    return _select_location_from (
+        mineral, selected_region, mineral_country_mapping, 
+        error_handling= error,
+        )
 
 def _select_location_from(
     mineral, selected_region, mineral_country_mapping, 
@@ -750,12 +901,17 @@ def _select_location_from(
     # Ensure the mineral is present in the mapping; otherwise, return an empty list
     mineral_countries_list = mineral_country_mapping.get(mineral_lower, [])
     
+    selected_region = validate_region(selected_region , mode='soft')
+    if selected_region is None: 
+        # randomly select a location from mineral countries list 
+        return np.random.choice(mineral_countries_list)
     # Build the continent to country mapping
     region_map_list = build_continent_country_dict()
 
     # Extract the list of countries for the selected region
     countries_list = region_map_list.get(selected_region.capitalize(), [])  # Capitalize for matching
     # Calculate the intersection if a region is specified and intersection is possible
+    intersection_list =[]
     if selected_region and mineral_countries_list:
         intersection_list = list(set(mineral_countries_list) & set(countries_list))
         # Handle cases with no intersection
@@ -763,18 +919,80 @@ def _select_location_from(
             message = f"No countries found for '{mineral}' in region '{selected_region}'."
             if error_handling == 'warn':
                 print(f"Warning: {message}" )
+                # then find a country location in this mineral in the location 
             elif error_handling == 'raise':
                 raise ValueError(message)
             # Fallback to the mineral's countries list if 'ignore'
+   
+            selected_country , intersection_list = find_mineral_location(
+                mineral, excluded_region= selected_region, 
+                error_handling=error_handling 
+                ) 
             intersection_list = mineral_countries_list
-    else:
-        intersection_list = mineral_countries_list
-
+   
     # If there's no country to select (list is empty), return None or a meaningful default
     if not intersection_list:
-        return None  # Could be adjusted to return a meaningful default if necessary
+        return None,  [get_default_location(strategy='global_hq' )] 
+    
     # Randomly select and return a country from the intersection list
-    return np.random.choice(intersection_list)
+    return selected_region, np.random.choice(intersection_list)
+
+def find_mineral_location(
+    mineral, 
+    excluded_region=None,
+    mineral_prod_by_country=None, 
+    error_handling='warn', 
+    region_preference='change'
+    ):
+    continents = ['Africa', 'Europe', "America", "Asia", "Oceania"]
+    
+    if excluded_region: 
+        excluded_region = validate_region(excluded_region)
+    # Determine the regions to consider based on exclusions
+    
+    regions_to_consider = [continent for continent in continents 
+                           if continent != excluded_region]
+
+    mineral = mineral.lower()
+    potential_locations = {}
+
+    for region in regions_to_consider:
+        distributions = find_mineral_distributions(region, detailed_by_country=True)
+        # Skip the region if no distribution data is found
+        if not distributions:
+            continue
+
+        region_countries = distributions.get(region, {})
+        for country, c_minerals in region_countries.items():
+            # Normalize the list of minerals for comparison
+            c_minerals = [m.lower() for m in minerals_normalizer(c_minerals, tolist=True)]
+            if mineral in c_minerals:
+                potential_locations[region] = country.capitalize()
+                break  # Found a location, no need to search more in this region
+
+    # Handle the case when no potential locations are found
+    if not potential_locations:
+        message =f"Mineral '{mineral}' not found on Earth in our actual database."
+        if error_handling == 'warn':
+            print(f"Warning: {message}")
+        elif error_handling == 'raise':
+            raise ValueError(message)
+        return None, None
+
+    # Randomly select one of the potential locations
+    selected_region = np.random.choice(list(potential_locations.keys()))
+    selected_country = potential_locations[selected_region]
+
+    # Handle region status preferences
+    if region_preference.lower() == 'change':
+        final_region = selected_region
+    elif region_preference.lower() == 'keep':
+        final_region = excluded_region
+    else:
+        # Default or 'unknown' case
+        final_region = "Outer Space"
+
+    return final_region, selected_country
 
 def get_default_location(
     strategy='global_hq',
@@ -806,6 +1024,10 @@ def get_default_location(
     str
         The default location based on the chosen strategy.
     """
+    # XXX TODO 
+    # largerst producer stragey not implement yet 
+    if strategy == 'largest_producer' : 
+        strategy = 'unknown'
     if strategy == 'global_hq':
         return "Global HQ"
     elif strategy == 'unknown':
@@ -967,10 +1189,6 @@ def find_countries_by_minerals(
     >>> find_countries_by_minerals(minerals, mineral_prod_by_country=mineral_data)
     {'coal': ['China'], 'rare earth elements': ['China']}
     """
-    # Load the mineral production data if not provided
-    if mineral_prod_by_country is None:
-        mineral_prod_by_country = get_mineral_production_by_country()
-    
     # Normalize minerals input to a set of lowercase mineral names
     normalized_minerals = {min.lower() for min in minerals} if isinstance(
         minerals, list) else {minerals.lower()}
@@ -978,7 +1196,7 @@ def find_countries_by_minerals(
     # Extract mineral production information from countries
     countries_minerals = extract_minerals_from_countries(
         mineral_prod_by_country, split_minerals=True)
-    
+
     # Initialize containers for results
     countries = set()
     mineral_by_country = defaultdict(list)
@@ -1044,8 +1262,9 @@ def find_mineral_by_country(country, mineral_prod_by_country=None):
     Assuming a global dictionary `MINERAL_PROD_BY_COUNTRY` is available 
     and contains relevant data:
 
+    >>> from gofast.datasets.util import find_mineral_by_country
     >>> find_mineral_by_country('Canada')
-    {'Gold': 100, 'Silver': 200}
+    ['potash', 'uranium']
 
     Providing a dictionary directly:
 
@@ -1061,20 +1280,20 @@ def find_mineral_by_country(country, mineral_prod_by_country=None):
 
     Note: The function is case-insensitive and will normalize the country name.
     """
+    use_default=False 
     if mineral_prod_by_country is None:
         mineral_prod_by_country = get_mineral_production_by_country()
-
+        use_default=True 
     # Transform the country names in the dictionary to lowercase once
     country_minerals_dict = {k.lower(): v for k, v in extract_minerals_from_countries(
-        mineral_prod_by_country, split_minerals=False).items()}
-    
+        mineral_prod_by_country, use_default=use_default, split_minerals=True).items()}
     # Perform a case-insensitive lookup by converting the input country to lowercase
     country_lower = country.lower()
     if country_lower not in country_minerals_dict:
         # Generate an informative error message
         # Just as an example, take the first 5 countries
         sample_countries = list(country_minerals_dict.keys())[:5]  
-        sample_countries_str = ', '.join(sample_countries)
+        sample_countries_str = ', '.join([ c.title () for c in sample_countries])
         raise ValueError(f"Country '{country}' not found in the list of minerals. "
                          f"Sample countries include: {sample_countries_str}.")
     
@@ -1147,19 +1366,26 @@ def find_mineral_distributions(
     decisions related to mineral resources.
     """
     countries = find_countries_by_region(region)
-    
+
     # If no custom dictionary is provided, use a default
     mineral_info = extract_minerals_from_countries(
-        mineral_prod_by_country, split_minerals=False )
-    
+        mineral_prod_by_country, split_minerals=True )
+    #
     # If detailed_by_country is True or include_region_summary is True,
     # prepare country-specific data
     if detailed_by_country or include_region_summary:
-        country_minerals = {country: mineral_info.get(country, None) for country in countries}
+        country_minerals = {
+            country: mineral_info.get(country, None) for country in countries
+        }
     
     # Aggregate unique minerals found across the region
-    region_minerals = set(mineral_info.get(country, "") for country in countries)
-    
+    region_minerals = {
+        mineral for country in countries 
+        for mineral in (
+            [mineral_info.get(country, [])] if isinstance(mineral_info.get(country, []), str) 
+            else mineral_info.get(country, [])
+        )
+    }
     # Assemble the return data based on the function parameters
     if include_region_summary:
         # Returns both country-specific data and a summary of minerals in the region
@@ -1206,10 +1432,10 @@ def find_countries_and_minerals_by_region (
     >>> from gofast.datasets.util import find_countries_and_minerals_by_region
     >>> find_countries_and_minerals_by_region('Europe', minerals=['gold', 'nickel'], 
     ...                             return_countries_only=True)
-    ['Russia', 'Sweden']
+    ['Russia', 'Finland']
 
-    >>> find_countries_by_minerals('Europe', minerals='gold')
-    {'gold': ['Russia', 'Sweden']}
+    >>> find_countries_and_minerals_by_region('Europe', minerals='gold')
+    {}
     """
     extracted_minerals = find_mineral_distributions(region, detailed_by_country=True)
     
@@ -1222,13 +1448,14 @@ def find_countries_and_minerals_by_region (
     
     # Using defaultdict to automatically initialize lists for new keys
     mineral_by_country = defaultdict(list)
-
+    
     # Loop through each mineral and aggregate countries
     for reg, countries_minerals in extracted_minerals.items():
         for country, country_minerals in countries_minerals.items():
+            country_minerals= minerals_normalizer(country_minerals)
             for mineral in minerals:
                 # Normalize case for comparison
-                if mineral.lower() in country_minerals.lower():
+                if mineral.lower() in ''.join(country_minerals):
                     mineral_by_country[mineral].append(country)
     
     if return_countries_only:
@@ -1238,7 +1465,7 @@ def find_countries_and_minerals_by_region (
     
     return dict(mineral_by_country)
 
-def generate_ore_infos(countries=None, raise_error='warn'):
+def generate_ore_infos(countries=None, error='warn'):
     """
     Generates informational summaries about ore reserves and production
     capabilities from a predefined or provided dictionary of mineral
@@ -1252,7 +1479,7 @@ def generate_ore_infos(countries=None, raise_error='warn'):
         information. If None, information for all countries in the
         mineral production dictionary will be generated. Names are
         case-insensitive.
-    raise_error : {'warn', 'raise', 'ignore'}, optional
+    error : {'warn', 'raise', 'ignore'}, optional
         Specifies how to handle countries not found in the mineral production
         dictionary. 'warn' issues a warning, 'raise' raises a ValueError, and
         'ignore' does nothing. Default is 'warn'.
@@ -1270,13 +1497,14 @@ def generate_ore_infos(countries=None, raise_error='warn'):
         If the global mineral production dictionary cannot be imported and no
         alternative dictionary is provided.
     ValueError
-        If `raise_error` is set to 'raise' and one or more specified countries
+        If `error` is set to 'raise' and one or more specified countries
         are not found in the mineral production dictionary.
 
     Examples
     --------
     Assuming `MINERAL_PROD_BY_COUNTRY` is available and formatted correctly:
 
+    >>> from gofast.datasets.util import generate_ore_infos
     >>> generate_ore_infos(['Australia', 'China'])
     {'Australia': 'High production capacity for iron ore, lithium and major\\
      exporter of lithium, iron ore.',
@@ -1285,13 +1513,13 @@ def generate_ore_infos(countries=None, raise_error='warn'):
 
     Specifying a single country and using 'warn' for not found countries:
 
-    >>> generate_ore_infos('Atlantis', raise_error='warn')
+    >>> generate_ore_infos('Atlantis', error='warn')
     Warning: Countries not found: Atlantis.
     {}
 
     Providing a list of countries with mixed case and requesting 'raise' for errors:
 
-    >>> generate_ore_infos(['australia', 'Atlantis'], raise_error='raise')
+    >>> generate_ore_infos(['australia', 'Atlantis'], error='raise')
     ValueError: Countries not found: Atlantis.
     """
     mineral_prod_by_country = get_mineral_production_by_country()
@@ -1317,19 +1545,24 @@ def generate_ore_infos(countries=None, raise_error='warn'):
         else:
             # Handle countries with less than 2 info strings differently
             # This is just an example, adjust based on actual requirements
-            country_infos[country] = info_list[0] if info_list else "No information available."
+            country_infos[country] =( 
+                info_list[0] if info_list else "No information available."
+                )
 
     # Check for any countries provided but not found in the dictionary
     not_found_countries = [country for country in countries if country.lower() 
                            not in [c.lower() for c in country_infos]]
-    if not_found_countries and raise_error != 'ignore':
-        message = f"Countries not found: {', '.join(not_found_countries)}."
-        if raise_error == 'warn':
+    if not_found_countries and error != 'ignore':
+        message = "Countries not found: {}".format(
+                ', '.join([c.capitalize() for c in not_found_countries])) 
+        if error == 'warn':
             print(f"Warning: {message}")
-        elif raise_error == 'raise':
+        elif error == 'raise':
             raise ValueError(message)
 
     return dict(country_infos)
+
+
 
 def manage_data(
     data, 

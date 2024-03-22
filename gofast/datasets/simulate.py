@@ -22,7 +22,7 @@ def simulate_water_reserves(
     return_X_y=False, 
     target_names=None, 
     noise=None, 
-    seed=None, **kws
+    seed=None, 
   ):
     """
     Generate a simulated dataset of water reserve measurements across various
@@ -171,7 +171,6 @@ def simulate_water_reserves(
         target_names=target_names, noise=noise, seed=seed,
         DESCR="Simulated water reserves dataset",
         feature_descr=feature_descr,
-        **kws
     )
 
 def simulate_world_mineral_reserves(
@@ -186,7 +185,6 @@ def simulate_world_mineral_reserves(
     countries=None, 
     economic_impact_factor=0.05, 
     default_location='Global HQ',
-    **kws
 ):
     """
     Simulates a dataset of world mineral reserves, providing insights into global 
@@ -256,18 +254,29 @@ def simulate_world_mineral_reserves(
     --------
     Generate a simple dataset of mineral reserves:
     
-    >>> simulate_world_mineral_reserves()
+    >>> from gofast.datasets.simulate import simulate_world_mineral_reserves
+    >>> min_reserves = simulate_world_mineral_reserves().frame 
     
     Simulate reserves focusing on gold and diamonds in Africa and Asia:
     
-    >>> simulate_world_mineral_reserves(regions=['Africa', 'Asia'],
+    >>> df=simulate_world_mineral_reserves(regions=['Africa', 'Asia'],
     ...                                 mineral_types=['gold', 'diamond'],
     ...                                 n_samples=100, as_frame=True)
+    >>> df.head()
+    >>> b.frame 
+        sample_id  ...      quantity
+     0          1  ...    317.714995
+     1          2  ...  10009.865385
+     2          3  ...   6234.385021
+     3          4  ...   1406.044839
+     4          5  ...   7581.913884
     
+     [5 rows x 6 columns]
     Handle undetermined production countries with a custom default location:
-    
-    >>> simulate_world_mineral_reserves(default_location='Research Center',
-    ...                                 noise=0.1, seed=42)
+    >>> X, y= simulate_world_mineral_reserves(default_location='Research Center',
+    ...                                 noise=0.1, seed=42, return_X_y=True )
+    >>> len(y)
+    100
     """
     # Initialize country dict 
     mineral_countries_map ={}
@@ -285,7 +294,6 @@ def simulate_world_mineral_reserves(
         countries, mineral_countries_map = find_countries_by_minerals(
             mineral_types, return_minerals_and_countries= True
         )
-
     # Extract minerals from regions if mineral_types are not explicitly provided
     if mineral_types is None and regions:  
         mineral_types = extract_minerals_from_regions(regions) 
@@ -312,7 +320,7 @@ def simulate_world_mineral_reserves(
             mineral_types, return_minerals_and_countries= True 
         )
     # Generate information related to each country
-    infos_dict = generate_ore_infos(countries, raise_error="ignore")
+    infos_dict = generate_ore_infos(countries, error="ignore")
     
     # Simulate mineral reserve data for each sample
     data = []
@@ -326,7 +334,7 @@ def simulate_world_mineral_reserves(
         quantity = max(0, base_quantity * economic_impact + (
             np.random.normal(0, noise) if noise else 0))
         # Select location 
-        location= select_location_for_mineral (
+        selected_region, location= select_location_for_mineral (
             mineral_type, mineral_countries_map,
             fallback_countries=countries, 
             selected_region =selected_region, 
@@ -349,5 +357,5 @@ def simulate_world_mineral_reserves(
     return manage_data(
         data=mineral_reserves_df, as_frame=as_frame, return_X_y=return_X_y,
         target_names=target_names if target_names else ['quantity'],
-        DESCR="Simulated mineral reserves dataset", **kws
+        DESCR="Simulated mineral reserves dataset", 
     )

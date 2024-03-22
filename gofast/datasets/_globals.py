@@ -1082,11 +1082,12 @@ HYDRO_PARAM_RANGES = {
 # reserves, production capacities, and exports. This comprehensive list aims
 # to highlight a diverse range of countries and their contributions to the 
 # global mining sector, focusing on various minerals and their economic impact.
+
 MINERAL_PROD_BY_COUNTRY = {
     "Australia": [
         "Vast reserves of bauxite, [iron ore, lithium]",
         "High production capacity for iron ore, lithium", 
-        "Major exporter of lithium, iron ore"
+        "Major exporter of lithium, iron ore", 
         ],
     "China": [
         "Large reserves of [coal, rare earth elements]",
@@ -1179,7 +1180,7 @@ MINERAL_PROD_BY_COUNTRY = {
         "Major exporter of cobalt"
         ],
     "Zimbabwe": [
-        "Significant [platinum, diamonds]",
+        "Significant [platinum, diamond]",
         "Major producer of platinum",
         "Important exporter of platinum"
         ],
@@ -1219,7 +1220,7 @@ MINERAL_PROD_BY_COUNTRY = {
         "Top oil exporter, emerging mineral exporter"
         ],
     "Tanzania": [
-        "Rich in [gold, gemstones], diamonds",
+        "Rich in [gold, gemstones], diamond",
         "Major gold producer",
         "Important gold, gemstone exporter"
         ],
@@ -1249,9 +1250,9 @@ MINERAL_PROD_BY_COUNTRY = {
         "Significant exporter of silver"
         ],
     "Namibia": [
-        "Significant [uranium], diamonds",
+        "Significant [uranium], diamond",
         "Major uranium producer",
-        "Important exporter of uranium, diamonds"
+        "Important exporter of uranium, diamond"
         ],
     "Botswana": [
         "World-leading [diamond] reserves",
@@ -1299,9 +1300,9 @@ MINERAL_PROD_BY_COUNTRY = {
         "Leading exporter of gypsum"
         ],
     "Angola": [
-        "Rich in [diamonds, oil]", 
+        "Rich in [diamond, oil]", 
         "Major diamond producer, significant oil production",
-        "Key exporter of diamonds and oil"
+        "Key exporter of diamond and oil"
         ],
     "Kuwait": [
         "Large [petroleum] reserves", 
@@ -1354,7 +1355,7 @@ MINERAL_PROD_BY_COUNTRY = {
         "Potential exporter of iron ore and bauxite"
         ],
     "Sierra Leone": [
-        "Rich in [diamonds]", 
+        "Rich in [diamond]", 
         "Significant diamond producer",
         "Diamond exporter"
         ],
@@ -1424,6 +1425,343 @@ MINERAL_PROD_BY_COUNTRY = {
         "Gold, uranium, and copper exporter"
         ]
 }
+
+
+features_description = {
+    'extraction_cost': ['Estimate of the cost associated with extracting a unit of the mineral', 'USD per ton'],
+    'grade': ['Concentration of mineral in the ore body', '% or g/ton'],
+    'depth': ['Depth at which the mineral deposit is found', 'meters'],
+    'accessibility': ['Ease of access to the mineral deposit considering terrain and infrastructure', 'qualitative (e.g., high, medium, low)'],
+    'environmental_impact': ['Assessment of the environmental footprint of extracting the mineral', 'qualitative or quantitative (e.g., CO2 emissions)'],
+    'reserve_life': ['Estimated duration the mineral deposit is expected to last at current extraction rates', 'years'],
+    'ownership': ['Entity that holds the rights to extract the mineral', 'text (company name or government)'],
+    'regulatory_status': ['Legal or regulatory framework governing mineral extraction in the location', 'text (e.g., permitted, pending approval)'],
+    'market_demand': ['Current global demand for the mineral', 'qualitative (e.g., high, medium, low)'],
+    'historical_data': ['Past production volumes, historical prices, or exploration data', 'varies (e.g., tons, USD)'],
+    'associated_minerals': ['Other minerals present in the deposit that could provide economic opportunities', 'list of strings'],
+    'recovery_rate': ['Percentage of mineral successfully extracted and processed from the ore', '%'],
+    'technology_used': ['Mining and processing technologies applied in extraction', 'text (e.g., heap leaching, flotation)']
+}
+
+mineral_production_details = {
+    "Australia": {
+        "estimated_production": "[1 billion] tonnes of iron ore, 160,000 tonnes of lithium (2020)",
+        "extraction_cost": "[Low] to medium, depending on the mineral and location",
+        "grade": "[High]-grade iron ore (>60% Fe content), Lithium concentration varies",
+        "accessibility": "[High], well-established mining infrastructure",
+        "reserve_life": "[50+] years for major commodities",
+        "ownership": "[Various], including BHP, Rio Tinto, and smaller mining companies",
+        "regulatory_status": "Strict environmental and mining regulations, supportive [government policies]",
+        "market_demand": "[High], especially in Asia for iron ore and globally for lithium",
+        "historical_data": "[Decades of extensive mining history], particularly for iron, gold, and bauxite",
+        "associated_minerals": "[Gold, bauxite, nickel], and many others",
+        "technology_used": "[Open-pit mining], underground mining, and various processing technologies"
+    },
+    "China": {
+        "estimated_production": "[3.7 billion] tonnes of coal (2020), dominant in rare earth elements",
+        "extraction_cost": "Varies [wide]ly across provinces",
+        "grade": "Varies; coal mines can be [high] or low energy content",
+        "accessibility": "[Mixed]; vast country with some remote mining areas",
+        "reserve_life": "[30+] years for coal, decades for rare earth elements",
+        "ownership": "[State-owned enterprises] predominantly, with some private and foreign companies",
+        "regulatory_status": "Increasingly strict environmental regulations, significant [government oversight]",
+        "market_demand": "[High] internally and for exports, especially for rare earth elements",
+        "historical_data": "[Long mining history], world's top coal producer for decades, major role in rare earths",
+        "associated_minerals": "A wide range including [iron, aluminum, gold], and more",
+        "technology_used": "A range from traditional to [high-tech], especially in rare earth element processing"
+    },
+    
+    "Russia": {
+        "estimated_production": "[7.1 billion], Large reserves of palladium, nickel",
+        "extraction_cost": "[Varies], depending on the mineral and region",
+        "grade": "[High]-grade palladium and nickel ores",
+        "accessibility": "[Varied] due to vast and remote locations",
+        "reserve_life": "[Several decades] for key minerals",
+        "ownership": "[State-controlled] companies like Norilsk Nickel",
+        "regulatory_status": "[Strict regulations] with significant government oversight",
+        "market_demand": "[High] globally, especially for palladium used in automotive catalysts",
+        "historical_data": "[Long history of mining], particularly in the Norilsk region for nickel",
+        "associated_minerals": "[Platinum, copper, and other PGMs] often found with nickel and palladium",
+        "technology_used": "[Advanced mining] and metallurgical processing"
+    },
+    "United States": {
+        "estimated_production": "Significant reserves with [4.8 billion] of gold and copper",
+        "extraction_cost": "Medium to [high], depending on the mining depth and ore grade",
+        "grade": "Varied grades, with some [world-class gold] deposits in Nevada",
+        "accessibility": "[Good], with developed infrastructure and technology",
+        "reserve_life": "[Over 20 years] for major mines, with ongoing exploration",
+        "ownership": "[Mixed ownership] including major companies like Freeport-McMoRan and Newmont",
+        "regulatory_status": "[Comprehensive environmental] and mining regulations",
+        "market_demand": "[Stable to high], with gold as a hedge against economic uncertainty",
+        "historical_data": "[Rich mining history], dating back to the 19th-century gold rushes",
+        "associated_minerals": "[Silver, lead, and zinc], commonly associated with copper and gold deposits",
+        "technology_used": "[Heap leaching] for gold extraction, [open-pit] and [underground mining] for copper"
+    },
+    "Canada": {
+        "estimated_production": "Major reserves of potash and uranium with estimated [4.8 billion], among the world's largest",
+        "extraction_cost": "Low for potash, [medium] for uranium due to deeper deposits",
+        "grade": "[High-grade uranium] deposits in Saskatchewan, world-leading potash grades",
+        "accessibility": "[High] for potash, medium for uranium due to environmental considerations",
+        "reserve_life": "[Extensive], with decades of production capacity",
+        "ownership": "[Diverse], with companies like Cameco (uranium) and Nutrien (potash)",
+        "regulatory_status": "[Strict], with a focus on environmental protection and safety",
+        "market_demand": "Steady for potash (fertilizer ingredient), [growing for uranium] (nuclear energy)",
+        "historical_data": "Decades of [sustainable mining practices], particularly in Saskatchewan",
+        "associated_minerals": "[Sylvite and halite] in potash deposits, rare earth elements near uranium mines",
+        "technology_used": "[Solution mining] for potash, conventional and [ISR] for uranium"
+    },
+    "Brazil": {
+        "estimated_production": "[100 of millions of tonnes] of iron ore, [thousands of tonnes] of niobium",
+        "extraction_cost": "Low for iron ore due to surface mining, [medium] for niobium",
+        "grade": "[High]-grade iron ore deposits, significant grades of niobium",
+        "accessibility": "[High] for major mining areas with well-developed infrastructure",
+        "reserve_life": "[Over 100 years] for iron ore, [extensive] for niobium",
+        "ownership": "[Mixed] with major players like Vale in iron ore",
+        "regulatory_status": "Subject to [environmental licensing], with a push towards sustainable mining",
+        "market_demand": "[High] globally for iron ore, especially from China; stable for niobium",
+        "historical_data": "[Centuries of mining history], especially in the Minas Gerais region",
+        "associated_minerals": "[Gold, manganese, and quartz], commonly found with iron ore",
+        "technology_used": "[Open-pit mining] for iron ore, various extraction techniques for niobium"
+    },
+    "South Africa": {
+        "estimated_production": "[1 Millions of ounces] of platinum annually, [hundreds of thousands of tonnes] of chromium",
+        "extraction_cost": "[Medium to high], particularly for deep underground platinum mines",
+        "grade": "[High]-grade PGM (Platinum Group Metals) deposits, high-grade chromite",
+        "accessibility": "[Variable], with some of the deepest mines in the world",
+        "reserve_life": "[Several decades] for both platinum and chromium",
+        "ownership": "[Diverse], including Anglo American Platinum, Impala Platinum, and others",
+        "regulatory_status": "Complex, with significant [regulatory oversight] on mining operations",
+        "market_demand": "[High] for platinum in automotive catalysts and jewelry, stable for chromium",
+        "historical_data": "Rich in [mining history], with platinum and chromium mining dating back decades",
+        "associated_minerals": "[Vanadium, palladium, rhodium], and other PGMs",
+        "technology_used": "[Underground mining] and [concentrating] for platinum, [open-pit] and [underground] for chromium"
+    },
+    "India": {
+        "estimated_production": "[100 of millions of tonnes] of coal annually, [tens of millions of tonnes] of iron ore",
+        "extraction_cost": "[Low to medium], depending on the mine location and depth",
+        "grade": "Varied coal grades, from [high]-quality coking coal to lower-grade thermal coal; high-grade iron ore",
+        "accessibility": "[Moderate], with challenges in some remote areas",
+        "reserve_life": "[Extensive], particularly for coal",
+        "ownership": "[State-owned and private] entities, including Coal India Ltd for coal",
+        "regulatory_status": "[Evolving], with recent reforms to encourage foreign investment",
+        "market_demand": "[High] domestic demand for coal in power generation; strong demand for iron ore",
+        "historical_data": "Long-standing [mining tradition], with ancient mining activities dating back over 2,000 years",
+        "associated_minerals": "[Bauxite, manganese, and limestone], often found in proximity to coal and iron ore deposits",
+        "technology_used": "[Open-pit] and [underground mining] for coal; [surface and underground mining] for iron ore"
+    },
+    "Indonesia": {
+        "estimated_production": "[100 of millions of tonnes] of coal annually, significant quantities of gold and nickel",
+        "extraction_cost": "Low for coal due to open-pit mining, [variable] for gold and nickel",
+        "grade": "High-grade [nickel] ore, variable gold ore grades",
+        "accessibility": "[Good] for coal, with challenges in remote gold and nickel mining areas",
+        "reserve_life": "[Decades] for coal, substantial for gold and nickel",
+        "ownership": "[Mixed], with major Indonesian and international mining companies",
+        "regulatory_status": "Complex, with significant [government oversight] and evolving regulations",
+        "market_demand": "[High] for coal in Asia; growing for nickel due to electric vehicle battery production",
+        "historical_data": "[Rich mining history], particularly in coal and tin mining",
+        "associated_minerals": "Tin, bauxite, and others",
+        "technology_used": "[Open-pit mining] for coal, various methods for gold and nickel"
+    },
+    "Chile": {
+        "estimated_production": "[1 Millions of tonnes] of copper annually",
+        "extraction_cost": "Medium, due to large-scale [open-pit] and underground mining",
+        "grade": "[High]-grade copper mines, especially in the Norte Grande region",
+        "accessibility": "[Excellent], with advanced mining infrastructure",
+        "reserve_life": "[Over 50 years], with ongoing exploration extending reserves",
+        "ownership": "[State-owned Codelco], along with international mining giants",
+        "regulatory_status": "[Strict] environmental and water use regulations",
+        "market_demand": "[Very high], as the backbone of global copper supply",
+        "historical_data": "[Centuries of copper mining], dating back to pre-colonial times",
+        "associated_minerals": "Molybdenum, gold, and silver",
+        "technology_used": "Primarily [open-pit mining], with some of the world's largest copper mines"
+    },
+    "Peru": {
+        "estimated_production": "Significant quantities at around [200 millions] of silver and copper, notable gold production",
+        "extraction_cost": "[Variable], with some high-altitude mines increasing operational costs",
+        "grade": "[High-grade] silver mines, substantial copper deposits",
+        "accessibility": "Challenging due to Andean [mountainous terrain]",
+        "reserve_life": "[Long-term prospects] with extensive mineral wealth",
+        "ownership": "[Diverse], with significant international investment",
+        "regulatory_status": "[Evolving], with community and environmental considerations",
+        "market_demand": "High for [silver and copper], with global industrial and investment demand",
+        "historical_data": "Ancient mining culture, [rich in precious metals], with modern development",
+        "associated_minerals": "[Lead, zinc, and tin]",
+        "technology_used": "[Underground and open-pit mining], adapting to challenging geography"
+    },
+    "Kazakhstan": {
+        "estimated_production": "Leading global producer of [1.8 billion] uranium, substantial chromium production",
+        "extraction_cost": "Low to medium for uranium, [higher for chromium]",
+        "grade": "[Very high-grade] uranium deposits, significant chromium resources",
+        "accessibility": "Good, with vast steppe regions offering [easier mining access]",
+        "reserve_life": "[Extensive], especially for uranium with strategic reserves",
+        "ownership": "[State-dominated], with national companies controlling key assets",
+        "regulatory_status": "[Supportive], with strategic interest in uranium production",
+        "market_demand": "High for uranium [for nuclear energy], stable for chromium [used in stainless steel]",
+        "historical_data": "[Significant mining sector], with post-Soviet expansion",
+        "associated_minerals": "Coal, iron, and rare earth elements",
+        "technology_used": "[In-situ leaching] for uranium, [open-pit mining] for chromium"
+    },
+    "Argentina": {
+        "estimated_production": "Rapidly increasing lithium production around [ 600 million], significant silver resources",
+        "extraction_cost": "[Low] for lithium from salt flats, variable for silver",
+        "grade": "High concentration of lithium in [salars], variable silver ore grades",
+        "accessibility": "[Challenging], with remote and high-altitude mining areas",
+        "reserve_life": "[Long-term potential] for lithium, significant for silver",
+        "ownership": "[Mixed], with international companies involved in lithium projects",
+        "regulatory_status": "Favorable [government policies] for lithium, evolving for other minerals",
+        "market_demand": "[Surging] for lithium due to electric vehicle battery market, stable for silver",
+        "historical_data": "Recent development in lithium, [long history] of silver mining",
+        "associated_minerals": "Copper, gold, and boron",
+        "technology_used": "[Brine extraction] for lithium, various for silver and copper"
+    },
+    "Philippines": {
+        "estimated_production": "Major nickel producer, with [millions of tonnes] annually",
+        "extraction_cost": "[Low to medium], depending on the mine",
+        "grade": "High-grade [nickel] laterite ores",
+        "accessibility": "[Varied], with several large-scale mining operations on remote islands",
+        "reserve_life": "[Decades], given the extensive nickel laterite resources",
+        "ownership": "[Mixed], with both local and international mining companies",
+        "regulatory_status": "[Complex] regulatory environment with a focus on sustainable mining",
+        "market_demand": "High for [nickel], used in stainless steel and batteries",
+        "historical_data": "[Significant] nickel production history, with growth in recent years",
+        "associated_minerals": "Chromite, copper, and gold",
+        "technology_used": "[Surface mining], particularly strip mining for laterite nickel ores"
+    },
+    "Ghana": {
+        "estimated_production": "[Millions of ounces] of gold annually",
+        "extraction_cost": "Medium, due to [deep underground] and surface operations",
+        "grade": "Varied, with some [high-grade] underground deposits",
+        "accessibility": "[Good], with established mining sector and infrastructure",
+        "reserve_life": "[Over 20 years], with ongoing exploration and development",
+        "ownership": "[Diverse], including major global mining companies",
+        "regulatory_status": "[Supportive] government policies with an emphasis on local community benefits",
+        "market_demand": "[High] globally, with gold as a key investment and jewelry commodity",
+        "historical_data": "[Rich] with a gold mining history dating back to the 15th century",
+        "associated_minerals": "Silver, manganese, and bauxite",
+        "technology_used": "[Underground] and open-pit mining, with increasing use of modern technology"
+    },
+    "Mexico": {
+        "estimated_production": "World leader in [silver] production, with [hundreds of millions] of ounces annually",
+        "extraction_cost": "[Variable], influenced by ore grade and mining method",
+        "grade": "[Very high]-grade silver deposits in regions like Zacatecas",
+        "accessibility": "[Excellent], with a long history of mining and developed infrastructure",
+        "reserve_life": "[Several decades], with potential for new discoveries",
+        "ownership": "[Mixed] ownership with both national and foreign companies active",
+        "regulatory_status": "[Evolving], with a focus on environmental and social governance",
+        "market_demand": "Consistently [high] for silver, used in industrial applications and investment",
+        "historical_data": "[Centuries] of silver mining heritage, integral to national development",
+        "associated_minerals": "[Gold, lead, and zinc], commonly found with silver",
+        "technology_used": "[Advanced mining] techniques including underground and open-pit mining"
+    },
+    "Sweden": {
+        "estimated_production": "[Over 25 million tonnes] of iron ore annually, [significant] copper production",
+        "extraction_cost": "[Moderate], due to technologically advanced mining operations",
+        "grade": "[High]-grade iron ore, with [significant] copper deposits",
+        "accessibility": "[Excellent], with well-developed mining infrastructure and transport",
+        "reserve_life": "[Several decades] for iron ore and copper",
+        "ownership": "Major companies include [LKAB] for iron ore and [Boliden] for copper",
+        "regulatory_status": "[Stringent] environmental regulations with a focus on sustainable mining",
+        "market_demand": "[Strong] global demand for high-grade iron ore and copper",
+        "historical_data": "[Centuries] of mining history, with a strong tradition in metals",
+        "associated_minerals": "[Lead, zinc, and silver]",
+        "technology_used": "[Cutting-edge], including autonomous mining technology and electrification"
+    },
+    "Zambia": {
+        "estimated_production": "[Second-largest copper producer in Africa], with [millions of tonnes] annually",
+        "extraction_cost": "[Medium], influenced by the depth and grade of mines",
+        "grade": "Varied, with some of the world's [largest high-grade copper deposits]",
+        "accessibility": "[Good], major mining regions well-connected to export routes",
+        "reserve_life": "[Extensive], with ongoing exploration expected to extend reserves",
+        "ownership": "[Mix] of state-owned entities and international mining corporations",
+        "regulatory_status": "[Regulatory environment evolving] with focus on beneficiation",
+        "market_demand": "[High], with copper essential for electrical infrastructure and renewable technologies",
+        "historical_data": "[Rich] mining history, pivotal to the country's economy",
+        "associated_minerals": "[Cobalt, gold, and silver]",
+        "technology_used": "[Predominantly open-pit mining], with some underground operations"
+    },
+    "Democratic Republic of Congo": {
+        "estimated_production": "[World's leading cobalt producer], critical for rechargeable batteries",
+        "extraction_cost": "[Varied], with some challenges due to remote locations",
+        "grade": "[Highest-grade cobalt reserves] globally",
+        "accessibility": "[Challenging], with mines often located in conflict-prone areas",
+        "reserve_life": "[Extensive], with DRC dominating global cobalt reserves",
+        "ownership": "[Mix] of state, private, and international mining companies",
+        "regulatory_status": "[Complex], with ongoing efforts to regulate the sector and improve transparency",
+        "market_demand": "[Surging], driven by the demand for electric vehicles",
+        "historical_data": "[Decades] of mining, but recent years have seen exponential growth in cobalt production",
+        "associated_minerals": "[Copper, diamonds, and gold]",
+        "technology_used": "[Varied], from artisanal to advanced mechanized mining methods"
+    },
+    "Zimbabwe": {
+        "estimated_production": "[One of the top platinum producers] globally, [725 millions] significant diamond reserves",
+        "extraction_cost": "[High], due to deep level mining for platinum",
+        "grade": "[High-grade] platinum group metals, with [significant] diamond deposits",
+        "accessibility": "[Moderate], with infrastructure challenges",
+        "reserve_life": "[Decades], with potential for expansion through exploration",
+        "ownership": "[Mix] of government and international mining companies",
+        "regulatory_status": "[Evolving], with efforts to stabilize the mining sector and attract investment",
+        "market_demand": "[High] for platinum, used in automotive catalysts and jewelry; [stable] for diamonds",
+        "historical_data": "[Rich] in minerals, with recent years seeing growth in platinum and diamond mining",
+        "associated_minerals": "[Nickel, palladium, and rhodium]",
+        "technology_used": "[Advanced] mining and processing techniques for platinum; [varied] for diamonds"
+    },
+    "Mongolia": {
+        "estimated_production": "Significant quantities of coal around [2.5 billion], notable for copper and gold",
+        "extraction_cost": "[Varied], generally low for coal due to surface mining",
+        "grade": "High-grade coal deposits, [varied] for copper and gold",
+        "accessibility": "[Moderate], challenges due to remote locations",
+        "reserve_life": "[Extensive] for coal, with substantial potential for copper and gold",
+        "ownership": "[Mix] of state and foreign investments",
+        "regulatory_status": "[Evolving], with a focus on attracting foreign investment",
+        "market_demand": "[High] for coal in neighboring countries, growing for copper and gold",
+        "historical_data": "[Decades] of mining history, rapidly growing sector",
+        "associated_minerals": "[Silver, molybdenum], and rare earth elements",
+        "technology_used": "[Open-pit] and underground mining, depending on the mineral"
+    },
+    "Saudi Arabia": {
+        "estimated_production": "Large-scale phosphate production estimated [100 million], emerging gold mining",
+        "extraction_cost": "[Low to medium], benefiting from modern extraction technologies",
+        "grade": "[High-quality] phosphate rock, [variable] grades for gold",
+        "accessibility": "[High], facilitated by significant infrastructure investments",
+        "reserve_life": "[Long-term] for phosphate, with ongoing exploration for gold",
+        "ownership": "[State-owned] entities, with some foreign joint ventures",
+        "regulatory_status": "[Supportive], with efforts to diversify the economy through mining",
+        "market_demand": "[Growing], especially for phosphate in agriculture",
+        "historical_data": "[Recent expansion] into mining beyond oil",
+        "associated_minerals": "Varied, including [copper, zinc], and bauxite",
+        "technology_used": "[Advanced], focusing on sustainable and efficient extraction"
+    },
+    "United Arab Emirates": {
+        "estimated_production": "Major aluminum producer at around [720 million], leveraging bauxite imports",
+        "extraction_cost": "[Competitive], due to efficient smelting operations",
+        "grade": "Not applicable for aluminum smelting",
+        "accessibility": "[High], strategic location for raw material imports and product exports",
+        "reserve_life": "Not applicable, as primary production is from imported bauxite",
+        "ownership": "[State-controlled], with significant investments in smelting capacity",
+        "regulatory_status": "[Favorable], with a focus on industrial growth",
+        "market_demand": "[Strong], with aluminum used across sectors globally",
+        "historical_data": "[Rapid growth] in production over the last two decades",
+        "associated_minerals": "Not applicable",
+        "technology_used": "[State-of-the-art] smelting technology"
+    },
+    "Turkey": {
+        "estimated_production": "Leading global producer of boron with estimated [250 million], significant marble exports",
+        "extraction_cost": "[Low] for marble, [medium] for boron due to processing",
+        "grade": "[High] quality for both marble and boron",
+        "accessibility": "[Good], with extensive mining areas and developed infrastructure",
+        "reserve_life": "[Extensive] for boron, [abundant] marble reserves",
+        "ownership": "[State-dominated] for boron, mixed for marble",
+        "regulatory_status": "[Regulatory environment evolving], with incentives for mining sector",
+        "market_demand": "[High] for boron in industrial applications, stable for marble",
+        "historical_data": "[Centuries] of marble extraction, [decades] of boron dominance",
+        "associated_minerals": "[Trona, salt], and other industrial minerals",
+        "technology_used": "[Advanced] for boron extraction and processing, traditional to modern for marble"
+    }
+
+
+
+}
+
 COUNTRY_REGION = {
  'Australia': 'Oceania',
  'China': 'Asia',
