@@ -40,11 +40,9 @@ except : pass
 
 from ._gofastlog import gofastlog 
 from ._typing import _F 
-from .decorators import isdf
 from .exceptions import EstimatorError, NotFittedError 
 from .tools.coreutils import  parse_attrs, assert_ratio, validate_feature
 from .tools.coreutils import  ellipsis2false, to_numeric_dtypes, is_iterable
-from .tools.mlutils import discretize_categories, stratify_categories 
 from .tools._dependency import import_optional_dependency 
 from .tools.validator import  get_estimator_name, check_X_y, is_frame
 from .tools.validator import _is_arraylike_1d, build_data_if, check_array 
@@ -60,7 +58,7 @@ EMSG = (
 __docformat__='restructuredtext'
 _logger = gofastlog().get_gofast_logger(__name__)
 
-__all__= ['SequentialBackwardSelection',
+__all__= ['SequentialBackwardSelector',
           'FloatCategoricalToIntTransformer', 
           'KMeansFeaturizer',
           'AttributesCombinator', 
@@ -210,7 +208,7 @@ class FloatCategoricalToIntTransformer(BaseEstimator, TransformerMixin):
             X_transformed[col] = X_transformed[col].astype(int)
         return X_transformed
 
-class SequentialBackwardSelection(BaseEstimator, TransformerMixin):
+class SequentialBackwardSelector(BaseEstimator, TransformerMixin):
     r"""
     Sequential Backward Selection (SBS)
     
@@ -302,11 +300,11 @@ class SequentialBackwardSelection(BaseEstimator, TransformerMixin):
     >>> from sklearn.neighbors import KNeighborsClassifier
     >>> from sklearn.model_selection import train_test_split
     >>> from gofast.datasets import fetch_data
-    >>> from gofast.base import SequentialBackwardSelection
+    >>> from gofast.base import SequentialBackwardSelector
     >>> X, y = fetch_data('bagoue analysed') # data already standardized
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y)
     >>> knn = KNeighborsClassifier(n_neighbors=5)
-    >>> sbs = SequentialBackwardSelection(knn)
+    >>> sbs = SequentialBackwardSelector(knn)
     >>> sbs.fit(X_train, y_train)
     """
 
@@ -922,6 +920,7 @@ class StratifyFromBaseFeature(BaseEstimator, TransformerMixin):
     def _categorize_feature(self, X):
         """Categorizes the numerical feature."""
         # Implement logic to categorize 'base_feature' here
+        from .tools.mlutils import discretize_categories
         X = discretize_categories(X, in_cat=self.base_feature, 
             new_cat="class_label", divby =self.threshold_operator,
             higherclass = self.max_category
@@ -1075,6 +1074,7 @@ class CategoryBaseStratifier(BaseEstimator, TransformerMixin):
         tuple of DataFrames
             The stratified training and testing sets.
         """
+        from .tools.mlutils import stratify_categories 
         # stratification logic here (e.g., using pd.cut)
         strat_train_set, strat_test_set = stratify_categories(
             X, self.base_column, test_size = self.test_size, 

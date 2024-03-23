@@ -35,7 +35,6 @@ from .tools.validator import standardize_input, filter_nan_entries
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
-
 __all__=[
     "precision_recall_tradeoff",
     "roc_tradeoff",
@@ -818,7 +817,7 @@ def geo_information_value(
     This metric implements the Information Value (InV) method, a statistical 
     approach that evaluates the predictive power of spatial parameters and their 
     relationships with landslide occurrences. The method is particularly useful in 
-    geosciences for landslide susceptibility mapping and risk assessment.
+    geosciences for landslide susceptibility mapping and risk assessment [1]_.
 
     Parameters
     ----------

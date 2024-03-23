@@ -5,8 +5,8 @@
 import pandas as pd
 import numpy as np
 
-from ..tools.coreutils import unpack_list_of_dicts 
-from ..tools.validator import validate_years 
+from ..tools.coreutils import is_iterable, unpack_list_of_dicts 
+from ..tools.validator import validate_dates 
 from .util import manage_data, validate_region 
 
 from .util import find_mineral_distributions, find_countries_by_minerals
@@ -130,7 +130,7 @@ def simulate_water_reserves(
     }
     
     np.random.seed(seed)
-    start_date, end_date = validate_years(
+    start_date, end_date = validate_dates(
         start_date, end_date, return_as_date_str= True )
     dates = pd.date_range(start=start_date, end=end_date)
     data = []
@@ -285,12 +285,13 @@ def simulate_world_mineral_reserves(
 
     # Normalize region input and validate regions if provided
     if regions:
+        regions=is_iterable(regions, exclude_string=True, transform =True)
         regions = [validate_region(region, mode='soft') for region in regions] 
 
     # Normalize mineral_types to a list and find corresponding countries if specified
     if mineral_types:
-        if isinstance(mineral_types, str): 
-            mineral_types = [mineral_types]
+        mineral_types= is_iterable(
+            mineral_types, exclude_string=True, transform=True)
         countries, mineral_countries_map = find_countries_by_minerals(
             mineral_types, return_minerals_and_countries= True
         )
@@ -319,7 +320,7 @@ def simulate_world_mineral_reserves(
         countries, mineral_countries_map = find_countries_by_minerals(
             mineral_types, return_minerals_and_countries= True 
         )
-    # Generate information related to each country
+    # Generate ore informations related to each country
     infos_dict = generate_ore_infos(countries, error="ignore")
     
     # Simulate mineral reserve data for each sample
@@ -340,7 +341,7 @@ def simulate_world_mineral_reserves(
             selected_region =selected_region, 
             substitute_for_missing= default_location 
         )
-        info = infos_dict.get(location, "No information available.")
+        info = infos_dict.get(location, "No information available")
         data.append({
             'sample_id': i + 1,
             'region': selected_region,

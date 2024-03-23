@@ -17,7 +17,7 @@ from ..tools.coreutils import assert_ratio, is_iterable
 from ..tools.coreutils import _assert_all_types
 from ..tools.coreutils import smart_format, random_sampling 
 from ..tools.funcutils import ensure_pkg
-from ..tools.validator import validate_and_adjust_ranges, validate_years
+from ..tools.validator import validate_and_adjust_ranges, validate_dates
 
 from .util import manage_data, get_item_from, generate_synthetic_values
 from .util import generate_categorical_values, generate_regression_output
@@ -757,7 +757,7 @@ def make_african_demo(*,
 
     """ 
     from ._globals import AFRICAN_COUNTRIES
-    start_year, end_year = validate_years(start_year, end_year)
+    start_year, end_year = validate_dates(start_year, end_year)
     # Random seed for reproducibility
     np.random.seed(seed); data = []
     # check the given data 
@@ -2375,7 +2375,7 @@ def make_elogging(
     >>> print(log_data.head())
 
     """
-    start_date, end_date = validate_years(
+    start_date, end_date = validate_dates(
         start_date, end_date, return_as_date_str= True)
     # Random seed for reproducibility
     np.random.seed(seed)
@@ -2531,7 +2531,7 @@ def make_gadget_sales(
     >>> print(sales_data.head())
 
     """
-    start_date, end_date = validate_years(
+    start_date, end_date = validate_dates(
         start_date, end_date, return_as_date_str= True)
     # Random seed for reproducibility
     np.random.seed(seed)

@@ -12,7 +12,6 @@ from ..tools.coreutils import smart_format
 from ..compat.sklearn import  train_test_split 
 from ..tools.box import Boxspace
 
-
 def validate_region(region, mode="strict"):
     """
     Validates and normalizes a region name based on the specified mode.
@@ -850,6 +849,7 @@ def select_location_for_mineral(
     Warning: Mineral 'diamond' not found. Returning substitute location: 'None'.
     'None'
     """
+    from ._globals import COUNTRY_REGION
     mineral_country_mapping = ( 
         mineral_country_mapping if mineral_country_mapping else None 
     )
@@ -871,7 +871,10 @@ def select_location_for_mineral(
     if mineral_country_mapping is None:
         if isinstance(fallback_countries, str):
             fallback_countries = [fallback_countries]
-        return np.random.choice(fallback_countries)
+        selected_location = np.random.choice(fallback_countries)
+        selected_region = COUNTRY_REGION.get(
+            selected_location, substitute_for_missing)
+        return selected_region, selected_location
     
     # Check if the mineral is in the mapping
     if mineral_lower not in {key.lower() for key in mineral_country_mapping}:
@@ -881,16 +884,18 @@ def select_location_for_mineral(
         elif error == 'warn':
             print(f"Warning: Mineral '{mineral}' not found. Returning"
                   f" substitute location: '{substitute_for_missing}'.")
-        return substitute_for_missing
+        return 'Unknown', substitute_for_missing
     # Select and return a random country from the list associated with the mineral
     return _select_location_from (
         mineral, selected_region, mineral_country_mapping, 
         error_handling= error,
+        substitute_for_missing= substitute_for_missing
         )
 
 def _select_location_from(
     mineral, selected_region, mineral_country_mapping, 
     error_handling='ignore',
+    substitute_for_missing='Unknown'
     ):
     """
     Selects a random location from countries that produce the specified 
@@ -926,13 +931,14 @@ def _select_location_from(
    
             selected_country , intersection_list = find_mineral_location(
                 mineral, excluded_region= selected_region, 
-                error_handling=error_handling 
+                error_handling=error_handling , 
+                substitute_for_missing= substitute_for_missing
                 ) 
             intersection_list = mineral_countries_list
    
     # If there's no country to select (list is empty), return None or a meaningful default
     if not intersection_list:
-        return None,  [get_default_location(strategy='global_hq' )] 
+        return "Unknown",  [get_default_location(strategy='global_hq' )] 
     
     # Randomly select and return a country from the intersection list
     return selected_region, np.random.choice(intersection_list)
@@ -942,7 +948,8 @@ def find_mineral_location(
     excluded_region=None,
     mineral_prod_by_country=None, 
     error_handling='warn', 
-    region_preference='change'
+    region_preference='change', 
+    substitute_for_missing='Unknown'
     ):
     continents = ['Africa', 'Europe', "America", "Asia", "Oceania"]
     
@@ -977,7 +984,7 @@ def find_mineral_location(
             print(f"Warning: {message}")
         elif error_handling == 'raise':
             raise ValueError(message)
-        return None, None
+        return "Unknown", substitute_for_missing
 
     # Randomly select one of the potential locations
     selected_region = np.random.choice(list(potential_locations.keys()))
@@ -1561,8 +1568,6 @@ def generate_ore_infos(countries=None, error='warn'):
             raise ValueError(message)
 
     return dict(country_infos)
-
-
 
 def manage_data(
     data, 

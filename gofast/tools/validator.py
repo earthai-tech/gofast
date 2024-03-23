@@ -982,8 +982,8 @@ def has_required_attributes(model: Any, attributes: list[str]) -> bool:
     return all(hasattr(model, attr) for attr in attributes)
 
 
-def validate_years(
-        start_year, end_year, return_as_date_str=False, date_format="%Y-%m-%d"):
+def validate_dates(
+        start_date, end_date, return_as_date_str=False, date_format="%Y-%m-%d"):
     """
     Validates and parses start and end years/dates, with options for output formatting.
 
@@ -993,11 +993,11 @@ def validate_years(
 
     Parameters
     ----------
-    start_year : int, float, or str
+    start_date : int, float, or str
         The starting year or date. Can be an integer, float (converted to integer),
         or string in "YYYY" or "YYYY-MM-DD" format.
-    end_year : int, float, or str
-        The ending year or date, with the same format options as `start_year`.
+    end_date : int, float, or str
+        The ending year or date, with the same format options as `start_date`.
     return_as_date_str : bool, optional
         If True, returns the start and end dates as strings in the specified format.
         Default is False, returning years as integers.
@@ -1019,14 +1019,14 @@ def validate_years(
 
     Examples
     --------
-    >>> from gofast.tools.validator import validate_years
-    >>> validate_years(1999, 2001)
+    >>> from gofast.tools.validator import validate_dates
+    >>> validate_dates(1999, 2001)
     (1999, 2001)
 
-    >>> validate_years("1999/01/01", "2001/12/31", return_as_date_str=True)
+    >>> validate_dates("1999/01/01", "2001/12/31", return_as_date_str=True)
     ('1999-01-01', '2001-12-31')
 
-    >>> validate_years("1999", "1998")
+    >>> validate_dates("1999", "1998")
     ValueError: The start date/time must precede the end date/time.
 
     >>> validate_years("1899", "2001")
@@ -1058,7 +1058,7 @@ def validate_years(
         raise TypeError(f"Invalid input '{year_input}'."
                         " Expected format: YYYY or YYYY-MM-DD.")
 
-    start_date, end_date = map(parse_year_input, [start_year, end_year])
+    start_date, end_date = map(parse_year_input, [start_date, end_date])
 
     if start_date >= end_date:
         raise ValueError("Start date/time must be earlier than end date/time.")
