@@ -5,10 +5,13 @@ import copy
 import warnings 
 from collections import defaultdict
 import itertools
+import random
+import re
+from datetime import datetime, timedelta
 import numpy as np 
 import pandas as pd 
-from ..tools.coreutils import is_in_if, add_noises_to, is_iterable
-from ..tools.coreutils import smart_format 
+from ..tools.coreutils import is_in_if, add_noises_to
+from ..tools.coreutils import smart_format, is_iterable, validate_ratio 
 from ..compat.sklearn import  train_test_split 
 from ..tools.box import Boxspace
 
@@ -145,10 +148,10 @@ def validate_country(name, error="warn"):
     'China'
 
     >>> validate_country("UK", error="raise")
-    ValueError: The country name 'UK' does not exist in the mineral production dictionary.
+    ValueError: The country name 'UK' does not exist in the mineral ...
 
     >>> validate_country("UK", error="warn")
-    UserWarning: The country name 'UK' does not exist in the mineral production dictionary.
+    UserWarning: The country name 'UK' does not exist in the mineral ...
     ''
 
     Note
@@ -340,8 +343,8 @@ def extract_minerals_from_regions(
     if isinstance(regions, str):
         regions = [regions]
     # Fetching distributions for all regions
-    mineral_list_dicts = [find_mineral_distributions(region, include_region_summary=True)
-                          for region in regions]
+    mineral_list_dicts = [find_mineral_distributions(
+        region, include_region_summary=True) for region in regions]
 
     if detailed_by_region:
         detailed_info = [(region, minerals[1]) for mineral_info in mineral_list_dicts
@@ -487,12 +490,12 @@ def build_distributions_from(
     Handling mismatched lengths with 'raise':
 
     >>> build_distributions_from(['Africa', 'Asia'], ['Gold'], error='raise')
-    ValueError: Mismatch in list lengths: expected regions and minerals to have the same length, ...
+    ValueError: Mismatch in list lengths: expected regions and minerals to ...
 
     Using 'warn' with mismatched lengths (will print a warning and return `None`):
 
     >>> build_distributions_from(['Africa', 'Asia'], ['Gold'], error='warn')
-    UserWarning: Mismatch in list lengths: expected regions and minerals to have the same length, ...
+    UserWarning: Mismatch in list lengths: expected regions and minerals to  ...
     """
     regions = is_iterable(regions, exclude_string=True, transform=True)
     minerals = is_iterable(minerals, exclude_string=True, transform=True)
@@ -640,7 +643,8 @@ def is_structure_nested(input_structure, check_for=list):
       tuple containing these types.
 
     Returns:
-    - bool: True if the structure is nested with the specified type(s), False otherwise.
+    - bool: True if the structure is nested with the specified type(s), 
+      False otherwise.
 
     Example Usage:
     >>> is_structure_nested([1, 2, 3], check_for='list')
@@ -914,7 +918,8 @@ def _select_location_from(
     region_map_list = build_continent_country_dict()
 
     # Extract the list of countries for the selected region
-    countries_list = region_map_list.get(selected_region.capitalize(), [])  # Capitalize for matching
+    # Capitalize for matching
+    countries_list = region_map_list.get(selected_region.capitalize(), [])  
     # Calculate the intersection if a region is specified and intersection is possible
     intersection_list =[]
     if selected_region and mineral_countries_list:
@@ -1361,7 +1366,8 @@ def find_mineral_distributions(
     >>> find_mineral_distributions('Europe', detailed_by_country=True)
     {'Europe': {'Russia': 'palladium, nickel', 'Sweden': 'iron ore, copper', ...}}
     
-    >>> find_mineral_distributions('Europe', detailed_by_country=True, include_region_summary=True)
+    >>> find_mineral_distributions('Europe', detailed_by_country=True,
+    ...                             include_region_summary=True)
     {'Europe': [{'Russia': 'palladium, nickel', 'Sweden': 'iron ore, copper', ...},
                 ['palladium', 'nickel', 'iron ore', 'copper', ...]]}
 
@@ -1389,7 +1395,8 @@ def find_mineral_distributions(
     region_minerals = {
         mineral for country in countries 
         for mineral in (
-            [mineral_info.get(country, [])] if isinstance(mineral_info.get(country, []), str) 
+            [mineral_info.get(country, [])] if isinstance(
+                mineral_info.get(country, []), str) 
             else mineral_info.get(country, [])
         )
     }
@@ -1671,7 +1678,11 @@ def manage_data(
     if seed is not None:
         seed = int(seed)
     
+    if target_names: 
+        target_names = is_iterable (
+            target_names, exclude_string=True,transform=True )
     frame = data.copy()
+
     feature_names = (
         is_in_if(list( frame.columns), target_names, return_diff =True )
         if target_names else list(frame.columns )
@@ -1693,9 +1704,10 @@ def manage_data(
     
     if return_X_y:
         return data, y
-    
-    frame[feature_names] = add_noises_to(frame[feature_names], noise=noise, seed=seed)
-    
+
+    frame[feature_names] = add_noises_to(
+        frame[feature_names], noise=noise, seed=seed)
+
     if as_frame:
         return frame
     
@@ -1871,7 +1883,6 @@ def get_mineral_production_by_country():
         raise ImportError("MINERAL_PROD_BY_COUNTRY not found. Please provide"
                           " a mineral production dictionary.")
 
-
 def build_continent_country_dict():
     """
     Constructs a dictionary mapping each of the five continents to a list of
@@ -1894,8 +1905,593 @@ def build_continent_country_dict():
         # Split the region by '/' in case a country belongs to multiple regions
         split_regions = region.split('/')
         for continent in continents:
-            if any(continent.lower() in region_part.lower() for region_part in split_regions):
+            if any(continent.lower() in region_part.lower() 
+                   for region_part in split_regions):
                 region_country_dict[continent].append(country)
     
     return region_country_dict
 
+
+def _parse_numeric_value_with_unit(text):
+    # Define conversion for billion and million
+    conversions = {
+        'billion': 1e9,
+        'million': 1e6
+    }
+    
+    # Remove commas for easier processing
+    text = text.replace(",", "")
+    
+    # Search for numeric values and units in the text
+    match = re.search(r'(\d+(\.\d+)?)\s*(billion|million)?', text, re.IGNORECASE)
+    if match:
+        value = float(match.group(1))
+        unit = match.group(3)
+        if unit:
+            value *= conversions[unit.lower()]
+        return value
+    return np.nan
+
+def _parse_production(text):
+    if 'annually' in text or 'annual' in text:
+        multiplier = 15  # Estimate over 15 years
+    else:
+        multiplier = 1
+    
+    value = _parse_numeric_value_with_unit(text)
+    if 'emerging' in text or 'emerge' in text:
+        # Randomly generate a positive value
+        return  random.choice([1e5, 1e6, 1e7]) * multiplier
+    elif 'world-leading' in text:
+        # Estimate in billions of tonnes
+        return  random.choice([1e9, 2e9, 3e9]) * multiplier
+    return value * multiplier
+
+def _parse_feature_value(text, is_numeric=False):
+    # Extract value inside brackets
+    match = re.search(r'\[(.*?)\]', text)
+    if match:
+        value = match.group(1).strip()
+        if is_numeric:
+            # Remove non-numeric characters for numeric processing
+            numeric_value = re.sub("[^0-9]", "", value.split()[0])
+            if '+' in value:
+                # Range from value to 120 years
+                start_year = int(numeric_value)
+                return random.randint(start_year, 120)
+            elif 'Over' in value:
+                # Exact or more than the specified number
+                value = int(re.search(r'\d+', value).group())
+                return random.randint(value, value + 50)
+            else:
+                return _parse_numeric_value_with_unit(value)
+        else:
+            if value.lower() == 'none':
+                return 'Not Applicable'
+            return value.capitalize()
+    return np.nan if is_numeric else 'Not Applicable' 
+
+def parse_mineral_reserve_details(details):
+    """
+    Parses mineral production details from a dictionary, extracting and
+    transforming information based on specified rules for each feature.
+
+    This function handles various features differently, parsing numeric values,
+    extracting values from brackets, and handling specific textual patterns.
+    It specifically treats 'estimated_production' by converting textual
+    representations of numbers into numeric values, adjusts 'reserve_life'
+    based on the presence of 'years' and certain keywords, and formats
+    'associated_minerals' to ensure a consistent list format.
+
+    Parameters
+    ----------
+    details : dict
+        A dictionary where keys represent features of mineral production details
+        (e.g., 'estimated_production', 'extraction_cost') and values are strings
+        containing the information to be parsed.
+
+    Returns
+    -------
+    dict
+        A new dictionary with the same keys as `details` but with parsed and
+        potentially transformed values based on the feature-specific rules.
+
+    Examples
+    --------
+    >>> from gofast.datasets.util import parse_mineral_reserve_details
+    >>> details = {
+    ...     "estimated_reserves": "[Approx. 90 tonnes] of gold annually, ...",
+    ...     "extraction_cost": "[Varies], with some remote and ...",
+    ...     "grade": "[High]-grade gold, with uranium and copper varying ...",
+    ...     "accessibility": "[Moderate], with some mines in remote ...",
+    ...     "reserve_life": "[20+ years], with ongoing exploration ...",
+    ...     "ownership": "[State-controlled] and [foreign joint ventures], ...",
+    ...     "regulatory_status": "[Reforming], with recent efforts to ...",
+    ...     "market_demand": "[High for all minerals], given their use ...",
+    ...     "historical_data": "[Rich in resources], with a long history ...",
+    ...     "associated_minerals": "[Silver, lead, zinc], often found ...",
+    ...     "technology_used": "[Varied], from traditional to high-tech,..."
+    ... }
+    >>> parsed_details = parse_mineral_reserve_details(details)
+    >>> for key, value in parsed_details.items():
+    ...     print(f"{key}: {value}")
+    {'estimated_production': 1350.0,
+     'extraction_cost': 'Varies',
+     'grade': 'High',
+     'accessibility': 'Moderate',
+     'reserve_life': 20,
+     'ownership': 'State-controlled',
+     'regulatory_status': 'Reforming',
+     'market_demand': 'High for all minerals',
+     'historical_data': 'Rich in resources',
+     'associated_minerals': 'Silver, lead, zinc',
+     'technology_used': 'Varied'}
+    
+    The output will display parsed and formatted values for each key in the 
+    details dictionary, according to the specified parsing rules.
+    """
+    new_details = {}
+    for feature, text in details.items():
+        if feature == "estimated_reserves":
+            new_details[feature] = _parse_production(text)
+        elif feature in ["extraction_cost", "grade", "accessibility", 
+                         "ownership", "regulatory_status", "market_demand",
+                         "historical_data", "technology_used"]:
+            new_details[feature] = _parse_feature_value(text)
+        elif feature == "reserve_life":
+            new_details[feature] = _parse_feature_value(text, is_numeric=True)
+        elif feature == "associated_minerals":
+             # if ',,' exist remove one and lower minerals
+            new_details[feature] = _parse_feature_value(text).replace(
+                ' and ', ', ').replace (',,', ',').lower()
+    return new_details
+
+
+def build_reserve_details_by_country(country, reserves_details=None):
+    """
+    Retrieves detailed information about the mineral reserves for a specified 
+    country.
+    
+    Function applies default values for missing details and supports both numeric
+    and textual information types, ensuring a comprehensive output regardless of
+    data availability.
+
+    Parameters
+    ----------
+    country : str
+        The name of the country for which to retrieve mineral reserves details.
+    reserves_details : dict, optional
+        A custom dictionary mapping countries to their mineral reserves details.
+        If not provided, the function uses a predefined global dictionary.
+
+    Returns
+    -------
+    dict
+        A dictionary containing detailed information about the country's mineral reserves.
+        Numeric fields are set to NaN and textual fields to 'Not Available' if data is missing.
+
+    Examples
+    --------
+    >>> from gofast.datasets.util import find_reserves_details_by_country
+    >>> build_reserve_details_by_country('Australia')
+    {
+        'estimated_production': 1e9,
+        'extraction_cost': 'Low to medium, depending on the mineral and location',
+        'grade': 'High-grade iron ore (>60% Fe content), Lithium concentration varies',
+        'accessibility': 'High, well-established mining infrastructure',
+        'reserve_life': 50,
+        'ownership': 'Various, including BHP, Rio Tinto, and smaller mining companies',
+        'regulatory_status': 'Strict environmental and mining regulations,...,
+        'market_demand': 'High, especially in Asia for iron ore and globally...',
+        'historical_data': 'Decades of extensive mining history, particularly ...,
+        'associated_minerals': 'Gold, bauxite, nickel, and many others',
+        'technology_used': 'Open-pit mining, underground mining, and various ...'
+    }
+
+    >>> build_reserve_details_by_country('Unknown Country')
+    {
+        'estimated_production': nan,
+        'extraction_cost': 'Not Available',
+        'grade': 'Not Available',
+        'accessibility': 'Not Available',
+        'reserve_life': nan,
+        'ownership': 'Not Available',
+        'regulatory_status': 'Not Available',
+        'market_demand': 'Not Available',
+        'historical_data': 'Not Available',
+        'associated_minerals': 'Not Available',
+        'technology_used': 'Not Available'
+    }
+
+    Notes
+    -----
+    Function is designed to provide a robust mechanism for extracting detailed
+    mineral reserves information, leveraging both provided and global data sources
+    to maximize data completeness and reliability.
+    """
+    # Define default values for features, both numeric and textual
+    default_values = {
+        "numeric": np.nan,
+        "textual": "Not Available"
+    }
+    
+    features = [
+        'estimated_reserves', 'extraction_cost', 'grade', 'accessibility',
+        'reserve_life', 'ownership', 'regulatory_status', 'market_demand',
+        'historical_data', 'associated_minerals', 'technology_used'
+        ]
+    default_details =  {
+        k: default_values['numeric'] if k in ['estimated_reserves', 'reserve_life']
+        else default_values['textual'] for k in features
+    }
+    # Check if a custom reserves details dictionary is provided,
+    # otherwise use the global default
+    if reserves_details is None:
+        from ._globals import MINERAL_RESERVES_DETAILS
+        reserves_details = MINERAL_RESERVES_DETAILS
+
+    # Validate the country name and fetch its reserves details
+    validated_country = validate_country(country, error='ignore')
+    if not validated_country:
+        # Return defaults for an unrecognized country
+        return default_details
+
+    country_reserve_details = reserves_details.get(validated_country, {})
+
+    # Parse the details of the validated country, filling in defaults where necessary
+    try: 
+        parsed_details = parse_mineral_reserve_details ( country_reserve_details)
+    except: 
+        parsed_details = {}
+        for key, default in default_details.items():
+            raw_value = country_reserve_details.get(key, None)
+            parsed_details[key] = _parse_feature_value(str(raw_value), is_numeric=(
+                key in ['estimated_production', 'reserve_life'])) if raw_value else default
+
+    return parsed_details
+
+def get_last_day_of_current_month(date_format='%Y-%m-%d', return_today=False):
+    """
+    Returns the last day of the current month or today's date, depending on
+    the 'return_today' flag, formatted according to the 'date_format' parameter.
+
+    Parameters:
+    - date_format (str): Format in which the date should be returned.
+      Defaults to '%Y-%m-%d'.
+    - return_today (bool): If True, returns today's date instead of the last
+      day of the current month. Defaults to False.
+
+    Returns:
+    - str: The last day of the current month or today's date, formatted as specified.
+    """
+    today = datetime.now()
+    if return_today:
+        # Return today's date in the specified format
+        return today.strftime(date_format)
+
+    current_month = today.month
+    current_year = today.year
+
+    # Find the first day of the next month
+    if current_month == 12:
+        next_month_first_day = datetime(year=current_year + 1, month=1, day=1)
+    else:
+        next_month_first_day = datetime(
+            year=current_year, month=current_month + 1, day=1)
+
+    # Subtract one day to get the last day of the current month
+    last_day_current_month = next_month_first_day - timedelta(days=1)
+
+    # Return the last day in the specified format
+    return last_day_current_month.strftime(date_format)
+
+def adjust_households_and_days(n_samples, initial_guess=5):
+    """
+    Adjusts the number of households and days to fit a specified number of samples,
+    ensuring both values are practical for a dataset.
+
+    Parameters:
+    ----------
+    n_samples : int
+        The desired number of samples in the dataset.
+    initial_guess : int, default=5
+        An initial guess for the number of households.
+
+    Returns:
+    -------
+    tuple of (int, int)
+        A tuple containing the adjusted number of households and days, ensuring
+        the number of samples is distributed in a practical and meaningful way.
+
+    Examples:
+    --------
+    >>> from gofast.datasets.util import adjust_households_and_days
+    >>> adjust_households_and_days(n_samples=3650)
+    (10, 365)  # Example output for 10 households over 365 days
+    """
+    # Determine an appropriate range for the number of days (e.g., between 30 and 365)
+    min_days = 30
+    max_days = 365
+    
+    # Starting from the initial guess, incrementally find the best combination
+    n_households = initial_guess
+    days = max(min_days, min(n_samples // n_households, max_days))
+    
+    while n_households * days < n_samples:
+        n_households += 1
+        days = max(min_days, min(n_samples // n_households, max_days))
+        
+        # Ensure we're not exceeding practical limits for households
+        if days == min_days and n_households * days >= n_samples:
+            break
+        elif n_households * min_days > n_samples:
+            n_households -= 1
+            break
+
+    # Recalculate days to get as close as possible to n_samples without going under.
+    days = n_samples // n_households
+    if n_households * days < n_samples:
+        days += 1
+
+    return n_households, days
+
+def adjust_parameters_to_fit_samples(n_samples, initial_guesses):
+    """
+    Adjusts the parameters n_machines, n_sensors, operational_params, and days
+    to fit a given number of samples (n_samples).
+
+    Parameters:
+    ----------
+    n_samples : int
+        The target number of samples to fit.
+    initial_guesses : dict, optional
+        Initial guesses for the parameters. Should contain keys a guess parameters 
+        and values .
+
+    Returns:
+    -------
+    dict
+        A dictionary with the adjusted parameters.
+    Examples: 
+    ---------
+    >>> from gofast.datasets.simulate import adjust_parameters_to_fit_samples
+    >>> initial_guesses = {
+        'n_machines': 50,
+        'n_sensors': 20,
+        'operational_params': 5,
+        'days': 365
+    }
+    >>> adjust_parameters_to_fit_samples(100, initial_guesses) 
+    {'n_machines': 6, 'n_sensors': 2, 'operational_params': 1, 'days': 11}
+    """
+    from scipy.optimize import minimize
+
+    initial_values = np.array(list(initial_guesses.values()))
+    
+    # Objective function to minimize: difference between current and desired number of samples
+    def objective(x):
+        return abs(n_samples - np.prod(x))
+
+    # Bounds to ensure all values are positive and within reasonable ranges
+    bounds = [(1, n_samples) for _ in range(4)]
+
+    # Optimization
+    result = minimize(
+        objective, 
+        initial_values, 
+        method='L-BFGS-B', 
+        bounds=bounds
+    )
+
+    # Extract the optimized values
+    optimized_values = np.round(result.x).astype(int)
+    
+    # Construct the result dictionary
+    adjusted_parameters = dict(zip(initial_guesses.keys(), optimized_values))
+
+    return adjusted_parameters
+
+def validate_noise_level(noise_level, default_value=None):
+    """
+    Validates the noise level, ensuring it's within the range [0, 1]. Optionally,
+    a default value can be used if the noise level is not specified.
+
+    Parameters:
+    ----------
+    noise_level : float or None
+        The noise level to validate. Should be a float between 0 and 1, inclusive.
+        If None and a default_value is provided, the default_value is used.
+    default_value : float, optional
+        A default noise level to use if noise_level is None. Should also be between
+        0 and 1, inclusive.
+
+    Returns:
+    -------
+    float
+        The validated noise level, guaranteed to be within the range [0, 1].
+
+    Raises:
+    ------
+    ValueError
+        If the noise level is outside the [0, 1] range or cannot be properly converted.
+    """
+    # Use the default value if noise_level is None and default_value is provided
+    if noise_level is None:
+        if default_value is not None:
+            noise_level = default_value
+        else:
+            raise ValueError(
+                "Noise level is not specified, and no default value is provided.")
+    
+    # Validate the noise level
+    return validate_ratio(noise_level, bounds=(0, 1), to_percent=False,
+                          param_name='noise_level')
+
+
+def validate_loan_parameters(*params, default_dict=None, error='raise'):
+    """
+    Validates loan parameters against predefined or custom ranges, adjusting
+    parameters according to a specified error handling policy ('raise', 'warn', 
+    'ignore'). This function ensures that each parameter falls within an acceptable
+    range, providing flexibility in loan simulation tasks.
+
+    Parameters
+    ----------
+    *params : dict
+        A dictionary containing the loan parameters to validate. Each key
+        should correspond to a loan parameter name, and each value should be
+        a tuple representing the minimum and maximum range.
+    default_dict : dict, optional
+        A dictionary mapping parameter names to their default (min, max) ranges.
+        If not provided, uses a predefined set of common loan parameters.
+    error : {'raise', 'warn', 'ignore'}, default='raise'
+        Specifies the error handling policy. 'raise' will raise a ValueError,
+        'warn' will issue a warning, and 'ignore' will silently ignore issues.
+
+    Returns
+    -------
+    dict
+        A dictionary of validated loan parameters with (min, max) ranges.
+
+    Raises
+    ------
+    ValueError
+        If a parameter is out of the acceptable range and the error policy is 'raise'.
+
+    Examples
+    --------
+    >>> from gofast.datasets.util import validate_loan_parameters
+    >>> validate_loan_parameters(
+            {'credit_score_range': (320, 800)},
+            error='warn'
+        )
+    {'credit_score_range': (320, 800), 'age_range': (18, 70), ...}
+
+    >>> validate_loan_parameters(
+            {'loan_amount_range': (1000, 70000)},
+            default_dict={'loan_amount_range': (5000, 50000)},
+            error='raise'
+        )
+    ValueError: loan_amount_range is out of the acceptable range.
+
+    Notes
+    -----
+    This function is particularly useful in preparing datasets for simulations
+    involving loan defaults, where parameters like credit scores, loan amounts, 
+    and annual incomes need to be within realistic bounds.
+    """
+    from ..tools.validator import validate_length_range
+
+    def handle_error(message, error_policy):
+        if error_policy == 'raise':
+            raise ValueError(message)
+        elif error_policy == 'warn':
+            warnings.warn(message)
+        elif error_policy != 'ignore':
+            raise ValueError(f"Unrecognized error policy: {error_policy}")
+
+    validated_params = {}
+    default_dict = default_dict or {
+        'credit_score_range': (300, 850),
+        'age_range': (18, 70),
+        'loan_amount_range': (5000, 50000),
+        'interest_rate_range': (5, 20),
+        'employment_length_range': (0, 30),
+        'annual_income_range': (20000, 150000)
+    }
+
+    for param_name, default_range in default_dict.items():
+        param_range =  ( 
+            params[0].get(param_name, default_range) 
+            if  params[0].get(param_name, default_range) 
+            else default_range
+            ) 
+        if not isinstance(param_range, (list, tuple)): 
+            # convert to an iterable list bby no consider str.
+            param_name= is_iterable(param_range, exclude_string=True, transform=True )
+            if  len(param_range) != 2:
+                handle_error(f"{param_name} expects a range with two values.", error)
+                param_range = [min(param_range), max(param_range)]
+        if any(isinstance(s, str) for s in param_range):
+            raise TypeError("Expected numeric values in parameter ranges,"
+                            " but received a string. Please ensure all values"
+                            " within the range are numeric.")
+
+        param_range = sorted(param_range)
+        min_val, max_val = validate_length_range( param_range)
+
+        if min_val < default_range[0] or max_val > default_range[1]:
+            handle_error(f"{param_name} is out of the acceptable range.", error)
+
+        validated_params[param_name] = (min_val, max_val)
+
+    return validated_params
+
+def select_diagnostic_options(diagnostic_options=None, n_diseases=7):
+    """
+    Selects diagnostic options for medical diagnosis simulation.
+
+    If no specific diagnostic options are provided, this function randomly selects 
+    a specified number of diseases from a predefined list of possible diseases, 
+    including 'Healthy' as a non-disease option.
+
+    Parameters:
+    ----------
+    diagnostic_options : list of str, optional
+        A list specifying the diseases to include as diagnostic options. If None, 
+        options will be randomly selected from a predefined list.
+    n_diseases : int, default=7
+        The number of diseases to randomly select if `diagnostic_options` is None. 
+        The final list includes 'Healthy', thus n_diseases + 1 options in total.
+
+    Returns:
+    -------
+    list of str
+        The list of diagnostic options including diseases and 'Healthy'.
+
+    Examples:
+    --------
+    >>> from gofast.dataset.util import select_diagnostic_options
+    >>> select_diagnostic_options(None, 3)
+    ['Disease A', 'Disease B', 'Disease C', 'Healthy']
+
+    >>> select_diagnostic_options(['Disease X', 'Disease Y'], 5)
+    ['Disease X', 'Disease Y', 'Healthy']
+
+    Notes:
+    -----
+    The predefined list of possible diseases is maintained in a global variable 
+    or external configuration for ease of update and management.
+    """
+    from ._globals import POSSIBLE_DISEASES  
+
+    if diagnostic_options is None:
+        # Randomly select n_diseases from the list of possible diseases
+        selected_diseases = random.sample(POSSIBLE_DISEASES, n_diseases)
+        # Always include 'Healthy' as an option
+        diagnostic_options = selected_diseases + ['Healthy']
+    else:
+        # Ensure input is iterable and exclude 'str' to avoid treating strings as iterables
+        if isinstance(diagnostic_options, str):
+            diagnostic_options = [diagnostic_options]
+        # Ensure all elements are strings for consistency
+        diagnostic_options = [str(option) for option in diagnostic_options]
+        # Ensure 'Healthy' is included in the options
+        if 'Healthy' not in diagnostic_options:
+            diagnostic_options.append('Healthy')
+
+    return diagnostic_options
+
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    

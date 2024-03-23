@@ -23,6 +23,122 @@ from inspect import signature, Parameter, isclass
 from ._array_api import get_namespace, _asarray_with_order
 FLOAT_DTYPES = (np.float64, np.float32, np.float16)
 
+def validate_distribution(distribution, elements=None):
+    """
+    Validates or generates distributions for given elements ensuring the 
+    sum equals 1.
+
+    Parameters:
+    ----------
+    distribution : str, tuple, list
+        The distribution to be validated or generated. If 'auto',
+        generates a random distribution for the specified number of elements. 
+        Can also be a tuple or list representing an explicit distribution.
+    elements : int, list of str, optional
+        Defines how many elements the distribution should be generated for 
+        when 'auto' is used. If a list of strings is provided, its length 
+        is used to determine the number of elements.
+
+    Returns:
+    -------
+    tuple
+        A tuple representing the validated or generated distribution.
+
+    Raises:
+    ------
+    ValueError
+        If the provided distribution does not sum to 1 or contains invalid values.
+        
+    Examples 
+    ---------
+    >>> from gofast.tools.validator import validate_distribution
+    >>> validate_distribution ("auto", elements= [ 'positive', 'neutral', 'negative'])
+    """
+    # Determine the number of elements if a list is provided
+    if isinstance(elements, list):
+        distributed_elements = len(elements)
+    elif isinstance(elements, ( float, int, np.integer, np.floating)):
+        distributed_elements = int (elements)
+    else:
+        raise ValueError("'elements' must be an integer or a list of strings.")
+
+    if str(distribution).lower() == 'auto':
+        if distributed_elements is None:
+            raise ValueError("'distributed_elements' must be specified when"
+                             " using 'auto' distribution.")
+        # Generate a random distribution
+        random_values = np.random.rand(distributed_elements)
+        distribution = tuple(random_values / np.sum(random_values))
+    else:
+        if not hasattr(distribution, '__iter__') or isinstance(distribution, str):
+            # If distribution is not iterable (or a single string), raise an error
+            raise ValueError(
+                "distribution must be 'auto', a tuple, or a list of distributions")
+        
+        distribution = tuple(distribution)
+        
+        if distributed_elements is not None and len(distribution) != distributed_elements:
+            raise ValueError(
+                f"The distribution must have exactly {distributed_elements} elements")
+        
+        validated_distribution = []
+        for value in distribution:
+            if not isinstance(value, (int, float)):
+                raise ValueError("All distribution values must be numeric")
+            validated_distribution.append(float(value))
+        
+        if not np.isclose(sum(validated_distribution), 1):
+            raise ValueError("The sum of the distribution values must be equal to 1")
+        
+        distribution = tuple(validated_distribution)
+    
+    return distribution
+
+def validate_length_range(length_range):
+    """
+    Validates the review length range ensuring it's a tuple with two integers 
+    where the first value is less than the second.
+
+    Parameters:
+    ----------
+    length_range : tuple
+        A tuple containing two integers that represent the minimum and maximum
+        lengths of reviews.
+
+    Returns
+    -------
+    tuple
+        The validated length range.
+
+    Raise
+    ------
+    ValueError
+        If the length range does not meet the requirements.
+        
+    Examples 
+    --------
+    >>> from gofast.tools.validator import validate_length_range
+    >>> validate_length_range ( (202, 25) )
+    (25, 202)
+    >>> validate_length_range ( (202,) )
+    ValueError: length_range must be a tuple with two elements.
+    """
+    if not isinstance(length_range, ( list, tuple) ) or len(length_range) != 2:
+        raise ValueError("length_range must be a tuple with two elements.")
+
+    min_length, max_length = length_range
+
+    if not all(isinstance(x, ( float, int, np.integer, np.floating)
+                          ) for x in length_range):
+        raise ValueError("Both elements in length_range must be integers.")
+    
+    length_range  = tuple  (sorted ( [min_length, max_length] )) 
+    if length_range[0] >= length_range[1]:
+        raise ValueError(
+            "The first element in length_range must be less than the second.")
+  
+    return length_range 
+     
 def filter_nan_entries(nan_policy, *listof, sample_weights=None):
     """
     Filters out NaN values from multiple lists of lists, or arrays, 
@@ -1050,11 +1166,15 @@ def validate_dates(
                 try: 
                     # Fallback to parsing as year only
                     return datetime(int(year_input), 1, 1)
-                except TypeError as ve: 
+                except TypeError as type_err: 
                     raise TypeError (
                         "Expected int, float, or str for"
                         f" year, got {type(year_input)}."
-                        ) from ve 
+                        ) from type_err 
+                except ValueError as value_err : 
+                    raise ValueError (
+                        "Check your date data. For datetime value, set `date_format`"
+                        " to '%Y-%m-%d %H:%M:%S'") from value_err
         raise TypeError(f"Invalid input '{year_input}'."
                         " Expected format: YYYY or YYYY-MM-DD.")
 
@@ -1083,6 +1203,46 @@ def validate_dates(
             "Consider using return_as_date_str=True or providing specific dates.")
 
     return start_date.year, end_date.year
+
+def validate_positive_integer(value, variable_name, include_zero=False):
+    """
+    Validates whether the given value is a positive integer or zero based 
+    on the parameter.
+
+    Parameters:
+    ----------
+    value : int or float
+        The value to validate.
+    variable_name : str
+        The name of the variable for error message purposes.
+    include_zero : bool, optional
+        If True, zero is considered a valid value. Default is False.
+
+    Returns:
+    -------
+    int
+        The validated value converted to an integer.
+
+    Raises:
+    ------
+    ValueError
+        If the value is not a positive integer or zero (based on `include_zero`).
+    """
+    # Determine the minimum acceptable value
+    min_value = 0 if include_zero else 1
+
+    # Check for NumPy integer or float types as well
+    if not isinstance(value, (int, float, np.integer, np.floating)):
+        raise ValueError(f"{variable_name} must be an integer or float.")
+
+    if isinstance(value, float) and not value.is_integer():
+        raise ValueError(f"{variable_name} must be a whole number, got {value}.")
+
+    if value < min_value:
+        condition = "a non-negative integer" if include_zero else "a positive integer"
+        raise ValueError(f"{variable_name} must be {condition}, got {value}.")
+
+    return int(value)
 
 def validate_and_adjust_ranges(**kwargs):
     """

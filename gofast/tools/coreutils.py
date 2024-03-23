@@ -41,14 +41,14 @@ from .._typing import Union, Series,Tuple,Dict,Optional,Iterable, Any, Set
 from .._typing import _T,_Sub, _F, ArrayLike,List, DataFrame, NDArray, Text  
 from ._dependency import import_optional_dependency
 from ..compat.scipy import ensure_scipy_compatibility 
-from ..compat.scipy import check_scipy_interpolate
+from ..compat.scipy import check_scipy_interpolate, optimize_minimize
 
 _logger = gofastlog.get_gofast_logger(__name__)
 
-if ensure_scipy_compatibility():
-    _logger.info("Ready to use scipy.interpolate and scipy.spatial.distance.")
-else:
-    _logger.error("Failed to import scipy.interpolate and/or scipy.spatial.distance.")
+# if ensure_scipy_compatibility():
+#     _logger.info("Ready to use scipy.interpolate and scipy.spatial.distance.")
+# else:
+#     _logger.error("Failed to import scipy.interpolate and/or scipy.spatial.distance.")
 
 
 def format_to_datetime(data, date_col, verbose=0, **dt_kws):
@@ -109,6 +109,88 @@ def format_to_datetime(data, date_col, verbose=0, **dt_kws):
         return data
 
     return data
+
+def adjust_to_samples(n_samples, *values, initial_guess=None, error='warn'):
+    """
+    Adjusts the given values to match a total number of samples, aiming to distribute
+    the samples evenly across the dimensions represented by the values. The function
+    can adjust even if only one value is given.
+
+    Parameters
+    ----------
+    n_samples : int
+        The desired total number of samples.
+    *values : int
+        Variable length argument list representing the dimensions to adjust.
+    initial_guess : float or None, optional
+        An initial guess for the adjustment factor. If None, an automatic guess is made.
+    error : str, optional
+        Error handling strategy ('warn', 'ignore', 'raise'). This parameter is considered
+        only when no values or one value is provided.
+
+    Returns
+    -------
+    adjusted_values : tuple
+        A tuple of adjusted values, aiming to distribute the total samples evenly.
+        If only one value is given, the function tries to adjust it based on the
+        total number of samples and the initial guess.
+
+    Raises
+    ------
+    ValueError
+        Raised if error is set to 'raise' and no values are provided.
+
+    Examples
+    --------
+    >>> from gofast.tools.coreutils import adjust_to_samples
+    >>> adjust_to_samples(1000, 10, 20, initial_guess=5)
+    (50, 20)
+
+    >>> adjust_to_samples(1000, 10, initial_guess=2)
+    (2,)
+
+    Notes
+    -----
+    The function aims to adjust the values to match the desired total number of samples
+    as closely as possible. When only one value is given, the function uses the initial
+    guess to make an adjustment, respecting the total number of samples.
+    """
+    if len(values) == 0:
+        message = "No values provided for adjustment."
+        if error == 'raise':
+            raise ValueError(message)
+        elif error == 'warn':
+            warnings.warn(message)
+        return ()
+
+    if len(values) == 1:
+        # If only one value is given, adjust it based on initial guess and n_samples
+        single_value = values[0]
+        adjusted_value = n_samples // single_value if initial_guess is None else initial_guess
+        return (adjusted_value,)
+
+    if initial_guess is None:
+        initial_guess = np.mean(values)
+
+    # Function to minimize: difference between product of adjusted values and n_samples
+    def objective(factors):
+        prod = np.prod(np.array(values) * factors)
+        return abs(prod - n_samples)
+
+    # Start with initial guesses for factors
+    factors_initial = [initial_guess / value for value in values]
+    result = optimize_minimize(objective, factors_initial, bounds=[(0, None) for _ in values])
+
+    if result.success:
+        adjusted_values = ( 
+            tuple(max(1, int(round(value * factor))) 
+                  for value, factor in zip(values, result.x))
+            )
+    else:
+        adjusted_values = values  # Fallback to original values if optimization fails
+
+    return adjusted_values
+
 
 def unpack_list_of_dicts(list_of_dicts):
     """
@@ -4914,7 +4996,7 @@ def assert_ratio(
        
     Examples
     ---------
-    >>> from gofast.tools.funcutils import assert_ratio
+    >>> from gofast.tools.coreutils import assert_ratio
     >>> assert_ratio('2')
     2.0
     >>> assert_ratio(2 , bounds =(2, 8))
@@ -4983,6 +5065,68 @@ def assert_ratio(
          raise ValueError ("{} value should be {}, got: {}".
                            format(name.title(), msg.format(low, up), v  ))
     return v 
+
+def validate_ratio(
+    value: float, 
+    bounds: Optional[Tuple[float, float]] = None, 
+    exclude: Optional[float] = None, 
+    to_percent: bool = False, 
+    param_name: str = 'value'
+) -> float:
+    """Validates and optionally converts a value to a percentage within 
+    specified bounds, excluding specific values.
+
+    Parameters:
+    -----------
+    value : float or str
+        The value to validate and convert. If a string with a '%' sign, 
+        conversion to percentage is attempted.
+    bounds : tuple of float, optional
+        A tuple specifying the lower and upper bounds (inclusive) for the value. 
+        If None, no bounds are enforced.
+    exclude : float, optional
+        A specific value to exclude from the valid range. If the value matches 
+        'exclude', a ValueError is raised.
+    to_percent : bool, default=False
+        If True, the value is converted to a percentage 
+        (assumed to be in the range [0, 100]).
+    param_name : str, default='value'
+        The parameter name to use in error messages.
+
+    Returns:
+    --------
+    float
+        The validated (and possibly converted) value.
+
+    Raises:
+    ------
+    ValueError
+        If the value is outside the specified bounds, matches the 'exclude' 
+        value, or cannot be converted as specified.
+    """
+    if isinstance(value, str) and '%' in value:
+        to_percent = True
+        value = value.replace('%', '')
+    try:
+        value = float(value)
+    except ValueError:
+        raise ValueError(f"Expected a float, got {type(value).__name__}: {value}")
+
+    if to_percent and 0 < value <= 100:
+        value /= 100
+
+    if bounds:
+        if not (bounds[0] <= value <= bounds[1]):
+            raise ValueError(
+                f"{param_name} must be between {bounds[0]} and {bounds[1]}, got: {value}")
+    
+    if exclude is not None and value == exclude:
+        raise ValueError(f"{param_name} cannot be {exclude}")
+
+    if to_percent and value > 1:
+        raise ValueError(f"{param_name} converted to percent must not exceed 1, got: {value}")
+
+    return value
 
 def exist_features (df, features, error='raise', name="Feature"): 
     """Control whether the features exist or not  
@@ -6812,7 +6956,7 @@ def type_of_target(y):
 
     return 'unknown'
 
-def add_noises_to(data, /, noise=.1, seed =None ):
+def add_noises_to(data, /, noise=.1, seed =None, gaussian_noise=False ):
     """
     Adds NaN values to a pandas DataFrame.
 
@@ -6827,6 +6971,9 @@ def add_noises_to(data, /, noise=.1, seed =None ):
         np.random.Generator, optional
        If int, array-like, or BitGenerator, seed for random number generator. 
        If np.random.RandomState or np.random.Generator, use as given.
+    gaussian_noise : bool, default=False
+        If True, adds Gaussian noise to the data. Otherwise,
+        replaces values with NaN.
     Returns
     -------
     pandas.DataFrame
@@ -6837,25 +6984,30 @@ def add_noises_to(data, /, noise=.1, seed =None ):
     >>> from gofast.tools.funcutils import add_noises_to
     >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': ['x', 'y', 'z']})
     >>> new_df = add_nan_to_dataframe(df, noises=0.2)
+    >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
+    >>> new_df = add_noises_to(df, noise=0.1, gaussian_noise=True)
     """
-    random.seed (seed)
+    np.random.seed(seed)
     if noise is None: 
         return data 
     noise = assert_ratio(noise)
-    # Copy the dataframe to avoid changing the original data
-    df_with_nan = data.copy()
+    if gaussian_noise:
+        # Add Gaussian noise to the data
+        noise_data = data.apply(lambda x: x + np.random.normal(
+            0, noise, size=x.shape))
+        return noise_data
+    else:
+        # Replace values with NaN
+        df_with_nan = data.copy()
+        nan_count_per_column = int(noise * len(df_with_nan))
 
-    # Calculate the number of NaNs to add in each column 
-    # based on the percentage
-    nan_count_per_column = int(noise * len(df_with_nan))
+        for column in df_with_nan.columns:
+            nan_indices = random.sample(range(len(df_with_nan)),
+                                        nan_count_per_column)
+            df_with_nan.loc[nan_indices, column] = np.nan
 
-    for column in df_with_nan.columns:
-        # Randomly pick indices to replace with NaN
-        nan_indices = random.sample(range(len(df_with_nan)),nan_count_per_column)
-        df_with_nan.loc[nan_indices, column] = np.nan
+        return df_with_nan
 
-    return df_with_nan
- 
 def fancier_repr_formatter(obj, max_attrs=7):
     """
     Generates a formatted string representation for any class object.
