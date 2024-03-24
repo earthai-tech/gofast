@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
-
+import inspect 
 import pandas as pd
 import numpy as np
 
@@ -15,7 +15,23 @@ from .util import check_distributions, select_location_for_mineral, manage_data
 from .util import generate_ore_infos, build_reserve_details_by_country
 from .util import get_last_day_of_current_month, adjust_households_and_days
 from .util import validate_noise_level, validate_loan_parameters 
-from .util import select_diagnostic_options
+from .util import select_diagnostic_options, fetch_simulation_metadata 
+
+__all__= [
+    "simulate_water_reserves", 
+    "simulate_world_mineral_reserves", 
+    "simulate_energy_consumption",
+    "simulate_customer_churn",  
+    "simulate_predictive_maintenance",
+    "simulate_real_estate_price", 
+    "simulate_sentiment_analysis", 
+    "simulate_weather_forecasting", 
+    "simulate_default_loan",
+    "simulate_traffic_flow",
+    "simulate_medical_diagnosis",
+    "simulate_retail_sales"
+    ]
+
 
 def simulate_water_reserves(
     *, n_samples=100, 
@@ -105,7 +121,8 @@ def simulate_water_reserves(
     Generating a DataFrame of simulated water reserve data for 10 locations 
     over January 2024:
     
-    >>> simulate_water_reserves(n_samples=10, as_frame=True)
+    >>> from gofast.datasets.simulate import simulate_water_reserves
+    >>> data_obj= simulate_water_reserves(n_samples=10,)
     
     Generating `(X, y)` arrays suitable for use with scikit-learn models:
     
@@ -117,20 +134,8 @@ def simulate_water_reserves(
     sklearn.utils.Bunch : Used to package the dataset when arrays are returned.
     """
     from ._globals import WATER_RESERVES_LOC
-    
-    feature_descr= {
-    "location_id": "A unique identifier for each location.",
-    "location_name": "The name of the location (e.g., city, river, reservoir).",
-    "date": "The date of the record.",
-    "total_capacity_ml": "The total capacity of the water reserve in megaliters (ML).",
-    "current_volume_ml": "The current volume of water in the reserve in megaliters (ML).",
-    "percentage_full": "The percentage of the total capacity that is currently filled.",
-    "rainfall_mm": "Rainfall in millimeters (mm) for the location on the date.",
-    "evaporation_mm": "Estimated evaporation in millimeters (mm) on the date.",
-    "inflow_ml": "Inflow of water into the reserve in megaliters (ML) on the date.",
-    "outflow_ml": "Outflow of water from the reserve in megaliters (ML) on the date.",
-    "usage_ml": "Water usage from the reserve in megaliters (ML) on the date."
-    }
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name)
     
     np.random.seed(seed)
     start_date, end_date = validate_dates(
@@ -172,8 +177,8 @@ def simulate_water_reserves(
     return manage_data(
         data=water_reserves_df, as_frame=as_frame, return_X_y=return_X_y,
         target_names=target_name, noise=noise_level, seed=seed,
-        DESCR="Simulated water reserves dataset",
-        feature_descr=feature_descr,
+        features_descr=features_descr,
+        DESCR=dataset_descr,
     )
 
 def simulate_world_mineral_reserves(
@@ -259,7 +264,7 @@ def simulate_world_mineral_reserves(
     Generate a simple dataset of mineral reserves:
     
     >>> from gofast.datasets.simulate import simulate_world_mineral_reserves
-    >>> min_reserves = simulate_world_mineral_reserves().frame 
+    >>> min_reserves = simulate_world_mineral_reserves()
     
     Simulate reserves focusing on gold and diamonds in Africa and Asia:
     
@@ -281,13 +286,13 @@ def simulate_world_mineral_reserves(
     >>> len(y)
     100
     """
-    from ._globals import RESERVES_DESCR
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name)
     
     # Initialize country dict 
     mineral_countries_map ={}
     # Set a seed for reproducibility of results
     np.random.seed(seed)
-
     # Normalize region input and validate regions if provided
     if regions:
         regions=is_iterable(regions, exclude_string=True, transform =True)
@@ -365,13 +370,12 @@ def simulate_world_mineral_reserves(
         )
     # Convert simulated data into a DataFrame
     mineral_reserves_df = pd.DataFrame(data)
-    
     # Handle data return format based on function parameters
     return manage_data(
         data=mineral_reserves_df, as_frame=as_frame, return_X_y=return_X_y,
         target_names=target_name if target_name else ['quantity'],
-        DESCR="Simulated mineral reserves dataset", 
-        reserves_descr= RESERVES_DESCR,
+        features_descr= features_descr,
+        DESCR=dataset_descr, seed=seed,
     )
 
 def simulate_energy_consumption(
@@ -444,6 +448,9 @@ def simulate_energy_consumption(
     the complexities of real-world energy usage patterns, making it suitable for 
     both regression and classification tasks in machine learning.
     """
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name)
+    
     if n_samples:
         n_samples = validate_positive_integer(n_samples, "n_samples")
         # recompute the n_households and days to fit the 
@@ -494,7 +501,6 @@ def simulate_energy_consumption(
         + solar_panel_effect
         )
     energy_consumption = np.abs(energy_consumption)
-    
     # Construct the DataFrame
     energy_data = pd.DataFrame({
         'date': time_features,
@@ -518,6 +524,13 @@ def simulate_energy_consumption(
              ), 
          noise=noise_level, 
      )
+    return manage_data(
+        data=energy_data, as_frame=as_frame, return_X_y=return_X_y,
+        target_names=target_name if target_name else ["energy_consumption_kwh"],
+        seed=seed,
+        noise=noise_level, 
+        
+    )
 
 def simulate_customer_churn(
     *, n_customers=1000, 
@@ -577,6 +590,9 @@ def simulate_customer_churn(
     include both categorical and continuous variables, reflecting a wide range 
     of factors that could influence a customer's decision to leave a service.
     """
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name)
+    
     np.random.seed(seed)
 
     n_customers= validate_positive_integer(n_customers, "n_customers")
@@ -634,18 +650,26 @@ def simulate_customer_churn(
     return manage_data(
          data=data, as_frame=as_frame, return_X_y=return_X_y,
          target_names=target_name if target_name else ['churn'],
-         DESCR=(
-             "Predict future energy consumption of households or commercial"
-             " buildings based on historical usage data, weather conditions,"
-             " and time features." 
-             ), 
+         DESCR=dataset_descr, features_descr=features_descr  
      )
 
 def simulate_predictive_maintenance(
-    *, n_machines=25, n_sensors=5, operational_params=2, days=30,
-    start_date="2021-01-01", failure_rate=0.02, maintenance_frequency=45,
-    task="classification", n_samples=None, as_frame=False, return_X_y=False,
-    target_name=None, noise_level=None, seed=None):
+    *, 
+    n_machines=25, 
+    n_sensors=5, 
+    operational_params=2, 
+    days=30,
+    start_date="2021-01-01", 
+    failure_rate=0.02, 
+    maintenance_frequency=45,
+    task="classification",
+    n_samples=None, 
+    as_frame=False, 
+    return_X_y=False,
+    target_name=None, 
+    noise_level=None, 
+    seed=None
+    ):
     """
     Generates a synthetic dataset tailored for predictive maintenance tasks, 
     offering detailed insights into the operational dynamics and maintenance 
@@ -749,6 +773,9 @@ def simulate_predictive_maintenance(
     machine health and maintenance needs, providing a realistic foundation for
     developing models that can predict maintenance events and prevent machine failures.
     """
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name)
+    
     if n_samples: 
         n_samples= validate_positive_integer(n_samples, "n_samples")
         # recompute params to fit the number of samples.
@@ -834,15 +861,19 @@ def simulate_predictive_maintenance(
     df['machine_id'] = np.repeat(machine_ids, days)
     
     if not target_name:
-        target_name = 'failure' if task == "classification" else 'days_until_maintenance'
+        target_name = ( 
+            'failure' if task == "classification" 
+            else 'days_until_maintenance'
+       )
     df[target_name] = target
     
     # Return data
     return manage_data(
         data=df, as_frame=as_frame, return_X_y=return_X_y,
         target_names=target_name if target_name else None,
-        seed=seed
-    )
+        seed=seed,
+        DESCR=dataset_descr, features_descr=features_descr  
+     )
 
 def simulate_real_estate_price(
     *, n_properties=1000, 
@@ -940,6 +971,9 @@ def simulate_real_estate_price(
     valuable for regression analyses aiming to predict real estate prices based on 
     quantitative attributes and temporal trends.
     """
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name)
+    
     # Default features if None specified
     if features is None:
         features = ['size_sqm', 'bedrooms', 'bathrooms',
@@ -996,7 +1030,8 @@ def simulate_real_estate_price(
     return manage_data(
         data=df, as_frame=as_frame, return_X_y=return_X_y,
         target_names=target_name if target_name else 'price',
-        seed=seed
+        seed=seed,
+        DESCR=dataset_descr, features_descr=features_descr  
     )
 
 def simulate_sentiment_analysis(
@@ -1109,7 +1144,23 @@ def simulate_sentiment_analysis(
     return manage_data(
         data=data, as_frame=as_frame, return_X_y=return_X_y,
         target_names=target_name if target_name else "sentiment",
-        seed=seed
+        seed=seed,
+        DESCR=(
+            "Simulates customer reviews and classifies them into sentiment"
+            " categories. This dataset aims to mirror the challenges of"
+            " sentiment analysis on product reviews, where each review is"
+            " associated with a sentiment label indicating positive, neutral,"
+            " or negative sentiment. The generated data includes textual"
+            " reviews, synthesized to reflect a range of expressions and opinions"
+            " commonly found in real customer feedback. The target variable"
+            " 'sentiment'categorizes each review, making this dataset suitable"
+            " for classification tasks in natural language processing (NLP)."
+            " It provides a valuable resource for developing and testing"
+            " algorithms capable of understanding and categorizing textual"
+            " sentiment, a crucial aspect of customer service automation,"
+            " social media monitoring, and market research."
+            ), 
+
     )
 
 def simulate_weather_forecasting(
@@ -1192,6 +1243,9 @@ def simulate_weather_forecasting(
     analysis to deep learning, in predicting future weather conditions based on
     historical patterns and atmospheric observations.
     """
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name)
+    
     np.random.seed(seed)
     if not weather_variables:
         weather_variables = ['temperature', 'humidity', 'wind_speed',
@@ -1233,10 +1287,14 @@ def simulate_weather_forecasting(
 
     # Introduce extreme weather events if specified
     if include_extreme_events:
-        extreme_days = np.random.choice(n_days, size=n_days // 20, replace=False)  # 5% of days
-        weather_data.loc[extreme_days, 'temperature'] += np.random.normal(0, 10, len(extreme_days))
-        weather_data.loc[extreme_days, 'precipitation'] *= np.random.uniform(2, 5, len(extreme_days))
-        weather_data.loc[extreme_days, 'wind_speed'] *= np.random.uniform(2, 3, len(extreme_days))
+        extreme_days = np.random.choice(
+            n_days, size=n_days // 20, replace=False)  # 5% of days
+        weather_data.loc[extreme_days, 'temperature'] += np.random.normal(
+            0, 10, len(extreme_days))
+        weather_data.loc[extreme_days, 'precipitation'] *= np.random.uniform(
+            2, 5, len(extreme_days))
+        weather_data.loc[extreme_days, 'wind_speed'] *= np.random.uniform(
+            2, 3, len(extreme_days))
 
     # Next day's temperature for regression target
     weather_data['temperature_next_day'] = np.roll(weather_data['temperature'], -1)
@@ -1252,7 +1310,8 @@ def simulate_weather_forecasting(
     return manage_data(
         data=weather_data, as_frame=as_frame, return_X_y=return_X_y,
         target_names=target_name if target_name else "temperature_next_day",
-        seed=seed
+        seed=seed,
+        DESCR=dataset_descr, features_descr=features_descr  
     )
 
 
@@ -1366,7 +1425,8 @@ def simulate_default_loan(
     allow for simulation under diverse scenarios, making it a versatile tool for model
     development and testing in financial analytics.
     """
-
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name)
     np.random.seed(seed)
     
     loan_term_months= ( 
@@ -1415,6 +1475,7 @@ def simulate_default_loan(
     defaults = np.random.binomial(1, default_rate, n_samples)
     
     # Compile data into a DataFrame
+    target_name= target_name or 'default'
     data = pd.DataFrame({
         'credit_score': credit_scores,
         'age': ages,
@@ -1437,7 +1498,8 @@ def simulate_default_loan(
     return manage_data(
         data=data, as_frame=as_frame, return_X_y=return_X_y,
         target_names=target_name,
-        seed=seed
+        seed=seed,
+        DESCR=dataset_descr, features_descr=features_descr  
     )
 
 def simulate_traffic_flow(
@@ -1545,6 +1607,10 @@ def simulate_traffic_flow(
     improve predictive accuracy and understand the multifaceted nature of 
     traffic dynamics.
     """
+
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name)
+    
     np.random.seed(seed)
     n_samples= validate_positive_integer(n_samples, "n_samples")
     
@@ -1599,7 +1665,8 @@ def simulate_traffic_flow(
     return manage_data(
         data=data, as_frame=as_frame, return_X_y=return_X_y,
         target_names=target_name,
-        seed=seed
+        seed=seed,
+        DESCR=dataset_descr, features_descr=features_descr  
     )
 
 def simulate_medical_diagnosis(
@@ -1688,6 +1755,9 @@ def simulate_medical_diagnosis(
     realistic scenarios encountered in medical practice, allowing for the exploration of
     diagnostic models and their potential to improve patient outcomes.
     """
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name)
+    
     diagnosis_options= select_diagnostic_options(diagnosis_options, 6)
     np.random.seed(seed)
     n_patients= validate_positive_integer (n_patients, "n_patients")
@@ -1725,7 +1795,8 @@ def simulate_medical_diagnosis(
     return manage_data(
         data=df, as_frame=as_frame, return_X_y=return_X_y,
         target_names=target_name if target_name else "diagnosis",
-        seed=seed
+        seed=seed,
+        DESCR=dataset_descr, features_descr=features_descr  
     )
 
 def simulate_retail_sales(
@@ -1869,6 +1940,9 @@ def simulate_retail_sales(
     trends and understanding the impact of promotions, seasonality, and economic 
     conditions on retail performance.
     """  
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name)
+    
     np.random.seed(seed)
 
     # Validate and adjust parameters
@@ -1922,9 +1996,11 @@ def simulate_retail_sales(
     df[target_name] = np.tile(future_sales, n_days)
 
     # Manage and return data according to specified parameters
-    return manage_data(data=df, as_frame=as_frame, return_X_y=return_X_y,
-                       target_names=target_name, seed=seed)
-
+    return manage_data(
+        data=df, as_frame=as_frame, return_X_y=return_X_y,
+        target_names=target_name, seed=seed,
+        DESCR=dataset_descr, features_descr=features_descr  
+    )
         
         
         

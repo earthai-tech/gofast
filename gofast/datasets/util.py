@@ -10,10 +10,15 @@ import re
 from datetime import datetime, timedelta
 import numpy as np 
 import pandas as pd 
+from typing import Tuple, Optional, Union
+
+from ..api.formatter import DescriptionFormatter
+
+from ..tools.box import Boxspace
+from ..compat.sklearn import  train_test_split 
 from ..tools.coreutils import is_in_if, add_noises_to
 from ..tools.coreutils import smart_format, is_iterable, validate_ratio 
-from ..compat.sklearn import  train_test_split 
-from ..tools.box import Boxspace
+from .metadata import SimulationMetadata
 
 def validate_region(region, mode="strict"):
     """
@@ -161,9 +166,7 @@ def validate_country(name, error="warn"):
     dictionary `MINERAL_PROD_BY_COUNTRY`. It is designed to facilitate user
     input by allowing flexibility in how country names are specified.
     """
-
     from ._globals import MINERAL_PROD_BY_COUNTRY
-    
     map_names = {
         "USA": "United States",
         "PRC": "China",
@@ -171,7 +174,6 @@ def validate_country(name, error="warn"):
         "IVORY COAST": "Cote d'Ivoire",
         "UAE": "United Arab Emirates"
     }
-    
     # Normalize name to handle common variations and casing
     normalized_name = name.upper().replace('.', '')
     if normalized_name in map_names:
@@ -198,7 +200,6 @@ def validate_country(name, error="warn"):
             pass  # Do nothing
         # Return an empty string for 'warn' and 'ignore' if the name is not found
         return ""  
-
 
 def find_countries_by_region(
     region, 
@@ -1668,6 +1669,7 @@ def manage_data(
         samples.
     
     """
+    
     # Ensure the correct data types for the parameters
     as_frame, return_X_y, split_X_y = map(
         lambda x: bool(x), [as_frame, return_X_y, split_X_y]
@@ -2481,15 +2483,150 @@ def select_diagnostic_options(diagnostic_options=None, n_diseases=7):
             diagnostic_options.append('Healthy')
 
     return diagnostic_options
+ 
+def build_dataset_description(
+    title: Union[str, Tuple[str, str]] = '',
+    dataset_overview: str = '',
+    feature_descriptions: dict = None,
+    error_handling: str = 'warn',
+) -> Tuple[Optional[DescriptionFormatter], Optional[DescriptionFormatter]]:
+    """
+    Constructs formatted descriptions for datasets and their features.
 
+    Parameters:
+    -----------
+    title : str or Tuple[str, str], optional
+        Title for the dataset or feature description sections, or a tuple 
+        containing
+        titles for both dataset and feature descriptions, respectively.
+        Defaults to an empty string.
+    dataset_overview : str, optional
+        A general description of the dataset. Defaults to an empty string.
+    feature_descriptions : dict, optional
+        A dictionary where keys are feature names and values are descriptions.
+        Defaults to None.
+    error_handling : str, optional
+        Error handling strategy ('raise', 'warn', 'ignore') when invalid inputs
+        are provided. Defaults to 'warn'.
 
+    Returns:
+    --------
+    Tuple[Optional[DescriptionFormatter], Optional[DescriptionFormatter]]
+        A tuple containing formatted dataset overview and feature descriptions.
+        Either part of the tuple can be None if the corresponding content is 
+        not provided or invalid.
+
+    Raises:
+    -------
+    ValueError
+        If 'feature_descriptions' is not a dictionary and error_handling 
+        is set to 'raise'.
+
+    Example:
+    --------
+    >>> from gofast.datasets.util import build_dataset_description
+    >>> dataset_desc, feature_desc = build_dataset_description(
+            title=("My Dataset", "Feature Information"),
+            dataset_overview="This dataset includes...",
+            feature_descriptions={"Age": "Age of the individual.", 
+                                  "Income": "Annual income."},
+            error_handling="warn"
+        )
+    >>> print(dataset_desc)
+    >>> print(feature_desc)
+    """
+    # Support single title or separate titles for dataset and feature descriptions
+    dataset_title, feature_title = (title, title) if isinstance(title, str) else title
+
+    # Validate and format feature descriptions
+    features_description = _format_feature_descriptions(
+        feature_descriptions, feature_title, error_handling
+    )
+    # Validate and format dataset overview
+    dataset_description = _format_dataset_overview(
+        dataset_overview, dataset_title
+    )
+
+    return dataset_description, features_description
+
+def _format_feature_descriptions(feature_descriptions, title, error_handling):
+    """
+    Validates and formats feature descriptions.
+    """
+    if feature_descriptions and not isinstance(feature_descriptions, dict):
+        error_msg = "feature_descriptions must be a dictionary."
+        if error_handling == 'raise':
+            raise ValueError(error_msg)
+        elif error_handling == 'warn':
+            print(f"Warning: {error_msg}")
+            return None
+        elif error_handling == 'ignore':
+            return None
+    return DescriptionFormatter(
+        title=title, content=feature_descriptions) if feature_descriptions else None
+
+def _format_dataset_overview(overview, title):
+    """
+    Formats dataset overview.
+    """
+    return DescriptionFormatter(title=title, content=overview) if overview else None
     
+def fetch_simulation_metadata(simulation_name, titles=None):
+    """
+    Fetches and formats the dataset and feature descriptions for a given 
+    simulation.
     
+    Parameters:
+    -----------
+    simulation_name : str
+        The name of the simulation function for which metadata is to be fetched.
+    titles : tuple of str, optional
+        A tuple containing titles for the dataset and feature descriptions, 
+        respectively. Defaults to ("Dataset Overview", "Dataset Features") 
+        if not provided.
     
+    Returns:
+    --------
+    tuple
+        A tuple containing the formatted dataset and feature descriptions.
     
+    Examples:
+    ---------
+    >>> from gofast.datasets.util import fetch_simulation_metadata
+    >>> dataset_description, feature_description = fetch_simulation_metadata(
+            simulation_name="simulate_energy_consumption",
+            titles=("Energy Consumption Dataset Overview", 
+                    "Energy Consumption Features")
+        )
+    >>> print(dataset_description)
+    >>> print(feature_description)
     
+    Note:
+    -----
+    This function assumes that `SimulationMetadata` and `build_dataset_description`
+    are implemented in the `.metadata` module and the current module, respectively.
+    """
     
+    # Provide default titles if not specified
+    if titles is None:
+        titles = ("Dataset Overview", "Dataset Features")
     
+    simulation_metadata = SimulationMetadata()
+    
+    # Fetch the descriptions from the simulation metadata
+    simulation_metadata.add_metadata(simulation_name)
+    dataset_description = simulation_metadata.get_dataset_description(simulation_name)
+    feature_description = simulation_metadata.get_feature_description(simulation_name)
+    
+    # Use an existing function to build and format the descriptions
+    formatted_dataset_descr, formatted_feature_descr = build_dataset_description(
+        title=titles, 
+        dataset_overview=dataset_description, 
+        feature_descriptions=feature_description, 
+        error_handling='ignore'
+    )
+    
+    return formatted_dataset_descr, formatted_feature_descr
     
     
     

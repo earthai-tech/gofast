@@ -6,7 +6,6 @@ Created on Wed Mar 13 22:29:22 2024
 """
 import numpy as np
 import pandas as pd
-from . import summary2 
 
 class ModelPerformanceReport:
     def __init__(self, model, X_test, y_test, metrics):
@@ -84,32 +83,32 @@ class ReportFactory:
         else:
             raise ValueError("Unknown report type")
 
-class AnovaResults:
-    """
-    Anova results class
+# class AnovaResults:
+#     """
+#     Anova results class
 
-    Attributes
-    ----------
-    anova_table : DataFrame
-    """
-    def __init__(self, anova_table):
-        self.anova_table = anova_table
+#     Attributes
+#     ----------
+#     anova_table : DataFrame
+#     """
+#     def __init__(self, anova_table):
+#         self.anova_table = anova_table
 
-    def __str__(self):
-        return self.summary().__str__()
+#     def __str__(self):
+#         return self.summary().__str__()
 
-    def summary(self):
-        """create summary results
+#     def summary(self):
+#         """create summary results
 
-        Returns
-        -------
-        summary : summary2.Summary instance
-        """
-        summ = summary2.Summary()
-        summ.add_title('Anova')
-        summ.add_df(self.anova_table)
+#         Returns
+#         -------
+#         summary : summary2.Summary instance
+#         """
+#         summ = summary2.Summary()
+#         summ.add_title('Anova')
+#         summ.add_df(self.anova_table)
 
-        return summ
+#         return summ
     
 class Summary:
     def __init__(self, data):
