@@ -768,7 +768,6 @@ def information_value(
         Calculate the Information Value (IV) for binary classification problems
         using a base or binning approach.
     """
-    # Implementation goes here...
     y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric =True, 
                                         multi_output= True )
     # Determine an appropriate epsilon value if set to "auto"
@@ -788,11 +787,13 @@ def information_value(
             2) if scale == 'binary_scale' else -log_loss(y_true, y_pred, eps=epsilon)
         
     elif problem_type == 'multilabel':
-        iv = -np.mean(y_true * np.log(y_pred + epsilon) + (
-            1 - y_true) * np.log(1 - y_pred + epsilon)) / np.log(
-                2) if scale == 'binary_scale' else -np.mean(
-                    y_true * np.log(y_pred + epsilon) + (1 - y_true) * np.log(
-                        1 - y_pred + epsilon))
+        iv =( 
+            -np.mean(y_true * np.log(y_pred + epsilon) 
+            + (1 - y_true) * np.log(1 - y_pred + epsilon)) / np.log(2)
+            if scale == 'binary_scale' 
+            else -np.mean(y_true * np.log(y_pred + epsilon) 
+                 + (1 - y_true) * np.log(1 - y_pred + epsilon))
+            )
         
     elif problem_type == 'regression':
         iv = -mean_squared_error(y_true, y_pred)
@@ -1246,8 +1247,6 @@ def adjusted_r2_score(
     r2_score : R^2 (coefficient of determination) regression score function.
     mean_squared_error : Mean squared error regression loss.
     """
-    # Implementation details skipped for brevity
-
     # Ensure X is a numeric numpy array
     if not isinstance(X, np.ndarray):
         X = np.asarray(X, dtype=float)
