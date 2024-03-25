@@ -2066,13 +2066,15 @@ def available_if(check):
     """
     return lambda fn: _AvailableIfDescriptor(fn, check, attribute_name=fn.__name__)
 
-
 def isdf(func):
     """
-    Advanced decorator that ensures the first positional argument (after `self` for methods)
-    passed to the decorated callable is a pandas DataFrame. If it's not, attempts to convert
-    it to a DataFrame using an optional `columns` keyword argument. This implementation
-    is designed to be flexible and efficient, suitable for both functions and methods.
+    Advanced decorator that ensures the first positional argument 
+    (after `self` for methods) passed to the decorated callable is a pandas 
+    DataFrame. If it's not, attempts to convert it to a DataFrame using an 
+    optional `columns` keyword argument. 
+    
+    Function is designed to  be flexible and efficient, suitable for 
+    both functions and methods.
     """
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -2105,7 +2107,8 @@ def isdf(func):
             # Reconstruct args from the potentially modified args_list
             args = tuple(args_list)
 
-        # Call the original function or method, passing `self` or `cls` explicitly if necessary
+        # Call the original function or method, passing `self` or 
+        # `cls` explicitly if necessary
         if self_or_cls is not None:
             return func(self_or_cls, *args[1:], **kwargs)
         else:

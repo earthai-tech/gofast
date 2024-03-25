@@ -27,6 +27,7 @@ from .generate import (
    make_agronomy_feedback, make_social_media_comments, make_cc_factors,
    make_water_demand, make_regression, make_classification
 )
+# Data simulation functions
 from .simulate import ( 
    simulate_water_reserves, simulate_world_mineral_reserves, 
    simulate_energy_consumption,simulate_customer_churn,  

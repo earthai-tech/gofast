@@ -4757,7 +4757,9 @@ def _visualize_paired_ttest_differences(
     "statsmodels", 
     extra="'rm_anova' and 'mcnemar' tests expect statsmodels' to be installed.",
     partial_check=True,
-    condition=lambda *args, **kwargs: kwargs.get("type_test") in ["rm_anova", "mcnemar"]
+    condition= lambda *args, **kwargs: kwargs.get("type_test") in [
+        "rm_anova", "mcnemar"]
+
     )
 def statistical_tests(
     *args, 

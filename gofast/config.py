@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-# gofast/config.py
 from .backends.numpy import NumpyBackend
 from .backends.scipy import ScipyBackend 
 from .backends.dask import DaskBackend 

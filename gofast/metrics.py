@@ -1405,10 +1405,11 @@ def precision_recall_tradeoff(
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42)
     >>> clf = LogisticRegression()
     >>> clf.fit(X_train, y_train)
-    >>> precision_recall_tradeoff(y_test, X=X_test, estimator=clf,
+    >>> b=precision_recall_tradeoff(y_test, X=X_test, estimator=clf,
     ...                           scoring_method='predict_proba',
     ...                           display_chart=True)
-
+    >>> print(b) 
+    
     References
     ----------
     .. [1] Davis, J. & Goadrich, M. (2006). The relationship between Precision-Recall
@@ -1422,7 +1423,7 @@ def precision_recall_tradeoff(
         error_msg= (f"Invalid scoring method '{scoring_method}'. Expected"
                     " 'decision_function' or 'predict_proba'.")
         )
-
+    from gofast.api.formatter import MetricFormatter 
     _assert_binary_classification_args(y_true, label)
     if label is not None: 
         # Ensure binary classification
@@ -1445,7 +1446,7 @@ def precision_recall_tradeoff(
         y_scores = y_scores[:, 1]  # Use probabilities for the positive class
     
     # Calculate precision, recall, and F1 scores
-    metrics = Bunch(
+    metrics = MetricFormatter(
         f1_score=f1_score(y_true, y_scores >= (threshold or 0.5)),
         precision_score=precision_score(y_true, y_scores >= (threshold or 0.5)),
         recall_score=recall_score(y_true, y_scores >= (threshold or 0.5))

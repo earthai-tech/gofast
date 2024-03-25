@@ -34,9 +34,10 @@ __all__= [
 
 
 def simulate_water_reserves(
-    *, n_samples=100, 
+    *, n_locations=100, 
     start_date="2024-01-01", 
     end_date="2024-01-31", 
+    n_samples=None, 
     as_frame=False, 
     return_X_y=False, 
     target_name=None, 
@@ -51,7 +52,7 @@ def simulate_water_reserves(
 
     Parameters
     ----------
-    n_samples : int, optional
+    n_locations : int, optional
         Number of unique locations for which data will be generated. Each 
         location will have entries for each day within the specified date range,
         thus creating a comprehensive dataset across time and space. 
@@ -63,6 +64,26 @@ def simulate_water_reserves(
         inclusive of both start and end dates. 
         Default range is from ``"2024-01-01"`` to ``"2024-01-31"``.
         
+    n_samples : int or None, optional
+        Specifies the target number of total samples to generate in the dataset. 
+        This parameter allows for dynamic adjustment of the `n_locations` parameter 
+        to match the desired number of samples, considering the number of days 
+        between `start_date` and `end_date`. For instance, if `n_samples` is set 
+        to 100 and the date range includes 31 days, the function will adjust 
+        `n_locations` such that approximately 100 samples are generated across 
+        all locations and days. This is particularly useful for scenarios where 
+        a specific dataset size is required, whether for model training, testing, 
+        or performance evaluation. If `None`, the function will generate data for 
+        the number of locations specified by `n_locations` without adjustment, 
+        which may result in a total sample size different from `n_samples`. 
+        Default is `None`.
+        
+        It's important to note that the actual number of samples generated can 
+        slightly vary from the specified `n_samples` due to rounding during the 
+        adjustment process. The aim is to approximate the desired sample size 
+        as closely as possible while maintaining a logical and realistic 
+        distribution of data across locations and time.
+
     as_frame : bool, optional
         Determines the format of the returned dataset. If True, the dataset
         is returned as a pandas DataFrame, which is useful for data analysis 
@@ -140,12 +161,24 @@ def simulate_water_reserves(
     np.random.seed(seed)
     start_date, end_date = validate_dates(
         start_date, end_date, return_as_date_str= True )
-    dates = pd.date_range(start=start_date, end=end_date)
+    dates_origin = pd.date_range(start=start_date, end=end_date)
+    
+    if n_samples: 
+        # Adjust n_locaions to fit the number of samples. 
+        adjust_params= adjust_parameters_to_fit_samples(
+            n_samples, initial_guesses= {'n_locations': n_locations, 
+                                         "n_dates":len(dates_origin)}
+            )
+        n_locations = adjust_params.get("n_locations", 10 )
+        n_dates= adjust_params.get("n_dates", 7 )
+        # now take the date from start_date to fit n_dates. 
+        dates = dates_origin[: n_dates]
+        
     data = []
     # Generate a unique location name for each location_id before generating data
-    location_names = {i+1: np.random.choice(WATER_RESERVES_LOC) for i in range(n_samples)}
+    location_names = {i+1: np.random.choice(WATER_RESERVES_LOC) for i in range(n_locations)}
 
-    for i in range(n_samples):
+    for i in range(n_locations):
         for date in dates:
             total_capacity_ml = np.random.uniform(5000, 10000)
             current_volume_ml = np.random.uniform(1000, total_capacity_ml)
@@ -162,12 +195,12 @@ def simulate_water_reserves(
                 "date": date,
                 "total_capacity_ml": total_capacity_ml,
                 "current_volume_ml": current_volume_ml,
-                "percentage_full": percentage_full,
                 "rainfall_mm": rainfall_mm,
                 "evaporation_mm": evaporation_mm,
                 "inflow_ml": inflow_ml,
                 "outflow_ml": outflow_ml,
                 "usage_ml": usage_ml,
+                "percentage_full": percentage_full,
             })
 
     water_reserves_df = pd.DataFrame(data)
@@ -1678,7 +1711,7 @@ def simulate_medical_diagnosis(
     as_frame=False, 
     return_X_y=False, 
     target_name=None, 
-    noise=None, 
+    noise_level=None, 
     seed=None
     ):
     """
@@ -1722,7 +1755,7 @@ def simulate_medical_diagnosis(
         Names the target variable column. If None, defaults to 'diagnosis', which is
         the label indicating the patient's diagnosis outcome.
 
-    noise : float or None, optional
+    noise_level : float or None, optional
         Specifies the standard deviation of Gaussian noise to add to lab test results,
         simulating variability and measurement error in medical tests.
 
@@ -1779,8 +1812,9 @@ def simulate_medical_diagnosis(
     
     # Generate synthetic lab test results (floats within a reasonable range)
     lab_tests_data = np.random.normal(loc=0.5, scale=0.1, size=(n_patients, n_lab_tests))
-    if noise:
-        lab_tests_data += np.random.normal(0, noise, lab_tests_data.shape)
+    if noise_level:
+        noise_level=validate_noise_level(noise_level )
+        lab_tests_data += np.random.normal(0, noise_level, lab_tests_data.shape)
 
     # Generate diagnosis labels
     diagnosis_labels = np.random.choice(diagnosis_options, size=n_patients)

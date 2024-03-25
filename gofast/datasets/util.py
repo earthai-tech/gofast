@@ -2274,7 +2274,7 @@ def adjust_parameters_to_fit_samples(n_samples, initial_guesses):
         return abs(n_samples - np.prod(x))
 
     # Bounds to ensure all values are positive and within reasonable ranges
-    bounds = [(1, n_samples) for _ in range(4)]
+    bounds = [(1, n_samples) for _ in range(len(initial_values))]
 
     # Optimization
     result = minimize(

@@ -1,4 +1,464 @@
 # import textwrap
+import re
+
+import numpy as np
+import pandas as pd
+from .structures import Bunch
+
+class DataFrameFormatter:
+    """
+    A class for formatting and printing pandas DataFrames in a structured
+    and visually appealing way. It supports adding titles, adjusting column
+    widths, and handling numerical precision.
+
+    Parameters
+    ----------
+    title : str, optional
+        The title of the dataframe to be printed. If specified, the title will
+        be centered above the dataframe. Defaults to None.
+
+    Attributes
+    ----------
+    df : pandas.DataFrame or None
+        The dataframe to be formatted and printed. Initially set to None until
+        data is added via `add_data` method.
+
+    Methods
+    -------
+    add_data(df)
+        Adds a pandas DataFrame or Series to the formatter. If a Series is
+        provided, it is converted to a DataFrame.
+
+    __str__()
+        Returns a string representation of the formatted dataframe for printing.
+
+    __repr__()
+        Returns a representation of the DataframeFormatter object, indicating
+        whether it contains data.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.api.formatter import DataFrameFormatter
+    >>> df = pd.DataFrame({
+    ...     'column1': [1, 2, 3.12345, 4],
+    ...     'column2': [5.6789, 6, 7, 8]
+    ... }, index=['Index1', 'Index2', 'Index3', 'Index4'])
+    >>> formatter = DataFrameFormatter("My DataFrame")
+    >>> formatter.add_df(df)
+    >>> print(formatter)
+            My Dataframe        
+    ============================
+              column1    column2
+    ----------------------------
+    Index1     1.0000     5.6789
+    Index2     2.0000     6.0000
+    Index3     3.1235     7.0000
+    Index4     4.0000     8.0000
+    ============================
+
+    Notes
+    -----
+    The class automatically adjusts the column widths based on the longest
+    value in each column to ensure that the table is aligned. For floating-point
+    numbers, a default formatting to four decimal places is applied. Users can
+    customize this behavior by modifying the `_format_header` method.
+    """
+
+    def __init__(self, title=None):
+        self.title = title
+        self.df = None
+        self._column_name_mapping = {}
+
+
+    def add_df(self, df):
+        """
+        Adds a pandas DataFrame or Series to the formatter for printing and 
+        populates attributes for each column in snake_case.
+    
+        Parameters
+        ----------
+        df : pandas.DataFrame or pandas.Series
+            The data to be added to the formatter. If a Series is provided, it
+            is converted to a DataFrame.
+            
+        Raises
+        ------
+        ValueError
+            If the input is neither a pandas DataFrame nor a pandas Series.
+        """
+        if isinstance(df, pd.Series):
+            df = df.to_frame()
+        elif not isinstance(df, pd.DataFrame):
+            raise ValueError("Input must be a pandas DataFrame or Series.")
+        
+        self.df = df
+        self._generate_column_name_mapping()
+        self._populate_df_column_attributes()
+        
+        return self 
+    
+    def _format_value(self, val, col_name, col_widths):
+        """
+        Formats a given value for display within a specified column width, ensuring
+        that long texts are truncated appropriately to maintain table alignment and 
+        readability. For numeric values, formats to four decimal places or as integers.
+    
+        Parameters:
+        ----------
+        val : any
+            The value to be formatted. Can be of any type.
+        col_name : str
+            The name of the column to which the value belongs.
+        col_widths : dict
+            Dictionary mapping column names to their calculated widths.
+    
+        Returns:
+        -------
+        str
+            The value formatted as a string, truncated if necessary, and aligned 
+            according to its data type.
+    
+        Notes:
+        -----
+        This method adjusts formatting based on value type and length. Numeric values
+        are right-aligned, while strings are left-aligned unless truncated, in which
+        case they're right-aligned to fit the '...' at the end. Iterables are formatted
+        using a predefined function `format_iterable`, and their representation is 
+        truncated if exceeding column width.
+        """
+        col_width = col_widths[col_name]
+    
+        if isinstance(val, (np.integer, np.floating)):
+            formatted_val = f"{float(val):.4f}" if isinstance(
+                val, np.floating) else f"{int(val)}"
+        elif isinstance(val, (float, int)):
+            formatted_val = f"{val:.4f}" if isinstance(val, float) else f"{val}"
+   
+        elif isinstance(val, str):
+            formatted_val = (val[:col_width - 3] + '...') if len(val) > col_width - 3 else val
+        else:
+            formatted_val = format_iterable(val)
+    
+        if len(formatted_val) > col_width:
+            formatted_val = formatted_val[:col_width - 3] + '...'
+    
+        if isinstance(val, (int, float, np.integer, np.floating)):
+            return f"{formatted_val:>{col_width}}"
+        else:
+            return (
+                f"{formatted_val:<{col_width}}" if "..."  in formatted_val
+                else f"{formatted_val:>{col_width}}" # shorter string 
+                ) 
+        
+    def _format_header(self):
+        """
+        Prepares the header section of the table by calculating column widths and 
+        formatting column names. Adjusts for the presence of an index column and 
+        accounts for exceptionally long texts by capping individual value contributions
+        to column width calculations.
+    
+        Returns:
+        -------
+        tuple
+            Contains formatted header as a string, the separator lines, and calculated
+            column and index widths.
+    
+        Notes:
+        -----
+        The method enforces a maximum width for value representations in the column
+        width calculation to prevent any single value from causing excessive column
+        widths. This cap ensures that the table remains readable and well-formatted
+        even in the presence of long texts. If a title is provided, it is centered 
+        above the table. Separator lines differentiate the title, header, and data.
+        """
+
+        max_value_width = 50  # Adjust as needed
+    
+        # Initial column widths based on column names and values
+        initial_col_widths = {
+            col: max(
+                len(str(col)),
+                max(min(len(str(val)), max_value_width) for val in self.df[col])
+            ) + 2
+            for col in self.df.columns
+        }
+    
+        if self.df.index.dtype == 'int64':
+            index_width = 0
+        else:
+            index_width = max(len(str(index)) for index in self.df.index) + 2
+    
+        initial_header_row = " " * index_width + "  ".join(
+            [f"{col:>{initial_col_widths[col]}}" for col in self.df.columns]
+            )
+        initial_header_length = len(initial_header_row)
+    
+        # Adjust column widths if the title is longer than the initial header
+        if self.title and len(self.title) > initial_header_length:
+            extra_space = len(self.title) - initial_header_length
+            extra_space_per_col = extra_space // len(self.df.columns)
+    
+            # Recalculate column widths
+            col_widths = {col: width + extra_space_per_col 
+                          for col, width in initial_col_widths.items()}
+            adjusted_header_row = " " * index_width + "  ".join(
+                [f"{col:>{col_widths[col]}}" for col in self.df.columns])
+            line = "=" * len(self.title)
+            subline = "-" * len(self.title)
+            title_str = f"{self.title:^{len(line)}}".title()
+        else:
+            col_widths = initial_col_widths
+            adjusted_header_row = initial_header_row
+            line = "=" * len(adjusted_header_row)
+            subline = "-" * len(adjusted_header_row)
+            title_str = f"{self.title:^{len(line)}}".title() if self.title else ""
+    
+        header = ( 
+            f"\n{title_str}\n{line}\n{adjusted_header_row}\n{subline}\n" 
+            if self.title else f"{line}\n{adjusted_header_row}\n{subline}\n"
+            )
+    
+        return header, line, index_width, col_widths
+        
+    def _to_snake_case(self, name):
+        """
+        Converts a string to snake_case using regex.
+
+        Parameters
+        ----------
+        name : str
+            The string to convert to snake_case.
+
+        Returns
+        -------
+        str
+            The snake_case version of the input string.
+        """
+        name = re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()  # CamelCase to snake_case
+        name = re.sub(r'\W+', '_', name)  # Replace non-word characters with '_'
+        name = re.sub(r'_+', '_', name)  # Replace multiple '_' with single '_'
+        return name.strip('_')
+
+    def _generate_column_name_mapping(self):
+        """
+        Generates a mapping from snake_case column names to their original names.
+        """
+        self._column_name_mapping = {self._to_snake_case(col): col for col in self.df.columns}
+
+
+    def _to_original_name(self, snake_case_name):
+        """
+        Converts a snake_case column name back to its original column name
+        using the previously generated mapping.
+
+        Parameters
+        ----------
+        snake_case_name : str
+            The snake_case name to convert back to the original column name.
+
+        Returns
+        -------
+        str
+            The original column name, or raises an AttributeError if not found.
+        """
+        original_name = self._column_name_mapping.get(snake_case_name)
+        if original_name is None:
+            raise AttributeError(f"'{snake_case_name}' column not found.")
+        return original_name
+    
+    def _populate_df_column_attributes(self):
+        """
+        Populates attributes for each DataFrame column based on the snake_case
+        column name mapping.
+        """
+        for snake_case_name, original_name in self._column_name_mapping.items():
+            setattr(self, snake_case_name, self.df[original_name])
+            
+    
+
+    def __repr__(self):
+        """
+        Returns a representation of the DataframeFormatter object.
+
+        Returns
+        -------
+        str
+            A string indicating whether the formatter contains data and
+            suggesting to use `print()` to see contents.
+        """
+        if self.df is not None and not self.df.empty:
+            return "<Frame object containing data. Use print() to see contents.>"
+        else:
+            return "<Empty Frame>"
+        
+    
+    def __str__(self):
+        """
+        Returns a string representation of the formatted dataframe for printing.
+    
+        Returns
+        -------
+        str
+            The formatted dataframe as a string.
+        """
+        if self.df is None:
+            return "No data added."
+    
+        header, line, index_width, col_widths = self._format_header()
+    
+        data_rows = ""
+        for index, row in self.df.iterrows():
+            if self.df.index.dtype != 'int64':
+                index_str = f"{str(index):<{index_width}}"
+            else:
+                index_str = ""
+            
+            # Adjust to fetch the correct column width from col_widths using column names
+            row_str = (
+                "  ".join([self._format_value(row[col], col, col_widths) for col in self.df.columns])
+            )
+            data_rows += f"{index_str}{row_str}\n"
+    
+        return f"{header}{data_rows}{line}"
+
+    def __getattr__(self, attr_name):
+        """
+        Allows attribute-style access to DataFrame columns. If an attribute is not
+        found, raises a more informative error message.
+    
+        Parameters
+        ----------
+        attr_name : str
+            The name of the attribute being accessed.
+    
+        Raises
+        ------
+        AttributeError
+            If the attribute corresponding to a DataFrame column or an existing
+            method/property is not found.
+        """
+        try:
+            # Attempt to retrieve the original column name from the mapping
+            original_col_name = self._to_original_name(attr_name)
+            # Attempt to return the column from the DataFrame
+            if original_col_name in self.df.columns:
+                return self.df[original_col_name]
+            else: 
+                return  getattr (self, attr_name)
+        except AttributeError:
+            # This exception means the mapping retrieval failed because 
+            # attr_name was not a column name
+            pass
+    
+        # If the attribute is not a DataFrame column, check for it in 
+        # the class and instance dictionaries
+        if attr_name in self.__class__.__dict__ or attr_name in self.__dict__:
+            return object.__getattribute__(self, attr_name)
+    
+        # If none of the above, raise an informative error message
+        raise AttributeError(
+            f"'{self.__class__.__name__}' object has no attribute or"
+            f" column '{attr_name}'. Note: Column names are converted to snake_case.")
+
+
+class MetricFormatter(Bunch):
+    """
+    A subclass of Bunch designed for formatting and displaying
+    model performance metrics in a visually appealing manner. 
+    MetricFormatter enhances readability and presentation of 
+    metric results by providing attribute-style access and 
+    customizable output formatting.
+
+    Parameters
+    ----------
+    title : str, optional
+        The title to display at the top of the formatted output. 
+        If provided, it centers the title and frames the metrics 
+        output with lines for improved readability. Defaults to 
+        None, which omits the title from the output.
+    **kwargs : dict, optional
+        Arbitrary keyword arguments representing the performance 
+        metrics and their values. Each keyword argument is treated 
+        as a metric name with its corresponding value.
+
+    Attributes
+    ----------
+    Inherits all attributes from the Bunch class and optionally 
+    includes a `title` attribute if provided during initialization.
+
+    Examples
+    --------
+    >>> from gofast.api.formatter import MetricFormatter
+    >>> metrics = MetricFormatter(
+            title='Model Performance',
+            accuracy=0.95,
+            precision=0.93,
+            recall=0.92
+        )
+    >>> print(metrics)
+    ================= Model Performance ================
+    ====================================================
+                     Model Performance
+    ====================================================
+    accuracy    : 0.95
+    precision   : 0.93
+    recall      : 0.92
+    ====================================================
+
+    Without a title:
+    >>> metrics = MetricFormatter(accuracy=0.95, precision=0.93, recall=0.92)
+    >>> print(metrics)
+    ==========================================
+    accuracy    : 0.95
+    precision   : 0.93
+    recall      : 0.92
+    ==========================================
+
+    Notes
+    -----
+    MetricFormatter automatically adjusts the length of the framing 
+    lines ('=') to match the length of the longest metric string 
+    representation. This ensures a cohesive and balanced appearance 
+    regardless of the metric names or values. When providing a title, 
+    it's centered within the top frame for a professional presentation.
+    """
+    def __init__(self, title="Metric Results", **kwargs):
+        super().__init__(**kwargs)
+        self.title = title
+    
+    def __str__(self):
+        if not self.__dict__:
+            return "<empty MetricFormatter>"
+        
+        keys = sorted(self.__dict__.keys())
+        if 'title' in keys:
+            keys.remove('title')  # Exclude title from the keys to be printed
+        max_key_length = max(len(key) for key in keys)
+        
+        formatted_attrs = [
+            f"{key:{max_key_length}} : {self._format_iterable(self.__dict__[key])}" 
+            for key in keys if key != 'title'  # Ensure title is not repeated
+        ]
+        max_line_length = max(len(line) for line in formatted_attrs)
+        content_str = "\n".join(formatted_attrs)
+        
+        if self.title:
+            # Center the title and adjust '=' line length based on the longest line
+            title_length = max(max_line_length, len(self.title))
+            title_str = f"{self.title:^{title_length}}"
+            header_footer_line = "=" * title_length
+            formatted_output = ( 
+                f"{header_footer_line}\n{title_str}\n{header_footer_line}\n"
+                f"{content_str}\n{header_footer_line}"
+                )
+        else:
+            # No title provided, use the longest line length for '=' line and 
+            # include header/footer lines
+            header_footer_line = "=" * max_line_length
+            formatted_output = f"{header_footer_line}\n{content_str}\n{header_footer_line}"
+        
+        return formatted_output
 
 class BoxFormatter:
     """
@@ -386,4 +846,46 @@ class DescriptionFormatter:
         return formatter
         
 
+def format_iterable(attr):
+    """
+    Formats an iterable with a string representation that includes
+    statistical or structural information depending on the iterable's type.
+    """
+    def _numeric_stats(iterable):
+        return {
+            'min': round(np.min(iterable), 4),
+            'max': round(np.max(iterable), 4),
+            'mean': round(np.mean(iterable), 4),
+            'len': len(iterable)
+        }
     
+    def _format_numeric_iterable(iterable):
+        stats = _numeric_stats(iterable)
+        return f"{type(iterable).__name__} (min={stats['min']}, max={stats['max']}, mean={stats['mean']}, len={stats['len']})"
+
+    def _format_ndarray(array):
+        stats = _numeric_stats(array.flat) if np.issubdtype(array.dtype, np.number) else {}
+        details = ", ".join([f"{key}={value}" for key, value in stats.items()])
+        return f"ndarray ({details}, shape={array.shape}, dtype={array.dtype})"
+    
+    def _format_pandas_object(obj):
+        if isinstance(obj, pd.Series):
+            stats = _numeric_stats(obj) if obj.dtype != 'object' else {}
+            details = ", ".join([f"{key}={value}" for key, value in stats.items()])
+            return f"Series ({details}, len={obj.size}, dtype={obj.dtype})"
+        elif isinstance(obj, pd.DataFrame):
+            numeric_cols = obj.select_dtypes(include=np.number).columns
+            stats = _numeric_stats(obj[numeric_cols].values.flat) if not numeric_cols.empty else {}
+            details = ", ".join([f"{key}={value}" for key, value in stats.items()])
+            return f"DataFrame ({details}, n_rows={obj.shape[0]}, n_cols={obj.shape[1]}, dtypes={obj.dtypes.unique()})"
+    
+    if isinstance(attr, (list, tuple, set)) and all(isinstance(item, (int, float)) for item in attr):
+        return _format_numeric_iterable(attr)
+    elif isinstance(attr, np.ndarray):
+        return _format_ndarray(attr)
+    elif isinstance(attr, (pd.Series, pd.DataFrame)):
+        return _format_pandas_object(attr)
+    
+    return str(attr)
+
+     
