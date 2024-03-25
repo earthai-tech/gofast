@@ -23,7 +23,6 @@ from .util import manage_data, get_item_from, generate_synthetic_values
 from .util import generate_categorical_values, generate_regression_output
 from .util import apply_scaling, rename_data_columns 
 
-
 def make_classification(
     n_samples=100,
     n_features=20, *,

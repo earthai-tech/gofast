@@ -609,6 +609,7 @@ def visualize_uniform_sampling(
     --------
     Visualizing with default axes:
     
+    >>> from gofast.stats.probs import visualize_uniform_sampling
     >>> visualize_uniform_sampling(low=0, high=10, size=1000)
     
     Visualizing on an existing Axes object with custom parameters:

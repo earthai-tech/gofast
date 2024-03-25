@@ -37,12 +37,12 @@ from ..tools.coreutils import is_iterable, denormalize, type_of_target
 from ..tools.validator import check_X_y, check_consistent_length
 from ..tools.validator import validate_keras_model, check_array, is_frame
 
+extra_msg = "`deep_search` module expects the `tensorflow` library to be installed."
 try: 
-    extra_msg = "`deep_search` module expects the `tensorflow` library to be installed."
     import_optional_dependency('tensorflow', extra=extra_msg)
     import tensorflow as tf
 except BaseException as e : 
-    warnings.warn(str(e) )
+    warnings.warn(f"{extra_msg}: {e}" )
 else: 
     from tensorflow.keras.models import Model, Sequential
     from tensorflow.keras.layers import Dense, Dropout, BatchNormalization

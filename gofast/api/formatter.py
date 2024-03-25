@@ -1,3 +1,7 @@
+# -*- coding: utf-8 -*-
+#   License: BSD-3-Clause
+#   Author: LKouadio <etanoyau@gmail.com>
+
 # import textwrap
 import re
 
@@ -65,8 +69,9 @@ class DataFrameFormatter:
     customize this behavior by modifying the `_format_header` method.
     """
 
-    def __init__(self, title=None):
+    def __init__(self, title=None, keyword=None):
         self.title = title
+        self.keyword=keyword 
         self.df = None
         self._column_name_mapping = {}
 
@@ -96,6 +101,32 @@ class DataFrameFormatter:
         self._generate_column_name_mapping()
         self._populate_df_column_attributes()
         
+        # in fact keyword play the role of each module. 
+        # for instance, in stats modules, if 'result' if found 
+        # in the stitle, it use it to make a copy of this 
+        # name so user friendly can easily retrieved and is intuitively related
+        # to the module task.
+        # for instance in metric module , the recurrent keyword is 'score'
+        
+        # Fetch data from keywords via some attributes name
+        if self.keyword: 
+            if isinstance (self.keyword, (int, float, np.integer, np.floating)): 
+                self.keyword =None 
+            else: 
+            # check if keywors is a digit, ignore and set as None.
+            # keywor should be only string value
+                self.keyword = self._to_snake_case(self.keyword) 
+                setattr (self, self.keyword, self.df.copy())
+                
+        if self.title and not self.keyword: # since keyword is already set
+            default_keywords =  ['result', 'score', 'report' ] # complete some default keywords. 
+            
+            # check in the default_keywors
+            for default_kw_name in default_keywords: 
+                if default_kw_name in self.title.lower(): 
+                    setattr (self, default_kw_name, self.df.copy() )
+                    break 
+      
         return self 
     
     def _format_value(self, val, col_name, col_widths):
@@ -136,11 +167,14 @@ class DataFrameFormatter:
             formatted_val = f"{val:.4f}" if isinstance(val, float) else f"{val}"
    
         elif isinstance(val, str):
-            formatted_val = (val[:col_width - 3] + '...') if len(val) > col_width - 3 else val
+            formatted_val = ( 
+                (val[:col_width - 3] + '...') 
+                if len(val) > self._max_value_width  - 3 else val
+             )
         else:
             formatted_val = format_iterable(val)
     
-        if len(formatted_val) > col_width:
+        if len(formatted_val) > self._max_value_width :
             formatted_val = formatted_val[:col_width - 3] + '...'
     
         if isinstance(val, (int, float, np.integer, np.floating)):
@@ -173,13 +207,13 @@ class DataFrameFormatter:
         above the table. Separator lines differentiate the title, header, and data.
         """
 
-        max_value_width = 50  # Adjust as needed
+        self._max_value_width = 50  # Adjust as needed
     
         # Initial column widths based on column names and values
         initial_col_widths = {
             col: max(
                 len(str(col)),
-                max(min(len(str(val)), max_value_width) for val in self.df[col])
+                max(min(len(str(val)), self._max_value_width) for val in self.df[col])
             ) + 2
             for col in self.df.columns
         }
@@ -218,7 +252,7 @@ class DataFrameFormatter:
             f"\n{title_str}\n{line}\n{adjusted_header_row}\n{subline}\n" 
             if self.title else f"{line}\n{adjusted_header_row}\n{subline}\n"
             )
-    
+        
         return header, line, index_width, col_widths
         
     def _to_snake_case(self, name):
@@ -485,6 +519,7 @@ class BoxFormatter:
     
     Usage:
     ------
+    >>> from gofast.api.formatter import BoxFormatter
     >>> formatter = BoxFormatter("Example Title")
     >>> formatter.add_text("This is an example of formatted text.", 60)
     >>> print(formatter)

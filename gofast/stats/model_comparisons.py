@@ -463,7 +463,7 @@ def compute_model_ranks(
     
     # Rank the models based on their performance
     ranks = model_performance_data.rank(axis=1, ascending=False)
-    
+    ranks= DataFrameFormatter("Ranks Results").add_df (ranks)
     return ranks
 
 @isdf     
@@ -499,7 +499,8 @@ def perform_nemenyi_test2(
     # Adjust the index and columns of the result to match the input DataFrame
     pairwise_comparisons.index = ranks.columns
     pairwise_comparisons.columns = ranks.columns
-    
+    pairwise_comparisons= DataFrameFormatter("Nemenyi Results").add_df (
+        pairwise_comparisons)
     return pairwise_comparisons
 
 @isdf 
@@ -544,6 +545,7 @@ def perform_wilcoxon_base_test(
 
     Examples
     --------
+    >>> import pandas as pd 
     >>> from gofast.stats.model_comparisons import perform_wilcoxon_base_test
     >>> performance_data = pd.DataFrame({
     ...     'Model_X': [0.85, 0.80, 0.78],
@@ -573,7 +575,8 @@ def perform_wilcoxon_base_test(
     # Fill diagonal with NaNs since we don't compare a model with itself
     # pd.fill_diagonal(results.values, pd.NA)
     np.fill_diagonal(results.values, pd.NA)
-    
+    results= DataFrameFormatter("Wilcoxon Results").add_df (
+        results)
     return results
 
 def plot_cd_diagram(
@@ -684,9 +687,6 @@ def plot_cd_diagram(
     plt.tight_layout()
     plt.show()
 
-
-
-
 @isdf 
 def plot_model_rankings(
       model_performance_data: Union[Dict[str, List[float]], DataFrame]
@@ -720,6 +720,7 @@ def plot_model_rankings(
 
     Examples
     --------
+    >>> import pandas pd 
     >>> from gofast.stats.model_comparisons import plot_model_rankings
     >>> performance_data = {
     ...    'Model_X': [0.85, 0.80, 0.78],
@@ -778,7 +779,6 @@ def plot_model_rankings(
     plt.tight_layout()  # Adjust layout to fit all labels
     plt.show()
     
-
 
 @isdf     
 @ensure_pkg("scikit-posthocs", extra = ( 
@@ -890,7 +890,8 @@ def perform_posthoc_test(
         if test_method.lower() == 'tukey' 
         else method_function_mapper[test_method.lower()](ranks)
         )
-    
+    posthoc_result= DataFrameFormatter(f"Posthoc {test_method} Results").add_df (
+        posthoc_result)
     return posthoc_result
 
 @isdf 
@@ -971,7 +972,8 @@ def perform_posthoc_test2(
     else:
         raise ValueError(f"Unsupported test method '{test_method}'."
                          " Choose 'tukey' or 'nemenyi'.")
-
+    posthoc_result= DataFrameFormatter(f"Posthoc {test_method} Results").add_df (
+        posthoc_result)
     return posthoc_result
 
 @isdf 
@@ -1074,14 +1076,14 @@ def visualize_model_performance(
     
 @isdf 
 def visualize_wilcoxon_test(
-    model_performance_data, 
-    alpha=0.05, 
-    model_pairs=None, 
-    **kwargs
+    model_performance_data: DataFrame, 
+    alpha: float=0.05, 
+    model_pairs: Optional[ Tuple[str, str]]=None, 
+    **kwargs: Any
     ):
     """
-    Visualizes the results of the Wilcoxon signed-rank tests between pairs of models, 
-    highlighting significant differences in model performances.
+    Visualizes the results of the Wilcoxon signed-rank tests between pairs of
+    models, highlighting significant differences in model performances.
     
     Function helps in identifying models with statistically different 
     performance metrics, thereby assisting in model selection and comparison
@@ -1119,7 +1121,8 @@ def visualize_wilcoxon_test(
     ...    'Model_B': [0.79, 0.84, 0.76, 0.82, 0.78],
     ...    'Model_C': [0.81, 0.83, 0.77, 0.80, 0.76]
     ... })
-    >>> visualize_wilcoxon_test(df, alpha=0.05)
+    >>> results= visualize_wilcoxon_test(df, alpha=0.05)
+    >>> print(results)
        Model 1  Model 2  Statistic  p-value  Significant
     0  Model_A  Model_B        5.5   0.8125        False
     1  Model_A  Model_C        5.0   0.6250        False
@@ -1223,6 +1226,8 @@ def visualize_wilcoxon_test(
     plt.tight_layout()
     plt.show()
     
+    results_df= DataFrameFormatter("wilcoxon Results").add_df (
+        results_df)
     return results_df
 
 @isdf 

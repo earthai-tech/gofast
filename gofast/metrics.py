@@ -24,7 +24,8 @@ from sklearn.model_selection import cross_val_predict
 from sklearn.preprocessing import label_binarize, LabelEncoder
 
 from ._gofastlog import gofastlog
-from .tools.box import Bunch 
+# from .api.structures import Bunch 
+from .api.formatter import MetricFormatter
 from .tools.coreutils import normalize_string 
 from .tools.mathex import calculate_binary_iv, optimized_spearmanr 
 from .tools.validator import _is_numeric_dtype, _ensure_y_is_valid
@@ -1024,7 +1025,7 @@ def assess_regression_metrics(
     # Assuming _ensure_y_is_valid is defined to validate the inputs
     y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True)
     # Calculate common regression evaluation scores
-    scores = Bunch(
+    scores = MetricFormatter(
         mean_absolute_error=mean_absolute_error(
             y_true, y_pred, sample_weight=sample_weight, multioutput=multioutput),
         mean_squared_error=mean_squared_error(y_true, y_pred),
@@ -1152,7 +1153,7 @@ def assess_classifier_metrics(
     # Ensure y_true and y_pred are valid. 
     y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric =True )
     # Calculate evaluation scores
-    scores = Bunch(
+    scores = MetricFormatter(
         accuracy_score=accuracy_score(
             y_true, y_pred, normalize=normalize, sample_weight=sample_weight),
         recall_score=recall_score(
@@ -1423,7 +1424,7 @@ def precision_recall_tradeoff(
         error_msg= (f"Invalid scoring method '{scoring_method}'. Expected"
                     " 'decision_function' or 'predict_proba'.")
         )
-    from gofast.api.formatter import MetricFormatter 
+    
     _assert_binary_classification_args(y_true, label)
     if label is not None: 
         # Ensure binary classification
@@ -1631,13 +1632,15 @@ def roc_tradeoff(
     >>> from sklearn.model_selection import train_test_split
     >>> from sklearn.ensemble import RandomForestClassifier
     >>> from sklearn.datasets import make_classification
+    >>> from gofast.metrics import roc_tradeoff
     >>> X, y = make_classification(n_samples=1000, n_features=20,
     ...                            n_classes=2, random_state=42)
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2,
     ...                                                     random_state=42)
     >>> clf = RandomForestClassifier(random_state=42)
     >>> clf.fit(X_train, y_train)
-    >>> evaluate_roc(y_test, estimator=clf, X=X_test, display_chart=True)
+    >>> results = roc_tradeoff(y_test, estimator=clf, X=X_test, display_chart=True)
+    >>> print(results)
     
     This will display the ROC curve for the RandomForestClassifier on the test data.
     """
@@ -1670,7 +1673,8 @@ def roc_tradeoff(
         # Example of plotting
         display_roc (fpr, tpr, auc_score)
 
-    scores = Bunch(auc_score=auc_score, fpr=fpr, tpr=tpr, thresholds=thresholds)
+    scores = MetricFormatter(
+        auc_score=auc_score, fpr=fpr, tpr=tpr, thresholds=thresholds)
 
     return y_scores if return_scores else scores
 
@@ -1741,8 +1745,11 @@ def display_roc(fpr, tpr, auc_score, *, title=None, figsize=None):
     fpr, tpr, auc_score = map(np.asarray, [fpr, tpr, auc_score])
     if not (fpr.ndim == tpr.ndim == 1):
         raise ValueError("fpr and tpr must be 1-dimensional arrays.")
-    if not np.isscalar(auc_score):
-        raise ValueError("auc_score must be a scalar value.")
+    try: 
+        auc_score= float(auc_score)
+    except: 
+        if not np.isscalar(auc_score):
+            raise ValueError("auc_score must be a scalar value.")
 
     plt.figure(figsize=figsize or (10, 8))
     plt.plot(fpr, tpr, color='darkorange', lw=2,
@@ -1825,15 +1832,16 @@ def evaluate_confusion_matrix(
     >>> from sklearn.datasets import make_classification
     >>> from sklearn.model_selection import train_test_split
     >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from gofast.metrics import evaluate_confusion_matrix 
     >>> X, y = make_classification(
     ...    n_samples=1000, n_features=4, n_classes=2, random_state=42)
     >>> X_train, X_test, y_train, y_test = train_test_split(
     ...    X, y, test_size=0.25, random_state=42)
     >>> clf = RandomForestClassifier(random_state=42)
     >>> clf.fit(X_train, y_train)
-    >>> evaluate_confusion_matrix(
+    >>> results = evaluate_confusion_matrix(
     ...    y_test, classifier=clf, X=X_test, display=True, normalize=True)
-    
+    >>> print(results)
     This will output a Bunch object containing the confusion matrix and display
     the normalized confusion matrix.
 
@@ -1859,7 +1867,7 @@ def evaluate_confusion_matrix(
     if display:
         display_confusion_matrix(cm, labels=labels, cmap=cmap, normalize=normalize)
 
-    return Bunch(confusion_matrix=cm)
+    return MetricFormatter(confusion_matrix=cm)
 
 def display_confusion_matrix(cm, labels=None, cmap='viridis', normalize=False):
     """
@@ -2038,7 +2046,7 @@ def mae_flex(
     # Compute the modified MAE using significant errors
     mae = np.mean(significant_errors)
     
-    result = Bunch(MAE=mae)
+    result = MetricFormatter(score=mae)
     
     if detailed:
         result.min_error = np.min(significant_errors)
@@ -2165,7 +2173,7 @@ def mse_flex(
     # Compute the modified MSE using significant squared errors
     mse = np.mean(significant_squared_errors)
     
-    result = Bunch(MSE=mse)
+    result = MetricFormatter(score=mse)
     
     if detailed:
         result.min_error = np.min(significant_squared_errors)
@@ -2291,7 +2299,7 @@ def rmse_flex(
     # Compute the RMSE using significant squared errors
     rmse = np.sqrt(np.mean(significant_squared_errors))
     
-    result = Bunch(RMSE=rmse)
+    result = MetricFormatter(title="RMSE Results",  score=rmse)
     
     if detailed:
         result.min_error = np.min(significant_squared_errors)
@@ -2426,7 +2434,7 @@ def r2_flex(
     sst = np.sum((y_true - np.mean(y_true)) ** 2)
     r2 = 1 - (ssr / max (sst, epsilon)) # Prevent division by zero
     
-    result = Bunch(R2=r2)
+    result = MetricFormatter(title="R2 Results", score=r2)
     
     if n_predictors is None: 
         n_predictors = max (1, epsilon)
@@ -3385,7 +3393,7 @@ def madev_flex(
     else:
         madev = np.mean(abs_deviation, axis=axis)
     
-    result = Bunch(MADev=madev)
+    result = MetricFormatter(title="MADev Results", score=madev)
     
     if detailed:
         # Add detailed statistics if requested
@@ -3644,8 +3652,9 @@ def gini_score(
         validate_multioutput('warn', extra=' for Gini Coefficient calculation')
 
     if detailed_output:
-        gini_coefficient=Bunch (
-            GINIcoeff = gini_coefficient, 
+        gini_coefficient=MetricFormatter (
+            title="Gini Results",
+            gini_score = gini_coefficient, 
             total_weighted = total_weighted, 
             weighted_gini_sum= weighted_gini_sum 
             )
@@ -4856,7 +4865,7 @@ def jaccard_flex(
         y_true, y_pred, y_numeric=True, allow_nan=True, multi_output =True
     )
     # Initialize Bunch object to store results
-    b = Bunch()
+    b = MetricFormatter(title="Jaccard Results" )
     # Determine epsilon dynamically if required
     epsilon = check_epsilon(epsilon, y_pred, scale_factor= np.finfo(float).eps)
 

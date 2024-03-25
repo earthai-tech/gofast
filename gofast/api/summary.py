@@ -74,6 +74,7 @@ class ReportFactory:
         - report_type: Type of the report to create (e.g., 'model_performance', 'dataframe', 'optimization').
         - args, kwargs: Arguments required to instantiate the report classes.
         """
+        report_type = str(report_type).lower() 
         if report_type == 'model_performance':
             return ModelPerformanceReport(*args, **kwargs)
         elif report_type == 'dataframe':
@@ -82,6 +83,66 @@ class ReportFactory:
             return OptimizationReport(*args, **kwargs)
         else:
             raise ValueError("Unknown report type")
+            
+#XXX TODO 
+class CustomDataFrame(pd.DataFrame):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+    
+    def summary(self, include_correlation=False, include_uniques=False, 
+                statistics=['mean', 'std', 'min', '25%', '50%', '75%', 'max'],
+                include_sample=False, sample_size=5):
+        summary = {
+            "Shape": self.shape,
+            "Data Types": self.dtypes.to_dict(),
+            "Missing Values": self.isnull().sum().to_dict(),
+            "Basic Statistics": {}
+        }
+        
+        # Basic statistics for numeric columns based on user-selected statistics
+        if statistics:
+            summary["Basic Statistics"] = self.describe().loc[statistics].to_dict()
+        
+        # Correlation matrix for numeric columns
+        if include_correlation and self.select_dtypes(include=['number']).shape[1] > 1:
+            summary["Correlation Matrix"] = self.corr().round(2).to_dict()
+        
+        # Unique counts for categorical columns
+        if include_uniques:
+            cat_cols = self.select_dtypes(include=['object', 'category']).columns
+            summary["Unique Counts"] = {col: self[col].nunique() for col in cat_cols}
+        
+        # Sample of the data
+        if include_sample:
+            if sample_size > len(self):
+                sample_size = len(self)
+            summary["Sample Data"] = self.sample(n=sample_size).to_dict(orient='list')
+        
+        return summary
+
+
+# Example usage
+if __name__ == "__main__":
+    # Creating an example DataFrame
+    df_data = {
+        'A': [1, 2, 3, 4, 5],
+        'B': [5, 6, None, 8, 9],
+        'C': ['foo', 'bar', 'baz', 'qux', 'quux'],
+        'D': [0.1, 0.2, 0.3, np.nan, 0.5]
+    }
+    df = CustomDataFrame(df_data)
+    
+    # Customizing the summary
+    summary_ = df.summary(include_correlation=True, include_uniques=True, 
+                         statistics=['mean', '50%', 'max'], include_sample=True
+                         )
+    for key, value in summary_.items():
+        print(f"{key}:")
+        if isinstance(value, dict):
+            for subkey, subvalue in value.items():
+                print(f"  {subkey}: {subvalue}")
+        else:
+            print(f"  {value}")
 
 # class AnovaResults:
 #     """
