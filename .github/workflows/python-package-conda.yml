@@ -23,8 +23,8 @@ jobs:
     - name: Configure Conda 
       run: |
         echo "Configuring conda..."
-        # conda config --set channel_priority strict
-        conda config --set solver classic 
+        conda config --set channel_priority strict
+        # conda config --set solver classic 
     - name: Lint with flake8
       run: |
         conda install flake8 -y
