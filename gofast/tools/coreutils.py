@@ -8490,8 +8490,8 @@ def download_progress_hook(t):
     return update_to 
 
 def squeeze_specific_dim(
-        arr: np.ndarray, axis: Optional[int] = -1
-        ) -> np.ndarray:
+    arr: np.ndarray, axis: Optional[int] = -1
+    ) -> np.ndarray:
     """
     Squeeze specific dimensions of a NumPy array based on the axis parameter.
     
@@ -9050,7 +9050,12 @@ def to_series_if(
     >>> series = to_series_if(0.5, 8, np.array(
         [6.3]), [5], 2, value_names=['a', 'b', 'c', 'd', 'e'])
     >>> print(series)
-
+    a    0.5
+    b    8.0
+    c    6.3
+    d    5.0
+    e    2.0
+    dtype: float64
     >>> series = to_series_if(0.5, 8, np.array([6.3, 7]), [5], 2,
                               value_names=['a', 'b', 'c', 'd', 'e'], error='raise')
     ValueError: Failed to construct series, input types vary.
@@ -9632,6 +9637,7 @@ def check_uniform_type(
 
     Examples
     --------
+    >>> from gofast.tools.coreutils import check_uniform_type
     >>> check_uniform_type([1, 2, 3])
     True
 
@@ -9641,7 +9647,7 @@ def check_uniform_type(
     >>> deferred_check = check_uniform_type([1, 2, '3'], convert_values=True, 
     ...                                        target_type=int, return_func=True)
     >>> deferred_check()
-    True
+    [1, 2, 3]
 
     Notes
     -----
@@ -9682,7 +9688,7 @@ def check_uniform_type(
         # Check for type uniformity
         if not allow_mismatch and len(common_types) > 1:
             if raise_exception:
-                raise ValueError("Not all values are of the same type.")
+                raise ValueError("Not all values are the same type.")
             return False
 
         # Conversion
@@ -9716,27 +9722,3 @@ def check_uniform_type(
     return operation if return_func else operation()
 
 
-# def closest_color(rgb_color):
-#     """
-#     Finds the closest named CSS4 color to the given RGB(A) color.
-
-#     Parameters
-#     ----------
-#     rgb_color : tuple
-#         A tuple representing the RGB(A) color.
-
-#     Returns
-#     -------
-#     str
-#         The name of the closest CSS4 color.
-#     """
-#     # Remove the alpha channel if present
-#     rgb_color = rgb_color[:3]
-#     min_colors = {}
-#     for key, name in mcolors.CSS4_COLORS.items():
-#         r_c, g_c, b_c = mcolors.to_rgb(name)
-#         rd = (r_c - rgb_color[0]) ** 2
-#         gd = (g_c - rgb_color[1]) ** 2
-#         bd = (b_c - rgb_color[2]) ** 2
-#         min_colors[(rd + gd + bd)] = name
-#     return min_colors[min(min_colors.keys())]

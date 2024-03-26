@@ -9,88 +9,130 @@ import numpy as np
 import pandas as pd
 from .structures import Bunch
 
+
 class DataFrameFormatter:
     """
-    A class for formatting and printing pandas DataFrames in a structured
-    and visually appealing way. It supports adding titles, adjusting column
-    widths, and handling numerical precision.
+    Formats pandas DataFrames for enhanced visual presentation in textual output.
+    This class supports titles, dynamic adjustment of column widths based on content,
+    and automatic handling of numerical data precision. It also facilitates the direct
+    conversion of pandas Series to DataFrame for uniform handling.
 
     Parameters
     ----------
     title : str, optional
-        The title of the dataframe to be printed. If specified, the title will
-        be centered above the dataframe. Defaults to None.
+        The title to be displayed above the DataFrame when printed. If provided,
+        it centers the title over the DataFrame. Defaults to None.
+    keyword : str, optional
+        A keyword associated with the DataFrame content, facilitating intuitive 
+        attribute access for common data-related tasks. Defaults to None.
 
     Attributes
     ----------
     df : pandas.DataFrame or None
-        The dataframe to be formatted and printed. Initially set to None until
-        data is added via `add_data` method.
+        Stores the DataFrame to be formatted. Initially None until a DataFrame or
+        Series is added via `add_df`.
 
     Methods
     -------
-    add_data(df)
-        Adds a pandas DataFrame or Series to the formatter. If a Series is
-        provided, it is converted to a DataFrame.
+    add_df(df) : DataFrameFormatter
+        Adds a DataFrame or Series to the formatter, enabling further manipulation.
+        If a Series is provided, converts it to a DataFrame for consistent handling.
 
-    __str__()
-        Returns a string representation of the formatted dataframe for printing.
+    _process_keyword_attribute() : None
+        Handles keyword processing, setting an intuitive attribute based on the
+        DataFrame's context or title if applicable.
 
-    __repr__()
-        Returns a representation of the DataframeFormatter object, indicating
-        whether it contains data.
+    _format_value(val, col_name, col_widths) : str
+        Adjusts the presentation of DataFrame values for printing, applying 
+        truncation and formatting rules based on data type and content length.
+
+    _format_header() : tuple
+        Constructs the table header, including the title and column names, with
+        adjustments for exceptionally long titles or column content.
+
+    _to_snake_case(name) : str
+        Converts a given string to snake_case, facilitating standard attribute access.
+
+    _generate_column_name_mapping() : None
+        Creates a mapping from snake_case to original DataFrame column names.
+
+    _to_original_name(snake_case_name) : str
+        Retrieves the original column name from a snake_case version, aiding in
+        attribute-style data access.
+
+    _populate_df_column_attributes() : None
+        Dynamically assigns DataFrame columns as attributes of the formatter 
+        instance for direct access.
+
+    __repr__() : str
+        Provides a compact representation of the DataFrameFormatter instance, 
+        indicating data presence.
+
+    __str__() : str
+        Generates a structured and formatted string representation of the DataFrame,
+        ready for printing, complete with title and column alignments.
+
+    __getattr__(attr_name) : Any
+        Overrides attribute access, facilitating direct retrieval of DataFrame
+        columns via snake_case attributes or informative error handling.
 
     Examples
     --------
-    >>> import pandas as pd 
+    >>> import pandas as pd
     >>> from gofast.api.formatter import DataFrameFormatter
     >>> df = pd.DataFrame({
     ...     'column1': [1, 2, 3.12345, 4],
     ...     'column2': [5.6789, 6, 7, 8]
     ... }, index=['Index1', 'Index2', 'Index3', 'Index4'])
-    >>> formatter = DataFrameFormatter("My DataFrame")
+    >>> formatter = DataFrameFormatter("Overview of Data")
     >>> formatter.add_df(df)
     >>> print(formatter)
-            My Dataframe        
-    ============================
-              column1    column2
-    ----------------------------
-    Index1     1.0000     5.6789
-    Index2     2.0000     6.0000
-    Index3     3.1235     7.0000
-    Index4     4.0000     8.0000
-    ============================
+          Overview of Data        
+    ==============================
+            column1    column2    
+    ------------------------------
+    Index1   1.0000     5.6789     
+    Index2   2.0000     6.0000     
+    Index3   3.1235     7.0000     
+    Index4   4.0000     8.0000     
+    ==============================
 
     Notes
     -----
-    The class automatically adjusts the column widths based on the longest
-    value in each column to ensure that the table is aligned. For floating-point
-    numbers, a default formatting to four decimal places is applied. Users can
-    customize this behavior by modifying the `_format_header` method.
+    This formatter automatically determines the optimal column widths based on
+    content length to maintain alignment across rows. It defaults to four decimal
+    places for floating-point numbers but can be customized via internal methods.
+    The formatter also supports attribute-like access to DataFrame columns via
+    snake_case conversion of column names.
     """
 
     def __init__(self, title=None, keyword=None):
         self.title = title
-        self.keyword=keyword 
+        self.keyword = keyword
         self.df = None
         self._column_name_mapping = {}
-
-
+    
     def add_df(self, df):
         """
-        Adds a pandas DataFrame or Series to the formatter for printing and 
-        populates attributes for each column in snake_case.
+        Enhances the DataFrameFormatter by adding a DataFrame or Series,
+        handling attribute population with snake_case conversion, and
+        setting additional intuitive access based on predefined keywords
+        related to module functionality.
     
         Parameters
         ----------
         df : pandas.DataFrame or pandas.Series
-            The data to be added to the formatter. If a Series is provided, it
-            is converted to a DataFrame.
-            
+            The data to format. A Series will be converted to a DataFrame.
+    
         Raises
         ------
         ValueError
-            If the input is neither a pandas DataFrame nor a pandas Series.
+            If `df` is neither a pandas DataFrame nor a Series.
+    
+        Returns
+        -------
+        self : DataFrameFormatter
+            Enables method chaining.
         """
         if isinstance(df, pd.Series):
             df = df.to_frame()
@@ -100,35 +142,27 @@ class DataFrameFormatter:
         self.df = df
         self._generate_column_name_mapping()
         self._populate_df_column_attributes()
-        
-        # in fact keyword play the role of each module. 
-        # for instance, in stats modules, if 'result' if found 
-        # in the stitle, it use it to make a copy of this 
-        # name so user friendly can easily retrieved and is intuitively related
-        # to the module task.
-        # for instance in metric module , the recurrent keyword is 'score'
-        
-        # Fetch data from keywords via some attributes name
-        if self.keyword: 
-            if isinstance (self.keyword, (int, float, np.integer, np.floating)): 
-                self.keyword =None 
-            else: 
-            # check if keywors is a digit, ignore and set as None.
-            # keywor should be only string value
-                self.keyword = self._to_snake_case(self.keyword) 
-                setattr (self, self.keyword, self.df.copy())
-                
-        if self.title and not self.keyword: # since keyword is already set
-            default_keywords =  ['result', 'score', 'report' ] # complete some default keywords. 
-            
-            # check in the default_keywors
-            for default_kw_name in default_keywords: 
-                if default_kw_name in self.title.lower(): 
-                    setattr (self, default_kw_name, self.df.copy() )
-                    break 
-      
-        return self 
     
+        self._process_keyword_attribute()
+    
+        return self
+    
+    def _process_keyword_attribute(self):
+        """
+        Processes the keyword to set an intuitive attribute for data retrieval.
+        Also considers title for default keywords in absence of an 
+        explicit keyword.
+        """
+        if self.keyword and not self.keyword.isdigit():
+            snake_case_keyword = self._to_snake_case(str(self.keyword))
+            setattr(self, snake_case_keyword, self.df.copy())
+        elif self.title:
+            default_keywords = ['result', 'score', 'report']  # Add more as needed.
+            matched_keyword = next(
+                (kw for kw in default_keywords if kw in self.title.lower()), None)
+            if matched_keyword:
+                setattr(self, matched_keyword, self.df.copy())
+        
     def _format_value(self, val, col_name, col_widths):
         """
         Formats a given value for display within a specified column width, ensuring
@@ -206,8 +240,7 @@ class DataFrameFormatter:
         even in the presence of long texts. If a title is provided, it is centered 
         above the table. Separator lines differentiate the title, header, and data.
         """
-
-        self._max_value_width = 50  # Adjust as needed
+        self._max_value_width = 50  
     
         # Initial column widths based on column names and values
         initial_col_widths = {
@@ -431,7 +464,6 @@ class MetricFormatter(Bunch):
             recall=0.92
         )
     >>> print(metrics)
-    ================= Model Performance ================
     ====================================================
                      Model Performance
     ====================================================
@@ -798,7 +830,8 @@ class DescriptionFormatter:
     >>> from gofast.api.formatter import DescriptionFormatter
     >>> feature_descriptions = {
     ...     "Feature1": "This feature represents the age of the individual.",
-    ...     "Feature2": "This feature indicates whether the individual has a loan: 1 for yes, 0 for no.",
+    ...     "Feature2": ("This feature indicates whether the individual has"
+    ...                 " a loan: 1 for yes, 0 for no."),
     ...     "Feature3": "Annual income of the individual in thousands."
     ... }
     >>> formatter_features = DescriptionFormatter(
@@ -811,7 +844,7 @@ class DescriptionFormatter:
     # |------------------------------------------|
     # | Feature1 | This feature represents the...|
     # | Feature2 | This feature indicates whet...|
-    # | Feature3 | Annual income of the individ...|
+    # | Feature3 | Annual income of the individ..|
     # |==========================================|
 
     # Example using a simple textual description
@@ -880,7 +913,6 @@ class DescriptionFormatter:
 
         return formatter
         
-
 def format_iterable(attr):
     """
     Formats an iterable with a string representation that includes
@@ -896,7 +928,10 @@ def format_iterable(attr):
     
     def _format_numeric_iterable(iterable):
         stats = _numeric_stats(iterable)
-        return f"{type(iterable).__name__} (min={stats['min']}, max={stats['max']}, mean={stats['mean']}, len={stats['len']})"
+        return ( 
+            f"{type(iterable).__name__} (min={stats['min']},"
+            f" max={stats['max']}, mean={stats['mean']}, len={stats['len']})"
+            )
 
     def _format_ndarray(array):
         stats = _numeric_stats(array.flat) if np.issubdtype(array.dtype, np.number) else {}
@@ -912,9 +947,13 @@ def format_iterable(attr):
             numeric_cols = obj.select_dtypes(include=np.number).columns
             stats = _numeric_stats(obj[numeric_cols].values.flat) if not numeric_cols.empty else {}
             details = ", ".join([f"{key}={value}" for key, value in stats.items()])
-            return f"DataFrame ({details}, n_rows={obj.shape[0]}, n_cols={obj.shape[1]}, dtypes={obj.dtypes.unique()})"
+            return ( 
+                f"DataFrame ({details}, n_rows={obj.shape[0]},"
+                " n_cols={obj.shape[1]}, dtypes={obj.dtypes.unique()})"
+                )
     
-    if isinstance(attr, (list, tuple, set)) and all(isinstance(item, (int, float)) for item in attr):
+    if isinstance(attr, (list, tuple, set)) and all(
+            isinstance(item, (int, float)) for item in attr):
         return _format_numeric_iterable(attr)
     elif isinstance(attr, np.ndarray):
         return _format_ndarray(attr)

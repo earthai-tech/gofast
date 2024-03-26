@@ -24,10 +24,11 @@ jobs:
       run: |
         echo "Configuring conda..."
         conda config --set channel_priority strict
-        # conda config --set solver classic 
+        conda config --set solver classic 
     - name: Lint with flake8
       run: |
-        conda install flake8 -y
+        # conda install flake8 -y
+        python -m pip install flake8 
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 

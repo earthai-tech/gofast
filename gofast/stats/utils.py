@@ -4757,9 +4757,8 @@ def _visualize_paired_ttest_differences(
     "statsmodels", 
     extra="'rm_anova' and 'mcnemar' tests expect statsmodels' to be installed.",
     partial_check=True,
-    condition= lambda *args, **kwargs: kwargs.get("type_test") in [
+    condition= lambda *args, **kwargs: kwargs.get("test_type") in [
         "rm_anova", "mcnemar"]
-
     )
 def statistical_tests(
     *args, 
@@ -4921,7 +4920,7 @@ def statistical_tests(
     - Kruskal-Wallis H Test ('kruskal_wallis'):
         A non-parametric version of ANOVA for comparing two or more independent
         groups. Suitable for data that do not meet the assumptions of normality
-        required for ANOVA [3].
+        required for ANOVA [3]_.
         
         .. math::
             H = \\frac{12}{N(N+1)} \\sum_{i=1}^{k} \\frac{R_i^2}{n_i} - 3(N+1)
@@ -5175,7 +5174,6 @@ def _extract_statistical_test_results(
     
     # Convert to pandas DataFrame if requested
     if return_as_frame:
-        import pandas as pd
         test_results_df = pd.DataFrame([test_results], columns=["Statistic", "P-value"])
         test_results_df.rename(index={0: name}, inplace=True)
         return test_results_df
@@ -5515,7 +5513,7 @@ def _fix_rm_anova_dataset(
 
 @ensure_pkg ("statsmodels")
 def mixed_effects_model(
-    data: pd.DataFrame, 
+    data: DataFrame, 
     formula: str, 
     groups: str, 
     re_formula: Optional[str] = None,
@@ -5604,6 +5602,7 @@ def mixed_effects_model(
         
     >>> import numpy as np 
     >>> import pandas as pd 
+    >>> from gofast.stats.utils import mixed_effects_model
     >>> df = pd.DataFrame({
     ...     'subject_id': [1, 1, 2, 2],
     ...     'score': [5.5, 6.5, 5.0, 6.0],

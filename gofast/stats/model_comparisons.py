@@ -112,16 +112,18 @@ def perform_friedman_test(
 
     # Checking for any NaN values in DataFrame
     if model_performance_data.isnull().values.any():
-        raise ValueError(
-            "model_performance_data DataFrame contains NaN values. Please clean your data.")
+        raise ValueError("model_performance_data DataFrame contains"
+                         " NaN values. Please clean your data.")
         
     alpha = validate_ratio( alpha, bounds=(0, 1), to_percent= True, exclude=0 )
     # Perform the Friedman test
-    ranks = np.array([rankdata(-1 * performance) for performance in model_performance_data.values])
+    ranks = np.array([rankdata(-1 * performance)
+                      for performance in model_performance_data.values])
     n_datasets, n_models = ranks.shape
     rank_sums = ranks.sum(axis=0)
     statistic = ( 
-        (12 / (n_datasets*n_models*(n_models+1)) * np.sum(rank_sums**2)) - (3*n_datasets*(n_models+1))
+        (12 / (n_datasets*n_models*(n_models+1)) * np.sum(rank_sums**2)
+         ) - (3*n_datasets*(n_models+1))
         )
     df = n_models - 1
     p_value = 1 - chi2.cdf(statistic, df)
@@ -323,7 +325,6 @@ def perform_wilcoxon_test(
     for each pair of models. A p-value less than 0.05 would indicate a statistically
     significant difference in performance between the two models.
     """
-
     n_models = model_performance_data.shape[1]
     p_values_matrix = np.full((n_models, n_models), np.nan)
     
