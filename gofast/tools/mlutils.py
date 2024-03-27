@@ -9,7 +9,6 @@ from __future__ import annotations
 import os
 import re 
 import copy 
-import inspect 
 import tarfile 
 import warnings 
 import pickle 
@@ -36,18 +35,15 @@ from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.preprocessing import OneHotEncoder,RobustScaler ,OrdinalEncoder 
 from sklearn.preprocessing import StandardScaler,MinMaxScaler,  LabelBinarizer
 from sklearn.preprocessing import LabelEncoder,Normalizer, PolynomialFeatures 
-from sklearn.utils import all_estimators, resample
+from sklearn.utils import resample
 
 from .._gofastlog import gofastlog
-from .._typing import List, Tuple, Any, Dict,  Optional,Union, Iterable,Series 
-from .._typing import _T, _F, ArrayLike, NDArray,  DataFrame, Set 
-
-from ..compat.sklearn import get_feature_names 
+from .._typing import List, Tuple, Any, Dict,  Optional,Union, Series 
+from .._typing import  _F, ArrayLike, NDArray,  DataFrame
+from ..compat.sklearn import get_feature_names
 from ..compat.sklearn import train_test_split 
-from ..decorators import isdf
-from ..exceptions import ParameterNumberError, EstimatorError 
-   
-from .coreutils import _assert_all_types, _isin,  is_in_if,  ellipsis2false
+from .baseutils import select_features 
+from .coreutils import _assert_all_types, is_in_if,  ellipsis2false
 from .coreutils import smart_format,  is_iterable, get_valid_kwargs
 from .coreutils import is_classification_task, to_numeric_dtypes, fancy_printer
 from .coreutils import validate_feature, download_progress_hook, exist_features
@@ -62,14 +58,10 @@ _logger = gofastlog().get_gofast_logger(__name__)
 
 __all__=[ 
     "evaluate_model",
-    "select_features", 
     "get_global_score", 
     "get_correlated_features", 
-    "categorize_target", 
     "resampling", 
     "bin_counting", 
-    "labels_validator", 
-    "rename_labels_in" , 
     "soft_imputer", 
     "soft_scaler", 
     "select_feature_importances", 
@@ -78,7 +70,6 @@ __all__=[
     "build_data_preprocessor", 
     "bi_selector", 
     "get_target", 
-    "extract_target",  
     "stats_from_prediction", 
     "fetch_tgz", 
     "fetch_model", 
@@ -97,9 +88,9 @@ __all__=[
     ]
 
 #XXXTODO
-@isdf 
-def basic_preprocess(
-    data, 
+
+def base_preprocess(
+    data: DataFrame, 
     target_columns=None,
     columns=None, 
     impute_strategy=None,
@@ -165,7 +156,14 @@ def basic_preprocess(
     After preprocessing, the data will have imputed missing values, scaled
     numeric features, and encoded categorical variables. 
     """
-
+    data = build_data_if(
+        data,
+        to_frame =True, 
+        force=True, 
+        input_name ='col',
+        raise_warning='silence' 
+    )
+    
     np.random.seed(seed)
     impute_strategy = impute_strategy or {'numeric': 'median', 
                                           'categorical': 'constant'
@@ -1268,85 +1266,7 @@ def get_target (df, tname, inplace = True):
     
     return t, df
 
-def select_features(
-    data: DataFrame,
-    features: List[str] =None, 
-    include = None, 
-    exclude = None,
-    coerce: bool=...,
-    columns: list=None, 
-    verify_integrity:bool=..., 
-	parse_features: bool=..., 
-    **kwd
-    ): 
-    """ Select features  and return new dataframe.  
-    
-    :param data: a dataframe for features selections 
-    :param features: list of features to select. List of features must be in the 
-        dataframe otherwise an error occurs. 
-    :param include: the type of data to retrieve in the dataframe `df`. Can  
-        be ``number``. 
-    :param exclude: type of the data to exclude in the dataframe `df`. Can be 
-        ``number`` i.e. only non-digits data will be keep in the data return.
-    :param coerce: return the whole dataframe with transforming numeric columns.
-        Be aware that no selection is done and no error is raises instead. 
-        *default* is ``False``
-    :param columns: list, needs columns to construst a dataframe if data is 
-        passed as Numpy object array.
-    :param verify_integrity: bool, Control the data type and rebuilt the data 
-       to the right type.
-    :param parse_features:bool, parse the string and convert to an iterable object.
-    :param kwd: additional keywords arguments from `pd.astype` function 
-    
-    :ref: https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.astype.html
-    
-    :examples: 
-        >>> from gofast.tools.mlutils import select_features 
-        >>> data = {"Color": ['Blue', 'Red', 'Green'], 
-                    "Name": ['Mary', "Daniel", "Augustine"], 
-                    "Price ($)": ['200', "300", "100"]
-                    }
-        >>> select_features (data, include='number')
-        Out[230]: 
-        Empty DataFrame
-        Columns: []
-        Index: [0, 1, 2]
-        >>> select_features (data, include='number', verify_integrity =True )
-        Out[232]: 
-            Price ($)
-        0       200.0
-        1       300.0
-        2       100.0
-        >>> select_features (data, features =['Color', 'Price ($)'], )
-        Out[234]: 
-           color  Price ($)
-        0   Blue        200
-        1    Red        300
-        2  Green        100
-    """
-    coerce, verify_integrity, parse_features= ellipsis2false( 
-        coerce, verify_integrity, parse_features)
-    
-    data = build_data_if(data, columns = columns, )
-  
-    if verify_integrity: 
-        data = to_numeric_dtypes(data )
-        
-    if features is not None: 
-        features= list(is_iterable (
-            features, exclude_string=True, transform=True, 
-            parse_string = parse_features)
-            )
-        validate_feature(data, features, verbose ='raise')
-    # change the dataype 
-    data = data.astype (float, errors ='ignore', **kwd) 
-    # assert whether the features are in the data columns
-    if features is not None: 
-        return data [features] 
-    # raise ValueError: at least one of include or exclude must be nonempty
-    # use coerce to no raise error and return data frame instead.
-    return data if coerce else data.select_dtypes (include, exclude) 
-    
+ 
 def get_global_score(
     cvres: Dict[str, ArrayLike],
     ignore_convergence_problem: bool = False
@@ -1408,411 +1328,6 @@ def get_global_score(
         mean_std = np.mean(cvres.get('std_test_score'))
 
     return mean_score, mean_std
-
-def cfexist(features_to: List[ArrayLike], 
-            features: List[str] )-> bool:      
-    """
-    Control features existence into another list . List or array can be a 
-    dataframe columns for pratical examples.  
-    
-    :param features_to :list of array to be controlled .
-    :param features: list of whole features located on array of `pd.DataFrame.columns` 
-    
-    :returns: 
-        -``True``:If the provided list exist in the features colnames 
-        - ``False``: if not 
-
-    """
-    if isinstance(features_to, str): 
-        features_to =[features_to]
-    if isinstance(features, str): features =[features]
-    
-    if sorted(list(features_to))== sorted(list(
-            set(features_to).intersection(set(features)))): 
-        return True
-    else: return False 
-
-def formatGenericObj(generic_obj :Iterable[_T])-> _T: 
-    """
-    Format a generic object using the number of composed items. 
-
-    :param generic_obj: Can be a ``list``, ``dict`` or other `TypeVar` 
-        classified objects.
-    
-    :Example: 
-        
-        >>> from gofast.tools.mlutils import formatGenericObj 
-        >>> formatGenericObj ({'ohmS', 'lwi', 'power', 'id', 
-        ...                         'sfi', 'magnitude'})
-        
-    """
-    
-    return ['{0}{1}{2}'.format('{', ii, '}') for ii in range(
-                    len(generic_obj))]
-
-def find_relation_between_generics(
-    gen_obj1: Iterable[Any],
-    gen_obj2: Iterable[Any],
-    operation: str = "intersection"
-) -> Set[Any]:
-    """
-    Computes either the intersection or difference of two generic iterable objects.
-
-    Based on the specified operation, this function finds either common elements 
-    (intersection) or unique elements (difference) between two iterable objects 
-    like lists, sets, or dictionaries.
-
-    Parameters
-    ----------
-    gen_obj1 : Iterable[Any]
-        The first generic iterable object. Can be a list, set, dictionary, 
-        or any iterable type.
-    gen_obj2 : Iterable[Any]
-        The second generic iterable object. Same as gen_obj1.
-    operation : str, optional
-        The operation to perform. Can be 'intersection' or 'difference'.
-        Defaults to 'intersection'.
-
-    Returns
-    -------
-    Set[Any]
-        A set containing either the common elements (intersection) or 
-        unique elements (difference) of the two iterables.
-
-    Examples
-    --------
-    Intersection:
-    >>> from gofast.tools.mlutils import find_relation_between_generics
-    >>> result = find_relation_between_generics(
-    ...     ['ohmS', 'lwi', 'power', 'id', 'sfi', 'magnitude'], 
-    ...     {'ohmS', 'lwi', 'power'}
-    ... )
-    >>> print(result)
-    {'ohmS', 'lwi', 'power'}
-
-    Difference:
-    >>> result = find_relation_between_generics(
-    ...     ['ohmS', 'lwi', 'power', 'id', 'sfi', 'magnitude'], 
-    ...     {'ohmS', 'lwi', 'power'},
-    ...     operation='difference'
-    ... )
-    >>> print(result)
-    {'id', 'sfi', 'magnitude'}
-
-    Notes
-    -----
-    The function returns the result as a set, irrespective of the
-    type of the input iterables. The 'operation' parameter controls
-    whether the function calculates the intersection or difference.
-    """
-
-    set1 = set(gen_obj1)
-    set2 = set(gen_obj2)
-
-    if operation == "intersection":
-        return set1.intersection(set2)
-    elif operation == "difference":
-        if len(gen_obj1) <= len(gen_obj2):
-            return set(gen_obj2).difference(set(gen_obj1))
-        else:
-            return set(gen_obj1).difference(set(gen_obj2))
-    else:
-        raise ValueError("Invalid operation specified. Choose"
-                         " 'intersection' or 'difference'.")
-
-def find_intersection_between_generics(
-    gen_obj1: Iterable[Any],
-    gen_obj2: Iterable[Any]
-) -> Set[Any]:
-    """
-    Computes the intersection of two generic iterable objects.
-
-    This function finds common elements between two iterable objects 
-    (like lists, sets, or dictionaries) and returns a set containing 
-    these shared elements. The function is designed to handle various 
-    iterable types.
-
-    Parameters
-    ----------
-    gen_obj1 : Iterable[Any]
-        The first generic iterable object. Can be a list, set, dictionary, 
-        or any iterable type.
-    gen_obj2 : Iterable[Any]
-        The second generic iterable object. Same as gen_obj1.
-
-    Returns
-    -------
-    Set[Any]
-        A set containing the elements common to both iterables.
-
-    Example
-    -------
-    >>> from gofast.tools.mlutils import find_intersection_between_generics
-    >>> result = find_intersection_between_generics(
-    ...     ['ohmS', 'lwi', 'power', 'id', 'sfi', 'magnitude'], 
-    ...     {'ohmS', 'lwi', 'power'}
-    ... )
-    >>> print(result)
-    {'ohmS', 'lwi', 'power'}
-
-    Notes
-    -----
-    The function returns the intersection as a set, irrespective of the
-    type of the input iterables.
-    """
-
-    # Convert both iterables to sets for intersection calculation
-    set1 = set(gen_obj1)
-    set2 = set(gen_obj2)
-
-    # Calculate and return the intersection
-    return set1.intersection(set2)
-
-def findIntersectionGenObject(
-        gen_obj1: Iterable[Any], 
-        gen_obj2: Iterable[Any]
-                              )-> set: 
-    """
-    Find the intersection of generic object and keep the shortest len 
-    object `type` at the be beginning 
-  
-    :param gen_obj1: Can be a ``list``, ``dict`` or other `TypeVar` 
-        classified objects.
-    :param gen_obj2: Idem for `gen_obj1`.
-    
-    :Example: 
-        
-        >>> from gofast.tools.mlutils import findIntersectionGenObject
-        >>> findIntersectionGenObject(
-        ...    ['ohmS', 'lwi', 'power', 'id', 'sfi', 'magnitude'], 
-        ...    {'ohmS', 'lwi', 'power'})
-        [out]:
-        ...  {'ohmS', 'lwi', 'power'}
-    
-    """
-    if len(gen_obj1) <= len(gen_obj2):
-        objType = type(gen_obj1)
-    else: objType = type(gen_obj2)
-
-    return objType(set(gen_obj1).intersection(set(gen_obj2)))
-
-def find_difference_between_generics(
-    gen_obj1: Iterable[Any],
-    gen_obj2: Iterable[Any]
-   ) -> Union[None, Set[Any]]:
-    """
-    Identifies the difference between two generic iterable objects.
-
-    This function computes the difference between two iterable objects 
-    (like lists or sets) and returns a set containing elements that are 
-    unique to the larger iterable. If both iterables are of the same length, 
-    the function returns None.
-
-    Parameters
-    ----------
-    gen_obj1 : Iterable[Any]
-        The first generic iterable object. Can be a list, set, dictionary, 
-        or any iterable type.
-    gen_obj2 : Iterable[Any]
-        The second generic iterable object. Same as gen_obj1.
-
-    Returns
-    -------
-    Union[None, Set[Any]]
-        A set containing the unique elements from the larger iterable.
-        Returns None if both
-        iterables are of equal length.
-
-    Example
-    -------
-    >>> from gofast.tools.mlutils import find_difference_between_generics
-    >>> result = find_difference_between_generics(
-    ...     ['ohmS', 'lwi', 'power', 'id', 'sfi', 'magnitude'],
-    ...     {'ohmS', 'lwi', 'power'}
-    ... )
-    >>> print(result)
-    {'id', 'sfi', 'magnitude'}
-    """
-
-    # Convert both iterables to sets for difference calculation
-    set1 = set(gen_obj1)
-    set2 = set(gen_obj2)
-
-    # Calculate difference based on length
-    if len(set1) > len(set2):
-        return set1.difference(set2)
-    elif len(set1) < len(set2):
-        return set2.difference(set1)
-
-    # Return None if both are of equal length
-    return None
-
-def findDifferenceGenObject(gen_obj1: Iterable[Any],
-                            gen_obj2: Iterable[Any]
-                              )-> None | set: 
-    """
-    Find the difference of generic object and keep the shortest len 
-    object `type` at the be beginning: 
- 
-    :param gen_obj1: Can be a ``list``, ``dict`` or other `TypeVar` 
-        classified objects.
-    :param gen_obj2: Idem for `gen_obj1`.
-    
-    :Example: 
-        
-        >>> from gofast.tools.mlutils import findDifferenceGenObject
-        >>> findDifferenceGenObject(
-        ...    ['ohmS', 'lwi', 'power', 'id', 'sfi', 'magnitude'], 
-        ...    {'ohmS', 'lwi', 'power'})
-        [out]:
-        ...  {'ohmS', 'lwi', 'power'}
-    
-    """
-    if len(gen_obj1) < len(gen_obj2):
-        objType = type(gen_obj1)
-        return objType(set(gen_obj2).difference(set(gen_obj1)))
-    elif len(gen_obj1) > len(gen_obj2):
-        objType = type(gen_obj2)
-        return objType(set(gen_obj1).difference(set(gen_obj2)))
-    else: return 
-   
-    return set(gen_obj1).difference(set(gen_obj2))
-    
-def featureExistError(superv_features: Iterable[_T], 
-                      features:Iterable[_T]) -> None:
-    """
-    Catching feature existence errors.
-    
-    check error. If nothing occurs  then pass 
-    
-    :param superv_features: 
-        list of features presuming to be controlled or supervised
-        
-    :param features: 
-        List of all features composed of pd.core.DataFrame. 
-    
-    """
-    for ii, supff in enumerate([superv_features, features ]): 
-        if isinstance(supff, str): 
-            if ii==0 : superv_features=[superv_features]
-            if ii==1 :features =[superv_features]
-            
-    try : 
-        resH= cfexist(features_to= superv_features,
-                           features = features)
-    except TypeError: 
-        
-        print(' Features can not be a NoneType value.'
-              'Please set a right features.')
-        _logger.error('NoneType can not be a features!')
-    except :
-        raise ParameterNumberError  (
-           f'Parameters number of {features} is  not found in the '
-           ' dataframe columns ={0}'.format(list(features)))
-    
-    else: 
-        if not resH:  raise ParameterNumberError  (
-            f'Parameters number is ``{features}``. NoneType object is'
-            ' not allowed in  dataframe columns ={0}'.
-            format(list(features)))
-
-def control_existing_estimator(
-    estimator_name: str, 
-    predefined_estimators=None, 
-    raise_error: bool = False
-) -> Union[Tuple[str, str], None]:
-    """
-    Validates and retrieves the corresponding prefix for a given estimator name.
-
-    This function checks if the provided estimator name exists in a predefined
-    list of estimators or in scikit-learn. If found, it returns the corresponding
-    prefix and full name. Otherwise, it either raises an error or returns None,
-    based on the 'raise_error' flag.
-
-    Parameters
-    ----------
-    estimator_name : str
-        The name of the estimator to check.
-    predefined_estimators : dict, default _predefined_estimators
-        A dictionary of predefined estimators.
-    raise_error : bool, default False
-        If True, raises an error when the estimator is not found. Otherwise, 
-        emits a warning.
-
-    Returns
-    -------
-    Tuple[str, str] or None
-        A tuple containing the prefix and full name of the estimator, or 
-        None if not found.
-
-    Example
-    -------
-    >>> from gofast.tools.mlutils import control_existing_estimator
-    >>> test_est = control_existing_estimator('svm')
-    >>> print(test_est)
-    ('svc', 'SupportVectorClassifier')
-    """
-    # Define a dictionary of predefined estimators
-    _predefined_estimators ={
-            'dtc': ['DecisionTreeClassifier', 'dtc', 'dec', 'dt'],
-            'svc': ['SupportVectorClassifier', 'svc', 'sup', 'svm'],
-            'sdg': ['SGDClassifier','sdg', 'sd', 'sdg'],
-            'knn': ['KNeighborsClassifier','knn', 'kne', 'knr'],
-            'rdf': ['RandomForestClassifier', 'rdf', 'rf', 'rfc',],
-            'ada': ['AdaBoostClassifier','ada', 'adc', 'adboost'],
-            'vtc': ['VotingClassifier','vtc', 'vot', 'voting'],
-            'bag': ['BaggingClassifier', 'bag', 'bag', 'bagg'],
-            'stc': ['StackingClassifier','stc', 'sta', 'stack'],
-            'xgb': ['ExtremeGradientBoosting', 'xgboost', 'gboost', 'gbdm', 'xgb'], 
-          'logit': ['LogisticRegression', 'logit', 'lr', 'logreg'], 
-          'extree': ['ExtraTreesClassifier', 'extree', 'xtree', 'xtr']
-            }
-    predefined_estimators = predefined_estimators or _predefined_estimators
-    
-    estimator_name= estimator_name.lower().strip() if isinstance (
-        estimator_name, str) else get_estimator_name(estimator_name)
-    
-    # Check if the estimator is in the predefined list
-    for prefix, names in predefined_estimators.items():
-        lower_names = [name.lower() for name in names]
-        
-        if estimator_name in lower_names:
-            return prefix, names[0]
-
-    # If not found in predefined list, check if it's a valid scikit-learn estimator
-    if estimator_name in _get_sklearn_estimator_names():
-        return estimator_name, estimator_name
-
-    # If XGBoost is installed, check if it's an XGBoost estimator
-    if 'xgb' in predefined_estimators and estimator_name.startswith('xgb'):
-        return 'xgb', estimator_name
-
-    # If raise_error is True, raise an error; otherwise, emit a warning
-    if raise_error:
-        valid_names = [name for names in predefined_estimators.values() for name in names]
-        raise EstimatorError(f'Unsupported estimator {estimator_name!r}. '
-                             f'Expected one of {valid_names}.')
-    else:
-        available_estimators = _get_available_estimators(predefined_estimators)
-        warning_msg = (f"Estimator {estimator_name!r} not found. "
-                       f"Expected one of: {available_estimators}.")
-        warnings.warn(warning_msg)
-
-    return None
-
-def _get_sklearn_estimator_names():
-    # Retrieve all scikit-learn estimator names using all_estimators
-    sklearn_estimators = [name for name, _ in all_estimators(type_filter='classifier')]
-    sklearn_estimators += [name for name, _ in all_estimators(type_filter='regressor')]
-    return sklearn_estimators
-
-def _get_available_estimators(predefined_estimators):
-    # Combine scikit-learn and predefined estimators
-    sklearn_estimators = _get_sklearn_estimator_names()
-    xgboost_estimators = ['xgb' + name for name in predefined_estimators['xgb']]
-    
-    available_estimators = sklearn_estimators + xgboost_estimators
-    return available_estimators
 
 def format_model_score(
     model_score: Union[float, Dict[str, float]] = None,
@@ -3472,301 +2987,7 @@ def load_model(
         return model_info
 
     return loaded_data
-
-def categorize_target(
-    arr :ArrayLike |Series , /, 
-    func: _F = None,  
-    labels: int | List[int] = None, 
-    rename_labels: Optional[str] = None, 
-    coerce:bool=False,
-    order:str='strict',
-    ): 
-    """ Categorize array to hold the given identifier labels. 
-    
-    Classifier numerical values according to the given label values. Labels 
-    are a list of integers where each integer is a group of unique identifier  
-    of a sample in the dataset. 
-    
-    Parameters 
-    -----------
-    arr: array-like |pandas.Series 
-        array or series containing numerical values. If a non-numerical values 
-        is given , an errors will raises. 
-    func: Callable, 
-        Function to categorize the target y.  
-    labels: int, list of int, 
-        if an integer value is given, it should be considered as the number 
-        of category to split 'y'. For instance ``label=3`` applied on 
-        the first ten number, the labels values should be ``[0, 1, 2]``. 
-        If labels are given as a list, items must be self-contain in the 
-        target 'y'.
-    rename_labels: list of str; 
-        list of string or values to replace the label integer identifier. 
-    coerce: bool, default =False, 
-        force the new label names passed to `rename_labels` to appear in the 
-        target including or not some integer identifier class label. If 
-        `coerce` is ``True``, the target array holds the dtype of new_array. 
-
-    Return
-    --------
-    arr: Arraylike |pandas.Series
-        The category array with unique identifer labels 
-        
-    Examples 
-    --------
-
-    >>> from gofast.tools.mlutils import categorize_target 
-    >>> def binfunc(v): 
-            if v < 3 : return 0 
-            else : return 1 
-    >>> arr = np.arange (10 )
-    >>> arr 
-    ... array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
-    >>> target = categorize_target(arr, func =binfunc)
-    ... array([0, 0, 0, 1, 1, 1, 1, 1, 1, 1], dtype=int64)
-    >>> categorize_target(arr, labels =3 )
-    ... array([0, 0, 0, 1, 1, 1, 2, 2, 2, 2])
-    >>> array([2, 2, 2, 2, 1, 1, 1, 0, 0, 0]) 
-    >>> categorize_target(arr, labels =3 , order =None )
-    ... array([0, 0, 0, 0, 1, 1, 1, 2, 2, 2])
-    >>> categorize_target(arr[::-1], labels =3 , order =None )
-    ... array([0, 0, 0, 1, 1, 1, 2, 2, 2, 2]) # reverse does not change
-    >>> categorize_target(arr, labels =[0 , 2,  4]  )
-    ... array([0, 0, 0, 2, 2, 4, 4, 4, 4, 4])
-
-    """
-    arr = _assert_all_types(arr, np.ndarray, pd.Series) 
-    is_arr =False 
-    if isinstance (arr, np.ndarray ) :
-        arr = pd.Series (arr  , name = 'none') 
-        is_arr =True 
-        
-    if func is not None: 
-        if not  inspect.isfunction (func): 
-            raise TypeError (
-                f'Expect a function but got {type(func).__name__!r}')
-            
-        arr= arr.apply (func )
-        
-        return  arr.values  if is_arr else arr   
-    
-    name = arr.name 
-    arr = arr.values 
-
-    if labels is not None: 
-        arr = _cattarget (arr , labels, order =order)
-        if rename_labels is not None: 
-            arr = rename_labels_in( arr , rename_labels , coerce =coerce ) 
-
-    return arr  if is_arr else pd.Series (arr, name =name  )
-
-def rename_labels_in (
-        arr, new_names, coerce = False): 
-    """ Rename label by a new names 
-    
-    :param arr: arr: array-like |pandas.Series 
-         array or series containing numerical values. If a non-numerical values 
-         is given , an errors will raises. 
-    :param new_names: list of str; 
-        list of string or values to replace the label integer identifier. 
-    :param coerce: bool, default =False, 
-        force the 'new_names' to appear in the target including or not some 
-        integer identifier class label. `coerce` is ``True``, the target array 
-        hold the dtype of new_array; coercing the label names will not yield 
-        error. Consequently can introduce an unexpected results.
-    :return: array-like, 
-        An array-like with full new label names. 
-    """
-    
-    if not is_iterable(new_names): 
-        new_names= [new_names]
-    true_labels = np.unique (arr) 
-    
-    if labels_validator(arr, new_names, return_bool= True): 
-        return arr 
-
-    if len(true_labels) != len(new_names):
-        if not coerce: 
-            raise ValueError(
-                "Can't rename labels; the new names and unique label" 
-                " identifiers size must be consistent; expect {}, got " 
-                "{} label(s).".format(len(true_labels), len(new_names))
-                             )
-        if len(true_labels) < len(new_names) : 
-            new_names = new_names [: len(new_names)]
-        else: 
-            new_names = list(new_names)  + list(
-                true_labels)[len(new_names):]
-            warnings.warn("Number of the given labels '{}' and values '{}'"
-                          " are not consistent. Be aware that this could "
-                          "yield an expected results.".format(
-                              len(new_names), len(true_labels)))
-            
-    new_names = np.array(new_names)
-    # xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-    # hold the type of arr to operate the 
-    # element wise comparaison if not a 
-    # ValueError:' invalid literal for int() with base 10' 
-    # will appear. 
-    if not np.issubdtype(np.array(new_names).dtype, np.number): 
-        arr= arr.astype (np.array(new_names).dtype)
-        true_labels = true_labels.astype (np.array(new_names).dtype)
-
-    for el , nel in zip (true_labels, new_names ): 
-        # xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-        # element comparison throws a future warning here 
-        # because of a disagreement between Numpy and native python 
-        # Numpy version ='1.22.4' while python version = 3.9.12
-        # this code is brittle and requires these versions above. 
-        # xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-        # suppress element wise comparison warning locally 
-        with warnings.catch_warnings():
-            warnings.simplefilter(action='ignore', category=FutureWarning)
-            arr [arr == el ] = nel 
-            
-    return arr 
-
-    
-def _cattarget (ar , labels , order=None): 
-    """ A shadow function of :func:`gofast.tools.mlutils.cattarget`. 
-    
-    :param ar: array-like of numerical values 
-    :param labels: int or list of int, 
-        the number of category to split 'ar'into. 
-    :param order: str, optional, 
-        the order of label to be categorized. If None or any other values, 
-        the categorization of labels considers only the length of array. 
-        For instance a reverse array and non-reverse array yield the same 
-        categorization samples. When order is set to ``strict``, the 
-        categorization  strictly considers the value of each element. 
-        
-    :return: array-like of int , array of categorized values.  
-    """
-    # assert labels
-    if is_iterable (labels):
-        labels =[int (_assert_all_types(lab, int, float)) 
-                 for lab in labels ]
-        labels = np.array (labels , dtype = np.int32 ) 
-        cc = labels 
-        # assert whether element is on the array 
-        s = set (ar).intersection(labels) 
-        if len(s) != len(labels): 
-            mv = set(labels).difference (s) 
-            
-            fmt = [f"{'s' if len(mv) >1 else''} ", mv,
-                   f"{'is' if len(mv) <=1 else'are'}"]
-            warnings.warn("Label values must be array self-contain item. "
-                           "Label{0} {1} {2} missing in the array.".format(
-                               *fmt)
-                          )
-            raise ValueError (
-                "label value{0} {1} {2} missing in the array.".format(*fmt))
-    else : 
-        labels = int (_assert_all_types(labels , int, float))
-        labels = np.linspace ( min(ar), max (ar), labels + 1 ) #+ .00000001 
-        #array([ 0.,  6., 12., 18.])
-        # split arr and get the range of with max bound 
-        cc = np.arange (len(labels)) #[0, 1, 3]
-        # we expect three classes [ 0, 1, 3 ] while maximum 
-        # value is 18 . we want the value value to be >= 12 which 
-        # include 18 , so remove the 18 in the list 
-        labels = labels [:-1] # remove the last items a
-        # array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
-        # array([0, 0, 0, 0, 1, 1, 1, 2, 2, 2]) # 3 classes 
-        #  array([ 0.        ,  3.33333333,  6.66666667, 10. ]) + 
-    # to avoid the index bound error 
-    # append nan value to lengthen arr 
-    r = np.append (labels , np.nan ) 
-    new_arr = np.zeros_like(ar) 
-    # print(labels)
-    ar = ar.astype (np.float32)
-
-    if order =='strict': 
-        for i in range (len(r)):
-            if i == len(r) -2 : 
-                ix = np.argwhere ( (ar >= r[i]) & (ar != np.inf ))
-                new_arr[ix ]= cc[i]
-                break 
-            
-            if i ==0 : 
-                ix = np.argwhere (ar < r[i +1])
-                new_arr [ix] == cc[i] 
-                ar [ix ] = np.inf # replace by a big number than it was 
-                # rather than delete it 
-            else :
-                ix = np.argwhere( (r[i] <= ar) & (ar < r[i +1]) )
-                new_arr [ix ]= cc[i] 
-                ar [ix ] = np.inf 
-    else: 
-        l= list() 
-        for i in range (len(r)): 
-            if i == len(r) -2 : 
-                l.append (np.repeat ( cc[i], len(ar))) 
-                
-                break
-            ix = np.argwhere ( (ar < r [ i + 1 ] ))
-            l.append (np.repeat (cc[i], len (ar[ix ])))  
-            # remove the value ready for i label 
-            # categorization 
-            ar = np.delete (ar, ix  )
-            
-        new_arr= np.hstack (l).astype (np.int32)  
-        
-    return new_arr.astype (np.int32)       
-
-def labels_validator (t, /, labels, return_bool = False): 
-    """ Assert the validity of the label in the target  and return the label 
-    or the boolean whether all items of label are in the target. 
-    
-    :param t: array-like, target that is expected to contain the labels. 
-    :param labels: int, str or list of (str or int) that is supposed to be in 
-        the target `t`. 
-    :param return_bool: bool, default=False; returns 'True' or 'False' rather 
-        the labels if set to ``True``. 
-    :returns: bool or labels; 'True' or 'False' if `return_bool` is set to 
-        ``True`` and labels otherwise. 
-        
-    :example: 
-    >>> from gofast.datasets import fetch_data 
-    >>> from gofast.tools.mlutils import cattarget, labels_validator 
-    >>> _, y = fetch_data ('bagoue', return_X_y=True, as_frame=True) 
-    >>> # binarize target y into [0 , 1]
-    >>> ybin = cattarget(y, labels=2 )
-    >>> labels_validator (ybin, [0, 1])
-    ... [0, 1] # all labels exist. 
-    >>> labels_validator (y, [0, 1, 3])
-    ... ValueError: Value '3' is missing in the target.
-    >>> labels_validator (ybin, 0 )
-    ... [0]
-    >>> labels_validator (ybin, [0, 5], return_bool=True ) # no raise error
-    ... False
-        
-    """
-    
-    if not is_iterable(labels):
-        labels =[labels] 
-        
-    t = np.array(t)
-    mask = _isin(t, labels, return_mask=True ) 
-    true_labels = np.unique (t[mask]) 
-    # set the difference to know 
-    # whether all labels are valid 
-    remainder = list(set(labels).difference (true_labels))
-    
-    isvalid = True 
-    if len(remainder)!=0 : 
-        if not return_bool: 
-            # raise error  
-            raise ValueError (
-                "Label value{0} {1} {2} missing in the target 'y'.".format ( 
-                f"{'s' if len(remainder)>1 else ''}", 
-                f"{smart_format(remainder)}",
-                f"{'are' if len(remainder)> 1 else 'is'}")
-                )
-        isvalid= False 
-        
-    return isvalid if return_bool else  labels 
-        
+     
 def bi_selector (d, /,  features =None, return_frames = False,
                  parse_features:bool=... ):
     """ Auto-differentiates the numerical from categorical attributes.

@@ -1674,7 +1674,8 @@ def roc_tradeoff(
         display_roc (fpr, tpr, auc_score)
 
     scores = MetricFormatter(
-        auc_score=auc_score, fpr=fpr, tpr=tpr, thresholds=thresholds)
+        auc_score=auc_score, fpr=fpr, tpr=tpr, thresholds=thresholds, 
+        y_scores= y_scores )
 
     return y_scores if return_scores else scores
 

@@ -543,8 +543,8 @@ def _plot_numerical_variables(
     plt.tight_layout()
 
 def plot_correlation_with_target(
-    data: pd.DataFrame, 
-    target: Union[str, pd.Series], 
+    data: DataFrame, 
+    target: Union[str, Series], 
     kind: str = 'bar', 
     show_grid: bool = True, 
     fig_size: Tuple[int, int] = (20, 8), 
@@ -621,7 +621,7 @@ def plot_correlation_with_target(
  
 def plot_regression_diagnostics(
     x: ArrayLike,
-    ys: List[ArrayLike],
+    *ys: List[ArrayLike],
     titles: List[str],
     xlabel: str = 'X',
     ylabel: str = 'Y',
@@ -669,7 +669,7 @@ def plot_regression_diagnostics(
     >>> y3 = y1 + np.random.normal(scale=0.5, size=x.size)  
     >>> titles = ['All assumptions satisfied', 'Nonlinear term in model',
                   'Heteroscedastic noise']
-    >>> fig = plot_regression_diagnostics(x, [y1, y2, y3], titles)
+    >>> fig = plot_regression_diagnostics(x, y1, y2, y3, titles)
     >>> plt.show()
     """
     fig, axes = plt.subplots(1, len(ys), figsize=figsize, sharey=True)

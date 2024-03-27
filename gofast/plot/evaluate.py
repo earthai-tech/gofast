@@ -37,20 +37,18 @@ from .._typing import  _F, Optional, Tuple, List, ArrayLike, NDArray
 from .._typing import DataFrame,  Series 
 from ..analysis.dimensionality import nPCA
 from ..exceptions import NotFittedError, EstimatorError, PlotError
-from ..metrics import precision_recall_tradeoff, roc_curve_, confusion_matrix_
 from ..property import BasePlot 
 from ..tools._dependency import import_optional_dependency 
+from ..tools.baseutils import categorize_target, extract_target
 from ..tools.coreutils import  to_numeric_dtypes, fancier_repr_formatter 
 from ..tools.coreutils import  smart_strobj_recognition, reshape 
 from ..tools.coreutils import  projection_validator
 from ..tools.coreutils import  str2columns, make_ids, type_of_target, is_iterable 
 from ..tools.mathex import linkage_matrix 
-from ..tools.mlutils import categorize_target, extract_target
 from ..tools.validator import  _check_consistency_size,  get_estimator_name  
 from ..tools.validator import build_data_if,  check_array, check_X_y, check_y 
 from ..tools.validator import _is_numeric_dtype , check_consistent_length
 from ..tools.validator import assert_xy_in 
-
 from .utils import _get_xticks_formatage,  make_mpl_properties
 
 _logger=gofastlog.get_gofast_logger(__name__)
@@ -1902,8 +1900,7 @@ class EvalPlotter(BasePlot):
         label=None, 
         kind='threshold', 
         method=None, 
-        cvp_kws=None, 
-        **prt_kws
+        **cvp_kws, 
         )-> 'EvalPlotter':
         """ 
         Plots Precision-Recall (PR) or Precision-Recall tradeoff.
@@ -1932,9 +1929,6 @@ class EvalPlotter(BasePlot):
 
         cvp_kws : dict, optional
             Additional keyword arguments for sklearn's `cross_val_predict`.
-
-        prt_kws : dict
-            Additional keyword arguments for `precision_recall_tradeoff`.
 
         Returns
         -------
@@ -1974,8 +1968,11 @@ class EvalPlotter(BasePlot):
             raise ValueError(f"Invalid kind '{kind}'. Expected"
                              " 'threshold' or 'recall'.")
         # Retrieve precision-recall tradeoff data
-        prtObj = precision_recall_tradeoff(clf, self.X, self.y, cv=self.cv, 
-                       label=label, method=method, cvp_kws=cvp_kws, **prt_kws)
+        from ..metrics import precision_recall_tradeoff
+        
+        prtObj = precision_recall_tradeoff(
+            self.y, estimator=clf, X=self.X, cv=self.cv, label=label,
+            scoring_method=method, **cvp_kws)
 
         # Plotting setup
         fig, ax = plt.subplots(figsize=self.fig_size)
@@ -2026,8 +2023,7 @@ class EvalPlotter(BasePlot):
         clfs, 
         label, 
         method=None, 
-        cvp_kws=None, 
-        **roc_kws
+        **cvp_kws
         ):
         """
         Plots Receiver Operating Characteristic (ROC) curves for classifiers.
@@ -2083,7 +2079,7 @@ class EvalPlotter(BasePlot):
 
         # Generate ROC curves for each classifier
         roc_curves = [self._generate_roc_curve(
-            clf, label, meth, cvp_kws, roc_kws) for name, clf, meth in clfs]
+            clf, label, meth, cvp_kws) for name, clf, meth in clfs]
 
         # Plotting
         fig, ax = self._setup_roc_plot()
@@ -2092,10 +2088,14 @@ class EvalPlotter(BasePlot):
         
         return self
 
-    def _generate_roc_curve(self, clf, label, method, cvp_kws, roc_kws):
+    def _generate_roc_curve(self, clf, label, method, cvp_kws):
         """ Generates ROC curve data for a given classifier. """
-        return roc_curve_(clf, self.X, self.y, cv=self.cv, label=label,
-                          method=method, cvp_kws=cvp_kws, **roc_kws)
+        from ..metrics import roc_tradeoff
+        
+        return roc_tradeoff(self.y,X= self.X,  estimator= clf, pos_label= label, 
+                     cv= self.cv, method=method, **cvp_kws)
+        # return roc_curve_(clf, self.X, self.y, cv=self.cv, label=label,
+        #                   method=method, cvp_kws=cvp_kws, **roc_kws)
 
     def _setup_roc_plot(self):
         """ Sets up the ROC plot. """
@@ -2206,8 +2206,9 @@ class EvalPlotter(BasePlot):
     
     def _compute_roc(self, clf, method, label, cvp_kws, **roc_kws):
         # Computes ROC curve for a given classifier
-        roc_obj = roc_curve_(clf, self.X, self.y, cv=self.cv, label=label,
-                             method=method, cvp_kws=cvp_kws, **roc_kws)
+        from ..metrics import roc_tradeoff
+        roc_obj = roc_tradeoff(self.y, estimator = clf, X=self.X,  cv=self.cv, 
+                             pos_label=label, method=method, **cvp_kws)
         return roc_obj
     
     def _draw_roc_curve(self, ax, roc_obj, clf_name):
@@ -2299,7 +2300,7 @@ class EvalPlotter(BasePlot):
         kind=None, 
         labels=None,
         matshow_kws=None, 
-        **conf_mx_kws
+        **cvp_kws
         ):
         """
         Plots a confusion matrix for a classifier.
@@ -2324,8 +2325,9 @@ class EvalPlotter(BasePlot):
         matshow_kws : dict, optional
             Additional keyword arguments for `matplotlib.pyplot.matshow`.
 
-        conf_mx_kws : dict
-            Additional keyword arguments for the confusion matrix computation.
+        cvp_kws : dict
+            Additional keyword arguments for the cross-validation predict
+            computation.
 
         Returns
         -------
@@ -2366,6 +2368,7 @@ class EvalPlotter(BasePlot):
         ...                          kind='error', **plot_kws) 
         """
         self.inspect
+        from ..metrics import evaluate_confusion_matrix
 
         kind = kind.lower().strip() if kind else 'map'
         matshow_kws = matshow_kws or {'cmap': plt.cm.gray}
@@ -2375,15 +2378,18 @@ class EvalPlotter(BasePlot):
         labels = self.litteral_classes or labels
 
         # Compute confusion matrix
-        confObj = confusion_matrix_(clf, self.X, y, cv=self.cv, **conf_mx_kws)
+        confObj = evaluate_confusion_matrix(
+            y, classifier=clf, X=self.X, cv=self.cv, **cvp_kws)
 
         # Plotting
         fig, ax = plt.subplots(figsize=self.fig_size)
         if kind == 'map':
-            cax = ax.matshow(confObj.conf_mx, **matshow_kws)
+            cax = ax.matshow(confObj.cm, **matshow_kws)
             cb_label = 'Items Confused'
         elif kind == 'error':
-            cax = ax.matshow(confObj.norm_conf_mx, **matshow_kws)
+            cm = confObj.cm.astype('float') / confObj.cm.sum(axis=1)[:, np.newaxis]
+            np.fill_diagonal(cm, 0)
+            cax = ax.matshow(cm, **matshow_kws)
             cb_label = 'Error Rate'
 
         self._style_matshow_plot(ax, cax, labels, cb_label, fig)

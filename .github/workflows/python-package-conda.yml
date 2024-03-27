@@ -34,7 +34,7 @@ jobs:
 
     - name: Test with pytest
       run: |
-        conda install pytest
+        pip install pytest
         pytest
 
     - name: Debugging Information

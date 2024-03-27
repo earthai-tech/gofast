@@ -17,8 +17,8 @@ from importlib import resources
 from importlib.resources import files
 import pandas as pd 
 
-from ..tools.baseutils import read_data, fancier_downloader, check_file_exists 
-from ..tools.baseutils import transform_dates  
+from ..tools.baseutils import fancier_downloader, check_file_exists 
+from ..tools.dataops import read_data, transform_dates  
 from ..tools.box import Boxspace
 from ..tools.coreutils import  to_numeric_dtypes, smart_format, get_valid_key
 from ..tools.coreutils import  random_sampling, assert_ratio, key_checker 

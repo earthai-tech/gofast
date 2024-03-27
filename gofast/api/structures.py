@@ -5,7 +5,6 @@
 import numpy as np
 import pandas as pd 
 
-
 class Bunch:
     """
     A utility class for storing collections of results or data attributes.
@@ -125,6 +124,17 @@ class Bunch:
             information for numeric data and relevant structural information for all
             types.
             
+        Examples
+        --------
+        Assuming implementations for _is_dict, _is_sequences, _is_ndarray, 
+        _is_series, and _is_dataframe are provided:
+    
+        >>> _format_iterable({"key": 1, "value": 2})
+        "Dict (minval=1, maxval=2, mean=1.5, items=2)"
+    
+        >>> _format_iterable([1, 2, 3])
+        "List (minval=1, maxval=3, mean=2, len=3)"
+        
         Notes
         -----
         - Numeric summaries (minval, maxval, mean) are rounded to 4 decimal places.
@@ -132,55 +142,176 @@ class Bunch:
         - For pandas DataFrames with uniform dtypes, the dtype is directly mentioned;
           if the DataFrame contains a mix of dtypes, 'dtypes=object' is used instead.
         """
-     
-        if isinstance(attr, (list, tuple, set)):
-            numeric = all(isinstance(item, (int, float)) for item in attr)
-            if numeric:
-                minval, maxval= round(min(attr), 4), round(max(attr), 4)
-                mean = round(np.mean(list(attr)), 4)
-                return ( 
-                    f"{type(attr).__name__} (minval={minval}, maxval={maxval},"
-                    f" mean={mean}, len={len(attr)})"
-                    )
-            return f"{type(attr).__name__} (len={len(attr)})"
-        
-        elif isinstance(attr, np.ndarray):
-            numeric = np.issubdtype(attr.dtype, np.number)
-            if numeric:
-                minval, maxval= round(attr.min(), 4), round(attr.max(), 4)
-                mean= round(attr.mean(), 4)
-                return (
-                    f"Array (minval={minval}, maxval={maxval}, mean={mean}, "
-                    f"ndim={attr.ndim}, shape={'x'.join(map(str, attr.shape))},"
-                    f" dtype={attr.dtype})")
-            return (
-                f"Array (ndim={attr.ndim}, shape={'x'.join(map(str, attr.shape))},"
-                f" dtype={attr.dtype})"
+        type_handlers = {
+            dict: self._is_dict,
+            (list, tuple, set): self._is_sequences,
+            np.ndarray: self._is_ndarray,
+            pd.Series: self._is_series,
+            pd.DataFrame: self._is_dataframe
+        }
+        # Iterate through the type handlers to find a match for the attribute's type
+        for attr_type, handler in type_handlers.items():
+            if isinstance(attr, attr_type):
+                return handler(attr)
+    
+        # Default case if the attribute does not match any of the specified types
+        return str(attr)
+      
+    def _is_sequences(self, attr):
+        """
+        Generates a summary string for sequence attributes, including numeric 
+        sequences like lists or tuples, with statistics such as minimum value, 
+        maximum value, mean, and length.
+    
+        Parameters
+        ----------
+        attr : sequence
+            The sequence attribute to summarize. This could be any iterable 
+            sequence like a list, tuple, etc., containing numeric values.
+    
+        Returns
+        -------
+        str
+            A formatted string summarizing the sequence with its type, minimum 
+            value, maximum value, mean, and length if it's numeric; or just its 
+            type and length if non-numeric.
+        """
+        numeric = all(isinstance(item, (int, float)) for item in attr)
+        if numeric:
+            minval, maxval= round(min(attr), 4), round(max(attr), 4)
+            mean = round(np.mean(list(attr)), 4)
+            return ( 
+                f"{type(attr).__name__} (minval={minval}, maxval={maxval},"
+                f" mean={mean}, len={len(attr)})"
                 )
-        
-        elif isinstance(attr, pd.Series):
-            if attr.dtype == 'object':
-                return f"Series (len={attr.size}, dtype={attr.dtype})"
+        return f"{type(attr).__name__} (len={len(attr)})"
+    
+    def _is_ndarray(self, attr):
+        """
+        Provides a summary of a NumPy ndarray, including its minimum value, 
+        maximum value, mean, number of dimensions, shape, and data type for 
+        numeric arrays. For non-numeric arrays, the summary includes the 
+        number of dimensions, shape, and data type.
+    
+        Parameters
+        ----------
+        attr : np.ndarray
+            The NumPy ndarray to summarize.
+    
+        Returns
+        -------
+        str
+            A formatted string that includes the array's characteristics such 
+            as minimum value, maximum value, mean (for numeric arrays), 
+            dimensions, shape, and data type.
+        """
+        numeric = np.issubdtype(attr.dtype, np.number)
+        if numeric:
             minval, maxval= round(attr.min(), 4), round(attr.max(), 4)
             mean= round(attr.mean(), 4)
-            return ( f"Series (minval={minval}, maxval={maxval}, mean={mean},"
-                    f" len={attr.size}, dtype={attr.dtype})"
-                    )
+            return (
+                f"Array (minval={minval}, maxval={maxval}, mean={mean}, "
+                f"ndim={attr.ndim}, shape={'x'.join(map(str, attr.shape))},"
+                f" dtype={attr.dtype})")
+        return (
+            f"Array (ndim={attr.ndim}, shape={'x'.join(map(str, attr.shape))},"
+            f" dtype={attr.dtype})"
+            )
+    
+    def _is_series(self, attr):
+        """
+        Summarizes a pandas Series, providing details such as length, data type, 
+        and, for numeric Series, statistics like minimum value, maximum value, 
+        and mean.
+    
+        Parameters
+        ----------
+        attr : pd.Series
+            The pandas Series to summarize.
+    
+        Returns
+        -------
+        str
+            A formatted string summary that includes information on the Series' 
+            length, data type, and (for numeric Series) minimum value, maximum 
+            value, and mean.
+        """
+        if attr.dtype == 'object':
+            return f"Series (len={attr.size}, dtype={attr.dtype})"
+        minval, maxval= round(attr.min(), 4), round(attr.max(), 4)
+        mean= round(attr.mean(), 4)
+        return ( f"Series (minval={minval}, maxval={maxval}, mean={mean},"
+                f" len={attr.size}, dtype={attr.dtype})"
+                )
+    
+    def _is_dataframe(self, attr):
+        """
+        Generates a summary of a pandas DataFrame, including the minimum value, 
+        maximum value, and mean across numeric columns, as well as the total 
+        number of rows, columns, and data types present.
+    
+        Parameters
+        ----------
+        attr : pd.DataFrame
+            The pandas DataFrame to summarize.
+    
+        Returns
+        -------
+        str
+            A formatted string summary of the DataFrame, detailing the statistics 
+            for numeric columns (min value, max value, mean), the number of rows 
+            and columns, and the data types present. If the DataFrame contains 
+            multiple data types, 'object' is specified as the data type.
+        """
         
-        elif isinstance(attr, pd.DataFrame):
-            dtypes_set = set(attr.dtypes)
-            dtypes = 'object' if len(dtypes_set) > 1 else list(dtypes_set)[0]
-            if 'object' not in dtypes_set:
-                numeric_cols = attr.select_dtypes(include=np.number).columns.tolist()
-                minval = round(attr[numeric_cols].min().min(), 4)
-                maxval= round(attr[numeric_cols].max().max(), 4)
-                mean=round(attr[numeric_cols].mean().mean(), 4)
-                return (f"DataFrame (minval={minval}, maxval={maxval}, mean={mean}, "
-                        f"n_rows={attr.shape[0]}, n_cols={attr.shape[1]}, dtypes={dtypes})")
-            return f"DataFrame (n_rows={attr.shape[0]}, n_cols={attr.shape[1]}, dtypes={dtypes})"
+        dtypes_set = set(attr.dtypes)
+        dtypes = 'object' if len(dtypes_set) > 1 else list(dtypes_set)[0]
+        if 'object' not in dtypes_set:
+            numeric_cols = attr.select_dtypes(include=np.number).columns.tolist()
+            minval = round(attr[numeric_cols].min().min(), 4)
+            maxval= round(attr[numeric_cols].max().max(), 4)
+            mean=round(attr[numeric_cols].mean().mean(), 4)
+            return (f"DataFrame (minval={minval}, maxval={maxval}, mean={mean}, "
+                    f"n_rows={attr.shape[0]}, n_cols={attr.shape[1]}, dtypes={dtypes})")
+        return f"DataFrame (n_rows={attr.shape[0]}, n_cols={attr.shape[1]}, dtypes={dtypes})"
+    
+    def _is_dict(self, attr):
+        """
+        Summarizes a dictionary, providing details such as the number of items 
+        and, if the values are numeric, statistics like the minimum value, maximum 
+        value, and mean of the values.
+    
+        This method assumes that the dictionary contains homogenous numeric values 
+        for statistical summary purposes. If values are non-numeric or heterogeneous, 
+        only the count of items is summarized.
+    
+        Parameters
+        ----------
+        attr : dict
+            The dictionary to summarize. Assumes that the values are either all 
+            numeric for statistical calculations or non-numeric, in which case only 
+            the item count is reported.
+    
+        Returns
+        -------
+        str
+            A formatted string that includes the dictionary's characteristics such as 
+            item count and, for numeric values, the minimum value, maximum value, 
+            and mean of the values.
+        """
+        # Check if all values in the dictionary are numeric
+        values = attr.values()
+        if all(isinstance(v, (int, float)) for v in values):
+            numeric_values = list(values)
+            minval = round(min(numeric_values), 4)
+            maxval = round(max(numeric_values), 4)
+            mean = round(np.mean(numeric_values), 4)
+            return (f"Dict (minval={minval}, maxval={maxval}, mean={mean}, "
+                    f"items={len(attr)})")
+        else:
+            # Non-numeric or heterogeneous values; return item count only
+            return f"Dict (items={len(attr)})"
         
-        return str(attr)
-
     def __delattr__(self, name):
         """
         Delete an attribute from the Bunch object.

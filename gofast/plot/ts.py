@@ -20,7 +20,7 @@ except:pass
 from ..exceptions import NotFittedError 
 from ..property import BasePlot 
 from ..tools.validator import is_time_series , build_data_if 
-from ..tools.mlutils import export_target 
+from ..tools.baseutils import extract_target 
 from ..tools.coreutils import format_to_datetime
 from ..tools._dependency import import_optional_dependency 
 
@@ -68,13 +68,13 @@ class TimeSeriesPlotter (BasePlot) :
         # Other plot methods...
         """
         columns =fit_params.pop("columns", None )
-        data = build_data_if(data, colums =columns, to_frame=True, force=True, 
+        data = build_data_if(data, columns =columns, to_frame=True, force=True, 
                              input_name='ts', raise_warning="silence")
+
+        self.data = format_to_datetime(data, date_col= date_col )
+        is_time_series(data , time_col= date_col )
         
-        data = format_to_datetime(data, date_col= date_col )
-        data = is_time_series(data , time_col= date_col )
-        
-        date_value, self.value_col =export_target(data, target_name= date_col )
+        date_value, self.value_col =extract_target(self.data, target_names= date_col )
         self.date_col = date_col
         self.value_col = value_col
         
@@ -130,7 +130,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.title(title, fontsize=14)
         plt.show()
 
-    def plotpacf(self, lags=15, figsize=(10, 6),
+    def plotPACF(self, lags=15, figsize=(10, 6),
                   title='Partial Autocorrelation Plot'):
         """
         Generates a partial autocorrelation plot for the time series data.
@@ -872,13 +872,15 @@ radarChart(...)
 
 Examples
 --------
+>>> import pandas as pd 
+>>> from gofast.plot.ts import TimeSeriesPlotter 
 >>> df = pd.DataFrame({
 ...     'Date': pd.date_range(start='2021-01-01', periods=5, freq='D'),
 ...     'Value': [1, 2, 3, 4, 5]
 ... })
 >>> plotter = TimeSeriesPlotter()
 >>> plotter.fit(df, 'Date', 'Value')
->>> plotter.line_plot()
+>>> plotter.plotLine()
 """
 if __name__ == "__main__":
     

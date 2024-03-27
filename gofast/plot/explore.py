@@ -26,16 +26,15 @@ from .._typing import _F, Any, List,Dict,Optional,ArrayLike, DataFrame, Series
 from ..exceptions import PlotError, FeatureError, NotFittedError
 from ..property import BasePlot
 from ..tools._dependency import import_optional_dependency 
-from ..tools.baseutils import _is_readable
 from ..tools.coreutils import _assert_all_types , _isin,  repr_callable_obj 
 from ..tools.coreutils import smart_strobj_recognition, smart_format, reshape
-from ..tools.coreutils import  shrunkformat, exist_features
-from ..tools.mlutils import select_features , export_target, formatGenericObj
+from ..tools.coreutils import  shrunkformat, exist_features  
+from ..tools.baseutils import is_readable, select_features, extract_target
+from ..tools.baseutils import generate_placeholders
 from ..tools.validator import check_X_y 
 try: 
     import missingno as msno 
 except : pass 
-
 try : 
     from yellowbrick.features import (
         JointPlotVisualizer, 
@@ -185,9 +184,9 @@ class QuestPlotter (BasePlot):
              
         """
         if data is not None: 
-            self.data = _is_readable(data, **fit_params)
+            self.data = is_readable(data, **fit_params)
         if self.target_name is not None:
-            self.target_, self.data  = export_target(
+            self.target_, self.data  = extract_target(
                 self.data , self.target_name, self.inplace ) 
             self.y_ = reshape (self.target_.values ) # for consistency 
             
@@ -1167,7 +1166,7 @@ class EasyPlotter (BasePlot):
         """ Read the data file and separate the target from the features 
         if  the target name `target_names` is given.
         """
-        self.data_ = _is_readable(
+        self.data_ = is_readable(
             data , input_name="'data'")
         
         if str(self.target_name).lower() in self.data_.columns.str.lower(): 
@@ -1475,7 +1474,7 @@ class EasyPlotter (BasePlot):
         if groupby is not None: 
             self._logging.info(
                 'Multiple bar plot distribution grouped by  {0}.'.format(
-                    formatGenericObj(groupby)).format(*groupby))
+                    generate_placeholders(groupby)).format(*groupby))
         
         if self.savefig is not None :
             plt.savefig(self.savefig,dpi=self.fig_dpi,
@@ -1682,7 +1681,7 @@ class EasyPlotter (BasePlot):
         if hue is not None: 
             self._logging.info(
                 'Multiple categorical plots  from targetted {0}.'.format(
-                    formatGenericObj(hue)).format(*hue))
+                    generate_placeholders(hue)).format(*hue))
         
         for ii in range(len(x)): 
             sns.catplot(data = df_,

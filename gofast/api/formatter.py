@@ -302,6 +302,7 @@ class DataFrameFormatter:
         str
             The snake_case version of the input string.
         """
+        name =str(name)
         name = re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()  # CamelCase to snake_case
         name = re.sub(r'\W+', '_', name)  # Replace non-word characters with '_'
         name = re.sub(r'_+', '_', name)  # Replace multiple '_' with single '_'
