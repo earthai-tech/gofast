@@ -21,6 +21,7 @@ from sklearn.manifold import MDS
 
 from .._typing import Optional, List, Dict, Union, Tuple, Callable, Any
 from .._typing import NumPyFunction, DataFrame, ArrayLike, Array1D, Series
+from ..api.formatter import DataFrameFormatter 
 from ..decorators import DynamicMethod
 from ..tools.validator import assert_xy_in, is_frame, check_consistent_length 
 from ..tools.validator import _is_arraylike_1d 
@@ -37,6 +38,7 @@ __all__= [
     "anova_test",
     "bootstrap",
     "check_and_fix_rm_anova_data",
+    "check_anova_assumptions", 
     "chi2_test",
     "corr",
     "correlation",
@@ -74,6 +76,161 @@ __all__= [
     "z_scores",
     "paired_t_test"
 ]
+@make_data_dynamic('numeric', dynamize= False )
+@ensure_pkg(
+    "statsmodels", 
+    extra="'statsmodels' needs to be installed for checking anova assumptions."
+ )
+def check_anova_assumptions(
+    data: Union[pd.DataFrame, Dict[str, List[float]]],
+    significance_level: float = 0.05,
+    view: bool = False,
+    verbose: bool = True
+) -> DataFrameFormatter:
+    """
+    Performs checks on the critical assumptions required for the validity
+    of ANOVA (Analysis of Variance) tests. These assumptions include the 
+    normality of residuals, the homogeneity of variances, and the independence 
+    of observations. This function tests these assumptions and provides a 
+    summary of the findings, optionally displaying a Q-Q plot for a graphical 
+    assessment of the normality of residuals.
+
+    Parameters
+    ----------
+    data : Union[pd.DataFrame, Dict[str, List[float]]]
+        A collection of data points grouped by category. This can be provided as
+        a pandas DataFrame with each column representing a group or a dictionary 
+        with group names as keys and lists of data points as values.
+
+    significance_level : float, default 0.05
+        The threshold p-value below which the assumptions are considered violated.
+        The conventional level is 0.05, indicating a 5% risk of concluding that 
+        an assumption is violated when it is true.
+
+    view : bool, default False
+        A flag that, when set to True, triggers the display of a Q-Q plot to 
+        visually inspect the normality of residuals. 
+
+    verbose : bool, default True
+        When True, detailed results from the homogeneity and normality tests 
+        are printed to the console.
+
+    Returns
+    -------
+    DataFrameFormatter
+    
+        A formatted DataFrame containing the statistical test results, including 
+        the test statistics and p-values for both the Levene test of homogeneity 
+        of variances and the Shapiro-Wilk test for normality of residuals. It also 
+        includes a boolean indication of whether each assumption is met.
+
+    Examples
+    --------
+    >>> from gofast.stats.utils import check_anova_assumptions
+    >>> data = {
+            'Group1': [20, 21, 19, 20, 21],
+            'Group2': [30, 31, 29, 30, 31],
+            'Group3': [40, 41, 39, 40, 41]
+        }
+    >>> check_anova_assumptions(data, view=True)
+
+    Notes
+    -----
+    ANOVA is sensitive to deviations from these assumptions, which may lead to 
+    incorrect conclusions. Therefore, prior to performing ANOVA, it is essential 
+    to ensure that these assumptions are not violated. If they are, transformations 
+    or alternative non-parametric methods may be considered.
+
+    The function internally reshapes the data suitable for ANOVA using `statsmodels`
+    and conducts Levene's test and Shapiro-Wilk test, two commonly used tests for 
+    checking ANOVA assumptions. If `view` is set to True, it also uses `statsmodels`
+    graphics for the Q-Q plot to assess the normality of residuals.
+
+    The function's output is valuable in guiding the appropriate analysis approach 
+    and ensuring the integrity of ANOVA test results.
+    """
+    import statsmodels.api as sm
+    import statsmodels.formula.api as smf
+
+    # Make sure data is a pandas DataFrame
+    if isinstance(data, dict):
+        data = pd.DataFrame(data)
+    
+    # Reshape data for ANOVA
+    melted_data = pd.melt(data.reset_index(), id_vars=['index'], 
+                          value_vars=data.columns)
+    melted_data.columns = ['index', 'groups', 'value']
+
+    # Ensure all data is numeric
+    melted_data['value'] = pd.to_numeric(melted_data['value'], errors='coerce')
+    melted_data = melted_data.dropna(subset=['value'])
+
+    # Levene's test for homogeneity of variances
+    groups = melted_data.groupby('groups')['value'].apply(list)
+    anova_stat, p_homogeneity = stats.levene(*groups)
+    
+    homogeneity_met = p_homogeneity >= significance_level
+    
+    if verbose:
+        print_homogeneity_results(anova_stat, p_homogeneity, homogeneity_met)
+    
+    # OLS model for ANOVA with correct formula
+    formula = 'value ~ C(groups)'
+    anova_model = smf.ols(formula, data=melted_data).fit()
+    residuals = anova_model.resid
+  
+    # Shapiro-Wilk test for normality on residuals
+    shapiro_stat, p_normality = stats.shapiro(residuals)
+    normality_met = p_normality >= significance_level
+    if verbose:
+        print_normality_results(shapiro_stat, p_normality, normality_met)
+        
+    # Visual inspection of normality: Q-Q plot
+    if view:
+        sm.qqplot(residuals, line='s') # sm.qqplot(residuals, line='45')
+        plt.title('Q-Q Plot of Residuals')
+        plt.show()
+        
+    # Compile results
+    results = {
+        'Levene_Statistic': anova_stat,
+        'Levene_p_value': p_homogeneity,
+        'Levene_Assumption_Met': homogeneity_met,
+        'Shapiro_Statistic': shapiro_stat,
+        'Shapiro_p_value': p_normality,
+        'Shapiro_Assumption_Met': normality_met
+    }
+    formatted_results = DataFrameFormatter(
+        "ANOVA Assumptions Check").add_df(pd.DataFrame([results]))
+    
+    return formatted_results
+
+def print_homogeneity_results(stat: float, p_value: float, met: bool) -> None:
+    """Prints the homogeneity test results."""
+    message = ( "Levene's Test for Homogeneity of Variances:"
+               f"Statistic={stat:.4f}, p-value={p_value:.4f}"
+               )
+    if met:
+        message += " Assumption of homogeneity of variances is met."
+    else:
+        message += " Assumption of homogeneity of variances is violated."
+    print(message)
+
+def print_normality_results(stat: float, p_value: float, met: bool) -> None:
+    """Prints the normality test results."""
+    message =( "\nShapiro-Wilk Test for Normality of Residuals:"
+              f" Statistic={stat:.4f}, p-value={p_value:.4f}"
+              )
+    if met:
+        message += " Assumption of normality is met."
+    else:
+        message += " Assumption of normality is violated."
+    print(message)
+
+# Degrees of Freedom: The degrees of freedom (df) for this test are 6, which is 
+# calculated based on the number of classifiers being compared minus one (7 - 1 = 6).
+#  This value is used in determining the critical value and p-value from the test statistic.
+# This value is used in determining the critical value and p-value from the test statistic.
 
 @make_data_dynamic(capture_columns=True)
 def mean(

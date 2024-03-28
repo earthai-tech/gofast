@@ -1,18 +1,17 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
-
 from packaging.version import Version, parse
 import warnings
-import logging
+# import logging
 import numpy as np
 
 import scipy
 from scipy import special
 from scipy import stats
-
+from .._gofastlog import gofastlog 
 # Setup logging
-_logger = logging.getLogger(__name__)
+_logger = gofastlog().get_gofast_logger(__name__)
 
 __all__ = [
     "integrate_quad",

@@ -20,89 +20,124 @@ from ..tools.coreutils import validate_ratio
 from ..tools.funcutils import ensure_pkg 
 from ..tools.validator import _is_arraylike_1d
 
+__all__=[
+    "perform_friedman_test", 
+    "perform_nemenyi_posthoc_test", 
+    "generate_model_pairs", 
+    "plot_nemenyi_cd_diagram", 
+    "perform_wilcoxon_test", 
+    "perform_friedman_test2", 
+    "perform_nemenyi_posthoc_test2", 
+    "compute_model_ranks", 
+    "perform_wilcoxon_base_test", 
+    "perform_nemenyi_test2", 
+    "plot_cd_diagram", 
+    "plot_model_rankings", 
+    "perform_posthoc_test", 
+    "perform_posthoc_test2", 
+    "visualize_model_performance", 
+    "visualize_wilcoxon_test", 
+    "compute_model_summary", 
+    ]
 
-@isdf 
+@isdf
 def perform_friedman_test(
     model_performance_data: DataFrame, 
-    alpha:float=0.05,
-    perform_posthoc: bool=False,
-    posthoc_test:Optional[Union[Callable, LambdaType ]]=None
-    ):
+    alpha: float = 0.05, 
+    score_preference: str = 'higher is better', 
+    perform_posthoc: bool = False,
+    posthoc_test: Optional[Union[Callable, LambdaType]] = None
+):
     """
-    Performs the Friedman test on multiple classifiers over multiple datasets.
-
-    The Friedman test is a non-parametric statistical test used to detect 
-    differences in treatments across multiple test attempts. In the context 
-    of machine learning, it is used to compare the performance of different 
-    algorithms across various datasets. If significant differences are found, 
-    post-hoc tests can further investigate these differences.
+    Performs the Friedman test on the performance data of multiple classification
+    models across multiple datasets, checking for significant differences in their
+    performance.
 
     Parameters
     ----------
     model_performance_data : pd.DataFrame
-        A DataFrame where each row represents a dataset and each column represents
-        a model. Each cell in the DataFrame should contain the performance metric
-        (e.g., accuracy) of the model on that dataset.
+        A DataFrame where each column represents a different model and each row
+        represents the performance metric (e.g., accuracy) of the model on a 
+        different dataset.
     alpha : float, optional
-        Significance level used to determine the critical value. Defaults to 0.05.
+        The significance level for the hypothesis test. A typical value is 0.05.
+    score_preference : str, optional
+        Specifies whether higher values indicate better performance ('higher is 
+        better') or lower values do ('lower is better'). Can accept snake_case and 
+        is case-insensitive.
     perform_posthoc : bool, optional
-        Indicates whether to perform post-hoc testing if the Friedman test 
-        indicates significant differences. Defaults to False.
+        If True, executes a posthoc test provided by `posthoc_procedure` when the 
+        Friedman test finds a significant difference. Defaults to False.
     posthoc_test : callable, optional
-        A function to perform post-hoc testing. It should accept the 
-        `model_performance_data` DataFrame as input and return post-hoc test 
-        results. Required if `perform_posthoc` is True.
+        A function that performs posthoc testing on the `performance_data`. This 
+        function should accept a pandas DataFrame and return a formatted result,
+        typically as a pandas DataFrame or a string. Required if `execute_posthoc`
+        is True.
 
     Returns
     -------
-    result : dict
-        A dictionary containing the Friedman test statistic, degrees of freedom,
-        p-value, and whether there is a significant difference. If perform_posthoc
-        is True, it also includes the results of the post-hoc test under 
-        "Post-hoc Test".
+    formatted_result : str
+        A formatted string representation of the Friedman test results and, if 
+        applicable, the posthoc test results.
 
     Notes
     -----
-    The Friedman test is computed as follows:
+    The Friedman test is a non-parametric statistical test used to detect differences
+    in treatments across multiple test attempts. It ranks each model's performance for
+    each dataset, calculating a Friedman statistic that approximates a Chi-square 
+    distribution.
+
+    The null hypothesis (H0) of the Friedman test states that all models perform 
+    equally well across all datasets. A significant result (p-value < alpha) rejects
+    this hypothesis, suggesting at least one model's performance significantly 
+    differs.
+
+    The Friedman statistic is computed as:
 
     .. math::
-        Q = \\frac{12N}{k(k+1)}[\\sum_j R_j^2 - \\frac{k(k+1)^2}{4}]
+
+        Q = \left( \frac{12}{N \cdot k \cdot (k + 1)} \right) \sum_{j=1}^{k} R_{j}^2 - 3N(k+1)
+
 
     Where:
-    - :math:`N` is the number of datasets.
-    - :math:`k` is the number of models.
-    - :math:`R_j` is the sum of ranks for the j-th model.
-
-    The null hypothesis of the Friedman test states that all algorithms are 
-    equivalent and any observed differences are due to chance. A significant 
-    p-value rejects this hypothesis, suggesting that at least one algorithm 
-    performs differently.
+    - :math:`N` is the number of datasets,
+    - :math:`k` is the number of models,
+    - :math:`R_{j}` is the sum of ranks for the :math:`j`-th model.
 
     The test is useful in scenarios where multiple models' performances are 
     evaluated across multiple datasets. It is robust against non-normal 
     distributions and unequal variances among groups.
-
+    
     Examples
     --------
-    >>> from gofast.stats.model_comparisons import perform_friedman_test
-    >>> import pandas as pd
-    >>> # Sample data: Model performance on 5 datasets (rows) for 3 models (columns)
-    >>> df = {
-    ...    'Model_A': [0.8, 0.82, 0.78, 0.81, 0.79],
-    ...    'Model_B': [0.79, 0.84, 0.76, 0.82, 0.78],
-    ...    'Model_C': [0.81, 0.83, 0.77, 0.80, 0.76]
-    ... }
-    >>> result = perform_friedman_test(df)
+    >>> from gofast.stats.model_comparisions import perform_friedman_test
+    >>> performance_data = pd.DataFrame({
+    ...     'Model_A': [0.8, 0.82, 0.78, 0.81, 0.79],
+    ...     'Model_B': [0.79, 0.84, 0.76, 0.82, 0.78],
+    ...     'Model_C': [0.81, 0.83, 0.77, 0.80, 0.76]
+    ... })
+    >>> result = perform_friedman_test(performance_data)
     >>> print(result)
-
+    
     If the result indicates a significant difference and post-hoc 
     testing is desired:
 
-    >>> from some_module import some_posthoc_test
-    >>> result = perform_friedman_test(df, perform_posthoc=True, 
-    ...                                 posthoc_test=some_posthoc_test)
-    >>> print(result["Post-hoc Test"])
+    >>> from gofast.stats.model_comparisons import perform_nemenyi_posthoc_test
+    >>> result_post_hoc = perform_friedman_test(
+    ...        performance_data, perform_posthoc=True, 
+    ...        posthoc_test=perform_nemenyi_posthoc_test)
+    >>> print(result_post_hoc)
+    
+    This will output a summary of the Friedman test results, indicating the Friedman
+    test statistic, the degrees of freedom, the p-value, and whether there is a 
+    significant difference at the specified alpha level. If `execute_posthoc` is 
+    set to True and the test is significant, posthoc results will also be displayed.
 
+    Interpretation
+    ---------------
+    A significant Friedman test suggests that not all models perform equally across
+    the datasets. This may prompt further analysis with posthoc tests to identify
+    specific differences between models.
     """
     if not isinstance(model_performance_data, pd.DataFrame):
         raise TypeError("model_performance_data must be a pandas DataFrame.")
@@ -115,36 +150,74 @@ def perform_friedman_test(
         raise ValueError("model_performance_data DataFrame contains"
                          " NaN values. Please clean your data.")
         
-    alpha = validate_ratio( alpha, bounds=(0, 1), to_percent= True, exclude=0 )
-    # Perform the Friedman test
-    ranks = np.array([rankdata(-1 * performance)
-                      for performance in model_performance_data.values])
-    n_datasets, n_models = ranks.shape
-    rank_sums = ranks.sum(axis=0)
-    statistic = ( 
-        (12 / (n_datasets*n_models*(n_models+1)) * np.sum(rank_sums**2)
-         ) - (3*n_datasets*(n_models+1))
-        )
-    df = n_models - 1
-    p_value = 1 - chi2.cdf(statistic, df)
-
-    result = {
-        "Friedman Test Statistic": statistic,
-        "Degrees of Freedom": df,
-        "p-value": p_value,
-        "Significant Difference": p_value < alpha
-    }
-
-    # Optionally perform post-hoc tests if significant differences are detected
-    if perform_posthoc and result["Significant Difference"] and posthoc_test is not None:
-        posthoc_result = posthoc_test(model_performance_data)
-        result["Post-hoc Test"] = posthoc_result
+    alpha = validate_ratio(alpha , bounds=(0, 1), exclude =0 )
+    # Validate and normalize score preference
+    score_preference = normalize_preference(score_preference)
+    # Adjust ranks based on scoring preference
+    if score_preference == 'higher is better':
+        ranks = np.array([rankdata(-1 * row) for row in model_performance_data.values]) 
+    else:  # 'lower is better'
+        ranks = np.array([rankdata(row) for row in model_performance_data.values])
     
-    result= DataFrameFormatter("Friedman Test Results").add_df (result)
-    return result
+    n_datasets, n_models = ranks.shape
+    rank_sums = np.sum(ranks, axis=0)
+    # Corrected statistic calculation
+    statistic = ((12 / (n_datasets * n_models * (n_models + 1))) * np.sum(
+        rank_sums**2)) - (3 * n_datasets * (n_models + 1))
+    
+    dof = n_models - 1
+    p_value = 1 - chi2.cdf(statistic, dof)
+
+    significant_difference = p_value < alpha
+    result = {
+        "Statistic": statistic,
+        "Degrees of Freedom": dof,
+        "p-value": p_value,
+        "Significant Difference": significant_difference
+    }
+    result_df = pd.DataFrame([result])
+    
+    # Formatting the result DataFrame for presentation
+    formatted_result = DataFrameFormatter(
+        title="Friedman Test Results").add_df(result_df).__str__()
+    
+    # Optionally perform post-hoc analysis if significant differences are detected
+    if perform_posthoc and significant_difference and posthoc_test is not None:
+        posthoc_result = posthoc_test(model_performance_data)
+        if isinstance(posthoc_result, pd.DataFrame):
+            posthoc_result = DataFrameFormatter(
+                title='Posthoc Results').add_df(posthoc_result).__str__()
+        formatted_result += "\n" + posthoc_result
+        
+    return formatted_result
+ 
+def normalize_preference(pref: str) -> str:
+    """
+    Normalize the scoring preference to a standard format regardless of case
+    or snake_case input.
+
+    Parameters
+    ----------
+    pref : str
+        The scoring preference input by the user, potentially in snake_case
+        and case-insensitive.
+
+    Returns
+    -------
+    str
+        A normalized string in the format "lower is better" or "higher is better".
+    """
+    pref = pref.replace('_', ' ').lower()  # Convert to space-separated, lowercase
+    if 'lower' in pref:
+        return 'lower is better'
+    elif 'higher' in pref:
+        return 'higher is better'
+    else:
+        raise ValueError(
+            "Invalid score_preference. Choose 'higher is better' or 'lower is better'.")
 
 @isdf 
-@ensure_pkg("scikit-posthocs")
+@ensure_pkg("scikit_posthocs", dist_name ='scikit_posthocs', infer_dist_name= True )
 def perform_nemenyi_posthoc_test(
     model_performance_data: DataFrame, 
     significance_level:float=0.05, 
@@ -204,18 +277,17 @@ def perform_nemenyi_posthoc_test(
     ...     'Model B': [0.76, 0.78, 0.75],
     ...     'Model C': [0.89, 0.85, 0.86]
     ... })
-    >>> results = perform_nemenyi_posthoc_test(model_performance)
-    >>> print(results['p_values'])
-    >>> print(results['significant_differences'])
-    >>> print(results['average_ranks'])
+    >>> nemeyi_results = perform_nemenyi_posthoc_test(model_performance)
+    >>> print(nemeyi_results) 
+    >>> nemeyi_results.significant_differences
+    >>> nemeyi_results.average_ranks)
     """
 
     import scikit_posthocs as sp
     import pandas as pd
     
     significance_level= validate_ratio(
-        significance_level, bounds=(0, 1), to_percent= True, exclude=0 )
-
+        significance_level, bounds=(0, 1), exclude=0 )
     # Validate input
     if not isinstance(model_performance_data, pd.DataFrame):
         raise TypeError("Input must be a pandas DataFrame.")
@@ -236,9 +308,145 @@ def perform_nemenyi_posthoc_test(
         'significant_differences': significant_diffs,
         'average_ranks': avg_ranks
     }
-    results= DataFrameFormatter("Nemenyi Test Results").add_df (results)
+    
+    results = DataFrameFormatter("PostHoc Results").add_dfs (
+        pairwise_p_values,significant_diffs, avg_ranks, titles = [ 
+          "P-values Results",   
+          f"Significance (|P| <{significance_level:.2f}) Results", 
+          "Model Ranks Results"] 
+    )
     
     return results
+
+def plot_nemenyi_cd_diagram(
+    model_performance_data: Optional[DataFrame] = None, 
+    model_ranks: Optional[Union[Series, Array1D]] = None, 
+    score_preference: str = 'higher is better', 
+    cd: float = 0.5, 
+    alpha: float = 0.05,  
+    ax: Optional[plt.Axes] = None, 
+    figsize: Union[tuple, list] = None,
+) -> None:
+    """
+    Produces a Critical Difference (CD) diagram to visualize the Nemenyi
+    post-hoc test's pairwise comparison results. This graphical representation 
+    assists in determining if the performance differences between pairs of 
+    machine learning models are statistically significant.
+
+    Parameters
+    ----------
+    model_performance_data : Optional[pd.DataFrame], default=None
+        A DataFrame containing the performance metrics of multiple models across
+        different datasets. Each row corresponds to a dataset, and each column
+        corresponds to a model's metric.
+        
+    model_ranks : Optional[Union[pd.Series, np.ndarray]], default=None
+        Either a pandas Series or a numpy array with precomputed average ranks
+        of models. If not provided and `model_performance_data` is given, the
+        ranks will be computed from it. The index or array should contain model 
+        names.
+        
+    score_preference : str, default='higher is better'
+        A string indicating whether higher numerical values indicate better 
+        performance ('higher is better') or lower values do ('lower is better').
+        This will affect the direction of the ranks computation.
+        
+    cd : float, default=0.5
+        The critical difference value, which determines the threshold for 
+        statistical significance between model ranks. Models with a rank difference
+        less than this value are not considered significantly different.
+        
+    alpha : float, default=0.05
+        The significance level used in the Nemenyi test. It determines the 
+        confidence interval for the CD calculation.
+        
+    ax : Optional[plt.Axes], default=None
+        A Matplotlib Axes object to plot the diagram on. If None, a new figure 
+        and axes will be created.
+        
+    figsize : Union[tuple, list], default=(10, 5)
+        The size of the figure, specified as a tuple or list like (width, height).
+        This parameter is ignored if an `ax` object is provided.
+        
+    Raises
+    ------
+    ValueError
+        If both 'model_performance_data' and 'model_ranks' are None or if 'cd'
+        is not positive.
+    TypeError
+        If 'model_performance_data' is not a pandas DataFrame or 'model_ranks' 
+        is neither a Series nor an ndarray.
+        
+    Examples
+    --------
+    >>> from gofast.stats.model_comparisons import plot_nemenyi_cd_diagram
+    >>> model_performance_data = pd.DataFrame({
+    ...     'Model A': [0.9, 0.85, 0.8],
+    ...     'Model B': [0.84, 0.82, 0.83],
+    ...     'Model C': [0.78, 0.79, 0.81],
+    ... })
+    >>> plot_nemenyi_cd_diagram(model_performance_data=model_performance_data, 
+    ...                         score_preference='higher is better', cd=0.5)
+
+    This will plot a CD diagram showing that if the average rank difference between
+    any two models is less than 0.5, their performance is not significantly 
+    different.
+
+    Notes
+    -----
+    - The Critical Difference (CD) is derived from the Nemenyi post-hoc test and 
+      represents the minimum required difference between model ranks for the
+      performance difference to be considered significant.
+    - The function will plot models on the y-axis and their average ranks on 
+      the x-axis. Models within the CD of each other indicate no significant 
+      difference in performance.
+    - If model ranks are not provided, they will be computed as the average
+      rank position across the datasets for each model based on the provided 
+      performance data.
+    - The figure will be displayed only if no `ax` parameter is given. This allows
+      for integration of the plot within larger figure layouts or subplots.
+    """
+    score_preference = normalize_preference(score_preference)
+    
+    if model_performance_data is not None:
+        if not isinstance(model_performance_data, pd.DataFrame):
+            raise TypeError("model_performance_data must be a pandas DataFrame.")
+        ascending = score_preference == 'lower is better'
+        model_ranks = model_performance_data.rank(ascending=ascending).mean(axis=0)
+    elif model_ranks is not None:
+        if isinstance(model_ranks, np.ndarray):
+            model_ranks = pd.Series(model_ranks)
+        if not isinstance(model_ranks, pd.Series):
+            raise TypeError("model_ranks must be a pandas Series or a numpy ndarray.")
+    else:
+        raise ValueError("Either model_performance_data or model_ranks must be provided.")
+    
+    if not cd > 0:
+        raise ValueError("Critical difference (cd) must be a positive value.")
+    
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize or (10, 5) )
+    sorted_ranks = model_ranks.sort_values(
+        ascending=(score_preference == 'lower is better'))
+    y_positions = np.arange(len(sorted_ranks)) + 1
+
+    ax.scatter(sorted_ranks, y_positions, color='blue')
+    for y, (model, rank) in zip(y_positions, sorted_ranks.items()):
+        ax.plot([rank - cd, rank + cd], [y, y], color='red', linestyle='-', 
+                marker='|', markersize=10)
+        ax.text(rank, y, f'{model} ({rank:.2f})', ha='center', va='bottom')
+
+    ax.set_yticks(y_positions)
+    ax.set_yticklabels(sorted_ranks.index)
+    ax.invert_yaxis()  # Invert y-axis so the best (smallest rank) is on top
+    ax.set_xlabel('Average Rank')
+    ax.set_title(f'Nemenyi Post-Hoc Test (alpha={alpha})')
+    ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.5)
+
+    plt.tight_layout()
+    if ax is None:  # Only show the plot if we created the figure within this function
+        plt.show()
+
 
 @isdf 
 def perform_wilcoxon_test(
@@ -327,8 +535,7 @@ def perform_wilcoxon_test(
     """
     n_models = model_performance_data.shape[1]
     p_values_matrix = np.full((n_models, n_models), np.nan)
-    
-    alpha = validate_ratio( alpha, bounds=(0, 1), to_percent= True, exclude=0 )
+    alpha = validate_ratio( alpha, bounds=(0, 1), exclude=0 )
     
     for i in range(n_models):
         for j in range(i+1, n_models):
@@ -357,42 +564,94 @@ def perform_wilcoxon_test(
 
 @isdf 
 def perform_friedman_test2(
-        model_performance_data: Union[Dict[str, List[float]], DataFrame]
+        model_performance_data: Union[Dict[str, List[float]], DataFrame], 
+        alpha: float = 0.05
     ):
     """
-    Performs the Friedman test on the performance data of multiple classification models.
-    This function takes a DataFrame where models are columns and datasets are rows. 
-    It performs the Friedman test and returns a dictionary containing the test 
-    statistic and the p-value. A small p-value (typically ≤ 0.05) indicates 
-    that there is a significant difference in the performance of at least one 
-    model compared to others across the datasets.
+    Performs the Friedman test on the performance data of multiple classification 
+    models.
     
-    Parameters:
-    -----------
+    This non-parametric statistical test compares the performance of three or more
+    models across multiple datasets to determine if their performance is significantly
+    different. It is akin to a repeated measures ANOVA but doesn't assume a normal 
+    distribution of the residuals.
+
+    The test ranks each model's performance for each dataset, calculating a 
+    Friedman statistic that approximates a Chi-square distribution. A low p-value 
+    indicates that at least one model's performance is significantly different.
+
+    Parameters
+    ----------
     model_performance_data : pd.DataFrame
         A DataFrame containing the performance metrics (e.g., accuracy) of the models.
         Each row represents a different dataset, and each column represents a different model.
-    
-    Returns:
-    --------
-    result : dict
-        A dictionary containing the Friedman test statistic and the p-value.
+    alpha : float, optional
+        The significance level for determining if the observed differences are
+        statistically significant. Defaults to 0.05.
+
+    Returns
+    -------
+    formatted_result : DataFrameFormatter
+        A formatted presentation of the Friedman test results, including the
+        test statistic, p-value, and an indication of whether the differences
+        in model performance are statistically significant at the specified alpha level.
         
+    Examples
+    --------
+    >>> df = pd.DataFrame({
+    ...    'Model_A': [0.8, 0.82, 0.78, 0.81, 0.79],
+    ...    'Model_B': [0.79, 0.84, 0.76, 0.82, 0.78],
+    ...    'Model_C': [0.81, 0.83, 0.77, 0.80, 0.76]
+    ... })
+    >>> perform_friedman_test2(df)
+    This will output a DataFrameFormatter object containing the Friedman test
+    statistic, p-value, and significance result. For example:
+    ```
+    Friedman Test Results
+    ----------------------
+    Friedman Test Statistic: 5.143
+    p-value: 0.076
+    Significant Difference: False
+    ```
+
+    Interpretation
+    ---------------
+    The Friedman test statistic is calculated based on the ranked performance
+    of each model across datasets. A p-value below the alpha level (e.g., 0.05)
+    would indicate a significant difference in performance among the models.
+    In the example output above, the p-value of 0.076 suggests that, at the 5%
+    significance level, there is not enough evidence to claim a significant
+    difference in model performance across the datasets.
     """
-    # Ensure the input is a DataFrame
+    # Check if model_performance_data is indeed a DataFrame
     if not isinstance(model_performance_data, pd.DataFrame):
-        raise ValueError("model_performance_data must be a pandas DataFrame.")
-    
+        model_performance_data = pd.DataFrame(model_performance_data)
+
     # Perform the Friedman test
     statistic, p_value = friedmanchisquare(*model_performance_data.values.T)
     
-    # Return the test results
-    results= DataFrameFormatter("Friedman Test Results").add_df (
-        {"Friedman Test Statistic": statistic, "p-value": p_value})
+    # Determine if the result is significant
+    significance = p_value < alpha
     
-    return results
+    # Create a DataFrame for the results
+    result = pd.DataFrame({
+        "Friedman Test Statistic": [statistic],
+        "p-value": [p_value],
+        "Significant Difference": [significance]
+    })
+
+    # Formatting the result DataFrame for presentation
+    formatted_result = DataFrameFormatter(title="Friedman Test Results").add_df(result)
+
+    return formatted_result
+
 
 @isdf 
+@ensure_pkg(
+    "scikit_posthocs", 
+    dist_name ='scikit_posthocs', 
+    infer_dist_name= True 
+ )
 def perform_nemenyi_posthoc_test2(
        model_performance_data: Union[Dict[str, List[float]], DataFrame]
     ):
@@ -467,7 +726,11 @@ def compute_model_ranks(
     ranks= DataFrameFormatter("Ranks Results").add_df (ranks)
     return ranks
 
-@isdf     
+@isdf
+@ensure_pkg("scikit_posthocs", extra= ( 
+    " nemenyi_tests needs 'scikit-posthocs' package to be installed." 
+    )     
+  )
 def perform_nemenyi_test2(
      model_performance_data: Union[Dict[str, List[float]], DataFrame], 
      ranks:Union[Series,Array1D ] 
@@ -581,108 +844,137 @@ def perform_wilcoxon_base_test(
     return results
 
 def plot_cd_diagram(
-    model_performance_data:Optional[DataFrame]=None, 
-    model_ranks: Optional[Union[Series, Array1D]]=None, 
-    cd: float=0.5, 
-    ax =None, 
-    title: Optional[str]=None, 
-     ):
+    model_performance_data: Optional[DataFrame] = None, 
+    model_ranks: Optional[Union[Series, Array1D]] = None, 
+    score_preference: str = 'higher is better', 
+    cd: float = 0.5, 
+    ax=None, 
+    title: Optional[str] = None
+):
     """
-    Plots a Critical Difference (CD) diagram to visually compare the rankings
-    of machine learning models based on their performance across multiple datasets.
+    Generates a Critical Difference (CD) diagram, a visual tool for comparing the 
+    performance rankings of different machine learning models across multiple 
+    datasets. The diagram delineates which models' performances are significantly 
+    different from each other based on their average ranks and the CD value.
 
-    The CD diagram illustrates the average ranks of models and highlights
-    those that are not significantly different from each other at a given
-    significance level, represented by the Critical Difference (cd).
+    A CD diagram is especially useful for presenting the results of statistical 
+    tests like the Friedman test and subsequent post-hoc analysis, providing a 
+    clear visual interpretation of these results.
 
     Parameters
     ----------
     model_performance_data : pd.DataFrame, optional
-        A pandas DataFrame where each row represents a dataset and each
-        column a different model. The cell values should be the performance
-        metric (e.g., accuracy, F1 score) of the models on the datasets.
-    model_ranks : pd.Series, optional
-        A pandas Series where the index contains model names and values
-        represent the average ranks of these models. If `model_performance_data`
-        is provided, `model_ranks` will be computed from it.
+        The performance data of various models. Each row corresponds to a dataset 
+        and each column to a model's performance metric, like accuracy or F1 score.
+    model_ranks : pd.Series or np.ndarray, optional
+        The average ranks of the models. If not provided, will be computed from 
+        `model_performance_data`. The index should contain model names and the 
+        values should represent the average ranks of the models.
+    score_preference : str, optional
+        Indicates whether higher values ("higher is better") or lower values 
+        ("lower is better") correspond to better performance. The ranking of models 
+        will be adjusted accordingly.
     cd : float, optional
-        The Critical Difference value for significance level. Defaults to 0.5.
+        The Critical Difference (CD) for the significance level, usually derived 
+        from a post-hoc test. It is the minimum difference in rank required for 
+        two models to be considered significantly different.
     ax : matplotlib.axes.Axes, optional
-        The axes upon which to plot the CD diagram. If None, a new figure
-        and axes are created.
+        An existing matplotlib Axes object to plot on. If None, a new figure and 
+        axes will be generated.
     title : str, optional
-        Title for the plot. Defaults to 'Critical Difference Diagram'.
+        The title for the CD diagram. If None, defaults to "Critical Difference Diagram".
 
     Raises
     ------
     ValueError
-        If neither `model_performance_data` nor `model_ranks` are provided.
+        If both `model_performance_data` and `model_ranks` are None, indicating 
+        that no input data was provided.
     TypeError
-        If `model_performance_data` is not a pandas DataFrame or `model_ranks`
-        is not a pandas Series.
+        If the provided `model_performance_data` is not a DataFrame or if 
+        `model_ranks` is not a Series or 1D numpy array.
 
     Examples
     --------
     >>> from gofast.stats.model_comparisons import plot_cd_diagram
     >>> model_performance = pd.DataFrame({
-            'Model_A': [0.90, 0.85, 0.88],
-            'Model_B': [0.92, 0.83, 0.89],
-            'Model_C': [0.91, 0.84, 0.87]})
+    ...     'Model_A': [0.90, 0.85, 0.88],
+    ...     'Model_B': [0.92, 0.83, 0.89],
+    ...     'Model_C': [0.91, 0.84, 0.87]
+    ... })
     >>> plot_cd_diagram(model_performance_data=model_performance, cd=0.5)
 
-    This function creates a visual representation highlighting the ranking
-    and the statistical significance of differences between models, aiding
-    in the comparison and selection of models.
+    The above example assumes the availability of a function `plot_cd_diagram` 
+    and would result in a plot showing the models on the y-axis and their average 
+    ranks on the x-axis, with lines or whiskers denoting the CD interval for each 
+    model. Models whose intervals overlap are not significantly different from 
+    each other in terms of performance.
 
     Notes
     -----
-    The Critical Difference (CD) diagram is particularly useful in the analysis
-    of results from multiple models across various datasets, as it provides
-    a clear visual indication of which models perform significantly differently.
-    The CD is calculated based on a statistical test (e.g., the Friedman test)
-    and post-hoc analysis, which should be performed beforehand to determine
-    the CD value.
+    The CD value must be determined based on the results of a Friedman test and 
+    post-hoc analysis. This typically involves using the average ranks of models 
+    obtained from multiple datasets and calculating the CD using critical values 
+    from the appropriate statistical distribution. The significance of the CD 
+    value depends on the number of models, the number of datasets, and the chosen 
+    alpha level for the statistical tests.
     """
 
-    if model_performance_data is None and model_ranks is None:
-        raise ValueError("Either model_performance_data or model_ranks must be provided.")
+    score_preference = normalize_preference(score_preference)
     
     if model_performance_data is not None:
         if not isinstance(model_performance_data, pd.DataFrame):
             raise TypeError("model_performance_data must be a pandas DataFrame.")
-        model_ranks = model_performance_data.rank().mean()
+        ascending = score_preference == 'lower is better'
+        model_ranks = model_performance_data.rank(ascending=ascending).mean(axis=0)
     
-    if model_ranks is not None:
+    elif model_ranks is not None:
+        if isinstance(model_ranks, np.ndarray):
+            model_ranks = pd.Series(model_ranks)
         if not isinstance(model_ranks, pd.Series):
-            raise TypeError("model_ranks must be a pandas Series.")
-    
-    assert cd > 0, "Critical difference (cd) must be a positive value."
+            raise TypeError("model_ranks must be a pandas Series or a numpy ndarray.")
+    else:
+        raise ValueError("Either model_performance_data or model_ranks must be provided.")
     
     if ax is None:
-        fig, ax = plt.subplots(figsize=(12, 6))  # Increase the figure size
+        fig, ax = plt.subplots(figsize=(12, 6))
+
+    if title is None:
+        title = 'Critical Difference Diagram'
     
-    model_ranks_sorted = model_ranks.sort_values()
+    # Sort the model ranks for plotting
+    model_ranks_sorted = model_ranks.sort_values(ascending=False)  # Best models on top
     y_positions = np.arange(len(model_ranks_sorted)) + 1
 
     # Extend the x-axis limits to provide more space for the CD intervals
     min_rank = model_ranks_sorted.min() - cd
     max_rank = model_ranks_sorted.max() + cd
     ax.set_xlim(min_rank - 1, max_rank + 1)
-
+    
+    # Plot the model ranks and CD interval
+    ax.hlines(y_positions, model_ranks_sorted - cd / 2, model_ranks_sorted + cd / 2,
+              color='black')
+    # ax.plot(model_ranks_sorted, y_positions, 'o', markersize=10, label='Models')
+    
+    # Adding model names and ranks as text next to each marker
     for y, (model, rank) in zip(y_positions, model_ranks_sorted.items()):
         ax.plot([rank - cd / 2, rank + cd / 2], [y, y], marker='o', 
-                markersize=10, color='black', label=model if y == 1 else "")  # Adjust marker size
+                        markersize=10, color='black',
+                        label=model if y == 1 else "")  # Adjust marker size
         # Annotate the actual average rank next to each model
-        ax.text(rank, y, f' {model} ({rank:.2f})', verticalalignment='center')
+        # Adjust text position
+        ax.text(rank, y - 0.1, f' {model} ({rank:.2f})', va='bottom', ha='center')
 
+    # Set the plot aesthetics
     ax.set_yticks(y_positions)
     ax.set_yticklabels(model_ranks_sorted.index)
-    ax.invert_yaxis()  # Invert y-axis to have the best model at the top
+    ax.invert_yaxis()  # Best models on top
     ax.set_xlabel('Average Rank')
-    ax.set_title(title or 'Critical Difference Diagram')
-    ax.axvline(x=model_ranks_sorted.min() - cd / 2, linestyle='--', color='gray', alpha=0.5)
-    ax.axvline(x=model_ranks_sorted.max() + cd / 2, linestyle='--', color='gray', alpha=0.5)
-    ax.legend(title="Models", loc="lower right")
+    ax.set_title(title)
+    ax.axvline(x=model_ranks_sorted.min() - cd / 2, linestyle='--', 
+               color='gray', alpha=0.5)
+    ax.axvline(x=model_ranks_sorted.max() + cd / 2, linestyle='--',
+               color='gray', alpha=0.5)
+    ax.legend(loc="lower right")
     ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.5)
 
     plt.tight_layout()
@@ -690,8 +982,10 @@ def plot_cd_diagram(
 
 @isdf 
 def plot_model_rankings(
-      model_performance_data: Union[Dict[str, List[float]], DataFrame]
-     ):
+    model_performance_data: Union[Dict[str, List[float]], DataFrame],
+    score_preference: str = 'higher is better',
+    fig_size: Union[tuple, list, None] = None
+):
     """
     Generates a bar chart visualizing the average ranking of models based on 
     performance metrics. Each model's ranking is calculated across multiple 
@@ -705,6 +999,16 @@ def plot_model_rankings(
         metrics as values, or a pandas DataFrame with models as columns 
         and performance metrics as rows. Each cell should contain a 
         performance score of the model on a specific dataset.
+    score_preference : str, optional
+        Indicates whether higher values ("higher is better") or lower values 
+        ("lower is better") correspond to better performance. The ranking of models 
+        will be adjusted accordingly.
+    fig_size : Union[tuple, list, None], optional
+        The figure size as a tuple or list of two values: (width, height). 
+        If None, the default figure size is used. This parameter allows 
+        customization of the output plot size, enhancing readability or 
+        fitting specific layout requirements.
+
 
     Returns
     -------
@@ -746,43 +1050,57 @@ def plot_model_rankings(
     corresponding average ranks on the y-axis, and ranks are shown on top of 
     their respective bars for clarity.
     """
-    # Validate input
-    if not isinstance(model_performance_data, pd.DataFrame):
-        raise TypeError("The model_performance_data must be a pandas DataFrame.")
+    # Convert dictionary to DataFrame if necessary
+    if isinstance(model_performance_data, dict):
+        model_performance_data = pd.DataFrame(model_performance_data)
     
+    # Validate input is a DataFrame
+    if not isinstance(model_performance_data, pd.DataFrame):
+        raise TypeError("The model_performance_data must be a"
+                        " pandas DataFrame or a dictionary.")
+
     # Check that the DataFrame is not empty
     if model_performance_data.empty:
         raise ValueError("The model_performance_data DataFrame is empty.")
-    
+
     # Ensure the DataFrame contains numerical values
-    if not np.issubdtype(model_performance_data.values.dtype, np.number):
-        raise ValueError("The model_performance_data must contain numerical values.")
-    
+    if not np.issubdtype(model_performance_data.dtypes[0], np.number):
+        raise ValueError(
+            "The model_performance_data must contain numerical values.")
+
+    # Normalize score preference
+    score_preference = normalize_preference(score_preference)
+    ascending = score_preference == 'lower is better'
+
     # Calculate the average rank for each model
-    ranks = model_performance_data.rank(axis=0, ascending=True).mean()
+    ranks = model_performance_data.rank(axis=0, ascending=ascending).mean()
 
     # Sort the models by their average rank (best to worst)
-    sorted_ranks = ranks.sort_values()
+    sorted_ranks = ranks.sort_values(ascending=ascending)
 
     # Create the bar chart
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.bar(sorted_ranks.index, sorted_ranks.values, color='skyblue')
+    fig, ax = plt.subplots(figsize=fig_size or (10, 5))
+    bars = ax.bar(sorted_ranks.index, sorted_ranks.values, color='skyblue')
     ax.set_xlabel('Models')
     ax.set_ylabel('Average Rank')
     ax.set_title('Model Rankings')
-    ax.invert_yaxis()  # Invert y-axis to have the best (lowest rank) at the top
+    
+    # Invert y-axis if 'lower is better' to have the best (lowest rank) at the top
+    if ascending:
+        ax.invert_yaxis()
 
     # Add the rank values on top of the bars
-    for index, value in enumerate(sorted_ranks):
-        ax.text(index, value, f"{value:.2f}", ha='center', va='bottom')
+    for bar in bars:
+        yval = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2, yval, round(yval, 2),
+                ha='center', va='bottom')
 
     plt.xticks(rotation=45)
     plt.tight_layout()  # Adjust layout to fit all labels
     plt.show()
     
-
 @isdf     
-@ensure_pkg("scikit-posthocs", extra = ( 
+@ensure_pkg("scikit_posthocs", extra = ( 
     "Post-hocs test expects 'scikit-posthocs' to be installed.")
     ) 
 @ensure_pkg("statmodels")
@@ -790,7 +1108,8 @@ def perform_posthoc_test(
     model_performance_data: DataFrame, 
     test_method: str='tukey', 
     alpha: str=0.05, 
-    metric: str='accuracy'
+    metric: str='accuracy', 
+    score_preference:str='higher is better'
     ):
     """
     Performs post-hoc analysis on model performance data to identify specific
@@ -865,7 +1184,7 @@ def perform_posthoc_test(
     if test_method.lower() not in valid_methods:
         raise ValueError(f"Unsupported test method '{test_method}'."
                          " Available methods are {list(valid_methods.keys())}.")
-
+    score_preference = normalize_preference(score_preference)
     # Define a function mapper for scalability
     method_function_mapper = {
         'tukey': lambda data, groups, alpha: pairwise_tukeyhsd(
@@ -898,7 +1217,7 @@ def perform_posthoc_test(
 @isdf 
 @ensure_pkg (
     "statsmodels", 
-    extra= "Post-hocs test need 'scikit-posthocs' package to be installed.", 
+    extra= "Post-hocs tests need 'scikit-posthocs' package to be installed.", 
     partial_check=True,
     condition=lambda *args, **kwargs: kwargs.get("test_method") =='nemenyi'
    )
@@ -954,7 +1273,6 @@ def perform_posthoc_test2(
     ValueError
         If an unsupported `test_method` is specified.
     """
-   
     if test_method.lower() == 'tukey':
         from statsmodels.stats.multicomp import pairwise_tukeyhsd
         # Flatten the DataFrame for Tukey's HSD test
@@ -1079,7 +1397,8 @@ def visualize_model_performance(
 def visualize_wilcoxon_test(
     model_performance_data: DataFrame, 
     alpha: float=0.05, 
-    model_pairs: Optional[ Tuple[str, str]]=None, 
+    model_pairs: Optional[ Tuple[str, str]]=None,
+    return_result: bool=False, 
     **kwargs: Any
     ):
     """
@@ -1102,6 +1421,9 @@ def visualize_wilcoxon_test(
     model_pairs : list of tuples, optional
         A list where each tuple contains two model names (as strings) to be 
         compared. If `None`, all possible pairs are compared. Defaults to `None`.
+    return_result: bool, default=False, 
+        Return the Wilcoxon result `Bunch` object and use print to see 
+        the contents. 
     **kwargs : dict
         Additional keyword arguments to pass to the plotting function, such as
         `figsize` to adjust the size of the plot.
@@ -1227,9 +1549,9 @@ def visualize_wilcoxon_test(
     plt.tight_layout()
     plt.show()
     
-    results_df= DataFrameFormatter("wilcoxon Results").add_df (
-        results_df)
-    return results_df
+    if return_result : 
+        return DataFrameFormatter("wilcoxon Results").add_df (results_df)
+
 
 @isdf 
 def generate_model_pairs(
@@ -1279,8 +1601,120 @@ def generate_model_pairs(
     
     return generated_model_pairs
 
+@isdf 
+def compute_model_summary(
+    model_preformance_data:Union[Dict[str, List[float]], DataFrame], 
+    higher_is_better: bool =True
+    ):
+    
+    """ 
+    Compute a summary statistic for model performance.
+    
+    The `compute_model_summary` function is designed to evaluate the performance 
+    of various machine learning models by computing a summary statistic for 
+    each model. 
+    
+    This statistic is a combination of the mean performance metric of the model
+    across multiple datasets and its variability (as measured by variance). 
+    The purpose of adjusting the mean by the variance is to provide a single 
+    measure that takes into account both the central tendency and the 
+    reliability of the model's performance.
+    
+    Parameters:
+    -----------
+    - `model_performance_data`: A pandas DataFrame containing the performance 
+       metrics for each model. Each column in the DataFrame corresponds to a 
+       different model, and each row corresponds to the model's performance 
+       metric on a different dataset.
+       
+    - `higher_is_better`: A boolean flag indicating the nature of the 
+    performance metric. If set to `True`, the function assumes that a higher 
+    metric indicates better performance (e.g., accuracy). Conversely, if set 
+    to `False`, it assumes that a lower metric is better (e.g., error rate).
+    
+    The function modifies the mean performance based on the variance for each 
+    model. If higher performance metrics are better, it subtracts the variance 
+    from the mean, thereby penalizing models with more variable performance. 
+    If lower metrics are better, it adds the variance, penalizing models with 
+    less consistent performance. 
+    
+    The resultant summary statistics are then sorted from best to worst, based
+    on the adjusted mean metric. By default, the function sorts in descending 
+    order for metrics where higher is better and in ascending order where
+    lower is better.
+    
+    Returns
+    --------
+    - A pandas DataFrame that has been formatted for readability using the 
+     `DataFrameFormatter` class, which presents the summary statistics in a 
+     structured table format. This DataFrame is wrapped in a Bunch object 
+     (similar to sklearn's Bunch), allowing users to print it to see its 
+      contents neatly tabulated.
+    
+    Examples
+    ----------
+    >>> from gofast.stats.model_comparisons import compute_model_summary
+    >>> # Example performance data for 5 models across 5 datasets
+    >>> model_performance_data = pd.DataFrame({
+    ...    'LR': [86.07, 87.90, 88.57, 90.95, 83.33],
+    ...    'DT': [77.58, 83.86, 78.33, 86.47, 85.61],
+    ... })
+    
+    >>> # Compute and print summary statistics assuming higher performance is better
+    >>> summary = compute_model_summary(model_performance_data)
+    >>> print(summary)
+ 
+    
+    Notes
+    -----
+    
+    - The summary statistic provided by this function gives a quick way to 
+      compare models when considering both their average performance and their 
+      consistency.
+    - This approach can be particularly useful when choosing between models 
+      where performance is close to each other and a decision cannot be made 
+      on mean performance alone.
+    - Care should be taken when interpreting the summary statistic as it 
+      heavily penalizes models with high variability, which might not always 
+      be appropriate depending on the context and the domain-specific 
+      requirements.
+    """
+    if higher_is_better:
+        # For metrics where higher is better, we negate the variance because we want
+        # to subtract it from the mean, as higher variance is undesirable.
+        summary = model_preformance_data.mean() - model_preformance_data.var()
+    else:
+        # For metrics where lower is better, we add the variance because we want
+        # to penalize higher variance.
+        summary = model_preformance_data.mean() + model_preformance_data.var()
+    
+    # Return the models ranked by the summary statistic
+    summary= summary.sort_values(ascending= not higher_is_better)
+    formatted_summary = DataFrameFormatter(
+        'Summary Statistics', keyword='summary').add_df ( summary) 
+    
+    return formatted_summary # Bunch object and print to see content 
+
 # Example usage
 if __name__ == "__main__":
+    
+    # Sample dataset
+    data = {
+        'LR': [86.07, 87.90, 88.57, 90.95, 83.33],
+        'DT': [77.58, 83.86, 78.33, 86.47, 85.61],
+        'RF': [86.52, 88.65, 90.50, 87.54, 83.46],
+        'XGB': [79.53, 90.52, 86.21, 83.48, 82.50],
+        'SVM': [81.29, 77.03, 80.15, 82.63, 79.56],
+        'NB': [82.94, 97.93, 78.57, 85.97, 92.85],
+        'KNN': [82.88, 79.16, 83.80, 82.47, 78.85]
+    }
+    
+    df = pd.DataFrame(data)
+    
+    # Compute the summary statistic
+    model_summary = compute_model_summary(df)
+    model_summary
+
     # Example usage with mock data
     model_performance_mock_data = pd.DataFrame({
         'Model_A': np.random.rand(10),

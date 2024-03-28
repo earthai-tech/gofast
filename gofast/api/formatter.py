@@ -111,6 +111,8 @@ class DataFrameFormatter:
         self.keyword = keyword
         self.df = None
         self._column_name_mapping = {}
+        self.multiple_dfs_str = ""
+        self.has_multiple_dfs = False
     
     def add_df(self, df):
         """
@@ -144,9 +146,9 @@ class DataFrameFormatter:
         self._populate_df_column_attributes()
     
         self._process_keyword_attribute()
-    
+        self.has_multiple_dfs = False
         return self
-    
+
     def _process_keyword_attribute(self):
         """
         Processes the keyword to set an intuitive attribute for data retrieval.
@@ -343,8 +345,6 @@ class DataFrameFormatter:
         for snake_case_name, original_name in self._column_name_mapping.items():
             setattr(self, snake_case_name, self.df[original_name])
             
-    
-
     def __repr__(self):
         """
         Returns a representation of the DataframeFormatter object.
@@ -370,6 +370,15 @@ class DataFrameFormatter:
         str
             The formatted dataframe as a string.
         """
+        # Handle multiple dataframes
+        if self.has_multiple_dfs:
+            return self.multiple_dfs_str
+        
+        # Handle a single dataframe
+        return self._formatted_dataframe()
+
+    def _formatted_dataframe (self, ): 
+        """ Construct a formattage dataframe"""
         if self.df is None:
             return "No data added."
     
@@ -389,7 +398,8 @@ class DataFrameFormatter:
             data_rows += f"{index_str}{row_str}\n"
     
         return f"{header}{data_rows}{line}"
-
+    
+        
     def __getattr__(self, attr_name):
         """
         Allows attribute-style access to DataFrame columns. If an attribute is not
@@ -429,6 +439,173 @@ class DataFrameFormatter:
             f"'{self.__class__.__name__}' object has no attribute or"
             f" column '{attr_name}'. Note: Column names are converted to snake_case.")
 
+
+    def adjust_table_width(self, width):
+        """
+        Adjusts the stored dataframe string to have a uniform width.
+        """
+        adjusted_lines = []
+        for line in self.multiple_dfs_str.split('\n'):
+            # Adjust only non-empty lines
+            if line.strip():
+                adjusted_line = line + ' ' * (width - len(line))
+                adjusted_lines.append(adjusted_line)
+            else:
+                adjusted_lines.append(line)
+    
+        self.multiple_dfs_str = '\n'.join(adjusted_lines)
+        
+
+    def add_dfs(self, *dfs, titles=None):
+        """
+        Adds multiple DataFrames or Series to the formatter.
+        """
+        self.has_multiple_dfs = True
+        combined_str_list, max_width = self._format_multiple_dfs(dfs, titles)
+        self.multiple_dfs_str = self._adjust_combined_str_width(combined_str_list, max_width)
+        # Adjust the formatting to ensure uniform table widths
+        self.adjust_table_width(max_width)
+        return self
+
+    def _format_multiple_dfs(self, dfs, titles):
+        """
+        Formats multiple DataFrames or Series and calculates the maximum width.
+        """
+        if titles is None:
+            titles = [None] * len(dfs)
+
+        combined_str_list = []
+        max_width = 0
+
+        for df, title in zip(dfs, titles):
+            formatter = DataFrameFormatter(title)
+            formatted_str = formatter.add_df(df).__str__()
+            max_width = max(max_width, max(len(line) for line in formatted_str.split('\n')))
+            combined_str_list.append(formatted_str)
+
+        return combined_str_list, max_width
+
+    def _adjust_combined_str_width(self, combined_str_list, max_width):
+        """
+        Adjusts the width of combined string representations of dataframes to be uniform.
+        """
+        adjusted_combined_str = "\n\n".join(
+            "\n".join(line.ljust(max_width) for line in df_str.split("\n"))
+            for df_str in combined_str_list
+        )
+        return adjusted_combined_str
+
+    # Remaining class methods...
+
+#                              P-Values Results                              
+# ============================================================================
+#                        Model A                Model B                Model C
+# ----------------------------------------------------------------------------
+# Model A                 1.0000                 0.4404                 0.4404
+# Model B                 0.4404                 1.0000                 0.0380
+# Model C                 0.4404                 0.0380                 1.0000
+# ============================================================================
+
+#     Significance (|P| <0.05) Results    
+# ========================================
+#            Model A    Model B    Model C
+# ----------------------------------------
+# Model A      False      False      False
+# Model B      False      False       True
+# Model C      False       True      False
+# ========================================
+
+# Model Ranks Results
+# ===================
+#                   0
+# -------------------
+# Model A      2.0000
+# Model B      1.0000
+# Model C      3.0000
+# ===================
+
+# complete the DataFrameFormater with new methods add_dfs wich add multiple dataframes 
+# for instance if all dataframes have the same columns, the second columns, must be 
+# append to the first columns and if the titles of each dataframe  is provided constructed 
+# accordinly. Now the title of DataFrame formatter can accept list of titles. 
+# Note when a second dataframe is appended the top '=' line of the second dataframe 
+# become '-' ( the subsection line). For a better fit the max length of table should 
+# be computed in order to adjust all table to fit the same length. 
+
+# for instance in the example above the two dataframe should be 
+#                          P-Values Results   [title1] 
+# ============================================================================
+#                        Model A                Model B                Model C
+# ----------------------------------------------------------------------------
+# Model A                 1.0000                 0.4404                 0.4404
+# Model B                 0.4404                 1.0000                 0.0380
+# Model C                 0.4404                 0.0380                 1.0000
+# =============================================================================
+#                 Significance (|P| <0.05) Results   [title2] 
+# -----------------------------------------------------------------------------
+# Model A                 False                   False                 False
+# Model B                 False                   False                 True
+# Model C                 False                   True                  False
+# =============================================================================
+# 
+# Also if the Series is given and indexes match the dataframe columns, transform 
+# to dataframe so that index become columns then append to the dataframe . 
+# like: 
+  
+#                          P-Values Results   [title1] 
+# ============================================================================
+#                        Model A                Model B                Model C
+# ----------------------------------------------------------------------------
+# Model A                 1.0000                 0.4404                 0.4404
+# Model B                 0.4404                 1.0000                 0.0380
+# Model C                 0.4404                 0.0380                 1.0000
+# =============================================================================
+#                 Significance (|P| <0.05) Results   [title2] 
+# -----------------------------------------------------------------------------
+# Model A                 False                   False                 False
+# Model B                 False                   False                 True
+# Model C                 False                   True                  False
+# =============================================================================
+#                            Model Ranks Results
+# -----------------------------------------------------------------------------
+# [index]                2.0000                   1.0000                 3.0000
+# =============================================================================
+
+
+# if dataframes dont have the same columns, then append each dataframe ( constructed with add_df) one under other 
+# by leaving one blank like. Also to make it beatifull adjust all maximum table
+#  length to fit the maximum lengh of the long table. 
+# in the example it should be.  
+
+#                          P-Values Results   [title1] 
+# ============================================================================
+#                        Model A                Model B                Model C
+# ----------------------------------------------------------------------------
+# Model A                 1.0000                 0.4404                 0.4404
+# Model B                 0.4404                 1.0000                 0.0380
+# Model C                 0.4404                 0.0380                 1.0000
+# =============================================================================
+# [Leave one blanck space ]
+#                 Significance (|P| <0.05) Results   [title2] 
+# =============================================================================
+# Index                   columnA                 columnB              columnC 
+# -----------------------------------------------------------------------------
+# Model A                 False                   False                 False
+# Model B                 False                   False                 True
+# Model C                 False                   True                  False
+# =============================================================================
+#
+#                    Title of dataframe 3 
+# =============================================================================
+# [Index]            column1                      column2             column 3
+# ------------------------------------------------------------------------------
+# ...                 ...                         ...                 ...
+
+# =============================================================================
+
+
+# Based on the DataFrameFormatter construct the new methods self.add_dfs ()
+# dont repeat the methods that does need to rewrite. also skip documentation for brievity. 
 
 class MetricFormatter(Bunch):
     """
