@@ -4,11 +4,695 @@
 
 # import textwrap
 import re
-
+import warnings 
 import numpy as np
 import pandas as pd
 from .structures import Bunch
 
+def format_value(value, max_length=50):
+    """
+    Formats a given value for display. Numeric values are formatted to four
+    decimal places. String values longer than `max_length` characters are 
+    truncated and appended with '...'.
+
+    Parameters
+    ----------
+    value : int, float, str
+        The value to be formatted.
+    max_length : int, optional
+        The maximum allowed length of string values before truncation.
+        Defaults to 50 characters.
+
+    Returns
+    -------
+    str
+        The formatted string representation of the input value. Numeric
+        values are limited to four decimal places. Strings exceeding
+        `max_length` are truncated with '...' appended.
+
+    Examples
+    --------
+    >>> format_value(123.456789)
+    '123.4568'
+    
+    >>> format_value("This is a very long text that should be truncated at some point.", 50)
+    'This is a very long text that should be truncated at ...'
+    
+    >>> format_value("Short text", 50)
+    'Short text'
+    """
+
+    if isinstance(value, (int, float)):
+        return f"{value:.4f}"
+    value_str = str(value)
+    return value_str[:max_length-3] + "..." if len(value_str) > max_length else value_str
+
+def check_indexes(dataframes):
+    """
+    Checks if provided dataframes have at least one non-numeric (object type)
+    indexes.
+
+    Parameters
+    ----------
+    dataframes : list of pandas.DataFrame
+        The list of DataFrames to check.
+
+    Returns
+    -------
+    bool
+        True if all DataFrames have non-numeric indexes, otherwise False.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.api.formatter import check_indexes
+    >>> df1 = pd.DataFrame({'A': [1, 2]}, index=['x', 'y'])
+    >>> df2 = pd.DataFrame({'B': [3, 4]}, index=['a', 'b'])
+    >>> check_indexes([df1, df2])
+    True
+    """
+    # include index if 
+    return any(df.index.dtype.kind in 'O' for df in dataframes)
+
+def max_widths_across_dfs(dataframes, include_index):
+    """
+    Calculates the maximum widths for columns across all provided dataframes,
+    optionally including the index width if specified.
+
+    Parameters
+    ----------
+    dataframes : list of pandas.DataFrame
+        The DataFrames for which to calculate maximum column widths.
+    include_index : bool
+        Determines whether to include the index width in the calculations.
+
+    Returns
+    -------
+    dict
+        A dictionary with keys as column names and values as the maximum width
+        required for each column across all dataframes.
+    int
+        The maximum width required for the index, if `include_index` is True;
+        otherwise, 0.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.api.formatter import max_widths_across_dfs
+    >>> df1 = pd.DataFrame({'A': [100, 200], 'B': ['Text', 'More Text']})
+    >>> df2 = pd.DataFrame({'A': [1, 2], 'B': ['Short', 'Longer Text Here']})
+    >>> column_widths, index_width = max_widths_across_dfs([df1, df2], True)
+    >>> column_widths
+    {'A': 5, 'B': 16}
+    >>> index_width
+    0
+    """
+    column_widths = {}
+    index_width = 0
+    if include_index:
+        index_width = max(max(len(str(index)) for index in df.index)
+                          for df in dataframes) + 2 
+    for df in dataframes:
+        for col in df.columns:
+            formatted_values = [len(format_value(val)) 
+                                for val in df[col].append(pd.Series(col))]
+            max_width = max(formatted_values)
+            column_widths[col] = max(column_widths.get(col, 0), max_width)
+            
+    return column_widths, index_width
+
+def have_same_columns(dataframes):
+    """
+    Verifies if all provided dataframes have the same set of column names.
+
+    Parameters
+    ----------
+    dataframes : list of pandas.DataFrame
+        The DataFrames to check for column name consistency.
+
+    Returns
+    -------
+    bool
+        True if all DataFrames have the same column names, otherwise False.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.api.formatter import have_same_columns
+    >>> df1 = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
+    >>> df2 = pd.DataFrame({'A': [5, 6], 'B': [7, 8]})
+    >>> have_same_columns([df1, df2])
+    True
+    
+    >>> df3 = pd.DataFrame({'A': [9, 10], 'C': [11, 12]})
+    >>> have_same_columns([df1, df3])
+    False
+    """
+    if not dataframes:
+        return True
+    first_df_columns = set(dataframes[0].columns)
+    return all(set(df.columns) == first_df_columns for df in dataframes[1:])
+
+def construct_tables_for_same_columns(dataframes, titles=None):
+    """
+    Constructs and returns a formatted string representation of tables for a
+    list of pandas DataFrames when all DataFrames have the same set of column
+    names. Each DataFrame is formatted into a unified table structure with
+    columns aligned across all tables, and titles centered above each table
+    if provided. The function ensures that columns are sized appropriately to
+    accommodate the content width, including handling of numeric precision and
+    text truncation.
+
+    Parameters
+    ----------
+    dataframes : list of pandas.DataFrame
+        The DataFrames to be formatted into tables. It is required that all
+        DataFrames in the list have an identical set of column names. The
+        function verifies this condition and raises an error if the column
+        sets differ.
+    titles : list of str, optional
+        Titles corresponding to each DataFrame, intended to be displayed
+        centered above their respective tables. The number of titles should
+        match the number of DataFrames; if there are fewer titles than
+        DataFrames, the excess tables will be displayed without titles.
+
+    Returns
+    -------
+    str
+        A string representation of the constructed tables. The output includes
+        headers with column names, data rows with aligned values, and is framed
+        with separator lines. Titles, if provided, are centered above each table.
+
+    Raises
+    ------
+    ValueError
+        If the DataFrames do not all have the same set of column names.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.api.formatter import construct_tables_for_same_columns
+    >>> df1 = pd.DataFrame({'A': [1, 2], 'B': ['Longer text here', 5]})
+    >>> df2 = pd.DataFrame({'A': [3, 4], 'B': ['More text', 6]})
+    >>> tables_str = construct_tables_for_same_columns(
+    ... [df1, df2], ['DataFrame 1', 'DataFrame 2'])
+    >>> print(tables_str)
+    
+    Notes
+    -----
+    This function is specifically designed for scenarios where multiple
+    DataFrames share the same column structure, allowing for a cohesive
+    presentation. Column widths are dynamically calculated to fit the
+    longest content in each column across all tables, ensuring uniform
+    alignment. Indexes are included in the table if they are non-numeric
+    and consistent across all DataFrames; otherwise, they are omitted.
+    This approach is particularly useful for comparative analysis and
+    reporting where DataFrames represent related datasets.
+    """
+    # Verify if all dataframes have the same columns
+    if not have_same_columns(dataframes):
+        raise ValueError("Dataframes do not have the same columns.")
+    
+    # Check if indexes across dataframes are consistent and should be included
+    include_index = check_indexes(dataframes)
+    # Calculate maximum column and index widths across all dataframes
+    column_widths, index_width = max_widths_across_dfs(dataframes, include_index)
+    # Initialize the string to store table representations
+    tables_str = ""
+    # Iterate through each dataframe to construct its table representation
+    for i, df in enumerate(dataframes):
+        # Set the title for the current table if provided
+        title = titles[i] if titles and i < len(titles) else ""
+        # Construct the header row with column names aligned according to their widths
+        header = "  ".join([f"{col:>{column_widths[col]}}" for col in df.columns])
+        # Prepend index width to the header if indexes are included
+        if include_index:
+            header = f"{'':<{index_width}}" + header
+        # Create separator lines for headers and tables
+        separator = "-" * len(header)
+        equal_separator = "=" * len(header)
+        # Center the title above its table if present
+        if title:
+            tables_str += f"{title.center(len(header))}\n"
+    
+        # Add the header with separators to mark the start of a new table
+        if i==0: 
+            tables_str += f"{equal_separator}\n{header}\n{separator}\n"
+        else: 
+            tables_str += f"{separator}\n"
+            
+        # Iterate through rows to format and add each row to the table
+        for index, row in df.iterrows():
+            row_str = f"{str(index):<{index_width}}" if include_index else ""
+            row_str += "  ".join(
+                [f"{format_value(row[col]):>{column_widths[col]}}" 
+                for col in df.columns])
+            
+            tables_str += f"{row_str}\n"
+            
+        # Check and adjust the separator for the next dataframe, if applicable
+        if i != len(dataframes)-1 and not titles [i+1 ]: 
+            tables_str +=''
+        else: tables_str += f"{equal_separator}\n"
+    
+    # Trim trailing spaces or lines and return the final table string
+    return tables_str.rstrip()
+
+def construct_table_for_different_columns(dataframes, titles):
+    """
+    Constructs and returns a formatted string representation of tables
+    for a list of pandas DataFrames with differing column names. Each
+    DataFrame is formatted into its own table with column names and
+    values aligned appropriately. The tables are separated by titles
+    (if provided) and equal separator lines, with content widths dynamically
+    adjusted to accommodate the longest item in each column or the column
+    name itself.
+
+    Parameters
+    ----------
+    dataframes : list of pandas.DataFrame
+        The DataFrames to be formatted into tables. Each DataFrame in the list
+        is expected to have a potentially unique set of column names, and the
+        function handles these differences by creating individual tables for
+        each DataFrame.
+    titles : list of str
+        Titles corresponding to each DataFrame, which are displayed centered
+        above their respective tables. The number of titles should match the
+        number of DataFrames; if there are fewer titles than DataFrames, the
+        remaining tables will be displayed without titles.
+
+    Returns
+    -------
+    str
+        A string representation of the constructed tables. Each table includes
+        a header with column names, rows of data with values aligned under their
+        respective columns, and is enclosed with equal ('=') separator lines.
+        Titles, if provided, are centered above each table.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.api.formatter import construct_table_for_different_columns
+    >>> df1 = pd.DataFrame({'A': [1, 2], 'B': ['This is text', 5]})
+    >>> df2 = pd.DataFrame({'C': [3, 4], 'D': ['Another text', 6]})
+    >>> tables_str = construct_table_for_different_columns(
+    ...        [df1, df2], ['DataFrame 1', 'DataFrame 2'])
+    >>> print(tables_str)
+    
+    Notes
+    -----
+    This function is designed to handle DataFrames with different columns by
+    creating a separate table for each DataFrame. Column widths are calculated
+    to fit the longest value or column name in each column, ensuring that the
+    presentation is uniform and easy to read. Indexes are included if they are
+    non-numeric across all DataFrames; otherwise, they are omitted from the
+    tables. The function is part of a larger framework intended to simplify the
+    display of pandas DataFrames in text format, particularly useful for logging
+    or text-based reporting.
+    """
+
+    # First, check if all dataframes have non-numeric indexes to determine
+    # if the index should be included in the width calculations.
+    include_index = check_indexes(dataframes)
+    # Determine global maximum column width for formatting
+    # to ensure uniform column width in the output tables.
+    _, global_index_width = max_widths_across_dfs(dataframes, include_index)
+    
+    tables_str = ""
+    global_max_width = 0  # Track the maximum table width for alignment
+    
+    # Calculate individual table widths and adjust global_max_width
+    # column widths and accounting for spacing between columns.
+    for df in dataframes:
+        # Calculate the total width of the table by summing the individual
+        # column widths and accounting for spacing between columns.
+        column_widths, _ = max_widths_across_dfs([df], include_index)
+        table_width = sum(column_widths.values()) + (len(column_widths) - 1)  * 3 # Space between columns
+        if include_index:
+            table_width += global_index_width + 3  # Space for index column and padding
+        global_max_width = max(global_max_width, table_width) 
+    
+    # Construct each table using the adjusted widths
+    for i, df in enumerate(dataframes):
+        column_widths, index_width = max_widths_across_dfs([df], include_index)
+
+        # Construct the header for the dataframe. If the index is
+        # included, adjust the header accordingly.
+        header_parts = []
+        if include_index:
+            header_parts.append(f"{'':<{index_width}}")
+        header_parts += [f"{col:>{column_widths[col]}}" for col in df.columns]
+        header = "  ".join(header_parts)
+        
+        # Center the title over the table, adjusting the length if necessary.
+        if titles[i]:
+            title_len = len(titles[i])
+            if title_len > len(header):
+                additional_space_per_column = (title_len - len(header)) // len(column_widths)
+                header = "  ".join(
+                    [f"{col:>{column_widths[col] + additional_space_per_column}}" 
+                      for col in df.columns])
+                if include_index:
+                    header = f"{'':<{index_width + additional_space_per_column}}" + header
+        
+        # Adjust for the title centering
+        title = titles[i] if i < len(titles) else ""
+        title_str = f"{title}".center(global_max_width, " ")
+        
+        # Separator lines adjusted to match the total width of the table.
+        equal_separator_line = "=" * global_max_width
+        separator_line = "-" * global_max_width
+        
+        # Add the title and header to the table content.
+        table_content = [title_str, equal_separator_line, header, separator_line]
+        
+        # Add each row of dataframe data to the table, aligning each value
+        # according to the column width.
+        for index, row in df.iterrows():
+            row_data = [f"{str(index):<{index_width}}" if include_index else ""]
+            row_data += [f"{format_value(row[col]):>{column_widths[col]}}" for col in df.columns]
+            table_content.append("  ".join(row_data))
+            
+        # Add a closing equal separator line at the end of the table.
+        table_content.append(equal_separator_line)
+        
+       # Join the table content with newline characters and add to the final
+       # output string.
+        tables_str += "\n".join(table_content) + "\n"
+    
+    ## Return the final output string, trimming any trailing newline characters.
+    return tables_str.rstrip()
+
+def to_snake_case(name):
+    """
+    Converts a string to snake_case using regex.
+
+    Parameters
+    ----------
+    name : str
+        The string to convert to snake_case.
+
+    Returns
+    -------
+    str
+        The snake_case version of the input string.
+    """
+    name = str(name)
+    name = re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()  # CamelCase to snake_case
+    name = re.sub(r'\W+', '_', name)  # Replace non-word characters with '_'
+    name = re.sub(r'_+', '_', name)  # Replace multiple '_' with single '_'
+    return name.strip('_')
+
+def generate_column_name_mapping(columns):
+    """
+    Generates a mapping from snake_case column names to their original names.
+
+    Parameters
+    ----------
+    columns : List[str]
+        The list of column names to convert and map.
+
+    Returns
+    -------
+    dict
+        A dictionary mapping snake_case column names to their original names.
+    """
+    return {to_snake_case(col): col for col in columns}
+
+def series_to_dataframe(series):
+    """
+    Transforms a pandas Series into a DataFrame where the columns are the index
+    of the Series. If the Series' index is numeric, the index values are converted
+    to strings and used as column names.
+
+    Parameters
+    ----------
+    series : pandas.Series
+        The Series to be transformed into a DataFrame.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame where each column represents a value from the Series,
+        with column names corresponding to the Series' index values.
+        
+    Raises
+    ------
+    TypeError
+        If the input is not a pandas Series.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> series = pd.Series(data=[1, 2, 3], index=['a', 'b', 'c'])
+    >>> df = series_to_dataframe(series)
+    >>> print(df)
+       a  b  c
+    0  1  2  3
+    
+    >>> series_numeric_index = pd.Series(data=[4, 5, 6], index=[10, 20, 30])
+    >>> df_numeric = series_to_dataframe(series_numeric_index)
+    >>> print(df_numeric)
+      10 20 30
+    0  4  5  6
+    """
+    if not isinstance(series, pd.Series):
+        raise TypeError("Input must be a pandas Series.")
+    # Convert index to string if it's numeric
+    if series.index.dtype.kind in 'iufc':  # Checks for int, unsigned int, float, complex
+        index_as_str = series.index.astype(str)
+    else:
+        index_as_str = series.index
+
+    # Create a DataFrame with a single row populated with the Series' values
+    # and columns named after the Series' index.
+    df = pd.DataFrame([series.values], columns=index_as_str)
+    
+    return df
+
+class MultiFrameFormatter:
+    """
+    A factory class designed to manage and format multiple pandas DataFrames
+    for display, either with unified or individual formatting depending on
+    column similarities. It supports handling DataFrames with both matching
+    and differing column sets, applying appropriate formatting strategies
+    for each scenario. Titles and keywords can be associated with each DataFrame
+    to enhance the readability and accessibility of the formatted output.
+
+    Parameters
+    ----------
+    titles : list of str, optional
+        Titles for each DataFrame, used to label tables when printed. Titles
+        are centered above their respective tables. If not provided, defaults
+        to an empty list.
+    keywords : list of str, optional
+        Keywords associated with each DataFrame, enabling attribute-based access
+        to DataFrames and their columns within the factory. If not provided,
+        defaults to an empty list.
+
+    Attributes
+    ----------
+    dfs : list of pandas.DataFrame
+        The list of DataFrames added to the factory for formatting.
+    titles : list of str
+        The titles associated with each DataFrame.
+    keywords : list of str
+        The keywords associated with each DataFrame, used for creating
+        intuitive attributes for data retrieval.
+
+    Methods
+    -------
+    add_dfs(*dfs)
+        Adds one or more DataFrames to the factory, enabling formatting 
+        and attribute setting based on provided titles and keywords.
+    dataframe_with_same_columns()
+        Constructs and returns a string representation of a unified table 
+        for DataFrames with identical column names.
+    dataframe_with_different_columns()
+        Constructs and returns string representations of individual tables 
+        for DataFrames with differing column names.
+    __str__()
+        Generates a string representation of the factory's formatted tables, 
+        adjusting for column similarities among DataFrames.
+    _process_keyword_attribute()
+        Processes provided keywords for intuitive data retrieval, defaul3ting 
+        to titles when keywords are absent.
+    _populate_df_column_attributes()
+        Populates attributes corresponding to DataFrame columns, facilitating 
+        direct access through snake_case attribute names.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.api.formatter import MultiFrameFormatter
+    >>> df1 = pd.DataFrame({'A': [1, 2], 'B': ['Text example', 5]})
+    >>> df2 = pd.DataFrame({'C': [3, 4], 'D': ['Another text', 6]})
+    >>> factory = MultiFrameFormatter(titles=['DataFrame 1', 'DataFrame 2'])
+    >>> factory.add_dfs(df1, df2)
+    >>> print(factory)
+    The example demonstrates creating a MultiFrameFormatter instance, adding 
+    two DataFrames with distinct columns, and showcasing the textual 
+    representation facilitated by the factory.
+
+    Notes
+    -----
+    The MultiFrameFormatter dynamically adapts to the characteristics of the added
+    DataFrames, optimizing the visual presentation whether columns across the
+    DataFrames match or not. It employs a strategy to ensure readability,
+    aligning titles and adjusting column widths as necessary. Additional
+    utility methods provide flexibility in accessing and manipulating
+    DataFrame contents directly through attributes set based on provided
+    keywords, using snake_case naming conventions for ease of use.
+    """
+
+    def __init__(self, titles=None, keywords=None):
+        self.titles = titles if titles is not None else []
+        self.keywords = keywords if keywords is not None else []
+        self.dfs = []
+
+    def _check_dfs(self):
+        """
+        Checks if all items in `self.dfs` are pandas DataFrames. Converts pandas Series
+        to DataFrames under specific conditions. If a Series' index length is less than
+        twice the maximum column count across all DataFrames, it is converted into a
+        DataFrame with its index becoming a column. Series with a larger index are not
+        converted and excluded from MultiFrameFormatter with a warning.
+        """
+        max_columns = max((len(df.columns) for df in self.dfs if isinstance(
+            df, pd.DataFrame)), default=0)
+        checked_dfs = []
+
+        for df in self.dfs:
+            if isinstance(df, pd.Series):
+                if len(df.index) < 2 * max_columns:
+                    new_df =series_to_dataframe (df)
+                    checked_dfs.append(new_df)
+                else:
+                    warnings.warn("A Series with a large index was not"
+                                  " converted and is excluded.", UserWarning)
+            elif isinstance(df, pd.DataFrame):
+                checked_dfs.append(df)
+            else:
+                warnings.warn("An item that is not a DataFrame or Series"
+                              " was found and is excluded.", UserWarning)
+
+        if not checked_dfs:
+            # Handling the scenario where checked_dfs is empty after processing
+            raise ValueError("No valid pandas DataFrame or convertible Series"
+                             " were provided to FrameFactory.")
+
+        self.dfs = checked_dfs
+
+    def add_dfs(self, *dfs):
+        """
+        Adds dataframes to the factory and processes them for
+        attribute setting based on keywords and titles.
+
+        Parameters
+        ----------
+        *dfs : unpacked list of pandas.DataFrame
+            Dataframes to be added to the factory.
+
+        Returns
+        -------
+        self : MultiFrameFormatter instance
+            The instance of FrameFactory to allow method chaining.
+        """
+        self.dfs.extend(dfs)
+        self._check_dfs() 
+        self._process_keyword_attribute()
+        self._populate_df_column_attributes()
+        
+        return self
+
+    def dataframe_with_same_columns(self):
+        """
+        Constructs a single table where all included dataframes
+        share the same column names.
+
+        Returns
+        -------
+        str
+            A string representation of the constructed table.
+        """
+        return construct_tables_for_same_columns(self.dfs, self.titles)
+
+    def dataframe_with_different_columns(self):
+        """
+        Constructs individual tables for each dataframe when
+        dataframes have differing column names.
+
+        Returns
+        -------
+        str
+            A string representation of the constructed tables.
+        """
+        return construct_table_for_different_columns(self.dfs, self.titles)
+
+    def __str__(self):
+        """
+        Provides a string representation of the factory's state,
+        displaying the constructed tables based on the dataframes'
+        column similarities.
+
+        Returns
+        -------
+        str
+            The string representation of the tables or an
+            indication of emptiness if no dataframes are present.
+        """
+        if not self.dfs:
+            return "<Empty Frame>"
+        if len(self.dfs) == 1:
+            return DataFrameFormatter(self.titles[0], self.keywords[0]).add_df(
+                self.dfs[0]).__str__()
+
+        if have_same_columns(self.dfs):
+            return self.dataframe_with_same_columns()
+
+        return self.dataframe_with_different_columns()
+
+    def _process_keyword_attribute(self):
+        """
+        Processes keywords to create intuitive attributes for
+        data retrieval, handling defaults based on titles if
+        necessary.
+        """
+        unique_keywords = list(set(self.keywords))
+        self.keywords = unique_keywords + ['result_{}'.format(i) for i in range(
+            len(self.dfs) - len(unique_keywords))]
+        
+        if len(self.titles) != len(self.dfs): 
+            self.titles = self.titles + [''] * (len(self.dfs) - len(self.titles)) 
+                                  
+        for keyword, df, title in zip(self.keywords, self.dfs, self.titles):
+            snake_case_keyword = to_snake_case(keyword if keyword else title)
+            setattr(self, snake_case_keyword, df.copy())
+
+    def _populate_df_column_attributes(self):
+        """
+        Populates the MultiFrameFormatter with attributes corresponding
+        to each dataframe column, using snake_case naming.
+        """
+        for df, keyword in zip(self.dfs, self.keywords):
+            column_name_mapping = generate_column_name_mapping(df.columns)
+            for snake_case_name, original_name in column_name_mapping.items():
+                attribute_name = f"{snake_case_name}_{to_snake_case(keyword)}" if hasattr(
+                    self, snake_case_name) else snake_case_name
+                setattr(self, attribute_name, df[original_name])
+
+    def __repr__(self):
+        """
+        Represents the FrameFactory instance, indicating the
+        presence of dataframes.
+
+        Returns
+        -------
+        str
+            A descriptive string about the FrameFactory instance.
+        """
+        return ( "<MultiFrame object with dataframes. Use print() to view.>" 
+                if self.dfs else "<Empty MultiFrame>")
 
 class DataFrameFormatter:
     """
@@ -111,9 +795,7 @@ class DataFrameFormatter:
         self.keyword = keyword
         self.df = None
         self._column_name_mapping = {}
-        self.multiple_dfs_str = ""
-        self.has_multiple_dfs = False
-    
+
     def add_df(self, df):
         """
         Enhances the DataFrameFormatter by adding a DataFrame or Series,
@@ -146,7 +828,6 @@ class DataFrameFormatter:
         self._populate_df_column_attributes()
     
         self._process_keyword_attribute()
-        self.has_multiple_dfs = False
         return self
 
     def _process_keyword_attribute(self):
@@ -370,10 +1051,6 @@ class DataFrameFormatter:
         str
             The formatted dataframe as a string.
         """
-        # Handle multiple dataframes
-        if self.has_multiple_dfs:
-            return self.multiple_dfs_str
-        
         # Handle a single dataframe
         return self._formatted_dataframe()
 
@@ -440,172 +1117,6 @@ class DataFrameFormatter:
             f" column '{attr_name}'. Note: Column names are converted to snake_case.")
 
 
-    def adjust_table_width(self, width):
-        """
-        Adjusts the stored dataframe string to have a uniform width.
-        """
-        adjusted_lines = []
-        for line in self.multiple_dfs_str.split('\n'):
-            # Adjust only non-empty lines
-            if line.strip():
-                adjusted_line = line + ' ' * (width - len(line))
-                adjusted_lines.append(adjusted_line)
-            else:
-                adjusted_lines.append(line)
-    
-        self.multiple_dfs_str = '\n'.join(adjusted_lines)
-        
-
-    def add_dfs(self, *dfs, titles=None):
-        """
-        Adds multiple DataFrames or Series to the formatter.
-        """
-        self.has_multiple_dfs = True
-        combined_str_list, max_width = self._format_multiple_dfs(dfs, titles)
-        self.multiple_dfs_str = self._adjust_combined_str_width(combined_str_list, max_width)
-        # Adjust the formatting to ensure uniform table widths
-        self.adjust_table_width(max_width)
-        return self
-
-    def _format_multiple_dfs(self, dfs, titles):
-        """
-        Formats multiple DataFrames or Series and calculates the maximum width.
-        """
-        if titles is None:
-            titles = [None] * len(dfs)
-
-        combined_str_list = []
-        max_width = 0
-
-        for df, title in zip(dfs, titles):
-            formatter = DataFrameFormatter(title)
-            formatted_str = formatter.add_df(df).__str__()
-            max_width = max(max_width, max(len(line) for line in formatted_str.split('\n')))
-            combined_str_list.append(formatted_str)
-
-        return combined_str_list, max_width
-
-    def _adjust_combined_str_width(self, combined_str_list, max_width):
-        """
-        Adjusts the width of combined string representations of dataframes to be uniform.
-        """
-        adjusted_combined_str = "\n\n".join(
-            "\n".join(line.ljust(max_width) for line in df_str.split("\n"))
-            for df_str in combined_str_list
-        )
-        return adjusted_combined_str
-
-    # Remaining class methods...
-
-#                              P-Values Results                              
-# ============================================================================
-#                        Model A                Model B                Model C
-# ----------------------------------------------------------------------------
-# Model A                 1.0000                 0.4404                 0.4404
-# Model B                 0.4404                 1.0000                 0.0380
-# Model C                 0.4404                 0.0380                 1.0000
-# ============================================================================
-
-#     Significance (|P| <0.05) Results    
-# ========================================
-#            Model A    Model B    Model C
-# ----------------------------------------
-# Model A      False      False      False
-# Model B      False      False       True
-# Model C      False       True      False
-# ========================================
-
-# Model Ranks Results
-# ===================
-#                   0
-# -------------------
-# Model A      2.0000
-# Model B      1.0000
-# Model C      3.0000
-# ===================
-
-# complete the DataFrameFormater with new methods add_dfs wich add multiple dataframes 
-# for instance if all dataframes have the same columns, the second columns, must be 
-# append to the first columns and if the titles of each dataframe  is provided constructed 
-# accordinly. Now the title of DataFrame formatter can accept list of titles. 
-# Note when a second dataframe is appended the top '=' line of the second dataframe 
-# become '-' ( the subsection line). For a better fit the max length of table should 
-# be computed in order to adjust all table to fit the same length. 
-
-# for instance in the example above the two dataframe should be 
-#                          P-Values Results   [title1] 
-# ============================================================================
-#                        Model A                Model B                Model C
-# ----------------------------------------------------------------------------
-# Model A                 1.0000                 0.4404                 0.4404
-# Model B                 0.4404                 1.0000                 0.0380
-# Model C                 0.4404                 0.0380                 1.0000
-# =============================================================================
-#                 Significance (|P| <0.05) Results   [title2] 
-# -----------------------------------------------------------------------------
-# Model A                 False                   False                 False
-# Model B                 False                   False                 True
-# Model C                 False                   True                  False
-# =============================================================================
-# 
-# Also if the Series is given and indexes match the dataframe columns, transform 
-# to dataframe so that index become columns then append to the dataframe . 
-# like: 
-  
-#                          P-Values Results   [title1] 
-# ============================================================================
-#                        Model A                Model B                Model C
-# ----------------------------------------------------------------------------
-# Model A                 1.0000                 0.4404                 0.4404
-# Model B                 0.4404                 1.0000                 0.0380
-# Model C                 0.4404                 0.0380                 1.0000
-# =============================================================================
-#                 Significance (|P| <0.05) Results   [title2] 
-# -----------------------------------------------------------------------------
-# Model A                 False                   False                 False
-# Model B                 False                   False                 True
-# Model C                 False                   True                  False
-# =============================================================================
-#                            Model Ranks Results
-# -----------------------------------------------------------------------------
-# [index]                2.0000                   1.0000                 3.0000
-# =============================================================================
-
-
-# if dataframes dont have the same columns, then append each dataframe ( constructed with add_df) one under other 
-# by leaving one blank like. Also to make it beatifull adjust all maximum table
-#  length to fit the maximum lengh of the long table. 
-# in the example it should be.  
-
-#                          P-Values Results   [title1] 
-# ============================================================================
-#                        Model A                Model B                Model C
-# ----------------------------------------------------------------------------
-# Model A                 1.0000                 0.4404                 0.4404
-# Model B                 0.4404                 1.0000                 0.0380
-# Model C                 0.4404                 0.0380                 1.0000
-# =============================================================================
-# [Leave one blanck space ]
-#                 Significance (|P| <0.05) Results   [title2] 
-# =============================================================================
-# Index                   columnA                 columnB              columnC 
-# -----------------------------------------------------------------------------
-# Model A                 False                   False                 False
-# Model B                 False                   False                 True
-# Model C                 False                   True                  False
-# =============================================================================
-#
-#                    Title of dataframe 3 
-# =============================================================================
-# [Index]            column1                      column2             column 3
-# ------------------------------------------------------------------------------
-# ...                 ...                         ...                 ...
-
-# =============================================================================
-
-
-# Based on the DataFrameFormatter construct the new methods self.add_dfs ()
-# dont repeat the methods that does need to rewrite. also skip documentation for brievity. 
 
 class MetricFormatter(Bunch):
     """

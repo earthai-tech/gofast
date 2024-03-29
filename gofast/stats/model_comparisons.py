@@ -14,7 +14,7 @@ from sklearn.preprocessing import LabelEncoder
 
 from .._typing import Callable, LambdaType, DataFrame, Series, Array1D
 from .._typing import Dict, List, Union, Optional, Any, Tuple  
-from ..api.formatter import DataFrameFormatter 
+from ..api.formatter import DataFrameFormatter, MultiFrameFormatter 
 from ..decorators import isdf 
 from ..tools.coreutils import validate_ratio 
 from ..tools.funcutils import ensure_pkg 
@@ -308,13 +308,13 @@ def perform_nemenyi_posthoc_test(
         'significant_differences': significant_diffs,
         'average_ranks': avg_ranks
     }
-    
-    results = DataFrameFormatter("PostHoc Results").add_dfs (
-        pairwise_p_values,significant_diffs, avg_ranks, titles = [ 
-          "P-values Results",   
-          f"Significance (|P| <{significance_level:.2f}) Results", 
-          "Model Ranks Results"] 
-    )
+    titles = [
+        "P-values", f"Significance (|P| <{significance_level:.2f})", 
+        "Model Ranks"
+        ] 
+    keywords = ['p_values', 'significance', 'rank']
+    results= MultiFrameFormatter(titles = titles, keywords= keywords).add_dfs(
+        pairwise_p_values, significant_diffs,  avg_ranks)
     
     return results
 
