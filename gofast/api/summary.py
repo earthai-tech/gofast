@@ -1,467 +1,607 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Wed Mar 13 22:29:22 2024
 
-@author: Daniel
-"""
 import numpy as np
 import pandas as pd
 from .structures import FlexDict
 
-class ModelPerformanceReport:
-    def __init__(self, model, X_test, y_test, metrics):
-        """
-        Initializes the report with model performance metrics.
-        
-        Parameters:
-        - model: The trained model.
-        - X_test: Test features DataFrame.
-        - y_test: Test target variable.
-        - metrics: List of metrics to calculate and display.
-        """
-        
-    def display_summary(self):
-        """Prints a summary of the model's performance."""
-        
-    def plot_metrics(self):
-        """Generates plots for the specified metrics, such as ROC curves."""
-        
-    def detailed_report(self):
-        """Generates a detailed text report on model's performance metrics."""
-        
-class DataFrameReport:
-    def __init__(self, before_df, after_df, transformations):
-        """
-        Initializes the report with DataFrame transformations.
-        
-        Parameters:
-        - before_df: DataFrame before transformations.
-        - after_df: DataFrame after transformations.
-        - transformations: List or dictionary of applied transformations.
-        """
-        
-    def summary(self):
-        """Displays summary statistics of the DataFrame before and after transformations."""
-        
-    def transformation_details(self):
-        """Describes each transformation applied, including parameters and effects."""
-        
-class OptimizationReport:
-    
-    def __init__(self, optimization_result):
-        """
-        Initializes the report with optimization results.
-        
-        Parameters:
-        - optimization_result: Object containing results from optimization.
-        """
-        
-    def best_params(self):
-        """Displays the best parameters found."""
-        
-    def performance_overview(self):
-        """Displays performance metrics for the best model."""
-        
-    def convergence_plot(self):
-        """Generates a plot showing the optimization process over iterations."""
-        
-class ReportFactory:
-    @staticmethod
-    def create_report(report_type, *args, **kwargs):
-        """
-        Factory method to create different types of reports.
-        
-        Parameters:
-        - report_type: Type of the report to create (e.g., 'model_performance', 'dataframe', 'optimization').
-        - args, kwargs: Arguments required to instantiate the report classes.
-        """
-        report_type = str(report_type).lower() 
-        if report_type == 'model_performance':
-            return ModelPerformanceReport(*args, **kwargs)
-        elif report_type == 'dataframe':
-            return DataFrameReport(*args, **kwargs)
-        elif report_type == 'optimization':
-            return OptimizationReport(*args, **kwargs)
-        else:
-            raise ValueError("Unknown report type")
+class Summary(FlexDict):
+    """
+    A utility class for generating detailed summary reports of pandas DataFrames. 
+    It inherits from `FlexDict`, enabling attribute-like access to dictionary 
+    keys for flexible interaction with summary data. The class provides methods 
+    to compile comprehensive insights into the DataFrame, including basic statistics, 
+    correlation matrices, counts of unique values in categorical columns, and 
+    data samples.
 
+    Attributes
+    ----------
+    title : str
+        An optional title for the summary report. If specified, this title 
+        will be included at the top of the generated summary.
 
+    Methods
+    -------
+    data_summary(df, include_correlation=False, include_uniques=False, 
+                     include_sample=False, sample_size=5):
+        Produces a formatted summary of the given DataFrame, optionally 
+        including a correlation matrix, unique value counts for categorical 
+        columns, and a data sample.
 
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.api.summary import Summary 
+    >>> data = {
+    ...     'Age': [25, 30, 35, 40, np.nan],
+    ...     'Name': ['Alice', 'Bob', 'Charlie', 'David', 'Edward'],
+    ...     'Salary': [50000, 60000, 70000, 80000, 90000]
+    ... }
+    >>> df = pd.DataFrame(data)
+    >>> summary = Summary(title="Employee Data Overview")
+    >>> summary.data_summary(df, include_correlation=True, 
+    ...           include_uniques=True, include_sample=True))
 
-
-# class Report: 
-    
-#     def __init__ (self, title =None, **kwargs): 
-#         self.title =title 
-        
-#     def __str__(self, ):
- 
-          # write a function to format a report 
-#         # Report must be a dictionnary of key string and values 
-          # where 'Report tile' is placed in center frame with a little space of the 
-#         # line. If there is not title, line must continue 
-#         # and key space is determine by the max length of all dictionnary keys 
-#         # and ":" is placed accordingly. 
-          # if the dictionnary value is numeric format accordingly and round 4 decimal. Here is example. 
-#         # here is an example: 
-            
-#         # ======================= Report tile ===============================
-#         # key1                  :  value1 round(4 decimal) if numeric. 
-#         # key2                  :  value2 
-#         # key3                  :  value3 
-#         # ...                   :  ... 
-#         # key n                 :  value n 
-#         # ===================================================================
-        
-#         # if value of a key is a series then convert the values to dict for the 
-#         # series formatage.  For instance the dict key (e.g keyseries)  that has series 
-#         # as value is named keyseries. if should be formated as : 
-            
-#         # ============================ Report =================================================
-#         # key1                  :  value1 
-#         # key2                  :  value2 
-#         # key3                  :  value3 
-#         # keyseries             : Series: name=<series_name> - values: < series value in dict> 
-#         # ======================================================================================
-  
-#         # if value of key is pandas dataframe then draw a line '-' as subsection after 
-#         # one blank line and  create a section like :
-            
-#         # for instance the dict key (e.g keydf)  that has value ('valuedf) should be 
-#         # formated by appendding  the dataframe format make from the method 
-#         # self.format_df  and and center key. The total format should be for instance: 
-            
-#         # ============================ Report =================================
-#         # key1                  :  value1 
-#         # key2                  :  value2 
-#         # key3                  :  value3 
-#         # ---------------------------------------------------------------------
-#         #                       keydf [center] 
-#         # ---------------------------------------------------------------------
-#         # Append DataFrame format here from self.format_df. Since it is a subsection then replace 
-#         # the "=" by "~" and center the formatage 
-#         # Note that self.format use the class DataFrameFormater to produce the table. 
-#         # if the length of table of dataframe formater is larger than the report tile length 
-#         # adjust all line to fit the max lengh of all tables. 
-        
-#         # if the value of the key is a dict with nested dict, then format accordingly like the report 
-#         # but change the  subsection every time. 
-#         # Note that subsection line must be different everytimes, 
-#         # like subsection 1: use '-' 
-#         # like subsection 2: use '~' 
-#         # like subsection 3: use < selected accordingly> 
-#         # ...
-        
-#         # Note the level of each subsubsection should be a join of 
-#         # subsecction key and current section. For instance  a dict like {key_level1: { keylevel2: ...}}
-#         # the subsecction keylevel2 shouldbe : key_level1.keylevel2 and so on 
-        
-#         # Here is a gobal examples of  a report that contain key as str, series, datarame and nested dict 
-#         # should present like 
-        
-#         # ============================   Report  ===============================================
-#         # key1                  :  value1 round(4 decimal) if numeric. 
-#         # key2                  :  value2 
-#         # key3                  :  value3 
-#         # ---------------------------------------------------------------------------------------
-#         # [ Leave one space of entire line ]
-#         #                       key4 [ this ket has value in dataframe] [ Note that this table is yield from DataFrameFormater ]
-#         #            ------------------------------------------------------
-#         #            column 1          column2           column3        ...
-#         #            valuecol1         valuecol2         valuecol3      ...
-#         #            ...               ...               ...            ...
-#         #            ------------------------------------------------------
-        
-#         # [ Leave one space of entire line ]
-#         # key                   : Series: name=<series_name> - values: < series value in dict> 
-#         # key6                  : value6
-#         # ---------------------------------------------------------------------------------------
-#         #                      
-#         #                     key7 [this key contain nested dict]
-#         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#         # key7.key_nested1             : value_nested1 
-#         # key7.key_nested2             : value_nested2 etc ... 
-        
-#         # =========================================================================================
-        
-#         # finally close the report line with '=' 
-        
-#         # skip the documentation for brievity and use the best Python skill for 
-#         # summary report making. Elevate the Python programming skill. 
-        
-#     def add_data_ops_report( self, report ): 
-        
-#     def format_df(self, df ): 
-        
-#         from gofast.api.formatter import DataFrameFormatter 
-        
-#         # DataFrameFormatter  yield a table like this: 
-            
-#         # ==============================
-#         #         column1    column2    
-#         # ------------------------------
-#         # Index1   1.0000     5.6789     
-#         # Index2   2.0000     6.0000     
-#         # Index3   3.1235     7.0000     
-#         # Index4   4.0000     8.0000     
-#         # ==============================
-
-    
-#     def format_nested_dict (self, dict_): 
-        
-        
-    
-    
-        
-        
-        
-        
-        
-        
-        
-        
-
-        
-
-
-    
-
-#XXX TODO 
-class CustomDataFrame(pd.DataFrame):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-    
-    def summary(self, include_correlation=False, include_uniques=False, 
-                statistics=['mean', 'std', 'min', '25%', '50%', '75%', 'max'],
-                include_sample=False, sample_size=5):
-        summary = {
-            "Shape": self.shape,
-            "Data Types": self.dtypes.to_dict(),
-            "Missing Values": self.isnull().sum().to_dict(),
-            "Basic Statistics": {}
-        }
-        
-        # Basic statistics for numeric columns based on user-selected statistics
-        if statistics:
-            summary["Basic Statistics"] = self.describe().loc[statistics].to_dict()
-        
-        # Correlation matrix for numeric columns
-        if include_correlation and self.select_dtypes(include=['number']).shape[1] > 1:
-            summary["Correlation Matrix"] = self.corr().round(2).to_dict()
-        
-        # Unique counts for categorical columns
-        if include_uniques:
-            cat_cols = self.select_dtypes(include=['object', 'category']).columns
-            summary["Unique Counts"] = {col: self[col].nunique() for col in cat_cols}
-        
-        # Sample of the data
-        if include_sample:
-            if sample_size > len(self):
-                sample_size = len(self)
-            summary["Sample Data"] = self.sample(n=sample_size).to_dict(orient='list')
-        
-        return summary
-
-
-
-
-# class AnovaResults:
-#     """
-#     Anova results class
-
-#     Attributes
-#     ----------
-#     anova_table : DataFrame
-#     """
-#     def __init__(self, anova_table):
-#         self.anova_table = anova_table
-
-#     def __str__(self):
-#         return self.summary().__str__()
-
-#     def summary(self):
-#         """create summary results
-
-#         Returns
-#         -------
-#         summary : summary2.Summary instance
-#         """
-#         summ = summary2.Summary()
-#         summ.add_title('Anova')
-#         summ.add_df(self.anova_table)
-
-#         return summ
-    
-class Summary:
-    def __init__(self, data):
-        """
-        Initialize with either a pandas DataFrame or a 'bunch' object (similar to sklearn's Bunch).
-        The object should contain either the data for summary1 or model results for summary2.
-        """
-        self.data = data
-
-    def summary1(self):
-        """
-        Display basic statistics of a DataFrame, with numerical values rounded 
-        to 4 decimal places.
-        """
-        if isinstance(self.data, pd.DataFrame):
-            # Basic info
-            print("                               Data                               ")
-            print("="*75)
-            print("                               Core                               ")
-            print("-"*75)
-            print("No rows      No columns    Types        NaN exists?    %NaN (axis=0:axis1)")    
-            print(f"{self.data.shape[0]:<12} {self.data.shape[1]:<13} {self.data.dtypes.nunique():<11} {self.data.isnull().any().any()}")              
-            print("-"*75)
-            print("                            Statistics                            ")
-            print("-"*75)
-            
-            # Using pandas describe to get summary statistics and rounding
-            desc = self.data.describe(include='all').applymap(
-                lambda x: f'{x:.4f}' if isinstance(x, (int, float)) else x)
-            for feature in desc.columns:
-                stats = desc[feature]
-                print(f"{feature:<12}", end="")
-                for stat in ['mean', 'std', 'min', '25%', '50%', '75%', 'max']:
-                    print(f"{stats[stat]:>15}", end="")
-                print()
-            print("="*75)
-        else:
-            print("Data is not a DataFrame. Please provide a DataFrame for summary1.")
-
-
-    def summary2(self):
-        """
-        Display fine-tuned model results.
-        Assuming 'data' is a 'bunch' object containing model results and statistics.
-        """
-        if hasattr(self.data, 'estimator') and hasattr(self.data, 'cv_results'):
-            print("                              Results                              ")
-            print("="*75)
-            print("                               Main                                ")
-            print("-"*75)
-            print(f"Estimator         : {self.data.estimator}")
-            print(f"Best parameters   : {self.data.best_params}")
-            print(f"nCV               : {self.data.cv}")
-            print(f"Scoring           : {self.data.scoring}")
-            print("-"*75)
-            print("                             CV Results                            ")
-            print("-"*75)
-            
-            cv_results = self.data.cv_results
-            for i in range(self.data.cv):
-                print(f"Cv{i+1:<5} {cv_results['mean_test_score'][i]:<15} {cv_results['split{i}_test_score']:<12} {cv_results['std_test_score'][i]:<15} {np.nanmean(cv_results['mean_test_score']):<12}")
-            print("="*75)
-        else:
-            print("Data does not contain model results. Please provide a 'bunch' object for summary2.")
-
-# Example usage
-# You would replace these example calls with actual data or model results
-# summary_instance = Summary(your_dataframe_or_bunch_object)
-# summary_instance.summary1()  # For DataFrame statistics
-# summary_instance.summary2()  # For model results
-
-
-    """ Gofast Summary class must micmic the statmodels display models. 
-    Gofast object should be encapsulated in bunch object wher each attributes 
-    can be displayed. 
-    Three method of display should be created. 
-    
-    summary1 (self , etc...) should reflect to display the minor 
-    staticstic of any dataframe. for instance 
-    - df.summary1() should display as statmodels display the 
-    Number features, number of row, datatypes and statistic likes 
-    missing values,  ['mean', 'std', 'min', '25%', '50%', '75%', 'max'] etc. 
-    
-                               Data 
-    ===========================================================================
-                               Core
-    ---------------------------------------------------------------------------
-    No rows      No columns    No num-feat.   No cat-feat    %NaN [ axis0 |axis1]
-    ******************************************************************************
-    123           7             3              4               
-    -----------------------------------------------------------------------------
-                               Statistics 
-    ---------------------------------------------------------------------------
-    mean          std         min        max         25%         50%      75%  
-    ***************************************************************************
-    Feature 1    ...          ....       ...       ....        ...       ....
-    Feature 2    ...          ...        ...       ...         ...       ...
-    ....
-    
-    ===========================================================================
-    
-    if NaN exists in dataframe , NaN exist? should be True, then compute the 
-    % of NaN in the whole data and according to each axis.  For instance 
-    %NaN [ axis0 |axis1] should display:   15[30:7] where 15 means 15% of Nan 
-    in the whole data and 30% NaN found in axis 1 and 15% in axis 1
-    
-    also note that the numeric values of 
-    
-    
-    - summary2() refers to display the fine-tuned models results. 
-    if the bunch model is print then a nice table that micmics the statmodels 
-    must be display that includes, estimator name, best parameters, ncv , 
-    scoring and job specified . 
-    then the cv results like : 
-        
-                                 Results 
-    ===========================================================================
-                                  Main 
-    ----------------------------------------------------------------------------
-    Estimator         : SVC 
-    Best parameters   : .e.g {C: 1, gamma=0.1}
-    nCV               :  e.g 4 
-    scoring           : e.g accuracy
-    ----------------------------------------------------------------------------
-                                 CV results 
-    ---------------------------------------------------------------------------
-    Fold        Mean score        CV score      std score          Global mean 
-    ***************************************************************************       
-    Cv1          0.6789              0.6710       0.0458               0.7090
-    cv2          0.5678              0.7806       0.8907               0.9089
-    cv3          0.9807              0.6748       0.8990               0.7676
-    cv4          0.8541              0.8967       0.9087               0.6780
-    ===========================================================================
-    
-    The mean score can be computed for each fold of the cv results 
-    same for cv scores, std score and global mean who exclude Nan if exists. 
-    
-    
-    
-    
-    write the methods summary 1 and summary 2 to perform this task flexibility 
-    and robust.skip the documentation for now 
-    
+    Notes
+    -----
+    - The summary report is designed to provide a quick yet comprehensive 
+      overview of the DataFrame's content, facilitating initial data exploration 
+      and analysis tasks.
+    - `FlexDict` is assumed to be a class that allows dictionary items to be 
+      accessed as attributes, enhancing ease of use. This behavior enriches the 
+      `Summary` class by enabling dynamic attribute assignment based 
+      on the provided summary data.
+    - External functions `format_dataframe` and others are leveraged for 
+      formatting sections of the summary report. These functions must be defined 
+      and available in the same scope or imported for the `Summary` class 
+      to function correctly.
+    - The class focuses on numerical and categorical data within the DataFrame. 
+      Other data types (e.g., datetime) are included in the basic statistics but 
+      might require specialized handling for more detailed analysis.
     """
     
-class Report (FlexDict) : 
-    def __init__(self, title =None, length =100,  **kwargs): 
-        super ().__init__( **kwargs) 
+    def __init__(self, title=None, **kwargs):
+        """
+        Initializes the Summary object with an optional title for the 
+        report and any additional properties via keyword arguments.
+
+        Parameters
+        ----------
+        title : str, optional
+            The title of the summary report to be generated.
+        **kwargs : dict, optional
+            Additional keyword arguments passed to the FlexDict constructor.
+        """
+        super().__init__(**kwargs)
+        self.title = title
+        self.summary_report = ""
+
+    def basic_statistics(self, df, include_correlation=False):
+        """
+        Generates basic statistical measures for the provided DataFrame and,
+        optionally, a correlation matrix for numeric columns.
+
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            The DataFrame to be summarized.
+        include_correlation : bool, optional
+            If True, includes a correlation matrix for numeric columns in the
+            summary. Defaults to False.
+
+        Returns
+        -------
+        Summary
+            The instance itself, allowing for method chaining.
+
+        Raises
+        ------
+        ValueError
+            If `df` is not a pandas DataFrame.
+
+        Examples
+        --------
+        >>> import pandas as pd 
+        >>> from gofast.api.summary import Summary
+        >>> df = pd.DataFrame({
+        ...     'Age': [25, 30, 35, 40, np.nan],
+        ...     'Salary': [50000, 60000, 70000, 80000, 90000]
+        ... })
+        >>> summary = Summary(title="Employee Stats")
+        >>> summary.generate_basic_statistics(df, include_correlation=True)
+        """
+        if not isinstance(df, pd.DataFrame):
+            raise ValueError("The provided data must be a pandas DataFrame.")
         
-        self.title=title
-        self.length= length 
-        self.report=None 
+        summary_parts = []
         
-    def summary ( self, report ): 
-        if not isinstance ( report, dict): 
-            raise # Informative error with nice explanation 
-        self.report = format_report ( 
-           report_data= report, 
-           report_title= self.title,
-           maxt_table_length= self.length
-           )
-    def __str__(self, ): 
+        # Basic statistics
+        stats = df.describe(include='all').T
+        summary_parts.append(format_dataframe(stats, title="Basic Statistics"))
+
+        # Correlation matrix
+        if include_correlation and 'number' in df.select_dtypes(
+                include=['number']).dtypes:
+            corr_matrix = df.corr().round(2)
+            summary_parts.append(format_dataframe(
+                corr_matrix, title="Correlation Matrix")) 
+            
+        # Compile all parts into a single summary report
+        self.summary_report = "\n\n".join(summary_parts)
         
-        return self.formatted_report 
-    
+        return self 
+
+    def unique_counts(self, df, include_sample=False, sample_size=5):
+        """
+        Generates counts of unique values for categorical columns in the provided
+        DataFrame and, optionally, includes a random sample of data.
+
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            The DataFrame to be summarized.
+        include_sample : bool, optional
+            If True, adds a random sample of data to the summary. Defaults to False.
+        sample_size : int, optional
+            The size of the sample to include if `include_sample` is True. Defaults
+            to 5.
+
+        Returns
+        -------
+        Summary
+            The instance itself, allowing for method chaining.
+
+        Raises
+        ------
+        ValueError
+            If `df` is not a pandas DataFrame.
+
+        Examples
+        --------
+        >>> import pandas as pd 
+        >>> from gofast.api.summary import Summary
+        >>> df = pd.DataFrame({
+        ...     'Department': ['Sales', 'HR', 'IT', 'Sales', 'HR'],
+        ...     'Age': [28, 34, 45, 32, 41]
+        ... })
+        >>> summary = Summary(title="Department Overview")
+        >>> summary.unique_counts(df, include_sample=True)
+        """
+        if not isinstance(df, pd.DataFrame):
+            raise ValueError("Input must be a pandas DataFrame.")
+        
+        summary_parts=[] 
+        unique_counts = {col: df[col].nunique() for col in df.select_dtypes(
+            include=['object', 'category']).columns}
+        unique_df = pd.DataFrame.from_dict(
+            unique_counts, orient='index', columns=['Unique Counts'])
+        max_width= get_table_width(unique_df) 
+        # Sample of the data
+        if include_sample:
+            sample_data = df.sample(n=min(sample_size, len(df)))
+            it_width =get_table_width(sample_data)
+            max_width = max_width if max_width > it_width else it_width
+            
+        # get the max width to fit all tables 
+        summary_parts.append(format_dataframe(unique_df,  
+            title="Unique Counts", max_width= max_width))
+        
+        if include_sample: 
+            summary_parts.append(format_dataframe(
+                sample_data, title="Sample Data", max_width=max_width))
+         # Compile all parts into a single summary report
+        self.summary_report = "\n\n".join(summary_parts)
+
+        return self
+
+    def model_summary(self, model_results=None, model=None, **kwargs):
+        """
+        Generates a summary report for a scikit-learn model or model results,
+        especially for models optimized using GridSearchCV or RandomizedSearchCV.
+
+        Parameters
+        ----------
+        model_results : dict, optional
+            A dictionary containing model results with keys 'best_estimator_',
+            'best_params_', and 'cv_results_'. If provided, used directly for
+            generating the summary report.
+        model : sklearn estimator, optional
+            A scikit-learn model object. Must have 'best_estimator_', 'best_params_',
+            and 'cv_results_' attributes if `model_results` is not provided.
+        **kwargs : dict
+            Additional keyword arguments to be passed to the summary generation 
+            function.
+
+        Returns
+        -------
+        self
+
+        Raises
+        ------
+        ValueError
+            If neither `model_results` nor `model` with required attributes is provided.
+        """
+        if model_results is None:
+            if model and all(hasattr(model, attr) for attr in [
+                    'best_estimator_', 'best_params_', 'cv_results_']):
+                model_results = {
+                    'best_estimator_': model.best_estimator_,
+                    'best_params_': model.best_params_,
+                    'cv_results_': model.cv_results_
+                }
+            else:
+                raise ValueError(
+                    "Either 'model_results' must be provided or 'model' must have "
+                    "'best_estimator_', 'best_params_', and 'cv_results_' attributes.")
+        
+        self.summary_report = summarize_model_results(
+            model_results, title=self.title, **kwargs)
+        
+        return self
+
+    def __str__(self):
+        """
+        String representation of the summary report.
+        """
+        return self.summary_report
+
     def __repr__(self):
-        if not self.report: 
-            return "< No report >" # well format accordling 
-        return "< Print to see the report >" # format prpfessionnaly 
+        """
+        Formal string representation indicating whether the summary report 
+        is empty or populated.
+        """
+        return "<Summary: {}>".format(
+            "Empty" if not self.summary_report else "Populated. Use print() to the contents.")
+
+
+
+class ReportFactory(FlexDict):
+    """
+    Represents a dynamic report generator capable of handling and formatting
+    various types of data into comprehensive reports. Inherits from `FlexDict`,
+    allowing attribute-like access to dictionary keys.
+
+    The `Report` class facilitates the creation of structured text reports from
+    mixed data types, recommendations, performance summaries of models, and
+    summaries of pandas DataFrames. It provides methods to format each report
+    section and compiles them into a single cohesive text representation.
+
+    Attributes
+    ----------
+    title : str
+        The title of the report. If provided, it is included at the top of
+        the report output.
+    report : dict or str or pandas.DataFrame
+        The raw data used to generate the report section last processed.
+        This attribute stores the input provided to the last method called
+        (e.g., mixed data, recommendations text, model results, or DataFrame).
+    report_str : str
+        The formatted text representation of the report or the last report
+        section processed. This string is ready for printing or logging.
+
+    Methods
+    -------
+    mixed_types_summary(report, table_width=100):
+        Formats a report containing mixed data types into a structured text
+        representation.
+
+    add_recommendations(text, key=None, **kwargs):
+        Adds a recommendations section to the report, formatted with an
+        optional key.
+
+    model_performance_summary(model_results, **kwargs):
+        Adds a model performance summary section to the report, using the
+        results from model evaluation.
+
+    data_summary(df, **kwargs):
+        Adds a summary of a pandas DataFrame to the report, formatted as a
+        structured text section.
+
+    Examples
+    --------
+    >>> from gofast.api.summary import ReportFactory
+    >>> report_data = {
+    ...     'Total Sales': 123456.789,
+    ...     'Average Rating': 4.321,
+    ...     'Number of Reviews': 987
+    ... }
+    >>> report = ReportFactory(title="Sales Summary")
+    >>> report.mixed_types_summary(report_data)
+    >>> print(report)
+    ================================
+             Sales Summary          
+    --------------------------------
+    Total Sales       : 123456.7890
+    Average Rating    : 4.3210
+    Number of Reviews : 987
+    ================================
     
+    Notes
+    -----
+    - This class depends on external formatting functions like `format_report`,
+      `format_text`, `summarize_model_results`, and `format_dataframe`, which
+      need to be defined in the same scope or imported.
+    - The `FlexDict` parent class is assumed to provide dynamic attribute access,
+      allowing for flexible interaction with report data.
+    - While `report_str` holds the formatted report ready for display, `report`
+      maintains the raw input data for reference or further processing.
+    """
+    def __init__(self, title=None, **kwargs):
+        """
+        Initializes the Report object with an optional title and additional
+        keyword arguments passed to the FlexDict constructor.
+
+        Parameters
+        ----------
+        title : str, optional
+            The title of the report. Defaults to None.
+        **kwargs : dict
+            Additional keyword arguments passed to the FlexDict constructor,
+            allowing for dynamic attribute assignment based on the provided
+            dictionary.
+        """
+        super().__init__(**kwargs)
+        self.title = title
+        self.report = None
+        self.report_str = None
+
+    def mixed_types_summary(self, report, table_width=100):
+        """
+        Formats a report containing mixed data types.
+
+        Parameters:
+        - report (dict): The report data.
+        - table_width (int, optional): The maximum width of the table. Defaults to 100.
+        """
+        self.report = report
+        self.report_str = format_report(report_data=report, report_title=self.title,
+                                        max_table_width=table_width)
+
+    def add_recommendations(self, text, key=None, **kwargs):
+        """
+        Formats and adds a recommendations section to the report.
+
+        Parameters:
+        - text (str): The text containing recommendations.
+        - key (str, optional): An optional key to prefix the text. Defaults to None.
+        """
+        self.report = text
+        self.report_str = format_text(text, key=key, **kwargs)
+
+    def model_performance_summary(self, model_results, **kwargs):
+        """
+        Formats and adds a model performance summary to the report.
+
+        Parameters:
+        - model_results (dict): The results of the model performance evaluation.
+        """
+        self.report = model_results
+        self.report_str = summarize_model_results(
+            model_results, title=self.title, **kwargs)
+
+    def data_summary(self, df, **kwargs):
+        """
+        Formats and adds a data frame summary to the report.
+
+        Parameters:
+        - df (pandas.DataFrame): The data frame to summarize.
+        """
+        self.report_str = format_dataframe(df, title=self.title, **kwargs)
+
+    def __str__(self):
+        """
+        String representation of the report content.
+        """
+        return self.report_str or "<No report>"
+
+    def __repr__(self):
+        """
+        Formal string representation of the Report object.
+        """
+        return "<Report: Print to see the content>" if self.report else "<Report: No content>"
+
+
+def summarize_inline_table(
+    contents, 
+    title=None, 
+    header=None, 
+    max_width='auto',
+    top_line='=', 
+    sub_line='-', 
+    bottom_line='='
+    ):
+    """
+    Creates a string representation of a table summarizing the provided 
+    contents, with optional title and header, and customizable table aesthetics.
+
+    Parameters
+    ----------
+    contents : dict
+        A dictionary containing the data to be summarized in the table. Keys
+        represent the labels, and values are the corresponding data.
+    title : str, optional
+        A title for the table, centered above the table content. If None,
+        no title is displayed.
+    header : str, optional
+        A header for the table, displayed below the title (if present) and
+        above the table content. If None, no header is displayed.
+    max_width : 'auto', int, optional
+        The maximum width of the table. If 'auto', the width is adjusted
+        based on the content. If an integer is provided, it specifies the
+        maximum width; contents may be truncated to fit. Defaults to 'auto'.
+    top_line : str, optional
+        The character used to create the top border of the table. Defaults
+        to '='.
+    sub_line : str, optional
+        The character used to create the line below the header and above the
+        bottom border. Defaults to '-'.
+    bottom_line : str, optional
+        The character used to create the bottom border of the table. Defaults
+        to '='.
+
+    Returns
+    -------
+    str
+        The formatted table as a string.
+
+    Raises
+    ------
+    ValueError
+        If `contents` is not a dictionary.
+
+    Examples
+    --------
+    >>> from gofast.api.summary import summarize_inline_table
+    >>> contents = {
+    ...     "Estimator": "SVC",
+    ...     "Accuracy": 0.95,
+    ...     "Precision": 0.89,
+    ...     "Recall": 0.93
+    ... }
+    >>> print(summarize_inline_table(contents, title="Model Performance", header="Metrics"))
+     Model Performance  
+    ====================
+          Metrics       
+    --------------------
+    Estimator  : SVC
+    Accuracy   : 0.9500
+    Precision  : 0.8900
+    Recall     : 0.9300
+    ====================
+
+    Notes
+    -----
+    - Numeric values in `contents` are formatted to four decimal places.
+    - If the `max_width` is exceeded by a value, the value is truncated with '...'
+      appended to indicate truncation.
+    - The table width is dynamically determined based on the longest key-value pair
+      or set to `max_width` if provided. Adjustments ensure the table's presentation
+      is both aesthetic and functional.
+    """
+    if not isinstance(contents, dict):
+        raise ValueError("summarize_inline_table expects a dict of keys and values.")
     
+    # Helper function to format values
+    # Initial calculations for formatting
+    max_key_length = max(len(key) for key in contents) + 1  # +1 for the space after keys
+    max_value_length = max(len(format_value(value)) for value in contents.values())
+    
+    # Adjust table width if 'max_width' is 'auto' or specified as a number
+    if max_width == 'auto':
+        table_width = max_key_length + max_value_length + 4  # +4 for " : " and extra space
+    elif isinstance(max_width, (float, int)):
+        table_width = int(max_width)
+    else:
+        table_width = max_key_length + max_value_length + 4  # Default behavior
+
+    # Title and header
+    title_str = f"{title.center(table_width)}" if title else ""
+    top_line_str = top_line * table_width
+    header_str = f"{header.center(table_width)}" if header else ""
+    sub_line_str = sub_line * table_width if header else ""
+    
+    # Constructing content lines
+    content_lines = []
+    for key, value in contents.items():
+        formatted_value = format_value(value)
+        # Truncate long values if necessary
+        space_for_value = table_width - max_key_length - 3
+        if len(formatted_value) > space_for_value:
+            formatted_value = formatted_value[:space_for_value-3] + "..."
+    
+        key_str = f"{key}"
+        line = f"{key_str.ljust(max_key_length)} : {formatted_value}"
+        content_lines.append(line)
+    
+    content_str = "\n".join(content_lines)
+    bottom_line_str = bottom_line * table_width
+    # Combine all parts
+    if header: 
+        rows = [title_str, top_line_str, header_str, sub_line_str,
+                content_str, bottom_line_str]
+    else: 
+        rows = [title_str, top_line_str, content_str, bottom_line_str]
+    table = "\n".join(rows)
+    
+    return table
+
+def get_table_width(
+    data, include_colon_space=True, 
+    max_column_width=100, 
+    include_index=True
+    ):
+    """
+    Calculate the maximum width required for displaying a table constructed
+    from a dictionary or pandas DataFrame.
+
+    Parameters
+    ----------
+    data : dict or pandas.DataFrame
+        The data to calculate the table width for.
+    include_colon_space : bool, optional
+        Whether to include extra space for ': ' in the calculation, applicable
+        only if `data` is a dictionary. Defaults to True.
+    max_column_width : int, optional
+        The maximum allowed width for any text or value before truncation
+        with '...'. Defaults to 100.
+    include_index : bool, optional
+        If `data` is a pandas DataFrame, this determines whether the index
+        column width should be included in the total width calculation.
+        Defaults to True.
+
+    Returns
+    -------
+    int
+        The calculated width of the table necessary to display the data
+        without exceeding `max_column_width` for any single column.
+
+    Raises
+    ------
+    ValueError
+        If `data` is neither a dictionary nor a pandas DataFrame.
+    Examples 
+    -------
+    >>> import pandas as pd 
+    >>> from gofast.api.summary import get_table_width
+    >>> report_data = {
+    ...    "Estimator": "SVC",
+    ...    "Best parameters": "{C: 1, gamma=0.1}",
+    ...    "Accuracy": 0.95,
+    ... }
+    >>> print("Dictionary Table Width:", get_table_width(report_data))
+    Dictionary Table Width: 35
+    >>> # For a DataFrame
+    >>> df_data = pd.DataFrame({
+    ...    "Feature": ["Feature1", "Feature2", (
+        "A very long feature name that exceeds max column width")],
+    ...    "Importance": [0.1, 0.2, 0.3]
+    ... })
+    >>> print("DataFrame Table Width:", get_table_width(df_data))
+    DataFrame Table Width: 69
+    """
+    def _format_value(value):
+        """Format the value to a string, truncating if necessary."""
+        value_str = str(value)
+        value_str= format_value(value_str) # format numeric .4f 
+        return value_str if len(value_str) <= max_column_width else value_str[
+            :max_column_width - 3] + "..."
+    
+    if not isinstance(data, (dict, pd.DataFrame)):
+        raise ValueError("Data must be either a dictionary or a pandas DataFrame.")
+    
+    if isinstance(data, dict):
+        max_key_length = max(len(key) for key in data.keys())
+        max_value_length = max(len(_format_value(value)) for value in data.values())
+        colon_space = 3 if include_colon_space else 0  # Accounting for " : "
+        table_width = max_key_length + max_value_length + colon_space
+    else:  # pandas DataFrame
+        max_index_length = max(len(str(index)) for index in data.index) if include_index else 0
+        max_col_name_length = max(len(col) for col in data.columns)
+        max_value_length = data.applymap(_format_value).astype(str).applymap(len).values.max()
+        # Accounting for spaces and colon
+        table_width = max_index_length + max_col_name_length + max_value_length + 4  
+    
+    return table_width
+
 def calculate_maximum_length( report_data, max_table_length = 70 ): 
     # Calculate the maximum key length for alignment
     max_key_length = max(len(key) for key in report_data.keys())
@@ -475,25 +615,81 @@ def calculate_maximum_length( report_data, max_table_length = 70 ):
         
         if max_val_length < len(value): 
             max_val_length = len(value) 
-    if (max_key_length + max_val_length) >=70:  # @ 4 for spaces 
+    if (max_key_length + max_val_length) >=max_table_length:  # @ 4 for spaces 
         max_val_length = max_table_length - max_key_length -4
         
     return max_key_length, max_val_length
        
-def format_values ( value ): 
-    value_str =''
+def format_value( value ): 
+    value_str =str(value)
     if isinstance(value, (int, float, np.integer, np.floating)): 
         value_str = f"{value}" if isinstance ( value, int) else  f"{float(value):.4f}" 
-        
-    return value_str 
 
-def format_report(report_data, report_title=None, maxt_table_length= 70 ):
+    return value_str
+
+def format_report(report_data, report_title=None, max_table_width= 70 ):
+    """
+    Formats the provided report data into a structured text report, 
+    accommodating various data types including numbers, strings, pandas Series,
+    and pandas DataFrames. The report is formatted with a title (if provided),
+    and each key-value pair from the report data dictionary is listed with
+    proper alignment and formatting.
+
+    Parameters
+    ----------
+    report_data : dict
+        Dictionary containing the data to be included in the report. Keys
+        represent the data labels, and values are the corresponding data
+        points, which can be of various data types.
+    report_title : str, optional
+        A title for the report. If provided, it is centered at the top of
+        the report above a top line and a subsection line.
+
+    Returns
+    -------
+    str
+        A string representation of the formatted report including the top
+        line, title (if provided), each data label with its formatted value,
+        and a bottom line.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.api.summary import format_report
+    >>> report_data = {
+    ...     'Total Sales': 123456.789,
+    ...     'Average Rating': 4.321,
+    ...     'Number of Reviews': 987,
+    ...     'Sales Data': pd.Series([100, 200, 300], index=['Jan', 'Feb', 'Mar'])
+    ... }
+    >>> print(format_report(report_data, report_title='Sales Summary'))
+                         Sales Summary
+    =============================================================
+    Total Sales          : 123456.7890
+    Average Rating       : 4.3210
+    Number of Reviews    : 987
+    Sales Data           : Series ~ shape=<3> - mean: 200.0000...
+    =============================================================
+
+    Notes
+    -----
+    - Numeric values are formatted to four decimal places.
+    - For pandas Series and DataFrame values, a brief summary is included instead
+      of the full data to keep the report concise. The implementation of how
+      Series and DataFrame summaries are formatted depends on the `format_series`
+      and `dataframe_key_format` helper functions.
+    - Long text values are truncated to fit within the maximum line width, with
+      '...' appended to indicate truncation. The maximum line width is dynamically
+      determined based on the longest key or value, with an option to specify a
+      maximum width manually.
+    """
     # Calculate the maximum key length for alignment
     max_key_length, max_val_length  = calculate_maximum_length( 
-        report_data, max_table_length=maxt_table_length)
+        report_data, max_table_length=max_table_width)
     
     # Prepare the report title and frame lines
-    line_length = max_key_length + max_val_length + 4 # Adjust for key-value spacing and aesthetics
+    # Adjust for key-value spacing and aesthetics
+    line_length = max_key_length + max_val_length + 4 
     top_line = "=" * line_length
     subsection_line = '-'* line_length
     bottom_line = "=" * line_length
@@ -509,7 +705,7 @@ def format_report(report_data, report_title=None, maxt_table_length= 70 ):
     for key, value in report_data.items():
         # Format numeric values with four decimal places
         if isinstance ( value, (int, float, np.integer, np.floating)): 
-            formatted_value = format_values ( value )
+            formatted_value = format_value ( value )
             # report_str += f"{key.ljust(max_key_length)} :  {formatted_value}\n"
         elif isinstance ( value, ( list, tuple )): 
             formatted_value = format_list(list( value))
@@ -529,7 +725,6 @@ def format_report(report_data, report_title=None, maxt_table_length= 70 ):
                 alignment='left', pad_colon= True)
         else: # any other things consider as text 
             formatted_value = str(value )
-        
         # if isinstance ( value, str): 
             # Exclude pd.DataFrame which is already formatted as table. 
         if not isinstance ( value, pd.DataFrame):
@@ -538,7 +733,6 @@ def format_report(report_data, report_title=None, maxt_table_length= 70 ):
                 formatted_value, key= key, key_length=max_key_length, 
                 max_char_text= line_length) +'\n'
             #report_str += f"{key.ljust(max_key_length)} :  {formatted_value}\n"
-           
         else: # just append the dtaframe already formated 
             report_str += formatted_value +'\n' 
   
@@ -547,43 +741,283 @@ def format_report(report_data, report_title=None, maxt_table_length= 70 ):
     
     return report_str
 
+def summarize_model_results(
+    model_results, 
+    title=None, 
+    top_line='=', 
+    sub_line='-', 
+    bottom_line='='
+    ):
+    """
+    Summarizes the results of model tuning, including the best estimator, best parameters,
+    and cross-validation results, formatted as a string representation of tables.
 
-def format_dataframe(df, max_long_text_char=50):
+    Parameters
+    ----------
+    model_results : dict
+        A dictionary containing the model's tuning results, potentially including keys
+        for the best estimator, best parameters, and cross-validation results.
+    title : str, optional
+        The title of the summary report. Defaults to "Model Results".
+    top_line : str, optional
+        The character used for the top border of the tables. Defaults to '='.
+    sub_line : str, optional
+        The character used for the sub-headers within the tables. Defaults to '-'.
+    bottom_line : str, optional
+        The character used for the bottom border of the tables. Defaults to '='.
+
+    Returns
+    -------
+    str
+        A formatted string that summarizes the model results, including tables for
+        the best estimator and parameters as well as detailed cross-validation results.
+
+    Raises
+    ------
+    ValueError
+        If 'best_estimator_' or 'best_parameters_' keys are missing in the provided
+        `model_results` dictionary.
+
+    Examples
+    --------
+    >>> from gofast.api.summary import summarize_model_results
+    >>> model_results = {
+    ...    'best_parameters_': {'C': 1, 'gamma': 0.1},
+    ...    'best_estimator_': "SVC",
+    ...    'cv_results_': {
+    ...        'split0_test_score': [0.6789, 0.8],
+    ...        'split1_test_score': [0.5678, 0.9],
+    ...        'split2_test_score': [0.9807, 0.95],
+    ...        'split3_test_score': [0.8541, 0.85],
+    ...        'params': [{'C': 1, 'gamma': 0.1}, {'C': 10, 'gamma': 0.01}],
+    ...    },
+     ...   'scoring': 'accuracy',
+    ... }
+    >>> sum_model = summarize_model_results( model_results ) 
+    >>> print(sum_model)
+                     Model Results                  
+    ================================================
+    Best estimator   : str
+    Best parameters  : {'C': 1, 'gamma': 0.1}
+    nCV              : 2
+    Scoring          : Unknown scoring
+    ================================================
+    
+                     Tuning Results                 
+    ================================================
+      Fold Mean score CV score std score Global mean
+    ------------------------------------------------
+    0  cv1     0.6233   0.6789    0.0555      0.6233
+    1  cv2     0.8500   0.9000    0.0500      0.8500
+    ================================================
+
+    Notes
+    -----
+    - This function requires the presence of `standardize_keys`, 
+      `prepare_cv_results_dataframe`, `get_table_width`, and `format_dataframe` 
+      helper functions for processing the model results and formatting them 
+      into tables.
+    - The function dynamically adjusts the width of the cross-validation 
+      results table based on the content of the inline summary to ensure 
+      consistent presentation.
+    """
+    title = title or "Model Results"
+    # Standardize keys in model_results based on map_keys
+    standardized_results = standardize_keys(model_results)
+
+    # Validate presence of required information
+    if ( 'best_estimator_' not in standardized_results 
+        or 'best_parameters_' not in standardized_results
+    ):
+        raise ValueError(
+            "Required information ('best_estimator_' or 'best_parameters_') is missing.")
+
+    # Inline contents preparation
+    inline_contents = {
+        "Best estimator": type(standardized_results['best_estimator_']).__name__,
+        "Best parameters": standardized_results['best_parameters_'],
+        "nCV": len({k for k in standardized_results['cv_results_'].keys(
+            ) if k.startswith('split')}) // len(standardized_results['cv_results_']['params']),
+        "Scoring": standardized_results.get('scoring', 'Unknown scoring')
+    }
+
+    # Preparing data for the CV results DataFrame
+    df = prepare_cv_results_dataframe(standardized_results['cv_results_'])
+
+    max_width = get_table_width(inline_contents)
+    # Formatting CV results DataFrame
+    formatted_table = format_dataframe(
+        df, title="Tuning Results", max_width=max_width, 
+        top_line=top_line, sub_line=sub_line, 
+        bottom_line=bottom_line
+    )
+    max_width = len(formatted_table.split('\n')[0]) #
+    # Combining inline content and formatted table
+    summary_inline_tab = summarize_inline_table(
+        inline_contents, title=title, max_width=max_width, 
+        top_line=top_line, sub_line=sub_line, bottom_line=bottom_line
+    )
+
+    summary = f"{summary_inline_tab}\n\n{formatted_table}"
+    return summary
+
+def standardize_keys(model_results):
+    map_keys = {
+        'best_estimator_': ['model', 'estimator', 'best_estimator'],
+        'best_parameters_': ['parameters', 'params', 'best_parameters'],
+        'cv_results_': ['results', 'fold_results', 'cv_results']
+    }
+
+    standardized_results = {}
+    for standard_key, alternatives in map_keys.items():
+        # Check each alternative key for presence in model_results
+        for alt_key in alternatives:
+            if alt_key in model_results:
+                standardized_results[standard_key] = model_results[alt_key]
+                break  # Break after finding the first matching alternative
+    
+    # Additionally, check for any keys that are already correct and not duplicated
+    for key in map_keys.keys():
+        if key in model_results and key not in standardized_results:
+            standardized_results[key] = model_results[key]
+
+    return standardized_results
+
+def prepare_cv_results_dataframe(cv_results):
+    nCV = len({k for k in cv_results.keys() 
+               if k.startswith('split')}) // len(cv_results['params'])
+    data = []
+    for i in range(nCV):
+        mean_score = np.mean([cv_results[f'split{j}_test_score'][i] for j in range(nCV)])
+        cv_scores = [cv_results[f'split{j}_test_score'][i] for j in range(nCV)]
+        std_score = np.std(cv_scores)
+        global_mean = np.nanmean(cv_scores)
+        
+        fold_data = {
+            "Fold": f"cv{i+1}",
+            "Mean score": format_value (mean_score),
+            "CV score": format_value(cv_scores[i]),
+            "std score": format_value (std_score),
+            "Global mean": format_value(global_mean)
+        }
+        data.append(fold_data)
+
+    # Creating DataFrame
+    df = pd.DataFrame(data)
+    return df
+
+
+def format_dataframe(
+    df, title=None, 
+    max_text_length=50, 
+    max_width='auto',
+    top_line='=', 
+    sub_line='-', 
+    bottom_line='='
+    ):
+    """
+    Formats a pandas DataFrame into a string representation of a table,
+    optionally including a title and customizing the table's appearance
+    with specified line characters.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame to be formatted.
+    title : str, optional
+        The title of the table. If provided, it will be centered above
+        the table. Defaults to None.
+    max_text_length : int, optional
+        The maximum allowed length for any text value in the table before
+        truncation. Defaults to 50 characters.
+    max_width : 'auto' or int, optional
+        The maximum width of the table. If 'auto', the table width is
+        automatically adjusted based on content. If an integer is provided,
+        it specifies the maximum width; columns will be adjusted to fit.
+        Defaults to 'auto'.
+    top_line, sub_line, bottom_line : str, optional
+        Characters used to create the top border, sub-header line, and
+        bottom border of the table. Defaults to '=', '-', and '=' respectively.
+
+    Returns
+    -------
+    str
+        A string representing the formatted table.
+
+    Examples
+    --------
+    >>> impport pandas as pd 
+    >>> from gofast.api.summary import format_dataframe
+    >>> data = {'Name': ['Alice', 'Bob', 'Charlie'],
+                'Age': [25, 30, 35],
+                'Occupation': ['Engineer', 'Doctor', 'Artist']}
+    >>> df = pd.DataFrame(data)
+    >>> print(format_dataframe(df, title='Employee Table'))
+         Employee Table     
+    ========================
+         Name Age Occupation
+    ------------------------
+    0   Alice  25   Engineer
+    1     Bob  30     Doctor
+    2 Charlie  35     Artist
+    ========================
+
+    Notes
+    -----
+    - The function dynamically adjusts the width of the table columns based
+      on the content size and the `max_width` parameter.
+    - Long text values in cells are truncated with '...' when exceeding
+      `max_text_length`.
+    """
     # Calculate the max length for the index
     max_index_length = max([len(str(index)) for index in df.index])
     
-    # Calculate max length for each column including the column name, 
+    # Calculate max length for each column including the column name,
     # and account for truncation
     max_col_lengths = {
         col: max(len(col), max(df[col].astype(str).apply(
-            lambda x: len(x) if len(x) <= max_long_text_char else max_long_text_char + 3)))
+            lambda x: len(x) if len(x) <= max_text_length else max_text_length + 3)))
         for col in df.columns
     }
-    
+    initial_space = max_index_length + sum(
+        max_col_lengths.values()) + len(df.columns) - 1  # Spaces between columns
+
+    if isinstance(max_width, (float, int)) and max_width > initial_space:
+        # Distribute the extra_space among columns and the index
+        extra_space = max_width - initial_space
+        extra_space_per_col = extra_space // (len(df.columns) + (1 if max_index_length > 0 else 0))
+        max_col_lengths = {col: v + extra_space_per_col for col, v in max_col_lengths.items()}
+
     # Adjust column values for truncation and formatting
     for col in df.columns:
         df[col] = df[col].astype(str).apply(
-            lambda x: x if len(x) <= max_long_text_char else x[:max_long_text_char] + "...")
+            lambda x: x if len(x) <= max_text_length else x[:max_text_length] + "...")
         max_col_lengths[col] = max(max_col_lengths[col], df[col].str.len().max())
     
     # Construct the header with padding for alignment
     header = " ".join([f"{col:>{max_col_lengths[col]}}" for col in df.columns])
-    # Calculate total table width
-    table_width = sum(max_col_lengths.values()) + len(max_col_lengths) - 1 + max_index_length + 1
+    
+    # Calculate total table width considering the corrected space calculation
+    table_width = sum(max_col_lengths.values()) + len(df.columns) - 1 + max_index_length + (
+        1 if max_index_length > 0 else 0)
+    
     # Construct the separators
-    top_bottom_border = "~" * table_width
-    separator = "-" * table_width
+    top_header_border = top_line * table_width
+    separator = sub_line * table_width
+    top_bottom_border = bottom_line * table_width
     
     # Construct each row
     rows = []
+    title_str = f"{title.center(table_width)}" if title else ""
     for index, row in df.iterrows():
         row_str = f"{str(index).ljust(max_index_length)} " + " ".join(
             [f"{value:>{max_col_lengths[col]}}" for col, value in row.iteritems()])
         rows.append(row_str)
     
     # Combine all parts
-    table = f"{top_bottom_border}\n{' ' * (max_index_length + 1)}{header}\n{separator}\n" + "\n".join(
-        rows) + f"\n{top_bottom_border}"
+    table = (f"{title_str}\n{top_header_border}\n{' ' * (max_index_length + 1)}"
+             f"{header}\n{separator}\n") + "\n".join(rows) + f"\n{top_bottom_border}"
+    
     return table
 
 
@@ -622,7 +1056,6 @@ def format_key(key, max_length=None, include_colon=False, alignment='left',
     formatted_key = ( f"{key_format: <{final_length}}" if alignment == 'left' 
                      else f"{key_format: >{final_length}}"
                      )
-    
     return formatted_key
 
 def dataframe_key_format(
@@ -631,6 +1064,54 @@ def dataframe_key_format(
     max_text_char=50, 
     **kws
     ):
+    """
+    Formats a key-value pair where the value is a pandas DataFrame, aligning
+    the DataFrame under a formatted key with an optional maximum key length and
+    maximum text character width for the DataFrame.
+
+    Parameters
+    ----------
+    key : str
+        The key associated with the DataFrame, which will be formatted with
+        a colon and aligned to the left.
+    df : pandas.DataFrame
+        The DataFrame to be formatted and aligned under the key.
+    max_key_length : int, optional
+        The maximum length of the key. If None, the actual length of the `key`
+        is used. Defaults to None.
+    max_text_char : int, optional
+        The maximum number of characters allowed for each cell within the
+        DataFrame before truncation. Defaults to 50.
+
+    Returns
+    -------
+    str
+        The formatted key followed by the aligned DataFrame as a string.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.api.summary import dataframe_key_format
+    >>> df = pd.DataFrame({'A': [1, 2], 'B': ['text', 'another longer text']})
+    >>> key = 'DataFrame Key'
+    >>> print(dataframe_key_format(key, df))
+    DataFrame Key:
+                    A   B
+                    1   text
+                    2   another longer text
+
+    Notes
+    -----
+    - The function is particularly useful for including pandas DataFrames within
+      textual reports or summaries, ensuring the DataFrame's alignment matches
+      the accompanying textual content.
+    - The `format_key` and `format_dataframe` helper functions are utilized to
+      format the key and DataFrame, respectively. These should be defined to
+      handle specific formatting and alignment needs.
+    - If `max_key_length` is provided and exceeds the actual length of the `key`,
+      additional spaces are added to align the DataFrame's first column directly
+      under the formatted key.
+    """
     # Format the key with a colon, using the provided or calculated max key length
     # if %% in the key split and considered key and title 
     if "%%" in str(key): 
@@ -639,7 +1120,7 @@ def dataframe_key_format(
     formatted_key = format_key(key, max_length=max_key_length,**kws)
     
     # Format the DataFrame according to specifications
-    formatted_df = format_dataframe(df, max_long_text_char=max_text_char)
+    formatted_df = format_dataframe(df, max_text_length=max_text_char)
     
     # Split the formatted DataFrame into lines for alignment adjustments
     df_lines = formatted_df.split('\n')
@@ -662,70 +1143,56 @@ def dataframe_key_format(
     
     return result
 
-# Assuming format_key and format_dataframe are correctly implemented as discussed in previous steps
-# Example usage would be as follows (after defining df):
-# print(dataframe_key_format("Your Key Here", df))
-       
-# def dataframe_key_format( key, df,  max_key_length = None, max_text_char=50  ):
-    
-#     formatted_key = format_key ( key, max_key_length, include_colon= True ) 
-    
-#     formatted_df = format_dataframe(df, max_long_text_char= max_text_char)
-    
-    # once the key is formatted. Note the format_dataframe construct 
-    # the formatted_df like below : 
-    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    #             col1     col2     col3 
-    # ----------------------------------
-    # index1   value11  value12  value13
-    # index2   value21  value12  value13
-    # index3   value31  value13  value13
-    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    
-    # Then now move the formatted_df based on the formatted key length by 
-    # mentionned the key like below:
-     
-    # [formatted_key] 
-    #                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    #                         col1     col2     col3 
-    #                ----------------------------------
-    #                index1   value11  value12  value13
-    #                index2   value21  value12  value13
-    #                index3   value31  value13  value13
-    #                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    
-    # for instance if the formatted key = key            : 
-    # formatted key with df should be : 
-        
-    # key            :
-    #                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    #                         col1     col2     col3 
-    #                ----------------------------------
-    #                index1   value11  value12  value13
-    #                index2   value21  value12  value13
-    #                index3   value31  value13  value13
+def format_dict(dct):
+    """
+    Formats a dictionary into a summary string that provides an overview
+    of its content, distinguishing between numeric and non-numeric values
+    and identifying the presence of NaN values among numeric entries.
 
-def format_dict(dct, ):
-    # # Example usage with a mixed dictionary
-    # mixed_dict = {
-    #     "a": "apple",
-    #     "b": 2,
-    #     "c": 3.5,
-    #     "d": float('nan'),
-    #     "e": "banana"
-    # }
-    # print(format_dict(mixed_dict))
+    Parameters
+    ----------
+    dct : dict
+        The dictionary to summarize, which can contain a mix of numeric
+        and non-numeric values.
 
-    # # Example usage with a numeric dictionary
-    # numeric_dict = {
-    #     "one": 1,
-    #     "two": 2,
-    #     "three": 3,
-    #     "four": float('nan'),
-    #     "five": 5
-    # }
-    # print(format_dict(numeric_dict))
-    
+    Returns
+    -------
+    str
+        A summary string of the dictionary's contents, including mean values
+        for numeric data and counts of numeric vs. non-numeric entries.
+
+    Examples
+    --------
+    >>> from gofast.api.summary import format_dict
+    >>> mixed_dict = {
+    ...     "a": "apple",
+    ...     "b": 2,
+    ...     "c": 3.5,
+    ...     "d": float('nan'),
+    ...     "e": "banana"
+    ... }
+    >>> print(format_dict(mixed_dict))
+    Dict ~ len:5 - values: <mean: 2.7500 - numval: 3 - nonnumval: 2 ...>
+
+    >>> numeric_dict = {
+    ...     "one": 1,
+    ...     "two": 2,
+    ...     "three": 3,
+    ...     "four": float('nan'),
+    ...     "five": 5
+    ... }
+    >>> print(format_dict(numeric_dict))
+    Dict ~ len:5 - values: <mean: 2.7500 - numval: 4 - nonnumval: 0 ...>
+
+    Notes
+    -----
+    - The function calculates the mean value only for numeric entries, ignoring
+      any NaN values in the calculation.
+    - The function identifies the presence of NaN values among numeric entries
+      and reflects this in the summary.
+    - Non-numeric entries are counted separately, and the dictionary is classified
+      as 'numeric', 'mixed', or 'non-numeric' based on its contents.
+    """
     # Initialize counts
     num_values_count = 0
     non_num_values_count = 0
@@ -769,16 +1236,54 @@ def format_dict(dct, ):
     return summary_str
 
 
-def format_list(lst, ):
+def format_list(lst):
+    """
+    Formats a list into a summary string, identifying whether the list
+    is purely numeric, mixed, or non-numeric, and includes statistics
+    like mean values for numeric lists and the presence of NaN values.
+
+    Parameters
+    ----------
+    lst : list
+        The list to summarize, which may contain numeric, non-numeric,
+        or a mix of both types of values.
+
+    Returns
+    -------
+    str
+        A summary string of the list's contents, including the overall type
+        (numeric, mixed, or non-numeric), mean values for numeric entries,
+        and the presence of NaN values if applicable.
+
+    Examples
+    --------
+    >>> from gofast.api.summary import format_list
+    >>> numeric_list = [1, 2, 3, np.nan, 5]
+    >>> print(format_list(numeric_list))
+    List ~ len:5 - values: <mean: 2.7500 - dtype: numeric - exist_nan: True>
+
+    >>> mixed_list = ["apple", 2, 3.5, np.nan, "banana"]
+    >>> print(format_list(mixed_list))
+    List ~ len:5 - values: <numval: 2 - nonnumval: 3 - dtype: mixed - exist_nan: True>
+
+    Notes
+    -----
+    - Numeric entries are processed to calculate a mean value, excluding any NaNs.
+    - The presence of NaN values among numeric entries is noted in the summary.
+    - The classification of the list as 'numeric', 'mixed', or 'non-numeric' is
+      based on the types of values it contains.
+    """
     # Check if all elements in the list are numeric (int or float)
     all_numeric = all(isinstance(x, (int, float)) for x in lst)
     exist_nan = any(np.isnan(x) for x in lst if isinstance(x, float))
 
     if all_numeric:
         # Calculate mean for numeric list, ignoring NaNs
-        numeric_values = np.array(lst, dtype=float)  # Convert list to NumPy array for nanmean calculation
+        # # Convert list to NumPy array for nanmean calculation
+        numeric_values = np.array(lst, dtype=float)  
         mean_value = np.nanmean(numeric_values)
-        arr_str = "List ~ len:{} - values: < mean: {:.4f} - dtype: numeric - exist_nan: {}>".format(
+        arr_str = ("List ~ len:{} - values: < mean: {:.4f} - dtype:"
+                   " numeric - exist_nan: {}>").format(
             len( lst), mean_value, exist_nan
         )
     else:
@@ -786,25 +1291,49 @@ def format_list(lst, ):
         num_values_count = sum(isinstance(x, (int, float)) for x in lst)
         non_num_values_count = len(lst) - num_values_count
         dtype_description = "mixed" if not all_numeric else "non-numeric"
-        arr_str = "List ~ len:{} - values: <numval: {} - nonnumval: {} - dtype: {} - exist_nan: {}>".format(
+        arr_str = ( "List ~ len:{} - values: <numval: {} - nonnumval: {}"
+                   " - dtype: {} - exist_nan: {}>").format(
             len( lst), num_values_count, non_num_values_count, dtype_description, exist_nan
         )
 
     return arr_str
 
+def format_array(arr):
+    """
+    Formats a NumPy array into a summary string, calculating mean values
+    for numeric arrays and identifying the presence of NaN values. Non-numeric
+    arrays are noted as such without attempting to summarize their contents.
 
-def format_array(arr, ):
-    # # Example usage with a numeric array
-    # numeric_arr = np.array([1, 2, 3, np.nan, 5])
-    # print(format_array(numeric_arr))
+    Parameters
+    ----------
+    arr : numpy.ndarray
+        The NumPy array to summarize, which can be numeric or non-numeric.
 
-    # # Example usage with a non-numeric (mixed) array
-    # # This will not provide a meaningful summary for non-numeric data types,
-    # # as the logic for non-numeric arrays would need to be more complex and might require pandas
-    # mixed_arr = np.array(["apple", 2, 3.5, np.nan, "banana"], dtype=object)
-    # print(format_array(mixed_arr))
+    Returns
+    -------
+    str
+        A summary string of the array's contents, including shape, mean value
+        for numeric arrays, and the detection of NaN values if present.
 
+    Examples
+    --------
+    >>> from gofast.api.summary import format_array
+    >>> numeric_arr = np.array([1, 2, 3, np.nan, 5])
+    >>> print(format_array(numeric_arr))
+    Array ~ shape=<5> - mean: 2.7500 - dtype: float64 - exist_nan:True
 
+    >>> mixed_arr = np.array(["apple", 2, 3.5, np.nan, "banana"], dtype=object)
+    >>> print(format_array(mixed_arr))
+    Array ~ shape=<5> - dtype: object - exist_nan:True
+
+    Notes
+    -----
+    - For numeric arrays, the function calculates the mean while ignoring any NaNs
+      and identifies the presence of NaN values.
+    - Non-numeric or mixed-type arrays are labeled with their data type without
+      attempting numerical summarization.
+    """
+ 
     arr_str = ""
     # Check if the array contains NaN values; works only for numeric arrays
     exist_nan = np.isnan(arr).any() if np.issubdtype(arr.dtype, np.number) else False
@@ -830,24 +1359,53 @@ def format_array(arr, ):
     return arr_str
 
 def format_text(text, key=None, key_length=15, max_char_text=50):
-    # Example usage:
-    # text_example = "This is an example text that is supposed to wrap around after a 
-    # certain number of characters, demonstrating the function."
+    """
+    Formats a block of text to fit within a specified maximum character width,
+    optionally prefixing it with a key. If the text exceeds the maximum width,
+    it wraps to a new line, aligning with the key or the specified indentation.
 
-    # # # Test with key and default key_length
-    # print(format_text(text_example, key="ExampleKey"))
+    Parameters
+    ----------
+    text : str
+        The text to be formatted.
+    key : str, optional
+        An optional key to prefix the text. Defaults to None.
+    key_length : int, optional
+        The length reserved for the key, including following spaces.
+        If `key` is provided but `key_length` is None, the length of the
+        `key` plus one space is used. Defaults to 15.
+    max_char_text : int, optional
+        The maximum number of characters for the text width, including the key
+        if present. Defaults to 50.
 
-    # # Test with key and custom key_length
-    # print(format_text(text_example, key="Key", key_length=10))
+    Returns
+    -------
+    str
+        The formatted text with line breaks added to ensure that no line exceeds
+        `max_char_text` characters. If a `key` is provided, it is included only
+        on the first line, with subsequent lines aligned accordingly.
 
-    # # Test without key but with key_length
-    # print(format_text(text_example, key_length=5))
+    Examples
+    --------
+    >>> from gofast.api.summary import format_text
+    >>> text_example = ("This is an example text that is supposed to wrap" 
+                      "around after a certain number of characters.")
+    >>> print(format_text(text_example, key="Note"))
+    Note           : This is an example text that is supposed to
+                      wrap around after a certain number of
+                      characters.
 
-    # # Test without key and key_length
-    # print(format_text(text_example))
-    
+    Notes
+    -----
+    - The function dynamically adjusts the text to fit within `max_char_text`,
+      taking into account the length of `key` if provided.
+    - Text that exceeds the `max_char_text` limit is wrapped to new lines, with
+      proper alignment to match the initial line's formatting.
+    """
+
     if key is not None:
-        # If key_length is None, use the length of the key + 1 for the space after the key
+        # If key_length is None, use the length of the key + 1 
+        # for the space after the key
         if key_length is None:
             key_length = len(key) + 1
         key_str = f"{key.ljust(key_length)} : "
@@ -863,12 +1421,14 @@ def format_text(text, key=None, key_length=15, max_char_text=50):
 
     formatted_text = ""
     while text:
-        # If the remaining text is shorter than the effective max length, or if there's no key part, add it as is
+        # If the remaining text is shorter than the effective
+        # max length, or if there's no key part, add it as is
         if len(text) <= effective_max_char_text or not key_str:
             formatted_text += key_str + text
             break
         else:
-            # Find the space to break the line, ensuring it doesn't exceed effective_max_char_text
+            # Find the space to break the line, ensuring it doesn't
+            # exceed effective_max_char_text
             break_point = text.rfind(' ', 0, effective_max_char_text)
             if break_point == -1:  # No spaces found, force break
                 break_point = effective_max_char_text
@@ -881,17 +1441,43 @@ def format_text(text, key=None, key_length=15, max_char_text=50):
     
     return formatted_text
 
-
 def format_series(series):
-    # Example usage:
-    # For a numeric series
-    # numeric_series = pd.Series([1, 2, 3, np.nan, 5, 6], name='NumericSeries')
-    # print(_format_series(numeric_series))
+    """
+    Formats a pandas Series into a concise summary string. The summary includes
+    the series name, mean (for numeric series), length, dtype, and an indicator
+    of whether NaN values are present.
 
-    # # For a non-numeric series
-    # non_numeric_series = pd.Series(['apple', 'banana', np.nan, 'cherry', 'date', 'eggfruit', 'fig'], name='FruitSeries')
-    # print(_format_series(non_numeric_series))
+    Parameters
+    ----------
+    series : pandas.Series
+        The series to be summarized.
 
+    Returns
+    -------
+    str
+        A summary string describing key aspects of the series.
+
+    Examples
+    --------
+    >>> numeric_series = pd.Series([1, 2, 3, np.nan, 5, 6], name='NumericSeries')
+    >>> print(format_series(numeric_series))
+    Series ~ name=<NumericSeries> - values: <mean: 3.4000 - length: 6 -...>
+
+    >>> non_numeric_series = pd.Series(['apple', 'banana', np.nan, 'cherry',
+                                        'date', 'eggfruit', 'fig'], name='FruitSeries')
+    >>> print(format_series(non_numeric_series))
+    Series ~ name=<FruitSeries> - values: <numval: 0 - nonnumval: 6 - ...>
+
+    Notes
+    -----
+    - For numeric series with less than 7 values, the function calculates and
+      includes the mean value, excluding any NaNs from the calculation.
+    - For non-numeric series or those with 7 or more values, the function counts
+      the number of numeric and non-numeric values separately and indicates the
+      presence of NaN values.
+    - The series' data type (`dtype`) and the presence of NaN values are always
+      included in the summary.
+    """
     series_str = ''
     if not isinstance ( series, pd.Series):
         return series 
@@ -917,7 +1503,39 @@ def format_series(series):
         )
     return series_str
 
-# Example usage
+        
+        
+# Example usage demonstration and specific helper functions like `format_dataframe` 
+# and `summarize_inline_table` need to be implemented separately.
+
+# class AnovaResults:
+#     """
+#     Anova results class
+
+#     Attributes
+#     ----------
+#     anova_table : DataFrame
+#     """
+#     def __init__(self, anova_table):
+#         self.anova_table = anova_table
+
+#     def __str__(self):
+#         return self.summary().__str__()
+
+#     def summary(self):
+#         """create summary results
+
+#         Returns
+#         -------
+#         summary : summary2.Summary instance
+#         """
+#         summ = summary2.Summary()
+#         summ.add_title('Anova')
+#         summ.add_df(self.anova_table)
+
+#         return summ
+
+
 if __name__ == "__main__":
     # Example usage:
     # from gofast.api.summary import format_report 
@@ -949,16 +1567,4 @@ if __name__ == "__main__":
         'C': ['foo', 'bar', 'baz', 'qux', 'quux'],
         'D': [0.1, 0.2, 0.3, np.nan, 0.5]
     }
-    df = CustomDataFrame(df_data)
     
-    # Customizing the summary
-    summary_ = df.summary(include_correlation=True, include_uniques=True, 
-                         statistics=['mean', '50%', 'max'], include_sample=True
-                         )
-    for key, value in summary_.items():
-        print(f"{key}:")
-        if isinstance(value, dict):
-            for subkey, subvalue in value.items():
-                print(f"  {subkey}: {subvalue}")
-        else:
-            print(f"  {value}")

@@ -24,6 +24,7 @@ from ..decorators import Deprecated, isdf, Dataify, DynamicMethod
 from ..decorators import DataTransformer 
 from ..exceptions import FileHandlingError 
 from ..property import  Config
+from .baseutils import save_or_load 
 from .coreutils import is_iterable, ellipsis2false,smart_format, validate_url 
 from .coreutils import to_numeric_dtypes, assert_ratio, exist_features
 from .coreutils import normalize_string
@@ -614,7 +615,7 @@ def read_data (
         Save or load numpy arrays.
        
     """
-    from .dataops import save_or_load 
+    
     
     def min_sanitizer ( d, /):
         """ Apply a minimum sanitization to the data `d`."""
