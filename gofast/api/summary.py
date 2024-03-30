@@ -621,7 +621,8 @@ def standardize_keys(model_results):
     return standardized_results
 
 def prepare_cv_results_dataframe(cv_results):
-    nCV = len({k for k in cv_results.keys() if k.startswith('split')}) // len(cv_results['params'])
+    nCV = len({k for k in cv_results.keys() 
+               if k.startswith('split')}) // len(cv_results['params'])
     data = []
     for i in range(nCV):
         mean_score = np.mean([cv_results[f'split{j}_test_score'][i] for j in range(nCV)])
@@ -793,6 +794,54 @@ def format_key(key, max_length=None, include_colon=False, alignment='left'):
     return formatted_key
 
 def dataframe_key_format(key, df, max_key_length=None, max_text_char=50):
+    """
+    Formats a key-value pair where the value is a pandas DataFrame, aligning
+    the DataFrame under a formatted key with an optional maximum key length and
+    maximum text character width for the DataFrame.
+
+    Parameters
+    ----------
+    key : str
+        The key associated with the DataFrame, which will be formatted with
+        a colon and aligned to the left.
+    df : pandas.DataFrame
+        The DataFrame to be formatted and aligned under the key.
+    max_key_length : int, optional
+        The maximum length of the key. If None, the actual length of the `key`
+        is used. Defaults to None.
+    max_text_char : int, optional
+        The maximum number of characters allowed for each cell within the
+        DataFrame before truncation. Defaults to 50.
+
+    Returns
+    -------
+    str
+        The formatted key followed by the aligned DataFrame as a string.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.api.summary import dataframe_key_format
+    >>> df = pd.DataFrame({'A': [1, 2], 'B': ['text', 'another longer text']})
+    >>> key = 'DataFrame Key'
+    >>> print(dataframe_key_format(key, df))
+    DataFrame Key:
+                    A   B
+                    1   text
+                    2   another longer text
+
+    Notes
+    -----
+    - The function is particularly useful for including pandas DataFrames within
+      textual reports or summaries, ensuring the DataFrame's alignment matches
+      the accompanying textual content.
+    - The `format_key` and `format_dataframe` helper functions are utilized to
+      format the key and DataFrame, respectively. These should be defined to
+      handle specific formatting and alignment needs.
+    - If `max_key_length` is provided and exceeds the actual length of the `key`,
+      additional spaces are added to align the DataFrame's first column directly
+      under the formatted key.
+    """
     # Format the key with a colon, using the provided or calculated max key length
     formatted_key = format_key(key, max_length=max_key_length,
                                include_colon=True, alignment='left')
@@ -818,70 +867,56 @@ def dataframe_key_format(key, df, max_key_length=None, max_text_char=50):
     
     return result
 
-# Assuming format_key and format_dataframe are correctly implemented as discussed in previous steps
-# Example usage would be as follows (after defining df):
-# print(dataframe_key_format("Your Key Here", df))
-       
-# def dataframe_key_format( key, df,  max_key_length = None, max_text_char=50  ):
-    
-#     formatted_key = format_key ( key, max_key_length, include_colon= True ) 
-    
-#     formatted_df = format_dataframe(df, max_long_text_char= max_text_char)
-    
-    # once the key is formatted. Note the format_dataframe construct 
-    # the formatted_df like below : 
-    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    #             col1     col2     col3 
-    # ----------------------------------
-    # index1   value11  value12  value13
-    # index2   value21  value12  value13
-    # index3   value31  value13  value13
-    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    
-    # Then now move the formatted_df based on the formatted key length by 
-    # mentionned the key like below:
-     
-    # [formatted_key] 
-    #                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    #                         col1     col2     col3 
-    #                ----------------------------------
-    #                index1   value11  value12  value13
-    #                index2   value21  value12  value13
-    #                index3   value31  value13  value13
-    #                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    
-    # for instance if the formatted key = key            : 
-    # formatted key with df should be : 
-        
-    # key            :
-    #                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    #                         col1     col2     col3 
-    #                ----------------------------------
-    #                index1   value11  value12  value13
-    #                index2   value21  value12  value13
-    #                index3   value31  value13  value13
+def format_dict(dct):
+    """
+    Formats a dictionary into a summary string that provides an overview
+    of its content, distinguishing between numeric and non-numeric values
+    and identifying the presence of NaN values among numeric entries.
 
-def format_dict(dct, ):
-    # # Example usage with a mixed dictionary
-    # mixed_dict = {
-    #     "a": "apple",
-    #     "b": 2,
-    #     "c": 3.5,
-    #     "d": float('nan'),
-    #     "e": "banana"
-    # }
-    # print(format_dict(mixed_dict))
+    Parameters
+    ----------
+    dct : dict
+        The dictionary to summarize, which can contain a mix of numeric
+        and non-numeric values.
 
-    # # Example usage with a numeric dictionary
-    # numeric_dict = {
-    #     "one": 1,
-    #     "two": 2,
-    #     "three": 3,
-    #     "four": float('nan'),
-    #     "five": 5
-    # }
-    # print(format_dict(numeric_dict))
-    
+    Returns
+    -------
+    str
+        A summary string of the dictionary's contents, including mean values
+        for numeric data and counts of numeric vs. non-numeric entries.
+
+    Examples
+    --------
+    >>> from gofast.api.summary import format_dict
+    >>> mixed_dict = {
+    ...     "a": "apple",
+    ...     "b": 2,
+    ...     "c": 3.5,
+    ...     "d": float('nan'),
+    ...     "e": "banana"
+    ... }
+    >>> print(format_dict(mixed_dict))
+    Dict ~ len:5 - values: <mean: 2.7500 - numval: 3 - nonnumval: 2 ...>
+
+    >>> numeric_dict = {
+    ...     "one": 1,
+    ...     "two": 2,
+    ...     "three": 3,
+    ...     "four": float('nan'),
+    ...     "five": 5
+    ... }
+    >>> print(format_dict(numeric_dict))
+    Dict ~ len:5 - values: <mean: 2.7500 - numval: 4 - nonnumval: 0 ...>
+
+    Notes
+    -----
+    - The function calculates the mean value only for numeric entries, ignoring
+      any NaN values in the calculation.
+    - The function identifies the presence of NaN values among numeric entries
+      and reflects this in the summary.
+    - Non-numeric entries are counted separately, and the dictionary is classified
+      as 'numeric', 'mixed', or 'non-numeric' based on its contents.
+    """
     # Initialize counts
     num_values_count = 0
     non_num_values_count = 0
@@ -925,16 +960,54 @@ def format_dict(dct, ):
     return summary_str
 
 
-def format_list(lst, ):
+def format_list(lst):
+    """
+    Formats a list into a summary string, identifying whether the list
+    is purely numeric, mixed, or non-numeric, and includes statistics
+    like mean values for numeric lists and the presence of NaN values.
+
+    Parameters
+    ----------
+    lst : list
+        The list to summarize, which may contain numeric, non-numeric,
+        or a mix of both types of values.
+
+    Returns
+    -------
+    str
+        A summary string of the list's contents, including the overall type
+        (numeric, mixed, or non-numeric), mean values for numeric entries,
+        and the presence of NaN values if applicable.
+
+    Examples
+    --------
+    >>> from gofast.api.summary import format_list
+    >>> numeric_list = [1, 2, 3, np.nan, 5]
+    >>> print(format_list(numeric_list))
+    List ~ len:5 - values: <mean: 2.7500 - dtype: numeric - exist_nan: True>
+
+    >>> mixed_list = ["apple", 2, 3.5, np.nan, "banana"]
+    >>> print(format_list(mixed_list))
+    List ~ len:5 - values: <numval: 2 - nonnumval: 3 - dtype: mixed - exist_nan: True>
+
+    Notes
+    -----
+    - Numeric entries are processed to calculate a mean value, excluding any NaNs.
+    - The presence of NaN values among numeric entries is noted in the summary.
+    - The classification of the list as 'numeric', 'mixed', or 'non-numeric' is
+      based on the types of values it contains.
+    """
     # Check if all elements in the list are numeric (int or float)
     all_numeric = all(isinstance(x, (int, float)) for x in lst)
     exist_nan = any(np.isnan(x) for x in lst if isinstance(x, float))
 
     if all_numeric:
         # Calculate mean for numeric list, ignoring NaNs
-        numeric_values = np.array(lst, dtype=float)  # Convert list to NumPy array for nanmean calculation
+        # # Convert list to NumPy array for nanmean calculation
+        numeric_values = np.array(lst, dtype=float)  
         mean_value = np.nanmean(numeric_values)
-        arr_str = "List ~ len:{} - values: < mean: {:.4f} - dtype: numeric - exist_nan: {}>".format(
+        arr_str = ("List ~ len:{} - values: < mean: {:.4f} - dtype:"
+                   " numeric - exist_nan: {}>").format(
             len( lst), mean_value, exist_nan
         )
     else:
@@ -942,25 +1015,49 @@ def format_list(lst, ):
         num_values_count = sum(isinstance(x, (int, float)) for x in lst)
         non_num_values_count = len(lst) - num_values_count
         dtype_description = "mixed" if not all_numeric else "non-numeric"
-        arr_str = "List ~ len:{} - values: <numval: {} - nonnumval: {} - dtype: {} - exist_nan: {}>".format(
+        arr_str = ( "List ~ len:{} - values: <numval: {} - nonnumval: {}"
+                   " - dtype: {} - exist_nan: {}>").format(
             len( lst), num_values_count, non_num_values_count, dtype_description, exist_nan
         )
 
     return arr_str
 
+def format_array(arr):
+    """
+    Formats a NumPy array into a summary string, calculating mean values
+    for numeric arrays and identifying the presence of NaN values. Non-numeric
+    arrays are noted as such without attempting to summarize their contents.
 
-def format_array(arr, ):
-    # # Example usage with a numeric array
-    # numeric_arr = np.array([1, 2, 3, np.nan, 5])
-    # print(format_array(numeric_arr))
+    Parameters
+    ----------
+    arr : numpy.ndarray
+        The NumPy array to summarize, which can be numeric or non-numeric.
 
-    # # Example usage with a non-numeric (mixed) array
-    # # This will not provide a meaningful summary for non-numeric data types,
-    # # as the logic for non-numeric arrays would need to be more complex and might require pandas
-    # mixed_arr = np.array(["apple", 2, 3.5, np.nan, "banana"], dtype=object)
-    # print(format_array(mixed_arr))
+    Returns
+    -------
+    str
+        A summary string of the array's contents, including shape, mean value
+        for numeric arrays, and the detection of NaN values if present.
 
+    Examples
+    --------
+    >>> from gofast.api.summary import format_array
+    >>> numeric_arr = np.array([1, 2, 3, np.nan, 5])
+    >>> print(format_array(numeric_arr))
+    Array ~ shape=<5> - mean: 2.7500 - dtype: float64 - exist_nan:True
 
+    >>> mixed_arr = np.array(["apple", 2, 3.5, np.nan, "banana"], dtype=object)
+    >>> print(format_array(mixed_arr))
+    Array ~ shape=<5> - dtype: object - exist_nan:True
+
+    Notes
+    -----
+    - For numeric arrays, the function calculates the mean while ignoring any NaNs
+      and identifies the presence of NaN values.
+    - Non-numeric or mixed-type arrays are labeled with their data type without
+      attempting numerical summarization.
+    """
+ 
     arr_str = ""
     # Check if the array contains NaN values; works only for numeric arrays
     exist_nan = np.isnan(arr).any() if np.issubdtype(arr.dtype, np.number) else False
@@ -986,28 +1083,53 @@ def format_array(arr, ):
 
     return arr_str
 
-
-
-
 def format_text(text, key=None, key_length=15, max_char_text=50):
-    # Example usage:
-    # text_example = "This is an example text that is supposed to wrap around after a 
-    # certain number of characters, demonstrating the function."
+    """
+    Formats a block of text to fit within a specified maximum character width,
+    optionally prefixing it with a key. If the text exceeds the maximum width,
+    it wraps to a new line, aligning with the key or the specified indentation.
 
-    # # # Test with key and default key_length
-    # print(format_text(text_example, key="ExampleKey"))
+    Parameters
+    ----------
+    text : str
+        The text to be formatted.
+    key : str, optional
+        An optional key to prefix the text. Defaults to None.
+    key_length : int, optional
+        The length reserved for the key, including following spaces.
+        If `key` is provided but `key_length` is None, the length of the
+        `key` plus one space is used. Defaults to 15.
+    max_char_text : int, optional
+        The maximum number of characters for the text width, including the key
+        if present. Defaults to 50.
 
-    # # Test with key and custom key_length
-    # print(format_text(text_example, key="Key", key_length=10))
+    Returns
+    -------
+    str
+        The formatted text with line breaks added to ensure that no line exceeds
+        `max_char_text` characters. If a `key` is provided, it is included only
+        on the first line, with subsequent lines aligned accordingly.
 
-    # # Test without key but with key_length
-    # print(format_text(text_example, key_length=5))
+    Examples
+    --------
+    >>> text_example = ("This is an example text that is supposed to wrap" 
+                      "around after a certain number of characters.")
+    >>> print(format_text(text_example, key="Note"))
+    Note           : This is an example text that is supposed to
+                      wrap around after a certain number of
+                      characters.
 
-    # # Test without key and key_length
-    # print(format_text(text_example))
-    
+    Notes
+    -----
+    - The function dynamically adjusts the text to fit within `max_char_text`,
+      taking into account the length of `key` if provided.
+    - Text that exceeds the `max_char_text` limit is wrapped to new lines, with
+      proper alignment to match the initial line's formatting.
+    """
+
     if key is not None:
-        # If key_length is None, use the length of the key + 1 for the space after the key
+        # If key_length is None, use the length of the key + 1 
+        # for the space after the key
         if key_length is None:
             key_length = len(key) + 1
         key_str = f"{key.ljust(key_length)}: "
@@ -1023,12 +1145,14 @@ def format_text(text, key=None, key_length=15, max_char_text=50):
 
     formatted_text = ""
     while text:
-        # If the remaining text is shorter than the effective max length, or if there's no key part, add it as is
+        # If the remaining text is shorter than the effective
+        # max length, or if there's no key part, add it as is
         if len(text) <= effective_max_char_text or not key_str:
             formatted_text += key_str + text
             break
         else:
-            # Find the space to break the line, ensuring it doesn't exceed effective_max_char_text
+            # Find the space to break the line, ensuring it doesn't
+            # exceed effective_max_char_text
             break_point = text.rfind(' ', 0, effective_max_char_text)
             if break_point == -1:  # No spaces found, force break
                 break_point = effective_max_char_text
@@ -1041,17 +1165,43 @@ def format_text(text, key=None, key_length=15, max_char_text=50):
     
     return formatted_text
 
-
 def format_series(series):
-    # Example usage:
-    # For a numeric series
-    # numeric_series = pd.Series([1, 2, 3, np.nan, 5, 6], name='NumericSeries')
-    # print(_format_series(numeric_series))
+    """
+    Formats a pandas Series into a concise summary string. The summary includes
+    the series name, mean (for numeric series), length, dtype, and an indicator
+    of whether NaN values are present.
 
-    # # For a non-numeric series
-    # non_numeric_series = pd.Series(['apple', 'banana', np.nan, 'cherry', 'date', 'eggfruit', 'fig'], name='FruitSeries')
-    # print(_format_series(non_numeric_series))
+    Parameters
+    ----------
+    series : pandas.Series
+        The series to be summarized.
 
+    Returns
+    -------
+    str
+        A summary string describing key aspects of the series.
+
+    Examples
+    --------
+    >>> numeric_series = pd.Series([1, 2, 3, np.nan, 5, 6], name='NumericSeries')
+    >>> print(format_series(numeric_series))
+    Series ~ name=<NumericSeries> - values: <mean: 3.4000 - length: 6 -...>
+
+    >>> non_numeric_series = pd.Series(['apple', 'banana', np.nan, 'cherry',
+                                        'date', 'eggfruit', 'fig'], name='FruitSeries')
+    >>> print(format_series(non_numeric_series))
+    Series ~ name=<FruitSeries> - values: <numval: 0 - nonnumval: 6 - ...>
+
+    Notes
+    -----
+    - For numeric series with less than 7 values, the function calculates and
+      includes the mean value, excluding any NaNs from the calculation.
+    - For non-numeric series or those with 7 or more values, the function counts
+      the number of numeric and non-numeric values separately and indicates the
+      presence of NaN values.
+    - The series' data type (`dtype`) and the presence of NaN values are always
+      included in the summary.
+    """
     series_str = ''
     if not isinstance ( series, pd.Series):
         return series 
