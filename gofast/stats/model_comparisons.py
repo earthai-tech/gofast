@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
-
+import warnings
 import itertools
 import numpy as np 
 import pandas as pd
@@ -13,7 +13,8 @@ import seaborn as sns
 from sklearn.preprocessing import LabelEncoder
 
 from .._typing import Callable, LambdaType, DataFrame, Series, Array1D
-from .._typing import Dict, List, Union, Optional, Any, Tuple  
+from .._typing import Dict, List, Union, Optional, Any, Tuple 
+from ..api.extension import isinstance_  
 from ..api.formatter import DataFrameFormatter, MultiFrameFormatter 
 from ..decorators import isdf 
 from ..tools.coreutils import validate_ratio 
@@ -70,9 +71,9 @@ def perform_friedman_test(
         Friedman test finds a significant difference. Defaults to False.
     posthoc_test : callable, optional
         A function that performs posthoc testing on the `performance_data`. This 
-        function should accept a pandas DataFrame and return a formatted result,
-        typically as a pandas DataFrame or a string. Required if `execute_posthoc`
-        is True.
+        function should accept a pandas DataFrame and return a pandas DataFrame, 
+        or a formatted result in `DataFrameFormatter` object. 
+        Required if `perform_posthoc` is True.
 
     Returns
     -------
@@ -110,7 +111,8 @@ def perform_friedman_test(
     
     Examples
     --------
-    >>> from gofast.stats.model_comparisions import perform_friedman_test
+    >>> import pandas as pd 
+    >>> from gofast.stats.model_comparisons import perform_friedman_test
     >>> performance_data = pd.DataFrame({
     ...     'Model_A': [0.8, 0.82, 0.78, 0.81, 0.79],
     ...     'Model_B': [0.79, 0.84, 0.76, 0.82, 0.78],
@@ -175,20 +177,31 @@ def perform_friedman_test(
         "p-value": p_value,
         "Significant Difference": significant_difference
     }
-    result_df = pd.DataFrame([result])
-    
     # Formatting the result DataFrame for presentation
-    formatted_result = DataFrameFormatter(
-        title="Friedman Test Results").add_df(result_df).__str__()
-    
+    results, titles  =[ pd.DataFrame([result])], ["Friedman Test Results"]
     # Optionally perform post-hoc analysis if significant differences are detected
     if perform_posthoc and significant_difference and posthoc_test is not None:
         posthoc_result = posthoc_test(model_performance_data)
-        if isinstance(posthoc_result, pd.DataFrame):
-            posthoc_result = DataFrameFormatter(
-                title='Posthoc Results').add_df(posthoc_result).__str__()
-        formatted_result += "\n" + posthoc_result
-        
+        if isinstance(posthoc_result, pd.DataFrame): 
+            results.append (posthoc_result)
+            titles.append ('Posthoc Results')
+        elif isinstance_(posthoc_result, DataFrameFormatter): 
+            results.append (posthoc_result.df)
+            titles.append ('Posthoc Results')
+        elif isinstance_(posthoc_result, MultiFrameFormatter) :
+            results.extend (posthoc_result.dfs)
+            titles.extend(posthoc_result.titles )
+        if not isinstance_(
+                posthoc_result, ( pd.DataFrame, DataFrameFormatter,
+                                 MultiFrameFormatter ) ):
+            warnings.warn(
+                "Posthoc test should return a pandas DataFrame or"
+                " `DataFrameFormatter` for effective pandas dataframe."
+                )
+
+    formatted_result= MultiFrameFormatter( titles=titles,
+       keywords=['friedman_result', 'post_hoc_result'] ).add_dfs(*results)
+    
     return formatted_result
  
 def normalize_preference(pref: str) -> str:
@@ -217,7 +230,8 @@ def normalize_preference(pref: str) -> str:
             "Invalid score_preference. Choose 'higher is better' or 'lower is better'.")
 
 @isdf 
-@ensure_pkg("scikit_posthocs", dist_name ='scikit_posthocs', infer_dist_name= True )
+@ensure_pkg("scikit_posthocs", dist_name ='scikit-posthocs', infer_dist_name= True, 
+            extra="Nemenyi expects 'scikit-posthocs' to be installed.")
 def perform_nemenyi_posthoc_test(
     model_performance_data: DataFrame, 
     significance_level:float=0.05, 
@@ -312,7 +326,7 @@ def perform_nemenyi_posthoc_test(
         "P-values", f"Significance (|P| <{significance_level:.2f})", 
         "Model Ranks"
         ] 
-    keywords = ['p_values', 'significance', 'rank']
+    keywords = ['p_values', 'significant_differences', 'average_ranks']
     results= MultiFrameFormatter(titles = titles, keywords= keywords).add_dfs(
         pairwise_p_values, significant_diffs,  avg_ranks)
     
@@ -641,7 +655,8 @@ def perform_friedman_test2(
     })
 
     # Formatting the result DataFrame for presentation
-    formatted_result = DataFrameFormatter(title="Friedman Test Results").add_df(result)
+    formatted_result = DataFrameFormatter(
+        title="Friedman Test Results").add_df(result)
 
     return formatted_result
 

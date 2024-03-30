@@ -2149,7 +2149,7 @@ def mse_flex(
     >>> print(result.MSE)
     0.375
     >>> result_detailed = mse_flex(y_true, y_pred, detailed=True)
-    >>> print(result_detailed.MSE, result_detailed.min_error)
+    >>> print(result_detailed.score, result_detailed.min_error)
     0.375 0.0
     """
     # Ensure y_true and y_pred are valid and have the same shape
@@ -2190,7 +2190,7 @@ def mse_flex(
                 significant_squared_errors, (
                     np.abs(y_true) + epsilon)**2, where=y_true != 0)
         
-        result.scaled_MSE = np.mean(scaled_squared_errors)
+        result.scaled_score = np.mean(scaled_squared_errors)
         if detailed:
             result.min_scaled_error = np.min(
                 scaled_squared_errors, initial=np.inf, where=y_true != 0)
@@ -2273,10 +2273,10 @@ def rmse_flex(
     >>> y_true = [3, -0.5, 2, 7]
     >>> y_pred = [2.5, 0.0, 2, 8]
     >>> result = rmse_flex(y_true, y_pred)
-    >>> print(result.RMSE)
+    >>> print(result.score)
     0.612...
     >>> result_detailed = rmse_flex(y_true, y_pred, detailed=True)
-    >>> print(result_detailed.RMSE, result_detailed.min_error)
+    >>> print(result_detailed.score, result_detailed.min_error)
     0.612... 0.0
     """
     # Ensure y_true and y_pred are valid and have the same shape
@@ -2418,10 +2418,10 @@ def r2_flex(
     >>> y_true = np.array([3, 5, 2, 7])
     >>> y_pred = np.array([2.5, 0.5, 2, 8])
     >>> result = r2_flex(y_true, y_pred)
-    >>> print(result.R2)
+    >>> print(result.score)
     -0.4576271186440677...
     >>> result_adjusted = r2_flex(y_true, y_pred, adjust_for_n=True, n_predictors=1)
-    >>> print(result_adjusted.adjusted_R2)
+    >>> print(result_adjusted.adjusted_score)
     -1.1864406779661016...
     """
     # Ensure y_true and y_pred are valid and have the same shape
@@ -2458,7 +2458,7 @@ def r2_flex(
             warnings.warn("Cannot compute adjusted R2 with number of"
                           " samples <= number of predictors.")
         else:
-            result.adjusted_R2 = 1 - (1 - r2) * (n - 1) / (n - p - 1)
+            result.adjusted_score = 1 - (1 - r2) * (n - 1) / (n - p - 1)
             
     elif adjust_for_n and n_predictors is None:
         warnings.warn("Number of predictors must be specified to adjust R2.")

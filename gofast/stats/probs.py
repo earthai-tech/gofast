@@ -6,7 +6,6 @@ These functions offer a range of probability utilities suitable for large
 datasets, leveraging the power of NumPy and SciPy for efficient computation. 
 They cover various aspects of probability calculations, from simple PDF and 
 CDF computations to more complex scenarios like sampling from distributions.
-
 """
 
 import numpy as np

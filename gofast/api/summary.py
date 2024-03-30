@@ -6,6 +6,7 @@ Created on Wed Mar 13 22:29:22 2024
 """
 import numpy as np
 import pandas as pd
+from .structures import FlexDict
 
 class ModelPerformanceReport:
     def __init__(self, model, X_test, y_test, metrics):
@@ -434,7 +435,34 @@ class Summary:
     and robust.skip the documentation for now 
     
     """
-def calculate_maximum_length( report_data, max_value_length = 50 ): 
+    
+class Report (FlexDict) : 
+    def __init__(self, title =None, length =100,  **kwargs): 
+        super ().__init__( **kwargs) 
+        
+        self.title=title
+        self.length= length 
+        self.report=None 
+        
+    def summary ( self, report ): 
+        if not isinstance ( report, dict): 
+            raise # Informative error with nice explanation 
+        self.report = format_report ( 
+           report_data= report, 
+           report_title= self.title,
+           maxt_table_length= self.length
+           )
+    def __str__(self, ): 
+        
+        return self.formatted_report 
+    
+    def __repr__(self):
+        if not self.report: 
+            return "< No report >" # well format accordling 
+        return "< Print to see the report >" # format prpfessionnaly 
+    
+    
+def calculate_maximum_length( report_data, max_table_length = 70 ): 
     # Calculate the maximum key length for alignment
     max_key_length = max(len(key) for key in report_data.keys())
     # calculate the maximum values length 
@@ -447,7 +475,9 @@ def calculate_maximum_length( report_data, max_value_length = 50 ):
         
         if max_val_length < len(value): 
             max_val_length = len(value) 
-            
+    if (max_key_length + max_val_length) >=70:  # @ 4 for spaces 
+        max_val_length = max_table_length - max_key_length -4
+        
     return max_key_length, max_val_length
        
 def format_values ( value ): 
@@ -457,9 +487,10 @@ def format_values ( value ):
         
     return value_str 
 
-def format_report(report_data, report_title=None):
+def format_report(report_data, report_title=None, maxt_table_length= 70 ):
     # Calculate the maximum key length for alignment
-    max_key_length, max_val_length  = calculate_maximum_length( report_data)
+    max_key_length, max_val_length  = calculate_maximum_length( 
+        report_data, max_table_length=maxt_table_length)
     
     # Prepare the report title and frame lines
     line_length = max_key_length + max_val_length + 4 # Adjust for key-value spacing and aesthetics
@@ -479,29 +510,38 @@ def format_report(report_data, report_title=None):
         # Format numeric values with four decimal places
         if isinstance ( value, (int, float, np.integer, np.floating)): 
             formatted_value = format_values ( value )
-            report_str += f"{key.ljust(max_key_length)} :  {formatted_value}\n"
+            # report_str += f"{key.ljust(max_key_length)} :  {formatted_value}\n"
+        elif isinstance ( value, ( list, tuple )): 
+            formatted_value = format_list(list( value))
+            
+        elif isinstance(value, np.ndarray): 
+            formatted_value = format_array(value)
         elif isinstance ( value, pd.Series): 
             formatted_value = format_series(value)
-            report_str += f"{key.ljust(max_key_length)} :  {formatted_value}\n"
+
+        elif isinstance ( value, dict): 
+            formatted_value = format_dict ( value )
+            
         elif isinstance(value, pd.DataFrame): 
             formatted_value = dataframe_key_format(
-                key, value, max_key_length=max_key_length)
-            report_str += f"{key.ljust(max_key_length)} :  {formatted_value}\n"
-            
-        elif isinstance ( value, str) and len(value) > line_length: 
-            # consider as long text 
-            formatted_value = format_text(
-                value, key_length=max_key_length, max_char_text= max_val_length)
-            
-            report_str += f"{key.ljust(max_key_length)} :  {formatted_value}\n"
-        else :    
-        # formatted_value = _format_values ( value ) if isinstance(value, (
-        #     int, float, np.integer, np.floating)) else ( 
-        #     _format_series(value) if isinstance (value, pd.Series ) else value 
-        #     ) 
-        # Construct the line with key and value, aligning based on the longest key
-            report_str += f"{key.ljust(max_key_length)} :  {formatted_value}\n"
-    
+                key, value, max_key_length=max_key_length, 
+                include_colon= True, max_text_char= max_val_length, 
+                alignment='left', pad_colon= True)
+        else: # any other things consider as text 
+            formatted_value = str(value )
+        
+        # if isinstance ( value, str): 
+            # Exclude pd.DataFrame which is already formatted as table. 
+        if not isinstance ( value, pd.DataFrame):
+            # then considered as a text  
+            report_str += format_text(
+                formatted_value, key= key, key_length=max_key_length, 
+                max_char_text= line_length) +'\n'
+            #report_str += f"{key.ljust(max_key_length)} :  {formatted_value}\n"
+           
+        else: # just append the dtaframe already formated 
+            report_str += formatted_value +'\n' 
+  
     # Add the bottom frame line
     report_str += bottom_line
     
@@ -547,8 +587,8 @@ def format_dataframe(df, max_long_text_char=50):
     return table
 
 
-
-def format_key(key, max_length=None, include_colon=False, alignment='left'):
+def format_key(key, max_length=None, include_colon=False, alignment='left',
+               pad_colon=False):
     """
     Formats a key string according to the specified parameters.
 
@@ -575,8 +615,9 @@ def format_key(key, max_length=None, include_colon=False, alignment='left'):
     final_length = max_length if max_length is not None else base_length
     
     # Construct the key format string
-    key_format = f"{key}:" if include_colon else key
-    
+    #pad key + space + ' :' to fit the max_length , adjust according when padding_colon is True
+    key_format = "{}{} :".format(
+        key, ' '*(max_length -len(key)) if pad_colon else '') if include_colon else key
     # Apply the specified alignment and padding
     formatted_key = ( f"{key_format: <{final_length}}" if alignment == 'left' 
                      else f"{key_format: >{final_length}}"
@@ -584,10 +625,18 @@ def format_key(key, max_length=None, include_colon=False, alignment='left'):
     
     return formatted_key
 
-def dataframe_key_format(key, df, max_key_length=None, max_text_char=50):
+def dataframe_key_format(
+    key, df, title ='',
+    max_key_length=None, 
+    max_text_char=50, 
+    **kws
+    ):
     # Format the key with a colon, using the provided or calculated max key length
-    formatted_key = format_key(key, max_length=max_key_length,
-                               include_colon=True, alignment='left')
+    # if %% in the key split and considered key and title 
+    if "%%" in str(key): 
+        key, title = key.split("%%")
+        
+    formatted_key = format_key(key, max_length=max_key_length,**kws)
     
     # Format the DataFrame according to specifications
     formatted_df = format_dataframe(df, max_long_text_char=max_text_char)
@@ -601,12 +650,15 @@ def dataframe_key_format(key, df, max_key_length=None, max_text_char=50):
     space_prefix = ' ' * (len(formatted_key) + 1)
     
     # Prepend spaces to each line of the formatted DataFrame except for the 
-    # first line (it's already aligned)
+    # first line (it's already aligned) 
     aligned_df = space_prefix + df_lines[0] + '\n' + '\n'.join(
         [space_prefix + line for line in df_lines[1:]])
+    # Center the title of dataframe 
+    if title: 
+        title = title.title ().center(len(df_lines[0]))
     
-    # Combine the formatted key with the aligned DataFrame
-    result = f"{formatted_key}\n{aligned_df}"
+    # Combine the formatted title dataframe with the aligned DataFrame
+    result = f"{formatted_key}{title}\n{aligned_df}"
     
     return result
 
@@ -775,11 +827,7 @@ def format_array(arr, ):
             dtype_description,
             ' - exist_nan:True' if exist_nan else ''
         )
-
     return arr_str
-
-
-
 
 def format_text(text, key=None, key_length=15, max_char_text=50):
     # Example usage:
@@ -802,10 +850,10 @@ def format_text(text, key=None, key_length=15, max_char_text=50):
         # If key_length is None, use the length of the key + 1 for the space after the key
         if key_length is None:
             key_length = len(key) + 1
-        key_str = f"{key.ljust(key_length)}: "
+        key_str = f"{key.ljust(key_length)} : "
     elif key_length is not None:
         # If key is None but key_length is specified, use spaces
-        key_str = " " * key_length + ": "
+        key_str = " " * key_length + " : "
     else:
         # If both key and key_length are None, there's no key part
         key_str = ""
@@ -849,7 +897,7 @@ def format_series(series):
         return series 
     
     if series.dtype.kind in 'biufc' and len(series) < 7:  # Check if series is numeric and length < 7
-        series_str = "Series ~ {}values: <mean: {:.4f} - length: {} - dtype: {}{}>".format(
+        series_str = "Series ~ {}values: <mean: {:.4f} - len: {} - dtype: {}{}>".format(
             f"name=<{series.name}> - " if series.name is not None else '',
             np.mean(series.values), 
             len(series), 
@@ -869,15 +917,16 @@ def format_series(series):
         )
     return series_str
 
-
 # Example usage
 if __name__ == "__main__":
     # Example usage:
+    # from gofast.api.summary import format_report 
     report_data = {
         'Total Sales': 123456.789,
         'Average Rating': 4.321,
         'Number of Reviews': 987,
-        'Key with long name': 'Example text'
+        'Key with long name': 'Example text', 
+        'series': pd.Series ([1, 'banana', float('nan')])
     }
 
     report_title = 'Monthly Sales Report'
