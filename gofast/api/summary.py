@@ -399,7 +399,7 @@ class Summary:
     also note that the numeric values of 
     
     
-    - summary2() refers to display the fine-tuned models results. 
+    - write a function  summary2(*args, **kwargs) refers to display the fine-tuned models results. 
     if the bunch model is print then a nice table that micmics the statmodels 
     must be display that includes, estimator name, best parameters, ncv , 
     scoring and job specified . 
@@ -434,6 +434,170 @@ class Summary:
     and robust.skip the documentation for now 
     
     """
+# def format__inline_table ( 
+#         contents, title =None, top_line ='=', sub_line ='-', bottom_line='=', 
+#         table_length= None, header_content=None, max_table_length=None   ): 
+#     # format_table_length 
+    
+#     if not isinstance ( content, dict): 
+#         # raise informative error that inline table expect a dict of key and values 
+#         # display like 
+    #                              Results  [title center]
+    # =========================================================================[top_line]
+    #                               Main [ header content center]                                      
+    # -------------------------------------------------------------------------[sub_line]
+    # Estimator[key1]         : SVC [ value1]
+    # Best parameters[key2]   : .e.g {C: 1, gamma=0.1}[value2]
+    # nCV[key3]               :  e.g 4 [value3]
+    # scoring[key4]           : e.g accuracy [value4]
+    # ...                     : ...
+    # -------------------------------------------------------------------------[ bottom_line]
+    # the table line length is equal to sum of the [ maximum length of keys + space [' : '] + maximum length of value in  dicts. 
+    # however if max table length is given check whether the maxkey length is less than the max_table_length, 
+    # if max key is longer than max_table_length then ignore the max_table_length and use the default 
+    # calculation as indicated above, however if the max_table_length is given and less than the 
+    # max_table_length there compute the remained value length and if value length is higher than the 
+    # remain length , use '...'  
+    
+    # if value in dict is numeric , format as 4 decimal. 
+    # if header content is empty the subline must be removed as well as the header content not displayed
+    # as 
+    
+    #                              Results  [title center]
+    # =========================================================================[top_line]
+    # Estimator[key1]         : SVC [ value1]
+    # Best parameters[key2]   : .e.g {C: 1, gamma=0.1}[value2]
+    # nCV[key3]               :  e.g 4 [value3]
+    # scoring[key4]           : e.g accuracy [value4]
+    # ...                     : ...
+    # -------------------------------------------------------------------------[ bottom_line]
+
+# Document the function below only. Use Numpy docstring and reST makup and come back 
+# to new line after 65 characters. add examples and Notes. 
+
+def summarize_table ( contents, 
+    title=None, 
+    max_width='auto',
+    top_line='=', 
+    sub_line='-', 
+    bottom_line='=', 
+    ): 
+    
+    if not isinstance(contents, (pd.DataFrame, pd.Series)):
+        raise ValueError("summarize_table expects a DataFrame of keys and values.")
+    if isinstance (contents, pd.Series): 
+        contents= contents.to_frame() 
+       
+        # Initial calculations for formatting
+        max_key_length = max(len(key) for key in contents) + 1  # +1 for the space after keys
+        max_value_length = max(len(format_value(value)) for value in contents.values())
+    # 
+    #                              CV results 
+    # ---------------------------------------------------------------------------
+    # Fold        Mean score        CV score      std score          Global mean 
+    # ***************************************************************************       
+    # Cv1          0.6789              0.6710       0.0458               0.7090
+    # cv2          0.5678              0.7806       0.8907               0.9089
+    # cv3          0.9807              0.6748       0.8990               0.7676
+    # cv4          0.8541              0.8967       0.9087               0.6780
+    # ===========================================================================
+        
+def summarize_inline_table(
+    contents, 
+    title=None, 
+    header=None, 
+    max_width='auto',
+    top_line='=', 
+    sub_line='-', 
+    bottom_line='=', 
+    
+    ):
+    if not isinstance(contents, dict):
+        raise ValueError("summarize_inline_table expects a dict of keys and values.")
+    
+    # Helper function to format values
+    def format_value(value):
+        return f"{value:.4f}" if isinstance(value, (int, float)) else str(value)
+    
+    # Initial calculations for formatting
+    max_key_length = max(len(key) for key in contents) + 1  # +1 for the space after keys
+    max_value_length = max(len(format_value(value)) for value in contents.values())
+    
+    # Adjust table width if 'max_width' is 'auto' or specified as a number
+    if max_width == 'auto':
+        table_width = max_key_length + max_value_length + 4  # +4 for " : " and extra space
+    elif isinstance(max_width, (float, int)):
+        table_width = int(max_width)
+    else:
+        table_width = max_key_length + max_value_length + 4  # Default behavior
+
+    # Title and header
+    title_str = f"{title.center(table_width)}" if title else ""
+    top_line_str = top_line * table_width
+    header_str = f"{header.center(table_width)}" if header else ""
+    sub_line_str = sub_line * table_width if header else ""
+    
+    # Constructing content lines
+    content_lines = []
+    for key, value in contents.items():
+        formatted_value = format_value(value)
+        # Truncate long values if necessary
+        space_for_value = table_width - max_key_length - 3
+        if len(formatted_value) > space_for_value:
+            formatted_value = formatted_value[:space_for_value-3] + "..."
+    
+        key_str = f"{key}"
+        line = f"{key_str.ljust(max_key_length)} : {formatted_value}"
+        content_lines.append(line)
+    
+    content_str = "\n".join(content_lines)
+    bottom_line_str = bottom_line * table_width
+    # Combine all parts
+    table = "\n".join([title_str, top_line_str, header_str, sub_line_str,
+                       content_str, bottom_line_str])
+    
+    return table
+
+
+
+# def get_name_in_mixed 
+# def summary2 ( model_result, **kws): 
+#     if not isinstance ( model_result, dict): 
+#         raise # Informative error so expect a model result to be dict 
+#     # join key for easy search 
+#     mixed_names = ''.join(model_results)
+#     if 'estimator' not in mixed_names or 'model' not in mixed_names  or not kwargs.get('estimator_name', None): 
+#         raise # Estimator name should be present 
+
+#     if 'best_parameters' not in model_result or 'parameters'not kwargs.get('parameters', None): 
+#         raise # informative error 
+        
+#     if 'estimator' in model_result: 
+#         # now get the name who find estimator 
+  
+#         estimator_name = [name]
+        
+   
+
+
+# Example usage with dummy data (This assumes you have run a GridSearchCV or RandomizedSearchCV and populated this dictionary accordingly)
+# model_results = {
+#     'best_parameters_': {'C': 1, 'gamma': 0.1},
+#     'best_estimator_': SVC(C=1, gamma=0.1),
+#     'cv_results_': {
+#         'split0_test_score': [0.6789, 0.8],
+#         'split1_test_score': [0.5678, 0.9],
+#         'split2_test_score': [0.9807, 0.95],
+#         'split3_test_score': [0.8541, 0.85],
+#         'params': [{'C': 1, 'gamma': 0.1}, {'C': 10, 'gamma': 0.01}],
+#         'mean_test_score': [0.770375, 0.875],
+#         'std_test_score': [0.15873, 0.07],
+#     },
+#     'scoring': 'accuracy',
+# }
+
+# summarize_model_results(model_results)
+   
 def calculate_maximum_length( report_data, max_value_length = 50 ): 
     # Calculate the maximum key length for alignment
     max_key_length = max(len(key) for key in report_data.keys())
@@ -450,12 +614,12 @@ def calculate_maximum_length( report_data, max_value_length = 50 ):
             
     return max_key_length, max_val_length
        
-def format_values ( value ): 
+def format_value( value ): 
     value_str =''
     if isinstance(value, (int, float, np.integer, np.floating)): 
         value_str = f"{value}" if isinstance ( value, int) else  f"{float(value):.4f}" 
         
-    return value_str 
+    return str(value_str)  
 
 def format_report(report_data, report_title=None):
     # Calculate the maximum key length for alignment
@@ -478,7 +642,7 @@ def format_report(report_data, report_title=None):
     for key, value in report_data.items():
         # Format numeric values with four decimal places
         if isinstance ( value, (int, float, np.integer, np.floating)): 
-            formatted_value = format_values ( value )
+            formatted_value = format_value ( value )
             report_str += f"{key.ljust(max_key_length)} :  {formatted_value}\n"
         elif isinstance ( value, pd.Series): 
             formatted_value = format_series(value)
@@ -507,8 +671,122 @@ def format_report(report_data, report_title=None):
     
     return report_str
 
+# Refactor summarize_model_results and rather than use long string display with
+#  table contenst which is not professionnaly , I 
+# write helper function named "format_dataframe' below ( use this function , dont rewrite).
+#  contruct a  dataframe with columns ["Fold",  "Mean score" ,  "CV score" ,  "std score ",  "Global mean" ]
+# from the above code  and use this dataframe to format the result via format_dataframe to 
+# display the result as: 
 
-def format_dataframe(df, max_long_text_char=50):
+#                              Model Results 
+# ---------------------------------------------------------------------------
+# Fold        Mean score        CV score      std score          Global mean 
+# ***************************************************************************       
+# Cv1          0.6789              0.6710       0.0458               0.7090
+# cv2          0.5678              0.7806       0.8907               0.9089
+# cv3          0.9807              0.6748       0.8990               0.7676
+# cv4          0.8541              0.8967       0.9087               0.6780
+# ===========================================================================
+
+def summarize_model_results(
+        model_results, title=None, 
+        top_line='=', sub_line='-', bottom_line='=', 
+        ):
+    title = title or "Model Results"
+    keys = ["Fold", "Mean score", "CV score", "std score", "Global mean"]
+    
+    # Extracting required information from model_results
+    cv_results = model_results['cv_results_']
+    nCV = len({k for k in cv_results.keys() if k.startswith('split')}) // len(cv_results['params'])
+    
+    # Prepare data for DataFrame
+    data = []
+    for i in range(nCV):
+        mean_score = np.mean([cv_results[f'split{j}_test_score'][i] for j in range(nCV)])
+        cv_scores = [cv_results[f'split{j}_test_score'][i] for j in range(nCV)]
+        std_score = np.std(cv_scores)
+        global_mean = np.nanmean(cv_scores)
+        
+        fold_data = [f"Cv{i+1}", mean_score, cv_scores[i], std_score, global_mean]
+        data.append(fold_data)
+    
+    # Creating DataFrame
+    df = pd.DataFrame(data, columns=keys)
+    
+    # Formatting DataFrame using the provided 'format_dataframe' function
+    formatted_table = format_dataframe(
+        df, top_line=top_line, 
+        sub_line=sub_line, 
+        bottom_line=bottom_line)
+    
+    return  len(formatted_table.split('\n')[0]) # 
+
+    # # Print title and formatted table
+    # print(title.center(len(formatted_table.split('\n')[0])))
+    # print(formatted_table)
+    
+    
+
+# Assuming 'model_results' is a dictionary obtained from GridSearchCV or RandomizedSearchCV
+# Example usage
+model_results = {
+    'best_parameters_': {'C': 1, 'gamma': 0.1},
+    'best_estimator_': "SVC",
+    'cv_results_': {
+        'split0_test_score': [0.6789, 0.8],
+        'split1_test_score': [0.5678, 0.9],
+        'split2_test_score': [0.9807, 0.95],
+        'split3_test_score': [0.8541, 0.85],
+        'params': [{'C': 1, 'gamma': 0.1}, {'C': 10, 'gamma': 0.01}],
+    },
+    'scoring': 'accuracy',
+}
+
+# Note: The actual 'model_results' would be the output from a GridSearchCV or RandomizedSearchCV operation.
+# The 'format_dataframe' function needs to be defined as given, and pandas must be installed.
+
+# def summarize_model_results(model_results, max_width ='auto', title=None):
+    
+#     title = title or "Model Results"
+    
+    
+#     keys = ["Fold",  "Mean score" ,  "CV score" ,  "std score ",  "Global mean" ]
+    
+#     estimator_name = type(model_results['best_estimator_']).__name__
+#     best_params = model_results['best_parameters_']
+#     cv_results = model_results['cv_results_']
+#     nCV = len({k for k in cv_results.keys() if k.startswith('split')}) // len(cv_results['params'])
+#     scoring = model_results.get('scoring', 'Unknown scoring')
+
+#     header = " " * 29 + "Results\n" + "=" * 74 + "\n" + " " * 30 + "Main\n" + "-" * 74
+#     model_summary = f"\nEstimator         : {estimator_name}\nBest parameters   : {best_params}\nnCV               : {nCV}\nscoring           : {scoring}\n" + "-" * 74 + "\n" + " " * 29 + "CV results\n" + "-" * 74
+
+#     cv_results_str = "Fold        Mean score        CV score      std score          Global mean\n" + "*" * 75
+#     global_means = []
+
+#     for i in range(nCV):
+#         mean_score = np.mean([cv_results[f'split{j}_test_score'][i] for j in range(nCV)])
+#         cv_scores = [cv_results[f'split{j}_test_score'][i] for j in range(nCV)]
+#         std_score = np.std(cv_scores)
+#         global_mean = np.nanmean(cv_scores)
+#         global_means.append(global_mean)
+        
+#         cv_results_str += f"\nCv{i+1:<10}{mean_score:<18.4f}{cv_scores[i]:<15.4f}{std_score:<18.4f}{global_mean:<15.4f}"
+
+#     overall_global_mean = np.nanmean(global_means)
+#     cv_results_str += f"\n{' ' * 59}{'=' * 15}\n{'Global Mean:':<59}{overall_global_mean:.4f}"
+
+#     summary = "\n".join([header, model_summary, cv_results_str, "=" * 75])
+    
+#     print(summary)
+
+def format_dataframe(
+    df, 
+    max_long_text_char=50,  
+    top_line='=', 
+    sub_line='-', 
+    bottom_line='=', 
+     ):
     # Calculate the max length for the index
     max_index_length = max([len(str(index)) for index in df.index])
     
@@ -531,8 +809,9 @@ def format_dataframe(df, max_long_text_char=50):
     # Calculate total table width
     table_width = sum(max_col_lengths.values()) + len(max_col_lengths) - 1 + max_index_length + 1
     # Construct the separators
-    top_bottom_border = "~" * table_width
-    separator = "-" * table_width
+    top_header_border = top_line * table_width
+    separator = sub_line * table_width
+    top_bottom_border = top_line * table_width
     
     # Construct each row
     rows = []
@@ -542,8 +821,9 @@ def format_dataframe(df, max_long_text_char=50):
         rows.append(row_str)
     
     # Combine all parts
-    table = f"{top_bottom_border}\n{' ' * (max_index_length + 1)}{header}\n{separator}\n" + "\n".join(
+    table = f"{top_header_border}\n{' ' * (max_index_length + 1)}{header}\n{separator}\n" + "\n".join(
         rows) + f"\n{top_bottom_border}"
+    
     return table
 
 
