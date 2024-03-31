@@ -23,8 +23,7 @@ from sklearn.utils.multiclass import unique_labels
 from sklearn.model_selection import cross_val_predict 
 from sklearn.preprocessing import label_binarize, LabelEncoder
 
-from ._gofastlog import gofastlog
-# from .api.structures import Bunch 
+from ._gofastlog import gofastlog 
 from .api.formatter import MetricFormatter
 from .tools.coreutils import normalize_string 
 from .tools.mathex import calculate_binary_iv, optimized_spearmanr 

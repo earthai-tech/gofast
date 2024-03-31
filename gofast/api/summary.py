@@ -107,7 +107,8 @@ class Summary(FlexDict):
         ...     'Salary': [50000, 60000, 70000, 80000, 90000]
         ... })
         >>> summary = Summary(title="Employee Stats")
-        >>> summary.generate_basic_statistics(df, include_correlation=True)
+        >>> summary.basic_statistics(df, include_correlation=True)
+        >>> print(summary)
         """
         if not isinstance(df, pd.DataFrame):
             raise ValueError("The provided data must be a pandas DataFrame.")
@@ -115,7 +116,7 @@ class Summary(FlexDict):
         summary_parts = []
         
         # Basic statistics
-        stats = df.describe(include='all').T
+        stats = df.describe(include='all').T.applymap(format_value)
         summary_parts.append(format_dataframe(stats, title="Basic Statistics"))
 
         # Correlation matrix
@@ -130,7 +131,10 @@ class Summary(FlexDict):
         
         return self 
 
-    def unique_counts(self, df, include_sample=False, sample_size=5):
+    def unique_counts(
+        self, df, include_sample=False, sample_size=5,
+        aesthetic_space_allocation=4
+        ):
         """
         Generates counts of unique values for categorical columns in the provided
         DataFrame and, optionally, includes a random sample of data.
@@ -165,6 +169,7 @@ class Summary(FlexDict):
         ... })
         >>> summary = Summary(title="Department Overview")
         >>> summary.unique_counts(df, include_sample=True)
+        >>> print(summary)
         """
         if not isinstance(df, pd.DataFrame):
             raise ValueError("Input must be a pandas DataFrame.")
@@ -174,25 +179,23 @@ class Summary(FlexDict):
             include=['object', 'category']).columns}
         unique_df = pd.DataFrame.from_dict(
             unique_counts, orient='index', columns=['Unique Counts'])
-        max_width= get_table_width(unique_df) 
+
+        summary_parts=[unique_df]
+        titles =["Unique Counts"]
         # Sample of the data
         if include_sample:
             sample_data = df.sample(n=min(sample_size, len(df)))
-            it_width =get_table_width(sample_data)
-            max_width = max_width if max_width > it_width else it_width
-            
-        # get the max width to fit all tables 
-        summary_parts.append(format_dataframe(unique_df,  
-            title="Unique Counts", max_width= max_width))
-        
-        if include_sample: 
-            summary_parts.append(format_dataframe(
-                sample_data, title="Sample Data", max_width=max_width))
-         # Compile all parts into a single summary report
-        self.summary_report = "\n\n".join(summary_parts)
+            summary_parts.append(sample_data)
+            titles.append ("Sample Data")
+
+        # Compile all parts into a single summary report
+        self.summary_report = uniform_dfs_formatter(
+            *summary_parts, titles= titles, 
+            aesthetic_space_allocation= aesthetic_space_allocation
+            )
 
         return self
-
+    
     def model_summary(self, model_results=None, model=None, **kwargs):
         """
         Generates a summary report for a scikit-learn model or model results,
@@ -251,8 +254,6 @@ class Summary(FlexDict):
         """
         return "<Summary: {}>".format(
             "Empty" if not self.summary_report else "Populated. Use print() to the contents.")
-
-
 
 class ReportFactory(FlexDict):
     """
@@ -323,7 +324,7 @@ class ReportFactory(FlexDict):
     - The `FlexDict` parent class is assumed to provide dynamic attribute access,
       allowing for flexible interaction with report data.
     - While `report_str` holds the formatted report ready for display, `report`
-      maintains the raw input data for reference or further processing.
+      maintains the raw input data for reference or further processing. 
     """
     def __init__(self, title=None, **kwargs):
         """
@@ -344,7 +345,7 @@ class ReportFactory(FlexDict):
         self.report = None
         self.report_str = None
 
-    def mixed_types_summary(self, report, table_width=100):
+    def mixed_types_summary(self, report, table_width='auto'):
         """
         Formats a report containing mixed data types.
 
@@ -355,17 +356,58 @@ class ReportFactory(FlexDict):
         self.report = report
         self.report_str = format_report(report_data=report, report_title=self.title,
                                         max_table_width=table_width)
+        return self 
 
-    def add_recommendations(self, text, key=None, **kwargs):
+    
+    def add_recommendations(
+            self, texts, keys=None, key_length=15, max_char_text=70, **kwargs):
         """
         Formats and adds a recommendations section to the report.
-
+    
         Parameters:
-        - text (str): The text containing recommendations.
-        - key (str, optional): An optional key to prefix the text. Defaults to None.
+        - texts : str, list of str, or dict
+            The text(s) containing recommendations. Can be a single string, a list of strings,
+            or a dictionary with keys as headings and values as text.
+        - keys : str or list of str, optional
+            An optional key or list of keys to prefix the text(s). Used only if texts is a string
+            or list of strings. Defaults to None.
+        - key_length : int, optional
+            Maximum key length for formatting before the ':'. Defaults to 15.
+        - max_char_text : int, optional
+            Number of text characters to tolerate before wrapping to a new line. Defaults to 70.
         """
-        self.report = text
-        self.report_str = format_text(text, key=key, **kwargs)
+        formatted_texts = []
+        if isinstance(texts, dict):
+            # If texts is a dictionary, use it directly.
+            report_data = texts
+        else:
+            # If texts is not a dictionary, combine texts with keys into a dictionary.
+            if isinstance(texts, str):
+                texts = [texts]
+            if isinstance(keys, str):
+                keys = [keys]
+            # Ensure keys are provided for each text if texts is a list.
+            if not keys or len(keys) < len(texts):
+                keys = [f"Key{i+1}" for i in range(len(texts))]
+            report_data = dict(zip(keys, texts))
+    
+        # Format each text entry with its key.
+        for key, text in report_data.items():
+            formatted_text = format_text(text, key, key_length=key_length,
+                                         max_char_text=max_char_text, **kwargs)
+            formatted_texts.append(formatted_text)
+    
+        # Calculate the total width for the top and bottom bars.
+        max_width = max(len(ft.split('\n')[0]) for ft in formatted_texts) if formatted_texts else 0
+        top_bottom_bar = "=" * max_width
+    
+        # Compile the formatted texts into the report string.
+        self.report_str = f"{top_bottom_bar}\n" + "\n".join(formatted_texts) + f"\n{top_bottom_bar}"
+    
+        # Assign report data for reference.
+        self.report = report_data
+    
+        return self
 
     def model_performance_summary(self, model_results, **kwargs):
         """
@@ -377,7 +419,8 @@ class ReportFactory(FlexDict):
         self.report = model_results
         self.report_str = summarize_model_results(
             model_results, title=self.title, **kwargs)
-
+        return self 
+    
     def data_summary(self, df, **kwargs):
         """
         Formats and adds a data frame summary to the report.
@@ -386,7 +429,8 @@ class ReportFactory(FlexDict):
         - df (pandas.DataFrame): The data frame to summarize.
         """
         self.report_str = format_dataframe(df, title=self.title, **kwargs)
-
+        return self 
+    
     def __str__(self):
         """
         String representation of the report content.
@@ -602,8 +646,8 @@ def get_table_width(
     
     return table_width
 
-def calculate_maximum_length( report_data, max_table_length = 70 ): 
-    # Calculate the maximum key length for alignment
+def calculate_maximum_length( report_data, max_table_length = "auto" ): 
+    """ Calculate the maximum key length for alignment"""
     max_key_length = max(len(key) for key in report_data.keys())
     # calculate the maximum values length 
     max_val_length = 0 
@@ -615,10 +659,13 @@ def calculate_maximum_length( report_data, max_table_length = 70 ):
         
         if max_val_length < len(value): 
             max_val_length = len(value) 
-    if (max_key_length + max_val_length) >=max_table_length:  # @ 4 for spaces 
-        max_val_length = max_table_length - max_key_length -4
+    if str(max_table_length).lower() in ['none', 'auto']:  
+       max_table_length = max_key_length + max_val_length +4  # @ 4 for spaces 
+    else: 
+        if (max_key_length + max_val_length) >=max_table_length:  
+            max_val_length = max_table_length - max_key_length -4
         
-    return max_key_length, max_val_length
+    return max_key_length, max_val_length, max_table_length
        
 def format_value( value ): 
     value_str =str(value)
@@ -683,67 +730,67 @@ def format_report(report_data, report_title=None, max_table_width= 70 ):
       determined based on the longest key or value, with an option to specify a
       maximum width manually.
     """
-    # Calculate the maximum key length for alignment
-    max_key_length, max_val_length  = calculate_maximum_length( 
-        report_data, max_table_length=max_table_width)
+    max_key_length, max_val_length, max_table_width = calculate_maximum_length(
+        report_data, max_table_width)
     
-    # Prepare the report title and frame lines
-    # Adjust for key-value spacing and aesthetics
-    line_length = max_key_length + max_val_length + 4 
+    # Adjusting line length based on key-value spacing and aesthetics
+    line_length = max(max_key_length + max_val_length + 4,
+                      len(report_title) if report_title else 0, max_table_width)
     top_line = "=" * line_length
-    subsection_line = '-'* line_length
     bottom_line = "=" * line_length
     
-    # Construct the report string starting with the top frame line
-    report_str = f"{top_line}\n"
-    
-    # Add the report title if provided, centered within the frame
+    # Constructing report string with title and frame lines
+    report_lines = [top_line]
     if report_title:
-        report_str += f"{report_title.center(line_length)}\n{subsection_line}\n"
+        report_lines.append(report_title.center(line_length))
+        report_lines.append("-" * line_length)
     
-    # Add each key-value pair to the report
+    # Processing each key-value pair in the report data
     for key, value in report_data.items():
-        # Format numeric values with four decimal places
-        if isinstance ( value, (int, float, np.integer, np.floating)): 
-            formatted_value = format_value ( value )
-            # report_str += f"{key.ljust(max_key_length)} :  {formatted_value}\n"
-        elif isinstance ( value, ( list, tuple )): 
-            formatted_value = format_list(list( value))
-            
-        elif isinstance(value, np.ndarray): 
+        if isinstance(value, (int, float, np.integer, np.floating)):
+            formatted_value = format_value(value)
+        elif isinstance(value, (list, tuple)):
+            formatted_value = format_list(list(value))
+        elif isinstance(value, np.ndarray):
             formatted_value = format_array(value)
-        elif isinstance ( value, pd.Series): 
+        elif isinstance(value, pd.Series):
             formatted_value = format_series(value)
-
-        elif isinstance ( value, dict): 
-            formatted_value = format_dict ( value )
-            
-        elif isinstance(value, pd.DataFrame): 
+        elif isinstance(value, dict):
+            formatted_value = format_dict(value)
+        elif isinstance(value, pd.DataFrame):
+            # DataFrame formatting using specific function to handle
+            # columns and alignment
             formatted_value = dataframe_key_format(
-                key, value, max_key_length=max_key_length, 
-                include_colon= True, max_text_char= max_val_length, 
-                alignment='left', pad_colon= True)
-        else: # any other things consider as text 
-            formatted_value = str(value )
-        # if isinstance ( value, str): 
-            # Exclude pd.DataFrame which is already formatted as table. 
-        if not isinstance ( value, pd.DataFrame):
-            # then considered as a text  
-            report_str += format_text(
-                formatted_value, key= key, key_length=max_key_length, 
-                max_char_text= line_length) +'\n'
-            #report_str += f"{key.ljust(max_key_length)} :  {formatted_value}\n"
-        else: # just append the dtaframe already formated 
-            report_str += formatted_value +'\n' 
-  
-    # Add the bottom frame line
-    report_str += bottom_line
+                key, value, 
+                max_key_length=max_key_length, 
+                max_text_char=max_val_length
+                )
+        else:  # Treat other types as text, including strings
+            formatted_value = str(value)
+        
+        # For DataFrame, the formatting is already handled above
+        if not isinstance(value, pd.DataFrame):
+            # Formatting non-DataFrame values with key alignment
+            report_lines.append(format_text(
+                formatted_value, 
+                key=key, 
+                key_length=max_key_length, 
+                max_char_text=line_length
+                )
+            )
+        else:
+            # Directly appending pre-formatted DataFrame string
+            report_lines.append(formatted_value)
     
-    return report_str
+    # Finalizing report string with bottom frame line
+    report_lines.append(bottom_line)
+    
+    return "\n".join(report_lines)
 
 def summarize_model_results(
     model_results, 
     title=None, 
+    max_width=100,
     top_line='=', 
     sub_line='-', 
     bottom_line='='
@@ -759,6 +806,8 @@ def summarize_model_results(
         for the best estimator, best parameters, and cross-validation results.
     title : str, optional
         The title of the summary report. Defaults to "Model Results".
+    max_width: maximum columns/text width/length before the truncation. 
+    
     top_line : str, optional
         The character used for the top border of the tables. Defaults to '='.
     sub_line : str, optional
@@ -844,7 +893,7 @@ def summarize_model_results(
     # Preparing data for the CV results DataFrame
     df = prepare_cv_results_dataframe(standardized_results['cv_results_'])
 
-    max_width = get_table_width(inline_contents)
+    max_width = get_table_width(inline_contents, max_column_width=max_width)
     # Formatting CV results DataFrame
     formatted_table = format_dataframe(
         df, title="Tuning Results", max_width=max_width, 
@@ -969,6 +1018,8 @@ def format_dataframe(
     - Long text values in cells are truncated with '...' when exceeding
       `max_text_length`.
     """
+    if not isinstance (df, pd.DataFrame): 
+        raise TypeError(f"Expect DataFrame. Got {type(df).__name__!r} instead.")
     # Calculate the max length for the index
     max_index_length = max([len(str(index)) for index in df.index])
     
@@ -1358,7 +1409,9 @@ def format_array(arr):
         )
     return arr_str
 
-def format_text(text, key=None, key_length=15, max_char_text=50):
+def format_text(
+        text, key=None, key_length=15, max_char_text=50, 
+        add_frame_lines =False ):
     """
     Formats a block of text to fit within a specified maximum character width,
     optionally prefixing it with a key. If the text exceeds the maximum width,
@@ -1377,7 +1430,9 @@ def format_text(text, key=None, key_length=15, max_char_text=50):
     max_char_text : int, optional
         The maximum number of characters for the text width, including the key
         if present. Defaults to 50.
-
+    add_frame_lines: bool, False 
+       If True, frame the text with '=' line (top and bottom)
+       
     Returns
     -------
     str
@@ -1439,6 +1494,10 @@ def format_text(text, key=None, key_length=15, max_char_text=50):
             # After the first line, the key part is just spaces
             key_str = " " * len(key_str)
     
+    if add_frame_lines: 
+        frame_lines = '='* len(formatted_text)
+        formatted_text = frame_lines +'\n' + formatted_text +'\n' + frame_lines
+        
     return formatted_text
 
 def format_series(series):
@@ -1503,10 +1562,91 @@ def format_series(series):
         )
     return series_str
 
-        
-        
-# Example usage demonstration and specific helper functions like `format_dataframe` 
-# and `summarize_inline_table` need to be implemented separately.
+def uniform_dfs_formatter(
+        *dfs, titles=None, max_width='auto', aesthetic_space_allocation=4):
+    """
+    Formats a series of pandas DataFrames into a consistent width, optionally
+    assigns titles to each, and compiles them into a single string. The width
+    of each DataFrame is adjusted to match either the widest DataFrame in the
+    series or a specified maximum width. Titles can be assigned to each DataFrame,
+    and additional aesthetic spacing can be allocated for visual separation.
+
+    Parameters
+    ----------
+    *dfs : pandas.DataFrame
+        A variable number of pandas DataFrame objects to be formatted.
+    titles : list of str, optional
+        Titles for each DataFrame. If provided, the number of titles should
+        match the number of DataFrames. If fewer titles are provided, the
+        remaining DataFrames will have empty titles. Defaults to None, which
+        results in no titles being assigned.
+    max_width : int or 'auto', optional
+        The maximum width for the formatted DataFrames. If 'auto', the width
+        is determined based on the widest DataFrame, plus any aesthetic
+        space allocation. If an integer is provided, it specifies the
+        maximum width directly. Defaults to 'auto'.
+    aesthetic_space_allocation : int, optional
+        Additional spaces added for visual separation between the formatted
+        DataFrames. Only applied when calculating `auto_max_width`. Defaults
+        to 4.
+
+    Returns
+    -------
+    str
+        A single string containing all the formatted DataFrames, separated
+        by double newlines.
+
+    Raises
+    ------
+    TypeError
+        If any of the inputs are not pandas DataFrame objects.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> df1 = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
+    >>> df2 = pd.DataFrame({'C': [5, 6], 'D': [7, 8]})
+    >>> summary_str = uniform_dfs_formatter(df1, df2, titles=['First DF', 'Second DF'])
+    >>> print(summary_str)
+    
+    Notes
+    -----
+    - This function is useful for preparing multiple DataFrames for a
+      unified visual presentation, such as in a report or console output.
+    - The `max_width` parameter allows for control over the presentation
+      width, accommodating scenarios with width constraints.
+    - The `aesthetic_space_allocation` is particularly useful when formatting
+      the output for readability, ensuring that adjacent DataFrames are
+      visually separated.
+    """
+    if not all(isinstance(df, pd.DataFrame) for df in dfs):
+        raise TypeError("All inputs must be pandas DataFrame objects.")
+    # Ensure titles list matches the number of DataFrames, filling with '' if necessary  
+    titles = (titles or [''])[:len(dfs)] + [''] * (len(dfs) - len(titles or [])) 
+    
+    # Calculate the automatic maximum width among all DataFrames, adding aesthetic spaces
+    auto_max_width = max(get_table_width(df) for df in dfs) + aesthetic_space_allocation
+
+    # Adjust max_width based on the 'auto' setting or ensure it respects the calculated width
+    max_width = auto_max_width if max_width == 'auto' or isinstance(
+        max_width, str) else max(int(max_width), auto_max_width)
+
+    # Format each DataFrame with its title and the determined maximum width
+    formatted_dfs = [
+        format_dataframe(df, title=title, max_width='auto') 
+        for df, title in zip(dfs, titles)
+    ]
+    # max_width = max(
+    #     [len(fmt_table.split('\n')[0]) for fmt_table in formatted_dfs]) 
+    
+    # formatted_dfs = [
+    #     format_dataframe(df, title=title, max_width=max_width+ aesthetic_space_allocation) 
+    #     for df, title in zip(dfs, titles)
+    # ]
+    # Combine all formatted DataFrame strings, separated by double newlines
+    summary_report = "\n\n".join(formatted_dfs)
+
+    return summary_report
 
 # class AnovaResults:
 #     """
