@@ -188,7 +188,7 @@ def filter_nan_entries(nan_policy, *listof, sample_weights=None):
     >>> list1 = [1, 2, np.nan, 4]
     >>> list2 = [np.nan, 2, 3, 4]
     >>> weights = [0.5, 1.0, 1.5, 2.0]
-    >>> validate_nan_policy_from_list('omit', list1, list2, sample_weights=weights)
+    >>> filter_nan_entries('omit', list1, list2, sample_weights=weights)
     ([1, 2, 4], [2, 3, 4], array([0.5, 1. , 2. ]))
 
     >>> filter_nan_entries('raise', list1, list2)

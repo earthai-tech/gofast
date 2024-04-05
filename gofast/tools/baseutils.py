@@ -106,7 +106,6 @@ def select_features(
     https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.astype.html
     
     """
-
     coerce, verify_integrity, parse_features= ellipsis2false( 
         coerce, verify_integrity, parse_features)
     

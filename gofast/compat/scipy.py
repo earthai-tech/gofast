@@ -186,13 +186,13 @@ def ensure_scipy_compatibility():
         from scipy.spatial import distance # noqa 
 
         interp_import = True
-        _logger.info("scipy.interpolate and scipy.spatial.distance imported successfully.")
+       # _logger.info("scipy.interpolate and scipy.spatial.distance imported successfully.")
 
-    except ImportError as e:
+    except ImportError as e: # noqa
         warnings.warn(_msg0, ImportWarning)
-        _logger.warning(_msg0)
+       # _logger.warning(_msg0)
         interp_import = False
-        _logger.error(f"ImportError: {e}")
+        #_logger.error(f"ImportError: {e}")
 
     return interp_import
 

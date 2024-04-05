@@ -144,6 +144,8 @@ class DataTransformer:
             result = func(*args, **kwargs)
             # Post-function execution: Data re-construction and manipulation
             result = self._reconstruct_data(result)
+            if self.verbose: 
+                print( "DataTransformer: Finished processing the result.")
             return result
         return wrapper
     

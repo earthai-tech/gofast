@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-
+import warnings 
 import numpy as np
 import pandas as pd
 from .structures import FlexDict
@@ -38,8 +38,7 @@ class Summary(FlexDict):
     ... }
     >>> df = pd.DataFrame(data)
     >>> summary = Summary(title="Employee Data Overview")
-    >>> summary.data_summary(df, include_correlation=True, 
-    ...           include_uniques=True, include_sample=True))
+    >>> summary.basic_statistics(df, include_correlation=True,)
 
     Notes
     -----
@@ -100,6 +99,7 @@ class Summary(FlexDict):
 
         Examples
         --------
+        >>> import numpy as np
         >>> import pandas as pd 
         >>> from gofast.api.summary import Summary
         >>> df = pd.DataFrame({
@@ -113,6 +113,11 @@ class Summary(FlexDict):
         if not isinstance(df, pd.DataFrame):
             raise ValueError("The provided data must be a pandas DataFrame.")
         
+        if df.empty: 
+            warnings.warn("Empty DataFrame detected. Summary returns No data.")
+            self.summary_report="<Empty Summary: Object has No Data>"
+            return self 
+        
         summary_parts = []
         
         # Basic statistics
@@ -120,12 +125,13 @@ class Summary(FlexDict):
         summary_parts.append(format_dataframe(stats, title="Basic Statistics"))
 
         # Correlation matrix
-        if include_correlation and 'number' in df.select_dtypes(
-                include=['number']).dtypes:
+        #XXX TODO check this validation 
+        if include_correlation: # and 'number' in df.select_dtypes(
+                # include=['number']).dtypes:
             corr_matrix = df.corr().round(2)
             summary_parts.append(format_dataframe(
                 corr_matrix, title="Correlation Matrix")) 
-            
+
         # Compile all parts into a single summary report
         self.summary_report = "\n\n".join(summary_parts)
         
@@ -173,10 +179,18 @@ class Summary(FlexDict):
         """
         if not isinstance(df, pd.DataFrame):
             raise ValueError("Input must be a pandas DataFrame.")
+        if df.empty: 
+            warnings.warn("Empty DataFrame detected. Summary returns No data.")
+            self.summary_report="<Empty Summary: Object has No Data>"
+            return self 
         
         summary_parts=[] 
         unique_counts = {col: df[col].nunique() for col in df.select_dtypes(
             include=['object', 'category']).columns}
+        if len(unique_counts) ==0: 
+            # Empy dataFrame, no categorical is found . 
+            raise TypeError("'Unique Counts' expects categorical data. Not found.")
+            
         unique_df = pd.DataFrame.from_dict(
             unique_counts, orient='index', columns=['Unique Counts'])
 
@@ -225,16 +239,17 @@ class Summary(FlexDict):
         """
         if model_results is None:
             if model and all(hasattr(model, attr) for attr in [
-                    'best_estimator_', 'best_params_', 'cv_results_']):
+                    'best_estimator_', 'best_params_']):
                 model_results = {
                     'best_estimator_': model.best_estimator_,
                     'best_params_': model.best_params_,
-                    'cv_results_': model.cv_results_
                 }
+                if hasattr (model, 'cv_results_'): 
+                    model_results['cv_results_']= model.cv_results_
             else:
                 raise ValueError(
                     "Either 'model_results' must be provided or 'model' must have "
-                    "'best_estimator_', 'best_params_', and 'cv_results_' attributes.")
+                    "'best_estimator_', 'best_params_', and/or 'cv_results_' attributes.")
         
         self.summary_report = summarize_model_results(
             model_results, title=self.title, **kwargs)
@@ -366,15 +381,17 @@ class ReportFactory(FlexDict):
     
         Parameters:
         - texts : str, list of str, or dict
-            The text(s) containing recommendations. Can be a single string, a list of strings,
-            or a dictionary with keys as headings and values as text.
+            The text(s) containing recommendations. Can be a single string, 
+            a list of strings, or a dictionary with keys as headings 
+            and values as text.
         - keys : str or list of str, optional
-            An optional key or list of keys to prefix the text(s). Used only if texts is a string
-            or list of strings. Defaults to None.
+            An optional key or list of keys to prefix the text(s). Used only 
+            if texts is a string or list of strings. Defaults to None.
         - key_length : int, optional
             Maximum key length for formatting before the ':'. Defaults to 15.
         - max_char_text : int, optional
-            Number of text characters to tolerate before wrapping to a new line. Defaults to 70.
+            Number of text characters to tolerate before wrapping to a new line.
+            Defaults to 70.
         """
         formatted_texts = []
         if isinstance(texts, dict):
@@ -398,11 +415,13 @@ class ReportFactory(FlexDict):
             formatted_texts.append(formatted_text)
     
         # Calculate the total width for the top and bottom bars.
-        max_width = max(len(ft.split('\n')[0]) for ft in formatted_texts) if formatted_texts else 0
+        max_width = max(len(ft.split('\n')[0]) for ft in formatted_texts
+                        ) if formatted_texts else 0
         top_bottom_bar = "=" * max_width
     
         # Compile the formatted texts into the report string.
-        self.report_str = f"{top_bottom_bar}\n" + "\n".join(formatted_texts) + f"\n{top_bottom_bar}"
+        self.report_str = f"{top_bottom_bar}\n" + "\n".join(
+            formatted_texts) + f"\n{top_bottom_bar}"
     
         # Assign report data for reference.
         self.report = report_data
@@ -631,7 +650,9 @@ def get_table_width(
     
     if not isinstance(data, (dict, pd.DataFrame)):
         raise ValueError("Data must be either a dictionary or a pandas DataFrame.")
-    
+    if len(data)==0: 
+        raise ValueError ("Empty data is not allowed.")
+        
     if isinstance(data, dict):
         max_key_length = max(len(key) for key in data.keys())
         max_value_length = max(len(_format_value(value)) for value in data.values())
@@ -873,41 +894,50 @@ def summarize_model_results(
     title = title or "Model Results"
     # Standardize keys in model_results based on map_keys
     standardized_results = standardize_keys(model_results)
-
     # Validate presence of required information
-    if ( 'best_estimator_' not in standardized_results 
-        or 'best_parameters_' not in standardized_results
-    ):
+    if  ( 
+            'best_estimator_'  not in standardized_results 
+            and  'best_parameters_' not in standardized_results
+            ):
         raise ValueError(
             "Required information ('best_estimator_' or 'best_parameters_') is missing.")
 
     # Inline contents preparation
     inline_contents = {
-        "Best estimator": type(standardized_results['best_estimator_']).__name__,
-        "Best parameters": standardized_results['best_parameters_'],
-        "nCV": len({k for k in standardized_results['cv_results_'].keys(
-            ) if k.startswith('split')}) // len(standardized_results['cv_results_']['params']),
+        "Best estimator": ( 
+            type(standardized_results['best_estimator_']).__name__ 
+            if  'best_estimator_' in standardized_results else 'Unknown estimator'
+            ),
+        "Best parameters": standardized_results.get('best_parameters_','Unknown parameters') ,
+        "nCV": (len({k for k in standardized_results['cv_results_'].keys(
+            ) if k.startswith('split')}) // len(standardized_results['cv_results_']['params']))
+            if 'cv_results_' in standardized_results else 'Undefined nCV',
         "Scoring": standardized_results.get('scoring', 'Unknown scoring')
     }
-
-    # Preparing data for the CV results DataFrame
-    df = prepare_cv_results_dataframe(standardized_results['cv_results_'])
-
+    
     max_width = get_table_width(inline_contents, max_column_width=max_width)
-    # Formatting CV results DataFrame
-    formatted_table = format_dataframe(
-        df, title="Tuning Results", max_width=max_width, 
-        top_line=top_line, sub_line=sub_line, 
-        bottom_line=bottom_line
-    )
-    max_width = len(formatted_table.split('\n')[0]) #
-    # Combining inline content and formatted table
+    # Preparing data for the CV results DataFrame
+    formatted_table=''
+    if 'cv_results_' in standardized_results:
+        if not any ('split' in cv_key for cv_key in standardized_results['cv_results_']):
+            raise TypeError(
+                "Invalid CV data structure. The 'cv_results_' from scikit-learn"
+                " requires the inclusion of 'splitxx_' keys.")
+        df = prepare_cv_results_dataframe(standardized_results['cv_results_'])
+        # Formatting CV results DataFrame
+        formatted_table = format_dataframe(
+            df, title="Tuning Results", max_width=max_width, 
+            top_line=top_line, sub_line=sub_line, 
+            bottom_line=bottom_line
+        )
+        max_width = len(formatted_table.split('\n')[0]) #
+        # Combining inline content and formatted table
     summary_inline_tab = summarize_inline_table(
         inline_contents, title=title, max_width=max_width, 
         top_line=top_line, sub_line=sub_line, bottom_line=bottom_line
     )
-
-    summary = f"{summary_inline_tab}\n\n{formatted_table}"
+    formatted_table=f'\n\n{formatted_table}' if 'cv_results_' in standardized_results else ''
+    summary = f"{summary_inline_tab}{formatted_table}"
     return summary
 
 def standardize_keys(model_results):
@@ -1625,6 +1655,7 @@ def uniform_dfs_formatter(
     titles = (titles or [''])[:len(dfs)] + [''] * (len(dfs) - len(titles or [])) 
     
     # Calculate the automatic maximum width among all DataFrames, adding aesthetic spaces
+    print(dfs)
     auto_max_width = max(get_table_width(df) for df in dfs) + aesthetic_space_allocation
 
     # Adjust max_width based on the 'auto' setting or ensure it respects the calculated width

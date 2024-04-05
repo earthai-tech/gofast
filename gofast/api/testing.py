@@ -44,10 +44,19 @@ def assert_summary_data_sample(
     assert sample_presence, msg or "Data sample is not present in the summary."
     if expected_sample_size is not None:
         # Assuming a specific format for displaying the sample size, this may need adjustment.
-        sample_size_line = [
-            line for line in summary_content.split('\n') if "Sample Size" in line]
+        sample_size_line = [] ; sample_line=[]
+        for ii, line in enumerate (summary_content.split('\n')) : 
+            if "Sample Data" in line: 
+                sample_line = summary_content.split('\n')[ii:]
+                break 
+        # start form the end until you find the sub-line 
+        sample_line = sample_line [::-1][1:] # remove '==' line 
+        for line in sample_line: 
+            if '--' in line: 
+                break 
+            sample_size_line.append (line )
         assert sample_size_line, "Sample size information is missing."
-        actual_size = int(sample_size_line[0].split(":")[1].strip())
+        actual_size = len(sample_size_line) # (sample_size_line[0].split()[1].strip())
         assert actual_size == expected_sample_size, ( 
             msg or f"Expected sample size {expected_sample_size}, got {actual_size}."
     )
@@ -77,10 +86,11 @@ def assert_summary_empty_dataframe(summary_instance, msg=None):
     """
     assert isinstance_(summary_instance, Summary), "Input must be an instance of Summary class."
     summary_content = summary_instance.__str__()
+    
     assert "No data" in summary_content or "Empty" in summary_content, \
         msg or "Summary does not correctly handle an empty DataFrame."
 
-def assert_summary_basic_statistics(summary, df, expected_output, msg=None):
+def assert_summary_basic_statistics(summary,  expected_output, df=None, msg=None):
     """
     Asserts that the Summary object generates the correct basic statistics report
     for the provided DataFrame.
@@ -89,20 +99,25 @@ def assert_summary_basic_statistics(summary, df, expected_output, msg=None):
     -----------
     summary : Summary
         The Summary instance to test.
-    df : pandas.DataFrame
-        The DataFrame being summarized.
     expected_output : str
         The expected basic statistics output of the Summary.
+    df : pandas.DataFrame, Optional
+        The DataFrame being summarized. When summary.basic_statistics is  
+        already loaded, 'df' can be None. Otherwise, an error raises.  
     msg : str, optional
         A custom message to display on assertion failure.
     """
     assert isinstance_(summary, Summary), "Object is not an instance of Summary."
-    summary.basic_statistics(df)
+    if not summary.summary_report and df is None: 
+        raise TypeError("DataFrame 'df' can't be None when"
+                        " 'summary.basic_statistics' is not called yet.")
+    if df is not None: 
+        summary.basic_statistics(df)
     actual_output = str(summary)
-    assert actual_output == expected_output, msg or( 
+    assert check_output( actual_output, expected_output), msg or( 
         "Basic statistics summary does not match the expected output.") 
 
-def assert_summary_unique_counts(summary, df, expected_output, msg=None):
+def assert_summary_unique_counts(summary, expected_output, df=None, msg=None):
     """
     Asserts that the Summary object correctly generates counts of unique values
     for categorical columns in the provided DataFrame.
@@ -112,16 +127,21 @@ def assert_summary_unique_counts(summary, df, expected_output, msg=None):
     summary : Summary
         The Summary instance to test.
     df : pandas.DataFrame
-        The DataFrame being summarized.
+        The DataFrame being summarized. When summary.unique_counts is  
+        already loaded, 'df' can be None. Otherwise, an error raises.
     expected_output : str
         The expected unique counts output of the Summary.
     msg : str, optional
         A custom message to display on assertion failure.
     """
     assert isinstance_(summary, Summary), "Object is not an instance of Summary."
-    summary.unique_counts(df)
+    if not summary.summary_report and df is None: 
+        raise TypeError("DataFrame 'df' can't be None when"
+                        " 'summary.unique_counts' is not called yet.")
+    if df is not None: 
+        summary.unique_counts(df)
     actual_output = str(summary)
-    assert actual_output == expected_output, msg or ( 
+    assert check_output(actual_output, expected_output), msg or ( 
         "Unique counts summary does not match the expected output.")
 
 def assert_summary_model(summary, model_results, expected_output, msg=None):
@@ -143,7 +163,7 @@ def assert_summary_model(summary, model_results, expected_output, msg=None):
     assert isinstance_(summary, Summary), "Object is not an instance of Summary."
     summary.model_summary(model_results=model_results)
     actual_output = str(summary)
-    assert actual_output == expected_output, ( 
+    assert check_output(actual_output, expected_output), ( 
         msg or "Model summary does not match the expected output.") 
 
 def assert_summary_content_integrity(
@@ -740,6 +760,56 @@ def validate_formatter_instance(formatter_instance, cls):
     assert isinstance_(formatter_instance, cls), (
         f"The input is not an instance of {cls.__name__}."
     )
+def check_output(actual_output, expected_output):
+    """
+    Check if the actual output matches the expected output.
+
+    Parameters
+    ----------
+    actual_output : str
+        The actual output as a string.
+    expected_output : str or iterable of str
+        The expected output, which can be either a single string or an 
+        iterable of strings.
+
+    Returns
+    -------
+    bool
+        True if the expected output matches the actual output, False otherwise.
+
+    Raises
+    ------
+    ValueError
+        If `expected_output` is neither a string nor an iterable of strings.
+
+    Notes
+    -----
+    The function performs an exact match check if the `expected_output` is a 
+    string. If `expected_output` is an iterable, it checks whether all items 
+    in the iterable are found in the `actual_output`.
+
+    Examples
+    --------
+    >>> from gofast.api.testing import check_output
+    >>> actual = "This is a test string with several words"
+    >>> expected_str = "This is a test string with several words"
+    >>> expected_iter = ["test", "string", "words"]
+    >>> check_output(actual, expected_str)
+    True
+    >>> check_output(actual, expected_iter)
+    True
+    >>> check_output(actual, "This is an incorrect test")
+    False
+    >>> check_output(actual, ["missing", "words"])
+    False
+    """
+    if isinstance(expected_output, str):
+        return actual_output == expected_output
+    try:
+        return all(item in actual_output for item in expected_output)
+    except TypeError:
+        raise ValueError("expected_output must be either a string or an "
+                         "iterable of strings.")
 
 if __name__=="__main__": 
     

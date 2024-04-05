@@ -8,14 +8,13 @@ and transformation.
 from __future__ import division, annotations  
 
 import os
-# import inspect
 import itertools 
 import warnings 
 import numpy as np 
 import pandas as pd 
 from scipy import sparse
 import matplotlib.pyplot as plt  
-# from pandas.api.types import is_integer_dtype
+
 from sklearn.base import BaseEstimator,TransformerMixin 
 from sklearn.cluster import KMeans 
 from sklearn.decomposition import PCA
@@ -165,7 +164,6 @@ class FloatCategoricalToIntTransformer(BaseEstimator, TransformerMixin):
         self : object
             Returns the instance itself.
         """
-        build_data_if()
         if not isinstance(X, pd.DataFrame): 
             try : # Default construct data
                 X=build_data_if(X, input_name='feature_', 
@@ -464,14 +462,16 @@ class SequentialBackwardSelector(BaseEstimator, TransformerMixin):
         
         self.k_features = int(self.k_features)
         if self.k_features > X.shape[1]:
-            raise ValueError(f"k_features must be <= number of features in X ({X.shape[1]}).")
+            raise ValueError(
+                f"k_features must be <= number of features in X ({X.shape[1]}).")
 
         if callable(self.scoring) or hasattr(self.scoring, '__call__'):
             self.scoring = self.scoring.__name__.replace('_score', '')
         
         if self.scoring not in self._scorers:
             valid_scorers = ", ".join(self._scorers.keys())
-            raise ValueError(f"Invalid scoring method. Valid options are: {valid_scorers}")
+            raise ValueError(
+                f"Invalid scoring method. Valid options are: {valid_scorers}")
 
         self.scoring = self._scorers[self.scoring]
 
