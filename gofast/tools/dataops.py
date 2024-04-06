@@ -20,8 +20,8 @@ from tqdm import tqdm
 from .._typing import Any,  List,  DataFrame, Optional, Series 
 from .._typing import Dict, Union, TypeGuard, Tuple, ArrayLike
 from .._typing import BeautifulSoupTag
-from ..api.summary import ReportFactory , format_report  
 from ..api.formatter import MultiFrameFormatter 
+from ..api.summary import ReportFactory
 from ..decorators import Deprecated, isdf, Dataify, DynamicMethod
 from ..decorators import DataTransformer 
 from ..exceptions import FileHandlingError 
