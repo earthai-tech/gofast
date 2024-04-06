@@ -20,6 +20,8 @@ from tqdm import tqdm
 from .._typing import Any,  List,  DataFrame, Optional, Series 
 from .._typing import Dict, Union, TypeGuard, Tuple, ArrayLike
 from .._typing import BeautifulSoupTag
+from ..api.summary import ReportFactory , format_report  
+from ..api.formatter import MultiFrameFormatter 
 from ..decorators import Deprecated, isdf, Dataify, DynamicMethod
 from ..decorators import DataTransformer 
 from ..exceptions import FileHandlingError 
@@ -206,7 +208,8 @@ def summarize_text_columns(
     return data
 
 def simple_extractive_summary(
-        texts: List[str], raise_exception: bool = True, encode: bool = False
+    texts: List[str], raise_exception: bool = True,
+    encode: bool = False
     ) -> Union[str, Tuple[str, ArrayLike]]:
     """
     Generates a simple extractive summary from a list of texts. 
@@ -1356,7 +1359,7 @@ def verify_data_integrity(data: DataFrame, /) -> Tuple[bool, dict]:
 
     Returns
     -------
-    Tuple[bool, dict]
+    Tuple[bool, Report]
         A tuple containing:
         - A boolean indicating if the data passed all integrity checks 
           (True if no issues are found).
@@ -1365,6 +1368,7 @@ def verify_data_integrity(data: DataFrame, /) -> Tuple[bool, dict]:
 
     Example
     -------
+    >>> import pandas as pd 
     >>> from gofast.tools.dataops import verify_data_integrity
     >>> data = pd.DataFrame({'A': [1, 2, None], 'B': [4, 5, 6], 'C': [7, 8, 8]})
     >>> is_valid, report = verify_data_integrity(data)
@@ -1417,8 +1421,12 @@ def verify_data_integrity(data: DataFrame, /) -> Tuple[bool, dict]:
             is_valid = False
 
     report['outliers'] = outlier_report
-
-    return is_valid, report
+    report['integrity_checks']='Passed' if is_valid else 'Failed'
+    # make a report obj 
+    report_obj= ReportFactory(title ="Data Integrity", **report )
+    report_obj.mixed_types_summary(report, table_width= 90)
+    
+    return is_valid, report_obj
 
 def audit_data(
     data: DataFrame,/,  
@@ -1634,8 +1642,12 @@ def audit_data(
                     cmap=cmap)
         plt.title('Data After Auditing')
         plt.show()
-
-    return (data, report) if return_report else data
+    
+    # make a report obj 
+    report_obj= ReportFactory(title ="Data Audit", **report )
+    report_obj.mixed_types_summary(report, table_width= 90)
+    
+    return (data, report_obj) if return_report else data
 
 def handle_categorical_features(
     data: DataFrame, /, 
@@ -1677,6 +1689,8 @@ def handle_categorical_features(
     >>> data = pd.DataFrame({'A': [1, 2, 1, 3], 'B': range(4)})
     >>> updated_data, report = handle_categorical_features(
         data, categorical_threshold=3, return_report=True, view=True)
+    >>> report.converted_columns
+    ['A']
     """
     is_frame (data, df_only=True, raise_exception=True)
     original_data = data.copy()
@@ -1701,8 +1715,11 @@ def handle_categorical_features(
                     cbar=False, cmap=cmap)
         plt.title('Unique Values After Categorization')
         plt.show()
-
-    return (data, report) if return_report else data
+    # make a report obj 
+    report_obj= ReportFactory(title ="Categorical Features Handling", **report )
+    report_obj.mixed_types_summary(report, table_width= 90,  )
+    
+    return (data, report_obj) if return_report else data
 
 def convert_date_features(
     data: DataFrame, /, 
@@ -1758,6 +1775,10 @@ def convert_date_features(
     >>> data = pd.DataFrame({'date': ['2021-01-01', '2021-01-02']})
     >>> updated_data, report = convert_date_features(
         data, ['date'], day_of_week=True, quarter=True, return_report=True, view=True)
+    >>> report.converted_columns
+    ['date']
+    >>> report.added_features
+    ['date_year', 'date_month', 'date_day', 'date_dayofweek', 'date_quarter']
     """
     is_frame (data, df_only=True, raise_exception=True)
     original_data = data.copy()
@@ -1798,7 +1819,9 @@ def convert_date_features(
         plt.title('Unique Values After Conversion')
         plt.show()
 
-    return (data, report) if return_report else data
+    report_obj= ReportFactory(title ="Date Features Conversion", **report )
+    report_obj.mixed_types_summary(report, table_width= 90,)
+    return (data, report_obj) if return_report else data
 
 @isdf 
 def scale_data(
@@ -1864,6 +1887,12 @@ def scale_data(
     >>> from gofast.tools.dataops import scale_data
     >>> data = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
     >>> scaled_data, report = scale_data(data, 'minmax', return_report=True, view=True)
+    >>> print(report) 
+    >>> report.method_used
+    'minmax'
+    >>> report.columns_scaled
+    ['A', 'B']
+    
     """
     is_frame (data, df_only=True, raise_exception=True, 
               objname="Exceptionnaly, scaling data")
@@ -1903,8 +1932,11 @@ def scale_data(
         sns.heatmap(data[numeric_cols], annot=True, cbar=False, cmap=cmap)
         plt.title('After Scaling')
         plt.show()
-
-    return (data, report) if return_report else data
+        
+    report['used_scikit_method']=use_sklearn
+    report_obj= ReportFactory(title ="Data Scaling", **report )
+    report_obj.mixed_types_summary(report, table_width= 90,)
+    return (data, report_obj) if return_report else data
 
 def handle_outliers_in_data(
     data: DataFrame, /, 
@@ -1955,10 +1987,14 @@ def handle_outliers_in_data(
 
     Example
     -------
+    >>> import pandas as pd 
     >>> from gofast.tools.dataops import handle_outliers_in_data
     >>> data = pd.DataFrame({'A': [1, 2, 3, 100], 'B': [4, 5, 6, -50]})
     >>> data, report = handle_outliers_in_data(data, method='clip', view=True, 
                                                cmap='plasma', return_report=True)
+    >>> print(report) 
+    >>> report.lower_quantile
+    0.01
     """
     is_frame (data, df_only=True, raise_exception=True)
     numeric_cols = data.select_dtypes(include=['number']).columns
@@ -2006,8 +2042,10 @@ def handle_outliers_in_data(
 
         plt.suptitle('Comparative Missing Value Heatmap')
         plt.show()
-
-    return (data, report) if return_report else data
+        
+    report_obj= ReportFactory(title ="Outliers Handling", **report )
+    report_obj.mixed_types_summary(report, table_width= 90,)
+    return (data, report_obj) if return_report else data
 
 @isdf
 def handle_missing_data(
@@ -2054,10 +2092,14 @@ def handle_missing_data(
 
     Example
     -------
+    >>> import pandas as pd 
     >>> from gofast.tools.dataops import handle_missing_data
     >>> data = pd.DataFrame({'A': [1, np.nan, 3], 'B': [np.nan, 5, 6]})
     >>> updated_data, report = handle_missing_data(
         data, view=True, method='fill_mean', return_report=True)
+    >>> print(report) 
+    >>> report.stats 
+    {'method_used': 'fill_mean', 'fill_value': None, 'dropna_threshold': None}
     """
     is_frame (data, df_only=True, raise_exception=True)
     # Analyze missing data
@@ -2104,16 +2146,18 @@ def handle_missing_data(
             "dropna_threshold": dropna_threshold if method in [
                 'drop_rows', 'drop_cols'] else None
         },
-        "describe": missing_data.describe()
+        "describe%% Basic statistics": missing_data.describe()
     }
-    
-    return (data, data_report) if return_report else data
+    report_obj= ReportFactory(title ="Missing Handling", **data_report )
+    report_obj.mixed_types_summary(data_report, table_width= 90)
+    return (data, report_obj) if return_report else data
 
 @isdf
 def inspect_data(
     data: DataFrame, /, 
     correlation_threshold: float = 0.8, 
-    categorical_threshold: float = 0.75
+    categorical_threshold: float = 0.75, 
+    include_stats_table=False, 
 ) -> None:
     """
     Performs an exhaustive inspection of a DataFrame. 
@@ -2141,10 +2185,13 @@ def inspect_data(
         The threshold for detecting imbalance in categorical variables. If the
         proportion of the most frequent category exceeds this threshold, it will
         be flagged as imbalanced. Default is 0.75.
-
+    include_stats_table: bool, default=False 
+       If ``True`` include the table of the calculated statistic in the report. 
+       Otherwise include the dictionnary values of basic statistics. 
+       
     Returns
     -------
-    None
+    Report
         Prints a comprehensive report including data integrity assessment, 
         statistics, and recommendations for data preprocessing.
 
@@ -2160,7 +2207,70 @@ def inspect_data(
     >>> })
     >>> data.iloc[0, 0] = np.nan  # Introduce a missing value
     >>> data.iloc[1] = data.iloc[0]  # Introduce a duplicate row
-    >>> inspect_data(data)
+    >>> report = inspect_data(data)
+    >>> report.integrity_report
+    <Report: Print to see the content>
+    >>> report.integrity_report.outliers 
+    {'A': 1, 'B': 0, 'C': 0}
+    >>> report.stats_report
+    Out[59]: 
+        {'mean': A    -0.378182
+         B     4.797963
+         C    50.520000
+         dtype: float64,
+         'std_dev': A     1.037539
+         B     2.154528
+         C    31.858107
+         dtype: float64,
+         'percentiles':         0.25       0.50       0.75
+         A  -1.072044  -0.496156   0.331585
+         B   3.312453   4.481422   6.379643
+         C  23.000000  48.000000  82.250000,
+         'min': A   -3.766243
+         B    0.054963
+         C    0.000000
+         dtype: float64,
+         'max': A     2.155752
+         B    10.751358
+         C    99.000000
+         dtype: float64}
+    >>> report = inspect_data(data, include_stats_table=True)
+    >>> report.stats_report
+    <MultiFrame object with dataframes. Use print() to view.>
+
+    >>> print(report.stats_report)
+               Mean Values           
+    =================================
+               A       B        C
+    ---------------------------------
+    0    -0.1183  4.8666  48.3300
+    =================================
+            Standard Deviation       
+    =================================
+              A       B        C
+    ---------------------------------
+    0    0.9485  1.9769  29.5471
+    =================================
+               Percentitles          
+    =================================
+            0.25      0.5     0.75
+    ---------------------------------
+    A    -0.7316  -0.0772   0.4550
+    B     3.7423   5.0293   5.9418
+    C    18.7500  52.0000  73.2500
+    =================================
+              Minimum Values         
+    =================================
+               A        B       C
+    ---------------------------------
+    0    -2.3051  -0.1032  0.0000
+    =================================
+              Maximum Values         
+    =================================
+              A       B        C
+    ---------------------------------
+    0    2.3708  9.6736  99.0000
+    =================================
     """
     def format_report_section(title, content):
         """
@@ -2191,62 +2301,73 @@ def inspect_data(
         stats['max'] = numeric_cols.max()
 
         return stats
-    
+    report ={}
     is_frame( data, df_only=True, raise_exception=True,
              objname="Data for inspection")
     is_valid, integrity_report = verify_data_integrity(data)
     stats_report = calculate_statistics(data)
+    if stats_report and include_stats_table: 
+        # contruct a multiframe objects from stats_report  
+        stats_titles = ['Mean Values', 'Standard Deviation', 'Percentitles', 
+                        'Minimum Values', 'Maximum Values' ]
+        keywords, stats_data =  zip (*stats_report.items() )
+        stats_report=  MultiFrameFormatter(stats_titles, keywords).add_dfs(
+            *stats_data)
+       
+    report['integrity_status']= integrity_report.integrity_checks
+    report ['integrity_report']=integrity_report
+    report ['stats_report'] = stats_report
     
-    # Display the basic integrity report
-    format_report_section("Data Integrity Report", "")
-    format_report_section("Missing Values", integrity_report['missing_values'])
-    format_report_section("Duplicate Rows", integrity_report['duplicates'])
-    format_report_section("Potential Outliers", integrity_report['outliers'])
-
-    # Display the statistics report
-    format_report_section("Data Statistics Report", "")
-    for stat_name, values in stats_report.items():
-        format_report_section(stat_name.capitalize(), values)
-
     # Recommendations based on the report
     if not is_valid:
-        format_report_section("Recommendations", "")
+        # format_report_section("Recommendations", "")
+        report ["Recommendations"] = '-' *30 
+        
         if integrity_report['missing_values'].any():
-            print("- Consider handling missing values using imputation or removal.")
+            report['rec_missing_values']= (
+                "- Consider handling missing values using imputation or removal."
+                )
         if integrity_report['duplicates'] > 0:
-            print("- Check for and remove duplicate rows to ensure data uniqueness.")
+            report['rec_duplicates']=(
+                "- Check for and remove duplicate rows to ensure data uniqueness.")
         if any(count > 0 for count in integrity_report['outliers'].values()):
-            print("- Investigate potential outliers. Consider removal or transformation.\n")
+            report['rec_outliers']=(
+                "- Investigate potential outliers. Consider removal or transformation.")
         
         # Additional checks and recommendations
         # Check for columns with a single unique value
         single_value_columns = [col for col in data.columns if 
                                 data[col].nunique() == 1]
         if single_value_columns:
-            print("- Columns with a single unique value detected:"
+            report['rec_single_value_columns']=(
+                "- Columns with a single unique value detected:"
                   f" {single_value_columns}. Consider removing them"
-                  " as they do not provide useful information for analysis.")
+                  " as they do not provide useful information for analysis."
+                  )
     
         # Check for data imbalance in categorical variables
         categorical_cols = data.select_dtypes(include=['category', 'object']).columns
         for col in categorical_cols:
             if data[col].value_counts(normalize=True).max() > categorical_threshold:
-                print(f"- High imbalance detected in categorical column '{col}'."
-                      " Consider techniques to address imbalance, like sampling"
-                      " methods or specialized models.")
-    
+                report['rec_imbalance_data']=(
+                    f"- High imbalance detected in categorical column '{col}'."
+                    " Consider techniques to address imbalance, like sampling"
+                    " methods or specialized models."
+                    )
         # Check for skewness in numeric columns
         numeric_cols = data.select_dtypes(include=[np.number]).columns
         for col in numeric_cols:
             if abs(data[col].skew()) > 1:
-                print(f"- High skewness detected in numeric column '{col}'."
+                report['rec_skewness']=(
+                    f"- High skewness detected in numeric column '{col}'."
                       " Consider transformations like log, square root, or "
                       "Box-Cox to normalize the distribution.")
         # Normalization for numerical columns
-        print("- Evaluate if normalization (scaling between 0 and 1) is "
-              "necessary for numerical features, especially for distance-based"
-              " algorithms.")
-    
+        report['normalization_evaluation']=(
+            "- Evaluate if normalization (scaling between 0 and 1) is "
+            "necessary for numerical features, especially for distance-based"
+             " algorithms.")
+        report['normalization_status'] = True 
         # Correlation check
         correlation_threshold = correlation_threshold  # Arbitrary threshold
         corr_matrix = data[numeric_cols].corr().abs()
@@ -2255,16 +2376,26 @@ def inspect_data(
         high_corr_pairs = [(col1, col2) for col1, col2 in zip(
             *np.where(upper_triangle > correlation_threshold))]
     
+        report['correlation_checks'] = 'Passed' 
         if high_corr_pairs:
-            print("- Highly correlated features detected:")
+            report['high_corr_pairs'] =("- Highly correlated features detected:")
             for idx1, idx2 in high_corr_pairs:
                 col1, col2 = numeric_cols[idx1], numeric_cols[idx2]
-                print(f"  {col1} and {col2} (Correlation > {correlation_threshold})")
+                report['rec_high_corr_pairs']=(
+                    f"  {col1} and {col2} (Correlation > {correlation_threshold})")
         
         # Data type conversions
-        print("- Review data types of columns for appropriate conversions"
-              " (e.g., converting float to int where applicable).")
-                 
+        report['rec_data_type_conversions'] = (
+            "- Review data types of columns for appropriate conversions"
+            " (e.g., converting float to int where applicable).")
+    
+    report_obj= ReportFactory(title ="Data Inspection", **report )
+    report_obj.mixed_types_summary(report, table_width= 90)
+    
+    print(report_obj)
+    
+    return report_obj # return for retrieving attributes. 
+    
 def augment_data(
     X: Union[DataFrame, ArrayLike], 
     y: Optional[Union[pd.Series, np.ndarray]] = None, 
@@ -2525,8 +2656,6 @@ def assess_outlier_impact(
     ...     'target': np.random.rand(100)
     ... })
     >>> mse_with_outliers, mse_without_outliers = assess_outlier_impact(df, 'target')
-    >>> print('MSE with outliers:', mse_with_outliers)
-    >>> print('MSE without outliers:', mse_without_outliers)
 
     """
     from sklearn.metrics import accuracy_score, mean_squared_error
@@ -2578,15 +2707,21 @@ def assess_outlier_impact(
 
     # Print results if verbose is True
     if verbose:
-        print(f'{metric_name} with outliers in the training set: {original_metric}')
-        print(f'{metric_name} without outliers in the training set: {filtered_metric}')
+        texts ={'original_metric_status': (
+            f'{metric_name} with outliers in the training set: {original_metric}'), 
+            'filtered_metric_status': (
+                f'{metric_name} without outliers in the training set: {filtered_metric}')
+            }
         # Check the impact
         if not is_categorical and filtered_metric < original_metric or \
            is_categorical and filtered_metric > original_metric:
-            print('Outliers appear to have a negative impact on the model performance.')
+            texts['outlier_impacts']= (
+                'Outliers appear to have a negative impact on the model performance.')
         else:
-            print('Outliers do not appear to have a significant negative'
+            texts['outlier_impacts']= ('Outliers do not appear to have a significant negative'
                   ' impact on the model performance.')
+            
+        print(ReportFactory().add_recommendations(texts,  max_char_text= 90 ))
 
     return original_metric, filtered_metric
 

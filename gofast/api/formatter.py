@@ -8,8 +8,9 @@ import warnings
 import numpy as np
 import pandas as pd
 from .structures import Bunch
+from .extension import MetaLen 
 
-class MultiFrameFormatter:
+class MultiFrameFormatter (metaclass=MetaLen):
     """
     A factory class designed to manage and format multiple pandas DataFrames
     for display, either with unified or individual formatting depending on
@@ -220,6 +221,41 @@ class MultiFrameFormatter:
                     self, snake_case_name) else snake_case_name
                 setattr(self, attribute_name, df[original_name])
 
+    def __len__(self):
+         """
+         Calculate and return the length of the class name of this instance.
+     
+         This method overrides the built-in `__len__` method to provide a custom length
+         definition for instances of this class. Instead of returning the length of a
+         container or number of elements, which is the typical use case for `__len__`,
+         this implementation returns the length of the name of the class to which the
+         instance belongs. This can be useful in contexts where the class name's length
+         provides meaningful or necessary information.
+     
+         Returns
+         -------
+         int
+             The length of the class name as an integer. This value represents the number
+             of characters in the name of the class. For example, if the instance is of a
+             class named 'ExampleClass', this method would return 13, as 'ExampleClass'
+             consists of 13 characters.
+     
+         Examples
+         --------
+         >>> class SampleClass:
+         ...     def __len__(self):
+         ...         return len(self.__class__.__name__)
+         ...
+         >>> instance = SampleClass()
+         >>> len(instance)
+         11
+     
+         The example above shows that calling `len()` on an instance of `SampleClass`
+         returns 11, which is the length of the string 'SampleClass'.
+         """
+         return len(self.__class__.__name__)
+
+        
     def __repr__(self):
         """
         Represents the FrameFactory instance, indicating the
@@ -233,7 +269,7 @@ class MultiFrameFormatter:
         return ( "<MultiFrame object with dataframes. Use print() to view.>" 
                 if self.dfs else "<Empty MultiFrame>")
 
-class DataFrameFormatter:
+class DataFrameFormatter(metaclass=MetaLen):
     """
     Formats pandas DataFrames for enhanced visual presentation in textual output.
     This class supports titles, dynamic adjustment of column widths based on content,
@@ -654,6 +690,40 @@ class DataFrameFormatter:
         raise AttributeError(
             f"'{self.__class__.__name__}' object has no attribute or"
             f" column '{attr_name}'. Note: Column names are converted to snake_case.")
+        
+    def __len__(self):
+         """
+         Calculate and return the length of the class name of this instance.
+     
+         This method overrides the built-in `__len__` method to provide a custom length
+         definition for instances of this class. Instead of returning the length of a
+         container or number of elements, which is the typical use case for `__len__`,
+         this implementation returns the length of the name of the class to which the
+         instance belongs. This can be useful in contexts where the class name's length
+         provides meaningful or necessary information.
+     
+         Returns
+         -------
+         int
+             The length of the class name as an integer. This value represents the number
+             of characters in the name of the class. For example, if the instance is of a
+             class named 'ExampleClass', this method would return 13, as 'ExampleClass'
+             consists of 13 characters.
+     
+         Examples
+         --------
+         >>> class SampleClass:
+         ...     def __len__(self):
+         ...         return len(self.__class__.__name__)
+         ...
+         >>> instance = SampleClass()
+         >>> len(instance)
+         11
+     
+         The example above shows that calling `len()` on an instance of `SampleClass`
+         returns 11, which is the length of the string 'SampleClass'.
+         """
+         return len(self.__class__.__name__)
 
 class MetricFormatter(Bunch):
     """
@@ -1029,7 +1099,7 @@ class BoxFormatter:
         header_line = f"{'Name':<{key_width}}| {'Description':<{desc_width}} "
         return f"{header_line}\n{'~' * total_width}"
         
-class DescriptionFormatter:
+class DescriptionFormatter(metaclass=MetaLen):
     """
     A class for formatting and displaying descriptions of dataset features or
     other textual content in a structured and readable format. It utilizes the
@@ -1138,7 +1208,41 @@ class DescriptionFormatter:
             formatter.add_text(self.content)
 
         return formatter
-
+    
+    def __len__(self):
+         """
+         Calculate and return the length of the class name of this instance.
+     
+         This method overrides the built-in `__len__` method to provide a custom length
+         definition for instances of this class. Instead of returning the length of a
+         container or number of elements, which is the typical use case for `__len__`,
+         this implementation returns the length of the name of the class to which the
+         instance belongs. This can be useful in contexts where the class name's length
+         provides meaningful or necessary information.
+     
+         Returns
+         -------
+         int
+             The length of the class name as an integer. This value represents the number
+             of characters in the name of the class. For example, if the instance is of a
+             class named 'ExampleClass', this method would return 13, as 'ExampleClass'
+             consists of 13 characters.
+     
+         Examples
+         --------
+         >>> class SampleClass:
+         ...     def __len__(self):
+         ...         return len(self.__class__.__name__)
+         ...
+         >>> instance = SampleClass()
+         >>> len(instance)
+         11
+     
+         The example above shows that calling `len()` on an instance of `SampleClass`
+         returns 11, which is the length of the string 'SampleClass'.
+         """
+         return len(self.__class__.__name__)
+     
 def format_value(value, max_length=50):
     """
     Formats a given value for display. Numeric values are formatted to four

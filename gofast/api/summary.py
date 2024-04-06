@@ -2,7 +2,11 @@
 import warnings 
 import numpy as np
 import pandas as pd
+from .extension import isinstance_ 
+from .formatter import MultiFrameFormatter, DataFrameFormatter, DescriptionFormatter 
 from .structures import FlexDict
+
+
 
 class Summary(FlexDict):
     """
@@ -360,20 +364,26 @@ class ReportFactory(FlexDict):
         self.report = None
         self.report_str = None
 
-    def mixed_types_summary(self, report, table_width='auto'):
+    def mixed_types_summary(self, report, table_width='auto',
+                            include_colon= True, pad_colon= True, 
+                            **kwargs):
         """
         Formats a report containing mixed data types.
 
         Parameters:
         - report (dict): The report data.
-        - table_width (int, optional): The maximum width of the table. Defaults to 100.
+        - table_width (int, optional): The maximum width of the table.
+          Defaults to 100.
+        - kwargs: dict, keyword arguments of :func:`format_dataframe`. 
+        
         """
         self.report = report
-        self.report_str = format_report(report_data=report, report_title=self.title,
-                                        max_table_width=table_width)
+        self.report_str = format_report(
+            report_data=report, report_title=self.title,
+            max_table_width=table_width, include_colon= include_colon, 
+            pad_colon= pad_colon, **kwargs)
         return self 
 
-    
     def add_recommendations(
             self, texts, keys=None, key_length=15, max_char_text=70, **kwargs):
         """
@@ -420,7 +430,8 @@ class ReportFactory(FlexDict):
         top_bottom_bar = "=" * max_width
     
         # Compile the formatted texts into the report string.
-        self.report_str = f"{top_bottom_bar}\n" + "\n".join(
+        title = str(self.title).center(max_width) +'\n' if self.title is not None else ''
+        self.report_str = f"{title}{top_bottom_bar}\n" + "\n".join(
             formatted_texts) + f"\n{top_bottom_bar}"
     
         # Assign report data for reference.
@@ -461,7 +472,6 @@ class ReportFactory(FlexDict):
         Formal string representation of the Report object.
         """
         return "<Report: Print to see the content>" if self.report else "<Report: No content>"
-
 
 def summarize_inline_table(
     contents, 
@@ -658,6 +668,7 @@ def get_table_width(
         max_value_length = max(len(_format_value(value)) for value in data.values())
         colon_space = 3 if include_colon_space else 0  # Accounting for " : "
         table_width = max_key_length + max_value_length + colon_space
+        
     else:  # pandas DataFrame
         max_index_length = max(len(str(index)) for index in data.index) if include_index else 0
         max_col_name_length = max(len(col) for col in data.columns)
@@ -673,11 +684,11 @@ def calculate_maximum_length( report_data, max_table_length = "auto" ):
     # calculate the maximum values length 
     max_val_length = 0 
     for value in report_data.values (): 
+        value = format_cls_obj(value)
         if isinstance ( value, (int, float, np.integer, np.floating)): 
             value = f"{value}" if isinstance ( value, int) else  f"{float(value):.4f}" 
         if isinstance ( value, pd.Series): 
             value = format_series ( value)
-        
         if max_val_length < len(value): 
             max_val_length = len(value) 
     if str(max_table_length).lower() in ['none', 'auto']:  
@@ -695,7 +706,7 @@ def format_value( value ):
 
     return value_str
 
-def format_report(report_data, report_title=None, max_table_width= 70 ):
+def format_report(report_data, report_title=None, max_table_width= 70, **kws ):
     """
     Formats the provided report data into a structured text report, 
     accommodating various data types including numbers, strings, pandas Series,
@@ -712,7 +723,9 @@ def format_report(report_data, report_title=None, max_table_width= 70 ):
     report_title : str, optional
         A title for the report. If provided, it is centered at the top of
         the report above a top line and a subsection line.
-
+    max_table_width: int, default=70
+        The maximum line width, with '...' appended to indicate truncation. 
+    **kws: dict, keyword argument for `format_dataframe` function. 
     Returns
     -------
     str
@@ -781,16 +794,28 @@ def format_report(report_data, report_title=None, max_table_width= 70 ):
         elif isinstance(value, pd.DataFrame):
             # DataFrame formatting using specific function to handle
             # columns and alignment
-            formatted_value = dataframe_key_format(
+            formatted_value = key_dataframe_format(
                 key, value, 
                 max_key_length=max_key_length, 
-                max_text_char=max_val_length
+                max_text_char=max_val_length, 
+                **kws
+                )
+        elif isinstance_(value, (DataFrameFormatter, DescriptionFormatter,
+                                 MultiFrameFormatter)): 
+            formatted_value = key_formatter_format(
+                key, value, 
+                max_key_length=max_key_length, 
+                max_text_char=max_val_length, 
+                **kws
                 )
         else:  # Treat other types as text, including strings
-            formatted_value = str(value)
+            formatted_value = str(format_cls_obj(value))
         
-        # For DataFrame, the formatting is already handled above
-        if not isinstance(value, pd.DataFrame):
+        # For DataFrame or formatter object, the formatting 
+        # is already handled above
+        if not isinstance_(value, (pd.DataFrame, DataFrameFormatter, 
+                                   DescriptionFormatter, MultiFrameFormatter) 
+                           ):
             # Formatting non-DataFrame values with key alignment
             report_lines.append(format_text(
                 formatted_value, 
@@ -808,6 +833,49 @@ def format_report(report_data, report_title=None, max_table_width= 70 ):
     
     return "\n".join(report_lines)
 
+def format_cls_obj(obj):
+    """
+    Returns the class name of the given object if it's an instance of a class.
+    If the object itself is a class, it returns the name of the class.
+    Otherwise, it returns the object as is.
+
+    This function is useful for getting a string representation of an object's
+    class for display or logging purposes.
+
+    Parameters
+    ----------
+    obj : Any
+        The object whose class name is to be retrieved. It can be an instance of
+        any class, including built-in types, or a class object itself.
+
+    Returns
+    -------
+    str or Any
+        The name of the class as a string if `obj` is a class instance or a class itself.
+        If the object does not have a class name (unlikely in practical scenarios),
+        returns the object unchanged.
+
+    Examples
+    --------
+    >>> class MyClass: pass
+    ...
+    >>> instance = MyClass()
+    >>> format_cls_obj(instance)
+    'MyClass'
+    >>> format_cls_obj(MyClass)
+    'MyClass'
+    >>> format_cls_obj(42)
+    42
+    """
+    # If `obj` is a class instance, return its class name.
+    if hasattr(obj, '__class__') and hasattr (obj, '__name__'):
+        return obj.__class__.__name__
+    # If `obj` itself is a type (a class), return 'type', as it is the class of all classes.
+    elif isinstance(obj, type):
+        return obj.__name__
+    # Otherwise, return the object itself.
+    return obj
+
 def summarize_model_results(
     model_results, 
     title=None, 
@@ -817,8 +885,9 @@ def summarize_model_results(
     bottom_line='='
     ):
     """
-    Summarizes the results of model tuning, including the best estimator, best parameters,
-    and cross-validation results, formatted as a string representation of tables.
+    Summarizes the results of model tuning, including the best estimator, best 
+    parameters, and cross-validation results, formatted as a string 
+    representation of tables.
 
     Parameters
     ----------
@@ -1139,7 +1208,107 @@ def format_key(key, max_length=None, include_colon=False, alignment='left',
                      )
     return formatted_key
 
-def dataframe_key_format(
+def key_formatter_format(
+    key, formatter_obj, 
+    title='', 
+    max_key_length=None, 
+    max_text_char=50, 
+    **kws
+    ):
+    """
+    Formats a key with an associated object (typically a DataFrame
+    or a similar structure), aligning the object's string representation
+    under the formatted key. Optionally includes a title above the object,
+    and allows for customization of the key's maximum length and the
+    object's text character width.
+
+    If '%%' is found in the key, it is split at this point with the
+    first part considered the key and the second part the title.
+
+    Parameters
+    ----------
+    key : str
+        The key to be formatted, potentially containing '%%' to split into key
+        and title.
+    frameobj : object
+        The object to be formatted and aligned under the key, expected to have
+        a string representation.
+    title : str, optional
+        A title for the frame object. If empty and '%%' is used in the key, 
+        the second part becomes the title. Defaults
+        to an empty string.
+    max_key_length : int, optional
+        The maximum length for the key, impacting alignment. If None, the 
+        actual length of `key` is used. Defaults to None.
+    max_text_char : int, optional
+        The maximum number of characters for the object's text representation 
+        before truncation. Defaults to 50.
+
+    Returns
+    -------
+    str
+        The formatted key (with optional title) followed by the
+        aligned object as a string. The object is aligned to match
+        the key's formatting for cohesive presentation.
+
+    Examples
+    --------
+    Assuming `frameobj` is a DataFrame or has a similar multiline
+    string representation, and `format_key` properly formats the key:
+
+    >>> frameobj = someDataFrameRepresentation
+    >>> print(key_formatter_format('MyKey%%My Title', frameobj))
+    MyKey
+            My Title
+            Column1  Column2
+            value1   value2
+            value3   value4
+
+    Notes
+    -----
+    - This function is designed for generating text reports or summaries where
+      consistent alignment between keys and their associated objects is 
+      required.
+    - Utilizes `format_key` for key formatting, which should handle specific 
+      formatting needs, including truncation and alignment.
+    - The `title` is centered based on the first line of the `formatter_obj`'s 
+      string representation for aesthetic alignment.
+    """
+    if not isinstance_( formatter_obj, ( MultiFrameFormatter, DataFrameFormatter, 
+                                    DescriptionFormatter)) : 
+        raise TypeError(
+            f"Expect formatter object. Got {type(formatter_obj).__name__!r}")
+    # Format the key with a colon, using the provided or calculated max key length
+    # if %% in the key split and considered key and title 
+    
+    if "%%" in str(key): 
+        key, title = key.split("%%")
+        
+    formatted_key = format_key(key, max_length=max_key_length, **kws)
+    
+    # Format the DataFrame according to specifications
+    # Split the formatted DataFrame into lines for alignment adjustments
+    frame_lines = formatter_obj.__str__().split('\n')
+    
+    # Determine the number of spaces to prepend to each line based on the 
+    # length of the formatted key
+    # Adding 1 additional space for alignment under the formatted key
+    space_prefix = ' ' * (len(formatted_key) + 1)
+    
+    # Prepend spaces to each line of the formatted DataFrame except for the 
+    # first line (it's already aligned) 
+    aligned_df = space_prefix + frame_lines[0] + '\n' + '\n'.join(
+        [space_prefix + line for line in frame_lines[1:]])
+    # Center the title of dataframe 
+    if title: 
+        title = title.title ().center(len(frame_lines[0]))
+    
+    # Combine the formatted title dataframe with the aligned DataFrame
+    result = f"{formatted_key}{title}\n{aligned_df}"
+    
+    return result
+    
+def key_dataframe_format(
     key, df, title ='',
     max_key_length=None, 
     max_text_char=50, 
@@ -1172,7 +1341,7 @@ def dataframe_key_format(
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.api.summary import dataframe_key_format
+    >>> from gofast.api.summary import key_dataframe_format
     >>> df = pd.DataFrame({'A': [1, 2], 'B': ['text', 'another longer text']})
     >>> key = 'DataFrame Key'
     >>> print(dataframe_key_format(key, df))

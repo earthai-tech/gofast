@@ -556,7 +556,6 @@ class FlexDict(dict):
     in situations where the more verbose dictionary syntax might be less desirable.
     """
 
-
     def __init__(self, **kwargs):
         """
         Initialize a FlexDict with keyword arguments.
@@ -566,7 +565,7 @@ class FlexDict(dict):
         **kwargs : dict
             Key-value pairs to initialize the FlexDict.
         """
-        super(FlexDict, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         self.__dict__ = self
 
     def __getattr__(self, item):
@@ -594,15 +593,40 @@ class FlexDict(dict):
 
     def __setattr__(self, key, value):
         """
-        Allows setting dictionary items as attributes.
-
+        Enables setting dictionary items directly as object attributes, 
+        with a special rule:
+        if the attribute name contains any of the designated special symbols 
+        ('**', '%%', '&&', '||', '$$'), only the substring before the first 
+        occurrence of any of these symbols will be used as the key.
+    
         Parameters
         ----------
         key : str
-            The attribute name to be added or updated in the dictionary.
+            The attribute name to be added or updated in the dictionary. If 
+            the key contains any special symbols ('**', '%%', '&&', "||", '$$'),
+            it is truncated before the first occurrence of these symbols.
         value : any
             The value to be associated with 'key'.
+    
+        Example
+        -------
+        If the key is 'column%%stat', it will be truncated to 'column', and 
+        only 'column' will be used as the key.
         """
+        # List of special symbols to check in the key.
+        special_symbols = ['**', '%%', '&&', '||', '$$']
+        # Iterate over the list of special symbols.
+        for symbol in special_symbols:
+            # Check if the current symbol is in the key.
+            if symbol in key:
+                # Split the key by the symbol and take the 
+                # first part as the new key.
+                key = key.split(symbol)[0]
+                # Exit the loop after handling the first 
+                # occurrence of any special symbol
+                break  
+        
+        # Set the item in the dictionary using the potentially modified key.
         self[key] = value
 
     def __setstate__(self, state):

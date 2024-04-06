@@ -1,6 +1,54 @@
 # -*- coding: utf-8 -*-
 
+class MetaLen(type):
+    """
+    A metaclass that allows the `len()` function to be used on classes 
+    themselves, not just their instances. When `len()` is called on a class 
+    that uses MetaLen as its metaclass, it returns the length of the class's 
+    name.
 
+    This metaclass can be particularly useful when you want to provide additional
+    class-level behaviors or introspection capabilities that are not typically 
+    available
+    or expected in Python classes.
+
+    Example
+    -------
+    >>> class MyClass(metaclass=MetaLen):
+    ...     pass
+    ...
+    >>> len(MyClass)
+    7
+
+    The above example demonstrates that when `len()` is called on `MyClass`, which uses
+    `MetaLen` as its metaclass, it returns the length of `"MyClass"`, which is 7.
+
+    Methods
+    -------
+    __len__(cls):
+        Overrides the default `__len__` method to return the length of the class name.
+        This method is called when `len()` is invoked on the class itself.
+
+    Parameters
+    ----------
+    cls : class
+        The class on which `len()` is called. The `cls` parameter is automatically
+        provided by Python and represents the class itself, not an instance of the class.
+
+    Returns
+    -------
+    int
+        The length of the class's name.
+
+    See Also
+    --------
+    type : The default metaclass in Python that serves as the base for creating
+    new classes.
+    """
+    def __len__(cls):
+        # Return the length of the class name when len() is called on the class
+        return len(cls.__name__)
+    
 def isinstance_(instance, cls):
     """
     Performs an enhanced isinstance check that can gracefully handle a tuple 
