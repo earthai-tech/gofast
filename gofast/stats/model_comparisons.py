@@ -1664,21 +1664,7 @@ def compute_model_summary(
      structured table format. This DataFrame is wrapped in a Bunch object 
      (similar to sklearn's Bunch), allowing users to print it to see its 
       contents neatly tabulated.
-    
-    Examples
-    ----------
-    >>> from gofast.stats.model_comparisons import compute_model_summary
-    >>> # Example performance data for 5 models across 5 datasets
-    >>> model_performance_data = pd.DataFrame({
-    ...    'LR': [86.07, 87.90, 88.57, 90.95, 83.33],
-    ...    'DT': [77.58, 83.86, 78.33, 86.47, 85.61],
-    ... })
-    
-    >>> # Compute and print summary statistics assuming higher performance is better
-    >>> summary = compute_model_summary(model_performance_data)
-    >>> print(summary)
- 
-    
+
     Notes
     -----
     
@@ -1692,6 +1678,19 @@ def compute_model_summary(
       heavily penalizes models with high variability, which might not always 
       be appropriate depending on the context and the domain-specific 
       requirements.
+      
+    Examples
+    ----------
+    >>> from gofast.stats.model_comparisons import compute_model_summary
+    >>> # Example performance data for 5 models across 5 datasets
+    >>> model_performance_data = pd.DataFrame({
+    ...    'LR': [86.07, 87.90, 88.57, 90.95, 83.33],
+    ...    'DT': [77.58, 83.86, 78.33, 86.47, 85.61],
+    ... })
+    
+    >>> # Compute and print summary statistics assuming higher performance is better
+    >>> summary = compute_model_summary(model_performance_data)
+    >>> print(summary)
     """
     if higher_is_better:
         # For metrics where higher is better, we negate the variance because we want
@@ -1793,7 +1792,8 @@ def plot_model_summary(
     """
     summary_data = None
     if isinstance (summary, pd.Series): 
-        # consider as model_performance summary result.
+        # consider series as model_performance summary result
+        # with index the model names.
         summary= summary.to_frame () 
         
     if isinstance(summary, pd.DataFrame): 
@@ -1926,7 +1926,7 @@ if __name__ == "__main__":
     
     # Perform the Wilcoxon signed-rank test
     wilcoxon_results = perform_wilcoxon_base_test(model_performance_data)
-    print("Wilcoxon Signed-Rank Test (p-values):\n", wilcoxon_results)
+    print(wilcoxon_results)
 
 
     # Sample data: Model performance on 3 datasets (rows) for 4 models (columns)
@@ -1940,7 +1940,7 @@ if __name__ == "__main__":
     
     # Compute ranks
     ranks = compute_model_ranks(model_performance_data)
-    print("Ranks:\n", ranks)
+    print(ranks)
     
     #
     # Sample data: Model performance on 3 datasets (rows) for 4 models (columns)

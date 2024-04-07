@@ -7460,7 +7460,10 @@ def normalize_string(
         return (normalized_str, matched_target) if return_target_str else normalized_str
 
     if raise_exception:
-        error_msg = error_msg or f"{input_str!r} not found in {target_strs}."
+        error_msg = error_msg or ( 
+            f"Invalid input. Expect {smart_format(target_strs, 'or')}."
+            f" Got {input_str!r}."
+            )
         raise ValueError(error_msg)
     
     if return_target_only: 

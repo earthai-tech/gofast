@@ -1775,3 +1775,190 @@ def get_best_kPCA_params(
     grid_search.fit(X, y)
     
     return grid_search.best_params_
+    
+def compile_cv_results(params_list, results_list):
+    """
+    Compiles cross-validation results into a structured list, each containing the parameter
+    set and its corresponding mean test score.
+
+    This function takes a list of parameter dictionaries and a corresponding list of
+    result dictionaries, computes the mean of the 'test_scores' for each parameter set,
+    and returns a list of dictionaries summarizing the results.
+
+    Parameters
+    ----------
+    params_list : list of dict
+        A list where each element is a dictionary of parameter settings.
+    results_list : list of dict
+        A list where each element is a dictionary containing the results of testing
+        each parameter set. Expected keys include 'test_scores', which should be a
+        list of scores, or `nan` if not available.
+
+    Returns
+    -------
+    list of dict
+        A list of dictionaries, each containing the 'params' dictionary for a parameter
+        set and its 'mean_test_score'.
+
+    Examples
+    --------
+    >>> params = [{'C': 0.1}, {'C': 1}, {'C': 10}, {'C': 100}]
+    >>> results = [
+    ...     {'fit_error': None, 'test_scores': [0.8, 0.82, 0.81], 'train_scores': [0.9, 0.92, 0.91]},
+    ...     {'fit_error': None, 'test_scores': [0.85, 0.87, 0.86], 'train_scores': [0.95, 0.97, 0.96]},
+    ...     {'fit_error': None, 'test_scores': [0.9, 0.92, 0.91], 'train_scores': [0.98, 0.99, 0.97]},
+    ...     {'fit_error': None, 'test_scores': [0.93, 0.95, 0.94], 'train_scores': [0.99, 1.0, 0.98]}
+    ... ]
+    >>> compiled_results = compile_cv_results(params, results)
+    >>> for res in compiled_results:
+    ...     print(res)
+    {'params': {'C': 0.1}, 'mean_test_score': 0.81}
+    {'params': {'C': 1}, 'mean_test_score': 0.86}
+    {'params': {'C': 10}, 'mean_test_score': 0.91}
+    {'params': {'C': 100}, 'mean_test_score': 0.94}
+
+    Notes
+    -----
+    - The function assumes that each entry in `results_list` corresponds to the parameter
+      set in the same position in `params_list`.
+    - It uses `numpy.nanmean` for calculating the mean test score, which safely ignores
+      any `nan` values. This is particularly useful in situations where some trials might
+      not have produced valid scores (e.g., due to errors during model fitting).
+    - In the absence of any valid test scores for a parameter set (i.e., all scores are `nan`),
+      the mean test score will also be `nan`.
+    """
+    compiled_results = []
+    for param, result in zip(params_list, results_list):
+        # Filter out 'nan' values from test_scores and compute the mean
+        test_scores = result.get('test_scores')
+        if test_scores is not np.nan:  # Assuming 'test_scores' could be an array/list or 'nan'
+            mean_test_score = np.nanmean(test_scores)  # Safely compute mean, ignoring 'nan'
+        else:
+            mean_test_score = np.nan
+        
+        compiled_result = {
+            'params': param,
+            'mean_test_score': mean_test_score
+        }
+        compiled_results.append(compiled_result)
+    return compiled_results
+
+
+def aggregate_cv_results(cv_results):
+    """
+    Aggregates cross-validation (CV) results for each unique parameter set, computing
+    mean scores, fit errors, fit times, and score times across all CV folds.
+
+    This function processes a list of dictionaries, each representing the results of
+    a single CV run, and aggregates these results by parameter set. It computes the
+    mean test score, mean train score, mean fit error, mean fit time, and mean score
+    time for each unique set of parameters.
+
+    Parameters
+    ----------
+    cv_results : list of dict
+        A list where each element is a dictionary containing the results of a single
+        CV run. Expected keys in each dictionary include 'parameters' (a dict of
+        parameter values), 'test_scores' (a list or a scalar 'nan'), 'train_scores'
+        (a list or a scalar 'nan'), 'fit_error' (None or a numeric value),
+        'fit_time', and 'score_time'.
+
+    Returns
+    -------
+    list of dict
+        A list of dictionaries, where each dictionary contains a unique 'params'
+        field (dict of parameter values) along with the aggregated metrics:
+        'mean_test_score', 'mean_train_score', 'mean_fit_error',
+        'mean_fit_times', and 'mean_score_times'.
+
+    Examples
+    --------
+    >>> cv_results = [
+    ...     {'parameters': {'C': 0.1}, 'test_scores': [0.8, 0.82],
+    ...      'train_scores': [0.9, 0.92], 'fit_error': None, 'fit_time': 0.1,
+    ...      'score_time': 0.01, 'n_test_samples': 200},
+    ...     {'parameters': {'C': 0.1}, 'test_scores': [0.81, 0.83],
+    ...      'train_scores': [0.91, 0.93], 'fit_error': None, 'fit_time': 0.2,
+    ...      'score_time': 0.02, 'n_test_samples': 200}
+    ... ]
+    >>> results = aggregate_cv_results(cv_results)
+    >>> print(results)
+    [{'params': {'C': 0.1}, 'mean_test_score': 0.815, 'mean_train_score': 0.915,
+      'mean_fit_error': nan, 'mean_fit_times': 0.15, 'mean_score_times': 0.015, 
+      'n_test_samples': 200}]
+
+    Notes
+    -----
+    - The function assumes that 'test_scores' and 'train_scores' can either be lists
+      of numeric values or a scalar 'nan' to indicate missing data.
+    - 'fit_error' is handled as optional, with None indicating no error and numeric
+      values indicating some form of error measurement. If all fit errors are None,
+      'mean_fit_error' will be reported as `nan`.
+    - This function is designed to be flexible, accommodating any set of parameters
+      provided in the 'parameters' dictionary of each CV result.
+    - It uses `numpy.nanmean` to safely compute mean values while ignoring `nan`s,
+      allowing for robust aggregation even in the presence of incomplete data.
+    """
+    def to_list( value): 
+        """ Convert float of non interable value into an iterable value."""
+        if not isinstance ( value, list): 
+            value = [ value] 
+         
+        return value 
+        
+    # Initialize a dictionary to hold aggregated results
+    aggregated_results = {}
+    
+    for result in cv_results:
+        # Extract parameter values as a hashable tuple for uniqueness
+        params_tuple = tuple(result['parameters'].items())
+        
+        if params_tuple not in aggregated_results:
+            aggregated_results[params_tuple] = {
+                'params': result['parameters'],
+                'n_test_samples': [], 
+                'fit_errors': [],
+                'test_scores': [],
+                'train_scores': [],
+                'fit_times': [],
+                'score_times': []
+            }
+        
+        aggregated_results[params_tuple]['fit_errors'].append(result.get('fit_error', np.nan))
+        aggregated_results[params_tuple]['n_test_samples'].append(result.get('n_test_samples', np.nan))
+        aggregated_results[params_tuple]['test_scores'].extend(
+            to_list(result.get('test_scores', [np.nan])))
+        aggregated_results[params_tuple]['train_scores'].extend(
+            to_list(result.get('train_scores', [np.nan]))) 
+        aggregated_results[params_tuple]['fit_times'].append(result.get('fit_time', np.nan))
+        aggregated_results[params_tuple]['score_times'].append(result.get('score_time', np.nan))
+    
+    # Convert aggregated results to the desired format
+    final_results = []
+    for _, aggregated in aggregated_results.items():
+        # Calculate mean and standard deviation of test scores
+        mean_test_score = np.nanmean(aggregated['test_scores'])
+        std_test_score = np.nanstd(aggregated['test_scores'])
+        
+        # Calculate other aggregated metrics
+        mean_train_score = np.nanmean(aggregated['train_scores'])
+        mean_fit_times = np.nanmean(aggregated['fit_times'])
+        mean_score_times = np.nanmean(aggregated['score_times'])
+        mean_n_test_samples = np.nanmean(aggregated['n_test_samples'])
+        fit_error= np.nan if all(x is None for x in aggregated['fit_errors']) else np.nanmean(
+                                            [x for x in aggregated['fit_errors'] if x is not None]),
+        
+        # Append the formatted result
+        final_results.append({
+            'params': aggregated['params'],
+            'mean_test_score': mean_test_score,
+            'std_test_score': std_test_score,
+            'mean_train_score': mean_train_score,
+            'mean_fit_times': mean_fit_times,
+            'mean_score_times': mean_score_times,
+            'mean_n_test_samples': mean_n_test_samples,
+            'fit_error': fit_error
+        })
+    
+    return final_results
+

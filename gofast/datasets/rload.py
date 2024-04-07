@@ -347,7 +347,7 @@ class RemoteLoader:
             import zenodo_get
         except ImportError:
             if self._install_zenodo_get():
-                import zenodo_get
+                import zenodo_get  # noqa
             else:
                 _logger.error("Failed to install `zenodo_get`.")
                 return None

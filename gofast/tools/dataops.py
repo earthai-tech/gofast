@@ -31,7 +31,7 @@ from .coreutils import is_iterable, ellipsis2false,smart_format, validate_url
 from .coreutils import to_numeric_dtypes, assert_ratio, exist_features
 from .coreutils import normalize_string
 from .funcutils import ensure_pkg 
-from .validator import  build_data_if, is_frame 
+from .validator import  build_data_if, is_frame, parameter_validator  
 from .validator import check_consistent_length
 
 def summarize_text_columns(
@@ -482,6 +482,7 @@ def sanitize(
         - 'z_score': Identifies and removes outliers using Z-score.
         - 'iqr': Identifies and removes outliers using the Interquartile Range.
         Choose based on the nature of the data and the requirement of the analysis.
+        Default is ``iqr``. 
     consistency_transform : {'lower', 'upper', None}, optional
         Transformation to apply to string columns for consistency. If None,
         no transformation is applied.
@@ -510,6 +511,14 @@ def sanitize(
                                 consistency_transform='lower', threshold=3)
     >>> print(cleaned_df)
     """
+    # validate input parameters 
+    outlier_method = parameter_validator(
+        'outlier_method', ['z_score', 'iqr'])(outlier_method)
+    fill_missing = parameter_validator(
+        'fill_missing', ['median', 'mean', 'mode'])(fill_missing)
+    consistency_transform = parameter_validator(
+        'consistency_transform', ['lower', 'upper'])(consistency_transform)
+ 
     data = build_data_if(data, to_frame=True, force=True, input_name="feature_", 
                          raise_warning='mute')
     data = to_numeric_dtypes( data ) # verify integrity 
@@ -524,7 +533,7 @@ def sanitize(
 
     if remove_duplicates:
         df_cleaned.drop_duplicates(inplace=True)
-
+    
     if outlier_method:
         if outlier_method == 'z_score':
             for col in df_cleaned.select_dtypes(include=[np.number]):
@@ -618,8 +627,7 @@ def read_data (
         Save or load numpy arrays.
        
     """
-    
-    
+
     def min_sanitizer ( d, /):
         """ Apply a minimum sanitization to the data `d`."""
         return to_numeric_dtypes(

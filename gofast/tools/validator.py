@@ -23,6 +23,82 @@ from inspect import signature, Parameter, isclass
 from ._array_api import get_namespace, _asarray_with_order
 FLOAT_DTYPES = (np.float64, np.float32, np.float16)
 
+def parameter_validator(
+        param_name, target_strs, match_method='contains',
+        raise_exception=True, **kws):
+    """
+    Creates a validator function for ensuring a parameter's value matches one 
+    of the allowed target strings, optionally applying normalization.
+
+    This higher-order function returns a validator that can be used to check 
+    if a given parameter value matches allowed criteria, optionally raising 
+    an exception or normalizing the input.
+
+    Parameters
+    ----------
+    param_name : str
+        Name of the parameter to be validated. Used in error messages to 
+        indicate which parameter failed validation.
+    target_strs : list of str
+        A list of acceptable string values for the parameter.
+    match_method : str, optional
+        The method used to match the input string against the target strings. 
+        The default method is 'contains', which checks if the input string 
+        contains any of the target strings.
+    raise_exception : bool, optional
+        Specifies whether an exception should be raised if validation fails. 
+        Defaults to True, raising an exception on failure.
+    **kws: dict, 
+       Keyword arguments passed to :func:`gofast.tools.coreutils.normalize_string`. 
+    Returns
+    -------
+    function
+        A closure that takes a single string argument (the parameter value) 
+        and returns a normalized version of it if the parameter matches the 
+        target criteria. If the parameter does not match and `raise_exception` 
+        is True, it raises an exception; otherwise, it returns the original value.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import parameter_validator
+    >>> validate_outlier_method = parameter_validator(
+    ...  'outlier_method', ['z_score', 'iqr'])
+    >>> outlier_method = "z_score"
+    >>> print(validate_outlier_method(outlier_method))
+    'z_score'
+
+    >>> validate_fill_missing = parameter_validator(
+    ...  'fill_missing', ['median', 'mean', 'mode'], raise_exception=False)
+    >>> fill_missing = "average"  # This does not match but won't raise an exception.
+    >>> print(validate_fill_missing(fill_missing))
+    'average'
+
+    Notes
+    -----
+    - The function leverages a custom utility function `normalize_string` 
+      from a module named `.coreutils`. This utility is assumed to handle 
+      string normalization and matching based on the provided `match_method`.
+    - If `raise_exception` is set to False and the input does not match any 
+      target string, the input string is returned unchanged. This behavior 
+      allows for optional enforcement of the validation rules.
+    - The primary use case for this function is to validate and optionally 
+      normalize parameters for configuration settings or function arguments 
+      where only specific values are allowed.
+    """
+    from .coreutils import normalize_string 
+
+    def validator(param_value):
+        if param_value:
+            return normalize_string(
+                param_value, target_strs=target_strs,
+                return_target_only=True,
+                match_method=match_method, raise_exception=raise_exception, 
+                **kws
+            )
+        return param_value  # Return the original value if it's None or empty
+
+    return validator
+
 
 def validate_distribution(distribution, elements=None):
     """

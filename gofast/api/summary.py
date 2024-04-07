@@ -6,8 +6,6 @@ from .extension import isinstance_
 from .formatter import MultiFrameFormatter, DataFrameFormatter, DescriptionFormatter 
 from .structures import FlexDict
 
-
-
 class Summary(FlexDict):
     """
     A utility class for generating detailed summary reports of pandas DataFrames. 

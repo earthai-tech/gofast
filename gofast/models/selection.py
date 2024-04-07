@@ -194,6 +194,7 @@ class SwarmSearchCV(PSOBaseSearch):
     Attributes
     ----------
     cv_results_ : dict of numpy (masked) ndarrays
+        A record of each particle's position and score at each iteration.
         A dict with keys as column headers and values as columns, that can be
         imported into a pandas ``DataFrame``.
 
@@ -313,19 +314,6 @@ class SwarmSearchCV(PSOBaseSearch):
         parameter for more details) and that `best_estimator_` exposes
         `feature_names_in_` when fit.
 
-    Attributes
-    ----------
-    best_params_ : dict
-        The best parameter setting found during the optimization process.
-
-    best_score_ : float
-        The score of the best_params_.
-
-    best_estimator_ : estimator object
-        Estimator fitted with the best_params_.
-
-    cv_results_ : list of dicts
-        A record of each particle's position and score at each iteration.
         
     Examples
     --------
@@ -3049,3 +3037,5 @@ class SequentialSearchCV (BaseSearchCV):
             )
         )
  
+from .deep_selection import HyperbandSearchCV # noqa 
+__all__.extend ( ["HyperbandSearchCV"])

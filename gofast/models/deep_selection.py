@@ -5,38 +5,51 @@
 import numpy as np
 from math import log
 from sklearn.base import clone, is_classifier
+from sklearn.metrics import check_scoring
 from sklearn.model_selection._validation import _fit_and_score
 from sklearn.model_selection._search import BaseSearchCV, ParameterSampler
 from sklearn.model_selection._split import check_cv
 from sklearn.utils.validation import indexable
 from sklearn.utils.parallel import Parallel, delayed
 
+from .utils import aggregate_cv_results 
+
 __all__=["HyperbandSearchCV"]
 
 class HyperbandSearchCV(BaseSearchCV):
-    """
+    r"""
     Performs hyperparameter optimization using the Hyperband algorithm, 
-    a bandit-based approach. 
+    a bandit-based approach to efficiently identify the best hyperparameters 
+    for a given model by dynamically allocating and early-stopping resources 
+    for low-performing configurations.
+
+    The Hyperband algorithm optimizes computational resources through 
+    successive halving, effectively balancing the exploration of the hyperparameter 
+    space with the exploitation of promising configurations.
+
+    Mathematical Formulation
+    ------------------------
+    The Hyperband algorithm is based on the idea of dynamically allocating 
+    resources to different configurations of hyperparameters based on their 
+    performance. Given a maximum amount of resource `R` that can be allocated 
+    to a single configuration and a downsampling rate `eta`, Hyperband 
+    computes two key values:
     
-    Function dynamically allocates resources to configurations to efficiently 
-    identify the best hyperparameters for a given model.
-
-    Hyperband optimizes computational resources by early-stopping low-performing 
-    configurations through successive halving.
+    - `s_max` = :math:`\lfloor \log_{\eta}(R) \rfloor`, the maximum number of 
+      iterations/brackets.
+    - `B` = :math:`(s\_max + 1) \cdot R`, the total budget to be used across 
+      all brackets.
     
-    The Hyperband algorithm is based on the following mathematical formulation:
+    For each bracket `s` in :math:`\{s\_max, s\_max - 1, \ldots, 0\}`:
+    
+    - The number of configurations evaluated is :math:`n = \lceil \frac{B}{R} 
+      \cdot \frac{\eta^s}{(s+1)} \rceil`.
+    - The amount of resource allocated to each configuration is 
+      :math:`r = R \cdot \eta^{-s}`.
 
-    Given:
-    - A maximum amount of resource that can be allocated to a single configuration, `R`.
-    - A downsampling rate, `eta`.
-
-    Hyperband determines two key values:
-    - `s_max` = \\( \lfloor \log_{\eta}(R) \rfloor \\), the maximum number of iterations.
-    - `B` = \\( (s\_max + 1) \cdot R \\), the total budget across all brackets.
-
-    For each bracket `s` in \\( \{s\_max, s\_max - 1, ..., 0\} \\):
-    - The number of configurations is \\( n = \lceil \frac{B}{R} \cdot \frac{\eta^s}{(s+1)} \rceil \\).
-    - The number of resources allocated to each configuration is \\( r = R \cdot \eta^{-s} \\).
+    This process allows for both exploration of the hyperparameter space at 
+    lower resource levels and intensive exploitation of promising configurations 
+    at higher resource levels.
 
     Parameters
     ----------
@@ -98,20 +111,39 @@ class HyperbandSearchCV(BaseSearchCV):
     --------
     >>> from sklearn.datasets import load_iris
     >>> from sklearn.svm import SVC
+    >>> from gofast.experimental import enable_hyperband_selection 
     >>> from gofast.models.deep_selection import HyperbandSearchCV
     >>> X, y = load_iris(return_X_y=True)
     >>> param_distributions = {'C': [1, 10, 100, 1000], 'gamma': ['scale', 'auto']}
     >>> hyperband = HyperbandSearchCV(estimator=SVC(), 
                                       param_distributions=param_distributions, 
-    ...                               max_iter=100, random_state=42)
+    ...                               max_iter=4, random_state=42)
     >>> hyperband.fit(X, y)
     >>> print(hyperband.best_params_)
+    
+    >>> from sklearn.datasets import make_classification
+    >>> from sklearn.linear_model import LogisticRegression
+    >>> from sklearn.model_selection import HyperbandSearchCV
+    >>> X, y = make_classification(n_samples=1000, n_features=20, n_informative=2,
+    ...                            random_state=42)
+    >>> param_distributions = {'C': [0.1, 1, 10, 100]}
+    >>> hyperband = HyperbandSearchCV(estimator=LogisticRegression(),
+    ...                               param_distributions=param_distributions,
+    ...                               max_iter=4, cv=5)
+    >>> hyperband.fit(X, y)
+    >>> print(hyperband.best_params_)
+    
 
     Note
     ----
     HyperbandSearchCV uses the Hyperband algorithm for efficient hyperparameter
     optimization. It dynamically allocates and prunes resources, allowing for 
     a more effective search over the hyperparameter space.
+    The actual computation within the method involves training models on subsets 
+    of the dataset for varying amounts of resources and iteratively pruning 
+    less promising models. The `fit` method supports classification, regression, 
+    and clustering estimators following the scikit-learn API.
+    
     """
 
     def __init__(self, 
@@ -144,7 +176,7 @@ class HyperbandSearchCV(BaseSearchCV):
         
         super().__init__(
             estimator=estimator, scoring=scoring,
-            n_jobs=n_jobs, iid='deprecated', 
+            n_jobs=n_jobs, #iid='deprecated', 
             refit=refit, cv=cv, verbose=verbose, 
             pre_dispatch=pre_dispatch, 
             error_score=error_score, 
@@ -307,31 +339,36 @@ class HyperbandSearchCV(BaseSearchCV):
                     self.param_distributions, n_candidates, 
                     random_state=self.random_state))
                 
+                # Ensure the scoring parameter is correctly set up
+                scoring = check_scoring(self.estimator, scoring=self.scoring)
                 # Evaluate candidate parameters
                 out = Parallel(n_jobs=self.n_jobs, verbose=self.verbose)(
                     delayed(_fit_and_score)(
-                        clone(self.estimator), X, y, self.scoring, train_idx, test_idx,
+                        clone(self.estimator), X, y, scoring, train_idx, test_idx,
                         self.verbose, params, fit_params=fit_params,
                         return_train_score=self.return_train_score,
                         error_score=self.error_score,
-                        n_jobs=self.n_jobs)
+                        return_parameters=True, 
+                        return_times =True, 
+                        return_n_test_samples =True, 
+                        )
                     for params in candidate_params
                     for train_idx, test_idx in cv.split(X, y, groups)
                 )
-                
+                # Select top candidates based on current results if not the last round
+                if i < s:
+                    out= aggregate_cv_results(out)
+                    candidate_params = self._select_top_candidates(
+                        out, n_configs // self.eta)
+      
                 # Extend the cumulative lists
                 all_candidate_params.extend(candidate_params)
                 all_outs.extend(out)
-                
-                # Select top candidates based on current results if not the last round
-                if i < s:
-                    top_indices = self._select_top_candidates(out, n_configs // self.eta)
-                    candidate_params = [candidate_params[j] for j in top_indices]
-
-        # Process and assign cv_results_
+ 
         self.cv_results_ = self._format_results(all_outs, all_candidate_params)
-        self.best_index_ = np.argmax([res['mean_test_score'] for res in self.cv_results_])
+        self.best_index_ = np.nanargmax([res['mean_test_score'] for res in self.cv_results_])
         self.best_params_ = self.cv_results_[self.best_index_]['params']
+        self.best_score_ = self.cv_results_[self.best_index_]['mean_test_score']
         
         # Refit the best model on the full dataset
         if self.refit:
@@ -340,7 +377,7 @@ class HyperbandSearchCV(BaseSearchCV):
         
         return self
 
-    def _format_results(self, out, candidate_params):
+    def _format_results(self, outs, candidate_params):
         """
         Formats the raw results from the hyperparameter optimization process 
         into a structured list.
@@ -354,7 +391,7 @@ class HyperbandSearchCV(BaseSearchCV):
     
         Parameters
         ----------
-        out : list of tuples
+        outs : list of tuples
             The raw output from `_fit_and_score`. Each tuple in the list should 
             contain the mean test score, standard deviation of the test score, 
             number of test samples, execution time in seconds, and execution 
@@ -403,18 +440,25 @@ class HyperbandSearchCV(BaseSearchCV):
         and handle them accordingly in the hyperparameter optimization process.
         """
         formatted_results = []
-        for (score, candidate_param) in zip(out, candidate_params):
-            mean_test_score, std_test_score, n_test_samples, time_sec, status = score
+        for score, candidate_param in zip(outs, candidate_params):
+            # Unpack with flexibility, accommodating different lengths of score tuples
+            # The first element should always be mean_test_score
+            mean_test_score = score.get('mean_test_score', np.nan)  
+            std_test_score = score.get('std_test_score', np.nan) if len(score) > 1 else np.nan
+            n_test_samples = score.get('n_test_samples', None) if len(score) > 2 else np.nan
+            time_sec = score.get('fit_times', np.nan) if len(score) > 3 else np.nan
+            status = score if len(score) > 4 else 'OK'  # Assume 'OK' if not provided
+            
             result = {
                 'params': candidate_param,
                 'mean_test_score': mean_test_score,
                 'std_test_score': std_test_score,
                 'n_test_samples': n_test_samples,
-                'time_sec': time_sec,
+                'fit_times': time_sec,
                 'status': status
             }
             formatted_results.append(result)
-        
+
         return formatted_results
 
     def _select_top_candidates(self, results, n_candidates):
@@ -470,3 +514,4 @@ class HyperbandSearchCV(BaseSearchCV):
         top_candidate_params = [candidate['params'] for candidate in top_candidates]
         
         return top_candidate_params
+
