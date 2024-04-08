@@ -16,7 +16,7 @@ Created on Sat Feb  3 20:58:51 2024
 @author: LKouadio<etanoyau@gmail.com>
 """
 
-from ..models.deep_selection import HyperbandSearchCV
+from ..models._deep_selection import HyperbandSearchCV
 from ..models import selection 
 from .. import models 
 

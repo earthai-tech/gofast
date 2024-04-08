@@ -227,10 +227,6 @@ def print_normality_results(stat: float, p_value: float, met: bool) -> None:
         message += " Assumption of normality is violated."
     print(message)
 
-# Degrees of Freedom: The degrees of freedom (df) for this test are 6, which is 
-# calculated based on the number of classifiers being compared minus one (7 - 1 = 6).
-#  This value is used in determining the critical value and p-value from the test statistic.
-# This value is used in determining the critical value and p-value from the test statistic.
 
 @make_data_dynamic(capture_columns=True)
 def mean(
@@ -1405,7 +1401,7 @@ def quantile(
         )
     # update data frame indexes with string quantiles
     new_indexes= [f'{int(q*100)}%' for q in np.atleast_1d(q)]
-    # print(new_indexes)
+
     quantiles_result=update_index( 
         quantiles_result, 
         new_indexes = new_indexes, 

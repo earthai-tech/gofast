@@ -140,6 +140,63 @@ class SimulationMetadata:
 
 
 DESCR_METADATA={
+    "simulate_landfill_capacity": {
+        "overview": (
+            "This dataset simulates daily landfill capacity measurements across "
+            "various locations. Each record represents a day's data for a "
+            "specific landfill site, including total capacity, current waste volume, "
+            "daily waste inflow and outflow, and environmental factors such as "
+            "nearby water body pollution levels and soil contamination. Designed for "
+            "tasks like predicting landfill capacity usage, analyzing the impact "
+            "of waste management policies, or optimizing landfill operations, "
+            "this dataset is suitable for both educational purposes and as a "
+            "testbed for developing sustainable waste management models. The "
+            "detailed simulation captures the complexities of managing landfill "
+            "sites, making it a valuable tool for researchers, policymakers, "
+            "and engineers working on waste management and environmental sustainability."
+        ),
+        "features": {
+            "landfill_id": (
+                "A unique identifier for each landfill site, allowing for precise "
+                "tracking and analysis of data specific to each location."
+            ),
+            "date": (
+                "The date of the record, essential for temporal analysis and understanding "
+                "trends in landfill capacity usage over time."
+            ),
+            "total_capacity_tons": (
+                "The total capacity of the landfill in tons, indicating the "
+                "maximum volume of waste the site can accommodate."
+            ),
+            "current_waste_tons": (
+                "The current volume of waste in the landfill in tons, reflecting "
+                "the actual amount of waste stored at the time of the record."
+            ),
+            "daily_inflow_tons": (
+                "Daily inflow of waste into the landfill in tons on the date, "
+                "contributing to increases in the current waste volume."
+            ),
+            "daily_outflow_tons": (
+                "Daily outflow of waste from the landfill in tons on the date, "
+                "accounting for waste processing or recycling that reduces the "
+                "landfill's volume."
+            ),
+            "water_pollution_level": (
+                "An index representing the level of pollution in nearby water bodies, "
+                "influenced by runoff or leachate from the landfill."
+            ),
+            "soil_contamination_index": (
+                "An index representing the level of soil contamination in and around "
+                "the landfill site, reflecting the environmental impact of waste "
+                "disposal activities."
+            ),
+            "capacity_usage_percent": (
+                "The percentage of the total capacity that is currently used, providing "
+                "a quick reference to the landfill's status relative to its full capacity."
+            )
+        }
+    },
+    
    "simulate_water_reserves": 
     {
      "overview": ( 

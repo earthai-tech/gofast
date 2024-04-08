@@ -2650,7 +2650,7 @@ def is_frame (arr, /, df_only =False, raise_exception: bool=False,
         # then check only 
         objname='Expect' if not objname else f'{objname} expects'
         raise TypeError(
-            f"{objname} a {'data frame' if df_only else 'data frame or series'}."
+            f"{objname} a {'DataFrame' if df_only else 'data frame or series'}."
               f" Got {type(arr).__name__!r}")
     return isf 
 

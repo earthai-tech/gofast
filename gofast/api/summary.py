@@ -456,7 +456,9 @@ class ReportFactory(FlexDict):
         Parameters:
         - df (pandas.DataFrame): The data frame to summarize.
         """
+        self.report= df 
         self.report_str = format_dataframe(df, title=self.title, **kwargs)
+        
         return self 
     
     def __str__(self):
@@ -469,7 +471,8 @@ class ReportFactory(FlexDict):
         """
         Formal string representation of the Report object.
         """
-        return "<Report: Print to see the content>" if self.report else "<Report: No content>"
+        return ( "<Report: Print to see the content>" if self.report is not None 
+                else "<Report: No content>" )
 
 def summarize_inline_table(
     contents, 
@@ -1672,6 +1675,7 @@ def format_text(
     effective_max_char_text = max_char_text - len(key_str) + 2 if key_str else max_char_text
 
     formatted_text = ""
+    text=str(text)
     while text:
         # If the remaining text is shorter than the effective
         # max length, or if there's no key part, add it as is

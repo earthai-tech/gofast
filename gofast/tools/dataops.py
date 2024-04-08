@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns 
 from tqdm import tqdm
 
-from .._typing import Any,  List,  DataFrame, Optional, Series 
+from .._typing import Any,  List,  DataFrame, Optional, Series, Array1D 
 from .._typing import Dict, Union, TypeGuard, Tuple, ArrayLike
 from .._typing import BeautifulSoupTag
 from ..api.formatter import MultiFrameFormatter 
@@ -2556,61 +2556,237 @@ def _encode_target(y: Union[pd.Series, pd.DataFrame]) -> Union[pd.Series, pd.Dat
         return pd.Series(encoder.fit_transform(y), index=y.index)
     return y
 
-def _prepare_data(
-        data: pd.DataFrame, 
-        target_column: Union[str, List[str], pd.Series, np.ndarray]
-        ) -> Tuple[pd.DataFrame, Union[pd.Series, pd.DataFrame]]:
+@isdf 
+def prepare_data(
+    data: DataFrame, 
+    target_column: Optional [Union[str, List[str], Series, Array1D]]=None, 
+    encode_categories: bool = False, 
+    nan_policy: str='propagate', 
+    verbose: bool = False, 
+) -> Tuple[pd.DataFrame, Union[Series, DataFrame]]:
     """
     Prepare the feature matrix X and target vector y from the input DataFrame.
 
     Parameters
     ----------
     data : pd.DataFrame
-        The input DataFrame containing features and a target variable.
-    target_column : Union[str, List[str], pd.Series, np.ndarray]
-        The target variable's identifier(s) or the target variable itself.
+        The primary dataset from which features and target(s) are derived. 
+        This DataFrame should include both the independent variables (features)
+        and the dependent variable(s) (target). The structure and cleanliness 
+        of this DataFrame directly affect the quality and reliability of the 
+        output datasets (X and y). It is assumed that preprocessing steps like
+        handling missing values, feature selection, and initial data cleaning 
+        have been performed prior to this step, although some additional options
+        for preprocessing are provided through other parameters of this function.
+    
+    target_column : Optional[Union[str, List[str], pd.Series, np.ndarray]] = None
+        Specifies which columns within `data` represent the target variable(s) 
+        for a predictive modeling task. This can be a single column name (str),
+        a list of column names for multi-output tasks, or a separate data 
+        structure (pd.Series or np.ndarray) containing the target variable(s). 
+        If provided as a Series or ndarray, the length must match the number 
+        of rows in `data`, aligning each observation with its corresponding 
+        target value. The absence of this parameter (default None) implies that 
+        the input data does not include target variables, and only feature 
+        matrix X will be prepared. This flexibility allows the function to serve
+        a variety of data preparation needs, from supervised learning (where 
+        target variables are required) to unsupervised learning scenarios 
+        (where no targets are necessary).
+    
+    encode_categories : bool = False
+        A flag indicating whether to automatically convert categorical variables
+        in `data` to a numerical format using LabelEncoder. Many machine learning
+        models require numerical input and cannot handle categorical variables 
+        directly. Setting this parameter to True automates the encoding process,
+        transforming all object-type or category-type columns in `data` into 
+        numerical format based on the unique values in each column. This encoding
+        is unidirectional and primarily suitable for nominal categories without 
+        a natural order. For ordinal categories or when more sophisticated 
+        encoding strategies are required (e.g., one-hot encoding, frequency encoding),
+        manual preprocessing is recommended. Note: enabling this option without 
+        careful consideration of the nature of your categorical data can 
+        introduce biases or inaccuracies in modeling.
+    
+    nan_policy : str = 'propagate'
+        Determines how the function handles NaN (Not a Number) values in the 
+        input DataFrame. This parameter can take one of three values:
+        - 'propagate': NaN values are retained in the dataset. This option 
+          does not alter the dataset regarding NaN values, implying that 
+          downstream processing must handle NaNs appropriately.
+        - 'omit': Rows or columns containing NaN values are removed from the 
+          dataset before further processing. This option reduces the dataset 
+          size but ensures that the remaining data is free from NaN values, 
+          which might be beneficial for certain machine learning algorithms 
+          that do not support NaN values.
+        - 'raise': If NaN values are detected in the dataset, a ValueError is
+          raised, halting execution. This policy is useful when the presence 
+          of NaN values is unexpected and indicates a potential issue in the 
+          data preparation or collection process that needs investigation.
+    
+    verbose : bool = False
+        Controls the verbosity of the function's output. When set to True, the 
+        function will print additional information about the preprocessing 
+        steps being performed, such as the encoding of categorical variables or 
+        the omission of NaN-containing entries. This can be helpful for debugging
+        or understanding the function's behavior, especially during exploratory 
+        data analysis phases or when integrating the function into larger data 
+        processing pipelines.
 
     Returns
     -------
-    X : pd.DataFrame
-        The feature matrix after removing the target column(s) if specified by name.
-    y : Union[pd.Series, pd.DataFrame]
-        The target vector or DataFrame for multiple labels.
-
+    X : pd.DataFrame**  
+        A DataFrame containing the feature matrix with the target column(s) 
+        removed if they were specified by name within the `data` DataFrame. 
+        This matrix is ready for use in machine learning models as input variables.
+    
+    y : Union[pd.Series, pd.DataFrame]**  
+        The target data extracted based on `target_column`. It is returned as 
+        a pd.Series if a single target is specified or as a pd.DataFrame if 
+        multiple targets are identified. For tasks where the target variable 
+        is not defined (`target_column` is None), `y` is not returned.
+    
     Raises
     ------
-    ValueError
-        If the target_column length does not match the number of samples in data.
-    KeyError
-        If the target_column specified by name is not found in data.
+    ValueError  
+        Raised in several scenarios:
+        - If `target_column` is provided and its length does not match the 
+          number of samples in `data`, ensuring data integrity and alignment 
+          between features and targets.
+        - If an invalid `nan_policy` is specified, ensuring that only the 
+          predefined policies are applied to handle NaN values in the dataset.
+        
+    KeyError  
+        Triggered if `target_column` is specified by name(s) and any of the 
+        names are not found within the `data` DataFrame columns. This ensures 
+        that the specified target variable(s) is actually present in the dataset.
+    
+    Examples
+    --------
+    Simple usage with automatic encoding of categorical features
+    >>> import pandas as pd 
+    >>> from gofast.tools.dataops import prepare_data 
+    >>> df = pd.DataFrame({
+        'feature1': [1, 2, 3],
+        'feature2': ['A', 'B', 'C'],
+        'target': [0, 1, 0]
+    })
+    >>> X, y = prepare_data(df, 'target', encode_categories=True)
+    >>> print(X)
+       feature1  feature2
+    0         1         0
+    1         2         1
+    2         3         2
+    >>> print(y)
+       target
+    0       0
+    1       1
+    2       0
+       
+    Handling NaN values by omitting them
+    >>> df_with_nan = pd.DataFrame({
+        'feature1': [np.nan, 2, 3],
+        'feature2': ['A', np.nan, 'C'],
+        'target': [1, np.nan, 0]
+    })
+    >>> X, y = prepare_data(df_with_nan, 'target', nan_policy='omit', verbose=True)
+    "NaN values have been omitted from the dataset."
+    
+    Raising an error when NaN values are found
+    >>> try:
+    ...    prepare_data(df_with_nan, 'target', nan_policy='raise')
+    ... except ValueError as e:
+    ...    print(e)
+       
+    NaN values found in the dataset. Consider using 'omit' to drop them ...
+  
+
+    These examples illustrate the function's versatility in handling different 
+    data preparation scenarios, from encoding categorical features for machine
+    learning models to managing datasets with missing values according to 
+    user-defined policies.
     """
-    if isinstance(target_column, (str, list)):
-        target_column= list(is_iterable(
-            target_column, exclude_string= True, transform =True )
-            )
-        exist_features(data, features= target_column )
-        y = data[target_column]
-        X = data.drop(target_column, axis=1)
-    elif isinstance(target_column, (pd.Series, np.ndarray)):
-        # if len(target_column) != len(data):
-        #     raise ValueError("Length of the target array/Series must 
-        #    match the number of samples in 'data'.")
-        y = pd.Series(target_column, index=data.index) if isinstance(
-            target_column, np.ndarray) else target_column
-        X = data
-    else:
-        raise ValueError("Invalid type for 'target_column'. Must be str,"
-                         " list, pd.Series, or np.ndarray.")
+    from sklearn.preprocessing import LabelEncoder
     
-    check_consistent_length(X, y)
+    nan_policy=str(nan_policy).lower()
+    # Handle NaN values according to the specified policy
+    texts = {}
+    if nan_policy not in ['propagate', 'omit', 'raise']:
+        raise ValueError("Invalid nan_policy. Choose from 'propagate', 'omit', 'raise'.")
     
-    return X, y
+    if nan_policy == 'raise' and data.isnull().values.any():
+        raise ValueError("NaN values found in the dataset. Consider using 'omit' "
+                         "to drop them or 'propagate' to ignore.")
+    if nan_policy == 'omit':
+        data = data.dropna().reset_index(drop=True)
+        texts ['NaN status']= "NaN values have been omitted from the dataset." 
+    
+    if target_column is not None: 
+        if isinstance(target_column, (str, list)):
+            target_column= list(is_iterable(
+                target_column, exclude_string= True, transform =True )
+                )
+            exist_features(data, features= target_column )
+            y = data[target_column]
+            X = data.drop(target_column, axis=1)
+                
+            y = data[target_column]
+            X = data.drop(target_column, axis=1)
+            
+        elif isinstance(target_column, (pd.Series, np.ndarray)):
+            if len(target_column) != len(data):
+                raise ValueError("Length of the target array/Series must match "
+                                 "the number of samples in 'data'.")
+            y = pd.Series(target_column, index=data.index) if isinstance(
+                target_column, np.ndarray) else target_column
+            X = data
+        else:
+            raise ValueError("Invalid type for 'target_column'. Must be str, list,"
+                             " pd.Series, or one-dimensional array.")
+  
+        check_consistent_length(X, y)
+        
+    else: X = data.copy () 
+    # Check if there are categorical data columns
+    categorical_columns = X.select_dtypes(include=['object', 'category']).columns
+   
+    if categorical_columns.any():
+        # If encode_categories is False, raise a warning about unencoded categories
+        msg= "Categorical features detected."
+        
+        texts ['categories_status']= msg 
+        if not encode_categories:
+            msg += (
+                " It's recommended to encode categorical variables. Set"
+                "`encode_categories=True` to automatically encode them."
+                )
+            texts ['categories_status']= msg # update 
+            warnings.warn(msg, UserWarning)
+        else:
+            texts ['categories_status']= msg 
+            # If encode_categories is True, encode the categorical features
+            # label_encoders = {}
+            for col in categorical_columns:
+                le = LabelEncoder()
+                # Use LabelEncoder to transform the categorical columns
+                X[col] = le.fit_transform(X[col])
+                # Optionally, keep track of the label encoders for each column
+                # label_encoders[col] = le
+
+            texts['encoded_features']= ( 
+                f"Encoded categorical feature(s): {list(categorical_columns)}.")
+            
+    if verbose and texts: 
+        print(ReportFactory().add_recommendations(
+            texts,  max_char_text= 90 ))
+        
+    return ( X, y ) if target_column is not None else X 
 
 def assess_outlier_impact(
-    data: pd.DataFrame, /, 
-    target_column: Union[str, List[str], pd.Series, np.ndarray],
+    data: DataFrame, /, 
+    target_column: Union[str, List[str], Series, np.ndarray],
     test_size: float = 0.2, 
     random_state: int = 42, 
+    encode_categories: bool=False, 
     verbose: bool = False) -> Tuple[float, float]:
     """
     Assess the impact of outliers on the predictive performance of a model. 
@@ -2633,6 +2809,11 @@ def assess_outlier_impact(
         
     random_state : int, optional (default=42)
         The random state to use for reproducible train-test splits.
+        
+    encode_categories : bool, default False
+        If True, categorical features in `data` are automatically encoded using 
+        LabelEncoder. This is useful for models that require numerical input for
+        categorical data.
     
     verbose : bool
         If True, prints the evaluation metric with and without outliers, 
@@ -2671,7 +2852,9 @@ def assess_outlier_impact(
     from sklearn.linear_model import LogisticRegression, LinearRegression
     
     is_frame (data, df_only= True, raise_exception= True )
-    X, y = _prepare_data(data, target_column)
+    X, y = prepare_data(
+        data, target_column, encode_categories=encode_categories,
+        nan_policy= 'omit' )
     # Determine if the task is regression or classification
     is_categorical = _is_categorical(y)
     if is_categorical:
@@ -2695,9 +2878,9 @@ def assess_outlier_impact(
                         X_test: pd.DataFrame, y_test: np.ndarray, 
                         model, metric) -> float:
         """ Train the model and evaluate its performance on the test set."""
-        model.fit(X_train, y_train)
+        model.fit(X_train, y_train.ravel() )
         predictions = model.predict(X_test)
-        return metric(y_test, predictions)
+        return metric(y_test.ravel(), predictions)
 
     # Evaluate the model on the original data
     original_metric = _evaluate_model(X_train, y_train, X_test, y_test, model, metric)
@@ -2711,7 +2894,8 @@ def assess_outlier_impact(
     y_train_filtered = y_train[is_not_outlier]
 
     # Evaluate the model on the filtered data
-    filtered_metric = _evaluate_model(X_train_filtered, y_train_filtered, X_test, y_test, model, metric)
+    filtered_metric = _evaluate_model(X_train_filtered, y_train_filtered,
+                                      X_test, y_test, model, metric)
 
     # Print results if verbose is True
     if verbose:
@@ -2723,10 +2907,10 @@ def assess_outlier_impact(
         # Check the impact
         if not is_categorical and filtered_metric < original_metric or \
            is_categorical and filtered_metric > original_metric:
-            texts['outlier_impacts']= (
+            texts['outliers_impact']= (
                 'Outliers appear to have a negative impact on the model performance.')
         else:
-            texts['outlier_impacts']= ('Outliers do not appear to have a significant negative'
+            texts['outliers_impact']= ('Outliers do not appear to have a significant negative'
                   ' impact on the model performance.')
             
         print(ReportFactory().add_recommendations(texts,  max_char_text= 90 ))
@@ -3469,26 +3653,37 @@ def boxcox_transformation(
     >>> print(transformed_data.head())
     >>> print(lambda_values)
     """
-    is_frame (data, df_only=True, raise_exception= True )
+    is_frame (data, df_only=True, raise_exception= True,
+              objname='Boxcox transformation' )
+    
     transformed_data = pd.DataFrame()
     lambda_values = {}
+    verbosity_texts = {}
 
-    columns = is_iterable(columns, exclude_string=True, transform= True )
     if columns is not None:
+        columns = is_iterable(columns, exclude_string=True, transform= True )
         missing_cols = [col for col in columns if col not in data.columns]
-        if missing_cols and verbose:
-            print(f"Warning: Columns {missing_cols} not found in DataFrame."
-                  " Skipping these columns.")
+        if missing_cols:
+            verbosity_texts['missing_columns']=(
+                f" Columns {missing_cols} not found in DataFrame."
+                 " Skipping these columns.")
         columns = [col for col in columns if col in data.columns]
 
     numeric_columns = data.select_dtypes(include=[np.number]).columns
     columns_to_transform = columns if columns is not None else numeric_columns
+    verbosity_texts['columns_to_transform']=(
+        f"Transformed columns: {list(columns_to_transform)}")
     
-    _, adjust_non_positive= normalize_string(adjust_non_positive, target_strs=(
-        "adjust", "skip"), return_target_str= True, raise_exception=True, 
-        error_msg= ("`adjust_non_positive` argument expects ['skip', 'adjust']"
-                    f" Got: {adjust_non_positive!r}")
-        )
+    # validate adjust_non_positive parameter
+    adjust_non_positive=parameter_validator(
+        "adjust_non_positive", ["adjust", "skip"], 
+        error_msg= (
+                "`adjust_non_positive` argument expects ['skip', 'adjust']"
+               f" Got: {adjust_non_positive!r}")
+        ) (adjust_non_positive)
+
+    skipped_num_columns=[]
+    skipped_non_num_columns =[]
     for column in columns_to_transform:
         if column in numeric_columns:
             col_data = data[column]
@@ -3501,13 +3696,19 @@ def boxcox_transformation(
             else:
                 transformed = col_data.copy()
                 fitted_lambda = None
-                if verbose:
-                    print(f"Column '{column}' skipped: contains values <= {min_value}.")
+                skipped_num_columns.append (column)
+                
             transformed_data[column] = transformed
             lambda_values[column] = fitted_lambda
         else:
-            if verbose:
-                print(f"Column '{column}' is not numeric and will be skipped.")
+            skipped_non_num_columns.append (column)
+            
+    if skipped_num_columns: 
+        verbosity_texts['skipped_columns']=(
+            f"Column(s) '{skipped_num_columns}' skipped: contains values <= {min_value}.")
+    if skipped_non_num_columns: 
+        verbosity_texts['non_numeric_columns']=(
+            f"Column(s) '{skipped_non_num_columns}' is not numeric and will be skipped.")
 
     # Include non-transformed columns in the returned DataFrame
     for column in data.columns:
@@ -3515,26 +3716,52 @@ def boxcox_transformation(
             transformed_data[column] = data[column]
             
     if view:
-        fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(fig_size[0]*2, fig_size[1]))
+        # Initialize a flag to check the presence of valid data for heatmaps
+        valid_data_exists = True
+        fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(fig_size[0] * 2, fig_size[1]))
         
-        # Determine columns for heatmap
-        heatmap_columns = columns if columns is not None else data.select_dtypes(
+        # Determine columns suitable for the heatmap
+        heatmap_columns = columns if columns else data.select_dtypes(
             include=[np.number]).columns
         heatmap_columns = [col for col in heatmap_columns if col in data.columns 
                            and np.issubdtype(data[col].dtype, np.number)]
-        # Original data heatmap
-        sns.heatmap(data[heatmap_columns].corr(), ax=axs[0], annot=True, cmap=cmap)
-        axs[0].set_title('Correlation Matrix Before Transformation')
         
-        # Apply Box-Cox Transformation
-        # Transformed data heatmap
-        sns.heatmap(transformed_data[heatmap_columns].corr(), ax=axs[1], 
-                    annot=True, cmap=cmap)
-        axs[1].set_title('Correlation Matrix After Transformation')
+        # Check for non-NaN data in original dataset and plot heatmap
+        if heatmap_columns and not data[heatmap_columns].isnull().all().all():
+            sns.heatmap(data[heatmap_columns].dropna(axis=1, how='all').corr(), ax=axs[0],
+                        annot=True, cmap=cmap)
+            axs[0].set_title('Correlation Matrix Before Transformation')
+        else:
+            valid_data_exists = False
+            verbosity_texts['before_transformed_data_status'] = ( 
+                'No valid data for Correlation Matrix Before Transformation') 
         
-        plt.tight_layout()
-        plt.show()
+        # Verify transformed_data's structure and plot its heatmap
+        if 'transformed_data' in locals() and not transformed_data[heatmap_columns].isnull(
+                ).all().all():
+            sns.heatmap(transformed_data[heatmap_columns].dropna(
+                axis=1, how='all').corr(), ax=axs[1], annot=True, cmap=cmap)
+            axs[1].set_title('Correlation Matrix After Transformation')
+        else:
+            valid_data_exists = False
+            verbosity_texts['after_transformed_data_status'] = ( 
+                'No valid data for Correlation Matrix After Transformation') 
+        
+        # Display the plots if valid data exists; otherwise, close the plot
+        # to avoid displaying empty figures
+        if valid_data_exists:
+            plt.tight_layout()
+            plt.show()
+        else:
+            verbosity_texts['matplotlib_window_status']='Closed'
+            plt.close()  # Closes the matplotlib window if no valid data is present
     
+    # Print verbose recommendations if any and if verbose mode is enabled
+    if verbose and verbosity_texts:
+        recommendations = ReportFactory('BoxCox Transformation').add_recommendations(
+            verbosity_texts, max_char_text=90)
+        print(recommendations)
+        
     return transformed_data, lambda_values
 
 @isdf 
@@ -3615,14 +3842,15 @@ def check_missing_data(
         # optional width, a period, precision, the 'f' specifier, and ends with '%%'
         pattern = r'^%[0-9]*\.?[0-9]+f%%$'
         return bool(re.match(pattern, autopct))
-    
+
     is_frame( data, df_only= True, raise_exception= True )
     missing_count = data.isnull().sum()
     missing_count = missing_count[missing_count > 0]
     missing_percentage = (missing_count / len(data)) * 100
+
     missing_stats = pd.DataFrame({'Count': missing_count,
-                                  'Percentage': missing_percentage})
-    
+                     'Percentage': missing_percentage})
+    verbosity_texts={}
     if view and not missing_count.empty:
         labels = missing_stats.index.tolist()
         sizes = missing_stats['Percentage'].values.tolist()
@@ -3639,10 +3867,9 @@ def check_missing_data(
         
         if startangle > 360:
             startangle %= 360
-            if verbose:
-                print("Start angle greater than 180 degrees. Using modulo "
-                      f"to adjust: startangle={startangle}")
-        
+            verbosity_texts['start_angle']=(
+                "Start angle greater than 180 degrees. Using modulo "
+                f"to adjust: startangle={startangle}") 
         if not validate_autopct_format(autopct):
             raise ValueError("`autopct` format is not valid. It should be a"
                              "  format string like '%1.1f%%'.")
@@ -3653,6 +3880,12 @@ def check_missing_data(
         ax.axis('equal')  # Equal aspect ratio ensures the pie is drawn as a circle.
         ax.set_title('Missing Data Distribution')
         plt.show()
+        
+    verbosity_texts ['missing_stats%% Missing Table']= missing_stats
+    if verbose and verbosity_texts: 
+        summary = ReportFactory('Missing Report').mixed_types_summary(
+            verbosity_texts, table_width= 70 )
+        print(summary)
 
     return missing_stats
 

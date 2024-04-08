@@ -45,11 +45,6 @@ from ..compat.scipy import check_scipy_interpolate, optimize_minimize
 
 _logger = gofastlog.get_gofast_logger(__name__)
 
-# if ensure_scipy_compatibility():
-#     _logger.info("Ready to use scipy.interpolate and scipy.spatial.distance.")
-# else:
-#     _logger.error("Failed to import scipy.interpolate and/or scipy.spatial.distance.")
-
 
 def format_to_datetime(data, date_col, verbose=0, **dt_kws):
     """

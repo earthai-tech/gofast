@@ -3036,6 +3036,3 @@ class SequentialSearchCV (BaseSearchCV):
                 self.param_space, self.n_iter, random_state=self.random_state
             )
         )
- 
-from .deep_selection import HyperbandSearchCV # noqa 
-__all__.extend ( ["HyperbandSearchCV"])

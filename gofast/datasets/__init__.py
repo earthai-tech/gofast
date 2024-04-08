@@ -34,7 +34,7 @@ from .simulate import (
    simulate_predictive_maintenance, simulate_real_estate_price, 
    simulate_sentiment_analysis, simulate_weather_forecasting, 
    simulate_default_loan, simulate_traffic_flow, simulate_medical_diagnosis,
-   simulate_retail_sales
+   simulate_retail_sales, simulate_landfill_capacity
 )
 
 __all__ = [
@@ -53,5 +53,5 @@ __all__ = [
     "simulate_predictive_maintenance", "simulate_real_estate_price", 
     "simulate_sentiment_analysis", "simulate_weather_forecasting", 
     "simulate_default_loan", "simulate_traffic_flow", "simulate_medical_diagnosis",
-    "simulate_retail_sales"
+    "simulate_retail_sales", "simulate_landfill_capacity"
 ]

@@ -142,7 +142,7 @@ else:
     
 import typing  
 if typing.TYPE_CHECKING:
-    from .deep_selection import  HyperbandSearchCV # noqa
+    from ._deep_selection import  HyperbandSearchCV # noqa
     
 def __getattr__(name):
     if name =="HyperbandSearchCV":
@@ -153,5 +153,3 @@ def __getattr__(name):
             "`from gofast.experimental import enable_hyperband_selection`"
         )
     raise AttributeError(f"module {__name__} has no attribute {name}")
-    
-    

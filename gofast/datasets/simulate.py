@@ -18,6 +18,7 @@ from .util import validate_noise_level, validate_loan_parameters
 from .util import select_diagnostic_options, fetch_simulation_metadata 
 
 __all__= [
+    "simulate_landfill_capacity",
     "simulate_water_reserves", 
     "simulate_world_mineral_reserves", 
     "simulate_energy_consumption",
@@ -32,6 +33,207 @@ __all__= [
     "simulate_retail_sales"
     ]
 
+
+def simulate_landfill_capacity(
+    *, n_landfills=100, 
+    start_date="2024-01-01", 
+    end_date="2024-01-31",
+    n_samples=None, 
+    task="regression", 
+    as_frame=False, 
+    return_X_y=False,
+    target_name=None, 
+    noise_level=None, 
+    seed=None):
+    """
+    Generate a simulated dataset of landfill capacity measurements across
+    various locations over a specified time period. This function creates
+    synthetic data that mimics real-world landfill operations, incorporating
+    factors like total capacity, waste accumulation, and environmental impact.
+    It's designed to support machine learning applications in waste management
+    and environmental sustainability, offering customizable options for
+    regression or classification tasks.
+
+    Parameters
+    ----------
+    n_landfills : int, optional
+        The number of unique landfill sites for which data will be generated.
+        More sites allow for a richer, more diverse dataset but increase
+        computational requirements. Default value is set to 100, providing
+        a balance between dataset complexity and generation speed.
+
+    start_date : str, optional
+        Specifies the start date for data generation in "YYYY-MM-DD" format.
+        This parameter sets the temporal bounds of the dataset, enabling
+        simulations over specific periods of interest. Default is "2024-01-01".
+
+    end_date : str, optional
+        Specifies the end date for data generation in "YYYY-MM-DD" format,
+        inclusive. This allows for tailoring the dataset's time range to
+        match specific study periods or scenarios. Default is "2024-01-31".
+
+    n_samples : int or None, optional
+        If specified, the function aims to generate a total number of samples
+        close to this value by adjusting the `n_landfills` or data density.
+        Useful for creating datasets with a predetermined size. Default is None,
+        where the sample size is determined by `n_landfills` and the date range.
+
+    task : str, optional
+        Determines the nature of the target variable(s) for the dataset.
+        - "regression": Targets are continuous values, suitable for regression.
+        - "classification": Targets are categorical, suitable for classification.
+        Default is "regression".
+
+    as_frame : bool, optional
+        If True, the dataset is returned as a pandas DataFrame, facilitating
+        exploratory data analysis and integration with data science tools.
+        Default is False, returning a Bunch object or ndarray tuples.
+
+    return_X_y : bool, optional
+        When True, returns the dataset as a tuple (X, y) of feature matrix and
+        target vector, ready for use with machine learning algorithms.
+        Ignored if `as_frame` is True. Default is False.
+
+    target_name : str or None, optional
+        Customizes the target variable's name. For regression, defaults to
+        "capacity_usage_percent". For classification, defaults to "usage_category".
+        Specifying a name directly selects or renames the target variable.
+
+    noise_level : float or None, optional
+        Adds Gaussian noise to the feature values to simulate measurement errors
+        or natural variability. Defined by the standard deviation of the noise.
+        Default is None, indicating no noise addition.
+
+    seed : int or None, optional
+        Seed for the random number generator to ensure reproducibility of
+        the dataset across different runs. Default is None, resulting in
+        different data each time the function is called.
+
+    Returns
+    -------
+    Depending on the combination of `as_frame` and `return_X_y`, the function
+    returns either a pandas DataFrame, a tuple of arrays (X, y), or a Bunch
+    object containing the dataset and additional information.
+
+    Notes
+    -----
+    The simulated data represents an idealized version of landfill operations
+    and should not be used for precise engineering calculations without
+    validation against real-world data. The synthetic nature of the dataset
+    allows for flexible exploration of waste management scenarios but may
+    not capture all complexities of actual landfill sites.
+
+    Examples
+    --------
+    Generate a simple dataset for regression:
+    >>> from gofast.datasets.simulate import simulate_landfill_capacity
+    >>> data = simulate_landfill_capacity(n_samples=10 )
+    >>> data.frame.head() 
+        landfill_id       date  ...  soil_contamination_index  capacity_usage_percent
+     0            1 2024-01-01  ...                  2.919168               99.969783
+     1            1 2024-01-02  ...                  4.935421               37.903027
+     2            1 2024-01-03  ...                  3.106227               75.606607
+     3            2 2024-01-01  ...                  4.474257               71.741477
+     4            2 2024-01-02  ...                  4.234219               62.955622
+    
+     [5 rows x 9 columns]
+
+    Create a more complex dataset for classification, returned as a DataFrame:
+
+    >>> df = simulate_landfill_capacity(task="classification", as_frame=True, 
+    ...                                 n_landfills=50, start_date="2024-06-01",
+    ...                                 end_date="2024-06-30")
+    >>> df.head()
+       landfill_id       date  ...  capacity_usage_percent  usage_category
+    0            1 2024-06-01  ...               82.702655            High
+    1            1 2024-06-02  ...               25.623501             Low
+    2            1 2024-06-03  ...               83.977406            High
+    3            1 2024-06-04  ...               88.319349            High
+    4            1 2024-06-05  ...               97.274844            High
+   
+    [5 rows x 10 columns]
+    Generate data for machine learning, with added noise:
+
+    >>> X, y = simulate_landfill_capacity(return_X_y=True, task="regression", 
+    ...                                   noise_level=0.05)
+    >>> X.shape, y.shape 
+    ((3100, 8), (3100,))
+    """
+    np.random.seed(seed)
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name)
+    
+    start_date, end_date = validate_dates(
+        start_date, end_date, return_as_date_str= True )
+    date_range = pd.date_range(start=start_date, end=end_date)
+    n_days = len(date_range)
+    
+    if n_samples: 
+        # Adjust n_landfills to fit the number of samples. 
+        adjust_params= adjust_parameters_to_fit_samples(
+            n_samples, initial_guesses= {'n_landfills': n_landfills, 
+                                         "n_days":len(date_range)}
+            )
+        n_landfills = adjust_params.get("n_landfills", 10 )
+        n_days= adjust_params.get("n_days", 7 )
+        # now take the date from start_date to fit n_days. 
+        date_range = date_range[: n_days]
+
+    data = []
+
+    for landfill_id in range(1, n_landfills + 1):
+        for date in date_range:
+            total_capacity = np.random.uniform(50000, 100000)  # in tons
+            current_waste = np.random.uniform(10000, total_capacity)
+            daily_inflow = np.random.uniform(50, 500)  # daily waste inflow in tons
+            daily_outflow = np.random.uniform(0, 100)  # daily waste outflow in tons
+            water_pollution_level = np.random.uniform(0, 10)  # Arbitrary pollution scale
+            soil_contamination_index = np.random.uniform(0, 5)  # Arbitrary contamination scale
+            
+            capacity_usage = (current_waste / total_capacity) * 100  # as percentage
+
+            record = {
+                "landfill_id": landfill_id,
+                "date": date,
+                "total_capacity_tons": total_capacity,
+                "current_waste_tons": current_waste,
+                "daily_inflow_tons": daily_inflow,
+                "daily_outflow_tons": daily_outflow,
+                "water_pollution_level": water_pollution_level,
+                "soil_contamination_index": soil_contamination_index,
+                "capacity_usage_percent": capacity_usage,
+            }
+            data.append(record)
+    
+    landfill_df = pd.DataFrame(data)
+
+    target_name = target_name or  "capacity_usage_percent"
+    if noise_level is not None:
+        # validate noise level 
+        noise_level = validate_noise_level(noise_level) 
+        numeric_cols = landfill_df.select_dtypes(include=np.number).columns
+        landfill_df[numeric_cols] += np.random.normal(
+            0, noise_level, landfill_df[numeric_cols].shape)
+
+    # Adjust target based on the task
+    if task == "classification":
+        # Define categories for classification based on capacity usage
+        bins = [0, 33, 66, 100]
+        labels = ["Low", "Medium", "High"]
+        landfill_df['usage_category'] = pd.cut(
+            landfill_df['capacity_usage_percent'], bins=bins,
+            labels=labels, include_lowest=True)
+        if target_name == "capacity_usage_percent":
+            target_name = "usage_category"
+
+     # Select the default target if target_name is None
+    return manage_data(
+         data=landfill_df, as_frame=as_frame, return_X_y=return_X_y,
+         target_names=target_name,
+         DESCR=dataset_descr, features_descr= features_descr, 
+         noise=noise_level, 
+     )
+    
 
 def simulate_water_reserves(
     *, n_locations=100, 
@@ -151,7 +353,8 @@ def simulate_water_reserves(
 
     See Also
     --------
-    pandas.DataFrame : The primary data structure used when `as_frame=True`.
+    simulate.simulate_world_mineral_reserves : 
+        The primary data structure used to simulate world mineral reserves.
     sklearn.utils.Bunch : Used to package the dataset when arrays are returned.
     """
     from ._globals import WATER_RESERVES_LOC
@@ -550,20 +753,10 @@ def simulate_energy_consumption(
     return manage_data(
          data=energy_data, as_frame=as_frame, return_X_y=return_X_y,
          target_names=target_name if target_name else ['energy_consumption_kwh'],
-         DESCR=(
-             "Predict future energy consumption of households or commercial"
-             " buildings based on historical usage data, weather conditions,"
-             " and time features." 
-             ), 
+         DESCR=dataset_descr, features_descr= features_descr, 
          noise=noise_level, 
      )
-    return manage_data(
-        data=energy_data, as_frame=as_frame, return_X_y=return_X_y,
-        target_names=target_name if target_name else ["energy_consumption_kwh"],
-        seed=seed,
-        noise=noise_level, 
-        
-    )
+
 
 def simulate_customer_churn(
     *, n_customers=1000, 

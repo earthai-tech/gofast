@@ -266,7 +266,7 @@ class MultiFrameFormatter (metaclass=MetaLen):
         str
             A descriptive string about the FrameFactory instance.
         """
-        return ( "<MultiFrame object with dataframes. Use print() to view.>" 
+        return ( "<MultiFrame with tables. Use print() to view contents.>" 
                 if self.dfs else "<Empty MultiFrame>")
 
 class DataFrameFormatter(metaclass=MetaLen):

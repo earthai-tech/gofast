@@ -1224,8 +1224,8 @@ def make_sounding(
     **kws
     ):
     """
-    Generates a complex dataset for geophysical sounding, 
-    typically used in ERT or seismic surveys.
+    Generates a complex dataset for geophysical sounding, typically used in 
+    ERT or seismic surveys.
 
     This function generates a DataFrame with data for multiple survey points, 
     each with a specified number of subsurface layers. For each layer, 
