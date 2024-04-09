@@ -15,6 +15,7 @@ from sklearn.base import BaseEstimator
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 
 from .._typing import Any, Dict, List,Union, Tuple, Optional, ArrayLike
+from ..api.summary import ModelSummary
 from ..tools.coreutils import ellipsis2false , smart_format
 from ..tools.validator import get_estimator_name 
 from ..tools.box import KeyBox 
@@ -75,6 +76,7 @@ def optimize_search(
     >>> from sklearn.ensemble import RandomForestClassifier
     >>> from sklearn.svm import SVC
     >>> from sklearn.datasets import load_iris 
+    >>> from gofast.models.optimize import optimize_search
     >>> X, y = load_iris(return_X_y=True)
     >>> estimators = {'rf': RandomForestClassifier(), 'svc': SVC()}
     >>> param_grids = {'rf': {'n_estimators': [10, 100], 'max_depth': [None, 10]},
@@ -107,8 +109,10 @@ def optimize_search(
         filename = "optimization_results.joblib"
         joblib.dump(result_dict, filename)
         print(f"Results saved to {filename}")
-
-    return result_dict
+        
+    summary= ModelSummary(**result_dict)
+    summary.summary(result_dict)
+    return summary
 
 def optimize_search2(estimators, param_grids, X, y, optimizer='GSCV', 
                      save_results=False, n_jobs=-1, **search_kwargs):
@@ -215,7 +219,7 @@ def optimize_search2(estimators, param_grids, X, y, optimizer='GSCV',
     if save_results:
         joblib.dump(result_dict, "optimization_results.joblib")
 
-    return result_dict
+    return ModelSummary().summary(result_dict)
 
 def optimize_hyperparams(
     estimator, 

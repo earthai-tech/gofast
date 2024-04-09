@@ -2433,15 +2433,17 @@ class NumpyDocstringFormatter:
         This method provides a conceptual approach and requires a Sphinx 
         environment to be properly implemented.
         """
-        from docutils import nodes
-        from docutils.core import publish_doctree
         from .tools._dependency import import_optional_dependency
         
         try: 
             import_optional_dependency ("docutils")
         except: 
             from .tools.funcutils import install_package
-            install_package('docutils' )
+            install_package('docutils', infer_dist_name=True)
+            
+        from docutils import nodes
+        from docutils.core import publish_doctree
+        
         try:
             # Create a new document for parsing
             settings_overrides = {'report_level': 2, 'warning_stream': False}

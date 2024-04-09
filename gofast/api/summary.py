@@ -1,10 +1,97 @@
 # -*- coding: utf-8 -*-
+#   License: BSD-3-Clause
+#   Author: LKouadio <etanoyau@gmail.com>
 import warnings 
 import numpy as np
 import pandas as pd
 from .extension import isinstance_ 
 from .formatter import MultiFrameFormatter, DataFrameFormatter, DescriptionFormatter 
 from .structures import FlexDict
+
+
+class ModelSummary(FlexDict):
+    """
+    A class for creating and storing a summary of machine learning model
+    tuning results. Inherits from FlexDict for flexible attribute management.
+    
+    This class facilitates the generation and representation of model tuning
+    results as a structured summary report. It leverages the
+    `summarize_optimized_results` function to format the results into a
+    comprehensive summary.
+
+    Parameters
+    ----------
+    title : str, optional
+        The title for the summary report. If provided, it will be included
+        at the beginning of the summary report.
+    **kwargs : dict, optional
+        Additional keyword arguments that are passed to the FlexDict constructor
+        for further customization of the object.
+
+    Attributes
+    ----------
+    title : str
+        The title of the summary report.
+    summary_report : str
+        The formatted summary report as a string.
+
+    Methods
+    -------
+    summary(model_results, **kwargs)
+        Generates and stores a summary report based on the provided model results.
+    """
+    
+    def __init__(self, title=None, **kwargs):
+        super().__init__(**kwargs)
+        self.title = title
+        self.summary_report = ""
+        
+    def summary(self, model_results, **kwargs):
+        """
+        Generates a summary report from the provided model tuning results and
+        stores it in the object.
+
+        Parameters
+        ----------
+        model_results : dict
+            The results of model tuning to be summarized. Can include results
+            from a single model or multiple models.
+        **kwargs : dict
+            Additional keyword arguments passed to the summarize_optimized_results
+            function for customization of the summary generation process.
+
+        Returns
+        -------
+        self : ModelSummary
+            The ModelSummary instance with the generated summary report stored.
+        """
+        self.summary_report = summarize_optimized_results(
+            model_results, result_title=self.title, **kwargs)
+        return self
+
+    def __str__(self):
+        """
+        Provides the string representation of the summary report.
+
+        Returns
+        -------
+        str
+            The summary report as a formatted string.
+        """
+        return self.summary_report
+    
+    def __repr__(self):
+        """
+        Provides a formal representation indicating whether the summary
+        report is populated.
+
+        Returns
+        -------
+        str
+            A message indicating if the ModelSummary contains a report or is empty.
+        """
+        return ("<ModelSummary object containing results. Use print() to see contents>"
+                if self.summary_report else "<Empty ModelSummary>")
 
 class Summary(FlexDict):
     """
@@ -239,6 +326,7 @@ class Summary(FlexDict):
         ValueError
             If neither `model_results` nor `model` with required attributes is provided.
         """
+        
         if model_results is None:
             if model and all(hasattr(model, attr) for attr in [
                     'best_estimator_', 'best_params_']):
@@ -967,8 +1055,8 @@ def summarize_model_results(
     # Validate presence of required information
     if  ( 
             'best_estimator_'  not in standardized_results 
-            and  'best_params_' not in standardized_results
-            ):
+            and 'best_params_' not in standardized_results
+        ):
         raise ValueError(
             "Required information ('best_estimator_' or 'best_parameters_') is missing.")
 
@@ -982,25 +1070,32 @@ def summarize_model_results(
         "nCV": len({k for k in standardized_results['cv_results_'].keys(
             ) if k.startswith('split')})# // len(standardized_results['cv_results_']['params']))
             if 'cv_results_' in standardized_results else 'Undefined nCV',
-        "Scoring": standardized_results.get('scoring', 'Unknown scoring')
+        "Scoring": standardized_results.get('scoring', 'Undefined'), 
     }
-    
+    if ( 
+            'cv_results_' in standardized_results 
+            and 'params' in standardized_results['cv_results_']
+        ): 
+        inline_contents["Params combinations"]=len(
+            standardized_results['cv_results_']['params'])
+    # 
     max_width = get_table_width(inline_contents, max_column_width=max_width)
     # Preparing data for the CV results DataFrame
     formatted_table=''
     if 'cv_results_' in standardized_results:
         if not any ('split' in cv_key for cv_key in standardized_results['cv_results_']):
-            raise TypeError(
+            warnings.warn(
                 "Invalid CV data structure. The 'cv_results_' from scikit-learn"
                 " requires the inclusion of 'splitxx_' keys.")
         df = prepare_cv_results_dataframe(standardized_results['cv_results_'])
-        # Formatting CV results DataFrame
-        formatted_table = format_dataframe(
-            df, title="Tuning Results", max_width=max_width, 
-            top_line=top_line, sub_line=sub_line, 
-            bottom_line=bottom_line
-        )
-        max_width = len(formatted_table.split('\n')[0]) #
+        if not df.empty: 
+            # Formatting CV results DataFrame
+            formatted_table = format_dataframe(
+                df, title="Tuning Results", max_width=max_width, 
+                top_line=top_line, sub_line=sub_line, 
+                bottom_line=bottom_line
+            )
+            max_width = len(formatted_table.split('\n')[0]) #
         # Combining inline content and formatted table
     summary_inline_tab = summarize_inline_table(
         inline_contents, title=title, max_width=max_width, 
@@ -1010,13 +1105,182 @@ def summarize_model_results(
     summary = f"{summary_inline_tab}{formatted_table}"
     return summary
 
+def summarize_optimized_results(model_results, result_title=None, **kwargs):
+    """
+    Generates a comprehensive summary of optimized results from one or
+    multiple machine learning model tuning processes.
+
+    This function dynamically formats the tuning results, including the best
+    estimator, parameters, and cross-validation scores, into a structured
+    textual summary. It supports both individual model results and collections
+    of results from multiple models.
+
+    Parameters
+    ----------
+    model_results : dict
+        A dictionary containing model tuning results. It can follow two
+        structures: a single model's results or a nested dictionary with
+        multiple models' results.
+    result_title : str, optional
+        The title for the summarized results. If not provided, defaults to
+        "Optimized Results".
+    **kwargs : dict
+        Additional keyword arguments to be passed to the summary function for
+        individual model results.
+
+    Returns
+    -------
+    str
+        A formatted string summary of the optimized model results. For multiple
+        models, each model's results are presented sequentially with a distinct
+        header.
+
+    Notes
+    -----
+    - The function auto-detects the structure of `model_results` to apply the
+      appropriate formatting.
+    - When handling multiple models, each model's results are separated by
+      horizontal lines for clear distinction.
+
+    Examples
+    --------
+    >>> from sklearn.svm import SVC 
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from gofast.api.summary import summarize_optimized_results
+    Single model's results:
+
+    >>> model_results = {
+    ...     'best_estimator_': RandomForestClassifier(),
+    ...     'best_params_': {'n_estimators': 100, 'max_depth': 5},
+    ...     'cv_results_': {'mean_test_score': [0.8, 0.85, 0.83], }
+    ... }
+    >>> print(summarize_optimized_results(model_results))
+    
+    Multiple models' results:
+
+    >>> models_results = {
+    ...     'RandomForest': {
+    ...         'best_estimator_': RandomForestClassifier(),
+    ...         'best_params_': {'n_estimators': 100, 'max_depth': 5},
+    ...         'cv_results_': {'mean_test_score': [0.8, 0.85, 0.83]}
+    ...     },
+    ...     'SVC': {
+    ...         'best_estimator_': SVC(),
+    ...         'best_params_': {'C': 1, 'kernel': 'linear'},
+    ...         'cv_results_': {'mean_test_score': [0.9, 0.92, 0.91]}
+    ...     }
+    ... }
+    >>> print(summarize_optimized_results(models_results))
+
+    The output for multiple models will include a header for each model, 
+    followed by its tuning summary, facilitating easy comparison between 
+    different model performances.
+    """
+    # Detect the structure type of the provided model results
+    structure_type = detect_structure_type(model_results)
+    
+    # Raise an error for unrecognized data structure
+    if structure_type == 'unknown':
+        raise ValueError("The provided model results do not follow the expected structure.")
+    
+    # Handle the case of a single model's results (structure 1)
+    if structure_type == 'structure_1':
+        return summarize_model_results(model_results, **kwargs)
+    
+    # If handling multiple models' results (structure 2):
+    # Separate keys (estimator names) and values (their corresponding results)
+    estimators_keys, model_results_list = zip(*model_results.items())
+    
+    # Generate formatted summaries for each model's results
+    formatted_results = [
+        summarize_model_results(model_result, **kwargs)
+        for model_result in model_results_list
+    ]
+    # Determine maximum width based on the '=' separator line in the first model's summary
+    max_width = max(len(line) for line in formatted_results[0].split('\n') if '==' in line)
+    
+    # update the formated results with maxwidth 
+    # formatted_results = [
+    #     summarize_model_results(model_result, max_width=max_width, **kwargs)
+    #     for model_result in model_results_list
+    # ]
+    
+    # Prepare separator lines and centered estimator keys as headers
+    up_line = '=' * max_width  # Top border
+    down_line = '-' * max_width  # Sub-header
+    
+    # Format headers with estimator keys, ensuring they're properly centered
+    formatted_keys = [
+        f'{up_line}\n|{key.center(max_width-2)}|\n{down_line}\n'
+        for key in estimators_keys
+    ]
+    
+    # Combine headers with their corresponding model summaries
+    formatted_results_with_keys = [
+        formatted_keys[i] + formatted_results[i] + '\n'
+        for i in range(len(estimators_keys))
+    ]
+    
+    # Title for the combined results, defaulted to 'Optimized Results' if not provided
+    table_name = result_title or 'Optimized Results'
+    
+    # Compile the full summary by joining individual model summaries
+    return f'{table_name.center(max_width)}' + '\n\n'.join(formatted_results_with_keys)
+
+
 def standardize_keys(model_results):
+    """
+    Standardizes the keys of a model results dictionary to a consistent format.
+
+    Given a dictionary containing results from model fitting processes, this function
+    maps various alternative key names to a set of standardized key names. This is
+    useful for ensuring consistency when working with results from different model
+    training processes or APIs that may use slightly different terminology for storing
+    model results.
+
+    Parameters
+    ----------
+    model_results : dict
+        A dictionary containing keys that represent model results such as the best
+        estimator, best parameters, and cross-validation results.
+
+    Returns
+    -------
+    dict
+        A new dictionary where keys have been standardized according to a predefined
+        mapping. This includes keys for the best estimator, best parameters, and
+        cross-validation results.
+
+    Examples
+    --------
+    >>> from gofast.api.summary import standardize_keys
+    >>> model_results = {
+    ...     'estimator': "RandomForest",
+    ...     'params': {'n_estimators': 100, 'max_depth': 5},
+    ...     'fold_results': {'mean_test_score': [0.9, 0.95, 0.85]}
+    ... }
+    >>> standardized = standardize_keys(model_results)
+    >>> print(standardized)
+    {
+        'best_estimator_': "RandomForest",
+        'best_params_': {'n_estimators': 100, 'max_depth': 5},
+        'cv_results_': {'mean_test_score': [0.9, 0.95, 0.85]}
+    }
+
+    Notes
+    -----
+    - The function does not modify the input dictionary but returns a new dictionary
+      with standardized keys.
+    - If a standardized key and its alternatives are not found in the input dictionary,
+      they will not be included in the output.
+    - If multiple alternative keys for the same standard key are present, the first
+      found alternative is used.
+    """
     map_keys = {
         'best_estimator_': ['model', 'estimator', 'best_estimator'],
         'best_params_': ['parameters', 'params', 'best_parameters'],
         'cv_results_': ['results', 'fold_results', 'cv_results']
     }
-
     standardized_results = {}
     for standard_key, alternatives in map_keys.items():
         # Check each alternative key for presence in model_results
@@ -1024,7 +1288,6 @@ def standardize_keys(model_results):
             if alt_key in model_results:
                 standardized_results[standard_key] = model_results[alt_key]
                 break  # Break after finding the first matching alternative
-    
     # Additionally, check for any keys that are already correct and not duplicated
     for key in map_keys.keys():
         if key in model_results and key not in standardized_results:
@@ -1033,147 +1296,145 @@ def standardize_keys(model_results):
     return standardized_results
 
 def prepare_cv_results_dataframe(cv_results):
-    nCV = len({k for k in cv_results.keys() 
-                if k.startswith('split')}) // len(cv_results['params'])
+    """
+    Converts the cross-validation results dictionary into a pandas DataFrame
+    for easier analysis and visualization.
+    
+    This function aggregates the results from cross-validation runs and 
+    compiles them into a DataFrame. It includes parameters used for each run,
+    mean and standard deviation of cross-validation (CV) scores, and overall
+    performance metrics.
 
-    data = []
-    for i in range(nCV):
-        mean_score = np.mean([cv_results[f'split{j}_test_score'][i] for j in range(nCV)])
-        cv_scores = [cv_results[f'split{j}_test_score'][i] for j in range(nCV)]
-        std_score = np.nanstd(cv_scores)
-        global_mean = np.nanmean(cv_scores)
-        
-        fold_data = {
-            "fold": f"cv{i+1}",
-            "mean_score": format_value (mean_score),
-            "cv_score": format_value(cv_scores[i]),
-            "std_score": format_value (std_score),
-            "global_mean": format_value(global_mean)
-        }
-        data.append(fold_data)
+    Parameters
+    ----------
+    cv_results : dict
+        The cross-validation results dictionary obtained from a model selection
+        method like GridSearchCV or RandomizedSearchCV.
 
-    # Creating DataFrame
-    df = pd.DataFrame(data)
-    return df
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame where each row represents a set of parameters and their
+        corresponding cross-validation statistics including mean CV score,
+        standard deviation of CV scores, overall mean score, overall standard
+        deviation score, and rank.
 
+    Examples
+    --------
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from sklearn.model_selection import GridSearchCV
+    >>> from sklearn.datasets import load_iris
+    >>> from gofast.api.summary import prepare_cv_results_dataframe
+    >>> X, y = load_iris(return_X_y=True)
+    >>> param_grid = {
+    ...     'n_estimators': [100, 200],
+    ...     'max_depth': [10, 20]
+    ... }
+    >>> clf = GridSearchCV(RandomForestClassifier(), param_grid, cv=5)
+    >>> clf.fit(X, y)
+    >>> cv_results = clf.cv_results_
+    >>> df = prepare_cv_results_dataframe(cv_results)
+    >>> df.head()
+         Params  Mean CV Score  ... Overall Std. Score Rank
+    0  (10, 100)        0.9667  ...             0.0211    1
+    1  (10, 200)        0.9667  ...             0.0211    1
+    2  (20, 100)        0.9667  ...             0.0211    1
+    3  (20, 200)        0.9600  ...             0.0249    4
 
-# # CV results data provided
-# cv_results = {
-#     'mean_fit_time': np.array([0.08941455, 0.17112842, 0.09749279, 0.17767138]),
-#     'std_fit_time': np.array([0.00403799, 0.00093173, 0.00748676, 0.01018241]),
-#     'mean_score_time': np.array([0.00597119, 0.0112349, 0.00577874, 0.01112599]),
-#     'std_score_time': np.array([0.00015881, 0.00057619, 0.00039796, 0.00070031]),
-#     'param_max_depth': np.array([10, 10, 20, 20], dtype=object),
-#     'param_n_estimators': np.array([100, 200, 100, 200], dtype=object),
-#     'params': [{'max_depth': 10, 'n_estimators': 100},
-#                {'max_depth': 10, 'n_estimators': 200},
-#                {'max_depth': 20, 'n_estimators': 100},
-#                {'max_depth': 20, 'n_estimators': 200}],
-#     'split0_test_score': np.array([0.73333333, 0.8, 0.86666667, 0.73333333]),
-#     'split1_test_score': np.array([0.86666667, 0.86666667, 0.86666667, 1.]),
-#     'split2_test_score': np.array([0.8, 0.8, 0.73333333, 0.8]),
-#     'split3_test_score': np.array([0.86666667, 0.93333333, 0.86666667, 0.86666667]),
-#     'split4_test_score': np.array([0.86666667, 0.86666667, 1., 1.]),
-#     
-
-
-#     'std_test_score': np.array([0.05333333, 0.04988877, 0.0843274, 0.10666667]),
-#     'rank_test_score': np.array([4, 3, 2, 1])
-# }
-
-# Adjusted function to correctly process and summarize CV results
-def prepare_cv_results_dataframe2(cv_results):
+    Notes
+    -----
+    - The function requires the `cv_results` dictionary from a fitted
+      GridSearchCV or RandomizedSearchCV object.
+    - It's designed to provide a quick overview of model selection results,
+      making it easier to identify the best parameter combinations.
+    """
     # Extract number of splits
     n_splits = sum(1 for key in cv_results if key.startswith(
         'split') and key.endswith('test_score'))
     
+    if 'params' not in cv_results: 
+        return pd.DataFrame () 
     # Gather general information
-    param_keys = [key for key in cv_results if key.startswith('param_')]
-    rows = []
-    
+    data = []
     for i, params in enumerate(cv_results['params']):
-        row = {key: cv_results[key][i] for key in param_keys}
+        if n_splits:  
+            cv_scores = [cv_results[f'split{split}_test_score'][i] for split in range(n_splits)]
+            std_score = format_value(np.nanstd(cv_scores))
+            mean_score = format_value(np.nanmean(cv_scores))
+            fold_data = {
+                "Params ": f"({', '.join([ str(i) for i in params.values()])})", 
+                "Mean CV Score": mean_score,
+                "Std. CV Score": std_score,
+            }
+        if 'mean_test_score' in cv_results:
+            fold_data["Overall Mean Score"] = format_value(cv_results['mean_test_score'][i])
+        if 'std_test_score' in cv_results:
+            fold_data["Overall Std. Score"] = format_value(cv_results['std_test_score'][i])
+        if 'rank_test_score' in cv_results:
+            fold_data['Rank'] = cv_results['rank_test_score'][i]
         
-        row.update({
-            "mean_test_score": cv_results['mean_test_score'][i],
-            "std_test_score": cv_results['std_test_score'][i],
-            "rank_test_score": cv_results['rank_test_score'][i]
-        })
-        
-        cv_scores = [ cv_results[f'split{split}_test_score'][i] for split in range(n_splits)]
-        
-        # Gather split-specific scores
-        for split in range(n_splits):
-            row[f'split{split}_test_score'] = cv_results[f'split{split}_test_score'][i]
-            
-        rows.append(row)
-    
+        data.append(fold_data)
     # Create DataFrame
-    df = pd.DataFrame(rows)
+    df = pd.DataFrame(data)
     return df
 
-# # Using the adjusted function
-# df = prepare_cv_results_dataframe(cv_results)
-# df
+def detect_structure_type(model_results):
+    """
+    Detects the structure type of model results.
 
-#XXX TODO
-"""
-                Optimized Results 
-====================================================
-(1)               RandomForestClassifier 
-    ................................................
-                     Model Results                  
-    ================================================
-    Best estimator   : str
-    Best parameters  : {'depth': 1, 'gamma': 0.1}
-    nCV              : 2
-    Scoring          : Unknown scoring
-    ================================================
-    
-                     Tuning Results                 
-    ================================================
-      Fold Mean score CV score std score Global mean
-    ------------------------------------------------
-    0  cv1     0.6233   0.6789    0.0555      0.6233
-    1  cv2     0.8500   0.9000    0.0500      0.8500
-    ================================================
-    
-    ................................................
-(2)                        SVC
-    ------------------------------------------------
-                     Model Results                  
-    ================================================
-    Best estimator   : str
-    Best parameters  : {'C': 1, 'gamma': 0.1}
-    nCV              : 2
-    Scoring          : Unknown scoring
-    ================================================
-    
-                     Tuning Results                 
-    ================================================
-      Fold Mean score CV score std score Global mean
-    ------------------------------------------------
-    0  cv1     0.6233   0.6789    0.0555      0.6233
-    1  cv2     0.8500   0.9000    0.0500      0.8500
-    ================================================ 
-  
-====================================================
+    This function checks the structure of the model results to determine if it
+    matches the format of structure_1 (a single model's results) or structure_2
+    (multiple models' results stored in a nested manner).
 
-""" 
-def summarize_multi_model_results(
-    muli_model_results, 
-    title=None, 
-    max_width=100,
-    top_line='=', 
-    sub_line='-', 
-    bottom_line='='
-    ):
+    Parameters
+    ----------
+    model_results : dict
+        A dictionary containing model fitting results, which could follow the format
+        of either structure_1 or structure_2.
 
-    # 
-    # multi model is a dict with the key the model name and the values the model 
-    # results. for instance 
-    
-    pass 
+    Returns
+    -------
+    str
+        A string indicating the detected structure type: either 'structure_1' for a
+        single model's results, 'structure_2' for multiple models' results, or
+        'unknown' if the structure does not match either expected format.
+
+    Examples
+    --------
+    >>> structure_1 = {'best_estimator_': "Model1", 'best_params_': {}, 'cv_results_': {}}
+    >>> print(detect_structure_type(structure_1))
+    'structure_1'
+
+    >>> structure_2 = {'estimator1': {'best_estimator_': "Model1",
+    ...                                  'best_params_': {}, 'cv_results_': {}}}
+    >>> print(detect_structure_type(structure_2))
+    'structure_2'
+
+    >>> unknown_structure = {'model': "Model1", 'parameters': {}}
+    >>> print(detect_structure_type(unknown_structure))
+    'unknown'
+
+    Notes
+    -----
+    - The function assumes that the input dictionary contains the results of model
+      fitting processes, which may include information such as the best estimator,
+      best parameters, and cross-validation results.
+    - The detection is based on the presence of specific keys or the structure of
+      nested dictionaries.
+    """
+    # Check for structure_1 by looking for specific keys directly in model_results
+    structure_1_keys = {'best_estimator_', 'best_params_', 'cv_results_'}
+    if all(key in standardize_keys(model_results) for key in structure_1_keys):
+        return 'structure_1'
+
+    # Check for structure_2 by looking for nested dictionaries that contain specific keys
+    if all(isinstance(val, dict) and all(key in val for key in structure_1_keys) 
+           for val in model_results.values()):
+        return 'structure_2'
+
+    # If neither structure is detected, return 'unknown'
+    return 'unknown'
+
 def format_dataframe(
     df, title=None, 
     max_text_length=50, 
@@ -1288,7 +1549,6 @@ def format_dataframe(
              f"{header}\n{separator}\n") + "\n".join(rows) + f"\n{top_bottom_border}"
     
     return table
-
 
 def format_key(key, max_length=None, include_colon=False, alignment='left',
                pad_colon=False):
@@ -1944,7 +2204,6 @@ def uniform_dfs_formatter(
     titles = (titles or [''])[:len(dfs)] + [''] * (len(dfs) - len(titles or [])) 
     
     # Calculate the automatic maximum width among all DataFrames, adding aesthetic spaces
-    print(dfs)
     auto_max_width = max(get_table_width(df) for df in dfs) + aesthetic_space_allocation
 
     # Adjust max_width based on the 'auto' setting or ensure it respects the calculated width
@@ -1968,33 +2227,6 @@ def uniform_dfs_formatter(
 
     return summary_report
 
-# class AnovaResults:
-#     """
-#     Anova results class
-
-#     Attributes
-#     ----------
-#     anova_table : DataFrame
-#     """
-#     def __init__(self, anova_table):
-#         self.anova_table = anova_table
-
-#     def __str__(self):
-#         return self.summary().__str__()
-
-#     def summary(self):
-#         """create summary results
-
-#         Returns
-#         -------
-#         summary : summary2.Summary instance
-#         """
-#         summ = summary2.Summary()
-#         summ.add_title('Anova')
-#         summ.add_df(self.anova_table)
-
-#         return summ
-
 
 if __name__ == "__main__":
     # Example usage:
@@ -2011,16 +2243,7 @@ if __name__ == "__main__":
     formatted_report = format_report(report_data, report_title)
     print(formatted_report)
     
-    # report = Report(title="Example Report")
-    # report.add_data_ops_report({
-    #     "key1": np.random.random(),
-    #     "key2": "value2",
-    #     "key3": pd.Series([1, 2, 3], name="series_name"),
-    #     "key4": pd.DataFrame(np.random.rand(4, 3), columns=["col1", "col2", "col3"])
-    # })
-    # print(report)
-    
-    # # Creating an example DataFrame
+
     df_data = {
         'A': [1, 2, 3, 4, 5],
         'B': [5, 6, None, 8, 9],
