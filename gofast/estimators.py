@@ -76,11 +76,11 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
     learning estimator.
 
     The KMFClassifier first employs the KMeansFeaturizer algorithm to transform 
-    the input data into cluster memberships based on k-means clustering. Each 
-    data point is represented by its closest cluster center. This transformed 
+    the input data into cluster memberships based on k-means clustering [1]_. 
+    Each data point is represented by its closest cluster center. This transformed 
     data, capturing the inherent clustering structure, is then used to train a 
-    specified base estimator. The approach aims to enhance the performance of 
-    the base estimator by leveraging the additional structure introduced by 
+    specified base estimator [2]_. The approach aims to enhance the performance 
+    of the base estimator by leveraging the additional structure introduced by 
     the clustering process.
 
     The mathematical formulation of the k-means clustering involves minimizing 
@@ -99,7 +99,7 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
     follows the standard k-means objective of minimizing the intra-cluster variance. 
     However, when the target variable y is included, the feature space is augmented 
     by stacking y with X. The KMF algorithm then minimizes a modified objective 
-    function:
+    function [3]_:
 
     \[
     \min_{C_1,\cdots,C_k, \mu'_1,\cdots,\mu'_k} \sum_{i=1}^{k} \left( \sum_{x y \in C_i} \|x y - \mu'_i \|_2^2 \right)
@@ -206,13 +206,17 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
 
     References
     ----------
-    - MacQueen, J. (1967). Some methods for classification and analysis of multivariate 
-      observations. Proceedings of the 5th Berkeley Symposium on Mathematical Statistics 
-      and Probability. 1:281-297.
-    - Pedregosa, F. et al. (2011). Scikit-learn: Machine Learning in Python. Journal of 
-      Machine Learning Research. 12:2825-2830.
-    - Kouadio, K.L. et al. (2024). K-Means Featurizer: A booster for intricate datasets.
-      Earth Sci. Informatics. 12: 
+    .. [1] Kouadio, K.L., Liu, J., Liu, R., Wang, Y., Liu, W., 2024. 
+          K-Means Featurizer: A booster for intricate datasets. Earth Sci. 
+          Informatics 17, 1203–1228. https://doi.org/10.1007/s12145-024-01236-3
+          
+    .. [2] MacQueen, J. (1967). Some methods for classification and analysis of multivariate 
+           observations. Proceedings of the 5th Berkeley Symposium on Mathematical Statistics 
+           and Probability. 1:281-297.
+           
+    .. [3] Pedregosa, F. et al. (2011). Scikit-learn: Machine Learning in Python. Journal of 
+           Machine Learning Research. 12:2825-2830.
+    
     """
     def __init__(
         self,
@@ -393,7 +397,7 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
 
     This regressor first transforms the data into k-means cluster memberships 
     using the KMeansFeaturizer algorithm adapted to the regression task , then 
-    applies a base regressor to the transformed data.
+    applies a base regressor to the transformed data [1]_.
 
     The mathematical formulation of the k-means clustering involves minimizing 
     the inertia, or within-cluster sum-of-squares criterion.
@@ -507,6 +511,12 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
     >>> kmf_regressor = KMFRegressor(base_regressor=LinearRegression(), n_clusters=5)
     >>> kmf_regressor.fit(X_train, y_train)
     >>> y_pred = kmf_regressor.predict(X_test)
+    
+    References 
+    -----------
+    .. [1] Kouadio, K.L., Liu, J., Liu, R., Wang, Y., Liu, W., 2024. 
+          K-Means Featurizer: A booster for intricate datasets. Earth Sci. 
+          Informatics 17, 1203–1228. https://doi.org/10.1007/s12145-024-01236-3
     """
     def __init__(
         self, base_regressor, 

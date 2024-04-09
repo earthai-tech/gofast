@@ -17,7 +17,7 @@ from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from .._typing import Any, Dict, List,Union, Tuple, Optional, ArrayLike
 from ..tools.coreutils import ellipsis2false , smart_format
 from ..tools.validator import get_estimator_name 
-from ..tools.box import Boxspace 
+from ..tools.box import KeyBox 
 from .utils import get_optimizer_method, align_estimators_with_params
 
 __all__=["optimize_search", "optimize_search2", "parallelize_search", 
@@ -172,7 +172,7 @@ def optimize_search2(estimators, param_grids, X, y, optimizer='GSCV',
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y)
     >>> estimators = [RandomForestClassifier()]
     >>> param_grids = [{'n_estimators': [100, 200], 'max_depth': [10, 20]}]
-    >>> _=optimize_search2(estimators, param_grids, X_train, y_train)
+    >>> result_dict=optimize_search2(estimators, param_grids, X_train, y_train)
     """
     def validate_parameters():
         return align_estimators_with_params (param_grids, estimators)
@@ -383,7 +383,7 @@ def parallelize_search(
                                    "best_estimator_": best_estimator, 
                                    "cv_results_": cv_results
                                    }
-            o[f"{est_name}"]= Boxspace ( ** pack [f"{est_name}"])
+            o[f"{est_name}"]= KeyBox ( ** pack [f"{est_name}"])
             
             if  not pack_models: 
                 # save all model individualy and append index 
@@ -394,7 +394,7 @@ def parallelize_search(
         if pack_models: 
             joblib.dump(pack , filename= f"{file_prefix}.joblib")
 
-    return Boxspace( **o)
+    return KeyBox( **o)
 
 def _get_optimizer_method(optimizer: str) -> Any:
     """

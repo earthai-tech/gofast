@@ -3,11 +3,10 @@
 Created on Wed Dec 20 13:47:57 2023
 @author: LKouadio <etanoyau@gmail.com>
 """
-
+import pytest # noqa 
 from sklearn.datasets import load_iris
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
-
 from gofast.models.optimize import parallelize_search 
 
 X, y = load_iris(return_X_y=True)

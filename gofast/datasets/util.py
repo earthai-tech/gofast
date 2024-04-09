@@ -13,7 +13,7 @@ import pandas as pd
 from typing import Tuple, Optional, Union
 
 from ..api.formatter import DescriptionFormatter
-from ..tools.box import Boxspace
+from ..api.structures import Boxspace
 from ..compat.sklearn import  train_test_split 
 from ..tools.coreutils import is_in_if, add_noises_to
 from ..tools.coreutils import smart_format, is_iterable, validate_ratio 

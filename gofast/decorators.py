@@ -45,12 +45,12 @@ Contributions:
 """
 
 from __future__ import print_function 
-import functools
-import inspect
 import os
 import re
 import sys
+import inspect
 import warnings
+import functools
 import numpy as np 
 import pandas as pd
 import matplotlib.pyplot as plt 

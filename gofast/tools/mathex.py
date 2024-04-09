@@ -41,7 +41,7 @@ from .._typing import (
     DataFrame,
     Dict,
 )
-from .box import Boxspace 
+from .box import KeyBox 
 from .coreutils import (
     _assert_all_types, 
     _validate_name_in, 
@@ -4038,7 +4038,7 @@ def quality_control2(
     data = tuple (data )
     # make QCO object 
     if return_qco: 
-        data = Boxspace( **dict (
+        data = KeyBox( **dict (
             tol=tol, 
             rate_= float(np.around (ck, 2)), 
             data_=  np.delete ( ar, index , axis =0 )

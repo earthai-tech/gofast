@@ -8,9 +8,6 @@ stratigraphic details for log construction.
 """
 from __future__ import annotations 
 
-# import re 
-# import inspect
-# import itertools
 import warnings
 import copy 
 import numpy as np

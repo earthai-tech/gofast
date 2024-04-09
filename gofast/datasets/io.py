@@ -13,7 +13,7 @@ import pandas as pd
 from pathlib import Path 
 from importlib import resources
 from collections import namedtuple
-from ..tools.box import Boxspace 
+from ..api.structures import Boxspace  
 from ..tools.baseutils import is_readable 
 from ..tools.coreutils import random_state_validator, is_iterable
 from ..tools.coreutils import exist_features

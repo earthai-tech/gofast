@@ -81,6 +81,7 @@ def format_to_datetime(data, date_col, verbose=0, **dt_kws):
 
     Examples
     --------
+    >>> from gofast.tools.coreutils import format_to_datetime
     >>> df = pd.DataFrame({
     ...     'Date': ['2021-01-01', '01/02/2021', '03-Jan-2021', '2021.04.01',
                      '05 May 2021'],
@@ -224,8 +225,7 @@ def unpack_list_of_dicts(list_of_dicts):
             unpacked_dict[key].extend(values)
     return dict(unpacked_dict)  # Convert defaultdict back to dict if required
 
-def get_params (obj: object 
-                ) -> dict: 
+def get_params (obj: object ) -> dict: 
     """
     Get object parameters. 
     
@@ -237,7 +237,7 @@ def get_params (obj: object
     
     :examples: 
     >>> from sklearn.svm import SVC 
-    >>> from gofast.base import get_params 
+    >>> from gofast.tools.coreutils import get_params 
     >>> sigmoid= SVC (
         **{
             'C': 512.0,
@@ -309,7 +309,7 @@ def is_classification_task(
 
     Examples
     --------
-    >>> from gofast.tools.funcutils import is_classification_task 
+    >>> from gofast.tools.coreutils import is_classification_task 
     >>> y_true = [0, 1, 1, 0, 1]
     >>> y_pred = [0, 1, 0, 0, 1]
     >>> is_classification_task(y_true, y_pred)
@@ -467,7 +467,7 @@ def to_numeric_dtypes(
     Examples
     --------
     >>> from gofast.datasets.dload import load_bagoue
-    >>> from gofast.tools.funcutils import to_numeric_dtypes
+    >>> from gofast.tools.coreutils import to_numeric_dtypes
     >>> X= load_bagoue(as_frame=True)
     >>> X0 = X[['shape', 'power', 'magnitude']]
     >>> df, nf, cf = to_numeric_dtypes(X0, return_feature_types=True)
@@ -597,7 +597,7 @@ def listing_items_format (
         None or string litteral if verbose is set to ``False``.
     Examples
     ---------
-    >>> from gofast.tools.funcutils import listing_items_format 
+    >>> from gofast.tools.coreutils import listing_items_format 
     >>> litems = ['hole_number', 'depth_top', 'depth_bottom', 'strata_name', 
                 'rock_name','thickness', 'resistivity', 'gamma_gamma', 
                 'natural_gamma', 'sp','short_distance_gamma', 'well_diameter']
@@ -661,7 +661,7 @@ def parse_attrs (attr, /, regex=None ):
     
     Example
     ---------
-    >>> from gofast.tools.funcutils import parse_attrs 
+    >>> from gofast.tools.coreutils import parse_attrs 
     >>> parse_attrs('lwi_sub_ohmSmulmagnitude')
     ... ['lwi', 'ohmS', 'magnitude']
     
@@ -698,7 +698,7 @@ def url_checker (url: str , install:bool = False,
         
     Example
     ----------
-    >>> from gofast.tools.funcutils import url_checker 
+    >>> from gofast.tools.coreutils import url_checker 
     >>> url_checker ("http://www.example.com")
     ...  0 # not reacheable 
     >>> url_checker ("https://gofast.readthedocs.io/en/latest/api/gofast.html")
@@ -777,7 +777,7 @@ def shrunkformat (
     :example: 
         
     >>> import numpy as np 
-    >>> from gofast.tools.funcutils import shrunkformat
+    >>> from gofast.tools.coreutils import shrunkformat
     >>> text=" I'm a long text and I will be shrunked and replaced by ellipsis."
     >>> shrunkformat (text)
     ... 'Im a long ... and replaced by ellipsis.'
@@ -1044,7 +1044,7 @@ def repr_callable_obj(obj: _F  , skip = None ):
     
     :Examples: 
         
-    >>> from gofast.tools.funcutils import repr_callable_obj
+    >>> from gofast.tools.coreutils import repr_callable_obj
     >>> from gofast.methods.electrical import  ResistivityProfiling
     >>> repr_callable_obj(ResistivityProfiling)
     ... 'ResistivityProfiling(station= None, dipole= 10.0, 
@@ -1116,7 +1116,7 @@ def accept_types (
     
     :Example: 
         >>> import numpy as np; import pandas as pd 
-        >>> from gofast.tools.funcutils import accept_types
+        >>> from gofast.tools.coreutils import accept_types
         >>> accept_types (pd.Series, pd.DataFrame, tuple, list, str)
         ... "'Series','DataFrame','tuple','list' and 'str'"
         >>> atypes= accept_types (
@@ -1190,7 +1190,7 @@ def smart_format(iter_obj, choice ='and'):
     :param choice: can be 'and' or 'or' for optional.
     
     :Example: 
-        >>> from gofast.tools.funcutils import smart_format
+        >>> from gofast.tools.coreutils import smart_format
         >>> smart_format(['model', 'iter', 'mesh', 'data'])
         ... 'model','iter','mesh' and 'data'
     """
@@ -1502,7 +1502,7 @@ def display_infos(infos, **kws):
     :param header: Change the `header` to other names. 
     
     :Example: 
-    >>> from gofast.tools.funcutils import display_infos
+    >>> from gofast.tools.coreutils import display_infos
     >>> ipts= ['river water', 'fracture zone', 'granite', 'gravel',
          'sedimentary rocks', 'massive sulphide', 'igneous rocks', 
          'gravel', 'sedimentary rocks']
@@ -1582,7 +1582,7 @@ def convert_csvdata_from_fr_to_en(csv_fn, pf, destfile = 'pme.en.csv',
         # to execute this script, we need to import the two modules below
         >>> import os 
         >>> import csv 
-        >>> from gofast.tools.funcutils import convert_csvdata_from_fr_to_en
+        >>> from gofast.tools.coreutils import convert_csvdata_from_fr_to_en
         >>> path_pme_data = r'C:/Users\Administrator\Desktop\__elodata
         >>> datalist=convert_csvdata_from_fr_to_en(
             os.path.join( path_pme_data, _enuv2.csv') , 
@@ -1667,7 +1667,7 @@ def sanitize_unicode_string (str_) :
     """ Replace all spaces and remove all french accents characters.
     
     :Example:
-    >>> from gofast.tools.funcutils import sanitize_unicode_string 
+    >>> from gofast.tools.coreutils import sanitize_unicode_string 
     >>> sentence ='Nos clients sont extrêmement satisfaits '
         'de la qualité du service fourni. En outre Nos clients '
             'rachètent frequemment nos "services".'
@@ -2143,7 +2143,7 @@ def fmt_text(
     
     :Example: 
         
-        >>> from gofast.tools.funcutils import fmt_text
+        >>> from gofast.tools.coreutils import fmt_text
         >>> fmt_text(anFeatures =[1,130, 93,(146,145, 125)])
     
     """
@@ -2221,7 +2221,7 @@ def reshape(arr , axis = None) :
     
     :Example: 
         >>> import numpy as np 
-        >>> from gofast.tools.funcutils import reshape 
+        >>> from gofast.tools.coreutils import reshape 
         >>> array = np.random.randn(50 )
         >>> array.shape
         ... (50,)
@@ -2290,7 +2290,7 @@ def ismissing(refarr, arr, fill_value = np.nan, return_index =False):
     :Example: 
         
     >>> import numpy as np 
-    >>> from gofast.tools.funcutils import ismissing
+    >>> from gofast.tools.coreutils import ismissing
     >>> refreq = np.linspace(7e7, 1e0, 20) # 20 frequencies as reference
     >>> # remove the value between index 7 to 12 and stack again
     >>> freq = np.hstack ((refreq.copy()[:7], refreq.copy()[12:] ))  
@@ -2384,7 +2384,7 @@ def make_arr_consistent (
     Examples 
     ----------
     >>> import numpy as np 
-    >>> from gofast.tools.funcutils import make_arr_consistent
+    >>> from gofast.tools.coreutils import make_arr_consistent
     >>> refarr = np.arange (12) 
     >>> arr = np.arange (7, 10) 
     >>> make_arr_consistent (refarr, arr ) 
@@ -2471,7 +2471,7 @@ def fillNaN(arr, method ='ff'):
     --------- 
         
     >>> import numpy as np 
-    >>> from from gofast.tools.funcutils import fillNaN 
+    >>> from from gofast.tools.coreutils import fillNaN 
     >>> arr2d = np.random.randn(7, 3)
     >>> # change some value into NaN 
     >>> arr2d[[0, 2, 3, 3 ],[0, 2,1, 2]]= np.nan
@@ -2580,7 +2580,7 @@ def fit_ll(ediObjs, by ='index', method ='strict', distance='cartesian' ):
     :Example: 
         >>> import numpy as np 
         >>> from gofast.methods.em import EM
-        >>> from gofast.tools.funcutils import fit_ll
+        >>> from gofast.tools.coreutils import fit_ll
         >>> edipath ='data/edi_ss' 
         >>> cediObjs = EM().fit (edipath) 
         >>> ediObjs = np.random.permutation(cediObjs.ediObjs) # shuffle the  
@@ -2611,7 +2611,7 @@ def fit_ll(ediObjs, by ='index', method ='strict', distance='cartesian' ):
 def _fit_ll(ediObjs, distance='cartes', by = 'index'): 
     """ Fit ediObjs using the `strict method`. 
     
-    An isolated part of :func:`gofast.tools.funcutils.fit_by_ll`. 
+    An isolated part of :func:`gofast.tools.coreutils.fit_by_ll`. 
     """
     # get one obj randomnly and compute distance 
     obj_init = ediObjs[0]
@@ -2668,7 +2668,7 @@ def _fit_ll(ediObjs, distance='cartes', by = 'index'):
 
 def _compute_haversine_d(lat1, lon1, lat2, lon2): 
     """ Sort coordinates using Haversine distance calculus. 
-    An isolated part of :func:`gofast.tools.funcutils._fit_by_ll"""
+    An isolated part of :func:`gofast.tools.coreutils._fit_by_ll"""
     # get reference_lat and reference lon 
     # get one obj randomnly and compute distance 
     # obj_init = np.random.choice (ediObjs) 
@@ -2777,7 +2777,7 @@ def concat_array_from_list (list_of_array , concat_axis = 0) :
     :Example: 
         
     >>> import numpy as np 
-    >>> from gofast.tools.funcutils import concat_array_from_list 
+    >>> from gofast.tools.coreutils import concat_array_from_list 
     >>> np.random.seed(0)
     >>> ass=np.random.randn(10)
     >>> ass = ass2=np.linspace(0,15,10)
@@ -2834,7 +2834,7 @@ def station_id (id_, is_index= 'index', how=None, **kws):
     
     :Example:
         
-    >>> from gofast.tools.funcutils import station_id 
+    >>> from gofast.tools.coreutils import station_id 
     >>> dat1 = ['S13', 's02', 's85', 'pk20', 'posix1256']
     >>> station_id (dat1)
     ... (13, 2, 85, 20, 1256)
@@ -3003,7 +3003,7 @@ def parse_json(json_fn =None,
         >>> TRES=[10, 66,  70, 100, 1000, 3000]# 7000]     
         >>> LNS =['river water','fracture zone', 'MWG', 'LWG', 
               'granite', 'igneous rocks', 'basement rocks']
-        >>> import gofast.tools.funcutils as FU
+        >>> import gofast.tools.coreutils as FU
         >>> geo_kws ={'oc2d': INVERS_KWS, 
                       'TRES':TRES, 'LN':LNS}
         # serialize json data and save to  'jsontest.json' file
@@ -3117,7 +3117,7 @@ def parse_csv(
     https://stackoverflow.com/questions/10373247/how-do-i-write-a-python-dictionary-to-a-csv-file
         ...
     :Example:
-        >>> import gofast.tools.funcutils as FU
+        >>> import gofast.tools.coreutils as FU
         >>> PATH = 'data/model'
         >>> k_ =['model', 'iter', 'mesh', 'data']
         >>> try : 
@@ -3536,7 +3536,7 @@ def is_iterable (
     :param parse_string: bool, parse string and convert the list of string 
         into iterable object is the `y` is a string object and containg the 
         word separator character '[#&.*@!_,;\s-]'. Refer to the function 
-        :func:`~gofast.tools.funcutils.str2columns` documentation.
+        :func:`~gofast.tools.coreutils.str2columns` documentation.
         
     :returns: 
         - bool, or iterable object if `transform` is set to ``True``. 
@@ -3548,7 +3548,7 @@ def is_iterable (
         :func:`.str2columns`. Use the latter for string parsing instead. 
         
     :Examples: 
-    >>> from gofast.funcutils.is_iterable 
+    >>> from gofast.coreutils.is_iterable 
     >>> is_iterable ('iterable', exclude_string= True ) 
     Out[28]: False
     >>> is_iterable ('iterable', exclude_string= True , transform =True)
@@ -3567,7 +3567,7 @@ def is_iterable (
     if (parse_string and not transform) and isinstance (y, str): 
         raise ValueError ("Cannot parse the given string. Set 'transform' to"
                           " ``True`` otherwise use the 'str2columns' utils"
-                          " from 'gofast.tools.funcutils' instead.")
+                          " from 'gofast.tools.coreutils' instead.")
     y = str2columns(y) if isinstance(y, str) and parse_string else y 
     
     isiter = False  if exclude_string and isinstance (
@@ -3601,7 +3601,7 @@ def str2columns (text, /, regex=None , pattern = None):
     
     Examples
     ---------
-    >>> from gofast.tools.funcutils import str2columns 
+    >>> from gofast.tools.coreutils import str2columns 
     >>> text = ('this.is the text to split. It is an: example of; splitting str - to text.')
     >>> str2columns (text )  
     ... ['this',
@@ -3668,7 +3668,7 @@ def sanitize_frame_cols(
         
     Examples 
     ---------
-    >>> from gofast.tools.funcutils import sanitize_frame_cols 
+    >>> from gofast.tools.coreutils import sanitize_frame_cols 
     >>> from gofast.tools.coreutils import read_data 
     >>> h502= read_data ('data/boreholes/H502.xlsx') 
     >>> h502 = sanitize_frame_cols (h502, fill_pattern ='_' ) 
@@ -3769,7 +3769,7 @@ def to_hdf5(d, /, fn, objname =None, close =True,  **hdf5_kws):
     Examples 
     ------------
     >>> import os 
-    >>> from gofast.tools.funcutils import sanitize_frame_cols, to_hdf5 
+    >>> from gofast.tools.coreutils import sanitize_frame_cols, to_hdf5 
     >>> from gofast.tools import read_data 
     >>> data = read_data('data/boreholes/H502.xlsx') 
     >>> sanitize_frame_cols (data, fill_pattern='_', inplace =True ) 
@@ -3861,7 +3861,7 @@ def find_by_regex (o , /, pattern,  func = re.match, **kws ):
         
     Example
     --------
-    >>> from gofast.tools.funcutils import find_by_regex
+    >>> from gofast.tools.coreutils import find_by_regex
     >>> from gofast.datasets import load_hlogs 
     >>> X0, _= load_hlogs (as_frame =True )
     >>> columns = X0.columns 
@@ -3920,7 +3920,7 @@ def is_in_if (o: iter, /, items: str | iter, error = 'raise',
         
     :example: 
         >>> from gofast.datasets import load_hlogs 
-        >>> from gofast.tools.funcutils import is_in_if 
+        >>> from gofast.tools.coreutils import is_in_if 
         >>> X0, _= load_hlogs (as_frame =True )
         >>> is_in_if  (X0 , items= ['depth_top', 'top']) 
         ... ValueError: Item 'top' is missing in the object 
@@ -4282,7 +4282,7 @@ def smart_label_classifier (
     Examples
     ----------
     >>> import numpy as np
-    >>> from gofast.tools.funcutils import smart_label_classifier
+    >>> from gofast.tools.coreutils import smart_label_classifier
     >>> sc = np.arange (0, 7, .5 ) 
     >>> smart_label_classifier (sc, values = [1, 3.2 ]) 
     array([0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2], dtype=int64)
@@ -4426,7 +4426,7 @@ def _smart_mapper (k, /,  kr , return_dict_map =False ) :
     :return: int - new categorical class 
     
     :Example: 
-    >>> from gofast.tools.funcutils import _smart_mapper 
+    >>> from gofast.tools.coreutils import _smart_mapper 
     >>> _smart_mapper (10000 , ( 500, 1500, 2000, 3500) )
     Out[158]: 4
     >>> _smart_mapper (10000 , ( 500, 1500, 2000, 3500) , return_dict_map=True)
@@ -4501,7 +4501,7 @@ def zip_extractor(
      
     Examples 
     ----------
-    >>> from gofast.tools.funcutils import zip_extractor 
+    >>> from gofast.tools.coreutils import zip_extractor 
     >>> zip_extractor ('gofast/datasets/data/edis/e.E.zip')
     
     """
@@ -4667,7 +4667,7 @@ def remove_outliers (
     ---------
     >>> import numpy as np 
     >>> np.random.seed (42 )
-    >>> from gofast.tools.funcutils import remove_outliers 
+    >>> from gofast.tools.coreutils import remove_outliers 
     >>> data = np.random.randn (7, 3 )
     >>> data_r = remove_outliers ( data )
     >>> data.shape , data_r.shape 
@@ -4782,7 +4782,7 @@ def normalizer ( arr, /, method ='naive'):
     Examples
     ----------
     >>> import numpy as np 
-    >>> from gofast.tools.funcutils import normalizer 
+    >>> from gofast.tools.coreutils import normalizer 
     >>> np.random.seed (42)
     >>> arr = np.random.randn (3, 2 ) 
     array([[ 0.49671415, -0.1382643 ],
@@ -4846,7 +4846,7 @@ def _validate_name_in (name, /, defaults = '', expect_name= None,
       
     Examples 
     -------
-    >>> from gofast.tools.funcutils import _validate_name_in 
+    >>> from gofast.tools.coreutils import _validate_name_in 
     >>> dnames = ('NAME', 'FIST NAME', 'SUrname')
     >>> _validate_name_in ('name', defaults=dnames )
     False 
@@ -4919,7 +4919,7 @@ def get_confidence_ratio (
            [ 4,  8],
            [10, 19],
            [ 5,  7]])
-    >>> from gofast.tools.funcutils import get_confidence_ratio 
+    >>> from gofast.tools.coreutils import get_confidence_ratio 
     >>> get_confidence_ratio (test)
     >>> array([1., 1.])
     >>> get_confidence_ratio (test, invalid= ( 13, 19) )
@@ -5209,7 +5209,7 @@ def interpolate_grid (
     Examples
     ---------
     >>> import numpy as np
-    >>> from gofast.tools.funcutils import interpolate_grid 
+    >>> from gofast.tools.coreutils import interpolate_grid 
     >>> x = [28, np.nan, 50, 60] ; y = [np.nan, 1000, 2000, 3000]
     >>> xy = np.vstack ((x, y))._T
     >>> xyi = interpolate_grid (xy, view=True ) 
@@ -5306,7 +5306,7 @@ def random_selector (
     Examples 
     ----------
     >>> import numpy as np 
-    >>> from gofast.tools.funcutils import random_selector 
+    >>> from gofast.tools.coreutils import random_selector 
     >>> dat= np.arange (42 ) 
     >>> random_selector (dat , 7, seed = 42 ) 
     array([0, 1, 2, 3, 4, 5, 6])
@@ -5617,7 +5617,7 @@ def get_xy_coordinates (d, / , as_frame = False, drop_xy = False,
     Examples 
     ----------
     >>> import gofast as gf 
-    >>> from gofast.tools.funcutils import get_xy_coordinates 
+    >>> from gofast.tools.coreutils import get_xy_coordinates 
     >>> testdata = gf.make_erp ( n_stations =7, seed =42 ).frame 
     >>> xy, d, xynames = get_xy_coordinates ( testdata,  )
     >>> xy , xynames 
@@ -5776,7 +5776,7 @@ def pair_data(
     Examples 
     ----------
     >>> import gofast as gf 
-    >>> from gofast.tools.funcutils import pair_data 
+    >>> from gofast.tools.coreutils import pair_data 
     >>> data = gf.make_erp (seed =42 , n_stations =12, as_frame =True ) 
     >>> table1 = gf.DCProfiling ().fit(data).summary()
     >>> table1 
@@ -5935,7 +5935,7 @@ def read_worksheets(*data):
     Examples 
     -----------
     >>> import os 
-    >>> from gofast.tools.funcutils import read_worksheets 
+    >>> from gofast.tools.coreutils import read_worksheets 
     >>> sheet_file= r'_F:\repositories\gofast\data\erp\sheets\gbalo.xlsx'
     >>> data, snames =  read_worksheets (sheet_file )
     >>> snames 
@@ -6024,7 +6024,7 @@ def key_checker (
     Examples
     --------
     
-    >>> from gofast.tools.funcutils import key_checker
+    >>> from gofast.tools.coreutils import key_checker
     >>> key_checker('h502', valid_keys= ['h502', 'h253','h2601'])  
     Out[68]: 'h502'
     >>> key_checker('h502+h2601', valid_keys= ['h502', 'h253','h2601'])
@@ -6117,7 +6117,7 @@ def random_sampling (
     
     Examples
     ---------
-    >>> from gofast.tools.funcutils import random_sampling 
+    >>> from gofast.tools.coreutils import random_sampling 
     >>> from gofast.datasets import load_hlogs 
     >>> data= load_hlogs().frame
     >>> random_sampling( data, samples = 7 ).shape 
@@ -6223,7 +6223,7 @@ def make_obj_consistent_if (
        
     Examples 
     ----------
-    >>> from gofast.tools.funcutils import make_obj_consistent_if
+    >>> from gofast.tools.coreutils import make_obj_consistent_if
     >>> from gofast.exlib import SVC, LogisticRegression, XGBClassifier 
     >>> classifiers = ["SVC", "LogisticRegression", "XGBClassifier"] 
     >>> classifier_names = ['SVC', 'LR'] 
@@ -6287,7 +6287,7 @@ def replace_data(
     Examples
     ---------
     >>> import numpy as np 
-    >>> from gofast.tools.funcutils import replace_data
+    >>> from gofast.tools.coreutils import replace_data
     >>> X, y = np.random.randn ( 7, 2 ), np.arange(7)
     >>> X.shape, y.shape 
     ((7, 2), (7,))
@@ -6340,7 +6340,7 @@ def convert_value_in (v, /, unit ='m'):
        
     Examples 
     ---------
-    >>> from gofast.tools.funcutils import convert_value_in 
+    >>> from gofast.tools.coreutils import convert_value_in 
     >>> convert_value_in (20) 
     20.0
     >>> convert_value_in ('20mm') 
@@ -6393,7 +6393,7 @@ def split_list(lst:List[Any, ...],/,  val:int, fill_value:Any=None ):
     
     Examples
     --------
-    >>> from gofast.tools.funcutils import split_list
+    >>> from gofast.tools.coreutils import split_list
     >>> lst = [1, 2, 3, 4, 5, 6, 7, 8]
     >>> val = 3
     >>> print(split_list(lst, val))
@@ -6466,7 +6466,7 @@ def key_search (
 
     Examples
     ---------
-    >>> from gofast.tools.funcutils import key_search 
+    >>> from gofast.tools.coreutils import key_search 
     >>> key_search('h502-hh2601', default_keys= ['h502', 'h253','HH2601'])
     Out[44]: ['h502']
     >>> key_search('h502-hh2601', default_keys= ['h502', 'h253','HH2601'], 
@@ -6548,7 +6548,7 @@ def repeat_item_insertion(text, /, pos, item ='', fill_value=''):
       
     Examples
     ----------
-    >>> from gofast.tools.funcutils import repeat_item_insertion
+    >>> from gofast.tools.coreutils import repeat_item_insertion
     >>> repeat_item_insertion ( '0125356.45', pos=2, item=':' ) 
     Out[65]: '01:25:35:6.45'
     >>> repeat_item_insertion ( 'Function inserts car in text.', pos=10, item='TK' )
@@ -6631,7 +6631,7 @@ def numstr2dms (
       
     Examples
     --------
-    >>> from gofast.tools.funcutils import numstr2dms
+    >>> from gofast.tools.coreutils import numstr2dms
     >>> numstr2dms ("1134132.08")
     Out[17]: '113:41:32.08
     >>> numstr2dms ("13'41'32.08")
@@ -6772,7 +6772,7 @@ def store_or_write_hdf5 (
   
     Examples
     --------
-    >>> from gofast.tools.funcutils import store_or_write_hdf5
+    >>> from gofast.tools.coreutils import store_or_write_hdf5
     >>> from gofast.datasets import load_bagoue 
     >>> data = load_bagoue().frame 
     >>> data.geol[:5]
@@ -6891,7 +6891,7 @@ def ellipsis2false( *parameters , default_value: Any=False ):
        parameters, uses the trailing comma for collecting the parameters 
        
     :example: 
-        >>> from gofast.tools.funcutils import ellipsis2false 
+        >>> from gofast.tools.coreutils import ellipsis2false 
         >>> var, = ellipsis2false (...)
         >>> var 
         False
@@ -6976,7 +6976,7 @@ def add_noises_to(data, /, noise=.1, seed =None, gaussian_noise=False ):
 
     Examples
     --------
-    >>> from gofast.tools.funcutils import add_noises_to
+    >>> from gofast.tools.coreutils import add_noises_to
     >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': ['x', 'y', 'z']})
     >>> new_df = add_nan_to_dataframe(df, noises=0.2)
     >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
@@ -7022,7 +7022,7 @@ def fancier_repr_formatter(obj, max_attrs=7):
 
     Examples:
     --------
-    >>> from gofast.tools.funcutils import fancier_repr_formatter
+    >>> from gofast.tools.coreutils import fancier_repr_formatter
     >>> class MyClass:
     >>>     def __init__(self, a, b, c):
     >>>         self.a = a
@@ -7077,7 +7077,7 @@ def generic_getattr(obj, name, default_value=None):
 
     Examples:
     --------
-    >>> from gofast.tools.funcutils import generic_getattr
+    >>> from gofast.tools.coreutils import generic_getattr
     >>> class MyClass:
     >>>     def __init__(self, a, b):
     >>>         self.a = a
@@ -7415,7 +7415,7 @@ def normalize_string(
 
     Examples
     --------
-    >>> from gofast.tools.funcutils import normalize_string
+    >>> from gofast.tools.coreutils import normalize_string
     >>> normalize_string("Hello World", target_strs=["hello", "world"], ignore_case=True)
     'hello world'
     >>> normalize_string("Goodbye World", target_strs=["hello", "goodbye"], 
@@ -7496,7 +7496,7 @@ def format_and_print_dict(data_dict, front_space=4):
 
     Examples
     --------
-    >>> from gofast.tools.funcutils import format_and_print_dict
+    >>> from gofast.tools.coreutils import format_and_print_dict
     >>> sample_dict = {
             'gender': {1: 'Male', 0: 'Female'},
             'age': {1: '35-60', 0: '16-35', 2: '>60'}
@@ -7552,7 +7552,7 @@ def fill_nan_in(
     Example
     -------
     >>> import pandas as pd
-    >>> from gofast.tools.funcutils import fill_nan_in
+    >>> from gofast.tools.coreutils import fill_nan_in
     >>> df = pd.DataFrame({'A': [1, 2, np.nan], 'B': [np.nan, 2, 3]})
     >>> df = fill_nan_in(df, method='median')
     >>> print(df)
@@ -7625,7 +7625,7 @@ def get_valid_kwargs(obj_or_func, raise_warning=False, **kwargs):
     
     Examples
     --------
-    >>> from gofast.tools.funcutils import get_valid_kwargs
+    >>> from gofast.tools.coreutils import get_valid_kwargs
     >>> class MyClass:
     ...     def __init__(self, a, b):
     ...         self.a = a
@@ -7919,7 +7919,7 @@ def extract_coordinates(X, Xt=None, columns=None):
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.tools.funcutils import extract_coordinates
+    >>> from gofast.tools.coreutils import extract_coordinates
     >>> X = np.array([[1, 2], [3, 4]])
     >>> Xt = np.array([[5, 6], [7, 8]])
     >>> extract_coordinates(X, Xt )
@@ -8051,7 +8051,7 @@ def validate_feature(data: Union[DataFrame, Series], /, features: List[str],
 
     Examples
     --------
-    >>> from gofast.tools.funcutils import validate_feature
+    >>> from gofast.tools.coreutils import validate_feature
     >>> import pandas as pd
     >>> data = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
     >>> result = validate_feature(data, ['A', 'C'], verbose='raise')
@@ -8096,7 +8096,7 @@ def features_in(
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.tools.funcutils import features_in
+    >>> from gofast.tools.coreutils import features_in
     >>> data1 = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
     >>> data2 = pd.Series([5, 6], name='C')
     >>> data3 = pd.DataFrame({'X': [7, 8]})
@@ -8206,7 +8206,7 @@ def split_train_test(
     --------
     >>> import pandas as pd
     >>> from sklearn.datasets import load_iris
-    >>> from gofast.tools.funcutils import split_train_test
+    >>> from gofast.tools.coreutils import split_train_test
     >>> data = load_iris(as_frame=True)['data']
     >>> train_set, test_set = split_train_test(data, test_ratio=0.2)
     >>> len(train_set), len(test_set)
@@ -8249,7 +8249,7 @@ def test_set_check_id(
 
     Examples
     --------
-    >>> from gofast.tools.funcutils import test_set_check_id
+    >>> from gofast.tools.coreutils import test_set_check_id
     >>> test_set_check_id(42, test_ratio=0.2, hash=hashlib.md5)
     ... False
     """
@@ -8377,7 +8377,7 @@ def parallelize_jobs(
 
     Examples
     --------
-    >>> from gofast.tools.funcutils import parallelize_jobs
+    >>> from gofast.tools.coreutils import parallelize_jobs
     >>> def greet(name, greeting='Hello'):
     ...     return f"{greeting}, {name}!"
     >>> tasks = [
@@ -8439,7 +8439,7 @@ def denormalize(data: ArrayLike, min_value: float, max_value: float
     Examples
     --------
     >>> import numpy as np
-    >>> from gofast.tools.funcutils import denormalize
+    >>> from gofast.tools.coreutils import denormalize
     >>> normalized_data = np.array([0, 0.5, 1])
     >>> min_value = 10
     >>> max_value = 20
@@ -8519,7 +8519,7 @@ def squeeze_specific_dim(
     --------
     Squeeze the last dimension:
 
-    >>> from gofast.tools.funcutils import squeeze_specific_dim
+    >>> from gofast.tools.coreutils import squeeze_specific_dim
     >>> arr = np.array([[1], [2], [3]])
     >>> print(squeeze_specific_dim(arr).shape)
     (3,)
@@ -8572,7 +8572,7 @@ def contains_delimiter(s: str, delimiters: Union[str, list, set]) -> bool:
 
     Examples
     --------
-    >>> from gofast.tools.funcutils import contains_delimiter
+    >>> from gofast.tools.coreutils import contains_delimiter
     >>> contains_delimiter("example__string", "__")
     True
 

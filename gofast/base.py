@@ -18,7 +18,7 @@ from ._typing import List, Optional, DataFrame, Tuple
 from .exceptions import NotFittedError
 from .tools.baseutils import _is_readable
 from .tools.coreutils import sanitize_frame_cols, exist_features
-from .tools.coreutils import _assert_all_types, repr_callable_obj, reshape 
+from .tools.coreutils import repr_callable_obj, reshape 
 from .tools.coreutils import smart_strobj_recognition, is_iterable
 from .tools.coreutils import format_to_datetime, fancier_repr_formatter
 from .tools.coreutils import to_numeric_dtypes
@@ -3096,6 +3096,7 @@ class FrameOperations:
         >>> df_ops = FrameOperations.fit(df1, df2)
         >>> df_ops.merge_frames(on='A')
         """
+        self.inspect 
         result = self.frames[0]
         for df in self.frames[1:]:
             result = pd.merge(result, df, on=on, how=how, **kws)
@@ -3125,6 +3126,7 @@ class FrameOperations:
         >>> df_ops = FrameOperations(df1, df2)
         >>> df_ops.concat_frames(axis=1)
         """
+        self.inspect 
         return pd.concat(self.dataframes, axis=axis, **kws)
 
     def compare_frames(self):
@@ -3144,8 +3146,9 @@ class FrameOperations:
         >>> df_ops = FrameOperations.fit(df1, df2)
         >>> df_ops.compare_frames()
         """
-        first_df = self.dataframes[0]
-        for df in self.dataframes[1:]:
+        self.inspect 
+        first_df = self.frames[0]
+        for df in self.frames[1:]:
             if not first_df.equals(df):
                 return False
 
@@ -3168,8 +3171,9 @@ class FrameOperations:
         >>> df_ops = FrameOperations.fit(df1, df2)
         >>> df_ops.add_frames()
         """
-        result = self.dataframes[0].copy()
-        for df in self.dataframes[1:]:
+        self.inspect 
+        result = self.frames[0].copy()
+        for df in self.frames[1:]:
             result = result.add(df, fill_value=0)
         return result
     
@@ -3196,11 +3200,32 @@ class FrameOperations:
         >>> conditions = {'A': lambda x: x > 1, 'B': lambda x: x < 6}
         >>> df_ops.conditional_filter(conditions)
         """
-        mask = pd.Series(True, index=self.dataframe.index)
-        for col, condition in conditions.items():
-            mask &= self.dataframe[col].apply(condition)
-            
-        return self.dataframe[mask]
+        self.inspect 
+        new_frames=[]
+        for frame in self.frames: 
+            mask = pd.Series(True, index=frame.index)
+            for col, condition in conditions.items():
+                mask &= frame[col].apply(condition)
+                
+            new_frames.append (frame[mask])
+                
+        return new_frames[0] if len(self.frames)==1 else new_frames
+    
+    @property
+    def inspect(self):
+        """ Inspect data and trigger plot after checking the data entry. 
+        Raises `NotFittedError` if `ExPlot` is not fitted yet."""
+
+        msg = ("{dobj.__class__.__name__} instance is not fitted yet."
+               " Call 'fit' with appropriate arguments before using"
+               " this method"
+               )
+
+        if self.data_ is None:
+            raise NotFittedError(msg.format(
+                dobj=self)
+            )
+        return 1
 
 class MergeableFrames:
     """

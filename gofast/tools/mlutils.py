@@ -3698,8 +3698,8 @@ def soft_imputer(
             Xi, imp = _impute_data(
                 X, strategy, missing_values, fill_value, add_indicator, copy)
         except Exception as e : 
-            raise ValueError( f"Imputation failed due to: {e}. Consider using"
-                             " the 'bi-impute' mode for mixed data types.")
+            raise ValueError("Imputation failed. Consider using the"
+                             " 'bi-impute' mode for mixed data types.") from e 
         if isinstance(X, pd.DataFrame):
             Xi = pd.DataFrame(Xi, index=X.index, columns=imp.feature_names_in_)
             

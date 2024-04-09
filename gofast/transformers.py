@@ -253,12 +253,6 @@ class SequentialBackwardSelector(BaseEstimator, TransformerMixin):
         Controls the shuffling applied to the data before the split.
         An integer value ensures reproducible results across multiple function calls.
     
-    References
-    ----------
-    [1] Raschka, S., Mirjalili, V., Python Machine Learning, 3rd ed., Packt, 2019.
-    [2] Ferri F., Pudil P., Hatef M., Kittler J., Comparative study of
-        techniques for large-scale feature selection, pages 403-413, 1994.
-    
     Attributes
     ----------
     feature_names_ : ndarray of shape (n_features_in,)
@@ -304,6 +298,13 @@ class SequentialBackwardSelector(BaseEstimator, TransformerMixin):
     >>> knn = KNeighborsClassifier(n_neighbors=5)
     >>> sbs = SequentialBackwardSelector(knn)
     >>> sbs.fit(X_train, y_train)
+    
+    References
+    ----------
+    .. [1] Raschka, S., Mirjalili, V., Python Machine Learning, 3rd ed., Packt, 2019.
+    .. [2] Ferri F., Pudil P., Hatef M., Kittler J., Comparative study of
+           techniques for large-scale feature selection, pages 403-413, 1994.
+           
     """
 
     _scorers = {
@@ -614,6 +615,13 @@ class KMeansFeaturizer(BaseEstimator, TransformerMixin):
                       fig_title ='KMeans with hint', ax = ax [0] )
     >>> plot_voronoi ( Xpca, y ,cluster_centers=kmf_no_hint.cluster_centers_, 
                       fig_title ='KMeans No hint' , ax = ax[1])
+    
+    References 
+    ------------
+    .. [1] Kouadio, K.L., Liu, J., Liu, R., Wang, Y., Liu, W., 2024. 
+          K-Means Featurizer: A booster for intricate datasets. Earth Sci. 
+          Informatics 17, 1203–1228. https://doi.org/10.1007/s12145-024-01236-3
+
     """
     def __init__(
         self, 

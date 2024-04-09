@@ -931,7 +931,7 @@ def summarize_model_results(
     ...        'split3_test_score': [0.8541, 0.85],
     ...        'params': [{'C': 1, 'gamma': 0.1}, {'C': 10, 'gamma': 0.01}],
     ...    },
-     ...   'scoring': 'accuracy',
+    ...   'scoring': 'accuracy',
     ... }
     >>> sum_model = summarize_model_results( model_results ) 
     >>> print(sum_model)
@@ -967,7 +967,7 @@ def summarize_model_results(
     # Validate presence of required information
     if  ( 
             'best_estimator_'  not in standardized_results 
-            and  'best_parameters_' not in standardized_results
+            and  'best_params_' not in standardized_results
             ):
         raise ValueError(
             "Required information ('best_estimator_' or 'best_parameters_') is missing.")
@@ -978,9 +978,9 @@ def summarize_model_results(
             type(standardized_results['best_estimator_']).__name__ 
             if  'best_estimator_' in standardized_results else 'Unknown estimator'
             ),
-        "Best parameters": standardized_results.get('best_parameters_','Unknown parameters') ,
-        "nCV": (len({k for k in standardized_results['cv_results_'].keys(
-            ) if k.startswith('split')}) // len(standardized_results['cv_results_']['params']))
+        "Best parameters": standardized_results.get('best_params_','Unknown parameters') ,
+        "nCV": len({k for k in standardized_results['cv_results_'].keys(
+            ) if k.startswith('split')})# // len(standardized_results['cv_results_']['params']))
             if 'cv_results_' in standardized_results else 'Undefined nCV',
         "Scoring": standardized_results.get('scoring', 'Unknown scoring')
     }
@@ -1013,7 +1013,7 @@ def summarize_model_results(
 def standardize_keys(model_results):
     map_keys = {
         'best_estimator_': ['model', 'estimator', 'best_estimator'],
-        'best_parameters_': ['parameters', 'params', 'best_parameters'],
+        'best_params_': ['parameters', 'params', 'best_parameters'],
         'cv_results_': ['results', 'fold_results', 'cv_results']
     }
 
@@ -1032,30 +1032,143 @@ def standardize_keys(model_results):
 
     return standardized_results
 
-def prepare_cv_results_dataframe(cv_results):
-    nCV = len({k for k in cv_results.keys() 
-               if k.startswith('split')}) // len(cv_results['params'])
-    data = []
-    for i in range(nCV):
-        mean_score = np.mean([cv_results[f'split{j}_test_score'][i] for j in range(nCV)])
-        cv_scores = [cv_results[f'split{j}_test_score'][i] for j in range(nCV)]
-        std_score = np.std(cv_scores)
-        global_mean = np.nanmean(cv_scores)
-        
-        fold_data = {
-            "Fold": f"cv{i+1}",
-            "Mean score": format_value (mean_score),
-            "CV score": format_value(cv_scores[i]),
-            "std score": format_value (std_score),
-            "Global mean": format_value(global_mean)
-        }
-        data.append(fold_data)
+# def prepare_cv_results_dataframe(cv_results):
+#     nCV = len({k for k in cv_results.keys() 
+#                if k.startswith('split')}) #// len(cv_results['params'])
 
-    # Creating DataFrame
-    df = pd.DataFrame(data)
+#     data = []
+#     for i in range(nCV):
+#         mean_score = np.mean([cv_results[f'split{j}_test_score'][i] for j in range(nCV)])
+#         cv_scores = [cv_results[f'split{j}_test_score'][i] for j in range(nCV)]
+#         std_score = np.std(cv_scores)
+#         global_mean = np.nanmean(cv_scores)
+        
+#         fold_data = {
+#             "fold": f"cv{i+1}",
+#             "mean_score": format_value (mean_score),
+#             "cv_score": format_value(cv_scores[i]),
+#             "std_score": format_value (std_score),
+#             "global_mean": format_value(global_mean)
+#         }
+#         data.append(fold_data)
+
+#     # Creating DataFrame
+#     df = pd.DataFrame(data)
+#     return df
+
+
+# # CV results data provided
+# cv_results = {
+#     'mean_fit_time': np.array([0.08941455, 0.17112842, 0.09749279, 0.17767138]),
+#     'std_fit_time': np.array([0.00403799, 0.00093173, 0.00748676, 0.01018241]),
+#     'mean_score_time': np.array([0.00597119, 0.0112349, 0.00577874, 0.01112599]),
+#     'std_score_time': np.array([0.00015881, 0.00057619, 0.00039796, 0.00070031]),
+#     'param_max_depth': np.array([10, 10, 20, 20], dtype=object),
+#     'param_n_estimators': np.array([100, 200, 100, 200], dtype=object),
+#     'params': [{'max_depth': 10, 'n_estimators': 100},
+#                {'max_depth': 10, 'n_estimators': 200},
+#                {'max_depth': 20, 'n_estimators': 100},
+#                {'max_depth': 20, 'n_estimators': 200}],
+#     'split0_test_score': np.array([0.73333333, 0.8, 0.86666667, 0.73333333]),
+#     'split1_test_score': np.array([0.86666667, 0.86666667, 0.86666667, 1.]),
+#     'split2_test_score': np.array([0.8, 0.8, 0.73333333, 0.8]),
+#     'split3_test_score': np.array([0.86666667, 0.93333333, 0.86666667, 0.86666667]),
+#     'split4_test_score': np.array([0.86666667, 0.86666667, 1., 1.]),
+#     'mean_test_score': np.array([0.82666667, 0.85333333, 0.86666667, 0.88]),
+#     'std_test_score': np.array([0.05333333, 0.04988877, 0.0843274, 0.10666667]),
+#     'rank_test_score': np.array([4, 3, 2, 1])
+# }
+
+# Adjusted function to correctly process and summarize CV results
+def prepare_cv_results_dataframe(cv_results):
+    # Extract number of splits
+    n_splits = sum(1 for key in cv_results if key.startswith(
+        'split') and key.endswith('test_score'))
+    
+    # Gather general information
+    param_keys = [key for key in cv_results if key.startswith('param_')]
+    rows = []
+    
+    for i, params in enumerate(cv_results['params']):
+        row = {key: cv_results[key][i] for key in param_keys}
+        row.update({
+            "mean_test_score": cv_results['mean_test_score'][i],
+            "std_test_score": cv_results['std_test_score'][i],
+            "rank_test_score": cv_results['rank_test_score'][i]
+        })
+        
+        # Gather split-specific scores
+        for split in range(n_splits):
+            row[f'split{split}_test_score'] = cv_results[f'split{split}_test_score'][i]
+            
+        rows.append(row)
+    
+    # Create DataFrame
+    df = pd.DataFrame(rows)
     return df
 
+# # Using the adjusted function
+# df = prepare_cv_results_dataframe(cv_results)
+# df
 
+#XXX TODO
+"""
+                Optimized Results 
+====================================================
+(1)               RandomForestClassifier 
+    ................................................
+                     Model Results                  
+    ================================================
+    Best estimator   : str
+    Best parameters  : {'depth': 1, 'gamma': 0.1}
+    nCV              : 2
+    Scoring          : Unknown scoring
+    ================================================
+    
+                     Tuning Results                 
+    ================================================
+      Fold Mean score CV score std score Global mean
+    ------------------------------------------------
+    0  cv1     0.6233   0.6789    0.0555      0.6233
+    1  cv2     0.8500   0.9000    0.0500      0.8500
+    ================================================
+    
+    ................................................
+(2)                        SVC
+    ------------------------------------------------
+                     Model Results                  
+    ================================================
+    Best estimator   : str
+    Best parameters  : {'C': 1, 'gamma': 0.1}
+    nCV              : 2
+    Scoring          : Unknown scoring
+    ================================================
+    
+                     Tuning Results                 
+    ================================================
+      Fold Mean score CV score std score Global mean
+    ------------------------------------------------
+    0  cv1     0.6233   0.6789    0.0555      0.6233
+    1  cv2     0.8500   0.9000    0.0500      0.8500
+    ================================================ 
+  
+====================================================
+
+""" 
+def summarize_multi_model_results(
+    muli_model_results, 
+    title=None, 
+    max_width=100,
+    top_line='=', 
+    sub_line='-', 
+    bottom_line='='
+    ):
+
+    # 
+    # multi model is a dict with the key the model name and the values the model 
+    # results. for instance 
+    
+    pass 
 def format_dataframe(
     df, title=None, 
     max_text_length=50, 

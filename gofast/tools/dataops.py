@@ -2166,6 +2166,7 @@ def inspect_data(
     correlation_threshold: float = 0.8, 
     categorical_threshold: float = 0.75, 
     include_stats_table=False, 
+    return_report: bool=False
 ) -> None:
     """
     Performs an exhaustive inspection of a DataFrame. 
@@ -2193,21 +2194,70 @@ def inspect_data(
         The threshold for detecting imbalance in categorical variables. If the
         proportion of the most frequent category exceeds this threshold, it will
         be flagged as imbalanced. Default is 0.75.
+        
     include_stats_table: bool, default=False 
        If ``True`` include the table of the calculated statistic in the report. 
        Otherwise include the dictionnary values of basic statistics. 
        
+    return_report: bool, default=False
+        If set to ``True``, the function returns a ``Report`` object
+        containing the comprehensive analysis of the data inspection. This
+        report includes data integrity assessment, detailed statistics,
+        and actionable recommendations for data preprocessing. This option
+        provides programmatic access to the inspection outcomes, allowing
+        further custom analysis or documentation. If ``False``, the function
+        only prints the inspection report to the console without returning
+        an object. This mode is suitable for interactive exploratory data
+        analysis where immediate visual feedback is desired.
+        
     Returns
     -------
-    Report
-        Prints a comprehensive report including data integrity assessment, 
-        statistics, and recommendations for data preprocessing.
-
-    Example
-    -------
+    None or Report
+        If `return_report` is set to `False`, the function prints a comprehensive
+        report to the console, including assessments of data integrity, detailed
+        statistics, and actionable recommendations for data preprocessing. This
+        mode facilitates immediate, visual inspection of the data quality and
+        characteristics without returning an object.
+        
+        If `return_report` is set to `True`, instead of printing, the function
+        returns a `Report` object. This object encapsulates all findings from the
+        data inspection, structured into sections that cover data integrity
+        assessments, statistical summaries, and preprocessing recommendations.
+        The `Report` object allows for programmatic exploration and manipulation
+        of the inspection results, enabling users to integrate data quality
+        checks into broader data processing and analysis workflows.
+  
+    Notes
+    -----
+    - The returned ``Report`` object is a dynamic entity providing structured
+      access to various aspects of the data inspection process, such as
+      integrity checks, statistical summaries, and preprocessing recommendations.
+    - This feature is particularly useful for workflows that require
+      a detailed examination and documentation of dataset characteristics
+      and quality before proceeding with further data processing or analysis.
+    - Utilizing the ``return_report`` option enhances reproducibility and
+      traceability of data preprocessing steps, facilitating a transparent
+      and accountable data analysis pipeline.
+    
+    Examples
+    --------
     >>> from gofast.tools.dataops import inspect_data
     >>> import numpy as np
     >>> import pandas as pd
+    
+    Inspecting a DataFrame without returning a report object:
+        
+    >>> df = pd.DataFrame({'A': [1, 2, np.nan], 'B': ['x', 'y', 'y']})
+    >>> inspect_data(df)
+    # Prints an exhaustive report to the console
+    
+    Inspecting a DataFrame and retrieving a report object for further analysis:
+    
+    >>> report = inspect_data(df, return_report=True)
+    # A Report object is returned, enabling programmatic access to inspection details
+    >>> print(report.integrity_report)
+    # Access and print the integrity report part of the returned Report object
+    
     >>> data = pd.DataFrame({
     >>>     'A': np.random.normal(0, 1, 100),
     >>>     'B': np.random.normal(5, 2, 100),
@@ -2215,7 +2265,7 @@ def inspect_data(
     >>> })
     >>> data.iloc[0, 0] = np.nan  # Introduce a missing value
     >>> data.iloc[1] = data.iloc[0]  # Introduce a duplicate row
-    >>> report = inspect_data(data)
+    >>> report = inspect_data(data, return_report=True )
     >>> report.integrity_report
     <Report: Print to see the content>
     >>> report.integrity_report.outliers 
@@ -2242,7 +2292,7 @@ def inspect_data(
          B    10.751358
          C    99.000000
          dtype: float64}
-    >>> report = inspect_data(data, include_stats_table=True)
+    >>> report = inspect_data(data, include_stats_table=True, return_report=True)
     >>> report.stats_report
     <MultiFrame object with dataframes. Use print() to view.>
 
@@ -2279,21 +2329,7 @@ def inspect_data(
     ---------------------------------
     0    2.3708  9.6736  99.0000
     =================================
-    """
-    def format_report_section(title, content):
-        """
-        Formats and prints a section of the report.
-        """
-        print(f"\033[1m{title}:\033[0m")
-        if ( title.lower().find('report')>=0 or title.lower(
-           ).find('recomm')>=0): print("-" * (len(title)+1)) 
-        if isinstance(content, dict):
-            for key, value in content.items():
-                print(f"  {key}: {value}")
-        else:
-            print(f"  {content}")
-        print()
-        
+    """  
     def calculate_statistics(d: DataFrame) -> Dict[str, Any]:
         """
         Calculates various statistics for the numerical columns of 
@@ -2322,14 +2358,13 @@ def inspect_data(
         stats_report=  MultiFrameFormatter(stats_titles, keywords).add_dfs(
             *stats_data)
        
-    report['integrity_status']= integrity_report.integrity_checks
+    report['integrity_status']= f"Checked ~ {integrity_report.integrity_checks}"
     report ['integrity_report']=integrity_report
     report ['stats_report'] = stats_report
     
     # Recommendations based on the report
     if not is_valid:
-        # format_report_section("Recommendations", "")
-        report ["Recommendations"] = '-' *30 
+        report ["Recommendations"] = '-' *62
         
         if integrity_report['missing_values'].any():
             report['rec_missing_values']= (
@@ -2372,8 +2407,8 @@ def inspect_data(
                       "Box-Cox to normalize the distribution.")
         # Normalization for numerical columns
         report['normalization_evaluation']=(
-            "- Evaluate if normalization (scaling between 0 and 1) is "
-            "necessary for numerical features, especially for distance-based"
+            "- Evaluate if normalization (scaling between 0 and 1) is"
+            " necessary for numerical features, especially for distance-based"
              " algorithms.")
         report['normalization_status'] = True 
         # Correlation check
@@ -2390,7 +2425,7 @@ def inspect_data(
             for idx1, idx2 in high_corr_pairs:
                 col1, col2 = numeric_cols[idx1], numeric_cols[idx2]
                 report['rec_high_corr_pairs']=(
-                    f"  {col1} and {col2} (Correlation > {correlation_threshold})")
+                    f"- {col1} and {col2} (Correlation > {correlation_threshold})")
         
         # Data type conversions
         report['rec_data_type_conversions'] = (
@@ -2400,9 +2435,10 @@ def inspect_data(
     report_obj= ReportFactory(title ="Data Inspection", **report )
     report_obj.mixed_types_summary(report, table_width= 90)
     
-    print(report_obj)
+    if return_report: 
+        return report_obj # return for retrieving attributes. 
     
-    return report_obj # return for retrieving attributes. 
+    print(report_obj)
     
 def augment_data(
     X: Union[DataFrame, ArrayLike], 
