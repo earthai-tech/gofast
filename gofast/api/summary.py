@@ -1032,29 +1032,29 @@ def standardize_keys(model_results):
 
     return standardized_results
 
-# def prepare_cv_results_dataframe(cv_results):
-#     nCV = len({k for k in cv_results.keys() 
-#                if k.startswith('split')}) #// len(cv_results['params'])
+def prepare_cv_results_dataframe(cv_results):
+    nCV = len({k for k in cv_results.keys() 
+                if k.startswith('split')}) // len(cv_results['params'])
 
-#     data = []
-#     for i in range(nCV):
-#         mean_score = np.mean([cv_results[f'split{j}_test_score'][i] for j in range(nCV)])
-#         cv_scores = [cv_results[f'split{j}_test_score'][i] for j in range(nCV)]
-#         std_score = np.std(cv_scores)
-#         global_mean = np.nanmean(cv_scores)
+    data = []
+    for i in range(nCV):
+        mean_score = np.mean([cv_results[f'split{j}_test_score'][i] for j in range(nCV)])
+        cv_scores = [cv_results[f'split{j}_test_score'][i] for j in range(nCV)]
+        std_score = np.nanstd(cv_scores)
+        global_mean = np.nanmean(cv_scores)
         
-#         fold_data = {
-#             "fold": f"cv{i+1}",
-#             "mean_score": format_value (mean_score),
-#             "cv_score": format_value(cv_scores[i]),
-#             "std_score": format_value (std_score),
-#             "global_mean": format_value(global_mean)
-#         }
-#         data.append(fold_data)
+        fold_data = {
+            "fold": f"cv{i+1}",
+            "mean_score": format_value (mean_score),
+            "cv_score": format_value(cv_scores[i]),
+            "std_score": format_value (std_score),
+            "global_mean": format_value(global_mean)
+        }
+        data.append(fold_data)
 
-#     # Creating DataFrame
-#     df = pd.DataFrame(data)
-#     return df
+    # Creating DataFrame
+    df = pd.DataFrame(data)
+    return df
 
 
 # # CV results data provided
@@ -1074,13 +1074,15 @@ def standardize_keys(model_results):
 #     'split2_test_score': np.array([0.8, 0.8, 0.73333333, 0.8]),
 #     'split3_test_score': np.array([0.86666667, 0.93333333, 0.86666667, 0.86666667]),
 #     'split4_test_score': np.array([0.86666667, 0.86666667, 1., 1.]),
-#     'mean_test_score': np.array([0.82666667, 0.85333333, 0.86666667, 0.88]),
+#     
+
+
 #     'std_test_score': np.array([0.05333333, 0.04988877, 0.0843274, 0.10666667]),
 #     'rank_test_score': np.array([4, 3, 2, 1])
 # }
 
 # Adjusted function to correctly process and summarize CV results
-def prepare_cv_results_dataframe(cv_results):
+def prepare_cv_results_dataframe2(cv_results):
     # Extract number of splits
     n_splits = sum(1 for key in cv_results if key.startswith(
         'split') and key.endswith('test_score'))
@@ -1091,11 +1093,14 @@ def prepare_cv_results_dataframe(cv_results):
     
     for i, params in enumerate(cv_results['params']):
         row = {key: cv_results[key][i] for key in param_keys}
+        
         row.update({
             "mean_test_score": cv_results['mean_test_score'][i],
             "std_test_score": cv_results['std_test_score'][i],
             "rank_test_score": cv_results['rank_test_score'][i]
         })
+        
+        cv_scores = [ cv_results[f'split{split}_test_score'][i] for split in range(n_splits)]
         
         # Gather split-specific scores
         for split in range(n_splits):
