@@ -7,7 +7,7 @@ from gofast.api.extension import isinstance_
 from gofast.api.formatter import DataFrameFormatter, MultiFrameFormatter
 from gofast.api.formatter import MetricFormatter, BoxFormatter, DescriptionFormatter
 from gofast.api.formatter import to_snake_case 
-from gofast.api.summary import Summary, ReportFactory, format_text 
+from gofast.api.summary import Summary, ReportFactory, format_text, ModelSummary 
 
 def assert_summary_correlation_matrix(
         summary_instance, expected_presence=True, msg=None):
@@ -112,7 +112,7 @@ def assert_summary_basic_statistics(summary,  expected_output, df=None, msg=None
         raise TypeError("DataFrame 'df' can't be None when"
                         " 'summary.basic_statistics' is not called yet.")
     if df is not None: 
-        summary.basic_statistics(df)
+        summary.add_basic_statistics(df)
     actual_output = str(summary)
     assert check_output( actual_output, expected_output), msg or( 
         "Basic statistics summary does not match the expected output.") 
@@ -151,7 +151,7 @@ def assert_summary_model(summary, model_results, expected_output, msg=None):
     
     Parameters:
     -----------
-    summary : Summary
+    summary : ModelSummary
         The Summary instance to test.
     model_results : dict or sklearn model
         Model results dictionary or a scikit-learn model with necessary attributes.
@@ -160,8 +160,8 @@ def assert_summary_model(summary, model_results, expected_output, msg=None):
     msg : str, optional
         A custom message to display on assertion failure.
     """
-    assert isinstance_(summary, Summary), "Object is not an instance of Summary."
-    summary.model_summary(model_results=model_results)
+    assert isinstance_(summary, ModelSummary), "Object is not an instance of Summary."
+    summary.add_flex_summary(model_results=model_results)
     actual_output = str(summary)
     assert check_output(actual_output, expected_output), ( 
         msg or "Model summary does not match the expected output.") 
@@ -208,7 +208,7 @@ def assert_report_mixed_types(report_factory, report_data, msg=None):
         raise AssertionError("The provided object is not an instance of ReportFactory.")
 
     # Trigger mixed types summary generation within the report factory.
-    report_factory.mixed_types_summary(report_data)
+    report_factory.add_mixed_types(report_data)
 
     # Determine if mixed types are present, focusing on iterable types excluding strings.
     contains_mixed_types = any(
@@ -279,15 +279,15 @@ def assert_report_recommendations(
         msg or "Recommendations section is not formatted as expected." ) 
 
 
-def assert_report_model_performance(
-        report_factory, model_results, expected_output, msg=None
+def assert_model_summary_performance(
+        model_summary_instance, model_results, expected_output, msg=None
         ):
     """
     Asserts that the ReportFactory object correctly formats a model performance summary.
     
     Parameters:
     -----------
-    report_factory : ReportFactory
+    model_summary_instance : ModelSummary
         The ReportFactory instance to test.
     model_results : dict
         The model results data to be formatted into a report section.
@@ -296,9 +296,9 @@ def assert_report_model_performance(
     msg : str, optional
         A custom message to display on assertion failure.
     """
-    assert isinstance_(report_factory, ReportFactory), "Object is not an instance of ReportFactory."
-    report_factory.model_performance_summary(model_results)
-    actual_output = str(report_factory)
+    assert isinstance_(model_summary_instance, ReportFactory), "Object is not an instance of ReportFactory."
+    model_summary_instance.add_performance(model_results)
+    actual_output = str(model_summary_instance.summary_report)
     assert actual_output == expected_output, ( 
         msg or "Model performance summary does not match expected output.") 
 
@@ -319,7 +319,7 @@ def assert_report_data_summary(report_factory, df, expected_output, msg=None):
     """
     assert isinstance_(report_factory, ReportFactory), ( 
         "Object is not an instance of ReportFactory." )
-    report_factory.data_summary(df)
+    report_factory.add_data(df)
     actual_output = str(report_factory)
     assert actual_output == expected_output,(
         msg or "DataFrame summary does not match expected output."

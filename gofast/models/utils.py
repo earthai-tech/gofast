@@ -22,6 +22,7 @@ from sklearn.utils.multiclass import type_of_target
 
 from .._typing import Tuple,_F, ArrayLike, NDArray, Dict, Union, Any
 from .._typing import  List, Optional, Type, DataFrame, Series 
+from ..api.summary import ModelSummary 
 from ..tools.coreutils import smart_format
 from ..tools.validator import get_estimator_name, check_X_y 
 from ..tools._dependency import import_optional_dependency 
@@ -684,7 +685,6 @@ def get_split_best_scores(cvres:Dict[str, ArrayLike],
         in the cross-validation. 
         
     """
-    #if split ==0: split =1 
     # get the split score 
     split_score = cvres[f'split{split}_test_score'] 
     # take the max score of the split 
@@ -713,16 +713,20 @@ def display_model_max_details(cvres:Dict[str, ArrayLike], cv:int =4):
         The number of KFlod during the fine-tuning models parameters. 
 
     """
+    texts= {}
     for k in range (cv):
-        print(f'split = {k}:')
         b= get_split_best_scores(cvres, split =k)
-        print( b)
+        texts ["split = {k}"]= b 
 
     globalmeansc , globalstdsc= get_cv_mean_std_scores(cvres)
-    print("Global split scores:")
-    print('mean=', globalmeansc , 'std=',globalstdsc)
+    texts["Global split ~ mean scores"]= globalmeansc
+    texts["Global split ~ std. scores"]= globalstdsc
+    
+    summary = ModelSummary().add_multi_contents(
+        *[texts] , titles = ["Model Max Details"], max_width= 90 )
+    print(summary )
 
-
+    
 def display_fine_tuned_results ( cvmodels: list[_F] ): 
     """Display fined -tuning results 
     
@@ -731,17 +735,23 @@ def display_fine_tuned_results ( cvmodels: list[_F] ):
     cvmnodels: list
         list of fined-tuned models.
     """
+    keys = [] 
+    values = [] 
     bsi_bestestimators = [model.best_estimator_ for model in cvmodels ]
     mnames = ( get_estimator_name(n) for n in bsi_bestestimators)
     bsi_bestparams = [model.best_params_ for model in cvmodels]
 
     for nam, param , estimator in zip(mnames, bsi_bestparams, 
                                       bsi_bestestimators): 
-        print("MODEL NAME =", nam)
-        print('BEST PARAM =', param)
-        print('BEST ESTIMATOR =', estimator)
-        print()
-
+        keys.append (nam )
+        values.append ( { 'Best Parameters': param, 
+                         ' Best Estimator': estimator
+                         }) 
+    dict_contents = dict ( zip ( keys, values ))
+    
+    summary = ModelSummary().add_multi_contents(*dict_contents, )
+    print(summary )
+        
 def display_cv_tables(cvres:Dict[str, ArrayLike],  cvmodels:list[_F] ): 
     """ Display the cross-validation results from all models at each 
     k-fold. 
@@ -758,7 +768,7 @@ def display_cv_tables(cvres:Dict[str, ArrayLike],  cvmodels:list[_F] ):
     Examples 
     ---------
     >>> from gofast.datasets import fetch_data
-    >>> from gofast.models import GridSearchMultiple, displayCVTables
+    >>> from gofast.models import GridSearchMultiple, display_cv_tables
     >>> X, y  = fetch_data ('bagoue prepared') 
     >>> gobj =GridSearchMultiple(estimators = estimators, 
                                  grid_params = grid_params ,
@@ -766,7 +776,7 @@ def display_cv_tables(cvres:Dict[str, ArrayLike],  cvmodels:list[_F] ):
                                  verbose =1,  savejob=False , 
                                  kind='GridSearchCV')
     >>> gobj.fit(X, y) 
-    >>> displayCVTables (cvmodels=[gobj.models.SVC] ,
+    >>> display_cv_tables (cvmodels=[gobj.models.SVC] ,
                          cvres= [gobj.models.SVC.cv_results_ ])
     ... 
     """

@@ -68,7 +68,225 @@ class ModelSummary(FlexDict):
         self.summary_report = summarize_optimized_results(
             model_results, result_title=self.title, **kwargs)
         return self
+    
+    def add_multi_contents(self, *dict_contents, titles=None, headers=None, **kwargs):
+        """
+        Incorporates one or more dictionaries into the summary report of the 
+        ModelSummary instance, formatting them into a cohesive summary report.
+        This method leverages the `summarize_tables` function to generate a 
+        formatted string representation of the provided table data, which is 
+        then assigned to the instance's `summary_report` attribute.
+    
+        This method is designed to aggregate and format multiple tables of 
+        data (e.g., model performance metrics) into a single summary report 
+        that is easy to read and interpret. It supports the inclusion of 
+        titles and headers for individual tables and allows for additional 
+        formatting options through keyword arguments.
+    
+        Parameters
+        ----------
+        *dict_contents : dict or list of dict
+            The table(s) to be added to the summary report. Each table can 
+            be directly provided as a dictionary, a list of dictionaries for 
+            multiple tables, or a nested dictionary where each key is considered 
+            a table name.
+        titles : list of str, optional
+            The titles for each table or group of tables within the summary 
+            report. If not provided, titles will be omitted.
+        headers : list of str, optional
+            The headers for each table within the summary report. If not 
+            provided, headers will be derived from the content if possible.
+        **kwargs : dict
+            Additional keyword arguments to be passed to the `summarize_tables`
+            function for table formatting.
+    
+        Returns
+        -------
+        ModelSummary
+            The instance itself, allowing for method chaining.
+    
+        Examples
+        --------
+        >>>  >>> from gofast.api.summary import ModelSummary
+        >>> summary = ModelSummary()
+        >>> dict_contents = [{
+        ...     "Estimator": {"Accuracy": 0.95, "Precision": 0.89, "Recall": 0.93},
+        ...     "RandomForest": {"Accuracy": 0.97, "Precision": 0.91, "Recall": 0.95}
+        ... }]
+        >>> summary.add_multi_contents(*dict_contents, titles=["Model Performance"])
+        >>> print(summary.summary_report)
+        Model Performance
+        ========================
+                 Estimator       
+        ------------------------
+          Accuracy   : 0.9500
+          Precision  : 0.8900
+          Recall     : 0.9300
+        ========================
+              RandomForest       
+        ------------------------
+          Accuracy   : 0.9700
+          Precision  : 0.9100
+          Recall     : 0.9500
+        ========================
+    
+        The `add_dict_contents` method facilitates easy aggregation and formatting 
+        of model performance data or similar tabular data into a comprehensive 
+        summary report, enhancing the interpretability and presentation of the 
+        data.
+        """
+        self.summary_report= summarize_tables(
+            *dict_contents, titles =titles, headers =headers, **kwargs)
+        
+        return self 
+    
+    def add_performance(self, model_results, **kwargs):
+        """
+        Formats and adds a summary of model performance evaluation results to 
+        the instance's summary report. This method uses the `summarize_model_results` 
+        function to create a formatted string representation of the model's 
+        performance, including best parameters, estimator, and cross-validation results.
+    
+        Parameters
+        ----------
+        model_results : dict
+            A dictionary containing the results of the model performance evaluation.
+            Expected keys include 'best_parameters_', 'best_estimator_', and 
+            'cv_results_', among others.
+        **kwargs : dict
+            Additional keyword arguments to be passed to the `summarize_model_results`
+            function for further customization of the summary output.
+    
+        Returns
+        -------
+        self : object
+            The instance itself, allowing for method chaining.
+    
+        Examples
+        --------
+        >>> from gofast.api.summary import ModelSummary
+        >>> model_results = {
+        ...    'best_parameters_': {'C': 1, 'gamma': 0.1},
+        ...    'best_estimator_': "SVC",
+        ...    'cv_results_': {
+        ...        'split0_test_score': [0.6789, 0.8],
+        ...        'split1_test_score': [0.5678, 0.9],
+        ...        'split2_test_score': [0.9807, 0.95],
+        ...        'split3_test_score': [0.8541, 0.85],
+        ...        'params': [{'C': 1, 'gamma': 0.1}, {'C': 10, 'gamma': 0.01}],
+        ...    },
+        ...    'scoring': 'accuracy',
+        ... }
+        >>> summary = ModelSummary(title="SVC Performance")
+        >>> summary.add_performance(model_results)
+        >>> print(summary.summary_report)
+                             Model Results                  
+        ====================================================
+        Best estimator   : SVC
+        Best parameters  : {'C': 1, 'gamma': 0.1}
+        CV               : 4 folds
+        Scoring          : accuracy
+        ====================================================
+        
+                             Tuning Results                 
+        ====================================================
+          Fold Mean score CV score std score Global mean
+        --------------------------------------------------
+        0  cv1     0.6233   0.6789    0.0555      0.6233
+        1  cv2     0.7339   0.9000    0.1661      0.7339
+        2  cv3     0.9653   0.9807    0.0154      0.9653
+        3  cv4     0.8520   0.8541    0.0021      0.8520
+        ====================================================
+    
+        The `add_performance` method simplifies the inclusion of detailed model 
+        evaluation results into the summary report, providing a clear and structured 
+        presentation of the model's performance.
+        """
+        
+        self.summary_report = summarize_model_results(
+            model_results, title=self.title, **kwargs)
+        return self 
+    
+    def add_flex_summary(self, model_results=None, model=None, **kwargs):
+        """
+        Generates and assigns a flexible summary report for scikit-learn models, 
+        especially useful for models optimized using techniques like GridSearchCV 
+        or RandomizedSearchCV. This method can directly use a dictionary of model 
+        results or extract necessary information from a scikit-learn model object.
+    
+        Parameters
+        ----------
+        model_results : dict, optional
+            A dictionary containing the model's performance evaluation results, 
+            including keys such as 'best_estimator_', 'best_params_', and 
+            'cv_results_'. Directly used for generating the summary report if provided.
+        model : sklearn estimator, optional
+            A scikit-learn model instance, ideally optimized models with attributes 
+            like 'best_estimator_', 'best_params_', and optionally 'cv_results_'. 
+            Necessary attributes are extracted to generate the summary report if 
+            `model_results` is not directly provided.
+        **kwargs : dict
+            Additional keyword arguments for customizing the summary report generation, 
+            passed to the underlying summary generation function.
+    
+        Returns
+        -------
+        self : object
+            The instance itself, facilitating method chaining.
+    
+        Raises
+        ------
+        ValueError
+            If neither `model_results` is provided nor `model` with the required 
+            attributes ('best_estimator_', 'best_params_', and optionally 'cv_results_').
+    
+        Examples
+        --------
+        >>> from sklearn.model_selection import GridSearchCV
+        >>> from sklearn.svm import SVC
+        >>> from sklearn.datasets import load_iris
+        >>> from gofast.api.summary import ModelSummary
+        >>> iris = load_iris()
+        >>> parameters = {'kernel':('linear', 'rbf'), 'C':[1, 10]}
+        >>> svc = SVC()
+        >>> clf = GridSearchCV(svc, parameters)
+        >>> clf.fit(iris.data, iris.target)
+        >>> summary = ModelSummary(title="SVC Optimization Summary")
+        >>> summary.add_flex_summary(model=clf)
+        >>> print(summary.summary_report)
+        SVC Optimization Summary
+        ====================================================
+        Best estimator   : SVC(C=1, kernel='linear')
+        Best parameters  : {'C': 1, 'kernel': 'linear'}
+        CV               : 5 folds
+        Scoring          : accuracy (default)
+        ====================================================
+        
+        This method streamlines the generation of a comprehensive summary report for 
+        scikit-learn models, particularly those resulting from hyperparameter optimization 
+        processes, enhancing the interpretability and presentation of model performance 
+        and tuning results.
+        """
 
+        if model_results is None:
+            if model and all(hasattr(model, attr) for attr in [
+                    'best_estimator_', 'best_params_']):
+                model_results = {
+                    'best_estimator_': model.best_estimator_,
+                    'best_params_': model.best_params_,
+                }
+                if hasattr (model, 'cv_results_'): 
+                    model_results['cv_results_']= model.cv_results_
+            else:
+                raise ValueError(
+                    "Either 'model_results' must be provided or 'model' must have "
+                    "'best_estimator_', 'best_params_', and/or 'cv_results_' attributes.")
+        
+        self.summary_report = summarize_model_results(
+            model_results, title=self.title, **kwargs)
+        
+        return self
+        
     def __str__(self):
         """
         Provides the string representation of the summary report.
@@ -163,7 +381,7 @@ class Summary(FlexDict):
         self.title = title
         self.summary_report = ""
 
-    def basic_statistics(self, df, include_correlation=False):
+    def add_basic_statistics(self, df, include_correlation=False):
         """
         Generates basic statistical measures for the provided DataFrame and,
         optionally, a correlation matrix for numeric columns.
@@ -208,7 +426,6 @@ class Summary(FlexDict):
             return self 
         
         summary_parts = []
-        
         # Basic statistics
         stats = df.describe(include='all').T.applymap(format_value)
         summary_parts.append(format_dataframe(stats, title="Basic Statistics"))
@@ -226,7 +443,7 @@ class Summary(FlexDict):
         
         return self 
 
-    def unique_counts(
+    def add_unique_counts(
         self, df, include_sample=False, sample_size=5,
         aesthetic_space_allocation=4
         ):
@@ -299,53 +516,18 @@ class Summary(FlexDict):
 
         return self
     
-    def model_summary(self, model_results=None, model=None, **kwargs):
+    def summary(self, df, **kwargs):
         """
-        Generates a summary report for a scikit-learn model or model results,
-        especially for models optimized using GridSearchCV or RandomizedSearchCV.
-
-        Parameters
-        ----------
-        model_results : dict, optional
-            A dictionary containing model results with keys 'best_estimator_',
-            'best_params_', and 'cv_results_'. If provided, used directly for
-            generating the summary report.
-        model : sklearn estimator, optional
-            A scikit-learn model object. Must have 'best_estimator_', 'best_params_',
-            and 'cv_results_' attributes if `model_results` is not provided.
-        **kwargs : dict
-            Additional keyword arguments to be passed to the summary generation 
-            function.
-
-        Returns
-        -------
-        self
-
-        Raises
-        ------
-        ValueError
-            If neither `model_results` nor `model` with required attributes is provided.
+        Formats and adds a data frame summary to the report.
+   
+        Parameters:
+        - df (pandas.DataFrame): The data frame to summarize.
         """
+        self.report= df 
+        self.report_str = format_dataframe(df, title=self.title, **kwargs)
         
-        if model_results is None:
-            if model and all(hasattr(model, attr) for attr in [
-                    'best_estimator_', 'best_params_']):
-                model_results = {
-                    'best_estimator_': model.best_estimator_,
-                    'best_params_': model.best_params_,
-                }
-                if hasattr (model, 'cv_results_'): 
-                    model_results['cv_results_']= model.cv_results_
-            else:
-                raise ValueError(
-                    "Either 'model_results' must be provided or 'model' must have "
-                    "'best_estimator_', 'best_params_', and/or 'cv_results_' attributes.")
-        
-        self.summary_report = summarize_model_results(
-            model_results, title=self.title, **kwargs)
-        
-        return self
-
+        return self 
+    
     def __str__(self):
         """
         String representation of the summary report.
@@ -450,7 +632,7 @@ class ReportFactory(FlexDict):
         self.report = None
         self.report_str = None
 
-    def mixed_types_summary(self, report, table_width='auto',
+    def add_mixed_types(self, report, table_width='auto',
                             include_colon= True, pad_colon= True, 
                             **kwargs):
         """
@@ -525,19 +707,7 @@ class ReportFactory(FlexDict):
     
         return self
 
-    def model_performance_summary(self, model_results, **kwargs):
-        """
-        Formats and adds a model performance summary to the report.
-
-        Parameters:
-        - model_results (dict): The results of the model performance evaluation.
-        """
-        self.report = model_results
-        self.report_str = summarize_model_results(
-            model_results, title=self.title, **kwargs)
-        return self 
-    
-    def data_summary(self, df, **kwargs):
+    def add_data(self, df, **kwargs):
         """
         Formats and adds a data frame summary to the report.
 
@@ -546,6 +716,14 @@ class ReportFactory(FlexDict):
         """
         self.report= df 
         self.report_str = format_dataframe(df, title=self.title, **kwargs)
+        
+        return self 
+    
+    def add_contents( self, contents, title=None, header=None, **kwargs ): 
+        
+        self.report = contents 
+        self.report_str = summarize_inline_table(
+            contents, title =title, header=header, **kwargs)
         
         return self 
     
@@ -559,8 +737,403 @@ class ReportFactory(FlexDict):
         """
         Formal string representation of the Report object.
         """
-        return ( "<Report: Print to see the content>" if self.report is not None 
+        return ( "<Report: Print to see the content>" if self.report_str is not None 
                 else "<Report: No content>" )
+    
+    
+def ensure_list_with_defaults(input_value, target_length, default=None):
+    """
+    Ensures that the input value is a list of a specific length, padding with 
+    defaults or trimming as necessary.
+
+    Parameters
+    ----------
+    input_value : str or list
+        The input value to be converted into a list. If a string is provided, 
+        it will be converted into a single-element list.
+    target_length : int
+        The desired length of the list.
+    default : optional
+        The default value to use for padding if the list is shorter than the 
+        target length. Defaults to None.
+
+    Returns
+    -------
+    list
+        A list of the target length, padded or trimmed as necessary.
+    """
+    if isinstance(input_value, str):
+        input_value = [input_value]
+    elif not input_value:  # Handles None or empty input
+        input_value = []
+    # Check if target_length is a collection and get its length if so
+    if hasattr(target_length, '__len__'):
+        target_length = len(target_length)
+    
+    # Ensure target_length is an integer
+    if isinstance(target_length, float):
+        target_length = int(target_length)
+    
+    # Validate target_length is an integer and greater than zero
+    if not isinstance(target_length, int) or target_length <= 0:
+        raise ValueError("target_length must be a positive integer.")
+    
+    # Ensure the list is of the target length, padding with defaults if necessary
+    return (input_value + [default] * target_length)[:target_length]
+
+def summarize_tables(*contents, titles=None, headers=None, **kwargs):
+    """
+    Generates a summarized string representation of multiple tables, optionally 
+    including titles and headers for each. Tables are first formatted individually 
+    and then normalized to have uniform widths. Additional formatting options 
+    can be passed through keyword arguments.
+
+    Each table can be represented as a dictionary, a list of dictionaries, or 
+    a nested dictionary structure. The function supports extracting model or 
+    estimator names from the tables to use as headers when provided.
+
+    Parameters
+    ----------
+    *contents : dict or list of dict
+        The table(s) to be summarized. Each table can be directly provided as 
+        a dictionary, a list of dictionaries for multiple tables, or a nested 
+        dictionary where each key is considered a table name.
+    titles : list of str, optional
+        The titles for each table or group of tables. If not provided, titles 
+        will be omitted.
+    headers : list of str, optional
+        The headers for each table. If not provided, headers will be derived 
+        from the content if possible.
+    **kwargs : dict
+        Additional keyword arguments to be passed to the `summarize_inline_table`
+        function for table formatting.
+
+    Returns
+    -------
+    str
+        A string representation of the summarized tables with normalized widths.
+
+    Examples
+    --------
+    >>> contents = [{
+    ...     "Estimator": {"Accuracy": 0.95, "Precision": 0.89, "Recall": 0.93},
+    ...     "RandomForest": {"Accuracy": 0.97, "Precision": 0.91, "Recall": 0.95}
+    ... }]
+    >>> titles = ["Model Comparison"]
+    >>> print(summarize_tables(*contents, titles=titles))
+    Model Comparison
+    ========================
+             Estimator       
+    ------------------------
+      Accuracy   : 0.9500
+      Precision  : 0.8900
+      Recall     : 0.9300
+    ========================
+          RandomForest       
+    ------------------------
+      Accuracy   : 0.9700
+      Precision  : 0.9100
+      Recall     : 0.9500
+    ========================
+    
+    This function streamlines the process of formatting and presenting multiple 
+    tables of data, especially useful for comparing model performances or similar 
+    datasets. It leverages the `summarize_inline_table` for individual table 
+    formatting and `normalize_table_widths` for ensuring uniform table widths 
+    across the summary.
+    """
+
+    def format_table(content, title=None, header=None):
+        return summarize_inline_table(content, title=title, header=header, **kwargs)
+
+    summaries = []
+    
+    # Manage default headers and titles   
+    headers = ensure_list_with_defaults ( headers, len( contents) )
+    titles = ensure_list_with_defaults ( titles, len( contents) )
+    
+    for content, title, header in zip(contents, titles, headers ):
+        if isinstance(content, dict) and all(isinstance(val, dict) for val in content.values()):
+            # Handling nested dictionary structure where each key
+            # is considered a model/estimator name
+            for model_name, table in content.items():
+                summaries.append(format_table(table, title, model_name))
+            
+        elif isinstance(content, list) and all(isinstance(item, dict) for item in content):
+            # If the content is a list of tables
+            for table in content:
+                model_name, table = extract_model_name_and_dict(
+                    table, candidate_names=['Estimator', 'Model'])
+                model_name = model_name or header
+                summaries.append(format_table(table, title, model_name))
+                
+        elif isinstance(content, dict):
+            # If the content directly represents a table
+            summaries.append(format_table(content, title, header))
+                
+    summaries = "\n".join(summaries)
+    # now adjust table 
+    return normalize_table_widths(summaries)
+
+def normalize_table_widths(
+    contents, 
+    max_width='auto', 
+    header_marker='=', 
+    center_table_contents=False
+ ):
+    """
+    Adjusts the widths of table representations in a given string to a uniform
+    maximum width, optionally centering the content of each table.
+
+    This function scans through the input string, identifying tables by their
+    header and separator lines. It then ensures that each table matches the 
+    maximum width determined either automatically from the widest table or 
+    as specified. If center_table_contents is True, it also centers the 
+    content of each table within the adjusted width.
+
+    Parameters
+    ----------
+    contents : str
+        The string containing the table(s) to be normalized.
+    max_width : int or 'auto', optional
+        The maximum width to which the table widths should be adjusted.
+        If 'auto', the width is determined based on the widest table
+        in the input string. Defaults to 'auto'.
+    header_marker : str, optional
+        The character used for header and separator lines in the table(s).
+        Defaults to '='.
+    center_table_contents : bool, optional
+        Whether to center the content of each table within the maximum
+        width. Defaults to False.
+
+    Returns
+    -------
+    str
+        The input string with table widths normalized and content optionally
+        centered.
+
+    Examples
+    --------
+    >>> from gofast.api.summary import normalize_table_widths
+    >>> input_str = '''\
+    ... ====================
+    ...         SVC       
+    ... --------------------
+    ... Accuracy   : 0.9500
+    ... Precision  : 0.8900
+    ... Recall     : 0.9300
+    ... ====================
+    ... =======================
+    ...     RandomForest       
+    ... -----------------------
+    ... Accuracy   : 0.9500
+    ... Precision  : 0.8900
+    ... Recall     : 0.9300
+    ... ========================'''
+
+    >>> print(normalize_table_widths(input_str))
+    ========================
+    SVC       
+    ------------------------
+    Accuracy   : 0.9500
+    Precision  : 0.8900
+    Recall     : 0.9300
+    ========================
+    ========================
+    RandomForest       
+    ------------------------
+    Accuracy   : 0.9500
+    Precision  : 0.8900
+    Recall     : 0.9300
+    ========================
+
+    >>> print(normalize_table_widths(input_str, center_table_contents=True))
+    ========================
+             SVC       
+    ------------------------
+      Accuracy   : 0.9500
+      Precision  : 0.8900
+      Recall     : 0.9300
+    ========================
+    ========================
+       RandomForest       
+    ------------------------
+      Accuracy   : 0.9500
+      Precision  : 0.8900
+      Recall     : 0.9300
+    ========================
+    
+    Note that the function assumes tables are separated by header and separator
+    lines using the specified `header_marker` or other line-starting characters
+    like '-', '~', or '='. Content lines not starting with these characters are
+    considered part of the tables' content and are adjusted or centered based
+    on the `center_table_contents` parameter.
+    """
+
+    # Convert contents to string if not already
+    contents = str(contents)
+    # Find the maximum width of the table headers if max_width is set to auto
+    if max_width == 'auto':
+        max_width = find_maximum_table_width(contents, header_marker)
+
+    # Split the contents into lines for processing
+    lines = contents.split('\n')
+
+    # Initialize variables to store the processed lines and current
+    # table's lines for centering purposes
+    normalized_lines = []
+    current_table_lines = []
+
+    def process_current_table():
+        """Adjusts the width of the current table's lines and centers them if required."""
+        if center_table_contents:
+            # Center each line in the current table
+            for i, line in enumerate(current_table_lines):
+                if line.strip():  # Ignore empty lines
+                    current_table_lines[i] = line.center(max_width)
+        normalized_lines.extend(current_table_lines)
+        current_table_lines.clear()
+
+    for line in lines:
+        # Check if the line is empty or consists only of whitespace;
+        # if so, continue to the next iteration
+        if not line.strip():
+            continue
+        # Check if the line is a header or separator line by looking for marker 
+        # characters at the start of the line
+    
+        if line.startswith(header_marker) or  line[0] in '-~=':
+            # If starting a new table, process the previous table's lines
+            if current_table_lines:
+                process_current_table()
+            # Adjust the header or separator line to the maximum width
+            normalized_lines.append(line[0] * max_width)
+        else:
+            # Add non-header lines to the current table's lines for potential centering
+            current_table_lines.append(line)
+
+    # Process any remaining table lines after the loop
+    if current_table_lines:
+        process_current_table()
+
+    # Join the processed lines back into a single string
+    return '\n'.join(normalized_lines)
+
+
+def extract_model_name_and_dict(model_dict, candidate_names=None):
+    """
+    Extracts the model name from a dictionary based on candidate keys and 
+    returns the name and the updated dictionary.
+    
+    This function searches through the dictionary keys for any that match a 
+    list of candidate names (e.g., 'estimator', 'model'), intended to likely 
+    represent the model name. When a match is found, it removes the key-value 
+    pair from the dictionary and returns the model name along with the modified
+    dictionary.
+
+    Parameters
+    ----------
+    model_dict : dict
+        The dictionary from which to extract the model name. This dictionary 
+        should potentially contain one of the candidate names.
+    candidate_names : list of str or str, optional
+        A list of strings or a single string representing the likely keys that 
+        would hold the model name within the dictionary.
+        Defaults to ['estimator', 'model'] if None is provided.
+
+    Returns
+    -------
+    tuple
+        A tuple containing the model name (str) if found, otherwise None, and 
+        the updated dictionary (dict) with the model name key removed if found.
+
+    Raises
+    ------
+    ValueError
+        If the provided `model_dict` parameter is not a dictionary.
+
+    Examples
+    --------
+    >>> from gofast.api.summary import extract_model_name_and_dict
+    >>> model_info = {"estimator": "SVC", "accuracy": 0.95}
+    >>> model_name, updated_dict = extract_model_name_and_dict(model_info)
+    >>> model_name
+    'SVC'
+    >>> updated_dict
+    {'accuracy': 0.95}
+    """
+    if not isinstance(model_dict, dict):
+        raise ValueError("The model_dict parameter must be a dictionary.")
+
+    # Ensure candidate_names is a list, even if a single string is provided
+    candidate_names = candidate_names or ['estimator', 'model']
+    candidate_names = [candidate_names] if isinstance(candidate_names, str) else candidate_names
+    # Use list to avoid RuntimeError for modifying dict during iteration
+    for key in list(model_dict.keys()):  
+        if key.lower() in (name.lower() for name in candidate_names):
+            # Extract and return the model name, and the updated dictionary
+            model_name = model_dict.pop(key)
+            return model_name, model_dict
+
+    # If no model name is found, return None and the original dictionary
+    return None, model_dict
+    
+
+def find_maximum_table_width(summary_contents, header_marker='='):
+    """
+    Calculates the maximum width of tables in a summary string based on header lines.
+
+    This function parses a multi-table summary string, identifying lines that represent
+    the top or bottom borders of tables (header lines). It determines the maximum width
+    of these tables by measuring the length of these header lines. The function assumes
+    that the header lines consist of repeated instances of a specific marker character.
+
+    Parameters
+    ----------
+    summary_contents : str
+        A string containing the summarized representation of one or more tables.
+        This string should include header lines made up of repeated header markers
+        that denote the start and end of each table's border.
+    header_marker : str, optional
+        The character used to construct the header lines in the summary_contents.
+        Defaults to '=', the common character for denoting table borders in ASCII
+        table representations.
+
+    Returns
+    -------
+    int
+        The maximum width of the tables found in summary_contents, measured as the
+        length of the longest header line. If no header lines are found, returns 0.
+
+    Examples
+    --------
+    >>> summary = '''Model Performance
+    ... ===============
+    ... Estimator : SVC
+    ... Accuracy  : 0.9500
+    ... Precision : 0.8900
+    ... Recall    : 0.9300
+    ... ===============
+    ... Model Performance
+    ... =================
+    ... Estimator : RandomForest
+    ... Accuracy  : 0.9500
+    ... Precision : 0.8900
+    ... Recall    : 0.9300
+    ... ================='''
+    >>> find_maximum_table_width(summary)
+    18
+
+    This example shows how the function can be used to find the maximum table width
+    in a string containing summaries of model performances, where '=' is used as
+    the header marker.
+    """
+    # Split the input string into lines
+    lines = summary_contents.split('\n')
+    # Filter out lines that consist only of the header marker, and measure their lengths
+    header_line_lengths = [len(line) for line in lines if line.strip(header_marker) == '']
+    # Return the maximum of these lengths, or 0 if the list is empty
+    return max(header_line_lengths, default=0)
 
 def summarize_inline_table(
     contents, 

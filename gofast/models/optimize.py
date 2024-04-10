@@ -96,9 +96,10 @@ def optimize_search(
         return (estimator_name, search.best_estimator_, search.best_params_, search.cv_results_)
 
     # Parallel execution of the search for each estimator
-    results = Parallel(n_jobs=n_jobs)(delayed(perform_search)(name, est, param_grids[name])
-                                      for name, est in tqdm(estimators.items(), desc="Optimizing Estimators",
-                                                            ncols=100, ascii=True))
+    results = Parallel(n_jobs=n_jobs)(delayed(perform_search)(
+        name, est, param_grids[name])
+        for name, est in tqdm(estimators.items(), desc="Optimizing Estimators",
+                              ncols=100, ascii=True))
 
     result_dict = {name: {'best_estimator_': best_est, 'best_params_': best_params,
                           'cv_results_': cv_res}

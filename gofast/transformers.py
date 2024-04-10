@@ -16,10 +16,13 @@ from scipy import sparse
 import matplotlib.pyplot as plt  
 
 from sklearn.base import BaseEstimator,TransformerMixin 
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
 from sklearn.cluster import KMeans 
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler,MinMaxScaler, OrdinalEncoder
-from sklearn.preprocessing import OneHotEncoder, PolynomialFeatures
+from sklearn.preprocessing import OneHotEncoder, PolynomialFeatures, RobustScaler
+
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import SelectFromModel
@@ -27,9 +30,8 @@ from sklearn.impute import SimpleImputer
 from sklearn.metrics import recall_score, precision_score
 from sklearn.metrics import accuracy_score,  roc_auc_score
 from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
+
 try : 
-    from skimage.transform import resize
-    from skimage.color import rgb2gray
     from skimage.filters import sobel, canny
     from skimage.exposure import equalize_hist
 except : pass
@@ -42,10 +44,11 @@ from ._typing import _F
 from .exceptions import EstimatorError, NotFittedError 
 from .tools.coreutils import  parse_attrs, assert_ratio, validate_feature
 from .tools.coreutils import  ellipsis2false, to_numeric_dtypes, is_iterable
+from .tools.coreutils import exist_features
 from .tools._dependency import import_optional_dependency 
 from .tools.validator import  get_estimator_name, check_X_y, is_frame
 from .tools.validator import _is_arraylike_1d, build_data_if, check_array 
-from .tools.validator import check_is_fitted  
+from .tools.validator import check_is_fitted
 
 EMSG = (
         "`scikit-image` is needed"
@@ -65,6 +68,7 @@ __all__= ['SequentialBackwardSelector',
           'CategoryBaseStratifier', 
           'CategorizeFeatures', 
           'FrameUnion', 
+          'FrameUnionFlex', 
           'DataFrameSelector',
           'BaseColumnSelector', 
           'BaseCategoricalEncoder', 
@@ -316,7 +320,7 @@ class SequentialBackwardSelector(BaseEstimator, TransformerMixin):
 
     def __init__(
         self, 
-        estimator=None, 
+        estimator, 
         k_features=1, 
         scoring='accuracy', 
         test_size=0.25, 
@@ -384,31 +388,44 @@ class SequentialBackwardSelector(BaseEstimator, TransformerMixin):
             self.scores_.append(scores[best_score_index])
 
         self.k_score_ = self.scores_[-1]
+        
         return self
 
     def transform(self, X):
         """
-        Reduce the feature set to the selected features.
-
-        After fitting the model, this method can be used to transform 
-        the dataset to contain only the selected features.
-
+        Transform the dataset to contain only the selected features.
+        
+        This method reduces the feature set to the ones selected during fitting.
+        It handles both pandas DataFrames and numpy arrays appropriately,
+        indexing into the data structure to select the specified features.
+        
         Parameters
         ----------
-        X : array-like of shape (n_samples, n_features)
-            The input samples.
-
+        X : DataFrame or array-like of shape (n_samples, n_features)
+            The input samples to transform.
+        
         Returns
         -------
-        X_reduced : array-like of shape (n_samples, k_features)
-            The data set with only the selected features.
+        X_transformed : DataFrame or array-like of shape (n_samples, k_features)
+            The dataset with only the selected features.
+        
+        Raises
+        ------
+        NotFittedError
+            If this method is called before the instance is fitted.
         """
         if not hasattr(self, 'indices_'):
-            raise NotFittedError("SequentialBackwardSelection instance is not"
-                                 " fitted yet. Fit estimator by calling the "
-                                 "'fit' method with appropriate  arguments.")
+            raise NotFittedError(
+                "This SequentialBackwardSelector instance is not fitted yet. "
+               "Call 'fit' with appropriate arguments before using this estimator.")
         
-        return X[:, self.indices_]
+        # Depending on the input type, use the appropriate indexing method
+        if isinstance(X, pd.DataFrame):
+            X_transformed = X.iloc[:, list(self.indices_)]
+        else:
+            X_transformed = X[:, list(self.indices_)]
+        
+        return X_transformed
 
     def _compute_score(self, X_train, X_test, y_train, y_test, indices):
         """
@@ -437,7 +454,7 @@ class SequentialBackwardSelector(BaseEstimator, TransformerMixin):
         """
         self.estimator.fit(X_train[:, indices], y_train)
         y_pred = self.estimator.predict(X_test[:, indices])
-        return self._scorers[self.scoring](y_test, y_pred)
+        return self.scoring(y_test, y_pred)
 
     def _validate_params(self, X):
         """
@@ -941,7 +958,7 @@ class StratifyFromBaseFeature(BaseEstimator, TransformerMixin):
         split = StratifiedShuffleSplit(n_splits=self.n_splits,
                                        test_size=self.test_size,
                                        random_state=self.random_state)
-        for train_index, test_index in split.split(X, X['temp_feature']):
+        for train_index, test_index in split.split(X, X['class_label']):
             return X.loc[train_index], X.loc[test_index]
 
     def _calculate_statistics(self, X, *test_dataframes ):
@@ -1648,7 +1665,11 @@ class CombinedAttributesAdder(BaseEstimator, TransformerMixin):
             self.attribute_names_ = list(columns) + ([
                 f'_{self.operator}_'.join([v for v in self.attribute_names_])
             ] if self._isfine else [])
-
+            
+        try: 
+            X= pd.DataFrame ( X, columns = self.attribute_names_)
+        except : pass 
+    
         return X
 
     def _get_operator(self, operator):
@@ -1866,102 +1887,105 @@ class DataFrameSelector(BaseEstimator, TransformerMixin):
 
         return X if self.return_frame else np.array(X)
 
-    
-class FrameUnion(BaseEstimator, TransformerMixin):
+class FrameUnionFlex(BaseEstimator, TransformerMixin):
     """
-    Unified categorical and numerical feature processing.
+    FrameUnionFlex combines numerical and categorical data preprocessing
+    into a single transformer. It automates the process of imputing missing
+    values, scaling numerical features, and encoding categorical features,
+    simplifying the creation of machine learning pipelines. This transformer
+    is highly configurable, allowing for detailed specification or automatic
+    detection of feature types, as well as a choice of imputation strategies,
+    scaling methods, and encoding techniques.
 
-    The `FrameUnion` transformer combines numerical and categorical features
-    after scaling and encoding categorical features.
-
-    Parameters:
-    -----------
-    num_attributes : list, default=None
-        List of numerical attributes.
-
-    cat_attributes : list, default=None
-        List of categorical attributes.
-
+    Parameters
+    ----------
+    num_attributes : list of str, optional
+        Specifies the column names to be treated as numerical attributes.
+        If None, numerical attributes will be automatically identified in
+        the dataset based on their data type.
+    cat_attributes : list of str, optional
+        Specifies the column names to be treated as categorical attributes.
+        If None, categorical attributes will be automatically identified in
+        the dataset based on their data type.
     scale : bool, default=True
-        If True, scales the features using StandardScaler or MinMaxScaler,
-        depending on `scale_mode`.
-
-    imput_data : bool, default=True
-        If True, replaces missing data using SimpleImputer with the specified
-        `strategy`.
-
+        If True, applies scaling to numerical attributes using the scaling
+        method defined by `scale_mode`. This is crucial for models that are
+        sensitive to feature magnitude.
+    impute_data : bool, default=True
+        If True, imputes missing values in numerical attributes using the
+        strategy defined by `strategy`. This helps in handling datasets with
+        incomplete data.
     encode : bool, default=True
-        If True, encodes categorical features using either OrdinalEncoder or
-        OneHotEncoder, depending on `encode_mode`.
-
-    param_search : bool, default='auto'
-        If True, automatically determines numerical and categorical features
-        based on the data.
-
+        If True, encodes categorical attributes using the method defined by
+        `encode_mode`. Encoding is essential for converting categorical data
+        into a format that can be provided to machine learning models.
     strategy : str, default='median'
-        The strategy used by SimpleImputer to replace missing values.
-
+        Defines the strategy used for imputing missing values. Options include
+        'mean', 'median', and 'most_frequent'.
     scale_mode : str, default='StandardScaler'
-        The mode of data scaling. It can be 'StandardScaler' or 'MinMaxScaler'.
-
+        Defines the method used for scaling numerical attributes. Options are
+        'StandardScaler' for z-score normalization and 'MinMaxScaler' for
+        min-max normalization. 'RobustScaler' is also available for scaling
+        features using statistics that are robust to outliers.
     encode_mode : str, default='OrdinalEncoder'
-        The mode of data encoding. It can be 'OrdinalEncoder' or 'OneHotEncoder'.
+        Defines the method used for encoding categorical attributes. Options
+        are 'OrdinalEncoder' for ordinal encoding and 'OneHotEncoder' for
+        one-hot encoding.
 
-    Attributes:
-    -----------
+    Attributes
+    ----------
     num_attributes_ : list
-        List of numerical attributes found in the data.
-
+        Auto-detected or specified names of numerical attributes in the data.
     cat_attributes_ : list
-        List of categorical attributes found in the data.
-
+        Auto-detected or specified names of categorical attributes in the data.
     attributes_ : list
-        List of all attributes found in the data (numerical + categorical).
-
-    X_ : array-like of shape (n_samples, n_features)
-        The transformed array with combined numerical and encoded 
+        Combined list of all numerical and categorical attributes in the data.
+    X_ : ndarray of shape (n_samples, n_features)
+        The transformed dataset containing processed numerical and encoded
         categorical features.
 
-    Examples:
-    ---------
-    >>> from gofast.datasets import fetch_data
-    >>> from gofast.tools.transformers import FrameUnion
-    >>> X_ = fetch_data('Bagoue original').get('data=dfy1')
-    >>> frameObj = FrameUnion(num_attributes=['numerical_attr'], 
-                              cat_attributes=['categorical_attr'])
-    >>> X = frameObj.fit_transform(X_)
+    Notes
+    -----
+    - FrameUnionFlex is designed to be flexible and efficient, automatically
+      adapting to the provided dataset while allowing for user overrides.
+    - It supports handling datasets with a mix of numerical and categorical
+      data, preparing them for machine learning models that require numerical
+      input.
+    - Users are encouraged to explicitly define `num_attributes` and
+      `cat_attributes` for better control and clarity in preprocessing.
 
-    """ 
-    def __init__(
-        self,
-        num_attributes =None , 
-        cat_attributes =None,
-        scale =True,
-        imput_data=True,
-        encode =True, 
-        param_search ='auto', 
-        strategy ='median', 
-        scale_mode ='StandardScaler', 
-        encode_mode ='OrdinalEncoder'
-        ): 
+    Examples
+    --------
+    >>> from sklearn.datasets import fetch_california_housing
+    >>> from gofast.transformers import FrameUnionFlex
+    >>> data = fetch_california_housing(as_frame=True)
+    >>> X = data.frame.drop('MedHouseVal', axis=1)
+    >>> transformer = FrameUnionFlex(scale=True, impute_data=True,
+    ...                              encode=True, scale_mode='MinMaxScaler',
+    ...                              encode_mode='OneHotEncoder')
+    >>> X_transformed = transformer.fit_transform(X)
+    >>> print(X_transformed.shape)
+    
+    This example demonstrates using FrameUnionFlex to preprocess the
+    California housing dataset, applying min-max scaling to numerical
+    features and one-hot encoding to categorical features. The transformed
+    dataset is ready for use with machine learning models.
+    """
+    def __init__(self, num_attributes=None, cat_attributes=None,
+                 scale=True, imput_data=True, encode=True,
+                 strategy='median', scale_mode='StandardScaler',
+                 encode_mode='OrdinalEncoder'):
+
         self._logging = gofastlog().get_gofast_logger(self.__class__.__name__)
         
         self.num_attributes = num_attributes 
         self.cat_attributes = cat_attributes 
-        self.param_search = param_search 
         self.imput_data = imput_data 
         self.strategy =strategy 
         self.scale = scale
         self.encode = encode 
         self.scale_mode = scale_mode
         self.encode_mode = encode_mode
-        
-        self.X_=None 
-        self.X_num_= None 
-        self.X_cat_ =None
-        self.num_attributes_=None
-        self.cat_attributes_=None 
-        self.attributes_=None 
         
     def fit(self, X, y=None):
         """
@@ -1983,94 +2007,231 @@ class FrameUnion(BaseEstimator, TransformerMixin):
         """
         return self
     
-    def transform(self, X): 
+    def transform(self, X):
         """
-        Transform the input data `X` by combining numerical and encoded 
-        categorical features.
+        Transform `X` by applying specified preprocessing steps.
 
-        Parameters:
-        -----------
-        X : {array-like, sparse matrix} of shape (n_samples, n_features)
-            The training vector, where `n_samples` is the number of samples,
-            and `n_features` is the number of features.
+        This involves auto-detecting or using specified numerical and
+        categorical attributes, imputing missing values in numerical
+        attributes, scaling numerical attributes, and encoding
+        categorical attributes.
 
-        Returns:
-        --------
-        X : {array-like, sparse matrix} of shape (n_samples, n_features)
-            Transformed array, where `n_samples` is the number of samples,
-            and `n_features` is the number of features.
+        Parameters
+        ----------
+        X : DataFrame
+            The input DataFrame to transform.
+
+        Returns
+        -------
+        X_transformed : DataFrame or ndarray
+            The transformed DataFrame with numerical attributes scaled
+            and categorical attributes encoded. It may return a dense
+            array or a sparse matrix, depending on the encoding method.
         """
+        def extract_arr_columns ( attr, select_type ): 
+            """ Extract array and columns from :class:`DataFrameSelector`"""
+            frameobj =DataFrameSelector(columns=attr,select_type=select_type)
+            arr= frameobj.fit_transform (X )
+            return arr, frameobj.columns 
         
-        if self.scale_mode.lower().find('stand')>=0: 
-            self.scale_mode = 'StandardScaler'
-        elif self.scale_mode.lower().find('min')>=0: 
-            self.scale_mode = 'MinMaxScaler'
-        if self.encode_mode.lower().find('ordinal')>=0: 
-            self.encode_mode = 'OrdinalEncoder'
+        # Construct a Frame if not aleardy dataframe 
+        X = build_data_if ( X, to_frame=True, input_name='fu', force=True, 
+                           raise_exception= True )
+        # Validate and adjust the scale_mode parameter
+        self.scale_mode = self.scale_mode if self.scale_mode in [
+            "StandardScaler", "MinMaxScaler", "RobustScaler"] else "StandardScaler"
+        
+        # Select numerical and categorical columns
+        num_array, num_columns = extract_arr_columns(self.num_attributes, 'num')
+        cat_array, cat_columns = extract_arr_columns(self.cat_attributes, 'cat')
+    
+        # Impute numerical columns if specified
+        if self.imput_data:
+            num_array = SimpleImputer(
+                strategy=self.strategy).fit_transform(num_array)
+    
+        # Scale numerical columns if specified
+        if self.scale:
+            scaler = ( 
+                StandardScaler() if self.scale_mode == "StandardScaler" 
+                else ( MinMaxScaler() if self.scale_mode =='MinMaxScaler' 
+                      else RobustScaler()
+                      )
+                )
+            num_array = scaler.fit_transform(num_array)
+        # Encode categorical columns if specified
+        if self.encode:
+            encoder = ( 
+                OrdinalEncoder() if self.encode_mode == "OrdinalEncoder" 
+                else OneHotEncoder(sparse_output=True)
+                )
+            cat_array = encoder.fit_transform(cat_array)
             
-        elif self.encode_mode.lower().find('hot') >=0: 
-            self.encode_mode = 'OneHotEncoder'
-            
-        numObj = DataFrameSelector(attribute_names= self.num_attributes, 
-                                         select_type='num')
-        catObj =DataFrameSelector(attribute_names= self.cat_attributes, 
-                                         select_type='cat')
-        num_arrayObj = numObj.fit_transform(X)
-        cat_arrayObj = catObj.fit_transform(X)
-        self.num_attributes_ = numObj.attribute_names 
-        self.cat_attributes_ = catObj.attribute_names 
+            # Handling potential sparse matrix output from OneHotEncoder
+            if isinstance(cat_array, np.ndarray):
+                warnings.warn('Sparse matrix is converted to a dense Numpy array.',
+                              UserWarning)
+            elif self.encode_mode == "OneHotEncoder":
+                warnings.warn('Using `OneHotEncoder` generates a sparse matrix.'
+                              ' Consider handling sparse output accordingly.',
+                              UserWarning)
+        # Combine numerical and categorical arrays
+        try:
+            X_transformed = np.c_[num_array, cat_array]
+        except ValueError as e:
+            raise ValueError(f"Error concatenating transformed features: {e}")
         
-        self.attributes_ = self.num_attributes_ + self.cat_attributes_ 
+        # Try to fallback to DataFrame.
+        try : 
+            columns = num_columns + cat_columns 
+            X_transformed= pd.DataFrame (X_transformed, columns = columns)
+        except : 
+            pass 
+        else: 
+            # Keep category values as integers. 
+            X_transformed = FloatCategoricalToIntTransformer(
+                ).fit_transform (X_transformed)
+    
+        return X_transformed
+
+class FrameUnion(BaseEstimator, TransformerMixin):
+    """
+    A transformer that combines numerical and categorical feature processing pipelines
+    into a unified framework. This includes options for imputing missing values, 
+    scaling numerical features, and encoding categorical features. Designed to be
+    used within a ColumnTransformer to efficiently preprocess a DataFrame for
+    machine learning models.
+
+    Parameters
+    ----------
+    num_attributes : list of str, default=None
+        List of column names in the DataFrame corresponding to numerical attributes.
+        These columns will be processed according to the scaling and imputing
+        parameters provided.
+
+    cat_attributes : list of str, default=None
+        List of column names in the DataFrame corresponding to categorical attributes.
+        These columns will be processed according to the encoding parameter provided.
+
+    scale : bool, default=True
+        Determines whether numerical features should be scaled. If True, features
+        will be scaled using either StandardScaler or MinMaxScaler based on the
+        `scale_mode` parameter.
+
+    impute_data : bool, default=True
+        If True, missing values in the data will be imputed using SimpleImputer with
+        the strategy specified by the `strategy` parameter.
+
+    encode : bool, default=True
+        Determines whether categorical features should be encoded. If True,
+        features will be encoded using either OrdinalEncoder or OneHotEncoder
+        based on the `encode_mode` parameter.
+
+    strategy : str, default='median'
+        The strategy used by SimpleImputer to replace missing values. Common strategies
+        include 'mean', 'median', and 'most_frequent'.
+
+    scale_mode : str, default='standard'
+        Determines the scaling method to be used for numerical features. Options
+        are 'standard' for StandardScaler and 'minmax' for MinMaxScaler.
+
+    encode_mode : str, default='ordinal'
+        Determines the encoding method to be used for categorical features. Options
+        are 'ordinal' for OrdinalEncoder and 'onehot' for OneHotEncoder.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import fetch_openml
+    >>> from sklearn.model_selection import train_test_split
+    >>> X, y = fetch_openml("titanic", version=1, as_frame=True, return_X_y=True)
+    >>> num_attrs = ['age', 'fare']
+    >>> cat_attrs = ['embarked', 'sex']
+    >>> frame_union = FrameUnion(num_attributes=num_attrs, cat_attributes=cat_attrs,
+    ...                          scale=True, impute_data=True, encode=True,
+    ...                          strategy='median', scale_mode='standard', encode_mode='onehot')
+    >>> X_transformed = frame_union.fit_transform(X)
+    >>> print(X_transformed.shape)
+
+    Notes
+    -----
+    - The `FrameUnion` transformer is particularly useful in preprocessing pipelines
+      for machine learning models where both numerical and categorical data require
+      different processing steps.
+    - It is designed to be flexible and easily adjustable to different preprocessing
+      needs by changing its parameters.
+    - When `encode_mode` is set to 'onehot', the transformed data might be returned
+      as a sparse matrix. Users should handle the output accordingly based on the
+      requirements of downstream models or processes.
+    """
+    def __init__(self, num_attributes=None, cat_attributes=None, scale=True,
+                 impute_data=True, encode=True, strategy='median',
+                 scale_mode='standard', encode_mode='ordinal'):
+        self.num_attributes = num_attributes
+        self.cat_attributes = cat_attributes
+        self.impute_data = impute_data
+        self.scale = scale
+        self.encode = encode
+        self.strategy = strategy
+        self.scale_mode = scale_mode.lower()
+        self.encode_mode = encode_mode.lower()
         
-        self.X_num_= num_arrayObj.copy()
-        self.X_cat_ =cat_arrayObj.copy()
-        self.X_ = np.c_[self.X_num_, self.X_cat_]
-        
-        if self.imput_data : 
-            from sklearn.impute import SimpleImputer
-            imputer_obj = SimpleImputer(missing_values=np.nan, 
-                                        strategy=self.strategy)
-            num_arrayObj =imputer_obj.fit_transform(num_arrayObj)
-            
-        if self.scale :
-            if self.scale_mode == 'StandardScaler': 
-                scaler = StandardScaler()
-            if self.scale_mode =='MinMaxScaler':
-                scaler = MinMaxScaler()
-        
-            num_arrayObj = scaler.fit_transform(num_arrayObj)
-            
-        if self.encode : 
-            if self.encode_mode =='OrdinalEncoder': 
-                encoder = OrdinalEncoder()
-            elif self.encode_mode =='OneHotEncoder':
-                encoder = OneHotEncoder(sparse_output=True)
-            cat_arrayObj= encoder.fit_transform(cat_arrayObj )
-            # sparse matrix of type class <'numpy.float64'>' stored 
-            # element in compressed sparses raw format . To convert the sense 
-            # matrix to numpy array , we need to just call 'to_array()'.
-            warnings.warn(f'Sparse matrix `{cat_arrayObj.shape!r}` is converted'
-                          ' in dense Numpy array.', UserWarning)
-            # cat_arrayObj= cat_arrayObj.toarray()
-        try: 
-            X= np.c_[num_arrayObj,cat_arrayObj]
-            
-        except ValueError: 
-            # For consistency use the np.concatenate rather than np.c_
-            X= np.concatenate((num_arrayObj,cat_arrayObj), axis =1)
-        
-        if self.encode_mode =='OneHotEncoder':
-            warnings.warn('Use `OneHotEncoder` to encode categorial features'
-                          ' generates a Sparse matrix. X is henceforth '
-                          ' composed of sparse matrix. The new dimension is'
-                          ' {0} rather than {1}.'.format(X.shape,
-                             self.X_.shape), UserWarning)
-            self._logging.info('X become a spared matrix. The new shape is'
-                               '{X.shape!r} against the orignal '
-                               '{self.X_shape!r}')
-            
-        return X
-        
+    def fit(self, X, y=None):
+        return self
+
+    def _validate_attributes(self, X):
+        if self.num_attributes is None:
+            self.num_attributes = X.select_dtypes(include=np.number).columns.tolist()
+        if self.cat_attributes is None:
+            self.cat_attributes = X.select_dtypes(exclude=np.number).columns.tolist()
+
+        # Validate that the provided attributes are in the DataFrame
+        missing_num_attrs = set(self.num_attributes) - set(X.columns)
+        missing_cat_attrs = set(self.cat_attributes) - set(X.columns)
+        if missing_num_attrs or missing_cat_attrs:
+            raise ValueError(f"Missing attributes in the DataFrame: "
+                             f"Numerical - {missing_num_attrs}, Categorical"
+                             f" - {missing_cat_attrs}")
+
+    def transform(self, X):
+        # if not dataframe construct 
+        X= build_data_if(X, to_frame=True, input_name='col',
+                         force=True, raise_exception=True  )
+        # Validate and auto-detect attributes
+        self._validate_attributes(X)
+
+        num_pipeline = 'passthrough'
+        cat_pipeline = 'passthrough'
+        if self.scale:
+            num_pipeline = Pipeline([
+                ('imputer', SimpleImputer(strategy=self.strategy) 
+                 if self.impute_data else 'passthrough'),
+                ('scaler', StandardScaler() if 
+                 self.scale_mode == 'standard' else MinMaxScaler()),
+            ])
+
+        if self.encode:
+            cat_pipeline = Pipeline([
+                ('encoder', OrdinalEncoder() if self.encode_mode == 'ordinal'
+                 else OneHotEncoder(sparse_output=True)),
+            ])
+
+        transformers = []
+        if self.num_attributes:
+            transformers.append(('num', num_pipeline, self.num_attributes))
+        if self.cat_attributes:
+            transformers.append(('cat', cat_pipeline, self.cat_attributes))
+
+        preprocessor = ColumnTransformer(transformers=transformers)
+        X_transformed = preprocessor.fit_transform(X)
+
+        # Handling sparse output warning
+        if self.encode_mode == 'onehot' and not isinstance(X_transformed, np.ndarray):
+            warnings.warn('Output is a sparse matrix due to OneHotEncoder.'
+                          ' Consider using .toarray() or .todense() for '
+                          'downstream processing.', UserWarning)
+
+        return X_transformed
+   
 class FeaturizeX(BaseEstimator, TransformerMixin ): 
     """
     Featurize X using K-Means-based featurization.
@@ -2840,7 +3001,6 @@ class DimensionalityReducer(BaseEstimator, TransformerMixin):
             Returns the instance itself.
 
         """
-        self.n_components = assert_ratio( self.n_components)
         self.reducer = PCA(n_components=self.n_components)
         self.reducer.fit(X)
         return self
@@ -3119,7 +3279,7 @@ class FeatureScaler(BaseEstimator, TransformerMixin):
 
         """
         self.numeric_features = numeric_features
-        
+        self.scaler_ = StandardScaler()
         
     def fit(self, X, y=None):
         """
@@ -3140,20 +3300,10 @@ class FeatureScaler(BaseEstimator, TransformerMixin):
             Returns the instance itself.
 
         """
-        is_frame(X, df_only= True, raise_exception=True,
-                 objname="FeatureScaler")
-        
-        self.scaler_ = StandardScaler()
-        
-        if self.numeric_features is None: 
-            _, self.numeric_features, _ = to_numeric_dtypes(
-                X, return_feature_types= True )
-        
-        self.scaler_.fit(X[self.numeric_features])
-        
+        self._is_frame= isinstance (X, pd.DataFrame)
         return self
     
-    def transform(self, X, y=None):
+    def transform(self, X):
         """
         Standardize specified numeric features by removing the mean and 
         scaling to unit variance.
@@ -3172,11 +3322,25 @@ class FeatureScaler(BaseEstimator, TransformerMixin):
             DataFrame with standardized numeric features.
 
         """
-        X_scaled = X.copy()
-        X_scaled[self.numeric_features] = ( 
-            self.scaler_.transform(X[self.numeric_features])
+        X = build_data_if(X, input_name='scale_col', force=True, 
+                          raise_exception= True )
+        
+        if self.numeric_features is None: 
+            _, self.numeric_features, _ = to_numeric_dtypes(
+                X, return_feature_types= True )
+        
+        exist_features(X, features= self.numeric_features)
+        
+        self.scaler_.fit(X[self.numeric_features])
+        
+        X_transformed= X.copy()
+        X_transformed[self.numeric_features] = ( 
+            self.scaler_.transform(X_transformed[self.numeric_features])
             )
-        return X_scaled
+        if not self._is_frame: 
+            X_transformed = np.asarray(X_transformed)
+            
+        return X_transformed
 
 
 class BaseFeatureScaler(BaseEstimator, TransformerMixin):
@@ -3244,7 +3408,6 @@ class BaseFeatureScaler(BaseEstimator, TransformerMixin):
 
         """
         return self.scaler.transform(X)
-
 
 
 class MissingValueImputer(BaseEstimator, TransformerMixin):
@@ -3321,10 +3484,14 @@ class MissingValueImputer(BaseEstimator, TransformerMixin):
             Returns the instance itself.
 
         """
+        self.columns_=[] 
+        if isinstance( X, pd.DataFrame): 
+            self.columns_= list(X.columns)
+            
         self.imputer_.fit(X)
         return self
     
-    def transform(self, X, y=None):
+    def transform(self, X):
         """
         Impute missing values using the specified strategy.
 
@@ -3332,17 +3499,24 @@ class MissingValueImputer(BaseEstimator, TransformerMixin):
         ----------
         X : DataFrame, shape (n_samples, n_features)
             Input DataFrame containing the features to be imputed.
-        
-        y : array-like, shape (n_samples,)
-            Target values. Not used in this transformer.
-
         Returns
         -------
         X_transformed : DataFrame, shape (n_samples, n_features)
             DataFrame with missing values imputed based on the chosen strategy.
 
         """
-        return self.imputer_.transform(X)
+        
+        # Apply imputation transformation
+        X_imputed = self.imputer_.transform(X)
+        
+        try: 
+            if hasattr(self, 'columns_') and self.columns_:
+                X_transformed = pd.DataFrame(X_imputed, columns=self.columns_)
+        except:
+            # Fallback if columns_ attribute doesn't exist or is empty
+            X_transformed = pd.DataFrame(X_imputed) if self.columns else X_imputed 
+    
+        return X_transformed
 
 class BaseColumnSelector(BaseEstimator, TransformerMixin):
     """
@@ -3483,9 +3657,7 @@ class ColumnSelector(BaseEstimator, TransformerMixin):
             Returns the instance itself.
 
         """
-  
-        from .tools.mlutils import existfeatures 
-        existfeatures(X, self.column_names)
+        exist_features(X, self.column_names)
         return self
     
     def transform(self, X, y=None):
@@ -3507,7 +3679,7 @@ class ColumnSelector(BaseEstimator, TransformerMixin):
 
         """
         is_frame (X, df_only=True, raise_exception= True,
-                  objame="LogTransformer" ) 
+                  objname="LogTransformer" ) 
         
         return X[self.column_names]
 
@@ -3602,7 +3774,7 @@ class LogTransformer(BaseEstimator, TransformerMixin):
 
         """
         is_frame (X, df_only=True, raise_exception= True,
-                  objame="LogTransformer" ) 
+                  objname="LogTransformer" ) 
             
         X_transformed = X.copy()
         for feature in self.numeric_features:
@@ -3700,8 +3872,9 @@ class TimeSeriesFeatureExtractor(BaseEstimator, TransformerMixin):
             rolling minimum, rolling maximum, and rolling median.
 
         """
-        X = build_data_if (X, to_frame=True, force=True, 
-                           raise_warning='mute', input_name='tsfe')
+        X = build_data_if (
+            X, to_frame=True, force=True, 
+           raise_warning='mute', input_name='tsfe')
         # Rolling statistical features
         return X.rolling(window=self.rolling_window).agg(
             ['mean', 'std', 'min', 'max', 'median'])
@@ -3807,8 +3980,6 @@ class CategoryFrequencyEncoder(BaseEstimator, TransformerMixin):
             X_transformed[feature] = X[feature].map(self.frequency_maps_[feature])
         return X_transformed
 
-
-
 class DateTimeCyclicalEncoder(BaseEstimator, TransformerMixin):
     """
     Encode datetime columns as cyclical features using sine and cosine
@@ -3911,59 +4082,69 @@ class DateTimeCyclicalEncoder(BaseEstimator, TransformerMixin):
                 2 * np.pi * dt_col.dt.hour / 24)
         return X_transformed
 
-
 class LagFeatureGenerator(BaseEstimator, TransformerMixin):
     """
-    Generate lag features for time series data to help capture 
-    temporal dependencies.
+    Generates lag features for time series data to help capture temporal dependencies,
+    enhancing model performance by providing historical context.
+
+    This transformer is designed to work with time series data where capturing
+    patterns based on past values is crucial. It can create one or multiple lag
+    features based on the specified lag periods.
 
     Parameters
     ----------
     lags : int or list of ints
-        The number of lag periods to create features for. You can specify a 
-        single integer or a list of integers to generate multiple lag features.
+        Specifies the lag periods for which features should be generated.
+        For example, `lags=1` generates a single lag feature (t-1) for each
+        data point. A list, e.g., `lags=[1, 2, 3]`, generates multiple lag
+        features (t-1, t-2, t-3).
+    time_col : str, optional
+        The name of the column representing time in the input DataFrame.
+        This parameter allows specifying which column to treat as the temporal
+        dimension. If None (default), the DataFrame's index is used.
+    value_col : str, optional
+        Specifies the column from which to generate lag features. Useful for
+        DataFrames with multiple columns when only one contains the time series
+        data. If None (default), the first column of the DataFrame is used.
 
     Examples
     --------
-    >>> generator = LagFeatureGenerator(lags=3)
-    >>> X = pd.DataFrame({'value': np.arange(100)})
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from sklearn.pipeline import make_pipeline
+    >>> from gofast.transformers import LagFeatureGenerator
+    >>> np.random.seed(0)  # For reproducible output
+    >>> X = pd.DataFrame({
+    ...     'time': pd.date_range(start='2020-01-01', periods=100, freq='D'),
+    ...     'value': np.random.randn(100).cumsum()
+    ... })
+    >>> generator = LagFeatureGenerator(lags=[1, 2, 3], time_col='time', value_col='value')
     >>> lag_features = generator.fit_transform(X)
+    >>> print(lag_features.head())
 
     Methods
     -------
     fit(X, y=None)
-        Fit the transformer to the data. This transformer has no trainable 
+        Fit the transformer to the data. This transformer has no trainable
         parameters and does nothing during fitting.
 
     transform(X, y=None)
-        Generate lag features for the input DataFrame to capture temporal
-        dependencies.
+        Generates lag features for the specified value column in the input
+        DataFrame, creating new columns for each specified lag period.
 
     Notes
     -----
-    LagFeatureGenerator is a transformer that generates lag features for time
-    series data. Lag features represent past values of the time series and 
-    can help capture temporal dependencies in the data.
-
-    The `fit` method is a no-op, as this transformer does not have any 
-    trainable parameters. The `transform` method generates lag features 
-    for the input DataFrame, creating new columns with lagged values.
-
+    The LagFeatureGenerator is a transformer that can be an essential part of
+    the preprocessing pipeline for time series forecasting models. By introducing
+    lag features, it allows models to leverage historical data, potentially
+    improving forecast accuracy by capturing seasonal trends, cycles, and other
+    temporal patterns.
     """
-    def __init__(self, lags):
-        """
-        Initialize the LagFeatureGenerator.
+    def __init__(self, lags, time_col=None, value_col=None):
+        self.lags = np.atleast_1d(lags).astype(int)
+        self.time_col = time_col
+        self.value_col = value_col
 
-        Parameters
-        ----------
-        lags : int or list of ints
-            The number of lag periods to create features for. You can specify 
-            a single integer or a list of integers to generate multiple lag
-            features.
-
-        """
-        self.lags = lags if isinstance(lags, list) else [lags]
-        
     def fit(self, X, y=None):
         """
         Fit the transformer to the data.
@@ -3983,81 +4164,113 @@ class LagFeatureGenerator(BaseEstimator, TransformerMixin):
 
         """
         return self
-    
+
     def transform(self, X, y=None):
         """
-        Generate lag features for the input DataFrame to capture temporal dependencies.
+        Generate lag features for the input DataFrame to capture temporal 
+        dependencies.
 
         Parameters
         ----------
-        X : DataFrame, shape (n_samples, n_features)
-            Input DataFrame containing columns for which to generate lag features.
-        
-        y : array-like, shape (n_samples,)
-            Target values. Not used in this transformer.
+        X : DataFrame
+            Input DataFrame containing columns for which to generate lag
+            features.
+        y : Not used.
 
         Returns
         -------
-        lagged_data : DataFrame, shape (n_samples, n_features + num_lags)
+        DataFrame
             DataFrame with lag features added to capture temporal dependencies.
-
         """
-        X = build_data_if (X, to_frame =True, raise_warning='silence', 
-                           force=True, input_name='lf' )
-        X_transformed = X.copy()
+        X = build_data_if (
+            X, 
+            to_frame =True, 
+            raise_warning='silence', 
+            force=True, 
+            input_name='lf' 
+        )
+        
+        if self.time_col and self.time_col not in X.columns:
+            raise ValueError(f"Time column '{self.time_col}' not found in input data.")
+        if self.value_col and self.value_col not in X.columns:
+            self.value_col = X.columns[0]  # Default to first column if not specified
+        
+        # Use specified value column or default to first column
+        value_data = X[self.value_col] if self.value_col else X.iloc[:, 0]
+
+        # Generate lag features
         for lag in self.lags:
-            X_transformed[f'lag_{lag}'] = X_transformed.shift(lag)
-        return X_transformed
+            X[f'lag_{lag}'] = value_data.shift(lag)
 
-
-
+        return X
+ 
 class DifferencingTransformer(BaseEstimator, TransformerMixin):
     """
-    Apply differencing to time series data to make it stationary.
+    Initializes the DifferencingTransformer, a transformer designed to
+    apply differencing to time series data, making it stationary by removing
+    trends and seasonality. Differencing involves subtracting the current value
+    from a previous value at a specified lag.
 
     Parameters
     ----------
     periods : int, default=1
-        Number of periods to shift for calculating the difference.
+        Specifies the lag, i.e., the number of periods to shift for calculating
+        the difference. A period of 1 means subtracting the current value from
+        the immediately preceding value, and so on.
+    
+    zero_first : bool, default=False
+        If True, the first value after differencing, which is NaN due to the
+        shifting, is replaced with zero. This option is useful for models that
+        cannot handle NaN values and ensures the output series has the same
+        length as the input.
 
     Examples
     --------
-    >>> transformer = DifferencingTransformer(periods=1)
-    >>> X = pd.DataFrame({'value': np.cumsum(np.random.randn(100))})
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from sklearn.pipeline import Pipeline
+    >>> from gofast.transformers import DifferencingTransformer
+    >>> np.random.seed(42)  # For reproducible output
+    >>> X = pd.DataFrame({'value': np.random.randn(100).cumsum()})
+    >>> transformer = DifferencingTransformer(periods=1, zero_first=True)
     >>> stationary_data = transformer.fit_transform(X)
+    >>> print(stationary_data.head())
 
     Methods
     -------
     fit(X, y=None)
-        Fit the transformer to the data. This transformer has no trainable 
-        parameters and does nothing during fitting.
-
+        Fit the transformer to the data. This transformer has no trainable
+        parameters and thus the fitting process does nothing except for input
+        validation.
+    
     transform(X, y=None)
-        Apply differencing to the input DataFrame to make it stationary.
+        Applies differencing to the input DataFrame to produce a stationary
+        series by removing trends and seasonality.
 
     Notes
     -----
-    DifferencingTransformer is a transformer that applies differencing to 
-    time series data to make it stationary. Stationary data is essential for 
-    certain time series modeling techniques.
-
-    The `fit` method is a no-op, as this transformer does not have any 
-    trainable parameters. The `transform` method applies differencing to 
-    the input DataFrame, which involves subtracting the previous value from 
-    the current value for each column.
-
+    Differencing is a common preprocessing step for time series forecasting,
+    where data must be stationary to meet the assumptions of various
+    forecasting models. The DifferencingTransformer simplifies this process,
+    making it easy to integrate into a preprocessing pipeline.
     """
-    def __init__(self, periods=1):
+    def __init__(self, periods=1, zero_first=False):
         """
         Initialize the DifferencingTransformer.
 
         Parameters
         ----------
         periods : int, default=1
-            Number of periods to shift for calculating the difference.
+            The number of periods to shift for calculating the difference.
+        replace_first_with_zero : bool, default=False
+            If True, replaces the first differenced value with zero to avoid 
+            NaN values.
+            This can be useful when the differenced series is used as input to 
+            models that do not support NaN values.
 
         """
         self.periods = periods
+        self.zero_first = zero_first
         
     def fit(self, X, y=None):
         """
@@ -4086,23 +4299,35 @@ class DifferencingTransformer(BaseEstimator, TransformerMixin):
         Parameters
         ----------
         X : DataFrame, shape (n_samples, n_features)
-            Input DataFrame containing columns for which to apply differencing.
-        
+            The input DataFrame containing columns for which to apply differencing.
+            
         y : array-like, shape (n_samples,)
             Target values. Not used in this transformer.
 
         Returns
         -------
-        differenced_data : DataFrame, shape (n_samples, n_features)
-            DataFrame with differenced data to make it stationary.
+        DataFrame, shape (n_samples, n_features)
+            The DataFrame with differenced data to make it stationary. If
+            `replace_first_with_zero` is True, the first row of the differenced
+            data will be set to zero instead of NaN.
 
         """
-        X = build_data_if (X, to_frame =True, input_name ='dt', force=True, 
-                           raise_warning='mute')
-        return X.diff(periods=self.periods)
-
-
-
+        # Ensure X is a DataFrame
+        X = build_data_if (
+            X, to_frame =True, input_name ='dt', force=True, 
+            raise_warning='mute'
+        )
+        
+        # Apply differencing
+        differenced_data = X.diff(periods=self.periods)
+        
+        # Optionally replace the first value with zero
+        if self.zero_first:
+            differenced_data.iloc[0] = 0.
+        
+        return differenced_data
+    
+  
 class MovingAverageTransformer(BaseEstimator, TransformerMixin):
     """
     Compute moving average for time series data.
@@ -4190,7 +4415,7 @@ class MovingAverageTransformer(BaseEstimator, TransformerMixin):
             DataFrame with the moving average of each column.
 
         """
-        X = build_data_if(X, to_frame =True, imput_name ='mav', force=True, 
+        X = build_data_if(X, to_frame =True, input_name ='mav', force=True, 
                           raise_warning='silence')
         return X.rolling(window=self.window).mean()
 
@@ -4269,7 +4494,7 @@ class CumulativeSumTransformer(BaseEstimator, TransformerMixin):
             DataFrame with the cumulative sum of each column.
 
         """
-        X = build_data_if(X, to_frame =True, imput_name ='cs', force=True, 
+        X = build_data_if(X, to_frame =True, input_name ='cs', force=True, 
                           raise_warning='silence')
         return X.cumsum()
 
@@ -4376,7 +4601,7 @@ class SeasonalDecomposeTransformer(BaseEstimator, TransformerMixin):
             components.
 
         """
-        result = seasonal_decompose(X, model=self.model, freq=self.freq)
+        result = seasonal_decompose(X, model=self.model, period=self.freq)
         return pd.concat([result.seasonal, result.trend, result.resid], axis=1)
 
 
@@ -4491,66 +4716,81 @@ class FourierFeaturesTransformer(BaseEstimator, TransformerMixin):
         return X_transformed
 
 
-
 class TrendFeatureExtractor(BaseEstimator, TransformerMixin):
     """
-    Extract linear trend features from time series data.
+    Extract linear trend features from time series data by fitting a polynomial
+    of a specified order. This transformer allows for flexible handling of time
+    series data where the time column and value column can be specified, making
+    it suitable for datasets where the date or time information is not set as the
+    DataFrame index.
 
     Parameters
     ----------
     order : int, default=1
-        The order of the trend polynomial to fit.
+        The order of the polynomial trend to fit. For example, `order=1` fits
+        a linear trend, `order=2` fits a quadratic trend, and so on.
+    time_col : str, optional
+        The name of the column in the DataFrame that represents the time variable.
+        If None (default), the DataFrame's index is used as the time variable.
+    value_col : str, optional
+        The name of the column in the DataFrame that represents the value to which
+        the trend is to be fitted. If None (default), the first column of the DataFrame
+        is used.
+
+    Attributes
+    ----------
+    No public attributes.
 
     Examples
     --------
-    >>> transformer = TrendFeatureExtractor(order=1)
-    >>> X = pd.DataFrame({'time': np.arange(100), 
-                          'value': np.random.randn(100)})
-    >>> trend_features = transformer.fit_transform(X[['time']])
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from sklearn.pipeline import Pipeline
+    >>> from gofast.transformers import TrendFeatureExtractor
+    >>> np.random.seed(0)  # For reproducible output
+    >>> X = pd.DataFrame({
+    ...     'time': pd.date_range(start='2020-01-01', periods=100, freq='D'),
+    ...     'value': np.random.randn(100).cumsum()
+    ... })
+    >>> transformer = TrendFeatureExtractor(order=1, time_col='time', value_col='value')
+    >>> trend_features = transformer.fit_transform(X)
+    >>> print(trend_features.head())
 
     Methods
     -------
     fit(X, y=None)
-        Fit the transformer to the data. This transformer has no trainable 
-        parameters and does nothing during fitting.
+        Fit the transformer to the data. This transformer does not have any
+        trainable parameters and, therefore, the fitting process does nothing
+        except verifying the correctness of the input data.
 
     transform(X, y=None)
-        Extract linear trend features from time series data.
+        Extract linear trend features from the provided time series data. The
+        method fits a polynomial of the specified order to the time series data
+        and returns the trend component as a new DataFrame.
 
     Notes
     -----
-    TrendFeatureExtractor is a transformer that extracts linear trend features
-    from time series data. It fits a polynomial of the specified order to 
-    the time series data and returns the trend component as features.
-
+    The TrendFeatureExtractor is designed to work with time series data where the
+    temporal ordering is crucial for analysis. By fitting a trend line to the data,
+    this transformer helps in analyzing the underlying trend of the time series,
+    which can be particularly useful for feature engineering in predictive modeling
+    tasks.
     """
-    def __init__(self, order=1):
-        """
-        Initialize the TrendFeatureExtractor transformer.
-
-        Parameters
-        ----------
-        order : int, default=1
-            The order of the trend polynomial to fit.
-
-        Returns
-        -------
-        None
-
-        """
+    def __init__(self, order=1, time_col=None, value_col=None):
         self.order = order
+        self.time_col = time_col
+        self.value_col = value_col
         
     def fit(self, X, y=None):
         """
-        Fit the transformer to the data.
+        Fit the transformer to the data. This transformer has no trainable 
+        parameters and does nothing during fitting.
 
         Parameters
         ----------
-        X : array-like, shape (n_samples, n_features)
+        X : DataFrame
             Training data. Not used in this transformer.
-        
-        y : array-like, shape (n_samples,)
-            Target values. Not used in this transformer.
+        y : Not used.
 
         Returns
         -------
@@ -4566,23 +4806,38 @@ class TrendFeatureExtractor(BaseEstimator, TransformerMixin):
 
         Parameters
         ----------
-        X : DataFrame, shape (n_samples, n_features)
-            Input time series data with a 'time' column.
-        
-        y : array-like, shape (n_samples,)
-            Target values. Not used in this transformer.
+        X : DataFrame
+            Input time series data.
+        y : Not used.
 
         Returns
         -------
-        trend_features : DataFrame, shape (n_samples, 1)
-            Dataframe containing the extracted trend features.
+        trend_features : DataFrame
+            DataFrame containing the extracted trend features.
 
         """
-        trends = np.polyfit(X.index, X.values, deg=self.order)
-        trend_poly = np.poly1d(trends)
-        return pd.DataFrame(trend_poly(X.index), index=X.index,
-                            columns=[f'trend_{self.order}'])
+        if self.time_col is None:
+            time_data = X.index
+        else:
+            if self.time_col not in X.columns:
+                raise ValueError(f"Time column '{self.time_col}' not found in input data.")
+            time_data = X[self.time_col]
+            
+        if self.value_col is None:
+            value_data = X.iloc[:, 0]
+        else:
+            if self.value_col not in X.columns:
+                raise ValueError(f"Value column '{self.value_col}' not found in input data.")
+            value_data = X[self.value_col]
 
+        # Fit and evaluate the polynomial
+        trends = np.polyfit(time_data, value_data, deg=self.order)
+        trend_poly = np.poly1d(trends)
+        trend_features = pd.DataFrame(trend_poly(time_data),
+                                       index=X.index if self.time_col is None else None,
+                                       columns=[f'trend_{self.order}'])
+        
+        return trend_features
 
 class ImageResizer(BaseEstimator, TransformerMixin):
     """
@@ -4651,6 +4906,7 @@ class ImageResizer(BaseEstimator, TransformerMixin):
             Returns the instance itself.
 
         """
+        import_optional_dependency("skimage", extra=EMSG)
         return self
     
     def transform(self, X):
@@ -4668,6 +4924,7 @@ class ImageResizer(BaseEstimator, TransformerMixin):
             Resized image(s) with the specified output size.
 
         """
+        from skimage.transform import resize
         return resize(X, self.output_size, anti_aliasing=True)
 
 
@@ -4830,6 +5087,7 @@ class ImageToGrayscale(BaseEstimator, TransformerMixin):
             depending on the `keep_dims` parameter.
 
         """
+        from skimage.color import rgb2gray
         grayscale = rgb2gray(X)
         if self.keep_dims:
             grayscale = grayscale[:, :, np.newaxis]

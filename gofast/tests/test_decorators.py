@@ -19,7 +19,7 @@ import numpy as np
 
 from gofast._gofastlog import gofastlog 
 from gofast.decorators import DynamicMethod  
-from gofast.decorators import ExportData , df_if, Dataify
+from gofast.decorators import ExportData , isdf, Dataify
 from gofast.decorators import Temp2D, CheckGDALData 
 from gofast.decorators import SignalFutureChange, RedirectToNew  
 from gofast.decorators  import AppendDocReferences, Deprecated
@@ -218,7 +218,7 @@ def test_not_suppressing():
 
 # Test with DataFrame input
 def test_df_if_with_dataframe():
-    @df_if
+    @isdf
     def process_data(data):
         return data
 
@@ -228,7 +228,7 @@ def test_df_if_with_dataframe():
 
 # Test with numpy array input
 def test_df_if_with_numpy_array():
-    @df_if
+    @isdf
     def process_data(data):
         return data
 
@@ -239,7 +239,7 @@ def test_df_if_with_numpy_array():
 
 # Test with list input and columns argument
 def test_df_if_with_list_and_columns():
-    @df_if
+    @isdf
     def process_data(data, /, columns=None):
         return data
 
@@ -251,7 +251,7 @@ def test_df_if_with_list_and_columns():
 
 # Test with mismatched columns argument
 def test_df_if_with_mismatched_columns():
-    @df_if
+    @isdf
     def process_data(data, /, columns=None):
         return data
 
@@ -262,7 +262,7 @@ def test_df_if_with_mismatched_columns():
 
 # Test with invalid input data type
 def test_df_if_with_invalid_input():
-    @df_if
+    @isdf
     def process_data(data):
         return data
 

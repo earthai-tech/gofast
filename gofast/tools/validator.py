@@ -2632,6 +2632,72 @@ def set_array_back (X, *,  to_frame=False, columns = None, input_name ='X'):
             X= pd.DataFrame (X, columns = columns )
         
     return X, columns 
+
+def convert_array_to_pandas(X, *, to_frame=False, columns=None, input_name='X'):
+    """
+    Converts an array-like object to a pandas DataFrame or Series, applying
+    provided column names or series name.
+
+    Parameters
+    ----------
+    X : array-like
+        The array to convert to a DataFrame or Series.
+    to_frame : bool, default=False
+        If True, converts the array to a DataFrame. Otherwise, returns the array unchanged.
+    columns : str or list of str, optional
+        Name(s) for the columns of the resulting DataFrame or the name of the Series.
+    input_name : str, default='X'
+        The name of the input variable; used in constructing error messages.
+
+    Returns
+    -------
+    pd.DataFrame or pd.Series
+        The converted DataFrame or Series. If `to_frame` is False, returns `X` unchanged.
+    columns : str or list of str
+        The column names of the DataFrame or the name of the Series, if applicable.
+
+    Raises
+    ------
+    TypeError
+        If `X` is not array-like or if `columns` is neither a string nor a list of strings.
+    ValueError
+        If the conversion to DataFrame is requested but `columns` is not provided,
+        or if the length of `columns` does not match the number of columns in `X`.
+    """
+    # Validate the type of X
+    if not (hasattr(X, '__array__') or sp.issparse(X)):
+        raise TypeError(f"{input_name} supports only array-like or"
+                        f" sparse matrix, got: {type(X).__name__!r}")
+    
+    # Preserve existing DataFrame or Series column names
+    if hasattr(X, 'columns'):
+        columns = X.columns
+    elif hasattr(X, 'name'):
+        columns = X.name
+
+    if to_frame and not sp.issparse(X):
+        if columns is None:
+            raise ValueError("Columns must be provided for DataFrame conversion.")
+
+        # Ensure columns is list-like for DataFrame conversion, single string for Series
+        if isinstance(columns, str):
+            columns = [columns]
+
+        if not hasattr(columns, '__len__') or isinstance(columns, str):
+            raise TypeError(f"Columns for {input_name} must be a list or a single string.")
+
+        # Convert to Series or DataFrame based on dimensionality
+        if X.ndim == 1 or len(X) == len(columns) == 1:  # 1D array or single-column DataFrame
+            X = pd.Series(X, name=columns[0])
+        elif X.ndim == 2:  # 2D array to DataFrame
+            if X.shape[1] != len(columns):
+                raise ValueError(f"Shape of passed values is {X.shape},"
+                                 f" but columns implied {len(columns)}")
+            X = pd.DataFrame(X, columns=columns)
+        else:
+            raise ValueError(f"{input_name} cannot be converted to DataFrame with given columns.")
+
+    return X, columns
  
 def is_frame (arr, /, df_only =False, raise_exception: bool=False,
               objname=None  ): 
@@ -3168,8 +3234,82 @@ def check_y(y,
        
     return y
 
-def build_data_if (
-    data: dict|np.ndarray|pd.DataFrame, /, 
+def build_data_if(
+    data, 
+    columns=None, 
+    to_frame=True, 
+    input_name='data', 
+    force=False, 
+    raise_warning=True,
+    raise_exception=False
+):
+    """
+    Converts input data into a pandas DataFrame if necessary and requested,
+    applying specified columns names or generating them if the `force` parameter
+    is set.
+
+    Parameters
+    ----------
+    data : dict, list, tuple, np.ndarray, pd.DataFrame
+        The data to potentially convert to a DataFrame. Can be a dictionary,
+        list, tuple, NumPy array, or already a pandas DataFrame.
+    columns : str or list of str, optional
+        The names for the resulting DataFrame columns or the Series name.
+    to_frame : bool, default=True
+        If True, converts `data` to a DataFrame if it isn't already one.
+    input_name : str, default='data'
+        The name of the input variable, used for constructing error messages.
+    force : bool, default=False
+        Forces the conversion of `data` to a DataFrame by generating column names
+        based on `input_name` if `columns` are not provided.
+    raise_warning : bool, default=True
+        If True, raises a warning when conversion requirements are not met.
+    raise_exception : bool, default=False
+        If True, raises an exception instead of a warning when conversion
+        requirements are not met.
+
+    Returns
+    -------
+    pd.DataFrame
+        The converted DataFrame.
+
+    Raises
+    ------
+    TypeError
+        If `data` cannot be converted to a DataFrame based on the provided
+        parameters and conditions.
+    """
+    if isinstance(data, dict):
+        data = pd.DataFrame(data)
+        columns = list(data.columns)
+    elif isinstance(data, (list, tuple)):
+        data = np.array(data)
+    
+    # Check if data needs to be converted to a DataFrame
+    if to_frame and not isinstance(data, pd.DataFrame):
+        if columns is None and not force:
+            msg = (f"Conversion of {input_name} to DataFrame requires column names. "
+                   "Provide `columns` or set `force=True` to generate them automatically.")
+            if raise_exception:
+                raise TypeError(msg)
+            if raise_warning:
+                warnings.warn(msg, UserWarning)
+        # Generate column names if forced and not provided
+        if force and columns is None:
+            columns = [f"{input_name}_{i}" for i in range(data.shape[1])]
+            
+        data = pd.DataFrame(data, columns=columns)
+       
+    data =array_to_frame(
+        data, columns = columns, 
+        to_frame =to_frame, 
+        input_name=input_name,
+        force =force, 
+        )
+    return data  # Return original data if conditions are not met
+
+def build_data_if2 (
+    data: dict|np.ndarray| pd.DataFrame, /, 
     columns =None,  
     to_frame=True,  
     input_name ='data', 
@@ -3233,6 +3373,77 @@ def build_data_if (
         )
 
 def array_to_frame(
+    X, 
+    *, 
+    to_frame=False, 
+    columns=None, 
+    raise_exception=False, 
+    raise_warning=True, 
+    input_name='', 
+    force=False
+):
+    """
+    Validates and optionally converts an array-like object to a pandas DataFrame,
+    applying specified column names if provided or generating them if the `force`
+    parameter is set.
+
+    Parameters
+    ----------
+    X : array-like
+        The array to potentially convert to a DataFrame.
+    columns : str or list of str, optional
+        The names for the resulting DataFrame columns or the Series name.
+    to_frame : bool, default=False
+        If True, converts `X` to a DataFrame if it isn't already one.
+    input_name : str, default=''
+        The name of the input variable, used for error and warning messages.
+    raise_warning : bool, default=True
+        If True and `to_frame` is True but `columns` are not provided,
+        a warning is issued unless `force` is True.
+    raise_exception : bool, default=False
+        If True, raises an exception when `to_frame` is True but columns
+        are not provided and `force` is False.
+    force : bool, default=False
+        Forces the conversion of `X` to a DataFrame by generating column names
+        based on `input_name` if `columns` are not provided.
+
+    Returns
+    -------
+    pd.DataFrame or pd.Series
+        The potentially converted DataFrame or Series, or `X` unchanged.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import array_to_frame
+    >>> from sklearn.datasets import load_iris
+    >>> data = load_iris()
+    >>> X = data.data
+    >>> array_to_frame(X, to_frame=True, columns=['sepal_length', 'sepal_width',
+                                                  'petal_length', 'petal_width'])
+    """
+    # Determine if conversion to frame is needed
+    if to_frame and not isinstance(X, (pd.DataFrame, pd.Series)):
+        # Handle force conversion without provided column names
+        if columns is None and force:
+            columns = [f"{input_name}_{i}" for i in range(X.shape[1])]
+        elif columns is None:
+            msg = (
+                f"Array '{input_name}' requires column names for conversion to a DataFrame. "
+                 "Provide `columns` or set `force=True` to auto-generate column names."
+            )
+            if raise_exception:
+                raise ValueError(msg)
+            if raise_warning and raise_warning not in ("silence", "ignore", "mute"):
+                warnings.warn(msg)
+            return X  # Early return if no columns and not forcing
+        
+        # Proceed with conversion using the provided or generated column names
+        X,_ = convert_array_to_pandas(X, to_frame=True, columns=columns,
+                                      input_name=input_name)
+    
+    return X
+
+def array_to_frame2(
     X, 
     *, 
     to_frame = False, 
@@ -3312,7 +3523,7 @@ def array_to_frame(
           ): 
         isf =True
         
-    X, _= set_array_back(
+    X, _= convert_array_to_pandas(
         X, 
         to_frame=isf, 
         columns =columns, 

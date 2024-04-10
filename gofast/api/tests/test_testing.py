@@ -4,7 +4,7 @@ import pytest
 import numpy as np 
 import pandas as pd 
 
-from gofast.api.summary import Summary, ReportFactory 
+from gofast.api.summary import Summary, ReportFactory, ModelSummary 
 
 from gofast.api.testing import assert_box_formatter, assert_dataframe_formatter 
 from gofast.api.testing import assert_dataframe_presence, assert_description_formatter 
@@ -101,7 +101,7 @@ def sample_model_results():
 
 # The actual tests
 def test_summary_model_output(sample_model_results):
-    summary = Summary()
+    summary = ModelSummary()
     # use some keys expected in output  for validation.
     expected_output = [ "Model Results", "Tuning Results", "Global mean"] 
     """
@@ -124,8 +124,8 @@ def test_summary_model_output(sample_model_results):
     assert_summary_model(summary, sample_model_results, expected_output)
 
 def test_summary_content_attributes(sample_model_results):
-    summary = Summary()
-    summary.model_summary(model_results=sample_model_results)
+    summary = ModelSummary()
+    summary.add_flex_summary(model_results=sample_model_results)
     expected_attributes = {
         'title': summary.title,
         'summary_report': summary.summary_report

@@ -16,7 +16,7 @@ from ._gofastlog import gofastlog
 from ._typing import List, Optional, DataFrame, Tuple
 
 from .exceptions import NotFittedError
-from .tools.baseutils import _is_readable
+from .tools.baseutils import is_readable
 from .tools.coreutils import sanitize_frame_cols, exist_features
 from .tools.coreutils import repr_callable_obj, reshape 
 from .tools.coreutils import smart_strobj_recognition, is_iterable
@@ -1312,7 +1312,12 @@ class FeatureProcessor:
         facilitates various feature processing tasks that may follow.
         """
         from .tools.mlutils import ( 
-            bi_selector, build_data_if, select_features, export_target)
+            bi_selector,
+            build_data_if, 
+            select_features,
+            get_target
+        )
+   
     
         # Ensure input data is a DataFrame
         X = build_data_if(X, columns=self.features, to_frame=True, 
@@ -1321,7 +1326,7 @@ class FeatureProcessor:
         X = to_numeric_dtypes(X)
         # Extract target from 'tnames'
         if self.tnames is not None: 
-            y, X = export_target(X, tname=self.tnames)
+            y, X = get_target(X, tname=self.tnames)
         
         # Type check for DataFrame
         if not isinstance(X, pd.DataFrame):
@@ -2308,7 +2313,7 @@ class Data:
     @data.setter
     def data(self, d):
         """ Read and parse the data"""
-        self.data_ = _is_readable(d)
+        self.data_ = is_readable(d)
 
     @property
     def describe(self):
