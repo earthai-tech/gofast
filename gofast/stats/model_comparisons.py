@@ -660,7 +660,6 @@ def perform_friedman_test2(
 
     return formatted_result
 
-
 @isdf 
 @ensure_pkg(
     "scikit_posthocs", 

@@ -10,13 +10,15 @@ import pytest # noqa
 from sklearn.datasets import fetch_california_housing
 # from sklearn.datasets import load_boston # `load_boston` has been removed 
 # from scikit-learn since version 1.2.
-
+from gofast.datasets.io import get_data, remove_data 
+from gofast.tools.coreutils import is_module_installed 
+from gofast.tools.funcutils import install_package 
+from gofast.tools.baseutils import remove_target_from_array
 from gofast.tools.dataops import summarize_text_columns
 from gofast.tools.dataops import enrich_data_spectrum
 from gofast.tools.dataops import simple_extractive_summary
 from gofast.tools.dataops import format_long_column_names
 from gofast.tools.dataops import sanitize
-from gofast.tools.dataops import remove_target_from_array
 from gofast.tools.dataops import read_data
 from gofast.tools.dataops import fetch_remote_data, get_remote_data
 from gofast.tools.dataops import request_data
@@ -38,6 +40,11 @@ from gofast.tools.dataops  import apply_word_embeddings
 from gofast.tools.dataops  import boxcox_transformation  
 from gofast.tools.dataops  import check_missing_data  
 
+try : 
+    import requests #noqa
+except : 
+    if not is_module_installed("requests"): 
+        install_package("requests")
 
 DOWNLOAD_FILE='https://raw.githubusercontent.com/WEgeophysics/gofast/main/gofast/datasets/data/iris.csv'
 
@@ -84,7 +91,8 @@ class TestFormatLongColumnNames(unittest.TestCase):
     def test_format_long_column_names(self):
         data = {'VeryLongColumnNameIndeed': [1, 2, 3], 'AnotherLongColumnName': [4, 5, 6]}
         df = pd.DataFrame(data)
-        new_df, mapping = format_long_column_names(df, max_length=10, return_mapping=True, name_case='capitalize')
+        new_df, mapping = format_long_column_names(df, max_length=10, return_mapping=True,
+                                                   name_case='capitalize')
         self.assertIn('Verylongco', new_df.columns)
         self.assertIn('Anotherlon', new_df.columns)
         self.assertEqual(len(mapping), 2)
@@ -94,14 +102,16 @@ class TestEnrichDataSpectrum(unittest.TestCase):
     def test_enrich_data_spectrum(self):
         housing = fetch_california_housing()
         data = pd.DataFrame(housing.data, columns=housing.feature_names)
-        augmented_data = enrich_data_spectrum(data, noise_level=0.02, resample_size=50, synthetic_size=50, bootstrap_size=50)
+        augmented_data = enrich_data_spectrum(data, noise_level=0.02, resample_size=50,
+                                              synthetic_size=50, bootstrap_size=50)
         self.assertGreater(augmented_data.shape[0], data.shape[0])
 
 class TestSanitize(unittest.TestCase):
     def test_sanitize(self):
         data = {'A': [1, 2, None, 4], 'B': ['X', 'Y', 'Y', None], 'C': [1, 1, 2, 2]}
         df = pd.DataFrame(data)
-        cleaned_df = sanitize(df, fill_missing='median', remove_duplicates=True, outlier_method='z_score', consistency_transform='lower')
+        cleaned_df = sanitize(df, fill_missing='median', remove_duplicates=True, 
+                              outlier_method='z_score', consistency_transform='lower')
         self.assertFalse(cleaned_df.isnull().any().any())
         self.assertTrue('x' in cleaned_df['B'].values)
 
@@ -125,16 +135,14 @@ class TestReadData(unittest.TestCase):
         self.assertFalse(df.empty)
         mock_read_csv.assert_called_once_with(file)
 
-
-
 class TestRequestData(unittest.TestCase):
-    @patch('gofast.tools.dataops.requests.get')
+    @patch('requests.get')
     def test_request_data_get_as_json(self, mock_get):
         mock_get.return_value.json.return_value = {'key': 'value'}
         response = request_data('http://example.com', as_json=True)
         self.assertEqual(response, {'key': 'value'})
 
-    @patch('gofast.tools.dataops.requests.post')
+    @patch('requests.post')
     def test_request_data_post_as_text(self, mock_post):
         mock_post.return_value.text = 'response text'
         response = request_data('http://example.com', method='post', as_text=True)
@@ -145,7 +153,7 @@ class TestFetchRemoteData(unittest.TestCase):
     @patch('builtins.open', new_callable=mock_open)
     def test_fetch_remote_data_success(self, mock_file, mock_urlopen):
         mock_urlopen.return_value.read.return_value = b'data'
-        status = fetch_remote_data(DOWNLOAD_FILE, save_path='/local/path')
+        status = fetch_remote_data(DOWNLOAD_FILE, save_path=get_data())
         self.assertTrue(status)
 
 class TestGetRemoteData(unittest.TestCase):
@@ -153,7 +161,7 @@ class TestGetRemoteData(unittest.TestCase):
     @patch('builtins.open', new_callable=mock_open)
     def test_get_remote_data_success(self, mock_file, mock_urlopen):
         mock_urlopen.return_value.read.return_value = b'data'
-        status = get_remote_data(DOWNLOAD_FILE, save_path='/local/path')
+        status = get_remote_data(DOWNLOAD_FILE, save_path=get_data())
         self.assertTrue(status)
 
 
@@ -165,7 +173,6 @@ class TestGetRemoteData(unittest.TestCase):
 #         move_file('source_file.txt', 'dest_dir')
 #         mock_makedirs.assert_called_once_with('dest_dir', exist_ok=True)
 #         mock_move.assert_called_once_with('source_file.txt', 'dest_dir/source_file.txt')
-
 
 class TestStoreOrRetrieveData(unittest.TestCase):
     @patch('gofast.tools.dataops.pd.HDFStore', autospec=True)
@@ -180,7 +187,8 @@ class TestStoreOrRetrieveData(unittest.TestCase):
     @patch('gofast.tools.dataops.h5py.File', autospec=True)
     def test_retrieve_data(self, mock_h5file):
         mock_h5file.return_value.__enter__.return_value.keys.return_value = ['dataset1']
-        type(mock_h5file.return_value.__enter__.return_value).get = MagicMock(return_value=pd.DataFrame({'A': [4, 5, 6]}))
+        type(mock_h5file.return_value.__enter__.return_value).get = MagicMock(
+            return_value=pd.DataFrame({'A': [4, 5, 6]}))
         result = store_or_retrieve_data('my_datasets.h5', operation='retrieve')
         self.assertIsInstance(result, dict)
         # self.assertIn('dataset1', result)
@@ -196,7 +204,8 @@ class TestBaseStorage(unittest.TestCase):
     @patch('gofast.tools.dataops.h5py.File', autospec=True)
     def test_base_storage_retrieve(self, mock_h5file):
         mock_h5file.return_value.__enter__.return_value.keys.return_value = ['dataset1']
-        mock_h5file.return_value.__enter__.return_value.get = MagicMock(return_value=pd.DataFrame({'A': [4, 5, 6]}))
+        mock_h5file.return_value.__enter__.return_value.get = MagicMock(
+            return_value=pd.DataFrame({'A': [4, 5, 6]}))
         result = base_storage('my_datasets.h5', operation='retrieve')
         self.assertIsInstance(result, dict)
         # self.assertIn('dataset1', result)
@@ -391,7 +400,8 @@ def test_apply_bow_vectorization():
 def test_apply_word_embeddings():
     df = pd.DataFrame({'Text': ['deep learning', 'machine learning']})
     # Assume 'path/to/embeddings' is a valid path to embedding file
-    result_df = apply_word_embeddings(df, text_columns='Text', embedding_file_path='path/to/embeddings', n_components=10)
+    result_df = apply_word_embeddings(df, text_columns='Text', 
+                                      embedding_file_path='path/to/embeddings', n_components=10)
     
     assert result_df.shape[1] == 10
     assert all([col.startswith('embedding_') for col in result_df.columns])
@@ -399,7 +409,8 @@ def test_apply_word_embeddings():
 
 def test_boxcox_transformation():
     df = pd.DataFrame({'Value': [0.1, 1.5, 2.5, 3.5]})
-    transformed_df, lambda_values = boxcox_transformation(df, columns=['Value'], adjust_non_positive='adjust')
+    transformed_df, lambda_values = boxcox_transformation(df, columns=['Value'],
+                                                          adjust_non_positive='adjust')
     
     assert 'Value' in transformed_df.columns
     assert lambda_values['Value'] is not None
@@ -411,6 +422,9 @@ def test_check_missing_data():
     
     assert missing_stats.loc['A', 'Count'] == 1
     assert missing_stats.loc['B', 'Count'] == 1
+
+# clean the gofast data 
+remove_data() 
 
 if __name__ == '__main__':
     unittest.main()

@@ -1432,7 +1432,7 @@ def verify_data_integrity(data: DataFrame, /) -> Tuple[bool, dict]:
     report['integrity_checks']='Passed' if is_valid else 'Failed'
     # make a report obj 
     report_obj= ReportFactory(title ="Data Integrity", **report )
-    report_obj.mixed_types_summary(report, table_width= 90)
+    report_obj.add_mixed_types(report, table_width= 90)
     
     return is_valid, report_obj
 
@@ -1652,8 +1652,9 @@ def audit_data(
         plt.show()
     
     # make a report obj 
-    report_obj= ReportFactory(title ="Data Audit", **report )
-    report_obj.mixed_types_summary(report, table_width= 90)
+    if return_report: 
+        report_obj= ReportFactory(title ="Data Audit")
+        report_obj.add_mixed_types(report, table_width= 90)
     
     return (data, report_obj) if return_report else data
 
@@ -1725,7 +1726,7 @@ def handle_categorical_features(
         plt.show()
     # make a report obj 
     report_obj= ReportFactory(title ="Categorical Features Handling", **report )
-    report_obj.mixed_types_summary(report, table_width= 90,  )
+    report_obj.add_mixed_types(report, table_width= 90,  )
     
     return (data, report_obj) if return_report else data
 
@@ -1828,7 +1829,7 @@ def convert_date_features(
         plt.show()
 
     report_obj= ReportFactory(title ="Date Features Conversion", **report )
-    report_obj.mixed_types_summary(report, table_width= 90,)
+    report_obj.add_mixed_types(report, table_width= 90,)
     return (data, report_obj) if return_report else data
 
 @isdf 
@@ -1943,7 +1944,7 @@ def scale_data(
         
     report['used_scikit_method']=use_sklearn
     report_obj= ReportFactory(title ="Data Scaling", **report )
-    report_obj.mixed_types_summary(report, table_width= 90,)
+    report_obj.add_mixed_types(report, table_width= 90,)
     return (data, report_obj) if return_report else data
 
 def handle_outliers_in_data(
@@ -2052,7 +2053,7 @@ def handle_outliers_in_data(
         plt.show()
         
     report_obj= ReportFactory(title ="Outliers Handling", **report )
-    report_obj.mixed_types_summary(report, table_width= 90,)
+    report_obj.add_mixed_types(report, table_width= 90,)
     return (data, report_obj) if return_report else data
 
 @isdf
@@ -2157,7 +2158,7 @@ def handle_missing_data(
         "describe%% Basic statistics": missing_data.describe()
     }
     report_obj= ReportFactory(title ="Missing Handling", **data_report )
-    report_obj.mixed_types_summary(data_report, table_width= 90)
+    report_obj.add_mixed_types(data_report, table_width= 90)
     return (data, report_obj) if return_report else data
 
 @isdf
@@ -2433,7 +2434,7 @@ def inspect_data(
             " (e.g., converting float to int where applicable).")
     
     report_obj= ReportFactory(title ="Data Inspection", **report )
-    report_obj.mixed_types_summary(report, table_width= 90)
+    report_obj.add_mixed_types(report, table_width= 90)
     
     if return_report: 
         return report_obj # return for retrieving attributes. 
@@ -3919,7 +3920,7 @@ def check_missing_data(
         
     verbosity_texts ['missing_stats%% Missing Table']= missing_stats
     if verbose and verbosity_texts: 
-        summary = ReportFactory('Missing Report').mixed_types_summary(
+        summary = ReportFactory('Missing Report').add_mixed_types(
             verbosity_texts, table_width= 70 )
         print(summary)
 

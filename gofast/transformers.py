@@ -2143,6 +2143,7 @@ class FrameUnion(BaseEstimator, TransformerMixin):
     --------
     >>> from sklearn.datasets import fetch_openml
     >>> from sklearn.model_selection import train_test_split
+    >>> from gofast.transformers import FrameUnion
     >>> X, y = fetch_openml("titanic", version=1, as_frame=True, return_X_y=True)
     >>> num_attrs = ['age', 'fare']
     >>> cat_attrs = ['embarked', 'sex']

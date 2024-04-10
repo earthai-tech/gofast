@@ -34,21 +34,21 @@ def sample_dataframe():
 # The actual tests
 def test_summary_basic_statistics(sample_dataframe):
     summary = Summary()
-    summary.basic_statistics(sample_dataframe)
+    summary.add_basic_statistics(sample_dataframe)
     assert_summary_correlation_matrix(summary, expected_presence=False)
-    summary.basic_statistics(sample_dataframe, include_correlation=True)
+    summary.add_basic_statistics(sample_dataframe, include_correlation=True)
     assert_summary_correlation_matrix(summary, expected_presence=True)
 
 def test_summary_unique_counts(sample_dataframe):
     summary = Summary()
-    summary.unique_counts(sample_dataframe, include_sample=True, sample_size=3)
+    summary.add_unique_counts(sample_dataframe, include_sample=True, sample_size=3)
     assert_summary_data_sample(summary, expected_sample_size=3)
     assert_summary_completeness(summary, expected_sections=["Unique Counts", "Sample Data"])
 
 def test_summary_with_title(sample_dataframe):
     title = "Test Summary Report"
     summary = Summary(title=title)
-    summary.basic_statistics(sample_dataframe)
+    summary.add_basic_statistics(sample_dataframe)
     assert "Basic Statistics" in summary.__str__(), "Basic Statistics title is not in the summary report."
     assert_summary_completeness(summary, expected_sections=["Basic Statistics"])
 
@@ -67,7 +67,7 @@ def categorical_dataframe():
 # The actual tests
 def test_summary_with_empty_dataframe(empty_dataframe):
     summary = Summary()
-    summary.basic_statistics(empty_dataframe)
+    summary.add_basic_statistics(empty_dataframe)
     assert_summary_empty_dataframe(summary)
 
 def test_summary_basic_statistics_correctness(categorical_dataframe):
