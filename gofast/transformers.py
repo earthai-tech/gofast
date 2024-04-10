@@ -3505,16 +3505,17 @@ class MissingValueImputer(BaseEstimator, TransformerMixin):
             DataFrame with missing values imputed based on the chosen strategy.
 
         """
-        
         # Apply imputation transformation
-        X_imputed = self.imputer_.transform(X)
+        X_transformed = self.imputer_.transform(X)
         
         try: 
             if hasattr(self, 'columns_') and self.columns_:
-                X_transformed = pd.DataFrame(X_imputed, columns=self.columns_)
+                X_transformed = pd.DataFrame(
+                    X_transformed, columns=self.columns_)
         except:
             # Fallback if columns_ attribute doesn't exist or is empty
-            X_transformed = pd.DataFrame(X_imputed) if self.columns else X_imputed 
+            X_transformed = pd.DataFrame(
+                X_transformed) if self.columns else X_transformed 
     
         return X_transformed
 
