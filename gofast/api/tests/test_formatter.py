@@ -51,7 +51,7 @@ class TestMultiFrameFormatter(unittest.TestCase):
 
         formatter.add_dfs(self.df1)
         repr_str = formatter.__repr__()
-        self.assertIn('MultiFrame object with dataframes', repr_str)
+        self.assertIn('MultiFrame with tables', repr_str)
 
 
 class TestDataFrameFormatter(unittest.TestCase):

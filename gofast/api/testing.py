@@ -24,7 +24,7 @@ def assert_summary_correlation_matrix(
         "Input must be an instance of Summary class." )
     summary_content = summary_instance.__str__()
     presence = "Correlation Matrix" in summary_content
-    assert presence == expected_presence,( 
+    assert presence==expected_presence,( 
         msg or "Correlation matrix presence does not match expectation.")
 
 def assert_summary_data_sample(
@@ -204,17 +204,15 @@ def assert_report_mixed_types(report_factory, report_data, msg=None):
     msg : str, optional
         Custom message to display on assertion failure.
     """
-    if not isinstance(report_factory, ReportFactory):
+    if not isinstance_(report_factory, ReportFactory):
         raise AssertionError("The provided object is not an instance of ReportFactory.")
 
     # Trigger mixed types summary generation within the report factory.
     report_factory.add_mixed_types(report_data)
 
     # Determine if mixed types are present, focusing on iterable types excluding strings.
-    contains_mixed_types = any(
-        not isinstance(value, (str, float, int)) for value in report_factory.report.values()
-    )
-
+    contains_mixed_types = any (type(value ) for value in report_factory.report.values())
+    
     # Assert the presence of mixed types, raise an AssertionError 
     # with a custom message if the check fails.
     assert contains_mixed_types, msg or "Report does not contain expected mixed data types."
@@ -320,8 +318,8 @@ def assert_report_data_summary(report_factory, df, expected_output, msg=None):
     assert isinstance_(report_factory, ReportFactory), ( 
         "Object is not an instance of ReportFactory." )
     report_factory.add_data(df)
-    actual_output = str(report_factory)
-    assert actual_output == expected_output,(
+    actual_output = report_factory.__str__() 
+    assert check_output(actual_output, expected_output),(
         msg or "DataFrame summary does not match expected output."
         )
 

@@ -33,7 +33,6 @@ from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
 
 try : 
     from skimage.filters import sobel, canny
-    from skimage.exposure import equalize_hist
 except : pass
 try:
     from statsmodels.tsa.seasonal import seasonal_decompose
@@ -5282,115 +5281,193 @@ class ImageChannelSelector(BaseEstimator, TransformerMixin):
         """
         return X[:, :, self.channels]
 
-
 class ImageFeatureExtractor(BaseEstimator, TransformerMixin):
     """
-    Extract features from images using a pre-trained model.
+    A transformer for extracting features from images using a specified 
+    pre-trained model. It supports preprocessing input images, resizing,
+    and applying global average pooling to the output features.
 
     Parameters
     ----------
-    model : callable
-        The pre-trained model to use for feature extraction. If ``None``
-        ``tensorflow.keras.applications.VGG16`` is used instead.
-
-    Examples
-    --------
-    >>> from gofast.transformers import ImageFeatureExtractor
-    >>> from tensorflow.keras.applications import VGG16
-    >>> from tensorflow.keras.models import Model
-    >>> base_model = VGG16(weights='imagenet', include_top=False)
-    >>> model = Model(inputs=base_model.input, 
-                      outputs=base_model.get_layer('block3_pool').output)
-    >>> extractor = ImageFeatureExtractor(model=model)
-    >>> image = np.random.rand(224, 224, 3)
-    >>> features = extractor.transform(image)
-
-    Methods
-    -------
-    fit(X, y=None)
-        Fit the transformer to the data. This transformer has no trainable
-        parameters and does nothing during fitting.
-
-    transform(X)
-        Extract features from the input images using the pre-trained model.
+    model : keras.Model, optional
+        A pre-trained model from `tensorflow.keras.applications` or custom 
+        model for feature extraction. If `None`, VGG16 model with 'imagenet' 
+        weights is used by default.
+        
+    preprocess_input : callable, optional
+        A function to preprocess input images before feeding them into the 
+        model. It should take an image array as input and return a similarly 
+        shaped array. This is model specific; for example, use 
+        `tensorflow.keras.applications.vgg16.preprocess_input` for VGG16.
+        
+    apply_global_pooling : bool, default False
+        If `True`, applies global average pooling to the output of the model, 
+        converting the output from a 4D tensor to a 2D tensor with shape 
+        `(n_samples, n_features)`. Useful for flattening the features.
+        
+    target_size : tuple of int, optional
+        The target size for resizing input images before feature extraction, 
+        specified as `(height, width)`. If not specified, images are not 
+        resized. This is necessary if the model expects a specific input size.
+        
+    weights : str, default 'imagenet'
+        The weights to be loaded into the model. Only applicable if `model` 
+        is `None`. Common options are 'imagenet' or None (random initialization).
+        
+    include_top : bool, default False
+        Whether to include the fully-connected layer at the top of the model.
+        Only applicable if `model` is `None`. Typically `False` for feature 
+        extraction.
 
     Notes
     -----
-    Image feature extraction is a common task in computer vision, where 
-    pre-trained models are used to obtain high-level features from images. 
-    These features can be used for various downstream tasks such as image 
-    classification, object detection, and more.
+    This transformer is designed for extracting high-level features from 
+    images, which can be used in various machine learning pipelines, such as 
+    classification, clustering, or as input to other models. It is especially 
+    useful in transfer learning scenarios where pre-trained models are 
+    leveraged to benefit from knowledge gained on large benchmark datasets.
 
-    This transformer allows you to use a pre-trained model for feature 
-    extraction. You can specify the pre-trained model when initializing the 
-    transformer, and it will extract features from input images using 
-    that model.
+    Examples
+    --------
+    >>> from tensorflow.keras.applications import VGG16
+    >>> from tensorflow.keras.applications.vgg16 import preprocess_input 
+    >>> from tensorflow.keras.models import Model
+    >>> from gofast.transformers import ImageFeatureExtractor
+    >>> base_model = VGG16(weights='imagenet', include_top=False)
+    >>> model = Model(inputs=base_model.input, 
+    ...               outputs=base_model.get_layer('block3_pool').output)
+    >>> extractor = ImageFeatureExtractor(model=model, 
+    ...                                    preprocess_input=preprocess_input,
+    ...                                    apply_global_pooling=True, 
+    ...                                    target_size=(224, 224))
+    >>> image = np.random.rand(224, 224, 3)
+    >>> features = extractor.transform(image)
+    >>> features.shape
+    (1, 256)
 
+    The example above demonstrates creating an `ImageFeatureExtractor` with a 
+    VGG16 model truncated at the 'block3_pool' layer. The input images are 
+    preprocessed and resized to (224, 224), which is the expected input size 
+    for VGG16, and global average pooling is applied to flatten the output 
+    features.
     """
-    
-    def __init__(self, model=None ):
-        """
-        Initialize an ImageFeatureExtractor.
-
-        Parameters
-        ----------
-        model : callable
-            The pre-trained model to use for feature extraction.
-
-        Returns
-        -------
-        ImageFeatureExtractor
-            Returns an instance of the ImageFeatureExtractor.
-
-        """
+    def __init__(
+        self, 
+        model=None, 
+        preprocess_input=None, 
+        apply_global_pooling=False, 
+        target_size=None, 
+        weights='imagenet', 
+        include_top=False
+        ):
+ 
         self.model = model
+        self.preprocess_input = preprocess_input
+        self.apply_global_pooling = apply_global_pooling
+        self.target_size = target_size
+        self.weights = weights
+        self.include_top = include_top
         
+    def _ensure_model(self):
+        """
+        Ensures that a model is available for feature extraction. If no model 
+        has been provided during instantiation, it initializes a default model 
+        (VGG16) with specified weights and the option to include the top layers.
+        This method also applies global average pooling to the model's output if 
+        requested.
+    
+        This is a private method called internally by the class.
+        """
+        if self.model is None:
+            from tensorflow.keras.models import Model
+            from tensorflow.keras.applications import VGG16
+            from tensorflow.keras.layers import GlobalAveragePooling2D
+
+            base_model = VGG16(weights=self.weights, include_top=self.include_top)
+            output = base_model.output
+            if self.apply_global_pooling:
+                output = GlobalAveragePooling2D()(output)# Apply Global Average Pooling
+            self.model = Model(inputs=base_model.input, outputs=output)
+
     def fit(self, X, y=None):
         """
-        Fit the transformer to the data.
-
+        Prepares the model for transforming images. This method checks and 
+        initializes the model if it has not been provided or set up yet. Since 
+        this transformer does not learn from the data, `X` and `y` are ignored, 
+        but are included in the signature for compatibility with the scikit-learn 
+        transformer API.
+    
         Parameters
         ----------
-        X : array-like, shape (n_samples, n_features)
-            Training data. Not used in this transformer.
-        
-        y : array-like, shape (n_samples,)
-            Target values. Not used in this transformer.
-
+        X : Ignored
+            Not used, present for API consistency by convention.
+        y : Ignored, optional
+            Not used, present for API consistency by convention.
+    
         Returns
         -------
         self : object
             Returns the instance itself.
-
         """
+        import_optional_dependency('tensorflow')
+        self._ensure_model()
+    
         return self
+    
+    def _preprocess(self, X):
+        """
+        Applies preprocessing steps to the input images. This includes resizing 
+        the images to a target size (if specified) and applying a preprocessing 
+        function (if provided). 
+    
+        This is a private method used to prepare images before they are passed 
+        to the model for feature extraction.
+    
+        Parameters
+        ----------
+        X : ndarray
+            Input image(s) as a NumPy array with shape (height, width, channels) 
+            for a single image or (n_samples, height, width, channels) for 
+            multiple images.
+    
+        Returns
+        -------
+        X : ndarray
+            The preprocessed image(s) ready for feature extraction.
+        """
+        if self.target_size is not None:
+            from tensorflow.image import resize
+            X = resize(X, self.target_size)
+        if self.preprocess_input is not None:
+            X = self.preprocess_input(X)
+        return X
     
     def transform(self, X):
         """
-        Extract features from the input images using the pre-trained model.
-
+        Transforms the input images into a high-dimensional feature space using 
+        the pre-trained model. This method applies any required preprocessing 
+        steps to the input images, ensures they have the correct dimensions, 
+        and then passes them through the model to extract features.
+    
         Parameters
         ----------
-        X : ndarray, shape (height, width, channels)
-            Input image(s) from which features will be extracted.
-
+        X : ndarray
+            Input image(s) as a NumPy array. The array should have a shape of 
+            (height, width, channels) for a single image or 
+            (n_samples, height, width, channels) for multiple images.
+    
         Returns
         -------
-        features : ndarray, shape (n_samples, n_features)
-            Extracted features from the input image(s).
-
+        features : ndarray
+            The extracted features from the input image(s). If global pooling is 
+            applied, the output will have shape (n_samples, n_features). Otherwise,
+            the shape of the output depends on the model's architecture and the 
+            presence of global pooling.
         """
-        if self.model is None: 
-            import_optional_dependency('tensorflow')
-            from tensorflow.keras.applications import VGG16
-            from tensorflow.keras.models import Model
-            base_model = VGG16(weights='imagenet', include_top=False)
-            self.model = Model(inputs=base_model.input, 
-                              outputs=base_model.get_layer('block3_pool'
-                                                           ).output)
-            
+        X = self._preprocess(X)
+        if X.ndim == 3:
+            X = np.expand_dims(X, axis=0)
         return self.model.predict(X)
-
 
 
 class ImageEdgeDetector(BaseEstimator, TransformerMixin):
@@ -5590,8 +5667,8 @@ class ImageHistogramEqualizer(BaseEstimator, TransformerMixin):
 
         """
         import_optional_dependency ('skimage', extra = EMSG )
+        from skimage.exposure import equalize_hist
         return equalize_hist(X)
-
 
 
 class ImagePCAColorAugmenter(BaseEstimator, TransformerMixin):
@@ -5697,105 +5774,208 @@ class ImagePCAColorAugmenter(BaseEstimator, TransformerMixin):
 
 class ImageBatchLoader(BaseEstimator, TransformerMixin):
     """
-    Load images in batches from a directory, useful when
-    dealing with large datasets.
+    A transformer that loads images in batches from a specified directory.
+    This is particularly useful for processing large datasets that cannot
+    fit entirely in memory. It supports optional preprocessing of images,
+    resizing, and the use of a custom function for reading images.
 
     Parameters
     ----------
     batch_size : int
-        Number of images to load per batch.
+        The number of images to load in each batch. This parameter controls
+        the size of the batches of images that are yielded each time the
+        `transform` method is called.
 
     directory : str
-        Path to the directory containing images.
+        The path to the directory where the images are stored. The loader
+        will attempt to load all images matching the specified `image_format`
+        from this directory.
 
-    Examples
-    --------
-    >>> loader = ImageBatchLoader(batch_size=32, directory='path/to/images')
-    >>> for batch in loader.transform():
-    >>>     process(batch)
+    preprocess_func : callable, optional
+        A function to apply preprocessing to each image after loading but
+        before yielding. This function should take an image array as input
+        and return a processed image array. Typical preprocessing steps
+        might include normalization, scaling, or color space conversion.
 
-    Attributes
-    ----------
-    batch_size : int
-        Number of images to load per batch.
+    target_size : tuple of int, optional
+        A tuple specifying the target size of the images (height, width) to
+        which the images will be resized. If `None`, images are not resized.
+        This can be useful when a specific input size is required for model
+        processing.
 
-    directory : str
-        Path to the directory containing images.
+    image_format : str, default '.jpg'
+        The file format of the images to load. Only files with this extension
+        will be loaded from the directory. Default is '.jpg', but can be
+        changed to accommodate different image formats (e.g., '.png').
 
-    Methods
-    -------
-    fit(X, y=None)
-        Fit the transformer to the data.
-
-    transform(X=None, y=None)
-        Load and yield batches of images from the specified directory.
+    custom_reader : callable, optional
+        A custom function for reading images from disk. It should take a file
+        path as input and return an image array. If `None`, the default image
+        reader `matplotlib.pyplot.imread` is used. This allows for the use of
+        custom image reading logic, such as handling special image formats or
+        performing initial preprocessing at the time of image loading.
 
     Notes
     -----
-    This transformer uses the 'skimage' library to load images. Ensure 
-    that 'skimage' is installed.
+    This class is designed to be compatible with scikit-learn pipelines and
+    transformers, following the fit/transform pattern. However, it does not
+    learn from the data and thus `fit` method does not have any effect.
 
+    Examples
+    --------
+    >>> from gofast.transformers import ImageBatchLoader
+    >>> loader = ImageBatchLoader(batch_size=32, directory='/path/to/images',
+                                  image_format='.png')
+    >>> for batch in loader.transform(None):
+    >>>     # Process the batch of images here
+    >>>     print(batch.shape)
+
+    In this example, `ImageBatchLoader` is used to load batches of 32 PNG
+    images from '/path/to/images'. Each batch of images can then be processed
+    as needed.
     """
-    
-    def __init__(self, batch_size, directory):
+
+    def __init__(self, batch_size, directory, preprocess_func=None, 
+                 target_size=None, image_format='.jpg', custom_reader=None):
         self.batch_size = batch_size
         self.directory = directory
+        self.preprocess_func = preprocess_func
+        self.target_size = target_size
+        self.image_format = image_format
+        self.custom_reader = custom_reader if custom_reader else plt.imread
         
-    def fit(self, X, y=None):
+    def fit(self, X=None, y=None):
         """
-        Fit the transformer to the data.
-
+        Fits the transformer to the data. This method does not perform any
+        operation as the transformer does not learn from the data. It is
+        implemented for compatibility with the scikit-learn transformer API.
+    
         Parameters
         ----------
-        X : array-like, shape (n_samples, n_features)
-            Training data. Not used in this transformer.
-        
-        y : array-like, shape (n_samples,)
-            Target values. Not used in this transformer.
-
+        X : None or Ignored
+            Not used, present for API consistency by convention.
+        y : None or Ignored, optional
+            Not used, present for API consistency by convention.
+    
         Returns
         -------
         self : object
-            Returns the instance itself.
-        """
-        import_optional_dependency('skimage', extra=EMSG)
-        return self
+            Returns the instance itself, unchanged.
     
-    def transform(self, X=None, y=None):
-        """
-        Load and yield batches of images from the specified directory.
-
-        Parameters
-        ----------
-        X : None, optional
-            Ignored. This parameter is not used.
-
-        y : None, optional
-            Ignored. This parameter is not used.
-
-        Yields
-        ------
-        batch_images : ndarray, shape (batch_size, height, width, channels)
-            A batch of images loaded from the directory. The shape of each image
-            is determined by the image dimensions and number of channels.
-
         Notes
         -----
-        The images are loaded in batches from the directory specified during
-        initialization. Each batch contains 'batch_size' images. The images are
-        read using the 'plt.imread' function from the 'matplotlib' library.
-
+        Since this transformer is designed for loading and preprocessing images
+        rather than learning from data, the `fit` method does not have any
+        functionality. It exists to maintain compatibility with scikit-learn's
+        transformer interface.
         """
-        image_files = [os.path.join(self.directory, fname) 
-                       for fname in sorted(os.listdir(self.directory))]
+        return self
+    
+    def transform(self, X=None):
+        """
+        Loads and yields batches of images from the specified directory. This
+        method ignores its arguments, as the operation is determined by the
+        directory, batch size, and other parameters specified at initialization.
+    
+        Parameters
+        ----------
+        X : None or Ignored
+            Not used, present to maintain compatibility with the scikit-learn
+            transformer interface.
+    
+        Yields
+        ------
+        batch_images : ndarray
+            A batch of images loaded from the directory. The shape of the batch
+            is determined by the `batch_size`, and the shape of each image is
+            influenced by `target_size` (if specified) and the image's original
+            dimensions. If `preprocess_func` is provided, it is applied to each
+            image before yielding.
+    
+        Notes
+        -----
+        The method iterates over the specified directory, loading images in
+        batches of the size determined by `batch_size`. Each image is optionally
+        preprocessed and/or resized according to the `preprocess_func` and
+        `target_size` parameters. This method is suitable for processing large
+        directories of images in manageable batches, facilitating use cases like
+        feeding batches of images into a machine learning model for training or
+        inference.
+    
+        Examples
+        --------
+        >>> loader = ImageBatchLoader(batch_size=32, directory='/path/to/images')
+        >>> for batch in loader.transform():
+        >>>     process(batch)  # Example function to process each batch
+    
+        In this example, `transform` yields batches of 32 images from the directory
+        '/path/to/images'. Each batch can then be processed as needed, for example,
+        by feeding it into a neural network for image classification.
+        """
+        import_optional_dependency('skimage', extra=EMSG)
+        from skimage.transform import resize
+        image_files = [os.path.join(self.directory, fname) for fname in sorted(
+            os.listdir(self.directory))
+                       if fname.endswith(self.image_format)]
         for i in range(0, len(image_files), self.batch_size):
             batch_files = image_files[i:i + self.batch_size]
-            batch_images = [plt.imread(file) for file in batch_files]
+            batch_images = [self.custom_reader(file) for file in batch_files]
+            if self.preprocess_func:
+                batch_images = [self.preprocess_func(img) for img in batch_images]
+            if self.target_size:
+                batch_images = [resize(img, self.target_size, preserve_range=True, 
+                                       anti_aliasing=True).astype(img.dtype) 
+                                for img in batch_images]
             yield np.array(batch_images)
 
 
-
+if __name__=='__main__': 
     
+    import numpy as np
+    import pytest
+    from unittest.mock import patch
+    
+    # A fixture for creating a list of mock image file paths
+    @pytest.fixture
+    def mock_image_paths():
+        return ['image1.jpg', 'image2.jpg', 'image3.jpg', 'image4.jpg']
+    
+    # A fixture for creating a mock preprocess function
+    @pytest.fixture
+    def mock_preprocess_func():
+        def preprocess(image):
+            # Pretend to process the image
+            return image * 2  # Example operation
+        return preprocess
+    
+    @patch('os.listdir', return_value=['image1.jpg', 'image2.jpg', 'image3.jpg', 'image4.jpg'])
+    @patch('matplotlib.pyplot.imread', return_value=np.zeros((100, 100, 3)))
+    def test_image_batch_loader(mock_imread, mock_listdir, mock_image_paths, mock_preprocess_func):
+        """
+        Test to ensure the ImageBatchLoader yields batches of the specified size,
+        correctly applies preprocessing, and works with mocked image paths.
+        """
+        # Initialize the ImageBatchLoader with a batch size of 2
+        loader = ImageBatchLoader(batch_size=2, directory='mock/path/to/images', 
+                                  preprocess_func=mock_preprocess_func, custom_reader=plt.imread)
+    
+        # Use the loader to transform (load) images and collect the batches
+        batches = list(loader.transform())
+    
+        # There should be 2 batches given 4 mock images and a batch size of 2
+        assert len(batches) == 2
+    
+        # Each batch should have 2 images
+        for batch in batches:
+            assert batch.shape == (2, 100, 100, 3)
+    
+        # The mock imread function should be called once for each image
+        assert mock_imread.call_count == 4
+    
+        # The images should be processed by the preprocess_func (e.g., values doubled)
+        # Checking this by confirming the array isn't all zeros (as returned by mock_imread)
+        assert not np.all(batches[0] == 0)
+
     
     
     
