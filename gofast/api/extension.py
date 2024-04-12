@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+#   License: BSD-3-Clause
+#   Author: LKouadio <etanoyau@gmail.com>
 
 class MetaLen(type):
     """
@@ -73,11 +75,12 @@ def isinstance_(instance, cls):
 
     Examples
     --------
+    >>> from gofast.api.extension import isinstance_
     >>> class MyClass:
     ...     pass
     ...
     >>> obj = MyClass()
-    >>> is_instance_extended(obj, MyClass)
+    >>> isinstance_(obj, MyClass)
     True
 
     # Demonstrating with module reloading issue
@@ -116,3 +119,111 @@ def isinstance_(instance, cls):
             if instance_module == cls_module:
                 return True
     return False
+
+def resolve_estimator_name(estimator):
+    """
+    Retrieves the name of an estimator, whether it's a class, an instantiated object,
+    or a string that represents the name of the estimator. This function is designed
+    to handle complex scenarios where estimators might be wrapped or imported in a
+    non-standard manner.
+
+    Parameters
+    ----------
+    estimator : callable, instance, or str
+        The estimator whose name is to be retrieved. This can be a callable class,
+        an instance of a class, a string representing the name, or even a more
+        complex wrapped or dynamically created estimator.
+
+    Returns
+    -------
+    str
+        The name of the estimator. Returns 'Unknown estimator' if the name cannot
+        be determined.
+
+    Examples
+    --------
+    >>> from sklearn.pipeline import Pipeline
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from gofast.api.extension import resolve_estimator_name 
+    >>> resolve_estimator_name(RandomForestClassifier)
+    'RandomForestClassifier'
+    >>> resolve_estimator_name(RandomForestClassifier())
+    'RandomForestClassifier'
+    >>> resolve_estimator_name(Pipeline)
+    'Pipeline'
+    >>> resolve_estimator_name("RandomForest")
+    'RandomForest'
+    """
+    if isinstance(estimator, str):
+        return estimator
+    elif hasattr(estimator, '__name__'):
+        return estimator.__name__
+    elif hasattr(estimator, '__class__'):
+        # Check for the most base class available in standard types, to handle wrappers
+        base_class = get_base_estimator(estimator)
+        return base_class.__name__ if base_class else estimator.__class__.__name__
+    else:
+        return 'Unknown estimator'
+
+def get_base_estimator(estimator):
+    """
+    Recursively find the base estimator if the estimator is wrapped.
+
+    This helper function digs through layers of wrapping to find the underlying
+    estimator's class. For example, in the case of scikit-learn's Pipeline or
+    similar wrappers.
+
+    Parameters
+    ----------
+    estimator : object
+        The estimator or a wrapped estimator object.
+
+    Returns
+    -------
+    class
+        The most base class of the estimator if unwrapped successfully, or None if
+        no deeper base class could be identified.
+    """
+    # This is a simple heuristic and might need to be adjusted based on actual wrapping mechanics used.
+    if hasattr(estimator, 'estimator') and hasattr(estimator.estimator, '__class__'):
+        return get_base_estimator(estimator.estimator)
+    elif hasattr(estimator, '__class__'):
+        return estimator.__class__
+    return None
+
+def fetch_estimator_name(estimator):
+    """
+    Retrieves the name of an estimator, whether it's a class, an instantiated object, 
+    or a string that represents the name of the estimator.
+
+    Parameters
+    ----------
+    estimator : callable, instance, or str
+        The estimator whose name is to be retrieved. This can be a callable class, 
+        an instance of a class, or a string representing the name.
+
+    Returns
+    -------
+    str
+        The name of the estimator. Returns 'Unknown estimator' if the name cannot be 
+        determined.
+    
+    Examples
+    --------
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from gofast.api.extension import fetch_estimator_name 
+    >>> find_estimator_name(RandomForestClassifier)
+    'RandomForestClassifier'
+    >>> find_estimator_name(RandomForestClassifier())
+    'RandomForestClassifier'
+    >>> find_estimator_name("RandomForest")
+    'RandomForest'
+    """
+    if isinstance(estimator, str):
+        return estimator
+    elif hasattr(estimator, '__name__'):
+        return estimator.__name__
+    elif hasattr(estimator, '__class__'):
+        return estimator.__class__.__name__
+    else:
+        return 'Unknown estimator'

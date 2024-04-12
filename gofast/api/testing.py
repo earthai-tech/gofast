@@ -10,6 +10,129 @@ from gofast.api.formatter import MetricFormatter, BoxFormatter, DescriptionForma
 from gofast.api.formatter import to_snake_case 
 from gofast.api.summary import Summary, ReportFactory, format_text, ModelSummary 
 
+def assert_model_summary_has_title(summary_instance, expected_title, msg=None):
+    """
+    Asserts that the summary report contains the expected title.
+    
+    Parameters:
+    ----------
+    summary_instance : ModelSummary
+        The instance of the ModelSummary class being tested.
+    expected_title : str
+        The title expected to appear in the summary report.
+    msg : str, optional
+        Optional message to display on assertion failure.
+    """
+    assert isinstance(summary_instance, ModelSummary), "Input must be an instance of ModelSummary."
+    assert str(expected_title)==summary_instance.title, msg or "Title missing or incorrect in summary report."
+
+def assert_model_summary_content_exists(
+        summary_instance, expected_content, msg=None):
+    """
+    Asserts that specific content is present in the summary report.
+    
+    Parameters:
+    ----------
+    summary_instance : ModelSummary
+        The instance of the ModelSummary class being tested.
+    expected_content : str
+        Content expected to be found in the summary report.
+    msg : str, optional
+        Optional message to display on assertion failure.
+    """
+    assert isinstance(summary_instance, ModelSummary), "Input must be an instance of ModelSummary."
+    summary_content = str(summary_instance)
+    assert expected_content in summary_content,( 
+        msg or "Expected content is not present in the summary report.")
+
+
+def assert_summary_report_contains(summary_instance, expected_content, msg=None):
+    """
+    Asserts that the summary report contains specific content.
+
+    Parameters:
+    ----------
+    summary_instance : ModelSummary
+        The instance of the ModelSummary class being tested.
+    expected_content : str
+        The content expected to be present in the summary report.
+    msg : str, optional
+        Optional message to display on assertion failure.
+    """
+    assert expected_content in summary_instance.summary_report,  msg or \
+        "The expected content is not present in the summary report."
+
+def assert_model_summary_method_functionality(
+        summary_instance, model_results, expected_output, msg=None):
+    """
+    Tests the 'summary' method of the ModelSummary class by checking if the
+    generated summary report contains expected data after processing model_results.
+
+    Parameters:
+    ----------
+    summary_instance : ModelSummary
+        The ModelSummary instance to test.
+    model_results : dict
+        The model results to summarize.
+    expected_output : str
+        A string expected to be part of the generated summary report.
+    msg : str, optional
+        Optional message to display on assertion failure.
+        
+    """
+    validate_formatter_instance(summary_instance, ModelSummary)
+    summary_instance.summary(model_results)
+    assert check_output(summary_instance.summary_report, expected_output), msg or \
+        "Summary method failed to process model results correctly."
+
+def assert_model_summary_add_multi_contents(
+        summary_instance, dict_contents, expected_output, titles=None,
+        msg=None):
+    """
+    Tests the 'add_multi_contents' method to ensure it properly formats and
+    includes multiple contents into the summary report.
+
+    Parameters:
+    ----------
+    summary_instance : ModelSummary
+        The ModelSummary instance to test.
+    dict_contents : list of dicts
+        The content to be added to the summary.
+    titles : list of str
+        Titles for each section in the summary.
+    expected_output : str
+        Content expected to appear in the summary report.
+    msg : str, optional
+        Optional message to display on assertion failure.
+    """
+    validate_formatter_instance(summary_instance, ModelSummary)
+    summary_instance.add_multi_contents(*dict_contents, titles=titles)
+    assert check_output(summary_instance.summary_report, expected_output),  msg or\
+        "add_multi_contents method failed to include the expected content in the summary."
+
+def assert_model_summary_add_performance(
+        summary_instance, performance_data, expected_output, msg=None):
+    """
+    Validates that the 'add_performance' method correctly processes and 
+    adds performance data to the summary.
+
+    Parameters:
+    ----------
+    summary_instance : ModelSummary
+        The instance to be tested.
+    performance_data : dict
+        The performance data dictionary.
+    expected_output : str
+        The string expected to be in the summary report after processing the performance data.
+    msg : str, optional
+        Optional message to display on assertion failure.
+    """
+    validate_formatter_instance(summary_instance, ModelSummary)
+    summary_instance.add_performance(performance_data)
+    assert check_output( summary_instance.summary_report, expected_output), msg or \
+        "add_performance method did not produce the expected summary report."
+
+
 def assert_summary_correlation_matrix(
         summary_instance, expected_presence=True, msg=None):
     """
@@ -50,8 +173,8 @@ def assert_summary_data_sample(
             if "Sample Data" in line: 
                 sample_line = summary_content.split('\n')[ii:]
                 break 
-        # start form the end until you find the sub-line 
-        sample_line = sample_line [::-1][1:] # remove '==' line 
+        # start form the end until you find the sub-line
+        sample_line = sample_line [::-1][2:] # remove '==' line 
         for line in sample_line: 
             if '--' in line: 
                 break 

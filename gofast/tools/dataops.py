@@ -21,7 +21,7 @@ from .._typing import Any,  List,  DataFrame, Optional, Series, Array1D
 from .._typing import Dict, Union, TypeGuard, Tuple, ArrayLike
 from .._typing import BeautifulSoupTag
 from ..api.formatter import MultiFrameFormatter 
-from ..api.summary import ReportFactory
+from ..api.summary import ReportFactory, Summary
 from ..decorators import Deprecated, isdf, Dataify, DynamicMethod
 from ..decorators import DataTransformer 
 from ..exceptions import FileHandlingError 
@@ -30,7 +30,7 @@ from .baseutils import save_or_load
 from .coreutils import is_iterable, ellipsis2false,smart_format, validate_url 
 from .coreutils import to_numeric_dtypes, assert_ratio, exist_features
 from .coreutils import normalize_string
-from .funcutils import ensure_pkg 
+from .funcutils import ensure_pkg
 from .validator import  build_data_if, is_frame, parameter_validator  
 from .validator import check_consistent_length
 
@@ -4058,5 +4058,115 @@ def base_transform(
     except:
         return data_processed # if something wrong, return it
  
+@Dataify(auto_columns= True , ignore_mismatch=True, prefix="corr_feature_")
+def analyze_data_corr(
+    data: DataFrame, 
+    columns: Optional[ List[str]]=None, 
+    min_corr: float =0.5, 
+    high_corr: float=0.8, 
+    use_symbols: bool =False, 
+    hide_diag: bool =True,
+    view: bool = False,
+    cmap: str = 'viridis', 
+    fig_size: Tuple[int, int] = (8, 8)
+    ):
+    """
+    Computes the correlation matrix for specified columns in a pandas DataFrame
+    and optionally visualizes it using a heatmap. This function can also symbolically
+    represent correlation values and selectively hide diagonal elements in the 
+    visualization.
 
+    Parameters
+    ----------
+    data : DataFrame
+        The DataFrame from which to compute the correlation matrix.
+    columns : Optional[List[str]], optional
+        Specific columns to consider for the correlation calculation. If None, all
+        numeric columns are used. Default is None.
+    min_corr : float, optional
+        The minimum threshold for correlations to be noted if using symbols. 
+        Default is 0.5.
+    high_corr : float, optional
+        Threshold above which correlations are considered high, relevant if
+        `use_symbols` is True. Default is 0.8.
+    use_symbols : bool, optional
+        Whether to use symbolic representation ('++', '--', '+-') instead of 
+        numeric values. Default is False.
+    hide_diag : bool, optional
+        If True, diagonal values in the correlation matrix visualization are hidden.
+        Default is True.
+    view : bool, optional
+        If True, displays a heatmap of the correlation matrix using matplotlib and
+        seaborn. Default is False.
+    cmap : str, optional
+        The colormap for the heatmap visualization. Default is 'viridis'.
+    fig_size : Tuple[int, int], optional
+        Dimensions of the figure that displays the heatmap. Default is (8, 8).
 
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame representing the correlation matrix.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.tools.dataops import analyze_data_corr
+    >>> data = pd.DataFrame({
+    ...     'A': [1, 2, 3, 4, 5],
+    ...     'B': [5, 4, 3, 2, 1],
+    ...     'C': [2, 3, 4, 5, 6]
+    ... })
+    >>> corr_summary = analyze_data_corr(data, view=True)
+    >>> corr_summary
+    Out[113]: <Summary: Populated. Use print() to the contents.>
+
+    >>> print(corr_summary) 
+          Correlation Table       
+    ==============================
+            A        B        C   
+      ----------------------------
+    A |           -1.0000   1.0000
+    B |  -1.0000           -1.0000
+    C |   1.0000  -1.0000         
+    ==============================
+    
+    >>> corr_summary.correlation
+    Out[116]: 
+         A    B    C
+    A  1.0 -1.0  1.0
+    B -1.0  1.0 -1.0
+    C  1.0 -1.0  1.0
+    
+    Notes
+    -----
+    If `view` is True, the function requires a matplotlib backend that supports
+    interactivity, typically within a Jupyter notebook or a Python environment
+    configured for GUI operations.
+    """
+    numeric_df = data.select_dtypes(include=[np.number])
+    if numeric_df.empty:
+        raise ValueError("No numeric data found in the DataFrame.")
+        # Return an empty string if no numeric data
+ 
+    # Compute the correlation matrix
+    correlation_matrix = numeric_df.corr()
+    summary = Summary(title="Correlation Table",
+                      correlation=correlation_matrix )
+    
+    # Check if the user wants to view the heatmap
+    if view:
+        plt.figure(figsize=fig_size)
+        sns.heatmap(correlation_matrix, annot=True, cmap=cmap, fmt=".2f", linewidths=.5)
+        plt.title('Heatmap of Correlation Matrix')
+        plt.show()
+
+    summary.display_corr(
+        correlation_matrix, 
+        min_corr=assert_ratio( min_corr, bounds=(0, 1)),
+        high_corr=assert_ratio(high_corr, bounds=(0, 1)), 
+        use_symbols= use_symbols, 
+        hide_diag= hide_diag,
+        precomputed=True, 
+        )
+    return summary

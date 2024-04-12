@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
-
+import warnings
 import numpy as np 
 import pandas as pd
 
@@ -294,8 +294,72 @@ def calculate_widths(df, max_text_length):
     max_col_widths = {col: min(width, max_text_length) for col, width in max_col_widths.items()}
     return max_col_widths, max_index_width
 
+def format_df(df, max_text_length=50, title=None):
+    """
+    Formats a pandas DataFrame for pretty-printing in a console or
+    text-based interface. This function provides a visually-appealing
+    tabular representation with aligned columns and a fixed maximum
+    column width.
 
-def format_df(df, max_text_length=50):
+    Parameters
+    ----------
+    df : DataFrame
+        The DataFrame to be formatted.
+        
+    max_text_length : int, optional
+        The maximum length of text within each cell of the DataFrame.
+        Default is 50 characters. Text exceeding this length will be
+        truncated.
+        
+    title : str, optional
+        An optional title for the formatted correlation matrix. If provided, it
+        is centered above the matrix. Default is None.
+        
+    Returns
+    -------
+    str
+        A formatted string representation of the DataFrame with columns
+        and rows aligned, headers centered, and cells truncated according
+        to `max_text_length`.
+
+    Notes
+    -----
+    This function depends on helper functions `calculate_widths` to 
+    determine the maximum widths for DataFrame columns based on the 
+    `max_text_length`, and `format_cell` to appropriately format and
+    truncate cell content. It handles both the DataFrame's index and
+    columns to ensure a clean and clear display.
+
+    Examples
+    --------
+    Consider a DataFrame `df` created as follows:
+    
+    >>> import pandas as pd 
+    >>> from gofast.api.util import format_df 
+    >>> data = {
+        'Name': ['Alice', 'Bob', 'Charlie'],
+        'Occupation': ['Engineer', 'Doctor', 'Artist'],
+        'Age': [25, 30, 35]
+    }
+    >>> df = pd.DataFrame(data)
+
+    Formatting `df` with `format_df`:
+
+    >>> print(format_df(df, max_text_length=10))
+    =============================
+           Name   Occupation  Age
+      ---------------------------
+    0 |    Alice    Engineer   25
+    1 |      Bob      Doctor   30
+    2 |  Charlie      Artist   35
+    =============================
+    
+    Here, the table respects a `max_text_length` of 10, ensuring that all
+    cell contents do not exceed this length, and the output is well-aligned
+    for easy reading.
+    """
+    title = str(title or '').title()
+    
     # Use helper functions to format cells and calculate widths
     max_col_widths, max_index_width = calculate_widths(df, max_text_length)
 
@@ -307,7 +371,7 @@ def format_df(df, max_text_length=50):
     # Formatting the rows
     data_rows = [
         f"{str(index).ljust(max_index_width)} |  " + 
-        "  ".join(format_cell(row[col],  max_text_length, max_col_widths[col]).ljust(
+        "  ".join(format_cell(row[col], max_text_length, max_col_widths[col]).ljust(
             max_col_widths[col]) for col in df.columns)
         for index, row in df.iterrows()
     ]
@@ -320,117 +384,258 @@ def format_df(df, max_text_length=50):
     # Full formatted table
     formatted_string = f"{top_border}\n{header}\n{separator}\n" + "\n".join(
         data_rows) + "\n" + bottom_border
-    return formatted_string
+    
+    if title:
+        max_width = find_maximum_table_width(formatted_string)
+        title = title.center(max_width) + "\n"
+    return title + formatted_string
 
-def compute_and_format_correlations(
-    data, min_correlation=0.5, high_correlation=0.8, 
-    soft_format=False, placeholder='...', remove_diagonal=False, 
-    title=None, error='warn'# can  be raise , warn or ignore 
+
+def validate_data(data, columns=None, error_mode='raise'):
+    """
+    Validates and converts input data into a pandas DataFrame, handling
+    various data types such as DataFrame, ndarray, dictionary, and Series.
+
+    Parameters
+    ----------
+    data : DataFrame, ndarray, dict, Series
+        The data to be validated and converted into a DataFrame.
+    columns : list, str, optional
+        Column names for the DataFrame. If provided, they should match the
+        data dimensions. If not provided, default names will be generated.
+    error_mode : str, {'raise', 'warn'}, default 'raise'
+        Error handling behavior: 'raise' to raise errors, 'warn' to issue
+        warnings and use default settings.
+
+    Returns
+    -------
+    DataFrame
+        A pandas DataFrame constructed from the input data.
+
+    Raises
+    ------
+    ValueError
+        If the number of provided columns does not match the data dimensions
+        and error_mode is 'raise'.
+    TypeError
+        If the input data type is not supported.
+
+    Notes
+    -----
+    This function is designed to simplify the process of converting various
+    data types into a well-formed pandas DataFrame, especially when dealing
+    with raw data from different sources. The function is robust against
+    common data input errors and provides flexible error handling through
+    the `error_mode` parameter.
+
+    Examples
+    --------
+    >>> data = np.array([[1, 2], [3, 4]])
+    >>> validate_data(data)
+       feature_0  feature_1
+    0          1          2
+    1          3          4
+
+    >>> data = {'col1': [1, 2], 'col2': [3, 4]}
+    >>> validate_data(data, columns=['column1', 'column2'])
+       column1  column2
+    0        1        3
+    1        2        4
+
+    >>> data = pd.Series([1, 2, 3])
+    >>> validate_data(data, error_mode='warn')
+       feature_0
+    0          1
+    1          2
+    2          3
+    """
+    def validate_columns(data_columns, expected_columns):
+        if expected_columns is None:
+            return [f'feature_{i}' for i in range(data_columns)]
+        
+        if isinstance(expected_columns, (str, float, int)):
+            expected_columns = [expected_columns]
+        
+        if len(expected_columns) != data_columns:
+            message = "Number of provided column names does not match data dimensions."
+            if error_mode == 'raise':
+                raise ValueError(message)
+            elif error_mode == 'warn':
+                warnings.warn(f"{message} Default columns will be used.", UserWarning)
+                return [f'feature_{i}' for i in range(data_columns)]
+        return expected_columns
+
+    if isinstance(data, pd.DataFrame):
+        df = data.copy()
+    elif isinstance(data, np.ndarray):
+        if data.ndim == 1:
+            data = data.reshape(-1, 1)
+        if data.ndim == 2:
+            columns = validate_columns(data.shape[1], columns)
+            df = pd.DataFrame(data, columns=columns)
+        else:
+            raise ValueError("Array with more than two dimensions is not supported.")
+    elif isinstance(data, dict):
+        df = pd.DataFrame(data)
+    elif isinstance(data, pd.Series):
+        df = data.to_frame()
+    else:
+        raise TypeError(
+            "Unsupported data type. Data must be a DataFrame, array, dict, or Series.")
+
+    return df
+
+def format_correlations(
+    data, 
+    min_corr=0.5, 
+    high_corr=0.8, 
+    use_symbols=False, 
+    no_corr_placeholder='...', 
+    hide_diag=True, 
+    title=None, 
+    error_mode='warn', 
+    precomputed=False, 
     ):
     """
-    Compute and format the correlations for a DataFrame's numeric columns.
-    
-    Args:
-    df (DataFrame): DataFrame to compute correlations for.
-    min_correlation (float): Minimum threshold for correlations to be noted.
-    high_correlation (float): Threshold for considering a correlation high.
-    soft_format (bool): Whether to use symbolic formatting for high/low correlations.
-    placeholder (str): Placeholder text for correlations below the minimum threshold.
-    
-    Returns:
-    str: A formatted string representation of the correlation matrix.
-    """
-    title = title or ''
-    title = str(title).title () 
-    
-    def validate_data (data, columns =None ):
-        if isinstance (data, pd.DataFrame): 
-            df = data.copy() 
-        # write helper function to validate data  and use it in this function 
-        elif isinstance(data, np.array): 
-            # if is one1d array , convert to dataframe with single features 
-            # commonly does not make sense for calculating correlation 
-            # if array is two dimensional 
-            # create a dataframe 
-            if columns is not None: 
-                columns = [columns] if isinstance (columns, str, float, int) else columns
-            columns = ['feature_{i}' for i in range(data.shape[1])] if len(
-                columns)!= len(data.shape[1]) else columns 
-            df = pd.DataFrame(data, columns =columns)
-        elif isinstance (data, dict): 
-            df = pd.DataFrame (data ) 
-        elif isinstance (data, pd.Series) :
-            
-            df = data.to_frame() 
-            
-        else : # not possible to convert 
-            raise # Informative error 
-            
-        return df 
+    Computes and formats the correlation matrix for a DataFrame's numeric columns, 
+    allowing for visual customization and conditional display based on specified
+    correlation thresholds.
 
-    df = validate_data (data)
+    Parameters
+    ----------
+    data : DataFrame
+        The input data from which to compute correlations. Must contain at least
+        one numeric column.
+    min_corr : float, optional
+        The minimum correlation coefficient to display explicitly. Correlation
+        values below this threshold will be replaced by `no_corr_placeholder`.
+        Default is 0.5.
+    high_corr : float, optional
+        The threshold above which correlations are considered high, which affects
+        their representation when `use_symbols` is True. Default is 0.8.
+    use_symbols : bool, optional
+        If True, uses symbolic representation ('++', '--', '+-') for correlation
+        values instead of numeric. Default is False.
+    no_corr_placeholder : str, optional
+        Text to display for correlation values below `min_corr`. Default is '...'.
+    hide_diag : bool, optional
+        If True, the diagonal elements of the correlation matrix (always 1) are
+        not displayed. Default is True.
+    title : str, optional
+        An optional title for the formatted correlation matrix. If provided, it
+        is centered above the matrix. Default is None.
+    error_mode : str, optional
+        Determines how to handle errors related to data validation: 'warn' (default),
+        'raise', or 'ignore'. This affects behavior when the DataFrame has insufficient
+        data or non-numeric columns.
+    precomputed: bool, optional 
+       Consider data as already correlated data. No need to recomputed the
+       the correlation. Default is 'False'
+       
+    Returns
+    -------
+    str
+        A formatted string representation of the correlation matrix that includes
+        any specified title, the matrix itself, and potentially a legend if
+        `use_symbols` is enabled.
+
+    Notes
+    -----
+    The function relies on pandas for data manipulation and correlation computation. 
+    It customizes the display of the correlation matrix based on user preferences 
+    for minimum correlation, high correlation, and whether to use symbolic 
+    representations.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.api.util import format_correlations
+    >>> data = pd.DataFrame({
+    ...     'A': np.random.randn(100),
+    ...     'B': np.random.randn(100),
+    ...     'C': np.random.randn(100) * 10
+    ... })
+    >>> print(format_correlations(data, min_corr=0.3, high_corr=0.7,
+    ...                            use_symbols=True, title="Correlation Matrix"))
+    Correlation Matrix
+    ==================
+          A    B    C 
+      ----------------
+    A |       ...  ...
+    B |  ...       ...
+    C |  ...  ...     
+    ==================
+
+    ..................
+    Legend : ...:
+             Non-correlate
+             d++: Strong
+             positive,
+             --: Strong
+             negative,
+             +-: Moderate
+    ..................
+    """
+
+    title = str(title or '').title()
+    df = validate_data(data)
+    if len(df.columns) == 1:
+        if error_mode == 'warn':
+            warnings.warn("Cannot compute correlations for a single column.")
+        elif error_mode == 'raise':
+            raise ValueError("Cannot compute correlations for a single column.")
+        return '' if error_mode == 'ignore' else 'No correlations to display.'
+    
+    if precomputed: 
+        corr_matrix= data.copy() 
+    else:     
+        numeric_df = df.select_dtypes(include=[np.number])
+        if numeric_df.empty:
+            if error_mode == 'warn':
+                warnings.warn("No numeric data found in the DataFrame.")
+            elif error_mode == 'raise':
+                raise ValueError("No numeric data found in the DataFrame.")
+                # Return an empty string if no numeric data
+            return '' if error_mode == 'ignore' else 'No numeric data available.'  
+    
+        corr_matrix = numeric_df.corr()
         
-    # check whether the dataframe has single columns 
-    # if True, raise informative warnings ( if error is 'warn') to tell the user that 
-    # if does not make since to compute the correlation with single columns since 
-    # it equal to 1 
     
-    # Select numeric columns and compute correlation matrix
-    numeric_df = df.select_dtypes(include=[np.number])
-    if numeric_df.empty: 
-        return ''  # no numeric data is detected then return Empy . 
-    corr_matrix = numeric_df.corr()
-    
-    
-    # Function to format each correlation value
-    def format_correlation(value):
-        if abs(value) < min_correlation:
-            return placeholder
-        # FIX It. this second condition does not work well because 
-        # some other value in the table who are not in 
-        # diagonal can also take the value of 1 for high correlation . 
-        # so how to efficiently detect the diagonal value then 
-        # apply the condition to change their value to maker with remove_diagonal parameter. 
-        
-        elif abs(value) ==1.0: 
-            # probability the diagonal ( which is not really true )
-            return '' if remove_diagonal else 'o' # remove diagonal 
-        elif soft_format:
-            if value >= high_correlation:
-                return '++'
-            elif value <= -high_correlation:
-                return '--'
+    if hide_diag:
+        np.fill_diagonal(corr_matrix.values, np.nan)  # Set diagonal to NaN
+
+    def format_value(value):
+        if pd.isna(value):  # Handle NaN for diagonals
+            return '' if hide_diag else ( 'o' if use_symbols else pd.isna(value))
+        if abs(value) < min_corr:
+            return str(no_corr_placeholder).ljust(4) if use_symbols else f"{value:.4f}"
+        if use_symbols:
+            if value >= high_corr:
+                return '++'.ljust(4)
+            elif value <= -high_corr:
+                return '--'.ljust(4)
             else:
-                return '+-'
+                return '+-'.ljust(4)
         else:
             return f"{value:.4f}"
 
-    # Apply formatting to the correlation matrix
-    formatted_corr = corr_matrix.applymap(format_correlation)
-    
-    # Format the DataFrame using the existing format_dataframe function
+    formatted_corr = corr_matrix.applymap(format_value)
     formatted_df = format_df(formatted_corr)
 
-    # get the maximum table width 
-    max_table_width = find_maximum_table_width(formatted_df)
-    # Append legend if soft formatting is used
+    max_width = find_maximum_table_width(formatted_df)
     legend = ""
-    if soft_format:
-        placeholder = f"{placeholder}: Non-correlated, " if placeholder else ''
-        diagonal_marker = '' if remove_diagonal else ', o: Diagonal matrix' 
-        legend = f"{placeholder}++: Strong positive, --: Strong negative, +-: Moderate{diagonal_marker}"
-        legend= '\n\n' + format_text (
-            legend, 
-            key ="Legend", 
-            key_length= len("Legend"),
-            add_frame_lines= True, 
-            max_char_text= max_table_width + len("Legend") , 
-            border_line='.'
-            ) 
-    if title: 
-        title = title.center (max_table_width)  +"\n"
-    return title + formatted_df + legend
+    if use_symbols:
+        no_corr_text = f"{no_corr_placeholder}: Non-correlated" if no_corr_placeholder else ''
+        diag_marker = '' if hide_diag else (', o: Diagonal' if use_symbols else '')
+        text= no_corr_text + '++: Strong positive, --: Strong negative, +-: Moderate' + diag_marker
+        legend = "\n\n" + format_text(
+            text, 'Legend', len('Legend'),  max_width + len('Legend'), True,'.'
+            )
+    
+    if title:
+        title = title.center(max_width) + "\n"
 
+    return title + formatted_df + legend
 
 
 if __name__=='__main__': 
@@ -445,7 +650,7 @@ if __name__=='__main__':
     df = pd.DataFrame(data)
 
     # Calling the function
-    result = compute_and_format_correlations(df, 0.8, 0.9, True)
+    result = format_correlations(df, 0.8, 0.9, False, hide_diag= True)
     print(result)
 
     # Example usage

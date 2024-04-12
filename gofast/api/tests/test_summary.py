@@ -11,6 +11,73 @@ from importlib import reload
 import gofast.api.testing
 reload(gofast.api.testing)
 
+class TestModelSummary(unittest.TestCase):
+    def setUp(self):
+        """Initialize a ModelSummary instance before each test."""
+        self.summary = ModelSummary(title="Test Model Summary")
+         
+        self.model_results = {
+        'best_parameters_': {'C': 1, 'gamma': 0.1},
+        'best_estimator_': "SVC",
+            'cv_results_': {
+                'split0_test_score': [0.6789, 0.8],
+                'split1_test_score': [0.5678, 0.9],
+                'split2_test_score': [0.9807, 0.95],
+                'split3_test_score': [0.8541, 0.85],
+                'params': [{'C': 1, 'gamma': 0.1}, {'C': 10, 'gamma': 0.01}],
+            },
+            'scoring': 'accuracy',
+        }
+    def test_summary_has_correct_title(self):
+        """Test whether the title is set correctly."""
+        gf.testing.assert_model_summary_has_title(self.summary, "Test Model Summary")
+
+    def test_summary_method_functionality(self):
+        """Test the functionality of the summary method."""
+        model_results = {
+        'best_parameters_': {'C': 1, 'penalty': 'l2'},
+        'best_estimator_': "Logistic Regression",
+            'cv_results_': {
+                'split0_test_score': [0.6789, 0.8],
+                'split1_test_score': [0.5678, 0.9],
+                'split2_test_score': [0.9807, 0.95],
+                'split3_test_score': [0.8541, 0.85],
+                'params': [{'C': 1, 'penalty':'l1'}, {'C': 10, 'penalty':'l1'}],
+            },
+            'scoring': 'accuracy',
+        }
+        expected_output = ["Logistic Regression"]
+        gf.testing.assert_model_summary_method_functionality(
+            self.summary, model_results, expected_output)
+
+    def test_add_multi_contents_functionality(self):
+        """Test adding multiple contents."""
+        contents = [
+            {"Model1": {"Accuracy": 0.95, "Precision": 0.93}},
+            {"Model2": {"Accuracy": 0.90, "Precision": 0.88}}
+        ]
+        expected_output = ["Model1"]
+        gf.testing.assert_model_summary_add_multi_contents(
+            self.summary, contents, expected_output, titles=["Test Summary"])
+
+    def test_add_performance_functionality(self):
+        """Test the add_performance method."""
+        performance_data = {
+            'best_parameters_': {'C': 1, 'gamma': 0.1},
+            'best_estimator_': "SVM",
+            'cv_results_': {
+                'split0_test_score': [0.6789, 0.8],
+                'split1_test_score': [0.5678, 0.9],
+                'split2_test_score': [0.9807, 0.95],
+                'split3_test_score': [0.8541, 0.85],
+                'params': [{'C': 1, 'gamma': 0.1}, {'C': 10, 'gamma': 0.01}],
+            },
+            'scoring': 'accuracy',
+         }
+        expected_output = ["SVM"]
+        gf.testing.assert_model_summary_add_performance(
+            self.summary, performance_data, expected_output)
+
 
 class TestReportFactory(unittest.TestCase):
     def setUp(self):

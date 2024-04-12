@@ -43,6 +43,7 @@ from .coreutils import (
     to_numeric_dtypes,
 )
 from .dataops import (
+    analyze_data_corr, 
     apply_bow_vectorization,
     apply_tfidf_vectorization,
     apply_word_embeddings,
@@ -147,7 +148,8 @@ from .mlutils import (
 
 __all__=[
      'adaptive_moving_average',
-     'adjust_for_control_vars', 
+     'adjust_for_control_vars',
+     'analyze_data_corr',
      'apply_bow_vectorization',
      'apply_tfidf_vectorization',
      'apply_word_embeddings',

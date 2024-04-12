@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
+
 import warnings 
 import numpy as np
 import pandas as pd
-from .extension import isinstance_ 
+
+from .extension import isinstance_, fetch_estimator_name 
 from .formatter import MultiFrameFormatter, DataFrameFormatter, DescriptionFormatter 
 from .structures import FlexDict
 from .util import format_value, df_to_custom_dict, format_text  
-from .util import find_maximum_table_width
-
+from .util import find_maximum_table_width, format_df, format_correlations
 
 class ModelSummary(FlexDict):
     """
@@ -489,7 +490,7 @@ class Summary(FlexDict):
         ...     'Age': [28, 34, 45, 32, 41]
         ... })
         >>> summary = Summary(title="Department Overview")
-        >>> summary.unique_counts(df, include_sample=True)
+        >>> summary.add_unique_counts(df, include_sample=True)
         >>> print(summary)
         """
         if not isinstance(df, pd.DataFrame):
@@ -499,7 +500,7 @@ class Summary(FlexDict):
             self.summary_report="<Empty Summary: Object has No Data>"
             return self 
         
-        summary_parts=[] 
+        summary_parts={} 
         unique_counts = {col: df[col].nunique() for col in df.select_dtypes(
             include=['object', 'category']).columns}
         if len(unique_counts) ==0: 
@@ -508,32 +509,182 @@ class Summary(FlexDict):
             
         unique_df = pd.DataFrame.from_dict(
             unique_counts, orient='index', columns=['Unique Counts'])
-
-        summary_parts=[unique_df]
-        titles =["Unique Counts"]
+        
+        summary_parts = df_to_custom_dict(unique_df, )
+        
         # Sample of the data
         if include_sample:
             sample_data = df.sample(n=min(sample_size, len(df)))
-            summary_parts.append(sample_data)
-            titles.append ("Sample Data")
-
+            summary_parts ["Sample Data %% : Table "] = sample_data
+        
         # Compile all parts into a single summary report
-        self.summary_report = uniform_dfs_formatter(
-            *summary_parts, titles= titles, 
-            aesthetic_space_allocation= aesthetic_space_allocation
-            )
-
+        self.summary_report = format_report(
+            summary_parts, report_title ="Unique Counts", max_table_width="auto" )
+        
         return self
     
     def summary(self, df, **kwargs):
         """
-        Formats and adds a data frame summary to the report.
-   
-        Parameters:
-        - df (pandas.DataFrame): The data frame to summarize.
+        Generates a formatted summary of the specified DataFrame and incorporates
+        it into a report object held by the class instance.
+
+        This method uses custom formatting settings provided through keyword
+        arguments to create a visually appealing summary representation, which
+        is then stored as part of the class's state.
+
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            The DataFrame to summarize.
+        **kwargs : dict
+            Additional keyword arguments that are passed to the formatting
+            function to customize the summary's appearance.
+
+        Returns
+        -------
+        Summary
+            Returns the instance itself, allowing for method chaining.
+
+        Notes
+        -----
+        This method is designed to be flexible, accommodating any formatting
+        options supported by `format_dataframe`. This allows the user to
+        specify how the DataFrame should be displayed in the summary, such as
+        adjusting column widths, hiding indices, or adding a title.
+
+        Examples
+        --------
+        >>> from gofast.api.summary import Summary
+        >>> summary = Summary()
+        >>> df = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
+        >>> summary.summary(df, max_text_length=20)
+        >>> print(summary)
+        =====
+          A B
+        -----
+        0 1 3
+        1 2 4
+        =====
         """
-        self.report= df 
-        self.report_str = format_dataframe(df, title=self.title, **kwargs)
+        self.summary_report = format_dataframe(df, title=self.title, **kwargs)
+        return self
+    
+    def summary2(self, df, **kwargs):
+        """
+        Similar to `summary`, but uses a different formatting function to process
+        the DataFrame summary. This method is intended to provide an alternative
+        visual representation of the DataFrame.
+
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            The DataFrame to summarize.
+        **kwargs : dict
+            Additional keyword arguments that are passed to the `format_df`
+            function to customize the summary's appearance.
+
+        Returns
+        -------
+        Summary
+            Returns the instance itself, allowing for method chaining.
+
+        Notes
+        -----
+        The choice between `summary` and `summary2` depends on the specific
+        formatting needs and the output style desired. While both methods
+        prepare a summary of the DataFrame, `summary2` may involve different
+        formatting conventions or settings specific to `format_df`.
+
+        Examples
+        --------
+        >>> from gofast.api.summary import Summary
+        >>> summary = Summary()
+        >>> df = pd.DataFrame({'C': [5, 6], 'D': [7, 8]})
+        >>> summary.summary2(df, max_text_length=15,)
+        >>> print(summary)
+        =========
+             C  D
+          -------
+        0 |  5  7
+        1 |  6  8
+        =========
+        """
+        self.summary_report = format_df(df, title=self.title, **kwargs)
+        return self
+    
+    def display_corr(
+            self, df, min_corr=0.5, high_corr=0.8, use_symbols=False, 
+            hide_diag=True, **kwargs):
+        """
+        Computes and stores a formatted correlation matrix for a DataFrame's numeric
+        columns within the class instance. This method leverages formatting options
+        to visually represent correlation strengths differently based on specified
+        thresholds and conditions.
+    
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            The DataFrame from which the correlation matrix is computed.
+        min_corr : float, optional
+            The minimum correlation coefficient to display explicitly. Correlation
+            values below this threshold will be replaced by a placeholder (which can
+            be set via kwargs with 'placeholder'). Default is 0.5.
+        high_corr : float, optional
+            The threshold above which correlations are considered high and can be
+            represented differently if `use_symbols` is True. Default is 0.8.
+        use_symbols : bool, optional
+            If True, uses symbolic representation ('++', '--', '+-') for correlation
+            values, providing a simplified visual cue for strong and moderate
+            correlations. Default is False.
+        hide_diag : bool, optional
+            If True, the diagonal elements of the correlation matrix (always 1) are
+            not displayed, helping focus on the non-trivial correlations. Default is
+            True.
+        **kwargs : dict
+            Additional keyword arguments that are passed to `format_correlations`
+            function to customize the correlation matrix's appearance.
+    
+        Returns
+        -------
+        None
+            This method does not return a value; it updates the instance's state by
+            setting `summary_report` with the formatted correlation matrix.
+    
+        Notes
+        -----
+        This method is part of a class that handles statistical reporting. It allows
+        for easy visualization of important correlations within a dataset, helping to
+        identify and present statistically significant relationships in a user-friendly
+        manner.
+    
+        Examples
+        --------
+        >>> import pandas as pd 
+        >>> from gofast.api.summary import Summary 
+        >>> summary = Summary(title="Correlation Table")
+        >>> df = pd.DataFrame({
+        ...     'A': np.random.randn(100),
+        ...     'B': np.random.randn(100),
+        ...     'C': np.random.randn(100) * 10
+        ... })
+        >>> summary.display_corr(df, min_corr=0.3, high_corr=0.7)
+        >>> print(summary)
+        Correlation Table      
+        =============================
+                A       B        C   
+          ---------------------------
+        A |           0.0430  -0.1115
+        B |   0.0430           0.1807
+        C |  -0.1115  0.1807         
+        =============================
+  
+        The method updates the `summary_report` attribute of `report` with a formatted
+        string representing the correlation matrix, potentially including a title and
+        custom formatting as specified by the user.
+        """
+        self.summary_report = format_correlations(
+            df, min_corr=min_corr, high_corr=high_corr, use_symbols= use_symbols, 
+                            hide_diag= hide_diag, title = self.title, **kwargs)
         
         return self 
     
@@ -1314,7 +1465,6 @@ def calculate_maximum_length( report_data, max_table_length = "auto" ):
         
     return max_key_length, max_val_length, max_table_length
 
-
 def format_report(report_data, report_title=None, max_table_width= 70, **kws ):
     """
     Formats the provided report data into a structured text report, 
@@ -1582,10 +1732,7 @@ def summarize_model_results(
 
     # Inline contents preparation
     inline_contents = {
-        "Best estimator": ( 
-            type(standardized_results['best_estimator_']).__name__ 
-            if  'best_estimator_' in standardized_results else 'Unknown estimator'
-            ),
+        "Best estimator": fetch_estimator_name(standardized_results['best_estimator_']),
         "Best parameters": standardized_results.get('best_params_','Unknown parameters') ,
         "nCV": len({k for k in standardized_results['cv_results_'].keys(
             ) if k.startswith('split')})# // len(standardized_results['cv_results_']['params']))
@@ -1624,6 +1771,7 @@ def summarize_model_results(
     formatted_table=f'\n\n{formatted_table}' if 'cv_results_' in standardized_results else ''
     summary = f"{summary_inline_tab}{formatted_table}"
     return summary
+
 
 def summarize_optimized_results(model_results, result_title=None, **kwargs):
     """
@@ -1798,7 +1946,7 @@ def standardize_keys(model_results):
     """
     map_keys = {
         'best_estimator_': ['model', 'estimator', 'best_estimator'],
-        'best_params_': ['parameters', 'params', 'best_parameters'],
+        'best_params_': ['parameters', 'params', 'best_parameters', 'best_parameters_'],
         'cv_results_': ['results', 'fold_results', 'cv_results']
     }
     standardized_results = {}
@@ -2559,8 +2707,10 @@ def format_series(series):
             ' - exist_nan:True' if series.isnull().any() else ''
         )
     else:  # Handle non-numeric series or series with length >= 7
-        num_values = series.apply(lambda x: isinstance(x, (int, float)) and not np.isnan(x)).sum()
-        non_num_values = len(series) - num_values - series.isnull().sum()  # Exclude NaNs from non-numeric count
+        num_values = series.apply(
+            lambda x: isinstance(x, (int, float)) and not np.isnan(x)).sum()
+        non_num_values = len(
+            series) - num_values - series.isnull().sum()  # Exclude NaNs from non-numeric count
         series_str = "Series ~ {}values: <numval: {} - nonnumval: {} - length: {} - dtype: {}{}>".format(
             f"name=<{series.name}> - " if series.name is not None else '',
             num_values, 
