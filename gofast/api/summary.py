@@ -7,6 +7,8 @@ import pandas as pd
 from .extension import isinstance_ 
 from .formatter import MultiFrameFormatter, DataFrameFormatter, DescriptionFormatter 
 from .structures import FlexDict
+from .util import format_value, df_to_custom_dict, format_text  
+from .util import find_maximum_table_width
 
 
 class ModelSummary(FlexDict):
@@ -414,7 +416,7 @@ class Summary(FlexDict):
         ...     'Salary': [50000, 60000, 70000, 80000, 90000]
         ... })
         >>> summary = Summary(title="Employee Stats")
-        >>> summary.basic_statistics(df, include_correlation=True)
+        >>> summary.add_basic_statistics(df, include_correlation=True)
         >>> print(summary)
         """
         if not isinstance(df, pd.DataFrame):
@@ -431,18 +433,25 @@ class Summary(FlexDict):
         summary_parts.append(format_dataframe(stats, title="Basic Statistics"))
 
         # Correlation matrix
-        #XXX TODO check this validation 
-        if include_correlation: # and 'number' in df.select_dtypes(
-                # include=['number']).dtypes:
+        format_corr_str =''
+        if include_correlation: 
+            # get the maximum table width  
+            max_table_width = find_maximum_table_width(summary_parts[0])
             corr_matrix = df.corr().round(2)
-            summary_parts.append(format_dataframe(
-                corr_matrix, title="Correlation Matrix")) 
-
+            dict_df = df_to_custom_dict(corr_matrix)
+            
+            format_corr_str= format_report(
+                dict_df, report_title = "Correlation Matrix",
+                max_table_width=max_table_width )
+            
+            # noww convert correlation df to text dict with key and 
+            #summary_parts.insert (0, format_corr_str ) 
+            summary_parts.append (format_corr_str)
         # Compile all parts into a single summary report
         self.summary_report = "\n\n".join(summary_parts)
         
         return self 
-
+    
     def add_unique_counts(
         self, df, include_sample=False, sample_size=5,
         aesthetic_space_allocation=4
@@ -740,6 +749,7 @@ class ReportFactory(FlexDict):
         return ( "<Report: Print to see the content>" if self.report_str is not None 
                 else "<Report: No content>" )
     
+
     
 def ensure_list_with_defaults(input_value, target_length, default=None):
     """
@@ -1078,63 +1088,6 @@ def extract_model_name_and_dict(model_dict, candidate_names=None):
     # If no model name is found, return None and the original dictionary
     return None, model_dict
     
-
-def find_maximum_table_width(summary_contents, header_marker='='):
-    """
-    Calculates the maximum width of tables in a summary string based on header lines.
-
-    This function parses a multi-table summary string, identifying lines that represent
-    the top or bottom borders of tables (header lines). It determines the maximum width
-    of these tables by measuring the length of these header lines. The function assumes
-    that the header lines consist of repeated instances of a specific marker character.
-
-    Parameters
-    ----------
-    summary_contents : str
-        A string containing the summarized representation of one or more tables.
-        This string should include header lines made up of repeated header markers
-        that denote the start and end of each table's border.
-    header_marker : str, optional
-        The character used to construct the header lines in the summary_contents.
-        Defaults to '=', the common character for denoting table borders in ASCII
-        table representations.
-
-    Returns
-    -------
-    int
-        The maximum width of the tables found in summary_contents, measured as the
-        length of the longest header line. If no header lines are found, returns 0.
-
-    Examples
-    --------
-    >>> summary = '''Model Performance
-    ... ===============
-    ... Estimator : SVC
-    ... Accuracy  : 0.9500
-    ... Precision : 0.8900
-    ... Recall    : 0.9300
-    ... ===============
-    ... Model Performance
-    ... =================
-    ... Estimator : RandomForest
-    ... Accuracy  : 0.9500
-    ... Precision : 0.8900
-    ... Recall    : 0.9300
-    ... ================='''
-    >>> find_maximum_table_width(summary)
-    18
-
-    This example shows how the function can be used to find the maximum table width
-    in a string containing summaries of model performances, where '=' is used as
-    the header marker.
-    """
-    # Split the input string into lines
-    lines = summary_contents.split('\n')
-    # Filter out lines that consist only of the header marker, and measure their lengths
-    header_line_lengths = [len(line) for line in lines if line.strip(header_marker) == '']
-    # Return the maximum of these lengths, or 0 if the list is empty
-    return max(header_line_lengths, default=0)
-
 def summarize_inline_table(
     contents, 
     title=None, 
@@ -1360,13 +1313,7 @@ def calculate_maximum_length( report_data, max_table_length = "auto" ):
             max_val_length = max_table_length - max_key_length -4
         
     return max_key_length, max_val_length, max_table_length
-       
-def format_value( value ): 
-    value_str =str(value)
-    if isinstance(value, (int, float, np.integer, np.floating)): 
-        value_str = f"{value}" if isinstance ( value, int) else  f"{float(value):.4f}" 
 
-    return value_str
 
 def format_report(report_data, report_title=None, max_table_width= 70, **kws ):
     """
@@ -2560,97 +2507,7 @@ def format_array(arr):
         )
     return arr_str
 
-def format_text(
-        text, key=None, key_length=15, max_char_text=50, 
-        add_frame_lines =False ):
-    """
-    Formats a block of text to fit within a specified maximum character width,
-    optionally prefixing it with a key. If the text exceeds the maximum width,
-    it wraps to a new line, aligning with the key or the specified indentation.
 
-    Parameters
-    ----------
-    text : str
-        The text to be formatted.
-    key : str, optional
-        An optional key to prefix the text. Defaults to None.
-    key_length : int, optional
-        The length reserved for the key, including following spaces.
-        If `key` is provided but `key_length` is None, the length of the
-        `key` plus one space is used. Defaults to 15.
-    max_char_text : int, optional
-        The maximum number of characters for the text width, including the key
-        if present. Defaults to 50.
-    add_frame_lines: bool, False 
-       If True, frame the text with '=' line (top and bottom)
-       
-    Returns
-    -------
-    str
-        The formatted text with line breaks added to ensure that no line exceeds
-        `max_char_text` characters. If a `key` is provided, it is included only
-        on the first line, with subsequent lines aligned accordingly.
-
-    Examples
-    --------
-    >>> from gofast.api.summary import format_text
-    >>> text_example = ("This is an example text that is supposed to wrap" 
-                      "around after a certain number of characters.")
-    >>> print(format_text(text_example, key="Note"))
-    Note           : This is an example text that is supposed to
-                      wrap around after a certain number of
-                      characters.
-
-    Notes
-    -----
-    - The function dynamically adjusts the text to fit within `max_char_text`,
-      taking into account the length of `key` if provided.
-    - Text that exceeds the `max_char_text` limit is wrapped to new lines, with
-      proper alignment to match the initial line's formatting.
-    """
-
-    if key is not None:
-        # If key_length is None, use the length of the key + 1 
-        # for the space after the key
-        if key_length is None:
-            key_length = len(key) + 1
-        key_str = f"{key.ljust(key_length)} : "
-    elif key_length is not None:
-        # If key is None but key_length is specified, use spaces
-        key_str = " " * key_length + " : "
-    else:
-        # If both key and key_length are None, there's no key part
-        key_str = ""
-    
-    # Adjust max_char_text based on the length of the key part
-    effective_max_char_text = max_char_text - len(key_str) + 2 if key_str else max_char_text
-
-    formatted_text = ""
-    text=str(text)
-    while text:
-        # If the remaining text is shorter than the effective
-        # max length, or if there's no key part, add it as is
-        if len(text) <= effective_max_char_text or not key_str:
-            formatted_text += key_str + text
-            break
-        else:
-            # Find the space to break the line, ensuring it doesn't
-            # exceed effective_max_char_text
-            break_point = text.rfind(' ', 0, effective_max_char_text)
-            if break_point == -1:  # No spaces found, force break
-                break_point = effective_max_char_text
-            # Add the line to formatted_text
-            formatted_text += key_str + text[:break_point].rstrip() + "\n"
-            # Remove the added part from text
-            text = text[break_point:].lstrip()
-            # After the first line, the key part is just spaces
-            key_str = " " * len(key_str)
-    
-    if add_frame_lines: 
-        frame_lines = '='* len(formatted_text)
-        formatted_text = frame_lines +'\n' + formatted_text +'\n' + frame_lines
-        
-    return formatted_text
 
 def format_series(series):
     """

@@ -15,16 +15,16 @@ import scipy.stats
 import numpy as np
 import pandas as pd 
 import seaborn as sns 
+import matplotlib.axes
 import matplotlib as mpl
 import scipy.sparse as sp
-import matplotlib.axes
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-import matplotlib.transforms as transforms 
-from matplotlib.collections import EllipseCollection
 from matplotlib.axes import Axes
+import matplotlib.colors as mcolors
 from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse
+import matplotlib.transforms as transforms 
+from matplotlib.collections import EllipseCollection
 from scipy.cluster.hierarchy import dendrogram, ward 
 
 from sklearn.base import BaseEstimator

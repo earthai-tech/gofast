@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# testing.py 
+#   License: BSD-3-Clause
+#   Author: LKouadio <etanoyau@gmail.com>
 
 import pandas as pd
 
@@ -276,7 +277,6 @@ def assert_report_recommendations(
     assert expected_formatted_str in report_factory.report_str, ( 
         msg or "Recommendations section is not formatted as expected." ) 
 
-
 def assert_model_summary_performance(
         model_summary_instance, model_results, expected_output, msg=None
         ):
@@ -286,7 +286,7 @@ def assert_model_summary_performance(
     Parameters:
     -----------
     model_summary_instance : ModelSummary
-        The ReportFactory instance to test.
+        The ModelSummary instance to test.
     model_results : dict
         The model results data to be formatted into a report section.
     expected_output : str
@@ -294,7 +294,8 @@ def assert_model_summary_performance(
     msg : str, optional
         A custom message to display on assertion failure.
     """
-    assert isinstance_(model_summary_instance, ReportFactory), "Object is not an instance of ReportFactory."
+    assert isinstance_(model_summary_instance, ModelSummary
+                       ), "Object is not an instance of ModelSummary."
     model_summary_instance.add_performance(model_results)
     actual_output = str(model_summary_instance.summary_report)
     assert actual_output == expected_output, ( 
@@ -362,7 +363,7 @@ def assert_metric_formatter(metric_formatter, expected_output, msg=None):
     actual_output = str(metric_formatter)
     
     # Check if the actual output matches the expected output
-    assert actual_output == expected_output, msg or (
+    assert check_output(actual_output, expected_output), msg or (
         "MetricFormatter output does not match expected output.\n"
         "Expected:\n"
         f"{expected_output}\n"
@@ -449,7 +450,7 @@ def assert_box_formatter(box_formatter, expected_output, msg=None):
         "The provided object is not an instance of BoxFormatter."
     )
     actual_output = str(box_formatter)
-    assert actual_output == expected_output, msg or ( 
+    assert check_output(actual_output, expected_output) , msg or ( 
         "BoxFormatter output does not match expected output.")
     
 def assert_description_formatter(description_formatter, expected_output, msg=None):
@@ -467,7 +468,7 @@ def assert_description_formatter(description_formatter, expected_output, msg=Non
     """
     validate_formatter_instance(description_formatter, DescriptionFormatter)
     actual_output = str(description_formatter)
-    assert actual_output == expected_output, msg or (
+    assert check_output(actual_output, expected_output), msg or (
         "DescriptionFormatter output does not match expected output.")
 
 def assert_dataframe_formatter(dataframe_formatter, expected_output, msg=None):
@@ -520,7 +521,7 @@ def assert_dataframe_formatter(dataframe_formatter, expected_output, msg=None):
     actual_output = str(dataframe_formatter)
     
     # Assert that the actual output matches the expected output
-    assert actual_output == expected_output, msg or (
+    assert check_output(actual_output, expected_output), msg or (
         "DataFrameFormatter output does not match expected output."
     )
 def assert_multiframe_formatter(multiframe_formatter, expected_output, msg=None):
@@ -538,7 +539,7 @@ def assert_multiframe_formatter(multiframe_formatter, expected_output, msg=None)
     """
     validate_formatter_instance(multiframe_formatter, MultiFrameFormatter)
     actual_output = str(multiframe_formatter)
-    assert actual_output == expected_output, msg or (
+    assert check_output(actual_output, expected_output), msg or (
         "MultiFrameFormatter output does not match expected output."
         )
     

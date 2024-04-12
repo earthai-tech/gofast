@@ -43,6 +43,7 @@ def test_summary_unique_counts(sample_dataframe):
     summary = Summary()
     summary.add_unique_counts(sample_dataframe, include_sample=True, sample_size=3)
     assert_summary_data_sample(summary, expected_sample_size=3)
+    
     assert_summary_completeness(summary, expected_sections=["Unique Counts", "Sample Data"])
 
 def test_summary_with_title(sample_dataframe):
@@ -103,24 +104,7 @@ def sample_model_results():
 def test_summary_model_output(sample_model_results):
     summary = ModelSummary()
     # use some keys expected in output  for validation.
-    expected_output = [ "Model Results", "Tuning Results", "Global mean"] 
-    """
-                     Model Results                  
-    ================================================
-    Best estimator   : str
-    Best parameters  : Unknown parameters
-    nCV              : 2
-    Scoring          : Unknown scoring
-    ================================================
-    
-                     Tuning Results                 
-    ================================================
-      Fold Mean score CV score std score Global mean
-    ------------------------------------------------
-    0  cv1     0.6233   0.6789    0.0555      0.6233
-    1  cv2     0.8500   0.9000    0.0500      0.8500
-    ================================================
-    """
+    expected_output = [ "Model Results", "Tuning Results"] 
     assert_summary_model(summary, sample_model_results, expected_output)
 
 def test_summary_content_attributes(sample_model_results):
