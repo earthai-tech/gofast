@@ -19,10 +19,10 @@ except:pass
 
 from ..exceptions import NotFittedError 
 from ..property import BasePlot 
-from ..tools.validator import is_time_series , build_data_if 
+from ..tools._dependency import import_optional_dependency 
 from ..tools.baseutils import extract_target 
 from ..tools.coreutils import format_to_datetime
-from ..tools._dependency import import_optional_dependency 
+from ..tools.validator import is_time_series , build_data_if 
 
 class TimeSeriesPlotter (BasePlot) :
     def __init__(self,  **kws):
@@ -613,7 +613,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.ylabel('Value')
         plt.show()
 
-    def plotErrorbar(self, yerr=None, color='blue', ecolor='red', 
+    def plotErrorBar(self, yerr=None, color='blue', ecolor='red', 
                        elinewidth=2, capsize=5, figsize=(10, 6),
                        title='Error Bar Plot'):
         """
@@ -884,13 +884,14 @@ Examples
 """
 if __name__ == "__main__":
     
+    from gofast.plot.ts import TimeSeriesPlotter 
     dates = pd.date_range(start="2020-01-01", end="2020-12-31", freq='M')
     values = np.random.rand(len(dates))
     df = pd.DataFrame({'Date': dates, 'Value': values})
 
-    plotter = TimeSeriesPlotter(df, 'Date', 'Value')
-    plotter.step_plot()
-    plotter.error_bar_plot(yerr=0.1)
+    plotter = TimeSeriesPlotter().fit(df, 'Date', 'Value')
+    plotter.plotStep()
+    plotter.plotErrorBar(yerr=0.1)
     
 
     dates = pd.date_range(start="2020-01-01", end="2020-12-31", freq='M')
@@ -898,14 +899,14 @@ if __name__ == "__main__":
     df = pd.DataFrame({'Date': dates, 'Value': values,
                        'SecondaryValue': np.random.rand(len(dates))})
 
-    plotter = TimeSeriesPlotter(df, 'Date', 'Value')
-    plotter.scatter_plot()
+    plotter = TimeSeriesPlotter().fit(df, 'Date', 'Value')
+    plotter.plotScatter()
 
     dates = pd.date_range(start="2020-01-01", end="2020-12-31", freq='M')
     values = np.random.rand(len(dates))
     df = pd.DataFrame({'Date': dates, 'Value': values})
 
-    plotter = TimeSeriesPlotter(df, 'Date', 'Value')
+    plotter = TimeSeriesPlotter().fit(df, 'Date', 'Value')
     plotter.rolling_mean_std()
     plotter.autocorrelation_plot()
     plotter.pacf_plot()
@@ -915,7 +916,7 @@ if __name__ == "__main__":
     values = np.random.rand(len(dates))
     df = pd.DataFrame({'Date': dates, 'Value': values})
 
-    plotter = TimeSeriesPlotter(df, 'Date', 'Value')
+    plotter = TimeSeriesPlotter().fit(df, 'Date', 'Value')
     plotter.area_plot()
     plotter.heatmap_correlation()
     plotter.lag_plot()
@@ -924,9 +925,9 @@ if __name__ == "__main__":
     values = np.random.rand(len(dates))
     df = pd.DataFrame({'Date': dates, 'Value': values})
 
-    plotter = TimeSeriesPlotter(df, 'Date', 'Value')
+    plotter = TimeSeriesPlotter().fit(df, 'Date', 'Value')
     plotter.area_plot()
-    plotter.heatmap_correlation()
+    plotter.heatmapCorrelation()
     plotter.lag_plot()
 
 
@@ -934,7 +935,7 @@ if __name__ == "__main__":
     values = np.random.rand(len(dates))
     df = pd.DataFrame({'Date': dates, 'Value': values})
 
-    plotter = TimeSeriesPlotter(df, 'Date', 'Value')
+    plotter = TimeSeriesPlotter().fit(df, 'Date', 'Value')
     plotter.line_plot()
     plotter.histogram()
     plotter.box_plot()
@@ -943,19 +944,19 @@ if __name__ == "__main__":
     values = np.random.rand(len(dates))
     df = pd.DataFrame({'Date': dates, 'Value': values})
 
-    plotter = TimeSeriesPlotter(df, 'Date', 'Value')
+    plotter = TimeSeriesPlotter().fit(df, 'Date', 'Value')
  
     dates = pd.date_range(start="2020-01-01", end="2020-12-31", freq='M')
     values = np.random.rand(len(dates))
     df = pd.DataFrame({'Date': dates, 'Value': values})
 
-    plotter = TimeSeriesPlotter(df, 'Date', 'Value')
-    plotter.area_plot()
-    plotter.heatmap_correlation()
-    plotter = TimeSeriesPlotter(df, 'Date', 'Value')
-    plotter.stacked_line_plot(secondary_col='SecondaryValue')
-    plotter.waterfall_plot()
-    plotter.bubble_plot(bubble_size_col='BubbleSize')
+    plotter = TimeSeriesPlotter().fit(df, 'Date', 'Value')
+    plotter.plotArea()
+    plotter.heatmapCorrelation()
+    plotter = TimeSeriesPlotter().fit(df, 'Date', 'Value')
+    plotter.plotStackedLine(secondary_col='SecondaryValue')
+    plotter.plotWaterfall()
+    plotter.plotBubble(bubble_size_col='BubbleSize')
     categories = ['Category1', 'Category2', 'Category3', 'Category4', 'Category5']
-    plotter.radar_chart(categories=categories)
+    plotter.radarChart(categories=categories)
 

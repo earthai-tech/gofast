@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
+
+import re
 import warnings
 import numpy as np 
 import pandas as pd
@@ -112,7 +114,7 @@ def format_text(
     - Text that exceeds the `max_char_text` limit is wrapped to new lines, with
       proper alignment to match the initial line's formatting.
     """
-
+    
     if key is not None:
         # If key_length is None, use the length of the key + 1 
         # for the space after the key
@@ -494,7 +496,8 @@ def format_correlations(
     hide_diag=True, 
     title=None, 
     error_mode='warn', 
-    precomputed=False, 
+    precomputed=False,
+    legend_markers=None
     ):
     """
     Computes and formats the correlation matrix for a DataFrame's numeric columns, 
@@ -531,6 +534,9 @@ def format_correlations(
     precomputed: bool, optional 
        Consider data as already correlated data. No need to recomputed the
        the correlation. Default is 'False'
+    legend_markers: str, optional 
+       A dictionary mapping correlation symbols to their descriptions. If provided,
+       it overrides the default markers. Default is None.
        
     Returns
     -------
@@ -599,8 +605,7 @@ def format_correlations(
             return '' if error_mode == 'ignore' else 'No numeric data available.'  
     
         corr_matrix = numeric_df.corr()
-        
-    
+
     if hide_diag:
         np.fill_diagonal(corr_matrix.values, np.nan)  # Set diagonal to NaN
 
@@ -621,21 +626,166 @@ def format_correlations(
 
     formatted_corr = corr_matrix.applymap(format_value)
     formatted_df = format_df(formatted_corr)
-
+    
     max_width = find_maximum_table_width(formatted_df)
     legend = ""
     if use_symbols:
-        no_corr_text = f"{no_corr_placeholder}: Non-correlated" if no_corr_placeholder else ''
-        diag_marker = '' if hide_diag else (', o: Diagonal' if use_symbols else '')
-        text= no_corr_text + '++: Strong positive, --: Strong negative, +-: Moderate' + diag_marker
-        legend = "\n\n" + format_text(
-            text, 'Legend', len('Legend'),  max_width + len('Legend'), True,'.'
-            )
-    
+        legend = generate_legend(
+            legend_markers, no_corr_placeholder, hide_diag,  max_width)
     if title:
         title = title.center(max_width) + "\n"
 
     return title + formatted_df + legend
+
+def generate_legend(
+    custom_markers=None, 
+    no_corr_placeholder='...', 
+    hide_diag=True,
+    max_width=50, 
+    add_frame_lines=True, 
+    border_line='.'
+    ):
+    """
+    Generates a legend for a table (dataframe) matrix visualization, formatted 
+    according to specified parameters.
+
+    This function supports both numeric and symbolic representations of table
+    values. Symbolic representations, which are used primarily for visual clarity,
+    include the following symbols:
+
+    - ``'++'``: Represents a strong positive relationship.
+    - ``'--'``: Represents a strong negative relationship.
+    - ``'+-'``: Represents a moderate relationship.
+    - ``'o'``: Used exclusively for diagonal elements, typically representing
+      a perfect relationship in correlation matrices (value of 1.0).
+         
+    Parameters
+    ----------
+    custom_markers : dict, optional
+        A dictionary mapping table symbols to their descriptions. If provided,
+        it overrides the default markers. Default is None.
+    no_corr_placeholder : str, optional
+        Placeholder text for table values that do not meet the minimum threshold.
+        Default is '...'.
+    hide_diag : bool, optional
+        If True, omits the diagonal entries from the legend. These are typically
+        frame of a variable with itself (1.0). Default is True.
+    max_width : int, optional
+        The maximum width of the formatted legend text, influences the centering
+        of the title. Default is 50.
+    add_frame_lines : bool, optional
+        If True, adds a frame around the legend using the specified `border_line`.
+        Default is True.
+    border_line : str, optional
+        The character used to create the border of the frame if `add_frame_lines`
+        is True. Default is '.'.
+
+    Returns
+    -------
+    str
+        The formatted legend text, potentially framed, centered according to the
+        specified width, and including custom or default descriptions of correlation
+        values.
+
+    Examples
+    --------
+    >>> from gofast.api.util import generate_legend
+    >>> custom_markers = {"++": "High Positive", "--": "High Negative"}
+    >>> print(generate_legend(custom_markers=custom_markers, max_width=60))
+    ............................................................
+    Legend : ...: Non-correlated, ++: High Positive, --: High
+             Negative, +-: Moderate
+    ............................................................
+
+    >>> print(generate_legend(hide_diag=False, max_width=70))
+    ......................................................................
+    Legend : ...: Non-correlated, ++: Strong positive, --: Strong negative,
+             +-: Moderate, o: Diagonal
+    ......................................................................
+    >>> custom_markers = {"++": "Highly positive", "--": "Highly negative"}
+    >>> legend = generate_legend(custom_markers=custom_markers,
+    ...                          no_corr_placeholder='N/A', hide_diag=False,
+    ...                          border_line ='=')
+
+    >>> print(legend) 
+
+    ==================================================
+    Legend : N/A: Non-correlated, ++: Highly positive,
+             --: Highly negative, +-: Moderate, o:
+             Diagonal
+    ==================================================
+    """
+    # Default markers and their descriptions
+    default_markers = {
+        no_corr_placeholder: "Non-correlated",
+        "++": "Strong positive",
+        "--": "Strong negative",
+        "+-": "Moderate",
+        "o": "Diagonal"  # only used if hide_diag is False
+    }
+    if ( custom_markers is not None 
+        and not isinstance(custom_markers, dict)
+    ):
+        raise TypeError("The 'custom_markers' parameter must be a dictionary."
+                        " Received type: {0}. Please provide a dictionary"
+                        " where keys are the legend symbols and values"
+                        " are their descriptions.".format(
+                        type(custom_markers).__name__))
+
+    # Update default markers with any custom markers provided
+    markers = {**default_markers, **(custom_markers or {})}
+
+    # Create legend entries
+    legend_entries = [f"{key}: {value}" for key, value in markers.items() if not (
+        key == 'o' and hide_diag)]
+
+    # Join entries with commas and format the legend text
+    legend_text = ", ".join(legend_entries)
+    legend = "\n\n" + format_text(
+        legend_text, 
+        key='Legend', 
+        key_length=len('Legend'), 
+        max_char_text=max_width + len('Legend'), 
+        add_frame_lines=add_frame_lines,
+        border_line=border_line
+        )
+    return legend
+
+def to_snake_case(name):
+    """
+    Converts a string to snake_case using regex.
+
+    Parameters
+    ----------
+    name : str
+        The string to convert to snake_case.
+
+    Returns
+    -------
+    str
+        The snake_case version of the input string.
+    """
+    name = str(name)
+    name = re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()  # CamelCase to snake_case
+    name = re.sub(r'\W+', '_', name)  # Replace non-word characters with '_'
+    name = re.sub(r'_+', '_', name)  # Replace multiple '_' with single '_'
+    return name.strip('_')
+
+def generate_column_name_mapping(columns):
+    """
+    Generates a mapping from snake_case column names to their original names.
+
+    Parameters
+    ----------
+    columns : List[str]
+        The list of column names to convert and map.
+
+    Returns
+    -------
+    dict
+        A dictionary mapping snake_case column names to their original names.
+    """
+    return {to_snake_case(col): col for col in columns}
 
 
 if __name__=='__main__': 

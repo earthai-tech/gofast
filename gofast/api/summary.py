@@ -700,7 +700,8 @@ class Summary(FlexDict):
         is empty or populated.
         """
         return "<Summary: {}>".format(
-            "Empty" if not self.summary_report else "Populated. Use print() to the contents.")
+            "Empty" if not self.summary_report 
+            else "Populated. Use print() to see the contents.")
 
 class ReportFactory(FlexDict):
     """

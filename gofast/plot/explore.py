@@ -118,7 +118,87 @@ _param_docs = DocstringComponents.from_nested_components(
 #++++++++++++++++++++++++++++++++++ end +++++++++++++++++++++++++++++++++++++++
 
 class QuestPlotter (BasePlot): 
+    """
+    Exploratory plot for data analysis 
     
+    `QuestPlotter` is a shadow class. Explore data is needed to create a model since 
+    it gives a feel for the data and also at great excuses to meet and discuss 
+    issues with business units that controls the data. `QuestPlotter` methods i.e. 
+    return an instancied object that inherits from :class:`gofast.property.Baseplots`
+    ABC (Abstract Base Class) for visualization.
+        
+    Parameters 
+    -------------
+    {params.base.savefig}
+    {params.base.fig_dpi}
+    {params.base.fig_num}
+    {params.base.fig_size}
+    {params.base.fig_orientation}
+    {params.base.fig_title}
+    {params.base.fs}
+    {params.base.ls}
+    {params.base.lc}
+    {params.base.lw}
+    {params.base.alpha}
+    {params.base.font_weight}
+    {params.base.font_style}
+    {params.base.font_size}
+    {params.base.ms}
+    {params.base.marker}
+    {params.base.marker_facecolor}
+    {params.base.marker_edgecolor}
+    {params.base.marker_edgewidth}
+    {params.base.xminorticks}
+    {params.base.yminorticks}
+    {params.base.bins}
+    {params.base.xlim}
+    {params.base.ylim}
+    {params.base.xlabel}
+    {params.base.ylabel}
+    {params.base.rotate_xlabel}
+    {params.base.rotate_ylabel}
+    {params.base.leg_kws}
+    {params.base.plt_kws}
+    {params.base.glc}
+    {params.base.glw}
+    {params.base.galpha}
+    {params.base.gaxis}
+    {params.base.gwhich}
+    {params.base.tp_axis}
+    {params.base.tp_labelsize}
+    {params.base.tp_bottom}
+    {params.base.tp_labelbottom}
+    {params.base.tp_labeltop}
+    {params.base.cb_orientation}
+    {params.base.cb_aspect}
+    {params.base.cb_shrink}
+    {params.base.cb_pad}
+    {params.base.cb_anchor}
+    {params.base.cb_panchor}
+    {params.base.cb_label}
+    {params.base.cb_spacing}
+    {params.base.cb_drawedges} 
+    {params.sns.sns_orient}
+    {params.sns.sns_style}
+    {params.sns.sns_palette}
+    {params.sns.sns_height}
+    {params.sns.sns_aspect}
+    
+    Returns
+    --------
+    {returns.self}
+    
+    Examples
+    ---------
+    >>> import pandas as pd 
+    >>> from gofast.plot.explore import QuestPlotter
+    >>> data = pd.read_csv ('data/geodata/main.bagciv.data.csv' ) 
+    >>> QuestPlotter(fig_size = (12, 4)).fit(data).missing(kind ='corr')
+    ... <gofast.plot.explore .QuestPlotter at 0x21162a975e0>
+    """.format(
+        params=_param_docs,
+        returns= _core_docs["returns"],
+    )    
     msg = ("{expobj.__class__.__name__} instance is not"
            " fitted yet. Call 'fit' with appropriate"
            " arguments before using this method."
@@ -1143,6 +1223,101 @@ class QuestPlotter (BasePlot):
             )
               
 class EasyPlotter (BasePlot): 
+    """
+    Special class dealing with analysis modules for quick diagrams, 
+    histograms and bar visualizations. 
+    
+    Originally, it was designed for the flow rate prediction, however, it still 
+    works with any other dataset by following the parameters details. 
+      
+    Parameters 
+    -------------
+    {params.core.data}
+    {params.core.y}
+    {params.core.target_name}
+    {params.qdoc.classes}
+    {params.qdoc.mapflow}
+    {params.base.savefig}
+    {params.base.fig_dpi}
+    {params.base.fig_num}
+    {params.base.fig_size}
+    {params.base.fig_orientation}
+    {params.base.fig_title}
+    {params.base.fs}
+    {params.base.ls}
+    {params.base.lc}
+    {params.base.lw}
+    {params.base.alpha}
+    {params.base.font_weight}
+    {params.base.font_style}
+    {params.base.font_size}
+    {params.base.ms}
+    {params.base.marker}
+    {params.base.marker_facecolor}
+    {params.base.marker_edgecolor}
+    {params.base.marker_edgewidth}
+    {params.base.xminorticks}
+    {params.base.yminorticks}
+    {params.base.bins}
+    {params.base.xlim}
+    {params.base.ylim}
+    {params.base.xlabel}
+    {params.base.ylabel}
+    {params.base.rotate_xlabel}
+    {params.base.rotate_ylabel}
+    {params.base.leg_kws}
+    {params.base.plt_kws}
+    {params.base.glc}
+    {params.base.glw}
+    {params.base.galpha}
+    {params.base.gaxis}
+    {params.base.gwhich}
+    {params.base.tp_axis}
+    {params.base.tp_labelsize}
+    {params.base.tp_bottom}
+    {params.base.tp_labelbottom}
+    {params.base.tp_labeltop}
+    {params.base.cb_orientation}
+    {params.base.cb_aspect}
+    {params.base.cb_shrink}
+    {params.base.cb_pad}
+    {params.base.cb_anchor}
+    {params.base.cb_panchor}
+    {params.base.cb_label}
+    {params.base.cb_spacing}
+    {params.base.cb_drawedges} 
+    {params.sns.sns_orient}
+    {params.sns.sns_style}
+    {params.sns.sns_palette}
+    {params.sns.sns_height}
+    {params.sns.sns_aspect}
+    
+    Returns
+    --------
+    {returns.self}
+    
+    Examples
+    ---------
+    >>> from gofast.plot.explore import  EasyPlotter 
+    >>> data = 'data/geodata/main.bagciv.data.csv'
+    >>> qkObj = EasyPlotter(  leg_kws= dict( loc='upper right'),
+    ...          fig_title = '`sfi` vs`ohmS|`geol`',
+    ...            ) 
+    >>> qkObj.target_name='flow' # target the DC-flow rate prediction dataset
+    >>> qkObj.mapflow=True  # to hold category FR0, FR1 etc..
+    >>> qkObj.fit(data) 
+    >>> sns_pkws= dict ( aspect = 2 , 
+    ...          height= 2, 
+    ...                  )
+    >>> map_kws= dict( edgecolor="w")    
+    >>> qkObj.plotDiscussingFeatures(features =['ohmS', 'sfi','geol', 'flow'],
+    ...                           map_kws=map_kws,  **sns_pkws
+    ...                         )   
+    """.format(
+        params=_param_docs,
+        returns= _core_docs["returns"],
+    )
+   
     def __init__(
         self,  
         classes = None, 
@@ -2479,183 +2654,7 @@ class EasyPlotter (BasePlot):
             )
         return 1
      
-QuestPlotter .__doc__="""\
-Exploratory plot for data analysis 
-
-`QuestPlotter` is a shadow class. Explore data is needed to create a model since 
-it gives a feel for the data and also at great excuses to meet and discuss 
-issues with business units that controls the data. `QuestPlotter` methods i.e. 
-return an instancied object that inherits from :class:`gofast.property.Baseplots`
-ABC (Abstract Base Class) for visualization.
-    
-Parameters 
--------------
-{params.base.savefig}
-{params.base.fig_dpi}
-{params.base.fig_num}
-{params.base.fig_size}
-{params.base.fig_orientation}
-{params.base.fig_title}
-{params.base.fs}
-{params.base.ls}
-{params.base.lc}
-{params.base.lw}
-{params.base.alpha}
-{params.base.font_weight}
-{params.base.font_style}
-{params.base.font_size}
-{params.base.ms}
-{params.base.marker}
-{params.base.marker_facecolor}
-{params.base.marker_edgecolor}
-{params.base.marker_edgewidth}
-{params.base.xminorticks}
-{params.base.yminorticks}
-{params.base.bins}
-{params.base.xlim}
-{params.base.ylim}
-{params.base.xlabel}
-{params.base.ylabel}
-{params.base.rotate_xlabel}
-{params.base.rotate_ylabel}
-{params.base.leg_kws}
-{params.base.plt_kws}
-{params.base.glc}
-{params.base.glw}
-{params.base.galpha}
-{params.base.gaxis}
-{params.base.gwhich}
-{params.base.tp_axis}
-{params.base.tp_labelsize}
-{params.base.tp_bottom}
-{params.base.tp_labelbottom}
-{params.base.tp_labeltop}
-{params.base.cb_orientation}
-{params.base.cb_aspect}
-{params.base.cb_shrink}
-{params.base.cb_pad}
-{params.base.cb_anchor}
-{params.base.cb_panchor}
-{params.base.cb_label}
-{params.base.cb_spacing}
-{params.base.cb_drawedges} 
-{params.sns.sns_orient}
-{params.sns.sns_style}
-{params.sns.sns_palette}
-{params.sns.sns_height}
-{params.sns.sns_aspect}
-
-Returns
---------
-{returns.self}
-
-Examples
----------
->>> import pandas as pd 
->>> from gofast.view import QuestPlotter
->>> data = pd.read_csv ('data/geodata/main.bagciv.data.csv' ) 
->>> QuestPlotter(fig_size = (12, 4)).fit(data).missing(kind ='corr')
-... <gofast.plot.explore .QuestPlotter at 0x21162a975e0>
-""".format(
-    params=_param_docs,
-    returns= _core_docs["returns"],
-)
- 
-EasyPlotter.__doc__="""\
-Special class dealing with analysis modules for quick diagrams, 
-histograms and bar visualizations. 
-
-Originally, it was designed for the flow rate prediction, however, it still 
-works with any other dataset by following the parameters details. 
-  
-Parameters 
--------------
-{params.core.data}
-{params.core.y}
-{params.core.target_name}
-{params.qdoc.classes}
-{params.qdoc.mapflow}
-{params.base.savefig}
-{params.base.fig_dpi}
-{params.base.fig_num}
-{params.base.fig_size}
-{params.base.fig_orientation}
-{params.base.fig_title}
-{params.base.fs}
-{params.base.ls}
-{params.base.lc}
-{params.base.lw}
-{params.base.alpha}
-{params.base.font_weight}
-{params.base.font_style}
-{params.base.font_size}
-{params.base.ms}
-{params.base.marker}
-{params.base.marker_facecolor}
-{params.base.marker_edgecolor}
-{params.base.marker_edgewidth}
-{params.base.xminorticks}
-{params.base.yminorticks}
-{params.base.bins}
-{params.base.xlim}
-{params.base.ylim}
-{params.base.xlabel}
-{params.base.ylabel}
-{params.base.rotate_xlabel}
-{params.base.rotate_ylabel}
-{params.base.leg_kws}
-{params.base.plt_kws}
-{params.base.glc}
-{params.base.glw}
-{params.base.galpha}
-{params.base.gaxis}
-{params.base.gwhich}
-{params.base.tp_axis}
-{params.base.tp_labelsize}
-{params.base.tp_bottom}
-{params.base.tp_labelbottom}
-{params.base.tp_labeltop}
-{params.base.cb_orientation}
-{params.base.cb_aspect}
-{params.base.cb_shrink}
-{params.base.cb_pad}
-{params.base.cb_anchor}
-{params.base.cb_panchor}
-{params.base.cb_label}
-{params.base.cb_spacing}
-{params.base.cb_drawedges} 
-{params.sns.sns_orient}
-{params.sns.sns_style}
-{params.sns.sns_palette}
-{params.sns.sns_height}
-{params.sns.sns_aspect}
-
-Returns
---------
-{returns.self}
-
-Examples
----------
->>> from gofast.plot.explore import  EasyPlotter 
->>> data = 'data/geodata/main.bagciv.data.csv'
->>> qkObj = EasyPlotter(  leg_kws= dict( loc='upper right'),
-...          fig_title = '`sfi` vs`ohmS|`geol`',
-...            ) 
->>> qkObj.target_name='flow' # target the DC-flow rate prediction dataset
->>> qkObj.mapflow=True  # to hold category FR0, FR1 etc..
->>> qkObj.fit(data) 
->>> sns_pkws= dict ( aspect = 2 , 
-...          height= 2, 
-...                  )
->>> map_kws= dict( edgecolor="w")    
->>> qkObj.plotDiscussingFeatures(features =['ohmS', 'sfi','geol', 'flow'],
-...                           map_kws=map_kws,  **sns_pkws
-...                         )   
-""".format(
-    params=_param_docs,
-    returns= _core_docs["returns"],
-)
-         
+      
 def viewtemplate (y, /, xlabel=None, ylabel =None,  **kws):
     """
     Quick view template
@@ -2724,12 +2723,7 @@ def viewtemplate (y, /, xlabel=None, ylabel =None,  **kws):
                         dpi=obj.fig_dpi,
                         orientation =obj.fig_orientation
                         )     
-
-# import matplotlib.cm as cm 
-# import matplotlib.colorbar as mplcb
-# from mpl_toolkits.axes_grid1 import make_axes_locatable
-# from matplotlib.ticker import MultipleLocator, NullLocator
-# import matplotlib.gridspec as gspec        
+     
         
         
         

@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 from .structures import Bunch
 from .extension import MetaLen 
+from .util import to_snake_case, generate_column_name_mapping
 
 class MultiFrameFormatter (metaclass=MetaLen):
     """
@@ -945,7 +946,8 @@ class BoxFormatter:
     
         Example Usage:
         --------------
-        >>> formatter = FormatSpecial("My Title")
+        >>> from gofast.api.formatter import BoxFormatter
+        >>> formatter = BoxFormatter("My Title")
         >>> formatter.format_box("Some long text that needs to be wrapped.", 60, is_dict=False)
         >>> print(formatter)
         # This will print the text within a box with 'My Title' centered on top.
@@ -1049,7 +1051,8 @@ class BoxFormatter:
     
         Example Usage:
         --------------
-        >>> formatter = FormatSpecial("Feature Descriptions")
+        >>> from gofast.api.formatter import BoxFormatter
+        >>> formatter = BoxFormatter("Feature Descriptions")
         >>> feature_dict = {
                 "Feature1": "This feature represents X and is used for Y.",
                 "Feature2": "A brief description of feature 2."
@@ -1617,41 +1620,7 @@ def construct_table_for_different_columns(dataframes, titles):
     ## Return the final output string, trimming any trailing newline characters.
     return tables_str.rstrip()
 
-def to_snake_case(name):
-    """
-    Converts a string to snake_case using regex.
 
-    Parameters
-    ----------
-    name : str
-        The string to convert to snake_case.
-
-    Returns
-    -------
-    str
-        The snake_case version of the input string.
-    """
-    name = str(name)
-    name = re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()  # CamelCase to snake_case
-    name = re.sub(r'\W+', '_', name)  # Replace non-word characters with '_'
-    name = re.sub(r'_+', '_', name)  # Replace multiple '_' with single '_'
-    return name.strip('_')
-
-def generate_column_name_mapping(columns):
-    """
-    Generates a mapping from snake_case column names to their original names.
-
-    Parameters
-    ----------
-    columns : List[str]
-        The list of column names to convert and map.
-
-    Returns
-    -------
-    dict
-        A dictionary mapping snake_case column names to their original names.
-    """
-    return {to_snake_case(col): col for col in columns}
 
 def series_to_dataframe(series):
     """

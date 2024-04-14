@@ -1098,7 +1098,7 @@ def repr_callable_obj(obj: _F  , skip = None ):
         f = {k:PARAMS_VALUES.get(k) for k in list(PARAMS_VALUES.keys())[:3]}
         e = {k:PARAMS_VALUES.get(k) for k in list(PARAMS_VALUES.keys())[-3:]}
         
-        PARAMS_VALUES= str(f) + ', ... , ' + str(e )
+        PARAMS_VALUES= str(f) + ' ... ' + str(e )
 
     return str(objname) + '(' + regex.sub('', str (PARAMS_VALUES)
                                           ).replace(':', '=') +')'
