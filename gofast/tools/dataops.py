@@ -18,7 +18,7 @@ import seaborn as sns
 from tqdm import tqdm
 
 from .._typing import Any,  List,  DataFrame, Optional, Series, Array1D 
-from .._typing import Dict, Union, TypeGuard, Tuple, ArrayLike
+from .._typing import Dict, Union, TypeGuard, Tuple, ArrayLike, Callable 
 from .._typing import BeautifulSoupTag
 from ..api.formatter import MultiFrameFormatter 
 from ..api.summary import ReportFactory, Summary
@@ -4058,23 +4058,27 @@ def base_transform(
     except:
         return data_processed # if something wrong, return it
  
-@Dataify(auto_columns= True , ignore_mismatch=True, prefix="corr_feature_")
+@Dataify(auto_columns= True, ignore_mismatch=True, prefix="corr_feature_")
 def analyze_data_corr(
     data: DataFrame, 
     columns: Optional[ List[str]]=None, 
+    method: str | Callable [[ArrayLike, ArrayLike], float]='pearson', 
+    min_periods: int=1, 
     min_corr: float =0.5, 
     high_corr: float=0.8, 
     use_symbols: bool =False, 
     hide_diag: bool =True,
+    no_corr_placeholder: str='...', 
     view: bool = False,
     cmap: str = 'viridis', 
     fig_size: Tuple[int, int] = (8, 8)
     ):
     """
     Computes the correlation matrix for specified columns in a pandas DataFrame
-    and optionally visualizes it using a heatmap. This function can also symbolically
-    represent correlation values and selectively hide diagonal elements in the 
-    visualization.
+    and optionally visualizes it using a heatmap. 
+    
+    This function can also symbolically represent correlation values and 
+    selectively hide diagonal elements in the visualization and interpretability.
 
     Parameters
     ----------
@@ -4083,6 +4087,16 @@ def analyze_data_corr(
     columns : Optional[List[str]], optional
         Specific columns to consider for the correlation calculation. If None, all
         numeric columns are used. Default is None.
+    method : str | Callable[[ArrayLike, ArrayLike], float], optional
+        Method to use for computing the correlation:
+        - 'pearson' : Pearson correlation coefficient
+        - 'kendall' : Kendall Tau correlation coefficient
+        - 'spearman' : Spearman rank correlation
+        - Custom function : a callable with input of two 1d ndarrays and returning a float
+        Default is 'pearson'.
+    min_periods : int, optional
+        Minimum number of observations required per pair of columns to have a valid result. 
+        Default is 1.
     min_corr : float, optional
         The minimum threshold for correlations to be noted if using symbols. 
         Default is 0.5.
@@ -4091,10 +4105,18 @@ def analyze_data_corr(
         `use_symbols` is True. Default is 0.8.
     use_symbols : bool, optional
         Whether to use symbolic representation ('++', '--', '+-') instead of 
-        numeric values. Default is False.
+        numeric values where: 
+        - ``'++'``: Represents a strong positive relationship.
+        - ``'--'``: Represents a strong negative relationship.
+        - ``'-+'``: Represents a moderate relationship.
+        - ``'o'``: Used exclusively for diagonal elements, typically representing
+          a perfect relationship in correlation matrices (value of 1.0).
+        Default is False.
     hide_diag : bool, optional
         If True, diagonal values in the correlation matrix visualization are hidden.
         Default is True.
+    no_corr_placeholder : str, optional
+        Text to display for correlation values below `min_corr`. Default is '...'.
     view : bool, optional
         If True, displays a heatmap of the correlation matrix using matplotlib and
         seaborn. Default is False.
@@ -4119,7 +4141,7 @@ def analyze_data_corr(
     ... })
     >>> corr_summary = analyze_data_corr(data, view=True)
     >>> corr_summary
-    Out[113]: <Summary: Populated. Use print() to the contents.>
+    <Summary: Populated. Use print() to see the contents.>
 
     >>> print(corr_summary) 
           Correlation Table       
@@ -4132,11 +4154,31 @@ def analyze_data_corr(
     ==============================
     
     >>> corr_summary.correlation
-    Out[116]: 
          A    B    C
     A  1.0 -1.0  1.0
     B -1.0  1.0 -1.0
     C  1.0 -1.0  1.0
+    
+    >>> corr_summary = analyze_data_corr(data, view=False, use_symbols=True)
+    >>> print(corr_summary) 
+      Correlation Table  
+    =====================
+          A     B     C  
+      -------------------
+    A |        --    ++  
+    B |  --          --  
+    C |  ++    --        
+    =====================
+
+    .....................
+    Legend : ...:
+             Non-correlated,
+             ++: Strong
+             positive, --:
+             Strong
+             negative, -+:
+             Moderate
+    .....................
     
     Notes
     -----
@@ -4150,9 +4192,8 @@ def analyze_data_corr(
         # Return an empty string if no numeric data
  
     # Compute the correlation matrix
-    correlation_matrix = numeric_df.corr()
-    summary = Summary(title="Correlation Table",
-                      correlation=correlation_matrix )
+    correlation_matrix = numeric_df.corr(method = method, min_periods = min_periods)
+    
     
     # Check if the user wants to view the heatmap
     if view:
@@ -4160,13 +4201,15 @@ def analyze_data_corr(
         sns.heatmap(correlation_matrix, annot=True, cmap=cmap, fmt=".2f", linewidths=.5)
         plt.title('Heatmap of Correlation Matrix')
         plt.show()
-
-    summary.display_corr(
+        
+    summary = Summary(title="Correlation Table", correlation=correlation_matrix )
+    summary.add_data_corr(
         correlation_matrix, 
         min_corr=assert_ratio( min_corr, bounds=(0, 1)),
         high_corr=assert_ratio(high_corr, bounds=(0, 1)), 
         use_symbols= use_symbols, 
         hide_diag= hide_diag,
-        precomputed=True, 
+        precomputed=True,
+        no_corr_placeholder=str(no_corr_placeholder)
         )
     return summary
