@@ -18,7 +18,7 @@ import seaborn as sns
 from tqdm import tqdm
 
 from .._typing import Any,  List,  DataFrame, Optional, Series, Array1D 
-from .._typing import Dict, Union, TypeGuard, Tuple, ArrayLike
+from .._typing import Dict, Union, TypeGuard, Tuple, ArrayLike, Callable
 from .._typing import BeautifulSoupTag
 from ..api.formatter import MultiFrameFormatter 
 from ..api.summary import ReportFactory, Summary
@@ -4058,10 +4058,12 @@ def base_transform(
     except:
         return data_processed # if something wrong, return it
  
-@Dataify(auto_columns= True , ignore_mismatch=True, prefix="corr_feature_")
+@Dataify(auto_columns= True , ignore_mismatch=True, prefix="var_")
 def analyze_data_corr(
     data: DataFrame, 
     columns: Optional[ List[str]]=None, 
+    method: str | Callable [[ArrayLike, ArrayLike], float] ='pearson', 
+    min_periods: int=1, 
     min_corr: float =0.5, 
     high_corr: float=0.8, 
     use_symbols: bool =False, 
@@ -4150,9 +4152,8 @@ def analyze_data_corr(
         # Return an empty string if no numeric data
  
     # Compute the correlation matrix
-    correlation_matrix = numeric_df.corr()
-    summary = Summary(title="Correlation Table",
-                      correlation=correlation_matrix )
+    correlation_matrix = numeric_df.corr(method = method, min_periods = min_periods )
+    summary = Summary(title="Correlation Table",correlation=correlation_matrix )
     
     # Check if the user wants to view the heatmap
     if view:
