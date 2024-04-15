@@ -998,63 +998,15 @@ def ensure_pkg(
     def decorator(func: _T) -> _T:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            # Check condition if partial_check is True 
-            # or perform check unconditionally
-            if not partial_check or _should_check_condition(
-                    condition, *args, **kwargs):
-                try:
-                    # Attempt to import the package, installing 
-                    # if necessary and permitted
-                    import_optional_dependency(
-                        name, extra=extra, 
-                        errors=errors, 
-                        min_version=min_version,
-                        exception=exception
-                    )
-                except (ModuleNotFoundError, ImportError):
-                    if auto_install:
-                        # Attempt package installation
-                        install_package(name, dist_name= dist_name, 
-                                        infer_dist_name=infer_dist_name, 
-                                        extra=extra,use_conda=use_conda,
-                                        verbose=verbose, 
-                                        )
-                    elif exception is not None:
-                        raise exception
-                    else:
-                        raise
-                    
-            return func(*args, **kwargs)
-        
-        return wrapper
-    return decorator
-
-def ensure_pkg0(
-    name: str, 
-    extra: str = "",
-    errors: str = "raise",
-    min_version: Optional[str] = None,
-    exception: Optional[Exception] = None, 
-    dist_name: Optional[str] = None, 
-    infer_dist_name: bool = False,
-    auto_install: bool = False,
-    use_conda: bool = False, 
-    partial_check: bool = False,
-    condition: Optional[Any] = None, 
-    verbose: bool = False
-) -> Callable[[_T], _T]:
-
-    def decorator(func: _T) -> _T:
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
             # Determine if this is a method or a function based on the first argument
-            bound_method = hasattr(args[0], func.__name__) if args else False
+            bound_method = hasattr(args[0], func.__name__) if args else False # 
             
             # If partial_check is True, check condition before performing actions
-            if not partial_check or (condition and _should_check_condition(
-                    condition, *args, **kwargs)):
+            if not partial_check or  _should_check_condition(
+                    condition, *args, **kwargs):
                 try:
-                    # Attempt to import the package, handling installation if necessary
+                    # Attempt to import the package, handling installation 
+                    # if necessary and permitted
                     import_optional_dependency(
                         name, extra=extra, errors=errors, 
                         min_version=min_version, exception=exception
@@ -1076,13 +1028,11 @@ def ensure_pkg0(
             if bound_method:
                 return func(args[0], *args[1:], **kwargs)
             else:
-                return func(*args, **kwargs)
+                return func(*args, **kwargs) # 
         
         return wrapper
     
     return decorator
-
-
 
 def _should_check_condition(condition: Any, *args, **kwargs) -> bool:
     """

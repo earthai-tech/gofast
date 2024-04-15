@@ -44,7 +44,8 @@ def simulate_landfill_capacity(
     return_X_y=False,
     target_name=None, 
     noise_level=None, 
-    seed=None):
+    seed=None
+    ):
     """
     Generate a simulated dataset of landfill capacity measurements across
     various locations over a specified time period. This function creates
@@ -909,11 +910,11 @@ def simulate_predictive_maintenance(
 
     Parameters
     ----------
-    n_machines : int, default=50
+    n_machines : int, default=25
         Specifies the number of individual machines included in the simulation,
         each uniquely identified and monitored over the simulation period.
 
-    n_sensors : int, default=10
+    n_sensors : int, default=5
         Denotes the quantity of distinct sensors installed per machine, each
         generating continuous operational data reflective of the machine's state.
 
@@ -921,7 +922,7 @@ def simulate_predictive_maintenance(
         Represents the count of operational parameters that are critical to
         assessing the performance and efficiency of the machines.
 
-    days : int, default=365
+    days : int, default=30
         Defines the total number of days across which the simulation spans,
         creating a longitudinal dataset that captures seasonal variations and
         operational trends.
@@ -1330,6 +1331,9 @@ def simulate_sentiment_analysis(
     It covers a spectrum of sentiments in customer product reviews, offering a 
     diverse range of text data for model training and performance evaluation.
     """
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name)
+    
     def generate_random_text(length, seed=None):
         np.random.seed(seed)
         words = ["lorem", "ipsum", "dolor", "sit", "amet", "consectetur", 
@@ -1371,22 +1375,7 @@ def simulate_sentiment_analysis(
         data=data, as_frame=as_frame, return_X_y=return_X_y,
         target_names=target_name if target_name else "sentiment",
         seed=seed,
-        DESCR=(
-            "Simulates customer reviews and classifies them into sentiment"
-            " categories. This dataset aims to mirror the challenges of"
-            " sentiment analysis on product reviews, where each review is"
-            " associated with a sentiment label indicating positive, neutral,"
-            " or negative sentiment. The generated data includes textual"
-            " reviews, synthesized to reflect a range of expressions and opinions"
-            " commonly found in real customer feedback. The target variable"
-            " 'sentiment'categorizes each review, making this dataset suitable"
-            " for classification tasks in natural language processing (NLP)."
-            " It provides a valuable resource for developing and testing"
-            " algorithms capable of understanding and categorizing textual"
-            " sentiment, a crucial aspect of customer service automation,"
-            " social media monitoring, and market research."
-            ), 
-
+        DESCR=dataset_descr, features_descr=features_descr  
     )
 
 def simulate_weather_forecasting(
@@ -1588,6 +1577,7 @@ def simulate_default_loan(
     loan_term_months : list of int, optional, 
         A list of possible loan terms in months that a borrower can choose from.
         Default=[12, 24, 36, 48, 60] when None
+        
     employment_length_range : tuple of int, optional
         The range (inclusive) of employment lengths (in years) to randomly generate.
         Default value is (0, 30) when None.

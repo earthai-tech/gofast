@@ -2028,7 +2028,7 @@ def mae_flex(
     # Ensure y_true and y_pred are valid and have the same shape
     y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True)
     
-    # Assuming this function determines a suitable 
+    # Function determines a suitable 
     # epsilon value if set to ``auto``.
     epsilon= check_epsilon(epsilon, y_pred )
 
@@ -2145,7 +2145,7 @@ def mse_flex(
     >>> y_true = [3, -0.5, 2, 7]
     >>> y_pred = [2.5, 0.0, 2, 8]
     >>> result = mse_flex(y_true, y_pred)
-    >>> print(result.MSE)
+    >>> print(result.score)
     0.375
     >>> result_detailed = mse_flex(y_true, y_pred, detailed=True)
     >>> print(result_detailed.score, result_detailed.min_error)

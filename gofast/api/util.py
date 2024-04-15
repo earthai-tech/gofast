@@ -490,7 +490,9 @@ def validate_data(data, columns=None, error_mode='raise'):
 def format_correlations(
     data, 
     min_corr=0.5, 
-    high_corr=0.8, 
+    high_corr=0.8,
+    method='pearson', 
+    min_periods=1, 
     use_symbols=False, 
     no_corr_placeholder='...', 
     hide_diag=True, 
@@ -516,8 +518,17 @@ def format_correlations(
     high_corr : float, optional
         The threshold above which correlations are considered high, which affects
         their representation when `use_symbols` is True. Default is 0.8.
+    method : {'pearson', 'kendall', 'spearman'}, optional
+        Method of correlation:
+        - 'pearson' : standard correlation coefficient
+        - 'kendall' : Kendall Tau correlation coefficient
+        - 'spearman' : Spearman rank correlation
+        Default is 'pearson'.
+    min_periods : int, optional
+        Minimum number of observations required per pair of columns to have a 
+        valid result. Default is 1.
     use_symbols : bool, optional
-        If True, uses symbolic representation ('++', '--', '+-') for correlation
+        If True, uses symbolic representation ('++', '--', '-+') for correlation
         values instead of numeric. Default is False.
     no_corr_placeholder : str, optional
         Text to display for correlation values below `min_corr`. Default is '...'.
@@ -604,7 +615,7 @@ def format_correlations(
                 # Return an empty string if no numeric data
             return '' if error_mode == 'ignore' else 'No numeric data available.'  
     
-        corr_matrix = numeric_df.corr()
+        corr_matrix = numeric_df.corr(method=method, min_periods= min_periods )
 
     if hide_diag:
         np.fill_diagonal(corr_matrix.values, np.nan)  # Set diagonal to NaN
@@ -620,7 +631,7 @@ def format_correlations(
             elif value <= -high_corr:
                 return '--'.ljust(4)
             else:
-                return '+-'.ljust(4)
+                return '-+'.ljust(4)
         else:
             return f"{value:.4f}"
 
@@ -655,7 +666,7 @@ def generate_legend(
 
     - ``'++'``: Represents a strong positive relationship.
     - ``'--'``: Represents a strong negative relationship.
-    - ``'+-'``: Represents a moderate relationship.
+    - ``'-+'``: Represents a moderate relationship.
     - ``'o'``: Used exclusively for diagonal elements, typically representing
       a perfect relationship in correlation matrices (value of 1.0).
          
@@ -694,13 +705,13 @@ def generate_legend(
     >>> print(generate_legend(custom_markers=custom_markers, max_width=60))
     ............................................................
     Legend : ...: Non-correlated, ++: High Positive, --: High
-             Negative, +-: Moderate
+             Negative, -+: Moderate
     ............................................................
 
     >>> print(generate_legend(hide_diag=False, max_width=70))
     ......................................................................
     Legend : ...: Non-correlated, ++: Strong positive, --: Strong negative,
-             +-: Moderate, o: Diagonal
+             -+: Moderate, o: Diagonal
     ......................................................................
     >>> custom_markers = {"++": "Highly positive", "--": "Highly negative"}
     >>> legend = generate_legend(custom_markers=custom_markers,
@@ -711,7 +722,7 @@ def generate_legend(
 
     ==================================================
     Legend : N/A: Non-correlated, ++: Highly positive,
-             --: Highly negative, +-: Moderate, o:
+             --: Highly negative, -+: Moderate, o:
              Diagonal
     ==================================================
     """
@@ -720,7 +731,7 @@ def generate_legend(
         no_corr_placeholder: "Non-correlated",
         "++": "Strong positive",
         "--": "Strong negative",
-        "+-": "Moderate",
+        "-+": "Moderate",
         "o": "Diagonal"  # only used if hide_diag is False
     }
     if ( custom_markers is not None 
@@ -734,7 +745,9 @@ def generate_legend(
 
     # Update default markers with any custom markers provided
     markers = {**default_markers, **(custom_markers or {})}
-
+    # If no correlation placeholder, then remove it from the markers.
+    if not no_corr_placeholder: 
+        markers.pop (no_corr_placeholder)
     # Create legend entries
     legend_entries = [f"{key}: {value}" for key, value in markers.items() if not (
         key == 'o' and hide_diag)]

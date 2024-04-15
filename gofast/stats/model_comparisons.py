@@ -294,7 +294,7 @@ def perform_nemenyi_posthoc_test(
     >>> nemeyi_results = perform_nemenyi_posthoc_test(model_performance)
     >>> print(nemeyi_results) 
     >>> nemeyi_results.significant_differences
-    >>> nemeyi_results.average_ranks)
+    >>> nemeyi_results.average_ranks
     """
 
     import scikit_posthocs as sp

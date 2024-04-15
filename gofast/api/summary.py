@@ -612,7 +612,7 @@ class Summary(FlexDict):
         self.summary_report = format_df(df, title=self.title, **kwargs)
         return self
     
-    def display_corr(
+    def add_data_corr(
             self, df, min_corr=0.5, high_corr=0.8, use_symbols=False, 
             hide_diag=True, **kwargs):
         """
@@ -684,7 +684,9 @@ class Summary(FlexDict):
         """
         self.summary_report = format_correlations(
             df, min_corr=min_corr, high_corr=high_corr, use_symbols= use_symbols, 
-                            hide_diag= hide_diag, title = self.title, **kwargs)
+                            hide_diag= hide_diag,
+                            title = self.title or 'Correlation Table', 
+                            **kwargs)
         
         return self 
     

@@ -10,25 +10,20 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 from pandas.plotting import lag_plot, autocorrelation_plot
-try: 
-    from statsmodels.tsa.seasonal import seasonal_decompose
-    from statsmodels.graphics.tsaplots import plot_pacf
-except: pass 
-try: import squarify  # for sunburst plot
-except:pass 
 
 from ..exceptions import NotFittedError 
 from ..property import BasePlot 
-from ..tools._dependency import import_optional_dependency 
+# from ..tools._dependency import import_optional_dependency 
 from ..tools.baseutils import extract_target 
 from ..tools.coreutils import format_to_datetime
+from ..tools.funcutils import ensure_pkg 
 from ..tools.validator import is_time_series , build_data_if 
 
 class TimeSeriesPlotter (BasePlot) :
     def __init__(self,  **kws):
         super().__init__(**kws) 
         
-    def fit( self, data, /, date_col, value_col =None, **fit_params): 
+    def fit( self, data,  date_col, value_col =None, **fit_params): 
         """
         Fit the TimeSeriesPlotter with a time series dataset.
 
@@ -113,7 +108,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.legend()
         plt.show()
 
-    def plotAutocorrelation(self, figsize=(10, 6), title='Autocorrelation Plot'):
+    def plotAutoCorrelation(self, figsize=(10, 6), title='Autocorrelation Plot'):
         """
         Generates an autocorrelation plot for the time series data.
 
@@ -129,7 +124,8 @@ class TimeSeriesPlotter (BasePlot) :
         autocorrelation_plot(self.data[self.value_col])
         plt.title(title, fontsize=14)
         plt.show()
-
+        
+    @ensure_pkg ("statsmodels", "'plotPACF' expects statsmodels to be installed.")
     def plotPACF(self, lags=15, figsize=(10, 6),
                   title='Partial Autocorrelation Plot'):
         """
@@ -144,13 +140,16 @@ class TimeSeriesPlotter (BasePlot) :
         title : str, default 'Partial Autocorrelation Plot'
             Title of the plot.
         """
+        from statsmodels.graphics.tsaplots import plot_pacf
         self.inspect 
-        import_optional_dependency("statsmodels")
         plt.figure(figsize=figsize)
         plot_pacf(self.data[self.value_col], lags=lags)
         plt.title(title, fontsize=14)
         plt.show()
 
+    @ensure_pkg ( "statsmodels", extract =(
+        "'statsmodels' package is expected for 'plotDecomposition' to be feasible.")
+        )
     def plotDecomposition(self, model='additive', freq=12, figsize=(10, 6),
                            title='Time Series Decomposition'):
         """
@@ -168,7 +167,8 @@ class TimeSeriesPlotter (BasePlot) :
             Title of the decomposition plot.
         """
         self.inspect 
-        import_optional_dependency("statsmodels")
+        from statsmodels.tsa.seasonal import seasonal_decompose
+        
         plt.figure(figsize=figsize)
         result = seasonal_decompose(self.data.set_index(
             self.date_col)[self.value_col], model=model, period=freq)
@@ -565,7 +565,7 @@ class TimeSeriesPlotter (BasePlot) :
         plt.ylabel('Value')
         plt.show()
 
-    def plotkde(self, shade=True, figsize=(10, 6), title='KDE Plot'):
+    def plotKDE(self, shade=True, figsize=(10, 6), title='KDE Plot'):
         """
         Generates a KDE plot of the time series data.
 
@@ -665,13 +665,14 @@ class TimeSeriesPlotter (BasePlot) :
         plt.figure(figsize=figsize)
         plt.plot(self.data[self.date_col], self.data[self.value_col], label='Primary')
         plt.plot(self.data[self.date_col], self.data[secondary_col], label='Secondary', 
-                 bottom=self.data[self.value_col])
+                 )
         plt.title(title)
         plt.xlabel('Date')
         plt.ylabel('Values')
         plt.legend()
         plt.show()
-        
+ 
+
     def plotBubble(self, bubble_size_col, figsize=(10, 6), title='Bubble Plot'):
         """
         Generates a bubble plot of the time series data.
@@ -697,6 +698,10 @@ class TimeSeriesPlotter (BasePlot) :
         plt.ylabel('Value')
         plt.show()
         
+    @ensure_pkg("squarify", extra= ( 
+        "`plotSunburst` expects 'squarify' package to be installed."
+        )
+    )
     def plotSunburst(self, path_col, values_col, figsize=(10, 10),
                       title='Sunburst Plot'):
         """
@@ -716,7 +721,8 @@ class TimeSeriesPlotter (BasePlot) :
             Title of the plot.
         """
         self.inspect 
-        import_optional_dependency("squarify")
+        import squarify # 
+
         plt.figure(figsize=figsize)
         squarify.plot(sizes=self.data[values_col],
                       label=self.data[path_col], alpha=0.6)
@@ -907,17 +913,17 @@ if __name__ == "__main__":
     df = pd.DataFrame({'Date': dates, 'Value': values})
 
     plotter = TimeSeriesPlotter().fit(df, 'Date', 'Value')
-    plotter.rolling_mean_std()
-    plotter.autocorrelation_plot()
-    plotter.pacf_plot()
-    plotter.decomposition_plot()
+    plotter.plotRollingMean()
+    plotter.plotAutocorrelation()
+    plotter.plotPACF()
+    plotter.plotDecomposition()
     
     dates = pd.date_range(start="2020-01-01", end="2020-12-31", freq='M')
     values = np.random.rand(len(dates))
     df = pd.DataFrame({'Date': dates, 'Value': values})
 
     plotter = TimeSeriesPlotter().fit(df, 'Date', 'Value')
-    plotter.area_plot()
+    plotter.plotArea()
     plotter.heatmap_correlation()
     plotter.lag_plot()
     
@@ -926,9 +932,9 @@ if __name__ == "__main__":
     df = pd.DataFrame({'Date': dates, 'Value': values})
 
     plotter = TimeSeriesPlotter().fit(df, 'Date', 'Value')
-    plotter.area_plot()
+    plotter.plotArea()
     plotter.heatmapCorrelation()
-    plotter.lag_plot()
+    plotter.plotLag()
 
 
     dates = pd.date_range(start="2020-01-01", end="2020-12-31", freq='M')
@@ -936,9 +942,9 @@ if __name__ == "__main__":
     df = pd.DataFrame({'Date': dates, 'Value': values})
 
     plotter = TimeSeriesPlotter().fit(df, 'Date', 'Value')
-    plotter.line_plot()
-    plotter.histogram()
-    plotter.box_plot()
+    plotter.plotLine()
+    plotter.plotHistogram()
+    plotter.plotBox()
 
     dates = pd.date_range(start="2020-01-01", end="2020-12-31", freq='M')
     values = np.random.rand(len(dates))
@@ -948,7 +954,8 @@ if __name__ == "__main__":
  
     dates = pd.date_range(start="2020-01-01", end="2020-12-31", freq='M')
     values = np.random.rand(len(dates))
-    df = pd.DataFrame({'Date': dates, 'Value': values})
+    df = pd.DataFrame({'Date': dates, 'Value': values, 
+                       'SecondaryValue': np.random.rand(len(dates))})
 
     plotter = TimeSeriesPlotter().fit(df, 'Date', 'Value')
     plotter.plotArea()
