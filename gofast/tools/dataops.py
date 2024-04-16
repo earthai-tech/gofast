@@ -17,15 +17,15 @@ import matplotlib.pyplot as plt
 import seaborn as sns 
 from tqdm import tqdm
 
-from .._typing import Any,  List,  DataFrame, Optional, Series, Array1D 
-from .._typing import Dict, Union, TypeGuard, Tuple, ArrayLike, Callable
-from .._typing import BeautifulSoupTag
-from ..api.formatter import MultiFrameFormatter 
+from ..api.property import  Config
 from ..api.summary import ReportFactory, Summary
+from ..api.types import Any,  List,  DataFrame, Optional, Series, Array1D 
+from ..api.types import Dict, Union, TypeGuard, Tuple, ArrayLike, Callable
+from ..api.types import BeautifulSoupTag
+from ..api.formatter import MultiFrameFormatter 
 from ..decorators import Deprecated, isdf, Dataify, DynamicMethod
 from ..decorators import DataTransformer 
 from ..exceptions import FileHandlingError 
-from ..property import  Config
 from .baseutils import save_or_load 
 from .coreutils import is_iterable, ellipsis2false,smart_format, validate_url 
 from .coreutils import to_numeric_dtypes, assert_ratio, exist_features
@@ -4152,7 +4152,7 @@ def analyze_data_corr(
     C |   1.0000  -1.0000         
     ==============================
     
-    >>> corr_summary.correlation
+    >>> corr_summary.corr_matrix
          A    B    C
     A  1.0 -1.0  1.0
     B -1.0  1.0 -1.0
@@ -4200,7 +4200,7 @@ def analyze_data_corr(
         plt.title('Heatmap of Correlation Matrix')
         plt.show()
         
-    summary = Summary(title="Correlation Table", correlation=correlation_matrix )
+    summary = Summary(corr_matrix=correlation_matrix )
     summary.add_data_corr(
         correlation_matrix, 
         min_corr=assert_ratio( min_corr, bounds=(0, 1)),

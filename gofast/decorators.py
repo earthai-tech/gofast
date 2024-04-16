@@ -55,7 +55,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt 
 from ._gofastlog import gofastlog
-from ._typing import Union, Optional, Callable
+from .api.types import Union, Optional, Callable
 _logger = gofastlog.get_gofast_logger(__name__)
 
 __docformat__='restructuredtext'

@@ -229,11 +229,11 @@ DESCR_METADATA={
           "The date of the record, essential for temporal analysis and understanding"
           " trends in water reserve levels over time."
         ),
-        "total_capacity_ml": (
+        "total_capacity": (
           "The total capacity of the water reserve in megaliters (ML), indicating the"
           " maximum volume of water the reserve can hold."
         ),
-        "current_volume_ml": (
+        "current_volume": (
           "The current volume of water in the reserve in megaliters (ML), reflecting"
           " the actual amount of water stored at the time of the record."
         ),
@@ -241,23 +241,23 @@ DESCR_METADATA={
           "The percentage of the total capacity that is currently filled, providing a"
           " quick reference to the reserve's status relative to its full capacity."
         ),
-        "rainfall_mm": (
+        "rainfall": (
           "Rainfall in millimeters (mm) for the location on the date, influencing the"
           " inflow and replenishment of the water reserve."
         ),
-        "evaporation_mm": (
+        "evaporation": (
           "Estimated evaporation in millimeters (mm) on the date, representing water"
           " loss due to natural processes."
         ),
-        "inflow_ml": (
+        "inflow": (
           "Inflow of water into the reserve in megaliters (ML) on the date, contributing"
           " to increases in the current volume."
         ),
-        "outflow_ml": (
+        "outflow": (
           "Outflow of water from the reserve in megaliters (ML) on the date, accounting"
           " for water release or consumption that reduces the reserve's volume."
         ),
-        "usage_ml": (
+        "usage": (
           "Water usage from the reserve in megaliters (ML) on the date, indicating the"
           " amount of water extracted for various purposes."
         )

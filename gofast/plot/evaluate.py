@@ -32,18 +32,19 @@ from sklearn.cluster import KMeans
 from sklearn.impute import   SimpleImputer
 
 from .._gofastlog import gofastlog
-from .._docstring import _core_docs, _baseplot_params, DocstringComponents
-from .._typing import  _F, Optional, Tuple, List, ArrayLike, NDArray 
-from .._typing import DataFrame,  Series 
 from ..analysis.dimensionality import nPCA
+from ..api.docstring import _core_docs, _baseplot_params, DocstringComponents
+from ..api.property import BasePlot 
+from ..api.types import  _F, Optional, Tuple, List, ArrayLike, NDArray 
+from ..api.types import DataFrame,  Series 
 from ..exceptions import NotFittedError, EstimatorError, PlotError
-from ..property import BasePlot 
-from ..tools._dependency import import_optional_dependency 
+# from ..tools._dependency import import_optional_dependency 
 from ..tools.baseutils import categorize_target, extract_target
 from ..tools.coreutils import  to_numeric_dtypes, fancier_repr_formatter 
 from ..tools.coreutils import  smart_strobj_recognition, reshape 
 from ..tools.coreutils import  projection_validator
 from ..tools.coreutils import  str2columns, make_ids, type_of_target, is_iterable 
+from ..tools.funcutils import ensure_pkg 
 from ..tools.mathex import linkage_matrix 
 from ..tools.validator import  _check_consistency_size,  get_estimator_name  
 from ..tools.validator import build_data_if,  check_array, check_X_y, check_y 
@@ -468,6 +469,10 @@ class MetricPlotter (BasePlot):
     
         return self
 
+    @ensure_pkg ("scikitplot", dist_name="scikit-plot", infer_dist_name=True, 
+                 extra = (
+      " Need `sckit-plot` package for `plotCumulativeGain` to successfully run .")
+     ) 
     def plotCumulativeGain(
         self, 
         y_probas=None, 
@@ -511,18 +516,22 @@ class MetricPlotter (BasePlot):
         self : object
             Returns the instance itself after rendering the plot.
         """
-        self.inspect 
-        y_probas = y_probas if y_probas is not None else self.y_pred 
-        import_optional_dependency('scikitplot')
         from scikitplot.metrics import plot_cumulative_gain
         
+        self.inspect 
+        y_probas = y_probas if y_probas is not None else self.y_pred 
+    
         plt.figure()
         plot_cumulative_gain(self.y_true, y_probas)
         plt.title(title)
         plt.show()
     
         return self
-
+    
+    @ensure_pkg ("scikitplot", dist_name="scikit-plot", infer_dist_name=True, 
+                 extra = (
+      " Need `sckit-plot` package for `plotLiftCurve` to successfully run .")
+     ) 
     def plotLiftCurve(self, y_probas=None, title='Lift Curve'):
         """
         Plot a lift curve for a binary classification model.
@@ -565,10 +574,10 @@ class MetricPlotter (BasePlot):
         self : object
             Returns the instance itself after rendering the plot.
         """
+        from scikitplot.metrics import  plot_lift_curve
+        
         self.inspect 
         y_probas = y_probas if y_probas is not None else self.y_pred
-        import_optional_dependency('scikitplot')
-        from scikitplot.metrics import  plot_lift_curve
         plt.figure()
         plot_lift_curve(self.y_true, y_probas)
         plt.title(title)

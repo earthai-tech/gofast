@@ -21,7 +21,7 @@ except:pass
 
 from .._docstring import DocstringComponents, _core_docs 
 from .._gofastlog import gofastlog
-from .._typing import _F, List,ArrayLike, NDArray, Dict, Any, Optional, Union
+from ..api.types import _F, List,ArrayLike, NDArray, Dict, Any, Optional, Union
 from ..exceptions import EstimatorError, NotFittedError
 from ..tools.box import Boxspace 
 from ..tools.coreutils import _assert_all_types, get_params, save_job

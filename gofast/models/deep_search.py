@@ -30,8 +30,8 @@ from sklearn.metrics import r2_score, accuracy_score
 from sklearn.model_selection import KFold, TimeSeriesSplit
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
-from .._typing import List, Optional, Union, Dict, Tuple, DataFrame, Series 
-from .._typing import ArrayLike , Callable, Any, Generator
+from ..api.types import List, Optional, Union, Dict, Tuple, DataFrame, Series 
+from ..api.types import ArrayLike , Callable, Any, Generator
 from ..tools._dependency import import_optional_dependency 
 from ..tools.coreutils import is_iterable, denormalize, type_of_target 
 from ..tools.validator import check_X_y, check_consistent_length

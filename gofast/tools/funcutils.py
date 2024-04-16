@@ -27,9 +27,9 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
-from .._typing import _T, Dict, Any, Callable, List, Type 
-from .._typing import  Optional, Tuple , Union  
-from .._typing import Series, DataFrame, ArrayLike, Array1D, LambdaType
+from ..api.types import _T, Dict, Any, Callable, List, Type 
+from ..api.types import  Optional, Tuple , Union  
+from ..api.types import Series, DataFrame, ArrayLike, Array1D, LambdaType
 from ._dependency import import_optional_dependency
 from .coreutils import to_numeric_dtypes, is_iterable
 from .coreutils import get_installation_name, is_module_installed 

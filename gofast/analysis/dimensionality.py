@@ -17,22 +17,11 @@ import os
 import warnings
 import numpy as np
 import pandas as pd 
-from sklearn.decomposition import (
-    PCA, 
-    IncrementalPCA, 
-    KernelPCA
-    )
-from .._typing import (
-    Any,
-    Dict, 
-    Optional, 
-    ArrayLike, 
-    NDArray, 
-    DataFrame,
-    _Sub
-    )
+from sklearn.decomposition import  PCA, IncrementalPCA, KernelPCA
 
 from .._gofastlog import gofastlog
+from ..api.types import Any,Dict, Optional, ArrayLike
+from ..api.types import  _Sub, NDArray, DataFrame
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -43,10 +32,10 @@ __all__ = [
 ]
   
 def _get_feature_importances_from (
-        fnames: ArrayLike,
-        components: float |int ,
-        n_axes: int =2
-        )-> ArrayLike: 
+    fnames: ArrayLike,
+    components: float |int ,
+    n_axes: int =2
+    )-> ArrayLike: 
     """Retreive the features importance with variance ratio.
     :param fnames: array_like of feature's names
     :param components: pca components on different axes 

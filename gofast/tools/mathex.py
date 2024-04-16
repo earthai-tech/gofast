@@ -21,12 +21,9 @@ from scipy.ndimage import convolve1d
 from scipy.spatial.distance import pdist, squareform 
 import  matplotlib.pyplot as plt
 
-from ._arraytools import axis_slice
 from .._gofastlog import gofastlog
-from .._docstring import refglossary
-from ..decorators import AppendDocReferences
-from ..exceptions import SiteError
-from .._typing import (
+from ..api.docstring import refglossary
+from ..api.types import (
     _T, 
     _F,
     List, 
@@ -41,6 +38,9 @@ from .._typing import (
     DataFrame,
     Dict,
 )
+from ..decorators import AppendDocReferences
+from ..exceptions import SiteError
+from ._arraytools import axis_slice
 from .box import KeyBox 
 from .coreutils import (
     _assert_all_types, 
@@ -78,7 +78,51 @@ _logger =gofastlog.get_gofast_logger(__name__)
 
 mu0 = 4 * np.pi * 1e-7 
 
-import numpy as np
+def calculate_histogram_bins(
+        data, /,  bins='auto', range=None, normalize=False):
+    """
+    Calculates histogram bin edges from data with optional normalization.
+
+    Parameters
+    ----------
+    data : array_like
+        The input data to calculate histogram bins for.
+    bins : int, sequence of scalars, or str, optional
+        The criteria to bin the data. If an integer, it defines the number of equal-width
+        bins in the given range. If a sequence, it defines the bin edges directly.
+        If a string, it defines the method used to calculate the optimal bin width, as
+        defined by numpy.histogram_bin_edges().
+    range : (float, float), optional
+        The lower and upper range of the bins. If not provided, range is 
+        simply (data.min(), data.max()).
+        Values outside the range are ignored.
+    normalize : bool, default False
+        If True, scales the data to range [0, 1] before calculating bins.
+
+    Returns
+    -------
+    bin_edges : ndarray
+        The computed or specified bin edges.
+
+    Examples
+    --------
+    >>> from gofast.tools.mathex import calculate_histogram_bins
+    >>> data = np.random.randn(1000)
+    >>> bins = calculate_histogram_bins(data, bins=30)
+    >>> print(bins)
+
+    Notes
+    -----
+    This function is particularly useful in data preprocessing for histogram plotting.
+    Normalization before binning can be useful when dealing with data with outliers
+    or very skewed distributions.
+    """
+    data = np.asarray (data)
+    if normalize:
+        data = (data - np.min(data)) / (np.max(data) - np.min(data))
+
+    bin_edges = np.histogram_bin_edges(data, bins=bins, range=range)
+    return bin_edges
 
 def rank_data(data, method='average'):
     """
@@ -108,6 +152,7 @@ def rank_data(data, method='average'):
 
     Examples
     --------
+    >>> from gofast.tools.mathex import rank_data
     >>> data = [40, 20, 30, 20]
     >>> rank_data(data, method='average')
     array([4. , 1.5, 3. , 1.5])

@@ -12,8 +12,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.preprocessing import LabelEncoder
 
-from .._typing import Callable, LambdaType, DataFrame, Series, Array1D
-from .._typing import Dict, List, Union, Optional, Any, Tuple 
+from ..api.types import Callable, LambdaType, DataFrame, Series, Array1D
+from ..api.types import Dict, List, Union, Optional, Any, Tuple 
 from ..api.extension import isinstance_  
 from ..api.formatter import DataFrameFormatter, MultiFrameFormatter 
 from ..decorators import isdf 

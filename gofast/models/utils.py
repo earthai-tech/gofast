@@ -20,8 +20,8 @@ from sklearn.svm import SVC, SVR
 from sklearn.pipeline import Pipeline 
 from sklearn.utils.multiclass import type_of_target  
 
-from .._typing import Tuple,_F, ArrayLike, NDArray, Dict, Union, Any
-from .._typing import  List, Optional, Type, DataFrame, Series 
+from ..api.types import Tuple,_F, ArrayLike, NDArray, Dict, Union, Any
+from ..api.types import  List, Optional, Type, DataFrame, Series 
 from ..api.summary import ModelSummary 
 from ..tools.coreutils import smart_format
 from ..tools.validator import get_estimator_name, check_X_y 

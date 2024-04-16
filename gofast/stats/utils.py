@@ -19,8 +19,8 @@ from sklearn.cluster import KMeans, SpectralClustering
 from sklearn.linear_model import LinearRegression
 from sklearn.manifold import MDS
 
-from .._typing import Optional, List, Dict, Union, Tuple, Callable, Any
-from .._typing import NumPyFunction, DataFrame, ArrayLike, Array1D, Series
+from ..api.types import Optional, List, Dict, Union, Tuple, Callable, Any
+from ..api.types import NumPyFunction, DataFrame, ArrayLike, Array1D, Series
 from ..api.formatter import DataFrameFormatter 
 from ..decorators import DynamicMethod
 from ..tools.validator import assert_xy_in, is_frame, check_consistent_length 

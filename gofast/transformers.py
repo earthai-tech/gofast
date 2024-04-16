@@ -39,7 +39,7 @@ try:
 except : pass 
 
 from ._gofastlog import gofastlog 
-from ._typing import _F 
+from .api.types import _F 
 from .exceptions import EstimatorError, NotFittedError 
 from .tools.coreutils import  parse_attrs, assert_ratio, validate_feature
 from .tools.coreutils import  ellipsis2false, to_numeric_dtypes, is_iterable

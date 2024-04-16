@@ -37,15 +37,15 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
 from .._gofastlog import gofastlog
-from .._typing import Union, Series,Tuple,Dict,Optional,Iterable, Any, Set
-from .._typing import _T,_Sub, _F, ArrayLike,List, DataFrame, NDArray, Text  
+from ..api.types import Union, Series,Tuple,Dict,Optional,Iterable, Any, Set
+from ..api.types import _T,_Sub, _F, ArrayLike,List, DataFrame, NDArray, Text  
 from ._dependency import import_optional_dependency
 from ..compat.scipy import ensure_scipy_compatibility 
 from ..compat.scipy import check_scipy_interpolate, optimize_minimize
 
 _logger = gofastlog.get_gofast_logger(__name__)
 
-
+ 
 def format_to_datetime(data, date_col, verbose=0, **dt_kws):
     """
     Reformats a specified column in a DataFrame to Pandas datetime format.

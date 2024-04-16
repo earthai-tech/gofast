@@ -3284,7 +3284,8 @@ def build_data_if(
         columns = list(data.columns)
     elif isinstance(data, (list, tuple)):
         data = np.array(data)
-    
+    elif isinstance ( data, pd.Series): 
+        data =data.to_frame () 
     # Check if data needs to be converted to a DataFrame
     if to_frame and not isinstance(data, pd.DataFrame):
         if columns is None and not force:

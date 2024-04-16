@@ -38,8 +38,8 @@ from sklearn.preprocessing import LabelEncoder,Normalizer, PolynomialFeatures
 from sklearn.utils import resample
 
 from .._gofastlog import gofastlog
-from .._typing import List, Tuple, Any, Dict,  Optional,Union, Series 
-from .._typing import  _F, ArrayLike, NDArray,  DataFrame
+from ..api.types import List, Tuple, Any, Dict,  Optional,Union, Series 
+from ..api.types import  _F, ArrayLike, NDArray,  DataFrame
 from ..compat.sklearn import get_feature_names
 from ..compat.sklearn import train_test_split 
 from .baseutils import select_features 

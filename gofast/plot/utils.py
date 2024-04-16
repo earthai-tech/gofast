@@ -39,8 +39,8 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import learning_curve, KFold 
 from sklearn.utils import resample
 
-from .._typing import Optional, Tuple, Any, List, Union 
-from .._typing import Dict, ArrayLike, DataFrame, Series
+from ..api.types import Optional, Tuple, Any, List, Union 
+from ..api.types import Dict, ArrayLike, DataFrame, Series
 from ..exceptions import  TipError, PlotError 
 from ..tools.coreutils import _assert_all_types, is_iterable, str2columns 
 from ..tools.coreutils import make_obj_consistent_if, is_in_if, to_numeric_dtypes 
@@ -5820,12 +5820,6 @@ def is_colormap(color_name):
     # Check if the given color_name is in the list of colormaps
     return color_name in colormaps
 
-
-
-    
-  
-    
-  
     
   
     

@@ -14,7 +14,7 @@ from joblib import Parallel, delayed
 from sklearn.base import BaseEstimator 
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 
-from .._typing import Any, Dict, List,Union, Tuple, Optional, ArrayLike
+from ..api.types import Any, Dict, List,Union, Tuple, Optional, ArrayLike
 from ..api.summary import ModelSummary
 from ..tools.coreutils import ellipsis2false , smart_format
 from ..tools.validator import get_estimator_name 

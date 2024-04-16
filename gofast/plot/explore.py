@@ -20,11 +20,12 @@ import pandas as pd
 from pandas.plotting import radviz , parallel_coordinates
 import seaborn as sns 
 
-from .._docstring import  DocstringComponents,_core_docs,_baseplot_params
-from .._gofastlog import gofastlog  
-from .._typing import _F, Any, List,Dict,Optional,ArrayLike, DataFrame, Series  
+from .._gofastlog import gofastlog 
+from ..api.docstring import  DocstringComponents,_core_docs,_baseplot_params
+from ..api.property import BasePlot
+from ..api.types import _F, Any, List,Dict,Optional,ArrayLike, DataFrame, Series  
 from ..exceptions import PlotError, FeatureError, NotFittedError
-from ..property import BasePlot
+
 from ..tools._dependency import import_optional_dependency 
 from ..tools.coreutils import _assert_all_types , _isin,  repr_callable_obj 
 from ..tools.coreutils import smart_strobj_recognition, smart_format, reshape

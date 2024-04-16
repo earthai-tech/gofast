@@ -8,7 +8,7 @@ import math
 import pandas as pd
 import numpy as np
 from collections import Counter
-from .._typing import Tuple, List, Union, Optional, DataFrame
+from ..api.types import Tuple, List, Union, Optional, DataFrame
 
 from ..exceptions import StrataError 
 

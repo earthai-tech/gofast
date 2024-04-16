@@ -14,7 +14,7 @@ import subprocess
 import shutil  
 import zipfile
 
-from .._typing import Optional
+from ..api.types import Optional
 try: 
     import tqdm
     TQDM_AVAILABLE = True

@@ -23,16 +23,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy import linalg
 import scipy.stats as statsf
-# from scipy.linalg import cholesky
 
 from sklearn.decomposition import PCA, FactorAnalysis 
 from sklearn.covariance import LedoitWolf 
 from sklearn.model_selection import cross_val_score
 
+from ..api.docstring import _core_docs
+from ..api.types import ArrayLike 
 from ..tools.validator import check_array 
 from ..tools.coreutils import _assert_all_types 
-from .._docstring import _core_docs
-from .._typing import ArrayLike 
+
 
 __all__=[ 
     "ledoit_wolf_score",  

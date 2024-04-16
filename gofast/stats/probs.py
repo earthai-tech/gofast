@@ -15,8 +15,8 @@ from scipy.stats import binom
 from scipy.stats import poisson
 import matplotlib.pyplot as plt
 
-from .._typing import Array1D, ArrayLike,  DataFrame, Series, NDArray 
-from .._typing import Union, List, Optional, NumPyFunction 
+from ..api.types import Array1D, ArrayLike,  DataFrame, Series, NDArray 
+from ..api.types import Union, List, Optional, NumPyFunction 
 from ..decorators import Extract1dArrayOrSeries, Dataify 
 from ..decorators import DataTransformer   
 from ..tools.funcutils import ensure_pkg 

@@ -14,12 +14,14 @@ from joblib import Parallel, delayed
 import numpy as np 
 import pandas as pd 
 from tqdm import tqdm
+import matplotlib.pyplot as plt 
+from matplotlib.ticker import FixedLocator
 from sklearn.utils import all_estimators 
 
-from .._typing import Union, List, Optional, Tuple, Iterable, Any, Set 
-from .._typing import _T, _F, DataFrame, ArrayLike, Series, NDArray
+from ..api.property import  Config
+from ..api.types import Union, List, Optional, Tuple, Iterable, Any, Set 
+from ..api.types import _T, _F, DataFrame, ArrayLike, Series, NDArray
 from ..exceptions import FileHandlingError
-from ..property import  Config
 from .coreutils import is_iterable , ellipsis2false, smart_format  
 from .coreutils import to_numeric_dtypes, validate_feature
 from .coreutils import _assert_all_types
@@ -27,6 +29,79 @@ from .validator import check_consistent_length, get_estimator_name
 from .validator import _is_arraylike_1d, array_to_frame, build_data_if
 from ._dependency import import_optional_dependency
 
+def smart_rotation(ax):
+    """
+    Automatically adjusts the rotation of x-axis tick labels on a matplotlib
+    axis object based on the overlap of labels. This function assesses the
+    overlap by comparing the horizontal extents of adjacent tick labels. If
+    any overlap is detected, it rotates the labels by 45 degrees to reduce
+    or eliminate the overlap. If no overlap is detected, labels remain
+    horizontal.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The Axes object for which to adjust the tick label rotation.
+
+    Examples
+    --------
+    # Example of creating a simple time series plot with date overlap handling
+    >>> import pandas as pd
+    >>> import matplotlib.pyplot as plt
+    >>> from matplotlib.dates import DateFormatter
+
+    # Generate a date range and some random data
+    >>> dates = pd.date_range(start="2020-01-01", periods=100, freq='D')
+    >>> values = np.random.rand(100)
+
+    # Create a DataFrame
+    >>> df = pd.DataFrame({'Date': dates, 'Value': values})
+
+    # Create a plot
+    >>> fig, ax = plt.subplots()
+    >>> ax.plot(df['Date'], df['Value'])
+    >>> ax.xaxis.set_major_formatter(DateFormatter('%Y-%m-%d'))
+
+    # Apply smart rotation to adjust tick labels dynamically
+    >>> smart_rotation(ax)
+
+    # Show the plot
+    >>> plt.show()
+
+    Notes
+    -----
+    This function needs to be used in conjunction with matplotlib plots where
+    the axis ('ax') is already set up with tick labels. It is especially useful
+    in time series and other plots where the x-axis labels are dates or other
+    large strings that may easily overlap. Drawing the canvas (plt.gcf().canvas.draw())
+    is necessary to render the labels and calculate their positions, which may
+    impact performance for very large plots or in tight loops.
+    
+    """
+    
+    # Draw the canvas to get the labels rendered, which is necessary for calculating overlap
+    plt.gcf().canvas.draw()
+
+    # Retrieve the x-axis tick labels and their extents
+    labels = [label.get_text() for label in ax.get_xticklabels()]
+    tick_locs = ax.get_xticks()  # get the locations of the current ticks
+    label_extents = [label.get_window_extent() for label in ax.get_xticklabels()]
+
+    # Check for overlap by examining the extents
+    overlap = False
+    num_labels = len(label_extents)
+    for i in range(num_labels - 1):
+        if label_extents[i].xmax > label_extents[i + 1].xmin:
+            overlap = True
+            break
+
+    # Apply rotation if overlap is detected
+    rotation = 45 if overlap else 0
+
+    # Set the locator before setting labels
+    ax.xaxis.set_major_locator(FixedLocator(tick_locs))
+    ax.set_xticklabels(labels, rotation=rotation)
+    
 def select_features(
     data: DataFrame,
     features: Optional[List[str]] = None,

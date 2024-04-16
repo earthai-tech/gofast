@@ -11,9 +11,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from ._docstring import DocstringComponents, _core_docs
+from .api.docstring import DocstringComponents, _core_docs
 from ._gofastlog import gofastlog
-from ._typing import List, Optional, DataFrame, Tuple
+from .api.types import List, Optional, DataFrame, Tuple
 
 from .exceptions import NotFittedError
 from .tools.baseutils import is_readable
