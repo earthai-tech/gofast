@@ -4420,8 +4420,6 @@ class MovingAverageTransformer(BaseEstimator, TransformerMixin):
                           raise_warning='silence')
         return X.rolling(window=self.window).mean()
 
-
-
 class CumulativeSumTransformer(BaseEstimator, TransformerMixin):
     """
     Compute the cumulative sum for each column in the data.
@@ -4513,6 +4511,7 @@ class SeasonalDecomposeTransformer(BaseEstimator, TransformerMixin):
 
     Examples
     --------
+    >>> from gofast.transformer import SeasonalDecomposeTransformer
     >>> transformer = SeasonalDecomposeTransformer(model='additive', freq=12)
     >>> X = pd.DataFrame({'value': np.random.randn(100)})
     >>> decomposed = transformer.fit_transform(X)
@@ -4618,6 +4617,7 @@ class FourierFeaturesTransformer(BaseEstimator, TransformerMixin):
 
     Examples
     --------
+    >>> from gofast.transformer import FourierFeaturesTransformer
     >>> transformer = FourierFeaturesTransformer(periods=[12, 24])
     >>> X = pd.DataFrame({'time': np.arange(100)})
     >>> fourier_features = transformer.fit_transform(X)

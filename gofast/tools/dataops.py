@@ -4191,6 +4191,7 @@ def analyze_data_corr(
         # Return an empty string if no numeric data
  
     # Compute the correlation matrix
+    method = method.lower() if isinstance (method, str) else method  
     correlation_matrix = numeric_df.corr(method = method, min_periods = min_periods)
  
     # Check if the user wants to view the heatmap

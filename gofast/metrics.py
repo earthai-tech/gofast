@@ -2509,7 +2509,9 @@ def mean_absolute_percentage_error(
     -----
     The MAPE is defined as:
 
-    .. math:: \text{MAPE} = \left( \frac{1}{n} \sum_{i=1}^{n} 
+    .. math:: 
+        
+        \text{MAPE} = \left( \frac{1}{n} \sum_{i=1}^{n} 
               \left| \frac{y_{\text{true}_i} - y_{\text{pred}_i}}
               {y_{\text{true}_i}} \right| \right) \times 100
 
