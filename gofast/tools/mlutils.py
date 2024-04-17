@@ -10,10 +10,10 @@ import os
 import re 
 import copy 
 import tarfile 
-import warnings 
 import pickle 
 import joblib
 import datetime 
+import warnings 
 import shutil 
 from six.moves import urllib 
 from collections import Counter 
@@ -44,14 +44,14 @@ from ..compat.sklearn import get_feature_names
 from ..compat.sklearn import train_test_split 
 from .baseutils import select_features 
 from .coreutils import _assert_all_types, is_in_if,  ellipsis2false
-from .coreutils import smart_format,  is_iterable, get_valid_kwargs
+from .coreutils import smart_format, is_iterable, get_valid_kwargs
 from .coreutils import is_classification_task, to_numeric_dtypes, fancy_printer
 from .coreutils import validate_feature, download_progress_hook, exist_features
 from .coreutils import contains_delimiter 
 from .funcutils import ensure_pkg
+from .validator import _is_numeric_dtype,  _is_arraylike_1d 
 from .validator import get_estimator_name, check_array, check_consistent_length
-from .validator import  _is_numeric_dtype,  _is_arraylike_1d 
-from .validator import  is_frame, build_data_if, check_is_fitted
+from .validator import is_frame, build_data_if, check_is_fitted
 from .validator import check_mixed_data_types 
 
 _logger = gofastlog().get_gofast_logger(__name__)
@@ -87,9 +87,8 @@ __all__=[
     "save_dataframes"
     ]
 
-#XXXTODO
 
-def base_preprocess(
+def one_click_preprocess(
     data: DataFrame, 
     target_columns=None,
     columns=None, 
@@ -98,120 +97,128 @@ def base_preprocess(
     **process_kws
     ):
     """
-    Apply basic preprocessing steps to a pandas DataFrame.
+    Perform all-in-one preprocessing for beginners on a pandas DataFrame,
+    simplifying common tasks like scaling, encoding, and imputation.
 
-    This function prepares a DataFrame for further analysis or modeling by
-    applying scaling, encoding categorical variables, imputing missing values,
-    and optionally adding noise to simulate missing data. The function allows
-    for specifying which columns to preprocess and which to treat as targets,
-    which are excluded from certain preprocessing steps.
+    This function is designed to be user-friendly, particularly for those new
+    to data analysis, by automating complex preprocessing tasks with just a
+    few parameters. It supports selective processing through specification
+    of target and other columns and incorporates flexibility with custom
+    imputation strategies and random seeds for reproducibility.
 
     Parameters
     ----------
     data : pandas.DataFrame
-        The DataFrame to preprocess.
+        The DataFrame to preprocess. This should be a structured DataFrame
+        with any combination of numeric and categorical variables.
     target_columns : str or list of str, optional
-        The name(s) of the column(s) to be treated as the target variable(s).
-        These columns will not be scaled or imputed. Default is None, meaning
-        no columns are treated as target variables.
+        Column(s) designated as target(s) for modeling. These columns will
+        not be scaled or imputed to avoid data leakage. Defaults to None,
+        implying no columns are treated as targets.
     columns : str or list of str, optional
-        Specific column(s) to include in the preprocessing. If None (default),
-        all columns are included.
+        Column names to be specifically included in preprocessing. If None
+        (default), all columns are processed.
     impute_strategy : dict, optional
-        Strategy for imputation of missing values. Should contain separate
-        strategies for 'numeric' and 'categorical' data as keys. Default is
+        Defines specific strategies for imputing missing values, separately
+        for 'numeric' and 'categorical' data types. The default strategy is
         {'numeric': 'median', 'categorical': 'constant'}.
     seed : int, optional
-        Seed for the random number generator. Default is None.
+        Random seed for operations that involve randomization, ensuring
+        reproducibility of results. Defaults to None.
     **process_kws : keyword arguments, optional
-        Additional keyword arguments to pass to preprocessing steps.
+        Additional arguments that can be passed to preprocessing steps, such
+        as parameters for scaling or encoding methods.
 
     Returns
     -------
     pandas.DataFrame
-        The preprocessed DataFrame.
-
-    Notes
-    -----
-    This function uses the ColumnTransformer from scikit-learn to apply
-    different preprocessing steps to numeric and categorical columns. It
-    relies on pandas for data manipulation and scikit-learn for preprocessing.
+        A DataFrame with preprocessed data, where numeric columns have been
+        scaled, categorical columns encoded, and missing values imputed.
 
     Examples
     --------
     >>> import pandas as pd
     >>> from numpy import nan
-    >>> from gofast.tools.mlutils import basic_preprocess
     >>> data = pd.DataFrame({
     ...     'Age': [25, nan, 37, 59],
     ...     'City': ['New York', 'Paris', 'Berlin', nan],
     ...     'Income': [58000, 67000, nan, 120000]
     ... })
-    >>> processed_data = basic_preprocess(
-    ...     data,
-    ...     seed=42
-    ... )
+    >>> processed_data = one_click_preprocess(
+    ...     data, seed=42)
     >>> processed_data.head()
-    
-    After preprocessing, the data will have imputed missing values, scaled
-    numeric features, and encoded categorical variables. 
+
+    After preprocessing, the 'Age' and 'Income' columns will be scaled,
+    the 'City' column will be one-hot encoded, and missing values in
+    'Age' and 'City' will be imputed based on the specified strategies.
+
+    Notes
+    -----
+    The function relies on scikit-learn's ColumnTransformer to apply
+    different preprocessing steps to numeric and categorical columns.
+    It is important to note that while this function aims to simplify
+    preprocessing for beginners, understanding the underlying transformations
+    and their implications is beneficial for more advanced data analysis.
     """
-    data = build_data_if(
-        data,
-        to_frame =True, 
-        force=True, 
-        input_name ='col',
-        raise_warning='silence' 
-    )
-    
+    # Convert input data to a DataFrame if it is not one already,
+    # handling any issues silently.
+    data = build_data_if(data, to_frame=True, force=True,
+                         input_name='col', raise_warning='silence')
+
+    # Set a seed for reproducibility in operations that involve randomness.
     np.random.seed(seed)
-    impute_strategy = impute_strategy or {'numeric': 'median', 
-                                          'categorical': 'constant'
-        }
-    # Validate impute_strategy is a dictionary 
-    # with keys 'numeric' and 'categorical'
-    if  ( 
-        not isinstance(impute_strategy, dict) 
+
+    # Set default imputation strategies if none are provided.
+    impute_strategy = impute_strategy or {
+        'numeric': 'median', 'categorical': 'constant'}
+
+    # Ensure impute_strategy is a dictionary with required keys.
+    if ( not isinstance(impute_strategy, dict) 
         or 'numeric' not in impute_strategy 
         or 'categorical' not in impute_strategy
-    ):
-        raise ValueError(
-            "impute_strategy must be a dictionary"
-            " with 'numeric' and 'categorical' keys"
-    )
-    
-    handle_unknown= process_kws.pop("handle_unknown", 'ignore')
+        ):
+        raise ValueError("impute_strategy must be a dictionary with"
+                         " 'numeric' and 'categorical' keys")
+
+    # Pop keyword arguments or set defaults for handling missing categories,
+    # fill values, and behavior of additional columns not specified in transformers.
+    handle_unknown = process_kws.pop("handle_unknown", 'ignore')
     fill_value = process_kws.pop("fill_value", 'missing')
-    remainder= process_kws.pop("remainder", 'passthrough')
-    
-    np.random.seed(seed)
-    
+    remainder = process_kws.pop("remainder", 'passthrough')
+
+    # If specific columns are specified, reduce the DataFrame to these columns only.
     if columns:
         data = data[columns] if isinstance(columns, list) else data[[columns]]
-    
+
+    # Convert target_columns to a list if it's a single column passed as string.
     if target_columns:
         target_columns = [target_columns] if isinstance(
             target_columns, str) else target_columns
-    
+
+    # Identify numeric and categorical features based on their data type.
     numeric_features = data.select_dtypes(include=['int64', 'float64']).columns.tolist()
     categorical_features = data.select_dtypes(include=['object']).columns.tolist()
-    
+
+    # Exclude target columns from the numeric features list if specified.
     if target_columns:
-        numeric_features =( 
-            [col for col in numeric_features if col not in target_columns]
-        )
-    
+        numeric_features = [col for col in numeric_features 
+                            if col not in target_columns]
+
+    # Define transformation pipeline for numeric features: imputation and scaling.
     numeric_transformer = Pipeline(steps=[
         ('imputer', SimpleImputer(strategy=impute_strategy['numeric'])),
         ('scaler', StandardScaler())
     ])
-    
+
+    # Define transformation pipeline for categorical 
+    # features: imputation and one-hot encoding.
     categorical_transformer = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy=impute_strategy['categorical'],
+        ('imputer', SimpleImputer(strategy=impute_strategy['categorical'], 
                                   fill_value=fill_value)),
         ('onehot', OneHotEncoder(handle_unknown=handle_unknown))
     ])
-    
+
+    # Combine the numeric and categorical transformations with ColumnTransformer.
     preprocessor = ColumnTransformer(
         transformers=[
             ('num', numeric_transformer, numeric_features),
@@ -219,26 +226,40 @@ def base_preprocess(
         ],
         remainder=remainder
     )
+
+    # Fit and transform the data using the defined ColumnTransformer.
     data_processed = preprocessor.fit_transform(data)
-    try: 
-        processed_columns =( 
-            numeric_features + list(get_feature_names(
-                preprocessor.named_transformers_['cat']['onehot'], categorical_features)
-                ) + [col for col in data.columns 
-                      if col not in numeric_features + categorical_features]
-        )
-    except: 
-        # For older versions of scikit-learn or custom compatibility function
+
+    # Attempt to retrieve processed column names for creating
+    # a DataFrame from the transformed data.
+    try:
+        processed_columns = numeric_features + list(get_feature_names(
+            preprocessor.named_transformers_['cat']['onehot'], categorical_features)
+            ) + [col for col in data.columns if col not in numeric_features + categorical_features]
+    except:
+        # Fallback for older versions of scikit-learn or other compatibility issues.
         cat_features_names = get_feature_names(preprocessor.named_transformers_['cat'])
         processed_columns = numeric_features + list(cat_features_names)
-    # Convert sparse matrix to a dense array if necessary
+
+    # Check if the transformed data is a sparse matrix and convert to dense if necessary.
     if sparse.issparse(data_processed):
         data_processed = data_processed.toarray()
-    
-    data_processed = pd.DataFrame(data_processed, columns=processed_columns,
-                                  index=data.index)
 
+    # Create a new DataFrame with the processed data.
+    data_processed = pd.DataFrame(
+        data_processed, columns=processed_columns, index=data.index)
+
+    # Attempt to use a custom transformer if available.
+    try:
+        from ..transformers import FloatCategoricalToIntTransformer
+        data_processed = FloatCategoricalToIntTransformer(
+            ).fit_transform(data_processed)
+    except:
+        pass
+
+    # Return the preprocessed DataFrame.
     return data_processed
+
 
 def codify_variables (
     data:DataFrame | ArrayLike, /, 
@@ -249,189 +270,224 @@ def codify_variables (
     parse_cols:bool =..., 
     return_cat_codes:bool=... 
     ) -> DataFrame: 
-    """ Encode multiple categorical variables in a dataset. 
-    
-    Encodes categorical variables in a dataset by applying specified transformations,
-    mapping categories, or performing one-hot encoding. Supports DataFrame, 
-    array-like, or dictionary inputs for data.
+    """
+    Encode multiple categorical variables in a dataset.
 
-    Parameters 
-    -----------
-    arr: pd.DataFrame, ArrayLike, dict 
-       DataFrame or Arraylike. If simple array is passed, specify the 
-       columns argumment to create a dataframe. If a dictionnary 
-       is passed, it should be convert to a dataframe. 
-       
-    columns: list,
-       List of the columns to encode the labels 
-       
-    func: callable, 
-       Function to apply the label accordingly. Label must be included in 
-       the columns values.
-       
-    categories: dict, Optional 
-       Dictionnary of column names(`key`) and labels (`values`) to 
-       map the labels.  
-       
-    get_dummies: bool, default=False 
-      returns a new encoded DataFrame  with binary columns 
-      for each category within the specified categorical columns.
+    Function facilitates the encoding of categorical variables by applying 
+    specified transformations, mapping categories to integers, or performing 
+    one-hot encoding. It accepts input data in the form of pandas DataFrames, 
+    array-like structures convertible to DataFrame, or dictionaries that are 
+    directly convertible to DataFrame.
 
-    parse_cols: bool, default=False
-      If `columns` parameter is listed as string, `parse_cols` can defaultly 
-      constructs an iterable objects. 
-    
-    return_cat_codes: bool, default=False 
-       return the categorical codes that used for mapping variables. 
-       if `func` is applied, mapper returns an empty dict. 
-       
-    Return
-    -------
-    df: New encoded Dataframe 
-    
-    Examples
+    Parameters
     ----------
-    >>> from gofast.tools.mlutils import codify_variables 
+    data : DataFrame | ArrayLike | dict
+        The input data to process. Accepts a pandas DataFrame, any array-like 
+        structure that can be converted to a DataFrame, or a dictionary that will
+        be converted to a DataFrame. In the case of array-like or dictionary
+        inputs, the structure must be suitable for DataFrame transformation.
+    columns : list, optional
+        A list of column names from the data that are to be encoded. If not 
+        provided, all columns within the DataFrame are considered for encoding.
+    func : callable, optional
+        A function to apply to the data for encoding purposes. The function 
+        should accept a single value and return a transformed value. It is 
+        applied to each element of the columns specified by `columns`, or to all
+        elements in the DataFrame if `columns` is None.
+    categories : dict, optional
+        A dictionary mapping column names (keys) to lists of categories (values)
+        that should be used for encoding. This dictionary explicitly defines 
+        the categories corresponding to each column that should be transformed.
+    get_dummies : bool, default False
+        When set to True, enables one-hot encoding for the specified `columns` 
+        or for all columns if `columns` is unspecified. This parameter converts
+        each categorical variable into multiple binary columns, one for each 
+        category, which indicates the presence of the category.
+    parse_cols : bool, default False
+        If True and `columns` is a string, this parameter will interpret the 
+        string as a list of column names, effectively parsing a single comma-
+        separated string into separate column names.
+    return_cat_codes : bool, default False
+        When True, the function returns a tuple. The first element of the tuple 
+        is the DataFrame with transformed data, and the second element is a 
+        dictionary that maps the original categorical values to the new 
+        numerical codes. This is useful for retaining a reference to the original
+        categorical data.
+
+    Returns
+    -------
+    DataFrame or (DataFrame, dict)
+        The primary return is the encoded DataFrame. If `return_cat_codes` is 
+        True, a dictionary mapping original categories to their new numerical 
+        codes is also returned.
+        
+    Raises
+    ------
+    TypeError
+        If `func` is provided but is not callable, or if `categories` 
+        is not a dictionary.
+        
+    Examples
+    --------
+    >>> from gofast.tools.mlutils import codify_variables
     >>> # Sample dataset with categorical variables
-    >>> data = {'Height': [152, 175, 162, 140, 170], 
-        'Color': ['Red', 'Blue', 'Green', 'Red', 'Blue'],
-        'Size': ['Small', 'Large', 'Medium', 'Medium', 'Small'],
-        'Shape': ['Circle', 'Square', 'Triangle', 'Circle', 'Triangle'], 
-        'Weight': [80, 75, 55, 61, 70]
-    }
-    # List of categorical columns to one-hot encode
-    categorical_columns = ['Color', 'Size', 'Shape']
-    >>> df_encoded = codify_variables (data)
-    >>> df_encoded.head(2) 
-    Out[1]: 
+    >>> data = {'Height': [152, 175, 162, 140, 170],
+    ...         'Color': ['Red', 'Blue', 'Green', 'Red', 'Blue'],
+    ...         'Size': ['Small', 'Large', 'Medium', 'Medium', 'Small'],
+    ...         'Shape': ['Circle', 'Square', 'Triangle', 'Circle', 'Triangle'],
+    ...         'Weight': [80, 75, 55, 61, 70]
+    ...        }
+    >>> # Basic encoding without additional parameters
+    >>> df_encoded = codify_variables(data)
+    >>> df_encoded.head(2)
+    Out[1]:
        Height  Weight  Color  Size  Shape
     0     152      80      2     2      0
     1     175      75      0     0      1
-    >>> # new return_map codes 
-    >>> df_encoded , map_codes =codify_variables (
-        data, return_cat_codes =True )
-    >>> map_codes 
-    Out[2]: 
+    
+    >>> # Returning a map of categorical codes
+    >>> df_encoded, map_codes = codify_variables(data, return_cat_codes=True)
+    >>> map_codes
+    Out[2]:
     {'Color': {2: 'Red', 0: 'Blue', 1: 'Green'},
      'Size': {2: 'Small', 0: 'Large', 1: 'Medium'},
      'Shape': {0: 'Circle', 1: 'Square', 2: 'Triangle'}}
-    >>> def cat_func (x ): 
-        # 2: 'Red', 0: 'Blue', 1: 'Green'
-        if x=='Red': 
-            return 2 
-        elif x=='Blue': 
-            return 0
-        elif x=='Green': 
-            return 1 
-        else: return x 
-    >>> df_encoded =codify_variables (data, func= cat_func)
-    >>> df_encoded.head(3) 
-    Out[3]: 
+    
+    >>> # Custom function to manually map categories
+    >>> def cat_func(x):
+    ...     if x == 'Red':
+    ...         return 2
+    ...     elif x == 'Blue':
+    ...         return 0
+    ...     elif x == 'Green':
+    ...         return 1
+    ...     else:
+    ...         return x
+    >>> df_encoded = codify_variables(data, func=cat_func)
+    >>> df_encoded.head(3)
+    Out[3]:
        Height  Color    Size     Shape  Weight
     0     152      2   Small    Circle      80
     1     175      0   Large    Square      75
     2     162      1  Medium  Triangle      55
-    >>> 
+    
     >>> # Perform one-hot encoding
-    >>> df_encoded = codify_variables (data, get_dummies=True )
+    >>> df_encoded = codify_variables(data, get_dummies=True)
     >>> df_encoded.head(3)
-    Out[4]: 
-       Height  Weight  Color_Blue  ...  Shape_Circle  Shape_Square  Shape_Triangle
-    0     152      80           0  ...             1             0               0
-    1     175      75           1  ...             0             1               0
-    2     162      55           0  ...             0             0               1
-    [3 rows x 11 columns]
-    >>> codify_variables (data, categories ={'Size': ['Small', 'Large',  'Medium']})
-    Out[5]: 
+    Out[4]:
+       Height  Weight  Color_Blue  Color_Green  Color_Red  Size_Large  Size_Medium  \
+    0     152      80           0            0          1           0            0   
+    1     175      75           1            0          0           1            0   
+    2     162      55           0            1          0           0            1   
+    
+       Size_Small  Shape_Circle  Shape_Square  Shape_Triangle
+    0           1             1             0               0
+    1           0             0             1               0
+    2           0             0             0               1
+    
+    >>> # Specifying explicit categories
+    >>> df_encoded = codify_variables(data, categories={'Size': ['Small', 'Large', 'Medium']})
+    >>> df_encoded.head()
+    Out[5]:
        Height  Color     Shape  Weight  Size
     0     152    Red    Circle      80     0
     1     175   Blue    Square      75     1
     2     162  Green  Triangle      55     2
     3     140    Red    Circle      61     2
     4     170   Blue  Triangle      70     0
+    
+    Notes
+    -----
+    - The function handles various forms of input data, applying default 
+      encoding if no specific encoding function or categories are provided.
+    - Custom encoding functions allow for flexibility in mapping categories 
+      manually.
+    - One-hot encoding transforms each categorical attribute into multiple 
+      binary attributes, enhancing model interpretability but increasing 
+      dimensionality.
+    - Specifying explicit categories helps ensure consistency in encoding, 
+      especially when some categories might not appear in the training set but 
+      could appear in future data.
+
     """
+    # Convert ellipsis inputs to False for get_dummies, parse_cols,
+    # return_cat_codes if not explicitly defined
     get_dummies, parse_cols, return_cat_codes = ellipsis2false(
-        get_dummies, parse_cols, return_cat_codes )
-    # build dataframe if arr is passed rather 
-    # than a dataframe 
-    df = build_data_if( data, to_frame =True, force=True, input_name ='col',
-                        raise_warning='silence'  )
-    # now check integrity 
-    df = to_numeric_dtypes( df )
-    if columns is not None: 
-        columns = list( 
-            is_iterable(columns, exclude_string =True, transform =True, 
-                              parse_string= parse_cols 
-                              )
-                       )
-        df = select_features(df, features = columns )
-        
-    map_codes ={}     
-    if get_dummies :
-        # Perform one-hot encoding
-        # We use the pd.get_dummies() function from the pandas library 
-        # to perform one-hot encoding on the specified columns
-        return ( ( pd.get_dummies(df, columns=columns) , map_codes )
-                  if return_cat_codes else ( 
-                          pd.get_dummies(df, columns=columns) ) 
-                )
-    # ---work with category -------- 
-    # if categories is Note , get auto numeric and 
-    # categoric variablees 
-    num_columns, cat_columns = bi_selector (df ) 
-    
-    # apply function if 
-    if func is not None: 
-        # just get only the columns 
-        if not callable (func): 
-            raise TypeError(
-                f"Provided func is not callable. Received: {type(func)}")
-        if len(cat_columns)==0: 
-            # no categorical data func. 
-            warnings.warn(
-                "No categorical data were detected. To transform numeric"
-                " values into categorical labels, consider using either"
-                " `gofast.tools.smart_label_classifier` or"
-                " `gofast.tools.categorize_target`."
-                )
-    
-            return df 
-        
-        for col in  cat_columns: 
-            df[col]= df[col].apply (func ) 
+        get_dummies, parse_cols, return_cat_codes)
 
-        return (df, map_codes) if return_cat_codes else df 
- 
-    if categories is None: 
-        categories ={}
-        for col in cat_columns: 
-            #categories[col].fillna(pd.NA, inplace =True)
-            categories[col] = list(np.unique (df[col]))
-            
-    # categories should be a mapping data 
-    if not isinstance ( categories, dict ): 
+    # Convert input data to DataFrame if not already a DataFrame
+    df = build_data_if(data, to_frame=True, force=True, input_name='col',
+                       raise_warning='silence')
+
+    # Convert columns to numeric dtypes if possible
+    df = to_numeric_dtypes(df)
+
+    # Ensure columns are iterable and parse them if necessary
+    if columns is not None:
+        columns = list(is_iterable(columns, exclude_string=True, 
+                                   transform=True, parse_string=parse_cols))
+        # Select only the specified features from the DataFrame
+        df = select_features(df, features=columns)
+    
+    # Initialize map_codes to store mappings of categorical codes to labels
+    map_codes = {}
+
+    # Perform one-hot encoding if requested
+    if get_dummies:
+        # Use pandas get_dummies for one-hot encoding and handle
+        # return type based on return_cat_codes
+        return (pd.get_dummies(df, columns=columns), map_codes
+                ) if return_cat_codes else pd.get_dummies(df, columns=columns)
+
+    # Automatically select numeric and categorical columns if not manually specified
+    num_columns, cat_columns = bi_selector(df)
+
+    # Apply provided function to categorical columns if func is given
+    if func is not None:
+        if not callable(func):
+            raise TypeError(f"Provided func is not callable. Received: {type(func)}")
+        if len(cat_columns) == 0:
+            # Warn if no categorical data were found
+            warnings.warn("No categorical data were detected. To transform"
+                          " numeric values into categorical labels, consider"
+                          " using either `gofast.tools.smart_label_classifier`"
+                          " or `gofast.tools.categorize_target`.")
+            return df
+        
+        # Apply the function to each categorical column
+        for col in cat_columns:
+            df[col] = df[col].apply(func)
+
+        # Return DataFrame and mappings if required
+        return (df, map_codes) if return_cat_codes else df
+
+    # Handle automatic categorization if categories are not provided
+    if categories is None:
+        categories = {}
+        for col in cat_columns:
+            categories[col] = list(np.unique(df[col]))
+
+    # Ensure categories is a dictionary
+    if not isinstance(categories, dict):
         raise TypeError("Expected a dictionary with the format"
-                        " {'column name': 'labels'} to categorize data.")
+                        f" {'column name': 'labels'} to categorize data.")
 
-        
-    for col, values  in  categories.items():
+    # Map categories for each column and adjust DataFrame accordingly
+    for col, values in categories.items():
         if col not in df.columns:
-            continue  
-        values = is_iterable(
-            values, exclude_string=True, transform =True )
-        df[col] = pd.Categorical (df[col], categories = values, ordered=True )
-        # df[col] = df[col].astype ('category')
-        val=df[col].cat.codes
+            continue
+        values = is_iterable(values, exclude_string=True, transform=True)
+        df[col] = pd.Categorical(df[col], categories=values, ordered=True)
+        val = df[col].cat.codes
         temp_col = col + '_col'
-        df[temp_col] = val 
-        map_codes[col] =  dict(zip(df[col].cat.codes, df[col]))
-        # drop prevous col in the data frame 
-        df.drop ( columns =[col], inplace =True ) 
-        # rename the tem colum 
-        # to take back to pandas 
-        df.rename ( columns ={temp_col: col }, inplace =True ) 
-        
-    return (df, map_codes) if return_cat_codes else df 
+        df[temp_col] = val
+        map_codes[col] = dict(zip(val, df[col]))
+        df.drop(columns=[col], inplace=True)  # Drop original column
+        # Rename the temp column to original column name
+        df.rename(columns={temp_col: col}, inplace=True) 
+
+    # Return DataFrame and mappings if required
+    return (df, map_codes) if return_cat_codes else df
 
 @ensure_pkg ("imblearn", extra= (
     "`imblearn` is actually a shorthand for ``imbalanced-learn``.")

@@ -7,6 +7,7 @@ import re
 import h5py
 import shutil 
 import pathlib
+import datetime
 import warnings 
 from scipy import stats
 from six.moves import urllib 
@@ -17,12 +18,12 @@ import matplotlib.pyplot as plt
 import seaborn as sns 
 from tqdm import tqdm
 
+from ..api.formatter import MultiFrameFormatter, format_iterable 
 from ..api.property import  Config
 from ..api.summary import ReportFactory, Summary
 from ..api.types import Any,  List,  DataFrame, Optional, Series, Array1D 
 from ..api.types import Dict, Union, TypeGuard, Tuple, ArrayLike, Callable
 from ..api.types import BeautifulSoupTag
-from ..api.formatter import MultiFrameFormatter 
 from ..decorators import Deprecated, isdf, Dataify, DynamicMethod
 from ..decorators import DataTransformer 
 from ..exceptions import FileHandlingError 
@@ -4212,3 +4213,664 @@ def analyze_data_corr(
         no_corr_placeholder=str(no_corr_placeholder)
         )
     return summary
+
+
+@Dataify(auto_columns=True)
+def data_assistant(data: pd.DataFrame, view: bool=False):
+    """
+    Analyze a pandas DataFrame like a data science expert, offering insights,
+    identifying issues, and recommending actions to prepare the data for
+    modeling.
+
+    The function performs a comprehensive analysis on the DataFrame, including
+    checks for data integrity, descriptive statistics, correlation analysis, 
+    and more. It provides recommendations for each identified issue along with 
+    suggestions for modules and functions that could be used to resolve these 
+    issues. This function is meant to assist users in understanding their data 
+    better and preparing it for further modeling steps.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame to analyze.
+
+    Returns
+    -------
+    None
+        The function prints analysis results and recommendations directly,
+        aiming to guide the user rather than modifying the data.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'Age': [25, 30, 35, 40, None],
+    ...     'Salary': [50000, 60000, 70000, 80000, 90000],
+    ...     'City': ['New York', 'Los Angeles', 'San Francisco', 'Houston', 'Seattle']
+    ... })
+    >>> data_science_assistant(df)
+
+    Notes
+    -----
+    This assistant function is primarily educational and diagnostic. It does not
+    perform any data modification or in-place corrections. Users should follow
+    the recommendations and use the suggested tools and functions to prepare
+    their data for modeling.
+    """
+    # Get the current datetime
+    current_datetime = datetime.datetime.now()
+    # Format the datetime object into a string in the specified format
+    formatted_datetime = current_datetime.strftime("%d %B %Y %H:%M:%S")
+    # Creating a dictionary with the formatted datetime string
+    texts = {"Starting assistance...": formatted_datetime}
+    
+    # Initialize dictionaries to store sections of the report
+    recommendations = {"RECOMMENDATIONS": "-" * 12}
+    helper_funcs = {"HELPER FUNCTIONS": "-" * 12}
+    
+    # Checking for missing values
+    texts ["1. Checking for missing values"]="Passed"
+    if data.isnull().sum().sum() > 0:
+        texts ["1. Checking for missing values"]="Failed"
+        texts["   #  Found missing values in the dataset?"]='yes'
+        #print("Found missing values in the dataset.")
+        missing_data = data.isnull().sum()
+        missing_data = missing_data[missing_data > 0]
+        texts[ "   #  Columns with missing values and counts"]= smart_format(
+            [missing_data.name] if isinstance (
+                missing_data, pd.Series ) else missing_data.columns ) 
+        
+        recommendations["1. rec-missing values "]= ( 
+            "Missing data can lead to biased or invalid conclusions"
+            " if not handled properly, as many statistical methods assume"
+            " complete data. Consider imputing or dropping the missing values."
+            " See helper functions for handling missing values."
+            ) 
+        helper_funcs["1. help-missing values "]= ( 
+            "Use: pandas.DataFrame.fillna(), `sklearn.impute.SimpleImputer`"
+            " `gofast.tools.soft_imputer`, `gofast.tools.one_click_preprocess`"
+            " `gofast.tools.handle_missing_values` and more..."
+            )
+    # Descriptive statistics
+    texts ["2. Descriptive Statistics"]="Done"
+    texts["   #  summary"]= format_iterable(data.describe())
+    # Check for zero variance features
+    texts ["3. Checking zero variance features"]="Passed"
+    zero_var_cols = data.columns[data.nunique() == 1]
+    if len(zero_var_cols) > 0:
+        texts ["3. Checking zero variance features"]="Failed"
+        texts ["   #  Found zero variance columns?"]="yes"
+        texts["   #  Zeros variances columns"]=f"{smart_format(zero_var_cols.tolist())}"
+        
+        recommendations["3. rec-zero variances features"]=(
+            "Zero variance features offer no useful information for modeling"
+            " because they do not vary across observations. This means they"
+            " cannot help in predicting the target variable or in distinguishing"
+            " between different instances. Consider dropping them as they do not "
+            " provide any information, redundant computation, model complexity..."
+            )
+        helper_funcs["3. help-zero variances features"]= ( 
+            "Use: `pandas.DataFrame.drop(columns =<zero_var_cols>)`")
+        
+    # Data types analysis
+    # print("Data types summary:\n", data.dtypes.value_counts())
+    texts["4. Data types summary"]="Passed"
+    if (data.dtypes == 'object').any():
+        texts["   #  Summary types"]="Include string or mixed types"
+        texts["   #  Non-numeric data types found?"]="yes"
+        texts["   #  Non-numeric features"]= smart_format( 
+            data.select_dtypes( exclude=[np.number]).columns.tolist())
+        
+        recommendations [ "4. rec-non-numeric data"]= (
+            "Improper handling of non-numeric data can lead to misleading"
+            " results or poor model performance. For instance, ordinal "
+            " encoding of inherently nominal data can imply a nonexistent"
+            " ordinal relationship, potentially misleading the model."  
+            " Consider transforming into a numeric format through encoding"
+            " techniques (like one-hot encoding, label encoding, or embedding)"
+            " to be used in these models.")
+        helper_funcs ["4. help-non-numeric data"]=( 
+            "Use: `pandas.get_dummies()`, `sklearn.preprocessing.LabelEncoder`"
+            " `gofast.tools.codify_variables`, `gofast.tools.handle_categorical_features`"
+            " and more ...") 
+        
+    # Correlation analysis
+    texts["5. Correlation analysis"]="Passed"
+    numeric_data = data.select_dtypes(include=[np.number])
+    texts["   #  Numeric corr-feasible features"]=format_iterable(numeric_data)
+    if numeric_data.shape[1] > 1:
+        # print("Correlation Matrix:\n", numeric_data.corr())
+        texts["   #  Correlation matrix review"]="yes"
+        if view: 
+            sns.heatmap(numeric_data.corr(), annot=True, cmap='coolwarm')
+            plt.title('Correlation Matrix')
+            plt.show()
+            texts["   #  corr-matrix view"]="See displayed figure..."
+            
+        recommendations["5. rec-correlated features"]= (
+            "Highly correlated features can lead to multicollinearity in"
+            " regression models, where it becomes difficult to estimate the"
+            " relationship of each independent variable with the dependent"
+            " variable due to redundancy. Review highly correlated variables"
+            " as they might affect model performance due to multicollinearity."
+            )
+        helper_funcs ["5. help-correlated features"]= ( 
+            "Use: `pandas.DataFrame.go_corr`, `gofast.tools.analyze_data_corr`,"
+            " gofast.tools.correlation_ops``gofast.drop_correlated_features`,"
+            " `gofast.stats.corr` and more ...")
+        
+    # Distribution analysis
+    texts["6. Checking for potential outliers"]="Passed"
+    skew_cols =[]
+    for col in numeric_data.columns:
+        if view: 
+            plt.figure()
+            sns.distplot(data[col].dropna(), kde=True, bins=30)
+            plt.title(f'Distribution of {col}')
+            plt.show()
+           
+        if data[col].skew() > 1.5 or data[col].skew() < -1.5:
+            skew_value = data[col].skew()
+            skew_cols.append ( (col, skew_value) ) 
+            
+    if view: 
+        texts["   #  Distribution analysis view"]="See displayed figure..."
+        
+    if skew_cols : 
+        texts["   #  Outliers found?"]="yes"
+        texts["   #  Skewness columns"]=', '.join(
+            [ "{skew}-{val:.4f}" for skew, val in  skew_cols ]) 
+        recommendations["6. rec-distribution ~ skewness"]= (
+            "Skewness can distort the mean and standard deviation of the data."
+            " Measures of skewed data do not accurately represent the center"
+            " and variability of the data, potentially leading to misleading"
+            " interpretations, poor model performance and unreliable predictions."
+            " Consider transforming this data using logarithmic, square root,"
+            " or box-cox transformations")
+        helper_funcs ["6. help-distribution ~ skewness" ]= ( 
+            "Use: `scipy.stats.boxcox`, `sklearn.preprocessing.PowerTransformer`"
+            " `gofast.tools.handle_skew`, `gofast.tools.assess_outlier_impact`"
+            " `pandas.DataFrame.go_skew`, `gofast.stats.skew` and more ..."
+            )
+    # Duplicate rows
+    texts["7. Duplicate analysis"]="Passed"
+    if data.duplicated().sum() > 0:
+        texts["   #  Found duplicate rows in the dataset?"]="yes"
+        texts["   #  Duplicated indices"]=smart_format(
+            handle_duplicates(data, return_indices=True )
+            ) 
+        recommendations["7. rec-duplicate analysis"]=(
+            "Duplicate entries can skew statistical calculations such as means,"
+            " variances, and correlations, leading to biased or incorrect estimates"
+            " Duplicate rows can lead to overfitting, particularly if the"
+            " duplicates are only present in the training dataset and not in"
+            " unseen data. Models might learn to overly rely on these repeated"
+            " patterns, performing well on training data but poorly on new,"
+            " unseen data. Consider reviewing and possibly removing duplicates."
+            )
+        helper_funcs ["7. help-duplicate analysis"]=(
+            "Use: `pandas.DataFrame.drop_duplicates()`,"
+            " `gofast.tools.handle_duplicates` and more ...")
+        
+    # Unique value check
+    texts["8. Unique value check"]="Passed"
+    unique_cols =[]
+    for col in data.columns:
+        if data[col].nunique() < 10:
+            value = data[col].unique()
+            unique_cols.append (( col, list(value))) 
+    
+    if unique_cols: 
+        #print(unique_cols)
+        texts["   #  Found unique value column?"]="yes"
+        texts["   #  Duplicated indices"]=', '.join(
+            [ f"{col}-{str(val) if len(val)<=3 else format_iterable(val)}" 
+             for col, val in unique_cols ]
+            ) 
+        recommendations ["8. rec-Unique identifiers"]= ( 
+            "Unique identifiers typically do not possess any intrinsic"
+            " predictive power because they are unique to each record."
+            " Including these in predictive modeling can be misleading"
+            " for algorithms, leading them to overfit the data without"
+            " gaining any generalizable insights. Check if these columns"
+            " should be treated as a categorical variables"
+            )
+        helper_funcs["8. help-unique identifiers"]= ( 
+            "Use: `gofast.tools.handle_unique_identifiers`,"
+            " `gofast.transformers.BaseCategoricalEncoder`,"
+            " `gofast.transformer.CategoricalEncoder`, and more ..."
+            )
+    
+    report_txt= {**texts, **recommendations, **helper_funcs}
+ 
+    # Check if the recommendations and helper functions 
+    # are empty (only contain the header)
+    if len(recommendations) == 1:
+        # Remove the "RECOMMENDATIONS" title from 
+        # the report if no recommendations exist
+        report_txt.pop("RECOMMENDATIONS")
+    
+    if len(helper_funcs) == 1:
+        # Remove the "HELPER FUNCTIONS" title from the report 
+        # if no helper functions exist
+        report_txt.pop("HELPER FUNCTIONS")
+    
+    # In case both sections are empty, append a general note
+    if len(recommendations) == 1 and len(helper_funcs) == 1:
+        # Adding a general keynote to the report to address the absence
+        # of recommendations and helper functions
+        report_txt["KEYNOTE"] = "-" * 12
+        report_txt["TO DO"] = (
+            "Review the provided insights. No further immediate actions"
+            " or recommendations are required at this stage. For a more"
+            " in-depth inspection or specific queries, consider using"
+            " detailed analysis tools such as `gofast.tools.inspect_data`."
+        )
+    else:
+        # Provide actionable steps when there are recommendations
+        # and/or helper functions
+        report_txt["TO DO"] = (
+            "Review the insights and recommendations provided to effectively"
+            " prepare your data for modeling. For more in-depth analysis,"
+            " utilize tools such as `gofast.tools.inspect_data`."
+        )
+
+    assistance_report = ReportFactory("Assistance Data Report").add_mixed_types(
+        report_txt, table_width= 100  )
+    
+    print(assistance_report)
+
+
+def correlation_ops(
+    data: DataFrame, 
+    correlation_type:str='all', 
+    min_corr: float=0.5, 
+    high_corr: float=0.8, 
+    method: str| Callable[[ArrayLike, ArrayLike], float]='pearson', 
+    min_periods: int=1, 
+    display_corrtable: bool=False, 
+    **corr_kws
+    ):
+    """
+    Performs correlation analysis on a given DataFrame and classifies the 
+    correlations into specified categories. Depending on the `correlation_type`,
+    this function can categorize correlations as strong positive, strong negative,
+    or moderate. It can also display the correlation matrix and returns a 
+    formatted report of the findings.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame on which to perform the correlation analysis.
+    correlation_type : str, optional
+        The type of correlations to consider in the analysis. Valid options
+        are 'all', 'strong only', 'strong positive', 'strong negative', and
+        'moderate'. Defaults to 'all'.
+    min_corr : float, optional
+        The minimum correlation value to consider for moderate correlations.
+        Defaults to 0.5.
+    high_corr : float, optional
+        The threshold above which correlations are considered strong. Defaults
+        to 0.8.
+    method : {'pearson', 'kendall', 'spearman'}, optional
+        Method of correlation:
+        - 'pearson' : standard correlation coefficient
+        - 'kendall' : Kendall Tau correlation coefficient
+        - 'spearman' : Spearman rank correlation
+        Defaults to 'pearson'.
+    min_periods : int, optional
+        Minimum number of observations required per pair of columns to have a
+        valid result. Defaults to 1.
+    display_corrtable : bool, optional
+        If True, prints the correlation matrix to the console. Defaults to False.
+    **corr_kws : dict
+        Additional keyword arguments to be passed to the correlation function
+        :func:`analyze_data_corr`. 
+
+    Returns
+    -------
+    MultiFrameFormatter or ReportFactory
+        Depending on the analysis results, returns either a formatted report of 
+        correlation pairs or a message about the absence of significant 
+        correlations.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.tools.dataops import correlation_ops
+    >>> data = pd.DataFrame({
+    ...     'A': [1, 2, 3, 4, 5],
+    ...     'B': [2, 2, 3, 4, 4],
+    ...     'C': [5, 3, 2, 1, 1]
+    ... })
+    >>> result = correlation_ops(data, correlation_type='strong positive')
+    >>> print(result)
+
+    Notes
+    -----
+    The correlation threshold parameters (`min_corr` and `high_corr`) help in 
+    fine-tuning which correlations are reported based on their strength. This 
+    is particularly useful in datasets with many variables, where focusing on 
+    highly correlated pairs is often more insightful.
+
+    See Also
+    --------
+    pandas.DataFrame.corr : Compute pairwise correlation of columns.
+    MultiFrameFormatter : A custom formatter for displaying correlated pairs.
+    analyze_data_corr : A predefined function for computing and summarizing correlations.
+    """
+
+    # Compute the correlation matrix using a predefined analysis function
+    corr_summary = analyze_data_corr(
+        data, method=method, min_periods=min_periods, **corr_kws)
+    
+    if display_corrtable:
+        print(corr_summary)
+    
+    corr_matrix = corr_summary.corr_matrix
+    # 
+    # Storage for correlation pairs
+    strong_positives, strong_negatives, moderates = [], [], []
+
+    # Evaluate each cell in the correlation matrix
+    for i in range(len(corr_matrix.columns)):
+        for j in range(i + 1, len(corr_matrix.columns)):
+            corr_value = corr_matrix.iloc[i, j]
+            if ( 
+                    correlation_type in ['all', 'strong only', 'strong positive'] 
+                    and corr_value >= high_corr ) :
+                strong_positives.append(
+                    (corr_matrix.columns[i], corr_matrix.columns[j], corr_value)
+                    )
+            if ( 
+                    correlation_type in ['all', 'strong only', 'strong negative'] 
+                    and corr_value <= -high_corr ):
+                strong_negatives.append(
+                    (corr_matrix.columns[i], corr_matrix.columns[j], corr_value)
+                    )
+            if ( 
+                    correlation_type in ['all', 'moderate'] 
+                    and min_corr <= abs(corr_value) < high_corr ) :
+                moderates.append((corr_matrix.columns[i], corr_matrix.columns[j],
+                                  corr_value))
+
+    # Prepare DataFrames for each category
+    dfs = {}
+    if strong_positives:
+        dfs['Strong Positives'] = pd.DataFrame(
+            strong_positives, columns=['Feature 1', 'Feature 2', 'Correlation'])
+    if strong_negatives:
+        dfs['Strong Negatives'] = pd.DataFrame(
+            strong_negatives, columns=['Feature 1', 'Feature 2', 'Correlation'])
+    if moderates:
+        dfs['Moderates'] = pd.DataFrame(
+            moderates, columns=['Feature 1', 'Feature 2', 'Correlation'])
+
+    # Formatting the output with MultiFrameFormatter if needed
+    if dfs:
+        formatted_report = MultiFrameFormatter(list(dfs.keys())).add_dfs(*dfs.values())
+        setattr(formatted_report, "correlated_pairs", dfs)
+        return formatted_report
+    else:
+        insights=ReportFactory().add_recommendations(
+            (
+            "No significant correlations detected in the provided dataset. "
+            "This may indicate that data variables act independently of each other "
+            "within the specified thresholds. Consider adjusting the correlation "
+            "thresholds or analyzing the data for other patterns."
+            ), 
+            keys= 'Actionable Insight', max_char_text= 90
+            )
+        return insights
+
+def drop_correlated_features(df, threshold=0.8, **corr_kws):
+    """
+    Removes features from the DataFrame that are highly correlated with others,
+    based on a specified correlation threshold. This helps to reduce multicollinearity
+    in the dataset, which can improve the performance and interpretability of 
+    subsequent modeling.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame from which correlated features are to be removed.
+    threshold : float, optional
+        The correlation threshold above which a pair of features is considered
+        highly correlated and one of the features will be removed. Defaults to 0.8.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A new DataFrame with highly correlated features removed.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> data = pd.DataFrame({
+    ...     'A': [1, 2, 3, 4, 5],
+    ...     'B': [2, 2, 3, 4, 4],
+    ...     'C': [5, 3, 2, 1, 1]
+    ... })
+    >>> print(data.corr())
+    >>> reduced_data = drop_correlated_features(data, threshold=0.8)
+    >>> print(reduced_data)
+
+    Notes
+    -----
+    This function is particularly useful in preprocessing steps for statistical 
+    modeling and machine learning, where multicollinearity can obscure the 
+    interpretation of feature importance and impact model performance. By 
+    removing highly correlated features, models are often simpler and more 
+    stable.
+
+    The decision on the threshold value should depend on the context and specific 
+    requirements of the modeling process. A lower threshold might remove more 
+    features, potentially simplifying the model but also losing information.
+
+    See Also
+    --------
+    pandas.DataFrame.corr : Compute pairwise correlation of columns.
+    """
+    # Compute the correlation matrix using a predefined analysis function
+    corr_summary = analyze_data_corr(
+        data, method=method, min_periods=min_periods, 
+        high_corr=threshold,  **corr_kws)
+    
+    if display_corrtable:
+        print(corr_summary)
+    
+    corr_matrix = corr_summary.corr_matrix
+    
+    # Compute the absolute correlation matrix and the upper triangle
+    corr_matrix = df.corr(method=method, min_periods=min_periods).abs()
+    upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+
+    # Identify columns to drop based on the threshold
+    to_drop = [column for column in upper.columns if any(upper[column] > threshold)]
+
+    # Drop the identified columns and return the reduced DataFrame
+    df_reduced = df.drop(to_drop, axis=1)
+    return df_reduced
+
+def drop_correlated_features(df, threshold=0.8):
+    # Calculate the correlation matrix
+    corr_matrix = df.corr().abs()
+
+    # Find the indices of the features that are highly correlated
+    upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+
+    # Find columns with correlation greater than the threshold
+    to_drop = [column for column in upper.columns if any(upper[column] > threshold)]
+
+    # Drop the highly correlated columns
+    df_reduced = df.drop(to_drop, axis=1)
+
+    return df_reduced
+
+def handle_skew(data, method='log'):
+    from sklearn.preprocessing import PowerTransformer
+    # Apply the specified transformation to each numeric column in the DataFrame
+    for column in data.select_dtypes(include=['int64', 'float64']):
+        if data[column].min() <= 0:  # Adjusting data for log and Box-Cox transformations
+            data[column] += (-data[column].min() + 1)
+
+        if method == 'log':
+            data[column] = np.log(data[column])
+        elif method == 'sqrt':
+            data[column] = np.sqrt(data[column])
+        elif method == 'box-cox':
+            # Apply Box-Cox transformation only if all values are positive
+            if data[column].min() > 0:
+                data[column], _ = stats.boxcox(data[column])
+            else:
+                # Using a generalized Yeo-Johnson transformation if Box-Cox is not possible
+                pt = PowerTransformer(method='yeo-johnson')
+                data[column] = pt.fit_transform(data[[column]]).flatten()
+    return data
+
+def handle_duplicates(
+        df, return_duplicate_rows=False, return_indices=False, operation='drop'):
+    # Identify all duplicates based on all columns
+    duplicates = df.duplicated(keep=False)
+    
+    # Check if the user requested the DataFrame of duplicate rows
+    if return_duplicate_rows:
+        return df[duplicates]
+
+    # Check if the user requested the indices of duplicate rows
+    if return_indices:
+        return df[duplicates].index.tolist()
+
+    # If the operation is specified as 'drop', remove duplicate rows
+    if operation == 'drop':
+        return df.drop_duplicates(keep='first')
+
+    # If no operation specified or understood, return the original DataFrame as a fallback
+    return df
+
+
+def handle_unique_identifiers(
+        df, threshold=0.95, action='drop', transform_func=None):
+    # Iterate over columns in the DataFrame
+    for column in df.columns:
+        # Calculate the proportion of unique values
+        unique_proportion = df[column].nunique() / len(df)
+
+        # If the proportion of unique values is above the threshold
+        if unique_proportion > threshold:
+            if action == 'drop':
+                # Drop the column from the DataFrame
+                df = df.drop(column, axis=1)
+            elif action == 'transform' and transform_func is not None:
+                # Apply the transformation function if provided
+                df[column] = df[column].apply(transform_func)
+
+    # Return the modified DataFrame
+    return df
+
+# Example usage
+if __name__ == "__main__":
+    # Create a sample DataFrame
+    data = pd.DataFrame({
+        'ID': range(100),  # Unique identifier
+        'Age': [20] * 25 + [30] * 25 + [40] * 25 + [50] * 25,
+        'Salary': [50000 + x for x in range(100)],
+    })
+
+    # Define a simple transformation function to demonstrate the transform option
+    def example_transform(x):
+        return f"ID_{x}"
+
+    # Handling unique identifiers by dropping them
+    result_drop = handle_unique_identifiers(data, threshold=0.9, action='drop')
+    print("DataFrame after dropping high-uniqueness columns:\n", result_drop.head())
+
+    # Handling unique identifiers by transforming them
+    result_transform = handle_unique_identifiers(data, threshold=0.9, action='transform', transform_func=example_transform)
+    print("DataFrame after transforming high-uniqueness columns:\n", result_transform.head())
+
+# Example usage
+if __name__ == "__main__":
+    # Create a sample DataFrame with duplicate rows
+    data = pd.DataFrame({
+        'A': [1, 2, 2, 4, 5, 1],
+        'B': [1, 2, 2, 4, 5, 1],
+        'C': [1, 2, 2, 4, 5, 1]
+    })
+
+    # Finding and returning duplicate rows
+    duplicates_df = handle_duplicates(data, return_duplicate_rows=True)
+    print("Duplicate Rows:\n", duplicates_df)
+
+    # Returning the indices of duplicate rows
+    duplicate_indices = handle_duplicates(data, return_indices=True)
+    print("Indices of Duplicate Rows:\n", duplicate_indices)
+
+    # Dropping duplicates and returning the cleaned DataFrame
+    cleaned_data = handle_duplicates(data, operation='drop')
+    print("Data without Duplicates:\n", cleaned_data)
+
+# Example usage
+if __name__ == "__main__":
+    # Create a sample DataFrame with skew
+    data = pd.DataFrame({
+        'A': np.random.normal(0, 2, 100),
+        'B': np.random.chisquare(2, 100),
+        'C': np.random.beta(2, 5, 100) * 60,  # positive and skewed
+        'D': np.random.uniform(-1, 0, 100)  # contains negative values
+    })
+
+    # Apply transformation
+    result_log = handle_skew(data.copy(), method='log')
+    result_sqrt = handle_skew(data.copy(), method='sqrt')
+    result_boxcox = handle_skew(data.copy(), method='box-cox')
+
+    print("Log-transformed:\n", result_log.head())
+    print("Square root-transformed:\n", result_sqrt.head())
+    print("Box-Cox transformed:\n", result_boxcox.head())
+
+
+    # Create a sample DataFrame
+    data = pd.DataFrame({
+        'A': [1, 2, 3, 4, 5],
+        'B': [1, 2, 3, 4, 5],
+        'C': [5, 4, 3, 2, 1],
+        'D': [2, 3, 2, 3, 2]
+    })
+
+    # Call the function to drop correlated features
+    result = drop_correlated_features(data, threshold=0.8)
+    print(result)
+
+
+    # Create a sample DataFrame
+    data = pd.DataFrame({
+        'A': [1, 2, 3, 4, 5],
+        'B': [1, 2, 3, 4, 5],
+        'C': [5, 4, 3, 2, 1],
+        'D': [2, 3, 2, 3, 2]
+    })
+
+    # Call the function
+    result = correlation_ops(data, correlation_type='strong positive')
+    print("Strong Positive Correlations:", result)
+
+    import pandas as pd
+    #from gofast.tools.dataops import data_assistant 
+    # Create a sample DataFrame
+    df = pd.DataFrame({
+        'Age': [25, 30, 35, 40, None],
+        'Salary': [50000, 60000, 70000, 80000, 90000],
+        'City': ['New York', 'Los Angeles', 'San Francisco', 'Houston', 'Seattle']
+    })
+    # Call the assistant function
+    data_assistant(df)
+
+
+
+
+
+
+
+
+

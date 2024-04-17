@@ -4,11 +4,11 @@
 
 import pandas as pd
 
-from gofast.api.extension import isinstance_ 
-from gofast.api.formatter import DataFrameFormatter, MultiFrameFormatter
-from gofast.api.formatter import MetricFormatter, BoxFormatter, DescriptionFormatter
-from gofast.api.formatter import to_snake_case 
-from gofast.api.summary import Summary, ReportFactory, format_text, ModelSummary 
+from .extension import isinstance_ 
+from .formatter import DataFrameFormatter, MultiFrameFormatter
+from .formatter import MetricFormatter, BoxFormatter, DescriptionFormatter
+from .formatter import to_snake_case 
+from .summary import Summary, ReportFactory, format_text, ModelSummary 
 
 def assert_model_summary_has_title(summary_instance, expected_title, msg=None):
     """

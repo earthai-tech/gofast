@@ -5,7 +5,7 @@
 import itertools
 import numpy as np
 import pandas as pd 
-from ..api.types import List, Optional, Union, DataFrame 
+from .types import List, Optional, Union, DataFrame 
 
 __all__=[
     "Bundle", 

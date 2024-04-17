@@ -1709,7 +1709,7 @@ def format_iterable(attr):
             details = ", ".join([f"{key}={value}" for key, value in stats.items()])
             return ( 
                 f"DataFrame ({details}, n_rows={obj.shape[0]},"
-                " n_cols={obj.shape[1]}, dtypes={obj.dtypes.unique()})"
+                f" n_cols={obj.shape[1]}, dtypes={obj.dtypes.unique()})"
                 )
     
     if isinstance(attr, (list, tuple, set)) and all(

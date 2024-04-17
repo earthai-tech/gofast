@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
-import copy
-import warnings 
-from collections import defaultdict
-import itertools
-import random
 import re
+import copy
+import random
+import warnings 
+import itertools
+from collections import defaultdict
 from datetime import datetime, timedelta
+from typing import Tuple, Optional, Union
 import numpy as np 
 import pandas as pd 
-from typing import Tuple, Optional, Union
 
 from ..api.formatter import DescriptionFormatter
 from ..api.structures import Boxspace

@@ -11,6 +11,7 @@ import matplotlib.dates as mdates
 import pandas as pd
 import seaborn as sns
 
+from ..api.formatter import format_iterable 
 from ..api.property import BasePlot 
 from ..exceptions import NotFittedError 
 from ..tools.baseutils import smart_rotation  
@@ -388,7 +389,7 @@ class TimeSeriesPlotter(BasePlot):
 
 
     @ensure_pkg ( "statsmodels", extra =(
-        "'statsmodels' package is expected for 'plotDecomposition' to be feasible.")
+        "'statsmodels' library is expected for 'plotDecomposition' to be feasible.")
         )
     def plotDecomposition(
         self,
@@ -458,7 +459,7 @@ class TimeSeriesPlotter(BasePlot):
         
         plt.show()
         
-    def _set_plot_style(self, sns_style="whitegrid"):
+    def _set_plot_style(self):
         """
         Configures the default plot style for all visualizations created with 
         this plotting class. This method sets a consistent background grid and 
@@ -487,7 +488,7 @@ class TimeSeriesPlotter(BasePlot):
         >>> # use these aesthetic settings.
         """
         # Set the background grid style
-        sns.set_style(sns_style)
+        sns.set_style(self.sns_style or "whitegrid")
     
         # Apply figure size and font size settings from 
         # instance attributes or use defaults
@@ -1111,6 +1112,8 @@ class TimeSeriesPlotter(BasePlot):
     
         Examples
         --------
+        >>> import numpy as np 
+        >>> import pandas as pd 
         >>> from gofast.plot.ts import TimeSeriesPlotter
         >>> dates = pd.date_range(start="2020-01-01", periods=100, freq='D')
         >>> values = np.random.rand(100)
@@ -1183,6 +1186,8 @@ class TimeSeriesPlotter(BasePlot):
     
         Examples
         --------
+        >>> import numpy as np 
+        >>> import pandas as pd 
         >>> from gofast.plot.ts import TimeSeriesPlotter 
         >>> values = np.random.randn(100)
         >>> df = pd.DataFrame({'Value': values})
@@ -1252,6 +1257,7 @@ class TimeSeriesPlotter(BasePlot):
     
         Examples
         --------
+        >>> import numpy as np
         >>> from gofast.plot.ts import TimeSeriesPlotter 
         >>> dates = pd.date_range(start="2020-01-01", periods=10, freq='M')
         >>> values = np.random.rand(10)
@@ -1491,6 +1497,7 @@ class TimeSeriesPlotter(BasePlot):
 
         Examples
         --------
+        >>> import numpy as np
         >>> import pandas as pd
         >>> from gofast.plot.ts import TimeSeriesPlotter
         >>> # Creating a sample DataFrame with random numerical data for the heatmap
@@ -1615,6 +1622,7 @@ class TimeSeriesPlotter(BasePlot):
     
         Examples
         --------
+        >>> import numpy as np
         >>> import pandas as pd
         >>> from gofast.plot.ts import TimeSeriesPlotter
         >>> data = pd.Series([1, 2, 3, 4, 5, 6])
@@ -1681,6 +1689,7 @@ class TimeSeriesPlotter(BasePlot):
     
         Examples
         --------
+        >>> import numpy as np
         >>> import pandas as pd
         >>> from gofast.plot.ts import TimeSeriesPlotter
         >>> data = pd.DataFrame({
@@ -2412,7 +2421,7 @@ class TimeSeriesPlotter(BasePlot):
         plt.show()
 
     @ensure_pkg("plotly", extra= ( 
-        "`plotSunburst` expects 'plotly' package to be installed."
+        "`plotSunburst` expects 'plotly' library to be installed."
         )
     )
     def plotSunburst(
@@ -2487,8 +2496,8 @@ class TimeSeriesPlotter(BasePlot):
             path=path_col, 
             values=values_col, 
             color=color_col,
-            width=figsize[0], 
-            height=figsize[1],
+            width=figsize[0] or self.figsize[0], 
+            height=figsize[1] or self.figsize[1],
             title=title
         )
         # Adjust margins to fit the title
@@ -2856,21 +2865,48 @@ class TimeSeriesPlotter(BasePlot):
         target = ax if ax else plt
         target.grid(True, **grid_settings)
 
-    def __repr__(self): 
-        """ Represent the output class format """
-        self.date_col = getattr (self, 'date_col', '<N/A>')
-        self.value_col = getattr(self, 'value_col', '<N/A>')
-        return  "<{0!r}: date/time_col={1!r}, value_col={2!r}>".format(
-            self.__class__.__name__, self.date_col , self.value_col,
-            ) 
+    def __repr__(self):
+        """
+        Provides a string representation of the TimeSeriesPlotter instance that 
+        includes crucial information about its configuration, specifically the 
+        columns used for date and values and a preview of the data.
     
+        This method enhances the usability of logging and debugging by displaying
+        essential attributes of the TimeSeriesPlotter instance.
+    
+        Returns
+        -------
+        str
+            A formatted string that represents the configuration of the 
+            TimeSeriesPlotter instance.
+        """
+        # Ensure essential attributes are defined, else use placeholder '<N/A>'
+        date_col = getattr(self, 'date_col', '<N/A>')
+        value_col = getattr(self, 'value_col', '<N/A>')
+        data_repr = getattr(self, 'data', '<No data loaded>')
+    
+        # Format the data using a custom formatting function 
+        # if it's not '<No data loaded>'
+        data_str = ( 'Data not loaded' if data_repr == '<No data loaded>' 
+                    else format_iterable(data_repr)
+                    )
+    
+        # Create a formatted string that includes class name and attributes
+        return (
+            "<{class_name}: date_col={date_col!r}, value_col={value_col!r},"
+            " data={data_str}>").format(
+            class_name=self.__class__.__name__,
+            date_col=date_col,
+            value_col=value_col,
+            data_str=data_str
+        )
     
 TimeSeriesPlotter.__doc__+="""\
     
 A comprehensive plotting tool designed for time series data analysis. 
-This class provides a wide range of plotting methods to visualize different 
-aspects of time series data, from basic line plots to complex hierarchical 
-sunburst plots.
+`TimeSeriesPlotter` provides a wide range of plotting methods to visualize 
+different aspects of time series data, from basic line plots to complex 
+hierarchical sunburst plots.
 
 Attributes
 ----------
@@ -2960,8 +2996,8 @@ if __name__ == "__main__":
     df = pd.DataFrame({'Date': dates, 'Value': values})
 
     plotter = TimeSeriesPlotter().fit(df, 'Date', 'Value')
-    plotter.plotRollingMean()
-    plotter.plotAutocorrelation()
+    plotter.plotRollingMeanStd()
+    plotter.plotAutoCorrelation()
     plotter.plotPACF()
     plotter.plotDecomposition()
     
@@ -2971,8 +3007,8 @@ if __name__ == "__main__":
 
     plotter = TimeSeriesPlotter().fit(df, 'Date', 'Value')
     plotter.plotArea()
-    plotter.heatmap_correlation()
-    plotter.lag_plot()
+    plotter.heatmapCorrelation()
+    plotter.plotLag()
     
     dates = pd.date_range(start="2020-01-01", end="2020-12-31", freq='M')
     values = np.random.rand(len(dates))
