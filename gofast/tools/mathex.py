@@ -22,6 +22,7 @@ from scipy.spatial.distance import pdist, squareform
 import  matplotlib.pyplot as plt
 
 from .._gofastlog import gofastlog
+from ..api.box import KeyBox
 from ..api.docstring import refglossary
 from ..api.types import (
     _T, 
@@ -41,7 +42,6 @@ from ..api.types import (
 from ..decorators import AppendDocReferences
 from ..exceptions import SiteError
 from ._arraytools import axis_slice
-from .box import KeyBox 
 from .coreutils import (
     _assert_all_types, 
     _validate_name_in, 

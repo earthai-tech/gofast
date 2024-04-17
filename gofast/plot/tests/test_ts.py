@@ -60,8 +60,8 @@ except ImportError:
 #     plotter = TimeSeriesPlotter()
 #     plotter.fit(data=df, date_col='Date', value_col='Value')
 
-#     # Test plotRollingMean
-#     plotter.plotRollingMean(window=10)
+#     # Test plotRollingMeanStd
+#     plotter.plotRollingMeanStd(window=10)
 
 #     # Check if figure functions are called the expected number of times
 #     assert mock_figure.call_count == 5, ( 

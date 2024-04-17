@@ -1606,7 +1606,7 @@ def audit_data(
 
     # Handling outliers
     if handle_outliers:
-        update_report(handle_outliers_in_data(
+        update_report(handle_outliers_in(
             data, method=outliers_method, replace_with=replace_with,
             lower_quantile=assert_ratio(lower_quantile),
             upper_quantile=assert_ratio(upper_quantile),
@@ -1947,7 +1947,7 @@ def scale_data(
     report_obj.add_mixed_types(report, table_width= 90,)
     return (data, report_obj) if return_report else data
 
-def handle_outliers_in_data(
+def handle_outliers_in(
     data: DataFrame, /, 
     method: str = 'clip', 
     replace_with: str = 'median', 
@@ -4189,8 +4189,7 @@ def analyze_data_corr(
     numeric_df = data.select_dtypes(include=[np.number])
     if numeric_df.empty:
         raise ValueError("No numeric data found in the DataFrame.")
-        # Return an empty string if no numeric data
- 
+        
     # Compute the correlation matrix
     method = method.lower() if isinstance (method, str) else method  
     correlation_matrix = numeric_df.corr(method = method, min_periods = min_periods)
@@ -4214,48 +4213,69 @@ def analyze_data_corr(
         )
     return summary
 
-
 @Dataify(auto_columns=True)
-def data_assistant(data: pd.DataFrame, view: bool=False):
+def data_assistant(data: DataFrame, view: bool=False):
     """
-    Analyze a pandas DataFrame like a data science expert, offering insights,
-    identifying issues, and recommending actions to prepare the data for
-    modeling.
+    Performs an in-depth analysis of a pandas DataFrame, providing insights,
+    identifying data quality issues, and suggesting corrective actions to
+    optimize the data for statistical modeling and analysis. The function 
+    generates a report that includes recommendations and possible actions 
+    based on the analysis.
 
     The function performs a comprehensive analysis on the DataFrame, including
     checks for data integrity, descriptive statistics, correlation analysis, 
-    and more. It provides recommendations for each identified issue along with 
-    suggestions for modules and functions that could be used to resolve these 
-    issues. This function is meant to assist users in understanding their data 
-    better and preparing it for further modeling steps.
+    and more, `data_assistant` provides recommendations for each identified 
+    issue along with suggestions for modules and functions that could be 
+    used to resolve these issues. In otherwords, function is meant to assist 
+    users in understanding their data better and preparing it for further 
+    modeling steps.
 
     Parameters
     ----------
     data : pandas.DataFrame
-        The DataFrame to analyze.
+        The DataFrame to be analyzed. This function expects a pandas DataFrame
+        populated with data that can be numerically or categorically analyzed.
+
+    view : bool, optional
+        A boolean flag that, when set to True, enables the visualization of
+        certain data aspects such as distribution plots and correlation matrices.
+        Defaults to False, which means no visualizations are displayed.
 
     Returns
     -------
     None
-        The function prints analysis results and recommendations directly,
-        aiming to guide the user rather than modifying the data.
+        Function does not return any value; instead, it prints a detailed
+        report directly to the console. The report includes sections on data
+        integrity, descriptive statistics, and potential issues along with
+        suggestions for data preprocessing steps.
 
     Examples
     --------
     >>> import pandas as pd
+    >>> from gofast.tools.dataops import data_assistant
     >>> df = pd.DataFrame({
     ...     'Age': [25, 30, 35, 40, None],
     ...     'Salary': [50000, 60000, 70000, 80000, 90000],
     ...     'City': ['New York', 'Los Angeles', 'San Francisco', 'Houston', 'Seattle']
     ... })
-    >>> data_science_assistant(df)
+    >>> data_assistant(df)
 
     Notes
     -----
-    This assistant function is primarily educational and diagnostic. It does not
-    perform any data modification or in-place corrections. Users should follow
-    the recommendations and use the suggested tools and functions to prepare
-    their data for modeling.
+    The `data_assistant` function is designed to assist in the preliminary analysis
+    phase of data processing, offering a diagnostic view of the data's quality and
+    structure. It is particularly useful for identifying and addressing common
+    data issues before proceeding to more complex data modeling or analysis tasks.
+
+    It is recommended to review the insights and apply the suggested transformations
+    or corrections to ensure the data is optimally prepared for further analysis
+    or machine learning modeling.
+
+    See Also
+    --------
+    gofast.tools.dataops.inspect_data : A related function that provides a deeper
+    dive into data inspection with more customizable features.
+    
     """
     # Get the current datetime
     current_datetime = datetime.datetime.now()
@@ -4300,7 +4320,9 @@ def data_assistant(data: pd.DataFrame, view: bool=False):
     if len(zero_var_cols) > 0:
         texts ["3. Checking zero variance features"]="Failed"
         texts ["   #  Found zero variance columns?"]="yes"
-        texts["   #  Zeros variances columns"]=f"{smart_format(zero_var_cols.tolist())}"
+        texts["   #  Zeros variances columns"]=( 
+            f"{smart_format(zero_var_cols.tolist())}"
+            )
         
         recommendations["3. rec-zero variances features"]=(
             "Zero variance features offer no useful information for modeling"
@@ -4313,7 +4335,6 @@ def data_assistant(data: pd.DataFrame, view: bool=False):
             "Use: `pandas.DataFrame.drop(columns =<zero_var_cols>)`")
         
     # Data types analysis
-    # print("Data types summary:\n", data.dtypes.value_counts())
     texts["4. Data types summary"]="Passed"
     if (data.dtypes == 'object').any():
         texts["   #  Summary types"]="Include string or mixed types"
@@ -4331,15 +4352,16 @@ def data_assistant(data: pd.DataFrame, view: bool=False):
             " to be used in these models.")
         helper_funcs ["4. help-non-numeric data"]=( 
             "Use: `pandas.get_dummies()`, `sklearn.preprocessing.LabelEncoder`"
-            " `gofast.tools.codify_variables`, `gofast.tools.handle_categorical_features`"
-            " and more ...") 
+            " `gofast.tools.codify_variables`,"
+            " `gofast.tools.handle_categorical_features` and more ..."
+            ) 
         
     # Correlation analysis
     texts["5. Correlation analysis"]="Passed"
     numeric_data = data.select_dtypes(include=[np.number])
     texts["   #  Numeric corr-feasible features"]=format_iterable(numeric_data)
     if numeric_data.shape[1] > 1:
-        # print("Correlation Matrix:\n", numeric_data.corr())
+ 
         texts["   #  Correlation matrix review"]="yes"
         if view: 
             sns.heatmap(numeric_data.corr(), annot=True, cmap='coolwarm')
@@ -4379,7 +4401,7 @@ def data_assistant(data: pd.DataFrame, view: bool=False):
     if skew_cols : 
         texts["   #  Outliers found?"]="yes"
         texts["   #  Skewness columns"]=', '.join(
-            [ "{skew}-{val:.4f}" for skew, val in  skew_cols ]) 
+            [ f"{skew}-{val:.4f}" for skew, val in  skew_cols ]) 
         recommendations["6. rec-distribution ~ skewness"]= (
             "Skewness can distort the mean and standard deviation of the data."
             " Measures of skewed data do not accurately represent the center"
@@ -4469,17 +4491,17 @@ def data_assistant(data: pd.DataFrame, view: bool=False):
     else:
         # Provide actionable steps when there are recommendations
         # and/or helper functions
+        report_txt["NOTE"] = "-" * 12
         report_txt["TO DO"] = (
             "Review the insights and recommendations provided to effectively"
             " prepare your data for modeling. For more in-depth analysis,"
             " utilize tools such as `gofast.tools.inspect_data`."
         )
 
-    assistance_report = ReportFactory("Assistance Data Report").add_mixed_types(
+    assistance_report = ReportFactory(" Data Assistant Report").add_mixed_types(
         report_txt, table_width= 100  )
     
     print(assistance_report)
-
 
 def correlation_ops(
     data: DataFrame, 
@@ -4557,7 +4579,8 @@ def correlation_ops(
     --------
     pandas.DataFrame.corr : Compute pairwise correlation of columns.
     MultiFrameFormatter : A custom formatter for displaying correlated pairs.
-    analyze_data_corr : A predefined function for computing and summarizing correlations.
+    analyze_data_corr : A predefined function for computing and summarizing 
+                      correlations.
     """
 
     # Compute the correlation matrix using a predefined analysis function
@@ -4568,7 +4591,10 @@ def correlation_ops(
         print(corr_summary)
     
     corr_matrix = corr_summary.corr_matrix
-    # 
+    # validate correlation_type parameter 
+    correlation_type = parameter_validator('correlation_type',
+        ["all","strong only", "strong positive", "strong negative", "moderate" ]
+        )(correlation_type)
     # Storage for correlation pairs
     strong_positives, strong_negatives, moderates = [], [], []
 
@@ -4612,7 +4638,8 @@ def correlation_ops(
         setattr(formatted_report, "correlated_pairs", dfs)
         return formatted_report
     else:
-        insights=ReportFactory().add_recommendations(
+        insights=ReportFactory(title=f"Correlation Type: {correlation_type}"
+                               ).add_recommendations(
             (
             "No significant correlations detected in the provided dataset. "
             "This may indicate that data variables act independently of each other "
@@ -4622,30 +4649,54 @@ def correlation_ops(
             keys= 'Actionable Insight', max_char_text= 90
             )
         return insights
-
-def drop_correlated_features(df, threshold=0.8, **corr_kws):
+    
+@Dataify (auto_columns=True)    
+def drop_correlated_features(
+    data: DataFrame, 
+    method: str | Callable[[ArrayLike, ArrayLike], float] = 'pearson', 
+    threshold: float = 0.8, 
+    display_corrtable: bool = False, 
+    **corr_kws
+    ):
     """
-    Removes features from the DataFrame that are highly correlated with others,
-    based on a specified correlation threshold. This helps to reduce multicollinearity
-    in the dataset, which can improve the performance and interpretability of 
-    subsequent modeling.
+    Analyzes and removes highly correlated features from a DataFrame to reduce 
+    multicollinearity, improving the reliability and performance of subsequent 
+    statistical models. This function allows for customization of the correlation 
+    computation method and the threshold for feature removal.
 
     Parameters
     ----------
-    df : pandas.DataFrame
+    data : pandas.DataFrame
         The DataFrame from which correlated features are to be removed.
+    method : {'pearson', 'kendall', 'spearman'} or callable, optional
+        Method of correlation to be used. The method can be one of 'pearson' 
+        (default), 'kendall', 'spearman', or a callable with the signature 
+        Callable[[ArrayLike, ArrayLike], float] providing a custom correlation 
+        computation. The default is 'pearson', which assesses linear 
+        relationships.
     threshold : float, optional
-        The correlation threshold above which a pair of features is considered
-        highly correlated and one of the features will be removed. Defaults to 0.8.
+        The correlation coefficient threshold above which one of the features 
+        in a pair will be removed. Defaults to 0.8, where features with a 
+        correlation coefficient higher than this value are considered highly 
+        correlated.
+    display_corrtable : bool, optional
+        If set to True, the correlation matrix is printed before removing 
+        correlated features. This can be useful for visualization and manual 
+        review of the correlation values. Defaults to False.
+    **corr_kws : dict
+        Additional keyword arguments to be passed to the 
+        :func:`analyze_data_corr` correlation function.
 
     Returns
     -------
     pandas.DataFrame
-        A new DataFrame with highly correlated features removed.
+        Returns a DataFrame with the highly correlated features removed based 
+        on the specified threshold.
 
     Examples
     --------
     >>> import pandas as pd
+    >>> from gofast.tools.dataops import drop_correlated_features
     >>> data = pd.DataFrame({
     ...     'A': [1, 2, 3, 4, 5],
     ...     'B': [2, 2, 3, 4, 4],
@@ -4657,61 +4708,112 @@ def drop_correlated_features(df, threshold=0.8, **corr_kws):
 
     Notes
     -----
-    This function is particularly useful in preprocessing steps for statistical 
-    modeling and machine learning, where multicollinearity can obscure the 
-    interpretation of feature importance and impact model performance. By 
-    removing highly correlated features, models are often simpler and more 
-    stable.
+    Removing correlated features is a common preprocessing step to avoid 
+    multicollinearity, which can distort the estimates of a model's parameters 
+    and affect the interpretability of variable importance. This function 
+    is particularly useful in the preprocessing steps for statistical modeling 
+    and machine learning.
 
-    The decision on the threshold value should depend on the context and specific 
-    requirements of the modeling process. A lower threshold might remove more 
-    features, potentially simplifying the model but also losing information.
+    The choice of correlation method and threshold should be guided by specific 
+    analytical needs and the nature of the dataset. Lower thresholds increase 
+    the number of features removed, potentially simplifying the model but at 
+    the risk of losing important information.
 
     See Also
     --------
-    pandas.DataFrame.corr : Compute pairwise correlation of columns.
+    pandas.DataFrame.corr : Method to compute pairwise correlation of columns.
+    gofast.tools.dataops.analyze_data_corr: Function to analyze correlations 
+    with more detailed options and outputs.
     """
     # Compute the correlation matrix using a predefined analysis function
     corr_summary = analyze_data_corr(
-        data, method=method, min_periods=min_periods, 
-        high_corr=threshold,  **corr_kws)
+        data, method=method, high_corr=threshold,  **corr_kws)
     
     if display_corrtable:
         print(corr_summary)
-    
-    corr_matrix = corr_summary.corr_matrix
-    
+        
     # Compute the absolute correlation matrix and the upper triangle
-    corr_matrix = df.corr(method=method, min_periods=min_periods).abs()
+    corr_matrix = corr_summary.corr_matrix.abs()
     upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
 
     # Identify columns to drop based on the threshold
     to_drop = [column for column in upper.columns if any(upper[column] > threshold)]
 
     # Drop the identified columns and return the reduced DataFrame
-    df_reduced = df.drop(to_drop, axis=1)
+    df_reduced = data.drop(to_drop, axis=1)
+    
     return df_reduced
 
-def drop_correlated_features(df, threshold=0.8):
-    # Calculate the correlation matrix
-    corr_matrix = df.corr().abs()
+@Dataify (auto_columns=True)
+def handle_skew(data: DataFrame, method: str = 'log'):
+    """
+    Applies a specified transformation to numeric columns in the DataFrame 
+    to correct for skewness. This function supports logarithmic, square root,
+    and Box-Cox transformations, helping to normalize data distributions and 
+    improve the performance of many statistical models and machine learning 
+    algorithms.
 
-    # Find the indices of the features that are highly correlated
-    upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame containing numeric data that may exhibit skewness.
+    method : {'log', 'sqrt', 'box-cox'}, optional
+        The method of transformation to apply:
+        - 'log' : Applies the natural logarithm transformation. Suitable for data
+                  that is positively skewed. Cannot be applied to zero or 
+                  negative values.
+        - 'sqrt': Applies the square root transformation. Suitable for reducing 
+                  moderate skewness. Cannot be applied to negative values.
+        - 'box-cox': Applies the Box-Cox transformation which can handle broader
+                     ranges and types of skewness but requires all data points to be
+                     positive. If any data points are not positive, a generalized
+                     Yeo-Johnson transformation (handled internally) is applied
+                     instead.
+        Default is 'log'.
 
-    # Find columns with correlation greater than the threshold
-    to_drop = [column for column in upper.columns if any(upper[column] > threshold)]
+    Returns
+    -------
+    pandas.DataFrame
+        The DataFrame with transformed data to address skewness in numeric 
+        columns.
 
-    # Drop the highly correlated columns
-    df_reduced = df.drop(to_drop, axis=1)
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.tools.dataops import handle_skew
+    >>> data = pd.DataFrame({
+    ...     'A': [0.1, 1.5, 3.0, 4.5, 10.0],
+    ...     'B': [-1, 2, 5, 7, 9]
+    ... })
+    >>> transformed_data = handle_skew(data, method='log')
+    >>> print(transformed_data)
 
-    return df_reduced
+    Notes
+    -----
+    Skewness in a dataset can lead to biases in machine learning and statistical 
+    models, especially those that assume normality of the data distribution. By 
+    transforming skewed data, this function helps mitigate such issues, enhancing 
+    model accuracy and robustness.
 
-def handle_skew(data, method='log'):
+    It is important to understand the nature of your data and the requirements of
+    your specific models when choosing a transformation method. Some methods, like
+    'log', cannot handle zero or negative values without adjustments.
+
+    See Also
+    --------
+    scipy.stats.boxcox : For more details on the Box-Cox transformation.
+    sklearn.preprocessing.PowerTransformer : Implements both the Box-Cox transformation
+                                             and the Yeo-Johnson transformation.
+    """
     from sklearn.preprocessing import PowerTransformer
-    # Apply the specified transformation to each numeric column in the DataFrame
+
+    # Validate and apply the chosen method to each numeric column
+    method = parameter_validator('method', ["log", "sqrt", "box-cox"])(method)
+    # validate skew method 
+    [validate_skew_method(data[col], method) for col in data.columns ]
     for column in data.select_dtypes(include=['int64', 'float64']):
-        if data[column].min() <= 0:  # Adjusting data for log and Box-Cox transformations
+        # Adjust for non-positive values where necessary
+        if data[column].min() <= 0:  
             data[column] += (-data[column].min() + 1)
 
         if method == 'log':
@@ -4723,53 +4825,312 @@ def handle_skew(data, method='log'):
             if data[column].min() > 0:
                 data[column], _ = stats.boxcox(data[column])
             else:
-                # Using a generalized Yeo-Johnson transformation if Box-Cox is not possible
+                # Using a generalized Yeo-Johnson transformation 
+                # if Box-Cox is not possible
                 pt = PowerTransformer(method='yeo-johnson')
                 data[column] = pt.fit_transform(data[[column]]).flatten()
+
     return data
 
+def validate_skew_method(data: Series, method: str):
+    """
+    Validates the appropriateness of a skewness correction method based on the
+    characteristics of the data provided. It ensures that the chosen method can
+    be applied given the nature of the data's distribution, such as the presence
+    of non-positive values which may affect certain transformations.
+
+    Parameters
+    ----------
+    data : pandas.Series
+        A Series containing the data to be checked for skewness correction.
+    method : str
+        The method of transformation intended to correct skewness:
+        - 'log' : Natural logarithm, requires all positive values.
+        - 'sqrt': Square root, requires non-negative values.
+        - 'box-cox': Box-Cox transformation, requires all positive values.
+          Falls back to Yeo-Johnson if non-positive values are found.
+
+    Raises
+    ------
+    ValueError
+        If the selected method is not suitable for the data based on its values.
+
+    Returns
+    -------
+    str
+        A message confirming the method's suitability or suggesting an
+        alternative.
+
+    Example
+    -------
+    >>> import pandas as pd 
+    >>> from gofast.tools.dataops import validate_skew_method
+    >>> data = pd.Series([0.1, 1.5, 3.0, 4.5, 10.0])
+    >>> print(validate_skew_method(data, 'log'))
+    >>> data_with_zeros = pd.Series([0, 1, 2, 3, 4])
+    >>> print(validate_skew_method(data_with_zeros, 'log'))
+    """
+    if not isinstance(data, pd.Series):
+        raise TypeError(f"Expected a pandas Series, but got"
+                        f" {type(data).__name__!r} instead.")
+
+    min_value = data.min()
+    if method == 'log':
+        if min_value <= 0:
+            raise ValueError(
+                "Log transformation requires all data points to be positive. "
+                "Consider using 'sqrt' or 'box-cox' method instead.")
+    elif method == 'sqrt':
+        if min_value < 0:
+            raise ValueError(
+                "Square root transformation requires all data points"
+                " to be non-negative. Consider using 'box-cox' or a specific"
+                " transformation that handles negative values.")
+    elif method == 'box-cox':
+        if min_value <= 0:
+            return ("Box-Cox transformation requires positive values, but"
+                    " non-positive values are present. Applying Yeo-Johnson"
+                    " transformation instead as a fallback.")
+    else:
+        raise ValueError("Unsupported method provided. Choose"
+                         " from 'log', 'sqrt', or 'box-cox'.")
+
+    return f"The {method} transformation is appropriate for this data."
+
+@isdf
+def check_skew_methods_applicability(
+        data: DataFrame) -> Dict[str, List[str]]:
+    """
+    Evaluates each numeric column in a DataFrame to determine which skew
+    correction methods are applicable based on the data's characteristics. 
+    It utilizes the `validate_skew_method` function to check the applicability
+    of 'log', 'sqrt', and 'box-cox' transformations for each column.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame whose columns are to be evaluated for skew correction
+        applicability.
+
+    Returns
+    -------
+    Dict[str, List[str]]
+        A dictionary where keys are column names and values are lists of 
+        applicable skew correction methods.
+
+    Example
+    -------
+    >>> import pandas as pd
+    >>> from gofast.tools.dataops import check_skew_methods_applicability
+    >>> df = pd.DataFrame({
+    ...     'A': [0.1, 1.5, 3.0, 4.5, 10.0],
+    ...     'B': [1, 2, 3, 4, 5],
+    ...     'C': [-1, -2, -3, -4, -5],
+    ...     'D': [0, 0, 1, 2, 3]
+    ... })
+    >>> applicable_methods = check_skew_methods_applicability(df)
+    >>> print(applicable_methods)
+    """
+    applicable_methods = {}
+    for column in data.select_dtypes(include=[np.number]):
+        methods = []
+        for method in ['log', 'sqrt', 'box-cox']:
+            try:
+                validate_skew_method(data[column], method)
+                methods.append(method)
+            except ValueError as e:
+                 # Optionally log or handle this information
+                print(f"Column '{column}': {str(e)}") 
+
+        applicable_methods[column] = methods
+
+    return applicable_methods
+
+@Dataify(auto_columns=True)
 def handle_duplicates(
-        df, return_duplicate_rows=False, return_indices=False, operation='drop'):
-    # Identify all duplicates based on all columns
-    duplicates = df.duplicated(keep=False)
+    data: DataFrame, 
+    return_duplicate_rows: bool=False, 
+    return_indices: bool=False, 
+    operation: str='drop'
+    ):
+    """
+    Handles duplicate rows in a DataFrame based on user-specified options.
     
-    # Check if the user requested the DataFrame of duplicate rows
+    This function can return a DataFrame containing duplicate rows, the indices
+    of these rows, or remove duplicates based on the specified operation.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame in which to handle duplicates.
+    return_duplicate_rows : bool, optional
+        If True, returns a DataFrame containing all duplicate rows. 
+        This parameter takes precedence over `return_indices` and `operation`
+        if set to True.
+        Defaults to False.
+    return_indices : bool, optional
+        If True, returns a list of indices of duplicate rows. This will only
+        take effect if `return_duplicate_rows` is False and takes precedence
+        over `operation`.
+        Defaults to False.
+    operation : {'drop', 'none'}, optional
+        Specifies the operation to perform on duplicate rows:
+        - 'drop': Removes all duplicate rows, keeping the first occurrence.
+        - 'none': No operation on duplicates; the original DataFrame is returned.
+        Defaults to 'drop'.
+
+    Returns
+    -------
+    pandas.DataFrame or list
+        Depending on the parameters provided, this function may return:
+        - A DataFrame of duplicates if `return_duplicate_rows` is True.
+        - A list of indices of duplicate rows if `return_indices` is True.
+        - A DataFrame with duplicates removed if `operation` is 'drop'.
+        - The original DataFrame if `operation` is 'none'.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.tools.dataops import handle_duplicates
+    >>> data = pd.DataFrame({
+    ...     'A': [1, 2, 2, 4, 5, 1],
+    ...     'B': [1, 2, 2, 4, 5, 1]
+    ... })
+    >>> print(handle_duplicates(data, return_duplicate_rows=True))
+    >>> print(handle_duplicates(data, return_indices=True))
+    >>> print(handle_duplicates(data, operation='drop'))
+
+    Notes
+    -----
+    The function is designed to handle duplicates flexibly, allowing users to
+    explore, identify, or clean duplicates based on their specific requirements. 
+    It is useful in data cleaning processes where duplicates might skew the results
+    or affect the performance of data analysis and predictive modeling.
+
+    See Also
+    --------
+    pandas.DataFrame.duplicated : Check for duplicate rows in a DataFrame.
+    pandas.DataFrame.drop_duplicates : Remove duplicate rows from a DataFrame.
+    """
+    operation = parameter_validator('operation', ["drop", "none"])(operation)
+    # Identify all duplicates based on all columns
+    duplicates = data.duplicated(keep=False)
+    
+    # Return DataFrame of duplicate rows if requested
     if return_duplicate_rows:
-        return df[duplicates]
+        return data[duplicates]
 
-    # Check if the user requested the indices of duplicate rows
+    # Return indices of duplicate rows if requested
     if return_indices:
-        return df[duplicates].index.tolist()
+        return data[duplicates].index.tolist()
 
-    # If the operation is specified as 'drop', remove duplicate rows
+    # Remove duplicate rows if operation is 'drop'
     if operation == 'drop':
-        return df.drop_duplicates(keep='first')
+        return data.drop_duplicates(keep='first')
 
-    # If no operation specified or understood, return the original DataFrame as a fallback
-    return df
-
+    # Return the original DataFrame if no operation
+    # is specified or understood
+    return data
 
 def handle_unique_identifiers(
-        df, threshold=0.95, action='drop', transform_func=None):
+    data: DataFrame,
+    threshold: float = 0.95, 
+    action: str = 'drop', 
+    transform_func: Optional[Callable[[any], any]] = None
+    ) -> pd.DataFrame:
+    """
+    Examines columns in the DataFrame and handles columns with a high proportion 
+    of unique values. These columns can be either dropped or transformed based 
+    on specified criteria, facilitating better data analysis and modeling 
+    performance by reducing the number of effectively useless features.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame to process for unique identifier columns.
+    threshold : float, optional
+        The proportion threshold above which a column is considered to have too 
+        many unique values (default is 0.95). If the proportion of unique values 
+        in a column exceeds this threshold, an action is taken based on the 
+        'action' parameter.
+    action : str, optional
+        The action to perform on columns exceeding the unique value threshold:
+        - 'drop': Removes the column from the DataFrame.
+        - 'transform': Applies a function specified by 'transform_func' to the column.
+        Default is 'drop'.
+    transform_func : Callable[[any], any], optional
+        A function to apply to columns where the 'action' is 'transform'. This function 
+        should take a single value and return a transformed value. If 'action' is 
+        'transform' and 'transform_func' is None, no transformation is applied.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The DataFrame with columns modified according to the specified action and 
+        threshold.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> data = pd.DataFrame({
+    ...     'ID': range(1000),
+    ...     'Age': [25, 30, 35] * 333 + [40],
+    ...     'Salary': [50000, 60000, 75000, 90000] * 250
+    ... })
+    >>> processed_data = handle_unique_identifiers(data, action='drop')
+    >>> print(processed_data.columns)
+
+    >>> def cap_values(val):
+    ...     return min(val, 100)  # Cap values at 100
+    >>> processed_data = handle_unique_identifiers(data, action='transform', 
+    ...                                           transform_func=cap_values)
+    >>> print(processed_data.head())
+
+    Notes
+    -----
+    Handling columns with a high proportion of unique values is essential in data 
+    preprocessing, especially when preparing data for machine learning models. 
+    High-cardinality features may lead to overfitting and generally provide little 
+    predictive power unless they can be meaningfully transformed.
+
+    See Also
+    --------
+    pandas.DataFrame.nunique : Count distinct observations over requested axis.
+    pandas.DataFrame.apply : Apply a function along an axis of the DataFrame.
+    """
+    action = parameter_validator('action', ["drop", "transform"])(action)
     # Iterate over columns in the DataFrame
-    for column in df.columns:
+    for column in data.columns:
         # Calculate the proportion of unique values
-        unique_proportion = df[column].nunique() / len(df)
+        unique_proportion = data[column].nunique() / len(data)
 
         # If the proportion of unique values is above the threshold
         if unique_proportion > threshold:
             if action == 'drop':
                 # Drop the column from the DataFrame
-                df = df.drop(column, axis=1)
+                data = data.drop(column, axis=1)
             elif action == 'transform' and transform_func is not None:
                 # Apply the transformation function if provided
-                df[column] = df[column].apply(transform_func)
+                data[column] = data[column].apply(transform_func)
 
     # Return the modified DataFrame
-    return df
+    return data
 
-# Example usage
 if __name__ == "__main__":
+    # Example usage of the function
+
+    data_positive = pd.Series([0.1, 1.5, 3.0, 4.5, 10.0])
+    try:
+        print(validate_skew_method(data_positive, 'log'))
+    except ValueError as e:
+        print(e)
+
+    data_with_negatives = pd.Series([-1, 2, 5, 7, 9])
+    try:
+        print(validate_skew_method(data_with_negatives, 'sqrt'))
+    except ValueError as e:
+        print(e)
+            
     # Create a sample DataFrame
     data = pd.DataFrame({
         'ID': range(100),  # Unique identifier
@@ -4786,7 +5147,8 @@ if __name__ == "__main__":
     print("DataFrame after dropping high-uniqueness columns:\n", result_drop.head())
 
     # Handling unique identifiers by transforming them
-    result_transform = handle_unique_identifiers(data, threshold=0.9, action='transform', transform_func=example_transform)
+    result_transform = handle_unique_identifiers(
+        data, threshold=0.9, action='transform', transform_func=example_transform)
     print("DataFrame after transforming high-uniqueness columns:\n", result_transform.head())
 
 # Example usage
