@@ -19,9 +19,12 @@ Created on Sat Feb  3 20:58:51 2024
 from ..models._deep_selection import HyperbandSearchCV
 from ..models import selection 
 from .. import models 
+from .. import model_selection 
 
 # use settattr to avoid mypy errors when monkeypatching
 setattr ( models, 'selection', selection )
 setattr ( models.selection, "HyperbandSearchCV", HyperbandSearchCV )
+setattr ( model_selection, "HyperbandSearchCV", HyperbandSearchCV )
 
 models.selection.__all__ += ["HyperbandSearchCV"]
+model_selection.__all__.extend(["HyperbandSearchCV"])

@@ -2,7 +2,7 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 import re 
-import copy
+import copy as Copy
 import warnings
 
 class RegexMap:
@@ -142,7 +142,8 @@ class MetaLen(type):
 
 def rename_instance_class(
     instance, new_name: str, 
-    deep=False, clone_instance=True, 
+    deep=False, 
+    clone_instance=True, 
     return_type='instance'
     ):
     """
@@ -183,12 +184,10 @@ def rename_instance_class(
     'KeyBox'
     >>> modified_obj = rename_instance_class(obj, "nPCA", return_type='instance')
     >>> print(modified_obj.__class__.__name__)
-    'nPCA'
+    'KeyBox'  # Remains unchanged when return_type is 'instance'
     >>> new_class = rename_instance_class(obj, "nPCA", return_type='class')
     >>> print(new_class.__name__)
     'nPCA'
-    >>> print(obj.__class__.__name__)
-    'KeyBox'  # Remains unchanged when return_type is 'class'
     
     Notes
     -----
@@ -219,28 +218,39 @@ def rename_instance_class(
         instance.__class__ = new_class
         return instance if return_type == 'instance' else new_class
 
-def clone(instance, new_name=None, copy_type='deep'):
+def clone(instance, new_name=None, copy='deep', return_type="instance"):
     """
-    Creates a copy of an instance, with options for deep or shallow copying,
-    and optionally renames the new instance.
+    Creates a copy of an instance with options for either deep or shallow copying,
+    and optionally renames the class of the new instance.
 
     Parameters
     ----------
     instance : object
-        The instance to be cloned.
+        The instance to be cloned. This can be any Python object that supports
+        deep or shallow copying.
     new_name : str, optional
-        If provided, the cloned instance's class will be renamed to this new name.
-        This affects only the cloned instance if 'deep' copy is used.
-    copy_type : str, optional
-        Type of copy to perform: 'deep' for a deepcopy (default) which duplicates
-        all data recursively, 'shallow' for a shallow copy which duplicates only
-        the top-level container.
-
+        Specifies a new name for the class of the cloned instance. If provided,
+        a new class with this name will be created and assigned to the 
+        cloned instance.
+        This only affects the cloned instance, ensuring that other instances 
+        of the original class are not affected.
+    copy: str, optional
+        Determines the type of copy performed on the instance:
+        - ``'deep'`` (default) - A deep copy of the instance is created, copying 
+          all nested objects. 
+        - ``'shallow'`` - Only the top-level container is copied; nested 
+          objects are shared between the original and the copy.
+    return_type : str, optional
+        Indicates whether to return the modified instance or the new class 
+        itself. The default "instance" returns the modified instance, while 
+        "class" would return just the new class.
+        
     Returns
     -------
     object
-        A new instance that is a copy of the original instance, potentially with
-        a new class name.
+        The cloned instance with potentially a new class name, depending on the
+        provided arguments. If `return_type` is set to "class", it returns the new
+        class type created for the cloned instance.
 
     Examples
     --------
@@ -250,10 +260,10 @@ def clone(instance, new_name=None, copy_type='deep'):
     ...         self.data = data
     ...
     >>> obj = ExampleClass([1, 2, 3])
-    >>> cloned_obj = clone(obj, new_name="NewClassName")
+    >>> cloned_obj = clone(obj, new_name="NewClassName", copy_type='deep')
     >>> print(cloned_obj.__class__.__name__)
     'NewClassName'
-    >>> cloned_obj.data
+    >>> print(cloned_obj.data)
     [1, 2, 3]
 
     Notes
@@ -261,21 +271,112 @@ def clone(instance, new_name=None, copy_type='deep'):
     If `new_name` is provided and `copy_type` is 'deep', the new class of the
     cloned instance will not affect other instances of the original class.
     With 'shallow', renaming affects all instances due to the shared class.
+    
+    Renaming the class of a cloned instance when using a shallow copy may 
+    lead to unexpected behavior since other instances from the same original 
+    class will not see their class name changed. 
+    Use the `deep` copy_type to ensure full independence of the cloned instance.
     """
-    if copy_type == 'deep':
-        cloned_instance = copy.deepcopy(instance)
-    elif copy_type == 'shallow':
-        cloned_instance = copy.copy(instance)
+    if copy == 'deep':
+        cloned_instance = Copy.deepcopy(instance)
+    elif copy == 'shallow':
+        cloned_instance = Copy.copy(instance)
     else:
         raise ValueError("copy_type must be either 'deep' or 'shallow'.")
-
     if new_name:
-        # Dynamically create a new class with the new name for the cloned instance
-        original_class = cloned_instance.__class__
-        new_class = type(new_name, (original_class,), dict(original_class.__dict__))
-        cloned_instance.__class__ = new_class
+        # Create a new class with the specified name for the cloned instance
+        # original_class = cloned_instance.__class__
+        # new_class = type(new_name, (original_class,), {})
+        # cloned_instance.__class__ = new_class
+        # return cloned_instance if return_type == "instance" else new_class
+        return _custom_repr_class(cloned_instance, new_name, return_type)
 
     return cloned_instance
+
+def _custom_repr_class(cloned_instance, new_name: str, return_type='class'):
+    """
+    Dynamically creates a new subclass for the given instance, customizes its string
+    representation for enhanced readability, and optionally returns the subclass or
+    modified instance.
+
+    Parameters:
+    - cloned_instance: The instance for which a new subclass will be created.
+    - new_name: The name for the new subclass.
+    - return_type: Specifies the type of return value ('class' for the subclass or
+      'instance' for the modified instance).
+
+    The custom __repr__ method provides a structured and indented display of instance
+    attributes, resembling a dictionary format, which improves the debuggability and
+    traceability of object states.
+
+    Returns:
+    - Either the newly created subclass or the modified instance, depending on the
+      return_type argument.
+      
+    Example 
+    >>> from gofast.api.extension import _custom_repr_class
+    >>> class ExampleClass:
+    ...     def __init__(self, data):
+    ...         self.data = data
+    ...
+    >>> obj = ExampleClass([1,2,3])  
+    >>> print(obj) 
+    <__main__.ExampleClass object at 0x0000019C57963190>
+    >>> new_obj = _custom_repr_class(ExampleClass([1,2,3]), new_name="iPCA", )
+    >>> print(new_obj)
+    <class 'gofast.api.extension.iPCA'>
+    >>> new_instance_obj = _custom_repr_class(ExampleClass([1,2,3]), new_name="kPCA",
+                                     return_type="instance")
+    >>> print(new_instance_obj) 
+    kPCA(
+        data  : [1, 2, 3]
+    )
+    """
+    # Dynamically create a new class with the new name for the cloned instance
+    original_class = cloned_instance.__class__
+    new_class = type(new_name, (original_class,), {})
+
+    # Define a custom __repr__ method to format the string representation
+    # of the new class's instances, appropriate to the instance type.
+    def __repr__(self):
+        cls_name = type(self).__name__
+        
+        # Return just the class name with empty parentheses if the object is empty
+        if not self:
+            return f"{cls_name}()"
+        
+        # Check if the instance is dictionary-like and use keys() and items()
+        if hasattr(self, 'keys') and callable(getattr(self, 'keys')):
+            keys = self.keys()
+        else:
+            # Fallback to using __dict__ keys if not dictionary-like
+            keys = self.__dict__.keys()
+
+        if not keys:
+            return f"{cls_name}()"
+        # Calculate the maximum key length for alignment
+        max_key_length = max(len(str(key)) for key in keys) + 1
+        items_repr = []
+        
+        # Format each key-value pair with alignment and proper indentation
+        for key, value in self.items() if hasattr(self, 'items') and callable(
+                getattr(self, 'items')) else self.__dict__.items():
+            key_repr = f"{str(key):<{max_key_length}}"
+            value_repr = repr(value).replace('\n', '\n' + ' ' * (
+                max_key_length + 4))
+            items_repr.append(f"{key_repr} : {value_repr}")
+            
+         # Construct the full string representation
+        items_str = "\n    ".join(items_repr)
+        return f"{cls_name}(\n    {items_str}\n)"
+    
+    # Attach the custom __repr__ method to the new class 
+    # and update the cloned instance's class
+    setattr(new_class, '__repr__', __repr__)
+    cloned_instance.__class__ = new_class
+    
+    return cloned_instance if return_type == 'instance' else new_class
+
 
 def make_introspection(target_obj, source_obj):
     """

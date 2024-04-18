@@ -2,8 +2,6 @@
 #   Licence:BSD 3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-Reducers 
-============
 Reduce dimension for data visualisation.
 
 Reduce number of dimension down to two (or to three) for instance, make  
@@ -18,19 +16,17 @@ import warnings
 import numpy as np
 import pandas as pd 
 import matplotlib.pyplot as plt
-from sklearn.decomposition import  PCA, IncrementalPCA, KernelPCA
+from sklearn.decomposition import PCA, IncrementalPCA, KernelPCA
 from sklearn.manifold import LocallyLinearEmbedding
 
 from .._gofastlog import gofastlog
 from ..api.box import KeyBox
-from ..api.extension import make_introspection, clone 
+from ..api.extension import make_introspection 
 from ..api.summary import ReportFactory  
 from ..api.types import Any,Dict, Optional, ArrayLike
 from ..api.types import NDArray, DataFrame
 from ..api.util import parse_component_kind 
-
- 
-from ..tools.validator import check_array 
+from ..tools.validator import check_array, validate_positive_integer
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -38,15 +34,15 @@ __all__ = [
     'nPCA', 'kPCA', 'LLE', 'iPCA', 
     'get_most_variance_component',
     'project_ndim_vs_explained_variance', 
-    "get_feature_importances", 
-    
+    "get_feature_importances",
 ]
 
 def get_feature_importances(
-    components: 'np.ndarray', 
-    fnames: 'ArrayLike'=None,  n_axes: int = 2, 
+    components: 'NDArray', 
+    fnames: 'ArrayLike'=None, 
+    n_axes: int = 2, 
     scale_by_variance: bool = False, 
-    explained_variance: 'np.ndarray' = None, 
+    explained_variance: 'NDArray' = None, 
     view: bool = False, 
     kind: str = 'PC1'
     ) -> 'list':
@@ -112,6 +108,8 @@ def get_feature_importances(
         raise ValueError("Explained variance must be provided when"
                          " 'scale_by_variance' is True.")
         
+    n_axes = validate_positive_integer(n_axes, "n_axes")
+    
     components = np.asarray(components)
     if components.shape[0] < n_axes:
         warnings.warn(f"Requested number of axes ({n_axes}) exceeds"
@@ -129,7 +127,8 @@ def get_feature_importances(
                          " of features in 'components'.")
     pc = []
     for i in range(n_axes):
-        indices = np.argsort(-np.abs(components[i, :]))  # sort by absolute value, descending
+         # sort by absolute value, descending
+        indices = np.argsort(-np.abs(components[i, :])) 
         sorted_components = components[i, indices]
         sorted_fnames = np.array(fnames)[indices]
 
@@ -154,19 +153,24 @@ def get_feature_importances(
  
 def nPCA(
     X: NDArray | DataFrame, 
-    n_components: Optional[int | float] =None, *, 
+    n_components: Optional[int | float]=None, *, 
     view: bool=False, 
     return_X: bool=True, 
     plot_kws: Dict[str, Any]=None, 
     n_axes: int=None, 
     **pca_kws: Any
  )-> NDArray| 'nPCA':
+
     X = check_array(X)
+
+    n_axes = validate_positive_integer(
+        n_axes, "n_axes") if n_axes is not None else n_axes 
+    
     pca = PCA(n_components=n_components or 0.95, **pca_kws)
     X_transformed = pca.fit_transform(X)
     
-    obj = clone(KeyBox(), "nPCA")
-    obj.X = X_transformed  # Store the transformed data
+    obj=KeyBox() 
+    obj.X=X_transformed  # Store the transformed data
 
     # Calculate cumulative sum of explained variance ratio if needed
     cumsum = np.cumsum(pca.explained_variance_ratio_)
@@ -191,11 +195,8 @@ def nPCA(
     # Handle feature importances if X is a DataFrame
     if isinstance(X, pd.DataFrame):
         obj.feature_importances_ = find_f_importances(
-            np.array(X.columns), 
-            pca.components_, 
-            obj.n_axes
+            np.array(X.columns), pca.components_, obj.n_axes
         )
-
     return X_transformed if return_X else obj
  
 nPCA.__doc__="""\
@@ -296,7 +297,7 @@ def _process_pca(
         X = inc_pcaObj.fit(X_mm)
 
     # Create a clone object of KeyBox for storing results and further analysis
-    obj = clone(KeyBox(), "iPCA")
+    obj = KeyBox()
     obj.X = X
     make_introspection(obj, inc_pcaObj)
     setattr(obj, 'n_axes', getattr(obj, 'n_components_', None))
@@ -424,7 +425,20 @@ Notes
 For large datasets or online learning scenarios, `iPCA` is preferable to standard
 PCA since it does not require loading the entire dataset into memory.
 """
-
+def plot_kernel_pca_results(
+        X_transformed: 'NDArray', title: str = 'Kernel PCA Results'):
+    if X_transformed.shape[1] < 2:
+        raise ValueError("Kernel PCA results must have at least"
+                         " two dimensions for this plot.")
+    
+    plt.figure(figsize=(8, 6))
+    plt.scatter(X_transformed[:, 0], X_transformed[:, 1], c='blue',
+                marker='o', edgecolor='k', s=50)
+    plt.xlabel('Principal Component 1')
+    plt.ylabel('Principal Component 2')
+    plt.title(title)
+    plt.grid(True)
+    plt.show() 
 
 def kPCA(
     X: 'NDArray | DataFrame',
@@ -438,7 +452,7 @@ def kPCA(
     **kpca_kws
 ) -> 'NDArray | KeyBox': 
     
-    obj = clone (KeyBox(), new_name="kPCA") 
+    obj = KeyBox() 
     if n_components is None: 
         n_components = get_most_variance_component(X, verbose= verbose)
     Xr = np.asarray(X.copy())  # Ensure array operations are compatible
@@ -465,22 +479,7 @@ def kPCA(
             obj.X, title=f'Results of Kernel PCA with {kernel} kernel')
         
     return obj.X if return_X else obj
-
-
-def plot_kernel_pca_results(
-        X_transformed: 'NDArray', title: str = 'Kernel PCA Results'):
-    if X_transformed.shape[1] < 2:
-        raise ValueError("Kernel PCA results must have at least two dimensions for this plot.")
-    
-    plt.figure(figsize=(8, 6))
-    plt.scatter(X_transformed[:, 0], X_transformed[:, 1], c='blue',
-                marker='o', edgecolor='k', s=50)
-    plt.xlabel('Principal Component 1')
-    plt.ylabel('Principal Component 2')
-    plt.title(title)
-    plt.grid(True)
-    plt.show()  
-    
+  
 kPCA.__doc__="""\
 Kernel PCA 
 
@@ -540,7 +539,8 @@ Examples
 def visualize_lle_embedding(X, title="LLE Embedding"):
     plt.figure(figsize=(8, 6))
     if X.shape[1] >= 2:
-        plt.scatter(X[:, 0], X[:, 1], c='blue', marker='o', edgecolor='k', alpha=0.5)
+        plt.scatter(X[:, 0], X[:, 1], c='blue', marker='o',
+                    edgecolor='k', alpha=0.5)
         plt.xlabel('Component 1')
         plt.ylabel('Component 2')
         plt.title(title)
@@ -560,7 +560,7 @@ def LLE(
     **lle_kws
 ) -> 'NDArray | LLE':
     # Create a new instance for LLE results
-    obj = clone(KeyBox(), "LLE")
+    obj = KeyBox()
     
     # Handle the n_components logic
     if n_components is None:
@@ -581,11 +581,6 @@ def LLE(
     
     return X_transformed if return_X else obj
 
-# # Example of using the LLE function
-# # Assuming necessary imports and functions are defined as shown above
-# X = np.random.rand(100, 5)  # Dummy data
-# result = LLE(X, n_components=2, view=True, return_X=False)
-# print(result.__class__.__name__)  # Outputs: 'LLE'
  
 LLE.__doc__="""\
 Locally Linear Embedding(LLE) 
@@ -725,6 +720,7 @@ def find_f_importances(
     `components`. This is to ensure that the number of components requested does
     not surpass the available components derived from PCA.
     """
+    n_axes = validate_positive_integer(n_axes, "n_axes")
     if components.shape[0] < n_axes:
         warnings.warn(f"Requested number of axes ({n_axes}) exceeds the"
                       f" available components ({components.shape[0]}). "
@@ -942,7 +938,8 @@ def get_most_variance_component(
         pca = PCA(**pca_kws)
         pca.fit(X)
         cumsum = np.cumsum(pca.explained_variance_ratio_)
-        d = np.argmax(cumsum >= 0.95) + 1  # Index of the minimum number of components
+        # Index of the minimum number of components
+        d = np.argmax(cumsum >= 0.95) + 1  
     else:
         pca = PCA(n_components=n_components, **pca_kws)
         pca.fit(X)
@@ -965,54 +962,6 @@ def get_most_variance_component(
         print(summary)
     
     return d
-
-# def set_axes_and_feature_importances(
-#     Obj: object,
-#     X: NDArray| DataFrame
-#     )-> NDArray | object: 
-#     """ Set n_axes<n_components_> and features attributes if `X` is 
-#     pd.DataFrame."""
-#     message ='Object %r has not attribute %r'%(Obj.__class__.__name__,
-#                                                    'n_components_')
-#     try: 
-#         #Try to find n_components_attributes. If not found 
-#         # shoud reset to 'n_components'
-#         setattr(Obj, 'n_axes', getattr(Obj, 'n_components_'))
-#     except AttributeError: #as attribute_error: 
-#         #raise AttributeError(message) from attribute_error
-#         warnings.warn(message +". Should be 'n_components' instead.'")
-#         _logger.debug('Attribute `n_components_` not found.'
-#                       ' Should be `n_components` instead.')
-#         setattr(Obj, 'n_axes', getattr(Obj, 'n_components'))
-#     # get the features importance and features names
-#     if isinstance(X, pd.DataFrame):
-#         try: 
-            
-#             pca_components_= getattr(Obj, 'components_')
-#         except AttributeError: 
-#             obj_name='' # this is important since function operates with other kernels 
-#             if hasattr(Obj, 'kernel'): 
-#                 obj_name ='KernelPCA'
-                
-#             elif hasattr(Obj, 'n_neighbors') and hasattr(Obj, 'nbrs_'): 
-#                 obj_name ='LoccallyLinearEmbedding'
-                
-#             if obj_name !='':
-#                 warnings.warn(f"{obj_name!r} has no attribute 'components_'"
-#                               )
-#                 _logger.debug(f"{Obj.__class__.__name__!r} inherits from "
-#                               f"{obj_name!r} attributes and has not attribute"
-#                               "'components_")
-                
-#             setattr(Obj, 'feature_importances_', None)
-            
-#             return Obj
-        
-#         Obj.feature_importances_= find_f_importances(
-#                                 np.array(list(X.columns)), 
-#                                 pca_components_, 
-#                                 Obj.n_axes)
-        
 
 def set_axes_and_feature_importances(Obj, X):
     """
@@ -1050,9 +999,13 @@ def set_axes_and_feature_importances(Obj, X):
     >>> set_axes_and_feature_importances(pca, X)
     """
     try:
-        setattr(Obj, 'n_axes', getattr(Obj, 'n_components_', getattr(Obj, 'n_components', None)))
+        setattr(Obj, 'n_axes', getattr(Obj, 'n_components_', 
+                                       getattr(Obj, 'n_components', None)))
     except AttributeError as e:
-        error_msg = f"{Obj.__class__.__name__} does not have 'n_components_' or 'n_components'."
+        error_msg = ( 
+            f"{Obj.__class__.__name__} does not have"
+            " 'n_components_' or 'n_components'."
+            )
         warnings.warn(error_msg)
         _logger.error(error_msg)
         raise AttributeError(error_msg) from e
@@ -1071,8 +1024,9 @@ def set_axes_and_feature_importances(Obj, X):
                         " attribute required for calculating feature importances."
                         )
             warnings.warn(error_msg)
-            _logger.error(f"Attempt to access 'components_' failed in"
-                          f" {obj_type or Obj.__class__.__name__}. Exception details: {str(e)}")
+            _logger.error(
+                f"Attempt to access 'components_' failed in"
+                f" {obj_type or Obj.__class__.__name__}. Exception details: {str(e)}")
             setattr(Obj, 'feature_importances_', None)
             return Obj
 
