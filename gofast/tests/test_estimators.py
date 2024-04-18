@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Created on Wed Dec 27 15:43:09 2023
-
-@author: Daniel
+test_estimators.py
 """
 
 import numpy as np
 from sklearn.datasets import load_iris
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, mean_squared_error
+
 from gofast.estimators import (
     SimpleAverageClassifier,
     WeightedAverageClassifier,
@@ -39,8 +38,7 @@ def test_simple_average_classifier():
     y_pred = ensemble.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
 
-    assert accuracy >= 0.0  # Replace with the expected accuracy
-
+    assert accuracy >= 0.0  
 
 def test_weighted_average_classifier():
     # Load a sample dataset (Iris) for classification
@@ -61,8 +59,7 @@ def test_weighted_average_classifier():
     y_pred = ensemble.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
 
-    assert accuracy >= 0.0  # Replace with the expected accuracy
-
+    assert accuracy >= 0.0  
 
 def test_simple_average_regressor():
     # Generate synthetic regression data
@@ -81,7 +78,7 @@ def test_simple_average_regressor():
     y_pred = ensemble.predict(X_test)
     mse = mean_squared_error(y_test, y_pred)
 
-    assert mse >= 0.0  # Replace with the expected MSE
+    assert mse >= 0.0  
 
 
 def test_weighted_average_regressor():
@@ -102,7 +99,7 @@ def test_weighted_average_regressor():
     y_pred = ensemble.predict(X_test)
     mse = mean_squared_error(y_test, y_pred)
 
-    assert mse >= 0.0  # Replace with the expected MSE
+    assert mse >= 0.0  
 
 
 def test_hybrid_boosted_tree_classifier():
@@ -122,8 +119,7 @@ def test_hybrid_boosted_tree_classifier():
     y_pred = ensemble.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
 
-    assert accuracy >= 0.0  # Replace with the expected accuracy
-
+    assert accuracy >= 0.0  
 
 def test_hybrid_boosted_tree_regressor():
     # Generate synthetic regression data
@@ -141,8 +137,7 @@ def test_hybrid_boosted_tree_regressor():
     y_pred = ensemble.predict(X_test)
     mse = mean_squared_error(y_test, y_pred)
 
-    assert mse >= 0.0  # Replace with the expected MSE
-
+    assert mse >= 0.0  
 
 def test_decision_tree_based_classifier():
     # Load a sample dataset (Iris) for classification
@@ -161,8 +156,7 @@ def test_decision_tree_based_classifier():
     y_pred = ensemble.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
 
-    assert accuracy >= 0.0  # Replace with the expected accuracy
-
+    assert accuracy >= 0.0  
 
 def test_hybrid_boosted_tree_ensemble_classifier():
     # Load a sample dataset (Iris) for classification
@@ -181,8 +175,7 @@ def test_hybrid_boosted_tree_ensemble_classifier():
     y_pred = ensemble.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
 
-    assert accuracy >= 0.0  # Replace with the expected accuracy
-
+    assert accuracy >= 0.0  
 
 def test_hybrid_boosted_tree_ensemble_regressor():
     # Generate synthetic regression data
@@ -200,8 +193,7 @@ def test_hybrid_boosted_tree_ensemble_regressor():
     y_pred = ensemble.predict(X_test)
     mse = mean_squared_error(y_test, y_pred)
 
-    assert mse >= 0.0  # Replace with the expected MSE
-
+    assert mse >= 0.0  
 
 if __name__ == "__main__":
     test_simple_average_classifier()

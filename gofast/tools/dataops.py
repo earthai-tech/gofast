@@ -2053,7 +2053,7 @@ def handle_outliers_in(
         plt.show()
         
     report_obj= ReportFactory(title ="Outliers Handling", **report )
-    report_obj.add_mixed_types(report, table_width= 90,)
+    report_obj.add_mixed_types(report, table_width= 45)
     return (data, report_obj) if return_report else data
 
 @isdf
@@ -2155,7 +2155,7 @@ def handle_missing_data(
             "dropna_threshold": dropna_threshold if method in [
                 'drop_rows', 'drop_cols'] else None
         },
-        "describe%% Basic statistics": missing_data.describe()
+        "describe%% Basic statistics": missing_data.describe().round(4) 
     }
     report_obj= ReportFactory(title ="Missing Handling", **data_report )
     report_obj.add_mixed_types(data_report, table_width= 90)
@@ -4899,7 +4899,7 @@ def validate_skew_method(data: Series, method: str):
 
 @isdf
 def check_skew_methods_applicability(
-        data: DataFrame) -> Dict[str, List[str]]:
+        data: DataFrame, return_report: bool=False ) -> Dict[str, List[str]]:
     """
     Evaluates each numeric column in a DataFrame to determine which skew
     correction methods are applicable based on the data's characteristics. 
@@ -4943,7 +4943,10 @@ def check_skew_methods_applicability(
                 print(f"Column '{column}': {str(e)}") 
 
         applicable_methods[column] = methods
-
+    if return_report: 
+        return ReportFactory("Skew Methods Feasability", *applicable_methods 
+                      ).add_contents(applicable_methods, max_width=90)
+ 
     return applicable_methods
 
 @Dataify(auto_columns=True)

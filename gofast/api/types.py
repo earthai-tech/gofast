@@ -83,7 +83,7 @@ from an array:
 .. code-block:: python
 
     import numpy as np
-    from gofast._typing import TypeVar, DType, Array, _Sub
+    from gofast.api.types import TypeVar, DType, Array, _Sub
     from gofast.tools.mathex import _define_conductive_zone
     _T = TypeVar('_T', float)
     erp_array: Array[_T, DType[_T]] = np.random.randn(21)
@@ -98,7 +98,7 @@ profiling. Example:
 .. code-block:: python
 
     import numpy as np
-    from gofast._typing import TypeVar, DType, _SP, _Sub
+    from gofast.api.types import TypeVar, DType, _SP, _Sub
     _T = TypeVar('_T', bound=int)
     surveyL: _SP = np.arange(0, 50 * 121, 50.).astype(np.int32)
 
@@ -118,7 +118,7 @@ Examples of Series and DataFrame usage:
 
     import numpy as np
     import pandas as pd
-    from gofast._typing import TypeVar, Any, DType, Series, DataFrame
+    from gofast.api.types import TypeVar, Any, DType, Series, DataFrame
     _T = TypeVar('_T')
     seriesStr = pd.Series([f'obx{s}' for s in range(21)], name='stringobj')
     seriesFloat = pd.Series(np.arange(7).astype(np.float32), name='floatobj')

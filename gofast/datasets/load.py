@@ -26,7 +26,8 @@ from .io import csv_data_loader, _to_dataframe, DMODULE
 from .io import description_loader, DESCR, RemoteDataURL  
 
 __all__= [ "load_iris",  "load_hlogs",  "load_nansha", "load_forensic", 
-          "load_jrs_bet", "load_statlog", "load_hydro_metrics", "load_mxs"]
+          "load_jrs_bet", "load_statlog", "load_hydro_metrics", "load_mxs", 
+          "load_bagoue"]
 
 
 def load_hydro_metrics(*, return_X_y=False, as_frame=False, tag=None, 
@@ -714,6 +715,7 @@ Load the Nansha Engineering and Hydrogeological Drilling Dataset.
 
 This dataset contains multi-target information suitable for classification or 
 regression problems in hydrogeological and geotechnical contexts.
+See more in [1]_. 
 
 Parameters
 ----------
@@ -803,6 +805,14 @@ To retrieve land subsidence data for specific years with display rate:
 >>> n = load_nlogs(key='ls', samples=3, years="2015 2018", drop_display_rate=False)
 >>> list(n.frame.columns)
 [easting, northing, longitude, 2015, 2018, disp_rate]
+
+References 
+-----------
+.. [1] Liu, J., Liu, W., Allechy, F.B., Zheng, Z., Liu, R., Kouadio, K.L., 2024.
+       Machine learning-based techniques for land subsidence simulation in an 
+       urban area. J. Environ. Manage. 352, 17.
+       https://doi.org/https://doi.org/10.1016/j.jenvman.2024.120078
+
 """
 
 def load_bagoue(

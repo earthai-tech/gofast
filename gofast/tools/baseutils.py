@@ -49,6 +49,7 @@ def smart_rotation(ax):
     >>> import pandas as pd
     >>> import matplotlib.pyplot as plt
     >>> from matplotlib.dates import DateFormatter
+    >>> from gofast.tools.baseutils import smart_rotation
 
     # Generate a date range and some random data
     >>> dates = pd.date_range(start="2020-01-01", periods=100, freq='D')
@@ -858,7 +859,6 @@ def remove_target_from_array(arr,/,  target_indices):
     target_arr = arr[:, target_indices]
     modified_arr = np.delete(arr, target_indices, axis=1)
     return modified_arr, target_arr
-
 
 def extract_target(
     data: Union[ArrayLike, DataFrame],/, 
@@ -1682,3 +1682,71 @@ def _get_available_estimators(predefined_estimators):
     
     available_estimators = sklearn_estimators + xgboost_estimators
     return available_estimators
+
+def get_target(df, tname, inplace=True):
+    """
+    Extracts one or more target columns from a DataFrame and optionally
+    modifies the original DataFrame in place.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The DataFrame from which to extract the target(s).
+    tname : str or list of str
+        The name(s) of the target column(s) to extract. These must be present
+        in the DataFrame.
+    inplace : bool, optional
+        If True, the DataFrame is modified in place by removing the target
+        column(s). Defaults to True.
+
+    Returns
+    -------
+    tuple
+        A tuple containing:
+        - pd.Series or pd.DataFrame: The extracted target column(s).
+        - pd.DataFrame: The modified or unmodified DataFrame depending on the
+          `inplace` parameter.
+
+    Raises
+    ------
+    ValueError
+        If any of the specified target names are not in the DataFrame columns.
+    TypeError
+        If `df` is not a pandas DataFrame.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import load_iris
+    >>> from gofast.baseutils import get-target 
+    >>> data = load_iris(as_frame=True).frame
+    >>> targets, modified_df = get_target(data, 'target', inplace=False)
+    >>> print(targets.head())
+    >>> print(modified_df.columns)
+
+    Notes
+    -----
+    This function is particularly useful when preparing data for machine
+    learning models, where separating features from labels is a common task.
+
+    See Also
+    --------
+    extract_target : Similar function with enhanced capabilities for handling
+                     more complex scenarios.
+    
+    """
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError("Input 'df' must be a pandas DataFrame.")
+
+    if isinstance(tname, str):
+        tname = [tname]  # Convert string to list for uniform processing
+
+    missing_columns = [name for name in tname if name not in df.columns]
+    if missing_columns:
+        raise ValueError(
+            f"Target name(s) not found in DataFrame columns: {missing_columns}")
+
+    target_data = df[tname]
+    if inplace:
+        df.drop(tname, axis=1, inplace=True)
+
+    return target_data, df

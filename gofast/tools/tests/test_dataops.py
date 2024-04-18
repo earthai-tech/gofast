@@ -27,7 +27,7 @@ from gofast.tools.dataops import audit_data, verify_data_integrity
 from gofast.tools.dataops import handle_categorical_features
 from gofast.tools.dataops import convert_date_features
 from gofast.tools.dataops import handle_missing_data
-from gofast.tools.dataops import handle_outliers_in_data
+from gofast.tools.dataops import handle_outliers_in
 from gofast.tools.dataops import scale_data
 from gofast.tools.dataops import inspect_data
 from gofast.tools.dataops import augment_data
@@ -285,11 +285,11 @@ class TestHandleOutliersInData(unittest.TestCase):
         })
 
     def test_handle_outliers_clip(self):
-        handled_data = handle_outliers_in_data(self.data, method='clip')
+        handled_data = handle_outliers_in(self.data, method='clip')
         self.assertTrue(handled_data['A'].max() <= 100 and handled_data['B'].min() >= -50)
 
     def test_handle_outliers_replace(self):
-        handled_data = handle_outliers_in_data(self.data, method='replace', replace_with='median')
+        handled_data = handle_outliers_in(self.data, method='replace', replace_with='median')
         self.assertNotIn(100, handled_data['A'])
         self.assertNotIn(-50, handled_data['B'])
 

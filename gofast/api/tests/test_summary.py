@@ -3,7 +3,7 @@ import pytest
 import unittest
 import numpy as np 
 import pandas as pd
-import  gofast.api as gf 
+import gofast.api as gf 
 from gofast.api.summary import ReportFactory
 from gofast.api.summary import Summary
 from gofast.api.summary import ModelSummary 
@@ -48,7 +48,7 @@ class TestModelSummary(unittest.TestCase):
         }
         expected_output = ["Logistic Regression"]
         gf.testing.assert_model_summary_method_functionality(
-            self.summary, model_results, expected_output)
+            self.summary, expected_output, model_results,)
 
     def test_add_multi_contents_functionality(self):
         """Test adding multiple contents."""
@@ -58,7 +58,7 @@ class TestModelSummary(unittest.TestCase):
         ]
         expected_output = ["Model1"]
         gf.testing.assert_model_summary_add_multi_contents(
-            self.summary, contents, expected_output, titles=["Test Summary"])
+            self.summary,  expected_output, contents,titles=["Test Summary"])
 
     def test_add_performance_functionality(self):
         """Test the add_performance method."""
@@ -76,7 +76,7 @@ class TestModelSummary(unittest.TestCase):
          }
         expected_output = ["SVM"]
         gf.testing.assert_model_summary_add_performance(
-            self.summary, performance_data, expected_output)
+            self.summary,expected_output, performance_data,)
 
 
 class TestReportFactory(unittest.TestCase):

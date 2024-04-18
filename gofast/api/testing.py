@@ -23,8 +23,11 @@ def assert_model_summary_has_title(summary_instance, expected_title, msg=None):
     msg : str, optional
         Optional message to display on assertion failure.
     """
-    assert isinstance(summary_instance, ModelSummary), "Input must be an instance of ModelSummary."
-    assert str(expected_title)==summary_instance.title, msg or "Title missing or incorrect in summary report."
+    assert isinstance_(summary_instance, ModelSummary), ( 
+        "Input must be an instance of ModelSummary.")
+    assert str(expected_title)==summary_instance.title,( 
+        msg or "Title missing or incorrect in summary report."
+        )
 
 def assert_model_summary_content_exists(
         summary_instance, expected_content, msg=None):
@@ -63,7 +66,7 @@ def assert_summary_report_contains(summary_instance, expected_content, msg=None)
         "The expected content is not present in the summary report."
 
 def assert_model_summary_method_functionality(
-        summary_instance, model_results, expected_output, msg=None):
+        summary_instance,  expected_output, model_results=None, msg=None):
     """
     Tests the 'summary' method of the ModelSummary class by checking if the
     generated summary report contains expected data after processing model_results.
@@ -72,22 +75,24 @@ def assert_model_summary_method_functionality(
     ----------
     summary_instance : ModelSummary
         The ModelSummary instance to test.
+     expected_output : str
+         A string expected to be part of the generated summary report.
     model_results : dict
-        The model results to summarize.
-    expected_output : str
-        A string expected to be part of the generated summary report.
+        The model results to summarize. If ``model_results``, the results 
+        are recomputed and recheck with the ``expected_output``. 
     msg : str, optional
         Optional message to display on assertion failure.
         
     """
     validate_formatter_instance(summary_instance, ModelSummary)
-    summary_instance.summary(model_results)
+    if model_results: 
+        summary_instance.summary(model_results)
     assert check_output(summary_instance.summary_report, expected_output), msg or \
         "Summary method failed to process model results correctly."
 
 def assert_model_summary_add_multi_contents(
-        summary_instance, dict_contents, expected_output, titles=None,
-        msg=None):
+    summary_instance, expected_output, dict_contents=None,  titles=None,
+    msg=None):
     """
     Tests the 'add_multi_contents' method to ensure it properly formats and
     includes multiple contents into the summary report.
@@ -96,22 +101,24 @@ def assert_model_summary_add_multi_contents(
     ----------
     summary_instance : ModelSummary
         The ModelSummary instance to test.
-    dict_contents : list of dicts
-        The content to be added to the summary.
     titles : list of str
         Titles for each section in the summary.
     expected_output : str
         Content expected to appear in the summary report.
+    dict_contents : list of dicts
+        The content to be added to the summary. If not ``None``, recomputed and 
+        recheck the contents results. 
     msg : str, optional
         Optional message to display on assertion failure.
     """
     validate_formatter_instance(summary_instance, ModelSummary)
-    summary_instance.add_multi_contents(*dict_contents, titles=titles)
+    if dict_contents: 
+        summary_instance.add_multi_contents(*dict_contents, titles=titles)
     assert check_output(summary_instance.summary_report, expected_output),  msg or\
         "add_multi_contents method failed to include the expected content in the summary."
 
 def assert_model_summary_add_performance(
-        summary_instance, performance_data, expected_output, msg=None):
+        summary_instance,  expected_output,performance_data =None,  msg=None):
     """
     Validates that the 'add_performance' method correctly processes and 
     adds performance data to the summary.
@@ -120,19 +127,129 @@ def assert_model_summary_add_performance(
     ----------
     summary_instance : ModelSummary
         The instance to be tested.
-    performance_data : dict
-        The performance data dictionary.
     expected_output : str
-        The string expected to be in the summary report after processing the performance data.
+        The string expected to be in the summary report after processing the 
+        performance data.
+    performance_data : dict, optional 
+        The performance data dictionary. If not None, recomputed and 
+        check the content with expected output. 
     msg : str, optional
         Optional message to display on assertion failure.
     """
     validate_formatter_instance(summary_instance, ModelSummary)
-    summary_instance.add_performance(performance_data)
+    if performance_data: 
+        summary_instance.add_performance(performance_data)
     assert check_output( summary_instance.summary_report, expected_output), msg or \
         "add_performance method did not produce the expected summary report."
 
+def assert_model_summary_attributes_in(summary_instance, attributes, msg=None):
+    """
+    Asserts that all specified attributes are present in the provided ModelSummary instance.
 
+    Parameters
+    ----------
+    summary_instance : ModelSummary
+        The instance of ModelSummary to be checked.
+    attributes : str or list of str
+        The attribute or list of attributes to check for in the ModelSummary instance.
+    msg : str, optional
+        Optional message to include in the error if the check fails. If not provided,
+        a default message listing missing attributes is used.
+
+    Raises
+    ------
+    TypeError
+        If `summary_instance` is not an instance of ModelSummary.
+    AttributeError
+        If any specified attributes are missing from `summary_instance`.
+
+    Examples
+    --------
+    >>> from gofast.api.summary import ModelSummary
+    >>> summary = ModelSummary(
+        best_estimator="estimator", best_params={"param": "value"}, 
+        cv_results="results")
+    >>> assert_model_summary_attributes_in(
+        summary, ['best_estimator', 'best_params', 'cv_results'])
+    
+    >>> summary = ModelSummary(best_estimator="estimator")
+    >>> assert_model_summary_attributes_in(summary, ['missing_attribute'])
+    AttributeError: The following required attributes are missing: missing_attribute
+
+    Notes
+    -----
+    This function is particularly useful in unit testing to ensure that objects
+    returned from functions or methods meet expected specifications. It is intended
+    to be used where the integrity of object attributes is crucial for the operation
+    of the system.
+    """
+    if not isinstance_(summary_instance, ModelSummary):
+        raise TypeError(f"Expected an instance of ModelSummary,"
+                        f" got {type(summary_instance).__name__} instead.")
+
+    if isinstance(attributes, str):
+        attributes = [attributes]
+
+    missing_attributes = [attr for attr in attributes if not hasattr(summary_instance, attr)]
+    if missing_attributes:
+        error_message = msg if msg else "The following required attributes are missing: "
+        error_message += ', '.join(missing_attributes)
+        raise AttributeError(error_message)
+
+def assert_model_summary_results(
+        summary_instance, expected_output, attributes=None, **kws):
+    """
+    Checks the contents of a model summary against expected outputs and 
+    optional attributes.
+
+    This function is designed to validate the results encapsulated by an 
+    instance of `ModelSummary` against specified expectations and attributes.
+    It is typically used in testing environments to ensure that model summaries 
+    correctly reflect the outcomes of model fitting procedures.
+
+    Parameters
+    ----------
+    summary_instance : ModelSummary
+        An instance of `ModelSummary` whose contents are to be checked.
+    expected_output : any
+        The expected output against which the `summary_instance` will be 
+        checked. This could be any data structure or value that your test 
+        expects to find in the summary.
+    attributes : list of str, optional
+        A list of attribute names expected to be present in `summary_instance`.
+        If provided, the presence of these attributes is verified before 
+        proceeding with content checks.
+    **kws : dict
+        Additional keyword arguments that might be needed for more specific 
+        checks within the `assert_model_summary_add_multi_contents` function.
+
+    Raises
+    ------
+    AssertionError
+        If the expected attributes are not found in the `summary_instance` or 
+        if the contents do not match the `expected_output`.
+
+    Examples
+    --------
+    >>> from gofast.api.summary import ModelSummary
+    >>> summary = ModelSummary(best_estimator="estimator",
+                               best_params={"param": "value"}, cv_results="results")
+    >>> expected_output = {"best_params": {"param": "value"}}
+    >>> assert_model_summary_results(summary, expected_output,
+                                     attributes=['best_params', 'cv_results'])
+
+    Notes
+    -----
+    The function `assert_model_summary_attributes_in` is used to check for 
+    the presence of specific attributes before the main content comparison. 
+    This is crucial in cases where the integrity of summary data is essential 
+    for subsequent operations or analyses.
+    """
+    if attributes:
+        assert_model_summary_attributes_in(summary_instance, attributes)
+
+    assert_model_summary_add_multi_contents(summary_instance, expected_output, **kws)
+    
 def assert_summary_correlation_matrix(
         summary_instance, expected_presence=True, msg=None):
     """

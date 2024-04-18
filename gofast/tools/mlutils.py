@@ -57,6 +57,8 @@ from .validator import check_mixed_data_types
 _logger = gofastlog().get_gofast_logger(__name__)
 
 __all__=[ 
+    "fetch_tgz", 
+    "fetch_model", 
     "evaluate_model",
     "get_global_score", 
     "get_correlated_features", 
@@ -66,6 +68,7 @@ __all__=[
     "soft_scaler", 
     "select_feature_importances", 
     "load_model", 
+    "load_csv", 
     "make_pipe",
     "build_data_preprocessor", 
     "bi_selector", 
@@ -84,7 +87,14 @@ __all__=[
     "laplace_smoothing_word", 
     "handle_imbalance", 
     "smart_split",
-    "save_dataframes"
+    "save_dataframes", 
+    "stats_from_prediction", 
+    "get_target", 
+    "one_click_preprocess", 
+    "codify_variables", 
+    "smart_split", 
+    "handle_imbalance", 
+    "resampling", 
     ]
 
 
@@ -259,7 +269,6 @@ def one_click_preprocess(
 
     # Return the preprocessed DataFrame.
     return data_processed
-
 
 def codify_variables (
     data:DataFrame | ArrayLike, /, 
@@ -1287,42 +1296,6 @@ def get_correlated_features(
 
     return  c_df.style.format({corr :"{:2.f}"}) if fmt else c_df 
                       
-def get_target (df, tname, inplace = True): 
-    """ Extract target and modified data in place or not . 
-    
-    :param df: A dataframe with features including the target name `tname`
-    :param tname: A target name. It should be include in the dataframe columns 
-        otherwise an error is raised. 
-    :param inplace: modified the dataframe inplace. if ``False`` return the 
-        dataframe. the *defaut* is ``True`` 
-        
-    :returns: Tuple of the target and dataframe (modified or not)
-    
-    :example: 
-    >>> from gofast.datasets import fetch_data '
-    >>> from gofast.tools.mlutils import exporttarget 
-    >>> data0 = fetch_data ('bagoue original').get('data=dfy1') 
-    >>> # no modification 
-    >>> target, data_no = exporttarget (data0 , 'sfi', False )
-    >>> len(data_no.columns ) , len(data0.columns ) 
-    ... (13, 13)
-    >>> # modified in place 
-    >>> target, data= exporttarget (data0 , 'sfi')
-    >>> len(data.columns ) , len(data0.columns ) 
-    ... (12, 12)
-        
-    """
-    df = _assert_all_types(df, pd.DataFrame)
-    validate_feature(df, tname) # assert tname 
-    if is_iterable(tname, exclude_string=True): 
-        tname = list(tname)
-        
-    t = df [tname ] 
-    df.drop (tname, axis =1 , inplace =inplace )
-    
-    return t, df
-
- 
 def get_global_score(
     cvres: Dict[str, ArrayLike],
     ignore_convergence_problem: bool = False
@@ -1483,7 +1456,7 @@ def stats_from_prediction(y_true, y_pred, verbose=False):
     return stats
 
 def save_dataframes(
-    *data: Union[pd.DataFrame, Any],
+    *data: Union[DataFrame, Any],
     file_name_prefix: str = 'data',
     output_format: str = 'excel',
     sep: str = ',',
@@ -2458,119 +2431,6 @@ def _assert_sl_target (target,  df=None, obj=None):
             target = list(df.columns)[target] if is_dataframe else target
             
     return target
-
-def extract_target(
-    data: Union[ArrayLike, DataFrame],/, 
-    target_names: Union[str, int, List[Union[str, int]]],
-    drop: bool = True,
-    columns: Optional[List[str]] = None,
-) -> Tuple[Union[ArrayLike, Series, DataFrame], Union[ArrayLike, DataFrame]]:
-    """
-    Extracts specified target column(s) from a multidimensional numpy array
-    or pandas DataFrame. 
-    
-    with options to rename columns in a DataFrame and control over whether the 
-    extracted columns are dropped from the original data.
-
-    Parameters
-    ----------
-    data : Union[np.ndarray, pd.DataFrame]
-        The input data from which target columns are to be extracted. Can be a 
-        NumPy array or a pandas DataFrame.
-    target_names : Union[str, int, List[Union[str, int]]]
-        The name(s) or integer index/indices of the column(s) to extract. 
-        If `data` is a DataFrame, this can be a mix of column names and indices. 
-        If `data` is a NumPy array, only integer indices are allowed.
-    drop : bool, default True
-        If True, the extracted columns are removed from the original `data`. 
-        If False, the original `data` remains unchanged.
-    columns : Optional[List[str]], default None
-        If provided and `data` is a DataFrame, specifies new names for the 
-        columns in `data`. The length of `columns` must match the number of 
-        columns in `data`. This parameter is ignored if `data` is a NumPy array.
-
-    Returns
-    -------
-    Tuple[Union[np.ndarray, pd.Series, pd.DataFrame], Union[np.ndarray, pd.DataFrame]]
-        A tuple containing two elements:
-        - The extracted column(s) as a NumPy array or pandas Series/DataFrame.
-        - The original data with the extracted columns optionally removed, as a
-          NumPy array or pandas DataFrame.
-
-    Raises
-    ------
-    ValueError
-        If `columns` is provided and its length does not match the number of 
-        columns in `data`.
-        If any of the specified `target_names` do not exist in `data`.
-        If `target_names` includes a mix of strings and integers for a NumPy 
-        array input.
-
-    Examples
-    --------
-    >>> import pandas as pd 
-    >>> from gofast.tools.mlutils import extract_target
-    >>> df = pd.DataFrame({
-    ...     'A': [1, 2, 3],
-    ...     'B': [4, 5, 6],
-    ...     'C': [7, 8, 9]
-    ... })
-    >>> target, remaining = extract_target(df, 'B', drop=True)
-    >>> print(target)
-    0    4
-    1    5
-    2    6
-    Name: B, dtype: int64
-    >>> print(remaining)
-       A  C
-    0  1  7
-    1  2  8
-    2  3  9
-    >>> arr = np.random.rand(5, 3)
-    >>> target, modified_arr = extract_target(arr, 2, )
-    >>> print(target)
-    >>> print(modified_arr)
-    """
-    is_frame = isinstance(data, pd.DataFrame)
-    
-    if is_frame and columns is not None:
-        if len(columns) != data.shape[1]:
-            raise ValueError("`columns` must match the number of columns in"
-                             f" `data`. Expected {data.shape[1]}, got {len(columns)}.")
-        data.columns = columns
-
-    if isinstance(target_names, (int, str)):
-        target_names = [target_names]
-
-    if all(isinstance(name, int) for name in target_names):
-        if max(target_names, default=-1) >= data.shape[1]:
-            raise ValueError("All integer indices must be within the"
-                             " column range of the data.")
-    elif any(isinstance(name, int) for name in target_names) and is_frame:
-        target_names = [data.columns[name] if isinstance(name, int) 
-                        else name for name in target_names]
-
-    if is_frame:
-        missing_cols = [name for name in target_names 
-                        if name not in data.columns]
-        if missing_cols:
-            raise ValueError(f"Column names {missing_cols} do not match "
-                             "any column in the DataFrame.")
-        target = data.loc[:, target_names]
-        if drop:
-            data = data.drop(columns=target_names)
-    else:
-        if any(isinstance(name, str) for name in target_names):
-            raise ValueError("String names are not allowed for target names"
-                             " when data is a NumPy array.")
-        target = data[:, target_names]
-        if drop:
-            data = np.delete(data, target_names, axis=1)
-            
-    if  isinstance (target, np.ndarray): # squeeze the array 
-        target = np.squeeze (target)
-        
-    return target, data
 
 def _extract_target(
         X, target: Union[ArrayLike, int, str, List[Union[int, str]]]):

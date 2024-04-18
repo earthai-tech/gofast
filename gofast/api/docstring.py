@@ -60,67 +60,6 @@ class DocstringComponents:
     
     
 # ++++++++++++++++++++++DocComponents++++++++++++++++++++++++++++++++++++++++++
-#XXX TODO 
-_load_params= dict( 
-    
-    
-    
-    
-    
-    
-    
-    
-    )
-__doc__ = """
-DC-Electrical Resistivity Profiling Data from the National Drinking Water 
-Supply Program (PNAEP) in Cote d'Ivoire, 2014.
-
-Parameters
-----------
-as_frame : bool, default=False
-    If True, returns the data as a pandas DataFrame. The target is returned as 
-    a pandas DataFrame or Series, based on the number of target columns.
-    If False, returns a :class:`~gofast.tools.Boxspace` object with attributes:
-    - data: {{ndarray, dataframe}} of shape {shape}
-        Data matrix. As pandas DataFrame if `as_frame=True`.
-    - resistivity: {{array-like}}, shape ({shape[0]},)
-        Resistivity at each sounding point.
-    - station: {{array-like}}, shape ({shape[0]},)
-        Station movement distance in meters, used for data collection.
-    - northing: {{array-like}}, shape ({shape[0]},)
-        Northing UTM coordinates in meters at each station.
-    - easting: {{array-like}}, shape ({shape[0]},)
-        Easting UTM coordinates in meters at each station.
-    - latitude: {{array-like}}, shape ({shape[0]},)
-        Latitude coordinates in degree decimals or 'DD:MM.SS' format.
-    - longitude: {{array-like}}, shape ({shape[0]},)
-        Longitude coordinates in degree decimals or 'DD:MM.SS' format.
-    - DESCR: str
-        Detailed dataset description.
-    - filename: str
-        Path to the dataset location.
-tag, data_names : None
-    Included for API consistency.
-kws : dict
-    Additional arguments for the :func:`~gofast.tools.baseutils._is_readable` 
-    function.
-
-Returns
--------
-data : :class:`~gofast.tools.Boxspace`
-    Object with attributes including data matrix and geological features.
-
-Notes
------
-- Array configuration is Schlumberger with maximum depth of {max_depth} meters.
-- Profiling step `AB` fixed at {AB_distance} meters, `MN/2` at {MN_distance} meters.
-- Total profiling stations: {profiling_number}.
-- `station`, `easting`, `northing` in meters; `rho` in ohm meters.
-- If UTM coordinates are provided along with UTM_zone, latitude and longitude 
-  will be auto-computed and vice versa. Provision of both coordinate types 
-  is not required.
-"""
-
 
 refglossary =type ('refglossary', (), dict (
     __doc__="""\

@@ -14,11 +14,12 @@ from joblib import Parallel, delayed
 from sklearn.base import BaseEstimator 
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 
+from ..api.box import KeyBox 
 from ..api.types import Any, Dict, List,Union, Tuple, Optional, ArrayLike
+from ..api.types import Array1D, NDArray 
 from ..api.summary import ModelSummary
 from ..tools.coreutils import ellipsis2false , smart_format
 from ..tools.validator import get_estimator_name 
-from ..tools.box import KeyBox 
 from .utils import get_optimizer_method, align_estimators_with_params
 
 __all__=["optimize_search", "optimize_search2", "parallelize_search", 
@@ -27,8 +28,8 @@ __all__=["optimize_search", "optimize_search2", "parallelize_search",
 def optimize_search(
     estimators: Dict[str, BaseEstimator], 
     param_grids: Dict[str, Any], 
-    X: Any, 
-    y: Any, 
+    X: Union [NDArray, ArrayLike], 
+    y: Union [Array1D, ArrayLike], 
     optimizer: str = 'RSCV', 
     save_results: bool = False, 
     n_jobs: int = -1, 
@@ -220,7 +221,7 @@ def optimize_search2(estimators, param_grids, X, y, optimizer='GSCV',
     if save_results:
         joblib.dump(result_dict, "optimization_results.joblib")
 
-    return ModelSummary().summary(result_dict)
+    return ModelSummary(*result_dict).summary(result_dict)
 
 def optimize_hyperparams(
     estimator, 
@@ -280,18 +281,18 @@ def optimize_hyperparams(
                                  n_jobs=n_jobs, **kws)
     optimizer.fit(X, y)
 
+    results_dict= {"best_estimator_":optimizer.best_estimator_ , 
+                   "best_params_":optimizer.best_params_  , 
+                   "cv_results_": optimizer.cv_results_}
     # try to save file 
     if savejob: 
         savefile = savefile or get_estimator_name(estimator)
-        results_dict= {"best_estimator_":optimizer.best_estimator_ , 
-                       "best_params_":optimizer.best_params_  , 
-                       "cv_results_": optimizer.cv_results_}
         # remove joblib if extension is appended.
         savefile= str(savefile).replace ('.joblib', '')
         joblib.dump ( results_dict,filename = f'{savefile}.joblib' )
-    return ( optimizer.best_estimator_, optimizer.best_params_, 
-            optimizer.cv_results_
-            )
+    
+    summary=ModelSummary(**results_dict).summary(results_dict)
+    return summary
 
 def parallelize_search(
     estimators, 
@@ -332,11 +333,13 @@ def parallelize_search(
        
     Returns
     -------
-    o: gofast.tools.box.Boxspace
+    o: gofast.api.summary.ModelSummary 
         The function saves the best estimator and parameters, and 
         cv results for each input estimator to disk
         returns object where `best_params_`, `best_estimators_` and `cv_results_`
-        can be retrieved as an object.
+        can be retrieved as an object. 
+        Visualization is possible using Print since ModelSummary operated 
+        similarly as BunchObject :class:`gofast.api.box.KeyBox`
 
     Note 
     -----
@@ -380,10 +383,13 @@ def parallelize_search(
                            ), estimators)
                                                  ):
             est_name = get_estimator_name(estimator)
-            best_estimator, best_params, cv_results = future.result()
+            summary= future.result()
+            best_estimator = summary.best_estimator_ 
+            best_params = summary.best_params_ 
+            cv_results= summary.cv_results_
+            
             # save model results into a large object that can be return 
             # as an object . 
-            
             pack [f"{est_name}"]= {"best_params_": best_params, 
                                    "best_estimator_": best_estimator, 
                                    "cv_results_": cv_results
@@ -398,8 +404,10 @@ def parallelize_search(
                 
         if pack_models: 
             joblib.dump(pack , filename= f"{file_prefix}.joblib")
-
-    return KeyBox( **o)
+            
+    summary= ModelSummary(**o)
+    summary.summary(o)
+    return summary
 
 def _get_optimizer_method(optimizer: str) -> Any:
     """

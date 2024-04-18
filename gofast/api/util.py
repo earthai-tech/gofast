@@ -7,6 +7,75 @@ import warnings
 import numpy as np 
 import pandas as pd
 
+ 
+def parse_component_kind(pc_list, kind):
+    """
+    Extracts specific principal component's feature names and their importance
+    values from a list based on a given component identifier.
+
+    Parameters
+    ----------
+    pc_list : list of tuples
+        A list where each tuple contains ('pc{i}', feature_names, 
+                                          sorted_component_values),
+        corresponding to each principal component. 'pc{i}' is a string label 
+        like 'pc1', 'feature_names' is an array of feature names sorted by 
+        their importance, and 'sorted_component_values' are the corresponding 
+        sorted values of component loadings.
+    kind : str
+        A string that identifies the principal component number to extract, 
+        e.g., 'pc1'. The string should contain a numeric part that corresponds
+        to the component index in `pc_list`.
+
+    Returns
+    -------
+    tuple
+        A tuple containing two elements:
+        - An array of feature names for the specified principal component.
+        - An array of sorted component values for the specified principal 
+          component.
+
+    Raises
+    ------
+    ValueError
+        If the `kind` parameter does not contain a valid component number or if the
+        specified component number is out of the range of available components
+        in `pc_list`.
+
+    Examples
+    --------
+    >>> from gofast.api.extension import parse_component_kind
+    >>> pc_list = [
+    ...     ('pc1', ['feature1', 'feature2', 'feature3'], [0.8, 0.5, 0.3]),
+    ...     ('pc2', ['feature1', 'feature2', 'feature3'], [0.6, 0.4, 0.2])
+    ... ]
+    >>> feature_names, importances = parse_component_kind(pc_list, 'pc1')
+    >>> print(feature_names)
+    ['feature1', 'feature2', 'feature3']
+    >>> print(importances)
+    [0.8, 0.5, 0.3]
+
+    Notes
+    -----
+    The function requires that the `kind` parameter include a numeric value 
+    that accurately represents a valid index in `pc_list`. The index is derived
+    from the numeric part of the `kind` string and is expected to be 1-based. 
+    If no valid index is found or if the index is out of range, the function 
+    raises a `ValueError`.
+    """
+    match = re.search(r'\d+', str(kind))
+    if match:
+        # Convert 1-based index from `kind` to 0-based index for list access
+        index = int(match.group()) - 1  
+        if index < len(pc_list) and index >= 0:
+            return pc_list[index][1], pc_list[index][2]
+        else:
+            raise ValueError(f"Component index {index + 1} is out of the"
+                             " range of available components.")
+    else:
+        raise ValueError("The 'kind' parameter must include an integer"
+                         " indicating the desired principal component.")
+
 def find_maximum_table_width(summary_contents, header_marker='='):
     """
     Calculates the maximum width of tables in a summary string based on header lines.

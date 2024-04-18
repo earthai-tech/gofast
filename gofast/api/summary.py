@@ -6,13 +6,14 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from .extension import isinstance_, fetch_estimator_name 
+from .extension import RegexMap, isinstance_, fetch_estimator_name 
 from .formatter import MultiFrameFormatter, DataFrameFormatter, DescriptionFormatter 
+from .box import KeyBox 
 from .structures import FlexDict
 from .util import format_value, df_to_custom_dict, format_text  
 from .util import find_maximum_table_width, format_df, format_correlations
 
-class ModelSummary(FlexDict):
+class ModelSummary(KeyBox):
     """
     A class for creating and storing a summary of machine learning model
     tuning results. Inherits from FlexDict for flexible attribute management.
@@ -1696,21 +1697,22 @@ def summarize_model_results(
     ... }
     >>> sum_model = summarize_model_results( model_results ) 
     >>> print(sum_model)
-                     Model Results                  
-    ================================================
-    Best estimator   : str
-    Best parameters  : {'C': 1, 'gamma': 0.1}
-    nCV              : 2
-    Scoring          : Unknown scoring
-    ================================================
-    
-                     Tuning Results                 
-    ================================================
-      Fold Mean score CV score std score Global mean
-    ------------------------------------------------
-    0  cv1     0.6233   0.6789    0.0555      0.6233
-    1  cv2     0.8500   0.9000    0.0500      0.8500
-    ================================================
+                   Model Results               
+    ===========================================
+    Best estimator       : SVC
+    Best parameters      : {'C': 1, 'gamma':...
+    Scoring              : accuracy
+    nCV                  : 4
+    Params combinations  : 2
+    ===========================================
+
+                   Tuning Results              
+    ===========================================
+          Params   Mean CV Score  Std. CV Score
+    -------------------------------------------
+    0    (1, 0.1)         0.7704         0.1586
+    1  (10, 0.01)         0.8750         0.0559
+    ===========================================
 
     Notes
     -----
@@ -1723,32 +1725,11 @@ def summarize_model_results(
       consistent presentation.
     """
     title = title or "Model Results"
-    # Standardize keys in model_results based on map_keys
-    standardized_results = standardize_keys(model_results)
-    # Validate presence of required information
-    if  ( 
-            'best_estimator_'  not in standardized_results 
-            and 'best_params_' not in standardized_results
-        ):
-        raise ValueError(
-            "Required information ('best_estimator_' or 'best_parameters_') is missing.")
-
-    # Inline contents preparation
-    inline_contents = {
-        "Best estimator": fetch_estimator_name(standardized_results['best_estimator_']),
-        "Best parameters": standardized_results.get('best_params_','Unknown parameters') ,
-        "nCV": len({k for k in standardized_results['cv_results_'].keys(
-            ) if k.startswith('split')})# // len(standardized_results['cv_results_']['params']))
-            if 'cv_results_' in standardized_results else 'Undefined nCV',
-        "Scoring": standardized_results.get('scoring', 'Undefined'), 
-    }
-    if ( 
-            'cv_results_' in standardized_results 
-            and 'params' in standardized_results['cv_results_']
-        ): 
-        inline_contents["Params combinations"]=len(
-            standardized_results['cv_results_']['params'])
-    # 
+    # make the inline model results 
+    inline_contents, standardized_results= summarize_inline_model_results(
+        model_results
+    )
+    # compute the max keys 
     max_width = get_table_width(inline_contents, max_column_width=max_width)
     # Preparing data for the CV results DataFrame
     formatted_table=''
@@ -1774,6 +1755,109 @@ def summarize_model_results(
     formatted_table=f'\n\n{formatted_table}' if 'cv_results_' in standardized_results else ''
     summary = f"{summary_inline_tab}{formatted_table}"
     return summary
+
+def summarize_inline_model_results(model_results ):
+    """
+    Summarizes and standardizes the results of a model fitting process into a 
+    consistent inline format for easy reporting or further analysis.
+
+    Parameters
+    ----------
+    model_results : dict
+        A dictionary containing various keys that represent results from 
+        model fitting processes, such as estimators, parameters, scores, etc.
+
+    Returns
+    -------
+    tuple of dict
+        A tuple containing two dictionaries:
+        - The first dictionary includes standardized key names and associated 
+          results, featuring information about the best estimator, best 
+          parameters, scores, scoring method, number of cross-validation splits,
+          and parameter combinations.
+        - The second dictionary is the standardized results that have been 
+          processed through the `standardize_keys` function, providing a direct
+          view of the standardized keys and their corresponding values from the
+          original model_results.
+
+    Raises
+    ------
+    ValueError
+        If any of the essential information (best estimator or best parameters)
+        is missing from the provided `model_results`.
+
+    Examples
+    --------
+    >>> from gofast.api.summary import summarize_inline_model_results
+    >>> model_results = {
+    ...     'model': "RandomForest",
+    ...     'params': {'n_estimators': 100, 'max_depth': 5},
+    ...     'fold_results': {'mean_test_score': [0.9, 0.95, 0.85]},
+    ...     'scoring': 'accuracy'
+    ... }
+    >>> inline_results, standardized_results = summarize_inline_model_results(
+    ... model_results)
+    >>> print(inline_results)
+    {
+        'Best estimator': "RandomForest",
+        'Best parameters': {'n_estimators': 100, 'max_depth': 5},
+        'Best score': 'Undefined',
+        'Scoring': 'accuracy',
+        'nCV': 0,
+    }
+    >>> print(standardized_results['best_estimator_'])
+    'RandomForest'
+
+    Notes
+    -----
+    - The function leverages the `standardize_keys` function to map various
+      potentially varying terminologies into a set of predefined keys.
+    - This function is designed to work dynamically with any set of results as
+      long as they can be mapped using predefined patterns. It is highly
+      dependent on the accuracy and robustness of the `standardize_keys` function.
+    - The function returns 'Unknown estimator' or 'Unknown parameters' if the 
+      necessary details are missing from the input results. This is intended 
+      to prevent errors in subsequent processes that use this summary.
+    """
+    # Standardize keys in model_results
+    standardized_results = standardize_keys(model_results)
+    
+    # Validate presence of required information
+    required_keys = ['best_estimator_', 'best_params_']
+    if not any(key in standardized_results for key in required_keys):
+        missing_keys = ', '.join(required_keys)
+        raise ValueError(f"Required information ({missing_keys}) is missing.")
+
+    # Prepare inline contents
+    inline_contents = {
+        "Best estimator": fetch_estimator_name(standardized_results.get(
+            'best_estimator_', '<Unknown>')),
+        "Best parameters": standardized_results.get('best_params_', '<Undefined>')
+    }
+
+    # Optionally add scores and scoring method if available
+    if 'best_score_' in standardized_results:
+        inline_contents["Best score"] = standardized_results['best_score_']
+
+    if 'scoring' in standardized_results:
+        inline_contents["Scoring"] = standardized_results['scoring']
+
+    # Compute the number of cross-validation splits
+    cv_results = standardized_results.get('cv_results_', {})
+    inline_contents["nCV"] = len({k for k in cv_results if k.startswith('split')})
+
+    # Add number of parameter combinations if available
+    if 'params' in cv_results:
+        inline_contents["Params combinations"] = len(cv_results['params'])
+
+    # Include additional keys from standardized_results
+    exclude_keys = set(['best_estimator_', 'best_params_', 'best_score_',
+                        'scoring', 'cv_results_'])
+    additional_keys = set(standardized_results) - exclude_keys
+    for key in additional_keys:
+        inline_contents[key] = standardized_results[key]
+
+    return inline_contents, standardized_results
 
 
 def summarize_optimized_results(model_results, result_title=None, **kwargs):
@@ -1947,22 +2031,33 @@ def standardize_keys(model_results):
     - If multiple alternative keys for the same standard key are present, the first
       found alternative is used.
     """
-    map_keys = {
-        'best_estimator_': ['model', 'estimator', 'best_estimator'],
-        'best_params_': ['parameters', 'params', 'best_parameters', 'best_parameters_'],
-        'cv_results_': ['results', 'fold_results', 'cv_results']
-    }
+    # map_keys = {
+    #     'best_estimator_': ['model', 'estimator', 'best_estimator'],
+    #     'best_params_': ['parameters', 'params', 'best_parameters', 'best_parameters_'],
+    #     'best_scores_': ['scores', 'best_score', 'score', ], 
+    #     'cv_results_': ['results', 'fold_results', 'cv_results'], 
+    # }
+    # standardized_results = {}
+    # for standard_key, alternatives in map_keys.items():
+    #     # Check each alternative key for presence in model_results
+    #     for alt_key in alternatives:
+    #         if alt_key in model_results:
+    #             standardized_results[standard_key] = model_results[alt_key]
+    #             break  # Break after finding the first matching alternative
+    # # Additionally, check for any keys that are already correct and not duplicated
+    # for key in map_keys.keys():
+    #     if key in model_results and key not in standardized_results:
+    #         standardized_results[key] = model_results[key]
+
+    # return standardized_results
+    regex_map = RegexMap()  
     standardized_results = {}
-    for standard_key, alternatives in map_keys.items():
-        # Check each alternative key for presence in model_results
-        for alt_key in alternatives:
-            if alt_key in model_results:
-                standardized_results[standard_key] = model_results[alt_key]
-                break  # Break after finding the first matching alternative
-    # Additionally, check for any keys that are already correct and not duplicated
-    for key in map_keys.keys():
-        if key in model_results and key not in standardized_results:
-            standardized_results[key] = model_results[key]
+
+    # Iterate over each key in the original results and standardize it
+    for original_key in model_results:
+        standard_key = regex_map.find_key(original_key)
+        if standard_key:
+            standardized_results[standard_key] = model_results[original_key]
 
     return standardized_results
 
