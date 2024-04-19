@@ -71,19 +71,26 @@ class BackendSelector:
     computations with SciPy, or general-purpose computations with NumPy as the
     default option.
     """
-    def __init__(self, preferred_backend=None):
+    def __init__(self, preferred_backend=None, verbose=0 ):
         self.backends = {
             "numpy": NumpyBackend,
             "scipy": ScipyBackend,
             "dask": DaskBackend,
             "cupy": CuPyBackend
         }
+        self.verbose=verbose 
         self.selected_backend = self.select_backend(preferred_backend)
 
     def select_backend(self, preferred_backend):
         """
         Selects the backend based on user preference or environment.
         """
+        # map_dict = {"numpy": ["np", "numpy"], 
+        #  "scipy": ["sp", "scipy"], 
+        #  "dask": ["da", "dk", "dask"], 
+        #  "cupy": ["cp", "cy", "cupy"]}
+        # if prefered backend is among the value of map_dict( can be renamed), 
+        # use the key. 
         if preferred_backend in self.backends:
             print(f"{preferred_backend.capitalize()}Backend selected by user preference.")
             return self.backends[preferred_backend]()
@@ -128,18 +135,22 @@ class BackendSelector:
         Automatically selects the most suitable backend.
         """
         if self.is_gpu_available():
-            print("CuPyBackend selected for GPU acceleration.")
+            if self.verbose: 
+                print("CuPyBackend selected for GPU acceleration.")
             return self.backends["cupy"]()
         
         if self.is_dask_available():
-            print("DaskBackend selected for distributed computing.")
+            if self.verbose:
+                print("DaskBackend selected for distributed computing.")
             return self.backends["dask"]()
 
         if self.is_scipy_available():
-            print("ScipyBackend selected for advanced scientific computations.")
+            if self.verbose: 
+                print("ScipyBackend selected for advanced scientific computations.")
             return self.backends["scipy"]()
-
-        print("NumpyBackend selected as the default backend.")
+        
+        if self.verbose: 
+            print("NumpyBackend selected as the default backend.")
         return self.backends["numpy"]()
 
     def get_backend(self):
