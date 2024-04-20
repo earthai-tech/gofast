@@ -30,7 +30,7 @@ from sklearn.model_selection import cross_val_score
 
 from ..api.docstring import _core_docs
 from ..api.types import ArrayLike 
-from ..tools.validator import check_array 
+from ..tools.validator import check_array, validate_positive_integer
 from ..tools.coreutils import _assert_all_types 
 
 
@@ -149,9 +149,8 @@ def spectral_fa(
 
     return loadings, factors, eigenvalues
 
-
 def promax_rotation(
-    ar2d, /, 
+    loading_ar2d, /, 
     power: int=4
     ):
     """
@@ -159,9 +158,10 @@ def promax_rotation(
 
     The promax_rotation function performs Promax Rotation on the input 
     factor loadings matrix, allowing you to obtain the rotated factor loadings
+    
     Parameters
     ----------
-    ar2d : ndarray
+    loading_ar2d : ndarray
         The factor loadings matrix with shape (n_features, num_factors).
     power : int, optional
         The power parameter for Promax rotation. Default is 4.
@@ -190,6 +190,7 @@ def promax_rotation(
     Examples
     --------
     >>> import numpy as np
+    >>> from gofast.analysis import promax_rotation
     >>> loadings = np.array([[0.7, 0.1, 0.3],
     ...                      [0.8, 0.2, 0.4],
     ...                      [0.4, 0.6, 0.5],
@@ -198,9 +199,9 @@ def promax_rotation(
     >>> print("Rotated Factor Loadings Matrix:")
     >>> print(rotated_loadings)
     """
-    power = int (_assert_all_types(power, int, float,
-                                   obj='power for a  promax rotation'))
-    loadings = check_array(ar2d )
+    power =  validate_positive_integer(power, "power", include_zero=True )
+
+    loadings = check_array(loading_ar2d )
     # Perform Promax rotation using the specified power parameter
     n_features, num_factors = loadings.shape
     L = loadings
@@ -328,8 +329,9 @@ def compare_pca_fa_scores (
             plt.legend(loc='lower right')
             plt.title(title)
     
-    if view: plt.show()
-    
+    if view: 
+        plt.show()
+     
     return pca_scores, fa_scores
     
 compare_pca_fa_scores.__doc__="""\
@@ -508,7 +510,7 @@ def principal_axis_factoring(X, n_factors=2):
 
 
 def varimax_rotation(
-    ar2d, /,  
+    loading_ar2d, /,  
     gamma=1.0, 
     q=20, 
     tol=1e-6
@@ -529,7 +531,7 @@ def varimax_rotation(
     
     Parameters
     ----------
-    ar2d : array_like
+    loading_ar2d : array_like
         The factor loading matrix obtained from factor analysis. 
         Rows represent variables and columns represent factors.
     gamma : float, optional
@@ -560,7 +562,7 @@ def varimax_rotation(
     >>> print("Rotated Factor Loading Matrix:")
     >>> print(rotated_matrix)
     """
-    loading_matrix = check_array(ar2d)
+    loading_matrix = check_array(loading_ar2d)
     n_rows, n_cols = loading_matrix.shape
     rotation_matrix = np.eye(n_cols)
     var = 0
@@ -581,7 +583,7 @@ def varimax_rotation(
 
 
 def oblimin_rotation(
-    ar2d, /, 
+    loading_ar2d, /, 
     gamma=0.0, 
     max_iter=100, 
     tol=1e-6
@@ -642,7 +644,7 @@ def oblimin_rotation(
     >>>  print(rotated_matrix)
 
     """
-    factor_loading_matrix = check_array(ar2d)
+    factor_loading_matrix = check_array(loading_ar2d)
     n_vars, n_factors = factor_loading_matrix.shape
     rotated_matrix = factor_loading_matrix.copy()
     converged = False

@@ -28,13 +28,14 @@ from sklearn.datasets import make_classification
 from sklearn.ensemble import RandomForestClassifier
 
 from gofast.datasets.load import load_bagoue,load_hlogs 
+from gofast.tools.baseutils import get_target
 from gofast.tools.coreutils import find_features_in, smart_label_classifier, cleaner 
 from gofast.tools.mlutils import fetch_tgz_from_url, evaluate_model  
 from gofast.tools.mlutils import get_global_score, get_correlated_features    
 from gofast.tools.mlutils import codify_variables, resampling, bin_counting 
 from gofast.tools.mlutils import soft_imputer, soft_scaler, select_feature_importances 
 from gofast.tools.mlutils import make_pipe, build_data_preprocessor 
-from gofast.tools.mlutils import  load_model, bi_selector, get_target 
+from gofast.tools.mlutils import  load_model, bi_selector
 from gofast.tools.mlutils import stats_from_prediction, fetch_model, load_csv 
 from gofast.tools.mlutils import discretize_categories, stratify_categories, serialize_data # 
 from gofast.tools.mlutils import deserialize_data, soft_data_split 
@@ -252,7 +253,8 @@ def test_laplace_smoothing_word():
     assert probability == pytest.approx(0.5)
 
 def test_laplace_smoothing_categorical():
-    data = pd.DataFrame({'feature': ['cat', 'dog', 'cat', 'bird'], 'class': ['A', 'A', 'B', 'B']})
+    data = pd.DataFrame({'feature': ['cat', 'dog', 'cat', 'bird'], 
+                         'class': ['A', 'A', 'B', 'B']})
     probabilities = laplace_smoothing_categorical(data, 'feature', 'class')
     # Asserts based on expected behavior; specific values depend on the implementation
     assert 'cat' in probabilities.index
@@ -293,21 +295,21 @@ def test_get_target():
         'feature1': [1, 2, 3],
         'target': [0, 1, 0]
     })
-    target, modified_df = get_target(df.copy(), 'target', True)
-    
-    assert 'target' in df.columns  # Original DataFrame should remain unchanged
+    target, modified_df = get_target(df, 'target', True)
+    df_copy = df.copy () 
+    assert 'target' not in df.columns  # Original DataFrame should remain unchanged
     assert 'target'  not in modified_df.columns  # Modified DataFrame should not have the target column
-    assert all(target == df['target'])  # Extracted target should match the original target column
+    assert all(target == df_copy['target'])  # Extracted target should match the original target column
 
 def test_get_target2():
     df = pd.DataFrame({
         'feature1': [1, 2, 3],
         'target': ['A', 'B', 'C']
     })
+    
     target, modified_df = get_target(df, 'target', inplace=False)
     assert 'target' in df.columns  # Original df should be unchanged
     assert all(target == df['target'])  # Target column extracted correctly
-
 
 
 def test_get_global_score2():

@@ -88,10 +88,10 @@ def calculate_histogram_bins(
     data : array_like
         The input data to calculate histogram bins for.
     bins : int, sequence of scalars, or str, optional
-        The criteria to bin the data. If an integer, it defines the number of equal-width
-        bins in the given range. If a sequence, it defines the bin edges directly.
-        If a string, it defines the method used to calculate the optimal bin width, as
-        defined by numpy.histogram_bin_edges().
+        The criteria to bin the data. If an integer, it defines the number 
+        of equal-width bins in the given range. If a sequence, it defines the 
+        bin edges directly. If a string, it defines the method used to calculate 
+        the optimal bin width, as defined by numpy.histogram_bin_edges().
     range : (float, float), optional
         The lower and upper range of the bins. If not provided, range is 
         simply (data.min(), data.max()).
@@ -253,6 +253,7 @@ def optimized_spearmanr(
 
     Examples
     --------
+    >>> from gofast.tools.mathex import optimized_spearmanr
     >>> y_true = [1, 2, 3, 4, 5]
     >>> y_pred = [5, 6, 7, 8, 7]
     >>> optimized_spearmanr(y_true, y_pred)
