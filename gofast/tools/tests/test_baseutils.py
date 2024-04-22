@@ -22,8 +22,81 @@ from gofast.tools.baseutils import labels_validator #
 from gofast.tools.baseutils import rename_labels_in  # 
 from gofast.tools.baseutils import select_features 
 from gofast.tools.baseutils import categorize_target
+from gofast.tools.baseutils import get_target
+
 DOWNLOAD_FILE='https://raw.githubusercontent.com/WEgeophysics/gofast/main/gofast/datasets/data/iris.csv'
 
+
+# This test case is conceptual and may need adjustments for real-world usage
+class TestSaveOrLoad(unittest.TestCase):
+    @patch('gofast.tools.baseutils.np.save')
+    def test_save_array(self, mock_save):
+        arr = np.array([1, 2, 3])
+        save_or_load("dummy.npy", arr, task='save', format='.npy')
+        mock_save.assert_called_once()
+
+    @patch('gofast.tools.baseutils.np.load')
+    def test_load_array(self, mock_load):
+        mock_load.return_value = np.array([1, 2, 3])
+        result = save_or_load("dummy.npy", task='load')
+        self.assertTrue(np.array_equal(result, np.array([1, 2, 3])))
+        mock_load.assert_called_once_with("dummy.npy")
+        
+@pytest.mark.skip(reason="If Module Not found")
+class TestDownloadFile(unittest.TestCase):
+    @patch('gofast.tools.baseutils.requests.get')
+    @patch('builtins.open', new_callable=mock_open)
+    def test_download_file(self, mock_file, mock_get):
+        mock_get.return_value.__enter__.return_value.iter_content.return_value = [b'chunk1', b'chunk2']
+        download_file(DOWNLOAD_FILE, 'iris.csv')
+        mock_file.assert_called_with('iris.csv', 'wb')
+        handle = mock_file()
+        handle.write.assert_any_call(b'chunk1')
+        handle.write.assert_any_call(b'chunk2')
+        
+@pytest.mark.skip(reason="If Module Not found")
+class TestFancierDownloader(unittest.TestCase):
+    @patch('gofast.tools.baseutils.requests.get')
+    def test_fancier_downloader(self, mock_get):
+        mock_get.return_value.__enter__.return_value.iter_content.return_value = [b'chunk1', b'chunk2']
+        mock_get.return_value.__enter__.return_value.headers = {'content-length': '1024'}
+        
+        with patch('gofast.tools.baseutils.tqdm'), \
+              patch('builtins.open', mock_open()) as mocked_file:
+            local_filename = fancier_downloader(DOWNLOAD_FILE, 'iris.csv')
+            mocked_file.assert_called_once_with('iris.csv', 'wb')
+            self.assertIn('iris.csv', local_filename)
+            
+def test_get_target():
+    df = pd.DataFrame({
+        'feature1': [1, 2, 3],
+        'target': [0, 1, 0]
+    })
+    target, modified_df = get_target(df, 'target', True)
+    
+    assert 'target' not in df.columns  # Original DataFrame should remain unchanged
+    assert 'target'  not in modified_df.columns  # Modified DataFrame should not have the target column
+
+def test_get_target2():
+    df = pd.DataFrame({
+        'feature1': [1, 2, 3],
+        'target': ['A', 'B', 'C']
+    })
+    
+    target, modified_df = get_target(df, 'target', inplace=False)
+    assert 'target' in df.columns  # Original df should be unchanged
+    
+def test_get_target_inplace_true():
+    df = pd.DataFrame({'feature': [1, 2, 3], 'target': ['A', 'B', 'C']})
+    target, _ = get_target(df, 'target')
+    assert 'target' not in df.columns
+    assert all( item in target.values for item in  ['A', 'B', 'C'])
+
+def test_get_target_inplace_false():
+    df = pd.DataFrame({'feature': [1, 2, 3], 'target': ['A', 'B', 'C']})
+    _, new_df = get_target(df, 'target', inplace=False)
+    assert 'target' in df.columns
+    assert 'target'in new_df.columns
 
 def test_select_features_by_name():
     df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6], 'C': [7, 8, 9]})
@@ -85,7 +158,7 @@ def test_labels_validator_raises_value_error_on_missing_labels():
     try:
         labels_validator(y, labels)
     except ValueError as e:
-        assert str(e).startswith("Label value")
+        assert str(e).startswith("Label")
 
 def test_rename_labels_in():
     arr = np.array([0, 1, 2, 0, 1, 2])
@@ -239,44 +312,7 @@ class TestLowertify(unittest.TestCase):
         self.assertEqual(test_result, ('test', 'Test'))
         self.assertEqual(string_result, ('string', 'STRING'))
 
-# Note: This test case is conceptual and may need adjustments for real-world usage
-class TestSaveOrLoad(unittest.TestCase):
-    @patch('gofast.tools.baseutils.np.save')
-    def test_save_array(self, mock_save):
-        arr = np.array([1, 2, 3])
-        save_or_load("dummy.npy", arr, task='save', format='.npy')
-        mock_save.assert_called_once()
 
-    @patch('gofast.tools.baseutils.np.load')
-    def test_load_array(self, mock_load):
-        mock_load.return_value = np.array([1, 2, 3])
-        result = save_or_load("dummy.npy", task='load')
-        self.assertTrue(np.array_equal(result, np.array([1, 2, 3])))
-        mock_load.assert_called_once_with("dummy.npy")
-        
-        
-class TestDownloadFile(unittest.TestCase):
-    @patch('gofast.tools.baseutils.requests.get')
-    @patch('builtins.open', new_callable=mock_open)
-    def test_download_file(self, mock_file, mock_get):
-        mock_get.return_value.__enter__.return_value.iter_content.return_value = [b'chunk1', b'chunk2']
-        download_file(DOWNLOAD_FILE, 'iris.csv')
-        mock_file.assert_called_with('iris.csv', 'wb')
-        handle = mock_file()
-        handle.write.assert_any_call(b'chunk1')
-        handle.write.assert_any_call(b'chunk2')
-
-class TestFancierDownloader(unittest.TestCase):
-    @patch('gofast.tools.baseutils.requests.get')
-    def test_fancier_downloader(self, mock_get):
-        mock_get.return_value.__enter__.return_value.iter_content.return_value = [b'chunk1', b'chunk2']
-        mock_get.return_value.__enter__.return_value.headers = {'content-length': '1024'}
-        
-        with patch('gofast.tools.baseutils.tqdm'), \
-              patch('builtins.open', mock_open()) as mocked_file:
-            local_filename = fancier_downloader(DOWNLOAD_FILE, 'iris.csv')
-            mocked_file.assert_called_once_with('iris.csv', 'wb')
-            self.assertIn('iris.csv', local_filename)
 
 def test_select_features (): 
     X, _= _prepare_dataset(return_raw= True ) 

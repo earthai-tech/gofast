@@ -1620,8 +1620,6 @@ def construct_table_for_different_columns(dataframes, titles):
     ## Return the final output string, trimming any trailing newline characters.
     return tables_str.rstrip()
 
-
-
 def series_to_dataframe(series):
     """
     Transforms a pandas Series into a DataFrame where the columns are the index
@@ -1702,13 +1700,17 @@ def format_iterable(attr):
         if isinstance(obj, pd.Series):
             stats = _numeric_stats(obj) if obj.dtype != 'object' else {}
             details = ", ".join([f"{key}={value}" for key, value in stats.items()])
-            return f"Series ({details}, len={obj.size}, dtype={obj.dtype})"
+            if details: 
+                details +=', '
+            return f"Series ({details}len={obj.size}, dtype={obj.dtype})"
         elif isinstance(obj, pd.DataFrame):
             numeric_cols = obj.select_dtypes(include=np.number).columns
             stats = _numeric_stats(obj[numeric_cols].values.flat) if not numeric_cols.empty else {}
             details = ", ".join([f"{key}={value}" for key, value in stats.items()])
+            if details: 
+                details +=', '
             return ( 
-                f"DataFrame ({details}, n_rows={obj.shape[0]},"
+                f"DataFrame ({details}n_rows={obj.shape[0]},"
                 f" n_cols={obj.shape[1]}, dtypes={obj.dtypes.unique()})"
                 )
     

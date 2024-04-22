@@ -18,10 +18,130 @@ from ..tools.coreutils import _assert_all_types
 from ..tools.coreutils import smart_format, random_sampling 
 from ..tools.funcutils import ensure_pkg
 from ..tools.validator import validate_and_adjust_ranges, validate_dates
+from ..tools.validator import parameter_validator 
 
 from .util import manage_data, get_item_from, generate_synthetic_values
 from .util import generate_categorical_values, generate_regression_output
 from .util import apply_scaling, rename_data_columns 
+
+def create_dataset(
+    task='classification', 
+    n_samples=100, 
+    n_features=5, 
+    n_classes=2, 
+    n_informative=2, 
+    n_clusters_per_class=1, 
+    n_redundant=0, 
+    n_repeated=0,
+    random_state=42, 
+    test_size=0.3, 
+    shuffle=True, 
+    split_X_y=False, 
+    noise=0.0
+):
+    """
+    Generates synthetic datasets for classification or regression tasks, 
+    with an option to split into training and test sets.
+    
+    This function is flexible, allowing for the adjustment of several 
+    parameters to generate datasets of varying complexity and types. 
+    It is particularly useful for machine learning experimentation and testing.
+
+    Parameters
+    ----------
+    task : str, optional
+        The type of dataset to generate. Options are 'classification' or 
+        'regression'. Defaults to 'classification'.
+    n_samples : int, optional
+        The total number of samples to generate. Defaults to 100.
+    n_features : int, optional
+        The number of features to generate for each sample. Defaults to 5.
+    n_classes : int, optional
+        The number of classes (only used for classification). Defaults to 2.
+    n_informative : int, optional
+        The number of informative features (only used for classification). 
+        Defaults to 2.
+    n_clusters_per_class : int, optional
+        The number of clusters per class (only used for classification). 
+        Defaults to 1.
+    n_redundant : int, optional
+        The number of redundant features (only used for classification). 
+        Defaults to 0.
+    n_repeated : int, optional
+        The number of repeated features (only used for classification). 
+        Defaults to 0.
+    random_state : int, optional
+        The seed used by the random number generator. Defaults to 42.
+    test_size : float, optional
+        The proportion of the dataset to include in the test split. 
+        Defaults to 0.3.
+    shuffle : bool, optional
+        Whether or not to shuffle the data before splitting. Defaults to True.
+    split_X_y : bool, optional
+        Whether to split the dataset into training and test sets. 
+        Defaults to False.
+    noise : float, optional
+        The standard deviation of the Gaussian noise added to the output 
+        (only used for regression). Defaults to 0.0.
+
+    Returns
+    -------
+    X_train, X_test, y_train, y_test : ndarray
+        The training and testing sets of features and labels (if `split_X_y` 
+        is True).
+    X, y : ndarray
+        The features and labels of the dataset (if `split_X_y` is False).
+
+    Examples
+    --------
+    Generate a simple classification dataset and split into training and testing:
+
+    >>> from gofast.datasets.generate import create_dataset
+    >>> X_train, X_test, y_train, y_test = create_dataset(task='classification', 
+    ... n_samples=150, n_features=4, n_classes=3, test_size=0.2, random_state=7, 
+    ... split_X_y=True)
+
+    Generate a regression dataset without splitting:
+
+    >>> X, y = create_dataset(task='regression', n_samples=200, n_features=6, 
+    ... noise=0.1, random_state=8)
+
+    Notes
+    -----
+    - When generating classification datasets, if the number of classes is two,
+      the function creates a binary classification dataset.
+    - For regression tasks, the noise parameter can be adjusted to simulate 
+      real-world data where outputs have Gaussian noise.
+    - Setting `split_X_y` to False is useful when the entire dataset is needed 
+      for processes such as cross-validation or when using custom data splitting 
+      strategies.
+    """
+
+    from sklearn.datasets import make_classification, make_regression
+    from sklearn.model_selection import train_test_split
+    valid_tasks = {"classification", "regression"}
+    task = parameter_validator("task", target_strs=valid_tasks, 
+        error_msg=f"'task' must be one of {valid_tasks}. Received '{task}'.", 
+        ) (task)
+    
+    # Adjust parameters for classification tasks
+    if task == 'classification':
+        X, y = make_classification(n_samples=n_samples, n_features=n_features, 
+                                   n_classes=n_classes, n_informative=n_informative, 
+                                   n_clusters_per_class=n_clusters_per_class,
+                                   n_redundant=n_redundant, n_repeated=n_repeated,
+                                   random_state=random_state, shuffle=shuffle)
+    # Adjust parameters for regression tasks
+    else:
+        X, y = make_regression(n_samples=n_samples, n_features=n_features, 
+                               noise=noise, random_state=random_state, shuffle=shuffle)
+
+    # Splitting dataset into training and test sets
+    if split_X_y: 
+        return train_test_split(X, y, test_size=test_size, random_state=random_state)
+        
+    return X, y 
+
 
 def make_classification(
     n_samples=100,

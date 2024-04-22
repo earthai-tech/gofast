@@ -3,8 +3,8 @@ The Tools sub-package offers a variety of utilities for data handling,
 parameter computation, model estimation, and evaluation. It extends
 mathematical concepts through the module :mod:`~gofast.tools.mathex`. 
 Additionally, machine learning utilities and supplementary functionalities 
-are facilitated by :mod:`~gofast.tools.mlutils` and :mod:`~gofast.tools.coreutils`, 
-respectively.
+are facilitated by :mod:`~gofast.tools.mlutils` and 
+:mod:`~gofast.tools.coreutils`, respectively.
  
 """
 
@@ -18,6 +18,7 @@ MODULE_MAPPING = {
         'select_features', 
         'extract_target', 
         'array2hdf5',
+        'get_target', 
         'fancier_downloader', 
         'labels_validator', 
         'rename_labels_in', 
@@ -135,7 +136,6 @@ MODULE_MAPPING = {
         'fetch_tgz', 
         'get_correlated_features',
         'get_global_score',
-        'get_target', 
         'handle_imbalance',
         'laplace_smoothing', 
         'laplace_smoothing_categorical',

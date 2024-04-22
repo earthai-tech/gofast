@@ -23,6 +23,77 @@ from inspect import signature, Parameter, isclass
 from ._array_api import get_namespace, _asarray_with_order
 FLOAT_DTYPES = (np.float64, np.float32, np.float16)
 
+def ensure_2d(X, output_format="auto"):
+    """
+    Ensure that the input X is converted to a 2-dimensional structure.
+    
+    Parameters
+    ----------
+    X : array-like or pandas.DataFrame
+        The input data to convert. Can be a list, numpy array, or DataFrame.
+    output_format : str, optional
+        The format of the returned object. Options are "auto", "array", or "frame".
+        "auto" returns a DataFrame if X is a DataFrame, otherwise a numpy array.
+        "array" always returns a numpy array.
+        "frame" always returns a pandas DataFrame.
+        
+    Returns
+    -------
+    ndarray or DataFrame
+        The converted 2-dimensional structure, either as a numpy array or DataFrame.
+    
+    Raises
+    ------
+    ValueError
+        If the `output_format` is not one of the allowed values.
+    
+    Examples
+    --------
+    >>> import numpy as np 
+    >>> from gofast.tools.validator import ensure_2d
+    >>> X = np.array([1, 2, 3])
+    >>> ensure_2d(X, output_format="array")
+    array([[1],
+           [2],
+           [3]])
+    >>> df = pd.DataFrame([1, 2, 3])
+    >>> ensure_2d(df, output_format="frame")
+       0
+    0  1
+    1  2
+    2  3
+    """
+    # Check for allowed output_format values
+    output_format= parameter_validator(
+        "output_format", target_strs=["auto", "array", "frame"]
+        ) (output_format)
+
+    # Detect if the input is a DataFrame
+    is_dataframe = isinstance(X, pd.DataFrame)
+    
+    # Ensure X is at least 2-dimensional
+    if isinstance(X, np.ndarray):
+        if X.ndim == 1:
+            X = X[:, np.newaxis]
+    elif isinstance(X, pd.DataFrame):
+        if X.shape[1] == 0:  # Implies an empty DataFrame or misshapen
+            X = X.values.reshape(-1, 1)  # reshape and handle as array
+            is_dataframe = False
+    else:
+        X = np.array(X)  # Convert other types like lists to np.array
+        if X.ndim == 1:
+            X = X[:, np.newaxis]
+
+    # Decide on return type based on output_format
+    if output_format == "array":
+        return X if isinstance(X, np.ndarray) else X.values
+    elif output_format == "frame":
+        return pd.DataFrame(X) if not is_dataframe else X
+    else:  # auto handling
+        if is_dataframe:
+            return X
+        return pd.DataFrame(X) if is_dataframe else X
+
 def parameter_validator(
         param_name, target_strs, match_method='contains',
         raise_exception=True, **kws):

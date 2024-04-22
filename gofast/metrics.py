@@ -80,6 +80,7 @@ __all__=[
     "fetch_sklearn_scorers", 
     "fetch_scorer_functions", 
     "get_scorer_names", 
+    "fetch_scorers", 
     "SCORERS"
     ]
 
@@ -5398,8 +5399,9 @@ def get_scorer_names(include_sklearn=True):
 
     See Also
     --------
+    sklearn.metrics.get_scorer_names : 
+        Function to list all scorer names available in scikit-learn.
     gofast.metrics : Module containing custom scoring functions.
-    sklearn.metrics.get_scorer_names : Function to list all scorer names available in scikit-learn.
     """
     scorers = list(SCORERS.keys())
     if include_sklearn:
@@ -5412,11 +5414,11 @@ def fetch_scorer_functions():
     """
     Retrieves a dictionary of scorer functions from both scikit-learn and gofast.
     
-    This function scans through all scoring and error functions defined in
+    Function scans through all scoring and error functions defined in
     sklearn.metrics, filtering out private functions (those starting with '_') and
     selecting those with 'score' or 'error' in their names. It combines these with
-    the predefined scoring functions from gofast, providing a comprehensive dictionary
-    of available scoring methods.
+    the predefined scoring functions from gofast, providing a comprehensive 
+    dictionary of available scoring methods.
 
     Returns
     -------
@@ -5453,6 +5455,86 @@ def fetch_scorer_functions():
     scorer_functions.update(SCORERS)  
                 
     return scorer_functions
+
+def fetch_scorers(metric_name, /):
+    """
+    Retrieves a scorer function based on a flexible metric name, considering 
+    potential suffixes. The function handles specific metrics like 
+   'balanced_accuracy'  strictly to avoid mismatches with similar names.
+
+    Parameters
+    ----------
+    metric_name : str
+        The base name of the metric, which may or may not include suffixes such as
+        '_score', '_error', '_deviance', or '_deviation'.
+
+    Returns
+    -------
+    function
+        The scorer function corresponding to the metric name, if available.
+
+    Raises
+    ------
+    ValueError
+        If no matching scorer is found.
+
+    Examples
+    --------
+    >>> from gofast.metrics import fetch_scorers
+    >>> fetch_scorers('accuracy')
+    <function accuracy_score at ...>
+
+    >>> fetch_scorers('mean_poisson')
+    <function mean_poisson_deviance at ...>
+
+    Notes
+    -----
+    The function is designed to be flexible by using regular expressions to match 
+    the metric name against various possible suffixes. This design ensures the 
+    function can retrieve scorer functions accurately even if only partial 
+    metric names are provided. The specific case of 'balanced_accuracy' is 
+    handled to strictly match without confusion from 'balanced_accuracy_score',
+    demonstrating an example of customized matching logic.
+    
+    See also 
+    --------
+    gofast.metrics.fetch_scorer_functions: 
+        Retrieves a dictionary of scorer functions from both scikit-learn and 
+        gofast
+    gofast.make_scorers: 
+        Creates a scorer callable for gofast.metrics that can be used in model 
+        evaluation.
+    gofast.metrics.get_scorer_names: 
+        Retrieves a list of the names of all predefined scoring functions from both
+        gofast and, optionally, scikit-learn.
+    """
+    import re
+    import inspect
+    import sklearn.metrics as sklearn_metrics
+    
+    # Special handling for 'balanced_accuracy' to strictly avoid confusion
+    if metric_name == "balanced_accuracy":
+        if "balanced_accuracy" in SCORERS:
+            return SCORERS["balanced_accuracy"]
+        else:
+            raise ValueError("No scorer found for 'balanced_accuracy'")
+    
+    # Build a regex pattern to match the metric name with optional suffixes
+    pattern = re.compile(rf"^{re.escape(metric_name)}(_score|_error|_deviance|_deviation)?$")
+
+    # Fetch all scorers from sklearn and gofast custom scorers
+    scorer_functions = {name: obj for name, obj in inspect.getmembers(sklearn_metrics)
+                        if inspect.isfunction(obj) and not name.startswith('_')
+                        and ("score" in name or "error" in name)}
+    scorer_functions.update(SCORERS)
+
+    # Match and return the appropriate scorer function
+    for name, func in scorer_functions.items():
+        if pattern.match(name):
+            return func
+
+    # If no scorer is found, raise an exception
+    raise ValueError(f"No scorer found for '{metric_name}'")
 
 def make_scorer(
     score_func, *, 

@@ -31,13 +31,6 @@ from sklearn.metrics import recall_score, precision_score
 from sklearn.metrics import accuracy_score,  roc_auc_score
 from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
 
-try : 
-    from skimage.filters import sobel, canny
-except : pass
-try:
-    from statsmodels.tsa.seasonal import seasonal_decompose
-except : pass 
-
 from ._gofastlog import gofastlog 
 from .api.types import _F 
 from .exceptions import EstimatorError, NotFittedError 
@@ -50,61 +43,59 @@ from .tools.validator import _is_arraylike_1d, build_data_if, check_array
 from .tools.validator import check_is_fitted
 
 EMSG = (
-        "`scikit-image` is needed"
-        " for this transformer. Note"
-        " `skimage`is the shorthand "
-        "of `scikit-image`."
-        )
+        "`scikit-image` is needed for this transformer. Note `skimage`is "
+        "the shorthand of `scikit-image`.")
 
 __docformat__='restructuredtext'
 _logger = gofastlog().get_gofast_logger(__name__)
 
-__all__= ['SequentialBackwardSelector',
-          'FloatCategoricalToIntTransformer', 
-          'KMeansFeaturizer',
-          'AttributesCombinator', 
-          'StratifyFromBaseFeature',
-          'CategoryBaseStratifier', 
-          'CategorizeFeatures', 
-          'FrameUnion', 
-          'FrameUnionFlex', 
-          'DataFrameSelector',
-          'BaseColumnSelector', 
-          'BaseCategoricalEncoder', 
-          'BaseFeatureScaler', 
-          'CombinedAttributesAdder', 
-          'FeaturizeX', 
-          'TextFeatureExtractor', 
-          'DateFeatureExtractor', 
-          'FeatureSelectorByModel', 
-          'PolynomialFeatureCombiner', 
-          'DimensionalityReducer', 
-          'CategoricalEncoder', 
-          'FeatureScaler', 
-          'MissingValueImputer', 
-          'ColumnSelector', 
-          'LogTransformer', 
-          'TimeSeriesFeatureExtractor',
-          'CategoryFrequencyEncoder', 
-          'DateTimeCyclicalEncoder', 
-          'LagFeatureGenerator', 
-          'DifferencingTransformer', 
-          'MovingAverageTransformer', 
-          'CumulativeSumTransformer', 
-          'SeasonalDecomposeTransformer', 
-          'FourierFeaturesTransformer', 
-          'TrendFeatureExtractor', 
-          'ImageResizer', 
-          'ImageNormalizer', 
-          'ImageToGrayscale', 
-          'ImageAugmenter', 
-          'ImageChannelSelector', 
-          'ImageFeatureExtractor', 
-          'ImageEdgeDetector', 
-          'ImageHistogramEqualizer', 
-          'ImagePCAColorAugmenter', 
-          'ImageBatchLoader', 
-          ]
+__all__= [
+    'SequentialBackwardSelector',
+    'FloatCategoricalToIntTransformer', 
+    'KMeansFeaturizer',
+    'AttributesCombinator', 
+    'StratifyFromBaseFeature',
+    'CategoryBaseStratifier', 
+    'CategorizeFeatures', 
+    'FrameUnion', 
+    'FrameUnionFlex', 
+    'DataFrameSelector',
+    'BaseColumnSelector', 
+    'BaseCategoricalEncoder', 
+    'BaseFeatureScaler', 
+    'CombinedAttributesAdder', 
+    'FeaturizeX', 
+    'TextFeatureExtractor', 
+    'DateFeatureExtractor', 
+    'FeatureSelectorByModel', 
+    'PolynomialFeatureCombiner', 
+    'DimensionalityReducer', 
+    'CategoricalEncoder', 
+    'FeatureScaler', 
+    'MissingValueImputer', 
+    'ColumnSelector', 
+    'LogTransformer', 
+    'TimeSeriesFeatureExtractor',
+    'CategoryFrequencyEncoder', 
+    'DateTimeCyclicalEncoder', 
+    'LagFeatureGenerator', 
+    'DifferencingTransformer', 
+    'MovingAverageTransformer', 
+    'CumulativeSumTransformer', 
+    'SeasonalDecomposeTransformer', 
+    'FourierFeaturesTransformer', 
+    'TrendFeatureExtractor', 
+    'ImageResizer', 
+    'ImageNormalizer', 
+    'ImageToGrayscale', 
+    'ImageAugmenter', 
+    'ImageChannelSelector', 
+    'ImageFeatureExtractor', 
+    'ImageEdgeDetector', 
+    'ImageHistogramEqualizer', 
+    'ImagePCAColorAugmenter', 
+    'ImageBatchLoader', 
+  ]
 
 class FloatCategoricalToIntTransformer(BaseEstimator, TransformerMixin):
     """
@@ -228,14 +219,14 @@ class SequentialBackwardSelector(BaseEstimator, TransformerMixin):
     maximizes this criterion, meaning it has the least impact on performance
     when removed. The SBS algorithm can be outlined in the following steps:
     
-        - Initialize with :math:`k=d`, where :math:`d` is the dimensionality
-          of the full feature space, :math:`X_d`.
-        - Identify the feature :math:`x^{-}` that maximizes the criterion:
-          :math:`x^{-} = argmax J(X_k - x)`, where :math:`x \in X_k`.
-        - Remove the feature :math:`x^{-}` from the set, updating
-          :math:`X_{k+1} = X_k - x^{-}; k = k - 1`.
-        - Terminate if :math:`k` equals the desired number of features;
-          otherwise, repeat from step 2. [2]_
+    - Initialize with :math:`k=d`, where :math:`d` is the dimensionality
+      of the full feature space, :math:`X_d`.
+    - Identify the feature :math:`x^{-}` that maximizes the criterion:
+      :math:`x^{-} = argmax J(X_k - x)`, where :math:`x \in X_k`.
+    - Remove the feature :math:`x^{-}` from the set, updating
+      :math:`X_{k+1} = X_k - x^{-}; k = k - 1`.
+    - Terminate if :math:`k` equals the desired number of features;
+      otherwise, repeat from step 2. [2]_
     
     Parameters
     ----------
@@ -4578,7 +4569,7 @@ class SeasonalDecomposeTransformer(BaseEstimator, TransformerMixin):
             Returns the instance itself.
 
         """
-        import_optional_dependency("statsmodels")
+        
         return self
     
     def transform(self, X, y=None):
@@ -4601,6 +4592,8 @@ class SeasonalDecomposeTransformer(BaseEstimator, TransformerMixin):
             components.
 
         """
+        import_optional_dependency("statsmodels")
+        from statsmodels.tsa.seasonal import seasonal_decompose
         result = seasonal_decompose(X, model=self.model, period=self.freq)
         return pd.concat([result.seasonal, result.trend, result.resid], axis=1)
 
@@ -5545,7 +5538,7 @@ class ImageEdgeDetector(BaseEstimator, TransformerMixin):
             Returns the instance itself.
 
         """
-        import_optional_dependency ('skimage', extra = EMSG )
+        
         return self
     
     def transform(self, X):
@@ -5580,6 +5573,9 @@ class ImageEdgeDetector(BaseEstimator, TransformerMixin):
         algorithm is applied.
 
         """
+        import_optional_dependency ('skimage', extra = EMSG )
+        from skimage.filters import sobel, canny
+        
         if self.method == 'sobel':
             return sobel(X)
         elif self.method == 'canny':

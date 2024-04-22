@@ -679,6 +679,8 @@ def test_image_feature_extractor():
     # Check that the extracted features have the expected shape
     assert features.shape == (1, 28, 28, 256)  # Example shape, replace as needed
 
+@pytest.mark.skipif (
+    not is_module_installed("sobel"), reason="'sobel' package is not defined")
 def test_image_edge_detector():
     # Create a sample grayscale image
     image = np.random.rand(256, 256)

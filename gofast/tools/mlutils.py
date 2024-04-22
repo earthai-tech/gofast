@@ -1175,7 +1175,7 @@ def evaluate_model(
     ...                            eval=True)
     >>> print(f'Accuracy: {score:.2f}')
     """
-    from ..metrics import get_scorer
+    from ..metrics import fetch_scorers
     
     if y_pred is None:
         if model is None or X is None or y is None or Xt is None:
@@ -1204,9 +1204,10 @@ def evaluate_model(
         if not isinstance(scorer, (str, callable)):
             raise TypeError("scorer must be a string or a callable,"
                             f" got {type(scorer).__name__}.")
-
-        score_func = get_scorer(scorer, include_sklearn= True )
-        score = score_func(yt, y_pred, **kws)
+        if isinstance (scorer, str): 
+            scorer= fetch_scorers (scorer) 
+        # score_func = get_scorer(scorer, include_sklearn= True )
+        score = scorer(yt, y_pred, **kws)
         return y_pred, score
 
     return y_pred

@@ -67,8 +67,6 @@ def test_manipulate(db_analysis):
     assert not result.empty
     assert result.iloc[0]['Value'] == 40
 
-# ... [previous code and imports] ...
-
 def test_transform(db_analysis):
     transform_query = f"UPDATE {test_table_name_1} SET Value = Value * 2 WHERE ID = 1"
     db_analysis.transformData(transform_query)

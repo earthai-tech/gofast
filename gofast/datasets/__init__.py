@@ -25,7 +25,8 @@ from .generate import (
    make_medical_diagnosis, make_mining_ops, make_retail_store,
    make_tem, make_well_logging, make_sounding, make_african_demo,
    make_agronomy_feedback, make_social_media_comments, make_cc_factors,
-   make_water_demand, make_regression, make_classification
+   make_water_demand, make_regression, make_classification, 
+   create_dataset
 )
 # Data simulation functions
 from .simulate import ( 
@@ -46,7 +47,8 @@ __all__ = [
     "make_medical_diagnosis", "make_mining_ops","make_retail_store", "make_tem",
     "make_well_logging", "make_sounding","make_african_demo", "make_cc_factors",
     "make_agronomy_feedback","make_social_media_comments", "make_water_demand", 
-    "make_regression","make_classification", "make_drill_ops", 
+    "make_regression","make_classification", "make_drill_ops",
+    "create_dataset",
     
     "simulate_water_reserves", "simulate_world_mineral_reserves", 
     "simulate_energy_consumption","simulate_customer_churn",  

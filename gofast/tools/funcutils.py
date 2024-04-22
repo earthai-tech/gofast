@@ -15,7 +15,6 @@ Features:
 """
 import sys 
 import time
-
 import functools
 import inspect
 import logging
@@ -34,7 +33,6 @@ from ..api.types import Series, DataFrame, ArrayLike, Array1D, LambdaType
 from ._dependency import import_optional_dependency
 from .coreutils import to_numeric_dtypes, is_iterable
 from .coreutils import get_installation_name, is_module_installed 
-
 
 # Configure  logging
 _logger=gofastlog.get_gofast_logger(__name__)
@@ -83,17 +81,17 @@ def curry(check_types=False, strict=False, allow_extra_args=False):
     --------
     >>> from gofast.tools.funcutils import curry
 
-    @curry(check_types=True)
-    def add(x: int, y: int) -> int:
-        return x + y
+    >>> @curry(check_types=True)
+    >>> def add(x: int, y: int) -> int:
+    ...     return x + y
 
     >>> add_five = add(5)
     >>> print(add_five(3))
     8
 
-    @curry(strict=True)
-    def greet(greeting, name):
-        return f"{greeting}, {name}!"
+    >>> @curry(strict=True)
+    >>> def greet(greeting, name):
+    ...     return f"{greeting}, {name}!"
 
     >>> greet_hello = greet("Hello")
     >>> print(greet_hello("World"))
@@ -157,8 +155,8 @@ def compose(*functions, reverse_order=True, type_check=False):
     -------
     callable
         When composing functions, returns a new function representing the 
-        composition.  When used as a decorator, 
-        returns the enhanced decorated function.
+        composition.  When used as a decorator, returns the enhanced decorated
+        function.
 
     Examples
     --------
@@ -178,20 +176,23 @@ def compose(*functions, reverse_order=True, type_check=False):
     >>> print(increment_and_double(3))
     8
     """
-    if len(functions) == 1 and callable(functions[0]) and not (
-            reverse_order or type_check):
-        # Used as a decorator without additional arguments
+    if len(functions) == 1 and callable(functions[0]):
         return _enhance_function(functions[0], type_check=type_check)
     else:
-        # Composing multiple functions or decorator with additional arguments
-        def decorator(func):
-            nonlocal functions
-            if callable(func):
-                # Adding the decorated function to the composition
-                functions = (*functions, func) if reverse_order else (func, *functions)
-            return _compose_functions(
-                *functions, reverse_order=reverse_order, type_check=type_check)
-        return decorator
+        if reverse_order:
+            functions = reversed(functions)
+        def composed_function(*args, **kwargs):
+            # Start with the initial argument
+            result = args
+            for func in functions:
+                if type_check:
+                    _check_comp_arg_types(func, *result)
+                # Pass the result of the last function as the argument to the next
+                result = (func(*result),) if isinstance(result, tuple) else func(result)
+            # Return the final result after all functions have been applied
+            return result[0] if isinstance(result, tuple) else result
+
+        return composed_function
 
 def _enhance_function(func, type_check=False):
     """Enhances a single function with optional type checking."""
@@ -226,7 +227,12 @@ def _check_comp_arg_types(func, *args, **kwargs):
                 f"Argument {name} must be of type {expected_type.__name__},"
                 f" got {type(value).__name__}")
 
-def memoize(func=None, *, cache_limit=None, eviction_policy='LRU', thread_safe=False):
+def memoize(
+    func=None, *, 
+    cache_limit=None, 
+    eviction_policy='LRU', 
+    thread_safe=False
+    ):
     """
     A hybrid decorator for memoizing a function with options for cache size limit, 
     eviction policy, and thread safety.
@@ -256,11 +262,11 @@ def memoize(func=None, *, cache_limit=None, eviction_policy='LRU', thread_safe=F
     --------
     >>> from gofast.tools.funcutils import memoize
 
-    @memoize(cache_limit=100, eviction_policy='LRU', thread_safe=True)
-    def fibonacci(n):
-        if n < 2:
-            return n
-        return fibonacci(n - 1) + fibonacci(n - 2)
+    >>> @memoize(cache_limit=100, eviction_policy='LRU', thread_safe=True)
+    >>> def fibonacci(n):
+    ...      if n < 2:
+    ...          return n
+    ...   return fibonacci(n - 1) + fibonacci(n - 2)
 
     >>> print(fibonacci(10))
     55
@@ -273,34 +279,35 @@ def memoize(func=None, *, cache_limit=None, eviction_policy='LRU', thread_safe=F
         @functools.wraps(func)
         def memoized(*args, **kwargs):
             key = args + tuple(kwargs.items())
-            with lock:
-                if key in memo:
-                    if eviction_policy == 'LRU':
-                        # Move the key to the end to mark it as recently used
-                        cache_keys.append(cache_keys.pop(cache_keys.index(key)))
-                    return memo[key]
-                if cache_limit is not None and len(cache_keys) >= cache_limit:
-                    oldest_key = _apply_eviction_policy(
-                        eviction_policy, cache_keys)
-                    memo.pop(oldest_key, None)
-                result = func(*args, **kwargs)
-                memo[key] = result
-                cache_keys.append(key)
-                return result
-
-        if lock is None:
-            return memoized
-        else:
-            # Use lock only if thread safety is enabled
-            def wrapper(*args, **kwargs):
+            if lock:
                 with lock:
-                    return memoized(*args, **kwargs)
-            return wrapper
+                    result = check_cache(key,  *args, **kwargs)
+            else:
+                result = check_cache(key, *args, **kwargs)
+            return result
 
-    if func is None:
-        return decorator
-    else:
+        def check_cache(key, *args, **kwargs):
+            if key in memo:
+                if eviction_policy == 'LRU':
+                    cache_keys.append(cache_keys.pop(cache_keys.index(key)))
+                return memo[key]
+            result = func(*args, **kwargs)
+            handle_eviction(key, result)
+            return result
+
+        def handle_eviction(key, result):
+            if cache_limit is not None and len(cache_keys) >= cache_limit:
+                oldest_key = _apply_eviction_policy(eviction_policy, cache_keys)
+                memo.pop(oldest_key, None)
+            memo[key] = result
+            cache_keys.append(key)
+
+        return memoized
+
+    if func:
         return decorator(func)
+    return decorator
+
 
 def _apply_eviction_policy(eviction_policy, cache_keys):
     """ Added support for customizable eviction policies (LRU and FIFO). 

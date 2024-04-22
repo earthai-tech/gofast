@@ -25,7 +25,7 @@ from ..api.types import Any,  List,  DataFrame, Optional, Series, Array1D
 from ..api.types import Dict, Union, TypeGuard, Tuple, ArrayLike, Callable
 from ..api.types import BeautifulSoupTag
 from ..decorators import Deprecated, isdf, Dataify, DynamicMethod
-from ..decorators import DataTransformer 
+from ..decorators import DataTransformer, Extract1dArrayOrSeries 
 from ..exceptions import FileHandlingError 
 from .baseutils import save_or_load 
 from .coreutils import is_iterable, ellipsis2false,smart_format, validate_url 
@@ -4832,6 +4832,7 @@ def handle_skew(data: DataFrame, method: str = 'log'):
 
     return data
 
+@Extract1dArrayOrSeries(as_series= True, axis=1, method="soft")
 def validate_skew_method(data: Series, method: str):
     """
     Validates the appropriateness of a skewness correction method based on the
@@ -4867,8 +4868,10 @@ def validate_skew_method(data: Series, method: str):
     >>> from gofast.tools.dataops import validate_skew_method
     >>> data = pd.Series([0.1, 1.5, 3.0, 4.5, 10.0])
     >>> print(validate_skew_method(data, 'log'))
+    The log transformation is appropriate for this data.
     >>> data_with_zeros = pd.Series([0, 1, 2, 3, 4])
     >>> print(validate_skew_method(data_with_zeros, 'log'))
+    ValueError: Log transformation requires all data ...
     """
     if not isinstance(data, pd.Series):
         raise TypeError(f"Expected a pandas Series, but got"
@@ -4899,11 +4902,12 @@ def validate_skew_method(data: Series, method: str):
 
 @isdf
 def check_skew_methods_applicability(
-        data: DataFrame, return_report: bool=False ) -> Dict[str, List[str]]:
+    data: DataFrame, return_report: bool = False, 
+    return_best_method: bool = False) -> Union[Dict[str, List[str]], str]:
     """
     Evaluates each numeric column in a DataFrame to determine which skew
-    correction methods are applicable based on the data's characteristics. 
-    It utilizes the `validate_skew_method` function to check the applicability
+    correction methods are applicable based on the data's characteristics.
+    Utilizes the `validate_skew_method` function to check the applicability
     of 'log', 'sqrt', and 'box-cox' transformations for each column.
 
     Parameters
@@ -4911,15 +4915,22 @@ def check_skew_methods_applicability(
     data : pandas.DataFrame
         The DataFrame whose columns are to be evaluated for skew correction
         applicability.
+    return_report : bool, optional
+        If True, returns a detailed report on the skew correction methods
+        applicability using the ReportFactory.
+    return_best_method : bool, optional
+        If True, returns the best skew correction method applicable to the
+        most skewed column based on skewness measure.
 
     Returns
     -------
-    Dict[str, List[str]]
+    dict or str
         A dictionary where keys are column names and values are lists of 
-        applicable skew correction methods.
+        applicable skew correction methods, or the best method as a string
+        if return_best_method is True.
 
-    Example
-    -------
+    Examples
+    --------
     >>> import pandas as pd
     >>> from gofast.tools.dataops import check_skew_methods_applicability
     >>> df = pd.DataFrame({
@@ -4930,23 +4941,45 @@ def check_skew_methods_applicability(
     ... })
     >>> applicable_methods = check_skew_methods_applicability(df)
     >>> print(applicable_methods)
+    >>> applicable_methods = check_skew_methods_applicability(
+    ...     df, return_best_method=True)
+    >>> print(applicable_methods)
+    log
     """
     applicable_methods = {}
+    best_method = ''
+    highest_skew = 0
+
     for column in data.select_dtypes(include=[np.number]):
         methods = []
+        column_skew = data[column].skew()
         for method in ['log', 'sqrt', 'box-cox']:
             try:
                 validate_skew_method(data[column], method)
                 methods.append(method)
             except ValueError as e:
-                 # Optionally log or handle this information
-                print(f"Column '{column}': {str(e)}") 
+                if return_report:
+                    applicable_methods [f'{column}_err_msg']= f"{str(e)}"
 
         applicable_methods[column] = methods
+        
+        # Checking for the best method if required
+        if return_best_method and column_skew > highest_skew:
+            highest_skew = column_skew
+            best_method = methods[0] if methods else 'No valid method'
+
     if return_report: 
-        return ReportFactory("Skew Methods Feasability", *applicable_methods 
+        return ReportFactory("Skew Methods Feasability", **applicable_methods 
                       ).add_contents(applicable_methods, max_width=90)
- 
+
+    if return_best_method:
+        if not best_method:
+            warnings.warn(
+                "No valid skew correction method found across all columns."
+                " Return all applicabale methods instead.")
+        else: 
+            return best_method
+        
     return applicable_methods
 
 @Dataify(auto_columns=True)
@@ -5154,8 +5187,6 @@ if __name__ == "__main__":
         data, threshold=0.9, action='transform', transform_func=example_transform)
     print("DataFrame after transforming high-uniqueness columns:\n", result_transform.head())
 
-# Example usage
-if __name__ == "__main__":
     # Create a sample DataFrame with duplicate rows
     data = pd.DataFrame({
         'A': [1, 2, 2, 4, 5, 1],

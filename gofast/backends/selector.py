@@ -9,8 +9,8 @@ class BackendSelector:
     """
     Manages and selects the most suitable computational backend for gofast tasks,
     considering user preferences, available hardware, and installed libraries.
-    Supports automatic detection of the optimal backend based on the system's
-    capabilities or allows for explicit selection by the user.
+    Supports both automatic detection of the optimal backend based on the system's
+    capabilities and explicit selection by the user.
 
     Parameters
     ----------
@@ -19,6 +19,9 @@ class BackendSelector:
         "dask", and "cupy". If not provided, the selector will automatically
         choose the most suitable backend based on the current environment and
         available resources.
+    verbose : int, optional
+        Verbosity level of the output, where 0 is silent and higher numbers increase
+        the verbosity.
 
     Attributes
     ----------
@@ -71,40 +74,64 @@ class BackendSelector:
     computations with SciPy, or general-purpose computations with NumPy as the
     default option.
     """
-    def __init__(self, preferred_backend=None, verbose=0 ):
+    def __init__(self, preferred_backend=None, verbose=0):
         self.backends = {
             "numpy": NumpyBackend,
             "scipy": ScipyBackend,
             "dask": DaskBackend,
             "cupy": CuPyBackend
         }
-        self.verbose=verbose 
+        self.verbose = verbose
+        self.alias_map = {
+            "np": "numpy",
+            "sp": "scipy",
+            "da": "dask",
+            "dk": "dask",
+            "cp": "cupy",
+            "cy": "cupy"
+        }
         self.selected_backend = self.select_backend(preferred_backend)
 
     def select_backend(self, preferred_backend):
         """
-        Selects the backend based on user preference or environment.
+        Selects the backend based on user preference or environment. Supports
+        shorthand aliases for backend names to enhance user flexibility.
+
+        Parameters
+        ----------
+        preferred_backend : str, optional
+            A string indicating the preferred backend, which can include shorthand
+            aliases like 'np' for NumPy or 'cp' for CuPy.
+
+        Returns
+        -------
+        object
+            An instance of the selected backend.
         """
-        # map_dict = {"numpy": ["np", "numpy"], 
-        #  "scipy": ["sp", "scipy"], 
-        #  "dask": ["da", "dk", "dask"], 
-        #  "cupy": ["cp", "cy", "cupy"]}
-        # if prefered backend is among the value of map_dict( can be renamed), 
-        # use the key. 
-        if preferred_backend in self.backends:
-            print(f"{preferred_backend.capitalize()}Backend selected by user preference.")
-            return self.backends[preferred_backend]()
+        # Normalize the backend name using the alias map
+        normalized_backend = self.alias_map.get(preferred_backend, preferred_backend)
+        if normalized_backend in self.backends:
+            backend_instance = self.backends[normalized_backend]()
+            if self.verbose > 0:
+                print(f"{normalized_backend.capitalize()}Backend "
+                      "selected by user preference.")
+            return backend_instance
         
-        # Fallback to automatic selection if no preference 
-        # or invalid preference is provided
+        # Fallback to automatic selection if no preference or invalid preference is provided
         return self.auto_select_backend()
 
     def is_gpu_available(self):
         """
-        Checks if a CUDA-compatible GPU is available.
+        Checks if a CUDA-compatible GPU is available by attempting to perform a 
+        simple operation using CuPy.
+    
+        Returns
+        -------
+        bool
+            True if a CUDA-compatible GPU is available, False otherwise.
         """
         try:
-            import cupy
+            import cupy 
             cupy.array([1])  # Simple operation to ensure CuPy can use the GPU
             return True
         except (ImportError, cupy.cuda.runtime.CUDARuntimeError):
@@ -112,49 +139,70 @@ class BackendSelector:
 
     def is_dask_available(self):
         """
-        Checks if Dask is installed.
+        Checks if the Dask library is installed, which is necessary for 
+        distributed computing.
+    
+        Returns
+        -------
+        bool
+            True if Dask is installed, False otherwise.
         """
         try:
-            import dask # noqa 
+            import dask # noqa
             return True
         except ImportError:
             return False
-
+    
     def is_scipy_available(self):
         """
-        Checks if SciPy is installed.
+        Verifies the availability of SciPy for advanced scientific computations.
+    
+        Returns
+        -------
+        bool
+            True if SciPy is installed, False otherwise.
         """
         try:
-            import scipy # noqa 
+            import scipy # noqa
             return True
         except ImportError:
             return False
-
+    
     def auto_select_backend(self):
         """
-        Automatically selects the most suitable backend.
+        Automatically identifies and selects the most suitable backend based 
+        on available system resources. The selection process prioritizes GPU 
+        acceleration, followed by distributed computing capabilities, and 
+        finally advanced computations.
+    
+        Returns
+        -------
+        object
+            An instance of the selected backend.
         """
         if self.is_gpu_available():
-            if self.verbose: 
-                print("CuPyBackend selected for GPU acceleration.")
-            return self.backends["cupy"]()
-        
-        if self.is_dask_available():
-            if self.verbose:
-                print("DaskBackend selected for distributed computing.")
-            return self.backends["dask"]()
-
-        if self.is_scipy_available():
-            if self.verbose: 
-                print("ScipyBackend selected for advanced scientific computations.")
-            return self.backends["scipy"]()
-        
-        if self.verbose: 
-            print("NumpyBackend selected as the default backend.")
-        return self.backends["numpy"]()
-
+            selected_backend = "cupy"
+        elif self.is_dask_available():
+            selected_backend = "dask"
+        elif self.is_scipy_available():
+            selected_backend = "scipy"
+        else:
+            selected_backend = "numpy"
+    
+        if self.verbose:
+            print(f"{selected_backend.capitalize()}Backend selected based"
+                  " on system capabilities.")
+        return self.backends[selected_backend]()
+    
     def get_backend(self):
         """
-        Returns the selected backend.
+        Returns the currently selected backend instance, allowing it to be 
+        used for computational tasks.
+    
+        Returns
+        -------
+        object
+            The backend class instance that has been selected based on the preference
+            or automatic detection.
         """
         return self.selected_backend

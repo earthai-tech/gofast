@@ -379,7 +379,9 @@ class Extract1dArrayOrSeries:
     def _wrapper(self, arr, *args, **kwargs):
         arr = self._convert_input(arr)
         
-        if isinstance(arr, pd.DataFrame):
+        if isinstance (arr, pd.Series): 
+            result= arr.copy() 
+        elif isinstance(arr, pd.DataFrame):
             result = self._extract_from_dataframe(arr)
         elif isinstance(arr, np.ndarray):
             result = self._extract_from_ndarray(arr)

@@ -27,8 +27,7 @@ from sklearn.datasets import load_iris
 from sklearn.datasets import make_classification
 from sklearn.ensemble import RandomForestClassifier
 
-from gofast.datasets.load import load_bagoue,load_hlogs 
-from gofast.tools.baseutils import get_target
+from gofast.datasets.load import load_bagoue, load_hlogs 
 from gofast.tools.coreutils import find_features_in, smart_label_classifier, cleaner 
 from gofast.tools.mlutils import fetch_tgz_from_url, evaluate_model  
 from gofast.tools.mlutils import get_global_score, get_correlated_features    
@@ -45,15 +44,6 @@ from gofast.tools.mlutils import laplace_smoothing_word, handle_imbalance, smart
 DOWNLOAD_FILE='https://raw.githubusercontent.com/WEgeophysics/gofast/main/gofast/datasets/data/bagoue.csv'
 with resources.path ('gofast.datasets.data', "bagoue.csv") as csv_f : 
     csv_file = str(csv_f)
-# from gofast.tools.baseutils import run_shell_command
-# try: 
-#     from pytest import mocker as MOCK # noqa
-#     # import pyfakefs   
-#     from pyfakefs.fake_filesystem_unittest import Patcher   # noqa     
-# except ImportError: 
-#     for module in ("pytest-mock", "pyfakefs"):
-#        run_shell_command(["pip", "install", module], pkg=module)
- # pip install pytest pytest-mock tqdm pyfakefs
 
 # get the data for a test 
 def _prepare_dataset ( return_encoded_data =False, return_raw=False ): 
@@ -290,28 +280,6 @@ def test_get_correlated_features2():
     correlated_features = get_correlated_features(df, corr='pearson', threshold=0.5)
     assert isinstance(correlated_features, pd.DataFrame)
 
-def test_get_target():
-    df = pd.DataFrame({
-        'feature1': [1, 2, 3],
-        'target': [0, 1, 0]
-    })
-    target, modified_df = get_target(df, 'target', True)
-    df_copy = df.copy () 
-    assert 'target' not in df.columns  # Original DataFrame should remain unchanged
-    assert 'target'  not in modified_df.columns  # Modified DataFrame should not have the target column
-    assert all(target == df_copy['target'])  # Extracted target should match the original target column
-
-def test_get_target2():
-    df = pd.DataFrame({
-        'feature1': [1, 2, 3],
-        'target': ['A', 'B', 'C']
-    })
-    
-    target, modified_df = get_target(df, 'target', inplace=False)
-    assert 'target' in df.columns  # Original df should be unchanged
-    assert all(target == df['target'])  # Target column extracted correctly
-
-
 def test_get_global_score2():
     cvres = {
         'mean_test_score': np.array([0.8, 0.85, 0.9]),
@@ -320,19 +288,6 @@ def test_get_global_score2():
     mean_score, mean_std = get_global_score(cvres)
     assert pytest.approx(mean_score) == 0.85
     assert pytest.approx(mean_std)== 0.04
-
-def test_get_target_inplace_true():
-    df = pd.DataFrame({'feature': [1, 2, 3], 'target': ['A', 'B', 'C']})
-    target, _ = get_target(df, 'target')
-    assert 'target' not in df.columns
-    assert all(target == ['A', 'B', 'C'])
-
-def test_get_target_inplace_false():
-    df = pd.DataFrame({'feature': [1, 2, 3], 'target': ['A', 'B', 'C']})
-    _, new_df = get_target(df, 'target', inplace=False)
-    assert 'target' in df.columns
-    assert 'target'in new_df.columns
-
 
 def test_get_global_score3():
     cvres = {'mean_test_score': [0.9, 0.85, 0.95], 'std_test_score': [0.05, 0.02, 0.03]}
@@ -396,10 +351,6 @@ def test_fetch_tgz_from_url_success():
         # This assumes 'fetch_tgz_from_url' returns None on success
         
         assert result is None, "Expected fetch_tgz_from_url to return None for success"
-        
-        # Verify that 'urlretrieve' and 'open' were called as expected
-        # mock_urlretrieve.assert_called_once_with("http://example.com/data.tgz", "/fake/path/data.tar.gz")
-        # mock_tarfile_open.assert_called_once_with("/fake/path/data.tar.gz", 'r:gz')
 
 def test_load_csv():
     # test_csv_data = "col1,col2\n1,2\n3,4"

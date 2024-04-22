@@ -25,30 +25,29 @@ __all__=["get_eigen_components", "plot_decision_regions",
     ]
 
 def get_eigen_components(
-        X, scale: bool = True, method: str = 'covariance', backend='numpy'):
+        X, scale: bool = True, method: str = 'covariance', backend: str='numpy'):
+    
     X = check_array(X)
     method = parameter_validator(
-        "method", target_strs={'covariance','correlation'})(method)
+        "method", target_strs={'covariance', 'correlation'})(method)
     if scale:
         scaler = StandardScaler()
         X = scaler.fit_transform(X)
 
+    # Select the matrix calculation method
     if method == 'covariance':
         matrix = np.cov(X, rowvar=False)
     elif method == 'correlation':
         matrix = np.corrcoef(X, rowvar=False)
-    
-    # For symmetric matrices, it's numerically more stable to use 
-    # eigh, which also ensures real eigenvalues.
-    if backend in ("numpy", "np"): 
-        eigen_vals, eigen_vecs =  np.linalg.eigh(matrix)
-    else: 
-        # select backend for eigen computation 
-        {"scipy": ['scipy', 'spy']}
-        backend_selector = BackendSelector(preferred_backend=backend)
-        backend = backend_selector.get_backend() # 
-        eigen_vals, eigen_vecs = backend.eig( matrix )
-        
+
+    # Eigen decomposition based on the selected backend
+    backend_selector = BackendSelector(preferred_backend=backend)
+    backend = backend_selector.get_backend()
+    if backend.__class__.__name__ in ['NumpyBackend', 'numpy']:
+        eigen_vals, eigen_vecs = np.linalg.eigh(matrix)
+    else:
+        eigen_vals, eigen_vecs = backend.eig(matrix)
+
     # Sort eigenvalues and eigenvectors in descending order
     sorted_indices = np.argsort(eigen_vals)[::-1]
     eigen_vals = eigen_vals[sorted_indices]
@@ -56,12 +55,11 @@ def get_eigen_components(
 
     return eigen_vals, eigen_vecs, X
 
-
-
 get_eigen_components.__doc__ = """\
-A naive approach to extract PCA components from a training set X.
+Computes the eigenvalues and eigenvectors of the covariance or correlation
+matrix of the dataset X.
 
-This function extracts both eigenvalues and eigenvectors, which are fundamental 
+Function extracts both eigenvalues and eigenvectors, which are fundamental 
 components in many linear algebra and data analysis applications, providing a 
 basis for Principal Component Analysis (PCA).
 
@@ -76,6 +74,9 @@ method : str, default='covariance'
     are computed. Options are 'covariance' for covariance matrix and 'correlation'
     for correlation matrix.
     
+backend : str, optional
+    The computational backend to use. Defaults to 'numpy'. Other options are 
+    'scipy', 'cupy', etc., depending on what's available.    
 Returns
 -------
 tuple
@@ -90,10 +91,16 @@ tuple
 
 Examples
 --------
+>>> import numpy as np 
 >>> from sklearn.impute import SimpleImputer
+>>> from sklearn.datasets import load_iris
 >>> from gofast.tools.baseutils import select_features
 >>> from gofast.datasets import fetch_data
 >>> from gofast.analysis.decomposition import get_eigen_components
+
+>>> X = np.random.rand(100, 5)
+>>> eigen_vals, eigen_vecs, X_transformed = get_eigen_components(X)
+
 >>> data = fetch_data("bagoue analyses")  # Encoded flow categories
 >>> y = data['flow']
 >>> X = data.drop(columns='flow')
@@ -103,14 +110,14 @@ Examples
 >>> X = SimpleImputer().fit_transform(X)
 >>> eigval, eigvecs, _ = get_eigen_components(X)
 >>> print(eigval)
-array([2.09220756, 1.43940464, 0.20251943, 1.08913226, 0.97512157,
-       0.85749283, 0.64907948, 0.71364687])
+[1.97788909 1.34186216 1.14311674 1.02424284 0.94346533 0.92781335
+ 0.75249407 0.68835847 0.22168818]
 
->>> from sklearn.datasets import load_iris
 >>> X = load_iris().data
 >>> eigen_vals, eigen_vecs, _ = get_eigen_components(X, scale=True, method='covariance')
 >>> eigen_vals.shape, eigen_vecs.shape
 ((4,), (4, 4))
+
 Notes
 -----
 All subsequent principal components (PCs) will have the largest variance 
