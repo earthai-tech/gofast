@@ -54,8 +54,9 @@ import functools
 import numpy as np 
 import pandas as pd
 import matplotlib.pyplot as plt 
+
+from typing import Union, Optional, Callable
 from ._gofastlog import gofastlog
-from .api.types import Union, Optional, Callable
 _logger = gofastlog.get_gofast_logger(__name__)
 
 __docformat__='restructuredtext'
@@ -2782,13 +2783,15 @@ class NumpyDocstringFormatter:
         This method provides a conceptual approach and requires a Sphinx 
         environment to be properly implemented.
         """
-        from .tools._dependency import import_optional_dependency
+        from ..tools._dependency import import_optional_dependency
         
         try: 
             import_optional_dependency ("docutils")
         except: 
-            from .tools.funcutils import install_package
-            install_package('docutils', infer_dist_name=True)
+            from ..tools.coreutils import is_module_installed 
+            from ..tools.funcutils import install_package
+            if not is_module_installed("docutils"): 
+                install_package('docutils', infer_dist_name=True)
             
         from docutils import nodes
         from docutils.core import publish_doctree

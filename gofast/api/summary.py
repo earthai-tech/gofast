@@ -6,6 +6,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
+from ..decorators import DynamicMethod
 from .extension import RegexMap, isinstance_, fetch_estimator_name 
 from .formatter import MultiFrameFormatter, DataFrameFormatter, DescriptionFormatter 
 from .box import KeyBox 
@@ -840,7 +841,8 @@ class ReportFactory(FlexDict):
             # If texts is a dictionary, use it directly.
             report_data = texts
         else:
-            # If texts is not a dictionary, combine texts with keys into a dictionary.
+            # If texts is not a dictionary, combine texts 
+            # with keys into a dictionary.
             if isinstance(texts, str):
                 texts = [texts]
             if isinstance(keys, str):
@@ -901,11 +903,105 @@ class ReportFactory(FlexDict):
         """
         Formal string representation of the Report object.
         """
-        return ( "<Report: Print to see the content>" if self.report_str is not None 
+        return ( "<Report: Print() to see the content>" if self.report_str is not None 
                 else "<Report: No content>" )
     
+@DynamicMethod (expected_type="both", prefixer ="exclude" )
+def summary(
+    df, 
+    include_correlation=False, 
+    numeric_only=True, 
+   ):
+    """
+    Generate a customizable summary for a pandas DataFrame.
 
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame for which the summary is generated.
+    include_correlation : bool, optional
+        If True, include the correlation matrix for numerical features in the
+        summary. Default is False.
+    numeric_only : bool, optional
+        If True, make a summary only for  numeric values. If False, include 
+        all data types. 
+    Returns
+    -------
+    summary : MultiFrameFormatter istance that operate like bunch object 
+        tht expect print for visualization. 
+        
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.api.summary import summary 
+    >>> data = {
+    ...     'A': [1, 2, 3, 4, 5],
+    ...     'B': [5, 6, None, 8, 9],
+    ...     'C': ['foo', 'bar', 'baz', 'qux', 'quux']
+    ... }
+    >>> df = pd.DataFrame(data)
+    >>> summary(df)
+                 Infos             
+    ===============================
+                         A        B
+    -------------------------------
+    Data Types       int64  float64
+    Missing Values       0        1
+    Byte Size           40       40
+    Unique Counts        5        4
+    ===============================
+            Basic Statistics       
+    -------------------------------
+    count           5.0000   4.0000
+    mean            3.0000   7.0000
+    std             1.5811   1.8257
+    min             1.0000   5.0000
+    25%             2.0000   5.7500
+    50%             3.0000   7.0000
+    75%             4.0000   8.2500
+    max             5.0000   9.0000
+    ===============================
+    """
+    def _encode_categorical_data(df):
+        original_columns = df.columns.tolist()
+        from sklearn.preprocessing import LabelEncoder
+        
+        encoded_df = df.copy()
+        for column in df.columns:
+            if df[column].dtype == 'object':
+                encoder = LabelEncoder()
+                encoded_df[column] = encoder.fit_transform(df[column].astype(str))
+        return encoded_df[original_columns]
+
+    dfs = [] 
+    titles = ["Infos"]
+    if numeric_only:
+        df = df.select_dtypes(include=[np.number])
     
+    infos = {
+        "Data Types": df.dtypes.to_dict(),
+        "Missing Values": df.isnull().sum().to_dict(),
+        "Byte Size": {col: df[col].nbytes if df[col].dtype != 'O' 
+                      else "<N/A>" for col in df.columns}, 
+        "Unique Counts": {col: df[col].nunique() for col in df.columns}
+    }
+    df_infos = pd.DataFrame(infos.values(), index=infos.keys())
+    dfs.append(df_infos)
+    
+    titles.append("Basic Statistics")
+    df_descr = df.describe(include='all' if not numeric_only else None)
+    dfs.append(df_descr)
+    
+    if include_correlation: 
+        if numeric_only is False: 
+            df = _encode_categorical_data(df)
+        df_corr = df.corr()
+        titles.extend(["Correlation Matrix"])
+        dfs.append(df_corr)
+    
+    summary = MultiFrameFormatter(titles=titles).add_dfs(*dfs)
+    print(summary)
+
 def ensure_list_with_defaults(input_value, target_length, default=None):
     """
     Ensures that the input value is a list of a specific length, padding with 

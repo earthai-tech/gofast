@@ -24,53 +24,23 @@ import  matplotlib.pyplot as plt
 from .._gofastlog import gofastlog
 from ..api.box import KeyBox
 from ..api.docstring import refglossary
-from ..api.types import (
-    _T, 
-    _F,
-    List, 
-    Tuple,
-    Union,
-    ArrayLike,
-    NDArray,
-    DType,
-    Optional,
-    _SP, 
-    Series, 
-    DataFrame,
-    Dict,
-)
+from ..api.types import _T, _F,_SP, List, Tuple, Union
+from ..api.types import ArrayLike, NDArray, DType, Optional
+from ..api.types import Series, DataFrame,  Dict
 from ..decorators import AppendDocReferences
 from ..exceptions import SiteError
 from ._arraytools import axis_slice
-from .coreutils import (
-    _assert_all_types, 
-    _validate_name_in, 
-    assert_ratio,
-    concat_array_from_list, 
-    remove_outliers, 
-    find_close_position,
-    normalize_string, 
-    to_numeric_dtypes, 
-    ellipsis2false, 
-    fancy_printer,
-    smart_format,
-    type_of_target, 
-    is_iterable, 
-    reshape,
-    fillNaN,    
-)
-from .validator import ( 
-    _is_arraylike_1d, 
-    _is_numeric_dtype,
-    check_consistency_size,
-    check_consistent_length, 
-    validate_multioutput, 
-    check_classification_targets, 
-    check_y,
-    check_array,
-    assert_xy_in, 
-    build_data_if
-    )
+from .coreutils import _assert_all_types, _validate_name_in, assert_ratio
+from .coreutils import concat_array_from_list, remove_outliers 
+from .coreutils import find_close_position, normalize_string 
+from .coreutils import to_numeric_dtypes, ellipsis2false, fancy_printer
+from .coreutils import smart_format, type_of_target, is_iterable 
+from .coreutils import reshape, fillNaN
+from .validator import _is_arraylike_1d, _is_numeric_dtype, validate_multioutput 
+from .validator import check_consistency_size, check_consistent_length 
+from .validator import check_classification_targets, check_y, check_array
+from .validator import assert_xy_in, build_data_if 
+
 try: import scipy.stats as spstats
 except: pass 
 from ..compat.scipy import check_scipy_interpolate

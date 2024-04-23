@@ -16,7 +16,7 @@ from ..api.types import Callable, LambdaType, DataFrame, Series, Array1D
 from ..api.types import Dict, List, Union, Optional, Any, Tuple 
 from ..api.extension import isinstance_  
 from ..api.formatter import DataFrameFormatter, MultiFrameFormatter 
-from ..decorators import isdf 
+from ..api.decorators import isdf 
 from ..tools.coreutils import validate_ratio 
 from ..tools.funcutils import ensure_pkg 
 from ..tools.validator import _is_arraylike_1d

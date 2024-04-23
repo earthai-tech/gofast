@@ -38,15 +38,15 @@ from ..api.property import BasePlot
 from ..api.types import  _F, Optional, Tuple, List, ArrayLike, NDArray 
 from ..api.types import DataFrame,  Series 
 from ..exceptions import NotFittedError, EstimatorError, PlotError
-# from ..tools._dependency import import_optional_dependency 
+
 from ..tools.baseutils import categorize_target, extract_target
-from ..tools.coreutils import  to_numeric_dtypes, fancier_repr_formatter 
-from ..tools.coreutils import  smart_strobj_recognition, reshape 
-from ..tools.coreutils import  projection_validator
-from ..tools.coreutils import  str2columns, make_ids, type_of_target, is_iterable 
+from ..tools.coreutils import to_numeric_dtypes, fancier_repr_formatter 
+from ..tools.coreutils import smart_strobj_recognition, reshape 
+from ..tools.coreutils import projection_validator
+from ..tools.coreutils import str2columns, make_ids, type_of_target, is_iterable 
 from ..tools.funcutils import ensure_pkg 
 from ..tools.mathex import linkage_matrix 
-from ..tools.validator import  _check_consistency_size,  get_estimator_name  
+from ..tools.validator import _check_consistency_size,  get_estimator_name  
 from ..tools.validator import build_data_if,  check_array, check_X_y, check_y 
 from ..tools.validator import _is_numeric_dtype , check_consistent_length
 from ..tools.validator import assert_xy_in 

@@ -208,7 +208,6 @@ class FeatureImportanceSelector(BaseEstimator, TransformerMixin):
             "regression_selector": RandomForestRegressor, 
             "classification_selector": RandomForestClassifier
         }
-        
         if self.use_classifier == 'auto':
             # Automatically detect based on the type of target
             if y is None:
@@ -339,14 +338,12 @@ class FeatureImportanceSelector(BaseEstimator, TransformerMixin):
         
         if self.important_indices_ is None:
             raise RuntimeError("The fit method must be called before transform.")
-        
-        # if len(self.important_indices_) == 0:
-        #     warnings.warn(
-        #         "No important features were detected based on the provided "
-        #         "threshold({self.threshold}). Consider reducing the threshold"
-        #         " or revisiting feature engineering. Returning the original"
-        #         " dataset.", UserWarning
-        #     )
+        if len(self.important_indices_) == 0:
+            warnings.warn(
+                "No important features were detected based on the provided "
+                f"threshold({self.threshold}). Consider reducing the threshold"
+                " or revisiting feature engineering.", UserWarning
+            )
         #     return X
         
         if isinstance (X, pd.DataFrame ): 

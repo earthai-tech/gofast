@@ -378,10 +378,10 @@ def enrich_data_spectrum(
     Examples
     --------
     >>> import pandas as pd
-    >>> from sklearn.datasets import load_boston
+    >>> from sklearn.datasets import fetch_california_housing
     >>> from gofast.tools.dataops import enrich_data_spectrum
-    >>> boston = load_boston()
-    >>> data = pd.DataFrame(boston.data, columns=boston.feature_names)
+    >>> housing = fetch_california_housing()
+    >>> data = pd.DataFrame(housing.data, columns=housing.feature_names)
     >>> augmented_data = enrich_data_spectrum(
         data, noise_level=0.02, resample_size=50, synthetic_size=50, bootstrap_size=50)
     >>> print(augmented_data.shape)
@@ -1007,8 +1007,6 @@ def fetch_remote_data(
         handle_download_error(e, f"An unexpected error occurred during the download: {e}")
         return False
 
-
-
 @ensure_pkg("bs4", " Needs `BeautifulSoup` from `bs4` package" )
 @ensure_pkg("requests")
 def scrape_web_data(
@@ -1065,7 +1063,6 @@ def scrape_web_data(
     >>> for product in data:
     ...     print(product.text)  
     """
-
     import requests
     from bs4 import BeautifulSoup
     response = requests.get(url)
@@ -1081,7 +1078,6 @@ def scrape_web_data(
         return elements
     else:
         response.raise_for_status()
-
 
 def handle_datasets_in_h5(
     file_path: str,
@@ -4747,7 +4743,12 @@ def drop_correlated_features(
     return df_reduced
 
 @Dataify (auto_columns=True)
-def handle_skew(data: DataFrame, method: str = 'log'):
+def handle_skew(
+    data: DataFrame,
+    method: str = 'log', 
+    view: bool = False,
+    fig_size: Tuple[int, int] = (12, 8)
+    ):
     """
     Applies a specified transformation to numeric columns in the DataFrame 
     to correct for skewness. This function supports logarithmic, square root,
@@ -4772,6 +4773,24 @@ def handle_skew(data: DataFrame, method: str = 'log'):
                      Yeo-Johnson transformation (handled internally) is applied
                      instead.
         Default is 'log'.
+        
+    view : bool, optional
+        If True, visualizes the distribution of the original and transformed
+        data using both box plots and violin plots. The visualization helps
+        to compare the effects of the transformation on data skewness directly.
+        The top row of subplots displays box plots of the original data,
+        while the bottom row shows violin plots of the transformed data,
+        providing a comprehensive view of the distribution changes.
+        Default is False.
+    
+    fig_size : tuple of int, optional
+        Specifies the dimensions of the figure that displays the plots, given
+        as a tuple (width, height). This parameter allows customization of the
+        plot size to ensure that the visualizations are clear and appropriately
+        scaled to the user's display settings or presentation needs.
+        The default size is set to (12, 8), which offers a balanced display
+        for typical datasets but can be adjusted to accommodate larger datasets
+        or different display resolutions.
 
     Returns
     -------
@@ -4809,14 +4828,24 @@ def handle_skew(data: DataFrame, method: str = 'log'):
     """
     from sklearn.preprocessing import PowerTransformer
 
+    if data.select_dtypes(include=['int64', 'float64']).empty:
+        warnings.warn(
+            "No numeric data detected. The function will proceed without "
+            "modifying the DataFrame, as transformations applicable to "
+            "skew correction require numeric data types."
+        )
+        return data
+    else: 
+        original_data = data.select_dtypes(include=['int64', 'float64']).copy()
+        
     # Validate and apply the chosen method to each numeric column
     method = parameter_validator('method', ["log", "sqrt", "box-cox"])(method)
     # validate skew method 
     [validate_skew_method(data[col], method) for col in data.columns ]
-    for column in data.select_dtypes(include=['int64', 'float64']):
+    for column in original_data.columns:
         # Adjust for non-positive values where necessary
-        if data[column].min() <= 0:  
-            data[column] += (-data[column].min() + 1)
+        if original_data[column].min() <= 0 and method in ['log', 'box-cox']:  
+            data[column] += (-original_data[column].min() + 1)
 
         if method == 'log':
             data[column] = np.log(data[column])
@@ -4831,8 +4860,27 @@ def handle_skew(data: DataFrame, method: str = 'log'):
                 # if Box-Cox is not possible
                 pt = PowerTransformer(method='yeo-johnson')
                 data[column] = pt.fit_transform(data[[column]]).flatten()
-
+    if view:
+        _visualize_skew(original_data, data, fig_size)
+        
     return data
+
+def _visualize_skew(original_data: DataFrame, transformed_data: DataFrame,
+                    fig_size: tuple):
+    """
+    Visualizes the original and transformed data distributions.
+    """
+    num_columns = len(original_data.columns)
+    fig, axes = plt.subplots(nrows=2, ncols=num_columns, figsize=fig_size)
+
+    for i, column in enumerate(original_data.columns):
+        sns.boxplot(x=original_data[column], ax=axes[0, i], color='skyblue')
+        axes[0, i].set_title(f'Original {column}')
+        sns.violinplot(x=transformed_data[column], ax=axes[1, i], color='lightgreen')
+        axes[1, i].set_title(f'Transformed {column}')
+
+    plt.tight_layout()
+    plt.show()
 
 @Extract1dArrayOrSeries(as_series= True, axis=1, method="soft")
 def validate_skew_method(data: Series, method: str):
@@ -4989,8 +5037,11 @@ def handle_duplicates(
     data: DataFrame, 
     return_duplicate_rows: bool=False, 
     return_indices: bool=False, 
-    operation: str='drop'
-    ):
+    operation: str='drop', 
+    view: bool = False,
+    cmap: str = 'viridis',
+    fig_size: Tuple[int, int] = (12, 8)
+    )-> DataFrame | list | None:
     """
     Handles duplicate rows in a DataFrame based on user-specified options.
     
@@ -5016,7 +5067,17 @@ def handle_duplicates(
         - 'drop': Removes all duplicate rows, keeping the first occurrence.
         - 'none': No operation on duplicates; the original DataFrame is returned.
         Defaults to 'drop'.
-
+    view : bool, optional
+        If True, visualizes the DataFrame before and after handling duplicates,
+        as well as any intermediate states depending on other parameter values.
+        Default is False.
+    cmap : str, optional
+        The colormap to use for visualizing the DataFrame.
+        Default is 'viridis'.
+    fig_size : tuple, optional
+        The size of the figure for visualization.
+        Default is (12, 5).
+        
     Returns
     -------
     pandas.DataFrame or list
@@ -5054,6 +5115,13 @@ def handle_duplicates(
     # Identify all duplicates based on all columns
     duplicates = data.duplicated(keep=False)
     
+    # Remove duplicate rows if operation is 'drop'
+    cleaned_data = data.drop_duplicates(keep='first'
+                                        ) if operation == 'drop' else data
+    
+    if view:
+        _visualize_data(data, duplicates, cleaned_data, cmap, fig_size)
+        
     # Return DataFrame of duplicate rows if requested
     if return_duplicate_rows:
         return data[duplicates]
@@ -5062,20 +5130,52 @@ def handle_duplicates(
     if return_indices:
         return data[duplicates].index.tolist()
 
-    # Remove duplicate rows if operation is 'drop'
-    if operation == 'drop':
-        return data.drop_duplicates(keep='first')
-
     # Return the original DataFrame if no operation
     # is specified or understood
-    return data
+    return cleaned_data
 
+def _visualize_data(original_data: DataFrame, duplicates_mask: Series, 
+                    cleaned_data: DataFrame, cmap: str, fig_size: tuple):
+    """
+    Visualizes the original DataFrame with duplicates highlighted and the 
+    cleaned DataFrame.
+    """
+    # Create 1 row, 2 columns of subplots
+    fig, axs = plt.subplots(1, 2, figsize=fig_size)  
+    
+    # Plot original data with duplicates highlighted
+    axs[0].set_title('Original Data with Duplicates Highlighted')
+    im0 = axs[0].imshow(original_data.mask(~duplicates_mask, other=np.nan),
+                        aspect='auto', cmap=cmap, interpolation='none')
+    axs[0].set_xlabel('Columns')
+    axs[0].set_ylabel('Rows')
+    axs[0].set_xticks(range(len(original_data.columns)))
+    axs[0].set_xticklabels(original_data.columns, rotation=45)
+    
+    # Plot data after duplicates are removed
+    axs[1].set_title('Data After Removing Duplicates')
+    im1 = axs[1].imshow(cleaned_data, aspect='auto', cmap=cmap, interpolation='none')
+    axs[1].set_xlabel('Columns')
+    axs[1].set_ylabel('Rows')
+    axs[1].set_xticks(range(len(cleaned_data.columns)))
+    axs[1].set_xticklabels(cleaned_data.columns, rotation=45)
+    
+    plt.tight_layout()
+    # Creating colorbars for each subplot
+    plt.colorbar(im0, ax=axs[0], orientation='vertical', fraction=0.046, pad=0.04)
+    plt.colorbar(im1, ax=axs[1], orientation='vertical', fraction=0.046, pad=0.04)
+    plt.show()
+    
+@Dataify(prefix="col_")
 def handle_unique_identifiers(
     data: DataFrame,
     threshold: float = 0.95, 
     action: str = 'drop', 
-    transform_func: Optional[Callable[[any], any]] = None
-    ) -> pd.DataFrame:
+    transform_func: Optional[Callable[[any], any]] = None,
+    view: bool = False,
+    cmap: str = 'viridis',
+    fig_size: Tuple[int, int] = (12, 8)
+    ) -> DataFrame:
     """
     Examines columns in the DataFrame and handles columns with a high proportion 
     of unique values. These columns can be either dropped or transformed based 
@@ -5110,6 +5210,7 @@ def handle_unique_identifiers(
     Examples
     --------
     >>> import pandas as pd
+    >>> from gofast.tools.dataops import handle_unique_identifiers
     >>> data = pd.DataFrame({
     ...     'ID': range(1000),
     ...     'Age': [25, 30, 35] * 333 + [40],
@@ -5117,6 +5218,7 @@ def handle_unique_identifiers(
     ... })
     >>> processed_data = handle_unique_identifiers(data, action='drop')
     >>> print(processed_data.columns)
+    >>> processed_data = handle_unique_identifiers(df, action='drop', view=True)
 
     >>> def cap_values(val):
     ...     return min(val, 100)  # Cap values at 100
@@ -5137,22 +5239,63 @@ def handle_unique_identifiers(
     pandas.DataFrame.apply : Apply a function along an axis of the DataFrame.
     """
     action = parameter_validator('action', ["drop", "transform"])(action)
+    if view:
+        # Capture the initial state for visualization before any modification
+        unique_counts_before = {col: data[col].nunique() for col in data.columns}
+
+    # Handle the action for high unique value proportions
+    columns_to_drop = []
     # Iterate over columns in the DataFrame
     for column in data.columns:
         # Calculate the proportion of unique values
         unique_proportion = data[column].nunique() / len(data)
-
         # If the proportion of unique values is above the threshold
         if unique_proportion > threshold:
             if action == 'drop':
+                columns_to_drop.append(column)
                 # Drop the column from the DataFrame
-                data = data.drop(column, axis=1)
             elif action == 'transform' and transform_func is not None:
                 # Apply the transformation function if provided
                 data[column] = data[column].apply(transform_func)
-
+                
+    # Drop columns if necessary
+    if action == 'drop':
+        data = data.drop(columns=columns_to_drop, axis=1)
+    
+    if view:
+        # Capture the state after modification
+        unique_counts_after = {col: data[col].nunique() for col in data.columns}
+        # Visualize the distribution of unique values before and after modification
+        _visualize_unique_changes(unique_counts_before, unique_counts_after, fig_size)
+        
     # Return the modified DataFrame
     return data
+
+def _visualize_unique_changes(unique_counts_before, unique_counts_after, 
+                              fig_size: Tuple[int, int]):
+    """
+    Visualize changes in unique value counts before and after modification.
+    """
+    # Create 1 row, 2 columns of subplots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=fig_size)  
+    
+    # Before modification
+    ax1.bar(unique_counts_before.keys(), unique_counts_before.values(), color='skyblue')
+    ax1.set_title('Unique Values Before Modification')
+    ax1.set_xlabel('Columns')
+    ax1.set_ylabel('Unique Values')
+    ax1.tick_params(axis='x', rotation=45)
+
+    # After modification
+    ax2.bar(unique_counts_after.keys(), unique_counts_after.values(), color='lightgreen')
+    ax2.set_title('Unique Values After Modification')
+    ax2.set_xlabel('Columns')
+    ax2.set_ylabel('Unique Values')
+    ax2.tick_params(axis='x', rotation=45)
+
+    plt.tight_layout()
+    plt.show()
+
 
 if __name__ == "__main__":
     # Example usage of the function

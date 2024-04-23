@@ -24,8 +24,11 @@ from ._array_api import get_namespace, _asarray_with_order
 FLOAT_DTYPES = (np.float64, np.float32, np.float16)
 
 
-def validate_data_types(data, expected_type='numeric', nan_policy='propagate', 
-                     return_data=False, error='raise'):
+def validate_data_types(
+    data, expected_type='numeric', 
+    nan_policy='propagate', 
+    return_data=False, error='raise'
+    ):
     """
     Checks for mixed data types in a pandas Series or DataFrame and handles
     according to the specified policies. This function is designed to ensure 
@@ -100,7 +103,11 @@ def validate_data_types(data, expected_type='numeric', nan_policy='propagate',
     algorithm meets certain type requirements. Handling mixed data types early
     on can prevent issues in model training and evaluation.
     """
-    if not isinstance ( data, pd.Series, pd.DataFrame): 
+    expected_type= parameter_validator(
+        "expected_type", target_strs={"numeric", "categoric", "both"}, 
+        )(expected_type)
+    
+    if not isinstance ( data, (pd.Series, pd.DataFrame)): 
         data = build_data_if(data, raise_exception=True, force=True, 
                              input_name="feature")
         
@@ -296,6 +303,7 @@ def parameter_validator(
     from .coreutils import normalize_string 
 
     def validator(param_value):
+        """Validate param value from :func:`~normalize_string`"""
         if param_value:
             return normalize_string(
                 param_value, target_strs=target_strs,
@@ -306,7 +314,6 @@ def parameter_validator(
         return param_value  # Return the original value if it's None or empty
 
     return validator
-
 
 def validate_distribution(distribution, elements=None):
     """
@@ -338,6 +345,7 @@ def validate_distribution(distribution, elements=None):
     ---------
     >>> from gofast.tools.validator import validate_distribution
     >>> validate_distribution ("auto", elements= [ 'positive', 'neutral', 'negative'])
+    (0.1450318690603951, 0.5660028611331361, 0.2889652698064687)
     """
     # Determine the number of elements if a list is provided
     if isinstance(elements, list):
@@ -442,8 +450,8 @@ def filter_nan_entries(nan_policy, *listof, sample_weights=None):
         - 'propagate': Keep NaN values, which may result in NaN values in output.
         - 'raise': If NaN values are detected, raise a ValueError.
     *listof : array-like sequences
-        Variable number of list-like sequences from which NaN values are to be filtered out.
-        Each sequence in `listof` must have the same length.
+        Variable number of list-like sequences from which NaN values are to be 
+        filtered out.  Each sequence in `listof` must have the same length.
     sample_weights : array-like, optional
         Weights corresponding to the elements in each sequence in `listof`.
         Must have the same length as the sequences. If `nan_policy` is 'omit',
@@ -464,7 +472,8 @@ def filter_nan_entries(nan_policy, *listof, sample_weights=None):
     Raises
     ------
     ValueError
-        If `nan_policy` is 'raise' and NaN values are present in any input sequence.
+        If `nan_policy` is 'raise' and NaN values are present in any input 
+        sequence.
 
     Examples
     --------

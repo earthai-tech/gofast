@@ -3913,7 +3913,6 @@ def soft_scaler(
     
     return X_scaled
 
-
 def _determine_scaler(kind, **kwargs):
     """
     Determines the scaler based on the kind parameter.
@@ -3945,7 +3944,6 @@ def _concat_scaled_numeric_with_categorical(X_scaled_numeric, X, cat_features):
                         columns=X.select_dtypes(include=['number']).columns),
                           X[cat_features]], axis=1)
     return X_scaled[X.columns]  # Maintain original column order
-
 
 @ensure_pkg(
     "shap", extra="SHapley Additive exPlanations (SHAP) is needed.",
@@ -3985,11 +3983,12 @@ def display_feature_contributions(
     >>> X = data['data']
     >>> feature_names = data['feature_names']
     >>> display_feature_contributions(X, view=True)
-    >>> print(importances)
     {'sepal length (cm)': 0.112, 'sepal width (cm)': 0.032, 
      'petal length (cm)': 0.423, 'petal width (cm)': 0.433}
     """
-    pkg =' shap' if str(pkg).lower() =='shap' else 'matplotlib'
+    pkg ='shap' if str(pkg).lower() =='shap' else 'matplotlib'
+    
+    validate_data_types(X, nan_policy="raise", error ="raise")
     
     # Initialize the RandomForest model
     model = RandomForestClassifier(n_estimators=100, random_state=42)

@@ -2709,81 +2709,6 @@ def series_naming(name, data=None, error='ignore'):
             cast_numeric(s.columns[0], error='ignore') or s.columns[0] is None)
     ) else {}
 
-@make_data_dynamic("both")
-def summary(
-    df, 
-    include_correlation=False, 
-    include_uniques=False, 
-    statistics=None,
-    include_sample=False, sample_size=5):
-    """
-    Generate a customizable summary for a pandas DataFrame.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        The DataFrame for which the summary is generated.
-    include_correlation : bool, optional
-        If True, include the correlation matrix for numerical features in the
-        summary. Default is False.
-    include_uniques : bool, optional
-        If True, include unique counts for categorical features in the summary.
-        Default is False.
-    statistics : list of str, optional
-        A list of descriptive statistics to include in the summary for 
-        numerical columns. 
-        Default is ['mean', 'std', 'min', '25%', '50%', '75%', 'max'].
-    include_sample : bool, optional
-        If True, include a random sample of the data in the summary. Default is False.
-    sample_size : int, optional
-        The number of samples to include if `include_sample` is True. Default is 5.
-
-    Returns
-    -------
-    summary : dict
-        A dictionary containing the requested summary information of the DataFrame.
-
-    Examples
-    --------
-    >>> data = {
-    ...     'A': [1, 2, 3, 4, 5],
-    ...     'B': [5, 6, None, 8, 9],
-    ...     'C': ['foo', 'bar', 'baz', 'qux', 'quux']
-    ... }
-    >>> df = pd.DataFrame(data)
-    >>> summary = dataframe_summary(df, include_correlation=True, include_uniques=True, 
-                                    include_sample=True)
-    >>> print(summary.keys())
-    dict_keys(['Shape', 'Data Types', 'Missing Values', 'Basic Statistics', 
-               'Correlation Matrix', 'Unique Counts', 'Sample Data'])
-    """
-    summary = {
-        "Shape": df.shape,
-        "Data Types": df.dtypes.to_dict(),
-        "Missing Values": df.isnull().sum().to_dict(),
-        "Basic Statistics": {}
-    }
-    # Basic statistics for numeric columns
-    if statistics:
-        statistics= ['mean', 'std', 'min', '25%', '50%', '75%', 'max']
-        summary["Basic Statistics"] = df.describe().loc[statistics].to_dict()
-    
-    # Correlation matrix for numeric columns
-    if include_correlation and df.select_dtypes(include=['number']).shape[1] > 1:
-        summary["Correlation Matrix"] = df.corr().round(2).to_dict()
-    
-    # Unique counts for categorical columns
-    if include_uniques:
-        cat_cols = df.select_dtypes(include=['object', 'category']).columns
-        summary["Unique Counts"] = {col: df[col].nunique() for col in cat_cols}
-    
-    # Sample of the data
-    if include_sample:
-        if sample_size > len(df):
-            sample_size = len(df)
-        summary["Sample Data"] = df.sample(n=sample_size).to_dict(orient='list')
-    
-    return summary
 
 def validate_years(
     start_year: Optional[Union[int, str]] = None, 
@@ -2861,46 +2786,6 @@ def validate_years(
     >>> print(f"Validated range: {start} to {end}")
     Validated range: 2001 to 2020
     """
-#     if range_validator is None:
-#         range_validator = lambda x: (1900 <= x <= datetime.now().year, (
-#             1900, datetime.now().year))
-    
-#     def decorator(func):
-#         @functools.wraps(func)
-#         def wrapper(*args, **kwargs):
-#             nonlocal start_year, end_year
-#             sy = _get_param_value(start_year, args, kwargs, func)
-#             ey = _get_param_value(end_year, args, kwargs, func)
-#             sy = _parse_year(sy, 'start_year')
-#             ey = _parse_year(ey, 'end_year')
-#             _check_year_order(sy, ey)
-#             if check_range:
-#                 _check_year_range(sy, range_validator)
-#                 _check_year_range(ey, range_validator)
-#             return func(*args, **kwargs)
-#         return wrapper
-
-    
-#     # If used as a normal function, directly validate the years
-#     if not callable(start_year) and not callable(end_year):
-#         sy = _parse_year(start_year, 'start_year')
-#         ey = _parse_year(end_year, 'end_year')
-#         _check_year_order(sy, ey)
-#         if check_range:
-#             _check_year_range(sy, range_validator)
-#             _check_year_range(ey, range_validator)
-#         return sy, ey
-
-#     # Otherwise, return the decorator
-#     return decorator
-
-# def validate_years(
-#     start_year: Optional[Union[int, str]] = None, 
-#     end_year: Optional[Union[int, str]] = None, *, 
-#     check_range: bool = True,
-#     range_validator: Optional[Callable[[int], Union[bool, Tuple[bool, Tuple[int, int]]]]] = None
-# ) -> Union[Callable, tuple]:
-    # Adjusting the range validator default to return a tuple
     if range_validator is None:
         range_validator = lambda x: (1900 <= x <= datetime.now().year, (1900, datetime.now().year))
     
@@ -3023,6 +2908,7 @@ def _check_year_range(
     --------
     Using a range_validator that returns a boolean:
     
+    >>> from gofast.tools.funcutils import _check_year_range
     >>> def simple_validator(year: int) -> bool:
     ...     return 2000 <= year <= 2100
     >>> try:

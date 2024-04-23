@@ -1349,13 +1349,20 @@ def max_widths_across_dfs(dataframes, include_index):
     if include_index:
         index_width = max(max(len(str(index)) for index in df.index)
                           for df in dataframes) + 2 
+    # for df in dataframes:
+    #     for col in df.columns:
+    #         formatted_values = [len(format_value(val)) 
+    #                             for val in df[col].append(pd.Series(col))]
+    #         max_width = max(formatted_values)
+    #         column_widths[col] = max(column_widths.get(col, 0), max_width)
     for df in dataframes:
         for col in df.columns:
-            formatted_values = [len(format_value(val)) 
-                                for val in df[col].append(pd.Series(col))]
+            # Combine the column data and the column name into a single Series
+            combined_series = pd.concat([df[col], pd.Series([col])])
+            formatted_values = [len(format_value(val)) for val in combined_series]
             max_width = max(formatted_values)
             column_widths[col] = max(column_widths.get(col, 0), max_width)
-            
+
     return column_widths, index_width
 
 def have_same_columns(dataframes):
