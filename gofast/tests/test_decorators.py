@@ -18,7 +18,7 @@ import pandas as pd
 import numpy as np
 
 from gofast._gofastlog import gofastlog 
-from gofast.decorators import DynamicMethod  
+from gofast.decorators import DynamicMethod , SmartProcessor 
 from gofast.decorators import ExportData , isdf, Dataify
 from gofast.decorators import Temp2D, CheckGDALData 
 from gofast.decorators import SignalFutureChange, RedirectToNew  
@@ -28,9 +28,61 @@ from gofast.decorators import AppendDocSection, SuppressOutput
 from gofast.decorators import AppendDocFrom, NumpyDocstringFormatter
 from gofast.decorators import NumpyDocstring, sanitize_docstring
 from gofast.decorators import DataTransformer, Extract1dArrayOrSeries
+
 # Define a logger mock to capture warnings
 _logger = gofastlog.get_gofast_logger(__name__)
 # Source function with a comprehensive docstring
+
+
+# Function to be decorated
+@SmartProcessor(param_name='columns', to_dataframe=True)
+def normalize_data(data, columns=None):
+    return (data - np.mean(data, axis=0)) / np.std(data, axis=0)
+
+# Test DataFrame
+df = pd.DataFrame({
+    'A': [1, 2, 3],
+    'B': [4, 5, 6],
+    'C': [7, 8, 9]
+})
+# Function to be decorated with no possibility to convert to a dataframe before. 
+@SmartProcessor(param_name='columns')
+def normalize_data2(data, columns=None):
+    return (data - np.mean(data, axis=0)) / np.std(data, axis=0)
+
+def test_normalize_data_with_columns():
+    result = normalize_data(df, columns=['C'])
+    expected_columns = ['A', 'B', 'C']
+    # Check if all columns are present
+    assert all(col in result.columns for col in expected_columns)
+    # Check if the 'C' column remains unchanged
+    assert all(result['C'] == df['C'])
+    # Check if the processed columns are actually normalized
+    np.testing.assert_almost_equal(result['A'].mean(), 0)
+    np.testing.assert_almost_equal(result['A'].std(), 1, decimal= 0)
+
+def test_normalize_data_without_columns():
+    result = normalize_data(df)
+    expected_columns = ['A', 'B', 'C']
+    # Check if all columns are present and processed
+    assert all(col in result.columns for col in expected_columns)
+    # Check normalization
+    np.testing.assert_almost_equal(result.mean().mean(), 0)
+    np.testing.assert_almost_equal(result.std().mean(), 1, decimal= 0)
+
+def test_normalize_data_with_invalid_columns():
+    with pytest.raises(ValueError):
+        normalize_data(df, columns=['D'])  # 'D' does not exist
+
+def test_normalize_data_with_numpy_array():
+    arr = df.values
+    result = normalize_data2(arr, columns=[2])  # Assuming column index 2 corresponds to 'C'
+    # Check if the shape is correct and 'C' column is unchanged
+    assert result.shape == arr.shape
+    assert all(result[:, 2] == arr[:, 2])
+    # Check normalization of other columns
+    np.testing.assert_almost_equal(np.mean(result[:, :2], axis=0), [0, 0])
+    np.testing.assert_almost_equal(np.std(result[:, :2], axis=0), [.8, .8], decimal=1)
 
 def test_data_transformer_dataframe():
     @DataTransformer(rename_columns=True, verbose=True, mode='hardworker')

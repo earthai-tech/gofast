@@ -24,7 +24,7 @@ from sklearn.preprocessing import StandardScaler,MinMaxScaler, OrdinalEncoder
 from sklearn.preprocessing import OneHotEncoder, PolynomialFeatures, RobustScaler
 
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.feature_selection import SelectFromModel
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import recall_score, precision_score
@@ -36,7 +36,7 @@ from .api.types import _F
 from .exceptions import EstimatorError, NotFittedError 
 from .tools.coreutils import  parse_attrs, assert_ratio, validate_feature
 from .tools.coreutils import  ellipsis2false, to_numeric_dtypes, is_iterable
-from .tools.coreutils import exist_features
+from .tools.coreutils import exist_features, type_of_target
 from .tools._dependency import import_optional_dependency 
 from .tools.validator import  get_estimator_name, check_X_y, is_frame
 from .tools.validator import _is_arraylike_1d, build_data_if, check_array 
@@ -50,6 +50,7 @@ __docformat__='restructuredtext'
 _logger = gofastlog().get_gofast_logger(__name__)
 
 __all__= [
+    'FeatureImportanceSelector', 
     'SequentialBackwardSelector',
     'FloatCategoricalToIntTransformer', 
     'KMeansFeaturizer',
@@ -96,6 +97,293 @@ __all__= [
     'ImagePCAColorAugmenter', 
     'ImageBatchLoader', 
   ]
+
+class FeatureImportanceSelector(BaseEstimator, TransformerMixin):
+    """
+    A feature selector that uses importance scores from a fitted model
+    to select features exceeding a specified importance threshold.
+
+    This transformer integrates with scikit-learn and can use any model
+    that exposes "feature_importances_" or similar attributes after fitting.
+    By default, it uses a RandomForest model to determine importance but can
+    be configured to use any other similar estimator.
+
+    Parameters
+    ----------
+    model : estimator object implementing 'fit', default=None
+        The model to use for assessing feature importance. If None, a default
+        RandomForest model is used based on the classification or regression
+        nature of the target variable specified in the fit method.
+    threshold : float, default=0.5
+        The threshold value for feature importances. Features with importance
+        scores above this threshold will be kept.
+    use_classifier : bool or 'auto', default=True
+        Determines whether to use a classifier (True) or a regressor (False).
+        If 'auto', the choice is made based on the target variable's type
+        (continuous for regressors and categorical for classifiers).
+    max_depth : int, optional
+        The maximum depth of the tree, applicable if the default model is used.
+    n_estimators : int, default=100
+        The number of trees in the forest, applicable if the default model is used.
+    rf_kwargs : dict, optional
+        Additional keyword arguments to pass to the RandomForest constructor.
+
+    Attributes
+    ----------
+    important_indices_ : ndarray
+        Indices of features considered important based on the importance threshold.
+    feature_names_ : ndarray
+        Feature names extracted from the input DataFrame, if provided.
+
+    Examples
+    --------
+    >>> from gofast.transformers import FeatureImportanceSelector
+    >>> from sklearn.datasets import load_iris
+    >>> X, y = load_iris(return_X_y=True)
+    >>> selector = FeatureImportanceSelector(threshold=0.1, use_classifier=True)
+    >>> X_selected = selector.fit_transform(X, y)
+    >>> print(selector.get_feature_names_out())
+
+    Notes
+    -----
+    This selector is particularly useful in scenarios where dimensionality
+    reduction based on feature importance is required to improve model
+    performance or interpretability.
+    """
+
+    def __init__(
+        self, 
+        model=None, 
+        threshold=0.5, 
+        use_classifier=True, 
+        max_depth=None, 
+        n_estimators=100, 
+        rf_kwargs=None
+    ):
+        self.model = model
+        self.threshold = threshold
+        self.use_classifier = use_classifier
+        self.n_estimators = n_estimators
+        self.max_depth = max_depth
+        self.rf_kwargs = rf_kwargs or {}
+        self.important_indices_ = None
+        self.feature_names_ = None 
+        
+    def _select_model_if(self, y):
+        """
+        Selects and initializes the model based on the type of target variable
+        and user preference.
+    
+        This method is responsible for dynamically selecting either a 
+        regression or classification model based on the type of the target 
+        data (`y`). If `use_classifier` is 'auto', the method automatically 
+        detects the type of task (regression or classification) based on the 
+        target variable type.
+    
+        Parameters
+        ----------
+        y : array-like
+            Target variable array that is used to determine the model type if 
+            `use_classifier` is set to 'auto'.
+    
+        Returns
+        -------
+        model : object
+            An instance of either RandomForestRegressor or RandomForestClassifier
+            depending on the detected type of task or user preference.
+    
+        Raises
+        ------
+        ValueError
+            If `y` is None and `use_classifier` is set to 'auto', a ValueError
+            is raised indicating that the target variable must be provided.
+    
+        Notes
+        -----
+        This method supports customization through the `rf_kwargs` attribute 
+        which allows passing additional parameters to the RandomForest model.
+        """
+        # Mapping the selector based on the user input
+        _model = {
+            "regression_selector": RandomForestRegressor, 
+            "classification_selector": RandomForestClassifier
+        }
+        
+        if self.use_classifier == 'auto':
+            # Automatically detect based on the type of target
+            if y is None:
+                raise ValueError(
+                    "Target vector 'y' must not be None when use_classifier='auto'.")
+            target_type = type_of_target(y)
+            selector_key = ( 'regression_selector' if target_type == 'continuous' 
+                            else 'classification_selector' ) 
+            self.use_classifier = False if target_type == 'continuous' else True
+        else:
+            selector_key = ( 
+                'classification_selector' if self.use_classifier else 'regression_selector'
+                )
+
+        return _model[selector_key](
+            n_estimators=self.n_estimators, max_depth=self.max_depth,
+            **self.rf_kwargs
+            )
+        
+    def fit(self, X, y=None):
+        """
+        Fits the model to the input data `X` and target `y`.
+    
+        This method fits the feature importance selector to the data by first 
+        determining the appropriate model to use (either automatically or 
+        based on user preference), then fitting this model to the data. It 
+        also handles checking and warning about potentialmismatches between 
+        the model type and the target variable type.
+    
+        Parameters
+        ----------
+        X : array-like, shape [n_samples, n_features]
+            Training vectors, where n_samples is the number of samples and
+            n_features is the number of features.
+        y : array-like, shape [n_samples], optional
+            Target values. Required unless the model explicitly provided does 
+            not need a target variable.
+    
+        Returns
+        -------
+        self : object
+            Returns self.
+    
+        Raises
+        ------
+        ValueError
+            If `y` is None when no explicit model is provided.
+        TypeError
+            If the model does not support the fit method.
+        ValueError
+            If the model lacks the `feature_importances_` attribute necessary 
+            for feature selection.
+    
+        Notes
+        -----
+        It stores the feature names if `X` is a DataFrame to use later in 
+        `get_feature_names_out`.
+        """
+        if self.model is None:
+            if y is None:
+                raise ValueError("Target vector 'y' must not be None when no"
+                                 " model is explicitly provided.")
+    
+            self.model = self._select_model_if(y)
+            target_type = type_of_target(y)
+            model_type = (
+                'Regressor' if 'Regressor' in self.model.__class__.__name__ 
+                else 'Classifier'
+            )
+    
+            if model_type == 'Regressor' and target_type != 'continuous':
+                warnings.warn(
+                    "Regressor is selected while the task seems to be classification.",
+                    UserWarning)
+            elif model_type == 'Classifier' and target_type == 'continuous':
+                warnings.warn(
+                    "Classifier is selected while the task seems to be regression.",
+                    UserWarning)
+    
+        # Fit the model and check for feature_importances_ attribute
+        if not hasattr(self.model, 'feature_importances_'):
+            if not hasattr(self.model, 'fit'):
+                raise TypeError(
+                    f"The model {self.model.__class__.__name__} does not"
+                    " support the fit method.")
+            try:
+                self.model.fit(X, y)
+            except Exception as e:
+                raise ValueError(
+                    "The model used does not have feature_importances_ attribute."
+                ) from e
+        
+        # Store feature names if X is a DataFrame
+        if hasattr(X, 'columns'):
+            self.feature_names_ = X.columns
+
+        # Fetch important features based on the threshold
+        self.important_indices_ = np.where(
+            self.model.feature_importances_ > self.threshold)[0]
+    
+        return self
+    
+    def transform(self, X):
+        """
+        Transforms the dataset to include only the most important features as
+        determined during fitting.
+    
+        This method reduces the dimensionality of the data to only include 
+        features that are considered important based on the threshold set 
+        during the initialization of the selector.
+    
+        Parameters
+        ----------
+        X : array-like, shape [n_samples, n_features]
+            The input samples to transform.
+    
+        Returns
+        -------
+        X_transformed : array-like, shape [n_samples, n_selected_features]
+            The array of input samples but only including the features that 
+            were deemed important.
+    
+        Raises
+        ------
+        RuntimeError
+            If this method is called before the model is fitted.
+        """
+        
+        if self.important_indices_ is None:
+            raise RuntimeError("The fit method must be called before transform.")
+        
+        # if len(self.important_indices_) == 0:
+        #     warnings.warn(
+        #         "No important features were detected based on the provided "
+        #         "threshold({self.threshold}). Consider reducing the threshold"
+        #         " or revisiting feature engineering. Returning the original"
+        #         " dataset.", UserWarning
+        #     )
+        #     return X
+        
+        if isinstance (X, pd.DataFrame ): 
+            return X.iloc[:, self.important_indices_]
+        
+        return X[:, self.important_indices_]
+    
+
+    def get_feature_names_out(self):
+        """
+        Returns the names of the features deemed important by the model.
+    
+        This method returns the names of the features that have been selected 
+        as important. This can either be the original feature names from a 
+        DataFrame or constructed names if the input was an array.
+    
+        Returns
+        -------
+        feature_names : list of str
+            The names of the features that have been selected as important.
+    
+        Raises
+        ------
+        RuntimeError
+            If this method is called before the model is fitted.
+        """
+
+        if self.important_indices_ is None:
+            raise RuntimeError(
+                "The fit method must be called before fetching feature names.")
+
+        if self.feature_names_ is not None:
+            # Use column names if X was a DataFrame
+            return self.feature_names_[self.important_indices_].tolist()
+        else:
+            # Default feature names if X was an array
+            return [f"feature_{i}" for i in self.important_indices_]
 
 class FloatCategoricalToIntTransformer(BaseEstimator, TransformerMixin):
     """

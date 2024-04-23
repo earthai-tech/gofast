@@ -40,8 +40,10 @@ from sklearn.utils import resample
 from .._gofastlog import gofastlog
 from ..api.types import List, Tuple, Any, Dict,  Optional,Union, Series 
 from ..api.types import  _F, ArrayLike, NDArray,  DataFrame
+from ..api.summary import ReportFactory 
 from ..compat.sklearn import get_feature_names
 from ..compat.sklearn import train_test_split 
+from ..decorators import SmartProcessor 
 from .baseutils import select_features 
 from .coreutils import _assert_all_types, is_in_if,  ellipsis2false
 from .coreutils import smart_format, is_iterable, get_valid_kwargs
@@ -52,7 +54,7 @@ from .funcutils import ensure_pkg
 from .validator import _is_numeric_dtype,  _is_arraylike_1d 
 from .validator import get_estimator_name, check_array, check_consistent_length
 from .validator import is_frame, build_data_if, check_is_fitted
-from .validator import check_mixed_data_types 
+from .validator import check_mixed_data_types, validate_data_types   
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -90,9 +92,7 @@ __all__=[
     "stats_from_prediction", 
     "one_click_preprocess", 
     "codify_variables", 
-    "smart_split", 
-    "handle_imbalance", 
-    "resampling", 
+    "display_feature_contributions"
     ]
 
 
@@ -264,18 +264,17 @@ def one_click_preprocess(
             ).fit_transform(data_processed)
     except:
         pass
-
     # Return the preprocessed DataFrame.
     return data_processed
 
 def codify_variables (
     data:DataFrame | ArrayLike, /, 
-    columns: list =None, 
+    columns: List[str] =None, 
     func: _F=None, 
     categories: dict=None, 
     get_dummies:bool=..., 
     parse_cols:bool =..., 
-    return_cat_codes:bool=... 
+    return_cat_codes:bool=..., 
     ) -> DataFrame: 
     """
     Encode multiple categorical variables in a dataset.
@@ -2734,7 +2733,6 @@ def handle_imbalance(
 
     return X_resampled, y_resampled
 
-
 def soft_data_split(
     X, y=None, *,
     test_size=0.2,
@@ -3003,7 +3001,7 @@ def make_pipe(
     ): 
     """ make a pipeline to transform data at once. 
     
-    make a naive pipeline is usefull to fast preprocess the data at once 
+    make a quick pipeline is usefull to fast preprocess the data at once 
     for quick prediction. 
     
     Work with a pandas dataframe. If `None` features is set, the numerical 
@@ -3487,6 +3485,7 @@ def select_feature_importances(
     
     return selector if return_selector else selector.transform(X)
 
+@SmartProcessor(fail_silently=True, param_name ="skip_columns")
 def soft_imputer(
     X, 
     strategy='mean', 
@@ -3498,6 +3497,7 @@ def soft_imputer(
     verbose=0, 
     add_indicator=False,
     keep_empty_features=False, 
+    skip_columns=None, 
     **kwargs
     ):
     """
@@ -3540,20 +3540,35 @@ def soft_imputer(
     drop_features : bool or list, default=False
         If True, drops all categorical features before imputation. If a list, 
         drops specified features.
+        
     mode : str, optional
         If set to 'bi-impute', imputes both numerical and categorical features 
         and returns a single imputed dataframe. Only 'bi-impute' is supported.
+        
     copy : bool, default=True
         If True, a copy of X will be created. If False, imputation will
         be done in-place whenever possible.
+        
     verbose : int, default=0
         Controls the verbosity of the imputer.
+        
     add_indicator : bool, default=False
         If True, a `MissingIndicator` transform will be added to the output 
         of the imputer's transform.
+        
     keep_empty_features : bool, default=False
         If True, features that are all missing when `fit` is called are 
         included in the transform output.
+        
+    skip_columns : list of str or int, optional
+        Specifies the columns to exclude from processing when the decorator is
+        applied to a function. If the input data `X` is a pandas DataFrame, 
+        `skip_columns` should contain the names of the columns to be skipped. 
+        If `X` is a numpy array, `skip_columns`  should be a list of column 
+        indices (integers) indicating the positions of the columns to be excluded.
+        This allows selective processing of data, avoiding alterations to the
+        specified columns.
+        
     **kwargs : dict
         Additional fitting parameters.
 
@@ -3564,6 +3579,8 @@ def soft_imputer(
 
     Examples
     --------
+    >>> import numpy as np 
+    >>> from gofast.tools.mlutils import soft_imputer
     >>> X = np.array([[1, np.nan, 3], [4, 5, np.nan], [np.nan, np.nan, 9]])
     >>> soft_imputer(X, strategy='mean')
     array([[ 1. ,  5. ,  3. ],
@@ -3787,6 +3804,7 @@ def _manage_fill_value(
     
     return [num_fill_value, cat_fill], strategies
 
+@SmartProcessor(fail_silently= True, param_name="skip_columns")
 def soft_scaler(
     X, *, 
     kind=StandardScaler, 
@@ -3796,6 +3814,7 @@ def soft_scaler(
     feature_range=(0, 1), 
     clip=False, 
     norm='l2',
+    skip_columns=None, 
     verbose=0, 
     **kwargs
     ):
@@ -3829,7 +3848,14 @@ def soft_scaler(
     norm : {'l1', 'l2', 'max'}, default='l2'
         The norm to use to normalize each non-zero sample or feature.
         Only applicable when kind is 'Normalizer'.
-        
+    skip_columns : list of str or int, optional
+        Specifies the columns to exclude from processing when the decorator is
+        applied to a function. If the input data `X` is a pandas DataFrame, 
+        `skip_columns` should contain the names of the columns to be skipped. 
+        If `X` is a numpy array, `skip_columns`  should be a list of column 
+        indices (integers) indicating the positions of the columns to be excluded.
+        This allows selective processing of data, avoiding alterations to the
+        specified columns.
     verbose : int, default=0
         If > 0, print messages about the processing.
         
@@ -3887,6 +3913,7 @@ def soft_scaler(
     
     return X_scaled
 
+
 def _determine_scaler(kind, **kwargs):
     """
     Determines the scaler based on the kind parameter.
@@ -3919,6 +3946,161 @@ def _concat_scaled_numeric_with_categorical(X_scaled_numeric, X, cat_features):
                           X[cat_features]], axis=1)
     return X_scaled[X.columns]  # Maintain original column order
 
+
+@ensure_pkg(
+    "shap", extra="SHapley Additive exPlanations (SHAP) is needed.",
+    partial_check= True,
+    condition= lambda *args, **kwargs: kwargs.get("pkg")=="shap"
+    )
+def display_feature_contributions(
+        X, y=None, view=False, pkg=None):
+    """
+    Trains a RandomForest model to determine the importance of features in
+    the dataset and optionally displaysthese importances visually using SHAP.
+
+    Parameters
+    ----------
+    X : ndarray or DataFrame
+        The feature matrix from which to determine feature importances. This 
+        should not include the target variable.
+    y : ndarray, optional
+        The target variable array. If provided, it will be used for supervised 
+        learning. If None, an unsupervised approach will be used 
+        (feature importances based on feature permutation).
+    view : bool, optional
+        If True, display feature importances using SHAP's summary plot.
+        Defaults to False.
+
+    Returns
+    -------
+    dict
+        A dictionary where keys are feature names and values are their 
+        corresponding importances as determined by the RandomForest model.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import load_iris 
+    >>> from gofast.tools.mlutils import display_feature_contributions
+    >>> data = load_iris()
+    >>> X = data['data']
+    >>> feature_names = data['feature_names']
+    >>> display_feature_contributions(X, view=True)
+    >>> print(importances)
+    {'sepal length (cm)': 0.112, 'sepal width (cm)': 0.032, 
+     'petal length (cm)': 0.423, 'petal width (cm)': 0.433}
+    """
+    pkg =' shap' if str(pkg).lower() =='shap' else 'matplotlib'
+    
+    # Initialize the RandomForest model
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+
+    # Fit the model on the provided features, with or without a target variable
+    if y is not None:
+        model.fit(X, y)
+    else:
+        # Fit a dummy target if y is None, assuming unsupervised setup
+        model.fit(X, range(X.shape[0]))
+
+    # Extract feature importances
+    importances = model.feature_importances_
+
+    # Optionally, display the feature importances using the chosen visualization package
+    feature_names = model.feature_names_in_ if hasattr(
+            model, 'feature_names_in_') else [f'feature_{i}' for i in range(X.shape[1])]
+    if view:
+        if pkg.lower() == "shap":
+            import shap
+            explainer = shap.TreeExplainer(model)
+            shap_values = explainer.shap_values(X)
+            shap.summary_plot(shap_values, X, feature_names=feature_names)
+            
+        elif pkg.lower() == "matplotlib":
+            import matplotlib.pyplot as plt
+            plt.figure(figsize=(10, 5))
+            indices = range(len(importances))
+            plt.title('Feature Importances')
+            plt.bar(indices, importances, color='skyblue', align='center')
+            plt.xticks(indices, feature_names, rotation=45)
+            plt.xlabel('Feature')
+            plt.ylabel('Importance')
+            plt.show()
+
+    # Map feature names to their importances
+    feature_importance_dict = dict(zip(feature_names, importances))
+    
+    summary = ReportFactory(title="Feature Contributions Table",).add_mixed_types(
+        feature_importance_dict)
+    
+    print(summary)
+
+@ensure_pkg ("shap", extra = ( 
+    "`get_feature_contributions` need SHapley Additive exPlanations (SHAP)"
+    " package to be installed. Instead, you can use"
+    " `gofast.tools.display_feature_contributions` for contribution scores" 
+    " and `gofast.analysis.get_feature_importances` for PCA quick evaluation."
+    )
+ )
+def get_feature_contributions(X, model=None, view=False):
+    """
+    Calculate the SHAP (SHapley Additive exPlanations) values to determine 
+    the contribution of each feature to the model's predictions for each 
+    instance in the dataset and optionally display a visual summary.
+
+    Parameters
+    ----------
+    X : ndarray or DataFrame
+        The feature matrix for which to calculate feature contributions.
+    model : sklearn.base.BaseEstimator, optional
+        A pre-trained tree-based machine learning model from scikit-learn (e.g.,
+        RandomForest). If None, a new RandomForestClassifier will be trained on `X`.
+    view : bool, optional
+        If True, displays a visual summary of feature contributions using SHAP's
+        visualization tools. Default is False.
+
+    Returns
+    -------
+    ndarray
+        A matrix of SHAP values where each row corresponds to an instance and
+        each column corresponds to a feature's contribution to that instance's 
+        prediction.
+
+    Notes
+    -----
+    The function defaults to creating and using a RandomForestClassifier if no model is
+    provided. It is more efficient to pass a pre-trained model if available.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import load_iris
+    >>> from gofast.tools.mlutils import get_feature_contributions
+    >>> data = load_iris()
+    >>> X = data['data']
+    >>> model = RandomForestClassifier(random_state=42)
+    >>> model.fit(X, data['target'])
+    >>> contributions = get_feature_contributions(X, model, view=True)
+    """
+    import shap
+    
+    # If no model is provided, train a RandomForestClassifier
+    if model is None:
+        model = RandomForestClassifier(n_estimators=100, random_state=42)
+        # Dummy target, assuming unsupervised setup for example
+        model.fit(X, np.zeros(X.shape[0]))  
+
+    # Create the Tree explainer and calculate SHAP values
+    explainer = shap.TreeExplainer(model)
+    shap_values = explainer.shap_values(X)
+
+    # SHAP returns a list for multi-class, we sum across all classes for overall importance
+    if isinstance(shap_values, list):
+        shap_values = np.sum(np.abs(shap_values), axis=0)
+
+    # Visualization if view is True
+    if view:
+        shap.summary_plot(shap_values, X, feature_names=model.feature_names_in_ if hasattr(
+            model, 'feature_names_in_') else None)
+
+    return shap_values
 
         
         

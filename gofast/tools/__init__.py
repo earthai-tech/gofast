@@ -130,6 +130,7 @@ MODULE_MAPPING = {
         'build_data_preprocessor',
         'codify_variables', 
         'deserialize_data',
+        'display_feature_contributions', 
         'discretize_categories', 
         'evaluate_model',
         'fetch_model', 

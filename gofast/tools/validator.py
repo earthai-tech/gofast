@@ -23,6 +23,143 @@ from inspect import signature, Parameter, isclass
 from ._array_api import get_namespace, _asarray_with_order
 FLOAT_DTYPES = (np.float64, np.float32, np.float16)
 
+
+def validate_data_types(data, expected_type='numeric', nan_policy='propagate', 
+                     return_data=False, error='raise'):
+    """
+    Checks for mixed data types in a pandas Series or DataFrame and handles
+    according to the specified policies. This function is designed to ensure 
+    data consistency by verifying that data matches expected type criteria,
+    offering options to manage and report any discrepancies.
+
+    Parameters
+    ----------
+    data : pd.Series or pd.DataFrame
+        The data to be checked. This can be a pandas Series or DataFrame.
+    expected_type : {'numeric', 'categoric', 'both'}, default 'numeric'
+        Specifies the type of data expected:
+        
+        - 'numeric': All data should be of numeric types (int, float).
+        - 'categoric': All data should be categorical, typically strings
+          or pandas Categorical datatype.
+        - 'both': Any mix of numeric and categorical data is considered valid.
+        
+    nan_policy : {'error', 'warn', 'propagate'}, default 'propagate'
+        Determines how NaN values are handled:
+        
+        - 'error': Raises an error if NaN values are found.
+        - 'warn': Issues a warning if NaN values are found but proceeds.
+        - 'propagate': Continues execution without addressing NaNs.
+        
+    return_data : bool, default False
+        If True, returns a DataFrame or Series (depending on the input) that 
+        only includes data rows that conform to the expected_type. If False,
+        returns None.
+        
+    error : {'raise', 'warn'}, default 'raise'
+        Configures the error handling behavior when data types do not conform 
+        to the expected_type:
+        
+        - 'raise': Raises a TypeError if mixed types are detected.
+        - 'warn': Emits a warning but attempts to continue by filtering 
+          non-conforming data if `return_data` is True.
+
+    Returns
+    -------
+    pd.Series or pd.DataFrame or None
+        Depending on `return_data`, this function may return a filtered version
+        of `data` that conforms to the `expected_type` or None if `return_data` 
+        is False.
+
+    Raises
+    ------
+    ValueError
+        If NaN values are present and `nan_policy` is set to 'error'.
+    TypeError
+        If data types do not conform to `expected_type` and `error` is set to 'raise'.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.tools.validator import validate_data_types 
+    >>> df = pd.DataFrame({'A': [1, 2, 'a', 3.5, np.nan], 'B': ['x', 'y', 'z', None, 't']})
+    >>> validate_data_types(df, expected_type='numeric', nan_policy='warn', 
+    ...                  return_data=True, error='warn')
+    UserWarning: NaN values found in the data, but processing will continue.
+    UserWarning: Expected numeric types but found mixed types. 
+    Non-numeric data will be ignored.
+       A
+    0  1.0
+    1  2.0
+    3  3.5
+
+    Notes
+    -----
+    The `check_data_types` function is useful in data preprocessing steps,
+    particularly when you need to ensure that data fed into a machine learning
+    algorithm meets certain type requirements. Handling mixed data types early
+    on can prevent issues in model training and evaluation.
+    """
+    if not isinstance ( data, pd.Series, pd.DataFrame): 
+        data = build_data_if(data, raise_exception=True, force=True, 
+                             input_name="feature")
+        
+    if isinstance(data, pd.Series):
+        data = data.to_frame()
+
+    # Handle NaN values according to the nan_policy
+    if nan_policy == 'raise' and data.isnull().any().any():
+        raise ValueError("NaN values found in the data.")
+    elif nan_policy == 'warn' and data.isnull().any().any():
+        warnings.warn("NaN values found in the data, but processing will continue.")
+
+    def _handle_numeric(data, return_data):
+        is_numeric = pd.to_numeric(data, errors='coerce').notna()
+        if not is_numeric.all():
+            if error == 'raise':
+                raise TypeError(
+                    "Mixed types detected. Please encode categorical variables first.")
+            elif error == 'warn':
+                warnings.warn(
+                    "Expected numeric types but found mixed types."
+                    " Non-numeric data will be ignored.")
+                if return_data:
+                    return data.loc[is_numeric]
+        return data[is_numeric] if return_data else None
+
+    def _handle_categoric(data, return_data):
+        is_categoric = data.apply(lambda x: isinstance(x, (str, pd.CategoricalDtype)))
+        if not is_categoric.all():
+            if error == 'raise':
+                raise TypeError("Mixed types detected with unexpected numeric data.")
+            elif error == 'warn':
+                warnings.warn("Expected categoric types but found numeric data.")
+                if return_data:
+                    return data[is_categoric]
+        return data[is_categoric] if return_data else None
+
+    results = pd.DataFrame()
+
+    for column in data.columns:
+        col_data = data[column]
+        if expected_type == 'numeric':
+            result = _handle_numeric(col_data, return_data)
+        elif expected_type == 'categoric':
+            result = _handle_categoric(col_data, return_data)
+        elif expected_type == 'both':
+            if error == 'warn':
+                warnings.warn(
+                    "Mixed data types found. Be cautious of unintended data type issues.")
+            result = col_data if return_data else None
+        else:
+            raise ValueError("Unsupported expected_type provided. Choose"
+                             " 'numeric', 'categoric', or 'both'.")
+
+        if return_data and result is not None:
+            results[column] = result
+
+    return results if not results.empty else None
+
 def ensure_2d(X, output_format="auto"):
     """
     Ensure that the input X is converted to a 2-dimensional structure.

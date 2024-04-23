@@ -75,7 +75,6 @@ def test_ensemble_hw_regressor(sample_data):
     predictions = regressor.predict(X_test)
     assert mean_squared_error(y_test, predictions) < 50000  # Example threshold
 
-
 @pytest.fixture
 def sample_data():
     X, y = make_regression(n_samples=100, n_features=4, noise=0.1)
@@ -242,7 +241,6 @@ def test_adaline_regressor_fit_predict(adaline_regressor):
     assert hasattr(adaline_regressor, 'weights_')
     predictions = adaline_regressor.predict(X_test)
     assert len(predictions) == len(y_test)
-
 
 # Test cases for KMFClassifier
 @pytest.fixture

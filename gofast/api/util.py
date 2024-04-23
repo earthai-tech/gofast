@@ -7,7 +7,6 @@ import warnings
 import numpy as np 
 import pandas as pd
 
- 
 def parse_component_kind(pc_list, kind):
     """
     Extracts specific principal component's feature names and their importance
@@ -128,8 +127,10 @@ def find_maximum_table_width(summary_contents, header_marker='='):
     """
     # Split the input string into lines
     lines = summary_contents.split('\n')
-    # Filter out lines that consist only of the header marker, and measure their lengths
-    header_line_lengths = [len(line) for line in lines if line.strip(header_marker) == '']
+    # Filter out lines that consist only of the header 
+    # marker, and measure their lengths
+    header_line_lengths = [len(line) for line in lines if line.strip(
+        header_marker) == '']
     # Return the maximum of these lengths, or 0 if the list is empty
     return max(header_line_lengths, default=0)
 

@@ -135,15 +135,14 @@ def test_transform_to_principal_components_dimensions(sample_data):
 def test_transform_to_principal_components_failure_on_high_dimensions(sample_data):
     # Mocking a scenario where the PCA might attempt to use more components than available features
     # Assuming the function raises a UserWarning when asked to handle more than 2 components
-    with pytest.warns(( np.ComplexWarning, UserWarning), match="N-component > 2 is not implemented yet.") as record:
-        transform_to_principal_components(sample_data, n_components=30)  # More components than features
+    # with pytest.warns(( np.ComplexWarning, UserWarning), match="N-component > 2 is not implemented yet.") as record:
+    #     transform_to_principal_components(sample_data, n_components=30)  # More components than features
 
-    assert any("N-component > 2 is not implemented yet." in str(warning.message) for warning in record), (
-        "Should warn when more than 2 components are requested"
-    )
-    # Optionally, check for ComplexWarning if dealing with complex numbers in components
-    # with pytest.raises((np.ComplexWarning, UserWarning) ):
-    #     transform_to_principal_components(sample_data, n_components=30)
+    # assert any("N-component > 2 is not implemented yet." in str(warning.message) for warning in record), (
+    #     "Should warn when more than 2 components are requested"
+    # )
+    with pytest.raises(ValueError):
+        transform_to_principal_components(sample_data, n_components=30)
 
 def test_transform_to_principal_components_view(sample_data, mocker):
     mocker.patch("matplotlib.pyplot.show")  # Patch matplotlib show to not display plot

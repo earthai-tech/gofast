@@ -60,6 +60,353 @@ _logger = gofastlog.get_gofast_logger(__name__)
 
 __docformat__='restructuredtext'
 
+class SmartProcessor:
+    """
+    A decorator class for data processing which selectively excludes specified 
+    columns from the processing step and reintegrates them afterward. This is 
+    useful for data preprocessing steps like scaling or imputing, where certain
+    columns (e.g., identifiers or target variables) should be omitted from 
+    the processing.
+
+    Parameters
+    ----------
+    func : callable, optional
+        The function to decorate. If not provided at initialization, it must 
+        be provided later as the first positional argument in the call to the 
+        decorator instance.
+    param_name : str, optional
+        The name of the keyword argument in the decorated function that 
+        specifies which columns to exclude from processing. 
+        Defaults to 'column_to_skip' if not provided.
+    fail_silently : bool or 'warn', optional
+        Controls the error handling behavior. If `False` (default), errors 
+        raise exceptions. If `True`, the original data is returned on error. 
+        If set to 'warn', a warning is issued, and the original data is returned.
+    to_dataframe : bool, optional
+        If `True`, converts the output to a pandas DataFrame, regardless of the
+        input type. This is useful when working with NumPy arrays but needing 
+        a DataFrame for the result. Defaults to `False`.
+
+    Notes
+    -----
+    The decorator dynamically adjusts to the data type of the input, supporting
+    both pandas DataFrames and NumPy arrays. When applied, it ensures that the
+    columns specified for exclusion are not modified by the processing function,
+    preserving their original values and positions in the output.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.decorators import SmartProcessor
+    >>> @SmartProcessor(to_dataframe=True)
+    ... def scale_data(data):
+    ...     return (data - data.mean()) / data.std()
+    ...
+    >>> df = pd.DataFrame({
+    ...     'A': [1, 2, 3],
+    ...     'B': [4, 5, 6],
+    ...     'C': [7, 8, 9]
+    ... })
+    >>> print(scale_data(df, column_to_skip=['C']))
+           A         B  C
+    0 -1.224745 -1.224745  7
+    1  0.000000  0.000000  8
+    2  1.224745  1.224745  9
+
+    Using the decorator with NumPy arrays while skipping specific indices:
+    >>> import numpy as np
+    >>> arr = np.array([[1, 4, 7], [2, 5, 8], [3, 6, 9]])
+    >>> result = scale_data(arr, column_to_skip=[2])
+    >>> print(result)
+    [[-1.22474487 -1.22474487  7.        ]
+     [ 0.          0.          8.        ]
+     [ 1.22474487  1.22474487  9.        ]]
+    """
+    def __init__(self, func=None, *, param_name=None, fail_silently=False, 
+                 to_dataframe=False):
+        self.func = func
+        self.param_name = param_name or 'column_to_skip'
+        self.fail_silently = fail_silently
+        self.to_dataframe = to_dataframe
+        if func:
+            functools.update_wrapper(self, func)
+            
+    def __call__(self, *args, **kwargs):
+        """
+        Call method that makes `SmartProcessor` a callable object which can 
+        act as a decorator.
+    
+        When `SmartProcessor` is used to decorate a function without previously
+        being instantiated with a function, it receives the function as the 
+        first positional argument and returns a new instance of `SmartProcessor`
+        as the decorator. If it was already instantiated with a function, it 
+        processes the input data and handles the exclusion and reintegration of 
+        specified columns.
+    
+        Parameters
+        ----------
+        *args : tuple
+            The positional arguments passed to the function. If called on an 
+            undecorated function, `args[0]` is expected to be the function to 
+            decorate.
+        **kwargs : dict
+            The keyword arguments passed to the function.
+    
+        Returns
+        -------
+        callable or object
+            If called without a function, returns a new instance of 
+            `SmartProcessor` with the function to decorate. If called with a 
+            function, returns the wrapper function that processes the data.
+    
+        Notes
+        -----
+        This method handles two scenarios:
+        1. Initialization of the decorator with a function to decorate.
+        2. Application of the decorator to process data by wrapping the 
+        decorated function and optionally excluding specified columns from 
+        being processed.
+        
+        The actual data processing includes error handling according to the 
+        'fail_silently' attribute, allowing for warnings or silent failures 
+        as configured.
+    
+        Examples
+        --------
+        >>> @SmartProcessor(to_dataframe=True)
+        ... def scale_data(data):
+        ...     return (data - data.mean()) / data.std()
+        ...
+        >>> df = pd.DataFrame({
+        ...     'A': [1, 2, 3],
+        ...     'B': [4, 5, 6],
+        ...     'C': [7, 8, 9]
+        ... })
+        >>> print(scale_data(df, column_to_skip=['C']))
+               A         B  C
+        0 -1.224745 -1.224745  7
+        1  0.000000  0.000000  8
+        2  1.224745  1.224745  9
+        """
+        if not self.func:
+            # If the instance is called with a function to decorate, 
+            # return a new decorated instance
+            return self.__class__(
+                args[0], param_name=self.param_name,
+                fail_silently=self.fail_silently, 
+                to_dataframe=self.to_dataframe
+            )
+    
+        def wrapper(data, *args, **kwargs):
+            columns_to_skip = kwargs.get(self.param_name, None)
+            if isinstance(columns_to_skip, ( str, int)): 
+                columns_to_skip = [columns_to_skip]
+            try:
+                if columns_to_skip is not None:
+                    if isinstance(data, pd.DataFrame):
+                        self._check_columns_exist(data, columns_to_skip)
+                        data_to_process, skipped_data = data.drop(
+                            columns=columns_to_skip), data[columns_to_skip]
+                    elif isinstance(data, np.ndarray):
+                        self._check_indices_valid(data, columns_to_skip)
+                        data_to_process = np.delete(data, columns_to_skip, axis=1)
+                        skipped_data = data[:, columns_to_skip]
+                    else:
+                        raise TypeError(
+                            "Data must be a pandas DataFrame or a NumPy array."
+                            f" Got {type(data).__name_!r}")
+    
+                    processed_data = self.func(data_to_process, *args, **kwargs)
+    
+                    if isinstance(data, pd.DataFrame):
+                        result = pd.concat([processed_data, skipped_data], axis=1)
+                    elif isinstance(data, np.ndarray):
+                        result = self._reintegrate_skipped_numpy(
+                            data, processed_data, skipped_data, columns_to_skip)
+                    
+                    return result if not self.to_dataframe or not isinstance(
+                        result, pd.DataFrame
+                        ) else self.restore_original_column_order (result)
+                  
+                else:
+                    return self.func(data, *args, **kwargs)
+    
+            except Exception as e:
+                if self.fail_silently == 'warn':
+                    warnings.warn(str(e))
+                    return data
+                elif not self.fail_silently or self.fail_silently=='raise':
+                    raise
+    
+        return wrapper(*args, **kwargs)
+    
+    
+    def _check_columns_exist(self, dataframe, columns):
+        """
+        Check if the specified columns exist in the dataframe.
+    
+        Parameters
+        ----------
+        dataframe : pd.DataFrame
+            The DataFrame to check for column existence.
+        columns : list of str
+            List of column names to check in the DataFrame.
+    
+        Raises
+        ------
+        ValueError
+            If any of the specified columns do not exist in the DataFrame, a 
+            ValueError is raised with an appropriate message.
+    
+        Notes
+        -----
+        This method is used internally by the SmartProcessor class to ensure 
+        that the columns specified to be skipped during processing actually 
+        exist in the input DataFrame. This is crucial for preventing runtime 
+        errors during data manipulation.
+        """
+        self._original_columns= dataframe.columns.tolist() 
+        if any(col not in dataframe.columns for col in columns):
+            raise ValueError("Some columns to skip do not exist in the DataFrame")
+    
+    def _check_indices_valid(self, array, indices):
+        """
+        Check if the specified indices are valid for the given NumPy array.
+    
+        Parameters
+        ----------
+        array : np.ndarray
+            The NumPy array to check indices against.
+        indices : list of int
+            List of column indices to check in the NumPy array.
+    
+        Raises
+        ------
+        ValueError
+            If any of the indices are out of the range of the array's second dimension,
+            a ValueError is raised.
+    
+        Notes
+        -----
+        This method ensures that the indices specified for skipping are within the valid
+        range of columns of the NumPy array. It prevents index errors during operations
+        that involve slicing or accessing array elements by index.
+        """
+        if any(index >= array.shape[1] for index in indices):
+            raise ValueError("Column index out of range. Expect indexes"
+                             f" ranged between [0, {array.shape[1]}).")
+    
+    def _reintegrate_skipped_numpy(
+            self, original_data, processed_data, skipped_data, columns_to_skip):
+        """
+        Reintegrate skipped data back into the processed NumPy array.
+    
+        Parameters
+        ----------
+        original_data : np.ndarray
+            The original data from which columns were skipped.
+        processed_data : np.ndarray
+            The data after processing, missing the skipped columns.
+        skipped_data : np.ndarray
+            The columns that were skipped during the processing.
+        columns_to_skip : list of int
+            Indices of the columns that were skipped.
+    
+        Returns
+        -------
+        np.ndarray
+            A new NumPy array that combines both the processed and skipped data 
+            in their original column order.
+    
+        Notes
+        -----
+        This method handles the reintegration of skipped columns back into the
+        NumPy array after the main processing has been completed. It ensures 
+        that the final output maintains the same structure and order as the 
+        original input array, which is essential for consistency in data 
+        processing pipelines.
+        """
+        full_data = np.empty_like(original_data)
+        j = 0  # Index for processed data columns
+        for i in range(original_data.shape[1]):
+            if i in columns_to_skip:
+                # Place skipped data back in its original position
+                full_data[:, i] = skipped_data[:, columns_to_skip.index(i)]
+            else:
+                # Insert processed data in the remaining positions
+                full_data[:, i] = processed_data[:, j]
+                j += 1
+        return full_data
+    
+    def reoder_dataframe_columns (self , result): 
+        # reoder dataframe columns like the original positions after concatena
+        # tion 
+        if not self.dataframe or isinstance ( result, pd.DataFrame): 
+            return result 
+        else: 
+            result =pd.DataFrame(result) 
+        
+        if hasattr (self, '_original_columns'): 
+            try :
+                # try to place the original columns in order after concatenation. 
+                result = result[ self._original_columns]
+            except : pass # do nothing 
+        
+        return  result 
+    
+    def restore_original_column_order(self, result):
+        """
+        Restore the column order of a DataFrame to match the original column order
+        stored in `_original_columns`. If `result` is not a DataFrame, it attempts to
+        convert it into one.
+    
+        Parameters
+        ----------
+        result : pd.DataFrame or convertible to pd.DataFrame
+            The result DataFrame whose columns need to be reordered.
+    
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with columns reordered to match the original order, if possible.
+    
+        Notes
+        -----
+        This method relies on the presence of an attribute `_original_columns` which 
+        is expected to be a list of column names in their original order. The method 
+        only modifies the column order if `result` is a DataFrame and `_original_columns`
+        is set.
+    
+        If the reordering process fails (e.g., due to missing columns), the method 
+        fails silently and returns the DataFrame as is without reordering.
+    
+        Examples
+        --------
+        >>> df = pd.DataFrame({
+        ...     'B': [4, 5, 6],
+        ...     'A': [1, 2, 3],
+        ...     'C': [7, 8, 9]
+        ... })
+        >>> self._original_columns = ['A', 'B', 'C']
+        >>> restored_df = self.restore_original_column_order(df)
+        >>> print(restored_df.columns)
+        Index(['A', 'B', 'C'], dtype='object')
+        """
+        
+        if not isinstance(result, pd.DataFrame):
+            result = pd.DataFrame(result)
+        
+        if hasattr(self, '_original_columns'):
+            try:
+                # Try to reorder columns according to the original order
+                result = result[self._original_columns]
+            except KeyError:
+                # Fails silently if reordering is not possible due to missing columns
+                pass
+    
+        return result
+        
+            
 class DataTransformer:
     """
     A decorator class for transforming the output of functions that return

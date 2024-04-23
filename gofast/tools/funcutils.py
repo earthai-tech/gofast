@@ -55,6 +55,7 @@ __all__=[
     "validate_years"
   ]
 
+
 def curry(check_types=False, strict=False, allow_extra_args=False):
     """
     Decorator for currying a function, with options for type checking, 

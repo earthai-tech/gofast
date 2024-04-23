@@ -1681,6 +1681,7 @@ def simulate_default_loan(
     annual_income_range= validated_params.get("annual_income_range")
     
     # Generate synthetic data
+    n_samples= validate_positive_integer(n_samples, "n_samples")
     credit_scores = np.random.randint(*credit_score_range, n_samples)
     ages = np.random.randint(*age_range, n_samples)
     loan_amounts = np.random.randint(*loan_amount_range, n_samples)

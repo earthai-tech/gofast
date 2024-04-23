@@ -18,11 +18,12 @@ from ..tools.coreutils import _assert_all_types
 from ..tools.coreutils import smart_format, random_sampling 
 from ..tools.funcutils import ensure_pkg
 from ..tools.validator import validate_and_adjust_ranges, validate_dates
-from ..tools.validator import parameter_validator 
+from ..tools.validator import parameter_validator, validate_positive_integer 
 
 from .util import manage_data, get_item_from, generate_synthetic_values
 from .util import generate_categorical_values, generate_regression_output
 from .util import apply_scaling, rename_data_columns 
+from .util import adjust_parameters_to_fit_samples 
 
 def create_dataset(
     task='classification', 
@@ -119,6 +120,7 @@ def create_dataset(
 
     from sklearn.datasets import make_classification, make_regression
     from sklearn.model_selection import train_test_split
+    n_samples = validate_positive_integer(n_samples, "samples")
     valid_tasks = {"classification", "regression"}
     task = parameter_validator("task", target_strs=valid_tasks, 
         error_msg=f"'task' must be one of {valid_tasks}. Received '{task}'.", 
@@ -396,6 +398,7 @@ def make_classification(
     from sklearn.datasets import make_classification 
     from sklearn.datasets import make_multilabel_classification 
     # # Set random seed for reproducibility
+    n_samples = validate_positive_integer(n_samples, "samples")
     rng = np.random.RandomState(seed) if seed is not None else np.random
     # # Generate random features
     # X = rng.normal(size=(n_samples, n_features)) * class_sep
@@ -580,6 +583,7 @@ def make_regression(
     that mimics different data distributions.
     """
     np.random.seed(seed)  # Ensures reproducibility
+    n_samples = validate_positive_integer(n_samples, "samples")
     X = np.random.randn(n_samples, n_features)
     coef = np.random.randn(n_features)
     # Generate regression data based on the specified type
@@ -735,6 +739,7 @@ def make_social_media_comments(
     >>> print(df.head())
     """
     np.random.seed(seed)
+    samples = validate_positive_integer(samples, "samples")
  
     from faker import Faker
     fake = Faker()
@@ -765,6 +770,7 @@ def make_african_demo(*,
     start_year=1960,
     end_year=2020, 
     countries= None, 
+    n_samples=None, 
     as_frame=False, 
     return_X_y=True, 
     split_X_y=False, 
@@ -795,7 +801,11 @@ def make_african_demo(*,
     countries : int or list of str
         A single integer or a list of country names from Africa to be included 
         in the dataset.
-    
+    n_samples : int, optional
+        If provided, specifies a desired total number of samples in the dataset,
+        adjusting `n_years` from `start_year` to `end_year` accordingly to meet 
+        this target.
+        
     as_frame : bool, default=False
         If True, the data is returned as a pandas DataFrame with appropriately 
         typed columns (numeric). The target is returned as a pandas DataFrame 
@@ -879,14 +889,24 @@ def make_african_demo(*,
     start_year, end_year = validate_dates(start_year, end_year)
     # Random seed for reproducibility
     np.random.seed(seed); data = []
-    # check the given data 
-    start_year = int (_assert_all_types(start_year, int, float, str, 
-                      objname="'start_name' parameter "))
-    end_year = int (_assert_all_types(end_year, int, float, str, 
-                      objname="'start_name' parameter "))
-    
+    # make_date_range 
+    years_range = range(start_year, end_year + 1)
     countries = get_item_from ( countries, AFRICAN_COUNTRIES, 7  )
-    for year in range(start_year, end_year + 1):
+    # check the given data 
+    if n_samples: 
+        # Adjust n_demography  to fit the number of samples. 
+        adjust_params= adjust_parameters_to_fit_samples(
+            n_samples, initial_guesses= {'n_countries': len(countries), 
+                                        "n_years":len(years_range)}
+            )
+        n_countries = adjust_params.get("n_countries", 7 )
+        n_years= adjust_params.get("n_years", 7 )
+        # now take the date from start_date to fit n_days. 
+        years_range = years_range[: n_years]
+        # reduce n_countries to approximate the number of samples 
+        countries = countries [: n_countries ]
+
+    for year in years_range:
         for country in countries:
             population = np.random.randint(1e6, 2e8)  # Random population
             birth_rate = np.random.uniform(20, 50)  # Births per 1000 people
@@ -2043,7 +2063,7 @@ def make_ert(
 
 def make_tem(
     *, 
-    samples=500., 
+    samples=500, 
     lat_range=(34.00, 36.00), 
     lon_range=(-118.50, -117.00), 
     time_range=(0.01, 10.0), 
@@ -2178,6 +2198,7 @@ def make_tem(
         'Phoenix Atlas RTM System', 'Zonge GDP 24-bit Receiver']
 
     # Generate random geospatial data
+    samples = validate_positive_integer(samples, "samples")
     latitudes = np.random.uniform(lat_range[0], lat_range[1], samples)
     longitudes = np.random.uniform(lon_range[0], lon_range[1], samples)
 
@@ -2343,6 +2364,7 @@ def make_erp(*,
     np.random.seed(seed)
     
     # Generate random geospatial data
+    samples = validate_positive_integer(samples, "samples")
     latitudes = np.random.uniform(lat_range[0], lat_range[1], samples)
     longitudes = np.random.uniform(lon_range[0], lon_range[1], samples)
 
@@ -2494,6 +2516,7 @@ def make_elogging(
     >>> print(log_data.head())
 
     """
+    samples = validate_positive_integer(samples, "samples")
     start_date, end_date = validate_dates(
         start_date, end_date, return_as_date_str= True)
     # Random seed for reproducibility
@@ -2650,6 +2673,7 @@ def make_gadget_sales(
     >>> print(sales_data.head())
 
     """
+    samples = validate_positive_integer(samples, "samples")
     start_date, end_date = validate_dates(
         start_date, end_date, return_as_date_str= True)
     # Random seed for reproducibility
@@ -2802,6 +2826,7 @@ def make_retail_store(
     >>> print(dataset.head())
 
     """
+    samples = validate_positive_integer(samples, "samples")
     # Random seed for reproducibility
     np.random.seed(seed)
 
@@ -2974,7 +2999,7 @@ def make_cc_factors(
         "nat_disasters": "Natural Disasters (Floods, Hurricanes, Wildfires)",
         "feedbacks": "Feedback Mechanisms (Positive/Negative Climate Feedbacks)"
      }
-
+    samples = validate_positive_integer(samples, "samples")
     np.random.seed(seed)
     noise = assert_ratio(noise)
     
@@ -3145,6 +3170,7 @@ def make_water_demand(
     """
     from ._globals import WATER_QUAL_NEEDS, WATER_QUAN_NEEDS, SDG6_CHALLENGES
     # Random seed for reproducibility
+    samples = validate_positive_integer(samples, "samples")
     np.random.seed(seed)
     
     # Initialize an empty dictionary to store data for each feature
@@ -3310,6 +3336,7 @@ def make_drill_ops(
             "hydrogeological assessments."
         )
     }
+    samples = validate_positive_integer(samples, "samples")
     target_names= _validate_drill_ops_and_warn(target_names, ops, ops_details) 
     ops_data = _make_drill_ops(samples = samples, as_frame=as_frame, seed=seed,
                            split_X_y = split_X_y, target_names= target_names, 

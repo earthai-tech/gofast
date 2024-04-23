@@ -317,7 +317,6 @@ def get_transformation_matrix(
 
     return w_matrix
 
-
 def transform_to_principal_components (
         X, y=None, n_components =2, positive_class=1,
         view =False ):
@@ -335,7 +334,7 @@ def transform_to_principal_components (
     
     # Check if the requested number of components is implemented
     if n_components > 2:
-        w = get_transformation_matrix(eigen_vals, eigen_vecs, n_components)
+        w = get_transformation_matrix(n_components, eigen_vals, eigen_vecs )
     else:
         w = np.hstack((eigen_pairs[0][1][:, np.newaxis], eigen_pairs[1][1][:, np.newaxis]))
     # w= np.hstack((eigen_pairs[0][1][:, np.newaxis], 

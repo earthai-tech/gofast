@@ -4066,7 +4066,7 @@ def analyze_data_corr(
     min_periods: int=1, 
     min_corr: float =0.5, 
     high_corr: float=0.8, 
-    use_symbols: bool =False, 
+    interpret: bool =False, 
     hide_diag: bool =True,
     no_corr_placeholder: str='...', 
     view: bool = False,
@@ -4092,10 +4092,12 @@ def analyze_data_corr(
         - 'pearson' : Pearson correlation coefficient
         - 'kendall' : Kendall Tau correlation coefficient
         - 'spearman' : Spearman rank correlation
-        - Custom function : a callable with input of two 1d ndarrays and returning a float
+        - Custom function : a callable with input of two 1d ndarrays and 
+        returning a float.
         Default is 'pearson'.
     min_periods : int, optional
-        Minimum number of observations required per pair of columns to have a valid result. 
+        Minimum number of observations required per pair of columns to have 
+        a valid result. 
         Default is 1.
     min_corr : float, optional
         The minimum threshold for correlations to be noted if using symbols. 
@@ -4103,9 +4105,9 @@ def analyze_data_corr(
     high_corr : float, optional
         Threshold above which correlations are considered high, relevant if
         `use_symbols` is True. Default is 0.8.
-    use_symbols : bool, optional
-        Whether to use symbolic representation ('++', '--', '+-') instead of 
-        numeric values where: 
+    interpret : bool, optional
+        Whether to use symbolic representation ('++', '--', '+-') for interpretation 
+        instead of numeric values where: 
         - ``'++'``: Represents a strong positive relationship.
         - ``'--'``: Represents a strong negative relationship.
         - ``'-+'``: Represents a moderate relationship.
@@ -4206,7 +4208,7 @@ def analyze_data_corr(
         correlation_matrix, 
         min_corr=assert_ratio( min_corr, bounds=(0, 1)),
         high_corr=assert_ratio(high_corr, bounds=(0, 1)), 
-        use_symbols= use_symbols, 
+        use_symbols= interpret, 
         hide_diag= hide_diag,
         precomputed=True,
         no_corr_placeholder=str(no_corr_placeholder)
@@ -5206,8 +5208,7 @@ if __name__ == "__main__":
     cleaned_data = handle_duplicates(data, operation='drop')
     print("Data without Duplicates:\n", cleaned_data)
 
-# Example usage
-if __name__ == "__main__":
+
     # Create a sample DataFrame with skew
     data = pd.DataFrame({
         'A': np.random.normal(0, 2, 100),
@@ -5261,7 +5262,6 @@ if __name__ == "__main__":
     })
     # Call the assistant function
     data_assistant(df)
-
 
 
 
