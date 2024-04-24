@@ -46,7 +46,6 @@ MODULE_MAPPING = {
         'split_train_test',
         'split_train_test_by_id',
         'store_or_write_hdf5',
-        'to_numeric_dtypes'
     ],
     'dataops': [
         'analyze_data_corr',

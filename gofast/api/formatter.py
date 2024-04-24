@@ -10,7 +10,8 @@ import pandas as pd
 from .structures import Bunch
 from .extension import MetaLen 
 from .util import to_snake_case, generate_column_name_mapping
-
+from .util import flex_df_formatter, is_dataframe_long 
+         
 class MultiFrameFormatter (metaclass=MetaLen):
     """
     A factory class designed to manage and format multiple pandas DataFrames
@@ -86,11 +87,15 @@ class MultiFrameFormatter (metaclass=MetaLen):
     keywords, using snake_case naming conventions for ease of use.
     """
 
-    def __init__(self, titles=None, keywords=None):
+    def __init__(self, titles=None, keywords=None, style="base", max_rows="auto", 
+                 max_cols="auto"):
         self.titles = titles if titles is not None else []
         self.keywords = keywords if keywords is not None else []
         self.dfs = []
-
+        self.style= style 
+        self.max_rows = max_rows
+        self.max_cols =max_cols 
+        
     def _check_dfs(self):
         """
         Checks if all items in `self.dfs` are pandas DataFrames. Converts pandas Series
@@ -145,7 +150,8 @@ class MultiFrameFormatter (metaclass=MetaLen):
         self._populate_df_column_attributes()
         
         return self
-
+    
+#XXX TODO 
     def dataframe_with_same_columns(self):
         """
         Constructs a single table where all included dataframes
@@ -156,6 +162,15 @@ class MultiFrameFormatter (metaclass=MetaLen):
         str
             A string representation of the constructed table.
         """
+        if is_any_long_dataframe(
+                *self.dfs, max_rows= self.max_rows, 
+                max_cols= self.max_cols 
+           ): 
+            return construct_long_dataframes_with_same_columns(
+                self.dfs, titles = self.titles,
+                max_cols = 7, max_rows= 11, style = self.style, 
+                )
+        
         return construct_tables_for_same_columns(self.dfs, self.titles)
 
     def dataframe_with_different_columns(self):
@@ -168,6 +183,15 @@ class MultiFrameFormatter (metaclass=MetaLen):
         str
             A string representation of the constructed tables.
         """
+        if is_any_long_dataframe(
+                *self.dfs, max_rows= self.max_rows, 
+                max_cols= self.max_cols 
+           ): 
+            return construct_long_dataframes_with_different_columns(
+                self.dfs, titles = self.titles,
+                max_cols = 7, max_rows= 11, style = self.style, 
+                )
+        
         return construct_table_for_different_columns(self.dfs, self.titles)
 
     def __str__(self):
@@ -189,6 +213,7 @@ class MultiFrameFormatter (metaclass=MetaLen):
                 self.dfs[0]).__str__()
 
         if have_same_columns(self.dfs):
+            
             return self.dataframe_with_same_columns()
 
         return self.dataframe_with_different_columns()
@@ -347,16 +372,16 @@ class DataFrameFormatter(metaclass=MetaLen):
     >>> formatter = DataFrameFormatter("Overview of Data")
     >>> formatter.add_df(df)
     >>> print(formatter)
-          Overview of Data        
-    ==============================
-            column1    column2    
-    ------------------------------
-    Index1   1.0000     5.6789     
-    Index2   2.0000     6.0000     
-    Index3   3.1235     7.0000     
-    Index4   4.0000     8.0000     
-    ==============================
-
+          Overview Of Data      
+    ============================
+              column1    column2
+    ----------------------------
+    Index1     1.0000     5.6789
+    Index2     2.0000     6.0000
+    Index3     3.1235     7.0000
+    Index4     4.0000     8.0000
+    ============================
+    
     Notes
     -----
     This formatter automatically determines the optimal column widths based on
@@ -366,10 +391,11 @@ class DataFrameFormatter(metaclass=MetaLen):
     snake_case conversion of column names.
     """
 
-    def __init__(self, title=None, keyword=None):
+    def __init__(self, title=None, keyword=None, style=None):
         self.title = title
         self.keyword = keyword
         self.df = None
+        self.style=style
         self._column_name_mapping = {}
 
     def add_df(self, df):
@@ -627,6 +653,12 @@ class DataFrameFormatter(metaclass=MetaLen):
             The formatted dataframe as a string.
         """
         # Handle a single dataframe
+        rows, cols = self.df.shape 
+        if is_dataframe_long(self.df, max_rows= "auto", max_cols = "auto" ) : 
+            return flex_df_formatter(
+                self.df, title = self.title,max_rows= 11 , max_cols = 7 , 
+                table_width= "auto", style=self.style
+            )
         return self._formatted_dataframe()
 
     def _formatted_dataframe (self, ): 
@@ -651,8 +683,7 @@ class DataFrameFormatter(metaclass=MetaLen):
             data_rows += f"{index_str}{row_str}\n"
     
         return f"{header}{data_rows}{line}"
-    
-        
+
     def __getattr__(self, attr_name):
         """
         Allows attribute-style access to DataFrame columns. If an attribute is not
@@ -1502,6 +1533,157 @@ def construct_tables_for_same_columns(dataframes, titles=None):
     # Trim trailing spaces or lines and return the final table string
     return tables_str.rstrip()
 
+
+def is_any_long_dataframe(*dfs, max_rows=100, max_cols="auto"):
+    """
+    Determines whether any of the provided DataFrames is considered 'long' based
+    on specified criteria for maximum rows and columns.
+
+    Parameters
+    ----------
+    *dfs : tuple of DataFrame
+        Variable number of DataFrame objects to be checked.
+    max_rows : int, optional
+        The maximum number of rows that a DataFrame can have before it is 
+        considered 'long'.
+        Default is 100.
+    max_cols : int or str, optional
+        The maximum number of columns that a DataFrame can have before it is 
+        considered 'long'.
+        If set to 'auto', the maximum columns will be dynamically determined 
+        based on context or configuration. Default is 'auto'.
+
+    Returns
+    -------
+    bool
+        Returns True if any DataFrame among the provided ones exceeds the 
+        specified maximum
+        rows or columns criteria, otherwise False.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.api.formatter import is_any_long_dataframe
+    >>> df1 = pd.DataFrame({'A': range(50)})
+    >>> df2 = pd.DataFrame({'A': range(150)})
+    >>> is_any_long_dataframe(df1, df2, max_rows=151)
+    False
+
+    >>> df3 = pd.DataFrame({'A': range(101)})
+    >>> is_any_long_dataframe(df1, df3, max_rows=100)
+    True
+
+    Notes
+    -----
+    This function is useful for batch checking multiple DataFrames in scenarios where
+    processing or visualization methods may vary depending on the size of the data.
+    """
+
+    if any(is_dataframe_long(df, max_rows=max_rows, max_cols=max_cols, 
+                             return_rows_cols_size=False) for df in dfs):
+        return True
+    return False
+
+# XXX Todo
+def construct_long_dataframes_with_same_columns (
+    dataframes, titles =None, max_cols=7, max_rows = 100, 
+    style="base", **kwargs): 
+    
+    # Verify if all dataframes have the same columns
+    if not have_same_columns(dataframes):
+        raise ValueError("Dataframes do not have the same columns.")
+    
+    # # Check if indexes across dataframes are consistent and should be included
+    # # Calculate maximum column and index widths across all dataframes
+    # column_widths, index_width = max_widths_across_dfs(dataframes, include_index)
+    # # Initialize the string to store table representations
+    # tables_str = ""
+    
+    tables_str = [] 
+    # Iterate through each dataframe to construct its table representation
+    for i, df in enumerate(dataframes):
+        # contruct flex dataframe  
+         # Set the title for the current table if provided
+        title = titles[i] if titles and i < len(titles) else ""
+        
+        formatted_df = flex_df_formatter(
+            df, title=title, max_rows=max_rows, max_cols=max_cols, 
+             index= True, style= style, **kwargs)
+        
+        if i > 0: 
+        # next remove the first =' 
+          formatted_df = remove_header_lines
+          
+        tables_str.append (formatted_df )
+          
+    # Trim trailing spaces or lines and return the final table string
+    return "\n".join( tables_str)
+
+def construct_long_dataframes_with_different_columns (
+    dataframes, titles =None, max_cols=7, max_rows = 100, 
+    style="base", **kwargs): 
+    
+    default_tiles  = [''] * len(titles) if titles  else [] * len(dataframes)
+    if titles: 
+        titles = titles + default_tiles 
+    else: titles = default_tiles 
+    
+    tables_str = [ flex_df_formatter(
+        df, title=title, max_rows=max_rows, max_cols=max_cols, 
+         index= True, style= style, **kwargs)
+        for df, title in zip ( dataframes, titles) 
+        ] 
+    
+    return "\n".join( tables_str)
+
+    
+def remove_header_lines(data_str, append_title=True ):
+    """
+    Removes the first header line and the header name from a formatted data string.
+
+    Parameters
+    ----------
+    data_str : str
+        The input data string with headers and separator lines.
+
+    Returns
+    -------
+    str
+        The modified data string with the first header line and header name removed,
+        retaining only the data and column names under a decorative separator line.
+
+    Examples
+    --------
+    >>> data = '''
+    ...                                                             Infos
+    ... =====================================================================================================================================
+    ...                 location_id  total_capacity  current_volume   rainfall  evaporation     inflow    outflow      usage  percentage_full
+    ... -------------------------------------------------------------------------------------------------------------------------------------
+    ... Data Types            int64         float64         float64    float64      float64    float64    float64    float64          float64
+    ... Missing Values            0               0               0          0            0          0          0          0                0
+    ... Byte Size             24800           24800           24800      24800        24800      24800      24800      24800            24800
+    ... Unique Counts           100            3100            3100       3100         3100       3100       3100       3100             3100
+    ... =====================================================================================================================================
+    ... '''
+    >>> print(remove_header_lines(data))
+    """
+    # Split the string into lines
+    lines = data_str.strip().split('\n')
+    title_line = lines[0]
+    # Remove the first two lines (title and top border)
+    lines = lines[2:]
+
+    
+    # Reassemble the string without the first header line
+    rest_lines = '\n'.join(lines)
+    
+    if append_title: 
+       rest_lines = title_line + rest_lines 
+    
+    return rest_lines 
+
+
+    
 def construct_table_for_different_columns(dataframes, titles):
     """
     Constructs and returns a formatted string representation of tables

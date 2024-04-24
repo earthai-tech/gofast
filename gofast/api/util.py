@@ -6,6 +6,798 @@ import re
 import warnings
 import numpy as np 
 import pandas as pd
+from shutil import get_terminal_size
+
+def flex_df_formatter(
+    df, 
+    title=None, 
+    max_rows='auto', 
+    max_cols='auto', 
+    float_format='{:.4f}', 
+    index=True, 
+    header=True, 
+    header_line="=", 
+    sub_line='-', 
+    table_width='auto',
+    output_format='string', 
+    style="auto"
+    ):
+    """
+    Formats and prints a DataFrame with dynamic sizing options, custom number 
+    formatting, and structured headers and footers. This function allows for
+    detailed customization of the DataFrame's presentation in a terminal or a 
+    text-based output format, handling large DataFrames by adjusting column 
+    and row visibility according to specified parameters.
+
+    Parameters
+    ----------
+    df : DataFrame
+        The DataFrame to format and display. This is the primary data input 
+        for formatting.
+    title : str, optional
+        Title to display above the DataFrame. If provided, this is centered 
+        above the DataFrame
+        output.
+    max_rows : int, str, optional
+        The maximum number of rows to display. If set to 'auto', the number 
+        of rows displayed will be determined based on available terminal space
+        or internal calculations.
+    max_cols : int, str, optional
+        The maximum number of columns to display. Similar to max_rows, if set 
+        to 'auto', the number of columns is determined dynamically.
+    float_format : str, optional
+        A format string for floating-point numbers, e.g., '{:.4f}' for 4 
+        decimal places.
+    index : bool, optional
+        Indicates whether the index of the DataFrame should be included in 
+        the output.
+    header : bool, optional
+        Indicates whether the header (column names) should be displayed.
+    header_line : str, optional
+        A string of characters used to create a separation line below the 
+        title and at the bottom of the DataFrame. Typically set to '='.
+    sub_line : str, optional
+        A string of characters used to create a separation line directly 
+        below the header (column names).
+    table_width : int, str, optional
+        The overall width of the table. If set to 'auto', it will adjust
+        based on the content
+        and the terminal width.
+    output_format : str, optional
+        The format of the output. Supports 'string' for plain text output or 
+        'html' for HTML formatted output.
+
+    Returns
+    -------
+    str
+        The formatted string representation of the DataFrame, including 
+        headers, footers,  and any specified customizations.
+
+    Examples
+    --------
+    >>> import numpy as np 
+    >>> import pandas as pd 
+    >>> from gofast.api.util import flex_df_formatter
+    >>> data = {
+    ...    'age': range(30),
+    ...    'tenure_months': range(30),
+    ...    'monthly_charges': np.random.rand(30) * 100
+    ... }
+    >>> df = pd.DataFrame(data)
+    >>> formatter =flex_df_formatter(
+    ...    df, title="Sample DataFrame", max_rows=10, max_cols=3,
+    ...    table_width='auto', output_format='string')
+    >>> print(formatter)
+                Sample DataFrame           
+    =======================================
+        age  tenure_months  monthly_charges
+    ---------------------------------------
+    0     0              0          78.6572
+    1     1              1          71.3732
+    2     2              2          94.3879
+    3     3              3          26.6395
+    4     4              4          10.3135
+    ..  ...            ...              ...
+    25   25             25          79.0574
+    26   26             26          68.2199
+    27   27             27          96.5632
+    28   28             28          31.6600
+    29   29             29          23.9156
+    =======================================
+    
+    Notes
+    -----
+    The function dynamically adjusts to terminal size if running in a script 
+    executed in a terminal window. This is particularly useful for large 
+    datasets where display space is limited and readability is a concern. The 
+    optional parameters allow extensive customization to suit different output 
+    needs and contexts.
+    """
+    df = validate_data(df )
+    auto_rows, auto_cols = auto_adjust_dataframe_display(
+        df, index=index, header=header)
+    
+    # Example usage within the function:
+    max_rows = _adjust_value(max_rows, auto_rows)
+    max_cols = _adjust_value(max_cols, auto_cols)
+    
+    # Apply float formatting to the DataFrame
+    if output_format == 'html': # Use render for HTML output
+        formatted_df = df.style.format(float_format).render()  
+    else:
+        # Convert DataFrame to string with the specified format options
+        formatted_df = df.to_string(
+            index=index, header=header, max_rows=max_rows, max_cols=max_cols, 
+            float_format=lambda x: float_format.format(x) if isinstance(
+                x, (float, np.float64)) else x)
+
+    style= select_df_styles(style, df )
+    if style =='advanced': 
+        formatted_output = df_advanced_style(
+            formatted_df, table_width, title= title,
+            index= index, header= header, 
+            header_line= header_line, 
+            sub_line=sub_line, 
+            df=df, 
+        )
+   
+    else: 
+        formatted_output=df_base_style(
+            formatted_df, title=title, table_width=table_width, 
+            header_line= header_line, sub_line= sub_line , 
+            df=df 
+            )
+        
+    return formatted_output
+
+
+def select_df_styles(style, df, **kwargs):
+    """
+    Determines the appropriate style for formatting a DataFrame based on the
+    given style preference and DataFrame characteristics.
+
+    Parameters
+    ----------
+    style : str
+        The style preference which can be specific names or categories like 'auto',
+        'simple', 'basic', etc.
+    df : DataFrame
+        The DataFrame for which the style is being selected, used especially when
+        'auto' style is requested.
+    **kwargs : dict
+        Additional keyword arguments passed to the style determination functions.
+
+    Returns
+    -------
+    str
+        The resolved style name, either 'advanced' or 'base'.
+
+    Raises
+    ------
+    ValueError
+        If the provided style name is not recognized or not supported.
+
+    Examples
+    --------
+    >>> from gofast.api.util import select_df_styles
+    >>> data = {'Col1': range(150), 'Col2': range(150)}
+    >>> df = pd.DataFrame(data)
+    >>> select_df_styles('auto', df)
+    'advanced'
+    >>> select_df_styles('robust', df)
+    'advanced'
+    >>> select_df_styles('none', df)
+    'base'
+    >>> select_df_styles('unknown', df)  # Doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+    ValueError: Invalid style specified. Choose from: robust, corrtable, 2, ...
+    """
+    # Mapping styles to categories using regex for flexible matching
+    style_map = {
+        "advanced": r"(robust|corrtable|2|advanced)",
+        "base": r"(simple|basic|1|none|base)"
+    }
+
+    # Normalize input style string
+    style = str(style).lower()
+
+    # Automatic style determination based on DataFrame size
+    if style == "auto":
+        style = "advanced" if is_dataframe_long(
+            df,  return_rows_cols_size=False, **kwargs) else "base"
+    else:
+        # Resolve the style based on known categories
+        for key, regex in style_map.items():
+            if re.match(regex, style):
+                style = key
+                break
+        else:
+            # If the style does not match any known category, raise an error
+            valid_styles = ", ".join([regex for patterns in style_map.values() 
+                                      for regex in patterns.split('|')])
+            raise ValueError(f"Invalid style specified. Choose from: {valid_styles}")
+
+    return style
+
+
+def is_dataframe_long(
+        df, max_rows=100, max_cols=7, return_rows_cols_size=False):
+    """
+    Determines whether a DataFrame is considered 'long' based on the 
+    number of rows and columns.
+
+    Parameters:
+    ----------
+    df : DataFrame
+        The DataFrame to evaluate.
+    max_rows : int, str, optional
+        The maximum number of rows a DataFrame can have to still be considered 
+        'short'. If set to 'auto', adjusts based on terminal size or 
+        other dynamic measures.
+    max_cols : int, str, optional
+        The maximum number of columns a DataFrame can have to still be 
+        considered 'short'. If set to 'auto', adjusts based on terminal size 
+        or other dynamic measures.
+    return_expected_rows_cols : bool, optional
+        If True, returns the calculated maximum rows and columns based on 
+        internal adjustments or external utilities.
+
+    Returns
+    -------
+    bool
+        Returns True if the DataFrame is considered 'long' based on the criteria
+        of either 
+        exceeding the max_rows or max_cols limits; otherwise, returns False.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.api.util import is_dataframe_long
+    >>> data = {'Col1': range(50), 'Col2': range(50)}
+    >>> df = pd.DataFrame(data)
+    >>> is_dataframe_long(df, max_rows=100, max_cols=10)
+    False
+
+    >>> data = {'Col1': range(120), 'Col2': range(120)}
+    >>> df = pd.DataFrame(data)
+    >>> is_dataframe_long(df, max_rows=100, max_cols=10)
+    True
+
+    >>> data = {'Col1': range(50), 'Col2': range(50), 'Col3': range(50)}
+    >>> df = pd.DataFrame(data)
+    >>> is_dataframe_long(df, max_rows=50, max_cols=2)
+    True
+
+    Notes
+    -----
+    This function is particularly useful for handling or transforming data based on its
+    size. It helps in deciding whether certain operations, like specific visualizations
+    or data aggregations, should be applied.
+    """
+    df = validate_data(df )
+    
+    rows, columns = df.shape  
+    
+    # Get terminal size
+    terminal_size = get_terminal_size()
+    terminal_cols = terminal_size.columns
+    terminal_rows = terminal_size.lines
+    if max_rows == "auto": 
+        max_rows = terminal_rows 
+        # to terminal row sizes 
+    if max_cols =="auto":
+        # compared to terminal size. 
+        max_cols = terminal_cols 
+    if return_rows_cols_size: 
+        auto_rows, auto_cols = auto_adjust_dataframe_display( df)
+        # select the appropriate rows and columns 
+        max_rows = _adjust_value(max_rows, auto_rows)
+        max_cols = _adjust_value(max_cols, auto_cols)
+        return max_rows, max_cols 
+    
+    # Check if the DataFrame exceeds the specified row or column limits
+    return rows > max_rows or columns > max_cols
+
+def df_base_style(
+    formatted_df, 
+    title=None, 
+    table_width="auto", 
+    header_line="=", 
+    sub_line="-", 
+    df=None, 
+    ):
+    """
+    Formats a given DataFrame string into a styled textual representation 
+    with headers, sub-headers,and appropriate line separations.
+
+    Parameters
+    ----------
+    formatted_df : str
+        The string representation of the DataFrame to be formatted.
+    title : str, optional
+        The title to be displayed at the top of the formatted output. 
+        If None, no title is displayed.
+    table_width : int or str, optional
+        The overall width of the table. If set to 'auto', the width will 
+        adapt based on the content and terminal size, but not exceeding the 
+        terminal width.
+    header_line : str, optional
+        The character used to create the top and bottom border of the table.
+    sub_line : str, optional
+        The character used to create the line below the header row of the table.
+    df : DataFrame, optional
+        A pandas DataFrame from which column widths can be calculated directly, 
+        used as a fallback if complex column names are detected in the 
+        'lines' input.
+    Returns
+    -------
+    str
+        The fully formatted table as a single string, ready for display.
+
+    Examples
+    --------
+    >>> from gofast.api.util import df_base_style
+    >>> formatted_df = "index    A    B    C\\n0       1    2    3\\n1       4    5    6"
+    >>> print(df_base_style(formatted_df, title="Demo Table"))
+    Demo Table
+    ====================
+    index    A    B    C
+    --------------------
+    0       1    2    3
+    1       4    5    6
+    ====================
+    """
+    # Determine the maximum line width in the formatted DataFrame
+    max_line_width = max(len(line) for line in formatted_df.split('\n')) 
+
+    # Determine the terminal size for table width if auto
+    if table_width == 'auto':
+        terminal_width = get_terminal_size().columns
+        # make all possible to not exceed the terminal width 
+        if max_line_width < terminal_width: 
+            table_width= max_line_width
+        else : 
+            table_width = max(terminal_width, max_line_width)
+
+    # Formatting title and separators
+    header = f"{title}".center(table_width) if title else ""
+    header_separator = header_line * table_width
+    sub_separator = sub_line * table_width
+
+    # Split the formatted DataFrame to insert the sub_separator after the headers
+    lines = formatted_df.split('\n')
+
+    formatted_output = f"{header}\n{header_separator}\n{lines[0]}\n{sub_separator}\n"\
+        + "\n".join(lines[1:]) + f"\n{header_separator}"
+
+    return formatted_output
+
+def df_advanced_style(
+    formatted_df, 
+    table_width="auto", 
+    index=True, header=True,
+    title=None, 
+    header_line="=", 
+    sub_line="-", 
+    df=None, 
+    ):
+    """
+    Applies advanced styling to a DataFrame string by formatting it with 
+    headers, sub-headers, indexed rows, and aligning columns properly.
+
+    Parameters
+    ----------
+    formatted_df : str
+        The string representation of the DataFrame to format, typically 
+        generated by pandas.DataFrame.to_string().
+    table_width : int or str, optional
+        The total width of the table. If 'auto', it adjusts based on the 
+        content width and terminal size.
+    index : bool, optional
+        Whether to consider the index of DataFrame rows in formatting.
+    header : bool, optional
+        Whether to include column headers in the formatted output.
+    title : str, optional
+        Title text to be displayed above the table. If None, no title is shown.
+    header_line : str, optional
+        The character used for the main separator lines in the table.
+    sub_line : str, optional
+        The character used for sub-separators within the table, typically 
+        under headers.
+    df : DataFrame, optional
+        A pandas DataFrame from which column widths can be calculated directly, 
+        used as a fallback if complex column names are detected in the 
+        'lines' input.
+    Returns
+    -------
+    str
+        The fully formatted and styled table as a single string, ready for display.
+
+    Examples
+    --------
+    >>> from gofast.api.util import df_advanced_style
+    >>> formatted_df = "index    A    B    C\\n0       1    2    3\\n1       4    5    6"
+    >>> print(df_advanced_style(formatted_df, title="Advanced Table", index=True))
+        Advanced Table  
+     ===================
+          index  A  B  C
+        ----------------
+     1  |     4  5  6
+     ===================
+    """
+
+    lines = formatted_df.split('\n')
+    new_lines = []
+
+    max_index_length, *column_widths = calculate_column_widths(
+        lines, include_index= index, include_column_width= True,
+        df = df, max_text_length= 50 )
+    print(max_index_length, column_widths )
+    # max_index_length = max(len(line.split()[0]) for line in lines[1:]) + 3  
+    max_index_length +=3  # for extra spaces 
+    for i, line in enumerate(lines):
+        if i == 0 and header:  # Adjust header line to include vertical bar
+            header_parts = line.split()
+            header_line_formatted = " " * max_index_length + "  ".join(
+                header_part.rjust(
+                    column_widths[idx]) for idx, header_part in enumerate(header_parts))
+            new_lines.append( " " + header_line_formatted)
+            continue 
+        elif i == 1 and header:  # Insert sub-line after headers
+            new_lines.append(" " * (max_index_length-1) + sub_line * (
+                len(header_line_formatted) - max_index_length + 2 ))
+            continue
+#XXX TOFIX 
+        parts = line.split(maxsplit=1)
+        if len(parts) > 1:
+            index_part, data_part = parts
+            data_part.split()
+            formatted_data_part = "  ".join(
+                data.rjust(column_widths[idx]) for idx, data in enumerate(data_part.split()))
+            new_line = f"{index_part.ljust(max_index_length - 2)} | {formatted_data_part}"
+
+        else:
+            new_line = " " * (max_index_length - 2) + line
+            
+        new_lines.append(new_line)
+
+    max_line_width = max(len(line) for line in new_lines)
+    table_width = max_line_width if table_width == 'auto' else max(
+        min(table_width, max_line_width), len(header))
+
+    header = f"{title}".center(table_width) if title else ""
+    header_separator = header_line * table_width
+
+    formatted_output = f"{header}\n{header_separator}\n" + "\n".join(
+        new_lines) + f"\n{header_separator}"
+    
+    return formatted_output
+
+def calculate_column_widths(
+    lines, 
+    include_index=True,
+    include_column_width=True, 
+    df=None, 
+    max_text_length=50
+):
+    """
+    Calculates the maximum width for each column based on the content of the 
+    DataFrame's rows and optionally considers column headers for width calculation. 
+    
+    If complex multi-word columns are detected and a DataFrame is provided, 
+    widths are calculated directly from the DataFrame.
+
+    Parameters
+    ----------
+    lines : list of str
+        List of strings representing rows in a DataFrame, where the first
+        line is expected to be the header and subsequent lines the data rows.
+    include_index : bool, optional
+        Determines whether the index column's width should be included in the 
+        width calculations. Default is True.
+    include_column_width : bool, optional
+        If True, column header widths are considered in calculating the maximum 
+        width for each column. Default is True.
+    df : DataFrame, optional
+        A pandas DataFrame from which column widths can be calculated directly, 
+        used as a fallback if complex column names are detected in the 'lines' input.
+    max_text_length : int, optional
+        The maximum allowed length for any cell content, used when calculating widths
+        from the DataFrame.
+
+    Returns
+    -------
+    list of int
+        A list containing the maximum width for each column. If `include_index`
+        is True, the first element represents the index column's width.
+
+    Raises
+    ------
+    TypeError
+        If an IndexError occurs due to improper splitting of 'lines' and no DataFrame
+        is provided to fall back on for width calculations.
+
+    Examples
+    --------
+    >>> from gofast.api.util import calculate_column_widths
+    >>> lines = [
+    ...     '    age  tenure_months  monthly_charges',
+    ...     '0     0              0          89.0012',
+    ...     '1     1              1          94.0247',
+    ...     '2     2              2          71.6051',
+    ...     '3     3              3          67.5316',
+    ...     '4     4              4          86.3517',
+    ...     '..  ...            ...              ...',
+    ...     '25   25             25          22.3356',
+    ...     '26   26             26          73.1798',
+    ...     '27   27             27          52.7984',
+    ...     '28   28             28          83.3604',
+    ...     '29   29             29          88.6392'
+    ... ]
+    >>> calculate_column_widths(lines, include_index=True, include_column_width=True)
+    [2, 3, 13, 15]
+    >>> lines = [
+    ...     'age  tenure_months  monthly_charges',
+    ...     '0     0              0          89.0012',
+    ...     '1     1              1          94.0247',
+    ...     '2     2              2          71.6051'
+    ... ]
+    >>> calculate_column_widths(lines, include_index=True, include_column_width=True)
+    [2, 3, 14, 10]
+
+    Notes
+    -----
+    This function is particularly useful for formatting data tables in text-based
+    outputs where column alignment is important for readability. The widths can
+    be used to format tables with proper spacing and alignment across different
+    data entries.
+    """
+#     max_widths = []
+
+#     # Split the header to get the number of columns and optionally calculate header widths
+#     header_parts = lines[0].strip().split()
+#     num_columns = len(header_parts)
+#     # Initialize max widths list
+#     if include_index:
+#         max_widths = [0] * (num_columns + 1)
+#     else:
+#         max_widths = [0] * num_columns
+
+#     # Include column names in the width if required
+#     if include_column_width:
+#         for i, header in enumerate(header_parts):
+#             if include_index:
+#                 max_widths[i+1] = max(max_widths[i+1], len(header))
+#             else:
+#                 max_widths[i] = max(max_widths[i], len(header))
+
+#     # Iterate over each line excluding the header
+#     try: 
+#         for line in lines[1:]:
+#             parts = line.strip().split()
+#             if include_index:
+#                 # Iterate over each part including index
+#                 for i, part in enumerate(parts):
+#                     max_widths[i] = max(max_widths[i], len(part))
+#             else:
+#                 # Exclude the index from the width calculations
+#                 # Adjust start based on include_index
+#                 # Dont fix it, Go straigth toIndexError more consistent 
+#                 #XXX FIX: IndexError where multi-word column values are 
+#                 # incorrectly split due to spaces. The default .split() method 
+#                 # splits by all whitespace, which is unsuitable for lines where
+#                 # spaces are included within column values. 
+#                 for i, part in enumerate(parts[1:], start =1 ):  
+#                     max_widths[i] = max(max_widths[i], len(part))
+#     except IndexError : 
+#         if df is None: 
+#             raise TypeError ( # polish the error message more professsional 
+#                 " Lines Data contains ulti-word column values while the default"
+#                 " splits by all whitespace is unsuitable. Please provide dataframe "
+#                 " for consistent parsing. ")
+#         # df (pandas.DataFrame): The DataFrame to calculate widths for.
+#         # max_text_length (int): The maximum allowed length for any cell content.
+#         max_widths_cols, max_index_cols = calculate_widths(
+#             df, max_text_length= max_text_length )
+        
+#         for ii, header in enumerate (header_parts): 
+#             if header =='...': 
+#                 max_widths [ii] = 3  # for ... 
+#                 continue 
+#             if header in max_widths_cols.keys() : 
+#                 max_widths[ii] = max_widths_cols[header] 
+#         if include_index : 
+#             max_widths.insert(0, max_index_cols) # insert index 
+    
+#     return max_widths
+
+# import pandas as pd
+
+# def calculate_column_widths(
+#     lines, 
+#     include_index=True,
+#     include_column_width=True, 
+#     df=None, 
+#     max_text_length=50
+# ):
+    max_widths = []
+
+    # Split the header to get the number of columns and optionally calculate header widths
+    header_parts = lines[0].strip().split()
+    num_columns = len(header_parts)
+
+    # Initialize max widths list
+    if include_index:
+        max_widths = [0] * (num_columns + 1)
+    else:
+        max_widths = [0] * num_columns
+
+    # Include column names in the width if required
+    if include_column_width:
+        for i, header in enumerate(header_parts):
+            if include_index:
+                max_widths[i+1] = max(max_widths[i+1], len(header))
+            else:
+                max_widths[i] = max(max_widths[i], len(header))
+
+    try: 
+        for line in lines[1:]:
+            parts = line.strip().split()
+            if include_index:
+                for i, part in enumerate(parts):
+                    max_widths[i] = max(max_widths[i], len(part))
+            else:
+                for i, part in enumerate(parts[1:], start=1):
+                    max_widths[i] = max(max_widths[i], len(part))
+    except IndexError as e:
+        if df is None:
+            raise ValueError(
+                "An error occurred while splitting line data. Multi-word column"
+                " values may be causing this issue. Please provide a DataFrame"
+                " for more accurate parsing."
+            ) from e
+        
+        # If a DataFrame is provided, calculate widths directly from the DataFrame
+        column_widths, max_index_length = calculate_widths(
+            df, max_text_length= max_text_length)
+
+        for ii, header in enumerate(header_parts):
+            # Handle ellipsis or unspecified header placeholders
+            if header == '...':
+                max_widths[ii] = 3  # Width for '...'
+                continue
+            if header in column_widths:
+                max_widths[ii] = column_widths[header]
+                
+        if include_index:
+            max_widths.insert(0, max_index_length)
+
+    return max_widths
+
+def _adjust_value(max_value, auto_value):
+    """
+    Adjusts the user-specified maximum number of rows or columns based on 
+    an automatically determined maximum. This helps to ensure that the number 
+    of rows or columns displayed does not exceed what can be practically or 
+    visually accommodated on the screen.
+
+    Parameters
+    ----------
+    max_value : int, float, or 'auto'
+        The user-specified maximum number of rows or columns. This can be an 
+        integer, a float, or 'auto', which indicates that the maximum should 
+        be determined automatically.
+        - If an integer or float is provided, it will be compared to `auto_value`.
+        - If 'auto' is specified, `auto_value` will be used as the maximum.
+
+    auto_value : int
+        The maximum number of rows or columns determined based on the terminal 
+        size or DataFrame dimensions. This value is used as a fallback or 
+        comparative value when `max_value` is numeric.
+
+    Returns
+    -------
+    int
+        The adjusted maximum number of rows or columns to display. This value 
+        is determined by comparing `max_value` and `auto_value` and choosing 
+        the smaller of the two if `max_value` is numeric, or returning 
+        `auto_value` directly if `max_value` is 'auto'.
+
+    Examples
+    --------
+    >>> adjust_value(50, 30)
+    30
+
+    >>> adjust_value('auto', 25)
+    25
+
+    >>> adjust_value(20, 40)
+    20
+
+    Notes
+    -----
+    This function is intended to be used within larger functions that manage 
+    the display of DataFrame objects where terminal or screen size constraints
+    might limit the practical number of rows or columns that can be displayed 
+    at one time.
+    """
+    if isinstance(max_value, (int, float)):
+        return min(max_value, auto_value)
+    return auto_value
+
+
+def auto_adjust_dataframe_display(df, header=True, index=True, sample_size=100):
+    """
+    Automatically adjusts the number of rows and columns to display based on the
+    terminal size and the contents of the DataFrame.
+
+    Parameters
+    ----------
+    df : DataFrame
+        The DataFrame to display.
+    header : bool, optional
+        Whether to include the header in the display, by default True.
+    index : bool, optional
+        Whether to include the index column in the display, by default True.
+    sample_size : int, optional
+        Number of entries to sample for calculating the average entry width, by
+        default 100.
+
+    Returns
+    -------
+    tuple
+        A tuple (max_rows, max_cols) representing the maximum number of rows
+        and columns to display based on the terminal dimensions and data content.
+
+    Examples
+    --------
+    >>> from gofast.api.util import auto_adjust_dataframe_display
+    >>> df = pd.DataFrame(np.random.randn(100, 10), columns=[f"col_{i}" for i in range(10)])
+    >>> max_rows, max_cols = auto_adjust_dataframe_display(df)
+    >>> print(f"Max Rows: {max_rows}, Max Cols: {max_cols}")
+    >>> print(df.to_string(max_rows=max_rows, max_cols=max_cols))
+    """
+
+    # Get terminal size
+    terminal_size = get_terminal_size()
+    screen_width = terminal_size.columns
+    screen_height = terminal_size.lines
+
+    # Estimate the average width of data entries
+    sample = df.sample(n=min(sample_size, len(df)), random_state=1)
+    sample_flat = pd.Series(dtype=str)
+    if index:
+        series_to_concat = [sample.index.to_series().astype(str)]
+    else:
+        series_to_concat = []
+    for column in sample.columns:
+        series_to_concat.append(sample[column].astype(str))
+    sample_flat = pd.concat(series_to_concat, ignore_index=True)
+    avg_entry_width = int(sample_flat.str.len().mean()) + 1  # Plus one for spacing
+
+    # Determine the width used by the index
+    index_width = max(len(str(idx)) for idx in df.index) if index else 0
+
+    # Calculate the available width for data columns
+    available_width = screen_width - index_width - 3  # Adjust for spacing between columns
+
+    # Estimate the number of columns that can fit
+    max_cols = available_width // avg_entry_width
+    
+    # Adjust for header if present
+    header_height = 1 if header else 0
+    
+    # Calculate the number of rows that can fit
+    max_rows = screen_height - header_height - 3  # Subtract for header and to avoid clutter
+
+    # Ensure max_cols does not exceed number of DataFrame columns
+    max_cols = min(max_cols, len(df.columns))
+
+    # Ensure max_rows does not exceed number of DataFrame rows
+    max_rows = min(max_rows, len(df))
+
+    return max_rows, max_cols
+
 
 def parse_component_kind(pc_list, kind):
     """
@@ -462,7 +1254,6 @@ def format_df(df, max_text_length=50, title=None):
         title = title.center(max_width) + "\n"
     return title + formatted_string
 
-
 def validate_data(data, columns=None, error_mode='raise'):
     """
     Validates and converts input data into a pandas DataFrame, handling
@@ -502,6 +1293,8 @@ def validate_data(data, columns=None, error_mode='raise'):
 
     Examples
     --------
+    >>> import numpy as np 
+    >>> from gofast.api.util import validate_data
     >>> data = np.array([[1, 2], [3, 4]])
     >>> validate_data(data)
        feature_0  feature_1

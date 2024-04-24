@@ -377,6 +377,8 @@ def simulate_water_reserves(
         n_dates= adjust_params.get("n_dates", 7 )
         # now take the date from start_date to fit n_dates. 
         dates = dates_origin[: n_dates]
+    else: 
+        dates = dates_origin 
         
     data = []
     # Generate a unique location name for each location_id before generating data

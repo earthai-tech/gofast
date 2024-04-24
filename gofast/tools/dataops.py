@@ -5045,7 +5045,8 @@ def handle_duplicates(
     """
     Handles duplicate rows in a DataFrame based on user-specified options.
     
-    This function can return a DataFrame containing duplicate rows, the indices
+    This function can return a DataFrame containing duplicate rows, the indice
+    s
     of these rows, or remove duplicates based on the specified operation.
 
     Parameters
