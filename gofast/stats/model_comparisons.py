@@ -536,7 +536,8 @@ def perform_wilcoxon_test(
             'Model_A': [0.90, 0.85, 0.88],
             'Model_B': [0.92, 0.83, 0.89],
             'Model_C': [0.91, 0.84, 0.87]})
-    >>> perform_wilcoxon_test(model_performance)
+    >>> result = perform_wilcoxon_test(model_performance)
+    >>> print(result)
             Model_A  Model_B  Model_C
     Model_A      NaN    0.317    0.180
     Model_B    0.317      NaN    0.317
@@ -1039,7 +1040,7 @@ def plot_model_rankings(
 
     Examples
     --------
-    >>> import pandas pd 
+    >>> import pandas as pd 
     >>> from gofast.stats.model_comparisons import plot_model_rankings
     >>> performance_data = {
     ...    'Model_X': [0.85, 0.80, 0.78],
@@ -1230,7 +1231,7 @@ def perform_posthoc_test(
 
 @isdf 
 @ensure_pkg (
-    "statsmodels", 
+    "scikit_posthocs", 
     extra= "Post-hocs tests need 'scikit-posthocs' package to be installed.", 
     partial_check=True,
     condition=lambda *args, **kwargs: kwargs.get("test_method") =='nemenyi'
@@ -1458,7 +1459,7 @@ def visualize_wilcoxon_test(
     ...    'Model_B': [0.79, 0.84, 0.76, 0.82, 0.78],
     ...    'Model_C': [0.81, 0.83, 0.77, 0.80, 0.76]
     ... })
-    >>> results= visualize_wilcoxon_test(df, alpha=0.05)
+    >>> results= visualize_wilcoxon_test(df, alpha=0.05, return_result=True)
     >>> print(results)
        Model 1  Model 2  Statistic  p-value  Significant
     0  Model_A  Model_B        5.5   0.8125        False
@@ -1798,11 +1799,11 @@ def plot_model_summary(
     if isinstance(summary, pd.DataFrame): 
         if len(summary.columns)> 1:
             # consider as model_performance_data and compute model summary
-            summary_data = compute_model_summary(summary, higher_is_better)
+            summary_data = compute_model_summary(summary, higher_is_better).df
         else: summary_data = summary.copy() 
         
     elif hasattr(summary, 'df'):  
-        # Assuming DataFrameFormatter or similar with 'df'
+        # Assuming DataFrameFormatter or similar with 'df' attribute
         summary_data = summary.df.astype (float)
     elif hasattr(summary, 'dfs'):  # Assuming MultiFrameFormatter with 'dfs'
         if len(summary.dfs) > 1:

@@ -8,6 +8,233 @@ import numpy as np
 import pandas as pd
 from shutil import get_terminal_size
 
+
+def get_display_dimensions(
+    *dfs, index=True, 
+    header=True, 
+    max_rows=11, 
+    max_cols=7, 
+    return_min_dimensions=True
+    ):
+    """
+    Determines the maximum display dimensions for a series of DataFrames by
+    considering the minimum number of rows and columns that can be displayed 
+    across all provided DataFrames.
+
+    Parameters
+    ----------
+    *dfs : tuple of pd.DataFrame
+        An arbitrary number of pandas DataFrame objects.
+    index : bool, optional
+        Whether to consider DataFrame indices in calculations, by default True.
+    header : bool, optional
+        Whether to consider DataFrame headers in calculations, by default True.
+    max_rows : int, optional
+        The maximum number of rows to potentially display, by default 11.
+    max_cols : int, optional
+        The maximum number of columns to potentially display, by default 7.
+    return_min_dimensions : bool, optional
+        If True, returns the minimum of the maximum dimensions (rows, columns) 
+        across all  provided DataFrames. If False, returns a tuple of lists 
+        containing the maximum dimensions for each DataFrame separately.
+
+    Returns
+    -------
+    tuple
+        If return_min_dimensions is True, returns a tuple (min_rows, min_cols) 
+        where min_rows is the minimum of the maximum rows and min_cols is the
+        minimum of the maximum columns across all provided DataFrames.
+        If return_min_dimensions is False, returns a tuple of two lists 
+        (list_of_max_rows, list_of_max_cols), where each list contains the 
+        maximum rows and columns for each DataFrame respectively.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.api.util import get_display_dimensions
+    >>> df1 = pd.DataFrame({"A": range(10), "B": range(10, 20)})
+    >>> df2 = pd.DataFrame({"C": range(5), "D": range(5, 10)})
+    >>> get_display_dimensions(df1, df2, max_rows=5, max_cols=1, 
+                               return_min_dimensions=True)
+    (5, 1)
+    """
+    def get_single_df_metrics(df):
+        # Use external functions to get recommended dimensions
+        auto_rows, auto_cols = auto_adjust_dataframe_display(
+            df, index=index, header=header)
+        
+        # Adjust these dimensions based on input limits
+        adjusted_rows = _adjust_value(max_rows, auto_rows)
+        adjusted_cols = _adjust_value(max_cols, auto_cols)
+        
+        return adjusted_rows, adjusted_cols
+
+    # Generate metrics for all DataFrames
+    metrics = [get_single_df_metrics(df) for df in dfs]
+    df_max_rows, df_max_cols = zip(*metrics)
+    
+    if return_min_dimensions:
+        # Return the minimum of the calculated max 
+        # dimensions across all DataFrames
+        return min(df_max_rows), min(df_max_cols)
+    
+    # Return the detailed metrics for each DataFrame 
+    # if not returning the minimum across all
+    return df_max_rows, df_max_cols
+
+def is_numeric_index(df):
+    """
+    Checks if the index of a DataFrame is numeric.
+
+    Parameters:
+        df (pd.DataFrame): The DataFrame to check.
+
+    Returns:
+        bool: True if the index is numeric, False otherwise.
+    """
+    # Check if the index data type is a subtype of numpy number
+    return pd.api.types.is_numeric_dtype(df.index.dtype)
+    
+def extract_truncate_df(
+        df, include_truncate=False, max_rows= 100, max_cols= 7, 
+        return_indices_cols=False ):
+    """
+    Extracts indices from a dataframe string representation and decides 
+    whether to include truncated indices.
+    
+    Parameters:
+        df_string (str): String representation of the dataframe.
+        include_truncate (bool): If True, includes all possible indices 
+        assuming continuous range where truncated.
+
+    Returns:
+        list: A list of indices extracted from the dataframe string.
+    """
+    # check indices whether it is numeric, if Numeric keepit otherwise reset it 
+    name_indexes = [] 
+    if not is_numeric_index( df):
+        #print('True')
+        name_indexes = df.index.tolist() 
+        df.reset_index (drop=True, inplace =True)
+    columns = df.columns.tolist() 
+    
+    df_string= df.to_string(
+        index =True, header=True, max_rows=max_rows, max_cols=max_cols )
+    # Find all index occurrences at the start of each line
+    indices = re.findall(r'^\s*(\d+)', df_string, flags=re.MULTILINE)
+    lines = df_string.split('\n')
+    #print(indices)
+   
+    # Convert found indices to integers
+    indices = list(map(int, indices))
+    if include_truncate and indices:
+        # Assume the indices are continuous and fill in the missing range
+        indices = list(range(indices[0], indices[-1] + 1))
+    
+    if name_indexes: 
+        indices = [ name_indexes [i] for i in indices]
+        
+    # extract _columns from df_strings 
+    # columns is expected to be the first 0 
+    header_parts = lines[0].strip() 
+    columns = [ col for col in columns if col in header_parts ]
+    subset_df = get_dataframe_subset(df, indices, columns )
+    
+    if return_indices_cols: 
+        return indices, columns, subset_df
+    
+    return subset_df 
+
+def insert_ellipsis_to_df(sub_df, full_df=None, include_index=True):
+    """
+    Insert ellipsis into a DataFrame to simulate truncation in display, 
+    mimicking the appearance of a large DataFrame that cannot be fully displayed.
+
+    Parameters:
+    sub_df : pd.DataFrame
+        The DataFrame into which ellipsis will be inserted.
+    full_df : pd.DataFrame, optional
+        The full DataFrame from which sub_df is derived. If provided, used to 
+        determine
+        whether ellipsis are needed for rows or columns.
+    include_index : bool, default True
+        Whether to include ellipsis in the index if rows are truncated.
+
+    Returns:
+    pd.DataFrame
+        The modified DataFrame with ellipsis inserted if needed.
+        
+    Example
+    ```python    
+    from gofast.api.util import insert_ellipsis_to_df
+    data = {
+        'location_id': [1.0, 1.0, 1.0, 100.0, 100.0],
+        'location_name': ['Griffin Grove', 'Griffin Grove', 'Griffin Grove', 
+                          'Galactic Gate', 'Galactic Gate'],
+        'usage': [107.366256, 204.633431, 188.087255, 208.627374, 133.555798],
+        'percentage_full': [87.608753, 42.492289, 78.357623, 25.639027, 89.816833]
+    }
+    df = pd.DataFrame(data)
+
+    full_data = pd.concat([df]*3)  # Simulate a larger DataFrame
+    example_df = insert_ellipsis_to_df(df, full_df=full_data)
+    print(example_df)
+    
+    ``` 
+    
+    """
+    modified_df = sub_df.copy()
+    mid_col_index = len(modified_df.columns) // 2
+    mid_row_index = len(modified_df) // 2
+    
+    # Determine if ellipsis should be inserted for columns
+    if full_df is not None and len(sub_df.columns) < len(full_df.columns):
+        modified_df.insert(mid_col_index, '...', ["..."] * len(modified_df))
+        
+    # Determine if ellipsis should be inserted for rows
+    if full_df is not None and len(sub_df) < len(full_df) and include_index:
+        # Insert a row of ellipsis at the middle index
+        ellipsis_row = pd.DataFrame([["..."] * len(modified_df.columns)],
+                                    columns=modified_df.columns)
+        top_half = modified_df.iloc[:mid_row_index]
+        bottom_half = modified_df.iloc[mid_row_index:]
+        modified_df = pd.concat([top_half, ellipsis_row, bottom_half], 
+                                ignore_index=True)
+
+        # Adjust the index to include ellipsis if required
+        new_index = list(sub_df.index[:mid_row_index]) + ['...'] + list(
+            sub_df.index[mid_row_index:])
+        modified_df.index = new_index
+
+    return modified_df
+
+
+
+def get_dataframe_subset(df, indices=None, columns=None):
+    """
+    Extracts a subset of a DataFrame based on specified indices and columns.
+    
+    Parameters:
+        df (pd.DataFrame): The original DataFrame from which to extract the subset.
+        indices (list, optional): List of indices to include in the subset. 
+        If None, all indices are included.
+        columns (list, optional): List of column names to include in the subset. 
+        If None, all columns are included.
+    
+    Returns:
+        pd.DataFrame: A new DataFrame containing only the specified 
+        indices and columns.
+    """
+    # If indices are specified, filter the DataFrame by these indices
+    if indices is not None:
+        df = df.iloc[indices]
+
+    # If columns are specified, filter the DataFrame by these columns
+    if columns is not None:
+        df = df[columns]
+
+    return df
+
 def flex_df_formatter(
     df, 
     title=None, 
@@ -115,41 +342,47 @@ def flex_df_formatter(
     """
     df = validate_data(df )
     auto_rows, auto_cols = auto_adjust_dataframe_display(
-        df, index=index, header=header)
-    
+        df, index=index, header=header
+        )
     # Example usage within the function:
     max_rows = _adjust_value(max_rows, auto_rows)
     max_cols = _adjust_value(max_cols, auto_cols)
     
     # Apply float formatting to the DataFrame
-    if output_format == 'html': # Use render for HTML output
+    if output_format == 'html': 
+        # Use render for HTML output
         formatted_df = df.style.format(float_format).render()  
     else:
+        df= make_format_df(df, "%%", apply_to_column= True)
         # Convert DataFrame to string with the specified format options
         formatted_df = df.to_string(
             index=index, header=header, max_rows=max_rows, max_cols=max_cols, 
             float_format=lambda x: float_format.format(x) if isinstance(
-                x, (float, np.float64)) else x)
+                x, (float, np.float64)) else x
+    )
 
     style= select_df_styles(style, df )
     if style =='advanced': 
         formatted_output = df_advanced_style(
-            formatted_df, table_width, title= title,
-            index= index, header= header, 
+            formatted_df, table_width, 
+            title= title,
+            index= index, 
+            header= header, 
             header_line= header_line, 
             sub_line=sub_line, 
             df=df, 
-        )
-   
+          )
     else: 
         formatted_output=df_base_style(
-            formatted_df, title=title, table_width=table_width, 
-            header_line= header_line, sub_line= sub_line , 
+            formatted_df, title=title, 
+            table_width=table_width, 
+            header_line= header_line, 
+            sub_line= sub_line , 
             df=df 
             )
-        
+    # Remove the whitespace_sub %% 
+    formatted_output = formatted_output.replace ("%%", '  ')
     return formatted_output
-
 
 def select_df_styles(style, df, **kwargs):
     """
@@ -372,6 +605,39 @@ def df_base_style(
 
     return formatted_output
 
+def make_format_df(subset_df, whitespace_sub="%g%o#f#", apply_to_column=False):
+    """
+    Creates a new DataFrame where each string value of each column that 
+    contains a whitespace is replaced by '%g%o#f#'. This is useful to fix the 
+    issue with multiple whitespaces in all string values of the DataFrame. Optionally,
+    replaces whitespaces in column names as well.
+
+    Parameters:
+        subset_df (pd.DataFrame): The input DataFrame to be formatted.
+        whitespace_sub (str): The substitution string for whitespaces.
+        apply_to_column (bool): If True, also replace whitespaces in column names.
+
+    Returns:
+        pd.DataFrame: A new DataFrame with formatted string values.
+    """
+    # Create a copy of the DataFrame to avoid modifying the original one
+    formatted_df = subset_df.copy()
+    
+    # Optionally replace whitespaces in column names
+    if apply_to_column:
+        formatted_df.columns = [col.replace(' ', whitespace_sub) 
+                                for col in formatted_df.columns]
+
+    # Loop through each column in the DataFrame
+    for col in formatted_df.columns:
+        # Check if the column type is object (typically used for strings)
+        if formatted_df[col].dtype == object: 
+            # Replace whitespaces in string values with '%g%o#f#'
+            formatted_df[col] = formatted_df[col].replace(
+                r'\s+', whitespace_sub, regex=True)
+    
+    return formatted_df
+
 def df_advanced_style(
     formatted_df, 
     table_width="auto", 
@@ -432,7 +698,6 @@ def df_advanced_style(
     max_index_length, *column_widths = calculate_column_widths(
         lines, include_index= index, include_column_width= True,
         df = df, max_text_length= 50 )
-    print(max_index_length, column_widths )
     # max_index_length = max(len(line.split()[0]) for line in lines[1:]) + 3  
     max_index_length +=3  # for extra spaces 
     for i, line in enumerate(lines):
@@ -447,7 +712,7 @@ def df_advanced_style(
             new_lines.append(" " * (max_index_length-1) + sub_line * (
                 len(header_line_formatted) - max_index_length + 2 ))
             continue
-#XXX TOFIX 
+
         parts = line.split(maxsplit=1)
         if len(parts) > 1:
             index_part, data_part = parts
@@ -552,77 +817,10 @@ def calculate_column_widths(
     be used to format tables with proper spacing and alignment across different
     data entries.
     """
-#     max_widths = []
-
-#     # Split the header to get the number of columns and optionally calculate header widths
-#     header_parts = lines[0].strip().split()
-#     num_columns = len(header_parts)
-#     # Initialize max widths list
-#     if include_index:
-#         max_widths = [0] * (num_columns + 1)
-#     else:
-#         max_widths = [0] * num_columns
-
-#     # Include column names in the width if required
-#     if include_column_width:
-#         for i, header in enumerate(header_parts):
-#             if include_index:
-#                 max_widths[i+1] = max(max_widths[i+1], len(header))
-#             else:
-#                 max_widths[i] = max(max_widths[i], len(header))
-
-#     # Iterate over each line excluding the header
-#     try: 
-#         for line in lines[1:]:
-#             parts = line.strip().split()
-#             if include_index:
-#                 # Iterate over each part including index
-#                 for i, part in enumerate(parts):
-#                     max_widths[i] = max(max_widths[i], len(part))
-#             else:
-#                 # Exclude the index from the width calculations
-#                 # Adjust start based on include_index
-#                 # Dont fix it, Go straigth toIndexError more consistent 
-#                 #XXX FIX: IndexError where multi-word column values are 
-#                 # incorrectly split due to spaces. The default .split() method 
-#                 # splits by all whitespace, which is unsuitable for lines where
-#                 # spaces are included within column values. 
-#                 for i, part in enumerate(parts[1:], start =1 ):  
-#                     max_widths[i] = max(max_widths[i], len(part))
-#     except IndexError : 
-#         if df is None: 
-#             raise TypeError ( # polish the error message more professsional 
-#                 " Lines Data contains ulti-word column values while the default"
-#                 " splits by all whitespace is unsuitable. Please provide dataframe "
-#                 " for consistent parsing. ")
-#         # df (pandas.DataFrame): The DataFrame to calculate widths for.
-#         # max_text_length (int): The maximum allowed length for any cell content.
-#         max_widths_cols, max_index_cols = calculate_widths(
-#             df, max_text_length= max_text_length )
-        
-#         for ii, header in enumerate (header_parts): 
-#             if header =='...': 
-#                 max_widths [ii] = 3  # for ... 
-#                 continue 
-#             if header in max_widths_cols.keys() : 
-#                 max_widths[ii] = max_widths_cols[header] 
-#         if include_index : 
-#             max_widths.insert(0, max_index_cols) # insert index 
-    
-#     return max_widths
-
-# import pandas as pd
-
-# def calculate_column_widths(
-#     lines, 
-#     include_index=True,
-#     include_column_width=True, 
-#     df=None, 
-#     max_text_length=50
-# ):
     max_widths = []
 
-    # Split the header to get the number of columns and optionally calculate header widths
+    # Split the header to get the number of columns 
+    # and optionally calculate header widths
     header_parts = lines[0].strip().split()
     num_columns = len(header_parts)
 

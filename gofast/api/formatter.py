@@ -10,8 +10,9 @@ import pandas as pd
 from .structures import Bunch
 from .extension import MetaLen 
 from .util import to_snake_case, generate_column_name_mapping
-from .util import flex_df_formatter, is_dataframe_long 
-         
+from .util import flex_df_formatter, is_dataframe_long, get_display_dimensions
+from .util import insert_ellipsis_to_df , extract_truncate_df 
+
 class MultiFrameFormatter (metaclass=MetaLen):
     """
     A factory class designed to manage and format multiple pandas DataFrames
@@ -87,8 +88,8 @@ class MultiFrameFormatter (metaclass=MetaLen):
     keywords, using snake_case naming conventions for ease of use.
     """
 
-    def __init__(self, titles=None, keywords=None, style="base", max_rows="auto", 
-                 max_cols="auto"):
+    def __init__(self, titles=None, keywords=None,  max_rows=11, 
+                 max_cols=7, style="base",):
         self.titles = titles if titles is not None else []
         self.keywords = keywords if keywords is not None else []
         self.dfs = []
@@ -151,7 +152,6 @@ class MultiFrameFormatter (metaclass=MetaLen):
         
         return self
     
-#XXX TODO 
     def dataframe_with_same_columns(self):
         """
         Constructs a single table where all included dataframes
@@ -172,7 +172,8 @@ class MultiFrameFormatter (metaclass=MetaLen):
                 )
         
         return construct_tables_for_same_columns(self.dfs, self.titles)
-
+    
+# XXX OPTIMIZE 
     def dataframe_with_different_columns(self):
         """
         Constructs individual tables for each dataframe when
@@ -183,16 +184,18 @@ class MultiFrameFormatter (metaclass=MetaLen):
         str
             A string representation of the constructed tables.
         """
+        dfs = self.dfs 
         if is_any_long_dataframe(
                 *self.dfs, max_rows= self.max_rows, 
                 max_cols= self.max_cols 
            ): 
-            return construct_long_dataframes_with_different_columns(
-                self.dfs, titles = self.titles,
-                max_cols = 7, max_rows= 11, style = self.style, 
-                )
-        
-        return construct_table_for_different_columns(self.dfs, self.titles)
+            dfs = make_new_dfs(
+                self.dfs, max_rows= self.max_rows, max_cols= self.max_cols)
+            # return construct_long_dataframes_with_different_columns(
+            #     self.dfs, titles = self.titles,
+            #     max_cols = 7, max_rows= 11, style = self.style, 
+            #     )
+        return construct_table_for_different_columns(dfs, self.titles)
 
     def __str__(self):
         """
@@ -1628,15 +1631,38 @@ def construct_long_dataframes_with_different_columns (
         titles = titles + default_tiles 
     else: titles = default_tiles 
     
+    max_rows, max_cols =get_display_dimensions(
+       *dataframes, max_rows=max_rows, max_cols= max_cols 
+       ) 
+    # extract and trucate df then insert ellipsis to create pseudodf 
+    # for visualization 
+    extracted_dfs= [extract_truncate_df(
+        df, max_cols=max_cols, max_rows=max_rows ) for df in dataframes ]
+    dfs = [ insert_ellipsis_to_df(edf, fdf) for edf, fdf in zip (
+        extracted_dfs, dataframes)]
+    
+
     tables_str = [ flex_df_formatter(
         df, title=title, max_rows=max_rows, max_cols=max_cols, 
          index= True, style= style, **kwargs)
-        for df, title in zip ( dataframes, titles) 
+        for df, title in zip ( dfs, titles) 
         ] 
     
     return "\n".join( tables_str)
 
+def make_new_dfs(dataframes, max_rows = 11, max_cols = 7 ) : 
+    max_rows, max_cols =get_display_dimensions(
+       *dataframes, max_rows=max_rows, max_cols= max_cols 
+       ) 
+    # extract and trucate df then insert ellipsis to create pseudodf 
+    # for visualization 
+    extracted_dfs= [extract_truncate_df(
+        df, max_cols=max_cols, max_rows=max_rows ) for df in dataframes ]
+    dfs = [ insert_ellipsis_to_df(edf, fdf) for edf, fdf in zip (
+        extracted_dfs, dataframes)]
     
+    return dfs 
+
 def remove_header_lines(data_str, append_title=True ):
     """
     Removes the first header line and the header name from a formatted data string.
@@ -1654,17 +1680,6 @@ def remove_header_lines(data_str, append_title=True ):
 
     Examples
     --------
-    >>> data = '''
-    ...                                                             Infos
-    ... =====================================================================================================================================
-    ...                 location_id  total_capacity  current_volume   rainfall  evaporation     inflow    outflow      usage  percentage_full
-    ... -------------------------------------------------------------------------------------------------------------------------------------
-    ... Data Types            int64         float64         float64    float64      float64    float64    float64    float64          float64
-    ... Missing Values            0               0               0          0            0          0          0          0                0
-    ... Byte Size             24800           24800           24800      24800        24800      24800      24800      24800            24800
-    ... Unique Counts           100            3100            3100       3100         3100       3100       3100       3100             3100
-    ... =====================================================================================================================================
-    ... '''
     >>> print(remove_header_lines(data))
     """
     # Split the string into lines
@@ -1682,8 +1697,6 @@ def remove_header_lines(data_str, append_title=True ):
     
     return rest_lines 
 
-
-    
 def construct_table_for_different_columns(dataframes, titles):
     """
     Constructs and returns a formatted string representation of tables
