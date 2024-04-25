@@ -23,7 +23,6 @@ from inspect import signature, Parameter, isclass
 from ._array_api import get_namespace, _asarray_with_order
 FLOAT_DTYPES = (np.float64, np.float32, np.float16)
 
-
 def validate_data_types(
     data, expected_type='numeric', 
     nan_policy='propagate', 

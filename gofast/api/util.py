@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from shutil import get_terminal_size
 
-def distribute_column_widths(*dfs):
+def distribute_column_widths(*dfs, **kws):
     """
     Distributes column widths among multiple DataFrames to ensure consistency
     in column display widths. This is based on the maximum width required by
@@ -55,10 +55,11 @@ def distribute_column_widths(*dfs):
     when preparing DataFrames for a consistent visual display in reports or 
     across UI elements where column width uniformity is crucial.
     """
-
-    index_width, column_widths = get_column_widths_in(*dfs, include_index=True)
+    
+    index_width, column_widths = get_column_widths_in(
+        *dfs, include_index=True,**kws)
     block_columns = _assemble_column_blocks(dfs)
-
+    
     if block_columns is None:
         # Return original widths if column lengths mismatch
         return index_width, column_widths  
@@ -451,20 +452,23 @@ def extract_truncate_df(
         list: A list of indices extracted from the dataframe string.
     """
     # check indices whether it is numeric, if Numeric keepit otherwise reset it 
+    # print(len(df.columns))
     name_indexes = [] 
     if not is_numeric_index( df):
-        #print('True')
         name_indexes = df.index.tolist() 
         df.reset_index (drop=True, inplace =True)
     columns = df.columns.tolist() 
     
+    # if there is a space insert momentany the "%%"
+    # fake_columns =[ col.replace (" ", "gofastff") for col in columns]
+    # df.columns = fake_columns 
+    # %
     df_string= df.to_string(
         index =True, header=True, max_rows=max_rows, max_cols=max_cols )
     # Find all index occurrences at the start of each line
     indices = re.findall(r'^\s*(\d+)', df_string, flags=re.MULTILINE)
     lines = df_string.split('\n')
-    #print(indices)
-   
+    
     # Convert found indices to integers
     indices = list(map(int, indices))
     if include_truncate and indices:
@@ -476,15 +480,43 @@ def extract_truncate_df(
         
     # extract _columns from df_strings 
     # columns is expected to be the first 0 
-    header_parts = lines[0].strip() 
-    columns = [ col for col in columns if col in header_parts ]
+    header_lines = lines[0].strip() 
+    print(header_lines)
+    # Extract column names from header_lines using regex
+    header_parts = re.findall(r'\b\w+\b', header_lines)
+    # Filter columns based on whether their names exist in header_parts
+    print("header parts", header_parts)
+    columns = [col for col in columns if 
+               any(re.search(r'\b{}\b'.format(col), part) for part in header_parts)]
+    print("data_columns=", df.columns)
+    print(" header lines=", header_parts)
+    # columns = [ col for col in columns if col in header_parts ]
+    print(" columns after lopping", columns)
+    # revert back to normal columns and remove %% 
+    columns = [ col.replace ("gofastff", " ") for col in columns ]
+    df.columns = columns 
     subset_df = get_dataframe_subset(df, indices, columns )
-    
+    print(len(subset_df.columns))
     if return_indices_cols: 
         return indices, columns, subset_df
     
     return subset_df 
 
+# data_columns= Index(['farm_id', 'year', 'crop', 'soil_ph', 'temperature', 'rainfall',
+#        'pesticide_type', 'pesticide_amount', 'crop_yield'],
+#       dtype='object')
+#  header lines= "farm_id  year  ... pesticide_amount   crop_yield"
+#  columns_after_lopping= ['farm_id', 'year', 'crop', 'pesticide_amount', 'crop_yield']
+ 
+#  # I want to find the columns that name exists in header lines. 
+#  however when I used , 
+#  columns = [ col for col in data_columns if col in header_parts ]
+#  the result yield the columns_after_lopping. where 'crop' is contains, 
+#  however, I expect ['farm_id', 'year',  'pesticide_amount', 'crop_yield']. 
+#  # "crop" appear beacuse two times crop is looping " crop_yield". 
+#  I think regex could be the best way to find the ['farm_id', 'year',  'pesticide_amount', 'crop_yield']
+#  in the header'crop_yield' is correct by no crop. 
+ 
 def insert_ellipsis_to_df(sub_df, full_df=None, include_index=True):
     """
     Insert ellipsis into a DataFrame to simulate truncation in display, 
@@ -564,7 +596,7 @@ def get_dataframe_subset(df, indices=None, columns=None):
     """
     # If indices are specified, filter the DataFrame by these indices
     if indices is not None:
-        df = df.iloc[indices]
+        df = df.loc[indices]
 
     # If columns are specified, filter the DataFrame by these columns
     if columns is not None:
@@ -707,13 +739,13 @@ def flex_df_formatter(
         # Use render for HTML output
         formatted_df = df.style.format(float_format).render()  
     else:
-        df= make_format_df(df, "%%", apply_to_column= True)
+        df= make_format_df(df, "π'", apply_to_column= True)
         # Convert DataFrame to string with the specified format options
         formatted_df = df.to_string(
             index=index, header=header, max_rows=max_rows, max_cols=max_cols, 
             float_format=lambda x: float_format.format(x) if isinstance(
                 x, (float, np.float64)) else x
-    )
+            )
         
     style= select_df_styles(style, df )
     if style =='advanced': 
@@ -737,8 +769,8 @@ def flex_df_formatter(
             sub_line= sub_line , 
             df=df 
             )
-    # Remove the whitespace_sub %% 
-    formatted_output = formatted_output.replace ("%%", '  ')
+    # Remove the whitespace_sub π 
+    formatted_output = formatted_output.replace ("π'", ' ')
     return formatted_output
 
 def select_df_styles(style, df, **kwargs):
@@ -808,7 +840,6 @@ def select_df_styles(style, df, **kwargs):
             raise ValueError(f"Invalid style specified. Choose from: {valid_styles}")
 
     return style
-
 
 def is_dataframe_long(
         df, max_rows=100, max_cols=7, return_rows_cols_size=False):
@@ -894,6 +925,8 @@ def df_base_style(
     header_line="=", 
     sub_line="-", 
     df=None, 
+    columns_widths=None, 
+    max_index_length=None, 
     ):
     """
     Formats a given DataFrame string into a styled textual representation 
@@ -936,6 +969,9 @@ def df_base_style(
     1       4    5    6
     ====================
     """
+    if '...' in formatted_df: 
+        return _islong(formatted_df, df=df)
+    
     # Determine the maximum line width in the formatted DataFrame
     max_line_width = max(len(line) for line in formatted_df.split('\n')) 
 
@@ -959,6 +995,103 @@ def df_base_style(
     formatted_output = f"{header}\n{header_separator}\n{lines[0]}\n{sub_separator}\n"\
         + "\n".join(lines[1:]) + f"\n{header_separator}"
 
+    return formatted_output
+
+#XXX TODO 
+def _islong (
+    formatted_df, 
+    column_widths=None, 
+    max_index_length=None, 
+    header=True, 
+    index=True, 
+    sub_line='-', 
+    header_line="=", 
+    title=None, 
+    df=None
+    ): 
+    
+    # Split the formatted DataFrame string into individual lines.
+    lines = formatted_df.split('\n')
+    new_lines = []
+    
+    # Calculate the automatic widths for the index and columns based on the content,
+    # specifying the DataFrame, and limiting text length to 50 characters.
+    auto_max_index_length, *auto_column_widths = calculate_column_widths(
+        lines, include_index=True, include_column_width=True,
+        df=df, max_text_length=50
+    )
+    # If explicit column widths are provided, use them.
+    if column_widths:
+        # Extract headers from the first line (assumes they are space-separated).
+        headers = lines[0].split()
+        # Modify the column names to include 'π' which helps to distinguish between
+        # similar names that differ only in spacing when parsing widths.
+        column_widths = {col.replace(' ', "π'"): val for col, val in column_widths.items()}
+        # Filter the provided column widths to include only those that match the headers.
+        # This prevents applying widths for columns that aren't present in the headers.
+        column_widths = [column_widths[col] for col in headers if col in column_widths]
+    
+    # If no column widths are provided, fall back to automatically calculated widths.
+    if column_widths is None:
+        column_widths = auto_column_widths
+    
+    # If no maximum index length is provided, use the automatically determined length.
+    if max_index_length is None:
+        max_index_length = auto_max_index_length
+    max_index_length +=3  # for extra spaces 
+    
+    header_parts = lines[0].split()
+    header_line_formatted = " " * max_index_length + "  ".join(
+        header_part.rjust(
+            column_widths[idx]) for idx, header_part in enumerate(header_parts)
+        )
+    table_width= len(" " + header_line_formatted) 
+    
+    for i, line in enumerate(lines):
+        if i == 0 and header:  # Adjust header line to include vertical bar
+            # header_parts = line.split()
+            # header_line_formatted = " " * max_index_length + "  ".join(
+            #     header_part.rjust(
+            #         column_widths[idx]) for idx, header_part in enumerate(header_parts)
+            #     )
+            new_lines.append( " " + header_line_formatted)
+            continue 
+        elif i == 1 and header:  # Insert sub-line after headers
+            # new_lines.append(" " * (max_index_length-1) + sub_line * (
+            #     len(header_line_formatted) - max_index_length + 2 ))
+            new_lines.append ( sub_line * table_width )
+            continue
+        if index: 
+            parts = line.split(maxsplit=1)
+            if len(parts)>1: 
+                index_part, data_part = parts
+        else: 
+            parts = line 
+            
+        if len(parts) > 1:
+            data_part.split()
+            formatted_data_part = "  ".join(
+                data.rjust(column_widths[idx]) for idx, data in enumerate(data_part.split())
+                )
+            if index: 
+                new_line = f"{index_part.ljust(max_index_length - 2)}  {formatted_data_part}"
+            else: 
+                new_line = f"{formatted_data_part}"
+        else:
+            new_line = " " * (max_index_length - 2) + line
+            
+        new_lines.append(new_line)
+          
+    max_line_width = max(len(line) for line in new_lines)
+    table_width = max_line_width if table_width == 'auto' else max(
+        min(table_width, max_line_width), len(header_line_formatted))
+
+    header = f"{title}".center(table_width) if title else ""
+    header_separator = header_line * table_width
+
+    formatted_output = f"{header}\n{header_separator}\n" + "\n".join(
+        new_lines) + f"\n{header_separator}"
+    
     return formatted_output
 
 def make_format_df(subset_df, whitespace_sub="%g%o#f#", apply_to_column=False):
@@ -1080,11 +1213,9 @@ def df_advanced_style(
     if column_widths:
         # Extract headers from the first line (assumes they are space-separated).
         headers = lines[0].split()
-        
-        # Modify the column names to include '%%' which helps to distinguish between
+        # Modify the column names to include 'π' which helps to distinguish between
         # similar names that differ only in spacing when parsing widths.
-        column_widths = {col.replace(' ', '%%'): val for col, val in column_widths.items()}
-    
+        column_widths = {col.replace(' ', "π'"): val for col, val in column_widths.items()}
         # Filter the provided column widths to include only those that match the headers.
         # This prevents applying widths for columns that aren't present in the headers.
         column_widths = [column_widths[col] for col in headers if col in column_widths]
@@ -1096,7 +1227,6 @@ def df_advanced_style(
     # If no maximum index length is provided, use the automatically determined length.
     if max_index_length is None:
         max_index_length = auto_max_index_length
-    
     max_index_length +=3  # for extra spaces 
     for i, line in enumerate(lines):
         if i == 0 and header:  # Adjust header line to include vertical bar

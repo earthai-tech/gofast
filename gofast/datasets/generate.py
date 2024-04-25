@@ -1100,16 +1100,16 @@ def make_agronomy_feedback(*,
         'year',
         'crop',
         'soil_ph',
-        'temperature_c',
-        'rainfall_mm',
+        'temperature', #'_c',
+        'rainfall', #'_mm',
         'pesticide_type',
-        'pesticide_amount_kg_per_hectare',
-        'crop_yield_kg_per_hectare'
+        'pesticide_amount', #'_kg_per_hectare',
+        'crop_yield', #'_kg_per_hectare'
     ]
 
     agronomy_dataset = pd.DataFrame(data, columns=columns)
     target_names = list( is_iterable(
-        target_names or 'crop_yield_kg_per_hectare',exclude_string= True,
+        target_names or 'crop_yield',exclude_string= True,
         transform =True ) ) 
     
     agronomy_dataset = random_sampling(

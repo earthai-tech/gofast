@@ -92,12 +92,12 @@ class MultiFrameFormatter (metaclass=MetaLen):
     """
 
     def __init__(self, titles=None, keywords=None,  max_rows=11, 
-                 max_cols=7, style="base",):
+                 max_cols=7, style=None):
         self.titles = titles if titles is not None else []
         self.keywords = keywords if keywords is not None else []
         self.dfs = []
-        self.style= style 
-        self.max_rows = max_rows
+        self.style= style or "base"
+        self.max_rows = max_rows 
         self.max_cols =max_cols 
         
     def _check_dfs(self):
@@ -189,6 +189,7 @@ class MultiFrameFormatter (metaclass=MetaLen):
             # construct fake dfs for better aligment. 
             dfs = make_fake_dfs(
                 self.dfs, max_rows= self.max_rows, max_cols= self.max_cols)
+            print("yesssssssssssssssssssssss")
             # return construct_long_dataframes_with_different_columns(
             #     self.dfs, titles = self.titles,
             #     max_cols = 7, max_rows= 11, style = self.style, 
@@ -293,7 +294,7 @@ class MultiFrameFormatter (metaclass=MetaLen):
         str
             A descriptive string about the FrameFactory instance.
         """
-        return ( "<MultiFrame with tables. Use print() to view contents.>" 
+        return ( "<MultiFrame contains tables data. Use print() to view contents.>" 
                 if self.dfs else "<Empty MultiFrame>")
 
 class DataFrameFormatter(metaclass=MetaLen):
@@ -1602,11 +1603,12 @@ def construct_long_dataframes_with_same_columns (
 
     tables_str = [] 
     # Iterate through each dataframe to construct its table representation
+    # max_index_length, column_widths =distribute_column_widths(
+    #     *dataframes, insert_ellipsis= True)
     max_index_length, column_widths = get_column_widths_in(
         *dataframes, include_index= True , #return_widths_only=True
         insert_ellipsis= True
         )
-    
     for i, df in enumerate(dataframes):
         # contruct flex dataframe  
          # Set the title for the current table if provided
@@ -1618,7 +1620,6 @@ def construct_long_dataframes_with_same_columns (
              max_index_length= max_index_length, 
              **kwargs
         )
-    
         if i > 0: 
           formatted_df = remove_header_lines( 
               formatted_df, title=title)
@@ -1698,11 +1699,12 @@ def make_fake_dfs(dataframes, max_rows = 11, max_cols = 7 ) :
        ) 
     # extract and truNcate df then insert ellipsis to create pseudodf 
     # for visualization 
+    print("maxrows, maxcols", max_rows, max_cols)
     extracted_dfs= [extract_truncate_df(
         df, max_cols=max_cols, max_rows=max_rows ) for df in dataframes ]
     dfs = [ insert_ellipsis_to_df(edf, fdf) for edf, fdf in zip (
         extracted_dfs, dataframes)]
-    
+    print( [list(df.columns) for df in dfs])
     return dfs 
 
 def construct_table_for_different_columns(dataframes, titles):
@@ -1782,6 +1784,7 @@ def construct_table_for_different_columns(dataframes, titles):
 
     index_width, column_widths =distribute_column_widths(*dataframes)
     # Construct each table using the adjusted widths
+    
     for i, df in enumerate(dataframes):
         #column_widths, index_width = max_widths_across_dfs([df], include_index)
         # Construct the header for the dataframe. If the index is

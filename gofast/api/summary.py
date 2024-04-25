@@ -978,12 +978,12 @@ def summary(
     if numeric_only:
         df = df.select_dtypes(include=[np.number])
     
-    infos = {
-        "Data Types": df.dtypes.to_dict(),
-        "Missing Values": df.isnull().sum().to_dict(),
-        "Byte Size": {col: df[col].nbytes if df[col].dtype != 'O' 
+    infos = {#π' is used for frame formatter
+        "Dataπ'Types": df.dtypes.to_dict(), 
+        "Missingπ'Values": df.isnull().sum().to_dict(),
+        "Byteπ'Size": {col: df[col].nbytes if df[col].dtype != 'O' 
                       else "<N/A>" for col in df.columns}, 
-        "Unique Counts": {col: df[col].nunique() for col in df.columns}
+        "Uniqueπ'Counts": {col: df[col].nunique() for col in df.columns}
     }
     df_infos = pd.DataFrame(infos.values(), index=infos.keys())
     dfs.append(df_infos)
@@ -999,7 +999,9 @@ def summary(
         titles.extend(["Correlation Matrix"])
         dfs.append(df_corr)
     
-    summary = MultiFrameFormatter(titles=titles).add_dfs(*dfs)
+    summary = MultiFrameFormatter(
+        titles=titles, max_rows ="auto", max_cols ="auto")
+    summary.add_dfs(*dfs)
     print(summary)
 
 def ensure_list_with_defaults(input_value, target_length, default=None):
