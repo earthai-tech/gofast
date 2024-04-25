@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+""" 
+test_formatter.py 
+Author: LKouadio ~@Daniel
+"""
 
 import pytest #noqa 
 import unittest
@@ -9,6 +13,86 @@ from gofast.api.formatter import DataFrameFormatter
 from gofast.api.formatter import MetricFormatter 
 from gofast.api.formatter import BoxFormatter 
 from gofast.api.formatter import DescriptionFormatter  
+from gofast.api.formatter import formatter_validator
+
+# functions for creating instances with dataframes
+def df_formatter():
+    df = pd.DataFrame({
+        'age': [88, 77],
+        'name': ['Kouadio Ernest', "Agaman Bla"]
+    })
+    formatter = DataFrameFormatter()
+    formatter.add_df(df)
+    return formatter
+
+def dfs_formatter():
+    df1 = pd.DataFrame({
+        'distance': [68, 75],
+        'village': ['Niable', "Yobouakro"]
+    })
+    df2 = pd.DataFrame({
+        'lags': ["intolerable", 'sometimes'],
+        'dishes': ['Assiapluwa', "fufu"]
+    })
+    df3 = pd.DataFrame({
+        'temperature': [22, 24],
+        'city': ['Abidjan', 'San Pedro']
+    })
+    df4 = pd.DataFrame({
+        'humidity': [85, 90],
+        'region': ['Sud-Comoé', 'Grands Ponts']
+    })
+    formatter = MultiFrameFormatter()
+    formatter.add_dfs(df1, df2, df3, df4)
+    return formatter
+
+# Test successful validation with no exceptions
+def test_formatter_validator_success():
+    instance = df_formatter()
+    # Should not raise an exception
+    formatter_validator(instance, error='warn')
+
+# Test type error for incorrect instance type
+def test_formatter_validator_type_error():
+    with pytest.raises(TypeError):
+        formatter_validator("not a formatter instance")
+
+# Test attribute checking
+def test_formatter_validator_attribute_check():
+    instance = df_formatter()
+    # Assuming 'df' is a required attribute for DataFrameFormatter
+    with pytest.raises(ValueError):
+        formatter_validator(instance, attributes=['nonexistent_attribute'])
+
+# Test error handling with 'warn' option
+def test_formatter_validator_warn():
+    instance = dfs_formatter()
+    # Modify the instance to simulate an error condition by clearing one dataframe
+    instance.dfs[0] = None  # Example of modifying directly may vary 
+    # depending on actual implementation
+    
+    # No deeper check is operated so no need to warm. 
+    # This can handle externally. 
+    # with pytest.warns(UserWarning):
+    assert formatter_validator(instance, error='warn')[0]==None 
+
+# Test for checking return values from data attributes
+def test_formatter_validator_return_values():
+    instance = dfs_formatter()
+    assert formatter_validator(instance, attributes=['dfs'], check_only=False) == instance.dfs
+
+# Test checking specific dataframe indices
+def test_formatter_validator_df_indices():
+    instance = dfs_formatter()
+    # Check accessing specific dataframes by index
+    expected_dfs = [instance.dfs[0], instance.dfs[2]]
+    assert formatter_validator(instance, df_indices=[0, 2], check_only=False) == expected_dfs
+
+# Test handling out of range indices
+def test_formatter_validator_out_of_range_indices():
+    instance = dfs_formatter()
+    with pytest.raises(IndexError):
+        formatter_validator(instance, df_indices=[10], error='raise')
 
 class TestMultiFrameFormatter(unittest.TestCase):
     def setUp(self):

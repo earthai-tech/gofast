@@ -5,13 +5,16 @@
 # import textwrap
 import re
 import warnings 
+import inspect
 import numpy as np
 import pandas as pd
 from .structures import Bunch
-from .extension import MetaLen 
+from .extension import MetaLen, isinstance_  
 from .util import to_snake_case, generate_column_name_mapping
 from .util import flex_df_formatter, is_dataframe_long, get_display_dimensions
-from .util import insert_ellipsis_to_df , extract_truncate_df 
+from .util import insert_ellipsis_to_df , extract_truncate_df
+from .util import get_column_widths_in, distribute_column_widths  
+from .util import select_df_styles 
 
 class MultiFrameFormatter (metaclass=MetaLen):
     """
@@ -162,10 +165,7 @@ class MultiFrameFormatter (metaclass=MetaLen):
         str
             A string representation of the constructed table.
         """
-        if is_any_long_dataframe(
-                *self.dfs, max_rows= self.max_rows, 
-                max_cols= self.max_cols 
-           ): 
+        if is_any_long_dataframe(*self.dfs): 
             return construct_long_dataframes_with_same_columns(
                 self.dfs, titles = self.titles,
                 max_cols = 7, max_rows= 11, style = self.style, 
@@ -185,11 +185,9 @@ class MultiFrameFormatter (metaclass=MetaLen):
             A string representation of the constructed tables.
         """
         dfs = self.dfs 
-        if is_any_long_dataframe(
-                *self.dfs, max_rows= self.max_rows, 
-                max_cols= self.max_cols 
-           ): 
-            dfs = make_new_dfs(
+        if is_any_long_dataframe(*self.dfs, max_cols= self.max_cols ): 
+            # construct fake dfs for better aligment. 
+            dfs = make_fake_dfs(
                 self.dfs, max_rows= self.max_rows, max_cols= self.max_cols)
             # return construct_long_dataframes_with_different_columns(
             #     self.dfs, titles = self.titles,
@@ -1500,7 +1498,7 @@ def construct_tables_for_same_columns(dataframes, titles=None):
     # Iterate through each dataframe to construct its table representation
     for i, df in enumerate(dataframes):
         # Set the title for the current table if provided
-        title = titles[i] if titles and i < len(titles) else ""
+        title = titles[i].title() if titles and i < len(titles) else ""
         # Construct the header row with column names aligned according to their widths
         header = "  ".join([f"{col:>{column_widths[col]}}" for col in df.columns])
         # Prepend index width to the header if indexes are included
@@ -1537,7 +1535,7 @@ def construct_tables_for_same_columns(dataframes, titles=None):
     return tables_str.rstrip()
 
 
-def is_any_long_dataframe(*dfs, max_rows=100, max_cols="auto"):
+def is_any_long_dataframe(*dfs, max_rows=50, max_cols=11):
     """
     Determines whether any of the provided DataFrames is considered 'long' based
     on specified criteria for maximum rows and columns.
@@ -1549,7 +1547,7 @@ def is_any_long_dataframe(*dfs, max_rows=100, max_cols="auto"):
     max_rows : int, optional
         The maximum number of rows that a DataFrame can have before it is 
         considered 'long'.
-        Default is 100.
+        Default is 50.
     max_cols : int or str, optional
         The maximum number of columns that a DataFrame can have before it is 
         considered 'long'.
@@ -1582,12 +1580,13 @@ def is_any_long_dataframe(*dfs, max_rows=100, max_cols="auto"):
     processing or visualization methods may vary depending on the size of the data.
     """
 
-    if any(is_dataframe_long(df, max_rows=max_rows, max_cols=max_cols, 
-                             return_rows_cols_size=False) for df in dfs):
+    if any(is_dataframe_long(
+            df, max_rows=max_rows, max_cols=max_cols, return_rows_cols_size=False)
+            for df in dfs
+            ):
         return True
     return False
 
-# XXX Todo
 def construct_long_dataframes_with_same_columns (
     dataframes, titles =None, max_cols=7, max_rows = 100, 
     style="base", **kwargs): 
@@ -1596,74 +1595,39 @@ def construct_long_dataframes_with_same_columns (
     if not have_same_columns(dataframes):
         raise ValueError("Dataframes do not have the same columns.")
     
-    # # Check if indexes across dataframes are consistent and should be included
-    # # Calculate maximum column and index widths across all dataframes
-    # column_widths, index_width = max_widths_across_dfs(dataframes, include_index)
-    # # Initialize the string to store table representations
-    # tables_str = ""
-    
+    # Check if indexes across dataframes are consistent and should be included
+    # block index to True if the given style matches advanced style
+    temp_style= select_df_styles(style, df= dataframes[0])
+    include_index = True if temp_style else check_indexes(dataframes)
+
     tables_str = [] 
     # Iterate through each dataframe to construct its table representation
+    max_index_length, column_widths = get_column_widths_in(
+        *dataframes, include_index= True , #return_widths_only=True
+        insert_ellipsis= True
+        )
+    
     for i, df in enumerate(dataframes):
         # contruct flex dataframe  
          # Set the title for the current table if provided
-        title = titles[i] if titles and i < len(titles) else ""
-        
+        title = titles[i].title() if titles and i < len(titles) else ""
         formatted_df = flex_df_formatter(
             df, title=title, max_rows=max_rows, max_cols=max_cols, 
-             index= True, style= style, **kwargs)
-        
+             index= include_index, style= style, 
+             column_widths= column_widths, 
+             max_index_length= max_index_length, 
+             **kwargs
+        )
+    
         if i > 0: 
-        # next remove the first =' 
-          formatted_df = remove_header_lines
-          
+          formatted_df = remove_header_lines( 
+              formatted_df, title=title)
         tables_str.append (formatted_df )
           
     # Trim trailing spaces or lines and return the final table string
     return "\n".join( tables_str)
 
-def construct_long_dataframes_with_different_columns (
-    dataframes, titles =None, max_cols=7, max_rows = 100, 
-    style="base", **kwargs): 
-    
-    default_tiles  = [''] * len(titles) if titles  else [] * len(dataframes)
-    if titles: 
-        titles = titles + default_tiles 
-    else: titles = default_tiles 
-    
-    max_rows, max_cols =get_display_dimensions(
-       *dataframes, max_rows=max_rows, max_cols= max_cols 
-       ) 
-    # extract and trucate df then insert ellipsis to create pseudodf 
-    # for visualization 
-    extracted_dfs= [extract_truncate_df(
-        df, max_cols=max_cols, max_rows=max_rows ) for df in dataframes ]
-    dfs = [ insert_ellipsis_to_df(edf, fdf) for edf, fdf in zip (
-        extracted_dfs, dataframes)]
-    
-
-    tables_str = [ flex_df_formatter(
-        df, title=title, max_rows=max_rows, max_cols=max_cols, 
-         index= True, style= style, **kwargs)
-        for df, title in zip ( dfs, titles) 
-        ] 
-    
-    return "\n".join( tables_str)
-
-def make_new_dfs(dataframes, max_rows = 11, max_cols = 7 ) : 
-    max_rows, max_cols =get_display_dimensions(
-       *dataframes, max_rows=max_rows, max_cols= max_cols 
-       ) 
-    # extract and trucate df then insert ellipsis to create pseudodf 
-    # for visualization 
-    extracted_dfs= [extract_truncate_df(
-        df, max_cols=max_cols, max_rows=max_rows ) for df in dataframes ]
-    dfs = [ insert_ellipsis_to_df(edf, fdf) for edf, fdf in zip (
-        extracted_dfs, dataframes)]
-    
-    return dfs 
-
-def remove_header_lines(data_str, append_title=True ):
+def remove_header_lines(data_str, title=None ):
     """
     Removes the first header line and the header name from a formatted data string.
 
@@ -1684,18 +1648,62 @@ def remove_header_lines(data_str, append_title=True ):
     """
     # Split the string into lines
     lines = data_str.strip().split('\n')
-    title_line = lines[0]
     # Remove the first two lines (title and top border)
-    lines = lines[2:]
+    lines = lines[3:] if title else lines [2:]
 
-    
     # Reassemble the string without the first header line
     rest_lines = '\n'.join(lines)
     
-    if append_title: 
-       rest_lines = title_line + rest_lines 
+    if title: 
+        # get the length of the data first line '-' and center the title instead 
+        rest_lines = title.strip().center(len(lines[0]) ) +'\n'  + rest_lines 
     
     return rest_lines 
+
+# XXX TODO DELETE: use faker instead 
+def construct_long_dataframes_with_different_columns (
+    dataframes, titles =None, max_cols=7, max_rows = 100, 
+    style="base", **kwargs): 
+    
+    default_tiles  = [''] * len(titles) if titles  else [] * len(dataframes)
+    if titles: 
+        titles = titles + default_tiles 
+    else: titles = default_tiles 
+    
+    titles = [ title.title() for title in titles ]
+    max_rows, max_cols =get_display_dimensions(
+        *dataframes, max_rows=max_rows, max_cols= max_cols 
+        ) 
+    # extract and trucate df then insert ellipsis to create pseudodf 
+    # for visualization 
+    extracted_dfs= [extract_truncate_df(
+        df, max_cols=max_cols, max_rows=max_rows ) for df in dataframes ]
+    dfs = [ insert_ellipsis_to_df(edf, fdf) for edf, fdf in zip (
+        extracted_dfs, dataframes)]
+    
+    tables_str = [ flex_df_formatter(
+        df, title=title, max_rows=max_rows, max_cols=max_cols, 
+          index= True, style= style, **kwargs)
+        for df, title in zip ( dfs, titles) 
+        ] 
+    
+    return "\n".join( tables_str)
+
+def make_fake_dfs(dataframes, max_rows = 11, max_cols = 7 ) : 
+    # fake dfs contains ellipsis which  is not meaninfull. Just use for 
+    # well visualisation. can not be retrieved. 
+    
+    max_rows, max_cols =get_display_dimensions(
+       *dataframes, max_rows=max_rows, max_cols= max_cols 
+       ) 
+    # extract and truNcate df then insert ellipsis to create pseudodf 
+    # for visualization 
+    extracted_dfs= [extract_truncate_df(
+        df, max_cols=max_cols, max_rows=max_rows ) for df in dataframes ]
+    dfs = [ insert_ellipsis_to_df(edf, fdf) for edf, fdf in zip (
+        extracted_dfs, dataframes)]
+    
+    return dfs 
 
 def construct_table_for_different_columns(dataframes, titles):
     """
@@ -1766,15 +1774,16 @@ def construct_table_for_different_columns(dataframes, titles):
         # Calculate the total width of the table by summing the individual
         # column widths and accounting for spacing between columns.
         column_widths, _ = max_widths_across_dfs([df], include_index)
-        table_width = sum(column_widths.values()) + (len(column_widths) - 1)  * 3 # Space between columns
+        # *3 = Space between columns
+        table_width = sum(column_widths.values()) + (len(column_widths) - 1)  * 3 
         if include_index:
             table_width += global_index_width + 3  # Space for index column and padding
         global_max_width = max(global_max_width, table_width) 
-    
+
+    index_width, column_widths =distribute_column_widths(*dataframes)
     # Construct each table using the adjusted widths
     for i, df in enumerate(dataframes):
-        column_widths, index_width = max_widths_across_dfs([df], include_index)
-
+        #column_widths, index_width = max_widths_across_dfs([df], include_index)
         # Construct the header for the dataframe. If the index is
         # included, adjust the header accordingly.
         header_parts = []
@@ -1795,7 +1804,7 @@ def construct_table_for_different_columns(dataframes, titles):
                     header = f"{'':<{index_width + additional_space_per_column}}" + header
         
         # Adjust for the title centering
-        title = titles[i] if i < len(titles) else ""
+        title = titles[i].title() if i < len(titles) else ""
         title_str = f"{title}".center(global_max_width, " ")
         
         # Separator lines adjusted to match the total width of the table.
@@ -1926,4 +1935,203 @@ def format_iterable(attr):
     
     return str(attr)
 
-     
+def get_formatter_classes():
+    """
+    Retrieves all the formatter classes defined within the same module as this function.
+    
+    This function dynamically inspects the module it resides in to find all classes that
+    are defined as formatters. It excludes any classes that are imported from other
+    modules, ensuring only locally defined formatter classes are returned.
+
+    Returns
+    -------
+    list
+        A list of class objects that are defined in the module. These classes are all
+        expected to be formatters.
+
+    Examples
+    --------
+    >>> class DataFrameFormatter:
+    ...     pass
+    >>> class MultiFrameFormatter:
+    ...     pass
+    >>> get_formatter_classes()
+    [<class '__main__.DataFrameFormatter'>, <class '__main__.MultiFrameFormatter'>]
+
+    Notes
+    -----
+    This function uses the `inspect` module to introspect the currently executing
+    module and filters classes based on their definition location, comparing it against
+    the module name of this function itself. This is particularly useful in dynamically
+    generated or heavily modularized codebases where formatters might be defined in
+    numerous places and need to be grouped or utilized together.
+    """
+    # Dynamically retrieves all formatter classes defined in the current module
+    current_module = inspect.getmodule(get_formatter_classes)
+    return [member for _, member in inspect.getmembers(current_module, inspect.isclass)
+            if member.__module__ == current_module.__name__]
+
+def formatter_validator(instance, obj=None, attributes=None, df_indices=None,
+                        error='raise', check_only=False):
+    """
+    Validates formatter instances against specified criteria, handling different
+    types of formatter classes.
+
+    This function checks whether `instance` is of the correct formatter type,
+    optionally compares it with another `obj` formatter instance, validates
+    specific attributes, and can selectively access dataframe indices.
+
+    Parameters
+    ----------
+    instance : object
+        The formatter instance to validate. It must be an instance of a class
+        derived from the formatter classes defined in the same module as this
+        function.
+    obj : object, optional
+        Another formatter instance to compare against `instance` for type matching.
+        Default is None, which skips the comparison.
+    attributes : str or list of str, optional
+        A string or list of strings specifying attribute names to check in `instance`.
+        Default is None, which skips attribute checking.
+    df_indices : int or list of int, optional
+        Indices to access specific dataframes or elements if `instance` is a collection
+        of dataframes. Default is None, which accesses all or does not perform index-based
+        operations.
+    error : {'raise', 'warn'}, optional
+        Specifies how to handle errors: 'raise' will raise exceptions, and 'warn' will
+        issue warnings without stopping execution. Default is 'raise'.
+    check_only : bool, optional
+        If True, the function only checks for existence and types without returning
+        values or performing deeper validation. Default is False.
+
+    Raises
+    ------
+    TypeError
+        If `instance` or `obj` is not of the expected formatter type, or if `attributes`
+        contains non-string values.
+    ValueError
+        If errors need to be raised as specified by `error='raise'` and certain conditions
+        are not met (e.g., missing attributes or empty data).
+
+    Returns
+    -------
+    list or object
+        Depending on the parameters `attributes` and `df_indices`, this function
+        may return a list of attribute values from `instance`, a subset of dataframes,
+        or a single dataframe. If `check_only` is True, no values are returned.
+
+    Examples
+    --------
+    Assume that `DataFrameFormatter` and `MultiFrameFormatter` are classes within
+    the module and that instances `df_formatter` and `multi_formatter` are available:
+    
+    >>> import pandas as pd 
+    >>> from gofast.api.formatter import formatter_validator 
+    >>> from gofast.api.formatter import DataFrameFormatter, MultiFrameFormatter
+    >>> df_0 = pd.DataFrame({
+        'age': [68, 75], 
+        'name': ['Kouadio Ernest', "Agaman Bla"]
+        })
+    >>> df_1= pd.DataFrame({
+        'village': ["Niable", 75], 
+        'name': ['Kouadio Ernest', "Agaman Bla"]
+        })
+    >>> df_formatter= DataFrameFormatter()
+    >>> formatter_validator(df_formatter, error='warn')
+    None  # Performs checks and warnings but does not raise errors.
+    
+    >>> multi_formatter= MultiFrameFormatter().add_dfs (df_0, df_1)
+    >>> formatter_validator(multi_formatter, df_indices=[0, 1])
+    [df_0, df_1]  # Returns selected dataframes based on indices.
+
+    >>> formatter_validator(multi_formatter, attributes='dfs', check_only=True)
+    None  # Checks existence of 'dfs' attribute without returning its value.
+    """
+    error = error.lower()  # Normalize error handling flag
+    formatter_classes = get_formatter_classes()
+
+    if not isinstance(instance, tuple(formatter_classes)):
+        raise TypeError("Expected an instance of any formatter class;"
+                        f" got {type(instance).__name__}.")
+
+    if obj and not isinstance(obj, tuple(formatter_classes)):
+        raise TypeError("Comparison object must be a formatter class instance;"
+                        f" got {type(obj).__name__}.")
+
+    if obj and not isinstance(instance, type(obj)):
+        raise TypeError(f"Instance type mismatch: expected {type(obj).__name__},"
+                        f" got {type(instance).__name__}.")
+
+    def handle_error(message):
+        if error == 'warn':
+            warnings.warn(message)
+        elif error == 'raise':
+            raise ValueError(message)
+
+    def validate_attributes(instance, attributes):
+        missing = [attr for attr in attributes if not hasattr(instance, attr)]
+        if missing:
+            handle_error(f"{type(instance).__name__} missing attributes: {', '.join(missing)}")
+
+    if attributes:
+        attributes = [attributes] if isinstance(attributes, str) else attributes
+        if any(not isinstance(attr, str) for attr in attributes):
+            raise TypeError("All attributes should be strings.")
+        validate_attributes(instance, attributes)
+        if not check_only:
+            attribute_values = [getattr(instance, attr) for attr in attributes]
+            return attribute_values if len(attribute_values) > 1 else attribute_values[0]
+
+    # Default validation logic
+    def default_validator(formatter, indices):
+        if isinstance_(formatter, DataFrameFormatter):
+            if formatter.df is None:
+                handle_error("DataFrameFormatter instance 'df' attribute is empty.")
+            return formatter.df if not indices else formatter.df.loc[indices]
+
+        if isinstance_(formatter, MultiFrameFormatter):
+            if not formatter.dfs:
+                handle_error("MultiFrameFormatter 'dfs' attribute is empty.")
+            dfs = formatter.dfs if indices is None else [formatter.dfs[i] for i in indices]
+            return dfs[0] if len(dfs) == 1 else dfs
+
+        raise TypeError(f"Unsupported formatter type: {type(formatter).__name__}")
+
+    # If no specific object is to be compared
+    if not obj:
+        return default_validator(instance, df_indices)
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

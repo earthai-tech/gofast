@@ -4,10 +4,350 @@
 
 import re
 import warnings
+from collections.abc import Iterable
 import numpy as np 
 import pandas as pd
 from shutil import get_terminal_size
 
+def distribute_column_widths(*dfs):
+    """
+    Distributes column widths among multiple DataFrames to ensure consistency
+    in column display widths. This is based on the maximum width required by
+    any column's content across all frames, adjusted for each column uniformly
+    across the provided DataFrames.
+
+    Parameters
+    ----------
+    *dfs : unpacked tuple of pd.DataFrame
+        Multiple DataFrame objects whose column widths need to be synchronized.
+        Each DataFrame should have the same structure (same number of columns)
+        for the function to work correctly.
+
+    Returns
+    -------
+    tuple
+        A tuple containing:
+        - index_width (int): The width of the index column.
+        - adjusted_widths (dict): A dictionary with column names as keys and
+          the adjusted maximum widths as values.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> df1 = pd.DataFrame({
+    ...     'A': ['long text here', 'short'], 
+    ...     'B': [123456, 123]
+    ... })
+    >>> df2 = pd.DataFrame({
+    ...     'A': ['short', 'tiny'], 
+    ...     'B': [654321, 654321]
+    ... })
+    >>> index_width, adjusted_column_widths = distribute_column_widths(df1, df2)
+    >>> adjusted_column_widths
+    {'A': 14, 'B': 6}  # Assuming the implementation of get_column_widths_in 
+    and related functions correctly calculates widths.
+
+    Notes
+    -----
+    This function assumes that all input DataFrames should have the same number
+    of columns, and it adjusts the widths based on the maximum content width 
+    found in any of the DataFrames for each column. This is particularly useful
+    when preparing DataFrames for a consistent visual display in reports or 
+    across UI elements where column width uniformity is crucial.
+    """
+
+    index_width, column_widths = get_column_widths_in(*dfs, include_index=True)
+    block_columns = _assemble_column_blocks(dfs)
+
+    if block_columns is None:
+        # Return original widths if column lengths mismatch
+        return index_width, column_widths  
+
+    max_widths = _compute_maximum_widths(block_columns, column_widths)
+    adjusted_widths = _apply_maximum_widths(max_widths, block_columns)
+
+    return index_width, adjusted_widths
+
+def _assemble_column_blocks(dfs):
+    """Compile columns from all dataframes into a structured array for 
+    uniform processing."""
+    if any(len(df.columns) != len(dfs[0].columns) for df in dfs):
+        return None
+    return np.array([df.columns.tolist() for df in dfs], dtype=object)
+
+def _compute_maximum_widths(block_columns, column_widths):
+    """Calculate the maximum width for each column block across all
+    dataframes."""
+    if block_columns is None:
+        return []
+    max_widths = []
+    for columns in block_columns.T:  # Transpose to iterate column-wise
+        widths = [column_widths.get(col, 0) for col in columns]
+        max_widths.append(max(widths))
+    return max_widths
+
+def _apply_maximum_widths(max_widths, block_columns):
+    """Apply the maximum widths back to the original column names."""
+    updated_widths = {}
+    for width, columns in zip(max_widths, block_columns.T):
+        for col in columns:
+            updated_widths[col] = width
+    return updated_widths
+
+def check_dataframe_columns(*dfs, error='raise', return_dfs=False):
+    """
+    Checks whether all provided dataframes have identical columns.
+
+    This function validates that each input is a pandas DataFrame and 
+    checks if all DataFrames have the same column names. It handles errors 
+    according to the specified error mode and optionally returns the list of 
+    valid DataFrames.
+
+    Parameters
+    ----------
+    *dfs : unpacked tuple of pd.DataFrame
+        Variable number of pandas DataFrame objects to be checked for column 
+        consistency.
+    error : str, optional
+        Error handling mode: 'raise' to raise a TypeError when a non-DataFrame
+        is passed or 'warn' to issue a warning and exclude the invalid item from
+        checks. Default is 'raise'.
+    return_dfs : bool, optional
+        If True, returns a tuple containing a boolean indicating column 
+        consistency and  a list of valid DataFrames. If False, returns only 
+        the boolean. Default is False.
+
+    Returns
+    -------
+    bool or tuple
+        If `return_dfs` is False, returns True if all DataFrames have the same 
+        columns, otherwise False.
+        If `return_dfs` is True, returns a tuple containing the above boolean
+        and the list of valid DataFrames.
+
+    Raises
+    ------
+    TypeError
+        If any input is not a DataFrame and `error` is set to 'raise'.
+
+    Examples
+    --------
+    >>> df1 = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
+    >>> df2 = pd.DataFrame({'A': [5, 6], 'B': [7, 8]})
+    >>> df3 = pd.DataFrame({'A': [9, 10], 'C': [11, 12]})
+    >>> check_dataframe_columns(df1, df2, error='raise')
+    True
+    >>> check_dataframe_columns(df1, df2, df3, error='warn')
+    False
+    >>> check_dataframe_columns(df1, df2, "not a dataframe", error='warn',
+                                return_dfs=True)
+    (True, [df1, df2])
+    """
+    valid_dfs = []
+    for df in dfs:
+        if not isinstance(df, pd.DataFrame):
+            message = f"Expected a DataFrame, but got {type(df).__name__}."
+            if error == 'raise':
+                raise TypeError(message)
+            elif error == 'warn':
+                warnings.warn(message)
+                continue
+        valid_dfs.append(df)
+
+    if not valid_dfs:
+        return (False, []) if return_dfs else False
+
+    # Check if all dataframes have the same columns
+    first_df_columns = valid_dfs[0].columns
+    all_match = all(df.columns.equals(first_df_columns) for df in valid_dfs)
+    return (all_match, valid_dfs) if return_dfs else all_match
+
+def find_max_widths(listofdicts):
+    """
+    Finds the maximum value for each key across a list of dictionaries,
+    handling keys that are not present in every dictionary and varying value
+    types (iterable or non-iterable).
+
+    Parameters
+    ----------
+    listofdicts : list of dict
+        A list containing dictionaries which may or may not have the same keys.
+
+    Returns
+    -------
+    dict
+        A dictionary with keys from all dictionaries and their maximum values.
+        If the value for a key is an iterable, the maximum count of elements 
+        in the iterable across all dictionaries is used. If the value is 
+        non-iterable, the maximum value is used.
+
+    Examples
+    --------
+    >>> C = [
+    ...     {'location_id': 11, 'location_name': 'Name1', 'dates': [2022, 2023]},
+    ...     {'location_id': 12, 'location_name': 'Name2', 'dates': [2021, 2022, 2023, 2024]}
+    ... ]
+    >>> find_max_widths(C)
+    {'location_id': 12, 'location_name': 5, 'dates': 4}
+    >>> C = [
+    ...     {'location_id': 11, 'location_name': 24, 'date': 19, 
+             'total_capacity': 18, 'current_volume': 18, 'rainfall': 20, 
+             'evaporation': 21, 'inflow': 19, 'outflow': 20, 'usage': 20, 
+             'percentage_full': 18},
+    ...     {'location_id': 11, 'location_name': 24, 'date': 19, 
+             'total_capacity': 89, 'current_volume': 12, 'rainfall': 89, 
+             'evaporation': 22, 'inflow': 7, 'outflow': 11, 'usage': 20, 
+             'percentage_full': 16}
+    ... ]
+    >>> find_max_widths(C)
+    {'location_id': 11, 'location_name': 24, 'date': 19, 'total_capacity': 89,
+     'current_volume': 18, 'rainfall': 89, 'evaporation': 22, 'inflow': 19, 
+     'outflow': 20, 'usage': 20, 'percentage_full': 18}
+    """
+    max_dict = {}
+    for d in listofdicts:
+        for key, value in d.items():
+            # Determine if the value is iterable
+            if isinstance(value, Iterable):
+                count = len(value)
+            else:
+                count = value
+
+            if key in max_dict:
+                max_dict[key] = max(max_dict[key], count)
+            else:
+                max_dict[key] = count
+
+    return max_dict
+
+def _consolidate_column_widths(columns_widths, all_columns_match):
+    """Helper function to consolidate column widths."""
+    consolidated_widths = {}
+    if all_columns_match:
+        # consolidated_widths= find_max_widths(columns_widths) # faster 
+        for cw in columns_widths:
+            for col, width in cw.items():
+                consolidated_widths[col] = max(consolidated_widths.get(col, 0), width)
+    else:
+        # Flatten all widths and get max for each column regardless of dataframe alignment
+        for cw in columns_widths:
+            for col, width in cw.items():
+                consolidated_widths[col] = max(consolidated_widths.get(col, 0), width)
+    return consolidated_widths
+
+def _filter_columns_by_list(consolidated_widths, columns, error):
+    """Filter consolidated column widths by a specific list of column names."""
+    if isinstance(columns, str):
+        columns = [columns]
+    filtered_widths = {}
+    missing_columns = []
+    for col in columns:
+        if col in consolidated_widths:
+            filtered_widths[col] = consolidated_widths[col]
+        else:
+            missing_columns.append(col)
+
+    if missing_columns:
+        message = f"Columns {', '.join(missing_columns)} not found in DataFrames."
+        if error == 'raise':
+            raise ValueError(message)
+        elif error == 'warn':
+            warnings.warn(message + " Skipping these columns.")
+    return filtered_widths
+
+def get_column_widths_in(
+    *dfs, max_text_length=50, 
+    include_index=False,
+    columns=None, error='raise', 
+    return_widths_only=False, 
+    insert_ellipsis=False 
+    ):
+    """
+    Calculates the maximum column widths from multiple pandas DataFrames,
+    optionally filtering by specified columns and including the maximum index
+    width.
+
+    Parameters
+    ----------
+    *dfs : unpacked tuple of pd.DataFrame
+        Variable number of DataFrame objects to analyze. Each DataFrame
+        should have a consistent structure if `all_columns_match` is assumed.
+    max_text_length : int, optional
+        Maximum length of text to consider for each column width. Defaults
+        to 50.
+    include_index : bool, optional
+        Whether to include the maximum width of the DataFrame index in the
+        returned values. Defaults to False.
+    columns : list of str or str, optional
+        Specific columns to include in the width calculation. If None, all
+        columns are considered. Defaults to None.
+    error : {'raise', 'warn'}, optional
+        Error handling strategy when a specified column is not found:
+        'raise' to throw a ValueError, 'warn' to issue a warning and exclude
+        the column from the results. Defaults to 'raise'.
+    return_widths_only : bool, optional
+        Determines the format of the returned data. If True, only the widths
+        are returned. If False and `include_index` is True, the maximum index
+        width is included as the first element in the returned list.
+        Defaults to False.
+    insert_ellispsis: bool, 
+       Insert ellipsis columns for a temporary columns construction. 
+       If ``True``, ellipsis is inserted with its value set to 3. 
+    Returns
+    -------
+    list or dict
+        If `return_widths_only` is False and `include_index` is True, returns
+        a list starting with the maximum index width followed by the widths of
+        the specified columns. Otherwise, returns a dictionary of column
+        widths or a list of widths, depending on `columns`.
+
+    Raises
+    ------
+    ValueError
+        If `error` is set to 'raise' and any specified column is not found in
+        all provided DataFrames.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.api.util import get_column_widths_in
+    >>> df1 = pd.DataFrame({'A': [1, 2], 'B': ['x', 'y']})
+    >>> df2 = pd.DataFrame({'A': [3, 4], 'B': ['w', 'z']})
+    >>> get_column_widths_in(df1, df2, max_text_length=10, include_index=True,
+    ...                      columns=['A'], error='raise', return_widths_only=True)
+    [1, 1]  
+    """
+    # Check if all dataframes have the same columns
+    all_columns_match = check_dataframe_columns(*dfs, error=error)
+
+    # Calculate widths for each DataFrame
+    columns_widths = []
+    max_index_length = 0
+    for df in dfs:
+        cw, idx_length = calculate_widths(df, max_text_length=max_text_length)
+        columns_widths.append(cw)
+        max_index_length = max(max_index_length, idx_length)
+    # Consolidate column widths
+    consolidated_widths = _consolidate_column_widths(
+        columns_widths, all_columns_match)
+
+    # Filter by specified columns, if applicable
+    if columns:
+        consolidated_widths = _filter_columns_by_list(
+            consolidated_widths, columns, error)
+
+    if return_widths_only:
+        consolidated_widths = list(consolidated_widths.values())
+     
+    if insert_ellipsis: 
+        # Fake ellipsis columns for dataframe construction
+        consolidated_widths["..."]=3 
+    # Include index width if requested
+    if include_index:
+        return ( [max_index_length] + consolidated_widths ) if  isinstance (
+            consolidated_widths, list) else (max_index_length, consolidated_widths)
+
+    return consolidated_widths
 
 def get_display_dimensions(
     *dfs, index=True, 
@@ -179,7 +519,6 @@ def insert_ellipsis_to_df(sub_df, full_df=None, include_index=True):
     full_data = pd.concat([df]*3)  # Simulate a larger DataFrame
     example_df = insert_ellipsis_to_df(df, full_df=full_data)
     print(example_df)
-    
     ``` 
     
     """
@@ -207,8 +546,6 @@ def insert_ellipsis_to_df(sub_df, full_df=None, include_index=True):
         modified_df.index = new_index
 
     return modified_df
-
-
 
 def get_dataframe_subset(df, indices=None, columns=None):
     """
@@ -247,7 +584,9 @@ def flex_df_formatter(
     sub_line='-', 
     table_width='auto',
     output_format='string', 
-    style="auto"
+    style="auto", 
+    column_widths=None,
+    max_index_length=None,
     ):
     """
     Formats and prints a DataFrame with dynamic sizing options, custom number 
@@ -293,7 +632,22 @@ def flex_df_formatter(
     output_format : str, optional
         The format of the output. Supports 'string' for plain text output or 
         'html' for HTML formatted output.
-
+    column_widths : [dict of col, int ] or list of int or None, optional
+        Specifies the widths for each column within the DataFrame. This list 
+        should correspond to the actual columns in the DataFrame and can 
+        include the index width at the beginning if `index` is set to True. 
+        If `None`, the widths are automatically calculated by the 
+        `calculate_column_widths` function based on the content of the
+        DataFrame and a specified maximum text length, ensuring optimal 
+        formatting for display or printing.
+    max_index_length : int or None, optional
+        The maximum width allocated for formatting the index of the DataFrame.
+        If `None`, the width is automatically calculated based on the contents
+        of the index, ensuring that the index is visually consistent and 
+        properly aligned with the data columns. This automatic calculation is 
+        designed to adapt to the varying lengths of index entries, providing a 
+        dynamically adjusted display that optimally uses available space.
+        
     Returns
     -------
     str
@@ -360,17 +714,20 @@ def flex_df_formatter(
             float_format=lambda x: float_format.format(x) if isinstance(
                 x, (float, np.float64)) else x
     )
-
+        
     style= select_df_styles(style, df )
     if style =='advanced': 
         formatted_output = df_advanced_style(
-            formatted_df, table_width, 
+            formatted_df, 
+            table_width, 
             title= title,
             index= index, 
             header= header, 
             header_line= header_line, 
             sub_line=sub_line, 
-            df=df, 
+            df=df,
+            column_widths=column_widths, 
+            max_index_length= max_index_length, 
           )
     else: 
         formatted_output=df_base_style(
@@ -508,7 +865,6 @@ def is_dataframe_long(
     or data aggregations, should be applied.
     """
     df = validate_data(df )
-    
     rows, columns = df.shape  
     
     # Get terminal size
@@ -641,11 +997,14 @@ def make_format_df(subset_df, whitespace_sub="%g%o#f#", apply_to_column=False):
 def df_advanced_style(
     formatted_df, 
     table_width="auto", 
-    index=True, header=True,
+    index=True, 
+    header=True,
     title=None, 
     header_line="=", 
     sub_line="-", 
-    df=None, 
+    df=None,
+    column_widths=None, 
+    max_index_length=None, 
     ):
     """
     Applies advanced styling to a DataFrame string by formatting it with 
@@ -674,6 +1033,22 @@ def df_advanced_style(
         A pandas DataFrame from which column widths can be calculated directly, 
         used as a fallback if complex column names are detected in the 
         'lines' input.
+    column_widths : [dict of col, int ] or list of int or None, optional
+        Specifies the widths for each column within the DataFrame. This list 
+        should correspond to the actual columns in the DataFrame and can 
+        include the index width at the beginning if `index` is set to True. 
+        If `None`, the widths are automatically calculated by the 
+        `calculate_column_widths` function based on the content of the
+        DataFrame and a specified maximum text length, ensuring optimal 
+        formatting for display or printing.
+    max_index_length : int or None, optional
+        The maximum width allocated for formatting the index of the DataFrame.
+        If `None`, the width is automatically calculated based on the contents
+        of the index, ensuring that the index is visually consistent and 
+        properly aligned with the data columns. This automatic calculation is 
+        designed to adapt to the varying lengths of index entries, providing a 
+        dynamically adjusted display that optimally uses available space.
+
     Returns
     -------
     str
@@ -691,21 +1066,45 @@ def df_advanced_style(
      1  |     4  5  6
      ===================
     """
-
+    # Split the formatted DataFrame string into individual lines.
     lines = formatted_df.split('\n')
     new_lines = []
-
-    max_index_length, *column_widths = calculate_column_widths(
-        lines, include_index= index, include_column_width= True,
-        df = df, max_text_length= 50 )
-    # max_index_length = max(len(line.split()[0]) for line in lines[1:]) + 3  
+    
+    # Calculate the automatic widths for the index and columns based on the content,
+    # specifying the DataFrame, and limiting text length to 50 characters.
+    auto_max_index_length, *auto_column_widths = calculate_column_widths(
+        lines, include_index=index, include_column_width=True,
+        df=df, max_text_length=50
+    )
+    # If explicit column widths are provided, use them.
+    if column_widths:
+        # Extract headers from the first line (assumes they are space-separated).
+        headers = lines[0].split()
+        
+        # Modify the column names to include '%%' which helps to distinguish between
+        # similar names that differ only in spacing when parsing widths.
+        column_widths = {col.replace(' ', '%%'): val for col, val in column_widths.items()}
+    
+        # Filter the provided column widths to include only those that match the headers.
+        # This prevents applying widths for columns that aren't present in the headers.
+        column_widths = [column_widths[col] for col in headers if col in column_widths]
+    
+    # If no column widths are provided, fall back to automatically calculated widths.
+    if column_widths is None:
+        column_widths = auto_column_widths
+    
+    # If no maximum index length is provided, use the automatically determined length.
+    if max_index_length is None:
+        max_index_length = auto_max_index_length
+    
     max_index_length +=3  # for extra spaces 
     for i, line in enumerate(lines):
         if i == 0 and header:  # Adjust header line to include vertical bar
             header_parts = line.split()
             header_line_formatted = " " * max_index_length + "  ".join(
                 header_part.rjust(
-                    column_widths[idx]) for idx, header_part in enumerate(header_parts))
+                    column_widths[idx]) for idx, header_part in enumerate(header_parts)
+                )
             new_lines.append( " " + header_line_formatted)
             continue 
         elif i == 1 and header:  # Insert sub-line after headers
@@ -718,7 +1117,8 @@ def df_advanced_style(
             index_part, data_part = parts
             data_part.split()
             formatted_data_part = "  ".join(
-                data.rjust(column_widths[idx]) for idx, data in enumerate(data_part.split()))
+                data.rjust(column_widths[idx]) for idx, data in enumerate(data_part.split())
+                )
             new_line = f"{index_part.ljust(max_index_length - 2)} | {formatted_data_part}"
 
         else:
@@ -1337,23 +1737,52 @@ def format_cell(x, max_text_length, max_width =None ):
         x = x[:max_text_length - 3] + '...'
     return x.rjust(max_width) if max_width else x 
 
-def calculate_widths(df, max_text_length):
+def calculate_widths(df, max_text_length=50):
     """
-    Calculates the maximum widths for each column based on the content.
+    Calculates the maximum widths for each column in a DataFrame based on the 
+    content, with a cap on the maximum text length for any cell.
 
-    Parameters:
-    df (pandas.DataFrame): The DataFrame to calculate widths for.
-    max_text_length (int): The maximum allowed length for any cell content.
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame for which to calculate column widths.
+    max_text_length : int, optional 
+        The maximum allowed length for any cell content. If the content exceeds 
+        this length, it will be truncated. Default is 50 
 
-    Returns:
-    tuple: A dictionary with maximum column widths and the maximum width of the index.
+    Returns
+    -------
+    tuple
+        A tuple containing two elements:
+        - A dictionary with column names as keys and their calculated maximum
+          widths as values.
+        - The maximum width of the index column.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.api.util import calculate_widths
+    >>> df = pd.DataFrame({
+    ...     'usage': [12345, 123],
+    ...     'time': ['long text here that will be cut', 'short']
+    ... })
+    >>> calculate_widths(df['usage'].to_frame(), 50)
+    ({'usage': 5}, 3)
+    
+    The example shows how to call `calculate_widths` on a DataFrame created 
+    from a series and specifies a maximum text length of 50 characters. The 
+    output indicates the maximum width required for the 'usage' column and 
+    the index.
     """
-    formatted_cells = df.applymap(lambda x: str(x)[:max_text_length] + '...' if len(
-        str(x)) > max_text_length else str(x))
+
+    formatted_cells = df.applymap(lambda x: str(format_value(x))
+                                  [:max_text_length] + '...' if len(
+        str(x)) > max_text_length else str(format_value(x)))
     max_col_widths = {col: max(len(col), max(len(x) for x in formatted_cells[col]))
                       for col in df.columns}
     max_index_width = max(len(str(index)) for index in df.index)
-    max_col_widths = {col: min(width, max_text_length) for col, width in max_col_widths.items()}
+    max_col_widths = {col: min(width, max_text_length) 
+                      for col, width in max_col_widths.items()}
     return max_col_widths, max_index_width
 
 def format_df(df, max_text_length=50, title=None):
