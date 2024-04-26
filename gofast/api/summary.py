@@ -11,6 +11,7 @@ from .extension import RegexMap, isinstance_, fetch_estimator_name
 from .formatter import MultiFrameFormatter, DataFrameFormatter, DescriptionFormatter 
 from .box import KeyBox 
 from .structures import FlexDict
+from .util import GOFAST_ESCAPE 
 from .util import format_value, df_to_custom_dict, format_text  
 from .util import find_maximum_table_width, format_df, format_correlations
 
@@ -979,29 +980,32 @@ def summary(
         df = df.select_dtypes(include=[np.number])
     
     infos = {#π' is used for frame formatter
-        "Dataπ'Types": df.dtypes.to_dict(), 
-        "Missingπ'Values": df.isnull().sum().to_dict(),
-        "Byteπ'Size": {col: df[col].nbytes if df[col].dtype != 'O' 
+        "Data Types": df.dtypes.to_dict(), 
+        "Missing Values": df.isnull().sum().to_dict(),
+        "Byte Size": {col: df[col].nbytes if df[col].dtype != 'O' 
                       else "<N/A>" for col in df.columns}, 
-        "Uniqueπ'Counts": {col: df[col].nunique() for col in df.columns}
+        "Unique Counts": {col: df[col].nunique() for col in df.columns}
     }
-    df_infos = pd.DataFrame(infos.values(), index=infos.keys())
+    df_infos = pd.DataFrame(infos.values(), index=[
+       ind.replace (' ', GOFAST_ESCAPE) for ind in infos.keys()])
     dfs.append(df_infos)
-    
+
     titles.append("Basic Statistics")
     df_descr = df.describe(include='all' if not numeric_only else None)
     dfs.append(df_descr)
-    
+
     if include_correlation: 
         if numeric_only is False: 
             df = _encode_categorical_data(df)
         df_corr = df.corr()
+        df_corr.index = [ index.replace (" ", "π") for index in df_corr.index]
         titles.extend(["Correlation Matrix"])
         dfs.append(df_corr)
-    
+        
     summary = MultiFrameFormatter(
         titles=titles, max_rows ="auto", max_cols ="auto")
     summary.add_dfs(*dfs)
+    
     print(summary)
 
 def ensure_list_with_defaults(input_value, target_length, default=None):

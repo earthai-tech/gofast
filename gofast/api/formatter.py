@@ -189,7 +189,6 @@ class MultiFrameFormatter (metaclass=MetaLen):
             # construct fake dfs for better aligment. 
             dfs = make_fake_dfs(
                 self.dfs, max_rows= self.max_rows, max_cols= self.max_cols)
-            print("yesssssssssssssssssssssss")
             # return construct_long_dataframes_with_different_columns(
             #     self.dfs, titles = self.titles,
             #     max_cols = 7, max_rows= 11, style = self.style, 
@@ -658,7 +657,7 @@ class DataFrameFormatter(metaclass=MetaLen):
         rows, cols = self.df.shape 
         if is_dataframe_long(self.df, max_rows= "auto", max_cols = "auto" ) : 
             return flex_df_formatter(
-                self.df, title = self.title,max_rows= 11 , max_cols = 7 , 
+                self.df, title = self.title, max_rows= 11 , max_cols = 7 , 
                 table_width= "auto", style=self.style
             )
         return self._formatted_dataframe()
@@ -1609,6 +1608,7 @@ def construct_long_dataframes_with_same_columns (
         *dataframes, include_index= True , #return_widths_only=True
         insert_ellipsis= True
         )
+
     for i, df in enumerate(dataframes):
         # contruct flex dataframe  
          # Set the title for the current table if provided
@@ -1661,50 +1661,20 @@ def remove_header_lines(data_str, title=None ):
     
     return rest_lines 
 
-# XXX TODO DELETE: use faker instead 
-def construct_long_dataframes_with_different_columns (
-    dataframes, titles =None, max_cols=7, max_rows = 100, 
-    style="base", **kwargs): 
-    
-    default_tiles  = [''] * len(titles) if titles  else [] * len(dataframes)
-    if titles: 
-        titles = titles + default_tiles 
-    else: titles = default_tiles 
-    
-    titles = [ title.title() for title in titles ]
-    max_rows, max_cols =get_display_dimensions(
-        *dataframes, max_rows=max_rows, max_cols= max_cols 
-        ) 
-    # extract and trucate df then insert ellipsis to create pseudodf 
-    # for visualization 
-    extracted_dfs= [extract_truncate_df(
-        df, max_cols=max_cols, max_rows=max_rows ) for df in dataframes ]
-    dfs = [ insert_ellipsis_to_df(edf, fdf) for edf, fdf in zip (
-        extracted_dfs, dataframes)]
-    
-    tables_str = [ flex_df_formatter(
-        df, title=title, max_rows=max_rows, max_cols=max_cols, 
-          index= True, style= style, **kwargs)
-        for df, title in zip ( dfs, titles) 
-        ] 
-    
-    return "\n".join( tables_str)
 
 def make_fake_dfs(dataframes, max_rows = 11, max_cols = 7 ) : 
     # fake dfs contains ellipsis which  is not meaninfull. Just use for 
-    # well visualisation. can not be retrieved. 
+    # frame visualisation and not available for retrieved as attribute. 
     
     max_rows, max_cols =get_display_dimensions(
        *dataframes, max_rows=max_rows, max_cols= max_cols 
        ) 
     # extract and truNcate df then insert ellipsis to create pseudodf 
     # for visualization 
-    print("maxrows, maxcols", max_rows, max_cols)
     extracted_dfs= [extract_truncate_df(
         df, max_cols=max_cols, max_rows=max_rows ) for df in dataframes ]
     dfs = [ insert_ellipsis_to_df(edf, fdf) for edf, fdf in zip (
         extracted_dfs, dataframes)]
-    print( [list(df.columns) for df in dfs])
     return dfs 
 
 def construct_table_for_different_columns(dataframes, titles):
@@ -1769,22 +1739,31 @@ def construct_table_for_different_columns(dataframes, titles):
     
     tables_str = ""
     global_max_width = 0  # Track the maximum table width for alignment
-    
     # Calculate individual table widths and adjust global_max_width
     # column widths and accounting for spacing between columns.
+    # for df in dataframes:
+    #     # Calculate the total width of the table by summing the individual
+    #     # column widths and accounting for spacing between columns.
+    #     column_widths, _ = max_widths_across_dfs([df], include_index)
+    #     # *3 = Space between columns
+    #     table_width = sum(column_widths.values()) + (len(column_widths) - 1)  * 2 
+    #     if include_index:
+    #         table_width += global_index_width  + 2  # Space for index column and padding
+    #     global_max_width = max(global_max_width, table_width) 
+
+    index_width, column_widths =distribute_column_widths(*dataframes)
+    # global_max_width = 0  # Track the maximum table width for alignment
     for df in dataframes:
         # Calculate the total width of the table by summing the individual
         # column widths and accounting for spacing between columns.
-        column_widths, _ = max_widths_across_dfs([df], include_index)
+        # column_widths, _ = max_widths_across_dfs([df], include_index)
         # *3 = Space between columns
-        table_width = sum(column_widths.values()) + (len(column_widths) - 1)  * 3 
+        table_width = sum ( column_widths[col] for col in df.columns) + (
+            len(df.columns) - 1)  * 2 
         if include_index:
-            table_width += global_index_width + 3  # Space for index column and padding
+            table_width += index_width  + 2  # Space for index column and padding
         global_max_width = max(global_max_width, table_width) 
-
-    index_width, column_widths =distribute_column_widths(*dataframes)
-    # Construct each table using the adjusted widths
-    
+        
     for i, df in enumerate(dataframes):
         #column_widths, index_width = max_widths_across_dfs([df], include_index)
         # Construct the header for the dataframe. If the index is

@@ -57,6 +57,51 @@ UTM_DESIGNATOR ={
     'Z':[-80,84]
 }
     
+
+class GofastConfig:
+    def __init__(self):
+        # Initialize the whitespace escape character, setting it as a private attribute
+        self._whitespace_escape = "π"
+
+    @property
+    def WHITESPACE_ESCAPE(self):
+        """
+        Gets the whitespace escape character used in the Gofast package for DataFrame
+        and API formatting where column names, index names, or values contain whitespaces.
+
+        Returns
+        -------
+        str
+            The character used to escape whitespace in the Gofast package.
+        
+        Examples
+        --------
+        >>> config = GofastConfig()
+        >>> print(config.WHITESPACE_ESCAPE)
+        π
+
+        Notes
+        -----
+        This property is read-only to prevent changes that could disrupt the
+        functionality of the Gofast API frame formatter across all modules.
+        """
+        return self._whitespace_escape
+
+    @WHITESPACE_ESCAPE.setter
+    def WHITESPACE_ESCAPE(self, value):
+        """
+        Attempt to set the WHITESPACE_ESCAPE property will raise an error.
+        
+        Raises
+        ------
+        AttributeError
+            If there's an attempt to modify the whitespace escape character.
+        """
+        raise AttributeError(
+            "Modification of WHITESPACE_ESCAPE is not allowed as"
+            " it may affect the Gofast API frame formatter across all modules.")
+
+
 class BasePlot(ABC): 
     r""" Base class  deals with Machine learning and conventional Plots. 
     
