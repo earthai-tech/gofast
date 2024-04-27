@@ -1385,8 +1385,6 @@ def plot_sankey(
     source_indices = data[source_col].apply(label_list.index).tolist()
     target_indices = data[target_col].apply(label_list.index).tolist()
 
-    
-
     # Create the Sankey diagram
     fig = go.Figure(data=[go.Sankey(
         node=dict(

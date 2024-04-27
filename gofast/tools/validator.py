@@ -1798,7 +1798,6 @@ def check_is_fitted2(estimator, attributes, *, msg=None):
 
         raise NotFittedError(msg)
 
-
 def assert_xy_in (
     x, 
     y, *, 

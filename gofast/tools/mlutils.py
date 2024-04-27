@@ -51,7 +51,7 @@ from .coreutils import is_classification_task, to_numeric_dtypes, fancy_printer
 from .coreutils import validate_feature, download_progress_hook, exist_features
 from .coreutils import contains_delimiter 
 from .funcutils import ensure_pkg
-from .validator import _is_numeric_dtype,  _is_arraylike_1d 
+from .validator import _is_numeric_dtype, _is_arraylike_1d 
 from .validator import get_estimator_name, check_array, check_consistent_length
 from .validator import is_frame, build_data_if, check_is_fitted
 from .validator import check_mixed_data_types, validate_data_types   
@@ -146,15 +146,21 @@ def one_click_preprocess(
     Examples
     --------
     >>> import pandas as pd
-    >>> from numpy import nan
+    >>> import numpy as np 
+    >>> from gofast.tools import one_click_preprocess
     >>> data = pd.DataFrame({
-    ...     'Age': [25, nan, 37, 59],
-    ...     'City': ['New York', 'Paris', 'Berlin', nan],
-    ...     'Income': [58000, 67000, nan, 120000]
+    ...     'Age': [25, np.nan, 37, 59],
+    ...     'City': ['New York', 'Paris', 'Berlin', np.nan],
+    ...     'Income': [58000, 67000, np.nan, 120000]
     ... })
     >>> processed_data = one_click_preprocess(
     ...     data, seed=42)
     >>> processed_data.head()
+            Age    Income  City_Berlin  City_New York  City_Paris  City_missing
+    0 -1.180971 -0.815478            0              1           0             0
+    1 -0.203616 -0.448513            0              0           1             0
+    2 -0.203616 -0.448513            1              0           0             0
+    3  1.588203  1.712504            0              0           0             1
 
     After preprocessing, the 'Age' and 'Income' columns will be scaled,
     the 'City' column will be one-hot encoded, and missing values in
@@ -425,7 +431,7 @@ def codify_variables (
     df = build_data_if(data, to_frame=True, force=True, input_name='col',
                        raise_warning='silence')
 
-    # Convert columns to numeric dtypes if possible
+    # Recheck and convert data to numeric dtypes if possible
     df = to_numeric_dtypes(df)
 
     # Ensure columns are iterable and parse them if necessary
@@ -476,7 +482,7 @@ def codify_variables (
     # Ensure categories is a dictionary
     if not isinstance(categories, dict):
         raise TypeError("Expected a dictionary with the format"
-                        f" {'column name': 'labels'} to categorize data.")
+                        " {'column name': 'labels'} to categorize data.")
 
     # Map categories for each column and adjust DataFrame accordingly
     for col, values in categories.items():

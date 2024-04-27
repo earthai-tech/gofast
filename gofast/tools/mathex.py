@@ -27,6 +27,7 @@ from ..api.docstring import refglossary
 from ..api.types import _T, _F,_SP, List, Tuple, Union
 from ..api.types import ArrayLike, NDArray, DType, Optional
 from ..api.types import Series, DataFrame,  Dict
+from ..compat.scipy import check_scipy_interpolate
 from ..decorators import AppendDocReferences
 from ..exceptions import SiteError
 from ._arraytools import axis_slice
@@ -43,7 +44,6 @@ from .validator import assert_xy_in, build_data_if
 
 try: import scipy.stats as spstats
 except: pass 
-from ..compat.scipy import check_scipy_interpolate
 _logger =gofastlog.get_gofast_logger(__name__)
 
 mu0 = 4 * np.pi * 1e-7 
@@ -4062,7 +4062,6 @@ def quality_control2(
         )
     return data
  
-
 def quality_control(
     data, /, 
     missing_threshold=0.05, 
@@ -4088,8 +4087,6 @@ def quality_control(
     For other checks like value ranges, unique value columns, and 
     string patterns, appropriate cleaning steps would depend heavily on the 
     context and requirements of the specific dataset. 
-    
-
     
     Parameters
     ----------
@@ -4986,7 +4983,6 @@ def soft_bin_stat(
         total_count = data[target_column].count()
         proportion = grouped_data.sum() / total_count
         result = proportion.reset_index(name=f'Proportion_{target_column}')
-
 
     return result
 

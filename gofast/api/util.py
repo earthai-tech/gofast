@@ -13,7 +13,6 @@ from .property import GofastConfig
 # Attempting to modify the property will raise an error
 GOFAST_ESCAPE= GofastConfig().WHITESPACE_ESCAPE 
 
-
 def escape_dataframe_elements(
     df, /, 
     escape_columns=True, 
@@ -656,6 +655,9 @@ def extract_truncate_df(df, include_truncate=False, max_rows=100, max_cols=7,
         name_indexes = truncated_df.index.tolist() 
         truncated_df.reset_index (drop=True, inplace =True)
     columns = truncated_df.columns.tolist() 
+    
+    max_rows, max_cols = find_best_display_params2(df)(
+        max_rows=max_rows, max_cols=max_rows)
     
     df_string= truncated_df.to_string(
         index =True, header=True, max_rows=max_rows, max_cols=max_cols )
@@ -1866,7 +1868,8 @@ def auto_adjust_dataframe_display(df, header=True, index=True, sample_size=100):
     index_width = max(len(str(idx)) for idx in df.index) if index else 0
 
     # Calculate the available width for data columns
-    available_width = screen_width - index_width - 3  # Adjust for spacing between columns
+    # Adjust for spacing between columns
+    available_width = screen_width - index_width - 3  
 
     # Estimate the number of columns that can fit
     max_cols = available_width // avg_entry_width
@@ -1875,7 +1878,8 @@ def auto_adjust_dataframe_display(df, header=True, index=True, sample_size=100):
     header_height = 1 if header else 0
     
     # Calculate the number of rows that can fit
-    max_rows = screen_height - header_height - 3  # Subtract for header and to avoid clutter
+    # Subtract for header and to avoid clutter
+    max_rows = screen_height - header_height - 3  
 
     # Ensure max_cols does not exceed number of DataFrame columns
     max_cols = min(max_cols, len(df.columns))
@@ -2412,7 +2416,7 @@ def format_df(
     df, 
     max_text_length=50, 
     title=None, 
-    autofit=False
+    autofit=False, 
     ):
     """
     Formats a pandas DataFrame for pretty-printing in a console or
@@ -2495,7 +2499,7 @@ def format_df(
         # dynamically based on content and available space.
         # Here, the function extract_truncate_df limits the display to 11 rows
         # and 7 columns for larger data sets to fit the console or output window.
-        df_escaped = extract_truncate_df(df, max_rows=11, max_cols=7)
+        df_escaped = extract_truncate_df(df, max_rows="auto", max_cols="auto")
         # insert_ellipsis_to_df might add visual cues (ellipsis) to indicate truncated parts.
         df = insert_ellipsis_to_df(df_escaped, df) 
 

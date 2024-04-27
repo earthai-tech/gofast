@@ -33,7 +33,7 @@ from .coreutils import to_numeric_dtypes, assert_ratio, exist_features
 from .coreutils import normalize_string
 from .funcutils import ensure_pkg
 from .validator import  build_data_if, is_frame, parameter_validator  
-from .validator import check_consistent_length
+from .validator import _is_numeric_dtype, check_consistent_length 
 
 def summarize_text_columns(
     data: DataFrame, /, 
@@ -4064,7 +4064,8 @@ def analyze_data_corr(
     high_corr: float=0.8, 
     interpret: bool =False, 
     hide_diag: bool =True,
-    no_corr_placeholder: str='...', 
+    no_corr_placeholder: str='...',  
+    autofit: bool=True, 
     view: bool = False,
     cmap: str = 'viridis', 
     fig_size: Tuple[int, int] = (8, 8)
@@ -4115,6 +4116,12 @@ def analyze_data_corr(
         Default is True.
     no_corr_placeholder : str, optional
         Text to display for correlation values below `min_corr`. Default is '...'.
+    autofit : bool, optional
+        If True, adjusts the column widths and the number of visible rows
+        based on the DataFrame's content and available display size. 
+        When `autofit` is ``True``,`no_corr_placeholder` 
+        takes the empty value for non-correlated items.  
+        Default is True. 
     view : bool, optional
         If True, displays a heatmap of the correlation matrix using matplotlib and
         seaborn. Default is False.
@@ -4207,7 +4214,8 @@ def analyze_data_corr(
         use_symbols= interpret, 
         hide_diag= hide_diag,
         precomputed=True,
-        no_corr_placeholder=str(no_corr_placeholder)
+        no_corr_placeholder=str(no_corr_placeholder), 
+        autofit=autofit, 
         )
     return summary
 
@@ -4841,7 +4849,8 @@ def handle_skew(
     # Validate and apply the chosen method to each numeric column
     method = parameter_validator('method', ["log", "sqrt", "box-cox"])(method)
     # validate skew method 
-    [validate_skew_method(data[col], method) for col in data.columns ]
+    [validate_skew_method(original_data[col], method) 
+     for col in original_data.columns ]
     for column in original_data.columns:
         # Adjust for non-positive values where necessary
         if original_data[column].min() <= 0 and method in ['log', 'box-cox']:  
@@ -4926,7 +4935,7 @@ def validate_skew_method(data: Series, method: str):
     if not isinstance(data, pd.Series):
         raise TypeError(f"Expected a pandas Series, but got"
                         f" {type(data).__name__!r} instead.")
-
+    _is_numeric_dtype(data)
     min_value = data.min()
     if method == 'log':
         if min_value <= 0:

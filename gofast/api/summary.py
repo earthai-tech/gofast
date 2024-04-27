@@ -11,7 +11,7 @@ from .extension import RegexMap, isinstance_, fetch_estimator_name
 from .formatter import MultiFrameFormatter, DataFrameFormatter, DescriptionFormatter 
 from .box import KeyBox 
 from .structures import FlexDict
-from .util import GOFAST_ESCAPE 
+from .util import escape_dataframe_elements 
 from .util import format_value, df_to_custom_dict, format_text  
 from .util import find_maximum_table_width, format_df, format_correlations
 
@@ -986,8 +986,7 @@ def summary(
                       else "<N/A>" for col in df.columns}, 
         "Unique Counts": {col: df[col].nunique() for col in df.columns}
     }
-    df_infos = pd.DataFrame(infos.values(), index=[
-       ind.replace (' ', GOFAST_ESCAPE) for ind in infos.keys()])
+    df_infos = pd.DataFrame(infos.values(), index=infos.keys())
     dfs.append(df_infos)
 
     titles.append("Basic Statistics")
@@ -998,12 +997,13 @@ def summary(
         if numeric_only is False: 
             df = _encode_categorical_data(df)
         df_corr = df.corr()
-        df_corr.index = [ index.replace (" ", "π") for index in df_corr.index]
+        #df_corr.index = [ index.replace (" ", "π") for index in df_corr.index]
         titles.extend(["Correlation Matrix"])
         dfs.append(df_corr)
         
+    dfs = [ escape_dataframe_elements(df) for df in dfs]
     summary = MultiFrameFormatter(
-        titles=titles, max_rows ="auto", max_cols ="auto")
+        titles=titles, max_rows ="auto", max_cols =5)
     summary.add_dfs(*dfs)
     
     print(summary)

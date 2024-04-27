@@ -91,14 +91,20 @@ class MultiFrameFormatter (metaclass=MetaLen):
     keywords, using snake_case naming conventions for ease of use.
     """
 
-    def __init__(self, titles=None, keywords=None,  max_rows=11, 
-                 max_cols=7, style=None):
+    def __init__(
+        self, 
+        titles=None, 
+        keywords=None,  
+        max_rows=None, 
+        max_cols=None, 
+        style=None 
+        ):
         self.titles = titles if titles is not None else []
         self.keywords = keywords if keywords is not None else []
         self.dfs = []
         self.style= style or "base"
-        self.max_rows = max_rows 
-        self.max_cols =max_cols 
+        self.max_rows = max_rows or 11 
+        self.max_cols =max_cols or "auto"
         
     def _check_dfs(self):
         """
@@ -168,12 +174,12 @@ class MultiFrameFormatter (metaclass=MetaLen):
         if is_any_long_dataframe(*self.dfs): 
             return construct_long_dataframes_with_same_columns(
                 self.dfs, titles = self.titles,
-                max_cols = 7, max_rows= 11, style = self.style, 
+                max_cols =self.max_cols, max_rows= self.max_rows,
+                style = self.style, 
                 )
         
         return construct_tables_for_same_columns(self.dfs, self.titles)
     
-# XXX OPTIMIZE 
     def dataframe_with_different_columns(self):
         """
         Constructs individual tables for each dataframe when
