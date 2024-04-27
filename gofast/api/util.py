@@ -955,7 +955,7 @@ def flex_df_formatter(
         max_rows, max_cols = find_best_display_params2(
             *[df],index =index, header=header)(
                 max_rows=max_rows, max_cols=max_cols, )
-    
+
     # Apply float formatting to the DataFrame
     if output_format == 'html': 
         # Use render for HTML output
@@ -990,6 +990,7 @@ def flex_df_formatter(
             header_line= header_line, 
             sub_line= sub_line , 
             max_index_length= max_index_length, 
+            column_widths= column_widths, 
             df=df 
             )
     # Remove the whitespace_sub GOFAST_ESCAPE π 
@@ -1386,7 +1387,7 @@ def _robust_df_display(
     if column_widths is None:
         column_widths = auto_column_widths
     
-   
+    
     # Use the automatically determined index length if not specified
     if max_index_length is None:
         max_index_length = auto_max_index_length
@@ -1399,7 +1400,6 @@ def _robust_df_display(
         for idx, header_part in enumerate(header_parts)
     )
     table_width = len(header_line_formatted)
-
     # Process each line to align with the header formatting
     for i, line in enumerate(lines):
         if i == 0 and header:
@@ -2951,7 +2951,57 @@ def generate_column_name_mapping(columns):
     """
     return {to_snake_case(col): col for col in columns}
 
+def series_to_dataframe(series):
+    """
+    Transforms a pandas Series into a DataFrame where the columns are the index
+    of the Series. If the Series' index is numeric, the index values are converted
+    to strings and used as column names.
 
+    Parameters
+    ----------
+    series : pandas.Series
+        The Series to be transformed into a DataFrame.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame where each column represents a value from the Series,
+        with column names corresponding to the Series' index values.
+        
+    Raises
+    ------
+    TypeError
+        If the input is not a pandas Series.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.api.util import series_to_dataframe
+    >>> series = pd.Series(data=[1, 2, 3], index=['a', 'b', 'c'])
+    >>> df = series_to_dataframe(series)
+    >>> print(df)
+       a  b  c
+    0  1  2  3
+    
+    >>> series_numeric_index = pd.Series(data=[4, 5, 6], index=[10, 20, 30])
+    >>> df_numeric = series_to_dataframe(series_numeric_index)
+    >>> print(df_numeric)
+      10 20 30
+    0  4  5  6
+    """
+    if not isinstance(series, pd.Series):
+        raise TypeError("Input must be a pandas Series.")
+    # Convert index to string if it's numeric
+    if series.index.dtype.kind in 'iufc':  # Checks for int, unsigned int, float, complex
+        index_as_str = series.index.astype(str)
+    else:
+        index_as_str = series.index
+
+    # Create a DataFrame with a single row populated with the Series' values
+    # and columns named after the Series' index.
+    df = pd.DataFrame([series.values], columns=index_as_str)
+    
+    return df    
 if __name__=='__main__': 
     # Example usage:
     data = {

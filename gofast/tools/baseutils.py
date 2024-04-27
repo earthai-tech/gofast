@@ -4,9 +4,10 @@ import os
 import copy 
 import time
 import shutil
-import inspect 
+import inspect
 import pathlib
 import warnings
+import functools 
 import threading 
 import subprocess 
 from joblib import Parallel, delayed
@@ -21,12 +22,14 @@ from sklearn.utils import all_estimators
 from ..api.property import  Config
 from ..api.types import Union, List, Optional, Tuple, Iterable, Any, Set 
 from ..api.types import _T, _F, DataFrame, ArrayLike, Series, NDArray
+from ..decorators import Dataify 
 from ..exceptions import FileHandlingError
 from .coreutils import is_iterable , ellipsis2false, smart_format  
 from .coreutils import to_numeric_dtypes, validate_feature
-from .coreutils import _assert_all_types
+from .coreutils import _assert_all_types, exist_features 
 from .validator import check_consistent_length, get_estimator_name
 from .validator import _is_arraylike_1d, array_to_frame, build_data_if
+from .validator import is_categorical 
 from ._dependency import import_optional_dependency
 
 def smart_rotation(ax):
@@ -1717,7 +1720,7 @@ def get_target(df, tname, inplace=True):
     Examples
     --------
     >>> from sklearn.datasets import load_iris
-    >>> from gofast.baseutils import get-target 
+    >>> from gofast.baseutils import get_target 
     >>> data = load_iris(as_frame=True).frame
     >>> targets, modified_df = get_target(data, 'target', inplace=False)
     >>> print(targets.head())
@@ -1750,3 +1753,228 @@ def get_target(df, tname, inplace=True):
         df.drop(tname, axis=1, inplace=True)
 
     return target_data, df
+
+@Dataify(auto_columns=True )
+def binning_statistic(
+    data, categorical_column, 
+    value_column, 
+    statistic='mean'
+    ):
+    """
+    Compute a statistic for each category in a categorical column of a dataset.
+
+    This function categorizes the data into bins based on a categorical variable and then
+    applies a statistical function to the values of another column for each category.
+
+    Parameters
+    ----------
+    data : DataFrame
+        Pandas DataFrame containing the dataset.
+    categorical_column : str
+        Name of the column in `data` which contains the categorical variable.
+    value_column : str
+        Name of the column in `data` from which the statistic will be calculated.
+    statistic : str, optional
+        The statistic to compute (default is 'mean'). Other options include 
+        'sum', 'count','median', 'min', 'max', etc.
+
+    Returns
+    -------
+    result : DataFrame
+        A DataFrame with each category and the corresponding computed statistic.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.tools.baseutils import binning_statistic
+    >>> df = pd.DataFrame({
+    ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'C'],
+    ...     'Value': [1, 2, 3, 4, 5, 6, 7]
+    ... })
+    >>> binning_statistic(df, 'Category', 'Value', statistic='mean')
+       Category  Mean_Value
+    0        A         3.33
+    1        B         3.50
+    2        C         5.50
+    """
+    if statistic not in ('mean', 'sum', 'count', 'median', 'min',
+                         'max', 'proportion'):
+        raise ValueError(
+            "Unsupported statistic. Please choose from 'mean',"
+            " 'sum', 'count', 'median', 'min', 'max', 'proportion'.")
+
+    is_categorical(data, categorical_column)
+    exist_features(data, features =value_column, name ="value_column")
+    grouped_data = data.groupby(categorical_column)[value_column]
+    
+    if statistic == 'mean':
+        result = grouped_data.mean().reset_index(name=f'Mean_{value_column}')
+    elif statistic == 'sum':
+        result = grouped_data.sum().reset_index(name=f'Sum_{value_column}')
+    elif statistic == 'count':
+        result = grouped_data.count().reset_index(name=f'Count_{value_column}')
+    elif statistic == 'median':
+        result = grouped_data.median().reset_index(name=f'Median_{value_column}')
+    elif statistic == 'min':
+        result = grouped_data.min().reset_index(name=f'Min_{value_column}')
+    elif statistic == 'max':
+        result = grouped_data.max().reset_index(name=f'Max_{value_column}')
+    elif statistic == 'proportion':
+        total_count = data[value_column].count()
+        proportion = grouped_data.sum() / total_count
+        result = proportion.reset_index(name=f'Proportion_{value_column}')
+        
+    return result
+
+@Dataify(auto_columns=True)
+def category_count(data, /, *categorical_columns, error='raise'):
+    """
+    Count occurrences of each category in one or more categorical columns 
+    of a dataset.
+    
+    This function computes the frequency of each unique category in the specified
+    categorical columns of a pandas DataFrame and handles different ways of error
+    reporting including raising an error, warning, or ignoring the error when a
+    specified column is not found.
+
+    Parameters
+    ----------
+    data : DataFrame
+        Pandas DataFrame containing the dataset.
+    *categorical_columns : str
+        One or multiple names of the columns in `data` which contain the 
+        categorical variables.
+    error : str, optional
+        Error handling strategy - 'raise' (default), 'warn', or 'ignore' which
+        dictates the action when a categorical column is not found.
+
+    Returns
+    -------
+    counts : DataFrame
+        A DataFrame with each category and the corresponding count from each
+        categorical column. If multiple columns are provided, columns are named as
+        'Category_i' and 'Count_i'.
+
+    Raises
+    ------
+    ValueError
+        If any categorical column is not found in the DataFrame and error is 'raise'.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.tools.baseutils import category_count
+    >>> df = pd.DataFrame({
+    ...     'Fruit': ['Apple', 'Banana', 'Apple', 'Cherry', 'Banana', 'Apple'],
+    ...     'Color': ['Red', 'Yellow', 'Green', 'Red', 'Yellow', 'Green']
+    ... })
+    >>> category_count(df, 'Fruit', 'Color')
+       Category_1  Count_1 Category_2  Count_2
+    0      Apple        3        Red        2
+    1     Banana        2     Yellow        2
+    2     Cherry        1      Green        2
+    >>> category_count(df, 'NonExistentColumn', error='warn')
+    Warning: Column 'NonExistentColumn' not found in the dataframe.
+    Empty DataFrame
+    Columns: []
+    Index: []
+    """
+    results = []
+    for i, column in enumerate(categorical_columns, 1):
+        if column not in data.columns:
+            message = f"Column '{column}' not found in the dataframe."
+            if error == 'raise':
+                raise ValueError(message)
+            elif error == 'warn':
+                warnings.warn(message)
+                continue
+            elif error == 'ignore':
+                continue
+
+        count = data[column].value_counts().reset_index()
+        count.columns = [f'Category_{i}', f'Count_{i}']
+        results.append(count)
+
+    if not results:
+        return pd.DataFrame()
+
+    # Merge all results into a single DataFrame
+    final_df = functools.reduce(lambda left, right: pd.merge(
+        left, right, left_index=True, right_index=True, how='outer'), results)
+    final_df.fillna(value=np.nan, inplace=True)
+    
+    if len( results)==1: 
+        final_df.columns =['Category', 'Count']
+    return final_df
+
+@Dataify(auto_columns=True) 
+def soft_bin_stat(
+    data, /, categorical_column, 
+    target_column, 
+    statistic='mean', 
+    update=False, 
+    ):
+    """
+    Compute a statistic for each category in a categorical 
+    column based on a binary target.
+
+    This function calculates statistics like mean, sum, or proportion 
+    for a binary target variable, grouped by categories in a 
+    specified column.
+
+    Parameters
+    ----------
+    data : DataFrame
+        Pandas DataFrame containing the dataset.
+    categorical_column : str
+        Name of the column in `data` which contains the categorical variable.
+    target_column : str
+        Name of the column in `data` which contains the binary target variable.
+    statistic : str, optional
+        The statistic to compute for the binary target (default is 'mean').
+        Other options include 'sum' and 'proportion'.
+
+    Returns
+    -------
+    result : DataFrame
+        A DataFrame with each category and the corresponding 
+        computed statistic.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.tools.baseutils import soft_bin_stat
+    >>> df = pd.DataFrame({
+    ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'C'],
+    ...     'Target': [1, 0, 1, 0, 1, 0, 1]
+    ... })
+    >>> soft_bin_stat(df, 'Category', 'Target', statistic='mean')
+       Category  Mean_Target
+    0        A     0.666667
+    1        B     0.500000
+    2        C     0.500000
+
+    >>> soft_bin_stat(df.values, 'col_0', 'col_1', statistic='mean')
+      col_0  Mean_col_1
+    0     A    0.666667
+    1     B    0.500000
+    2     C    0.500000
+    """
+    if statistic not in ['mean', 'sum', 'proportion']:
+        raise ValueError("Unsupported statistic. Please choose from "
+                         "'mean', 'sum', 'proportion'.")
+    
+    is_categorical(data, categorical_column)
+    exist_features(data, features= target_column, name ='Target')
+    grouped_data = data.groupby(categorical_column)[target_column]
+    
+    if statistic == 'mean':
+        result = grouped_data.mean().reset_index(name=f'Mean_{target_column}')
+    elif statistic == 'sum':
+        result = grouped_data.sum().reset_index(name=f'Sum_{target_column}')
+    elif statistic == 'proportion':
+        total_count = data[target_column].count()
+        proportion = grouped_data.sum() / total_count
+        result = proportion.reset_index(name=f'Proportion_{target_column}')
+
+    return result

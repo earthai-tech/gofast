@@ -237,6 +237,68 @@ def ensure_2d(X, output_format="auto"):
             return X
         return pd.DataFrame(X) if is_dataframe else X
 
+
+def is_categorical(data, column, strict=False, error='raise'):
+    """
+    Checks if a specified column in a DataFrame or Series is of 
+    a categorical type.
+    
+    Parameters
+    ----------
+    data : DataFrame or Series
+        The DataFrame or Series to check.
+    column : str
+        The name of the column to check.
+    strict : bool, optional
+        If True, only considers pandas CategoricalDtype as categorical. If False,
+        also considers object dtype that often represents categorical data.
+        Default is False.
+    error : str, optional
+        Specifies how to handle situations when the column does not exist.
+        Options are 'raise', 'warn', or 'ignore'. Default is 'raise'.
+
+    Returns
+    -------
+    bool
+        True if the column is categorical, otherwise False.
+
+    Raises
+    ------
+    ValueError
+        If the column does not exist and error is set to 'raise'.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.tools.validator import is_categorical
+    >>> df = pd.DataFrame({
+    ...     'fruit': ['Apple', 'Banana', 'Cherry'],
+    ...     'count': [10, 20, 15]
+    ... })
+    >>> df['fruit'] = df['fruit'].astype('category')
+    >>> print(is_categorical(df, 'fruit'))
+    True
+    >>> print(is_categorical(df, 'count'))
+    False
+    >>> print(is_categorical(df, 'non_existent', error='warn'))
+    Warning: Column 'non_existent' not found in the dataframe.
+    False
+    """
+    if column not in data.columns:
+        message = f"Column '{column}' not found in the dataframe."
+        if error == 'raise':
+            raise ValueError(message)
+        elif error == 'warn':
+            warnings.warn(message)
+        return False  # Return False if error is 'ignore' or 'warn' and column is not found
+
+    col_type = data[column].dtype
+    if strict:
+        return pd.api.types.is_categorical_dtype(col_type)
+    else:
+        return pd.api.types.is_categorical_dtype(col_type) or pd.api.types.is_object_dtype(col_type)
+
+
 def parameter_validator(
         param_name, target_strs, match_method='contains',
         raise_exception=True, **kws):

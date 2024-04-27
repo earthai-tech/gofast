@@ -14,15 +14,19 @@ import importlib
 # module names to their respective sub-packages
 MODULE_MAPPING = {
     'baseutils': [
-        'categorize_target', 
+        'binning_statistic', 
+        'categorize_target',
+        'category_count', 
         'select_features', 
         'extract_target', 
         'array2hdf5',
         'get_target', 
         'fancier_downloader', 
         'labels_validator', 
+        'quality_control',
         'rename_labels_in', 
         'save_or_load',
+        'soft_bin_stat',
         'speed_rowwise_process'
     ],
     'coreutils': [
@@ -87,12 +91,11 @@ MODULE_MAPPING = {
     'mathex': [
         'adaptive_moving_average', 
         'adjust_for_control_vars',
-        'binning_statistic', 
         'calculate_binary_iv', 
         'calculate_optimal_bins', 
         'calculate_residuals', 
-        'category_count', 
-        'compute_effort_yield', 
+        'compute_effort_yield',
+        'compute_errors', 
         'compute_sunburst_data', 
         'cubic_regression', 
         'exponential_regression', 
@@ -110,7 +113,6 @@ MODULE_MAPPING = {
         'moving_average',
         'normalize',
         'optimized_spearmanr', 
-        'quality_control',
         'quadratic_regression', 
         'rank_data', 
         'savgol_filter', 
@@ -118,7 +120,6 @@ MODULE_MAPPING = {
         'sinusoidal_regression',
         'smooth1d', 
         'smoothing', 
-        'soft_bin_stat',
         'standard_scaler', 
         'step_regression',
         'weighted_spearman_rank'

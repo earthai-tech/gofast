@@ -11,7 +11,6 @@ import datetime
 import warnings 
 from scipy import stats
 from six.moves import urllib 
-
 import numpy as np 
 import pandas as pd 
 import matplotlib.pyplot as plt 
@@ -20,7 +19,7 @@ from tqdm import tqdm
 
 from ..api.formatter import MultiFrameFormatter, format_iterable 
 from ..api.property import  Config
-from ..api.summary import ReportFactory, Summary
+from ..api.summary import ReportFactory, Summary, ResultSummary
 from ..api.types import Any,  List,  DataFrame, Optional, Series, Array1D 
 from ..api.types import Dict, Union, TypeGuard, Tuple, ArrayLike, Callable
 from ..api.types import BeautifulSoupTag
@@ -4291,8 +4290,8 @@ def data_assistant(data: DataFrame, view: bool=False):
     texts = {"Starting assistance...": formatted_datetime}
     
     # Initialize dictionaries to store sections of the report
-    recommendations = {"RECOMMENDATIONS": "-" * 12}
-    helper_funcs = {"HELPER FUNCTIONS": "-" * 12}
+    recommendations = {}# "RECOMMENDATIONS": "-" * 12}
+    helper_funcs = {} #"HELPER FUNCTIONS": "-" * 12}
     
     # Checking for missing values
     texts ["1. Checking for missing values"]="Passed"
@@ -4469,22 +4468,22 @@ def data_assistant(data: DataFrame, view: bool=False):
             " `gofast.transformer.CategoricalEncoder`, and more ..."
             )
     
-    report_txt= {**texts, **recommendations, **helper_funcs}
+    report_txt= {**texts}#  **recommendations, **helper_funcs}
  
     # Check if the recommendations and helper functions 
     # are empty (only contain the header)
-    if len(recommendations) == 1:
-        # Remove the "RECOMMENDATIONS" title from 
-        # the report if no recommendations exist
-        report_txt.pop("RECOMMENDATIONS")
+    # if len(recommendations) == 1:
+    #     # Remove the "RECOMMENDATIONS" title from 
+    #     # the report if no recommendations exist
+    #     report_txt.pop("RECOMMENDATIONS")
     
-    if len(helper_funcs) == 1:
-        # Remove the "HELPER FUNCTIONS" title from the report 
-        # if no helper functions exist
-        report_txt.pop("HELPER FUNCTIONS")
+    # if len(helper_funcs) == 1:
+    #     # Remove the "HELPER FUNCTIONS" title from the report 
+    #     # if no helper functions exist
+    #     report_txt.pop("HELPER FUNCTIONS")
     
     # In case both sections are empty, append a general note
-    if len(recommendations) == 1 and len(helper_funcs) == 1:
+    if len(recommendations) == 0 and len(helper_funcs) == 0:
         # Adding a general keynote to the report to address the absence
         # of recommendations and helper functions
         report_txt["KEYNOTE"] = "-" * 12
@@ -4504,11 +4503,37 @@ def data_assistant(data: DataFrame, view: bool=False):
             " utilize tools such as `gofast.tools.inspect_data`."
         )
 
-    assistance_report = ReportFactory(" Data Assistant Report").add_mixed_types(
+    assistance_report = ReportFactory("Data Assistant Report").add_mixed_types(
         report_txt, table_width= 100  )
     
     print(assistance_report)
-
+    
+    assistance_report = ReportFactory("Assistant Check Report").add_mixed_types(
+        report_txt, table_width= 100  )
+    
+    if len(recommendations) > 1: 
+        recommendations_report = ReportFactory("Recommendations").add_mixed_types(
+            recommendations, table_width= 100  )
+        
+        print(recommendations_report)
+    
+    if len(helper_funcs) > 1:
+        helper_tools_report = ReportFactory("Helper tools").add_mixed_types(
+            helper_funcs, table_width= 100  )
+        print()
+        print(helper_tools_report)
+    
+def _manage_report ( *obj_reports ): 
+    
+    string_repr_reports = report
+    for ii, report in obj_reports:
+        # only the first report headerline '==' 
+        if ii !=0: 
+            new_report = report_str.split('\n')[1:]
+            # now join report 
+            new_report= '\n'.join ( new_report)
+            report.report_str = +  new_report
+        
 def correlation_ops(
     data: DataFrame, 
     correlation_type:str='all', 
@@ -5306,7 +5331,284 @@ def _visualize_unique_changes(unique_counts_before, unique_counts_after,
     plt.tight_layout()
     plt.show()
 
+@Dataify(auto_columns=True)
+def quality_control(
+    data, /, 
+    missing_threshold=0.05, 
+    outlier_method='IQR', 
+    value_ranges=None,
+    unique_value_columns=None, 
+    string_patterns=None, 
+    include_data_types=False, 
+    verbose=False, 
+    polish=False, 
+    columns=None, 
+    **kwargs
+    ):
+    """
+    Perform comprehensive data quality checks on a pandas DataFrame and,
+    if specified, cleans and sanitizes the DataFrame based on identified 
+    issues using the `polish=True` parameter. This function is designed to 
+    enhance data integrity before further processing or analysis.
 
+    The function conducts the following operations:
+    - Drops columns with a high percentage of missing data based on a 
+      specified threshold.
+    - Removes outliers using either the Interquartile Range (IQR) or Z-score 
+      methods.
+    - Applies constraints such as value ranges, checks for unique values, and 
+      pattern matching using regular expressions, with cleaning steps tailored 
+      to the specific needs of the dataset.
+
+    Parameters
+    ----------
+    data : DataFrame
+        The DataFrame on which to perform data quality checks.
+    missing_threshold : float, optional
+        Threshold as a fraction to determine excessive missing data in a 
+        column (default is 0.05, i.e., 5%).
+    outlier_method : str, optional
+        Method to detect outliers. 'IQR' for Interquartile Range (default) 
+        and 'Z-score' are supported.
+    value_ranges : dict of tuple, optional
+        Mapping of column names to tuples specifying the acceptable 
+        (min, max) range for values.
+    unique_value_columns : list of str, optional
+        List of columns expected to have unique values throughout.
+    string_patterns : dict of str, optional
+        Patterns that values in specified columns should match, given as 
+        regular expressions.
+    include_data_types : bool, optional
+        Whether to include data types of each column in the results 
+        (default is False).
+    verbose : bool, optional
+        Enables printing of messages about the operations being performed 
+        (default is True).
+    polish : bool, optional
+        If True, cleans the DataFrame based on the checks performed 
+        (default is False).
+    columns : list of str, optional
+        Specific subset of columns to perform checks on. If None, checks 
+        are performed on all columns.
+    **kwargs : dict
+        Additional keyword arguments for extensions or underlying functions.
+
+    Returns
+    -------
+    QualityControl
+        An instance containing detailed results of the checks performed 
+        and the cleaned DataFrame if `polish` is True.
+
+    Examples
+    --------
+    >>> from gofast.tools.dataops import quality_control
+    >>> data = pd.DataFrame({
+    ...     'A': [1, 2, 3, None, 5],
+    ...     'B': [1, 2, 100, 3, 4],
+    ...     'C': ['abc', 'def', '123', 'xyz', 'ab']
+    ... })
+    >>> qc = quality_control(data,
+    ...                      value_ranges={'A': (0, 10)},
+    ...                      unique_value_columns=['B'],
+    ...                      string_patterns={'C': r'^[a-zA-Z]+$'},
+    ...                      polish=True)
+    >>> qc
+    <QualityControl: 3 checks performed, data polished. Use print() ...>
+    >>> print(qc)
+                 Quality Control              
+    ==========================================
+    missing_data    : {'A': '20.0 %'}
+    outliers        : {'B': [100]}
+    string_pattern_violations : {'C': ['123']}
+    ==========================================
+
+    >>> print(qc.results_)
+    {
+         'missing_data': {'A': '20.0 %'}, 'outliers': {'B': [100]},
+         'string_pattern_violations': {'C': ['123']}
+     }
+    >>> print(qc.results)
+    Result(
+      {
+
+           missing_data              : {'A': '20.0 %'}
+           outliers                  : {'B': [100]}
+           string_pattern_violations : {'C': ['123']}
+
+      }
+    )
+    >>> qc.data_polished
+       B    C
+    0  1  abc
+    1  2  def
+    3  3  xyz
+    4  4   ab
+    
+    Note
+    ----
+    Data cleaning and sanitization can significantly alter your dataset. It is 
+    essential to understand the implications of each step and adjust the 
+    thresholds and methods according to your data analysis goals.
+    """
+    
+    # Initialize result dictionary
+    results = {
+        'missing_data': {}, 
+        'outliers': {}, 
+        'data_types': {},
+        'value_range_violations': {},
+        'unique_value_violations': {},
+        'string_pattern_violations': {}
+    }
+
+    polish, verbose = ellipsis2false(polish, verbose)
+    cleaned_data = data.copy()
+    # Handle missing data
+    for col in data.columns:
+        missing_percentage = data[col].isna().mean()
+        if missing_percentage > missing_threshold:
+            message =(  f"Column '{col}' exceeds missing threshold "
+                      f"with {missing_percentage:.2%} missing." ) 
+            results['missing_data'][col] = str(missing_percentage *100)+ " %"
+            if polish:
+                cleaned_data.drop(col, axis=1, inplace=True)
+                if verbose:
+                    print(message)
+
+    # Handle outliers
+    for col in data.select_dtypes(include=[np.number]).columns:
+        if outlier_method == 'IQR':
+            # Calculate IQR
+            Q1 = data[col].quantile(0.25)
+            Q3 = data[col].quantile(0.75)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - 1.5 * IQR
+            upper_bound = Q3 + 1.5 * IQR
+        elif outlier_method == 'Z-score':
+            # Calculate mean and standard deviation for Z-score
+            mean = data[col].mean()
+            std = data[col].std()
+            lower_bound = mean - 3 * std
+            upper_bound = mean + 3 * std
+    
+        outliers = data[col][(data[col] < lower_bound) | (data[col] > upper_bound)]
+        if not outliers.empty:
+            results['outliers'][col] = outliers.tolist()
+        if polish and not outliers.empty:
+            # Filter out outliers from the data
+            cleaned_data = cleaned_data[(cleaned_data[col] >= lower_bound) & (
+                cleaned_data[col] <= upper_bound)]
+
+    # Value range checks
+    if value_ranges:
+        for col, (min_val, max_val) in value_ranges.items():
+            invalid_values = data[col][(data[col] < min_val) | (data[col] > max_val)]
+            if not invalid_values.empty: 
+                results['value_range_violations'][col] = invalid_values.tolist()
+                if polish:
+                    # Keep only values within the specified range
+                    cleaned_data = cleaned_data[(
+                        cleaned_data[col] >= min_val) & (cleaned_data[col] <= max_val)]
+    # Unique value checks
+    if unique_value_columns:
+        for col in unique_value_columns:
+            if col in data.columns and data[col].duplicated().any():
+                duplicates = data[col][data[col].duplicated(keep=False)]
+                results['unique_value_violations'][col] = duplicates.tolist()
+                if polish:
+                    # Keep only the first occurrence of each value
+                    cleaned_data = cleaned_data.drop_duplicates(
+                        subset=[col], keep='first')
+        # complete cleaned data here is polish 
+    # String pattern checks
+    if string_patterns:
+        for col, pattern in string_patterns.items():
+            if col in data.columns and data[col].dtype == 'object':
+                mismatches = data[col][~data[col].astype(str).str.match(pattern)]
+                results['string_pattern_violations'][col] = mismatches.tolist()
+                if polish:
+                    valid_mask = data[col].astype(str).str.match(pattern)
+                    # Using `loc` to address potential index misalignment 
+                    # issues by filtering on the index
+                    cleaned_data = cleaned_data.loc[valid_mask[valid_mask].index]
+                    
+                    # # Remove rows that do not match the pattern
+                    # cleaned_data = cleaned_data[data[col].astype(
+                    #     str).str.match(pattern)]
+    # Data type information
+    for col in data.columns:
+        results['data_types'][col] = data[col].dtype
+    
+    # Data type information
+    if include_data_types:
+        for col in data.columns:
+            results['data_types'][col] = data[col].dtype
+    else:
+        results.pop('data_types', None)  # Remove data_types key if not required
+        
+    # Remove any keys from results with empty values
+    results = {key: value for key, value in results.items() if value}
+    
+    # Create QualityControl instance with results
+    qc_summary = _QualityControl(data, results)
+    qc_summary.add_recommendations ( results, max_char_text = 100 )
+    
+    if polish:
+        # Store polished data within the QualityControl object
+        qc_summary.data_polished = cleaned_data  
+
+    return qc_summary
+
+class _QualityControl(ReportFactory):
+    """
+    Initializes the QualityControl class, which inherits from ReportFactory,
+    to manage and present data quality check results.
+    
+    Parameters:
+    - data (DataFrame): The DataFrame on which data quality checks were 
+      performed.
+    - results (dict): A dictionary containing the results of the data 
+      quality checks.
+    - title (str, optional): The title of the report.
+      Defaults to "Quality Control".
+    - **kwargs: Additional keyword arguments for further customization.
+    """    
+    def __init__(self, data, results, title="Quality Control", **kwargs):
+        super().__init__(title=title, **kwargs)
+        self.data = data
+        self.results_ = results
+        self.results=ResultSummary(pad_keys="auto" ).add_results(results)
+
+    def __str__(self):
+        """
+        Provides a string representation of the QualityControl instance, showing a
+        summary report if results exist, otherwise indicating no issues were detected.
+
+        Returns:
+        - str: Summary report string or a message indicating no issues detected.
+        """
+        if not self.results_:
+            return "<QualityControl: No issues detected>"
+        #  ReportFactory has a __str__ that handles report details.
+        return super().__str__()  
+
+    def __repr__(self):
+        """
+        Provides a formal string representation of the QualityControl instance,
+        suitable for developers, including the status of checks and data cleaning.
+
+        Returns:
+        - str: Developer-friendly representation including the number of 
+            checks and data cleaning status.
+        """
+        checks_count = len(self.results_)
+        message = f"{checks_count} checks performed"
+        if hasattr(self, "data_polished"):
+            message += ", data polished"
+        return f"<QualityControl: {message}. Use print() to see detailed contents>"
+
+
+       
 if __name__ == "__main__":
     # Example usage of the function
 

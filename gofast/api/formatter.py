@@ -14,7 +14,7 @@ from .util import to_snake_case, generate_column_name_mapping
 from .util import flex_df_formatter, is_dataframe_long, get_display_dimensions
 from .util import insert_ellipsis_to_df , extract_truncate_df
 from .util import get_column_widths_in, distribute_column_widths  
-from .util import select_df_styles 
+from .util import GOFAST_ESCAPE, select_df_styles, series_to_dataframe
 
 class MultiFrameFormatter (metaclass=MetaLen):
     """
@@ -220,7 +220,6 @@ class MultiFrameFormatter (metaclass=MetaLen):
                 self.dfs[0]).__str__()
 
         if have_same_columns(self.dfs):
-            
             return self.dataframe_with_same_columns()
 
         return self.dataframe_with_different_columns()
@@ -1536,10 +1535,12 @@ def construct_tables_for_same_columns(dataframes, titles=None):
         if i != len(dataframes)-1 and not titles [i+1 ]: 
             tables_str +=''
         else: tables_str += f"{equal_separator}\n"
-    
+        
+    # and remove the GOFAST escape if exist.
+    if GOFAST_ESCAPE in tables_str: 
+        tables_str=tables_str.replace ( GOFAST_ESCAPE, " ")
     # Trim trailing spaces or lines and return the final table string
     return tables_str.rstrip()
-
 
 def is_any_long_dataframe(*dfs, max_rows=50, max_cols=11):
     """
@@ -1593,10 +1594,74 @@ def is_any_long_dataframe(*dfs, max_rows=50, max_cols=11):
         return True
     return False
 
-def construct_long_dataframes_with_same_columns (
-    dataframes, titles =None, max_cols=7, max_rows = 100, 
-    style="base", **kwargs): 
-    
+def construct_long_dataframes_with_same_columns(
+    dataframes, titles=None, max_cols=7, max_rows=100, 
+    style="base", **kwargs):
+    """
+    Constructs a string representation of multiple dataframes that are ensured to
+    have the same columns. This function formats each dataframe into a structured
+    table view, applying consistent column widths and optional titles for each.
+
+    Parameters
+    ----------
+    dataframes : list of pandas.DataFrame
+        A list of dataframes which are expected to have the same columns. Each
+        dataframe in the list will be formatted into a table.
+    titles : list of str, optional
+        Titles for each dataframe which will be displayed above each table.
+        If provided, the length should match the number of dataframes, or be
+        None to omit titles.
+    max_cols : int, optional
+        The maximum number of columns to display in the table representation of
+        each dataframe. Default is 7.
+    max_rows : int, optional
+        The maximum number of rows to display for each dataframe. Default is 100.
+    style : str, optional
+        The style identifier used to determine formatting nuances based on
+        predefined styles. Default is "base".
+    **kwargs : dict
+        Additional keyword arguments that will be passed to the table formatting
+        function.
+
+    Raises
+    ------
+    ValueError
+        If the dataframes do not have the same columns, a ValueError will be raised.
+
+    Returns
+    -------
+    str
+        A single string containing all the formatted dataframes, separated by newlines,
+        with each dataframe optionally titled and displaying up to the specified max rows
+        and columns.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.api.formatter import construct_long_dataframes_with_same_columns
+    >>> df1 = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
+    >>> df2 = pd.DataFrame({'A': [5, 6], 'B': [7, 8]})
+    >>> table_str = construct_long_dataframes_with_same_columns(
+    ...     [df1, df2], titles=["First DF", "Second DF"], max_cols=2, style='advanced')
+    >>> print(table_str)
+    First DF
+    A   B
+    1   3
+    2   4
+    Second DF
+    A   B
+    5   7
+    6   8
+
+    Notes
+    -----
+    This function is particularly useful for visualizing multiple dataframes 
+    side-by-side in environments where DataFrame display size might be limited 
+    and consistency in presentation is required. The function checks for column
+    consistency across dataframes and can be customized extensively through 
+    style parameters and other formatting options.
+    """
+
     # Verify if all dataframes have the same columns
     if not have_same_columns(dataframes):
         raise ValueError("Dataframes do not have the same columns.")
@@ -1636,7 +1701,8 @@ def construct_long_dataframes_with_same_columns (
 
 def remove_header_lines(data_str, title=None ):
     """
-    Removes the first header line and the header name from a formatted data string.
+    Removes the first header line and the header name from a formatted data 
+    string.
 
     Parameters
     ----------
@@ -1646,8 +1712,9 @@ def remove_header_lines(data_str, title=None ):
     Returns
     -------
     str
-        The modified data string with the first header line and header name removed,
-        retaining only the data and column names under a decorative separator line.
+        The modified data string with the first header line and header name 
+        removed, retaining only the data and column names under a decorative
+        separator line.
 
     Examples
     --------
@@ -1667,21 +1734,61 @@ def remove_header_lines(data_str, title=None ):
     
     return rest_lines 
 
+def make_fake_dfs(dataframes, max_rows=11, max_cols=7):
+    """
+    Generates a list of "fake" DataFrames for visualization purposes only, 
+    by truncating and inserting ellipses into the provided DataFrames. 
+    These pseudo-DataFrames are intended for display in environments where 
+    DataFrame size limits might prevent effective visualization of the full data.
 
-def make_fake_dfs(dataframes, max_rows = 11, max_cols = 7 ) : 
-    # fake dfs contains ellipsis which  is not meaninfull. Just use for 
-    # frame visualisation and not available for retrieved as attribute. 
-    
-    max_rows, max_cols =get_display_dimensions(
-       *dataframes, max_rows=max_rows, max_cols= max_cols 
-       ) 
-    # extract and truNcate df then insert ellipsis to create pseudodf 
-    # for visualization 
-    extracted_dfs= [extract_truncate_df(
-        df, max_cols=max_cols, max_rows=max_rows ) for df in dataframes ]
-    dfs = [ insert_ellipsis_to_df(edf, fdf) for edf, fdf in zip (
+    Parameters
+    ----------
+    dataframes : list of pandas.DataFrame
+        A list of DataFrames to process for visual truncation.
+    max_rows : int, optional
+        The maximum number of rows for each truncated DataFrame to display. 
+        Default is 11.
+    max_cols : int, optional
+        The maximum number of columns for each truncated DataFrame to display. 
+        Default is 7.
+
+    Returns
+    -------
+    list of pandas.DataFrame
+        A list of DataFrames that have been truncated and had ellipses inserted, 
+        suitable for display purposes only. These DataFrames should not be used 
+        for data retrieval or further data processing as the content is altered 
+        to fit display constraints.
+
+    Notes
+    -----
+    This function uses two helper functions:
+    - `get_display_dimensions`: Determines the appropriate number of rows and
+      columns to display based on the input DataFrames and specified maxima.
+    - `extract_truncate_df`: Extracts and truncates a DataFrame according to 
+      the specified dimensions.
+    - `insert_ellipsis_to_df`: Inserts ellipses into a DataFrame where data 
+      has been truncated to indicate incomplete data visualization.
+
+    Example
+    -------
+    >>> import pandas as pd
+    >>> df1 = pd.DataFrame({'A': range(100), 'B': range(100)})
+    >>> df2 = pd.DataFrame({'C': range(50), 'D': range(50)})
+    >>> fake_dfs = make_fake_dfs([df1, df2], max_rows=10, max_cols=1)
+    >>> for df in fake_dfs:
+    ...     print(df)
+    # Output will show DataFrames df1 and df2 truncated to 10 rows and 1 column,
+    # with ellipses indicating omitted data.
+    """
+    max_rows, max_cols = get_display_dimensions(
+        *dataframes, max_rows=max_rows, max_cols=max_cols
+    )
+    extracted_dfs = [extract_truncate_df(
+        df, max_cols=max_cols, max_rows=max_rows) for df in dataframes]
+    dfs = [insert_ellipsis_to_df(edf, fdf) for edf, fdf in zip(
         extracted_dfs, dataframes)]
-    return dfs 
+    return dfs
 
 def construct_table_for_different_columns(dataframes, titles):
     """
@@ -1735,7 +1842,6 @@ def construct_table_for_different_columns(dataframes, titles):
     display of pandas DataFrames in text format, particularly useful for logging
     or text-based reporting.
     """
-
     # First, check if all dataframes have non-numeric indexes to determine
     # if the index should be included in the width calculations.
     include_index = check_indexes(dataframes)
@@ -1817,59 +1923,9 @@ def construct_table_for_different_columns(dataframes, titles):
         tables_str += "\n".join(table_content) + "\n"
     
     ## Return the final output string, trimming any trailing newline characters.
+    
     return tables_str.rstrip()
 
-def series_to_dataframe(series):
-    """
-    Transforms a pandas Series into a DataFrame where the columns are the index
-    of the Series. If the Series' index is numeric, the index values are converted
-    to strings and used as column names.
-
-    Parameters
-    ----------
-    series : pandas.Series
-        The Series to be transformed into a DataFrame.
-
-    Returns
-    -------
-    pandas.DataFrame
-        A DataFrame where each column represents a value from the Series,
-        with column names corresponding to the Series' index values.
-        
-    Raises
-    ------
-    TypeError
-        If the input is not a pandas Series.
-
-    Examples
-    --------
-    >>> import pandas as pd
-    >>> series = pd.Series(data=[1, 2, 3], index=['a', 'b', 'c'])
-    >>> df = series_to_dataframe(series)
-    >>> print(df)
-       a  b  c
-    0  1  2  3
-    
-    >>> series_numeric_index = pd.Series(data=[4, 5, 6], index=[10, 20, 30])
-    >>> df_numeric = series_to_dataframe(series_numeric_index)
-    >>> print(df_numeric)
-      10 20 30
-    0  4  5  6
-    """
-    if not isinstance(series, pd.Series):
-        raise TypeError("Input must be a pandas Series.")
-    # Convert index to string if it's numeric
-    if series.index.dtype.kind in 'iufc':  # Checks for int, unsigned int, float, complex
-        index_as_str = series.index.astype(str)
-    else:
-        index_as_str = series.index
-
-    # Create a DataFrame with a single row populated with the Series' values
-    # and columns named after the Series' index.
-    df = pd.DataFrame([series.values], columns=index_as_str)
-    
-    return df    
-    
 def format_iterable(attr):
     """
     Formats an iterable with a string representation that includes

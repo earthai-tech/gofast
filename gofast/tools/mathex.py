@@ -8,7 +8,6 @@ from __future__ import annotations
 import copy 
 import inspect 
 import warnings 
-
 import numpy as np
 import pandas as pd 
 from scipy.signal import argrelextrema 
@@ -34,13 +33,13 @@ from ._arraytools import axis_slice
 from .coreutils import _assert_all_types, _validate_name_in, assert_ratio
 from .coreutils import concat_array_from_list, remove_outliers 
 from .coreutils import find_close_position, normalize_string 
-from .coreutils import to_numeric_dtypes, ellipsis2false, fancy_printer
+from .coreutils import to_numeric_dtypes, ellipsis2false
 from .coreutils import smart_format, type_of_target, is_iterable 
 from .coreutils import reshape, fillNaN
 from .validator import _is_arraylike_1d, _is_numeric_dtype, validate_multioutput 
 from .validator import check_consistency_size, check_consistent_length 
 from .validator import check_classification_targets, check_y, check_array
-from .validator import assert_xy_in, build_data_if 
+from .validator import assert_xy_in
 
 try: import scipy.stats as spstats
 except: pass 
@@ -3899,8 +3898,8 @@ def compute_errors (
     ---------
     >>> from gofast.tools.mathex  import compute_errors
     >>> from gofast.datasets import make_mining_ops 
-    >>> mdata = make_mining_ops ( samples =20, as_frame=True, noises="20%")
-    >>> compute_scores (mdata)
+    >>> mdata = make_mining_ops ( samples =20, as_frame=True, noises="20%", return_X_y=False)
+    >>> compute_errors (mdata)
     Easting_m                    301.216454
     Northing_m                   301.284073
     Depth_m                      145.343063
@@ -4062,179 +4061,6 @@ def quality_control2(
         )
     return data
  
-def quality_control(
-    data, /, 
-    missing_threshold=0.05, 
-    outlier_method='IQR', 
-    value_ranges=None,
-    unique_value_columns=None, 
-    string_patterns=None, 
-    verbose:bool= ..., 
-    polish_and_return:bool=..., 
-    columns=None, 
-    **kwd 
-    ):
-    """
-    Perform comprehensive data quality checks on a pandas DataFrame.
-
-    In addition to checking, this function now cleans and sanitizes the 
-    DataFrame based on identified issues if ``return_cleaned_data=True``. 
-    
-    This function includes steps to:
-
-    Drop columns with a high percentage of missing data.
-    Remove outliers using either the IQR or Z-score methods.
-    For other checks like value ranges, unique value columns, and 
-    string patterns, appropriate cleaning steps would depend heavily on the 
-    context and requirements of the specific dataset. 
-    
-    Parameters
-    ----------
-    data : pandas.DataFrame
-        The DataFrame on which to perform data quality checks.
-    missing_threshold : float, optional
-        The threshold for missing data percentage to flag a column
-        (default is 0.05, i.e., 5%).
-    outlier_method : str, optional
-        Method to detect outliers. Options are 'IQR' for Interquartile Range 
-        (default) and 'Z-score'.
-    value_ranges : dict, optional
-        A dictionary where keys are column names and values are tuples 
-        specifying the acceptable (min, max) range for values in that column.
-    unique_value_columns : list, optional
-        A list of column names that are expected to have unique values.
-    string_patterns : dict, optional
-        A dictionary where keys are column names and values are regex patterns 
-        that values in the column should match.
-        
-    polish_and_return : bool, optional
-        If True, the function will clean and sanitize the data based on the checks
-        and return the polished DataFrame. Default is False.
-        
-    Returns
-    -------
-    dict
-        A dictionary with keys 'missing_data', 'outliers', 'data_types',
-        'value_range_violations', 'unique_value_violations', and 
-        'string_pattern_violations', containing information about various data 
-        quality issues.
-
-    pandas.DataFrame or dict
-        If polish_and_return is True, returns the cleaned and sanitized DataFrame.
-        Otherwise, returns a dictionary with data quality check results.
-        
-    Note 
-    ------
-    Remember that data cleaning and sanitization can significantly alter 
-    your dataset. It's essential to understand the implications of each 
-    step and adjust the thresholds and methods according to your data 
-    analysis goals.
-        
-    Examples
-    --------
-    >>> import pandas as pd
-    >>> from gofast.tools.mathex  import quality_control 
-    >>> data = {'A': [1, 2, 3, None, 5], 'B': [1, 2, 100, 3, 4], 
-                'C': ['abc', 'def', '123', 'xyz', 'ab']}
-    >>> data = pd.DataFrame(data)
-    >>> quality_control(data, value_ranges={'A': (0, 10)}, unique_value_columns=['B'], 
-    ...                    string_patterns={'C': r'^[a-zA-Z]+$'})
-    {
-        'missing_data': {'A': 20.0},
-        'outliers': {'B': [100]},
-        'data_types': {'A': dtype('float64'), 'B': dtype('int64'), 'C': dtype('O')},
-        'value_range_violations': {'A': [None]},
-        'unique_value_violations': {'B': [1, 2, 3, 4]},
-        'string_pattern_violations': {'C': ['123']}
-    }
-
-    """
-    result = {
-        'missing_data': {}, 
-        'outliers': {}, 
-        'data_types': {},
-        'value_range_violations': {},
-        'unique_value_violations': {},
-        'string_pattern_violations': {}
-    }
-    polish_and_return, verbose = ellipsis2false(polish_and_return, verbose)
-    data = build_data_if (data, columns = columns , to_frame=True,  **kwd )
-    # for safety and not
-    # make a copy for a new data 
-    data_ = copy.deepcopy(data ) 
-    
-    # Handling missing data by dropping columns with 
-    # too many missing values if polish_and_return is true. 
-    
-    for col in data.columns:
-        missing_percentage = data[col].isna().mean()
-        if missing_percentage > missing_threshold:
-            if polish_and_return: 
-                data_.drop(col, axis=1, inplace=True)  
-            # data.drop(col, axis=1, inplace=True)  # Drop column
-            result['missing_data'][col] = missing_percentage * 100
-      
-    # Detect  and Handling outliers
-    for col in data.select_dtypes(include=[np.number]).columns:
-        if outlier_method == 'IQR':
-            Q1 = data[col].quantile(0.25)
-            Q3 = data[col].quantile(0.75)
-            IQR = Q3 - Q1
-            lower_bound = Q1 - 1.5 * IQR
-            upper_bound = Q3 + 1.5 * IQR
-            
-            outliers = data[col][(
-                data[col] < lower_bound) | (data[col] > upper_bound)]
-            
-            if polish_and_return: # Remove outliers
-                data_ = data_[
-                    (data_[col] >= lower_bound) & (data_[col] <= upper_bound)]  
-            
-        elif outlier_method == 'Z-score':
-            z_score = np.abs((data[col] - data[col].mean()) / data[col].std())
-            
-            outliers = data[col][z_score > 3]
-            
-            if polish_and_return: 
-                data_ = data_[z_score <= 3]  # Remove outliers
-
-        if not outliers.empty:
-            result['outliers'][col] = outliers.tolist()
-            
-    # Value range validation
-    if value_ranges:
-        for col, (min_val, max_val) in value_ranges.items():
-            if col in data.columns:
-                invalid_values = data[col][(data[col] < min_val) | (data[col] > max_val)]
-                if not invalid_values.empty:
-                    result['value_range_violations'][col] = invalid_values.tolist()
-
-    # Unique value check
-    if unique_value_columns:
-        for col in unique_value_columns:
-            if col in data.columns and data[col].duplicated().any():
-                ( result['unique_value_violations'][col]
-                 ) = data[col][data[col].duplicated()].tolist()
-
-    # String pattern validation
-    if string_patterns:
-        for col, pattern in string_patterns.items():
-            if col in data.columns and data[col].dtype == 'object':
-                invalid_strings = data[col][~data[col].astype(
-                    str).str.match(pattern)]
-                if not invalid_strings.empty:
-                    ( result['string_pattern_violations'][col]
-                     )  = invalid_strings.tolist()
-                    
-    # Data type information
-    for col in data.columns:
-        result['data_types'][col] = data[col].dtype
-
-    # [Fancy print function as before...]
-    if verbose: 
-        fancy_printer(result)
-    
-    return data_ if polish_and_return else result
 
 def get_distance(
     x: ArrayLike, 
@@ -4817,174 +4643,6 @@ def torres_verdin_filter(
     if logify: arr = np.power (10, arr )
     
     return arr 
-
-def binning_statistic(
-    data, categorical_column, 
-    value_column, 
-    statistic='mean'
-    ):
-    """
-    Compute a statistic for each category in a categorical column of a dataset.
-
-    This function categorizes the data into bins based on a categorical variable and then
-    applies a statistical function to the values of another column for each category.
-
-    Parameters
-    ----------
-    data : DataFrame
-        Pandas DataFrame containing the dataset.
-    categorical_column : str
-        Name of the column in `data` which contains the categorical variable.
-    value_column : str
-        Name of the column in `data` from which the statistic will be calculated.
-    statistic : str, optional
-        The statistic to compute (default is 'mean'). Other options include 
-        'sum', 'count','median', 'min', 'max', etc.
-
-    Returns
-    -------
-    result : DataFrame
-        A DataFrame with each category and the corresponding computed statistic.
-
-    Examples
-    --------
-    >>> df = pd.DataFrame({
-    ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'C'],
-    ...     'Value': [1, 2, 3, 4, 5, 6, 7]
-    ... })
-    >>> binning_statistic(df, 'Category', 'Value', statistic='mean')
-       Category  Mean_Value
-    0        A         3.33
-    1        B         3.50
-    2        C         5.50
-    """
-    if statistic not in ('mean', 'sum', 'count', 'median', 'min',
-                         'max', 'proportion'):
-        raise ValueError(
-            "Unsupported statistic. Please choose from 'mean',"
-            " 'sum', 'count', 'median', 'min', 'max', 'proportion'.")
-
-    grouped_data = data.groupby(categorical_column)[value_column]
-
-    if statistic == 'mean':
-        result = grouped_data.mean().reset_index(name=f'Mean_{value_column}')
-    elif statistic == 'sum':
-        result = grouped_data.sum().reset_index(name=f'Sum_{value_column}')
-    elif statistic == 'count':
-        result = grouped_data.count().reset_index(name=f'Count_{value_column}')
-    elif statistic == 'median':
-        result = grouped_data.median().reset_index(name=f'Median_{value_column}')
-    elif statistic == 'min':
-        result = grouped_data.min().reset_index(name=f'Min_{value_column}')
-    elif statistic == 'max':
-        result = grouped_data.max().reset_index(name=f'Max_{value_column}')
-    elif statistic == 'proportion':
-        total_count = data[value_column].count()
-        proportion = grouped_data.sum() / total_count
-        result = proportion.reset_index(name=f'Proportion_{value_column}')
-        
-    return result
-
-def category_count(data, /, categorical_column= None):
-    """
-    Count occurrences of each category in a given categorical 
-    column of a dataset.
-
-    This function computes the frequency of each unique category 
-    in the specified
-    categorical column of a pandas DataFrame.
-
-    Parameters
-    ----------
-    data : DataFrame
-        Pandas DataFrame containing the dataset.
-    categorical_column : str
-        Name of the column in `data` which contains the categorical variable.
-
-    Returns
-    -------
-    counts : DataFrame
-        A DataFrame with each category and the corresponding count.
-
-    Examples
-    --------
-    >>> df = pd.DataFrame({
-    ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'C']
-    ... })
-    >>> category_count(df, 'Category')
-       Category  Count
-    0        A      3
-    1        B      2
-    2        C      2
-    """
-    if categorical_column not in data.columns:
-        raise ValueError(f"Column '{categorical_column}' not found in the dataframe.")
-
-    counts = data[categorical_column].value_counts().reset_index()
-    counts.columns = [categorical_column, 'Count']
-    return counts
-
-def soft_bin_stat(
-    data, /, categorical_column, 
-    target_column, 
-    statistic='mean', 
-    update=False, 
-    ):
-    """
-    Compute a statistic for each category in a categorical 
-    column based on a binary target.
-
-    This function calculates statistics like mean, sum, or proportion 
-    for a binary target variable, grouped by categories in a 
-    specified column.
-
-    Parameters
-    ----------
-    data : DataFrame
-        Pandas DataFrame containing the dataset.
-    categorical_column : str
-        Name of the column in `data` which contains the categorical variable.
-    target_column : str
-        Name of the column in `data` which contains the binary target variable.
-    statistic : str, optional
-        The statistic to compute for the binary target (default is 'mean').
-        Other options include 'sum' and 'proportion'.
-
-    Returns
-    -------
-    result : DataFrame
-        A DataFrame with each category and the corresponding 
-        computed statistic.
-
-    Examples
-    --------
-    >>> from gofast.tools.mathex import soft_bin_stat
-    >>> df = pd.DataFrame({
-    ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'C'],
-    ...     'Target': [1, 0, 1, 0, 1, 0, 1]
-    ... })
-    >>> soft_bin_stat(df, 'Category', 'Target', statistic='mean')
-       Category  Mean_Target
-    0        A     0.666667
-    1        B     0.500000
-    2        C     0.500000
-    """
-    if statistic not in ['mean', 'sum', 'proportion']:
-        raise ValueError("Unsupported statistic. Please choose from "
-                         "'mean', 'sum', 'proportion'.")
-
-    grouped_data = data.groupby(categorical_column)[target_column]
-
-    if statistic == 'mean':
-        result = grouped_data.mean().reset_index(name=f'Mean_{target_column}')
-    elif statistic == 'sum':
-        result = grouped_data.sum().reset_index(name=f'Sum_{target_column}')
-    elif statistic == 'proportion':
-        total_count = data[target_column].count()
-        proportion = grouped_data.sum() / total_count
-        result = proportion.reset_index(name=f'Proportion_{target_column}')
-
-    return result
 
 def gradient_boosting_regressor(
         X, y, n_estimators=100, learning_rate=0.1, max_depth=1):
