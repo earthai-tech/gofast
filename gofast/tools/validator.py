@@ -237,7 +237,6 @@ def ensure_2d(X, output_format="auto"):
             return X
         return pd.DataFrame(X) if is_dataframe else X
 
-
 def is_categorical(data, column, strict=False, error='raise'):
     """
     Checks if a specified column in a DataFrame or Series is of 
@@ -831,6 +830,62 @@ def validate_nan_policy(nan_policy, *arrays, sample_weights=None):
         return (*arrays, sample_weights)
 
     return arrays 
+
+def is_valid_policies(nan_policy, /, allowed_policies=None):
+    """
+    Validates the `nan_policy` or any policy argument to ensure it is one
+    of the acceptable options (`allowed_policies`). 
+    
+    Function is used to enforce conformity to predefined NaN handling
+    strategies in data processing tasks.
+
+    Parameters
+    ----------
+    nan_policy : str
+        The NaN handling policy to validate. Acceptable values are:
+        'propagate' - NaN values are propagated, i.e., no action is taken.
+        'omit' - NaN values are omitted before proceeding with the operation.
+        'raise' - Raises an error if NaN values are present.
+
+    allowed_policies : list of str, optional
+        A list of allowable policy options. If None, 
+        defaults to ['propagate', 'omit', 'raise'].
+
+    Raises
+    ------
+    ValueError
+        If `nan_policy` is not one of the valid options in `allowed_policies`.
+
+    Returns
+    -------
+    str
+        The verified `nan_policy` value, confirming it is within 
+        allowed parameters.        
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import is_valid_policies
+    >>> is_valid_policies('omit')  # This should pass without an error.
+    >>> is_valid_policies('ignore')  # This should raise a ValueError.
+      
+    """
+    # Set default policies if none provided
+    if allowed_policies is None:
+        allowed_policies = ['propagate', 'omit', 'raise']
+
+    # Ensure allowed_policies is a list even if a single string was provided
+    if isinstance(allowed_policies, str):
+        allowed_policies = [allowed_policies]
+
+    # Normalize the input policy for comparison
+    nan_policy = str(nan_policy).lower().strip()
+
+    # Check if the provided nan_policy is in the list of allowed policies
+    if nan_policy not in allowed_policies:
+        raise ValueError(
+            f"Invalid nan_policy {nan_policy!r}. Choose from {allowed_policies}.")
+    
+    return nan_policy
 
 def validate_multioutput(value, extra=''):
     """

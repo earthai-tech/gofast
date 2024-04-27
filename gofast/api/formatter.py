@@ -8,6 +8,7 @@ import warnings
 import inspect
 import numpy as np
 import pandas as pd
+
 from .structures import Bunch
 from .extension import MetaLen, isinstance_  
 from .util import to_snake_case, generate_column_name_mapping

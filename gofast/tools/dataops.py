@@ -19,20 +19,25 @@ from tqdm import tqdm
 
 from ..api.formatter import MultiFrameFormatter, format_iterable 
 from ..api.property import  Config
-from ..api.summary import ReportFactory, Summary, ResultSummary
+from ..api.util import get_table_size 
+from ..api.summary import ReportFactory, Summary
+from ..api.summary import ResultSummary, assemble_reports
 from ..api.types import Any,  List,  DataFrame, Optional, Series, Array1D 
 from ..api.types import Dict, Union, TypeGuard, Tuple, ArrayLike, Callable
 from ..api.types import BeautifulSoupTag
 from ..decorators import Deprecated, isdf, Dataify, DynamicMethod
 from ..decorators import DataTransformer, Extract1dArrayOrSeries 
 from ..exceptions import FileHandlingError 
-from .baseutils import save_or_load 
+from .baseutils import save_or_load, reshape_to_dataframe
 from .coreutils import is_iterable, ellipsis2false,smart_format, validate_url 
 from .coreutils import to_numeric_dtypes, assert_ratio, exist_features
 from .coreutils import normalize_string
 from .funcutils import ensure_pkg
 from .validator import  build_data_if, is_frame, parameter_validator  
 from .validator import _is_numeric_dtype, check_consistent_length 
+from .validator import is_valid_policies
+
+TW = get_table_size() 
 
 def summarize_text_columns(
     data: DataFrame, /, 
@@ -1427,7 +1432,7 @@ def verify_data_integrity(data: DataFrame, /) -> Tuple[bool, dict]:
     report['integrity_checks']='Passed' if is_valid else 'Failed'
     # make a report obj 
     report_obj= ReportFactory(title ="Data Integrity", **report )
-    report_obj.add_mixed_types(report, table_width= 90)
+    report_obj.add_mixed_types(report, table_width= TW)
     
     return is_valid, report_obj
 
@@ -1649,7 +1654,7 @@ def audit_data(
     # make a report obj 
     if return_report: 
         report_obj= ReportFactory(title ="Data Audit")
-        report_obj.add_mixed_types(report, table_width= 90)
+        report_obj.add_mixed_types(report, table_width= TW)
     
     return (data, report_obj) if return_report else data
 
@@ -1721,7 +1726,7 @@ def handle_categorical_features(
         plt.show()
     # make a report obj 
     report_obj= ReportFactory(title ="Categorical Features Handling", **report )
-    report_obj.add_mixed_types(report, table_width= 90,  )
+    report_obj.add_mixed_types(report, table_width= TW  )
     
     return (data, report_obj) if return_report else data
 
@@ -1824,7 +1829,7 @@ def convert_date_features(
         plt.show()
 
     report_obj= ReportFactory(title ="Date Features Conversion", **report )
-    report_obj.add_mixed_types(report, table_width= 90,)
+    report_obj.add_mixed_types(report, table_width= TW)
     return (data, report_obj) if return_report else data
 
 @isdf 
@@ -1939,7 +1944,7 @@ def scale_data(
         
     report['used_scikit_method']=use_sklearn
     report_obj= ReportFactory(title ="Data Scaling", **report )
-    report_obj.add_mixed_types(report, table_width= 90,)
+    report_obj.add_mixed_types(report, table_width= TW)
     return (data, report_obj) if return_report else data
 
 def handle_outliers_in(
@@ -2048,7 +2053,7 @@ def handle_outliers_in(
         plt.show()
         
     report_obj= ReportFactory(title ="Outliers Handling", **report )
-    report_obj.add_mixed_types(report, table_width= 45)
+    report_obj.add_mixed_types(report, table_width= int(TW/2))
     return (data, report_obj) if return_report else data
 
 @isdf
@@ -2153,7 +2158,7 @@ def handle_missing_data(
         "describe%% Basic statistics": missing_data.describe().round(4) 
     }
     report_obj= ReportFactory(title ="Missing Handling", **data_report )
-    report_obj.add_mixed_types(data_report, table_width= 90)
+    report_obj.add_mixed_types(data_report, table_width= TW)
     return (data, report_obj) if return_report else data
 
 @isdf
@@ -2429,7 +2434,7 @@ def inspect_data(
             " (e.g., converting float to int where applicable).")
     
     report_obj= ReportFactory(title ="Data Inspection", **report )
-    report_obj.add_mixed_types(report, table_width= 90)
+    report_obj.add_mixed_types(report, table_width= TW)
     
     if return_report: 
         return report_obj # return for retrieving attributes. 
@@ -2595,83 +2600,54 @@ def prepare_data(
     encode_categories: bool = False, 
     nan_policy: str='propagate', 
     verbose: bool = False, 
-) -> Tuple[pd.DataFrame, Union[Series, DataFrame]]:
+) -> Tuple[DataFrame, Union[Series, DataFrame]]:
+    
     """
-    Prepare the feature matrix X and target vector y from the input DataFrame.
+    Prepares the feature matrix X and target vector y from the provided DataFrame,
+    optionally handling categorical encoding and NaN values according to specified
+    policies.
 
     Parameters
     ----------
     data : pd.DataFrame
-        The primary dataset from which features and target(s) are derived. 
-        This DataFrame should include both the independent variables (features)
-        and the dependent variable(s) (target). The structure and cleanliness 
-        of this DataFrame directly affect the quality and reliability of the 
-        output datasets (X and y). It is assumed that preprocessing steps like
-        handling missing values, feature selection, and initial data cleaning 
-        have been performed prior to this step, although some additional options
-        for preprocessing are provided through other parameters of this function.
-    
-    target_column : Optional[Union[str, List[str], pd.Series, np.ndarray]] = None
-        Specifies which columns within `data` represent the target variable(s) 
-        for a predictive modeling task. This can be a single column name (str),
-        a list of column names for multi-output tasks, or a separate data 
-        structure (pd.Series or np.ndarray) containing the target variable(s). 
-        If provided as a Series or ndarray, the length must match the number 
-        of rows in `data`, aligning each observation with its corresponding 
-        target value. The absence of this parameter (default None) implies that 
-        the input data does not include target variables, and only feature 
-        matrix X will be prepared. This flexibility allows the function to serve
-        a variety of data preparation needs, from supervised learning (where 
-        target variables are required) to unsupervised learning scenarios 
-        (where no targets are necessary).
-    
-    encode_categories : bool = False
-        A flag indicating whether to automatically convert categorical variables
-        in `data` to a numerical format using LabelEncoder. Many machine learning
-        models require numerical input and cannot handle categorical variables 
-        directly. Setting this parameter to True automates the encoding process,
-        transforming all object-type or category-type columns in `data` into 
-        numerical format based on the unique values in each column. This encoding
-        is unidirectional and primarily suitable for nominal categories without 
-        a natural order. For ordinal categories or when more sophisticated 
-        encoding strategies are required (e.g., one-hot encoding, frequency encoding),
-        manual preprocessing is recommended. Note: enabling this option without 
-        careful consideration of the nature of your categorical data can 
-        introduce biases or inaccuracies in modeling.
-    
-    nan_policy : str = 'propagate'
-        Determines how the function handles NaN (Not a Number) values in the 
-        input DataFrame. This parameter can take one of three values:
-        - 'propagate': NaN values are retained in the dataset. This option 
-          does not alter the dataset regarding NaN values, implying that 
-          downstream processing must handle NaNs appropriately.
-        - 'omit': Rows or columns containing NaN values are removed from the 
-          dataset before further processing. This option reduces the dataset 
-          size but ensures that the remaining data is free from NaN values, 
-          which might be beneficial for certain machine learning algorithms 
-          that do not support NaN values.
-        - 'raise': If NaN values are detected in the dataset, a ValueError is
-          raised, halting execution. This policy is useful when the presence 
-          of NaN values is unexpected and indicates a potential issue in the 
-          data preparation or collection process that needs investigation.
-    
-    verbose : bool = False
-        Controls the verbosity of the function's output. When set to True, the 
-        function will print additional information about the preprocessing 
-        steps being performed, such as the encoding of categorical variables or 
-        the omission of NaN-containing entries. This can be helpful for debugging
-        or understanding the function's behavior, especially during exploratory 
-        data analysis phases or when integrating the function into larger data 
-        processing pipelines.
+        The input DataFrame containing both features and potentially the target
+        variables. This DataFrame should be pre-cleaned to some extent, as the
+        function assumes initial data cleaning has been done, though additional
+        preprocessing options are available through other parameters.
+
+    target_column : Optional[Union[str, List[str], pd.Series, np.ndarray]], default=None
+        Specifies the target variable(s) within the provided DataFrame. This can be
+        provided as a column name(s) within the DataFrame or as a separate data
+        structure that matches the length of `data`. If `None`, only the feature
+        matrix X is prepared, facilitating use cases like unsupervised learning.
+
+    encode_categories : bool, default=False
+        If True, converts categorical variables within `data` to numeric codes.
+        This is accomplished via LabelEncoder, suitable for handling nominal
+        categorical data without an inherent ordering. For more complex categorical
+        data types or encoding needs, manual preprocessing is recommended.
+
+    nan_policy : str, default='propagate'
+        Controls how NaN values are handled in the input data. Options include:
+        - 'propagate': Retains NaN values, requiring handling in subsequent steps.
+        - 'omit': Removes rows or columns with NaNs, potentially reducing data size
+          but ensuring compatibility with models that cannot handle NaNs.
+        - 'raise': Raises an error upon detecting NaNs, useful for workflows where
+          NaN values indicate critical issues needing resolution.
+
+    verbose : bool, default=False
+        When True, outputs detailed information about the processing steps,
+        such as the status of categorical encoding and how NaNs are handled.
+        This is particularly useful for debugging or detailed analysis phases.
 
     Returns
     -------
-    X : pd.DataFrame**  
+    X : pd.DataFrame  
         A DataFrame containing the feature matrix with the target column(s) 
         removed if they were specified by name within the `data` DataFrame. 
         This matrix is ready for use in machine learning models as input variables.
     
-    y : Union[pd.Series, pd.DataFrame]**  
+    y : Union[pd.Series, pd.DataFrame]  
         The target data extracted based on `target_column`. It is returned as 
         a pd.Series if a single target is specified or as a pd.DataFrame if 
         multiple targets are identified. For tasks where the target variable 
@@ -2739,12 +2715,10 @@ def prepare_data(
     """
     from sklearn.preprocessing import LabelEncoder
     
-    nan_policy=str(nan_policy).lower()
     # Handle NaN values according to the specified policy
     texts = {}
-    if nan_policy not in ['propagate', 'omit', 'raise']:
-        raise ValueError("Invalid nan_policy. Choose from 'propagate', 'omit', 'raise'.")
-    
+    nan_policy= is_valid_policies(nan_policy)
+
     if nan_policy == 'raise' and data.isnull().values.any():
         raise ValueError("NaN values found in the dataset. Consider using 'omit' "
                          "to drop them or 'propagate' to ignore.")
@@ -2774,10 +2748,10 @@ def prepare_data(
         else:
             raise ValueError("Invalid type for 'target_column'. Must be str, list,"
                              " pd.Series, or one-dimensional array.")
-  
         check_consistent_length(X, y)
         
-    else: X = data.copy () 
+    else:
+        X = data.copy () 
     # Check if there are categorical data columns
     categorical_columns = X.select_dtypes(include=['object', 'category']).columns
    
@@ -2792,7 +2766,8 @@ def prepare_data(
                 "`encode_categories=True` to automatically encode them."
                 )
             texts ['categories_status']= msg # update 
-            warnings.warn(msg, UserWarning)
+            if not verbose: 
+                warnings.warn(msg, UserWarning)
         else:
             texts ['categories_status']= msg 
             # If encode_categories is True, encode the categorical features
@@ -2809,13 +2784,14 @@ def prepare_data(
             
     if verbose and texts: 
         print(ReportFactory().add_recommendations(
-            texts,  max_char_text= 90 ))
+            texts,  max_char_text= TW ))
         
     return ( X, y ) if target_column is not None else X 
 
-def assess_outlier_impact(
+@isdf
+def outlier_performance_impact(
     data: DataFrame, /, 
-    target_column: Union[str, List[str], Series, np.ndarray],
+    target_column: Union[str, List[str], Series, Array1D],
     test_size: float = 0.2, 
     random_state: int = 42, 
     encode_categories: bool=False, 
@@ -2870,13 +2846,13 @@ def assess_outlier_impact(
     Examples:
     ---------
     >>> import pandas as pd 
-    >>> from gofast.tools.dataops import assess_outlier_impact
+    >>> from gofast.tools.dataops import outlier_performance_impact
     >>> df = pd.DataFrame({
     ...     'feature1': np.random.rand(100),
     ...     'feature2': np.random.rand(100),
     ...     'target': np.random.rand(100)
     ... })
-    >>> mse_with_outliers, mse_without_outliers = assess_outlier_impact(df, 'target')
+    >>> mse_with_outliers, mse_without_outliers = outlier_performance_impact(df, 'target')
 
     """
     from sklearn.metrics import accuracy_score, mean_squared_error
@@ -2945,10 +2921,184 @@ def assess_outlier_impact(
             texts['outliers_impact']= ('Outliers do not appear to have a significant negative'
                   ' impact on the model performance.')
             
-        print(ReportFactory().add_recommendations(texts,  max_char_text= 90 ))
+        print(ReportFactory().add_recommendations(texts,  max_char_text= TW ))
 
     return original_metric, filtered_metric
+ 
+@isdf
+def assess_outlier_impact(
+    data, 
+    outlier_threshold=3, 
+    handle_na='ignore', 
+    view=False, 
+    fig_size=(14, 6)
+    ):
+    """
+    Assess the impact of outliers on dataset statistics and optionally 
+    visualize the results.
 
+    This function calculates basic statistics with and without outliers, 
+    allows handling of NaN values, and can visualize data points and outliers
+    using a box plot and scatter plot.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame, pandas.Series, or numpy.ndarray
+        Input data, which can be a DataFrame, Series, or NumPy array. If a
+        DataFrame is provided, it should contain only one column.
+    outlier_threshold : float, optional
+        The z-score threshold to consider a data point an outlier, default is 3.
+    handle_na : str, optional
+        How to handle NaN values. Options are 'ignore', 'drop', or 'fill'. 'fill'
+        replaces NaNs with the mean, default is 'ignore'.
+    view : bool, optional
+        If True, generates plots to visualize the outliers and their impact, 
+        default is False.
+    fig_size : tuple, optional
+        The size of the figure for the plots if `view` is True, default is (14, 6).
+
+    Returns
+    -------
+    dict
+        A dictionary containing the mean and standard deviation with and without 
+        outliers, and the number of outliers.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.tools.dataops import assess_outlier_impact
+    >>> data = np.random.normal(0, 1, 100)
+    >>> data[::10] += np.random.normal(0, 10, 10)  # Add some outliers
+    >>> results = assess_outlier_impact(data, view=True)
+    >>> print(results)
+    OutlierResults(
+      {
+
+           mean_with_outliers    : -0.06689646829390013
+           std_with_outliers     : 2.662779727986304
+           mean_without_outliers : -0.16663267681872657
+           std_without_outliers  : 1.6752562593670428
+           num_outliers          : 3
+
+      }
+    )
+    >>> result.data 
+    results.data
+               0
+    0  -7.391298
+    1  -1.173935
+    2  -0.529047
+    3   1.042972
+    4  -0.509738
+    ..       ...
+    95  1.015017
+    96 -1.723945
+    97  0.001104
+    98  1.333836
+    99 -0.327440
+
+    [100 rows x 1 columns]
+    """
+    columns=None  
+    # Ensure the data is a numeric numpy array
+    if isinstance(data, pd.Series):
+        if not np.issubdtype(data.dtype, np.number):
+            raise ValueError("Non-numeric data types are not supported in the Series.")
+        columns = data.name 
+        data = data.values
+    
+    elif isinstance(data, pd.DataFrame):
+        data = data.select_dtypes( include = [np.number])
+        if data.empty: 
+            raise ValueError("DataFrame must be of numeric types.")
+        columns = data.columns.tolist()
+        data = data.values.flatten()
+    
+    elif isinstance(data, np.ndarray):
+        if not np.issubdtype(data.dtype, np.number):
+            raise ValueError("The numpy array must contain only numeric data types.")
+    else:
+        raise TypeError("Input must be a pandas DataFrame, Series, or a numpy array.")
+        
+    # Convert data to a NumPy array if it's not already
+    data = np.asarray(data)
+
+    # Handle missing values according to the specified method
+    handle_na = parameter_validator(
+        "handle_na", target_strs={"ignore", "fill", "drop"}) (handle_na)
+    if handle_na == 'drop':
+        data = data[~np.isnan(data)]
+    elif handle_na == 'fill':
+        mean_data = np.nanmean(data)
+        data = np.where(np.isnan(data), mean_data, data)
+
+    # Calculate mean and standard deviation
+    mean = np.mean(data)
+    std = np.std(data)
+
+    # Identify outliers
+    outliers_mask = np.abs(data - mean) > outlier_threshold * std
+    non_outliers_mask = ~outliers_mask
+    
+    # Calculate metrics without outliers
+    mean_without_outliers = np.mean(data[non_outliers_mask])
+    std_without_outliers = np.std(data[non_outliers_mask])
+    
+    # Number of outliers
+    num_outliers = np.sum(outliers_mask)
+
+    # Output results
+    results = {
+        'mean_with_outliers': mean,
+        'std_with_outliers': std,
+        'mean_without_outliers': mean_without_outliers,
+        'std_without_outliers': std_without_outliers,
+        'num_outliers': num_outliers
+    }
+
+    if view: 
+        _visualize_outlier_impact(data, outliers_mask, non_outliers_mask, fig_size)
+        
+    if columns is not None: 
+        data = reshape_to_dataframe(data, columns, error ="ignore")
+        
+    result_summary = ResultSummary (
+        'outlier results', pad_keys="auto").add_results(results )
+    result_summary.data = data 
+    
+    return result_summary
+
+def _visualize_outlier_impact(
+        data, outliers_mask, 
+        non_outliers_mask, 
+        fig_size=(14, 6)):
+    outliers = data[outliers_mask]
+    non_outliers = data[non_outliers_mask]
+
+    # Create a figure with two subplots
+    fig, axs = plt.subplots(1, 2, figsize=fig_size)
+
+    # Box plot
+    sns.boxplot(x=data, ax=axs[0])
+    axs[0].set_title('Box Plot')
+    axs[0].set_xlabel('Data Points')
+
+    # Scatter plot
+    axs[1].scatter(range(len(non_outliers)), non_outliers, color='blue', 
+                   label='Non-outliers')
+    axs[1].scatter(range(len(non_outliers), len(non_outliers) + len(outliers)
+                         ), outliers, color='red', label='Outliers')
+    axs[1].legend()
+    axs[1].set_title('Scatter Plot of Data Points')
+    axs[1].set_xlabel('Index')
+    axs[1].set_ylabel('Data Points')
+
+    # Show the plots
+    plt.tight_layout()
+    plt.show()
+
+
+@Dataify (auto_columns=True)
 def transform_dates(
     data: DataFrame, /, 
     transform: bool = True, 
@@ -3009,6 +3159,7 @@ def transform_dates(
 
     Examples
     --------
+    >>> import pandas as pd 
     >>> from gofast.tools.dataops import transform_dates
     >>> data = pd.DataFrame({
     ...     'date': ['2021-01-01', '2021-01-02'],
@@ -3070,6 +3221,8 @@ def detect_datetime_columns(data: DataFrame, / ) -> List[str]:
 
     Examples
     --------
+    >>> import pandas as pd 
+    >>> from gofast.tools.dataops import detect_datetime_columns
     >>> data = pd.DataFrame({
     ...     'date': ['2021-01-01', '2021-01-02'],
     ...     'value': [1, 2],
@@ -3249,8 +3402,8 @@ def apply_tfidf_vectorization(
     return prepared_data
 
 def _handle_missing_values(
-        column_data: pd.Series, missing_value_handling: str, fill_value: str = ''
-   ) -> pd.Series:
+        column_data: Series, missing_value_handling: str, fill_value: str = ''
+   ) -> Series:
     """
     Handles missing values in a pandas Series according to the specified method.
 
@@ -3313,7 +3466,7 @@ def _generate_tfidf_features(
     return pd.DataFrame(tfidf_features, columns=feature_names, index=text_data.index)
 
 def apply_bow_vectorization(
-    data: pd.DataFrame, /, 
+    data: DataFrame, /, 
     text_columns: Union[str, List[str]],
     max_features: int = 100,
     stop_words: Union[str, List[str]] = 'english',
@@ -3395,7 +3548,7 @@ def apply_bow_vectorization(
 
     return prepared_data
 
-@Dataify 
+@Dataify(auto_columns=True) 
 def apply_word_embeddings(
     data: DataFrame,/, 
     text_columns: Union[str, List[str]],
@@ -3507,7 +3660,6 @@ def apply_word_embeddings(
                                embeddings_df.reset_index(drop=True)],
                               axis=1
                               )
-
     return prepared_data
 
 def _generate_bow_features(
@@ -3791,7 +3943,7 @@ def boxcox_transformation(
     # Print verbose recommendations if any and if verbose mode is enabled
     if verbose and verbosity_texts:
         recommendations = ReportFactory('BoxCox Transformation').add_recommendations(
-            verbosity_texts, max_char_text=90)
+            verbosity_texts, max_char_text=TW)
         print(recommendations)
         
     return transformed_data, lambda_values
@@ -3916,7 +4068,7 @@ def check_missing_data(
     verbosity_texts ['missing_stats%% Missing Table']= missing_stats
     if verbose and verbosity_texts: 
         summary = ReportFactory('Missing Report').add_mixed_types(
-            verbosity_texts, table_width= 70 )
+            verbosity_texts, table_width= TW )
         print(summary)
 
     return missing_stats
@@ -3994,7 +4146,7 @@ def base_transform(
     from sklearn.impute import SimpleImputer
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import OneHotEncoder, StandardScaler
-
+    
     np.random.seed(seed)
     target_columns = [target_columns] if isinstance(
         target_columns, str) else target_columns
@@ -4163,7 +4315,7 @@ def analyze_data_corr(
     B -1.0  1.0 -1.0
     C  1.0 -1.0  1.0
     
-    >>> corr_summary = analyze_data_corr(data, view=False, use_symbols=True)
+    >>> corr_summary = analyze_data_corr(data, view=False, interpret=True)
     >>> print(corr_summary) 
       Correlation Table  
     =====================
@@ -4468,20 +4620,8 @@ def data_assistant(data: DataFrame, view: bool=False):
             " `gofast.transformer.CategoricalEncoder`, and more ..."
             )
     
-    report_txt= {**texts}#  **recommendations, **helper_funcs}
+    report_txt= {**texts}#
  
-    # Check if the recommendations and helper functions 
-    # are empty (only contain the header)
-    # if len(recommendations) == 1:
-    #     # Remove the "RECOMMENDATIONS" title from 
-    #     # the report if no recommendations exist
-    #     report_txt.pop("RECOMMENDATIONS")
-    
-    # if len(helper_funcs) == 1:
-    #     # Remove the "HELPER FUNCTIONS" title from the report 
-    #     # if no helper functions exist
-    #     report_txt.pop("HELPER FUNCTIONS")
-    
     # In case both sections are empty, append a general note
     if len(recommendations) == 0 and len(helper_funcs) == 0:
         # Adding a general keynote to the report to address the absence
@@ -4502,38 +4642,23 @@ def data_assistant(data: DataFrame, view: bool=False):
             " prepare your data for modeling. For more in-depth analysis,"
             " utilize tools such as `gofast.tools.inspect_data`."
         )
-
-    assistance_report = ReportFactory("Data Assistant Report").add_mixed_types(
-        report_txt, table_width= 100  )
     
-    print(assistance_report)
-    
-    assistance_report = ReportFactory("Assistant Check Report").add_mixed_types(
-        report_txt, table_width= 100  )
-    
+    assistance_reports =[]
+    assistance_reports.append( ReportFactory(
+        "Data Assistant Report").add_mixed_types(
+            report_txt, table_width= TW  )
+        )
     if len(recommendations) > 1: 
         recommendations_report = ReportFactory("Recommendations").add_mixed_types(
-            recommendations, table_width= 100  )
-        
-        print(recommendations_report)
-    
+            recommendations, table_width= TW  )
+        assistance_reports.append(recommendations_report)
     if len(helper_funcs) > 1:
         helper_tools_report = ReportFactory("Helper tools").add_mixed_types(
-            helper_funcs, table_width= 100  )
-        print()
-        print(helper_tools_report)
-    
-def _manage_report ( *obj_reports ): 
-    
-    string_repr_reports = report
-    for ii, report in obj_reports:
-        # only the first report headerline '==' 
-        if ii !=0: 
-            new_report = report_str.split('\n')[1:]
-            # now join report 
-            new_report= '\n'.join ( new_report)
-            report.report_str = +  new_report
-        
+            helper_funcs, table_width= TW  )
+        assistance_reports.append(helper_tools_report)
+
+    assemble_reports( *assistance_reports, display=True)
+
 def correlation_ops(
     data: DataFrame, 
     correlation_type:str='all', 
@@ -4613,7 +4738,6 @@ def correlation_ops(
     analyze_data_corr : A predefined function for computing and summarizing 
                       correlations.
     """
-
     # Compute the correlation matrix using a predefined analysis function
     corr_summary = analyze_data_corr(
         data, method=method, min_periods=min_periods, **corr_kws)
@@ -4677,7 +4801,7 @@ def correlation_ops(
             "within the specified thresholds. Consider adjusting the correlation "
             "thresholds or analyzing the data for other patterns."
             ), 
-            keys= 'Actionable Insight', max_char_text= 90
+            keys= 'Actionable Insight', max_char_text= TW
             )
         return insights
     
@@ -5453,11 +5577,8 @@ def quality_control(
     
     # Initialize result dictionary
     results = {
-        'missing_data': {}, 
-        'outliers': {}, 
-        'data_types': {},
-        'value_range_violations': {},
-        'unique_value_violations': {},
+        'missing_data': {}, 'outliers': {}, 'data_types': {},
+        'value_range_violations': {},'unique_value_violations': {},
         'string_pattern_violations': {}
     }
 
@@ -5474,7 +5595,6 @@ def quality_control(
                 cleaned_data.drop(col, axis=1, inplace=True)
                 if verbose:
                     print(message)
-
     # Handle outliers
     for col in data.select_dtypes(include=[np.number]).columns:
         if outlier_method == 'IQR':
@@ -5531,10 +5651,7 @@ def quality_control(
                     # Using `loc` to address potential index misalignment 
                     # issues by filtering on the index
                     cleaned_data = cleaned_data.loc[valid_mask[valid_mask].index]
-                    
-                    # # Remove rows that do not match the pattern
-                    # cleaned_data = cleaned_data[data[col].astype(
-                    #     str).str.match(pattern)]
+
     # Data type information
     for col in data.columns:
         results['data_types'][col] = data[col].dtype
@@ -5551,7 +5668,7 @@ def quality_control(
     
     # Create QualityControl instance with results
     qc_summary = _QualityControl(data, results)
-    qc_summary.add_recommendations ( results, max_char_text = 100 )
+    qc_summary.add_recommendations ( results, max_char_text = TW )
     
     if polish:
         # Store polished data within the QualityControl object

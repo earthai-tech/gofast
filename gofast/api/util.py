@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
-
+import os 
 import re
+import shutil
 import warnings
 from collections.abc import Iterable
 import numpy as np 
 import pandas as pd
-from shutil import get_terminal_size
 from .property import GofastConfig 
 
 # Attempting to modify the property will raise an error
@@ -1161,7 +1161,7 @@ def is_dataframe_long(
     rows, columns = df.shape  
     
     # Get terminal size
-    terminal_size = get_terminal_size()
+    terminal_size = shutil.get_terminal_size()
     terminal_cols = terminal_size.columns
     terminal_rows = terminal_size.lines
     if max_rows == "auto": 
@@ -1267,7 +1267,7 @@ def df_base_style(
     if table_width == 'auto':
         # Retrieve the width of the terminal to 
         # potentially constrain the table width
-        terminal_width = get_terminal_size().columns
+        terminal_width = shutil.get_terminal_size().columns
         # Ensure that the table width does not exceed the terminal width
         if max_line_width < terminal_width:
             # Use the maximum line width if it is less than the terminal width
@@ -1848,7 +1848,7 @@ def auto_adjust_dataframe_display(df, header=True, index=True, sample_size=100):
     validate_data(df)
     # Get terminal size
     
-    terminal_size = get_terminal_size()
+    terminal_size = shutil.get_terminal_size()
     screen_width = terminal_size.columns
     screen_height = terminal_size.lines
 
@@ -2245,7 +2245,6 @@ def format_text(
         formatted_text = frame_lines +'\n' + formatted_text +'\n' + frame_lines
 
     return formatted_text
-
 
 def format_value(value):
     """
@@ -3001,7 +3000,211 @@ def series_to_dataframe(series):
     # and columns named after the Series' index.
     df = pd.DataFrame([series.values], columns=index_as_str)
     
-    return df    
+    return df  
+
+def get_table_size(width="auto", error="warn", return_height=False):
+    """
+    Determines the appropriate width (and optionally height) for table display
+    based on terminal size, with options for manual width adjustment.
+
+    Parameters
+    ----------
+    width : int or str, optional
+        The desired width for the table. If set to 'auto', the terminal width
+        is used. If an integer is provided, it will be used as the width, 
+        default is 'auto'.
+    error : str, optional
+        Error handling strategy when specified width exceeds terminal 
+        width: 'warn' or 'ignore'.
+        Default is 'warn'.
+    return_height : bool, optional
+        If True, the function also returns the height of the table. 
+        Default is False.
+
+    Returns
+    -------
+    int or tuple
+        The width of the table as an integer, or a tuple of (width, height) 
+        if return_height is True.
+
+    Examples
+    --------
+    >>> table_width = get_table_size()
+    >>> print("Table width:", table_width)
+    >>> table_width, table_height = get_table_size(return_height=True)
+    >>> print("Table width:", table_width, "Table height:", table_height)
+    """
+    auto_width, auto_height = get_terminal_size()
+    if width == "auto":
+        width = auto_width
+    else:
+        try:
+            width = int(width)
+            if width > auto_width:
+                if error == "warn":
+                    warnings.warn(
+                        f"Specified width {width} exceeds terminal width {auto_width}. "
+                        "This may cause display issues."
+                    )
+        except ValueError:
+            raise ValueError(
+                "Width must be 'auto' or an integer; got {type(width).__name__!r}")
+
+    if return_height:
+        return (width, auto_height)
+    return width
+
+def get_terminal_size():
+    """
+    Retrieves the current terminal size (width and height) to help dynamically 
+    set the maximum width for displaying data columns.
+
+    Returns
+    -------
+    tuple
+        A tuple containing two integers:
+        - The width of the terminal in characters.
+        - The height of the terminal in lines.
+
+    Examples
+    --------
+    >>> from gofast.api.util import get_terminal_size
+    >>> terminal_width, terminal_height = get_terminal_size()
+    >>> print("Terminal Width:", terminal_width)
+    >>> print("Terminal Height:", terminal_height)
+    """
+    # Use shutil.get_terminal_size if available (Python 3.3+)
+    # This provides a fallback of (80, 24) which is a common default size
+    if hasattr(shutil, "get_terminal_size"):
+        size = shutil.get_terminal_size(fallback=(80, 24))
+    else:
+        # Fallback for Python versions before 3.3
+        try:
+            # UNIX-based systems
+            size = os.popen('stty size', 'r').read().split()
+            return int(size[1]), int(size[0])
+        except Exception:
+            # Default fallback size
+            size = (80, 24)
+            
+    return size.columns, size.lines
+
+
+def optimize_col_width (max_cols=4, df=None, min_col_width=7):
+    """
+    Determines the optimal width for each column based on the terminal size to
+    ensure that data is displayed properly without exceeding the terminal width.
+    If necessary, reduces the number of columns displayed to maintain a minimum
+    column width.
+
+    Parameters
+    ----------
+    max_cols : int
+        The desired maximum number of columns to display. This value may be
+        adjusted downward to prevent column widths from falling below the
+        minimum width.
+    df : pandas.DataFrame, optional
+        A DataFrame for which column width needs adjustment. If provided,
+        `max_cols` will be considered as the upper limit, with the actual 
+        number displayed possibly fewer to fit the terminal width.
+    min_col_width : int
+        The minimum allowable width for any column.
+
+    Returns
+    -------
+    int
+        The maximum width in characters that each column should have, or the
+        minimum column width if space is insufficient.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> import from gofast.api.util import optimize_col_width
+    >>> df = pd.DataFrame({'A': range(100), 'B': range(100), 'C': range(100)})
+    >>> max_width = optimize_col_width (max_cols=3, df=df)
+    >>> print("Maximum column width for display:", max_width)
+    """
+    terminal_width, _ = get_terminal_size()
+    if df is not None:
+        df = validate_data (df)
+        max_cols = min(max_cols, len(df.columns))
+
+    # Calculate total required width including buffer space between columns
+    total_required_width = max_cols * (min_col_width + 4)  # +4 for space between columns
+
+    if total_required_width > terminal_width:
+        # Adjust max_cols if the total required width exceeds the terminal width
+        max_cols = (terminal_width // (min_col_width + 4))
+
+    # Calculate the maximum width per column
+    if max_cols > 0:
+        buffer_width = 4 * max_cols
+        max_col_width = (terminal_width - buffer_width) // max_cols
+        return max(max_col_width, min_col_width)  # Ensure at least min_col_width
+    else:
+        return min_col_width  # Return min_col_width if no columns fit
+
+def to_camel_case(text, delimiter=None):
+    """
+    Converts a given string to CamelCase. The function handles strings with or
+    without delimiters.
+
+    Parameters
+    ----------
+    text : str
+        The string to convert to CamelCase.
+    delimiter : str, optional
+        A character or string used as a delimiter to split the input string. Common
+        delimiters include underscores ('_') or spaces (' '). If None, the function
+        tries to automatically detect common delimiters like spaces or underscores.
+
+    Returns
+    -------
+    str
+        The CamelCase version of the input string.
+
+    Examples
+    --------
+    >>> to_camel_case('outlier_results', '_')
+    'OutlierResults'
+
+    >>> to_camel_case('outlier results', ' ')
+    'OutlierResults'
+
+    >>> to_camel_case('outlierresults')
+    'Outlierresults'
+
+    >>> to_camel_case('data science rocks')
+    'DataScienceRocks'
+
+    >>> to_camel_case('data_science_rocks')
+    'DataScienceRocks'
+    """
+    # Remove any leading/trailing whitespace
+    text = str(text).strip()
+    
+    # Detect common delimiters automatically if none provided
+    if delimiter is None:
+        if ' ' in text and '_' in text:
+            # Both space and underscore are present, replace '_' with ' ' then split
+            text = text.replace('_', ' ')
+            words = text.split()
+        elif ' ' in text:
+            words = text.split(' ')
+        elif '_' in text:
+            words = text.split('_')
+        else:
+            # No common delimiter found, handle as a single word
+            words = [text]
+    else:
+        # Use the specified delimiter
+        words = text.split(delimiter)
+
+    # Capitalize the first letter of each word and join them without spaces
+    return ''.join(word.capitalize() for word in words)
+
+
+
 if __name__=='__main__': 
     # Example usage:
     data = {

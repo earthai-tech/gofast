@@ -599,7 +599,8 @@ def information_value(
     illustrating its ability to distinguish between classes or predict outcomes. It is 
     a measure of the effectiveness of a variable or model in predicting the target.
 
-    Mathematical formulations for IV across different problem types are as follows:
+    Mathematical formulations for IV across different problem types 
+    are as follows:
 
     - For binary classification:
       The IV is computed as the sum of differences between the proportions of 

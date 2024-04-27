@@ -1978,3 +1978,77 @@ def soft_bin_stat(
         result = proportion.reset_index(name=f'Proportion_{target_column}')
 
     return result
+
+def reshape_to_dataframe(flattened_array, columns, error ='raise'):
+    """
+    Reshapes a flattened array into a pandas DataFrame or Series based on the
+    provided column names. If the number of columns does not allow reshaping
+    to match the array length, it raises an error.
+
+    Parameters
+    ----------
+    flattened_array : array-like
+        The flattened array to reshape.
+    columns : list of str
+        The list of column names for the DataFrame. If a single name is provided,
+        a Series is returned.
+        
+    error : {'raise', 'warn', 'ignore'}, default 'raise'
+        Specifies how to handle the situation when the number of elements in the
+        flattened array is not compatible with the number of columns required for
+        reshaping. Options are:
+        
+        - 'raise': Raises a ValueError. This is the default behavior.
+        - 'warn': Emits a warning, but still returns the original flattened array.
+        - 'ignore': Does nothing about the error, just returns the original
+          flattened array.
+        
+    Returns
+    -------
+    pandas.DataFrame or pandas.Series
+        A DataFrame or Series reshaped according to the specified columns.
+
+    Raises
+    ------
+    ValueError
+        If the total number of elements in the flattened array does not match
+        the required number for a complete reshaping.
+
+    Examples
+    --------
+    >>> import numpy as np 
+    >>> from gofast.tools.baseutils import reshape_to_dataframe
+    >>> data = np.array([1, 2, 3, 4, 5, 6])
+    >>> print(reshape_to_dataframe(data, ['A', 'B', 'C']))  # DataFrame with 2 rows and 3 columns
+    >>> print(reshape_to_dataframe(data, 'A'))  # Series with 6 elements
+    >>> print(reshape_to_dataframe(data, ['A']))  # DataFrame with 6 rows and 1 column
+    """
+    # Check if the reshaping is possible
+    is_string = isinstance ( columns, str )
+    # Convert single string column name to list
+    if isinstance(columns, str):
+        columns = [columns]
+        
+    num_elements = len(flattened_array)
+    num_columns = len(columns)
+    if num_elements % num_columns != 0:
+        message = ("The number of elements in the flattened array is not"
+                   " compatible with the number of columns.")
+        if error =="raise": 
+            raise ValueError(message)
+        elif error =='warn': 
+            warnings.warn(message, UserWarning)
+        return flattened_array
+    # Calculate the number of rows that will be needed
+    num_rows = num_elements // num_columns
+
+    # Reshape the array
+    reshaped_array = np.reshape(flattened_array, (num_rows, num_columns))
+
+    # Check if we need to return a DataFrame or a Series
+    if num_columns == 1 and is_string:
+        return pd.Series(reshaped_array[:, 0], name=columns[0])
+    else:
+        return pd.DataFrame(reshaped_array, columns=columns)
+
+

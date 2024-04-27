@@ -77,6 +77,7 @@ MODULE_MAPPING = {
         'handle_outliers_in',
         'handle_skew', 
         'inspect_data',
+        'outlier_performance_impact',
         'prepare_data',
         'read_data', 
         'request_data', 

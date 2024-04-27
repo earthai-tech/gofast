@@ -11,10 +11,9 @@ from .extension import RegexMap, isinstance_, fetch_estimator_name
 from .formatter import MultiFrameFormatter, DataFrameFormatter, DescriptionFormatter 
 from .box import KeyBox 
 from .structures import FlexDict
-from .util import escape_dataframe_elements, to_snake_case  
-from .util import format_value, df_to_custom_dict, format_text  
+from .util import escape_dataframe_elements, to_snake_case , get_table_size 
+from .util import format_value, df_to_custom_dict, format_text, to_camel_case  
 from .util import find_maximum_table_width, format_df, format_correlations
-
 
 class ResultSummary:
     """
@@ -52,13 +51,14 @@ class ResultSummary:
       }
     )
     """
-    def __init__(self, name=None, pad_keys=None, max_char=None):
+    def __init__(self, name=None, pad_keys=None, max_char=None, carmelcase=False):
         """
         Initialize the ResultSummary with optional customization for display.
         """
         self.name = name or "Result"
         self.pad_keys = pad_keys
-        self.max_char = max_char or 100
+        self.max_char = max_char or get_table_size()
+        self.carmelcase=carmelcase
         self.results = {}
 
     def add_results(self, results):
@@ -103,7 +103,7 @@ class ResultSummary:
         """
         Return a formatted string representation of the results dictionary.
         """
-        result_title = self.name.title() + '(\n  {\n'
+        result_title = to_camel_case(self.name)+ '(\n  {\n'
         formatted_results = []
         
         # Determine key padding if auto pad_keys is specified
@@ -138,9 +138,9 @@ class ResultSummary:
         """
         Return a developer-friendly representation of the ResultSummary.
         """
-        return f"<ResultSummary with {len(self.results)} entries>"
+        return ( f"<ResultSummary with {len(self.results)} entries."
+                " Use print() to see detailed contents.>")
    
-  
 class ModelSummary(KeyBox):
     """
     A class for creating and storing a summary of machine learning model
@@ -1131,8 +1131,54 @@ def summary(
     summary = MultiFrameFormatter(
         titles=titles, max_rows ="auto", max_cols =5)
     summary.add_dfs(*dfs)
-    
     print(summary)
+    
+def assemble_reports(
+    *reports, base_class=ReportFactory, 
+    validation_attr='report_str', 
+    display=False
+    ):
+    """
+    Assembles multiple report strings from instances of the specified base class
+    into a single formatted string. This function is especially useful for creating
+    a comprehensive view from several smaller reports.
+
+    Parameters:
+    reports : tuple
+        Variable number of report instances to be combined.
+    base_class : type, optional
+        The class type that each report instance is expected to derive from, used
+        to ensure the correct type of reports are being processed.
+    validation_attr : str, optional
+        The attribute from each instance used for assembling the reports.
+    display : bool, optional
+        If True, the combined report string is printed.
+
+    Returns:
+    str
+        A single string containing the concatenated content of all report instances.
+    """
+    #print([type())
+    if not all(isinstance_(report, base_class) for report in reports):
+        raise ValueError("All reports must be instances of " + str(base_class))
+
+    combined_report = ""
+    for i, report in enumerate(reports):
+        if not hasattr(report, validation_attr):
+            raise ValueError(f"Report at position {i} does not have the"
+                             f" required attribute '{validation_attr}'.")
+
+        # Extract the report content, assuming it's stored under `report_str` attribute
+        report_content = getattr(report, validation_attr)
+        # Strip the top and bottom boundary if it's not the first report
+        if i > 0:
+            report_content = "\n".join(report_content.split('\n')[1:])
+        combined_report += report_content + "\n"
+
+    if display:
+        print(combined_report)
+
+    return combined_report
 
 def ensure_list_with_defaults(input_value, target_length, default=None):
     """
