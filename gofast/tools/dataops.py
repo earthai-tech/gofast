@@ -2438,12 +2438,11 @@ def inspect_data(
     
     if return_report: 
         return report_obj # return for retrieving attributes. 
-    
     print(report_obj)
     
 def augment_data(
     X: Union[DataFrame, ArrayLike], 
-    y: Optional[Union[pd.Series, np.ndarray]] = None, 
+    y: Optional[Union[Series, np.ndarray]] = None, 
     augmentation_factor: int = 2, 
     shuffle: bool = True
 ) -> Union[Tuple[Union[DataFrame, ArrayLike], Optional[Union[
@@ -2551,7 +2550,7 @@ def augment_data(
             
         return X_augmented
 
-def _is_categorical(y: Union[pd.Series, pd.DataFrame]) -> bool:
+def _is_categorical(y: Union[Series, DataFrame]) -> bool:
     """
     Determine if the target variable(s) is categorical.
 
@@ -2569,7 +2568,7 @@ def _is_categorical(y: Union[pd.Series, pd.DataFrame]) -> bool:
         return all(y.dtypes.apply(lambda dtype: dtype.kind in 'iOc'))
     return y.dtype.kind in 'iOc'
 
-def _encode_target(y: Union[pd.Series, pd.DataFrame]) -> Union[pd.Series, pd.DataFrame]:
+def _encode_target(y: Union[Series, DataFrame]) -> Union[Series, DataFrame]:
     """
     Encode the target variable(s) if it is categorical.
 
@@ -2983,7 +2982,7 @@ def assess_outlier_impact(
       }
     )
     >>> result.data 
-    results.data
+
                0
     0  -7.391298
     1  -1.173935

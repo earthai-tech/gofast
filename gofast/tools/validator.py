@@ -25,8 +25,9 @@ FLOAT_DTYPES = (np.float64, np.float32, np.float16)
 
 def validate_data_types(
     data, expected_type='numeric', 
-    nan_policy='propagate', 
-    return_data=False, error='raise'
+    nan_policy='omit', 
+    return_data=False, 
+    error='raise'
     ):
     """
     Checks for mixed data types in a pandas Series or DataFrame and handles
@@ -46,10 +47,10 @@ def validate_data_types(
           or pandas Categorical datatype.
         - 'both': Any mix of numeric and categorical data is considered valid.
         
-    nan_policy : {'error', 'warn', 'propagate'}, default 'propagate'
+    nan_policy : {'raise', 'omit', 'propagate'}, default 'omit'
         Determines how NaN values are handled:
         
-        - 'error': Raises an error if NaN values are found.
+        - 'raise': Raises an error if NaN values are found.
         - 'warn': Issues a warning if NaN values are found but proceeds.
         - 'propagate': Continues execution without addressing NaNs.
         
@@ -114,9 +115,10 @@ def validate_data_types(
         data = data.to_frame()
 
     # Handle NaN values according to the nan_policy
+    nan_policy= is_valid_policies(nan_policy)
     if nan_policy == 'raise' and data.isnull().any().any():
         raise ValueError("NaN values found in the data.")
-    elif nan_policy == 'warn' and data.isnull().any().any():
+    elif nan_policy == 'propagate' and data.isnull().any().any():
         warnings.warn("NaN values found in the data, but processing will continue.")
 
     def _handle_numeric(data, return_data):
@@ -296,7 +298,6 @@ def is_categorical(data, column, strict=False, error='raise'):
         return pd.api.types.is_categorical_dtype(col_type)
     else:
         return pd.api.types.is_categorical_dtype(col_type) or pd.api.types.is_object_dtype(col_type)
-
 
 def parameter_validator(
         param_name, target_strs, match_method='contains',
@@ -1685,6 +1686,7 @@ def validate_and_adjust_ranges(**kwargs):
 
     Examples
     --------
+    >>> from gofast.tools.validator import validate_and_adjust_ranges
     >>> validate_and_adjust_ranges(lat_range=(34.00, 36.00), lon_range=(-118.50, -117.00))
     {'lat_range': (34.00, 36.00), 'lon_range': (-118.50, -117.00)}
 

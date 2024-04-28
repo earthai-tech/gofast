@@ -3711,20 +3711,20 @@ def _enabled_bi_impute_mode(
 
     Examples
     --------
-    >>> from gofast.tools.mlutils import enabled_bi_impute_mode
+    >>> from gofast.tools.mlutils import _enabled_bi_impute_mode
     >>> enabled_bi_impute_mode('mean', None)
     ([None, None], ['mean', 'most_frequent'])
 
-    >>> enabled_bi_impute_mode('constant', '0__missing')
+    >>> _enabled_bi_impute_mode('constant', '0__missing')
     ([0.0, 'missing'], ['constant', 'constant'])
     
-    >>> enabled_bi_impute_mode (strategy='constant', fill_value="missing")
+    >>> _enabled_bi_impute_mode (strategy='constant', fill_value="missing")
     ([0.0, 'missing'], ['constant', 'constant'])
     
-    >>> enabled_bi_impute_mode('constant', 9.) 
+    >>> _enabled_bi_impute_mode('constant', 9.) 
     ([9.0, None], ['constant', 'most_frequent'])
     
-    >>> enabled_bi_impute_mode(strategy='constant', fill_value="mean__missing",)
+    >>> _enabled_bi_impute_mode(strategy='constant', fill_value="mean__missing",)
     ([None, 'missing'], ['mean', 'constant'])
     """
     num_strategy, cat_strategy = 'most_frequent', 'most_frequent'

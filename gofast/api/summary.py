@@ -11,7 +11,7 @@ from .extension import RegexMap, isinstance_, fetch_estimator_name
 from .formatter import MultiFrameFormatter, DataFrameFormatter, DescriptionFormatter 
 from .box import KeyBox 
 from .structures import FlexDict
-from .util import escape_dataframe_elements, to_snake_case , get_table_size 
+from .util import escape_dataframe_elements, to_snake_case, get_table_size 
 from .util import format_value, df_to_custom_dict, format_text, to_camel_case  
 from .util import find_maximum_table_width, format_df, format_correlations
 
@@ -51,14 +51,13 @@ class ResultSummary:
       }
     )
     """
-    def __init__(self, name=None, pad_keys=None, max_char=None, carmelcase=False):
+    def __init__(self, name=None, pad_keys=None, max_char=None):
         """
         Initialize the ResultSummary with optional customization for display.
         """
         self.name = name or "Result"
         self.pad_keys = pad_keys
         self.max_char = max_char or get_table_size()
-        self.carmelcase=carmelcase
         self.results = {}
 
     def add_results(self, results):

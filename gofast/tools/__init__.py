@@ -137,6 +137,7 @@ MODULE_MAPPING = {
         'fetch_model', 
         'fetch_tgz', 
         'get_correlated_features',
+        'get_feature_contributions',
         'get_global_score',
         'handle_imbalance',
         'laplace_smoothing', 

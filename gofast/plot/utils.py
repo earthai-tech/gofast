@@ -53,6 +53,105 @@ from ..tools._dependency import import_optional_dependency
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
 
+
+def plot_woodland_map(df, quadrant="upper_left", buffer_space=4, min_col_width=10):
+    # Calculate the correlation matrix
+    corr = df.corr()
+
+    # Set up the matplotlib figure
+    f, ax = plt.subplots(figsize=(11, 9))
+
+    # Generate a mask for the required quadrant
+    mask = np.ones_like(corr, dtype=bool)
+    if quadrant == "upper_right": # bottom lelft 
+        mask[np.tril_indices_from(mask)] = False
+    elif quadrant == "bottom_right":  # bottom right
+        mask[np.tril_indices_from(mask, -1)] = False
+        mask[np.triu_indices_from(mask)] = True
+    elif quadrant == "bottom_left":
+        mask[np.triu_indices_from(mask, 1)] = False
+        mask[np.tril_indices_from(mask)] = True
+    elif quadrant == "upper_left":
+        mask[np.triu_indices_from(mask)] = False
+    else:
+        raise ValueError("Invalid quadrant argument. Use 'upper_right',"
+                         " 'upper_left', 'bottom_left', or 'bottom_right'.")
+
+    # Generate a custom diverging colormap
+    cmap = sns.diverging_palette(220, 10, as_cmap=True)
+
+    # Draw the heatmap with the mask and correct aspect ratio
+    sns.heatmap(corr, mask=mask, cmap=cmap, vmax=1, center=0,
+                square=True, linewidths=.5, cbar_kws={"shrink": .5},
+                annot=True, fmt=".2f", cbar=False)
+
+    # Adjust the position of the labels based on the selected quadrant
+    # bottom_right --> upper right 
+    # upper -right --> bottom left 
+    
+    if quadrant in ["upper_left", "bottom_left"]:
+        # Labels on the top and left
+        plt.xticks(rotation=90)
+        plt.yticks(rotation=0)
+        
+        if quadrant == "upper_left":
+            ax.xaxis.tick_top()  # X-axis on top
+    elif quadrant in ["upper_right", "bottom_right"]: 
+        # Labels on the bottom and right
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+        if quadrant == "upper_right":
+            ax.yaxis.tick_right()  # Y-axis on right
+            ax.xaxis.tick_top()   # X-axis on top
+        else:
+            ax.yaxis.tick_right()  # Y-axis on right
+
+    # Show the plot
+    plt.show()
+
+def plot_correlation_triangle(df, position):
+    # Calculate the correlation matrix
+    corr = df.corr()
+    
+    # Initialize the mask as a full matrix of False
+    mask = np.zeros_like(corr, dtype=np.bool)
+    
+    # Create masks for the triangle
+    if position == 'upper left':
+        mask[np.triu_indices_from(mask, k=1)] = True
+        mask = mask.T
+    elif position == 'upper right':
+        mask[np.tril_indices_from(mask, k=-1)] = True
+    elif position == 'bottom left':
+        mask[np.triu_indices_from(mask, k=-1)] = True
+    elif position == 'bottom right':
+        mask[np.tril_indices_from(mask, k=1)] = True
+        mask = mask.T
+
+    # Set up the matplotlib figure
+    f, ax = plt.subplots(figsize=(11, 9))
+
+    # Generate a custom diverging colormap
+    cmap = sns.diverging_palette(220, 10, as_cmap=True)
+
+    # Draw the heatmap with the mask and correct aspect ratio
+    sns.heatmap(corr, mask=mask, cmap=cmap, vmax=.3, center=0,
+                square=True, linewidths=.5, cbar_kws={"shrink": .5},
+                annot=True)
+
+    # Modify ticks
+    tick_labels = ['Group1', 'Group2', 'Group3'] # Replace with your labels
+    ax.set_xticks(np.arange(len(tick_labels)) + .5, minor=False)
+    ax.set_yticks(np.arange(len(tick_labels)) + .5, minor=False)
+    ax.set_xticklabels(tick_labels, rotation=90)
+    ax.set_yticklabels(tick_labels[::-1] 
+                       if position in ['bottom left', 'bottom right'] else tick_labels)
+
+    # Show the plot
+    plt.show()
+    
+
+
 def plot_actual_vs_predicted(
     y_true: ArrayLike, 
     y_pred: ArrayLike, 

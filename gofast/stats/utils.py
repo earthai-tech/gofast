@@ -61,6 +61,7 @@ __all__= [
     "mcnemar_test",
     "mixed_effects_model", 
     "mode",
+    "paired_t_test",
     "perform_kmeans_clustering",
     "perform_linear_regression",
     "perform_spectral_clustering",
@@ -74,15 +75,15 @@ __all__= [
     "wmedian",
     "wilcoxon_signed_rank_test",
     "z_scores",
-    "paired_t_test"
 ]
+
 @make_data_dynamic('numeric', dynamize= False )
 @ensure_pkg(
     "statsmodels", 
     extra="'statsmodels' needs to be installed for checking anova assumptions."
  )
 def check_anova_assumptions(
-    data: Union[pd.DataFrame, Dict[str, List[float]]],
+    data: Union[DataFrame, Dict[str, List[float]]],
     significance_level: float = 0.05,
     view: bool = False,
     verbose: bool = True
@@ -3101,7 +3102,7 @@ def wmedian(
     view: bool = False,
     cmap: str = 'viridis',
     fig_size: Tuple[int, int] = (6, 4)
-) -> float | pd.Series:
+) -> float | Series:
     """
     Compute the weighted median of a dataset, optionally visualizing the 
     distribution of data points and their weights.
@@ -4059,7 +4060,7 @@ def kolmogorov_smirnov_test(
     Examples
     --------
     >>> import numpy as np
-    >>> from your_module import kolmogorov_smirnov_test
+    >>> from gofast.stats.utils import kolmogorov_smirnov_test
     >>> data1 = np.random.normal(loc=0, scale=1, size=100)
     >>> data2 = np.random.normal(loc=0.5, scale=1.5, size=100)
     >>> statistic, p_value = kolmogorov_smirnov_test(data1, data2)
@@ -5110,6 +5111,8 @@ def statistical_tests(
     --------
     Using the function for a paired t-test:
     
+    >>> import numpy as np 
+    >>> import pandas as pd 
     >>> from gofast.stats.utils import statistical_tests
     >>> data1 = np.random.normal(loc=10, scale=2, size=30)
     >>> data2 = np.random.normal(loc=12, scale=2, size=30)

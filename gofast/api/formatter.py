@@ -663,7 +663,7 @@ class DataFrameFormatter(metaclass=MetaLen):
         rows, cols = self.df.shape 
         if is_dataframe_long(self.df, max_rows= "auto", max_cols = "auto" ) : 
             return flex_df_formatter(
-                self.df, title = self.title, max_rows= 11 , max_cols = 7 , 
+                self.df, title = self.title, max_rows= 11 , max_cols ="auto" , 
                 table_width= "auto", style=self.style
             )
         return self._formatted_dataframe()
@@ -1662,7 +1662,6 @@ def construct_long_dataframes_with_same_columns(
     consistency across dataframes and can be customized extensively through 
     style parameters and other formatting options.
     """
-
     # Verify if all dataframes have the same columns
     if not have_same_columns(dataframes):
         raise ValueError("Dataframes do not have the same columns.")

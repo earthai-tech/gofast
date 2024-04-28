@@ -1161,17 +1161,21 @@ def is_dataframe_long(
     rows, columns = df.shape  
     
     # Get terminal size
-    terminal_size = shutil.get_terminal_size()
-    terminal_cols = terminal_size.columns
-    terminal_rows = terminal_size.lines
+    # terminal_size = shutil.get_terminal_size()
+    # terminal_cols = terminal_size.columns
+    # terminal_rows = terminal_size.lines
+    _, auto_rows = get_terminal_size()
+    auto_cols= get_displayable_columns(
+        df, buffer_space=3, min_col_width="auto")
     if max_rows == "auto": 
-        max_rows = terminal_rows 
+        max_rows = auto_rows 
         # to terminal row sizes 
     if max_cols =="auto":
         # compared to terminal size. 
-        max_cols = terminal_cols 
+        max_cols= auto_cols
+        # max_cols = terminal_cols 
     if return_rows_cols_size: 
-        auto_rows, auto_cols = auto_adjust_dataframe_display( df)
+        # auto_rows, auto_cols = auto_adjust_dataframe_display( df)
         # select the appropriate rows and columns 
         max_rows = _adjust_value(max_rows, auto_rows)
         max_cols = _adjust_value(max_cols, auto_cols)
@@ -3089,8 +3093,7 @@ def get_terminal_size():
             
     return size.columns, size.lines
 
-
-def optimize_col_width (max_cols=4, df=None, min_col_width=7):
+def optimize_col_width (max_cols=4, df=None, min_col_width=10):
     """
     Determines the optimal width for each column based on the terminal size to
     ensure that data is displayed properly without exceeding the terminal width.
@@ -3107,8 +3110,9 @@ def optimize_col_width (max_cols=4, df=None, min_col_width=7):
         A DataFrame for which column width needs adjustment. If provided,
         `max_cols` will be considered as the upper limit, with the actual 
         number displayed possibly fewer to fit the terminal width.
-    min_col_width : int
-        The minimum allowable width for any column.
+    min_col_width : int, default 10
+        The minimum allowable width for any column. It defaults to 10 characters,
+        which is a balance between readability and space efficiency.
 
     Returns
     -------
@@ -3119,16 +3123,21 @@ def optimize_col_width (max_cols=4, df=None, min_col_width=7):
     Examples
     --------
     >>> import pandas as pd 
-    >>> import from gofast.api.util import optimize_col_width
+    >>> from gofast.api.util import optimize_col_width
     >>> df = pd.DataFrame({'A': range(100), 'B': range(100), 'C': range(100)})
-    >>> max_width = optimize_col_width (max_cols=3, df=df)
+    >>> max_width = optimize_col_width(max_cols=3, df=df)
     >>> print("Maximum column width for display:", max_width)
     """
     terminal_width, _ = get_terminal_size()
+    
     if df is not None:
         df = validate_data (df)
+        if isinstance(min_col_width, str) and min_col_width == "auto":
+            min_col_width = min(len(str(col)) for col in df.columns)
         max_cols = min(max_cols, len(df.columns))
-
+    
+    if str(min_col_width) == 'auto':
+        min_col_width = 10 # In the case df is not provided while "auto" is set
     # Calculate total required width including buffer space between columns
     total_required_width = max_cols * (min_col_width + 4)  # +4 for space between columns
 
@@ -3143,6 +3152,65 @@ def optimize_col_width (max_cols=4, df=None, min_col_width=7):
         return max(max_col_width, min_col_width)  # Ensure at least min_col_width
     else:
         return min_col_width  # Return min_col_width if no columns fit
+
+def get_displayable_columns(cols_or_df, /, buffer_space=4, min_col_width=10):
+    """
+    Computes the number of columns that can be displayed in the terminal based
+    on the maximum column width, considering a buffer space between columns.
+
+    Parameters
+    ----------
+    cols_or_df : list, pandas.DataFrame, or str
+        A list of column names, a pandas DataFrame from which to extract column
+        names, or a single column name as a string. If a DataFrame is provided,
+        the column names are extracted. If a string is provided, it is treated
+        as a list with a single column name.
+    buffer_space : int, default 4
+        The number of characters to consider as spacing between columns.
+    min_col_width : int, default 10
+        The minimum width in characters for each column.
+
+    Returns
+    -------
+    int
+        The number of columns that can be optimally displayed in the terminal
+        without exceeding the terminal's width.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.api.util import get_displayable_columns
+    >>> df = pd.DataFrame({'A': range(100), 'B': range(100), 'C': range(100)})
+    >>> num_cols = get_displayable_columns(df)
+    >>> print(f"Number of displayable columns: {num_cols}")
+    """
+    # Extract column names based on the type of `cols_or_df`
+    if isinstance(cols_or_df, pd.DataFrame):
+        cols = cols_or_df.columns.tolist()  # Extract columns from DataFrame
+    elif isinstance(cols_or_df, list):
+        cols = cols_or_df  # Use the list directly if provided
+    elif isinstance(cols_or_df, str):
+        cols = [cols_or_df]  # Treat a single string as a list with one element
+    else:
+        # Raise an error if the input type is unexpected
+        raise TypeError("cols_or_df must be either a list, or a pandas.DataFrame.")
+
+    # Determine the number of columns to evaluate
+    num_cols = len(cols)
+    # Create a temporary DataFrame to facilitate column width calculation
+    df = pd.DataFrame(columns=cols)
+    # Calculate the optimal column width
+    max_col_width = optimize_col_width(max_cols=num_cols, df=df,
+                                       min_col_width=min_col_width)
+    # Retrieve the current terminal width
+    terminal_width, _ = get_terminal_size()
+
+    # Calculate the total space available per column including buffer
+    available_space_per_column = max_col_width + buffer_space
+    # Determine the maximum number of columns that can fit in the terminal
+    max_displayable_cols = terminal_width // available_space_per_column
+
+    return min(num_cols, max_displayable_cols)
 
 def to_camel_case(text, delimiter=None):
     """
