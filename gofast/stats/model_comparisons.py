@@ -839,13 +839,13 @@ def perform_wilcoxon_test2(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.stats.model_comparisons import perform_wilcoxon_base_test
+    >>> from gofast.stats.model_comparisons import perform_wilcoxon_test2
     >>> performance_data = pd.DataFrame({
     ...     'Model_X': [0.85, 0.80, 0.78],
     ...     'Model_Y': [0.75, 0.82, 0.79],
     ...     'Model_Z': [0.80, 0.77, 0.74]
     ... })
-    >>> results = perform_wilcoxon_base_test(performance_data)
+    >>> results = perform_wilcoxon_test2(performance_data)
     >>> print(results)
     
     The resulting DataFrame will contain NaNs on the diagonal and p-values

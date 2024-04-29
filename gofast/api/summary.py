@@ -14,6 +14,7 @@ from .structures import FlexDict
 from .util import escape_dataframe_elements, to_snake_case, get_table_size 
 from .util import format_value, df_to_custom_dict, format_text, to_camel_case  
 from .util import find_maximum_table_width, format_df, format_correlations
+from .util import beautify_dict 
 
 class ResultSummary:
     """
@@ -98,7 +99,7 @@ class ResultSummary:
             
         return self 
 
-    def __str__(self):
+    def __str__2(self):
         """
         Return a formatted string representation of the results dictionary.
         """
@@ -114,19 +115,21 @@ class ResultSummary:
     
         # Construct the formatted result string
         for key, value in self.results.items():
+           
+            if self.pad_keys == "auto":
+                formatted_key = key.ljust(key_padding)
+            else:
+                formatted_key = key
+            
             if isinstance(value, dict):
-                value_str = str(value)
+                value_str = beautify_dict(value, key = formatted_key) # str(value)
+                
             else:
                 value_str = str(value)
             
             # Truncate values if necessary
             if len(value_str) > self.max_char:
                 value_str = value_str[:self.max_char] + "..."
-            
-            if self.pad_keys == "auto":
-                formatted_key = key.ljust(key_padding)
-            else:
-                formatted_key = key
             
             formatted_results.append(f"       {formatted_key} : {value_str}")
     
@@ -140,7 +143,114 @@ class ResultSummary:
         name =to_camel_case(self.name)
         return ( f"<{name} with {len(self.results)} entries."
                 " Use print() to see detailed contents.>")
-   
+
+    def _format_nested_dict (self, formatted_results, nested_dict, key_length ): 
+        
+        nested_formatted_dict = beautify_dict(nested_dict) 
+        nested_list = nested_formatted_dict.split("\n")
+        space = ' ' * key_length
+        
+        for value in nested_list[1:]: 
+          formatted_results.append (f" {space}: {value}")
+            
+    def __str__(self):
+        """
+        Return a formatted string representation of the results dictionary.
+        """
+        result_title = to_camel_case(self.name) + '(\n  {\n'
+        formatted_results = []
+    
+        # Determine key padding if auto pad_keys is specified
+        if self.pad_keys == "auto":
+            max_key_length = max(len(key) for key in self.results.keys())
+            key_padding = max_key_length
+        else:
+            key_padding = 0  # No padding by default
+    
+        # Construct the formatted result string
+        for key, value in self.results.items():
+            # Handle nested dictionaries
+            if isinstance(value, dict):
+                value_str = beautify_dict(value, space=7)  # Use beautify_dict for nested dictionaries
+            else:
+                value_str = str(value)
+    
+            # Truncate values if necessary
+            if len(value_str) > self.max_char:
+                value_str = value_str[:self.max_char] + "..."
+    
+            if self.pad_keys == "auto":
+                formatted_key = key.ljust(key_padding)
+            else:
+                formatted_key = key
+    
+            formatted_results.append(f"       {formatted_key} : {value_str}")
+    
+        result_str = '\n'.join(formatted_results) + "\n\n  }\n)"
+        return f"{result_title}\n{result_str}"
+
+
+# # how to use beatify_dict here whether result has nested dictionnary  to print something like : 
+    
+# CategoryMap(
+#   {
+
+#        preferred_category : {
+#                                3: 'Home & Garden',
+#                                2: 'Health & Beauty',
+#                                4: 'Sports',
+#                                0: 'Electronics',
+#                                1: 'Fashion'
+#                            },
+#   }
+# )    
+
+# # currently the print is 
+# from gofast.api.summary import ResultSummary 
+# result_map =ResultSummary (name ='CategoryMap')
+# result_map.add_results (map_codes )
+# Out[57]: <CategoryMap with 1 entries. Use print() to see detailed contents.>
+# print(result_map )
+# CategoryMap(
+#   {
+
+#        preferred_category : {
+#     3: 'Home & Garden',
+#     2: 'Health & Beauty',
+#     4: 'Sports',
+#     0: 'Ele...
+
+#   }
+# )
+# # this is bad. 
+# Note that the beatify_dict give the following result 
+# from gofast.api.util import beautify_dict
+# dictionary = {
+#     3: 'Home & Garden',
+#     2: 'Health & Beauty',
+#     4: 'Sports',
+#     0: 'Electronics',
+#     1: 'Fashion'
+# }
+
+# # Print the formatted dictionary with a specified space
+# print(beautify_dict(dictionary, space=4))
+# {
+#     3: 'Home & Garden',
+#     2: 'Health & Beauty',
+#     4: 'Sports',
+#     0: 'Electronics',
+#     1: 'Fashion'
+# }
+
+# #the idea is that when dict result argument as a key that contain nested dict 
+# # it should use the beautify dict to format dict . 
+# # if not nested dict, then use str( value instead. )
+
+# Revise only the __str__ method of ResultSummary. Dont rewrite all the code and 
+# also skip the documentation 
+
+
 class ModelSummary(KeyBox):
     """
     A class for creating and storing a summary of machine learning model

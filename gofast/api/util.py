@@ -3341,6 +3341,79 @@ def check_index_column_types(df):
     True
     """
     return df.index.dtype == df.columns.dtype
+
+def beautify_dict(d, space=4, key=None ):
+    """
+    Format a dictionary with custom indentation and aligned keys and values.
+    
+    Parameters:
+    ----------
+    d : dict
+        The dictionary to format.
+    space : int, optional
+        The number of spaces to indent the dictionary entries.
+
+    Returns:
+    -------
+    str
+        A string representation of the dictionary with custom formatting.
+
+    Examples:
+    --------
+    >>> from gofast.api.util import format_dictionary
+    >>> dictionary = {
+    ...     3: 'Home & Garden',
+    ...     2: 'Health & Beauty',
+    ...     4: 'Sports',
+    ...     0: 'Electronics',
+    ...     1: 'Fashion'
+    ... }
+    >>> print(format_dictionary(dictionary, space=4))
+    {
+        3: 'Home & Garden',
+        2: 'Health & Beauty',
+        4: 'Sports',
+        0: 'Electronics',
+        1: 'Fashion'
+    }
+    >>> # for instance if key is given. eg. key= 'preferred_category'
+    >>> # formatted result should be : 
+        
+        
+    preferred_category : {
+                            3: 'Home & Garden',
+                            2: 'Health & Beauty',
+                            4: 'Sports',
+                            0: 'Electronics',
+                            1: 'Fashion'
+                        }
+    
+    # implement this section 
+    """
+    if not isinstance(d, dict):
+        raise TypeError("Expected input to be a 'dict',"
+                        f" received '{type(d).__name__}' instead.")
+    # Determine the longest key for alignment
+    max_key_length = max(len(str(key)) for key in d.keys())
+    
+    # Create a list of formatted rows
+    formatted_rows = []
+    for key, value in d.items():
+        # Ensure all keys are right-aligned to the longest key length
+        formatted_row = f"{str(key):>{max_key_length}}: '{value}'"
+        formatted_rows.append(formatted_row)
+
+    # Join all rows into a single string with custom indentation
+    indent = ' ' * space
+    inner_join = ',\n' + indent
+    formatted_dict = '{\n' + indent + inner_join.join(formatted_rows) + '\n}'
+    
+    if key: 
+        # add key and its length  + formatted_dict
+        ... 
+    return formatted_dict
+
+
 if __name__=='__main__': 
     # Example usage:
     data = {

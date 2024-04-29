@@ -3004,10 +3004,11 @@ def perform_kmeans_clustering(
 def hmean(
     data: ArrayLike,
     columns: List[str] = None,
-    as_frame: bool = False,
+    as_frame: bool = True,
+    axis=None, 
     view: bool = False,
     cmap: str = 'viridis',
-    fig_size: Tuple[int, int] = (10, 6)
+    fig_size: Tuple[int, int] = (8, 4)
 ):
     """
     Calculate the harmonic mean of a data set and optionally visualize the 
@@ -3034,6 +3035,19 @@ def hmean(
     as_frame : bool, optional
         If True and `data` is ArrayLike, converts `data` into a DataFrame
         using `columns` as column names. Ignored if `data` is already a DataFrame.
+    axis : {None, 0, 1}, optional
+        Axis along which to compute the harmonic mean:
+        - `None`: Harmonic mean is calculated using all values in the input 
+          array, flattening it if necessary. This is the default behavior.
+        - `0`: Compute the harmonic mean along columns for a DataFrame or a 
+          2D numpy array. This results in a harmonic mean value for each column.
+        - `1`: Compute the harmonic mean along rows for a DataFrame or a 2D 
+          numpy array. This results in a harmonic mean value for each row.
+        If `data` is a DataFrame and specific `columns` are selected, the 
+        computation will consider only the selected columns. If `as_frame` 
+        is True, the result will be returned as a pandas DataFrame; otherwise, 
+        it will be returned in the form of a numpy array or a scalar value, 
+        depending on the dimensionality of the input.
     view : bool, optional
         If True, displays a histogram of the data set to visualize its
         distribution. Default is False.
@@ -3063,35 +3077,79 @@ def hmean(
     
     >>> df = pd.DataFrame({'A': [2.5, 3.0, 10.0], 'B': [1.5, 2.0, 8.0]})
     >>> hmean(df, columns=['A'])
-    ValueError: Data points must be greater than 0.
-
+    3.5999999999999996
+   
     See Also
     --------
     scipy.stats.hmean : Harmonic mean function in SciPy for one-dimensional arrays.
     gofast.stats.mean : Arithmetic mean function.
     """
-    data_values = data.to_numpy().flatten()
-
-    if np.any(data_values <= 0):
-        raise ValueError("Data points must be greater than 0.")
-
-    h_mean = len(data_values) / np.sum(1.0 / data_values)
-
+    #select only numeric features 
+    data = data.select_dtypes (include = [np.number])
+    if np.any(data <= 0):
+        raise ValueError("Data points must be greater than 0 for harmonic"
+                         " mean calculation.")
+    
+    if axis is None:
+        data_values = data.values.flatten()
+        h_mean = stats.hmean(data_values)
+    elif axis in [0, 1]:
+        h_mean = data.apply(lambda x: stats.hmean(x.dropna()), axis=axis)
+        # h_mean = h_mean.to_frame(
+        #     name='harmonic_mean').T if axis == 0 else h_mean.to_frame(
+        #         name='harmonic_mean')
     if view:
-        plt.figure(figsize=fig_size)
-        plt.hist(data_values, bins='auto',color=plt.get_cmap(cmap)(0.7),
-                 alpha=0.7, rwidth=0.85)
-        plt.title('Data Distribution')
-        plt.xlabel('Data Points')
-        plt.ylabel('Frequency')
-        plt.axvline(h_mean, color='red', linestyle='dashed', linewidth=2)
-        plt.text(h_mean, plt.ylim()[1] * 0.9, f'Harmonic Mean: {h_mean:.2f}',
-                 rotation=90, verticalalignment='center')
-        plt.show()
-
+        # Handling visualization
+        visualize_data_distribution(data, h_mean, cmap, fig_size)
+    
     if as_frame: 
-        return to_series_if (h_mean, value_names= ['H-mean'], name='harmonic_mean') 
+        if axis is None: 
+            return to_series_if (h_mean, value_names= ['H-mean'],
+                                 name='harmonic_mean') 
+
+        h_mean= convert_and_format_data(
+            h_mean, as_frame, 
+            force_array_output= False if as_frame else True, 
+            condense=False if as_frame else True,
+            condition=series_naming ("harmonic_mean"),
+            )    
     return h_mean
+
+
+def visualize_data_distribution(data, h_mean, cmap, fig_size):
+    plt.figure(figsize=fig_size)
+    
+    def plot_mean_line(mean_value, label):
+        plt.axvline(mean_value, color='red', linestyle='dashed', linewidth=2)
+        plt.text(mean_value, plt.ylim()[1] * 0.9, f'{label}: {mean_value:.2f}',
+                 rotation=90, verticalalignment='center')
+
+    # Check and handle if data is a DataFrame and multiple columns are provided
+    if isinstance(data, pd.DataFrame) and data.shape[1] > 1:
+        data = data.values.flatten()  # Flatten the array if it's multi-dimensional
+
+    num_datasets = 1 if data.ndim == 1 else data.shape[1]
+    colors = [plt.get_cmap(cmap)(i/num_datasets) for i in range(num_datasets)]
+    
+    plt.hist(data, bins='auto', color=colors, alpha=0.7, rwidth=0.85)
+    plt.title('Data Distribution')
+    plt.xlabel('Data Points')
+    plt.ylabel('Frequency')
+
+    # Handling different structures of h_mean (Series or DataFrame)
+    if isinstance(h_mean, pd.DataFrame):
+        for col in h_mean:
+            mean_values = h_mean[col].dropna()
+            for mean_value in mean_values:
+                plot_mean_line(mean_value, col)
+    elif isinstance(h_mean, pd.Series):
+        for ii, mean_value in enumerate (h_mean.dropna()):
+            plot_mean_line(mean_value, h_mean.index[ii])
+    else:  # it's a scalar
+        plot_mean_line(h_mean, 'Harmonic Mean')
+    
+    plt.show()
+
 
 @make_data_dynamic(capture_columns=True)
 def wmedian(
