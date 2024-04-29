@@ -16,7 +16,8 @@ from sklearn.preprocessing import LabelEncoder
 from ..api.types import Callable, LambdaType, DataFrame, Series, Array1D
 from ..api.types import Dict, List, Union, Optional, Any, Tuple 
 from ..api.extension import isinstance_  
-from ..api.formatter import DataFrameFormatter, MultiFrameFormatter 
+from ..api.formatter import DataFrameFormatter, MultiFrameFormatter
+from ..api.formatter import formatter_validator   
 from ..decorators import isdf 
 from ..tools.coreutils import validate_ratio 
 from ..tools.funcutils import ensure_pkg 
@@ -32,7 +33,7 @@ __all__=[
     "perform_friedman_test2", 
     "perform_nemenyi_posthoc_test2", 
     "compute_model_ranks", 
-    "perform_wilcoxon_base_test", 
+    "perform_wilcoxon_test2", 
     "perform_nemenyi_test2", 
     "plot_cd_diagram", 
     "plot_model_rankings", 
@@ -42,6 +43,8 @@ __all__=[
     "visualize_wilcoxon_test", 
     "compute_model_summary", 
     "perform_posthoc_analysis", 
+    "calculate_pairwise_mean_differences", 
+    "compute_stats_comparisons"
     ]
 
 @isdf
@@ -794,7 +797,7 @@ def perform_nemenyi_test2(
 
 
 @isdf 
-def perform_wilcoxon_base_test(
+def perform_wilcoxon_test2(
       model_performance_data: Union[Dict[str, List[float]], DataFrame]
       ):
     """
@@ -1362,13 +1365,45 @@ def calculate_pairwise_mean_differences(
 
     return mean_diffs
 
+def handle_error(message, error_mode, exception_type=Exception):
+    """Handle errors according to the specified mode."""
+    if error_mode == "raise":
+        raise exception_type(message)
+    elif error_mode == "warn":
+        warnings.warn(message)
+
+def _compute_adjusted_p_values(data, method, error_mode):
+    """Attempt to compute adjusted p-values, handling errors according 
+    to the specified mode."""
+    try:
+        return compute_stats_comparisons(data, test_type=method).result
+    except Exception as e:
+        temp = ( "Using a simplified estimation based on mean differences." 
+                if error_mode == 'warn' else '')
+        message = (f"Sample sizes are not provided while computing p-values"
+                   f" using the '{method}' method. {temp} Error: {str(e)}")
+        handle_error(message, error_mode, ValueError)
+        return None
+
+def _retrieve_precomputed_p_values(p_adj_result, group1, group2, error_mode):
+    """Retrieve precomputed p-values, handling errors."""
+    try:
+        return get_p_adj_for_groups(p_adj_result, group1, group2)
+    except Exception as e:
+        temp = "Falling back to direct computation." if error_mode == 'warn' else ''
+        message = ("Failed to retrieve precomputed p-values for groups"
+                   f" '{group1}' and '{group2}'. {temp} Error: {str(e)}")
+        handle_error(message, error_mode, ValueError)
+        return None
+
 @isdf
 def perform_posthoc_analysis(
     performance_data:DataFrame, 
     test_method: str='tukey',
     significance_level: float=0.05, 
     ci_multiplier: float=1.96,
-    sample_sizes: Series=None
+    sample_sizes: Series=None, 
+    error="warn"
     ):
     """
     Performs posthoc analysis using specified statistical tests to compare 
@@ -1392,7 +1427,10 @@ def perform_posthoc_analysis(
         A series containing sample sizes for each model. This is required for 
         more accurate standard error calculation. If not provided, a simpler 
         estimation is used based on the mean differences.
-
+    error : str, default 'warn'
+        Error handling mode. Options are 'raise' to throw exceptions directly, 
+        or 'warn' to issue warnings without halting the execution. 
+        
     Returns
     -------
     pandas.DataFrame
@@ -1450,6 +1488,7 @@ def perform_posthoc_analysis(
 
     Examples
     --------
+    >>> import pandas as pd 
     >>> from gofast.stats.model_comparisons import perform_posthoc_analysis 
     >>> performance_data = pd.DataFrame({
     ...     'Model_A': [0.8, 0.82, 0.78, 0.81, 0.79],
@@ -1462,23 +1501,23 @@ def perform_posthoc_analysis(
     >>> result
     <Tukeytest object containing table data. Use print() to view contents.>
 
-   >>>  print(result ) 
-
-                 Multiple Comparison Of Means - Tukey, Fwer=0.05             
-    =========================================================================
-       group1     group2    meandiff     p-adj      lower     upper    reject
-    -------------------------------------------------------------------------
-      Model_A    Model_B      0.0020    0.6046    -0.0050    0.0090     False
-      Model_A    Model_C      0.0060    0.1419    -0.0004    0.0124     False
-      Model_B    Model_C      0.0040    0.4050    -0.0044    0.0124     False
-    =========================================================================
-
-    >>> result.result 
-        group1   group2  meandiff     p-adj     lower     upper  reject
-    0  Model_A  Model_B     0.002  0.604603 -0.004985  0.008985   False
-    1  Model_A  Model_C     0.006  0.141927 -0.000441  0.012441   False
-    2  Model_B  Model_C     0.004  0.405023 -0.004430  0.012430   False
+    >>>  print(result ) 
     
+           Multiple Comparison Of Means - Tukey, Fwer=0.05      
+     ===========================================================
+      group1   group2  meandiff   p-adj    lower   upper  reject
+     -----------------------------------------------------------
+     Model_A  Model_B    0.0020  0.6046  -0.0050  0.0090   False
+     Model_A  Model_C    0.0060  0.1419  -0.0004  0.0124   False
+     Model_B  Model_C    0.0040  0.4050  -0.0044  0.0124   False
+     ===========================================================
+    
+     >>> result.result 
+         group1   group2  meandiff     p-adj     lower     upper  reject
+     0  Model_A  Model_B     0.002  0.604603 -0.004985  0.008985   False
+     1  Model_A  Model_C     0.006  0.141927 -0.000441  0.012441   False
+     2  Model_B  Model_C     0.004  0.405023 -0.004430  0.012430   False
+     
     """
     # Validate test method
     test_method = parameter_validator(
@@ -1489,12 +1528,17 @@ def perform_posthoc_analysis(
     mean_diffs = calculate_pairwise_mean_differences(
         performance_data, return_group=True)
     
+    p_adj_result = None
+    if sample_sizes is None and test_method == "nemenyi":
+        p_adj_result = _compute_adjusted_p_values(
+            performance_data, test_method, error)
+
     # Prepare to store results
     records = []
     # Compute statistics for each pair
     for index, row in mean_diffs.iterrows():
         group1, group2, meandiff = row['group1'], row['group2'], row['meandiff']
-        
+  
         if sample_sizes is not None:
             # Calculate standard error from sample sizes
             n1 = sample_sizes[group1]
@@ -1513,9 +1557,13 @@ def perform_posthoc_analysis(
             # degrees of freedom for the test
             df = len(performance_data) - 1
             p_adj = 2 * (1 - statst.cdf(np.abs(meandiff) / se, df))
+    
         elif test_method == 'nemenyi':
-            z_score = np.abs(meandiff) / se
-            p_adj = 2 * (1 - statsnorm.cdf(z_score))
+            if not p_adj_result.empty:
+                p_adj = _retrieve_precomputed_p_values(p_adj_result, group1, group2, error)
+            if p_adj is None:
+                z_score = np.abs(meandiff) / se
+                p_adj = 2 * (1 - statsnorm.cdf(z_score))
             
         elif test_method == 'wilcoxon':
             # Wilcoxon test for paired samples (non-parametric)
@@ -1540,6 +1588,56 @@ def perform_posthoc_analysis(
         pd.DataFrame(records))
     
     return analysis_result
+
+@isdf 
+def get_p_adj_for_groups(df, group1, group2):
+    """
+    Retrieves the p-adj value for a specified pair of groups from a DataFrame.
+
+    Parameters:
+    ----------
+    df : pandas.DataFrame
+        DataFrame containing the comparison results with columns 
+        'group1', 'group2', and 'p-adj'.
+    group1 : str
+        The name of the first group in the comparison.
+    group2 : str
+        The name of the second group in the comparison.
+
+    Returns:
+    -------
+    float
+        The p-adj value for the specified group pair.
+
+    Raises:
+    ------
+    ValueError
+        If no matching pair is found for the specified groups.
+
+    Examples:
+    --------
+    >>> 
+    >>> data = pd.DataFrame({
+    ...     'group1': ['Model_A', 'Model_A', 'Model_B'],
+    ...     'group2': ['Model_B', 'Model_C', 'Model_C'],
+    ...     'p-adj': [0.50, 1.00, 0.75]
+    ... })
+    >>> print(get_p_adj_for_groups(data, 'Model_A', 'Model_B'))
+    0.5
+
+    >>> print(get_p_adj_for_groups(data, 'Model_B', 'Model_C'))
+    0.75
+    """
+    # Attempt to find the row with the matching groups
+    mask = ((df['group1'] == group1) & (df['group2'] == group2)) | (
+        (df['group1'] == group2) & (df['group2'] == group1))
+    results = df[mask]
+
+    if results.empty:
+        raise ValueError(f"No matching pair found for {group1} and {group2}.")
+    
+    return results['p-adj'].iloc[0]
+
 
 @isdf
 def transform_comparison_data(data, /):
@@ -1572,43 +1670,84 @@ def transform_comparison_data(data, /):
     
     return pd.DataFrame(records)
 
+def compute_stats_comparisons(data_or_result, test_type='wilcoxon'):
+    """
+    Computes statistical comparisons using specified tests and processes 
+    the results into a formatted DataFrame showing pairwise comparison results.
 
-# find the best 
-def get_comparison_results (performance_data_or_result, test_method ='wilcoxon'): 
+    Parameters:
+    ----------
+    data_or_result : pandas.DataFrame
+        DataFrame containing performance data or already computed results.
+    test_type : str, default 'wilcoxon'
+        Specifies the statistical test to use for comparison. Supported tests
+        are 'wilcoxon' and 'nemenyi'.
+
+    Returns:
+    -------
+    pandas.DataFrame
+        A DataFrame containing the formatted pairwise comparison results with 
+        columns 'group1', 'group2', and 'p-adj'.
+
+    Raises:
+    ------
+    ValueError
+        If an unsupported test is specified or other input validation fails.
+
+    Examples:
+    --------
+    >>> from gofast.stats.model_comparisons import compute_stats_comparisons
+    >>> from gofast.stats.model_comparisons import perform_wilcoxon_base_test
+    >>> performance_data = pd.DataFrame({
+    ...     'Model_A': [1.0, 0.9, 0.78],
+    ...     'Model_B': [0.9, 1.0, 0.9],
+    ...     'Model_C': [0.78, 0.9, 1.0]
+    ... }, index=['Model_A', 'Model_B', 'Model_C'])
+    >>> print(compute_stats_comparisons(performance_data))
+       group1   group2     p-adj
+    0  Model_A  Model_B  0.900000
+    1  Model_A  Model_C  0.781714
+    2  Model_B  Model_C  0.900000
     
-    from gofast.api.formatter import formatter_validator 
-    # Define a function mapper for scalability
+    >>> wilcoxon_result = perform_wilcoxon_base_test (performance_data)
+    >>> print(wilcoxon_result.result)
+            Model_A Model_B Model_C
+    Model_A    <NA>     0.5     1.0
+    Model_B     0.5    <NA>    0.75
+    Model_C     1.0    0.75    <NA>
+    >>> compute_stats_comparisons(wilcoxon_result)
+        group1   group2  p-adj
+    0  Model_A  Model_B   0.50
+    1  Model_A  Model_C   1.00
+    2  Model_B  Model_C   0.75
+    """
+
+    # Function mapper for scalability
     method_function_mapper = {
-        'wilcoxon': lambda data: perform_wilcoxon_base_test(performance_data_or_result),
-        'nemenyi': lambda data: perform_nemenyi_posthoc_test2(performance_data_or_result)
+        'wilcoxon': lambda data: perform_wilcoxon_test2(data_or_result),
+        'nemenyi': lambda data: perform_nemenyi_posthoc_test2(data_or_result)
     }
 
     valid_tests = {'wilcoxon', 'nemenyi'}
-    if test_method=='turkey': 
-        raise ValueError ("Function does not support Turkey test. Use `perform_posthoc_test`"
-                          "for gofast.stats.model_comparisons instead. ")
-        
-    elif test_method=='friedman': 
-        raise ValueError ("Friedman test is not a a model pairwise comparision test,"
-                         f" Use {valid_tests} instead.")
-        
-    test_method = parameter_validator(
-        "test_method", target_strs= valid_tests)( test_method)
-    
-    if isinstance (performance_data_or_result, pd.DataFrame) :
-        # asseume is it a performance data then computed using the testfuncion 
-        performance_data_or_result = method_function_mapper[test_method](
-            performance_data_or_result) 
-        # return formatter object where attribute 'df' can be fetched.
-    
-    # now transform these object 
-    result_values = formatter_validator(result, attributes= 'df')
-    result_values = validate_comparison_data( result_values)
-    result_df = transform_comparison_data(result_values)
-    
-    return result_df 
 
+    if test_type not in valid_tests:
+        raise ValueError(f"Unsupported test type specified. Use {valid_tests} instead.")
+
+    # Perform the selected test
+    if isinstance(data_or_result, pd.DataFrame):
+        data_or_result = method_function_mapper[test_type](data_or_result)
     
+    # Validate and transform the results
+    result_df = formatter_validator(data_or_result, attributes='df')
+    result_df = validate_comparison_data(result_df)
+    result_df = transform_comparison_data(result_df)
+
+    comparison_results = DataFrameFormatter( 
+        title ="{test_type} Results", keyword='result', 
+        descriptor=f"{test_type}Test").add_df (result_df)
+    
+    return comparison_results
+
 @isdf 
 @ensure_pkg (
     "scikit_posthocs", 
@@ -2306,7 +2445,7 @@ if __name__ == "__main__":
     model_performance_data = pd.DataFrame(data)
     
     # Perform the Wilcoxon signed-rank test
-    wilcoxon_results = perform_wilcoxon_base_test(model_performance_data)
+    wilcoxon_results = perform_wilcoxon_test2(model_performance_data)
     print(wilcoxon_results)
 
 

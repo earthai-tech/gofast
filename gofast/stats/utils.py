@@ -2292,7 +2292,7 @@ def kurtosis(
     data: Union[ArrayLike, DataFrame],
     columns: List[str] = None,
     axis: int= 0, 
-    as_frame: bool = False,
+    as_frame: bool = True,
     view: bool = False, 
     plot_type: str = 'density', 
     cmap: str = 'viridis', 
@@ -3247,8 +3247,8 @@ def bootstrap(
     n: int = 1000,
     columns: Optional[List[str]] = None,
     func: Callable | NumPyFunction = np.mean,
-    as_frame: bool = False, 
-    view: bool = True,
+    as_frame: bool = True, 
+    view: bool = False,
     alpha: float = .7, 
     cmap: str = 'viridis',
     fig_size: Tuple[int, int] = (10, 6),
@@ -3282,7 +3282,7 @@ def bootstrap(
     func : callable, optional
         The statistic to compute from the resampled data, default is np.mean.
     as_frame : bool, optional
-        If True, returns results in a pandas DataFrame. Default is False.
+        If True, returns results in a pandas DataFrame. Default is True.
     view : bool, optional
         If True, displays a histogram of the bootstrapped statistics. 
         Default is True.
