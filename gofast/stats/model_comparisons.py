@@ -8,6 +8,7 @@ import pandas as pd
 from scipy.stats import friedmanchisquare
 from scipy.stats import wilcoxon, chi2
 from scipy.stats import rankdata
+from scipy.stats import t as statst, norm as statsnorm 
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.preprocessing import LabelEncoder
@@ -16,10 +17,11 @@ from ..api.types import Callable, LambdaType, DataFrame, Series, Array1D
 from ..api.types import Dict, List, Union, Optional, Any, Tuple 
 from ..api.extension import isinstance_  
 from ..api.formatter import DataFrameFormatter, MultiFrameFormatter 
-from ..api.decorators import isdf 
+from ..decorators import isdf 
 from ..tools.coreutils import validate_ratio 
 from ..tools.funcutils import ensure_pkg 
-from ..tools.validator import _is_arraylike_1d
+from ..tools.validator import _is_arraylike_1d, validate_comparison_data
+from ..tools.validator import parameter_validator 
 
 __all__=[
     "perform_friedman_test", 
@@ -39,6 +41,7 @@ __all__=[
     "visualize_model_performance", 
     "visualize_wilcoxon_test", 
     "compute_model_summary", 
+    "perform_posthoc_analysis", 
     ]
 
 @isdf
@@ -200,7 +203,8 @@ def perform_friedman_test(
                 )
 
     formatted_result= MultiFrameFormatter( titles=titles,
-       keywords=['friedman_result', 'post_hoc_result'] ).add_dfs(*results)
+       keywords=['friedman_result', 'post_hoc_result'], 
+       descriptor="FriedmanTest").add_dfs(*results)
     
     return formatted_result
  
@@ -327,8 +331,10 @@ def perform_nemenyi_posthoc_test(
         "Model Ranks"
         ] 
     keywords = ['p_values', 'significant_differences', 'average_ranks']
-    results= MultiFrameFormatter(titles = titles, keywords= keywords).add_dfs(
-        pairwise_p_values, significant_diffs,  avg_ranks)
+    results= MultiFrameFormatter(titles = titles, keywords= keywords, 
+                                 descriptor="NemenyiPosthocTest").add_dfs(
+        pairwise_p_values, significant_diffs,  avg_ranks
+    )
     
     return results
 
@@ -461,7 +467,6 @@ def plot_nemenyi_cd_diagram(
     if ax is None:  # Only show the plot if we created the figure within this function
         plt.show()
 
-
 @isdf 
 def perform_wilcoxon_test(
     model_performance_data: DataFrame, 
@@ -574,7 +579,8 @@ def perform_wilcoxon_test(
         significant_diffs = p_values_df < alpha
         p_values_df[~significant_diffs] = np.nan
         
-    p_values_df= DataFrameFormatter("Wilcoxon Test Results").add_df (p_values_df)
+    p_values_df= DataFrameFormatter(
+        "Wilcoxon Test Results", descriptor="WilcoxonTest").add_df (p_values_df)
     return p_values_df
 
 @isdf 
@@ -657,7 +663,7 @@ def perform_friedman_test2(
 
     # Formatting the result DataFrame for presentation
     formatted_result = DataFrameFormatter(
-        title="Friedman Test Results").add_df(result)
+        title="Friedman Test Results", descriptor="FriedmanTest").add_df(result)
 
     return formatted_result
 
@@ -708,7 +714,8 @@ def perform_nemenyi_posthoc_test2(
     pairwise_comparisons.index = model_performance_data.columns
     pairwise_comparisons.columns = model_performance_data.columns
     
-    pairwise_comparisons= DataFrameFormatter("PairWise Results").add_df (
+    pairwise_comparisons= DataFrameFormatter(
+        "PairWise Results", descriptor="NemenyiTest").add_df (
         pairwise_comparisons)
     
     return pairwise_comparisons
@@ -738,7 +745,8 @@ def compute_model_ranks(
     
     # Rank the models based on their performance
     ranks = model_performance_data.rank(axis=1, ascending=False)
-    ranks= DataFrameFormatter("Ranks Results").add_df (ranks)
+    ranks= DataFrameFormatter(
+        "Ranks Results", descriptor="ModelRanks").add_df (ranks)
     return ranks
 
 @isdf
@@ -778,9 +786,12 @@ def perform_nemenyi_test2(
     # Adjust the index and columns of the result to match the input DataFrame
     pairwise_comparisons.index = ranks.columns
     pairwise_comparisons.columns = ranks.columns
-    pairwise_comparisons= DataFrameFormatter("Nemenyi Results").add_df (
+    pairwise_comparisons= DataFrameFormatter(
+        "Nemenyi Results", descriptor="NemenyiTest", 
+        keyword='result').add_df (
         pairwise_comparisons)
     return pairwise_comparisons
+
 
 @isdf 
 def perform_wilcoxon_base_test(
@@ -854,8 +865,9 @@ def perform_wilcoxon_base_test(
     # Fill diagonal with NaNs since we don't compare a model with itself
     # pd.fill_diagonal(results.values, pd.NA)
     np.fill_diagonal(results.values, pd.NA)
-    results= DataFrameFormatter("Wilcoxon Results").add_df (
-        results)
+    results= DataFrameFormatter(
+        "Wilcoxon Results", descriptor="WilcoxonTest", 
+        keyword='result').add_df (results)
     return results
 
 def plot_cd_diagram(
@@ -1116,9 +1128,10 @@ def plot_model_rankings(
     
 @isdf     
 @ensure_pkg("scikit_posthocs", extra = ( 
-    "Post-hocs test expects 'scikit-posthocs' to be installed.")
+    "Post-hocs test expects 'scikit-posthocs' to be installed."), 
+    dist_name="scikit-posthocs"
     ) 
-@ensure_pkg("statmodels")
+@ensure_pkg("statsmodels")
 def perform_posthoc_test(
     model_performance_data: DataFrame, 
     test_method: str='tukey', 
@@ -1187,6 +1200,15 @@ def perform_posthoc_test(
     The choice between Tukey's and Nemenyi depends on the dataset's characteristics
     and the assumptions underlying the data.
     """
+    class TurkeyTest: 
+        def __init__(self, posthoc_result): 
+            self.posthoc_result = posthoc_result
+        def __str__(self): 
+            return self.posthoc_result.__str__() 
+        def __repr__(self): 
+            return ("<TurkeyTest object containing data."
+                    " Use print() to see contents.>")
+        
     from statsmodels.stats.multicomp import pairwise_tukeyhsd
     import scikit_posthocs as sp
     
@@ -1198,7 +1220,7 @@ def perform_posthoc_test(
     valid_methods = {'tukey': 'pairwise_tukeyhsd', 'nemenyi': 'posthoc_nemenyi_friedman'}
     if test_method.lower() not in valid_methods:
         raise ValueError(f"Unsupported test method '{test_method}'."
-                         " Available methods are {list(valid_methods.keys())}.")
+                         f" Available methods are {list(valid_methods.keys())}.")
     score_preference = normalize_preference(score_preference)
     # Define a function mapper for scalability
     method_function_mapper = {
@@ -1209,6 +1231,7 @@ def perform_posthoc_test(
     if test_method.lower() == 'tukey':
         # Flatten the DataFrame for Tukey's HSD
         data_flat = model_performance_data.melt(var_name='Model', value_name=metric)
+        
     else:
         # Prepare data for Nemenyi or other rank-based tests
         encoder = LabelEncoder()
@@ -1225,10 +1248,367 @@ def perform_posthoc_test(
         if test_method.lower() == 'tukey' 
         else method_function_mapper[test_method.lower()](ranks)
         )
-    posthoc_result= DataFrameFormatter(f"Posthoc {test_method} Results").add_df (
+    
+    if test_method.lower() == 'tukey': 
+        return TurkeyTest (posthoc_result)
+    
+    # remake dataframe for pair index and columns 
+    posthoc_result = pd.DataFrame(
+        posthoc_result.values, columns=model_performance_data.columns, 
+        index=model_performance_data.columns 
+        ) 
+    posthoc_result= DataFrameFormatter(
+        f"Posthoc {test_method} Results", descriptor="NemenyiTest").add_df (
         posthoc_result)
+    
     return posthoc_result
 
+@isdf
+def calculate_pairwise_mean_differences(
+    performance_data: DataFrame, 
+    return_group: bool=False,
+    unique_combinations: bool=True):
+    """
+    Calculates and returns pairwise mean differences between models based
+    on their performance data. Offers the option to return results either
+    as a matrix or a condensed list format with unique pairings.
+
+    Parameters
+    ----------
+    performance_data : pandas.DataFrame
+        DataFrame where each column represents a model and rows represent
+        performance observations.
+    return_group : bool, optional
+        If True, results are returned in a DataFrame listing each unique
+        pair of models and their mean differences. Defaults to False.
+    unique_combinations : bool, optional
+        If True, avoids repeated pair calculations (e.g., A vs B and B vs A).
+        Only unique pairs (A vs B) are considered. Defaults to True.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame of pairwise mean differences. If return_group is True,
+        returns a DataFrame with columns ['group1', 'group2', 'meandiff'].
+        Otherwise, returns a matrix where each entry (i, j) represents the
+        mean difference between models i and j.
+
+    Examples
+    --------
+    >>> from gofast.stats.model_comparisons import calculate_pairwise_mean_differences
+    >>> performance_data = pd.DataFrame({
+    ...     'Model_A': [0.8, 0.82, 0.78, 0.81, 0.79],
+    ...     'Model_B': [0.79, 0.84, 0.76, 0.82, 0.78],
+    ...     'Model_C': [0.81, 0.83, 0.77, 0.80, 0.76]
+    ... })
+    >>> calculate_pairwise_mean_differences(performance_data)
+              Model_A  Model_B  Model_C
+    Model_A     0.000   0.0020   0.0040
+    Model_B    -0.002   0.0000   0.0020
+    Model_C    -0.004  -0.0020   0.0000
+
+    >>> calculate_pairwise_mean_differences(performance_data, return_group=True)
+       group1   group2  meandiff
+    0  Model_A  Model_B     0.002
+    1  Model_A  Model_C     0.004
+    2  Model_B  Model_C     0.002
+    """
+    # Calculate mean performance for each model
+    mean_performances = performance_data.mean()
+
+    # Initialize a DataFrame to store the pairwise mean differences
+    mean_diffs = pd.DataFrame(index=mean_performances.index,
+                              columns=mean_performances.index)
+
+    # Define a helper function to update mean differences matrix
+    def update_mean_diffs(model1, model2):
+        mean_diff = mean_performances[model1] - mean_performances[model2]
+        mean_diffs.at[model1, model2] = mean_diff
+        mean_diffs.at[model2, model1] = -mean_diff
+
+    # Compute pairwise mean differences
+    if unique_combinations:
+        # Use combinations to avoid repetitive pairings
+        for model1, model2 in itertools.combinations(mean_performances.index, 2):
+            update_mean_diffs(model1, model2)
+    else:
+        # Compute for all possible pairs including self-comparison
+        for model1 in mean_performances.index:
+            for model2 in mean_performances.index:
+                if model1 == model2:
+                    mean_diffs.at[model1, model2] = 0
+                else:
+                    update_mean_diffs(model1, model2)
+
+    if return_group:
+        # Prepare data in a group format
+        records = []
+        if unique_combinations:
+            for model1, model2 in itertools.combinations(mean_performances.index, 2):
+                records.append({
+                    'group1': model1, 'group2': model2, 
+                    'meandiff': mean_diffs.at[model1, model2]
+                    })
+        else:
+            for model1 in mean_performances.index:
+                for model2 in mean_performances.index:
+                    if model1 != model2:
+                        records.append({
+                            'group1': model1,
+                            'group2': model2, 
+                            'meandiff': mean_diffs.at[model1, model2]
+                        })
+        return pd.DataFrame(records)
+
+    return mean_diffs
+
+@isdf
+def perform_posthoc_analysis(
+    performance_data:DataFrame, 
+    test_method: str='tukey',
+    significance_level: float=0.05, 
+    ci_multiplier: float=1.96,
+    sample_sizes: Series=None
+    ):
+    """
+    Performs posthoc analysis using specified statistical tests to compare 
+    mean differences between groups based on provided performance data.
+
+    Parameters
+    ----------
+    performance_data : pandas.DataFrame
+        DataFrame where columns represent different models and rows 
+        represent performance metrics from multiple tests or experiments.
+    test_method : str, default 'tukey'
+        Specifies the statistical test for comparison. Accepts 'tukey', 
+        'nemenyi' or or 'wilcoxon' as valid options.
+    significance_level : float, default 0.05
+        The significance level used to determine the critical value for 
+        hypothesis testing.
+    ci_multiplier : float, default 1.96
+        Multiplier used for computing the confidence interval around the mean 
+        difference. Default corresponds to approximately 95% confidence.
+    sample_sizes : pandas.Series or None, optional
+        A series containing sample sizes for each model. This is required for 
+        more accurate standard error calculation. If not provided, a simpler 
+        estimation is used based on the mean differences.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame containing the posthoc analysis results with columns for 
+        each pair of models compared ('group1', 'group2'), the mean difference 
+        ('meandiff'), adjusted p-values ('p-adj'), confidence intervals 
+        ('lower', 'upper'), and a boolean indicating whether the null 
+        hypothesis is rejected ('reject').
+        
+    Notes
+    -----
+    This function interprets statistical terms in the context of posthoc testing, 
+    particularly following ANOVA. Each term used in the output has specific 
+    statistical implications:
+
+    - **meandiff (Mean Difference)**:
+      - **Description**: Represents the average difference between the means of 
+        two groups being compared.
+      - **Interpretation**: A positive value indicates the first group's mean is 
+        higher than the second's. The magnitude reflects the extent of the 
+        difference.
+
+    - **p-adj (Adjusted P-value)**:
+      - **Description**: Measures the probability that the observed difference 
+        is due to chance, under the null hypothesis of no actual difference.
+        Adjustment is made to account for the increased risk of Type I error 
+        due to multiple comparisons.
+      - **Interpretation**: Values below the significance level (typically 0.05) 
+        suggest significant evidence against the null hypothesis, indicating a 
+        likely genuine difference.
+
+    - **lower (Lower Bound of Confidence Interval)**:
+      - **Description**: The lower limit of the range within which the true 
+        mean difference is estimated to lie, with a specified level of confidence
+        (usually 95%).
+      - **Interpretation**: Provides a minimum expected value for the mean 
+        difference, contributing to the assessment of result precision and 
+        reliability.
+
+    - **upper (Upper Bound of Confidence Interval)**:
+      - **Description**: The upper limit of the confidence interval.
+      - **Interpretation**: Offers a maximum expected value, similar to the 
+        lower bound, helping to frame the potential variability in the mean 
+        difference.
+
+    - **reject (Reject the Null Hypothesis)**:
+      - **Description**: A boolean indicating whether the null hypothesis 
+        (no difference) should be rejected based on the statistical test.
+      - **Interpretation**: `True` implies significant statistical evidence 
+        exists to suggest a difference between groups, while `False` suggests 
+        insufficient evidence to reject the null hypothesis.
+
+    These definitions help contextualize the results from pairwise comparisons, 
+    enabling informed conclusions based on the provided performance data.
+
+    Examples
+    --------
+    >>> from gofast.stats.model_comparisons import perform_posthoc_analysis 
+    >>> performance_data = pd.DataFrame({
+    ...     'Model_A': [0.8, 0.82, 0.78, 0.81, 0.79],
+    ...     'Model_B': [0.79, 0.84, 0.76, 0.82, 0.78],
+    ...     'Model_C': [0.81, 0.83, 0.77, 0.80, 0.76]
+    ... })
+    >>> sample_sizes = pd.Series({'Model_A': 100, 'Model_B': 100, 'Model_C': 100})
+    >>> result = perform_posthoc_analysis(performance_data, 'tukey', 
+    ...                                   sample_sizes=sample_sizes)
+    >>> result
+    <Tukeytest object containing table data. Use print() to view contents.>
+
+   >>>  print(result ) 
+
+                 Multiple Comparison Of Means - Tukey, Fwer=0.05             
+    =========================================================================
+       group1     group2    meandiff     p-adj      lower     upper    reject
+    -------------------------------------------------------------------------
+      Model_A    Model_B      0.0020    0.6046    -0.0050    0.0090     False
+      Model_A    Model_C      0.0060    0.1419    -0.0004    0.0124     False
+      Model_B    Model_C      0.0040    0.4050    -0.0044    0.0124     False
+    =========================================================================
+
+    >>> result.result 
+        group1   group2  meandiff     p-adj     lower     upper  reject
+    0  Model_A  Model_B     0.002  0.604603 -0.004985  0.008985   False
+    1  Model_A  Model_C     0.006  0.141927 -0.000441  0.012441   False
+    2  Model_B  Model_C     0.004  0.405023 -0.004430  0.012430   False
+    
+    """
+    # Validate test method
+    test_method = parameter_validator(
+        "test_method", target_strs= ['tukey', 'nemenyi','wilcoxon' ]
+        )(test_method)
+
+    # Calculate pairwise mean differences using the previously defined function
+    mean_diffs = calculate_pairwise_mean_differences(
+        performance_data, return_group=True)
+    
+    # Prepare to store results
+    records = []
+    # Compute statistics for each pair
+    for index, row in mean_diffs.iterrows():
+        group1, group2, meandiff = row['group1'], row['group2'], row['meandiff']
+        
+        if sample_sizes is not None:
+            # Calculate standard error from sample sizes
+            n1 = sample_sizes[group1]
+            n2 = sample_sizes[group2]
+            se = np.sqrt(performance_data[group1].var()/n1 + performance_data[group2].var()/n2)
+        else:
+            # Use a placeholder standard error if sample sizes are not provided
+            se = np.abs(meandiff) / ci_multiplier
+        
+        # Calculate confidence intervals
+        lower = meandiff - ci_multiplier * se
+        upper = meandiff + ci_multiplier * se
+        
+        # Calculate p-value based on the test method
+        if test_method == 'tukey':
+            # degrees of freedom for the test
+            df = len(performance_data) - 1
+            p_adj = 2 * (1 - statst.cdf(np.abs(meandiff) / se, df))
+        elif test_method == 'nemenyi':
+            z_score = np.abs(meandiff) / se
+            p_adj = 2 * (1 - statsnorm.cdf(z_score))
+            
+        elif test_method == 'wilcoxon':
+            # Wilcoxon test for paired samples (non-parametric)
+            stat, p_adj = wilcoxon(performance_data[group1], performance_data[group2])
+        # Determine rejection of the null hypothesis
+        reject = p_adj < significance_level
+
+        records.append({
+            'group1': group1,
+            'group2': group2,
+            'meandiff': meandiff,
+            'p-adj': p_adj,
+            'lower': lower,
+            'upper': upper,
+            'reject': reject
+        })
+    
+    title = f"Multiple Comparison of Means - {test_method.title()}, FWER={significance_level}"
+    analysis_result= DataFrameFormatter(
+        title=title, descriptor=f"{test_method}Test", 
+        keyword ='result').add_df (
+        pd.DataFrame(records))
+    
+    return analysis_result
+
+@isdf
+def transform_comparison_data(data, /):
+    """
+    Transforms a square DataFrame of pairwise comparisons into a long format DataFrame
+    listing unique pairings and their associated values.
+
+    Parameters:
+    ----------
+    data : pandas.DataFrame
+        A square DataFrame where both rows and columns represent models and the cells
+        contain the pairwise comparison metric (e.g., p-values, correlations).
+
+    Returns:
+    -------
+    pandas.DataFrame
+        A DataFrame with columns 'group1', 'group2', and 'p-adj', where each row 
+        represents the comparison metric between a unique pair of models.
+    """
+    records = []  # List to store the results
+
+    # Iterate over the upper triangle of the DataFrame to avoid duplicates
+    for i in range(len(data)):
+        for j in range(i + 1, len(data)):
+            records.append({
+                'group1': data.index[i],
+                'group2': data.columns[j],
+                'p-adj': data.iloc[i, j]
+            })
+    
+    return pd.DataFrame(records)
+
+
+# find the best 
+def get_comparison_results (performance_data_or_result, test_method ='wilcoxon'): 
+    
+    from gofast.api.formatter import formatter_validator 
+    # Define a function mapper for scalability
+    method_function_mapper = {
+        'wilcoxon': lambda data: perform_wilcoxon_base_test(performance_data_or_result),
+        'nemenyi': lambda data: perform_nemenyi_posthoc_test2(performance_data_or_result)
+    }
+
+    valid_tests = {'wilcoxon', 'nemenyi'}
+    if test_method=='turkey': 
+        raise ValueError ("Function does not support Turkey test. Use `perform_posthoc_test`"
+                          "for gofast.stats.model_comparisons instead. ")
+        
+    elif test_method=='friedman': 
+        raise ValueError ("Friedman test is not a a model pairwise comparision test,"
+                         f" Use {valid_tests} instead.")
+        
+    test_method = parameter_validator(
+        "test_method", target_strs= valid_tests)( test_method)
+    
+    if isinstance (performance_data_or_result, pd.DataFrame) :
+        # asseume is it a performance data then computed using the testfuncion 
+        performance_data_or_result = method_function_mapper[test_method](
+            performance_data_or_result) 
+        # return formatter object where attribute 'df' can be fetched.
+    
+    # now transform these object 
+    result_values = formatter_validator(result, attributes= 'df')
+    result_values = validate_comparison_data( result_values)
+    result_df = transform_comparison_data(result_values)
+    
+    return result_df 
+
+    
 @isdf 
 @ensure_pkg (
     "scikit_posthocs", 
@@ -1565,7 +1945,8 @@ def visualize_wilcoxon_test(
     plt.show()
     
     if return_result : 
-        return DataFrameFormatter("wilcoxon Results").add_df (results_df)
+        return DataFrameFormatter(
+            "wilcoxon Results", descriptor="WilcoxonTest").add_df (results_df)
 
 @isdf 
 def generate_model_pairs(

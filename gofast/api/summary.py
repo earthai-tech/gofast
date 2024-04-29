@@ -33,7 +33,7 @@ class ResultSummary:
     max_char : int, optional
         The maximum number of characters that a value can have before being
         truncated. Defaults to 100.
-    
+
     Examples
     --------
     >>> from gofast.api.summary import ResultSummary
@@ -137,7 +137,8 @@ class ResultSummary:
         """
         Return a developer-friendly representation of the ResultSummary.
         """
-        return ( f"<ResultSummary with {len(self.results)} entries."
+        name =to_camel_case(self.name)
+        return ( f"<{name} with {len(self.results)} entries."
                 " Use print() to see detailed contents.>")
    
 class ModelSummary(KeyBox):
@@ -158,7 +159,12 @@ class ModelSummary(KeyBox):
     **kwargs : dict, optional
         Additional keyword arguments that are passed to the FlexDict constructor
         for further customization of the object.
-
+    descriptor : str, optional
+        A dynamic label or descriptor that defines the identity of the output
+        when the object is represented as a string. This label is used in the 
+        representation of the object in outputs like print statements. If not
+        provided, defaults to 'ModelSummary'. 
+        
     Attributes
     ----------
     title : str
@@ -172,9 +178,10 @@ class ModelSummary(KeyBox):
         Generates and stores a summary report based on the provided model results.
     """
     
-    def __init__(self, title=None, **kwargs):
+    def __init__(self, title=None, descriptor=None, **kwargs):
         super().__init__(**kwargs)
         self.title = title
+        self.descriptor=descriptor 
         self.summary_report = ""
         
     def summary(self, model_results, **kwargs):
@@ -439,8 +446,9 @@ class ModelSummary(KeyBox):
         str
             A message indicating if the ModelSummary contains a report or is empty.
         """
-        return ("<ModelSummary object containing results. Use print() to see contents>"
-                if self.summary_report else "<Empty ModelSummary>")
+        name= to_camel_case(self.descriptor or "ModelSummary")
+        return (f"<{name} object containing results. Use print() to see contents>"
+                if self.summary_report else f"<Empty {name}>")
 
 class Summary(FlexDict):
     """
@@ -456,7 +464,13 @@ class Summary(FlexDict):
     title : str
         An optional title for the summary report. If specified, this title 
         will be included at the top of the generated summary.
-
+    
+    descriptor : str, optional
+        A dynamic label or descriptor that defines the identity of the output
+        when the object is represented as a string. This label is used in the 
+        representation of the object in outputs like print statements. If not
+        provided, defaults to 'Summary'. 
+        
     Methods
     -------
     data_summary(df, include_correlation=False, include_uniques=False, 
@@ -496,7 +510,7 @@ class Summary(FlexDict):
       might require specialized handling for more detailed analysis.
     """
     
-    def __init__(self, title=None, **kwargs):
+    def __init__(self, title=None, descriptor =None, **kwargs):
         """
         Initializes the Summary object with an optional title for the 
         report and any additional properties via keyword arguments.
@@ -510,6 +524,7 @@ class Summary(FlexDict):
         """
         super().__init__(**kwargs)
         self.title = title
+        self.descriptor= descriptor 
         self.summary_report = ""
 
     def add_basic_statistics(self, df, include_correlation=False):
@@ -829,7 +844,8 @@ class Summary(FlexDict):
         Formal string representation indicating whether the summary report 
         is empty or populated.
         """
-        return "<Summary: {}>".format(
+        name= to_camel_case(self.descriptor or "Summary")
+        return "<{}: {}>".format(name, 
             "Empty" if not self.summary_report 
             else "Populated. Use print() to see the contents.")
 
@@ -856,7 +872,13 @@ class ReportFactory(FlexDict):
     report_str : str
         The formatted text representation of the report or the last report
         section processed. This string is ready for printing or logging.
-
+        
+    descriptor : str, optional
+        A dynamic label or descriptor that defines the identity of the output
+        when the object is represented as a string. This label is used in the 
+        representation of the object in outputs like print statements. If not
+        provided, defaults to 'Report'. 
+        
     Methods
     -------
     mixed_types_summary(report, table_width=100):
@@ -904,7 +926,7 @@ class ReportFactory(FlexDict):
     - While `report_str` holds the formatted report ready for display, `report`
       maintains the raw input data for reference or further processing. 
     """
-    def __init__(self, title=None, **kwargs):
+    def __init__(self, title=None, descriptor=None,  **kwargs):
         """
         Initializes the Report object with an optional title and additional
         keyword arguments passed to the FlexDict constructor.
@@ -920,6 +942,7 @@ class ReportFactory(FlexDict):
         """
         super().__init__(**kwargs)
         self.title = title
+        self.descriptor= descriptor
         self.report = None
         self.report_str = None
 
@@ -1029,8 +1052,10 @@ class ReportFactory(FlexDict):
         """
         Formal string representation of the Report object.
         """
-        return ( "<Report: Print() to see the content>" if self.report_str is not None 
-                else "<Report: No content>" )
+        name =to_camel_case(self.descriptor or "Report")
+        return ( f"<{name}: Print() to see the content>" 
+                if self.report_str is not None 
+                else f"<{name}: No content>" )
     
 @DynamicMethod (expected_type="both", prefixer ="exclude" )
 def summary(

@@ -23,6 +23,81 @@ from inspect import signature, Parameter, isclass
 from ._array_api import get_namespace, _asarray_with_order
 FLOAT_DTYPES = (np.float64, np.float32, np.float16)
 
+
+def validate_comparison_data(df, /,  alignment="auto"):
+    """
+    Validates a DataFrame to ensure it is a square matrix and that the index 
+    and column names match. Optionally aligns the index names to the column 
+    names or vice versa based on the alignment parameter.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame to validate.
+    alignment : str, default 'auto'
+        Controls how the DataFrame's index and columns are aligned if they d
+        o not match.
+        Options are 'auto', 'index_to_columns', and 'columns_to_index'.
+    
+    Returns
+    -------
+    pandas.DataFrame
+        The validated and potentially modified DataFrame.
+    
+    Raises
+    ------
+    ValueError
+        If the DataFrame is not square or if index and column names do not match
+        and no suitable alignment option is specified.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import validate_comparison_data
+    >>> data = pd.DataFrame({
+    ...     'A': [1, 0.9, 0.8],
+    ...     'B': [0.9, 1, 0.85],
+    ...     'C': [0.8, 0.85, 1]
+    ... }, index=['A', 'B', 'X'])
+    >>> print(validate_comparison_data(data, alignment='index_to_columns'))
+    
+    >>> data = pd.DataFrame({
+    ...     1: [1, 0.9, 0.8],
+    ...     2: [0.9, 1, 0.85],
+    ...     3: [0.8, 0.85, 1]
+    ... }, index=[1, 2, 'X'])
+    >>> print(validate_comparison_data(data, alignment='auto'))
+    """
+    if not isinstance ( df, pd.DataFrame): 
+        raise TypeError(f"Performance data expects a DataFrame; got {type(df).__name__!r}")
+    # Check if DataFrame is square
+    if df.shape[0] != df.shape[1]:
+        raise ValueError("DataFrame must be square (equal number of rows and columns).")
+
+    # Check if indices and columns match
+    if not df.index.equals(df.columns):
+        if alignment == 'index_to_columns':
+            df.index = df.columns
+        elif alignment == 'columns_to_index':
+            df.columns = df.index
+        elif alignment == 'auto':
+            # Automatically decide which one to use based on data types
+            if df.index.dtype == 'object' and df.columns.dtype == 'int64':
+                df.index = df.columns
+            elif df.columns.dtype == 'object' and df.index.dtype == 'int64':
+                df.columns = df.index
+            else:
+                raise ValueError(
+                    "Automatic alignment failed. Index and column names do not match "
+                    "and are of the same type. Please specify alignment explicitly."
+                )
+        else:
+            raise ValueError(
+                "Invalid alignment option provided. Please choose from 'index_to_columns', "
+                "'columns_to_index', or 'auto'."
+            )
+
+    return df
+
 def validate_data_types(
     data, expected_type='numeric', 
     nan_policy='omit', 

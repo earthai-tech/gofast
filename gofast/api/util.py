@@ -3212,19 +3212,27 @@ def get_displayable_columns(cols_or_df, /, buffer_space=4, min_col_width=10):
 
     return min(num_cols, max_displayable_cols)
 
-def to_camel_case(text, delimiter=None):
+def to_camel_case(text, delimiter=None, use_regex=False):
     """
     Converts a given string to CamelCase. The function handles strings with or
-    without delimiters.
+    without delimiters, and can optionally use regex for splitting based on
+    non-alphanumeric characters.
 
     Parameters
     ----------
     text : str
         The string to convert to CamelCase.
     delimiter : str, optional
-        A character or string used as a delimiter to split the input string. Common
-        delimiters include underscores ('_') or spaces (' '). If None, the function
-        tries to automatically detect common delimiters like spaces or underscores.
+        A character or string used as a delimiter to split the input string. 
+        Common delimiters include underscores ('_') or spaces (' '). If None 
+        and use_regex is ``False``, the function tries to automatically detect 
+        common delimiters like spaces or underscores. 
+        If `use_regex` is ``True``, it splits the string at any non-alphabetic 
+        character.
+    use_regex : bool, optional
+        Specifies whether to use regex for splitting the string on non-alphabetic
+        characters.
+        Defaults to ``False``.
 
     Returns
     -------
@@ -3233,6 +3241,7 @@ def to_camel_case(text, delimiter=None):
 
     Examples
     --------
+    >>> from gofast.api.util import to_camel_case
     >>> to_camel_case('outlier_results', '_')
     'OutlierResults'
 
@@ -3247,12 +3256,30 @@ def to_camel_case(text, delimiter=None):
 
     >>> to_camel_case('data_science_rocks')
     'DataScienceRocks'
+
+    >>> to_camel_case('multi@var_analysis', use_regex=True)
+    'MultiVarAnalysis'
+    
+    >>> to_camel_case('OutlierResults')
+    'OutlierResults'
+
+    >>> to_camel_case('BoxFormatter')
+    'BoxFormatter'
+
+    >>> to_camel_case('MultiFrameFormatter')
+    'MultiFrameFormatter'
     """
     # Remove any leading/trailing whitespace
     text = str(text).strip()
-    
-    # Detect common delimiters automatically if none provided
-    if delimiter is None:
+
+    # Check if text is already in CamelCase and return it as is
+    if text and text[0].isupper() and text[1:].islower() == False:
+        return text
+
+    if use_regex:
+        # Split text using any non-alphabetic character as a delimiter
+        words = re.split('[^a-zA-Z]', text)
+    elif delimiter is None:
         if ' ' in text and '_' in text:
             # Both space and underscore are present, replace '_' with ' ' then split
             text = text.replace('_', ' ')
@@ -3269,10 +3296,51 @@ def to_camel_case(text, delimiter=None):
         words = text.split(delimiter)
 
     # Capitalize the first letter of each word and join them without spaces
-    return ''.join(word.capitalize() for word in words)
+       # Ensure empty strings from split are ignored
+    return ''.join(word.capitalize() for word in words if word)  
 
+def check_index_column_types(df):
+    """
+    Checks if the data types of the index and columns of a DataFrame are the same.
 
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame to check.
 
+    Returns
+    -------
+    bool
+        True if the index and columns have the same data type, False otherwise.
+
+    Examples
+    --------
+    >>> from gofast.api.util import check_index_column_types
+    >>> data = pd.DataFrame({
+    ...     'A': [1, 2, 3],
+    ...     'B': [4, 5, 6],
+    ...     'C': [7, 8, 9]
+    ... }, index=[1, 2, 3])
+    >>> print(check_index_column_types(data))
+    False
+
+    >>> data = pd.DataFrame({
+    ...     1: [1, 2, 3],
+    ...     2: [4, 5, 6],
+    ...     3: [7, 8, 9]
+    ... }, index=['one', 'two', 'three'])
+    >>> print(check_index_column_types(data))
+    False
+    
+    >>> data = pd.DataFrame({
+    ...     "model_A": [1, 2, 3],
+    ...     "model_B": [4, 5, 6],
+    ...     "model_C": [7, 8, 9]
+    ... }, index=["model_A", "model_B", "model_C"])
+    >>> print(check_index_column_types(data))
+    True
+    """
+    return df.index.dtype == df.columns.dtype
 if __name__=='__main__': 
     # Example usage:
     data = {

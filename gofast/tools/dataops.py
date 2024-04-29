@@ -19,12 +19,12 @@ from tqdm import tqdm
 
 from ..api.formatter import MultiFrameFormatter, format_iterable 
 from ..api.property import  Config
-from ..api.util import get_table_size 
 from ..api.summary import ReportFactory, Summary
 from ..api.summary import ResultSummary, assemble_reports
 from ..api.types import Any,  List,  DataFrame, Optional, Series, Array1D 
 from ..api.types import Dict, Union, TypeGuard, Tuple, ArrayLike, Callable
 from ..api.types import BeautifulSoupTag
+from ..api.util import get_table_size 
 from ..decorators import Deprecated, isdf, Dataify, DynamicMethod
 from ..decorators import DataTransformer, Extract1dArrayOrSeries 
 from ..exceptions import FileHandlingError 
@@ -2356,7 +2356,8 @@ def inspect_data(
         stats_titles = ['Mean Values', 'Standard Deviation', 'Percentitles', 
                         'Minimum Values', 'Maximum Values' ]
         keywords, stats_data =  zip (*stats_report.items() )
-        stats_report=  MultiFrameFormatter(stats_titles, keywords).add_dfs(
+        stats_report=  MultiFrameFormatter(
+            stats_titles, keywords, descriptor="BasicStats").add_dfs(
             *stats_data)
        
     report['integrity_status']= f"Checked ~ {integrity_report.integrity_checks}"
@@ -2433,7 +2434,8 @@ def inspect_data(
             "- Review data types of columns for appropriate conversions"
             " (e.g., converting float to int where applicable).")
     
-    report_obj= ReportFactory(title ="Data Inspection", **report )
+    report_obj= ReportFactory(title ="Data Inspection", **report, 
+                              descriptor="Inspection")
     report_obj.add_mixed_types(report, table_width= TW)
     
     if return_report: 
@@ -4356,7 +4358,7 @@ def analyze_data_corr(
         plt.title('Heatmap of Correlation Matrix')
         plt.show()
         
-    summary = Summary(corr_matrix=correlation_matrix )
+    summary = Summary(corr_matrix=correlation_matrix, descriptor="CorrSummary" )
     summary.add_data_corr(
         correlation_matrix, 
         min_corr=assert_ratio( min_corr, bounds=(0, 1)),
@@ -4534,7 +4536,7 @@ def data_assistant(data: DataFrame, view: bool=False):
             )
         helper_funcs ["5. help-correlated features"]= ( 
             "Use: `pandas.DataFrame.go_corr`, `gofast.tools.analyze_data_corr`,"
-            " gofast.tools.correlation_ops``gofast.drop_correlated_features`,"
+            " gofast.tools.correlation_ops`, `gofast.drop_correlated_features`,"
             " `gofast.stats.corr` and more ...")
         
     # Distribution analysis
@@ -4788,12 +4790,13 @@ def correlation_ops(
 
     # Formatting the output with MultiFrameFormatter if needed
     if dfs:
-        formatted_report = MultiFrameFormatter(list(dfs.keys())).add_dfs(*dfs.values())
+        formatted_report = MultiFrameFormatter(
+            list(dfs.keys()), descriptor="CorrelationOps").add_dfs(*dfs.values())
         setattr(formatted_report, "correlated_pairs", dfs)
         return formatted_report
     else:
-        insights=ReportFactory(title=f"Correlation Type: {correlation_type}"
-                               ).add_recommendations(
+        insights=ReportFactory(title=f"Correlation Type: {correlation_type}",
+            descriptor="CorrelationOps" ).add_recommendations(
             (
             "No significant correlations detected in the provided dataset. "
             "This may indicate that data variables act independently of each other "
@@ -5176,8 +5179,9 @@ def check_skew_methods_applicability(
             best_method = methods[0] if methods else 'No valid method'
 
     if return_report: 
-        return ReportFactory("Skew Methods Feasability", **applicable_methods 
-                      ).add_contents(applicable_methods, max_width=90)
+        return ReportFactory("Skew Methods Feasability", 
+                             descriptor="SkewChecker", **applicable_methods 
+                ).add_contents(applicable_methods, max_width=90)
 
     if return_best_method:
         if not best_method:

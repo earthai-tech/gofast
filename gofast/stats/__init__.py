@@ -1,17 +1,5 @@
 # -*- coding: utf-8 -*-
 
-from .probs import (
-    binomial_pmf,
-    hierarchical_linear_model,
-    normal_cdf,
-    normal_pdf,
-    plot_normal_cdf, 
-    plot_normal_pdf, 
-    poisson_logpmf,
-    stochastic_volatility_model,
-    uniform_sampling,
-    visualize_uniform_sampling, 
-)
 from .utils import (
     anova_test,
     bootstrap,
@@ -54,7 +42,6 @@ from .utils import (
 
 __all__ = [
     "anova_test",
-    "binomial_pmf",
     "bootstrap",
     "check_and_fix_rm_anova_data",
     "chi2_test",
@@ -66,7 +53,6 @@ __all__ = [
     "friedman_test",
     "get_range",
     "gini_coeffs",
-    "hierarchical_linear_model",
     "hmean",
     "kaplan_meier_analysis",
     "kruskal_wallis_test",
@@ -83,19 +69,11 @@ __all__ = [
     "perform_linear_regression",
     "perform_spectral_clustering",
     "paired_t_test",
-    "plot_normal_cdf", 
-    "plot_normal_pdf", 
-    "poisson_logpmf",
-    "normal_cdf",
-    "normal_pdf",
     "quartiles",
     "skew",
-    "stochastic_volatility_model",
     "std",
     "statistical_tests",
     "t_test_independent",
-    "uniform_sampling",
-    "visualize_uniform_sampling",
     "var",
     "wmedian",
     "wilcoxon_signed_rank_test",

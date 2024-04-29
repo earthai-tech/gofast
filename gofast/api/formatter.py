@@ -16,6 +16,7 @@ from .util import flex_df_formatter, is_dataframe_long, get_display_dimensions
 from .util import insert_ellipsis_to_df , extract_truncate_df
 from .util import get_column_widths_in, distribute_column_widths  
 from .util import GOFAST_ESCAPE, select_df_styles, series_to_dataframe
+from .util import to_camel_case
 
 class MultiFrameFormatter (metaclass=MetaLen):
     """
@@ -36,7 +37,24 @@ class MultiFrameFormatter (metaclass=MetaLen):
         Keywords associated with each DataFrame, enabling attribute-based access
         to DataFrames and their columns within the factory. If not provided,
         defaults to an empty list.
-
+        
+    max_rows : int, optional
+        The maximum number of rows for each DataFrame to display when printed.
+        Defaults to 11.
+    max_cols : int or str, optional
+        The maximum number of columns for each DataFrame to display when printed.
+        Can be an integer or 'auto' for automatic adjustment based on the 
+        DataFrame size.
+        Defaults to 'auto'.
+    style : str, optional
+        The styling preferences applied to the output of the DataFrames. 
+        Defaults to 'base'.
+    descriptor : str, optional
+        A dynamic label or descriptor that defines the identity of the output
+        when the object is represented as a string. This label is used in the 
+        representation of the object in outputs like print statements. If not
+        provided, defaults to 'MultiFrame'.
+        
     Attributes
     ----------
     dfs : list of pandas.DataFrame
@@ -98,7 +116,8 @@ class MultiFrameFormatter (metaclass=MetaLen):
         keywords=None,  
         max_rows=None, 
         max_cols=None, 
-        style=None 
+        style=None, 
+        descriptor=None, 
         ):
         self.titles = titles if titles is not None else []
         self.keywords = keywords if keywords is not None else []
@@ -106,6 +125,7 @@ class MultiFrameFormatter (metaclass=MetaLen):
         self.style= style or "base"
         self.max_rows = max_rows or 11 
         self.max_cols =max_cols or "auto"
+        self.descriptor = descriptor
         
     def _check_dfs(self):
         """
@@ -299,15 +319,17 @@ class MultiFrameFormatter (metaclass=MetaLen):
         str
             A descriptive string about the FrameFactory instance.
         """
-        return ( "<MultiFrame contains tables data. Use print() to view contents.>" 
-                if self.dfs else "<Empty MultiFrame>")
+        name= to_camel_case(self.descriptor or "MultiFrame")
+        return ( f"<{name} object containing table data. Use print() to view contents.>" 
+                if self.dfs else f"<Empty {name}>")
 
 class DataFrameFormatter(metaclass=MetaLen):
     """
     Formats pandas DataFrames for enhanced visual presentation in textual output.
-    This class supports titles, dynamic adjustment of column widths based on content,
-    and automatic handling of numerical data precision. It also facilitates the direct
-    conversion of pandas Series to DataFrame for uniform handling.
+    This class supports titles, dynamic adjustment of column widths based on 
+    content, and automatic handling of numerical data precision. It also 
+    facilitates the direct conversion of pandas Series to DataFrame for uniform
+    handling.
 
     Parameters
     ----------
@@ -318,6 +340,16 @@ class DataFrameFormatter(metaclass=MetaLen):
         A keyword associated with the DataFrame content, facilitating intuitive 
         attribute access for common data-related tasks. Defaults to None.
 
+    style : str, optional
+        The style configuration used to customize the visual presentation of the
+        DataFrame when printed. This could involve settings for font style, borders,
+        color schemes, etc. Defaults to None, applying a standard style.
+    descriptor : str, optional
+        A dynamic label or descriptor that further defines the context or purpose
+        of the DataFrame within the formatter. It's used primarily in the textual
+        representation of the formatter to provide additional context or 
+        categorization. Defaults to ``"DataFrameFormatter"``.
+        
     Attributes
     ----------
     df : pandas.DataFrame or None
@@ -398,13 +430,14 @@ class DataFrameFormatter(metaclass=MetaLen):
     snake_case conversion of column names.
     """
 
-    def __init__(self, title=None, keyword=None, style=None):
+    def __init__(self, title=None, keyword=None, style=None, descriptor=None):
         self.title = title
         self.keyword = keyword
-        self.df = None
         self.style=style
+        self.descriptor=descriptor
+        self.df = None
         self._column_name_mapping = {}
-
+        
     def add_df(self, df):
         """
         Enhances the DataFrameFormatter by adding a DataFrame or Series,
@@ -538,7 +571,7 @@ class DataFrameFormatter(metaclass=MetaLen):
         initial_col_widths = {
             col: max(len(str(col)),max(
                  len(format_value(val,self._max_value_width )) for val in self.df[col])
-            ) + 2
+            ) #+ 2
             for col in self.df.columns
         }
         
@@ -644,10 +677,11 @@ class DataFrameFormatter(metaclass=MetaLen):
             A string indicating whether the formatter contains data and
             suggesting to use `print()` to see contents.
         """
+        name= to_camel_case(self.descriptor or "Frame")
         if self.df is not None and not self.df.empty:
-            return "<Frame object containing data. Use print() to see contents.>"
+            return f"<{name} object containing table data. Use print() to view contents.>"
         else:
-            return "<Empty Frame>"
+            return f"<Empty {name}>"
         
     
     def __str__(self):
@@ -674,7 +708,7 @@ class DataFrameFormatter(metaclass=MetaLen):
             return "No data added."
     
         header, line, index_width, col_widths = self._format_header()
-    
+
         data_rows = ""
         for index, row in self.df.iterrows():
             if self.df.index.dtype != 'int64':
@@ -688,7 +722,7 @@ class DataFrameFormatter(metaclass=MetaLen):
                            for col in self.df.columns])
             )
             data_rows += f"{index_str}{row_str}\n"
-    
+ 
         return f"{header}{data_rows}{line}"
 
     def __getattr__(self, attr_name):
@@ -766,11 +800,10 @@ class DataFrameFormatter(metaclass=MetaLen):
 
 class MetricFormatter(Bunch):
     """
-    A subclass of Bunch designed for formatting and displaying
-    model performance metrics in a visually appealing manner. 
-    MetricFormatter enhances readability and presentation of 
-    metric results by providing attribute-style access and 
-    customizable output formatting.
+    A subclass of Bunch designed for formatting and displaying model 
+    performance metrics in a visually appealing manner. MetricFormatter 
+    enhances readability and presentation of  metric results by providing 
+    attribute-style access and customizable output formatting.
 
     Parameters
     ----------
@@ -779,6 +812,14 @@ class MetricFormatter(Bunch):
         If provided, it centers the title and frames the metrics 
         output with lines for improved readability. Defaults to 
         None, which omits the title from the output.
+        
+    descriptor : str, optional
+        A dynamic label or descriptor that further defines the context or 
+        purpose of the metric results within the formatter. This descriptor 
+        is converted to CamelCase and used primarily in the textual 
+        representation to provide additional context or categorization. 
+        Defaults to "MetricFormatter".
+
     **kwargs : dict, optional
         Arbitrary keyword arguments representing the performance 
         metrics and their values. Each keyword argument is treated 
@@ -824,13 +865,14 @@ class MetricFormatter(Bunch):
     regardless of the metric names or values. When providing a title, 
     it's centered within the top frame for a professional presentation.
     """
-    def __init__(self, title="Metric Results", **kwargs):
+    def __init__(self, title="Metric Results", descriptor=None,  **kwargs):
         super().__init__(**kwargs)
         self.title = title
+        self.descriptor=to_camel_case( descriptor or "MetricFormatter") 
     
     def __str__(self):
         if not self.__dict__:
-            return "<empty MetricFormatter>"
+            return f"<Empty {self.descriptor}>"
         
         keys = sorted(self.__dict__.keys())
         if 'title' in keys:
@@ -876,7 +918,13 @@ class BoxFormatter:
         calling `add_text` or `add_dict`.
     has_content : bool
         A flag indicating whether the box currently has content.
-    
+    descriptor : str, optional
+        A dynamic label or descriptor that further defines the context or 
+        purpose of the metric results within the formatter. This descriptor 
+        is converted to CamelCase and used primarily in the textual 
+        representation to provide additional context or categorization. 
+        Defaults to "BoxFormatter".
+        
     Methods:
     --------
     add_text(text: str, box_width: int = 65):
@@ -896,10 +944,11 @@ class BoxFormatter:
     >>> print(formatter)
     """
 
-    def __init__(self, title=''):
+    def __init__(self, title='', descriptor =None):
         self.title = title
         self.content = ''
         self.has_content = False
+        self.descriptor=to_camel_case(descriptor or "BoxFormatter") 
 
     def __str__(self):
         """
@@ -915,8 +964,8 @@ class BoxFormatter:
         Provides a representation hinting at the usage of `print()` to view the
         formatted content if content is present.
         """
-        return ("<BoxFormatter: Use print() to view content>" 
-                if self.has_content else "<BoxFormatter: Empty>")
+        return (f"<{self.descriptor}: Use print() to view content>" 
+                if self.has_content else f"<{self.descriptor}: Empty>")
 
     def add_text(self, text: str, box_width=65):
         """
@@ -1154,7 +1203,13 @@ class DescriptionFormatter(metaclass=MetaLen):
     title : str
         The title of the content block. This is optional and
         defaults to an empty string.
-
+    descriptor : str, optional
+        A dynamic label or descriptor that further defines the context or 
+        purpose of the metric results within the formatter. This descriptor 
+        is converted to CamelCase and used primarily in the textual 
+        representation to provide additional context or categorization. 
+        Defaults to "DescriptionFormatter".
+        
     Methods:
     --------
     description():
@@ -1205,9 +1260,10 @@ class DescriptionFormatter(metaclass=MetaLen):
     # |==================================================|
     """
 
-    def __init__(self, content, title=''):
+    def __init__(self, content, title='', descriptor=None):
         self.content = content
         self.title = title
+        self.descriptor=descriptor 
 
     def __str__(self):
         """
@@ -1238,7 +1294,9 @@ class DescriptionFormatter(metaclass=MetaLen):
             An instance of BoxFormatter containing the formatted description, ready
             for display.
         """
-        formatter = BoxFormatter(title=self.title if self.title else "Feature Descriptions")
+        formatter = BoxFormatter(
+            title=self.title if self.title else "Feature Descriptions", 
+            descriptor= self.descriptor ) 
         
         if isinstance(self.content, dict):
             # If the content is a dictionary, format it as a table of feature
