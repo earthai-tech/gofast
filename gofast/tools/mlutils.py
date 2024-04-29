@@ -40,7 +40,7 @@ from sklearn.utils import resample
 from .._gofastlog import gofastlog
 from ..api.types import List, Tuple, Any, Dict,  Optional,Union, Series 
 from ..api.types import  _F, ArrayLike, NDArray,  DataFrame
-from ..api.summary import ReportFactory 
+from ..api.summary import ReportFactory, ResultSummary  
 from ..compat.sklearn import get_feature_names
 from ..compat.sklearn import train_test_split 
 from ..decorators import SmartProcessor 
@@ -443,12 +443,13 @@ def codify_variables (
     
     # Initialize map_codes to store mappings of categorical codes to labels
     map_codes = {}
-
+    mapresult=ResultSummary(name="CategoryMap")
     # Perform one-hot encoding if requested
     if get_dummies:
         # Use pandas get_dummies for one-hot encoding and handle
         # return type based on return_cat_codes
-        return (pd.get_dummies(df, columns=columns), map_codes
+        mapresult.add_results(map_codes)
+        return (pd.get_dummies(df, columns=columns), mapresult
                 ) if return_cat_codes else pd.get_dummies(df, columns=columns)
 
     # Automatically select numeric and categorical columns if not manually specified
@@ -471,7 +472,8 @@ def codify_variables (
             df[col] = df[col].apply(func)
 
         # Return DataFrame and mappings if required
-        return (df, map_codes) if return_cat_codes else df
+        mapresult.add_results(map_codes)
+        return (df, mapresult) if return_cat_codes else df
 
     # Handle automatic categorization if categories are not provided
     if categories is None:
@@ -499,7 +501,9 @@ def codify_variables (
         df.rename(columns={temp_col: col}, inplace=True) 
 
     # Return DataFrame and mappings if required
-    return (df, map_codes) if return_cat_codes else df
+    
+    mapresult.add_results(map_codes)
+    return (df, mapresult) if return_cat_codes else df
 
 @ensure_pkg ("imblearn", extra= (
     "`imblearn` is actually a shorthand for ``imbalanced-learn``.")

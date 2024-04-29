@@ -53,7 +53,6 @@ from ..tools._dependency import import_optional_dependency
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
 
-
 def plot_woodland_map(df, quadrant="upper_left", buffer_space=4, min_col_width=10):
     # Calculate the correlation matrix
     corr = df.corr()
@@ -150,7 +149,6 @@ def plot_correlation_triangle(df, position):
     # Show the plot
     plt.show()
     
-
 
 def plot_actual_vs_predicted(
     y_true: ArrayLike, 

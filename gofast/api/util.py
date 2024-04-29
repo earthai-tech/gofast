@@ -3090,7 +3090,6 @@ def get_terminal_size():
         except Exception:
             # Default fallback size
             size = (80, 24)
-            
     return size.columns, size.lines
 
 def optimize_col_width (max_cols=4, df=None, min_col_width=10):
@@ -3301,7 +3300,8 @@ def to_camel_case(text, delimiter=None, use_regex=False):
 
 def check_index_column_types(df):
     """
-    Checks if the data types of the index and columns of a DataFrame are the same.
+    Checks if the data types of the index and columns of a DataFrame 
+    are the same.
 
     Parameters
     ----------
@@ -3342,7 +3342,97 @@ def check_index_column_types(df):
     """
     return df.index.dtype == df.columns.dtype
 
-def beautify_dict(d, space=4, key=None ):
+# def beautify_dict2(d, space=4, key=None, max_char=None ):
+#     """
+#     Format a dictionary with custom indentation and aligned keys and values.
+    
+#     Parameters:
+#     ----------
+#     d : dict
+#         The dictionary to format.
+#     space : int, optional
+#         The number of spaces to indent the dictionary entries.
+
+#     Returns:
+#     -------
+#     str
+#         A string representation of the dictionary with custom formatting.
+
+#     Examples:
+#     --------
+#     >>> from gofast.api.util import beautify_dict
+#     >>> dictionary = {
+#     ...     3: 'Home & Garden',
+#     ...     2: 'Health & Beauty',
+#     ...     4: 'Sports',
+#     ...     0: 'Electronics',
+#     ...     1: 'Fashion'
+#     ... }
+#     >>> print(beautify_dict(dictionary, space=4))
+#     {
+#         3: 'Home & Garden',
+#         2: 'Health & Beauty',
+#         4: 'Sports',
+#         0: 'Electronics',
+#         1: 'Fashion'
+#     }
+#     >>> # for instance if key is given. eg. key= 'preferred_category'
+#     >>> # formatted result should be : 
+        
+        
+#     preferred_category : {
+#                             3: 'Home & Garden',
+#                             2: 'Health & Beauty',
+#                             4: 'Sports',
+#                             0: 'Electronics',
+#                             1: 'Fashion'
+#                         }
+    
+#     # implement this section 
+#     """
+#     # implement also the max_char 
+#     # if max_char is greater than key (if exist) + value > max_char then 
+#     # truncated using ... for instance: 
+#         #value_str = value[:max_char] + "..."
+        
+#     if not isinstance(d, dict):
+#         raise TypeError("Expected input to be a 'dict',"
+#                         f" received '{type(d).__name__}' instead.")
+#     # Determine the longest key for alignment
+#     max_key_length = max(len(str(key)) for key in d.keys())
+    
+#     # Create a list of formatted rows
+#     formatted_rows = []
+#     for key, value in d.items():
+#         # Ensure all keys are right-aligned to the longest key length
+#         formatted_row = f"{str(key):>{max_key_length}}: '{value}'"
+#         formatted_rows.append(formatted_row)
+
+#     # Join all rows into a single string with custom indentation
+#     indent = ' ' * space
+#     inner_join = ',\n' + indent
+#     formatted_dict = '{\n' + indent + inner_join.join(formatted_rows) + '\n}'
+    
+#     if key: 
+#         # add key and its length  + formatted_dict
+#         # ... 
+#         # >>> # for instance if key is given. eg. key= 'preferred_category'
+#         # >>> # formatted result should be : 
+            
+            
+#         # preferred_category : {
+#         #                         3: 'Home & Garden',
+#         #                         2: 'Health & Beauty',
+#         #                         4: 'Sports',
+#         #                         0: 'Electronics',
+#         #                         1: 'Fashion'
+#         #                     }
+        
+#         # # implement this section 
+#         ... 
+#     return formatted_dict
+
+def beautify_dict0(d, space=4, key=None, max_char=None):
     """
     Format a dictionary with custom indentation and aligned keys and values.
     
@@ -3352,67 +3442,154 @@ def beautify_dict(d, space=4, key=None ):
         The dictionary to format.
     space : int, optional
         The number of spaces to indent the dictionary entries.
-
+    key : str, optional
+        An optional key to nest the dictionary under.
+    max_char : int, optional
+        Maximum characters a value can have before being truncated.
+    
     Returns:
     -------
     str
         A string representation of the dictionary with custom formatting.
-
-    Examples:
-    --------
-    >>> from gofast.api.util import format_dictionary
-    >>> dictionary = {
-    ...     3: 'Home & Garden',
-    ...     2: 'Health & Beauty',
-    ...     4: 'Sports',
-    ...     0: 'Electronics',
-    ...     1: 'Fashion'
-    ... }
-    >>> print(format_dictionary(dictionary, space=4))
-    {
-        3: 'Home & Garden',
-        2: 'Health & Beauty',
-        4: 'Sports',
-        0: 'Electronics',
-        1: 'Fashion'
-    }
-    >>> # for instance if key is given. eg. key= 'preferred_category'
-    >>> # formatted result should be : 
-        
-        
-    preferred_category : {
-                            3: 'Home & Garden',
-                            2: 'Health & Beauty',
-                            4: 'Sports',
-                            0: 'Electronics',
-                            1: 'Fashion'
-                        }
-    
-    # implement this section 
     """
     if not isinstance(d, dict):
         raise TypeError("Expected input to be a 'dict',"
                         f" received '{type(d).__name__}' instead.")
-    # Determine the longest key for alignment
-    max_key_length = max(len(str(key)) for key in d.keys())
     
+    # Determine the longest key for alignment
+    max_key_length = max(len(str(k)) for k in d.keys())
+
     # Create a list of formatted rows
     formatted_rows = []
-    for key, value in d.items():
+    for dkey, value in sorted(d.items()):
+        value_str = str(value)
+        if max_char is not None and len(value_str) > max_char:
+            value_str = value_str[:max_char] + "..."
         # Ensure all keys are right-aligned to the longest key length
-        formatted_row = f"{str(key):>{max_key_length}}: '{value}'"
+        formatted_row = f"{str(dkey):>{max_key_length}}: '{value_str}'"
         formatted_rows.append(formatted_row)
 
     # Join all rows into a single string with custom indentation
     indent = ' ' * space
     inner_join = ',\n' + indent
     formatted_dict = '{\n' + indent + inner_join.join(formatted_rows) + '\n}'
-    
-    if key: 
-        # add key and its length  + formatted_dict
-        ... 
+
+    # Wrap the formatted dictionary with an additional key if provided
+    # print("key=", key)
+    # push the formatted dict based on the key. 
+       # formatted dict output this:
+           # {
+           #     0: 'Electronics',
+           #     1: 'Fashion',
+           #     2: 'Health & Beauty',
+           #     3: 'Home & Garden',
+           #     4: 'Sports'
+           # }
+           
+           # now the formatted after adding a key, push a formatted dict 
+           # based on the key lenght and formatted spaced. 
+           
+           # expected something like this : 
+               
+               
+           # [key name]: {
+           #                 0: 'Electronics',
+           #                 1: 'Fashion',
+           #                 2: 'Health & Beauty',
+           #                 3: 'Home & Garden',
+           #                 4: 'Sports'
+           #             }
+       
+       # As you can see, adding a key has just pushed the formatted dict, but not transformed 
+       # the formatted dict. This is what I expect. 
+       # fixt the following part, 
+       # this section code is bad and worse and yield something like this: 
+           
+      # print(beautify_dict ( map_codes['preferred_category'], key ='preferred_category' ))
+      #     preferred_category: '{'
+      #          0: 'Electronics',
+      #              1: 'Fashion',
+      #      2: 'Health & Beauty',
+      #        3: 'Home & Garden',
+      #                4: 'Sports'
+      #                          }     
+       
+       # fix it 
+    if key:
+        new_formatted_dict=[]
+        length_key = len(key) + len(indent) 
+        # Adjusting the format to properly nest and align the dictionary
+        # split formatted_dict 
+        dict_splitted = formatted_dict.split("\n")
+        
+       
+        for ii, dlines in enumerate (dict_splitted)  : 
+            if ii ==0 : 
+                formatted_line = f"{str(key):>{length_key}}: '{str(dlines)}'"
+                
+            else: 
+                extra_space = len(' ' * length_key) + space 
+                formatted_line = f"{str(dlines): >{extra_space}}"
+                # push_space = f"{ len(' '*length_key)}"
+                # formatted_line = f"{str(dlines):>{length_key}}"
+            new_formatted_dict.append(formatted_line)
+            
+        
+        # indent_inner = ' ' * space
+        # opening_brace = '{\n' + indent_inner
+        # closing_brace = '\n' + (' ' * (space - 2)) + '}'
+        # formatted_dict = f"{key} : {formatted_dict.replace('{', opening_brace, 1)}{closing_brace}"
+        formatted_dict = '\n'.join( new_formatted_dict) 
+        
+        # fix 
     return formatted_dict
 
+def beautify_dict(d, space=4, key=None, max_char=None):
+    """
+    Format a dictionary with custom indentation and aligned keys and values, 
+    and optionally wrap it under a given key.
+    """
+    if not isinstance(d, dict):
+        raise TypeError(f"Expected input to be a 'dict', received '{type(d).__name__}' instead.")
+    
+    if max_char is None: 
+        # get it automatically 
+        max_char, _ =get_terminal_size()
+    # Determine the longest key for alignment
+    max_key_length = max(len(str(k)) for k in d.keys())
+
+    # Create a list of formatted rows
+    formatted_rows = []
+    for dkey, value in sorted(d.items()):
+        value_str = str(value)
+        if max_char is not None and len(value_str) > max_char:
+            value_str = value_str[:max_char] + "..."
+        # Ensure all keys are right-aligned to the longest key length
+        formatted_row = f"{str(dkey):>{max_key_length}}: '{value_str}'"
+        formatted_rows.append(formatted_row)
+
+    # Join all rows into a single string with custom indentation
+    indent = ' ' * space
+    inner_join = ',\n' + indent
+    formatted_dict = '{\n' + indent + inner_join.join(formatted_rows) + '\n}'
+
+    if key:
+        # Prepare outer key indentation and format
+           # Slightly less than the main indent
+        outer_indent = ' ' * (space - 2 + len(key) + max_key_length)  
+        # Construct a new header with the key
+        formatted_dict = f"{key} : {formatted_dict}"
+        # Split lines and indent properly to align with the key
+        lines = formatted_dict.split('\n')
+        for i in range(1, len(lines)):
+            lines[i] = outer_indent + lines[i]
+            if max_char is not None and len(lines[i]) > max_char:
+                lines[i] = lines[i][:max_char] + "..."
+        # format lins -1 
+        #lines [-1] = outer_indent + lines [-1]
+        formatted_dict = '\n'.join(lines)
+        
+    return formatted_dict
 
 if __name__=='__main__': 
     # Example usage:
