@@ -5577,6 +5577,11 @@ def quality_control(
     essential to understand the implications of each step and adjust the 
     thresholds and methods according to your data analysis goals.
     """
+    def execute_ops ( ops): 
+        try: return  ops 
+        except: pass 
+        # in the case column does not exists 
+    
     
     # Initialize result dictionary
     results = {
@@ -5619,9 +5624,10 @@ def quality_control(
             results['outliers'][col] = outliers.tolist()
         if polish and not outliers.empty:
             # Filter out outliers from the data
-            cleaned_data = cleaned_data[(cleaned_data[col] >= lower_bound) & (
-                cleaned_data[col] <= upper_bound)]
-
+            try:
+                cleaned_data = cleaned_data[(cleaned_data[col] >= lower_bound) & (
+                    cleaned_data[col] <= upper_bound)]
+            except : pass 
     # Value range checks
     if value_ranges:
         for col, (min_val, max_val) in value_ranges.items():
@@ -5629,9 +5635,12 @@ def quality_control(
             if not invalid_values.empty: 
                 results['value_range_violations'][col] = invalid_values.tolist()
                 if polish:
-                    # Keep only values within the specified range
-                    cleaned_data = cleaned_data[(
-                        cleaned_data[col] >= min_val) & (cleaned_data[col] <= max_val)]
+                    try: 
+                        # Keep only values within the specified range
+                        cleaned_data = cleaned_data[(
+                            cleaned_data[col] >= min_val) & (cleaned_data[col] <= max_val)]
+                    except: 
+                        pass 
     # Unique value checks
     if unique_value_columns:
         for col in unique_value_columns:
@@ -5639,9 +5648,13 @@ def quality_control(
                 duplicates = data[col][data[col].duplicated(keep=False)]
                 results['unique_value_violations'][col] = duplicates.tolist()
                 if polish:
-                    # Keep only the first occurrence of each value
-                    cleaned_data = cleaned_data.drop_duplicates(
-                        subset=[col], keep='first')
+                    try: 
+                        # Keep only the first occurrence of each value
+                        cleaned_data = cleaned_data.drop_duplicates(
+                            subset=[col], keep='first')
+                    except: 
+                        pass 
+                    
         # complete cleaned data here is polish 
     # String pattern checks
     if string_patterns:
@@ -5650,10 +5663,13 @@ def quality_control(
                 mismatches = data[col][~data[col].astype(str).str.match(pattern)]
                 results['string_pattern_violations'][col] = mismatches.tolist()
                 if polish:
-                    valid_mask = data[col].astype(str).str.match(pattern)
-                    # Using `loc` to address potential index misalignment 
-                    # issues by filtering on the index
-                    cleaned_data = cleaned_data.loc[valid_mask[valid_mask].index]
+                    try: 
+                        valid_mask = data[col].astype(str).str.match(pattern)
+                        # Using `loc` to address potential index misalignment 
+                        # issues by filtering on the index
+                        cleaned_data = cleaned_data.loc[valid_mask[valid_mask].index]
+                    except: 
+                        pass 
 
     # Data type information
     for col in data.columns:
