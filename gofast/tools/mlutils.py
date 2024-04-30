@@ -40,6 +40,7 @@ from sklearn.utils import resample
 from .._gofastlog import gofastlog
 from ..api.types import List, Tuple, Any, Dict,  Optional,Union, Series 
 from ..api.types import  _F, ArrayLike, NDArray,  DataFrame
+from ..api.formatter import MetricFormatter
 from ..api.summary import ReportFactory, ResultSummary  
 from ..compat.sklearn import get_feature_names
 from ..compat.sklearn import train_test_split 
@@ -47,7 +48,7 @@ from ..decorators import SmartProcessor
 from .baseutils import select_features 
 from .coreutils import _assert_all_types, is_in_if,  ellipsis2false
 from .coreutils import smart_format, is_iterable, get_valid_kwargs
-from .coreutils import is_classification_task, to_numeric_dtypes, fancy_printer
+from .coreutils import is_classification_task, to_numeric_dtypes
 from .coreutils import validate_feature, download_progress_hook, exist_features
 from .coreutils import contains_delimiter 
 from .funcutils import ensure_pkg
@@ -443,7 +444,9 @@ def codify_variables (
     
     # Initialize map_codes to store mappings of categorical codes to labels
     map_codes = {}
-    mapresult=ResultSummary(name="CategoryMap")
+    # Create a CategoryMap code object for nested dict collection
+    mapresult=ResultSummary(name="CategoryMap", flatten_nested_dicts=False)
+    
     # Perform one-hot encoding if requested
     if get_dummies:
         # Use pandas get_dummies for one-hot encoding and handle
@@ -1108,7 +1111,8 @@ def laplace_smoothing(
         smoothed_probs_list.append(smoothed_probs)
 
     if input_type == 'dataframe':
-        return pd.DataFrame({feature: probs for feature, probs in zip(features, smoothed_probs_list)})
+        return pd.DataFrame({feature: probs for feature, probs in zip(
+            features, smoothed_probs_list)})
     else:
         return np.column_stack(smoothed_probs_list)
 
@@ -1450,7 +1454,6 @@ def stats_from_prediction(y_true, y_pred, verbose=False):
             'RMSE': np.sqrt(mean_squared_error(y_true, y_pred)),
         }, **stats, 
         )
-
     # Adding accuracy for classification tasks
     # Check if y_true and y_pred are categories task 
     if is_classification_task(y_true, y_pred ): 
@@ -1458,10 +1461,13 @@ def stats_from_prediction(y_true, y_pred, verbose=False):
         stats['Accuracy'] = accuracy_score(y_true, y_pred)
 
     # Printing the results if verbose is True
+    summary = MetricFormatter(
+        title="Prediction Summary", descriptor="PredictStats", 
+        **stats)
     if verbose:
-        fancy_printer(stats, "Prediction Statistics Summary" )
-
-    return stats
+        print(summary)
+       
+    return summary
 
 def save_dataframes(
     *data: Union[DataFrame, Any],

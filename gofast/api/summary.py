@@ -41,7 +41,7 @@ class ResultSummary:
         line, which might be useful for brief overviews or when space is limited.
         If set to ``False``, nested dictionaries are displayed with full 
         indentation and key alignment, which improves readability for complex 
-        structures. Defaults to ``False``.
+        structures. Defaults to ``True``.
 
     Examples
     --------
@@ -61,7 +61,7 @@ class ResultSummary:
     )
     """
     def __init__(self, name=None, pad_keys=None, max_char=None,
-                 flatten_nested_dicts =False):
+                 flatten_nested_dicts =True):
         """
         Initialize the ResultSummary with optional customization for display.
         """

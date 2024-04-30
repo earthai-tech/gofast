@@ -5744,7 +5744,7 @@ class _QualityControl(ReportFactory):
         return f"<QualityControl: {message}. Use print() to see detailed contents>"
 
 
-       
+
 if __name__ == "__main__":
     # Example usage of the function
 

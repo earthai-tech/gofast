@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy 
 import inspect 
 import warnings 
+import itertools
 import numpy as np
 import pandas as pd 
 from scipy.signal import argrelextrema 
@@ -18,6 +19,7 @@ from scipy.stats import rankdata
 from scipy._lib._util import float_factorial
 from scipy.ndimage import convolve1d
 from scipy.spatial.distance import pdist, squareform 
+from sklearn.preprocessing import label_binarize
 import  matplotlib.pyplot as plt
 
 from .._gofastlog import gofastlog
@@ -39,13 +41,324 @@ from .coreutils import reshape, fillNaN
 from .validator import _is_arraylike_1d, _is_numeric_dtype, validate_multioutput 
 from .validator import check_consistency_size, check_consistent_length 
 from .validator import check_classification_targets, check_y, check_array
-from .validator import assert_xy_in
+from .validator import assert_xy_in, _ensure_y_is_valid, ensure_non_negative
+from .validator import check_epsilon, parameter_validator 
 
 try: import scipy.stats as spstats
 except: pass 
 _logger =gofastlog.get_gofast_logger(__name__)
 
 mu0 = 4 * np.pi * 1e-7 
+
+
+def calculate_average_lr(
+    y_true, y_pred, strategy='ovr',
+    consensus="positive", 
+    sample_weight=None, 
+    epsilon=1e-10
+    ):
+    """
+    Calculate the average likelihood ratio for multiclass classification 
+    based on the average sensitivity and specificity across all classes or 
+    class pairs.
+
+    This function supports one-versus-rest (OvR) and one-versus-one (OvO) 
+    strategies for multiclass data and computes the likelihood ratio either 
+    positively or negatively based on the specified consensus.
+
+    Parameters
+    ----------
+    y_true : array-like
+        True class labels as integers.
+    y_pred : array-like
+        Predicted class labels as integers.
+    strategy : str, optional
+        Specifies the computation strategy: 'ovr' for one-versus-rest or 'ovo' 
+        for one-versus-one.
+    consensus : str, optional
+        'positive' for positive likelihood ratio or 'negative' for negative 
+        likelihood ratio.
+    sample_weight : array-like, optional
+        Weights applied to classes in averaging sensitivity and specificity. 
+        If None, equal weighting is assumed.
+    epsilon : float, optional
+        A small value to prevent division by zero in calculations. 
+        Default is 1e-10.
+
+    Returns
+    -------
+    float
+        The computed average likelihood ratio.
+    float
+        The average sensitivity computed across classes or class pairs.
+    float
+        The average specificity computed across classes or class pairs.
+
+    Examples
+    --------
+    >>> from gofast.tools.mathex import calculate_average_lr
+    >>> y_true = [0, 1, 2, 2, 1, 0]
+    >>> y_pred = [0, 2, 1, 2, 1, 0]
+    >>> lr, avg_sens, avg_spec = calculate_average_lr(
+        y_true, y_pred, strategy='ovr', consensus='positive')
+    >>> print(f"Likelihood Ratio: {lr:.2f}, 
+              Average Sensitivity: {avg_sens:.2f},
+              Average Specificity: {avg_spec:.2f}")
+    """
+    _ensure_y_is_valid( y_true, y_pred, y_numeric =True)
+    ensure_non_negative(
+        y_true, y_pred,
+        err_msg="y_true and y_pred must contain non-negative values."
+    )
+    epsilon = check_epsilon(epsilon, y_true, y_pred )
+
+    consensus = parameter_validator( 
+        "consensus", target_strs={'negative', 'positive'})( consensus)
+    strategy = parameter_validator( 
+        "strategy", target_strs={'ovr', 'ovo'})( strategy)
+    
+    classes = np.unique(y_true)
+    sensitivities, specificities = [], []
+
+    if strategy == 'ovr':
+        y_true_binarized = label_binarize(y_true, classes=classes)
+        for i, cls in enumerate(classes):
+            sensitivity, specificity = calculate_binary_metrics(
+                y_true_binarized[:, i], (y_pred == cls).astype(int), epsilon)
+            sensitivities.append(sensitivity)
+            specificities.append(specificity)
+
+    elif strategy == 'ovo':
+        for cls1, cls2 in itertools.combinations(classes, 2):
+            relevant_mask = (y_true == cls1) | (y_true == cls2)
+            y_true_binary = (y_true[relevant_mask] == cls1).astype(int)
+            y_pred_binary = (y_pred[relevant_mask] == cls1).astype(int)
+            sensitivity, specificity = calculate_binary_metrics(
+                y_true_binary, y_pred_binary, epsilon)
+            sensitivities.append(sensitivity)
+            specificities.append(specificity)
+
+    # Weighted averages if sample_weight is provided
+    avg_sensitivity = np.average(sensitivities, weights=sample_weight)
+    avg_specificity = np.average(specificities, weights=sample_weight)
+
+    # Compute LR based on average values
+    lr = avg_sensitivity / (1 - avg_specificity + epsilon) if consensus == 'positive' \
+         else (1 - avg_sensitivity) / (avg_specificity + epsilon)
+
+    return lr, avg_sensitivity, avg_specificity
+
+
+def calculate_multiclass_lr(
+    y_true, y_pred, 
+    consensus='positive',
+    strategy='ovr', 
+    epsilon=1e-10, 
+    multi_output='uniform_average', 
+    apply_log_scale=False,
+    include_metrics=False
+    ):
+    """
+    Calculate the multiclass likelihood ratio for classification using either 
+    one-versus-rest (OvR) or one-versus-one (OvO) strategies. Optionally applies 
+    logarithmic scaling to the likelihood ratios and can return sensitivity and 
+    specificity values.
+
+    Parameters
+    ----------
+    y_true : array-like
+        True class labels as integers.
+    y_pred : array-like
+        Predicted class labels as integers.
+    consensus : str, optional
+        Specifies the type of likelihood ratio to compute: 'positive' 
+        (default) or 'negative'.
+    strategy : str, optional
+        Specifies the computation strategy: 'ovr' (one-versus-rest, default) 
+        or 'ovo' (one-versus-one).
+    epsilon : float, optional
+        A small value to prevent division by zero in calculations. 
+        Default is 1e-10. 
+    multi_output : str, optional
+        If 'uniform_average', returns the average of the computed likelihood 
+        ratios. If 'raw_values', returns the likelihood ratios for each class 
+        comparison.
+    apply_log_scale : bool, optional
+        If True, applies the natural logarithm to the likelihood ratios, 
+        returning the log-likelihood ratios.
+    include_metrics : bool, optional
+        If True, returns a tuple containing the likelihood ratios and arrays 
+        of sensitivities and specificities.
+
+    Returns
+    -------
+    float or tuple
+        Depending on 'multi_output' and 'include_metrics', returns either the 
+        average likelihood ratio, an array of likelihood ratios, or a tuple 
+        containing the likelihood ratios and metrics arrays.
+
+    Examples
+    --------
+    >>> y_true = [0, 1, 2, 2, 1, 0]
+    >>> y_pred = [0, 2, 1, 2, 1, 0]
+    >>> calculate_multiclass_lr(y_true, y_pred, consensus='positive', strategy='ovr')
+    1.6765
+    
+    >>> from gofast.tools.mathex import calculate_multiclass_lr
+    >>> y_true = [0, 1, 2, 2, 1, 0]
+    >>> y_pred = [0, 2, 1, 2, 1, 0]
+    >>> calculate_multiclass_lr(y_true, y_pred, consensus='positive', strategy='ovr')
+    1.6765
+    
+    >>> calculate_multiclass_lr(y_true, y_pred, consensus='negative', strategy='ovo')
+    0.9890
+    
+    Notes
+    -----
+    The likelihood ratio (LR) for a given class or class pair is calculated as:
+    
+    .. math::
+        LR_+ = \\frac{\\text{sensitivity}}{1 - \\text{specificity}}
+    
+    or
+    
+    .. math::
+        LR_- = \\frac{1 - \\text{sensitivity}}{\\text{specificity}}
+    
+    If `apply_log_scale` is True, the log-likelihood ratio (LLR) is computed, 
+    which transforms the LR using the natural logarithm:
+    
+    .. math::
+        LLR = \\log(LR)
+    
+    This transformation helps manage extreme values and improves the interpretability
+    of the results, especially when dealing with very high or very low likelihood ratios.
+    """
+
+    y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True)
+    ensure_non_negative(
+        y_true, y_pred,
+        err_msg="y_true and y_pred must contain non-negative values."
+    )
+    epsilon = check_epsilon(epsilon, y_true, y_pred)
+
+    consensus = parameter_validator(
+        "consensus", target_strs={'negative', 'positive'})(consensus)
+    strategy = parameter_validator(
+        "strategy", target_strs={'ovr', 'ovo'})(strategy)
+    
+    classes = np.unique(y_true)
+    results = []
+    sensitivities = []
+    specificities = []
+
+    if strategy == 'ovr':
+        y_true_binarized = label_binarize(y_true, classes=classes)
+        for i, label in enumerate(classes):
+            # Isolate the class against all others
+            sensitivity, specificity = calculate_binary_metrics(
+                y_true_binarized[:, i], (y_pred == label).astype(int), epsilon)
+            lr = sensitivity / max(1 - specificity, epsilon) if consensus == 'positive' \
+                else max(1 - sensitivity, epsilon) / specificity
+            results.append(np.log(lr) if apply_log_scale else lr)
+            sensitivities.append(sensitivity)
+            specificities.append(specificity)
+
+    elif strategy == 'ovo':
+        for cls1, cls2 in itertools.combinations(classes, 2):
+            relevant_mask = (y_true == cls1) | (y_true == cls2)
+            y_true_binary = (y_true[relevant_mask] == cls1).astype(int)
+            y_pred_binary = (y_pred[relevant_mask] == cls1).astype(int)
+            sensitivity, specificity = calculate_binary_metrics(
+                y_true_binary, y_pred_binary, epsilon)
+            lr = sensitivity / max(1 - specificity, epsilon) if consensus == 'positive' \
+                else max(1 - sensitivity, epsilon) / specificity
+            results.append(np.log(lr) if apply_log_scale else lr)
+            sensitivities.append(sensitivity)
+            specificities.append(specificity)
+
+    if multi_output == 'uniform_average':
+        # Return raw values for each class comparison
+        return (np.mean(results), np.asarray(sensitivities),
+                np.asarray(specificities)) if include_metrics else np.mean(results)
+    else:
+        return (np.array(results), np.asarray(sensitivities),
+                np.asarray(specificities)) if include_metrics else np.array(results)
+
+def calculate_adjusted_lr(
+        sensitivity, specificity, consensus ="positivite", max_lr=1000, 
+        buffer = 1e-3):
+    """
+    Calculate the likelihood ratio with a cap to avoid extremely high values.
+
+    Parameters:
+    - sensitivity (float): The sensitivity of the test.
+    - specificity (float): The specificity of the test.
+    - max_lr (float): The maximum allowed value for the likelihood ratio.
+
+    Returns:
+    - float: The adjusted likelihood ratio.
+    """
+    if consensus =="positive": 
+        lr = sensitivity / max(1 - specificity, buffer)  # Using 0.001 as a buffer
+        return min(lr, max_lr)  # Cap the LR at the maximum allowed value
+    elif consensus =="negative": 
+        ...
+        
+
+def calculate_binary_metrics(y_true, y_pred, epsilon=1e-10):
+    """
+    Calculate sensitivity and specificity for binary classification results.
+
+    This function computes the sensitivity (true positive rate) and specificity
+    (true negative rate) based on binary true labels and predictions. It is designed
+    to handle cases where the division by zero might occur by adding a small number,
+    epsilon, to the denominators.
+
+    Parameters
+    ----------
+    y_true : array-like
+        Binary ground truth labels (1 for positive class, 0 for negative class).
+    y_pred : array-like
+        Binary predicted labels (1 for positive class, 0 for negative class).
+    epsilon : float, optional
+        Small value added to denominators to avoid division by zero. Default is 1e-10.
+
+    Returns
+    -------
+    tuple
+        A tuple containing the sensitivity and specificity values.
+
+    Examples
+    --------
+    >>> from gofast.tools.mathex import calculate_binary_metrics
+    >>> y_true = np.array([1, 0, 1, 1, 0, 1, 0, 0])
+    >>> y_pred = np.array([1, 0, 0, 1, 0, 1, 1, 0])
+    >>> sensitivity, specificity = _calculate_binary_metrics(y_true, y_pred)
+    >>> print(f"Sensitivity: {sensitivity:.2f}, Specificity: {specificity:.2f}")
+    Sensitivity: 0.75, Specificity: 0.75
+    """
+    y_true, y_pred = _ensure_y_is_valid( y_true, y_pred, y_numeric =True)
+    ensure_non_negative(
+        y_true, y_pred,
+        err_msg="y_true and y_pred must contain non-negative values."
+    )
+    epsilon = check_epsilon(epsilon, y_true, y_pred )
+    
+    if not isinstance(y_true, np.ndarray):
+        y_true = np.asarray(y_true)
+    if not isinstance(y_pred, np.ndarray):
+        y_pred = np.asarray(y_pred)
+
+    true_positives = np.sum((y_true == 1) & (y_pred == 1))
+    false_positives = np.sum((y_true == 0) & (y_pred == 1))
+    false_negatives = np.sum((y_true == 1) & (y_pred == 0))
+    true_negatives = np.sum((y_true == 0) & (y_pred == 0))
+
+    sensitivity = true_positives / (true_positives + false_negatives + epsilon)
+    specificity = true_negatives / (true_negatives + false_positives + epsilon)
+
+    return sensitivity, specificity
 
 def calculate_histogram_bins(
         data, /,  bins='auto', range=None, normalize=False):

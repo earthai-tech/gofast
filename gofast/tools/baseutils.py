@@ -11,7 +11,7 @@ import functools
 import threading 
 import subprocess 
 from joblib import Parallel, delayed
-
+from datetime import datetime
 import numpy as np 
 import pandas as pd 
 from tqdm import tqdm
@@ -2051,4 +2051,73 @@ def reshape_to_dataframe(flattened_array, columns, error ='raise'):
     else:
         return pd.DataFrame(reshaped_array, columns=columns)
 
+def save_figure(fig, filename=None, dpi=300, close=True, ax=None, 
+                tight_layout=False, bbox_inches='tight'):
+    """
+    Saves a matplotlib figure to a file and optionally closes it. 
+    Automatically generates a unique filename if not provided.
 
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        The figure object to save.
+    filename : str, optional
+        The name of the file to save the figure to. If None, a unique name
+        is generated based on the current date-time.
+    dpi : int, optional
+        The resolution of the output file in dots per inch.
+    close : bool, optional
+        Whether to close the figure after saving.
+    ax : matplotlib.axes.Axes or array-like of Axes, optional
+        Axes object(s) to perform operations on before saving.
+    tight_layout : bool, optional
+        Whether to adjust subplot parameters to give specified padding.
+    bbox_inches : str, optional
+        Bounding box in inches: 'tight' or a specific value.
+
+    Examples
+    --------
+    >>> import matplotlib.pyplot as plt
+    >>> import numpy as np
+    >>> from gofast.tools.baseutils import save_figure
+    >>> fig, ax = plt.subplots()
+    >>> x = np.linspace(0, 10, 100)
+    >>> y = np.sin(x)
+    >>> ax.plot(x, y)
+    >>> save_figure(fig, close=True, ax=ax)
+
+    Notes
+    -----
+    If the filename is not specified, this function generates a filename that
+    is unique to the second, using the pattern 'figure_YYYYMMDD_HHMMSS.png'.
+    If two figures are saved within the same second, it appends microseconds
+    to ensure uniqueness.
+    """
+    # Generate a unique filename if not provided
+    if filename is None:
+        date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"figure_{date_time}.png"
+        while os.path.exists(filename):
+            date_time = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            filename = f"figure_{date_time}.png"
+
+    # Adjust layout if requested
+    if tight_layout:
+        fig.tight_layout()
+
+    # Optionally adjust axis properties
+    if ax is not None:
+        if isinstance(ax, (list, tuple, np.ndarray)):
+            for a in ax:
+                a.grid(True)
+        else:
+            ax.grid(True)
+    
+    # Save the figure
+    fig.savefig(filename, dpi=dpi, bbox_inches=bbox_inches)
+    print(f"Figure saved as '{filename}' with dpi={dpi}")
+
+    # Optionally close the figure
+    if close:
+        plt.close(fig)
+        print("Figure closed.")

@@ -6263,7 +6263,7 @@ def replace_data(
     axis = 0, 
     reset_index :bool =...  
     ): 
-    """ Replace items in data :math:`n` times 
+    """ Replace items in data :math:`n` times.
     
     Parameters 
     ----------
@@ -8883,34 +8883,38 @@ def process_and_extract_data(
     on_error: str = 'raise',
 ) -> List[np.ndarray]:
     """
-    Extracts and processes data from various input types, focusing on column extraction
-    from pandas DataFrames and conversion of inputs to numpy arrays or pandas Series.
+    Extracts and processes data from various input types, focusing on column 
+    extraction from pandas DataFrames and conversion of inputs to numpy 
+    arrays or pandas Series.
 
     Parameters
     ----------
     *args : ArrayLike
-        A variable number of inputs, each can be a list, numpy array, pandas Series,
-        dictionary, or pandas DataFrame.
+        A variable number of inputs, each can be a list, numpy array, pandas 
+        Series,dictionary, or pandas DataFrame.
     columns : List[Union[str, int]], optional
-        Specific columns to extract from pandas DataFrames. If not provided, the function
-        behaves differently based on `allow_split`.
+        Specific columns to extract from pandas DataFrames. If not provided, 
+        the function behaves differently based on `allow_split`.
     enforce_extraction : bool, default=True
-        Forces the function to try extracting `columns` from DataFrames. If False,
-        DataFrames are returned without column extraction unless `allow_split` is True.
+        Forces the function to try extracting `columns` from DataFrames. 
+        If False, DataFrames are returned without column extraction unless 
+        `allow_split` is True.
         Removing non-conforming elements if True.
     allow_split : bool, default=False
-        If True and a DataFrame is provided without `columns`, splits the DataFrame
-        into its constituent columns.
+        If True and a DataFrame is provided without `columns`, splits the 
+        DataFrame into its constituent columns.
     search_multiple : bool, default=False
-        Allows searching for `columns` across multiple DataFrame inputs. Once a column
-        is found, it is not searched for in subsequent DataFrames.
+        Allows searching for `columns` across multiple DataFrame inputs. Once 
+        a column is found, it is not searched for in subsequent DataFrames.
     ensure_uniform_length : bool, default=False
-        Checks that all extracted arrays have the same length. Raises an error if they don't.
+        Checks that all extracted arrays have the same length. Raises an error
+        if they don't.
     to_array : bool, default=False
         Converts all extracted pandas Series to numpy arrays.
     on_error : str, {'raise', 'ignore'}, default='raise'
-        Determines how to handle errors during column extraction or when enforcing uniform length.
-        'raise' will raise an error, 'ignore' will skip the problematic input.
+        Determines how to handle errors during column extraction or when 
+        enforcing uniform length. 'raise' will raise an error, 'ignore' will 
+        skip the problematic input.
 
     Returns
     -------
@@ -8959,12 +8963,13 @@ def process_and_extract_data(
             target_columns: Optional[List[Union[str, int]]], 
             to_array: bool) -> Optional[np.ndarray]:
         """
-        Processes each input based on its type, extracting specified columns if necessary,
-        and converting to numpy array if specified.
+        Processes each input based on its type, extracting specified columns 
+        if necessary, and converting to numpy array if specified.
         """
         if isinstance(input_data, (list, tuple)):
             input_data = np.array(input_data)
-            return input_data if len(input_data.shape) == 1 or not enforce_extraction else None
+            return input_data if len(input_data.shape
+                                     ) == 1 or not enforce_extraction else None
 
         elif isinstance(input_data, dict):
             input_data = pd.DataFrame(input_data)
@@ -8972,15 +8977,18 @@ def process_and_extract_data(
         if isinstance(input_data, pd.DataFrame):
             if target_columns:
                 for col in target_columns:
-                    if col in input_data.columns and (search_multiple or col not in columns_found):
-                        data_to_add = input_data[col].to_numpy() if to_array else input_data[col]
+                    if col in input_data.columns and (
+                            search_multiple or col not in columns_found):
+                        data_to_add = input_data[col].to_numpy(
+                            ) if to_array else input_data[col]
                         extracted_data.append(data_to_add)
                         columns_found.add(col)
                     elif on_error == 'raise':
                         raise ValueError(f"Column {col} not found in DataFrame.")
             elif allow_split:
                 for col in input_data.columns:
-                    data_to_add = input_data[col].to_numpy() if to_array else input_data[col]
+                    data_to_add = input_data[col].to_numpy(
+                        ) if to_array else input_data[col]
                     extracted_data.append(data_to_add)
             return None
 
@@ -8991,10 +8999,12 @@ def process_and_extract_data(
                     extracted_data.append(arr.squeeze())
                 return None
             elif input_data.ndim > 1 and enforce_extraction and on_error == 'raise':
-                raise ValueError("Multidimensional array found while `enforce_extraction` is True.")
+                raise ValueError("Multidimensional array found while "
+                                 "`enforce_extraction` is True.")
             return input_data if to_array else np.squeeze(input_data)
 
-        return input_data.to_numpy() if to_array and isinstance(input_data, pd.Series) else input_data
+        return input_data.to_numpy() if to_array and isinstance(
+            input_data, pd.Series) else input_data
 
     for arg in args:
         result = _process_input(arg, columns, to_array)

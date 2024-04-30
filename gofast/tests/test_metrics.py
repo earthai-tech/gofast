@@ -24,6 +24,37 @@ from gofast.metrics import adjusted_r2_score
 from gofast.metrics import precision_recall_tradeoff, roc_tradeoff
 from gofast.metrics import evaluate_confusion_matrix, display_precision_recall
 from gofast.metrics import display_confusion_matrix  
+from gofast.metrics import likelihood_score  
+
+def test_binary_classification_positive():
+    y_true = np.array([1, 0, 1, 1, 0])
+    y_pred = np.array([1, 1, 1, 0, 0])
+    assert np.isclose(likelihood_score(
+        y_true, y_pred, consensus='positive', epsilon=0.001), 2.0, atol=0.1)
+
+def test_binary_classification_negative():
+    y_true = np.array([1, 0, 1, 1, 0])
+    y_pred = np.array([1, 1, 1, 0, 0])
+    assert np.isclose(likelihood_score(
+        y_true, y_pred, consensus='negative', epsilon=0.001), 0.333, atol=0.1)
+
+def test_zero_division_warning():
+    y_true = np.array([1, 1, 1, 1])
+    y_pred = np.array([0, 0, 0, 0])
+    with pytest.warns(RuntimeWarning):
+        result = likelihood_score(
+            y_true, y_pred, consensus='positive', zero_division='warn')
+        assert result == np.nan
+
+def test_multiclass_classification_ovr():
+    y_true = np.array([0, 1, 2, 2, 1, 0])
+    y_pred = np.array([0, 1, 1, 2, 2, 0])
+    # Assume hypothetical expected result, 
+    # verify with actual expected value
+    expected_result = 26667.9
+    assert np.isclose(likelihood_score(y_true, y_pred, strategy='ovr'
+                         ), expected_result, atol=0.1)
+
 
 @pytest.fixture
 def binary_classification_data():

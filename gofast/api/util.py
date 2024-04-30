@@ -3418,6 +3418,32 @@ def beautify_dict(d, space=4, key=None, max_char=None):
         
     return formatted_dict
 
+def remove_extra_spaces(text):
+    """
+    Removes extra spaces from the input text, leaving only one 
+    space between words.
+
+    Parameters
+    ----------
+    text : str
+        The string from which extra spaces need to be removed.
+
+    Returns
+    -------
+    str
+        The string with only one space between each word.
+
+    Example
+    -------
+    >>> from gofast.api.util import remove_extra_spaces
+    >>> text = "this is      text that    have   extra          space."
+    >>> remove_extra_spaces(text)
+    'this is text that have extra space.'
+    """
+    # Use regular expression to replace multiple spaces with a single space
+    cleaned_text = re.sub(r'\s+', ' ', text).strip()
+    return cleaned_text
+
 if __name__=='__main__': 
     # Example usage:
     data = {

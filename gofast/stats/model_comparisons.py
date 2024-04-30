@@ -622,6 +622,8 @@ def perform_friedman_test2(
         
     Examples
     --------
+    >>> import pandas as pd 
+    >>> from gofast.stats.model_comparisons import perform_friedman_test2
     >>> df = pd.DataFrame({
     ...    'Model_A': [0.8, 0.82, 0.78, 0.81, 0.79],
     ...    'Model_B': [0.79, 0.84, 0.76, 0.82, 0.78],

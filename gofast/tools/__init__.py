@@ -12,7 +12,17 @@ import importlib
 
 # Define a dictionary to map 
 # module names to their respective sub-packages
+
+# write a function called assist_me, who help user to select the appropriate tools 
+# to solve its task. For instance,if it works is how to handle correlatio n 
+# then select the correlation tool list for him. Note that 
+
+# each MODULE_MAPPING dictionnary key is a subpackage of gofast.tools. 
+# now group all tools info a category task, as new dict key in snake_case. 
 MODULE_MAPPING = {
+    'assistutils': [
+        'assist_me'
+    ], 
     'baseutils': [
         'binning_statistic', 
         'categorize_target',

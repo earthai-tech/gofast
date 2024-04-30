@@ -868,7 +868,7 @@ class MetricFormatter(Bunch):
     def __init__(self, title="Metric Results", descriptor=None,  **kwargs):
         super().__init__(**kwargs)
         self.title = title
-        self.descriptor=to_camel_case( descriptor or "MetricFormatter") 
+        self.descriptor=to_camel_case( descriptor or "Bunch") 
     
     def __str__(self):
         if not self.__dict__:
@@ -877,6 +877,8 @@ class MetricFormatter(Bunch):
         keys = sorted(self.__dict__.keys())
         if 'title' in keys:
             keys.remove('title')  # Exclude title from the keys to be printed
+        if 'descriptor' in keys: 
+            keys.remove('descriptor') # Exclude title from the keys to be printed
         max_key_length = max(len(key) for key in keys)
         
         formatted_attrs = [
@@ -902,6 +904,23 @@ class MetricFormatter(Bunch):
             formatted_output = f"{header_footer_line}\n{content_str}\n{header_footer_line}"
         
         return formatted_output
+    
+    def __repr__(self):
+        """
+        Returns a simple representation of the _Bunch object.
+        
+        This representation indicates that the object is a 'bunch' containing 
+        results,suggesting to print the object to see its contents.
+        
+        Returns
+        -------
+        str
+            A string indicating the object contains results.
+        """
+        if self.__dict__:
+            return super(type(self), self).__repr__().replace("Bunch", self.descriptor)
+        else:
+            return f"<Empty {self.descriptor}>"
 
 class BoxFormatter:
     """

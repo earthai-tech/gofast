@@ -4,6 +4,7 @@
 
 import numpy as np
 import pandas as pd 
+from .util import format_value 
 
 class Bunch:
     """
@@ -155,7 +156,7 @@ class Bunch:
                 return handler(attr)
     
         # Default case if the attribute does not match any of the specified types
-        return str(attr)
+        return format_value(attr)
       
     def _is_sequences(self, attr):
         """
