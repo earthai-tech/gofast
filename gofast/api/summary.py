@@ -53,7 +53,7 @@ class ResultSummary:
     }
     >>> summary.add_results(results)
     >>> print(summary)
-    Data Check(
+    DataCheck(
       {
         long_string_data          : "This is a very long string that needs trunc..."
         data_counts               : {'A': 20, 'B': 15}
