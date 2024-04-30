@@ -272,8 +272,6 @@ def calculate_multiclass_lr(
                 max_lr = 10., 
                 buffer=1e-2 
                 )
-            # lr = sensitivity / max(1 - specificity, epsilon) if consensus == 'positive' \
-            #     else max(1 - sensitivity, epsilon) / specificity
             results.append(np.log(lr) if apply_log_scale else lr)
             sensitivities.append(sensitivity)
             specificities.append(specificity)
@@ -288,8 +286,6 @@ def calculate_multiclass_lr(
             lr = calculate_adjusted_lr (
                 sensitivity, specificity,consensus = consensus,
                 max_lr = 10, buffer=1e-2 )
-            # lr = sensitivity / max(1 - specificity, epsilon) if consensus == 'positive' \
-            #     else max(1 - sensitivity, epsilon) / specificity
             results.append(np.log(lr) if apply_log_scale else lr)
             sensitivities.append(sensitivity)
             specificities.append(specificity)
