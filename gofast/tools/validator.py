@@ -98,7 +98,7 @@ def validate_multiclass_target(
 
     return y
 
-def validate_sample_weights(weights, y):
+def validate_sample_weights(weights, y, normalize =False):
     """
     Validates that the sample weights are suitable for use in calculations.
 
@@ -115,7 +115,9 @@ def validate_sample_weights(weights, y):
     y : array-like
         The target array that the weights should correspond to. The length
         of `weights` must match the length of `y`.
-
+    normalize : bool, optional
+        If True, weights will be normalized to sum to 1. Default is False.
+        
     Returns
     -------
     numpy.ndarray
@@ -160,8 +162,231 @@ def validate_sample_weights(weights, y):
     # Check if the length of weights matches the length of y
     if weights.size != y.size:
         raise ValueError("Length of sample weights must match length of y.")
-
+     
+    weights = normalize_array(weights, normalize=normalize, method="sum") 
+   
     return weights  # Return the validated weights as a numpy array
+
+
+def validate_weights(
+        weights, min_value=None, max_value=None, normalize=False, allowed_dims=1):
+    """
+    Validates and optionally normalizes the given weights array to ensure all elements 
+    meet specified criteria and the structure is suitable for computations.
+
+    Parameters:
+    ----------
+    weights : array-like
+        Weights to be validated. Can be a list, tuple, or numpy array.
+    min_value : float, optional
+        Minimum allowable value for weights (inclusive). If None, weights are 
+        expected to be non-negative. Explicitly set to a negative value if 
+        negative weights are allowed.
+    max_value : float or None, optional
+        Maximum allowable value for weights (inclusive). If None, no upper 
+        limit is enforced.
+    normalize : bool, optional
+        If True, weights will be normalized to sum to 1. Default is False.
+    allowed_dims : int or tuple, optional
+        Specifies the allowed dimensions of the weights array. Default is 1 
+        (one-dimensional). If a tuple is provided, weights must match one of 
+        the dimensions specified in the tuple.
+
+    Returns:
+    -------
+    np.ndarray
+        A numpy array of the validated and optionally normalized weights.
+
+    Raises:
+    ------
+    ValueError
+        If weights contain values outside the specified range, or if the 
+        format or dimensions are not suitable.
+
+    Examples:
+    --------
+    >>> from gofast.tools.validator import validate_weights
+    
+    >>> validate_weights([0.25, 0.75, 0.5], normalize=True)
+    array([0.2, 0.6, 0.4])
+
+    >>> validate_weights([-0.1, 0.9], min_value=0)
+    ValueError: Weights must be non-negative.
+
+    >>> validate_weights([0.1, 0.2, 0.7], max_value=0.5)
+    ValueError: Weights must not exceed 0.5.
+
+    >>> validate_weights([1, 2, 3], allowed_dims=(1, 2))
+    ValueError: Weights dimensions not allowed.
+    """
+    try:
+        weights_array = np.asarray(weights, dtype=float)
+    except Exception as e:
+        raise ValueError("Weights must be provided in a format that can be"
+                         " converted to a numpy array.") from e
+
+    if isinstance(allowed_dims, int):
+        allowed_dims = (allowed_dims,)
+    if weights_array.ndim not in allowed_dims:
+        raise ValueError(f"Weights must have dimensions in {allowed_dims}.")
+
+    # Check if min_value is None and enforce non-negative weights by default
+    if min_value is None:
+        if np.any(weights_array < 0):
+            raise ValueError("Weights must be non-negative unless 'min_value'"
+                             " is explicitly set to allow negative values.")
+        min_value=0.
+    if np.any(weights_array < min_value) or (max_value is not None and np.any(
+            weights_array > max_value)):
+        raise ValueError(f"Weights must be between {min_value} and"
+                         f" {max_value if max_value is not None else '∞'}.")
+ 
+    if normalize:
+        if np.sum(weights_array) == 0:
+            raise ValueError("Cannot normalize weights because their sum is zero.")
+        
+        if not is_normalized(weights_array, method ='sum'):
+            weights_array /= np.sum(weights_array)
+
+    return weights_array
+
+def is_normalized(arr, method='sum'):
+    """
+    Checks if the provided array is normalized according to the specified method.
+
+    Parameters:
+    ----------
+    arr : array-like
+        The array to check for normalization.
+    method : str, optional
+        The method of normalization to check against:
+        - '01': Checks if values are between 0 and 1 and if min is 0 and max is 1.
+        - 'zscore': Checks if the mean is 0 and the standard deviation is 1.
+        - 'sum': Checks if the sum of the array elements is 1.
+        Default is 'sum'.
+
+    Returns:
+    -------
+    bool
+        Returns True if the array is normalized according to the specified method,
+        False otherwise.
+
+    Examples:
+    --------
+    >>> arr = np.array([0.25, 0.25, 0.25, 0.25])
+    >>> is_normalized(arr, method='sum')
+    True
+
+    >>> arr = np.array([0, 0.5, 1])
+    >>> is_normalized(arr, method='01')
+    True
+
+    >>> arr = np.array([1, -1, 1, -1])
+    >>> is_normalized(arr, method='zscore')
+    True
+    """
+    arr = np.asarray(arr, dtype=float)
+    method =parameter_validator(
+        "method", target_strs={"01", "zscore", "sum"}) ( method)
+
+    if method == '01':
+        # Check if all elements are within [0, 1] and max is 1, min is 0
+        return np.all((arr >= 0) & (arr <= 1)) and np.isclose(
+            np.min(arr), 0) and np.isclose(np.max(arr), 1)
+    elif method == 'zscore':
+        # Check if mean is approximately 0 and std is approximately 1
+        mean = np.mean(arr)
+        std = np.std(arr)
+        return np.isclose(mean, 0) and np.isclose(std, 1)
+    elif method == 'sum':
+        # Check if the sum of the elements is approximately 1
+        return np.isclose(np.sum(arr), 1)
+ 
+def normalize_array(arr, normalize="auto", method='01'):
+    """
+    Checks if an array is normalized according to the specified method and 
+    normalizes it if required based on the 'normalize' parameter.
+
+    Parameters:
+    ----------
+    arr : array-like
+        The input array to check and potentially normalize.
+
+    normalize : str, optional
+        Determines whether to normalize the array:
+        - 'auto': Normalize only if the array is not already normalized 
+          according to the specified method.
+        - True: Always normalize the array regardless of its current state.
+        - False: Do not normalize the array, return as is.
+        Default is 'auto'.
+
+    method : str, optional
+        The normalization method to apply:
+        - '01': Normalize the array to have values between 0 and 1.
+        - 'zscore': Standardize the array to have a mean of 0 and a standard
+          deviation of 1.
+        - 'sum': Normalize the array so that the sum of its elements equals 1.
+        Default is '01'.
+
+    Returns:
+    -------
+    np.ndarray
+        The normalized array, or the original array if no normalization was applied.
+
+    Raises:
+    ------
+    ValueError
+        If an unknown normalization method is specified or if normalization 
+        cannot be performed due to data characteristics (e.g., zero variance).
+        
+    Examples:
+    --------
+    >>> import numpy as np 
+    >>> from gofast.tools.validator import normalize_array 
+
+    >>> data = np.array([1, 2, 3, 4, 5])
+    >>> normalized_data = normalize_array(data, normalize=True, method='01')
+    >>> print("Normalized between 0 and 1:", normalized_data)
+    Normalized between 0 and 1: [0.   0.25 0.5  0.75 1.  ]
+    
+    >>> zscore_data = normalize_array(data, normalize=True, method='zscore')
+    >>> print("Standardized (Z-score):", zscore_data)
+    Standardized (Z-score): [-1.41421356 -0.70710678  0.          0.70710678  1.41421356]
+    
+    >>> sum_data = normalize_array(data, normalize=True, method='sum')
+    >>> print("Normalized by sum:", sum_data)
+    Normalized by sum: [0.06666667 0.13333333 0.2        0.26666667 0.33333333]
+    """
+    arr = np.asarray(arr, dtype=float)
+    is_normed = is_normalized(arr, method=method)
+    
+    normalize = parameter_validator(
+        "normalize", target_strs={True, False, "auto"})( normalize)
+    
+    if normalize == 'auto':
+        normalize = not is_normed
+
+    if normalize:
+        if method == '01':
+            min_val = np.min(arr)
+            max_val = np.max(arr)
+            if min_val == max_val:
+                raise ValueError("Normalization impossible with zero variance.")
+            arr = (arr - min_val) / (max_val - min_val)
+        elif method == 'zscore':
+            mean = np.mean(arr)
+            std = np.std(arr)
+            if std == 0:
+                raise ValueError("Standardization impossible with zero variance.")
+            arr = (arr - mean) / std
+        elif method == 'sum':
+            total = np.sum(arr)
+            if total == 0:
+                raise ValueError("Normalization by sum impossible with zero sum.")
+            arr = arr / total
+  
+    # If normalization is not required, return the original array
+    return arr
 
 def is_binary_class(y, accept_multioutput=False):
     """
@@ -214,6 +439,82 @@ def is_binary_class(y, accept_multioutput=False):
         return True
 
     return False
+
+def handle_zero_division(
+    y_true, 
+    zero_division='warn', 
+    metric_name='metric computation', 
+    epsilon=1e-15,
+    replace_with=None
+):
+    """
+    Preprocess input arrays to handle cases where zero could cause division errors
+    in subsequent metric computations.
+
+    Parameters
+    ----------
+    y_true : array-like
+        The input data array where zeros might cause division errors.
+    zero_division : {'warn', 'raise', 'ignore'}, default 'warn'
+        Determines the action to perform when a zero is encountered:
+        - 'warn': Issues a warning and replaces zeros with `replace_with` or `epsilon`.
+        - 'raise': Raises an error if a zero is found in the input data.
+        - 'ignore': Leaves the zeros as they are, useful when the metric calculation
+          can handle zeros natively.
+    metric_name : str, optional
+        Name of the metric for which this preprocessing is being done, to be included
+        in warnings or error messages for better context.
+    epsilon : float, optional
+        Small value to use as default replacement if `replace_with` is None,
+        default is 1e-15.
+    replace_with : float or None, optional
+        A specific value to replace zeros with, if None, `epsilon` is used.
+
+    Returns
+    -------
+    numpy.ndarray
+        The processed array with modifications based on the zero_division strategy.
+    
+    Raises
+    ------
+    ValueError
+        If `zero_division` is 'raise' and zero is found in `y_true`.
+
+    Notes
+    -----
+    Using `replace_with` allows for custom behavior when handling zeros, which can
+    be tailored to the specific requirements of different metric computations.
+    
+    Examples 
+    ---------
+    >>> from gofast.tools.validator import handle_zero_division 
+    >>> y_true = [0, 1, 2, 3, 0]
+    >>> processed_y_true = handle_zero_division(
+        y_true, replace_with=0.001, zero_division='warn')
+    >>> print(processed_y_true)
+
+    """
+    y_true_processed = np.asarray(y_true, dtype=float)
+    zero_division = parameter_validator(
+        "zero_division", target_strs=["warn", "raise", "ignore"]) (
+            zero_division)
+            
+    zeros_mask = y_true_processed == 0
+    if np.any(zeros_mask):
+        if zero_division == 'warn':
+            warnings.warn(f"Encountered zero in y_true, which may lead to"
+                          f" infinite values or NaNs in {metric_name}.",
+                          RuntimeWarning)
+            replacement_value = replace_with if replace_with is not None else epsilon
+            y_true_processed[zeros_mask] = replacement_value
+        elif zero_division == 'raise':
+            raise ValueError(f"Encountered zero in y_true, leading to division"
+                             f" by zero in {metric_name} computation.")
+        elif zero_division == 'ignore':
+            pass  # Do nothing, let the calling function handle zeros natively.
+
+    return y_true_processed
+
 
 def validate_comparison_data(df, /,  alignment="auto"):
     """
@@ -759,7 +1060,7 @@ def validate_length_range(length_range):
   
     return length_range 
      
-def filter_nan_entries(nan_policy, *listof, sample_weights=None):
+def filter_nan_entries2(nan_policy, *listof, sample_weights=None):
     """
     Filters out NaN values from multiple lists of lists, or arrays, 
     based on the specified NaN handling policy ('omit', 'propagate', 'raise'), 
@@ -829,9 +1130,10 @@ def filter_nan_entries(nan_policy, *listof, sample_weights=None):
         raise ValueError(f"Invalid nan_policy: {nan_policy}. Must be one of"
                          " 'omit', 'propagate', 'raise'.")
 
-    arrays = [np.array(lst, dtype=np.float_) for lst in listof]
+    arrays = [np.array(list(lst), dtype=float) for lst in listof]
 
     if nan_policy == 'omit':
+        print(arrays)
         non_nan_mask = np.logical_not(np.any([np.isnan(arr) for arr in arrays], axis=0))
         filtered_arrays = [arr[non_nan_mask] for arr in arrays]
         if sample_weights is not None:
@@ -847,6 +1149,253 @@ def filter_nan_entries(nan_policy, *listof, sample_weights=None):
         return  (*tuple(filtered_listof), sample_weights)
 
     return tuple(filtered_listof)
+
+# def filter_nan_entries(nan_policy, *listof, sample_weights=None):
+#     """
+#     Filters out NaN values from multiple lists of lists, or arrays, 
+#     based on the specified NaN handling policy ('omit', 'propagate', 'raise'), 
+#     and adjusts the sample weights accordingly if provided.
+#     """
+#     if nan_policy not in ['omit', 'propagate', 'raise']:
+#         raise ValueError(f"Invalid nan_policy: {nan_policy}. Must be one of"
+#                          " 'omit', 'propagate', 'raise'.")
+
+#     # Convert all input lists to numpy arrays for consistent processing
+#     arrays = [np.array(list(lst), dtype=float) for lst in listof]
+
+#     if nan_policy == 'omit':
+#         # Identify non-NaN elements across all arrays consistently
+#         non_nan_mask = np.array([not any(np.isnan(np.array(item, dtype=float)))
+#                                  for item in zip(*arrays)])
+#         # Apply the non-NaN mask to filter out NaN values across all arrays
+#         filtered_arrays = [arr[non_nan_mask] for arr in arrays]
+#         if sample_weights is not None:
+#             sample_weights = np.asarray(sample_weights)[non_nan_mask]
+#     elif nan_policy == 'raise' and any(
+#             np.isnan(np.array(item, dtype=float)).any() 
+#             for sublist in listof for item in sublist):
+#         raise ValueError("NaN values present and nan_policy is 'raise'.")
+#     else:  # nan_policy == 'propagate'
+#         filtered_arrays = arrays
+
+#     # Convert arrays back to list of lists if they were originally in that format
+#     filtered_listof = [arr.tolist() for arr in filtered_arrays]
+    
+#     # Return adjusted arrays and sample_weights
+#     if sample_weights is not None:
+#         return (*filtered_listof, sample_weights)
+
+#     return tuple(filtered_listof)
+
+def filter_nan_entries3(nan_policy, *listof, sample_weights=None):
+    """
+    Filters out NaN values from multiple lists of lists, or arrays, 
+    based on the specified NaN handling policy ('omit', 'propagate', 'raise'), 
+    and adjusts the sample weights accordingly if provided.
+    """
+    if nan_policy not in ['omit', 'propagate', 'raise']:
+        raise ValueError(f"Invalid nan_policy: {nan_policy}. Must be one of 'omit', 'propagate', 'raise'.")
+
+    # This approach assumes the inputs can contain any data type.
+    # We first convert all entries to numpy arrays without specifying a dtype.
+    arrays = [np.array(lst, dtype=object) for lst in listof]
+
+    if nan_policy == 'omit':
+        # Since we are working with dtype=object, we handle NaN checks manually.
+        non_nan_mask = np.array([not any(isinstance(x, float) and np.isnan(x) for x in item)
+                                 for item in zip(*arrays)])
+        filtered_arrays = [arr[non_nan_mask] for arr in arrays]
+        if sample_weights is not None:
+            sample_weights = np.asarray(sample_weights)[non_nan_mask]
+    elif nan_policy == 'raise':
+        if any(isinstance(x, float) and np.isnan(x) for sublist in listof for x in sublist):
+            raise ValueError("NaN values present and nan_policy is 'raise'.")
+    else:  # nan_policy == 'propagate'
+        filtered_arrays = arrays
+
+    # Convert arrays back to their original list format
+    filtered_listof = [list(arr) for arr in filtered_arrays]
+    
+    # Return adjusted arrays and sample_weights
+    if sample_weights is not None:
+        return (*filtered_listof, sample_weights)
+
+    return tuple(filtered_listof)
+
+
+def filter_nan_entries5(nan_policy, *listof, sample_weights=None, error="raise"):
+    """
+    Filters out NaN values from multiple lists or arrays based on the specified
+    NaN handling policy and adjusts the sample weights accordingly if provided.
+    
+    Parameters:
+    -----------
+    nan_policy : {'omit', 'propagate', 'raise'}
+        The policy for handling NaN values.
+    *listof : sequence of list-like or array-like
+        Multiple lists or arrays from which NaN values are to be filtered.
+    sample_weights : array-like, optional
+        Weights corresponding to the elements in each sequence in `listof`.
+    error : {'raise', 'warn', 'ignore'}, default 'raise'
+        How to handle mismatch in lengths between the input lists and sample_weights
+        after filtering NaNs.
+        
+    Returns:
+    --------
+    tuple of lists or arrays
+        The filtered data according to `nan_policy`. Also returns filtered
+        `sample_weights` if provided.
+    
+    Raises:
+    -------
+    ValueError
+        If `nan_policy` is 'raise' and NaNs are detected, or if `error` is 'raise'
+        and there is a length mismatch between the filtered data and sample_weights.
+    """
+
+
+def flatten(iterable):
+    """A simple utility to flatten complex structures into plain lists."""
+    for item in iterable:
+        if isinstance(item, (list, set, tuple)):
+            yield from flatten(item)
+        else:
+            yield item
+
+# def filter_nan_entries(nan_policy, *listof, sample_weights=None, error="raise"):
+#     """
+#     Filters out NaN values from complex nested structures like lists of sets or dicts.
+#     """
+#     if nan_policy not in ['omit', 'propagate', 'raise']:
+#         raise ValueError(f"Invalid nan_policy: {nan_policy}. Must be one "
+#                          "of 'omit', 'propagate', 'raise'.")
+
+#     # Prepare arrays, treating non-scalar containers differently
+#     arrays = []
+#     for lst in listof:
+#         if any(isinstance(x, (set, dict)) for x in lst):
+#             # Handle sets and dictionaries by flattening them to lists
+#             flattened_list = list(flatten(lst))
+#             arrays.append(np.array(flattened_list, dtype=object))
+#         else:
+#             arrays.append(np.array(lst, dtype=object))
+
+#     if nan_policy == 'omit':
+        
+#         # create a list of non_mask so each non_mask bool array  should be 
+#         # used with its corresponding arrays , this will fix 
+#         # IndexError: boolean index did not match indexed array along dimension 0; 
+#         # dimension is 7 but corresponding boolean dimension is 5
+#         non_nan_mask = np.array([all(not np.isnan(x) if isinstance(x, float) else True for x in item)
+#                                  for item in zip(*arrays)])
+#         filtered_arrays = [arr[non_nan_mask] for arr in zip ( arrays)]
+
+#         if sample_weights is not None:
+#             if len(sample_weights) == len(non_nan_mask):
+#                 sample_weights = np.asarray(sample_weights)[non_nan_mask]
+#             else:
+#                 if error == 'warn':
+#                     # If the length of the sample weights does not match but is greater,
+#                     # reduce the sample weights array to match the filtered data length.
+#                     # Note: This may not always be the desired behavior, as it can lead to
+#                     #       unexpected results if data misalignment occurs.
+#                     #       Use with caution or consider whether this should raise an error instead.
+                    
+#                     warnings.warn("Length of sample_weights does not match "
+#                                   "the number of entries after NaN filtering.")
+#                     sample_weights = np.asarray(
+#                         sample_weights)[:len(non_nan_mask)][non_nan_mask]
+#                 elif error == 'raise':
+#                     raise ValueError("Length of sample_weights must match"
+#                                      " the number of entries in listof.")
+#                 # If error is 'ignore', do nothing.
+
+#     elif nan_policy == 'raise' and any(np.isnan(x) if isinstance(
+#             x, float) else False for lst in listof for x in flatten(lst)):
+#         raise ValueError("NaN values present and nan_policy is 'raise'.")
+#     else:  # nan_policy == 'propagate'
+#         filtered_arrays = arrays
+
+#     filtered_listof = [list(arr) for arr in filtered_arrays]
+
+#     if sample_weights is not None:
+#         return (*filtered_listof, sample_weights)
+#     return tuple(filtered_listof)
+
+def filter_nan_entries(
+        nan_policy, *listof, sample_weights=None, error="raise", flatten_lst=False):
+    if nan_policy not in ['omit', 'propagate', 'raise']:
+        raise ValueError(f"Invalid nan_policy: {nan_policy}. Must be one of 'omit', 'propagate', 'raise'.")
+
+    # Convert all input lists to numpy arrays for consistent processing
+    # Prepare arrays, treating non-scalar containers differently
+    arrays = []
+    if flatten_lst: 
+        for lst in listof:
+            if any(isinstance(x, (set, dict)) for x in lst):
+                # Handle sets and dictionaries by flattening them to lists
+                flattened_list = list(flatten(lst))
+                arrays.append(np.array(flattened_list, dtype=object))
+            else:
+                arrays.append(np.array(lst, dtype=object))
+    else: 
+        # Convert all input lists to numpy arrays for consistent processing
+        for lst in listof : 
+            arrays.append ( [ np.array(list(flatten(l)) ) for l in lst ])
+
+    if nan_policy == 'omit':
+        print(arrays)
+        # [[array([2, 3]), array([ 1.,  2., nan])], [array([1, 2, 3]), array([ 1.,  2.,  3., nan])]]
+        # Apply a non-NaN mask to each array individually
+        filtered_arrays = [] 
+        for arr in arrays:
+            # arr = [array([2, 3]), array([ 1.,  2., nan])]
+            for ii,  ar2 in enumerate(arr ):
+                #  ar2 = array([2, 3]) or array([ 1.,  2., nan]) # then remove nan 
+                if np.isnan(ar2).any(): 
+                    # if there is Nan, then filterout 
+                    arr[ii] = ar2 [~np.isnan(ar2)]
+                    
+            filtered_arrays.append(arr)
+        # expected filtered array 
+        # like : 
+            # filtered_arrays = # [[array([2, 3]), array([ 1.,  2.])], [array([1, 2, 3]), array([ 1.,  2.,  3.])]]
+         # array are not ajusted. 
+        
+        # Adjust sample_weights if provided and if they match the filtered data length
+        if sample_weights is not None:
+            if len(sample_weights) == sum(len(arr) for arr in filtered_arrays):
+                flattened_non_nan_mask = np.concatenate(
+                    [np.array([not np.isnan(x) if isinstance(x, float) else True for x in arr]) 
+                     for arr in arrays])
+                sample_weights = np.asarray(sample_weights)[flattened_non_nan_mask]
+            else:
+                if error == 'warn':
+                    # If the length of the sample weights does not match but is greater,
+                    # reduce the sample weights array to match the filtered data length.
+                    # Note: This may not always be the desired behavior, as it can lead to
+                    #       unexpected results if data misalignment occurs.
+                    #       Use with caution or consider whether this should
+                    #       raise an error instead.
+                    
+                    warnings.warn("Length of sample_weights does not match the"
+                                  " number of entries after NaN filtering.")
+                elif error == 'raise':
+                    raise ValueError("Length of sample_weights must match the"
+                                     " number of entries in listof.")
+                # If error is 'ignore', do nothing.
+    elif nan_policy == 'raise':
+        if any(np.isnan(x) if isinstance(x, float) else False for arr in arrays for x in arr):
+            raise ValueError("NaN values present and nan_policy is 'raise'.")
+    else:  # nan_policy == 'propagate'
+        filtered_arrays = arrays
+
+    filtered_listof = [list(arr) for arr in filtered_arrays]
+
+    if sample_weights is not None:
+        return (*filtered_listof, sample_weights)
+    return tuple(filtered_listof)
+
 
 def filter_nan_from( *listof, sample_weights=None):
     """
@@ -3264,10 +3813,16 @@ def convert_array_to_pandas(X, *, to_frame=False, columns=None, input_name='X'):
         If the conversion to DataFrame is requested but `columns` is not provided,
         or if the length of `columns` does not match the number of columns in `X`.
     """
+    # Check if the input is string, which is a common mistake
+    if isinstance(X, str):
+        raise TypeError(f"The parameter '{input_name}' should be an array-like"
+                        " or sparse matrix, but a string was passed.")
+    
     # Validate the type of X
-    if not (hasattr(X, '__array__') or sp.issparse(X)):
-        raise TypeError(f"{input_name} supports only array-like or"
-                        f" sparse matrix, got: {type(X).__name__!r}")
+    if not (hasattr(X, '__array__') or isinstance(
+            X, (np.ndarray, pd.Series, list)) or sp.issparse(X)):
+        raise TypeError(f"The parameter '{input_name}' should be array-like"
+                        f" or a sparse matrix. Received: {type(X).__name__!r}")
     
     # Preserve existing DataFrame or Series column names
     if hasattr(X, 'columns'):
@@ -3423,8 +3978,8 @@ def check_array(
     # data is pandas series or dataframe.
     # and reconvert by to series or dataframe 
     # array is series or dataframe. 
-    array, column_orig = set_array_back(array, input_name=input_name)
-    
+    array, column_orig = convert_array_to_pandas(array, input_name=input_name)
+
     # store reference to original array to check if copy is needed when
     # function returns
     array_orig = array
@@ -3545,7 +4100,6 @@ def check_array(
         # and we need to catch and raise exception for such cases.
         _ensure_no_complex_data(array)
     
-        
         if len(array) ==0: 
            raise ValueError (
                "Found array with 0 length while a minimum of 1 is required." )
@@ -3802,7 +4356,7 @@ def check_y(y,
         The converted and validated y.
         
     """
-    y , column_orig = set_array_back(y, input_name= input_name ) 
+    y, column_orig = convert_array_to_pandas(y, input_name= input_name ) 
     if multi_output:
         y = check_array(
             y,

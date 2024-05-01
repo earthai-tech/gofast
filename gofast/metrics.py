@@ -34,7 +34,8 @@ from .tools.validator import check_epsilon, check_is_fitted
 from .tools.validator import check_classification_targets, validate_nan_policy
 from .tools.validator import ensure_non_negative, validate_multioutput 
 from .tools.validator import standardize_input, filter_nan_entries
-from .tools.validator import parameter_validator 
+from .tools.validator import parameter_validator, handle_zero_division
+from .tools.validator import validate_sample_weights 
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -2888,7 +2889,6 @@ def r2_flex(
         warnings.warn("Number of predictors must be specified to adjust R2.")
     
     return result
-#XXX TODO
 
 def mean_absolute_percentage_error(
     y_true, y_pred, *, 
@@ -2966,17 +2966,12 @@ def mean_absolute_percentage_error(
     y_true, y_pred = _ensure_y_is_valid(
         y_true, y_pred, y_numeric =True, multi_output=True)
     
-    if np.any(y_true == 0) and zero_division in ['warn', 'raise']:
-        if zero_division == 'warn':
-            # Issue a warning when encountering zero in y_true
-            warnings.warn("Encountered zero in y_true, which may lead to"
-                          " infinite values or NaNs in MAPE computation.",
-                          UserWarning)
-        elif zero_division == 'raise':
-            # Raise an error if 'raise' is specified
-            raise ValueError("Encountered zero in y_true, leading to division"
-                             " by zero in MAPE computation.")
-    
+    # Handle zero division
+    y_true = handle_zero_division(
+        y_true, zero_division= zero_division, 
+        replace_with= np.nan,  
+        metric_name="MAPE"
+    )
     # Calculate the absolute percentage error, 
     # adding epsilon to avoid division by zero
     epsilon= check_epsilon(epsilon, y_true )
@@ -2984,22 +2979,22 @@ def mean_absolute_percentage_error(
     
     # Handling sample weights if provided
     if sample_weight is not None:
-        sample_weight = np.asarray(sample_weight)
+        sample_weight = validate_sample_weights(
+            sample_weight, y=ape,normalize= True )
+        # sample_weight = np.asarray(sample_weight)
         weighted_ape = np.average(ape, weights=sample_weight)
     else:
-        weighted_ape = np.mean(ape)
+        weighted_ape = np.mean(ape, axis =0 )
     
     # Scale the result by 100 to get a percentage
     mape = weighted_ape * 100
-    
+    multioutput = validate_multioutput(multioutput )
     if multioutput == 'raw_values':
         return mape
     elif multioutput == 'uniform_average':
         # Return the average MAPE if multioutput is set to 'uniform_average'
         return np.average(mape) if mape.ndim != 0 else mape
-    else:
-        raise ValueError(f"Invalid multioutput value: {multioutput}")
-
+    
 def explained_variance_score(
     y_true, y_pred, *, 
     sample_weight=None, 
@@ -3072,7 +3067,8 @@ def explained_variance_score(
     --------
     sklearn.metrics.mean_squared_error : Mean squared error regression loss.
     sklearn.metrics.mean_absolute_error : Mean absolute error regression loss.
-    sklearn.metrics.r2_score : R^2 (coefficient of determination) regression score function.
+    sklearn.metrics.r2_score : 
+        R^2 (coefficient of determination) regression score function.
     """
 
     y_true, y_pred = _ensure_y_is_valid(
@@ -3092,7 +3088,7 @@ def explained_variance_score(
     # Adjust variances near zero according to zero_division strategy
     if zero_division == 'warn' and np.isclose(var_true, 0, atol=epsilon):
         warnings.warn("Variance of `y_true` is near zero; returning 0.0"
-                      " for indeterminate forms.")
+                      " for indeterminate forms.", RuntimeWarning )
         var_true_adjusted = np.inf
     elif zero_division == 'raise' and np.isclose(var_true, 0, atol=epsilon):
         raise ZeroDivisionError("Variance of `y_true` is too close to zero,"
@@ -3196,9 +3192,9 @@ def median_absolute_error(
     absolute_errors = np.abs(y_true - y_pred)
     
     if sample_weight is not None:
-        sample_weight = np.asarray(sample_weight, dtype = float)
-        sample_weight /= np.sum(sample_weight)  # Normalize sample weights
-        
+        sample_weight = validate_sample_weights(# Normalize sample weights
+            sample_weight, y=absolute_errors, normalize= True  )
+    
         # Compute weighted median using np.average with quantiles
         def weighted_median(data, weights):
             sorter = np.argsort(data)
@@ -3635,22 +3631,23 @@ def mean_absolute_deviation(
     .. [2] Lehmann, E. L. (1998). Nonparametrics: Statistical Methods Based on Ranks.
            Prentice Hall.
     """
-
     # Validate and prepare the inputs
     y_true, y_pred = _ensure_y_is_valid(
         y_true, y_pred, y_numeric =True,
         allow_nan=True, multi_output=True
     )
-    # Calculate the absolute deviations
-    deviations = np.abs(y_true - y_pred)
-    
+    y_true = handle_zero_division(
+        y_true, zero_division=zero_division, epsilon=epsilon, metric_name="MADev" )
     # Filter out NaN values from both y_true and y_pred
-    deviations, *opt_sample_weight = validate_nan_policy(
-        nan_policy, deviations, sample_weights=sample_weight 
+    y_true, y_pred, *opt_sample_weight = validate_nan_policy(nan_policy, 
+        y_true, y_pred, sample_weights=sample_weight 
     )
     sample_weight = opt_sample_weight[0] if opt_sample_weight else sample_weight
      
-    epsilon = check_epsilon(epsilon, deviations, scale_factor=1e-8) 
+    epsilon = check_epsilon(epsilon, y_true, y_pred, scale_factor=1e-8) 
+    
+    # Calculate the absolute deviations
+    deviations = np.abs(y_true - y_pred)
     
     if sample_weight is not None:
         # Apply sample weights
@@ -3660,9 +3657,6 @@ def mean_absolute_deviation(
     else:
         madev = np.mean(deviations)
     
-    if zero_division == 'warn' and np.isclose(madev, 0.0, atol=epsilon):
-        warnings.warn("MADev calculation resulted in division by zero"
-                      " or near-zero value.")
     # Handle multioutput scenarios
     multioutput = validate_multioutput(multioutput)
     # This conditional is redundant for MADev but included for API consistency
@@ -3798,7 +3792,7 @@ def madev_flex(
         
     # Handle NaN values by filtering them out
     data, *opt_sample_weight= validate_nan_policy(
-        nan_policy, data, sample_weight= sample_weight ) 
+        nan_policy, data, sample_weights= sample_weight ) 
     sample_weight = opt_sample_weight[0] if opt_sample_weight else sample_weight
     
     # Calculate the mean, taking into account whether NaN values should be ignored
@@ -3937,7 +3931,7 @@ def dice_similarity_score(
                              "Use `to_boolean=True` to auto-convert.")
 
     y_true, y_pred, *opt_sample_weight= validate_nan_policy(
-        nan_policy, y_true, y_pred, sample_weight= sample_weight ) 
+        nan_policy, y_true, y_pred, sample_weights= sample_weight ) 
     sample_weight = opt_sample_weight[0] if opt_sample_weight else sample_weight
     
     epsilon_value = check_epsilon ( epsilon, y_pred)
@@ -4054,7 +4048,7 @@ def gini_score(
     )
     
     y_true, y_pred, *opt_sample_weight= validate_nan_policy(
-        nan_policy, y_true, y_pred, sample_weight= sample_weight ) 
+        nan_policy, y_true, y_pred, sample_weights= sample_weight ) 
     sample_weight = opt_sample_weight[0] if opt_sample_weight else sample_weight
     
     epsilon_value = check_epsilon(epsilon, y_true, y_pred)
@@ -4069,12 +4063,15 @@ def gini_score(
         weighted_gini_sum = gini_sum
         total_weighted = np.sum(y_true)
 
-    gini_coefficient = weighted_gini_sum / (2 * len(y_true) * total_weighted + epsilon_value)
+    total_weighted = handle_zero_division(
+        total_weighted, zero_division=zero_division, 
+        metric_name="Gini Coefficient", 
+        epsilon=epsilon_value, 
+        replace_with=np.nan # or return np.nan as per handling strategy
+        ) 
 
-    if zero_division == 'warn' and total_weighted + epsilon_value == 0:
-        warnings.warn("Division by zero encountered in Gini"
-                      " Coefficient calculation.", UserWarning)
-        gini_coefficient = np.nan  # or return np.nan as per handling strategy
+    gini_coefficient = weighted_gini_sum / (2 * len(y_true) * total_weighted 
+                                            + epsilon_value)
 
     if multioutput != 'uniform_average': # keep it for API consistency
         validate_multioutput('warn', extra=' for Gini Coefficient calculation')
@@ -4546,14 +4543,20 @@ def mean_percentage_error(
 
     """
     y_true, y_pred = _ensure_y_is_valid(
-        y_true, y_pred, y_numeric=True,mutli_output =True)
+        y_true, y_pred, y_numeric=True,multi_output =True)
     # Check to ensure non-negativity for division
     ensure_non_negative(y_true, 
         err_msg="y_true must contain non-negative values for MPE calculation.")
 
     # Determine epsilon value
     epsilon = check_epsilon(epsilon, y_true, y_pred, base_epsilon=1e-10)
-
+    
+    # Handle zero division if necessary
+    y_true = handle_zero_division(
+        y_true, zero_division=zero_division, 
+        replace_with =np.nan,
+        metric_name ="Mean Percentage Error", 
+        )
     # Compute percentage error
     percentage_error = (y_pred - y_true) / np.clip(
         y_true, epsilon, np.max(y_true)) * 100
@@ -4565,10 +4568,6 @@ def mean_percentage_error(
     else:
         weighted_percentage_error = np.mean(percentage_error)
 
-    # Handle zero division if necessary
-    if zero_division == 'warn' and np.any(y_true == 0):
-        warnings.warn("Division by zero encountered in Mean Percentage"
-                      " Error calculation.", UserWarning)
     # Aggregate outputs
     multioutput = validate_multioutput(multioutput)
 
@@ -4801,22 +4800,29 @@ def precision_at_k(
 
     # Calculate precision scores
     for idx, (true_items, pred_items) in enumerate(zip(y_true, y_pred)):
+        true_items, pred_items = list(true_items) , list(pred_items)
         if len(pred_items) < k:
             raise ValueError(f"Predicted items for instance {idx} has fewer than k items.")
         num_relevant = len(set(true_items) & set(pred_items[:k]))
         precision_score = num_relevant / k
         precision_scores.append(precision_score)
-
+    
         # Append corresponding weight or 1 if no sample_weight is provided
-        weights.append(sample_weight[idx] if sample_weight is not None else 1)
-
+        if sample_weight is not None and len(sample_weight) > idx:
+            weights.append(sample_weight[idx])
+        else:
+            # default weight is 1 when sample_weight is None or shorter than index
+            weights.append(1)  
+    
     # Normalize weights if provided
     weights = np.array(weights)
-    weights = weights / np.sum(weights) if sample_weight is not None else weights
-
+    if sample_weight is not None:
+        # normalize only if weights were explicitly provided
+        weights = weights / np.sum(weights)  
+    
     # Validate multioutput parameter
     multioutput = validate_multioutput(multioutput)
-
+    
     # Return the appropriate output based on multioutput parameter
     if multioutput == 'raw_values':
         return np.array(precision_scores)
@@ -4881,6 +4887,7 @@ def ndcg_at_k(
 
     Examples
     --------
+    >>> from gofast.metrics import ndcg_at_k
     >>> y_true = [[3, 2, 3], [2, 1, 2]]
     >>> y_pred = [[1, 2, 3], [1, 2, 3]]
     >>> k = 3
@@ -4899,10 +4906,14 @@ def ndcg_at_k(
     """
     # Ensure y_true and y_pred are standardized 
     y_true, y_pred = standardize_input(y_true, y_pred)
+    print( y_true, y_pred)
     # Handle NaN values according to nan_policy
     y_true, y_pred, *opt_weights = filter_nan_entries(
-        nan_policy, y_true, y_pred, sample_weight =sample_weight ) 
+        nan_policy, *y_true, *y_pred, sample_weights =sample_weight ) 
     sample_weight = opt_weights[0] if opt_weights else sample_weight 
+    
+    # After filtered out, revert back to a set 
+    y_true, y_pred = [set(y_true)], [set(y_pred)]
     
     # Calculate DCG@k and IDCG@k for each pair of true and predicted rankings
     def dcg_at_k(scores, k):

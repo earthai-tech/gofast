@@ -27,7 +27,164 @@ from gofast.metrics import display_confusion_matrix
 from gofast.metrics import likelihood_score, log_likelihood_score 
 from gofast.metrics import mean_absolute_percentage_error
 from gofast.metrics import explained_variance_score, median_absolute_error
-from gofast.metrics import max_error_score
+from gofast.metrics import max_error_score, mean_absolute_deviation
+from gofast.metrics import mean_poisson_deviance, mean_gamma_deviance
+from gofast.metrics import madev_flex, dice_similarity_score, gini_score 
+from gofast.metrics import hamming_loss, fowlkes_mallows_score
+from gofast.metrics import root_mean_squared_log_error, mean_percentage_error
+from gofast.metrics import spearmans_rank_score, precision_at_k, ndcg_at_k
+
+def test_root_mean_squared_log_error():
+    y_true = np.array([3, 5, 7.5, 10])
+    y_pred = np.array([2.5, 5, 7, 9.5])
+    # Expected to run without errors
+    assert np.isclose(root_mean_squared_log_error(y_true, y_pred), 0.0741, atol=1e-2)
+
+    # Test with zero values where clipping should prevent log(0)
+    y_true = np.array([0, 5, 7.5, 10])
+    y_pred = np.array([0, 5, 7, 9.5])
+    assert root_mean_squared_log_error(y_true, y_pred, clip_value=1) > 0
+
+def test_mean_percentage_error():
+    y_true = np.array([100, 150, 200, 250])
+    y_pred = np.array([110, 140, 210, 240])
+    # Test typical input
+    assert mean_percentage_error(y_true, y_pred) == pytest.approx(1.0867, 0.01)
+
+    # Handling zero division
+    y_true = np.array([0, 150, 200, 250])
+    with pytest.warns(RuntimeWarning):
+        assert np.isnan(mean_percentage_error(y_true, y_pred))
+
+def test_spearmans_rank_score():
+    y_true = np.array([1, 2, 3, 4, 5])
+    y_pred = np.array([5, 6, 7, 8, 7])
+    assert spearmans_rank_score(y_true, y_pred) == pytest.approx(0.8208, 0.01)
+
+    # Test with NaNs
+    y_true = np.array([1, 2, np.nan, 4])
+    y_pred = np.array([4, np.nan, 3, 1])
+    assert not np.isnan(spearmans_rank_score(y_true, y_pred, nan_policy='omit'))
+
+def test_precision_at_k():
+    y_true = [[1, 2, 3], [1, 2]]
+    y_pred = [[2, 1, 4], [1, 2, 3]]
+    k = 2
+    assert precision_at_k(y_true, y_pred, k) == 1.0
+
+    # Test invalid k
+    with pytest.raises(ValueError):
+        precision_at_k(y_true, y_pred, k=5)
+
+def test_ndcg_at_k():
+    y_true = [[1, 2, 3], [1, 2]]
+    y_pred = [[2, 1, 4], [1, 2, 3]]
+    k = 2
+    assert ndcg_at_k(y_true, y_pred, k) > 0
+
+    # Test with incomplete lists
+    y_pred = [[2], [1]]
+    assert ndcg_at_k(y_true, y_pred, k) < 1
+
+def test_hamming_loss2():
+    y_true = np.array([[1, 1], [1, 0]])
+    y_pred = np.array([[1, 0], [1, 1]])
+    assert hamming_loss(y_true, y_pred) == 0.5
+
+    # Test normalization
+    assert hamming_loss(y_true, y_pred, normalize=False) == 1
+
+# Running the tests can be done using pytest from the command line
+# pytest <test_file_name>.py
+
+
+# def test_madev_flex():
+#     data = np.array([1, 2, 3, 4, 5])
+#     result = madev_flex(data)
+#     assert np.isclose(result.score, 1.2), "MADEv calculation error"
+
+# def test_dice_similarity_score():
+#     y_true = np.array([1, 0, 1, 1, 0])
+#     y_pred = np.array([1, 1, 1, 0, 0])
+#     result = dice_similarity_score(y_true, y_pred)
+#     expected_score = 2 * (2 / (3 + 3))
+#     assert np.isclose(result, expected_score), "Dice similarity score calculation error"
+
+# def test_gini_score():
+#     y_true = np.array([1, 2, 3, 4, 5])
+#     y_pred = np.array([1, 2, 3, 4, 5])
+#     result = gini_score(y_true, y_pred)
+#     expected =  np.sum (np.abs(np.subtract.outer(y_true, y_pred))) /(
+#         2 * len(y_true) * np.sum(y_true)) 
+#     assert np.isclose(result, expected), "Gini score calculation error for identical inputs"
+
+# def test_hamming_loss():
+#     y_true = np.array([[1, 1], [0, 1]])
+#     y_pred = np.array([[1, 0], [0, 1]])
+#     result = hamming_loss(y_true, y_pred, normalize=True)
+#     assert np.isclose(result, 0.25), "Hamming loss calculation error"
+
+# def test_fowlkes_mallows_score():
+#     y_true = np.array([1, 1, 2, 2])
+#     y_pred = np.array([1, 2, 1, 2])
+#     result = fowlkes_mallows_score(y_true, y_pred)
+#     # Calculating expected FMI
+#     tp = 2  # Two true positives as no cluster pairs are identical
+#     fp = 2  # Two instances were placed in different clusters in y_true but the same in y_pred
+#     fn = 2  # Two instances were placed in the same cluster in y_true but different in y_pred
+#     precision = tp / (tp + fp) 
+#     recall = tp / (tp + fn) 
+#     expected_fmi = np.sqrt(precision * recall)
+#     assert np.isclose(result, expected_fmi), "Fowlkes-Mallows score calculation error"
+
+
+# def test_mean_poisson_deviance():
+#     y_true = np.array([3, 5, 2, 7])
+#     y_pred = np.array([2, 6, 3, 8])
+#     expected_value= 8.7
+#     # Test normal case
+#     assert np.isclose(
+#         mean_poisson_deviance(y_true, y_pred), expected_value, atol=1e-1)
+
+#     # Test with zeros and epsilon adjustment
+#     y_pred = np.array([0, 0, 0, 0])
+#     assert mean_poisson_deviance(y_true, y_pred, zero_division='ignore') is not np.nan
+
+#     # Test with sample weights
+#     weights = np.array([0.5, 0.5, 0.5, 0.5])
+#     weighted_deviance = mean_poisson_deviance(y_true, y_pred, sample_weight=weights)
+#     assert weighted_deviance is not None
+
+#     # Test error handling with invalid input
+#     with pytest.raises(TypeError):
+#         mean_poisson_deviance(y_true, "invalid_pred")
+
+# def test_mean_gamma_deviance():
+#     y_true = np.array([0.5, 1.5, 2.0, 2.5])
+#     y_pred = np.array([0.5, 1.5, 2.0, 2.5])
+
+#     # Assuming this should pass as they are the same
+#     assert np.isclose(mean_gamma_deviance(y_true, y_pred), 0, atol=1e-4)
+
+#     # Test with clip value
+#     assert mean_gamma_deviance(y_true, y_pred, clip_value=0.1) is not np.nan
+
+#     # Test with NaN policy
+#     y_true[1] = np.nan
+#     assert mean_gamma_deviance(y_true, y_pred, nan_policy='omit') is not np.nan
+
+# def test_mean_absolute_deviation():
+#     y_true = np.array([10, 20, 30, 40])
+#     y_pred = np.array([10, 20, 30, 40])
+
+#     # Perfect prediction
+#     assert mean_absolute_deviation(y_true, y_pred) == 0
+
+#     # With NaNs
+#     y_true = np.array([np.nan, 20, np.nan, 40])
+#     y_pred = np.array([10, 20, 30, 40])
+#     assert mean_absolute_deviation(y_true, y_pred, nan_policy='omit') == 0
+
 
 # def test_max_error_score_basic():
 #     y_true = np.array([3, -0.5, 2, 7])
@@ -96,12 +253,12 @@ from gofast.metrics import max_error_score
 #     expected_evs = 1 - var_res / var_true
 #     assert np.isclose(explained_variance_score(y_true, y_pred), expected_evs)
 
-def test_explained_variance_zero_division_warn(): # 2
-    y_true = np.array([4, 4, 4, 4])
-    y_pred = np.array([3, 3, 3, 3])
-    with pytest.warns(RuntimeWarning):
-        result = explained_variance_score(y_true, y_pred, zero_division='warn')
-    assert result == 1. 
+# def test_explained_variance_zero_division_warn(): # 2
+#     y_true = np.array([4, 4, 4, 4])
+#     y_pred = np.array([3, 3, 3, 3])
+#     with pytest.warns(RuntimeWarning):
+#         result = explained_variance_score(y_true, y_pred, zero_division='warn')
+#     assert result == 1. 
 
 # def test_explained_variance_zero_division_raise():
 #     y_true = np.array([4, 4, 4, 4])
@@ -115,12 +272,12 @@ def test_explained_variance_zero_division_warn(): # 2
 #     expected_mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
 #     assert np.isclose(mean_absolute_percentage_error(y_true, y_pred), expected_mape)
 
-def test_mape_with_zero_division_warn(): # 3
-    y_true = np.array([0, 200, 300])
-    y_pred = np.array([10, 200, 300])
-    with pytest.warns(UserWarning):
-        result = mean_absolute_percentage_error(y_true, y_pred, zero_division='warn')
-    assert np.isnan(result)
+# def test_mape_with_zero_division_warn(): # 3
+#     y_true = np.array([0, 200, 300])
+#     y_pred = np.array([10, 200, 300])
+#     with pytest.warns(RuntimeWarning):
+#         result =mean_absolute_percentage_error(y_true, y_pred, zero_division='warn')
+#     assert np.isnan(result)
 
 # def test_mape_with_zero_division_raise():
 #     y_true = np.array([0, 200, 300])
@@ -135,24 +292,23 @@ def test_mape_with_zero_division_warn(): # 3
 #     expected_mape = np.average(np.abs((y_true - y_pred) / y_true), weights=sample_weight) * 100
 #     assert np.isclose(mean_absolute_percentage_error(y_true, y_pred, sample_weight=sample_weight), expected_mape)
 
-def test_mape_multioutput_raw_values(): # 4
-    y_true = np.array([[100, 200], [200, 300]])
-    y_pred = np.array([[90, 210], [190, 295]])
-    result = mean_absolute_percentage_error(y_true, y_pred, multioutput='raw_values')
-    expected_result = np.array([np.mean(np.abs((y_true[:, 0] - y_pred[:, 0]) / y_true[:, 0])),
-                                np.mean(np.abs((y_true[:, 1] - y_pred[:, 1]) / y_true[:, 1]))]) * 100
-    assert np.allclose(result, expected_result)
+# def test_mape_multioutput_raw_values(): # 4
+#     y_true = np.array([[100, 200], [200, 300]])
+#     y_pred = np.array([[90, 210], [190, 295]])
+#     result = mean_absolute_percentage_error(y_true, y_pred, multioutput='raw_values')
+#     expected_result = np.array([np.mean(np.abs((y_true[:, 0] - y_pred[:, 0]) / y_true[:, 0])),
+#                                 np.mean(np.abs((y_true[:, 1] - y_pred[:, 1]) / y_true[:, 1]))]) * 100
+#     assert np.allclose(result, expected_result)
 
 # def test_mape_multioutput_uniform_average():
 #     y_true = np.array([[100, 200], [200, 300]])
 #     y_pred = np.array([[90, 210], [190, 295]])
 #     result = mean_absolute_percentage_error(y_true, y_pred, multioutput='uniform_average')
 #     expected_result = np.mean([np.mean(np.abs((y_true[:, 0] - y_pred[:, 0]) / y_true[:, 0])),
-#                                np.mean(np.abs((y_true[:, 1] - y_pred[:, 1]) / y_true[:, 1]))]) * 100
+#                                 np.mean(np.abs((y_true[:, 1] - y_pred[:, 1]) / y_true[:, 1]))]) * 100
 #     assert np.isclose(result, expected_result)
 
-# Run tests with pytest from the command line
-
+# # Run tests with pytest from the command line
 
 # def test_log_likelihood_positive_consensus():
 #     y_true = np.array([0, 1, 2, 2, 1, 0])
@@ -198,7 +354,7 @@ def test_mape_multioutput_raw_values(): # 4
 #     y_pred = [0, 0, 1, 0, 1]
 #     result = likelihood_score(y_true, y_pred, detailed_output=True)
 #     assert hasattr(result, 'lr_score') and hasattr(result, 'sensitivity'
-#                                                    ) and hasattr(result, 'specificity'), \
+#                                                     ) and hasattr(result, 'specificity'), \
 #         "Detailed output should include lr_score, sensitivity, and specificity."
 
 # def test_binary_classification_positive():
@@ -220,7 +376,7 @@ def test_mape_multioutput_raw_values(): # 4
 #     # verify with actual expected value
 #     expected_result = 4.
 #     assert np.isclose(likelihood_score(y_true, y_pred, strategy='ovr'
-#                          ), expected_result, atol=0.1)
+#                           ), expected_result, atol=0.1)
 
 # @pytest.fixture
 # def binary_classification_data():

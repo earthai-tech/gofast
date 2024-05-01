@@ -7465,12 +7465,12 @@ def normalize_string(
                          raise_exception=True)
     ValueError: Input string not found in target strings.
     """
-    normalized_str = input_str.lower() if ignore_case else input_str
+    normalized_str = str(input_str).lower() if ignore_case else input_str
 
     if not target_strs:
         return normalized_str
     target_strs = is_iterable(target_strs, exclude_string=True, transform =True)
-    normalized_targets = [t.lower() for t in target_strs] if ignore_case else target_strs
+    normalized_targets = [str(t).lower() for t in target_strs] if ignore_case else target_strs
     matched_target = None
 
     for target in normalized_targets:
