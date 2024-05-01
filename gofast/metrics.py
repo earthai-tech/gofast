@@ -27,8 +27,8 @@ from ._gofastlog import gofastlog
 from .api.formatter import MetricFormatter
 from .tools.coreutils import normalize_string 
 from .tools.mathex import calculate_binary_iv, optimized_spearmanr 
-from .tools.mathex import calculate_binary_metrics, calculate_average_lr
-from .tools.mathex import calculate_multiclass_lr
+from .tools.mathex import compute_sensitivity_specificity 
+from .tools.mathex import calculate_multiclass_lr, calculate_multiclass_avg_lr
 from .tools.validator import _is_numeric_dtype, _ensure_y_is_valid
 from .tools.validator import check_epsilon, check_is_fitted
 from .tools.validator import check_classification_targets, validate_nan_policy
@@ -108,27 +108,44 @@ def log_likelihood_score(
     Parameters
     ----------
     y_true : array-like
-        True class labels as integers.
+        True class labels as integers. Represents the actual classifications
+        of the samples.
     y_pred : array-like
-        Predicted class labels as integers.
+        Predicted class labels as integers. Represents the classifications
+        as predicted by a model or classifier.
     consensus : str, optional
-        Type of likelihood ratio to compute: 'positive' (default) or 'negative'.
+        Type of likelihood ratio to compute: 'positive' or 'negative'.
+        The 'positive' consensus (default) calculates the likelihood ratio
+        favoring the presence of a condition (sensitivity divided by
+        one minus specificity), which reflects how well the condition is
+        identified when it is present. The 'negative' consensus calculates
+        the likelihood ratio favoring the absence of a condition
+        (one minus sensitivity divided by specificity), indicating how
+        effectively a condition can be ruled out when the test is negative.
     strategy : str, optional
-        Computation strategy: 'ovr' (one-versus-rest, default) or 'ovo' 
-        (one-versus-one).
+        Computation strategy: 'ovr' (one-versus-rest, default) or 'ovo'
+        (one-versus-one). 'ovr' compares each class against all other classes
+        collectively, while 'ovo' compares each pair of classes individually.
     sample_weight : array-like, optional
-        Sample weights. If None, each sample contributes equally.
+        Sample weights. If None, each sample contributes equally to the
+        computation. Useful for weighting samples differently in the
+        calculation, typically in cases where some classes are overrepresented
+        or underrepresented.
     epsilon : float, optional
-        Small constant added to the denominator to prevent division by zero. 
-        Default is 1e-8.
+        A small constant added to the denominator to prevent division by zero.
+        This helps in maintaining numerical stability. Default is 1e-8.
     multi_output : str, optional
         Determines how to return the output: 'uniform_average' or 'raw_values'.
+        'uniform_average' computes the average of the metrics across all classes,
+        treated equally. 'raw_values' returns a separate metric for each class.
     detailed_output : bool, optional
-        If True, returns a detailed output including individual sensitivity 
-        and specificity.
+        If True, returns a detailed output including individual sensitivity
+        and specificity values for each class or class pair, which can be
+        particularly useful for detailed statistical analysis and diagnostics.
     zero_division : str, optional
-        Handle division by zero: 'warn' (default) will issue a warning, 
-        'ignore' will suppress.
+        How to handle division by zero: 'warn' (default) will issue a warning,
+        'ignore' will suppress any warnings and proceed with the computation,
+        potentially substituting infinities where division by zero occurs.
 
     Returns
     -------
@@ -146,14 +163,19 @@ def log_likelihood_score(
 
     Notes
     -----
-    The likelihood ratio (LR) for a given class or class pair is calculated as:
-
+    The likelihood ratio (LR) quantifies the strength of the evidence in favor 
+    of one class over another. Specifically, it is computed for a given class 
+    or class pair as follows:
+    
     .. math::
         LR_+ = \\frac{\\text{sensitivity}}{1 - \\text{specificity}}
     
     .. math::
         LR_- = \\frac{1 - \\text{sensitivity}}{\\text{specificity}}
-
+    
+    The LLR, or logarithm of the likelihood ratio, transforms these ratios by 
+    taking the natural logarithm:
+    
     When :math:`\\text{consensus}` is 'positive', the LLR is computed by:
     
     .. math::
@@ -163,15 +185,53 @@ def log_likelihood_score(
 
     .. math::
         LLR = \\log(LR_-)
+    
+    The logarithmic transformation applied to the likelihood ratios (LLR) stabilizes 
+    the numerical range, mitigating the influence of extreme values typically 
+    encountered in raw LR calculations. This transformation makes LLR a more 
+    stable and interpretable metric in settings where decisions are sensitive to 
+    the magnitude of diagnostic evidence.
+    
+    The LLR is derived from the sensitivity and specificity of the diagnostic test:
+    
+    - Sensitivity (true positive rate) measures the proportion of actual positives 
+      correctly identified.
+    - Specificity (true negative rate) measures the proportion of actual negatives 
+      correctly identified.
+    
+    When LLR is zero, it indicates that the evidence for or against a hypothesis 
+    (class) is balanced; the sensitivity and specificity yield a ratio of one, 
+    implying no preference toward positive or negative classification. This 
+    near-balance point occurs when the product of the test's sensitivity and 
+    the complement of specificity is approximately equal to the product of 
+    specificity and the complement of sensitivity, expressed as:
 
-    The logarithmic transformation of the LR (LLR) helps manage extreme values
-    and improves interpretability, especially in scenarios where LRs are 
-    extremely high or low. This transformation compresses the scale of the 
-    output, allowing for easier comparison and interpretation across different
-    models and conditions.
+    .. math::
+        \\frac{\\text{sensitivity}}{1 - \\text{specificity}} \\approx 1
+
+    And:
+
+    .. math::
+        \\frac{1 - \\text{sensitivity}}{\\text{specificity}} \\approx 1
+        
+    Positive LLR values indicate strong evidence in favor of a class, suggesting 
+    that the test's sensitivity outweighs the false positive rate (1-specificity). 
+    Conversely, negative LLR values suggest that the evidence supports the absence 
+    of the class, indicating a higher false positive rate relative to sensitivity.
+    
+    By compressing the scale of outputs, the LLR facilitates easier comparison and 
+    interpretation of results across different models and clinical conditions. This 
+    compression enhances the utility of LLR in diagnostic and predictive settings by 
+    providing a clear, interpretable measure of how much more (or less) likely the 
+    test results are to suggest one class over another under varied clinical 
+    scenarios.
+
+    See Also 
+    ---------
+    likelihood_score: 
+        Compute the likelihood ratio metric for binary or  multiclass 
+        classification.
     """
-    # [Your code implementation here]
-
     # Validate inputs
     y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True)
     ensure_non_negative(
@@ -189,7 +249,7 @@ def log_likelihood_score(
     scores = MetricFormatter(descriptor="Log_likelihood_score_metric")
     
     # Calculate metrics
-    if strategy in ['ovo', 'ovr']:
+    if strategy in ['ovo', 'ovr'] and len(np.unique(y_true)) > 2:
         results = calculate_multiclass_lr(
             y_true=y_true,
             y_pred=y_pred,
@@ -198,13 +258,16 @@ def log_likelihood_score(
             epsilon=epsilon,
             multi_output=multi_output,
             apply_log_scale=True,
-            include_metrics=True
+            include_metrics=True, 
+            sample_weight= sample_weight, 
         )
         result, sensitivity, specificity = results
     else : 
         # Binary classification
-        sensitivity, specificity = calculate_binary_metrics(
-            y_true, y_pred, epsilon
+        sensitivity, specificity = compute_sensitivity_specificity(
+            y_true, y_pred,
+            sample_weight= sample_weight,
+            epsilon= epsilon 
             )
         if consensus == 'positive':
             result = sensitivity / (1 - specificity + epsilon)
@@ -215,17 +278,29 @@ def log_likelihood_score(
         scores.specificity= specificity 
         
     # Check for division by zero issues
-    if zero_division == 'warn' and (np.isinf(result) or np.isnan(result)):
-        import warnings
-        warnings.warn("Division by zero occurred", RuntimeWarning)
-        return np.nan
+    # if zero_division == 'warn' and (np.isinf(result).any() or np.isnan(
+    #         result).any()):
+    #     import warnings
+    #     warnings.warn("Division by zero occurred", RuntimeWarning)
+    #     return np.nan
 
-    # Apply sample weights if provided
-    if sample_weight is not None:
-        result = np.average(result, weights=sample_weight)
+    # Check if result contains zero or negative values, which will cause issues with log.
+    if (result <= 0).any():
+        if zero_division == 'warn':
+            warnings.warn(
+                "Division by zero or log of zero/negative encountered in log",
+                RuntimeWarning
+            )
+ 
+    # Safe to compute logarithm where result is positive
+    positive_results_mask = result > 0
+    llr_score = np.empty_like(result)
+    llr_score[positive_results_mask] = np.log(result[positive_results_mask])
+    # Assign NaN for non-positive results if any remain
+    llr_score[~positive_results_mask] = np.nan  
 
     # Store results in the formatter
-    scores.llr_score = np.log(result)
+    scores.llr_score = llr_score
     scores.sensitivity = sensitivity 
     scores.specificity = specificity
     scores.consensus = consensus
@@ -259,31 +334,53 @@ def likelihood_score(
     Parameters
     ----------
     y_true : array-like of shape (n_samples,)
-        True labels.
+        Ground truth labels for the samples. Must be provided as integers
+        representing class labels.
+    
     y_pred : array-like of shape (n_samples,)
-        Predicted labels or probabilities.
+        Predicted labels or probabilities for each sample. These predictions
+        are used to calculate sensitivity and specificity relative to the
+        true labels.
+    
     consensus : str, optional
-        'positive' for positive likelihood ratio (default), 'negative' 
-        for negative likelihood ratio.
+        Specifies the type of likelihood ratio to compute: 'positive' or 'negative'.
+        The default 'positive' computes the positive likelihood ratio, which
+        assesses the probability of correctly identifying a condition when it is
+        present. Conversely, 'negative' computes the ratio based on the probability
+        of correctly dismissing a condition when it is not present.
+    
     sample_weight : array-like of shape (n_samples,), optional
-        Sample weights.
+        Weights to apply to each sample during the calculation of metrics.
+        If not provided, all samples are assumed to have equal weight.
+    
     strategy : str, optional
-        Strategy to handle multiclass data. 'ovr' (one-versus-rest) or 'ovo'
-        (one-versus-one).
+        Strategy to manage multiclass classification scenarios: 'ovr' 
+        (one-versus-rest) or 'ovo' (one-versus-one). 'ovr' assesses each class
+        against the aggregate of other classes, while 'ovo' compares every pair
+        of classes individually.
+    
     epsilon : float or 'auto', optional
-        Small number to add to the denominator to avoid division by zero.
-        If 'auto', use machine epsilon.
+        A small number added to the denominator to prevent division by zero
+        and ensure numerical stability. If 'auto', the machine epsilon is used,
+        providing the smallest representable positive number such that
+        1.0 + epsilon != 1.0.
+    
     zero_division : str, optional
-        Behavior when a division by zero occurs. 'warn' to raise a warning,
-        'ignore' to proceed silently.
+        Defines how to handle scenarios where division by zero occurs:
+        'warn' (default) issues a warning; 'ignore' proceeds without warning,
+        potentially leading to infinite or NaN results in the output.
+    
     multi_output : str, optional
-        Defines how to aggregate outputs for multiclass problems.
-        'uniform_average' to average results uniformly.
-     detailed_output : bool, optional
-        If True, returns a MetricFormatter object that encompasses
-        the likelihood score summary results, including sensitivities,
-        specificities, and the computed strategy. Default is False.
-       
+        Determines the method for aggregating output values in multiclass
+        problems. 'uniform_average' (default) averages the computed metrics
+        across all classes with equal weighting.
+    
+    detailed_output : bool, optional
+        If set to True, the function returns a MetricFormatter object that
+        provides a detailed breakdown of the likelihood scores, including
+        individual calculations of sensitivity, specificity, and the selected
+        computation strategy for each class or class pair. Default is False.
+
     Returns
     -------
     float or MetricFormatter
@@ -371,7 +468,7 @@ def likelihood_score(
     # Handle multiclass cases
     if len(np.unique(y_true)) > 2:
         # Apply One-vs-Rest or One-vs-One strategy
-        result, sensitivity, specificity = calculate_average_lr ( 
+        result, sensitivity, specificity = calculate_multiclass_avg_lr ( 
             y_true, y_pred, 
             strategy=strategy, 
             consensus=consensus,
@@ -384,8 +481,10 @@ def likelihood_score(
         scores.specificity= specificity
     else:
         # Binary classification
-        sensitivity, specificity = calculate_binary_metrics(
-            y_true, y_pred, epsilon
+        sensitivity, specificity = compute_sensitivity_specificity(
+            y_true, y_pred,
+            sample_weight= sample_weight,
+            epsilon= epsilon 
             )
         if consensus == 'positive':
             result = sensitivity / max(1 - specificity, epsilon)
@@ -394,15 +493,13 @@ def likelihood_score(
 
         scores.sensitivity= sensitivity
         scores.specificity= specificity
-        
-    if zero_division == 'warn' and (np.isinf(result) or np.isnan(result)):
+         
+    if zero_division == 'warn' and (np.isinf(result).any() or np.isnan(
+            result).any()):
         import warnings
         warnings.warn("Division by zero occurred", RuntimeWarning)
         return np.nan
 
-    if sample_weight is not None:
-        result = np.average(result, weights=sample_weight)
-    
     scores.lr_score= result 
     scores.consensus=consensus 
     if detailed_output: 
@@ -2791,6 +2888,7 @@ def r2_flex(
         warnings.warn("Number of predictors must be specified to adjust R2.")
     
     return result
+#XXX TODO
 
 def mean_absolute_percentage_error(
     y_true, y_pred, *, 
@@ -3004,7 +3102,7 @@ def explained_variance_score(
             np.isclose(var_true, 0, atol=epsilon), np.nan, var_true)
     
     explained_variance = 1 - var_res / var_true_adjusted
-    
+
     # Handle multioutput scenarios efficiently
     multioutput= validate_multioutput(multioutput)
     if multioutput == 'raw_values':
@@ -3098,7 +3196,7 @@ def median_absolute_error(
     absolute_errors = np.abs(y_true - y_pred)
     
     if sample_weight is not None:
-        sample_weight = np.asarray(sample_weight)
+        sample_weight = np.asarray(sample_weight, dtype = float)
         sample_weight /= np.sum(sample_weight)  # Normalize sample weights
         
         # Compute weighted median using np.average with quantiles

@@ -20,6 +20,7 @@ from scipy._lib._util import float_factorial
 from scipy.ndimage import convolve1d
 from scipy.spatial.distance import pdist, squareform 
 from sklearn.preprocessing import label_binarize
+from sklearn.metrics import confusion_matrix
 import  matplotlib.pyplot as plt
 
 from .._gofastlog import gofastlog
@@ -42,7 +43,8 @@ from .validator import _is_arraylike_1d, _is_numeric_dtype, validate_multioutput
 from .validator import check_consistency_size, check_consistent_length 
 from .validator import check_classification_targets, check_y, check_array
 from .validator import assert_xy_in, _ensure_y_is_valid, ensure_non_negative
-from .validator import check_epsilon, parameter_validator 
+from .validator import check_epsilon, parameter_validator, is_binary_class 
+from .validator import validate_sample_weights, validate_multiclass_target
 
 try: import scipy.stats as spstats
 except: pass 
@@ -50,7 +52,7 @@ _logger =gofastlog.get_gofast_logger(__name__)
 
 mu0 = 4 * np.pi * 1e-7 
 
-def calculate_average_lr(
+def calculate_multiclass_avg_lr(
     y_true, y_pred, *, 
     strategy='ovr',
     consensus="positive", 
@@ -97,10 +99,10 @@ def calculate_average_lr(
 
     Examples
     --------
-    >>> from gofast.tools.mathex import calculate_average_lr
+    >>> from gofast.tools.mathex import calculate_multiclass_avg_lr
     >>> y_true = [0, 1, 2, 2, 1, 0]
     >>> y_pred = [0, 2, 1, 2, 1, 0]
-    >>> lr, avg_sens, avg_spec = calculate_average_lr(
+    >>> lr, avg_sens, avg_spec = calculate_multiclass_avg_lr(
     ...    y_true, y_pred, strategy='ovr', consensus='positive')
     >>> print(f"Likelihood Ratio: {lr:.2f}, 
     ...          Average Sensitivity: {avg_sens:.2f},
@@ -120,13 +122,19 @@ def calculate_average_lr(
     
     classes = np.unique(y_true)
     sensitivities, specificities = [], []
-
+    # validate multitarget and samples weigths if exists 
+    y_true = validate_multiclass_target( y_true )
+    
+    if sample_weight is not None: 
+        sample_weight =validate_sample_weights( sample_weight, y_true)
+        
     if strategy == 'ovr':
         y_true_binarized = label_binarize(y_true, classes=classes)
         for i, cls in enumerate(classes):
-            sensitivity, specificity = calculate_binary_metrics(
+            sensitivity, specificity = _compute_sensitivity_specificity(
                 y_true_binarized[:, i], (y_pred == cls).astype(int),
-                epsilon,
+                sample_weight=sample_weight,  
+                epsilon=epsilon
             )
             sensitivities.append(sensitivity)
             specificities.append(specificity)
@@ -136,29 +144,33 @@ def calculate_average_lr(
             relevant_mask = (y_true == cls1) | (y_true == cls2)
             y_true_binary = (y_true[relevant_mask] == cls1).astype(int)
             y_pred_binary = (y_pred[relevant_mask] == cls1).astype(int)
-            sensitivity, specificity = calculate_binary_metrics(
-                y_true_binary, y_pred_binary, epsilon)
+            sensitivity, specificity = _compute_sensitivity_specificity(
+                y_true_binary, y_pred_binary,
+                sample_weight=sample_weight,  
+                epsilon=epsilon
+                )
             sensitivities.append(sensitivity)
             specificities.append(specificity)
 
     # Weighted averages if sample_weight is provided
     if  multi_output=='uniform_average': 
-        avg_sensitivity = np.average(sensitivities, weights=sample_weight)
-        avg_specificity = np.average(specificities, weights=sample_weight)
+        avg_sensitivity = np.average(sensitivities)
+        avg_specificity = np.average(specificities)
     else: 
         avg_sensitivity = np.asarray(sensitivities)
         avg_specificity = np.asarray(specificities)
         
     # Compute LR based on average values
-    lr = avg_sensitivity / (1 - avg_specificity + epsilon) if consensus == 'positive' \
-         else (1 - avg_sensitivity) / (avg_specificity + epsilon)
-    
-    
+    lr = calculate_adjusted_lr(
+        avg_sensitivity, avg_specificity, 
+        consensus = consensus,max_lr = 100.
+        )
     return lr, avg_sensitivity, avg_specificity
 
 def calculate_multiclass_lr(
     y_true, y_pred, *, 
     consensus='positive',
+    sample_weight=None, 
     strategy='ovr', 
     epsilon=1e-10, 
     multi_output='uniform_average', 
@@ -242,7 +254,6 @@ def calculate_multiclass_lr(
     This transformation helps manage extreme values and improves the interpretability
     of the results, especially when dealing with very high or very low likelihood ratios.
     """
-
     y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True)
     ensure_non_negative(
         y_true, y_pred,
@@ -259,19 +270,21 @@ def calculate_multiclass_lr(
     results = []
     sensitivities = []
     specificities = []
-
+    y_true = validate_multiclass_target( y_true )
     if strategy == 'ovr':
         y_true_binarized = label_binarize(y_true, classes=classes)
         for i, label in enumerate(classes):
             # Isolate the class against all others
-            sensitivity, specificity = calculate_binary_metrics(
-                y_true_binarized[:, i], (y_pred == label).astype(int), epsilon)
+            sensitivity, specificity = _compute_sensitivity_specificity(
+                y_true_binarized[:, i], (y_pred == label).astype(int), 
+                sample_weight=sample_weight,  
+                epsilon=epsilon
+            )
             lr = calculate_adjusted_lr (
                 sensitivity, specificity,
-                consensus = consensus,
-                max_lr = 10., 
-                buffer=1e-2 
-                )
+                consensus = consensus, 
+                max_lr=1e1 
+            )
             results.append(np.log(lr) if apply_log_scale else lr)
             sensitivities.append(sensitivity)
             specificities.append(specificity)
@@ -281,11 +294,14 @@ def calculate_multiclass_lr(
             relevant_mask = (y_true == cls1) | (y_true == cls2)
             y_true_binary = (y_true[relevant_mask] == cls1).astype(int)
             y_pred_binary = (y_pred[relevant_mask] == cls1).astype(int)
-            sensitivity, specificity = calculate_binary_metrics(
-                y_true_binary, y_pred_binary, epsilon)
+            sensitivity, specificity = _compute_sensitivity_specificity(
+                y_true_binary, y_pred_binary, 
+                sample_weight=sample_weight,  
+                epsilon= epsilon,
+                )
             lr = calculate_adjusted_lr (
-                sensitivity, specificity,consensus = consensus,
-                max_lr = 10, buffer=1e-2 )
+                sensitivity, specificity,
+                consensus = consensus, max_lr=1e1 )
             results.append(np.log(lr) if apply_log_scale else lr)
             sensitivities.append(sensitivity)
             specificities.append(specificity)
@@ -297,7 +313,7 @@ def calculate_multiclass_lr(
     else:
         return (np.array(results), np.asarray(sensitivities),
                 np.asarray(specificities)) if include_metrics else np.array(results)
-        
+     
 def calculate_adjusted_lr(
     sensitivity, 
     specificity, 
@@ -307,39 +323,62 @@ def calculate_adjusted_lr(
     ):
     """
     Calculate the likelihood ratio with modifications to avoid extremely high 
-    values, particularly when specificity is close to 1. 
-    
-    Function applies a buffer to the denominator to prevent division by values
-    close to zero and caps the maximum likelihood ratio to prevent unmanageably
-    large outputs.
+    values, particularly when specificity is close to 1.
 
     Parameters
     ----------
-    sensitivity : float
-        The probability of correctly identifying a true positive.
-    specificity : float
-        The probability of correctly identifying a true negative.
+    sensitivity : float or numpy.ndarray
+        The probability of correctly identifying a true positive, expressed as a 
+        scalar for single measurement or an array for multiple measurements. Each
+        value represents the sensitivity for a given test or condition.
+    
+    specificity : float or numpy.ndarray
+        The probability of correctly identifying a true negative, similarly
+        expressed as either a scalar for a single measurement or an array for
+        multiple measurements. Each value corresponds to the specificity of 
+        a test or condition and must match the dimensions of `sensitivity` if
+        provided as an array.
+
     consensus : str, optional
-        Specifies the type of likelihood ratio to compute; 'positive' for
-        positive likelihood ratio (default) or 'negative' for negative
-        likelihood ratio.
+        Specifies the type of likelihood ratio to compute:
+        - 'positive': Computes the positive likelihood ratio (LR+), which
+          is sensitivity divided by (1 - specificity). This ratio indicates
+          how much the odds of the disease increase when a test is positive.
+        - 'negative': Computes the negative likelihood ratio (LR-), which
+          is (1 - sensitivity) divided by specificity. This ratio indicates
+          how much the odds of the disease decrease when a test is negative.
+          Default is 'positive'.
+    
     max_lr : float, optional
         The maximum allowed value for the likelihood ratio to prevent
-        extreme values. Default is 100.
+        extreme values that could be misleading or difficult to interpret.
+        Default is 100, which means likelihood ratios are capped at this value 
+        to avoid disproportionately high results that could result from very
+        small denominators.
+
     buffer : float, optional
         A small value added to the denominator in the likelihood ratio
         calculation to prevent division by near-zero, which can lead to
-        extremely high values. Default is 1e-3.
+        extremely high values. This buffer ensures stability in the calculations
+        by avoiding infinite or very large ratios. Default is 1e-2.
 
     Returns
     -------
-    float
-        The adjusted likelihood ratio, capped at `max_lr` and adjusted
-        for low denominators using `buffer`.
+    float or numpy.ndarray
+        The adjusted likelihood ratio, either as a single value or an array of
+        values, depending on the input format. Each ratio is capped at `max_lr`
+        and adjusted for low denominators using `buffer`.
 
     Examples
     --------
     >>> from gofast.tools.mathex import calculate_adjusted_lr
+    >>> calculate_adjusted_lr(0.95, 0.89)
+    8.636363636363637
+
+    >>> calculate_adjusted_lr(np.array([0.95, 0.80]), np.array([0.89, 0.90]), 
+                              consensus='negative', max_lr=10)
+    array([1.04545455, 2.        ])
+  
     >>> calculate_adjusted_lr(0.99, 0.999, consensus='positive')
     99.0
     >>> calculate_adjusted_lr(0.80, 0.95, consensus='negative', max_lr=100,
@@ -368,23 +407,29 @@ def calculate_adjusted_lr(
     high ratios that might be misleading or difficult to interpret in practical
     scenarios.
     """
+    # Ensure input compatibility if sensitivity and specificity are 
+    # provided as lists or tuples
+    sensitivity = np.array(sensitivity)
+    specificity = np.array(specificity)
+
+    # Compute the likelihood ratio based on the given consensus
     if consensus == "positive":
-        lr = sensitivity / max(1 - specificity, buffer)
+        lr = sensitivity / np.maximum(1 - specificity, buffer)
     elif consensus == "negative":
-        lr = (1 - sensitivity) / max(specificity, buffer)
+        lr = (1 - sensitivity) / np.maximum(specificity, buffer)
     else:
         raise ValueError("Consensus must be either 'positive' or 'negative'")
     
-    return min(lr, max_lr)  # Cap the LR at the maximum allowed value
+    # Cap the likelihood ratios at the maximum allowed value
+    lr = np.minimum(lr, max_lr)
 
-def calculate_binary_metrics(y_true, y_pred, epsilon=1e-10):
+    return lr
+
+def _compute_sensitivity_specificity(
+        y_true, y_pred, sample_weight=None, epsilon=1e-10):
     """
-    Calculate sensitivity and specificity for binary classification results.
-
-    This function computes the sensitivity (true positive rate) and specificity
-    (true negative rate) based on binary true labels and predictions. It is designed
-    to handle cases where the division by zero might occur by adding a small number,
-    epsilon, to the denominators.
+    Calculate sensitivity and specificity for binary classification results,
+    optionally using sample weights to adjust the importance of each sample.
 
     Parameters
     ----------
@@ -392,6 +437,11 @@ def calculate_binary_metrics(y_true, y_pred, epsilon=1e-10):
         Binary ground truth labels (1 for positive class, 0 for negative class).
     y_pred : array-like
         Binary predicted labels (1 for positive class, 0 for negative class).
+    sample_weight : array-like, optional
+        Weights applied to each sample when calculating sensitivity and specificity.
+        If None, all samples are assumed to have equal weight. Sample weights are
+        typically used in datasets where some samples are more important than
+        others or in the presence of class imbalance.
     epsilon : float, optional
         Small value added to denominators to avoid division by zero. 
         Default is 1e-10.
@@ -401,15 +451,34 @@ def calculate_binary_metrics(y_true, y_pred, epsilon=1e-10):
     tuple
         A tuple containing the sensitivity and specificity values.
 
+    Notes
+    -----
+    Sensitivity and specificity are calculated using the following formulas:
+    
+    .. math::
+        \text{sensitivity} = \frac{\sum (w_i \cdot [y_{true}^i = 1 \cap y_{pred}^i = 1])}
+        {\sum (w_i \cdot [y_{true}^i = 1]) + \epsilon}
+
+    .. math::
+        \text{specificity} = \frac{\sum (w_i \cdot [y_{true}^i = 0 \cap y_{pred}^i = 0])}
+        {\sum (w_i \cdot [y_{true}^i = 0]) + \epsilon}
+
+    Where \( w_i \) are the sample weights. If `sample_weight` is None,
+    all weights are considered equal to 1.
+
     Examples
     --------
-    >>> import numpy as np
     >>> from gofast.tools.mathex import calculate_binary_metrics
-    >>> y_true = np.array([1, 0, 1, 1, 0, 1, 0, 0])
-    >>> y_pred = np.array([1, 0, 0, 1, 0, 1, 1, 0])
+    >>> y_true = [1, 0, 1, 1, 0, 1, 0, 0]
+    >>> y_pred = [1, 0, 0, 1, 0, 1, 1, 0]
     >>> sensitivity, specificity = calculate_binary_metrics(y_true, y_pred)
     >>> print(f"Sensitivity: {sensitivity:.2f}, Specificity: {specificity:.2f}")
     Sensitivity: 0.75, Specificity: 0.75
+
+    >>> weights = [1, 1, 2, 2, 1, 2, 1, 1]
+    >>> sensitivity, specificity = calculate_binary_metrics(y_true, y_pred, sample_weight=weights)
+    >>> print(f"Sensitivity: {sensitivity:.2f}, Specificity: {specificity:.2f}")
+    Sensitivity: 0.80, Specificity: 0.83
     """
     y_true, y_pred = _ensure_y_is_valid( y_true, y_pred, y_numeric =True)
     ensure_non_negative(
@@ -417,21 +486,244 @@ def calculate_binary_metrics(y_true, y_pred, epsilon=1e-10):
         err_msg="y_true and y_pred must contain non-negative values."
     )
     epsilon = check_epsilon(epsilon, y_true, y_pred )
+
+    if sample_weight is not None:
+        sample_weight = validate_sample_weights(sample_weight, y_true)
     
-    if not isinstance(y_true, np.ndarray):
-        y_true = np.asarray(y_true)
-    if not isinstance(y_pred, np.ndarray):
-        y_pred = np.asarray(y_pred)
+    # Calculate true positives, false positives, false negatives, and true negatives
+    true_positives = np.sum(((y_true == 1) & (y_pred == 1)) * (
+        sample_weight if sample_weight is not None else 1))
+    false_positives = np.sum(((y_true == 0) & (y_pred == 1)) * (
+        sample_weight if sample_weight is not None else 1))
+    false_negatives = np.sum(((y_true == 1) & (y_pred == 0)) * (
+        sample_weight if sample_weight is not None else 1))
+    true_negatives = np.sum(((y_true == 0) & (y_pred == 0)) * (
+        sample_weight if sample_weight is not None else 1))
 
-    true_positives = np.sum((y_true == 1) & (y_pred == 1))
-    false_positives = np.sum((y_true == 0) & (y_pred == 1))
-    false_negatives = np.sum((y_true == 1) & (y_pred == 0))
-    true_negatives = np.sum((y_true == 0) & (y_pred == 0))
-
+    # Calculate sensitivity and specificity with weighted counts
     sensitivity = true_positives / (true_positives + false_negatives + epsilon)
     specificity = true_negatives / (true_negatives + false_positives + epsilon)
 
     return sensitivity, specificity
+
+def compute_sensitivity_specificity(
+    y_true, y_pred, *, 
+    sample_weight=None, 
+    strategy='ovr', 
+    average='macro',
+    epsilon="auto" 
+    ):
+    """
+    Calculate sensitivity and specificity for binary or multiclass classification
+    results, with support for different strategies and averaging methods. 
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        True class labels. Each element in this array should be an integer
+        representing the actual class of the corresponding sample.
+    y_pred : array-like of shape (n_samples,)
+        Predicted class labels. Each element should correspond to the predicted
+        class label for the sample.
+    sample_weight : array-like of shape (n_samples,), optional
+        Weights applied to each sample when calculating metrics. If not provided,
+        all samples are assumed to have equal weight. Useful in cases of class
+        imbalance or when some samples are more critical than others.
+    strategy : {'ovr', 'ovo'}, default 'ovr'
+        The strategy to calculate metrics:
+        - 'ovr' (One-vs-Rest): Metrics are calculated by treating each class as
+          the positive class against all other classes combined.
+        - 'ovo' (One-vs-One): Metrics are calculated for each pair of classes.
+          This can be more computationally intensive.
+    average : {'macro', 'micro', 'weighted'}, default 'macro'
+        Specifies the method to average sensitivity and specificity:
+        - 'macro': Calculate metrics for each label, and find their unweighted mean.
+        - 'micro': Calculate metrics globally across all classes.
+        - 'weighted': Calculate metrics for each label, and find their average,
+          weighted by the number of true instances for each label.
+    epsilon : float or "auto", optional
+        A small constant added to the denominator to prevent division by zero. If
+        'auto', the machine epsilon for float64 is used. Defaults to "auto".
+
+    Returns
+    -------
+    tuple
+        A tuple containing the averaged or non-averaged sensitivity and specificity.
+
+    Examples
+    --------
+    >>> from gofast.tools.mathex import compute_sensitivity_specificity
+    >>> y_true = [0, 1, 1, 0]
+    >>> y_pred = [0, 1, 0, 1]
+    >>> compute_sensitivity_specificity(y_true, y_pred)
+    (0.5, 0.5)
+
+    Notes
+    -----
+    Sensitivity (also known as recall or true positive rate) and specificity
+    (true negative rate) are calculated from the confusion matrix as:
+
+    .. math::
+        \text{sensitivity} = \frac{TP}{TP + FN}
+
+    .. math::
+        \text{specificity} = \frac{TN}{TN + FP}
+
+    Here, TP, TN, FN, and FP denote the counts of true positives, true negatives,
+    false negatives, and false positives, respectively.
+
+    - Micro averaging will sum the counts of true positives, false negatives, and
+      false positives across all classes and then compute the metrics.
+    - Macro averaging will compute the metrics independently for each class but
+      then take the unweighted mean. This does not take label imbalance into
+      account.
+    - Weighted averaging will compute the metrics for each class, and find their
+      average weighted by the number of true instances for each label, which
+      helps in addressing label imbalance.
+
+    The choice of averaging method depends on the balance of classes and the
+    importance of each class in the dataset.
+    """
+
+    if is_binary_class(y_true, accept_multioutput= False) :
+        return _compute_sensitivity_specificity (
+            y_true, y_pred, sample_weight=sample_weight, 
+            epsilon=epsilon # already defined. 
+            ) 
+
+    y_true, y_pred = _ensure_y_is_valid( y_true, y_pred, y_numeric =True)
+    strategy = parameter_validator(
+        "strategy", target_strs={'ovr', 'ovo'})(strategy)
+    average = parameter_validator(
+        "average", target_strs={'macro', 'micro', 'weighted'})(average)
+ 
+    epsilon = check_epsilon(epsilon, y_true, y_pred , scale_factor =1e-10)
+    # Encode labels to integer indices
+    labels = np.unique(np.concatenate([y_true, y_pred]))
+    label_to_index = {label: index for index, label in enumerate(labels)}
+    y_true_indices = np.vectorize(label_to_index.get)(y_true)
+    y_pred_indices = np.vectorize(label_to_index.get)(y_pred)
+    
+    # Compute confusion matrix
+    cm = confusion_matrix(y_true_indices, y_pred_indices, labels=range(len(labels)))
+
+    # Sensitivity and specificity calculation
+    sensitivity = np.zeros(len(labels))
+    specificity = np.zeros(len(labels))
+
+    if strategy == 'ovr':  # One-vs-Rest
+        for i in range(len(labels)):
+            TP = cm[i, i]
+            FN = np.sum(cm[i, :]) - TP
+            FP = np.sum(cm[:, i]) - TP
+            TN = np.sum(cm) - (TP + FP + FN)
+
+            sensitivity[i] = TP / (TP + FN + epsilon)
+            specificity[i] = TN / (TN + FP + epsilon)
+
+    elif strategy == 'ovo':
+        # Retrieve unique class labels
+        labels = np.unique(y_true)
+        return _compute_ovo_sens_spec(y_true, y_pred, labels, 
+                                      return_array=True
+                 )
+    # Handle averaging of results
+    if average == 'macro':
+        return np.mean(sensitivity), np.mean(specificity)
+    elif average == 'weighted':
+        support = np.sum(cm, axis=1)
+        return (np.average(sensitivity, weights=support),
+                np.average(specificity, weights=support))
+    elif average == 'micro':
+        total_TP = np.sum(np.diag(cm))
+        total_FN = np.sum(np.sum(cm, axis=1) - np.diag(cm))
+        total_FP = np.sum(np.sum(cm, axis=0) - np.diag(cm))
+        total_TN = np.sum(cm) - (total_TP + total_FP + total_FN)
+        micro_sensitivity = total_TP / (total_TP + total_FN + epsilon)
+        micro_specificity = total_TN / (total_TN + total_FP + epsilon)
+        return micro_sensitivity, micro_specificity
+
+    return sensitivity, specificity 
+
+def _compute_ovo_sens_spec(y_true, y_pred, labels, return_array=True):
+    """
+    Compute sensitivity and specificity for each pair of classes 
+    (One-vs-One strategy).
+    Optionally returns sensitivity and specificity as arrays, averaging results 
+    over all relevant pairs for each class.
+
+    Parameters:
+    y_true : array-like
+        Ground truth binary labels.
+    y_pred : array-like
+        Predicted binary labels.
+    labels : array-like
+        Array of unique class labels.
+    return_array : bool, default True
+        If True, returns sensitivity and specificity as numpy arrays averaged 
+        over all pairs involving each class. If False, returns dictionaries
+        with pairs as keys.
+
+    Returns:
+    --------
+    tuple of (numpy.ndarray, numpy.ndarray) or (dict, dict)
+        Sensitivity and specificity either as arrays or dictionaries depending 
+        on `return_array`.
+    Examples 
+    ---------
+    >>> import numpy as np 
+    >>> from gofast.tools.mathex import _compute_ovo_sens_spec
+    >>> labels = np.array([0, 1, 2])
+    >>> y_true = np.array([0, 1, 1, 2, 2, 0, 1, 2, 0])
+    >>> y_pred = np.array([0, 1, 2, 2, 0, 0, 1, 0, 2])
+    >>> sensitivity, specificity = _compute_ovo_sens_spec(y_true, y_pred, labels, return_array=True)
+    >>> print("Sensitivity:", sensitivity)
+    >>> print("Specificity:", specificity)
+    Sensitivity: [0.66666667 0.66666667 0.66666667]
+    Specificity: [0.66666667 1.         0.66666667]
+    """
+    sensitivity = {}
+    specificity = {}
+    
+    # Iterate over all pairs of labels
+    for i, j in itertools.combinations(labels, 2):
+        # Filter data for the pair (i, j)
+        pair_indices = (y_true == i) | (y_true == j)
+        y_true_pair = y_true[pair_indices]
+        y_pred_pair = y_pred[pair_indices]
+
+        # Map labels i and j to 0 and 1 for binary classification in this pair
+        y_true_binary = np.where(y_true_pair == i, 1, 0)
+        y_pred_binary = np.where(y_pred_pair == i, 1, 0)
+
+        # Calculate confusion matrix for the binary case
+        cm = confusion_matrix(y_true_binary, y_pred_binary, labels=[1, 0])
+        TP = cm[0, 0]
+        FN = cm[0, 1]
+        FP = cm[1, 0]
+        TN = cm[1, 1]
+
+        # Store sensitivity and specificity for this pair
+        sensitivity[(i, j)] = TP / (TP + FN) if (TP + FN) > 0 else 0
+        specificity[(i, j)] = TN / (TN + FP) if (TN + FP) > 0 else 0
+
+    if return_array:
+        # Convert to arrays, averaging results for each class across all pairs involving it
+        sens_array = np.zeros(len(labels))
+        spec_array = np.zeros(len(labels))
+
+        for idx, label in enumerate(labels):
+            # Averaging sensitivity and specificity for each label
+            involved_pairs = [key for key in sensitivity if label in key]
+            sens_array[idx] = np.mean([sensitivity[pair] for pair in involved_pairs])
+            spec_array[idx] = np.mean([specificity[pair] for pair in involved_pairs])
+
+        return sens_array, spec_array
+
+    return sensitivity, specificity
+
+
+
 
 def calculate_histogram_bins(
         data, /,  bins='auto', range=None, normalize=False):

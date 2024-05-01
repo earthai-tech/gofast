@@ -24,6 +24,197 @@ from ._array_api import get_namespace, _asarray_with_order
 FLOAT_DTYPES = (np.float64, np.float32, np.float16)
 
 
+def validate_multiclass_target(
+        y, accept_multioutput=False, return_classes=False):
+    """
+    Validates that the target data is suitable for multiclass classification.
+    Optionally accepts multi-output targets and can return the unique classes.
+
+    Parameters
+    ----------
+    y : array-like
+        The target data to be validated, expected to contain class labels for
+        multiclass classification. Can be a multi-output array if accept_multioutput
+        is set to True.
+    accept_multioutput : bool, optional
+        Allows the target array to be multi-dimensional (default is False).
+    return_classes : bool, optional
+        If True, returns the unique classes instead of a validation boolean.
+
+    Returns
+    -------
+    bool or array
+        If return_classes is False, returns True if the target data is valid for
+        multiclass classification, otherwise raises a ValueError.
+        If return_classes is True, returns the unique classes in the target data.
+
+    Raises
+    ------
+    ValueError
+        If any of the following conditions are not met:
+        - If accept_multioutput is False, the target data must be one-dimensional.
+        - All elements in the target array must be non-negative integers.
+        - The target array must contain at least two distinct classes.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import validate_multiclass_target
+    >>> validate_multiclass_target([0, 1, 2, 1, 0])
+    array([0, 1, 2, 1, 0])
+    >>> validate_multiclass_target([0, 0, 0])
+    ValueError: Target array must contain at least two distinct classes.
+    >>> validate_multiclass_target([0.5, 1.2, 2.3])
+    ValueError: All elements in the target array must be non-negative integers.
+    >>> validate_multiclass_target([[1, 2], [2, 3]], accept_multioutput=True, 
+    ...                              return_classes=True)
+    (array([1, 2, 2, 3]), 3)
+    True
+    """
+    # Convert input to a numpy array and create a copy if modifying data structure
+    y = np.asarray(y)
+    y_eval = y.copy() if accept_multioutput else y
+
+    # Ensure the array is one-dimensional if multi-output is not accepted
+    if not accept_multioutput and y.ndim > 1:
+        raise ValueError("Target array must be one-dimensional unless"
+                         " multi-output is accepted.")
+
+    # Validate that all elements are non-negative integers
+    if not (np.issubdtype(y_eval.dtype, np.integer) and np.all(y_eval >= 0)):
+        raise ValueError("All elements in the target array must be non-negative integers.")
+
+    # Flatten the array for unique class check if multi-output is accepted
+    if accept_multioutput:
+        y_eval = y_eval.flatten()
+
+    # Ensure there are at least two distinct classes
+    unique_classes = np.unique(y_eval)
+    if unique_classes.size < 2:
+        raise ValueError("Target array must contain at least two distinct classes.")
+
+    # Return the original array and the number of unique classes if requested
+    if return_classes:
+        return y, unique_classes.size
+
+    return y
+
+def validate_sample_weights(weights, y):
+    """
+    Validates that the sample weights are suitable for use in calculations.
+
+    This function checks that the sample weights are non-negative and match
+    the length of the target array `y`. It raises an error if any conditions
+    are not met. If a single number is provided as weights, it will be
+    converted into an array with repeated values matching the length of `y`.
+
+    Parameters
+    ----------
+    weights : array-like or number
+        The sample weights to be validated. Each weight must be non-negative.
+        A single number will be converted to an array with repeated values.
+    y : array-like
+        The target array that the weights should correspond to. The length
+        of `weights` must match the length of `y`.
+
+    Returns
+    -------
+    numpy.ndarray
+        The validated sample weights as a numpy array.
+
+    Raises
+    ------
+    ValueError
+        If `weights` are not one-dimensional, if any weight is negative,
+        or if the length of `weights` does not match the length of `y`.
+
+    Examples
+    --------
+    >>> frpm gofast.tools.validator import validate_sample_weights
+    >>> y = [0, 1, 2, 3]
+    >>> weights = [0.1, 0.2, 0.3, 0.4]
+    >>> validate_sample_weights(weights, y)
+    array([0.1, 0.2, 0.3, 0.4])
+
+    >>> weights = [-0.1, 0.2, 0.3, 0.4]
+    >>> validate_sample_weights(weights, y)
+    ValueError: Sample weights must be non-negative.
+
+    >>> weights = [0.1, 0.2, 0.3]
+    >>> validate_sample_weights(weights, y)
+    ValueError: Length of sample weights must match length of y.
+    """
+    if isinstance(weights, (int, float, np.integer, np.floating)): 
+        weights = np.full_like(y, fill_value=weights, dtype=np.float)
+
+    weights = np.asarray(weights)
+    y = np.asarray(y)
+
+    # Check if weights are one-dimensional
+    if weights.ndim != 1:
+        raise ValueError("Sample weights must be one-dimensional.")
+
+    # Check if any weights are negative
+    if np.any(weights < 0):
+        raise ValueError("Sample weights must be non-negative.")
+
+    # Check if the length of weights matches the length of y
+    if weights.size != y.size:
+        raise ValueError("Length of sample weights must match length of y.")
+
+    return weights  # Return the validated weights as a numpy array
+
+def is_binary_class(y, accept_multioutput=False):
+    """
+    Check whether the target array represents binary classification. Optionally,
+    handle multi-output arrays if each output is binary.
+
+    Parameters:
+    ----------
+    y : array-like
+        The target array to be checked. This can be a 1D array for single output
+        or a 2D array for multiple outputs if `accept_multioutput` is True.
+    accept_multioutput : bool, default False
+        If True, the function checks if each column in a multi-dimensional array
+        is binary. If False, the function checks if the entire array is binary.
+
+    Returns:
+    -------
+    bool
+        Returns True if `y` is binary (or each output is binary if multi-output
+        is accepted), False otherwise.
+
+    Examples:
+    --------
+    >>> from gofast.tools.validator import is_binary_class 
+    >>> is_binary_class([0, 1, 1, 0])
+    True
+    >>> is_binary_class([[0, 1], [1, 0], [0, 1], [1, 0]], accept_multioutput=True)
+    True
+    >>> is_binary_class([0, 1, 2, 3])
+    False
+    """
+    y = np.asarray(y)
+    y = check_y( y, multi_output= True, y_numeric =True )
+    
+    if not accept_multioutput:
+        # Check if the entire array is binary
+        unique_values = np.unique(y)
+        return len(unique_values) == 2 and np.all(np.isin(unique_values, [0, 1]))
+    
+    if y.ndim == 1:
+        # If the array is 1D and multioutput is expected, treat it as a single column
+        y = y.reshape(-1, 1)
+
+    if y.ndim > 1:
+        # Check each column independently
+        for column in y.T:
+            unique_values = np.unique(column)
+            if not (len(unique_values) == 2 and np.all(np.isin(unique_values, [0, 1]))):
+                return False
+        return True
+
+    return False
+
 def validate_comparison_data(df, /,  alignment="auto"):
     """
     Validates a DataFrame to ensure it is a square matrix and that the index 

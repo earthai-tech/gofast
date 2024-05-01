@@ -6256,7 +6256,6 @@ def make_obj_consistent_if (
         
     return item
     
-
 def replace_data(
     X:ArrayLike| DataFrame, 
     y: Optional[ArrayLike | Series] = None, 
