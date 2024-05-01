@@ -73,6 +73,7 @@ __all__=[
     "geo_information_value", 
     "assess_regression_metrics", 
     "assess_classifier_metrics", 
+    "log_likelihood_score", 
     "adjusted_r2_score", 
     "display_confusion_matrix", 
     "display_roc", 
@@ -88,46 +89,118 @@ __all__=[
     "SCORERS"
     ]
 
+def log_likelihood_score(
+    y_true, y_pred, *, 
+    consensus='positive', 
+    strategy='ovr', 
+    sample_weight=None, 
+    epsilon=1e-8, 
+    multi_output='uniform_average', 
+    detailed_output=False,
+    zero_division="warn"
+):
+    """
+    Compute the log of the likelihood ratio (LLR) for multiclass classification, 
+    using either one-versus-rest (OvR) or one-versus-one (OvO) strategies, with 
+    an option to apply a logarithmic transformation to stabilize the numerical 
+    range of the likelihood ratios.
 
-def log_likehood_score(
-     y_true, y_pred, *, 
-     consensus='positive', 
-     strategy='ovr', 
-     sample_weight=None, 
-     epsilon=1e-8, 
-     multi_output='uniform_average', 
-     detailed_output=False,
-     zero_division="warn", 
-     
-     ): 
-    # Ensure y_true and y_pred are valid and have consistent lengths
-    y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True,)
-    
-    ensure_non_negative(y_true, y_pred, 
-        err_msg="y must contain non-negative values for LRE calculation."
-    )
-    # check epsilon 
-    epsilon = check_epsilon(epsilon, y_true, y_pred  )
-    multi_output= validate_multioutput(multi_output)
+    Parameters
+    ----------
+    y_true : array-like
+        True class labels as integers.
+    y_pred : array-like
+        Predicted class labels as integers.
+    consensus : str, optional
+        Type of likelihood ratio to compute: 'positive' (default) or 'negative'.
+    strategy : str, optional
+        Computation strategy: 'ovr' (one-versus-rest, default) or 'ovo' 
+        (one-versus-one).
+    sample_weight : array-like, optional
+        Sample weights. If None, each sample contributes equally.
+    epsilon : float, optional
+        Small constant added to the denominator to prevent division by zero. 
+        Default is 1e-8.
+    multi_output : str, optional
+        Determines how to return the output: 'uniform_average' or 'raw_values'.
+    detailed_output : bool, optional
+        If True, returns a detailed output including individual sensitivity 
+        and specificity.
+    zero_division : str, optional
+        Handle division by zero: 'warn' (default) will issue a warning, 
+        'ignore' will suppress.
 
-    consensus = parameter_validator( 
-        "consensus", target_strs={'negative', 'positive'})( consensus)
-    strategy = parameter_validator( 
-        "strategy", target_strs={'ovr', 'ovo'})( strategy)
+    Returns
+    -------
+    float or MetricFormatter
+        The log likelihood ratio or a structured metric formatter if 
+        detailed_output is True.
+
+    Examples
+    --------
+    >>> from gofast.metrics import log_likelihood_score
+    >>> y_true = [0, 1, 2, 2, 1, 0]
+    >>> y_pred = [0, 2, 1, 2, 1, 0]
+    >>> log_likelihood_score(y_true, y_pred, consensus='positive', strategy='ovr')
+    1.2296264763713125
+
+    Notes
+    -----
+    The likelihood ratio (LR) for a given class or class pair is calculated as:
+
+    .. math::
+        LR_+ = \\frac{\\text{sensitivity}}{1 - \\text{specificity}}
     
-    scores= MetricFormatter (descriptor ="Log_likelihood_score_metric")
+    .. math::
+        LR_- = \\frac{1 - \\text{sensitivity}}{\\text{specificity}}
+
+    When :math:`\\text{consensus}` is 'positive', the LLR is computed by:
     
-    if strategy in ['ovo', 'ovr']: 
-        result, sensitivity, specificity = calculate_multiclass_lr ( 
-            y_true=y_true ,
-            y_pred=y_pred ,
-            consensus=consensus, 
-            strategy=strategy, 
-            epsilon=epsilon, 
-            multi_output=multi_output, 
-            log_transform=True, 
-            include_metrics=True, 
-            )
+    .. math::
+        LLR = \\log(LR_+)
+
+    Similarly, when :math:`\\text{consensus}` is 'negative', the LLR is:
+
+    .. math::
+        LLR = \\log(LR_-)
+
+    The logarithmic transformation of the LR (LLR) helps manage extreme values
+    and improves interpretability, especially in scenarios where LRs are 
+    extremely high or low. This transformation compresses the scale of the 
+    output, allowing for easier comparison and interpretation across different
+    models and conditions.
+    """
+    # [Your code implementation here]
+
+    # Validate inputs
+    y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True)
+    ensure_non_negative(
+        y_true, y_pred, 
+        err_msg="y must contain non-negative values for LR calculation.")
+    epsilon = check_epsilon(epsilon, y_true, y_pred)
+    multi_output = validate_multioutput(multi_output)
+    consensus = parameter_validator(
+        "consensus", target_strs={'negative', 'positive'})(consensus)
+    # Handle unexpected strategy
+    strategy = parameter_validator(
+        "strategy", target_strs={'ovr', 'ovo'})(strategy)
+
+    # Prepare to collect metrics
+    scores = MetricFormatter(descriptor="Log_likelihood_score_metric")
+    
+    # Calculate metrics
+    if strategy in ['ovo', 'ovr']:
+        results = calculate_multiclass_lr(
+            y_true=y_true,
+            y_pred=y_pred,
+            consensus=consensus,
+            strategy=strategy,
+            epsilon=epsilon,
+            multi_output=multi_output,
+            apply_log_scale=True,
+            include_metrics=True
+        )
+        result, sensitivity, specificity = results
     else : 
         # Binary classification
         sensitivity, specificity = calculate_binary_metrics(
@@ -141,19 +214,26 @@ def log_likehood_score(
         scores.sensitivity= sensitivity 
         scores.specificity= specificity 
         
+    # Check for division by zero issues
     if zero_division == 'warn' and (np.isinf(result) or np.isnan(result)):
         import warnings
         warnings.warn("Division by zero occurred", RuntimeWarning)
         return np.nan
 
+    # Apply sample weights if provided
     if sample_weight is not None:
         result = np.average(result, weights=sample_weight)
-    
-    scores.lr_score= np.log(result ) 
-    scores.consensus=consensus 
-    if detailed_output: 
-        return scores 
-        
+
+    # Store results in the formatter
+    scores.llr_score = np.log(result)
+    scores.sensitivity = sensitivity 
+    scores.specificity = specificity
+    scores.consensus = consensus
+
+    # Return detailed output if requested
+    if detailed_output:
+        return scores
+
     return result
 
 def likelihood_score(
@@ -216,12 +296,12 @@ def likelihood_score(
     >>> y_true = [1, 0, 1, 1, 0]
     >>> y_pred = [1, 1, 1, 0, 0]
     >>> likelihood_score(y_true, y_pred)
-    2.0005
+    1.3333222223259247
 
     >>> y_true = [0, 1, 2, 2, 1, 0]
     >>> y_pred = [0, 2, 1, 2, 1, 0]
     >>> likelihood_score(y_true, y_pred, strategy='ovr')
-    26667.87993081306
+    3.9996900226983447
 
     >>> y_true = [0, 1, 1, 0, 0]
     >>> y_pred = [0, 0, 1, 0, 1]
@@ -296,7 +376,8 @@ def likelihood_score(
             strategy=strategy, 
             consensus=consensus,
             epsilon=epsilon, 
-            sample_weight = sample_weight
+            sample_weight = sample_weight, 
+            multi_output=multi_output, 
             )
         scores.strategy= strategy
         scores.sensitivity= sensitivity

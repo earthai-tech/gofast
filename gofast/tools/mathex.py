@@ -50,11 +50,12 @@ _logger =gofastlog.get_gofast_logger(__name__)
 
 mu0 = 4 * np.pi * 1e-7 
 
-
 def calculate_average_lr(
-    y_true, y_pred, strategy='ovr',
+    y_true, y_pred, *, 
+    strategy='ovr',
     consensus="positive", 
     sample_weight=None, 
+    multi_output='uniform_average', 
     epsilon=1e-10
     ):
     """
@@ -100,10 +101,10 @@ def calculate_average_lr(
     >>> y_true = [0, 1, 2, 2, 1, 0]
     >>> y_pred = [0, 2, 1, 2, 1, 0]
     >>> lr, avg_sens, avg_spec = calculate_average_lr(
-        y_true, y_pred, strategy='ovr', consensus='positive')
+    ...    y_true, y_pred, strategy='ovr', consensus='positive')
     >>> print(f"Likelihood Ratio: {lr:.2f}, 
-              Average Sensitivity: {avg_sens:.2f},
-              Average Specificity: {avg_spec:.2f}")
+    ...          Average Sensitivity: {avg_sens:.2f},
+    ...          Average Specificity: {avg_spec:.2f}")
     """
     _ensure_y_is_valid( y_true, y_pred, y_numeric =True)
     ensure_non_negative(
@@ -113,7 +114,7 @@ def calculate_average_lr(
     epsilon = check_epsilon(epsilon, y_true, y_pred )
 
     consensus = parameter_validator( 
-        "consensus", target_strs={'negative', 'positive'})( consensus)
+        "consensus", target_strs={'negative', 'positive'})(consensus)
     strategy = parameter_validator( 
         "strategy", target_strs={'ovr', 'ovo'})( strategy)
     
@@ -124,7 +125,9 @@ def calculate_average_lr(
         y_true_binarized = label_binarize(y_true, classes=classes)
         for i, cls in enumerate(classes):
             sensitivity, specificity = calculate_binary_metrics(
-                y_true_binarized[:, i], (y_pred == cls).astype(int), epsilon)
+                y_true_binarized[:, i], (y_pred == cls).astype(int),
+                epsilon,
+            )
             sensitivities.append(sensitivity)
             specificities.append(specificity)
 
@@ -139,18 +142,22 @@ def calculate_average_lr(
             specificities.append(specificity)
 
     # Weighted averages if sample_weight is provided
-    avg_sensitivity = np.average(sensitivities, weights=sample_weight)
-    avg_specificity = np.average(specificities, weights=sample_weight)
-
+    if  multi_output=='uniform_average': 
+        avg_sensitivity = np.average(sensitivities, weights=sample_weight)
+        avg_specificity = np.average(specificities, weights=sample_weight)
+    else: 
+        avg_sensitivity = np.asarray(sensitivities)
+        avg_specificity = np.asarray(specificities)
+        
     # Compute LR based on average values
     lr = avg_sensitivity / (1 - avg_specificity + epsilon) if consensus == 'positive' \
          else (1 - avg_sensitivity) / (avg_specificity + epsilon)
-
+    
+    
     return lr, avg_sensitivity, avg_specificity
 
-
 def calculate_multiclass_lr(
-    y_true, y_pred, 
+    y_true, y_pred, *, 
     consensus='positive',
     strategy='ovr', 
     epsilon=1e-10, 
@@ -199,6 +206,7 @@ def calculate_multiclass_lr(
 
     Examples
     --------
+    >>> from gofast.tools.mathex import calculate_multiclass_lr
     >>> y_true = [0, 1, 2, 2, 1, 0]
     >>> y_pred = [0, 2, 1, 2, 1, 0]
     >>> calculate_multiclass_lr(y_true, y_pred, consensus='positive', strategy='ovr')
@@ -258,8 +266,12 @@ def calculate_multiclass_lr(
             # Isolate the class against all others
             sensitivity, specificity = calculate_binary_metrics(
                 y_true_binarized[:, i], (y_pred == label).astype(int), epsilon)
-            lr = sensitivity / max(1 - specificity, epsilon) if consensus == 'positive' \
-                else max(1 - sensitivity, epsilon) / specificity
+            lr = calculate_adjusted_lr (
+                sensitivity, specificity,
+                consensus = consensus,
+                max_lr = 10., 
+                buffer=1e-2 
+                )
             results.append(np.log(lr) if apply_log_scale else lr)
             sensitivities.append(sensitivity)
             specificities.append(specificity)
@@ -271,8 +283,9 @@ def calculate_multiclass_lr(
             y_pred_binary = (y_pred[relevant_mask] == cls1).astype(int)
             sensitivity, specificity = calculate_binary_metrics(
                 y_true_binary, y_pred_binary, epsilon)
-            lr = sensitivity / max(1 - specificity, epsilon) if consensus == 'positive' \
-                else max(1 - sensitivity, epsilon) / specificity
+            lr = calculate_adjusted_lr (
+                sensitivity, specificity,consensus = consensus,
+                max_lr = 10, buffer=1e-2 )
             results.append(np.log(lr) if apply_log_scale else lr)
             sensitivities.append(sensitivity)
             specificities.append(specificity)
@@ -284,27 +297,85 @@ def calculate_multiclass_lr(
     else:
         return (np.array(results), np.asarray(sensitivities),
                 np.asarray(specificities)) if include_metrics else np.array(results)
-
-def calculate_adjusted_lr(
-        sensitivity, specificity, consensus ="positivite", max_lr=1000, 
-        buffer = 1e-3):
-    """
-    Calculate the likelihood ratio with a cap to avoid extremely high values.
-
-    Parameters:
-    - sensitivity (float): The sensitivity of the test.
-    - specificity (float): The specificity of the test.
-    - max_lr (float): The maximum allowed value for the likelihood ratio.
-
-    Returns:
-    - float: The adjusted likelihood ratio.
-    """
-    if consensus =="positive": 
-        lr = sensitivity / max(1 - specificity, buffer)  # Using 0.001 as a buffer
-        return min(lr, max_lr)  # Cap the LR at the maximum allowed value
-    elif consensus =="negative": 
-        ...
         
+def calculate_adjusted_lr(
+    sensitivity, 
+    specificity, 
+    consensus="positive",
+    max_lr=100,
+    buffer=1e-2
+    ):
+    """
+    Calculate the likelihood ratio with modifications to avoid extremely high 
+    values, particularly when specificity is close to 1. 
+    
+    Function applies a buffer to the denominator to prevent division by values
+    close to zero and caps the maximum likelihood ratio to prevent unmanageably
+    large outputs.
+
+    Parameters
+    ----------
+    sensitivity : float
+        The probability of correctly identifying a true positive.
+    specificity : float
+        The probability of correctly identifying a true negative.
+    consensus : str, optional
+        Specifies the type of likelihood ratio to compute; 'positive' for
+        positive likelihood ratio (default) or 'negative' for negative
+        likelihood ratio.
+    max_lr : float, optional
+        The maximum allowed value for the likelihood ratio to prevent
+        extreme values. Default is 100.
+    buffer : float, optional
+        A small value added to the denominator in the likelihood ratio
+        calculation to prevent division by near-zero, which can lead to
+        extremely high values. Default is 1e-3.
+
+    Returns
+    -------
+    float
+        The adjusted likelihood ratio, capped at `max_lr` and adjusted
+        for low denominators using `buffer`.
+
+    Examples
+    --------
+    >>> from gofast.tools.mathex import calculate_adjusted_lr
+    >>> calculate_adjusted_lr(0.99, 0.999, consensus='positive')
+    99.0
+    >>> calculate_adjusted_lr(0.80, 0.95, consensus='negative', max_lr=100,
+    ... buffer=0.005)
+    0.21052631578947364
+
+    Notes
+    -----
+    The likelihood ratio (LR) is calculated based on the specified `consensus`:
+    
+    For a 'positive' likelihood ratio:
+        
+    .. math::
+        LR_+ = \\frac{\\text{sensitivity}}{\\max(1 - \\text{specificity}, 
+        \\text{buffer})}
+
+    For a 'negative' likelihood ratio:
+        
+    .. math::
+        LR_- = \\frac{1 - \\text{sensitivity}}{\\max(\\text{specificity}, 
+        \\text{buffer})}
+
+    This approach helps to manage situations where specificity is very close to 1,
+    which would normally result in a very high LR due to a small denominator.
+    The `max_lr` parameter caps the LR to a maximum value, preventing extremely
+    high ratios that might be misleading or difficult to interpret in practical
+    scenarios.
+    """
+    if consensus == "positive":
+        lr = sensitivity / max(1 - specificity, buffer)
+    elif consensus == "negative":
+        lr = (1 - sensitivity) / max(specificity, buffer)
+    else:
+        raise ValueError("Consensus must be either 'positive' or 'negative'")
+    
+    return min(lr, max_lr)  # Cap the LR at the maximum allowed value
 
 def calculate_binary_metrics(y_true, y_pred, epsilon=1e-10):
     """
@@ -322,7 +393,8 @@ def calculate_binary_metrics(y_true, y_pred, epsilon=1e-10):
     y_pred : array-like
         Binary predicted labels (1 for positive class, 0 for negative class).
     epsilon : float, optional
-        Small value added to denominators to avoid division by zero. Default is 1e-10.
+        Small value added to denominators to avoid division by zero. 
+        Default is 1e-10.
 
     Returns
     -------
@@ -331,10 +403,11 @@ def calculate_binary_metrics(y_true, y_pred, epsilon=1e-10):
 
     Examples
     --------
+    >>> import numpy as np
     >>> from gofast.tools.mathex import calculate_binary_metrics
     >>> y_true = np.array([1, 0, 1, 1, 0, 1, 0, 0])
     >>> y_pred = np.array([1, 0, 0, 1, 0, 1, 1, 0])
-    >>> sensitivity, specificity = _calculate_binary_metrics(y_true, y_pred)
+    >>> sensitivity, specificity = calculate_binary_metrics(y_true, y_pred)
     >>> print(f"Sensitivity: {sensitivity:.2f}, Specificity: {specificity:.2f}")
     Sensitivity: 0.75, Specificity: 0.75
     """

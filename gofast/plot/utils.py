@@ -104,51 +104,42 @@ def plot_woodland_map(df, quadrant="upper_left", buffer_space=4, min_col_width=1
             ax.xaxis.tick_top()   # X-axis on top
         else:
             ax.yaxis.tick_right()  # Y-axis on right
-
     # Show the plot
     plt.show()
 
-def plot_correlation_triangle(df, position):
-    # Calculate the correlation matrix
+    
+def plot_bottom_lelft (df, /, cmap = plt.get_cmap("Oranges")): 
+    # Create DataFrame
+
+    # Compute the correlation matrix
     corr = df.corr()
     
-    # Initialize the mask as a full matrix of False
-    mask = np.zeros_like(corr, dtype=np.bool)
+    # Create a mask for the upper triangle
+    mask = np.triu(np.ones_like(corr, dtype=bool))
     
-    # Create masks for the triangle
-    if position == 'upper left':
-        mask[np.triu_indices_from(mask, k=1)] = True
-        mask = mask.T
-    elif position == 'upper right':
-        mask[np.tril_indices_from(mask, k=-1)] = True
-    elif position == 'bottom left':
-        mask[np.triu_indices_from(mask, k=-1)] = True
-    elif position == 'bottom right':
-        mask[np.tril_indices_from(mask, k=1)] = True
-        mask = mask.T
-
     # Set up the matplotlib figure
-    f, ax = plt.subplots(figsize=(11, 9))
-
-    # Generate a custom diverging colormap
-    cmap = sns.diverging_palette(220, 10, as_cmap=True)
-
-    # Draw the heatmap with the mask and correct aspect ratio
-    sns.heatmap(corr, mask=mask, cmap=cmap, vmax=.3, center=0,
-                square=True, linewidths=.5, cbar_kws={"shrink": .5},
-                annot=True)
-
-    # Modify ticks
-    tick_labels = ['Group1', 'Group2', 'Group3'] # Replace with your labels
-    ax.set_xticks(np.arange(len(tick_labels)) + .5, minor=False)
-    ax.set_yticks(np.arange(len(tick_labels)) + .5, minor=False)
-    ax.set_xticklabels(tick_labels, rotation=90)
-    ax.set_yticklabels(tick_labels[::-1] 
-                       if position in ['bottom left', 'bottom right'] else tick_labels)
-
+    fig, ax = plt.subplots(figsize=(8, 6))
+    
+    # Draw the heatmap with the mask
+    # cmap = plt.get_cmap("Oranges")
+    cbar_kws = {"shrink": .5}  # Optionally add arguments for colorbar
+    sns.heatmap(corr, mask=mask, annot=True, fmt=".2f", cmap=cmap, 
+                cbar_kws=cbar_kws, square=True, linewidths=.5, ax=ax)
+    
+    # Add labels (assuming you want labels similar to the triangle image uploaded)
+    ax.set_xlabel('xlabel')
+    ax.set_ylabel('ylabel')
+    plt.text(2, 0, 'bottom left',
+             va='bottom', ha='left',
+             fontsize=12, color='black'
+             )
+    
     # Show the plot
+    plt.tight_layout()
     plt.show()
     
+
+
 
 def plot_actual_vs_predicted(
     y_true: ArrayLike, 
