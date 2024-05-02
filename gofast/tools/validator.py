@@ -12,11 +12,11 @@ import numbers
 import operator
 import joblib
 from datetime import datetime
+from contextlib import suppress
 
 import numpy as np
 import pandas as pd
 from numpy.core.numeric import ComplexWarning  
-from contextlib import suppress
 import scipy.sparse as sp
 from inspect import signature, Parameter, isclass 
 
@@ -1059,507 +1059,68 @@ def validate_length_range(length_range):
             "The first element in length_range must be less than the second.")
   
     return length_range 
-     
-def filter_nan_entries2(nan_policy, *listof, sample_weights=None):
+    
+def contains_nested_objects(lst, strict=False, allowed_types=None):
     """
-    Filters out NaN values from multiple lists of lists, or arrays, 
-    based on the specified NaN handling policy ('omit', 'propagate', 'raise'), 
-    and adjusts the sample weights accordingly if provided.
-
-    This function is particularly useful when preprocessing data for
-    machine learning algorithms that do not support NaN values or when NaN values
-    signify missing data that should be excluded from analysis.
+    Determines whether a list contains nested objects.
 
     Parameters
     ----------
-    nan_policy : {'omit', 'propagate', 'raise'}
-        The policy for handling NaN values.
-        - 'omit': Exclude NaN values from all lists in `listof`. 
-        - 'propagate': Keep NaN values, which may result in NaN values in output.
-        - 'raise': If NaN values are detected, raise a ValueError.
-    *listof : array-like sequences
-        Variable number of list-like sequences from which NaN values are to be 
-        filtered out.  Each sequence in `listof` must have the same length.
-    sample_weights : array-like, optional
-        Weights corresponding to the elements in each sequence in `listof`.
-        Must have the same length as the sequences. If `nan_policy` is 'omit',
-        weights are adjusted to match the filtered sequences.
+    lst : list
+        The list to be checked for nested objects.
+    strict : bool, optional
+        If True, all items in the list must be nested objects. If False, the function
+        returns True if any item is a nested object. Default is False.
+    allowed_types : tuple of types, optional
+        A tuple of types to consider as nested objects. If None, common nested types
+        like list, set, dict, and tuple are checked. Default is None.
 
     Returns
     -------
-    tuple of lists
-        A tuple containing the filtered list-like sequences as per the specified
-        `nan_policy`.
-        If `nan_policy` is 'omit', sequences with NaN values removed are 
-        returned.
-    np.ndarray or None
-        The adjusted sample weights matching the filtered sequences if 
-        `nan_policy` is 'omit'.
-        If `sample_weights` is not provided, None is returned.
-
-    Raises
-    ------
-    ValueError
-        If `nan_policy` is 'raise' and NaN values are present in any input 
-        sequence.
-
-    Examples
-    --------
-    >>> from gofast.tools.validator import filter_nan_entries
-    >>> list1 = [1, 2, np.nan, 4]
-    >>> list2 = [np.nan, 2, 3, 4]
-    >>> weights = [0.5, 1.0, 1.5, 2.0]
-    >>> filter_nan_entries('omit', list1, list2, sample_weights=weights)
-    ([1, 2, 4], [2, 3, 4], array([0.5, 1. , 2. ]))
-
-    >>> filter_nan_entries('raise', list1, list2)
-    ValueError: NaN values present and nan_policy is 'raise'.
+    bool
+        True if the list contains nested objects according to the given parameters,
+        otherwise False.
 
     Notes
     -----
-    This function is designed to work with numerical data where NaN values
-    may indicate missing data. It allows for flexible preprocessing by supporting
-    multiple NaN handling strategies, making it suitable for various machine learning
-    and data analysis workflows.
-
-    When using 'omit', it's important to ensure that all sequences in `listof`
-    and the corresponding `sample_weights` (if provided) are correctly aligned
-    so that filtering does not introduce misalignments in the data.
-    """
-    if nan_policy not in ['omit', 'propagate', 'raise']:
-        raise ValueError(f"Invalid nan_policy: {nan_policy}. Must be one of"
-                         " 'omit', 'propagate', 'raise'.")
-
-    arrays = [np.array(list(lst), dtype=float) for lst in listof]
-
-    if nan_policy == 'omit':
-        print(arrays)
-        non_nan_mask = np.logical_not(np.any([np.isnan(arr) for arr in arrays], axis=0))
-        filtered_arrays = [arr[non_nan_mask] for arr in arrays]
-        if sample_weights is not None:
-            sample_weights = np.asarray(sample_weights)[non_nan_mask]
-    elif nan_policy == 'raise' and any(np.isnan(arr).any() for arr in arrays):
-        raise ValueError("NaN values present and nan_policy is 'raise'.")
-    else:  # nan_policy == 'propagate'
-        filtered_arrays = arrays
-
-    filtered_listof = [arr.tolist() for arr in filtered_arrays]
-    # Return adjusted arrays and sample_weights
-    if sample_weights is not None:
-        return  (*tuple(filtered_listof), sample_weights)
-
-    return tuple(filtered_listof)
-
-# def filter_nan_entries(nan_policy, *listof, sample_weights=None):
-#     """
-#     Filters out NaN values from multiple lists of lists, or arrays, 
-#     based on the specified NaN handling policy ('omit', 'propagate', 'raise'), 
-#     and adjusts the sample weights accordingly if provided.
-#     """
-#     if nan_policy not in ['omit', 'propagate', 'raise']:
-#         raise ValueError(f"Invalid nan_policy: {nan_policy}. Must be one of"
-#                          " 'omit', 'propagate', 'raise'.")
-
-#     # Convert all input lists to numpy arrays for consistent processing
-#     arrays = [np.array(list(lst), dtype=float) for lst in listof]
-
-#     if nan_policy == 'omit':
-#         # Identify non-NaN elements across all arrays consistently
-#         non_nan_mask = np.array([not any(np.isnan(np.array(item, dtype=float)))
-#                                  for item in zip(*arrays)])
-#         # Apply the non-NaN mask to filter out NaN values across all arrays
-#         filtered_arrays = [arr[non_nan_mask] for arr in arrays]
-#         if sample_weights is not None:
-#             sample_weights = np.asarray(sample_weights)[non_nan_mask]
-#     elif nan_policy == 'raise' and any(
-#             np.isnan(np.array(item, dtype=float)).any() 
-#             for sublist in listof for item in sublist):
-#         raise ValueError("NaN values present and nan_policy is 'raise'.")
-#     else:  # nan_policy == 'propagate'
-#         filtered_arrays = arrays
-
-#     # Convert arrays back to list of lists if they were originally in that format
-#     filtered_listof = [arr.tolist() for arr in filtered_arrays]
-    
-#     # Return adjusted arrays and sample_weights
-#     if sample_weights is not None:
-#         return (*filtered_listof, sample_weights)
-
-#     return tuple(filtered_listof)
-
-def filter_nan_entries3(nan_policy, *listof, sample_weights=None):
-    """
-    Filters out NaN values from multiple lists of lists, or arrays, 
-    based on the specified NaN handling policy ('omit', 'propagate', 'raise'), 
-    and adjusts the sample weights accordingly if provided.
-    """
-    if nan_policy not in ['omit', 'propagate', 'raise']:
-        raise ValueError(f"Invalid nan_policy: {nan_policy}. Must be one of 'omit', 'propagate', 'raise'.")
-
-    # This approach assumes the inputs can contain any data type.
-    # We first convert all entries to numpy arrays without specifying a dtype.
-    arrays = [np.array(lst, dtype=object) for lst in listof]
-
-    if nan_policy == 'omit':
-        # Since we are working with dtype=object, we handle NaN checks manually.
-        non_nan_mask = np.array([not any(isinstance(x, float) and np.isnan(x) for x in item)
-                                 for item in zip(*arrays)])
-        filtered_arrays = [arr[non_nan_mask] for arr in arrays]
-        if sample_weights is not None:
-            sample_weights = np.asarray(sample_weights)[non_nan_mask]
-    elif nan_policy == 'raise':
-        if any(isinstance(x, float) and np.isnan(x) for sublist in listof for x in sublist):
-            raise ValueError("NaN values present and nan_policy is 'raise'.")
-    else:  # nan_policy == 'propagate'
-        filtered_arrays = arrays
-
-    # Convert arrays back to their original list format
-    filtered_listof = [list(arr) for arr in filtered_arrays]
-    
-    # Return adjusted arrays and sample_weights
-    if sample_weights is not None:
-        return (*filtered_listof, sample_weights)
-
-    return tuple(filtered_listof)
-
-
-def filter_nan_entries5(nan_policy, *listof, sample_weights=None, error="raise"):
-    """
-    Filters out NaN values from multiple lists or arrays based on the specified
-    NaN handling policy and adjusts the sample weights accordingly if provided.
-    
-    Parameters:
-    -----------
-    nan_policy : {'omit', 'propagate', 'raise'}
-        The policy for handling NaN values.
-    *listof : sequence of list-like or array-like
-        Multiple lists or arrays from which NaN values are to be filtered.
-    sample_weights : array-like, optional
-        Weights corresponding to the elements in each sequence in `listof`.
-    error : {'raise', 'warn', 'ignore'}, default 'raise'
-        How to handle mismatch in lengths between the input lists and sample_weights
-        after filtering NaNs.
-        
-    Returns:
-    --------
-    tuple of lists or arrays
-        The filtered data according to `nan_policy`. Also returns filtered
-        `sample_weights` if provided.
-    
-    Raises:
-    -------
-    ValueError
-        If `nan_policy` is 'raise' and NaNs are detected, or if `error` is 'raise'
-        and there is a length mismatch between the filtered data and sample_weights.
-    """
-
-
-def flatten(iterable):
-    """A simple utility to flatten complex structures into plain lists."""
-    for item in iterable:
-        if isinstance(item, (list, set, tuple)):
-            yield from flatten(item)
-        else:
-            yield item
-
-# def filter_nan_entries(nan_policy, *listof, sample_weights=None, error="raise"):
-#     """
-#     Filters out NaN values from complex nested structures like lists of sets or dicts.
-#     """
-#     if nan_policy not in ['omit', 'propagate', 'raise']:
-#         raise ValueError(f"Invalid nan_policy: {nan_policy}. Must be one "
-#                          "of 'omit', 'propagate', 'raise'.")
-
-#     # Prepare arrays, treating non-scalar containers differently
-#     arrays = []
-#     for lst in listof:
-#         if any(isinstance(x, (set, dict)) for x in lst):
-#             # Handle sets and dictionaries by flattening them to lists
-#             flattened_list = list(flatten(lst))
-#             arrays.append(np.array(flattened_list, dtype=object))
-#         else:
-#             arrays.append(np.array(lst, dtype=object))
-
-#     if nan_policy == 'omit':
-        
-#         # create a list of non_mask so each non_mask bool array  should be 
-#         # used with its corresponding arrays , this will fix 
-#         # IndexError: boolean index did not match indexed array along dimension 0; 
-#         # dimension is 7 but corresponding boolean dimension is 5
-#         non_nan_mask = np.array([all(not np.isnan(x) if isinstance(x, float) else True for x in item)
-#                                  for item in zip(*arrays)])
-#         filtered_arrays = [arr[non_nan_mask] for arr in zip ( arrays)]
-
-#         if sample_weights is not None:
-#             if len(sample_weights) == len(non_nan_mask):
-#                 sample_weights = np.asarray(sample_weights)[non_nan_mask]
-#             else:
-#                 if error == 'warn':
-#                     # If the length of the sample weights does not match but is greater,
-#                     # reduce the sample weights array to match the filtered data length.
-#                     # Note: This may not always be the desired behavior, as it can lead to
-#                     #       unexpected results if data misalignment occurs.
-#                     #       Use with caution or consider whether this should raise an error instead.
-                    
-#                     warnings.warn("Length of sample_weights does not match "
-#                                   "the number of entries after NaN filtering.")
-#                     sample_weights = np.asarray(
-#                         sample_weights)[:len(non_nan_mask)][non_nan_mask]
-#                 elif error == 'raise':
-#                     raise ValueError("Length of sample_weights must match"
-#                                      " the number of entries in listof.")
-#                 # If error is 'ignore', do nothing.
-
-#     elif nan_policy == 'raise' and any(np.isnan(x) if isinstance(
-#             x, float) else False for lst in listof for x in flatten(lst)):
-#         raise ValueError("NaN values present and nan_policy is 'raise'.")
-#     else:  # nan_policy == 'propagate'
-#         filtered_arrays = arrays
-
-#     filtered_listof = [list(arr) for arr in filtered_arrays]
-
-#     if sample_weights is not None:
-#         return (*filtered_listof, sample_weights)
-#     return tuple(filtered_listof)
-
-def filter_nan_entries(
-        nan_policy, *listof, sample_weights=None, error="raise", flatten_lst=False):
-    if nan_policy not in ['omit', 'propagate', 'raise']:
-        raise ValueError(f"Invalid nan_policy: {nan_policy}. Must be one of 'omit', 'propagate', 'raise'.")
-
-    # Convert all input lists to numpy arrays for consistent processing
-    # Prepare arrays, treating non-scalar containers differently
-    arrays = []
-    if flatten_lst: 
-        for lst in listof:
-            if any(isinstance(x, (set, dict)) for x in lst):
-                # Handle sets and dictionaries by flattening them to lists
-                flattened_list = list(flatten(lst))
-                arrays.append(np.array(flattened_list, dtype=object))
-            else:
-                arrays.append(np.array(lst, dtype=object))
-    else: 
-        # Convert all input lists to numpy arrays for consistent processing
-        for lst in listof : 
-            arrays.append ( [ np.array(list(flatten(l)) ) for l in lst ])
-
-    if nan_policy == 'omit':
-        print(arrays)
-        # [[array([2, 3]), array([ 1.,  2., nan])], [array([1, 2, 3]), array([ 1.,  2.,  3., nan])]]
-        # Apply a non-NaN mask to each array individually
-        filtered_arrays = [] 
-        for arr in arrays:
-            # arr = [array([2, 3]), array([ 1.,  2., nan])]
-            for ii,  ar2 in enumerate(arr ):
-                #  ar2 = array([2, 3]) or array([ 1.,  2., nan]) # then remove nan 
-                if np.isnan(ar2).any(): 
-                    # if there is Nan, then filterout 
-                    arr[ii] = ar2 [~np.isnan(ar2)]
-                    
-            filtered_arrays.append(arr)
-        # expected filtered array 
-        # like : 
-            # filtered_arrays = # [[array([2, 3]), array([ 1.,  2.])], [array([1, 2, 3]), array([ 1.,  2.,  3.])]]
-         # array are not ajusted. 
-        
-        # Adjust sample_weights if provided and if they match the filtered data length
-        if sample_weights is not None:
-            if len(sample_weights) == sum(len(arr) for arr in filtered_arrays):
-                flattened_non_nan_mask = np.concatenate(
-                    [np.array([not np.isnan(x) if isinstance(x, float) else True for x in arr]) 
-                     for arr in arrays])
-                sample_weights = np.asarray(sample_weights)[flattened_non_nan_mask]
-            else:
-                if error == 'warn':
-                    # If the length of the sample weights does not match but is greater,
-                    # reduce the sample weights array to match the filtered data length.
-                    # Note: This may not always be the desired behavior, as it can lead to
-                    #       unexpected results if data misalignment occurs.
-                    #       Use with caution or consider whether this should
-                    #       raise an error instead.
-                    
-                    warnings.warn("Length of sample_weights does not match the"
-                                  " number of entries after NaN filtering.")
-                elif error == 'raise':
-                    raise ValueError("Length of sample_weights must match the"
-                                     " number of entries in listof.")
-                # If error is 'ignore', do nothing.
-    elif nan_policy == 'raise':
-        if any(np.isnan(x) if isinstance(x, float) else False for arr in arrays for x in arr):
-            raise ValueError("NaN values present and nan_policy is 'raise'.")
-    else:  # nan_policy == 'propagate'
-        filtered_arrays = arrays
-
-    filtered_listof = [list(arr) for arr in filtered_arrays]
-
-    if sample_weights is not None:
-        return (*filtered_listof, sample_weights)
-    return tuple(filtered_listof)
-
-
-def filter_nan_from( *listof, sample_weights=None):
-    """
-    Filters out NaN values from multiple lists of lists, adjusting 
-    sample_weights accordingly.
-
-    Parameters
-    ----------
-    *listof : tuple of list of lists
-        Variable number of list of lists from which NaN values need to be 
-        filtered out.
-    sample_weights : list or np.ndarray, optional
-        Sample weights corresponding to each sublist in the input list of lists.
-        Must have the same outer length as each list in *listof.
-
-    Returns
-    -------
-    filtered_listof : tuple of list of lists
-        The input list of lists with NaN values removed.
-    adjusted_sample_weights : np.ndarray or None
-        The sample weights adjusted to match the filtered data. Same length as
-        the filtered list of lists.
+    A nested object is defined as any item within the list that is not a primitive
+    data type (e.g., int, float, str) or is a complex structure like lists, sets,
+    dictionaries, etc. The function can be customized to check for specific types
+    using the `allowed_types` parameter.
 
     Examples
     --------
-    >>> from gofast.tools.validator import filter_nan_from
-    >>> list1 = [[1, 2, np.nan], [4, np.nan, 6]]
-    >>> list2 = [[np.nan, 8, 9], [10, 11, np.nan]]
-    >>> weights = [0.5, 1.0]
-    >>> filtered_lists, adjusted_weights = filter_nan_from(
-        list1, list2, sample_weights=weights)
-    >>> print(filtered_lists)
-    ([[1, 2], [4, 6]], [[8, 9], [10, 11]])
-    >>> print(adjusted_weights)
-    [0.5 1. ]
-
-    Notes
-    -----
-    This function assumes that all lists in *listof and sample_weights have 
-    compatible shapes. Each sublist is expected to correspond to a set of 
-    sample_weights, which are adjusted based on the presence of NaNs in 
-    the sublist.
+    >>> from gofast.tools.validator import contains_nested_objects
+    >>> example_list1 = [{1, 2}, [3, 4], {'key': 'value'}]
+    >>> example_list2 = [1, 2, 3, [4]]
+    >>> example_list3 = [1, 2, 3, 4]
+    >>> contains_nested_objects(example_list1)
+    True  # non-strict, contains nested objects
+    >>> contains_nested_objects(example_list1, strict=True)
+    True  # strict, all are nested objects
+    >>> contains_nested_objects(example_list2)
+    True  # non-strict, contains at least one nested object
+    >>> contains_nested_objects(example_list2, strict=True)
+    False  # strict, not all are nested objects
+    >>> contains_nested_objects(example_list3)
+    False  # non-strict, no nested objects
+    >>> contains_nested_objects(example_list3, strict=True)
+    False  # strict, no nested objects
     """
-    import math 
-    if sample_weights is not None and len(sample_weights) != len(listof[0]):
-        raise ValueError(
-            "sample_weights length must match the number of sublists in listof.")
-
-    # Convert sample_weights to a numpy array for easier manipulation
-    if sample_weights is not None:
-        sample_weights = np.asarray(sample_weights)
-
-    filtered_listof = []
-    valid_indices = set(range(len(listof[0])))  # Initialize with all indices as valid
-
-    # Identify indices with NaNs across all lists
-    for lst in listof:
-        for idx, sublist in enumerate(lst):
-            if any(math.isnan(item) if isinstance(item, (
-                    float, np.floating)) else False for item in sublist):
-                valid_indices.discard(idx)
-
-    # Filter lists based on valid indices
-    for lst in listof:
-        filtered_list = [lst[idx] for idx in sorted(valid_indices)]
-        filtered_listof.append(filtered_list)
-
-    # Adjust sample_weights based on valid indices
-    adjusted_sample_weights = sample_weights[
-        sorted(valid_indices)] if sample_weights is not None else None
-
-    return tuple(filtered_listof), adjusted_sample_weights
-
-def standardize_input(*arrays):
-    """
-    Standardizes input formats for comparison metrics, converting input data
-    into a uniform format of lists of sets. This function can handle a variety
-    of input formats, including 1D and 2D numpy arrays, lists of lists, and
-    tuples, making it versatile for tasks that involve comparing lists of items
-    like ranking or recommendation systems.
-
-    Parameters
-    ----------
-    *arrays : variable number of array-like or list of lists
-        Each array-like argument represents a set of labels or items, such as 
-        `y_true` and `y_pred`. The function is designed to handle:
-        
-        - 1D arrays where each element represents a single item.
-        - 2D arrays where rows represent samples and columns represent items
-          (for multi-output scenarios).
-        - Lists of lists or tuples, where each inner list or tuple represents 
-          a set of items for a sample.
-
-    Returns
-    -------
-    standardized : list of lists of set
-        A list containing the standardized inputs as lists of sets. Each outer
-        list corresponds to one of the input arrays, and each inner list 
-        corresponds to a sample within that array.
-
-    Raises
-    ------
-    ValueError
-        If the lengths of the input arrays are inconsistent.
-    TypeError
-        If the inputs are not array-like, lists of lists, or lists of tuples,
-        or if an ndarray has more than 2 dimensions.
-
-    Examples
-    --------
-    >>> from numpy import array
-    >>> from gofast.tools.validator import standardize_input
-    >>> y_true = [[1, 2], [3]]
-    >>> y_pred = array([[2, 1], [3]])
-    >>> standardized_inputs = standardize_input(y_true, y_pred)
-    >>> for standardized in standardized_inputs:
-    ...     print([list(s) for s in standardized])
-    [[1, 2], [3]]
-    [[2, 1], [3]]
-
-    >>> y_true_1d = array([1, 2, 3])
-    >>> y_pred_1d = [4, 5, 6]
-    >>> standardized_inputs = standardize_input(y_true_1d, y_pred_1d)
-    >>> for standardized in standardized_inputs:
-    ...     print([list(s) for s in standardized])
-    [[1], [2], [3]]
-    [[4], [5], [6]]
-
-    Notes
-    -----
-    The function is particularly useful for preprocessing inputs to metrics 
-    that require comparison of sets of items across samples, such as precision
-    at K, recall at K, or NDCG. By standardizing the inputs to lists of sets,
-    the function facilitates consistent handling of these computations
-    regardless of the original format of the input data. This standardization
-    is critical when working with real-world data, which can vary widely in
-    format and structure.
-    """
-    standardized = []
-    for data in arrays:
-        # Transform ndarray based on its dimensions
-        if isinstance(data, np.ndarray):
-            if data.ndim == 1:
-                standardized.append([set([item]) for item in data])
-            elif data.ndim == 2:
-                standardized.append([set(row) for row in data])
-            else:
-                raise TypeError("Unsupported ndarray shape. Must be 1D or 2D.")
-        # Transform lists or tuples
-        elif isinstance(data, (list, tuple)):
-            if all(isinstance(item, (list, tuple, np.ndarray)) for item in data):
-                standardized.append([set(item) for item in data])
-            else:
-                standardized.append([set([item]) for item in data])
-        else:
-            raise TypeError(
-                "Inputs must be array-like, lists of lists, or lists of tuples.")
+    if allowed_types is None:
+        allowed_types = (list, set, dict, tuple)  # Default nested types
     
-    # Check consistent length across all transformed inputs
-    if any(len(standardized[0]) != len(arr) for arr in standardized[1:]):
-        raise ValueError("All inputs must have the same length.")
+    # Function to check if an item is a nested type
+    def is_nested(item):
+        return isinstance(item, allowed_types)
     
-    return standardized
-
+    if strict:
+        # Check if all items are nested objects
+        return all(is_nested(item) for item in lst)
+    else:
+        # Check if any item is a nested object
+        return any(is_nested(item) for item in lst)
+    
 def validate_nan_policy(nan_policy, *arrays, sample_weights=None):
     """
     Validates and applies a specified nan_policy to input arrays and

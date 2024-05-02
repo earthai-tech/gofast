@@ -25,6 +25,7 @@ from sklearn.preprocessing import label_binarize, LabelEncoder
 
 from ._gofastlog import gofastlog 
 from .api.formatter import MetricFormatter
+from .tools.baseutils import standardize_input, filter_nan_from
 from .tools.coreutils import normalize_string 
 from .tools.mathex import calculate_binary_iv, optimized_spearmanr 
 from .tools.mathex import compute_sensitivity_specificity 
@@ -33,7 +34,6 @@ from .tools.validator import _is_numeric_dtype, _ensure_y_is_valid
 from .tools.validator import check_epsilon, check_is_fitted
 from .tools.validator import check_classification_targets, validate_nan_policy
 from .tools.validator import ensure_non_negative, validate_multioutput 
-from .tools.validator import standardize_input, filter_nan_entries
 from .tools.validator import parameter_validator, handle_zero_division
 from .tools.validator import validate_sample_weights 
 
@@ -4906,14 +4906,17 @@ def ndcg_at_k(
     """
     # Ensure y_true and y_pred are standardized 
     y_true, y_pred = standardize_input(y_true, y_pred)
-    print( y_true, y_pred)
+    # print( y_true, y_pred)
     # Handle NaN values according to nan_policy
-    y_true, y_pred, *opt_weights = filter_nan_entries(
-        nan_policy, *y_true, *y_pred, sample_weights =sample_weight ) 
+    yy, *opt_weights = filter_nan_from(
+         y_true, y_pred, sample_weights =sample_weight ) 
     sample_weight = opt_weights[0] if opt_weights else sample_weight 
     
+    y_true, y_pred = yy 
     # After filtered out, revert back to a set 
-    y_true, y_pred = [set(y_true)], [set(y_pred)]
+    print(y_true)
+    print(y_pred)
+    #y_true, y_pred = [set(y_true)], [set(y_pred)]
     
     # Calculate DCG@k and IDCG@k for each pair of true and predicted rankings
     def dcg_at_k(scores, k):
@@ -4931,7 +4934,7 @@ def ndcg_at_k(
         
     ndcg_scores = []
     for idx, (true, pred) in enumerate(zip(y_true, y_pred)):
-        actual_scores = np.array([true.get(item, 0) for item in pred[:k]])
+        actual_scores = np.array([true.get(item, 0) for item in list(pred)[:k]])
         ideal_scores = np.sort(list(true.values()))[::-1][:k]
 
         dcg_score = dcg_at_k(actual_scores, k)
