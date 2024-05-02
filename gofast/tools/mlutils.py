@@ -3695,7 +3695,6 @@ def _separate_and_impute(X, num_imputer, cat_imputer):
         cat_imputed = np.array([]).reshape(X.shape[0], 0)
     return num_imputed, cat_imputed, num_columns, cat_columns
 
-
 def _enabled_bi_impute_mode(
     strategy: str, fill_value: Union[str, float, None]
      ) -> Tuple[List[Union[None, float, str]], List[str]]:

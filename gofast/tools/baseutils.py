@@ -10,20 +10,22 @@ import warnings
 import functools 
 import threading 
 import subprocess 
-from joblib import Parallel, delayed
-from datetime import datetime
 import numpy as np 
 import pandas as pd 
 from tqdm import tqdm
+from datetime import datetime
 import matplotlib.pyplot as plt 
+from joblib import Parallel, delayed
 from matplotlib.ticker import FixedLocator
 from sklearn.utils import all_estimators 
 from collections.abc import Iterable as IterableInstance
+
 from ..api.property import  Config
 from ..api.types import Union, List, Optional, Tuple, Iterable, Any, Set 
 from ..api.types import _T, _F, DataFrame, ArrayLike, Series, NDArray
 from ..decorators import Dataify 
 from ..exceptions import FileHandlingError
+from ._dependency import import_optional_dependency
 from .coreutils import is_iterable , ellipsis2false, smart_format  
 from .coreutils import to_numeric_dtypes, validate_feature
 from .coreutils import _assert_all_types, exist_features 
@@ -31,7 +33,119 @@ from .validator import check_consistent_length, get_estimator_name
 from .validator import _is_arraylike_1d, array_to_frame, build_data_if
 from .validator import is_categorical, is_valid_policies, contains_nested_objects 
 from .validator import parameter_validator, normalize_array 
-from ._dependency import import_optional_dependency
+
+
+def convert_array_dimensions(
+        *arrays, target_dim=1, new_shape=None, orient='row'):
+    """
+    Convert arrays between 1D, 2D, and higher dimensions. 
+    
+    Function dynamically adjusts the dimensions of the input arrays based on 
+    the target dimension specified and can reshape arrays according to a new 
+    shape.
+
+    Parameters:
+    -----------
+    *arrays : tuple of array-like
+        Variable number of array-like structures (lists, tuples, np.ndarray).
+    target_dim : int, optional
+        The target dimension to which the arrays should be converted. Options 
+        are primarily 1 or 2.
+        Default is 1, which flattens arrays to 1D.
+    new_shape : tuple of ints, optional
+        The new shape for the array when converting to 2D or reshaping a
+        higher-dimensional array.
+        If None, defaults are used (e.g., flattening to 1D or reshaping to 
+                                    one row per array in 2D).
+    orient : str or int, optional
+        Specifies the orientation for reshaping the array into 2D when no 
+        new_shape is provided. 
+        Accepts 'row' or 0 to reshape the array into a single row 
+        (default behavior), and 'column' or 1 
+        to reshape the array into a single column. This parameter determines 
+        the structure of the 2D array:
+        - 'row' or 0: The array is reshaped to have one row with multiple 
+          columns.
+        - 'column' or 1: The array is reshaped to have one column with 
+           multiple rows.
+        If an invalid option is provided, a ValueError is raised.
+
+    Returns:
+    --------
+    list
+        A list of arrays converted to the specified target dimension.
+
+    Raises:
+    -------
+    ValueError
+        If the target_dim is not supported or if conversion is not feasible 
+        for the given dimensions.
+        
+    Examples
+    --------
+    >>> from gofast.tools.baseutils import convert_array_dimensions
+    >>> import numpy as np
+
+    # Example 1: Convert a 1D array to a 2D array with a specific shape
+    >>> array_1d = np.array([1, 2, 3, 4, 5])
+    >>> convert_array_dimensions(array_1d, target_dim=2, new_shape=(5, 1))
+    [array([[1],
+            [2],
+            [3],
+            [4],
+            [5]])]
+
+    # Example 2: Flatten a 2D array to 1D
+    >>> array_2d = np.array([[1, 2, 3], [4, 5, 6]])
+    >>> convert_array_dimensions(array_2d, target_dim=1)
+    [array([1, 2, 3, 4, 5, 6])]
+
+    # Example 3: Convert a 1D array to a default 2D array (one row)
+    >>> array_1d = np.array([7, 8, 9, 10])
+    >>> convert_array_dimensions(array_1d, target_dim=2)
+    [array([[ 7,  8,  9, 10]])]
+
+    # Example 4: Attempt to reshape a 1D array into an 
+    # incompatible 2D shape (should raise an error)
+    >>> array_1d = np.array([1, 2, 3, 4, 5, 6])
+    >>> convert_array_dimensions(array_1d, target_dim=2, new_shape=(2, 4))
+    Traceback (most recent call last):
+      ...
+    ValueError: Cannot reshape array of size 6 into shape (2, 4)
+    """
+    converted_arrays = []
+    for arr in arrays:
+        # Ensure input is converted to a NumPy array for manipulation
+        array = np.array(arr) 
+
+        if target_dim == 1:
+            # Flatten the array to 1D
+            converted_arrays.append(array.ravel())
+        elif target_dim == 2:
+            if new_shape is not None:
+                # Reshape according to the provided new_shape
+                try:
+                    converted_arrays.append(array.reshape(new_shape))
+                except ValueError as e:
+                    raise ValueError(f"Cannot reshape array of size {array.size}"
+                                     f" into shape {new_shape}") from e
+            else:
+                # Skip reshaping if the array is already 2D and no new shape is provided
+                if array.ndim == 2 and array.shape == (1, -1) or array.shape == (-1, 1):
+                    converted_arrays.append(array)
+                else:
+                    # Default 2D shape based on orientation
+                    if orient == 'row' or orient == 0:
+                        converted_arrays.append(array.reshape(1, -1))
+                    elif orient == 'column' or orient == 1:
+                        converted_arrays.append(array.reshape(-1, 1))
+                    else:
+                        raise ValueError("orient must be 'row', 'column', 0, or 1.")
+        else:
+            raise ValueError(
+                f"Invalid target dimension {target_dim}. Only 1 or 2 are supported.")
+
+    return converted_arrays
 
 def filter_nan_entries(
     nan_policy, *listof, 

@@ -25,7 +25,8 @@ from sklearn.preprocessing import label_binarize, LabelEncoder
 
 from ._gofastlog import gofastlog 
 from .api.formatter import MetricFormatter
-from .tools.baseutils import standardize_input, filter_nan_from
+from .tools.baseutils import standardize_input, filter_nan_from 
+from .tools.baseutils import normalize_array, convert_array_dimensions
 from .tools.coreutils import normalize_string 
 from .tools.mathex import calculate_binary_iv, optimized_spearmanr 
 from .tools.mathex import compute_sensitivity_specificity 
@@ -35,7 +36,7 @@ from .tools.validator import check_epsilon, check_is_fitted
 from .tools.validator import check_classification_targets, validate_nan_policy
 from .tools.validator import ensure_non_negative, validate_multioutput 
 from .tools.validator import parameter_validator, handle_zero_division
-from .tools.validator import validate_sample_weights 
+from .tools.validator import validate_sample_weights, validate_positive_integer 
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -96,7 +97,7 @@ def log_likelihood_score(
     strategy='ovr', 
     sample_weight=None, 
     epsilon=1e-8, 
-    multi_output='uniform_average', 
+    multioutput='uniform_average', 
     detailed_output=False,
     zero_division="warn"
 ):
@@ -135,7 +136,7 @@ def log_likelihood_score(
     epsilon : float, optional
         A small constant added to the denominator to prevent division by zero.
         This helps in maintaining numerical stability. Default is 1e-8.
-    multi_output : str, optional
+    multioutput : str, optional
         Determines how to return the output: 'uniform_average' or 'raw_values'.
         'uniform_average' computes the average of the metrics across all classes,
         treated equally. 'raw_values' returns a separate metric for each class.
@@ -239,7 +240,7 @@ def log_likelihood_score(
         y_true, y_pred, 
         err_msg="y must contain non-negative values for LR calculation.")
     epsilon = check_epsilon(epsilon, y_true, y_pred)
-    multi_output = validate_multioutput(multi_output)
+    multioutput = validate_multioutput(multioutput)
     consensus = parameter_validator(
         "consensus", target_strs={'negative', 'positive'})(consensus)
     # Handle unexpected strategy
@@ -257,7 +258,7 @@ def log_likelihood_score(
             consensus=consensus,
             strategy=strategy,
             epsilon=epsilon,
-            multi_output=multi_output,
+            multi_output=multioutput,
             apply_log_scale=True,
             include_metrics=True, 
             sample_weight= sample_weight, 
@@ -278,13 +279,6 @@ def log_likelihood_score(
         scores.sensitivity= sensitivity 
         scores.specificity= specificity 
         
-    # Check for division by zero issues
-    # if zero_division == 'warn' and (np.isinf(result).any() or np.isnan(
-    #         result).any()):
-    #     import warnings
-    #     warnings.warn("Division by zero occurred", RuntimeWarning)
-    #     return np.nan
-
     # Check if result contains zero or negative values, which will cause issues with log.
     if (result <= 0).any():
         if zero_division == 'warn':
@@ -319,7 +313,7 @@ def likelihood_score(
     strategy='ovr', 
     epsilon='auto', 
     zero_division='warn', 
-    multi_output='uniform_average', 
+    multioutput='uniform_average', 
     detailed_output=False, 
     ):
     """
@@ -371,7 +365,7 @@ def likelihood_score(
         'warn' (default) issues a warning; 'ignore' proceeds without warning,
         potentially leading to infinite or NaN results in the output.
     
-    multi_output : str, optional
+    multioutput : str, optional
         Determines the method for aggregating output values in multiclass
         problems. 'uniform_average' (default) averages the computed metrics
         across all classes with equal weighting.
@@ -457,10 +451,10 @@ def likelihood_score(
     )
     # check epsilon 
     epsilon = check_epsilon(epsilon, y_true, y_pred  )
-    multi_output= validate_multioutput(multi_output)
+    multioutput= validate_multioutput(multioutput)
 
     consensus = parameter_validator( 
-        "consensus", target_strs={'negative', 'positive'})( consensus)
+        "consensus", target_strs={'negative', 'positive'})(consensus)
     strategy = parameter_validator( 
         "strategy", target_strs={'ovr', 'ovo'})( strategy)
     
@@ -475,7 +469,7 @@ def likelihood_score(
             consensus=consensus,
             epsilon=epsilon, 
             sample_weight = sample_weight, 
-            multi_output=multi_output, 
+            multi_output=multioutput, 
             )
         scores.strategy= strategy
         scores.sensitivity= sensitivity
@@ -513,7 +507,7 @@ def percentage_bias(
     sample_weight=None, 
     epsilon='auto', 
     zero_division='warn', 
-    multi_output='uniform_average',
+    multioutput='uniform_average',
 ):
     """
     Calculates the Percentage Bias (PBIAS) between true and predicted values.
@@ -544,7 +538,7 @@ def percentage_bias(
     zero_division : {'warn', 'ignore'}, optional
         Specifies how to handle the division by zero: 'warn' raises a warning;
         'ignore' suppresses the warning and proceeds with the calculation.
-    multi_output : {'raw_values', 'uniform_average'}, optional
+    multioutput : {'raw_values', 'uniform_average'}, optional
         Defines how multiple output values are aggregated: 'raw_values' returns 
         a full set of errors, 'uniform_average' averages errors across all outputs.
 
@@ -629,10 +623,10 @@ def percentage_bias(
                       " Percentage Bias calculation.", UserWarning)
 
     # Handle multioutput aggregation
-    multi_output=validate_multioutput(multi_output)
-    if multi_output == 'uniform_average':
+    multioutput=validate_multioutput(multioutput)
+    if multioutput == 'uniform_average':
         return np.mean(weighted_percentage_bias) * 100
-    elif multi_output == 'raw_values':
+    elif multioutput == 'raw_values':
         return weighted_percentage_bias * 100
     
 def mean_squared_log_error(
@@ -3761,7 +3755,7 @@ def madev_flex(
     >>> from gofast.metrics import madev_flex
     >>> data = [1, 2, 3, 4, 5]
     >>> result=madev_flex(data)
-    >>> result.MADev
+    >>> result.score
     1.2
 
     >>> result= madev_flex(data, detailed=True)
@@ -3828,7 +3822,7 @@ def madev_flex(
         # against division by zero
         scaled_abs_deviation = abs_deviation / np.maximum(mean, epsilon)
         scaled_madev = np.mean(scaled_abs_deviation, axis=axis)
-        result.scaled_MADev = scaled_madev
+        result.scaled_score = scaled_madev
         
         if detailed:
             # Include detailed statistics for scaled deviations if requested
@@ -4834,6 +4828,133 @@ def ndcg_at_k(
     sample_weight=None, 
     multioutput='uniform_average', 
     nan_policy='omit'
+    ):
+    """
+    Compute Normalized Discounted Cumulative Gain (NDCG) at rank K, a widely
+    recognized measure in information retrieval and ranking problems. This 
+    metric assesses the quality of the ranking by considering the order of
+    relevance scores assigned to the set of items up to position K. It's
+    particularly useful in evaluating the performance of search engines and
+    recommender systems.
+
+    Parameters
+    ----------
+    y_true :  list of list of int
+        List of lists containing the true relevant items with their grades.
+    y_pred : list of list of int
+        List of lists containing the predicted items up to position K.
+    k : int
+        The rank at which the NDCG is calculated.
+    sample_weight : array-like, optional
+        Weights for each sample in y_true and y_pred. Default is None.
+    multioutput : {'raw_values', 'uniform_average'}, optional
+        Determines the type of averaging performed on the data:
+        'raw_values' returns an array with NDCG score per each set of predictions;
+        'uniform_average' calculates an average of all NDCG scores.
+        Default is 'uniform_average'.
+    nan_policy : {'omit', 'raise', 'propagate'}, optional
+        Defines how to handle when input contains NaN. Currently, only 'omit'
+        is supported, which excludes NaNs from the calculation. 
+        Default is 'omit'.
+
+    Returns
+    -------
+    float or np.ndarray
+        The NDCG score at K. Returns a single float value if 'uniform_average' 
+        is selected for `multioutput`, or an array of scores if 'raw_values'.
+
+    Notes
+    -----
+    The NDCG at position K is calculated as the ratio of the Discounted 
+    Cumulative Gain (DCG) at K to the Ideal DCG (IDCG) at K, ensuring the 
+    score is normalized to the range [0, 1]:
+
+    .. math::
+        \mathrm{NDCG@K} = \frac{\mathrm{DCG@K}}{\mathrm{IDCG@K}}
+
+    where:
+
+    .. math::
+        \mathrm{DCG@K} = \sum_{i=1}^{K} \frac{2^{rel_i} - 1}{\log_2(i + 1)}
+
+    and `rel_i` is the graded relevance of the result at position `i`.
+
+    Examples
+    --------
+    >>> from gofast.metrics import ndcg_at_k
+    >>> y_true = [[3, 2, 3], [2, 1, 2]]
+    >>> y_pred = [[1, 2, 3], [1, 2, 3]]
+    >>> k = 3
+    >>> ndcg_at_k(y_true, y_pred, k)
+    0.8388113303189411
+
+    References
+    ----------
+    .. [1] Järvelin, K., & Kekäläinen, J. (2002). Cumulated gain-based evaluation 
+           of IR techniques. ACM Transactions on Information Systems (TOIS), 
+           20(4), 422-446.
+
+    See Also
+    --------
+    precision_at_k : Precision at rank K for ranking problems.
+    """
+    def dcg_at_k(r, k):
+        """ Calculate Discounted Cumulative Gain (DCG) at rank k """
+        r = np.asfarray(r)[:k]
+        if r.size:
+            return np.sum(r / np.log2(np.arange(2, r.size + 2)))
+        return 0.0
+    
+    # Check that k is a positive integer after conversion
+    k=validate_positive_integer(k, "k")
+    # Convert lists to numpy arrays for easier manipulation
+    y_true, y_pred = _ensure_y_is_valid(
+        y_true, y_pred, y_numeric =True, multi_output=True)
+    # Handling NaNs based on policy
+    y_true, y_pred, *opt_sample_weight = validate_nan_policy(
+        nan_policy, y_true, y_pred, sample_weights=sample_weight) 
+    sample_weight = opt_sample_weight[0] if opt_sample_weight else sample_weight
+    
+     # If NaN exists
+    if nan_policy == 'propagate' and (
+            np.isnan(y_true).any() or np.isnan(y_pred).any()):
+        return np.nan
+    
+    # Initialize the list to store NDCG scores for each sample
+    ndcg_scores = []
+
+    # reshape arrays if not 2D yet. This is useful for handling 
+    # multi-output and 1D target array.
+    y_true, y_pred = convert_array_dimensions(y_true, y_pred, target_dim=2 )
+    
+    # Compute NDCG for each set of predictions and true values
+    for i in range(y_true.shape[0]):
+        # Sorting by predicted scores for the current set
+        order = np.argsort(y_pred[i])[::-1]
+        y_true_sorted = y_true[i, order]
+
+        # Calculate DCG and IDCG for the current set
+        dcg = dcg_at_k(y_true_sorted, k)
+        idcg = dcg_at_k(sorted(y_true_sorted, reverse=True), k)
+        
+        # Calculate NDCG for the current set
+        ndcg = dcg / idcg if idcg > 0 else 0.0
+        ndcg_scores.append(ndcg)
+
+    # Handle multioutput options
+    multioutput = validate_multioutput(multioutput)
+    if multioutput == 'uniform_average':
+        # Return the average of all NDCG scores
+        return np.mean(ndcg_scores)
+    elif multioutput == 'raw_values':
+        # Return the array of NDCG scores
+        return np.array(ndcg_scores)
+ 
+def ndcg_at_k0(
+    y_true, y_pred, k, *, 
+    sample_weight=None, 
+    multioutput='uniform_average', 
+    nan_policy='omit'
 ):
     """
     Compute Normalized Discounted Cumulative Gain (NDCG) at rank K, a widely
@@ -4892,7 +5013,7 @@ def ndcg_at_k(
     >>> y_pred = [[1, 2, 3], [1, 2, 3]]
     >>> k = 3
     >>> ndcg_at_k(y_true, y_pred, k)
-    0.9203
+    0.7454516132114052
 
     References
     ----------
@@ -4906,18 +5027,11 @@ def ndcg_at_k(
     """
     # Ensure y_true and y_pred are standardized 
     y_true, y_pred = standardize_input(y_true, y_pred)
-    # print( y_true, y_pred)
     # Handle NaN values according to nan_policy
-    yy, *opt_weights = filter_nan_from(
+    (y_true, y_pred), *opt_weights = filter_nan_from(
          y_true, y_pred, sample_weights =sample_weight ) 
     sample_weight = opt_weights[0] if opt_weights else sample_weight 
-    
-    y_true, y_pred = yy 
-    # After filtered out, revert back to a set 
-    print(y_true)
-    print(y_pred)
-    #y_true, y_pred = [set(y_true)], [set(y_pred)]
-    
+
     # Calculate DCG@k and IDCG@k for each pair of true and predicted rankings
     def dcg_at_k(scores, k):
         return np.sum([(2**scores[i] - 1) / np.log2(i + 2) for i in range(
@@ -4934,7 +5048,7 @@ def ndcg_at_k(
         
     ndcg_scores = []
     for idx, (true, pred) in enumerate(zip(y_true, y_pred)):
-        actual_scores = np.array([true.get(item, 0) for item in list(pred)[:k]])
+        actual_scores = np.array([dict(true).get(item, 0) for item in list(pred)[:k]])
         ideal_scores = np.sort(list(true.values()))[::-1][:k]
 
         dcg_score = dcg_at_k(actual_scores, k)
