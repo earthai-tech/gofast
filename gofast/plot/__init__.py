@@ -64,7 +64,8 @@ from .utils import (
     plot_dependences, 
     plot_pie_charts, 
     plot_actual_vs_predicted, 
-    plot_r2
+    plot_r2, 
+    woodland_plot
     )
 
 __all__= [
@@ -132,5 +133,6 @@ __all__= [
     'plot_dependences', 
     'plot_pie_charts', 
     "plot_actual_vs_predicted", 
-    "plot_r2"
+    "plot_r2", 
+    "woodland_plot"
     ]

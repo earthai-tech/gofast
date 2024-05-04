@@ -63,7 +63,13 @@ def setup_gofast_logging (default_path='_gflog.yml'):
     # Set up logging with the path to the configuration file
     gofastlog.load_configuration(config_file_path)
     
-# Example usage of the setup_logging function within util.py
+
+def make_public_api (): 
+    # make summary API public 
+    import gofast._public  # noqa 
+
+make_public_api () 
+
 if __name__ == "__main__":
     setup_logging()
 

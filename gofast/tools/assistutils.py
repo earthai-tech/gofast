@@ -73,9 +73,13 @@ TASK_MAPPING = {
     ],
     'statistics_and_math': [
         'adaptive_moving_average',
+        'calculate_adjusted_lr',
         'calculate_optimal_bins',
         'calculate_binary_iv',
         'compute_effort_yield', 
+        'compute_sensitivity_specificity', 
+        'compute_cost_based_threshold',
+        'compute_youdens_index', 
         'compute_errors',
         'linear_regression',
         'quadratic_regression',
@@ -85,7 +89,7 @@ TASK_MAPPING = {
         'interpolate1d', 
         'interpolate2d', 
         'rank_data',
-        'optimized_spearmanr'
+        'optimized_spearmanr', 
     ],
     'model_evaluation_and_analysis': [
         'evaluate_model', 
@@ -105,10 +109,10 @@ TW = get_table_size()
 
 def assist_me(*tasks: str, on_error='warn'):
     """
-    Provides tool recommendations for specified tasks using the gofast.tools 
-    library.
+    Provides some tool recommendations for specified tasks using the 
+    :mod:`gofast.tools` library.
 
-    This function dynamically fetches tools related to user-specified tasks and
+    Function dynamically fetches some tools related to user-specified tasks and
     organizes them into categories. It returns detailed descriptions and 
     recommendations for each tool. If an invalid task is provided, the function
     can warn the user or silently ignore the error based on the 'on_error' 
@@ -136,9 +140,9 @@ def assist_me(*tasks: str, on_error='warn'):
     >>> assist_me('data_preprocessing', 'model_evaluation_and_analysis')
   
     >>> assist_me('invalid_task', on_error='warn')
-    Warning: Invalid task(s) provided: invalid_task. Please select from: data_preprocessing, model_evaluation_and_analysis.
+    Warning: Invalid task(s) provided: invalid_task. Please select from:\
+        data_preprocessing, model_evaluation_and_analysis.
     """
-
     # Validate the input tasks against the available tasks
     valid_tasks = list(TASK_MAPPING.keys())
     invalid_tasks = [task for task in tasks if task not in valid_tasks]

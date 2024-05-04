@@ -21,16 +21,17 @@ from sklearn.metrics import classification_report, mean_squared_error
 from sklearn.metrics import mean_absolute_error, r2_score, jaccard_score
 from sklearn.utils.multiclass import unique_labels
 from sklearn.model_selection import cross_val_predict 
-from sklearn.preprocessing import label_binarize, LabelEncoder
+from sklearn.preprocessing import label_binarize
 
 from ._gofastlog import gofastlog 
 from .api.formatter import MetricFormatter
 from .tools.baseutils import standardize_input, filter_nan_from 
-from .tools.baseutils import normalize_array, convert_array_dimensions
+from .tools.baseutils import convert_array_dimensions
 from .tools.coreutils import normalize_string 
 from .tools.mathex import calculate_binary_iv, optimized_spearmanr 
 from .tools.mathex import compute_sensitivity_specificity 
 from .tools.mathex import calculate_multiclass_lr, calculate_multiclass_avg_lr
+from .tools.mathex import compute_balance_accuracy
 from .tools.validator import _is_numeric_dtype, _ensure_y_is_valid
 from .tools.validator import check_epsilon, check_is_fitted
 from .tools.validator import check_classification_targets, validate_nan_policy
@@ -2160,7 +2161,6 @@ def display_roc(fpr, tpr, auc_score, *, title=None, figsize=None):
        Recognition Letters,27(8), 861-874.
     """
     import matplotlib.pyplot as plt
-
     # Validate inputs
     fpr, tpr, auc_score = map(np.asarray, [fpr, tpr, auc_score])
     if not (fpr.ndim == tpr.ndim == 1):
@@ -4950,7 +4950,7 @@ def ndcg_at_k(
         # Return the array of NDCG scores
         return np.array(ndcg_scores)
  
-def ndcg_at_k0(
+def _ndcg_at_k(
     y_true, y_pred, k, *, 
     sample_weight=None, 
     multioutput='uniform_average', 
@@ -5648,64 +5648,22 @@ def balanced_accuracy_score(
     y_true, y_pred, *opt_sample_weight = validate_nan_policy(
         nan_policy, y_true, y_pred, sample_weights = sample_weight ) 
     sample_weight = opt_sample_weight[0] if opt_sample_weight else sample_weight 
-    # --
-    labels = unique_labels(y_true, y_pred)
-    labels = np.unique(np.concatenate([y_true, y_pred]))
     
-    if strategy == 'ovr':
-        score = _balanced_accuracy_ovr(
-            y_true, y_pred, labels, epsilon, zero_division, normalize, sample_weight)
-    elif strategy == 'ovo':
-        score = _balanced_accuracy_ovo(y_true, y_pred, labels, sample_weight)
-  
+    # compute balanced score 
+    score = compute_balance_accuracy(
+        y_true= y_true, y_pred=y_pred, 
+        epsilon = epsilon, 
+        zero_division= zero_division, 
+        strategy =strategy, 
+        normalize=normalize, 
+        sample_weight= sample_weight
+        ) 
+
     if multioutput == 'uniform_average':
         # Average the scores if multioutput is 'uniform_average'
         return np.average(score) 
   
     return score
-
-def _compute_balanced_accuracy_binary(
-    y_true, y_pred, epsilon=1e-15,
-    zero_division=0, normalize =False, 
-    sample_weight=None
- ):
-    cm = confusion_matrix(y_true, y_pred, sample_weight=sample_weight )
-    if normalize:
-        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
-    sensitivity = cm[1, 1] / (cm[1, 1] + cm[1, 0] + epsilon)
-    specificity = cm[0, 0] / (cm[0, 0] + cm[0, 1] + epsilon)
-    return (sensitivity + specificity) / 2  if not np.isnan(
-        sensitivity + specificity) else zero_division
-
-def _balanced_accuracy_ovr(
-    y_true, y_pred, labels, epsilon=1e-15,
-    zero_division=0, normalize=False, 
-    sample_weight =None
-  ):
-    bal_acc_scores = []
-    for label in labels:
-        binary_y_true = (y_true == label).astype(int)
-        binary_y_pred = (y_pred == label).astype(int)
-        score = _compute_balanced_accuracy_binary(
-            binary_y_true, binary_y_pred, epsilon, zero_division,
-            normalize=normalize, sample_weight= sample_weight )
-        bal_acc_scores.append(score)
-    return np.array(bal_acc_scores)
-
-def _balanced_accuracy_ovo(y_true, y_pred, labels, sample_weight=None):
-    le = LabelEncoder()
-    y_true_encoded = le.fit_transform(y_true)
-    y_bin = label_binarize(y_true_encoded, classes=range(len(labels)))
-    
-    bal_acc_scores = []
-    for i, label_i in enumerate(labels[:-1]):
-        for j, label_j in enumerate(labels[i+1:]):
-            specific_y_true = y_bin[:, i]
-            specific_y_pred = y_bin[:, j]
-            auc_score = roc_auc_score(
-                specific_y_true, specific_y_pred, sample_weight=sample_weight)
-            bal_acc_scores.append(auc_score)
-    return np.array(bal_acc_scores)
 
 def fetch_sklearn_scorers(scorer):
     """

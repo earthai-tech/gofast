@@ -3257,7 +3257,7 @@ def build_data_preprocessor(
     """
     Create a preprocessing pipeline for data transformation and feature engineering.
 
-    This function constructs a pipeline to preprocess data for machine learning tasks, 
+    Function constructs a pipeline to preprocess data for machine learning tasks, 
     accommodating a variety of transformations including scaling, encoding, 
     and dimensionality reduction. It supports both numerical and categorical data, 
     and can incorporate custom transformations.
@@ -4048,7 +4048,7 @@ def display_feature_contributions(
     print(summary)
 
 @ensure_pkg ("shap", extra = ( 
-    "`get_feature_contributions` need SHapley Additive exPlanations (SHAP)"
+    "`get_feature_contributions` needs SHapley Additive exPlanations (SHAP)"
     " package to be installed. Instead, you can use"
     " `gofast.tools.display_feature_contributions` for contribution scores" 
     " and `gofast.analysis.get_feature_importances` for PCA quick evaluation."
@@ -4080,8 +4080,9 @@ def get_feature_contributions(X, model=None, view=False):
 
     Notes
     -----
-    The function defaults to creating and using a RandomForestClassifier if no model is
-    provided. It is more efficient to pass a pre-trained model if available.
+    The function defaults to creating and using a RandomForestClassifier if no 
+    model is provided. It is more efficient to pass a pre-trained model if 
+    available.
 
     Examples
     --------

@@ -129,7 +129,7 @@ class QuestPlotter (BasePlot):
     ABC (Abstract Base Class) for visualization.
         
     Parameters 
-    -------------
+    -----------
     {params.base.savefig}
     {params.base.fig_dpi}
     {params.base.fig_num}

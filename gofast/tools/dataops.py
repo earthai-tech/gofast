@@ -5577,12 +5577,6 @@ def quality_control(
     essential to understand the implications of each step and adjust the 
     thresholds and methods according to your data analysis goals.
     """
-    def execute_ops ( ops): 
-        try: return  ops 
-        except: pass 
-        # in the case column does not exists 
-    
-    
     # Initialize result dictionary
     results = {
         'missing_data': {}, 'outliers': {}, 'data_types': {},
@@ -5742,8 +5736,6 @@ class _QualityControl(ReportFactory):
         if hasattr(self, "data_polished"):
             message += ", data polished"
         return f"<QualityControl: {message}. Use print() to see detailed contents>"
-
-
 
 if __name__ == "__main__":
     # Example usage of the function

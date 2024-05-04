@@ -182,7 +182,7 @@ class MultiFrameFormatter (metaclass=MetaLen):
         
         return self
     
-    def dataframe_with_same_columns(self):
+    def _dataframe_with_same_columns(self):
         """
         Constructs a single table where all included dataframes
         share the same column names.
@@ -201,7 +201,7 @@ class MultiFrameFormatter (metaclass=MetaLen):
         
         return construct_tables_for_same_columns(self.dfs, self.titles)
     
-    def dataframe_with_different_columns(self):
+    def _dataframe_with_different_columns(self):
         """
         Constructs individual tables for each dataframe when
         dataframes have differing column names.
@@ -241,9 +241,9 @@ class MultiFrameFormatter (metaclass=MetaLen):
                 self.dfs[0]).__str__()
 
         if have_same_columns(self.dfs):
-            return self.dataframe_with_same_columns()
+            return self._dataframe_with_same_columns()
 
-        return self.dataframe_with_different_columns()
+        return self._dataframe_with_different_columns()
 
     def _process_keyword_attribute(self):
         """
@@ -1850,6 +1850,7 @@ def make_fake_dfs(dataframes, max_rows=11, max_cols=7):
     Example
     -------
     >>> import pandas as pd
+    >>> from gofast.api.formatter import make_fake_dfs
     >>> df1 = pd.DataFrame({'A': range(100), 'B': range(100)})
     >>> df2 = pd.DataFrame({'C': range(50), 'D': range(50)})
     >>> fake_dfs = make_fake_dfs([df1, df2], max_rows=10, max_cols=1)

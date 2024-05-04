@@ -2925,7 +2925,7 @@ class Dataify:
                         return func(*args, **kwargs)
                     else:
                         raise
-
+                        
             return func(data, *args[1:], **kwargs)
         return wrapper
 

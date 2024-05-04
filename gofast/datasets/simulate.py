@@ -1837,6 +1837,8 @@ def simulate_traffic_flow(
         start_date, end_date, return_as_date_str=True, 
         date_format= "%Y-%m-%d %H:%M:%S"
         )
+    # adjust na_samples accordingly 
+    
     # Map user-friendly time increment strings to pandas frequency strings
     increments_map = {
         'hour': 'H',  # Map 'hour' to 'H'
@@ -1857,6 +1859,15 @@ def simulate_traffic_flow(
     start_datetime = pd.to_datetime(start_date)
     end_datetime = pd.to_datetime(end_date)
     date_range = pd.date_range(start=start_datetime, end=end_datetime, freq=pd_freq)
+    n_days = len(date_range)
+    
+    # Adjust date_range to fit the number of samples. 
+    adjust_params= adjust_parameters_to_fit_samples(
+        n_samples, initial_guesses= {"n_days":len(date_range)}
+        )
+    n_days= adjust_params.get("n_days", 30 )
+    # now take the date from start_date to fit n_days. 
+    date_range = date_range[: n_days]
 
     traffic_flow_range= validate_length_range(traffic_flow_range )
     traffic_flows = np.random.randint(*traffic_flow_range, len(date_range))
@@ -1910,51 +1921,52 @@ def simulate_medical_diagnosis(
     Parameters:
     ----------
     n_patients : int, default=1000
-        The number of patients to simulate in the dataset. Each patient will have a set
-        of symptoms and lab test results associated with them.
+        The number of patients to simulate in the dataset. Each patient will 
+        have a set of symptoms and lab test results associated with them.
 
     n_symptoms : int, default=10
-        The number of different symptoms to simulate for each patient. Symptoms are
-        binary variables (1 for presence, 0 for absence).
+        The number of different symptoms to simulate for each patient. Symptoms
+        are binary variables (1 for presence, 0 for absence).
 
     n_lab_tests : int, default=5
-        The number of lab tests results to simulate for each patient. Lab test results
-        are continuous variables, represented as floats.
+        The number of lab tests results to simulate for each patient. Lab test
+        results are continuous variables, represented as floats.
 
     diagnosis_options : list of str, optional
-        The list of possible diagnosis outcomes for each patient. This list can be
-        customized to include any number of diseases or health conditions.
+        The list of possible diagnosis outcomes for each patient. This list 
+        can be customized to include any number of diseases or health conditions.
         If None. default is ['Disease A', 'Disease B', 'Healthy']
     n_samples : int, optional
-        If specified, dynamically adjusts `n_patients` to meet the desired number of
-        samples, allowing for flexible dataset sizing.
+        If specified, dynamically adjusts `n_patients` to meet the desired 
+        number of samples, allowing for flexible dataset sizing.
 
     as_frame : bool, default=False
-        If True, the dataset is returned as a pandas DataFrame, facilitating direct data
-        manipulation and analysis using pandas.
+        If True, the dataset is returned as a pandas DataFrame, facilitating 
+        direct data manipulation and analysis using pandas.
 
     return_X_y : bool, default=False
-        If True, separates the dataset into feature vectors (X) and the target variable (y),
-        simplifying integration into machine learning workflows.
+        If True, separates the dataset into feature vectors (X) and the target
+        variable (y), simplifying integration into machine learning workflows.
 
     target_name : str or None, default=None
-        Names the target variable column. If None, defaults to 'diagnosis', which is
-        the label indicating the patient's diagnosis outcome.
+        Names the target variable column. If None, defaults to 'diagnosis',
+        which is the label indicating the patient's diagnosis outcome.
 
     noise_level : float or None, optional
-        Specifies the standard deviation of Gaussian noise to add to lab test results,
-        simulating variability and measurement error in medical tests.
+        Specifies the standard deviation of Gaussian noise to add to lab test
+        results, simulating variability and measurement error in medical tests.
 
     seed : int or None, optional
-        A seed value for the random number generator to ensure the reproducibility of the
-        dataset across simulations.
+        A seed value for the random number generator to ensure the 
+        reproducibility of the dataset across simulations.
 
-    Returns:
+    Returns
     -------
-    Depending on `as_frame` and `return_X_y`, the function can return a pandas DataFrame,
-    a tuple of `(X, y)`, or a Bunch object containing the dataset and metadata.
+    Depending on `as_frame` and `return_X_y`, the function can return a pandas
+    DataFrame, a tuple of `(X, y)`, or a Bunch object containing the dataset 
+    and metadata.
 
-    Examples:
+    Examples
     --------
     >>> from gofast.datasets.simulate import simulate_medical_diagnosis
     >>> dataset = simulate_medical_diagnosis(n_patients=500, as_frame=True)
@@ -1967,12 +1979,14 @@ def simulate_medical_diagnosis(
      4        1.0        1.0  ...    0.449666  Coronary Artery Disease
     
      [5 rows x 16 columns]
-    Notes:
+     
+    Notes
     -----
-    This dataset provides a basis for developing machine learning models that can assist in
-    medical diagnosis by analyzing patterns in symptoms and lab test results. It simulates
-    realistic scenarios encountered in medical practice, allowing for the exploration of
-    diagnostic models and their potential to improve patient outcomes.
+    This dataset provides a basis for developing machine learning models that 
+    can assist in medical diagnosis by analyzing patterns in symptoms and lab 
+    test results. It simulates realistic scenarios encountered in medical 
+    practice, allowing for the exploration of diagnostic models and their 
+    potential to improve patient outcomes.
     """
     func_name = inspect.currentframe().f_code.co_name
     dataset_descr, features_descr= fetch_simulation_metadata (func_name)

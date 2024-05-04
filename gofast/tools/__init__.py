@@ -10,15 +10,6 @@ are facilitated by :mod:`~gofast.tools.mlutils` and
 
 import importlib
 
-# Define a dictionary to map 
-# module names to their respective sub-packages
-
-# write a function called assist_me, who help user to select the appropriate tools 
-# to solve its task. For instance,if it works is how to handle correlatio n 
-# then select the correlation tool list for him. Note that 
-
-# each MODULE_MAPPING dictionnary key is a subpackage of gofast.tools. 
-# now group all tools info a category task, as new dict key in snake_case. 
 MODULE_MAPPING = {
     'assistutils': [
         'assist_me'
@@ -102,12 +93,17 @@ MODULE_MAPPING = {
     'mathex': [
         'adaptive_moving_average', 
         'adjust_for_control_vars',
+        'calculate_adjusted_lr', 
         'calculate_binary_iv', 
         'calculate_optimal_bins', 
         'calculate_residuals', 
+        'compute_balance_accuracy',
         'compute_effort_yield',
         'compute_errors', 
-        'compute_sunburst_data', 
+        'compute_sunburst_data',
+        'compute_cost_based_threshold', 
+        'compute_sensitivity_specificity', 
+        'compute_youdens_index',
         'cubic_regression', 
         'exponential_regression', 
         'get_bearing', 
@@ -133,7 +129,7 @@ MODULE_MAPPING = {
         'smoothing', 
         'standard_scaler', 
         'step_regression',
-        'weighted_spearman_rank'
+        'weighted_spearman_rank', 
     ],
     'mlutils': [
         'bi_selector', 

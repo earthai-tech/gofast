@@ -41,105 +41,205 @@ from sklearn.utils import resample
 
 from ..api.types import Optional, Tuple, Any, List, Union 
 from ..api.types import Dict, ArrayLike, DataFrame, Series
+from ..api.util import to_snake_case
+from ..decorators import Dataify
 from ..exceptions import  TipError, PlotError 
 from ..tools.coreutils import _assert_all_types, is_iterable, str2columns 
-from ..tools.coreutils import make_obj_consistent_if, is_in_if, to_numeric_dtypes 
-from ..tools.coreutils import fill_nan_in
+from ..tools.coreutils import make_obj_consistent_if, is_in_if 
+from ..tools.coreutils import to_numeric_dtypes, fill_nan_in
 from ..tools.validator import _check_array_in , _is_cross_validated, is_frame 
 from ..tools.validator import  assert_xy_in, get_estimator_name, check_is_fitted
 from ..tools.validator import check_array, check_X_y, check_consistent_length
-from ..tools.validator import validate_yy 
+from ..tools.validator import validate_yy, parameter_validator, validate_square_matrix
 from ..tools._dependency import import_optional_dependency 
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
+@Dataify(auto_columns=True, prefix="feature_")  
+def woodland_plot(
+    data: DataFrame,*,
+    quadrant: str="upper_left",
+    compute_corr: bool=False,
+    method: str='pearson',
+    annot: bool=True,
+    fig_size: Tuple [int, int]=(11, 9),
+    fmt: str=".2f",
+    linewidths: float=.5,
+    xrot: int=45,
+    yrot: int=0,
+    cmap: Optional[str]=None,
+    cbar: bool=True,
+    ax: Optional[mpl.axes.Axes]=None
+):
+    """
+    Plot a heatmap of the correlation matrix or a given matrix.
 
-def plot_woodland_map(df, quadrant="upper_left", buffer_space=4, min_col_width=10):
-    # Calculate the correlation matrix
-    corr = df.corr()
+    Function requires the input data to be a square matrix if `compute_corr`
+    is False. The function provides flexibility in the visual representation
+    of the correlation matrix by allowing selection of specific quadrants to display.
+    The `quadrant` parameter is particularly useful for focusing on parts of a 
+    larger matrix while analyzing data.
 
-    # Set up the matplotlib figure
-    f, ax = plt.subplots(figsize=(11, 9))
+    Parameters
+    ----------
+    data : DataFrame or array-like
+        The input data. If `compute_corr` is True, it should be a DataFrame; 
+        otherwise, it must be a square matrix.
+    quadrant : str, optional
+        Specifies the quadrant of the correlation matrix to display. 
+        Valid options: "upper_left" (default), "upper_right", "bottom_left", 
+        and "bottom_right".
+    compute_corr : bool, optional
+        Indicates whether to compute the correlation matrix from `data`. 
+        If True, `data` should be a DataFrame.
+    method : str, optional
+        The method used for computing the correlation matrix if `compute_corr` 
+        is True. Default is 'pearson'.
+    annot : bool, optional
+        Specifies whether to annotate the heatmap with correlation values. 
+        Default is True.
+    fig_size : tuple, optional
+        The dimensions of the figure to be created. Default is (11, 9).
+    fmt : str, optional
+        The format for annotating the heatmap. Default is ".2f".
+    linewidths : float, optional
+        The width of the lines that will divide each cell in the heatmap. 
+        Default is 0.5.
+    xrot : float, optional
+        Rotation angle in degrees for x-axis labels. Default is 45.
+    yrot : float, optional
+        Rotation angle in degrees for y-axis labels. Default is 0.
+    cmap : str or Colormap, optional
+        The colormap for the heatmap. If None, a default diverging palette 
+        is used.
+    cbar : bool, optional
+        Specifies whether to draw a colorbar. Default is True.
+    ax : matplotlib Axes, optional
+        The axes upon which to draw the heatmap. If None, a new figure 
+        and axes will be created.
 
-    # Generate a mask for the required quadrant
-    mask = np.ones_like(corr, dtype=bool)
-    if quadrant == "upper_right": # bottom lelft 
-        mask[np.tril_indices_from(mask)] = False
-    elif quadrant == "bottom_right":  # bottom right
-        mask[np.tril_indices_from(mask, -1)] = False
-        mask[np.triu_indices_from(mask)] = True
-    elif quadrant == "bottom_left":
-        mask[np.triu_indices_from(mask, 1)] = False
-        mask[np.tril_indices_from(mask)] = True
+    Notes
+    -----
+    The woodland plot function in Python draws inspiration from Baig Abdullah 
+    Al Shoumik's work on the R statistical Software group on the Meta platform. 
+    His approach to visualizing correlation matrices in R emphasizes clarity and 
+    effectiveness, which serves as a foundation for this implementation. An example 
+    of Al Shoumik's R script is provided below to illustrate his method:
+
+    ```R
+    # Calculate the correlation coefficients
+    WW <- corr_coef(www)
+
+    # Create the plot with upper triangle, custom text sizes, and titles
+    plot(WW,
+         type="upper",
+         size.text.cor=4,
+         size.text.signif=4) +
+         ggtitle("Correlation") +
+         theme(text=element_text(family="B", color="black", size=17),
+               plot.title=element_text(hjust=0.5, vjust=2, face="bold"))
+    ```
+
+    This Python implementation strives to replicate the intuitive display and 
+    flexible configuration of correlation matrices found in Al Shoumik's R-based 
+    methods, adapting them for use with Python's data handling and visualization 
+    capabilities.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from gofast.plot.utils import woodland_plot
+    >>> df = pd.DataFrame(np.random.rand(10, 10), columns=list('ABCDEFGHIJ'))
+    >>> woodland_plot(df, compute_corr=True, quadrant='upper_left', 
+    ...                  cbar=True, cmap='coolwarm')
+
+    See Also
+    --------
+    gofast.tools.dataops.analyze_data_corr : 
+        Analyze and elegantly display correlation tables. Provides options for 
+        interpreting correlation data.
+    gofast.stats.utils.correlation : 
+        Compute correlation, optionally handling both categorical and numeric 
+        data.
+    pd.DataFrame.corr : 
+        Compute correlation matrix for a pandas DataFrame.
+    pd.DataFrame.go_corr : 
+        Enhance pandas DataFrame with 'go_corr' function to compute correlation 
+        matrices and optionally provide enhanced visual displays.
+    """
+    # Convert quadrant parameter to snake case
+    quadrant = to_snake_case(quadrant)
+    
+    # Validate quadrant option
+    valid_options = {"bottom_left", "upper_left", "upper_right", "bottom_right"}
+    quadrant = parameter_validator("quadrant", target_strs=valid_options)(quadrant)
+    
+    data = to_numeric_dtypes(data) # validate 
+    # Compute correlation matrix if needed
+    if compute_corr:
+        data = data.corr(method=method)
+         
+    # Validate that data is a square matrix suitable 
+    data = validate_square_matrix(data, message=( 
+        "Ensure the data is square matrix, or set `compute_corr` to `True`"
+        " if data size adjustment is required.")
+        )
+    # Setup the plotting figure
+    if ax is None:
+        f, ax = plt.subplots(figsize=fig_size)
+
+    # Initialize mask to True (hide all)
+    mask = np.ones_like(data, dtype=bool)
+
+    # Configure mask according to the quadrant
+    if quadrant == "bottom_left":
+        # Show lower triangle including diagonal
+        mask[np.tril_indices_from(mask)]=False
+    elif quadrant == "upper_right":
+        # Show upper triangle including diagonal
+        mask[np.triu_indices_from(mask)]=False 
     elif quadrant == "upper_left":
-        mask[np.triu_indices_from(mask)] = False
-    else:
-        raise ValueError("Invalid quadrant argument. Use 'upper_right',"
-                         " 'upper_left', 'bottom_left', or 'bottom_right'.")
+        # Show upper triangle and rotate 
+        mask[np.triu_indices_from(mask)] = False 
+        mask=np.rot90 (mask, 1)
+    elif quadrant == "bottom_right":
+        # Show lower triangle and rotate
+        mask[np.tril_indices_from(mask)] = False
+        mask=np.rot90 (mask, 1)
 
-    # Generate a custom diverging colormap
-    cmap = sns.diverging_palette(220, 10, as_cmap=True)
+    # Set the colormap if none provided
+    if cmap is None:
+        cmap = sns.diverging_palette(220, 10, as_cmap=True)
 
-    # Draw the heatmap with the mask and correct aspect ratio
-    sns.heatmap(corr, mask=mask, cmap=cmap, vmax=1, center=0,
-                square=True, linewidths=.5, cbar_kws={"shrink": .5},
-                annot=True, fmt=".2f", cbar=False)
+    # Draw the heatmap with the mask and specified options
+    sns.heatmap(data, mask=mask, cmap=cmap, vmax=1, center=0,
+                square=True, linewidths=linewidths, 
+                cbar_kws={"shrink": .5},
+                annot=annot, fmt=fmt, cbar=cbar)
 
-    # Adjust the position of the labels based on the selected quadrant
-    # bottom_right --> upper right 
-    # upper -right --> bottom left 
-    
-    if quadrant in ["upper_left", "bottom_left"]:
-        # Labels on the top and left
-        plt.xticks(rotation=90)
-        plt.yticks(rotation=0)
-        
-        if quadrant == "upper_left":
-            ax.xaxis.tick_top()  # X-axis on top
-    elif quadrant in ["upper_right", "bottom_right"]: 
-        # Labels on the bottom and right
-        plt.xticks(rotation=45, ha='right')
-        plt.yticks(rotation=0)
+    # Adjust label positioning based on the quadrant
+    if quadrant in ["upper_left", "upper_right"]:
+        # X-axis labels on the top
+        ax.xaxis.set_tick_params(
+            top=True, bottom=False, labeltop=True,
+            labelbottom=False)
+        plt.xticks(rotation=xrot, ha='right')
+        plt.yticks(rotation=yrot)
         if quadrant == "upper_right":
-            ax.yaxis.tick_right()  # Y-axis on right
-            ax.xaxis.tick_top()   # X-axis on top
-        else:
-            ax.yaxis.tick_right()  # Y-axis on right
-    # Show the plot
+            # Y-axis labels on the right
+            ax.yaxis.set_tick_params(
+                left=False, right=True, labelleft=False,
+                labelright=True)
+    else:
+        plt.xticks(rotation=xrot, ha='right')
+        plt.yticks(rotation=yrot)
+        if quadrant == "bottom_right":
+            # Y-axis labels on the right
+            ax.yaxis.set_tick_params(
+                left=False, right=True, labelleft=False,
+                labelright=True)
+    # Display the plot
     plt.show()
-
-    
-def plot_bottom_lelft (df, /, cmap = plt.get_cmap("Oranges")): 
-    # Create DataFrame
-
-    # Compute the correlation matrix
-    corr = df.corr()
-    
-    # Create a mask for the upper triangle
-    mask = np.triu(np.ones_like(corr, dtype=bool))
-    
-    # Set up the matplotlib figure
-    fig, ax = plt.subplots(figsize=(8, 6))
-    
-    # Draw the heatmap with the mask
-    # cmap = plt.get_cmap("Oranges")
-    cbar_kws = {"shrink": .5}  # Optionally add arguments for colorbar
-    sns.heatmap(corr, mask=mask, annot=True, fmt=".2f", cmap=cmap, 
-                cbar_kws=cbar_kws, square=True, linewidths=.5, ax=ax)
-    
-    # Add labels (assuming you want labels similar to the triangle image uploaded)
-    ax.set_xlabel('xlabel')
-    ax.set_ylabel('ylabel')
-    plt.text(2, 0, 'bottom left',
-             va='bottom', ha='left',
-             fontsize=12, color='black'
-             )
-    
-    # Show the plot
-    plt.tight_layout()
-    plt.show()
-    
-
-
 
 def plot_actual_vs_predicted(
     y_true: ArrayLike, 
@@ -218,7 +318,7 @@ def plot_actual_vs_predicted(
     --------
     >>> import numpy as np
     >>> from gofast.plot.utils import plot_actual_vs_predicted
-    >>> y_true = np.array([1, 2, 3, 4, 5])
+    >>> y_true = np.array([1., 2., 3., 4., 5.])
     >>> y_pred = np.array([1.1, 1.9, 3.1, 3.9, 4.9])
     >>> plot_actual_vs_predicted(y_true, y_pred, metrics=['mse', 'rmse'], 
     ...                          point_color='green', line_color='r') 
@@ -682,7 +782,6 @@ def plot_correlation_with_target(
     >>> df = sns.load_dataset('iris')
     >>> plot_correlation_with_target(df, 'petal_length', kind='bar', 
                                      sns_style='whitegrid', color='green')
-    
     """
     if not isinstance(data, pd.DataFrame):
         raise TypeError("Expected data to be a pandas DataFrame."
@@ -1107,7 +1206,7 @@ def create_matrix_representation(
 
     # Fill the DataFrame
     for set_name, elements in data.items():
-        matrix_data.loc[elements, set_name] = 1
+        matrix_data.loc[list(elements), set_name] = 1  # Convert set to list
 
     # Create and display the matrix plot
     fig, ax = plt.subplots(figsize=(len(data), len(all_elements)/2))
@@ -1177,6 +1276,7 @@ def plot_venn_diagram(
 
     Examples
     --------
+    >>> import matplotlib.pyplot as plt
     >>> from sklearn.model_selection import train_test_split
     >>> from sklearn.datasets import make_classification
     >>> from sklearn.ensemble import RandomForestClassifier

@@ -23,6 +23,282 @@ from inspect import signature, Parameter, isclass
 from ._array_api import get_namespace, _asarray_with_order
 FLOAT_DTYPES = (np.float64, np.float32, np.float16)
 
+import numpy as np
+
+def validate_scores(
+    scores, true_labels=None, 
+    mode="strict", 
+    accept_multi_output=False
+    ):
+    """
+    Validates that the scores represent valid probability distributions and 
+    checks consistency between scores and true labels in multi-output scenarios.
+
+    Parameters
+    ----------
+    scores : list or np.ndarray
+        A list of np.ndarrays for multi-output probabilities, or a single np.ndarray
+        for single-output probabilities. Each ndarray should contain probability
+        distributions where each row sums to approximately 1 and has 
+        non-negative values.
+    true_labels : list or np.ndarray, optional
+        The true labels corresponding to the scores. This parameter must 
+        be provided in multi-output scenarios to check the alignment of labels
+        and scores. Each element or row in true_labels should correspond to 
+        the equivalent in scores.
+    mode : str, optional (default "strict")
+       Specifies the validation mode for checking probability distributions:
+       - 'strict': Each set of scores must sum exactly to 1, within a numerical
+         tolerance.
+       - 'soft': Scores must not exceed a total of 1, and all individual 
+         scores must be non-negative.
+       - 'passthrough': Only checks that each score is between 0 and 1 
+         inclusive, without summing them.    
+    accept_multi_output : bool, default False
+        Flag indicating whether scores with multiple outputs are accepted. 
+        If False and scores are provided as a list, a ValueError will be 
+        raised.
+
+    Returns
+    -------
+    np.ndarray
+        The validated scores as a NumPy array.
+
+    Raises
+    ------
+    ValueError
+        If multi-output scores are provided and not accepted.
+        If there is a mismatch in the number of outputs between scores and 
+        true_labels.
+        If scores or any subset of scores do not form valid probability 
+        distributions.
+        If there is a mismatch in format expectations between scores and 
+        true_labels in terms of multi-output handling.
+
+    Notes
+    -----
+    The function is designed to handle both single and multi-output probability
+    distributions. For multi-output scenarios, both scores and true_labels 
+    should be lists of np.ndarrays.
+    This function is particularly useful in scenarios involving machine learning
+    models where output probabilities need to be validated before further
+    processing or metrics calculations.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.tools.validator import validate_scores
+    >>> scores_single = np.array([[0.1, 0.9], [0.8, 0.2]])
+    >>> print(validate_scores(scores_single))
+    [[0.1, 0.9]
+     [0.8, 0.2]]
+
+    >>> scores_multi = [np.array([[0.1, 0.9]]), np.array([[0.8, 0.2]])]
+    >>> true_labels_multi = [np.array([1]), np.array([0])]
+    >>> print(validate_scores(scores_multi, true_labels_multi, accept_multi_output=True))
+    [array([[0.1, 0.9]]), array([[0.8, 0.2]])]
+    """
+    
+    # Check if scores are in a list for multi-output handling
+    if isinstance(scores, list):
+        if not accept_multi_output:
+            raise ValueError("Multi-output scores provided but not accepted.")
+        if true_labels is not None and len(scores) != len(true_labels):
+            raise ValueError("Mismatch in the number of outputs between"
+                             " scores and true_labels.")
+        if any(not _is_probability_distribution(
+                score, mode=mode) for score in scores):
+            raise ValueError("Each set of scores must be a valid"
+                             " probability distribution.")
+    else:
+        if not _is_probability_distribution(scores, mode=mode):
+            raise ValueError("Scores must be a valid probability distribution.")
+        if true_labels is not None:
+            if accept_multi_output and not isinstance(true_labels, list):
+                raise ValueError("Expected multi-output for true_labels"
+                                 " but got a single output.")
+            if not accept_multi_output and isinstance(true_labels, list):
+                raise ValueError("Non-multi-output scores with multi-output"
+                                 " true_labels.")
+    # Return scores as numpy array
+    return np.asarray(scores)
+
+def _is_probability_distribution(y, mode='strict'):
+    """
+    Checks if `y` is a probability distribution across the last axis according 
+    to the specified mode.
+
+    Parameters
+    ----------
+    y : np.ndarray
+        Array containing score values which need to be validated as probability
+        distributions.
+    mode : str, optional
+        Validation mode to be used. Available modes are:
+        - 'strict': Requires that the sum of scores exactly equals 1 
+        (within a tolerance).
+        - 'soft': Requires that the sum of scores does not exceed 1 and all
+        scores are non-negative.
+        - 'passthrough': Only checks that all scores are non-negative and do 
+          not exceed 1, without summing them.
+
+    Returns
+    -------
+    bool
+        True if `y` satisfies the conditions of the specified mode, False 
+        otherwise.
+
+    Raises
+    ------
+    ValueError
+        If an invalid mode is specified.
+
+    Examples
+    --------
+    >>> y = np.array([0.3, 0.7])
+    >>> print(is_probability_distribution(y, mode='strict'))
+    True
+
+    >>> y = np.array([0.5, 0.5, 0.2])
+    >>> print(is_probability_distribution(y, mode='soft'))
+    False
+
+    >>> y = np.array([0.2, 0.3, 0.4])
+    >>> print(is_probability_distribution(y, mode='passthrough'))
+    True
+    """
+  
+    if mode == 'strict':
+        return np.all(np.isclose(np.sum(y, axis=-1), 1)) and np.all(y >= 0)
+    elif mode == 'soft':
+        return np.all(np.sum(y, axis=-1) <= 1) and np.all(y >= 0)
+    elif mode == 'passthrough':
+        return np.all(np.asarray(y) <= 1) and np.all(np.asarray(y) >= 0)
+    else:
+        raise ValueError(f"Invalid validation mode: '{mode}'. Valid modes"
+                         " are 'strict', 'soft', or 'passthrough'.")
+
+def validate_square_matrix(data, /, align=False, align_mode="auto", message=''):
+    """
+    Validate that the input data forms a square matrix and optionally aligns its 
+    indices and columns if specified.
+
+    Parameters:
+    -----------
+    data : DataFrame or array-like
+        The input data to validate as a square matrix.
+    align : bool, default False
+        Whether to align the DataFrame's index with its columns.
+    align_mode : str, default 'auto'
+        Alignment mode if indices and columns do not match. Options are 'auto', 
+        'index_to_columns', and 'columns_to_index'.
+    message : str, default ''
+        Additional message to append to the error if validation fails.
+
+    Returns:
+    --------
+    data
+        The validated or aligned square matrix.
+
+    Raises:
+    -------
+    ValueError
+        If the input is not a square matrix.
+
+    Examples:
+    ---------
+    >>> from gofast.tools.validator import validate_square_matrix
+    >>> validate_square(np.array([[1, 2], [3, 4]]))
+    array([[1, 2],
+           [3, 4]])
+
+    >>> validate_square(pd.DataFrame([[1, 2], [3, 4, 5]]))
+    ValueError: Input must be a square matrix.
+
+    Notes:
+    ------
+    A square matrix is defined as having equal number of rows and columns. This function
+    checks the dimensionality of the data and optionally aligns the index and columns
+    if `align` is set to True.
+    """
+    if not is_square_matrix(data):
+        raise ValueError(f"Input must be a square matrix. {message}")
+    if align: 
+        data = validate_comparison_data(data, alignment=align_mode)
+    return data
+
+def is_square_matrix(data, data_type=None):
+    """
+    Determine whether the input, either a DataFrame or an array-like 
+    structure, forms a square matrix.
+    
+    Automatically detects the data type unless specified. Supports data inputs
+    that can be converted to a NumPy array.
+    
+    Parameters:
+    -----------
+    data : DataFrame, array-like, or any object convertible to a numpy array
+        The input data to check.
+    data_type : str, optional
+        The expected type of the input data. Valid options are 'array' or 
+        'dataframe'.
+        If not specified, the data type is inferred. Default interpretation 
+        is as an 'array'.
+
+    Returns:
+    --------
+    bool
+        Returns True if the data is a square matrix, otherwise False.
+        
+    Raises:
+    ------
+    ValueError
+        If `data_type` is neither 'array' nor 'dataframe'.
+    TypeError
+        If the input `data` does not match the expected format or 
+        cannot be processed.
+
+    Examples:
+    ---------
+    >>> is_square_matrix(np.array([[1, 2], [3, 4]]))
+    True
+
+    >>> is_square_matrix(pd.DataFrame([[1, 2, 3], [4, 5, 6]]))
+    False
+
+    >>> is_square_matrix([[1, 2], [3, 4]], data_type='array')
+    True
+
+    Notes:
+    ------
+    A square matrix has an equal number of rows and columns. This function 
+    checks the dimensionality and shape of the data to confirm if it meets 
+    this criterion.
+    """
+    # Determine the type based on the data provided
+    if data_type is None:
+        if isinstance(data, np.ndarray):
+            data_type = 'array'
+        elif isinstance(data, pd.DataFrame):
+            data_type = 'dataframe'
+        else:
+            data = np.array(data)  # Attempt to convert to a numpy array
+            data_type = 'array'
+
+    if data_type not in ['array', 'dataframe']:
+        raise ValueError("data_type must be either 'array' or 'dataframe'")
+
+    # Check if the data is a square matrix
+    if data_type == 'array':
+        if data.ndim != 2 or data.shape[0] != data.shape[1]:
+            return False
+    elif data_type == 'dataframe':
+        if data.shape[0] != data.shape[1]:
+            return False
+    else:
+        raise TypeError(f"Unsupported or mismatched data type: {data_type}")
+
+    return True
 
 def validate_multiclass_target(
         y, accept_multioutput=False, return_classes=False):
@@ -169,7 +445,8 @@ def validate_sample_weights(weights, y, normalize =False):
 
 
 def validate_weights(
-        weights, min_value=None, max_value=None, normalize=False, allowed_dims=1):
+        weights, min_value=None, max_value=None, normalize=False,
+        allowed_dims=1):
     """
     Validates and optionally normalizes the given weights array to ensure all elements 
     meet specified criteria and the structure is suitable for computations.
@@ -514,7 +791,6 @@ def handle_zero_division(
             pass  # Do nothing, let the calling function handle zeros natively.
 
     return y_true_processed
-
 
 def validate_comparison_data(df, /,  alignment="auto"):
     """
@@ -1015,7 +1291,7 @@ def validate_distribution(distribution, elements=None):
     
     return distribution
 
-def validate_length_range(length_range):
+def validate_length_range(length_range, sorted_values=True, param_name=None):
     """
     Validates the review length range ensuring it's a tuple with two integers 
     where the first value is less than the second.
@@ -1025,7 +1301,15 @@ def validate_length_range(length_range):
     length_range : tuple
         A tuple containing two integers that represent the minimum and maximum
         lengths of reviews.
-
+    sorted_values: bool, default=True 
+        If True, the function expects the input length range to be sorted in 
+        ascending order and will automatically sort it if not. If False, the 
+        input length range is not expected to be sorted, and it will remain 
+        as provided.
+    param_name : str, optional
+        The name of the parameter being validated. If None, the default name 
+        'length_range' will be used in error messages.
+        
     Returns
     -------
     tuple
@@ -1044,19 +1328,23 @@ def validate_length_range(length_range):
     >>> validate_length_range ( (202,) )
     ValueError: length_range must be a tuple with two elements.
     """
+    param_name = param_name or "length_range" 
     if not isinstance(length_range, ( list, tuple) ) or len(length_range) != 2:
-        raise ValueError("length_range must be a tuple with two elements.")
+        raise ValueError(f"{param_name} must be a tuple with two elements.")
 
     min_length, max_length = length_range
 
     if not all(isinstance(x, ( float, int, np.integer, np.floating)
                           ) for x in length_range):
-        raise ValueError("Both elements in length_range must be integers.")
+        raise ValueError(f"Both elements in {param_name} must be integers.")
     
-    length_range  = tuple  (sorted ( [min_length, max_length] )) 
-    if length_range[0] >= length_range[1]:
-        raise ValueError(
-            "The first element in length_range must be less than the second.")
+    if sorted_values: 
+        length_range  = tuple  (sorted ( [min_length, max_length] )) 
+        if length_range[0] >= length_range[1]:
+            raise ValueError(
+                f"The first element in {param_name} must be less than the second.")
+    else : 
+        length_range = tuple ([min_length, max_length] )
   
     return length_range 
     
@@ -1777,8 +2065,8 @@ def validate_yy(
                 actual_type_y_true != expected_type or actual_type_y_pred != expected_type
                 ):
             msg = (f"Validation failed in strict mode. Expected type '{expected_type}'"
-                   " for both y_true and y_pred, but got '{actual_type_y_true}'"
-                   " and '{actual_type_y_pred}' respectively.")
+                   f" for both y_true and y_pred, but got '{actual_type_y_true}'"
+                  f" and '{actual_type_y_pred}' respectively.")
             raise ValueError(msg)
 
     return y_true, y_pred

@@ -187,7 +187,6 @@ def adjust_to_samples(n_samples, *values, initial_guess=None, error='warn'):
 
     return adjusted_values
 
-
 def unpack_list_of_dicts(list_of_dicts):
     """
     Unpacks a list of dictionaries into a single dictionary,
@@ -753,7 +752,6 @@ def url_checker (url: str , install:bool = False,
         
     return isr 
 
-    
 def shrunkformat (
     text: str | Iterable[Any], 
     chunksize: int =7 ,

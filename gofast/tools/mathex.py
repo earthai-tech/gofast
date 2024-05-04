@@ -11,17 +11,21 @@ import warnings
 import itertools
 import numpy as np
 import pandas as pd 
-from scipy.signal import argrelextrema 
-from scipy.optimize import curve_fit
-from scipy.cluster.hierarchy import  linkage 
-from scipy.linalg import lstsq
-from scipy.stats import rankdata
+import matplotlib.pyplot as plt
+
+import scipy.stats as spstats
 from scipy._lib._util import float_factorial
+from scipy.cluster.hierarchy import linkage 
+from scipy.linalg import lstsq
 from scipy.ndimage import convolve1d
+from scipy.stats import rankdata
+from scipy.optimize import curve_fit
+from scipy.signal import argrelextrema 
 from scipy.spatial.distance import pdist, squareform 
-from sklearn.preprocessing import label_binarize
-from sklearn.metrics import confusion_matrix
-import  matplotlib.pyplot as plt
+
+from sklearn.metrics import confusion_matrix, roc_curve, roc_auc_score
+from sklearn.utils.multiclass import unique_labels
+from sklearn.preprocessing import label_binarize, LabelEncoder 
 
 from .._gofastlog import gofastlog
 from ..api.box import KeyBox
@@ -32,25 +36,326 @@ from ..api.types import Series, DataFrame,  Dict
 from ..compat.scipy import check_scipy_interpolate
 from ..decorators import AppendDocReferences
 from ..exceptions import SiteError
+
 from ._arraytools import axis_slice
-from .coreutils import _assert_all_types, _validate_name_in, assert_ratio
+from .coreutils import _assert_all_types, _validate_name_in
 from .coreutils import concat_array_from_list, remove_outliers 
 from .coreutils import find_close_position, normalize_string 
 from .coreutils import to_numeric_dtypes, ellipsis2false
 from .coreutils import smart_format, type_of_target, is_iterable 
-from .coreutils import reshape, fillNaN
+from .coreutils import reshape, fillNaN, assert_ratio
 from .validator import _is_arraylike_1d, _is_numeric_dtype, validate_multioutput 
 from .validator import check_consistency_size, check_consistent_length 
 from .validator import check_classification_targets, check_y, check_array
 from .validator import assert_xy_in, _ensure_y_is_valid, ensure_non_negative
 from .validator import check_epsilon, parameter_validator, is_binary_class 
 from .validator import validate_sample_weights, validate_multiclass_target
+from .validator import validate_length_range, validate_scores 
 
-try: import scipy.stats as spstats
-except: pass 
 _logger =gofastlog.get_gofast_logger(__name__)
 
 mu0 = 4 * np.pi * 1e-7 
+
+def compute_balance_accuracy(
+    y_true, y_pred, 
+    epsilon=1e-15,
+    zero_division=0, 
+    strategy="ovr",
+    normalize=False, 
+    sample_weight=None):
+    """
+    Compute the balanced accuracy for binary or multiclass classification problems,
+    determining the appropriate calculation method based on the label type and
+    specified strategy.
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        True labels for the classification task.
+    y_pred : array-like of shape (n_samples,)
+        Predicted labels from the classifier.
+    epsilon : float, default=1e-15
+        A small constant added to the denominator in calculations to prevent
+        division by zero.
+    zero_division : int, default=0
+        The value to return when a zero division occurs during calculation, typically
+        encountered when a class is missing in the predictions.
+    strategy : {'ovr', 'ovo'}, default='ovr'
+        Strategy for handling multiclass classification:
+        - 'ovr': One-vs-Rest, calculates balanced accuracy for each class against all others.
+        - 'ovo': One-vs-One, calculates balanced accuracy for each pair of classes.
+    normalize : bool, default=False
+        If True, normalizes the confusion matrix before calculating the balanced accuracy.
+    sample_weight : array-like of shape (n_samples,), optional
+        Weights for each sample. If provided, the calculation will take these into
+        account.
+
+    Returns
+    -------
+    float or np.ndarray
+        The balanced accuracy score. Returns a single float for binary classification
+        or an array of scores for multiclass classification, depending on the strategy.
+
+    Notes
+    -----
+    Balanced accuracy is particularly useful for evaluating classifiers on imbalanced
+    datasets. It calculates the average of recall obtained on each class, effectively
+    handling classes without bias.
+
+    Examples
+    --------
+    >>> from gofast.tools.mathex import compute_balance_accuracy
+    >>> y_true = [0, 1, 1, 0, 1]
+    >>> y_pred = [0, 1, 0, 0, 1]
+    >>> compute_balance_accuracy(y_true, y_pred)
+    0.833333333333333
+
+    For multiclass using One-vs-Rest strategy:
+    >>> y_true = [0, 1, 2, 0, 1]
+    >>> y_pred = [0, 2, 1, 0, 1]
+    >>> compute_balance_accuracy(y_true, y_pred, strategy='ovr')
+    array([1.        , 0.58333333, 0.375     ])
+
+    For multiclass using One-vs-One strategy:
+    >>> compute_balance_accuracy(y_true, y_pred, strategy='ovo')
+    array([1.        , 0.16666667, 0.16666667])
+    """
+    y_true, y_pred = _ensure_y_is_valid(y_true, y_pred, y_numeric=True)
+
+    # Check whether y_true is binary and compute balanced accuracy accordingly
+    if is_binary_class(y_true):
+        return _compute_balanced_accuracy_binary(
+            y_true=y_true, y_pred=y_pred, 
+            zero_division=zero_division, 
+            normalize=normalize, 
+            sample_weight=sample_weight)
+
+    # Validate the strategy parameter
+    strategy = parameter_validator(
+        "strategy", target_strs={"ovr", "ovo"})(strategy)
+    
+    labels = unique_labels(y_true, y_pred)
+    labels = np.unique(np.concatenate([y_true, y_pred]))
+    
+    # Compute balanced accuracy based on the specified strategy
+    if strategy == 'ovr':
+        scores = _balanced_accuracy_ovr(
+            y_true=y_true, y_pred=y_pred, 
+            labels=labels, 
+            epsilon=epsilon, 
+            zero_division=zero_division, 
+            normalize=normalize, 
+            sample_weight=sample_weight)
+    elif strategy == 'ovo':
+        labels = np.unique(np.concatenate([y_true, y_pred]))
+        scores = _balanced_accuracy_ovo(
+            y_true=y_true, y_pred=y_pred, 
+            labels=labels, sample_weight=sample_weight)
+
+    return scores
+
+def _compute_balanced_accuracy_binary(
+    y_true, y_pred, epsilon=1e-15,
+    zero_division=0, normalize =False, 
+    sample_weight=None
+    ):
+    cm = confusion_matrix(y_true, y_pred, sample_weight=sample_weight )
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+    sensitivity = cm[1, 1] / (cm[1, 1] + cm[1, 0] + epsilon)
+    specificity = cm[0, 0] / (cm[0, 0] + cm[0, 1] + epsilon)
+    return (sensitivity + specificity) / 2  if not np.isnan(
+        sensitivity + specificity) else zero_division
+
+def _balanced_accuracy_ovr(
+    y_true, y_pred, labels, epsilon=1e-15,
+    zero_division=0, normalize=False, 
+    sample_weight =None
+  ):
+    bal_acc_scores = []
+    for label in labels:
+        binary_y_true = (y_true == label).astype(int)
+        binary_y_pred = (y_pred == label).astype(int)
+        score = _compute_balanced_accuracy_binary(
+            binary_y_true, binary_y_pred, epsilon, zero_division,
+            normalize=normalize, sample_weight= sample_weight )
+        bal_acc_scores.append(score)
+    return np.array(bal_acc_scores)
+
+def _balanced_accuracy_ovo(y_true, y_pred, labels, sample_weight=None):
+    le = LabelEncoder()
+    y_true_encoded = le.fit_transform(y_true)
+    y_bin = label_binarize(y_true_encoded, classes=range(len(labels)))
+    
+    bal_acc_scores = []
+    for i, label_i in enumerate(labels[:-1]):
+        for j, label_j in enumerate(labels[i+1:]):
+            specific_y_true = y_bin[:, i]
+            specific_y_pred = y_bin[:, j]
+            auc_score = roc_auc_score(
+                specific_y_true, specific_y_pred, sample_weight=sample_weight)
+            bal_acc_scores.append(auc_score)
+            
+    return np.array(bal_acc_scores)
+
+def compute_cost_based_threshold(
+    y_true, y_scores, costs, *, 
+    sample_weight=None
+    ):
+    """
+    Compute threshold using a cost-based approach.
+
+    This method computes the total cost for each potential threshold and 
+    selects the one that minimizes this cost.
+    
+    Parameters:
+    -----------
+    y_true : array-like of shape (n_samples,)
+        True binary labels.
+    y_scores : array-like of shape (n_samples,)
+        Target scores, can either be probability estimates of the positive class,
+        confidence values, or non-thresholded measure of decisions (as returned
+        by decision_function on some classifiers).
+    costs : tuple (C_FP, C_FN)
+        Costs associated with false positives (C_FP) and false negatives (C_FN).
+    sample_weight : array-like of shape (n_samples,), optional (default=None)
+        Sample weights.
+
+    Returns
+    --------
+    optimal_threshold : float
+        The threshold that minimizes the total cost.
+    total_cost : float
+        The total cost at the optimal threshold.
+
+    Examples
+    ---------
+    >>> from gofast.tools.mathex import compute_cost_based_threshold
+    >>> y_true = [0, 1, 1, 0, 1]
+    >>> y_scores = [0.1, 0.8, 0.3, 0.6, 0.9]
+    >>> costs = (1, 2)  # Cost of FP = 1, Cost of FN = 2
+    >>> optimal_threshold, total_cost = compute_cost_based_threshold(y_true, y_scores, costs)
+    >>> print("Optimal Threshold:", optimal_threshold)
+    Optimal Threshold: 0.8
+    >>> print("Total Cost:", total_cost)
+    Total Cost: 4.0
+    """
+    y_true, y_scores = _ensure_y_is_valid(y_true, y_scores, y_numeric=True)
+    # Get unique thresholds from the scores
+    thresholds = np.unique(y_scores)
+    
+    # Initialize variables to store the best threshold and minimum cost
+    best_threshold = None
+    C_FP, C_FN = validate_length_range(costs, param_name="costs")
+    min_cost = float('inf')
+
+    # If sample weights are not provided, set them to ones
+    if sample_weight is None:
+        sample_weight = np.ones_like(y_true)
+        
+    # Validate sample weights 
+    sample_weight = validate_sample_weights(
+        sample_weight, y_true, normalize=True)
+    # Iterate over each unique threshold
+    for threshold in thresholds:
+        # Predict labels based on the current threshold
+        predicted_labels = (y_scores >= threshold).astype(int)
+        
+        # Calculate false positives (FP) and false negatives (FN) using sample weights
+        FP = np.sum((predicted_labels == 1) & (y_true == 0) & (sample_weight > 0))
+        FN = np.sum((predicted_labels == 0) & (y_true == 1) & (sample_weight > 0))
+        
+        # Calculate total cost using the provided costs and weighted FP/FN counts
+        total_cost = C_FP * FP + C_FN * FN
+        
+        # Update the minimum cost and best threshold if the current cost is lower
+        if total_cost < min_cost:
+            min_cost = total_cost
+            best_threshold = threshold
+
+    # Return the best threshold and its corresponding minimum cost
+    return best_threshold, min_cost
+
+def compute_youdens_index(
+    y_true, y_scores, *, 
+    sample_weight=None, 
+    pos_label=None, 
+    drop_intermediate=True
+    ):
+    """
+    Compute Youden's Index and optimal threshold.
+
+    Youden's Index is a single statistic that captures the performance of a
+    binary classification test. 
+    It's defined as the maximum vertical distance between the ROC curve and 
+    the diagonal line.
+    Mathematically, it is calculated as:
+    
+    .. math::
+        J = \text{True Positive Rate} - \text{False Positive Rate}
+
+    Parameters:
+    -----------
+    y_true : array-like of shape (n_samples,)
+        True binary labels.
+    y_scores : array-like of shape (n_samples,)
+        Target scores, can either be probability estimates of the positive class,
+        confidence values, or non-thresholded measure of decisions (as returned
+        by decision_function on some classifiers).
+    sample_weight : array-like of shape (n_samples,), optional (default=None)
+        Sample weights.
+    pos_label : int or str, optional (default=None)
+        The label of the positive class.
+    drop_intermediate : bool, optional (default=True)
+        Whether to drop some suboptimal thresholds that do not appear
+        on a ROC curve with vertical drops.
+
+    Returns:
+    --------
+    optimal_threshold : float
+        The optimal threshold that maximizes Youden's Index.
+    optimal_youden : float
+        The value of Youden's Index at the optimal threshold.
+    
+    Examples:
+    ---------
+    >>> from gofast.tools.mathex import compute_youdens_index
+    >>> y_true = [0, 1, 1, 0, 1]
+    >>> y_scores = [0.1, 0.8, 0.3, 0.6, 0.9]
+    >>> optimal_threshold, optimal_youden = compute_youdens_index(y_true, y_scores)
+    >>> print("Optimal Threshold:", optimal_threshold)
+    Optimal Threshold: 0.8
+    >>> print("Youden's Index:", optimal_youden)
+    Youden's Index: 0.6
+    
+    """
+    # Ensure input arrays y_true and y_scores are valid
+    y_true, y_scores = _ensure_y_is_valid(y_true, y_scores, y_numeric=True)
+    
+    # Check if the class labels are binary
+    if not is_binary_class(y_true):
+        raise ValueError("Youden's index calculation requires binary class"
+                         "labels. Provided labels are not binary.")
+
+    # Validate scores as proper probability distributions
+    y_scores = validate_scores(y_scores, y_true, mode="passthrough")
+
+    # Calculate the ROC curve and the corresponding AUC
+    fpr, tpr, thresholds = roc_curve(
+        y_true, y_scores, pos_label=pos_label, 
+        sample_weight=sample_weight, 
+        drop_intermediate=drop_intermediate
+    )
+    
+    # Calculate Youden's Index for each threshold
+    youdens_index = tpr - fpr
+    
+    # Find the optimal threshold (maximizes Youden's Index)
+    optimal_idx = np.argmax(youdens_index)
+    optimal_threshold = thresholds[optimal_idx]
+    optimal_youden = youdens_index[optimal_idx]
+    
+    return optimal_threshold, optimal_youden
 
 def calculate_multiclass_avg_lr(
     y_true, y_pred, *, 
@@ -721,9 +1026,6 @@ def _compute_ovo_sens_spec(y_true, y_pred, labels, return_array=True):
         return sens_array, spec_array
 
     return sensitivity, specificity
-
-
-
 
 def calculate_histogram_bins(
         data, /,  bins='auto', range=None, normalize=False):
