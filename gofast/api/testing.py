@@ -380,7 +380,7 @@ def assert_summary_unique_counts(summary, expected_output, df=None, msg=None):
         raise TypeError("DataFrame 'df' can't be None when"
                         " 'summary.unique_counts' is not called yet.")
     if df is not None: 
-        summary.unique_counts(df)
+        summary.add_unique_counts(df)
     actual_output = str(summary)
     assert check_output(actual_output, expected_output), msg or ( 
         "Unique counts summary does not match the expected output.")
@@ -401,7 +401,7 @@ def assert_summary_model(summary, model_results, expected_output, msg=None):
     msg : str, optional
         A custom message to display on assertion failure.
     """
-    assert isinstance_(summary, ModelSummary), "Object is not an instance of Summary."
+    assert isinstance_(summary, ModelSummary), "Object is not an instance of ModelSummary."
     summary.add_flex_summary(model_results=model_results)
     actual_output = str(summary)
     assert check_output(actual_output, expected_output), ( 

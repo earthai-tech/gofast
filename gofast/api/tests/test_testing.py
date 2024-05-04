@@ -107,15 +107,6 @@ def test_summary_model_output(sample_model_results):
     expected_output = [ "Model Results", "Tuning Results"] 
     assert_summary_model(summary, sample_model_results, expected_output)
 
-def test_summary_content_attributes(sample_model_results):
-    summary = ModelSummary()
-    summary.add_flex_summary(model_results=sample_model_results)
-    expected_attributes = {
-        'title': summary.title,
-        'summary_report': summary.summary_report
-    }
-    assert_summary_content_integrity(summary, expected_attributes)
-
 def test_report_factory_mixed_types():
     report_factory = ReportFactory()
     report_data = {

@@ -109,14 +109,14 @@ class TestMultiFrameFormatter(unittest.TestCase):
     def test_dataframe_with_same_columns(self):
         formatter = MultiFrameFormatter(titles=['DataFrame 1', 'DataFrame 3'])
         formatter.add_dfs(self.df1, self.df3)
-        combined_table_str = formatter.dataframe_with_same_columns()
+        combined_table_str = formatter._dataframe_with_same_columns()
         self.assertIsInstance(combined_table_str, str)
         # Additional assertions can check for the presence of specific table content.
         
     def test_dataframe_with_different_columns(self):
         formatter = MultiFrameFormatter(titles=['DataFrame 1', 'DataFrame 2'])
         formatter.add_dfs(self.df1, self.df2)
-        tables_str = formatter.dataframe_with_different_columns()
+        tables_str = formatter._dataframe_with_different_columns()
         self.assertIsInstance(tables_str, str)
         # Additional assertions can check for the presence of specific table content.
         
@@ -135,7 +135,7 @@ class TestMultiFrameFormatter(unittest.TestCase):
 
         formatter.add_dfs(self.df1)
         repr_str = formatter.__repr__()
-        self.assertIn('MultiFrame with tables', repr_str)
+        self.assertIn('MultiFrame object containing table', repr_str)
 
 
 class TestDataFrameFormatter(unittest.TestCase):
@@ -187,7 +187,7 @@ class TestDataFrameFormatter(unittest.TestCase):
         self.assertIn("Empty Frame", formatter.__repr__())
 
         formatter.add_df(self.df)
-        self.assertIn("Frame object containing data", formatter.__repr__())
+        self.assertIn("Frame object containing table", formatter.__repr__())
 
 class TestMetricFormatter(unittest.TestCase):
     def test_initialization_with_metrics(self):
