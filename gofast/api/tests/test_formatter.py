@@ -137,7 +137,6 @@ class TestMultiFrameFormatter(unittest.TestCase):
         repr_str = formatter.__repr__()
         self.assertIn('MultiFrame object containing table', repr_str)
 
-
 class TestDataFrameFormatter(unittest.TestCase):
     def setUp(self):
         self.df = pd.DataFrame({

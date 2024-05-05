@@ -458,7 +458,6 @@ def assert_report_mixed_types(report_factory, report_data, msg=None):
     # with a custom message if the check fails.
     assert contains_mixed_types, msg or "Report does not contain expected mixed data types."
 
- 
 def assert_report_recommendations(
         report_factory, recommendations, keys=None,
         key_length=15, max_char_text=70,  msg=None):
@@ -510,7 +509,6 @@ def assert_report_recommendations(
             key: format_text(text, key, max_char_text=max_char_text, key_length=key_length)
             for key, text in zip(keys, recommendations)
         }
-    
     # Construct the expected formatted string representation of recommendations.
     expected_formatted_str = '\n'.join(formatted_recommendations.values())
     # Ensure the actual formatted string contains the expected formatted recommendations.
