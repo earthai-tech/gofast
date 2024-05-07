@@ -671,7 +671,7 @@ def filter_nan_from( *listof, sample_weights=None):
 
     Examples
     --------
-    >>> from gofast.tools.validator import filter_nan_from
+    >>> from gofast.tools.baseutils import filter_nan_from
     >>> list1 = [[1, 2, np.nan], [4, np.nan, 6]]
     >>> list2 = [[np.nan, 8, 9], [10, 11, np.nan]]
     >>> weights = [0.5, 1.0]

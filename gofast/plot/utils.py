@@ -41,6 +41,7 @@ from sklearn.utils import resample
 
 from ..api.types import Optional, Tuple, Any, List, Union 
 from ..api.types import Dict, ArrayLike, DataFrame, Series
+from ..api.summary import ReportFactory 
 from ..api.util import to_snake_case
 from ..decorators import Dataify
 from ..exceptions import  TipError, PlotError 
@@ -3131,104 +3132,138 @@ def plot_regularization_path (
         
     plt.close () if savefig is not None else plt.show() 
     
-def plot_rf_feature_importances (
-    clf, 
+def plot_rf_feature_importances(
+    clf=None, 
     X=None, 
     y=None, 
-    fig_size = (8, 4),
-    savefig =None,   
-    n_estimators= 500, 
-    verbose =0 , 
-    sns_style =None,  
-    **kws 
-    ): 
-    """
-    Plot features importance with RandomForest.  
-    
-    Parameters 
-    ----------
-    clf : estimator object
-        The base estimator from which the transformer is built.
-        This can be both a fitted (if ``prefit`` is set to True)
-        or a non-fitted estimator. The estimator should have a
-        ``feature_importances_`` or ``coef_`` attribute after fitting.
-        Otherwise, the ``importance_getter`` parameter should be used.
-        
-    X : array-like of shape (n_samples, n_features)
-        Training vector, where `n_samples` is the number of samples and
-        `n_features` is the number of features.
+    importances=None,
+    fig_size=(8, 4), 
+    savefig=None, 
+    n_estimators=500,
+    verbose=0, 
+    sns_style=None, 
+    **kwargs):
 
-    y : array-like of shape (n_samples,) or (n_samples, n_outputs)
-        Target relative to X for classification or regression;
-        None for unsupervised learning.
-       
+    """
+    Plot feature importances using either a provided RandomForest classifier,
+    another classifier with feature importances, or directly from provided 
+    feature importances array.
+    
+    Parameters
+    ----------
+    clf : classifier, default=None
+        A fitted classifier object that has an attribute `feature_importances_`.
+        If None, and `importances` is also None, a RandomForestClassifier will
+        be instantiated and fitted.
+    X : array-like of shape (n_samples, n_features), default=None
+        The training input samples. Required if `clf` is not fitted or if
+        `importances` is None.
+    y : array-like of shape (n_samples,), default=None
+        The target values (class labels) as integers or strings.
+    importances : array-like of shape (n_features,), default=None
+        Precomputed feature importances. If provided, `clf` will be ignored.
+    fig_size : tuple, default=(8, 4)
+        Width, height in inches of the figure.
+    savefig : str, default=None
+        If provided, the plot will be saved to the given path instead of shown.
     n_estimators : int, default=500
-        The number of trees in the forest.
-        
-    fig_size : tuple (width, height), default =(8, 6)
-        the matplotlib figure size given as a tuple of width and height
-        
-    savefig: str, default =None , 
-        the path to save the figures. Argument is passed to matplotlib.Figure 
-        class. 
-    sns_style: str, optional, 
-        the seaborn style.
-    verbose: int, default=0 
-        print the feature labels with the rate of their importances. 
-    kws: dict, 
-        Additional keyyword arguments passed to 
-        :class:`sklearn.ensemble.RandomForestClassifier`
+        Number of trees in the forest to train if a new RandomForestClassifier
+        is created. Ignored if `clf` is provided and fitted.
+    verbose : int, default=0
+        If greater than 0, the feature importances will be printed to stdout.
+    sns_style : str, default=None
+        The style of seaborn to apply. See seaborn documentation for valid styles.
+    **kwargs : dict
+        Additional keyword arguments to pass to the RandomForestClassifier
+        constructor, if needed.
+
     Examples
-    ---------
+    --------
+    >>> from sklearn.ensemble import RandomForestClassifier
     >>> from gofast.datasets import fetch_data
-    >>> from sklearn.ensemble import RandomForestClassifier 
     >>> from gofast.plot.utils import plot_rf_feature_importances 
-    >>> X, y = fetch_data ('bagoue analysed' ) 
+    >>> from sklearn.datasets import make_classification
+    >>> X, y = make_classification(n_samples=100, n_features=20, random_state=42)
+    >>> clf = RandomForestClassifier(n_estimators=100)
+    >>> clf.fit(X, y)
+    >>> plot_rf_feature_importances(clf=clf, X=X, verbose=1)
+    
+    >>> X, y = fetch_data ('bagoue analysed' , return_X_y =True) 
     >>> plot_rf_feature_importances (
         RandomForestClassifier(), X=X, y=y , sns_style=True)
 
+    Notes
+    -----
+    If both `clf` and `importances` are None, the function will raise an error.
+    Ensure that at least one is provided. If `clf` is provided but not fitted,
+    and `X` and `y` are provided, it will fit the classifier automatically.
+    This function is designed to be flexible in handling both pre-fitted models
+    and models that require fitting. Importances are extracted directly from the
+    classifier if available; otherwise, it assumes they are provided directly
+    through the `importances` parameter.
     """
-    if not hasattr (clf, 'feature_importances_'): 
-        if ( X is None or y is None ) : 
-            clfn = get_estimator_name( clf)
-            raise TypeError (f"When {clfn} is not a fitted "
-                             "estimator, X and y are needed."
-                             )
-        clf = RandomForestClassifier(n_estimators= n_estimators , **kws)
-        clf.fit(X, y ) 
-        
-    importances = clf.feature_importances_ 
+
+    # Validate input
+    if clf is None and importances is None and X is None  :
+        raise ValueError("Either a classifier or precomputed importances"
+                         " must be provided.")
+
+    # If importances are not provided, attempt to use the classifier
+    if importances is None:
+        if clf is None:
+            clf = RandomForestClassifier(n_estimators=n_estimators, **kwargs)
+        if hasattr(clf, 'feature_importances_') and X is not None:
+            importances = clf.feature_importances_
+        elif X is not None:
+            # Check if y is None and create a dummy y if necessary
+            if y is None:
+                y = np.zeros(X.shape[0])
+            clf.fit(X, y)
+            importances = clf.feature_importances_
+        else:
+            raise ValueError("X and y are needed when classifier is not"
+                             " pre-fitted or importances are not provided.")
+
+    # Verify that importances are correctly provided or calculated
+    if importances is None:
+        raise ValueError(
+            "Feature importances could not be computed or were not provided.")
+
+    # Prepare feature labels
+    feature_labels = X.columns if hasattr(X, 'columns') else [
+        f'Feature {i}' for i in range(X.shape[1])]
     indices = np.argsort(importances)[::-1]
-    if hasattr( X, 'columns'): 
-        flabels = X.columns 
-    else : flabels =[f'{i:>7}' for i in range (X.shape[1])]
-    
-    if verbose : 
-        for f in range(X.shape [1]): 
-            print("%2d) %-*s %f" %(f +1 , 30 , flabels[indices[f]], 
-                                   importances[indices[f]])
-                  )
-    if sns_style: 
+
+    if verbose:
+        ranking_dict ={}
+        for i, idx in enumerate(indices):
+            ranking_dict[f'{i + 1}) {feature_labels[idx]}'] = f"{importances[idx]:.4f}"
+        summary = ReportFactory(title = "Feature ranking").add_recommendations(
+            ranking_dict,)
+        print(summary )
+
+    # Seaborn style setting
+    if sns_style:
         _set_sns_style (sns_style)
 
-    plt.figure(figsize = fig_size)
-    plt.title ("Feature importance")
-    plt.bar (range(X.shape[1]) , 
-             importances [indices], 
-             align='center'
-             )
-    plt.xticks (range (X.shape[1]), flabels [indices], rotation =90 , 
-                ) 
-    plt.xlim ([-1 , X.shape[1]])
-    plt.ylabel ('Importance rate')
-    plt.xlabel ('Feature labels')
+    # Plotting
+    plt.figure(figsize=fig_size)
+    plt.title("Feature Importance")
+    plt.bar(range(len(importances)), importances[indices], align='center')
+    plt.xticks(range(len(importances)), [feature_labels[i] for i in indices],
+               rotation=90)
+    plt.xlim([-1, len(importances)])
+    plt.ylabel('Importance Rate')
+    plt.xlabel('Feature Labels')
     plt.tight_layout()
-    
-    if savefig is not None:
-        plt.savefig(savefig )
 
-    plt.close () if savefig is not None else plt.show() 
-    
+    # Save or show the figure
+    if savefig:
+        plt.savefig(savefig)
+        plt.close()
+    else:
+        plt.show()
+
         
 def plot_confusion_matrix (yt, y_pred, view =True, ax=None, annot=True,  **kws ):
     """ plot a confusion matrix for a single classifier model.
@@ -3703,7 +3738,125 @@ def plot_learning_curves(
         plt.savefig(savefig, dpi = 300 )
         
     plt.close () if savefig is not None else plt.show() 
-        
+     
+def plot_importances_ranking(
+    data, /, 
+    column=None, 
+    kind='barh', 
+    color='skyblue',
+    fig_size=(8, 4), 
+    sns_style=None, 
+    savefig=None
+    ):
+    """
+    Plot the ranking of feature importances from various input formats such as
+    pandas Series, DataFrame, or a one-dimensional numpy array.
+
+    Parameters
+    ----------
+    data : pd.Series, pd.DataFrame, np.ndarray
+        The data containing the feature importances. Can be a pandas Series,
+        a DataFrame with one or multiple columns, or a one-dimensional numpy array.
+    column : str, int, optional
+        Specific column name or index to be used from DataFrame. If not provided,
+        the first column is used by default if the DataFrame only has one column.
+    kind : str, default='barh'
+        The kind of plot to generate. Options include 'bar', 'barh', etc.
+    color : str, default='skyblue'
+        Color of the plot elements.
+    fig_size : tuple, default=(8, 4)
+        The figure size in inches (width, height).
+    sns_style : str, optional
+        The style of seaborn to apply to the plot. See seaborn documentation for
+        available styles.
+    savefig : str, optional
+        Path to save the figure to. If provided, the plot is saved to this path
+        and not shown.
+
+    Raises
+    ------
+    ValueError
+        If `data` is not a pandas Series, DataFrame with suitable dimensions, or
+        a one-dimensional numpy array. Also raised if the specified `column`
+        does not exist within the DataFrame.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.plot.utils import plot_importances_ranking
+    >>> importances = pd.Series([0.1, 0.2, 0.7], index=['Feature 1', 'Feature 2', 'Feature 3'])
+    >>> plot_importances_ranking(importances)
+
+    >>> df = pd.DataFrame({
+    ...     'A': [0.1, 0.2, 0.3],
+    ...     'B': [0.3, 0.2, 0.1]
+    ... })
+    >>> plot_importances_ranking(df, column='A', sns_style='whitegrid',
+                                 savefig='importances.png')
+
+    Notes
+    -----
+    This function is designed to handle different data input formats by checking the
+    type of `data` and processing it appropriately to extract feature importances.
+    If `data` is a DataFrame and `column` is not specified, and the DataFrame contains
+    multiple columns, a ValueError is raised. This function assumes that feature
+    importance data is numeric and will raise an error if non-numeric data is passed.
+    """
+
+    if isinstance(data, pd.DataFrame):
+        if column is not None:
+            if column in data.columns:
+                importances = data[column]
+            else:
+                raise ValueError(f"Column '{column}' not found in DataFrame.")
+        elif data.shape[1] == 1:  # One column
+            importances = data.squeeze()
+        elif data.shape[0] == 1:  # One row
+            importances = pd.Series(data.iloc[0].values, index=data.columns)
+        elif isinstance ( column, int) and column < len(data.columns): 
+            importances = data.iloc[:, column]
+        else:
+            raise ValueError("DataFrame must have exactly one column"
+                             " or a 'column' parameter must be specified.")
+            
+    elif isinstance(data, pd.Series):
+        importances = data
+    elif isinstance(data, np.ndarray):
+        if data.ndim == 1:
+            importances = pd.Series(data, index=[f'feature_{i+1}' for i in range(data.size)])
+        else:
+            raise ValueError("Numpy array must be one-dimensional")
+    else:
+        raise ValueError(
+            "Input must be a pandas Series, DataFrame, or one-dimensional numpy array")
+
+    # Ensure the data is numeric
+    if not np.issubdtype(importances.dtype, np.number):
+        raise ValueError("Importance data must be numeric")
+
+    # Create and display the plot
+    plt.figure(figsize=fig_size)
+    importances.sort_values(ascending=True).plot(kind=kind, color=color)
+    plt.title('Feature Importance Ranking')
+    plt.xlabel('Importance')
+    plt.ylabel('Features')
+
+    # Annotate bars with their numeric values
+    for idx, value in enumerate(importances.sort_values(ascending=True)):
+        plt.text(value, idx, f"{value:.4f}")
+    
+    if sns_style:
+        _set_sns_style (sns_style)
+
+    plt.tight_layout()
+
+    if savefig:
+        plt.savefig(savefig)
+        plt.close()
+    else:
+        plt.show()
+ 
+
 def plot_base_dendrogram (
         X, 
         *ybounds, 

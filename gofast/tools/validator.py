@@ -2029,7 +2029,8 @@ def validate_yy(
         The expected sklearn type of the target ('binary', 'multiclass', etc.).
     validation_mode : str, optional
         Validation strictness. Currently, only 'strict' is implemented,
-        which requires y_true and y_pred to have the same shape and match the expected_type.
+        which requires y_true and y_pred to have the same shape and match the 
+        expected_type.
     flatten : bool, optional
         If True, both y_true and y_pred are flattened to one-dimensional arrays.
 
