@@ -34,7 +34,6 @@ from .validator import _is_arraylike_1d, array_to_frame, build_data_if
 from .validator import is_categorical, is_valid_policies, contains_nested_objects 
 from .validator import parameter_validator, normalize_array 
 
-
 def convert_array_dimensions(
         *arrays, target_dim=1, new_shape=None, orient='row'):
     """
