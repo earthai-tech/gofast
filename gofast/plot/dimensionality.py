@@ -52,7 +52,7 @@ def plot_pca_components (
 
     >>> from gofast.datasets import fetch_data
     >>> from gofast.analysis import nPCA
-    >>> from gofast.tools.utils import plot_pca_components
+    >>> from gofast.plot.dimensionality import plot_pca_components
     >>> X, _ = fetch_data('bagoue pca', return_X_y=True)
     >>> pca = nPCA(X, n_components=2, return_X=False)
     >>> plot_pca_components(pca)

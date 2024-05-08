@@ -51,7 +51,7 @@ def plot_pie_charts(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.plot.utils import plot_pie_charts
+    >>> from gofast.plot.charts import plot_pie_charts
     >>> df = pd.DataFrame({
     ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'D', 'D'],
     ...     'Values': [1, 2, 3, 4, 5, 6, 7, 8]
@@ -187,7 +187,7 @@ def create_radar_chart(
     Example
     -------
     >>> import numpy as np 
-    >>> from gofast.plot.utils import create_radar_chart
+    >>> from gofast.plot.charts import create_radar_chart
     >>> num_clusters = 5
     >>> num_vars = 10
     >>> data = np.random.rand(num_clusters, num_vars)
@@ -263,7 +263,7 @@ def create_base_radar_chart(
     Example
     -------
     >>> import numpy as np 
-    >>> from gofast.plot.utils import create_base_radar_chart
+    >>> from gofast.plot.charts import create_base_radar_chart
     >>> num_clusters = 5
     >>> num_vars = 10
     >>> data = np.random.rand(num_clusters, num_vars)

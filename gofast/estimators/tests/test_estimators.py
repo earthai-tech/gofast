@@ -14,27 +14,44 @@ from sklearn.neighbors import KNeighborsClassifier
 
 from sklearn.datasets import make_classification, make_regression
 from gofast.exceptions import NotFittedError
-from gofast.estimators import SimpleAverageClassifier, WeightedAverageClassifier
-from gofast.estimators import SimpleAverageRegressor, WeightedAverageRegressor
-from gofast.estimators import HybridBoostedTreeClassifier, HybridBoostedTreeRegressor
-from gofast.estimators import DecisionTreeBasedClassifier
-from gofast.estimators import EnsembleHBTClassifier, EnsembleHBTRegressor
 
-from gofast.estimators import AdalineClassifier, AdalineMixte, AdalineRegressor 
-from gofast.estimators import AdalineStochasticRegressor 
-from gofast.estimators import AdalineStochasticClassifier 
-from gofast.estimators import BasePerceptron, BenchmarkRegressor 
-from gofast.estimators import BenchmarkClassifier, BoostedRegressionTree
-from gofast.estimators import BoostedClassifierTree, DecisionStumpRegressor
-from gofast.estimators import DecisionTreeBasedRegressor
-from gofast.estimators import KMFClassifier, KMFRegressor
-from gofast.estimators import GradientDescentClassifier
-from gofast.estimators import GradientDescentRegressor
-from gofast.estimators import HammersteinWienerClassifier
-from gofast.estimators import HammersteinWienerRegressor
-from gofast.estimators import EnsembleHWClassifier, EnsembleHWRegressor
-from gofast.estimators import MajorityVoteClassifier
-from gofast.estimators import EnsembleNeuroFuzzy
+from gofast.estimators.adaline import AdalineClassifier, AdalineMixte 
+from gofast.estimators.adaline import AdalineRegressor 
+from gofast.estimators.adaline import AdalineStochasticRegressor 
+from gofast.estimators.adaline import AdalineStochasticClassifier 
+
+from gofast.estimators.benchmark import BenchmarkRegressor
+from gofast.estimators.benchmark import BenchmarkClassifier
+  
+from gofast.estimators.boosting import BoostedTreeClassifier # noqa
+from gofast.estimators.boosting import BoostedTreeRegressor  # noqa
+from gofast.estimators.boosting import HybridBoostedTreeClassifier 
+from gofast.estimators.boosting import HybridBoostedTreeRegressor 
+from gofast.estimators.boosting import EnsembleHBTClassifier
+from gofast.estimators.boosting import EnsembleHBTRegressor 
+
+from gofast.estimators.cluster_based import KMFClassifier 
+from gofast.estimators.cluster_based import KMFRegressor
+
+from gofast.estimators.dynamic_system import HammersteinWienerClassifier
+from gofast.estimators.dynamic_system import HammersteinWienerRegressor
+from gofast.estimators.dynamic_system import EnsembleHWClassifier 
+from gofast.estimators.dynamic_system import EnsembleHWRegressor
+
+from gofast.estimators.ensemble import MajorityVoteClassifier
+from gofast.estimators.ensemble import EnsembleNeuroFuzzy # # noqa
+from gofast.estimators.ensemble import SimpleAverageClassifier
+from gofast.estimators.ensemble import WeightedAverageClassifier
+from gofast.estimators.ensemble import SimpleAverageRegressor
+from gofast.estimators.ensemble import WeightedAverageRegressor
+
+from gofast.estimators.perceptron import BasePerceptron 
+from gofast.estimators.perceptron import GradientDescentClassifier
+from gofast.estimators.perceptron import GradientDescentRegressor 
+
+from gofast.estimators.tree import DecisionTreeBasedClassifier 
+from gofast.estimators.tree import DecisionTreeBasedRegressor 
+from gofast.estimators.tree import DecisionStumpRegressor 
 
 
 @pytest.fixture

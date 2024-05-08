@@ -139,7 +139,7 @@ def woodland_plot(
     --------
     >>> import numpy as np
     >>> import pandas as pd
-    >>> from gofast.plot.utils import woodland_plot
+    >>> from gofast.plot.inspection import woodland_plot
     >>> df = pd.DataFrame(np.random.rand(10, 10), columns=list('ABCDEFGHIJ'))
     >>> woodland_plot(df, compute_corr=True, quadrant='upper_left', 
     ...                  cbar=True, cmap='coolwarm')
@@ -512,7 +512,7 @@ def plot_venn_diagram(
     >>> from sklearn.datasets import make_classification
     >>> from sklearn.ensemble import RandomForestClassifier
     >>> from xgboost import XGBClassifier
-    >>> from gofast.plot.utils import plot_venn_diagram
+    >>> from gofast.plot.inspection import plot_venn_diagram
     
     >>> # Example of comparing feature contributions of RandomForest and XGBoost
     >>> X, y = make_classification(n_samples=1000, n_features=20, 
@@ -621,7 +621,7 @@ def plot_euler_diagram(sets: dict):
 
     Example
     -------
-    >>> from gofast.plot.utils import plot_euler_diagram
+    >>> from gofast.plot.inspection import plot_euler_diagram
     >>> sets = {
         "Set1": {1, 2, 3},
         "Set2": {3, 4, 5},
@@ -718,7 +718,7 @@ def create_upset_plot(
 
     Example
     -------
-    >>> from gofast.plot.utils import create_upset_plot
+    >>> from gofast.plot.inspection import create_upset_plot
     >>> sets = {
         "Set1": {1, 2, 3},
         "Set2": {3, 4, 5},
@@ -782,7 +782,7 @@ def plot_sankey(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.plot.utils import plot_sankey 
+    >>> from gofast.plot.inspection import plot_sankey 
     >>> df = pd.DataFrame({
     ...     'source': ['A', 'A', 'B', 'B', 'C', 'C'],
     ...     'target': ['C', 'D', 'C', 'D', 'E', 'F'],
@@ -877,7 +877,7 @@ def plot_sunburst(
         
     Examples
     --------
-    >>> from gofast.plot.utils import plot_sunburst
+    >>> from gofast.plot.inspection import plot_sunburst
     >>> d = [
     ...     {"name": "Category A", "value": 10, "parent": ""},
     ...     {"name": "Category B", "value": 20, "parent": ""},
@@ -1693,7 +1693,7 @@ def create_matrix_representation(
 
     Example
     -------
-    >>> from gofast.plot.utils import create_matrix_representation
+    >>> from gofast.plot.inspection import create_matrix_representation
     >>> sets = {
         "Set1": {1, 2, 3},
         "Set2": {2, 3, 4},

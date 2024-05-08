@@ -188,7 +188,7 @@ def plot_permutation_importance(
     Example
     -------
     >>> import numpy as np 
-    >>> from gofast.plot.utils import plot_permutation_importance
+    >>> from gofast.plot.feature_analysis import plot_permutation_importance
     >>> importances = np.random.rand(30)
     >>> feature_names = ['Feature {}'.format(i) for i in range(30)]
     >>> plot_permutation_importance(
@@ -274,7 +274,7 @@ def plot_dependences(
     --------
     >>> from sklearn.datasets import make_friedman1
     >>> from sklearn.ensemble import GradientBoostingRegressor
-    >>> from gofast.plot.utils import plot_dependences
+    >>> from gofast.plot.feature_analysis import plot_dependences
     >>> X, y = make_friedman1()
     >>> model = GradientBoostingRegressor().fit(X, y)
     >>> plot_dependences(model, X, features=[0, 1], kind='average')
@@ -472,7 +472,7 @@ def plot_variables(
     Examples
     --------
     >>> import seaborn as sns
-    >>> from gofast.plot.utils import plot_variables
+    >>> from gofast.plot.feature_analysis import plot_variables
     >>> df = sns.load_dataset('titanic')
     >>> plot_variables(df, kind='cat', target='survived',
                        colors=['blue', 'red'], target_labels=['Died', 'Survived'], 
@@ -608,7 +608,7 @@ def plot_correlation_with_target(
     Examples
     --------
     >>> import seaborn as sns
-    >>> from gofast.plot.utils import plot_correlation_with_target
+    >>> from gofast.plot.feature_analysis import plot_correlation_with_target
     >>> df = sns.load_dataset('iris')
     >>> plot_correlation_with_target(df, 'petal_length', kind='bar', 
                                      sns_style='whitegrid', color='green')
@@ -685,7 +685,7 @@ def plot_feature_interactions(
     -------
     >>> import numpy as np 
     >>> import pandas as pd 
-    >>> from gofast.plot.utils import plot_feature_interactions
+    >>> from gofast.plot.feature_analysis import plot_feature_interactions
     >>> df = pd.DataFrame({
         'Feature1': np.random.randn(100),
         'Feature2': np.random.rand(100),
@@ -781,7 +781,7 @@ def plot_rf_feature_importances(
     --------
     >>> from sklearn.ensemble import RandomForestClassifier
     >>> from gofast.datasets import fetch_data
-    >>> from gofast.plot.utils import plot_rf_feature_importances 
+    >>> from gofast.plot.feature_analysis import plot_rf_feature_importances 
     >>> from sklearn.datasets import make_classification
     >>> X, y = make_classification(n_samples=100, n_features=20, random_state=42)
     >>> clf = RandomForestClassifier(n_estimators=100)
@@ -908,7 +908,7 @@ def plot_importances_ranking(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.plot.utils import plot_importances_ranking
+    >>> from gofast.plot.feature_analysis import plot_importances_ranking
     >>> importances = pd.Series([0.1, 0.2, 0.7], index=['Feature 1', 'Feature 2', 'Feature 3'])
     >>> plot_importances_ranking(importances)
 

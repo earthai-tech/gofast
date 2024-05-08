@@ -19,8 +19,7 @@ try:
     from keras.models import Model
 except : 
     pass 
-
-from ..api.types import Optional, Tuple, Any, List, Union, Callable 
+from ..api.types import Optional, Tuple, Any, List, Union, Callable, NDArray 
 from ..api.types import Dict, ArrayLike, DataFrame, Series
 from ..tools.coreutils import is_iterable, make_obj_consistent_if
 from ..tools.funcutils import ensure_pkg 
@@ -28,7 +27,6 @@ from ..tools.validator import _is_cross_validated, validate_yy
 from ..tools.validator import assert_xy_in, get_estimator_name, check_is_fitted
 from .utils import _set_sns_style, _make_axe_multiple, savefigure 
 from .utils import make_plot_colors  
-
 from ._config import PlotConfig 
 
 __all__= [ 
@@ -51,8 +49,8 @@ __all__= [
     ]
 
 def plot_taylor_diagram(
-    *y_preds: List[np.ndarray], 
-    reference: np.ndarray, 
+    *y_preds: List[ArrayLike], 
+    reference: ArrayLike, 
     names: Optional[List[str]] = None, 
     kind: str = "default", 
     fig_size: Optional[tuple] = None
@@ -152,67 +150,124 @@ def plot_taylor_diagram(
 
     plt.legend()
     plt.show()
-
+    
 
 def plot_cost_vs_epochs(
-    regs, *,  
-    fig_size = (10 , 4 ), 
-    marker ='o', 
-    savefig =None, 
-    **kws
-    ): 
-    """ Plot the cost against the number of epochs  for the two different 
-    learnings rates 
-    
-    Parameters 
-    ----------
-    regs: Callable, single or list of regression estimators 
-        Estimator should be already fitted.
-    fig_size: tuple , default is (10, 4)
-        the size of figure 
-    kws: dict , 
-        Additionnal keywords arguments passes to :func:`matplotlib.pyplot.plot`
-    Returns 
-    ------- 
-    ax: Matplotlib.pyplot axes objects 
-    
-    Examples 
-    ---------
-
-    >>> from gofast.datasets import load_iris 
-    >>> from gofast.base import AdalineGradientDescent
-    >>> from gofast.tools.utils import plot_cost_vs_epochs
-    >>> X, y = load_iris (return_X_y= True )
-    >>> ada1 = AdalineGradientDescent (n_iter= 10 , eta= .01 ).fit(X, y) 
-    >>> ada2 = AdalineGradientDescent (n_iter=10 , eta =.0001 ).fit(X, y)
-    >>> plot_cost_vs_epochs (regs = [ada1, ada2] ) 
+    regs: Union[Callable, List[Callable]],
+    *,
+    X: Optional[np.ndarray] = None, 
+    y: Optional[np.ndarray] = None,
+    fig_size: Tuple[int, int] = (10, 4),
+    marker: str = 'o',
+    savefig: Optional[str] = None,
+    **kws: Dict[str, Any]
+) -> List[plt.Axes]:
     """
-    if not isinstance (regs, (list, tuple, np.array)): 
-        regs =[regs]
-    s = set ([hasattr(o, '__class__') for o in regs ])
+    Plots the logarithm of loss or cost against the number of epochs for
+    different regression estimators. 
+    
+    Function checks for precomputed 'cost_', 'loss_', or 'weights_' attributes 
+    in the regressors.  If not found, it requires training data (X, y) to 
+    calculate the loss.
 
-    if len(s) != 1: 
-        raise ValueError("All regression models should be estimators"
-                         " already fitted.")
-    if not list(s) [0] : 
-        raise TypeError(f"Needs an estimator, got {type(s[0]).__name__!r}")
+    Parameters
+    ----------
+    regs : Callable or list of Callables
+        Single or list of regression estimators. Estimators should be already fitted.
+    X : np.ndarray, optional
+        Feature matrix used for training the models, required if no 'cost_',
+        'loss_', or 'weights_' attributes are found.
+    y : np.ndarray, optional
+        Target vector used for training the models, required if no 'cost_',
+        'loss_', or 'weights_' attributes are found.
+    fig_size : tuple of int, default (10, 4)
+        The size of the figure to be plotted.
+    marker : str, default 'o'
+        Marker style for the plot points.
+    savefig : str, optional
+        Path to save the figure to. If None, the figure is shown.
+    kws : dict
+        Additional keyword arguments passed to `matplotlib.pyplot.plot`.
+
+    Returns
+    -------
+    List of matplotlib.axes.Axes
+        List of Axes objects with the plots.
+
+    Examples
+    --------
+    >>> import numpy as np 
+    >>> from sklearn.linear_model import LinearRegression
+    >>> from sklearn.datasets import make_regression
+    >>> from gofast.plot.mlviz import plot_cost_vs_epochs
+    >>> X, y = make_regression(n_samples=100, n_features=1, noise=0.1)
+    >>> reg = LinearRegression().fit(X, y)
+    >>> reg.cost_ = [np.mean((y - reg.predict(X)) ** 2) for _ in range(10)]  # Simulated cost
+    >>> plot_cost_vs_epochs([reg])
     
-    fig, ax = plt.subplots ( nrows=1 , ncols =len(regs) , figsize = fig_size ) 
+    >>> from gofast.plot.mlviz import plot_cost_vs_epochs
+    >>> from gofast.estimators.adaline import AdalineClassifier
+    >>> X, y = load_iris(return_X_y=True)
+    >>> ada1 = AdalineClassifier(n_iter=10, eta=0.01).fit(X, y)
+    >>> ada2 = AdalineClassifier(n_iter=10, eta=0.0001).fit(X, y)
+    >>> plot_cost_vs_epochs(regs=[ada1, ada2])
+
+    Notes
+    -----
+    This function assumes that the provided estimators are compatible with
+    the scikit-learn estimator interface and have been fitted prior to calling
+    this function. If 'cost_', 'loss_', or 'weights_' attributes are not found,
+    and no training data (X, y) are provided, a ValueError will be raised.
+    The function logs the cost or loss to better handle values spanning several
+    orders of magnitude, and adds 1 before taking the logarithm to avoid
+    mathematical issues with log(0).
+    """
+    if not isinstance(regs, list):
+        regs = [regs]
     
-    for k, m in enumerate (regs)  : 
+    # Check if each regressor has a 'cost_' or 'loss_' attribute
+    have_cost_loss_or_weights = [
+        hasattr(reg, 'cost_') or hasattr(reg, 'weights_') 
+        or hasattr (reg, 'loss_')for reg in regs]
+    
+    # If any regressor lacks 'cost_' or 'loss_', and X, y are not provided, raise error
+    if not all(have_cost_loss_or_weights) and (X is None or y is None):
+        raise ValueError(
+            "All regression models must have a 'cost_', 'loss_' or weights_"
+            " attribute or 'X' and 'y' must be provided for fitting."
+        )
         
-        ax[k].plot(range(1, len(m.cost_)+ 1 ), np.log10 (m.cost_),
-                   marker =marker, **kws)
-        ax[k].set_xlabel ("Epochs") 
-        ax[k].set_ylabel ("Log(sum-squared-error)")
-        ax[k].set_title("%s -Learning rate %.4f" % (m.__class__.__name__, m.eta )) 
+    fig, axs = plt.subplots(nrows=1, ncols=len(regs), figsize=fig_size)
+    if len(regs)==1: 
+        axs = [axs]
+    for ax, reg in zip(axs, regs):
+        if hasattr(reg, 'cost_'):
+            loss = reg.cost_
+        elif hasattr(reg, 'weights_'):
+            # Assuming weights are the model parameters and we plot their L1 norm
+            loss = [np.sum(np.abs(w)) for w in reg.weights_]
+        elif hasattr(reg, 'loss_'):
+            loss = reg.loss_
+        else:
+            # Calculate mean squared error if 'cost_', 'loss_', or 'weights_' is not available
+            predictions = reg.predict(X)
+            loss = [np.mean((y_val - pred) ** 2) for y_val, pred in zip(y, predictions)]
         
-    if savefig is not None: 
-        savefigure(fig, savefig )
-    plt.show() if savefig is None else plt.close () 
-    
-    return ax 
- 
+        epochs = range(1, len(loss) + 1)
+        ax.plot(epochs, np.log10(np.array(loss) + 1), marker=marker, **kws)  # Safe logging
+        ax.set_xlabel("Epochs")
+        ax.set_ylabel("Log10 of sum-squared-error plus one")
+        eta_value = getattr(reg, 'eta', 'N/A')
+        eta_str = f"{float(eta_value):.4f}" if isinstance(eta_value, (float, int)) else 'N/A'
+        ax.set_title(f"{reg.__class__.__name__} - Learning rate {eta_str}")
+  
+    if savefig is not None:
+        plt.savefig(savefig)
+    else:
+        plt.show()
+
+    return axs
+
 def plot_learning_curves(
     models, 
     X ,
@@ -315,7 +370,7 @@ def plot_learning_curves(
     >>> import watex # must install watex to get the pretrained model ( pip install watex )
     >>> from watex.models.premodels import p 
     >>> from gofast.datasets import fetch_data 
-    >>> from gofast.plot.utils import plot_learning_curves
+    >>> from gofast.plot.mlviz import plot_learning_curves
     >>> X, y = fetch_data ('bagoue prepared') # yields a sparse matrix 
     >>> # let collect 04 estimators already cross-validated from SVMs
     >>> models = [ p.SVM.linear , p.SVM.rbf , p.SVM.sigmoid , p.SVM.poly ]
@@ -674,7 +729,7 @@ def plot_confidence_ellipse(
     Example
     -------
     >>> import numpy as np 
-    >>> from gofast.plot.utils import plot_confidence_ellipse
+    >>> from gofast.plot.mlviz import plot_confidence_ellipse
     >>> x = np.random.normal(size=500)
     >>> y = np.random.normal(size=500)
     >>> ax = plot_confidence_ellipse(x, y)
@@ -738,7 +793,7 @@ def confidence_ellipse(
     Example
     -------
     >>> import numpy as np 
-    >>> from gofast.plot.utils import confidence_ellipse
+    >>> from gofast.plot.mlviz import confidence_ellipse
     >>> x = np.random.normal(size=500)
     >>> y = np.random.normal(size=500)
     >>> fig, ax = plt.subplots()
@@ -817,9 +872,7 @@ def plot_roc_curves (
        This is feasible if `many` is set to ``True``. 
        
     score: bool,default=False
-      Append the Area Under the curve score to the legend. 
-      
-      .. versionadded:: 0.2.4 
+      Append the Area Under the curve score to the legend.  
       
     kws: dict,
         keyword argument of :func:`sklearn.metrics.roc_curve 
@@ -1128,18 +1181,18 @@ def plot_yb_confusion_matrix (
     return cmo 
 
 def plot_r2(
-    y_true, 
-    y_pred,
+    y_true: ArrayLike, 
+    y_pred: ArrayLike,
     *, 
-    title=None,  
-    xlabel=None, 
-    ylabel=None,  
-    fig_size=(8, 8),
-    scatter_color='blue', 
-    line_color='red', 
-    line_style='--', 
-    annotate=True, 
-    ax=None, 
+    title: Optional[str]=None,  
+    xlabel: Optional[str]=None, 
+    ylabel: Optional[str]=None,  
+    fig_size: Tuple[int, int]=(8, 8),
+    scatter_color: str='blue', 
+    line_color: str='red', 
+    line_style: str='--', 
+    annotate: bool=True, 
+    ax: Optional[plt.Axes]=None, 
     **r2_score_kws
     ):
     """
@@ -1258,18 +1311,17 @@ def plot_r2(
         plt.show()
         
     return ax 
+
 def plot_confusion_matrices (
-    clfs, 
-    Xt, 
-    yt,  
-    annot =True, 
-    pkg=None, 
-    normalize='true', 
-    sample_weight=None,
-    encoder=None, 
-    fig_size = (22, 6),
-    savefig =None, 
-    subplot_kws=None,
+    clfs, X: NDArray, y: ArrayLike, *,  
+    annot: bool =True, 
+    pkg: Optional[str]=None, 
+    normalize: str='true', 
+    sample_weight: Optional[ArrayLike]=None,
+    encoder: Optional[Callable[[], ...]]=None, 
+    fig_size: Tuple [int, int] = (22, 6),
+    savefig:Optional[str] =None, 
+    subplot_kws: Optional[Dict[Any, Any]]=None,
     **scorer_kws
     ):
     """ 
@@ -1283,11 +1335,11 @@ def plot_confusion_matrices (
         not a classifier, an exception is raised. Note that the classifier 
         must be fitted beforehand.
         
-    Xt : ndarray or DataFrame of shape (M X N)
+    X : ndarray or DataFrame of shape (M X N)
         A matrix of n instances with m features. Preferably, matrix represents 
         the test data for error evaluation.  
 
-    yt : ndarray of shape (M, ) or Series oF length (M, )
+    y : ndarray of shape (M, ) or Series oF length (M, )
         An array or series of target or class values. Preferably, the array 
         represent the test class labels data for error evaluation.  
     
@@ -1361,15 +1413,15 @@ def plot_confusion_matrices (
     if not is_iterable(axes): 
        axes =[axes] 
     for kk, (model , mname) in enumerate(zip(clfs, model_names )): 
-        ypred = model.predict(Xt)
+        ypred = model.predict(X)
         if pkg in ('sklearn', 'scikit-learn'): 
-            plot_confusion_matrix(yt, ypred, annot =annot , ax = axes[kk], 
+            plot_confusion_matrix(y, ypred, annot =annot , ax = axes[kk], 
                 normalize= normalize , sample_weight= sample_weight ) 
             axes[kk].set_title (mname)
             
         elif pkg in ('yellowbrick', 'yb'):
             plot_yb_confusion_matrix(
-                model, Xt, yt, ax=axes[kk], encoder =encoder )
+                model, X, y, ax=axes[kk], encoder =encoder )
     if savefig is not None:
         plt.savefig(savefig, dpi = 300 )
         
@@ -1645,7 +1697,7 @@ def plot_actual_vs_predicted(
     Examples
     --------
     >>> import numpy as np
-    >>> from gofast.plot.utils import plot_actual_vs_predicted
+    >>> from gofast.plot.mlviz import plot_actual_vs_predicted
     >>> y_true = np.array([1., 2., 3., 4., 5.])
     >>> y_pred = np.array([1.1, 1.9, 3.1, 3.9, 4.9])
     >>> plot_actual_vs_predicted(y_true, y_pred, metrics=['mse', 'rmse'], 
@@ -1751,7 +1803,7 @@ def plot_regression_diagnostics(
     Example
     -------
     >>> import numpy as np 
-    >>> from gofast.plot.utils import plot_regression_diagnostics
+    >>> from gofast.plot.mlviz import plot_regression_diagnostics
     >>> x = np.linspace(160, 170, 100)
     >>> # Homoscedastic noise
     >>> y1 = 50 + 0.6 * x + np.random.normal(size=x.size)  
@@ -1826,7 +1878,7 @@ def plot_residuals_vs_leverage(
     Example
     -------
     >>> import numpy as np 
-    >>> from gofast.plot.utils import plot_residuals_vs_leverage
+    >>> from gofast.plot.mlviz import plot_residuals_vs_leverage
     >>> residuals = np.random.normal(0, 1, 100)
     >>> leverage = np.random.uniform(0, 0.2, 100)
     >>> # Randomly generated for example purposes
@@ -1937,7 +1989,7 @@ def plot_residuals_vs_fitted(
     Example
     -------
     >>> import numpy as np 
-    >>> from gofast.plot.utils import plot_residuals_vs_fitted
+    >>> from gofast.plot.mlviz import plot_residuals_vs_fitted
     >>> fitted = np.linspace(0, 100, 100)
     >>> residuals = np.random.normal(0, 10, 100)
     >>> ax = plot_residuals_vs_fitted(fitted, residuals)

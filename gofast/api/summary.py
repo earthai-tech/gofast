@@ -235,7 +235,8 @@ class ModelSummary(KeyBox):
             model_results, result_title=self.title, **kwargs)
         return self
     
-    def add_multi_contents(self, *dict_contents, titles=None, headers=None, **kwargs):
+    def add_multi_contents(
+            self, *dict_contents, titles=None, headers=None, **kwargs):
         """
         Incorporates one or more dictionaries into the summary report of the 
         ModelSummary instance, formatting them into a cohesive summary report.

@@ -116,7 +116,7 @@ def plot_dendroheat(
     ---------
     >>> # (1) -> Use random data
     >>> import numpy as np 
-    >>> from gofast.plot.evaluate  import plot_dendroheat
+    >>> from gofast.plot.cluster  import plot_dendroheat
     >>> np.random.seed(123) 
     >>> variables =['X', 'Y', 'Z'] ; labels =['ID_0', 'ID_1', 'ID_2',
                                              'ID_3', 'ID_4']
@@ -627,7 +627,7 @@ def plot_silhouette (
     Examples 
     --------
     >>> from gofast.datasets import load_hlogs 
-    >>> from gofast.plot.evaluate  import plot_silhouette
+    >>> from gofast.plot.cluster  import plot_silhouette
     >>> # use resistivity and gamma for this demo
     >>> X_res_gamma = load_hlogs().frame[['resistivity', 'gamma_gamma']]  
     
@@ -701,7 +701,7 @@ def _plot_silhouette (X, labels, metric ='euclidean', **kwds ):
     >>> import numpy as np 
     >>> from gofast.exlib.sklearn import KMeans 
     >>> from gofast.datasets import load_iris 
-    >>> from gofast.plot.evaluate  import plot_silhouette
+    >>> from gofast.plot.cluster  import plot_silhouette
     >>> d= load_iris ()
     >>> X= d.data [:, 0][:, np.newaxis] # take the first axis 
     >>> km= KMeans (n_clusters =3 , init='k-means++', n_init =10 , 
