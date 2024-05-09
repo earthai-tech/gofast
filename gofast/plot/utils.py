@@ -21,21 +21,18 @@ import matplotlib.colors as mcolors
 from matplotlib.patches import Ellipse
 import matplotlib.transforms as transforms 
 
-from sklearn.metrics import confusion_matrix
 from sklearn.metrics import r2_score 
 from sklearn.utils import resample
 
 from ..api.types import Optional, Tuple,  Union 
 from ..api.types import Dict, ArrayLike, DataFrame
 from ..api.property import BasePlot
-from ..exceptions import  TipError, PlotError 
 from ..tools.coreutils import _assert_all_types, is_iterable, str2columns 
 from ..tools.coreutils import is_in_if
 from ..tools.validator import  assert_xy_in
-from ..tools.validator import check_consistent_length
-
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
+__all__=["boxplot", "plot_r_squared", "plot_text"]
 
 class PlotUtils(BasePlot):
     def __init__(self, **kwargs):
@@ -87,8 +84,6 @@ class PlotUtils(BasePlot):
         else:
             plt.show()
     
-# To dynamically create a plotting object that incorporates 
-# additional configurations
 def create_custom_plotter(base_plotter):
     """
     Dynamically creates a custom plotter class that includes additional 
@@ -117,7 +112,7 @@ def create_custom_plotter(base_plotter):
         >>> plot_obj.lw = 7  # Set linewidth
 
     See also:
-        Refer to :class:`~gofast.api.properties.BasePlot` for details 
+        Refer to :class:`~gofast.api.property.BasePlot` for details 
         on adjustable parameters.
     """
     
@@ -128,9 +123,22 @@ def create_custom_plotter(base_plotter):
 # properties from the given plotter
 pobj = type('DynamicPlotter', (PlotUtils,), {})
 
+pobj.__doc__ = """\
+Dynamic plotting class that extends :class:`~gofast.api.properties.BasePlot` 
+with dynamic properties.
+
+Inherits all matplotlib figure properties, allowing modification via 
+object attributes. For example:
+    >>> plot_obj = DynamicPlotter()
+    >>> plot_obj.ls = '-.'  # Set line style
+    >>> plot_obj.fig_size = (7, 5)  # Set figure size
+    >>> plot_obj.lw = 7  # Set linewidth
+
+See also:
+    Refer to :class:`~gofast.api.property.BasePlot` for details 
+    on adjustable parameters.
+"""
 # ##################################################
-
-
 
 def boxplot(
     data: ArrayLike | DataFrame, /, 
@@ -186,7 +194,7 @@ def boxplot(
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.plot.utils import plot_boxplot
+    >>> from gofast.plot.utils import boxplot
     >>> np.random.seed(10)
     >>> d = [np.random.normal(0, std, 100) for std in range(1, 5)]
     >>> labels = ['s1', 's2', 's3', 's4']
@@ -230,7 +238,6 @@ def boxplot(
     
     # Show the plot
     plt.show()
-    
     return bplot
 
 def plot_r_squared(
@@ -343,11 +350,11 @@ def make_plot_colors(
         suffixed by colons and integer value like ``cs4:4`` or ``xkcd:4``, the 
         CS4 or XKCD colors should be used from index equals to ``4``. 
         
-        .. versionadded:: 0.2.3 
-           Matplotlib.colors.CS4_COLORS or Matplotlib.colors.XKCD_COLORS can 
-           be used by setting `colors` to ``'cs4'`` or ``'xkcd'``. To reproduce 
-           the same CS4 or XKCD colors, set the `seed` parameter to a 
-           specific value. 
+ 
+        Matplotlib.colors.CS4_COLORS or Matplotlib.colors.XKCD_COLORS can 
+        be used by setting `colors` to ``'cs4'`` or ``'xkcd'``. To reproduce 
+        the same CS4 or XKCD colors, set the `seed` parameter to a 
+        specific value. 
            
     axis: int, default=0 
        Axis along with the colors must be generated. By default colors is 
@@ -457,202 +464,181 @@ def make_plot_colors(
         
     # shrunk data to map the exact colors 
     chunk =True if chunk is ... else False 
+    
     return colors[:axis_length] if chunk else colors 
 
-def plot_confusion_matrix (yt, y_pred, view =True, ax=None, annot=True,  **kws ):
-    """ plot a confusion matrix for a single classifier model.
-    
-    :param yt : ndarray or Series of length n
-        An array or series of true target or class values. Preferably, 
-        the array represents the test class labels data for error evaluation.
-    
-    :param y_pred: ndarray or Series of length n
-        An array or series of the predicted target. 
-    :param view: bool, default=True 
-        Option to display the matshow map. Set to ``False`` mutes the plot. 
-    :param annot: bool, default=True 
-        Annotate the number of samples (right or wrong prediction ) in the plot. 
-        Set ``False`` to mute the display.
-    param kws: dict, 
-        Additional keyword arguments passed to the function 
-        :func:`sckitlearn.metrics.confusion_matrix`. 
-    :returns: mat- confusion matrix bloc matrix 
-    
-    :example: 
-    >>> #Import the required models and fetch a an Ababoost model 
-    >>> # for instance then plot the confusion metric 
-    >>> import matplotlib.pyplot as plt 
-    >>> plt.style.use ('classic')
-    >>> from gofast.datasets import fetch_data
-    >>> from gofast.exlib.sklearn import train_test_split 
-    >>> from gofast.models import pModels 
-    >>> from gofast.tools.utils import plot_confusion_matrix
-    >>> # split the  data . Note that fetch_data output X and y 
-    >>> X, Xt, y, yt  = train_test_split (* fetch_data ('bagoue analysed'),
-                                          test_size =.25  )  
-    >>> # train the model with the best estimator 
-    >>> pmo = pModels (model ='ada' ) 
-    >>> pmo.fit(X, y )
-    >>> print(pmo.estimator_ )
-    >>> #%% 
-    >>> # Predict the score using under the hood the best estimator 
-    >>> # for adaboost classifier 
-    >>> ypred = pmo.predict(Xt) 
-    >>> # now plot the score 
-    >>> plot_confusion_matrix (yt , ypred )
+def savefigure(
+    fig: object, 
+    figname: str = None, 
+    ext: str = '.png', 
+    **skws
+    ):
     """
-    check_consistent_length (yt, y_pred)
-    mat= confusion_matrix (yt, y_pred, **kws)
-    if ax is None: 
-        fig, ax = plt.subplots ()
-        
-    if view: 
-        sns.heatmap (
-            mat.T, square =True, annot =annot, cbar=False, ax=ax)
-        # xticklabels= list(np.unique(ytrue.values)), 
-        # yticklabels= list(np.unique(ytrue.values)))
-        ax.set_xlabel('true labels' )
-        ax.set_ylabel ('predicted labels')
-    return mat 
+    Save a matplotlib figure to a file with optional name and extension. 
+    
+    Parameters
+    ----------
+    fig : object
+        Matplotlib figure object to be saved.
+    figname : str, optional
+        Name of the output file for the figure. If not provided, the file will
+        be named with a timestamp and the extension provided. If a directory
+        path is included, ensure the directory exists.
+    ext : str, optional
+        Extension type for the figure file. Defaults to '.png'. Other common
+        types include '.jpg', '.jpeg', '.pdf', and '.svg'.
+    **skws : dict
+        Additional keyword arguments to pass to `matplotlib.pyplot.savefig`.
 
-def savefigure (fig: object ,
-             figname: str = None,
-             ext:str ='.png',
-             **skws ): 
-    """ save figure from the given figure name  
+    Returns
+    -------
+    None
+        The function saves the figure directly to a file and does not return
+        any value.
+
+    Warns
+    -----
+    UserWarning
+        Warns the user if no file name is provided, and a default file name is
+        used instead.
+
+    Examples
+    --------
+    >>> import matplotlib.pyplot as plt
+    >>> fig, ax = plt.subplots()
+    >>> ax.plot([1, 2, 3], [4, 5, 6])
+    >>> savefigure(fig, 'my_plot', ext='pdf')
     
-    :param fig: Matplotlib figure object 
-    :param figname: name of figure to output 
-    :param ext: str - extension of the figure 
-    :param skws: Matplotlib savefigure keywards additional keywords arguments 
+    >>> savefigure(fig, 'plot_without_ext')
     
-    :return: Matplotlib savefigure objects. 
-    
+    >>> savefigure(fig)
     """
     ext = '.' + str(ext).lower().strip().replace('.', '')
-
-    if figname is None: 
-        figname =  '_' + os.path.splitext(os.path.basename(__file__)) +\
-            datetime.datetime.now().strftime('%m-%d-%Y %H:%M:%S') + ext
+    
+    if figname is None:
+        figname = '_' + os.path.splitext(os.path.basename(__file__))[0] +\
+                  datetime.datetime.now().strftime('%m-%d-%Y_%H-%M-%S') + '.' + ext
         warnings.warn("No name of figure is given. Figure should be renamed as "
                       f"{figname!r}")
         
     file, ex = os.path.splitext(figname)
-    if ex in ('', None): 
-        ex = ext 
-        figname = os.path.join(file, f'{ext}')
+    if ex in ('', None):
+        ex = ext
+        figname = file + '.' + ex
 
-    return  fig.savefig(figname, **skws)
+    return fig.savefig(figname, **skws)
 
-
-def resetting_ticks ( get_xyticks,  number_of_ticks=None ): 
+def resetting_ticks(get_xyticks, number_of_ticks=None):
     """
-    resetting xyticks  modulo , 100
-    
-    :param get_xyticks:  xyticks list  , use to ax.get_x|yticks()
-    :type  get_xyticks: list 
-    
-    :param number_of_ticks:  maybe the number of ticks on x or y axis 
-    :type number_of_ticks: int
-    
-    :returns: a new_list or ndarray 
-    :rtype: list or array_like 
+    Reset the positions of ticks on the x or y axis modulo 100, returning a
+    new array of tick positions.
+
+    Parameters
+    ----------
+    get_xyticks : list or np.ndarray
+        List or ndarray of tick positions obtained via ax.get_x|yticks().
+    number_of_ticks : int, optional
+        Specifies the number of ticks to set on the x or y axis. If not provided,
+        it calculates based on the existing number of ticks or defaults to the
+        length of `get_xyticks`.
+
+    Returns
+    -------
+    list or np.ndarray
+        A new list or ndarray of modified tick positions.
+
+    Raises
+    ------
+    TypeError
+        If `get_xyticks` is not a list or ndarray.
+    ValueError
+        If `number_of_ticks` is not an integer or cannot be converted to an
+        integer.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> ticks = [10, 20, 30, 40, 50]
+    >>> resetting_ticks(ticks)
+    >>> resetting_ticks(ticks, 3)
     """
-    if not isinstance(get_xyticks, (list, np.ndarray) ): 
-        warnings.warn (
-            'Arguments get_xyticks must be a list'
-            ' not <{0}>.'.format(type(get_xyticks)))
-        raise TipError (
-            '<{0}> found. "get_xyticks" must be a '
-            'list or (nd.array,1).'.format(type(get_xyticks)))
+    if not isinstance(get_xyticks, (list, np.ndarray)):
+        warnings.warn(
+            'Arguments get_xyticks must be a list or ndarray, not <{0}>.'.format(
+                type(get_xyticks))
+        )
+        raise TypeError(
+            '<{0}> found. "get_xyticks" must be a list or ndarray.'.format(
+                type(get_xyticks))
+        )
     
-    if number_of_ticks is None :
-        if len(get_xyticks) > 2 : 
-            number_of_ticks = int((len(get_xyticks)-1)/2)
-        else : number_of_ticks  = len(get_xyticks)
+    if number_of_ticks is None:
+        if len(get_xyticks) > 2:
+            number_of_ticks = int((len(get_xyticks) - 1) / 2)
+        else:
+            number_of_ticks = len(get_xyticks)
     
-    if not(number_of_ticks, (float, int)): 
-        try : number_of_ticks=int(number_of_ticks) 
-        except : 
-            warnings.warn('"Number_of_ticks" arguments is the times to see '
-                          'the ticks on x|y axis.'\
-                          ' Must be integer not <{0}>.'.
-                          format(type(number_of_ticks)))
-            raise PlotError(f'<{type(number_of_ticks).__name__}> detected.'
-                            ' Must be integer.')
+    if not isinstance(number_of_ticks, (float, int)):
+        try:
+            number_of_ticks = int(number_of_ticks)
+        except ValueError:
+            warnings.warn('"number_of_ticks" must be an integer, not <{0}>.'.format(
+                type(number_of_ticks)))
+            raise ValueError(f'<{type(number_of_ticks).__name__}> detected. Must be integer.')
         
-    number_of_ticks=int(number_of_ticks)
+    number_of_ticks = int(number_of_ticks)
     
-    if len(get_xyticks) > 2 :
-        if get_xyticks[1] %10 != 0 : 
-            get_xyticks[1] =get_xyticks[1] + (10 - get_xyticks[1] %10)
-        if get_xyticks[-2]%10  !=0 : 
-            get_xyticks[-2] =get_xyticks[-2] -get_xyticks[-2] %10
+    if len(get_xyticks) > 2:
+        if get_xyticks[1] % 10 != 0:
+            get_xyticks[1] = get_xyticks[1] + (10 - get_xyticks[1] % 10)
+        if get_xyticks[-2] % 10 != 0:
+            get_xyticks[-2] = get_xyticks[-2] - get_xyticks[-2] % 10
     
-        new_array = np.linspace(get_xyticks[1], get_xyticks[-2],
-                                number_of_ticks )
-    elif len(get_xyticks)< 2 : 
+        new_array = np.linspace(get_xyticks[1], get_xyticks[-2], number_of_ticks)
+    elif len(get_xyticks) < 2:
         new_array = np.array(get_xyticks)
- 
-    return  new_array
-        
-def make_mpl_properties(n ,prop ='color'): 
-    """ make matplotlib property ('colors', 'marker', 'line') to fit the 
-    numer of samples
-    
-    :param n: int, 
-        Number of property that is needed to create. It generates a group of 
-        property items. 
-    :param prop: str, default='color', name of property to retrieve. Accepts 
-        only 'colors', 'marker' or 'line'.
-    :return: list of property items with size equals to `n`.
-    :Example: 
-        >>> from gofast.tools.utils import make_mpl_properties
-        >>> make_mpl_properties (10 )
-        ... ['g',
-             'gray',
-             'y',
-             'blue',
-             'orange',
-             'purple',
-             'lime',
-             'k',
-             'cyan',
-             (0.6, 0.6, 0.6)]
-        >>> make_mpl_properties(100 , prop = 'marker')
-        ... ['o',
-             '^',
-             'x',
-             'D',
-              .
-              .
-              .
-             11,
-             'None',
-             None,
-             ' ',
-             '']
-        >>> make_mpl_properties(50 , prop = 'line')
-        ... ['-',
-             '-',
-             '--',
-             '-.',
-               .
-               .
-               . 
-             'solid',
-             'dashed',
-             'dashdot',
-             'dotted']
-        
-    """ 
+
+    return new_array
+
+def make_mpl_properties(n: int, prop: str = 'color') -> list:
+    """
+    Generate a list of matplotlib properties such as colors, markers, or line 
+    styles to match the specified number of samples.
+
+    Parameters
+    ----------
+    n : int
+        Number of property items needed. It generates a group of property items.
+    prop : str, default='color'
+        Name of the property to retrieve. Accepts 'color', 'marker', or 'line'.
+
+    Returns
+    -------
+    list
+        A list of property items with size equal to `n`.
+
+    Raises
+    ------
+    ValueError
+        If the `prop` argument is not one of 'color', 'marker', or 'line'.
+
+    Examples
+    --------
+    >>> from gofast.tools.utils import make_mpl_properties
+    >>> make_mpl_properties(10)
+    ['g', 'gray', 'y', 'blue', 'orange', 'purple', 'lime', 'k', 'cyan', (0.6, 0.6, 0.6)]
+    >>> make_mpl_properties(100, prop='marker')
+    ['o', '^', 'x', 'D', ..., 11, 'None', None, ' ', '']
+    >>> make_mpl_properties(50, prop='line')
+    ['-', '-', '--', '-.', ..., 'solid', 'dashed', 'dashdot', 'dotted']
+    """
     n=int(_assert_all_types(n, int, float, objname ="'n'"))
-    prop = str(prop).lower().strip().replace ('s', '') 
-    if prop not in ('color', 'marker', 'line'): 
-        raise ValueError ("Property {prop!r} is not availabe yet. , Expect"
-                          " 'colors', 'marker' or 'line'.")
-    # customize plots with colors lines and styles 
-    # and create figure obj
+    prop = str(prop).lower().strip().replace('s', '')
+    if prop not in ('color', 'marker', 'line'):
+        raise ValueError(f"Property {prop!r} is not available."
+                         " Expect 'color', 'marker', or 'line'.")
+    # Generate property lists
+    props =[]
     if prop=='color': 
         d_colors =  D_COLORS 
         d_colors = mpl.colors.ListedColormap(d_colors[:n]).colors
@@ -680,224 +666,249 @@ def make_mpl_properties(n ,prop ='color'):
         props  = list(itertools.chain(*rlines))
     
     return props [: n ]
-       
-def resetting_colorbar_bound(cbmax ,
-                             cbmin,
-                             number_of_ticks = 5, 
-                             logscale=False): 
-    """
-    Function to reset colorbar ticks more easy to read 
-    
-    :param cbmax: value maximum of colorbar 
-    :type cbmax: float 
-    
-    :param cbmin: minimum data value 
-    :type cbmin: float  minimum data value
-    
-    :param number_of_ticks:  number of ticks should be 
-                            located on the color bar . Default is 5.
-    :type number_of_ticks: int 
-    
-    :param logscale: set to True if your data are lograith data . 
-    :type logscale: bool 
-    
-    :returns: array of color bar ticks value.
-    :rtype: array_like 
-    """
-    def round_modulo10(value): 
-        """
-        round to modulo 10 or logarithm scale  , 
-        """
-        if value %mod10  == 0 : return value 
-        if value %mod10  !=0 : 
-            if value %(mod10 /2) ==0 : return value 
-            else : return (value - value %mod10 )
-    
-    if not(number_of_ticks, (float, int)): 
-        try : number_of_ticks=int(number_of_ticks) 
-        except : 
-            warnings.warn('"Number_of_ticks" arguments '
-                          'is the times to see the ticks on x|y axis.'
-                          ' Must be integer not <{0}>.'.format(
-                              type(number_of_ticks)))
-            raise TipError('<{0}> detected. Must be integer.')
-        
-    number_of_ticks=int(number_of_ticks)
-    
-    if logscale is True :  mod10 =np.log10(10)
-    else :mod10 = 10 
-       
-    if cbmax % cbmin == 0 : 
-        return np.linspace(cbmin, cbmax , number_of_ticks)
-    elif cbmax% cbmin != 0 :
-        startpoint = cbmin + (mod10  - cbmin % mod10 )
-        endpoint = cbmax - cbmax % mod10  
-        return np.array(
-            [round_modulo10(ii) for ii in np.linspace(
-                             startpoint,endpoint, number_of_ticks)]
-            )
-    
-
-            
-def controle_delineate_curve(res_deline =None , phase_deline =None ): 
-    """
-    fonction to controle delineate value given  and return value ceilling .
-    
-    :param  res_deline:  resistivity  value todelineate. unit of Res in `ohm.m`
-    :type  res_deline: float|int|list  
-    
-    :param  phase_deline:   phase value to  delineate , unit of phase in degree
-    :type phase_deline: float|int|list  
-    
-    :returns: delineate resistivity or phase values 
-    :rtype: array_like 
-    """
-    fmt=['resistivity, phase']
- 
-    for ii, xx_deline in enumerate([res_deline , phase_deline]): 
-        if xx_deline is  not None  : 
-            if isinstance(xx_deline, (float, int, str)):
-                try :xx_deline= float(xx_deline)
-                except : raise TipError(
-                        'Value <{0}> to delineate <{1}> is unacceptable.'\
-                         ' Please ckeck your value.'.format(xx_deline, fmt[ii]))
-                else :
-                    if ii ==0 : return [np.ceil(np.log10(xx_deline))]
-                    if ii ==1 : return [np.ceil(xx_deline)]
   
-            if isinstance(xx_deline , (list, tuple, np.ndarray)):
-                xx_deline =list(xx_deline)
-                try :
-                    if ii == 0 : xx_deline = [
-                            np.ceil(np.log10(float(xx))) for xx in xx_deline]
-                    elif  ii ==1 : xx_deline = [
-                            np.ceil(float(xx)) for xx in xx_deline]
-                        
-                except : raise TipError(
-                        'Value to delineate <{0}> is unacceptable.'\
-                         ' Please ckeck your value.'.format(fmt[ii]))
-                else : return xx_deline
-
-
-def fmt_text (data_text, fmt='~', leftspace = 3, return_to_line =77) : 
+def resetting_colorbar_bound(
+    cbmax: float,
+    cbmin: float,
+    number_of_ticks: int = 5,
+    logscale: bool = False) -> np.ndarray:
     """
-    Allow to format report with data text , fm and leftspace 
+    Adjusts the bounds and tick spacing of a colorbar to make the ticks easier
+    to read, optionally using a logarithmic scale.
 
-    :param  data_text: a long text 
-    :type  data_text: str  
-        
-    :param fmt:  type of underline text 
-    :type fmt: str
+    Parameters
+    ----------
+    cbmax : float
+        Maximum value of the colorbar.
+    cbmin : float
+        Minimum value of the colorbar.
+    number_of_ticks : int, optional
+        Number of ticks to be placed on the colorbar. Defaults to 5.
+    logscale : bool, optional
+        Set to True if the colorbar should use a logarithmic scale. Defaults to False.
 
-    :param leftspae: How many space do you want before starting wrinting report .
-    :type leftspae: int 
-    
-    :param return_to_line: number of character to return to line
-    :type return_to_line: int 
+    Returns
+    -------
+    np.ndarray
+        Array of tick values for the colorbar.
+
+    Raises
+    ------
+    ValueError
+        If `number_of_ticks` is not an integer or convertible to an integer.
+
+    Examples
+    --------
+    >>> resetting_colorbar_bound(100, 0)
+    array([ 0., 25., 50., 75., 100.])
+
+    >>> resetting_colorbar_bound(100, 0, logscale=True)
+    array([  1.,  5.62341,  31.62277,  177.82794,  1000.])
     """
+    def round_modulo10(value, mod10):
+        """
+        Rounds value to nearest multiple of mod10, or to the nearest half multiple.
+        """
+        if value % mod10 == 0:
+            return value
+        elif value % (mod10 / 2) == 0:
+            return value
+        else:
+            return value - (value % mod10)
 
-    return_to_line= int(return_to_line)
-    begin_text= leftspace *' '
-    text= begin_text + fmt*(return_to_line +7) + '\n'+ begin_text
+    if not isinstance(number_of_ticks, (float, int)):
+        try:
+            number_of_ticks = int(number_of_ticks)
+        except ValueError:
+            warnings.warn('"number_of_ticks" must be an integer, not'
+                          f'<{type(number_of_ticks).__name__}>.')
+            raise ValueError(f'<{type(number_of_ticks).__name__}> detected.'
+                             'Must be an integer.')
 
+    mod10 = np.log10(10) if logscale else 10
     
-    ss=0
+    if cbmax % cbmin == 0:
+        return np.linspace(cbmin, cbmax, number_of_ticks)
+    else:
+        startpoint = cbmin + (mod10 - cbmin % mod10)
+        endpoint = cbmax - (cbmax % mod10)
+        return np.array(
+            [round_modulo10(ii, mod10) for ii in np.linspace(
+                startpoint, endpoint, number_of_ticks)]
+        )
     
-    for  ii, num in enumerate(data_text) : # loop the text 
-        if ii == len(data_text)-1 :          # if find the last character of text 
-            #text = text + data_text[ss:] + ' {0}\n'.format(fmt) # take the 
-            #remain and add return chariot 
-            text = text+ ' {0}\n'.format(fmt) +\
-                begin_text +fmt*(return_to_line+7) +'\n' 
-      
+def fmt_text(
+    data_text: str, 
+    fmt: str = '~', 
+    leftspace: int = 3, 
+    return_to_line: int = 77
+    ) -> str:
+    """
+    Formats a given text with specified left padding and underlines to make 
+    a formatted report.
+
+    Parameters
+    ----------
+    data_text : str
+        The long text to be formatted.
+    fmt : str, optional
+        The character used for underlining and formatting. Default is '~'.
+    leftspace : int, optional
+        The number of spaces to indent the text from the left margin. 
+        Default is 3.
+    return_to_line : int, optional
+        The maximum number of characters in a line before wrapping to the next 
+        line. Default is 77.
+
+    Returns
+    -------
+    str
+        The formatted text as a string with underlines and line breaks.
+
+    Examples
+    --------
+    >>> text = "This is a sample text that will be formatted with left spaces, 
+    ...  underlines, and auto-wrapping."
+    >>> print(fmt_text(text))
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+       This is a sample text that will be formatted with left -
+       spaces, underlines, and auto-wrapping. ~
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    """
+    return_to_line = int(return_to_line)
+    begin_text = ' ' * leftspace
+    formatted_text = begin_text + fmt * (return_to_line + 7) + '\n' + begin_text
+
+    ss = 0
+    for ii, char in enumerate(data_text):  # loop through the text
+        if ii == len(data_text) - 1:  # if it is the last character of the text
+            formatted_text += char + f' {fmt}\n' + begin_text + fmt * (
+                return_to_line + 7) + '\n'
+            break
+        if ss == return_to_line:
+            if data_text[ii + 1] != ' ':
+                formatted_text += f' {fmt}-\n' + begin_text + fmt
+            else:
+                formatted_text += f' {fmt}\n' + begin_text + fmt
+            ss = 0
+        formatted_text += char  # add character
+        ss += 1
+
+    return formatted_text
  
-            break 
-        if ss == return_to_line :                       
-            if data_text[ii+1] !=' ' : 
-                text = '{0} {1}- \n {2} '.format(
-                    text, fmt, begin_text + fmt ) 
-            else : 
-                text ='{0} {1} \n {2} '.format(
-                    text, fmt, begin_text+fmt ) 
-            ss=0
-        text += num    # add charatecter  
-        ss +=1
-
-    return text 
-
-def plotvec1(u, z, v):
+def plotvec1(u: np.ndarray, z: np.ndarray, v: np.ndarray) -> None:
     """
-    Plot tips function with  three vectors. 
-    
-    :param u: vector u - a vector 
-    :type u: array like  
-    
-    :param z: vector z 
-    :type z: array_like 
-    
-    :param v: vector v 
-    :type v: array_like 
-    
-    return: plot 
-    
+    Plot three vectors as arrows on a 2D graph to visualize their 
+    directions and magnitudes. The vectors should be 2D for proper visualization.
+
+    Parameters
+    ----------
+    u : np.ndarray
+        First vector, displayed in red. Expected to be a 1D array of length 2.
+    z : np.ndarray
+        Second vector. Expected to be a 1D array of length 2.
+    v : np.ndarray
+        Third vector, displayed in blue. Expected to be a 1D array of length 2.
+
+    Returns
+    -------
+    None
+        Displays a plot with vectors u, z, and v.
+
+    Raises
+    ------
+    ValueError
+        If any of the vectors are not 1D arrays of length 2.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> u = np.array([1, 2])
+    >>> z = np.array([2, -1])
+    >>> v = np.array([-1, 2])
+    >>> plotvec1(u, z, v)
     """
-    
+    # Check if all vectors are numpy arrays of length 2
+    for vec, name in zip([u, z, v], ['u', 'z', 'v']):
+        if not isinstance(vec, np.ndarray) or vec.shape != (2,):
+            raise ValueError(f"Vector {name} must be a 1D numpy array of length 2.")
+
     ax = plt.axes()
     ax.arrow(0, 0, *u, head_width=0.05, color='r', head_length=0.1)
     plt.text(*(u + 0.1), 'u')
     
     ax.arrow(0, 0, *v, head_width=0.05, color='b', head_length=0.1)
     plt.text(*(v + 0.1), 'v')
+
     ax.arrow(0, 0, *z, head_width=0.05, head_length=0.1)
     plt.text(*(z + 0.1), 'z')
+
     plt.ylim(-2, 2)
     plt.xlim(-2, 2)
+    plt.grid(True)
+    plt.show()
 
-def plotvec2(a,b):
+def plotvec2(a: np.ndarray, b: np.ndarray) -> None:
     """
-    Plot tips function with two vectors
-    Just use to get the orthogonality of two vector for other purposes 
+    Plot two vectors as arrows on a 2D graph to visualize their directions 
+    and orthogonality. The vectors should be 2D for proper visualization.
 
-    :param a: vector u 
-    :type a: array like  - a vector 
-    :param b: vector z 
-    :type b: array_like 
-    
-    *  Write your code below and press Shift+Enter to execute
-    
-    :Example: 
-        
-        >>> import numpy as np 
-        >>> from gofast.tools.utils import plotvec2
-        >>> a=np.array([1,0])
-        >>> b=np.array([0,1])
-        >>> Plotvec2(a,b)
-        >>> print('the product a to b is =', np.dot(a,b))
+    Parameters
+    ----------
+    a : np.ndarray
+        First vector, displayed in red. Expected to be a 1D array of length 2.
+    b : np.ndarray
+        Second vector, displayed in blue. Expected to be a 1D array of length 2.
 
+    Returns
+    -------
+    None
+        Displays a plot with vectors a and b.
+
+    Raises
+    ------
+    ValueError
+        If any of the vectors are not 1D arrays of length 2.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> a = np.array([1, 0])
+    >>> b = np.array([0, 1])
+    >>> plotvec2(a, b)
     """
+    # Validate the input vectors
+    for vec, name in zip([a, b], ['a', 'b']):
+        if not isinstance(vec, np.ndarray) or vec.shape != (2,):
+            raise ValueError(f"Vector {name} must be a 1D numpy array of length 2.")
+
     ax = plt.axes()
-    ax.arrow(0, 0, *a, head_width=0.05, color ='r', head_length=0.1)
+    ax.arrow(0, 0, *a, head_width=0.05, color='r', head_length=0.1)
     plt.text(*(a + 0.1), 'a')
-    ax.arrow(0, 0, *b, head_width=0.05, color ='b', head_length=0.1)
+    
+    ax.arrow(0, 0, *b, head_width=0.05, color='b', head_length=0.1)
     plt.text(*(b + 0.1), 'b')
+
     plt.ylim(-2, 2)
-    plt.xlim(-2, 2)  
+    plt.xlim(-2, 2)
+    plt.grid(True)
+    plt.show()
 
 def plot_errorbar(
-        ax,
-        x_ar,
-        y_ar,
-        y_err=None,
-        x_err=None,
-        color='k',
-        marker='x',
-        ms=2, 
-        ls=':', 
-        lw=1, 
-        e_capsize=2,
-        e_capthick=.5,
-        picker=None,
-        **kws
+    ax,
+    x_ar,
+    y_ar,
+    y_err=None,
+    x_err=None,
+    color='k',
+    marker='x',
+    ms=2, 
+    ls=':', 
+    lw=1, 
+    e_capsize=2,
+    e_capthick=.5,
+    picker=None,
+    **kws
  ):
     """
     convinience function to make an error bar instance

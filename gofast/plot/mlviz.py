@@ -25,7 +25,7 @@ from ..tools.coreutils import is_iterable, make_obj_consistent_if
 from ..tools.funcutils import ensure_pkg 
 from ..tools.validator import _is_cross_validated, validate_yy
 from ..tools.validator import assert_xy_in, get_estimator_name, check_is_fitted
-from .utils import _set_sns_style, _make_axe_multiple, savefigure 
+from .utils import _set_sns_style, _make_axe_multiple
 from .utils import make_plot_colors  
 from ._config import PlotConfig 
 

@@ -12,12 +12,12 @@ from matplotlib.colors import ListedColormap
 from sklearn.preprocessing import StandardScaler 
 from sklearn.model_selection import train_test_split 
 from sklearn.decomposition import PCA 
+
 from ..api.docstring import _core_docs 
 from ..backends.selector import BackendSelector 
 from ..tools.coreutils import _assert_all_types
 from ..tools.validator import validate_positive_integer 
 from ..tools.validator import check_array, parameter_validator   
-
 
 __all__=["get_eigen_components", "plot_decision_regions", 
     "transform_to_principal_components", "get_total_variance_ratio" , 

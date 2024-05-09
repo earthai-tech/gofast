@@ -16,17 +16,14 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import LabelEncoder
 
 from gofast.tools.coreutils import is_module_installed
-from gofast.transformers import SequentialBackwardSelector, KMeansFeaturizer
-from gofast.transformers import ( 
+from gofast.transformers.feature_engineering import ( 
     StratifyFromBaseFeature,
     CategoryBaseStratifier, 
     CategorizeFeatures, 
     CombinedAttributesAdder, 
     DataFrameSelector,
     FrameUnion,
-    TextFeatureExtractor,
     FeatureSelectorByModel,
-    DateFeatureExtractor,
     DimensionalityReducer,
     PolynomialFeatureCombiner,
     BaseCategoricalEncoder,
@@ -35,9 +32,16 @@ from gofast.transformers import (
     MissingValueImputer,
     ColumnSelector,
     BaseColumnSelector,
-    LogTransformer,
-    TimeSeriesFeatureExtractor,
+    LogTransformer, 
+    SequentialBackwardSelector,
+    KMeansFeaturizer, 
     CategoryFrequencyEncoder,
+    ) 
+from gofast.transformers.lexical_temporal import  ( 
+    TextFeatureExtractor, DateFeatureExtractor
+    )
+from gofast.transformers.ts import ( 
+    TimeSeriesFeatureExtractor,
     DateTimeCyclicalEncoder,
     LagFeatureGenerator,
     DifferencingTransformer,
@@ -46,6 +50,9 @@ from gofast.transformers import (
     SeasonalDecomposeTransformer,
     FourierFeaturesTransformer,
     TrendFeatureExtractor,
+    )
+    
+from gofast.transformers.image import (
     ImageResizer,
     ImageNormalizer,
     ImageToGrayscale,
@@ -58,6 +65,7 @@ from gofast.transformers import (
     ImageBatchLoader, 
 )
 
+# 
 # install scikit-image 
 try: 
     from skimage.transform import resize # noqa 

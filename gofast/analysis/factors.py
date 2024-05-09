@@ -334,7 +334,7 @@ def ledoit_wolf_score(
     # Perform the fitting and scoring
     # Note: cross_val_score requires a model, so we need to adapt the covariance
     # estimator to fit this. Typically, cross_val_score is used with predictive
-    # models, so you would wrap this in a way that can be used with 
+    # models, so we would wrap this in a way that can be used with 
     # cross_val_score or simply use .fit() and .score() methods if adapting 
     # isn't trivial.
     X = ensure_2d (check_array(X))
