@@ -12,7 +12,8 @@ import pandas as pd
 import matplotlib.pyplot as plt 
 import seaborn as sns 
 
-from ..api.formatter import MultiFrameFormatter, format_iterable 
+from ..api.extension import isinstance_ 
+from ..api.formatter import MultiFrameFormatter, format_iterable
 from ..api.summary import ReportFactory, Summary
 from ..api.summary import ResultSummary, assemble_reports
 from ..api.types import Any,  List,  DataFrame, Optional, Series
@@ -210,6 +211,8 @@ def audit_data(
         nonlocal data, report
         if return_report:
             data, step_report = new_data
+            if isinstance_( step_report, ReportFactory): 
+                step_report= step_report.report 
             report = {**report, **step_report}
         else:
             data = new_data
@@ -267,6 +270,7 @@ def audit_data(
         report_obj.add_mixed_types(report, table_width= TW)
     
     return (data, report_obj) if return_report else data
+
 def handle_categorical_features(
     data: DataFrame, /, 
     categorical_threshold: int = 10,

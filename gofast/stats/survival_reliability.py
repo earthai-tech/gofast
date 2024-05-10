@@ -72,7 +72,7 @@ def kaplan_meier_analysis(
 
     Examples
     --------
-    >>> from gofast.stats.utils import kaplan_meier_analysis
+    >>> from gofast.stats.survival_reliability import kaplan_meier_analysis
     >>> durations = [5, 6, 6, 2.5, 4, 4]
     >>> event_observed = [1, 0, 0, 1, 1, 1]
     >>> kmf = kaplan_meier_analysis(durations, event_observed)
@@ -161,7 +161,7 @@ def dca_analysis(
     Examples
     --------
     >>> from sklearn.datasets import make_classification
-    >>> from gofast.stats.utils import dca_analysis
+    >>> from gofast.stats.survival_reliability import dca_analysis
     >>> X, y = make_classification(n_samples=100, n_features=5, n_informative=2)
     >>> dca_result = dca_analysis(X, as_frame=True, view=True)
     >>> print(dca_result.head())

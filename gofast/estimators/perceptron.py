@@ -217,8 +217,6 @@ class BasePerceptron(BaseEstimator, ClassifierMixin):
         
         return self.__class__.__name__ + str(tup).replace("'", "") 
 
-
-
 class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
     r"""
     Gradient Descent Classifier for Binary and Multi-Class Classification.

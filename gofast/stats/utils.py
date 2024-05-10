@@ -46,16 +46,19 @@ def prepare_stats_plot(
 
     Examples
     --------
+    >>> import pandas as pd 
+    >>> import numpy as np 
+    >>> from gofast.stats.utils import prepare_stats_plot
     >>> values = pd.Series([1, 2, 3], index=['a', 'b', 'c'])
-    >>> _prepare_plot_data(values)
+    >>> prepare_stats_plot(values)
     (Series([1, 2, 3], index=['a', 'b', 'c']), None, Index(['a', 'b', 'c']))
 
     >>> values = pd.DataFrame({'A': [1, 2], 'B': [3, 4]}, index=['x', 'y'])
-    >>> _prepare_plot_data(values, axis=1)
+    >>> prepare_stats_plot(values, axis=1)
     (Transposed DataFrame, Transposed DataFrame, Index(['x', 'y']))
 
     >>> values = np.array([1, 2, 3])
-    >>> _prepare_plot_data(values, transform=np.square)
+    >>> prepare_stats_plot(values, transform=np.square)
     (array([1, 4, 9]), None, range(0, 3))
     """
     if transform is not None and callable(transform):
@@ -131,19 +134,20 @@ def validate_stats_plot_type(
 
     Examples
     --------
-    >>> _validate_plot_type('box', ['boxplot', 'histogram', 'density'],
+    >>> from gofast.stats.utils import validate_stats_plot_type
+    >>> validate_stats_plot_type('box', ['boxplot', 'histogram', 'density'],
     ...                        match_method='startswith')
     'boxplot'
 
-    >>> _validate_plot_type('exact_plot', ['boxplot', 'histogram', 'density'],
+    >>> validate_stats_plot_type('exact_plot', ['boxplot', 'histogram', 'density'],
     ...                        match_method='exact')
     None
 
-    >>> _validate_plot_type('hist', ['boxplot', 'histogram', 'density'], 
+    >>> validate_stats_plot_type('hist', ['boxplot', 'histogram', 'density'], 
     ...                        match_method='contains')
     'histogram'
 
-    >>> _validate_plot_type('unknown', ['boxplot', 'histogram', 'density'],
+    >>> validate_stats_plot_type('unknown', ['boxplot', 'histogram', 'density'],
     ...                        raise_exception=True)
     ValueError: Plot type 'unknown' is not supported.
 

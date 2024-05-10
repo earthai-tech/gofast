@@ -67,8 +67,8 @@ class ResultSummary:
         self.name = name or "Result"
         self.pad_keys = pad_keys
         self.max_char = max_char or get_table_size()
-        self.results = {}
         self.flatten_nested_dicts = flatten_nested_dicts 
+        self.results = {}
         
     def add_results(self, results):
         """

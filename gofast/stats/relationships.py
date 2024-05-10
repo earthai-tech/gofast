@@ -78,7 +78,7 @@ def correlation(
 
     Examples
     --------
-    >>> from gofast.stats.utils import correlation
+    >>> from gofast.stats.relationships import correlation
     >>> import pandas as pd
     >>> data = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
     >>> corr('A', 'B', data=data)
@@ -478,7 +478,7 @@ def mds_similarity(
     Examples
     --------
     >>> from sklearn.datasets import load_digits
-    >>> from gofast.stats.utils import mds_similarity
+    >>> from gofast.stats.relationships import mds_similarity
     >>> digits = load_digits()
     >>> mds_coordinates = mds_similarity(digits.data, n_components=2, view=True)
     >>> print(mds_coordinates.shape)

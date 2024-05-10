@@ -135,7 +135,7 @@ def create_dataset(task='classification', n_classes=2, n_informative=2 ):
 # Tests for AdalineClassifier
 @pytest.fixture
 def adaline_classifier():
-    return AdalineClassifier(eta=0.01, n_iter=50)
+    return AdalineClassifier(eta0=0.01, max_iter=50)
 
 def test_adaline_classifier(adaline_classifier):
     X_train, X_test, y_train, y_test = create_dataset('classification')
@@ -147,7 +147,7 @@ def test_adaline_classifier(adaline_classifier):
 # Tests for AdalineMixte
 @pytest.fixture
 def adaline_mixte():
-    return AdalineMixte(eta=0.01, n_iter=50)
+    return AdalineMixte(eta0=0.01, max_iter=50)
 
 def test_adaline_mixte(adaline_mixte):
     # Testing both regression and classification modes
@@ -220,7 +220,7 @@ def test_majority_vote_invalid_input(majority_vote_classifier):
 # AdalineStochasticRegressor tests
 @pytest.fixture
 def adaline_stochastic_regressor():
-    return AdalineStochasticRegressor(eta=0.0001, n_iter=100)
+    return AdalineStochasticRegressor(eta0=0.0001, max_iter=100)
 
 def test_adaline_stochastic_regressor_fit_predict(adaline_stochastic_regressor):
     X_train, X_test, y_train, y_test = create_dataset('regression')
@@ -232,7 +232,7 @@ def test_adaline_stochastic_regressor_fit_predict(adaline_stochastic_regressor):
 # AdalineStochasticClassifier tests
 @pytest.fixture
 def adaline_stochastic_classifier():
-    return AdalineStochasticClassifier(eta=0.01, n_iter=50)
+    return AdalineStochasticClassifier(eta0=0.01, max_iter=50)
 
 def test_adaline_stochastic_classifier_fit_predict(adaline_stochastic_classifier):
     X_train, X_test, y_train, y_test = create_dataset('classification')
@@ -250,7 +250,7 @@ def test_adaline_stochastic_classifier_predict_proba(adaline_stochastic_classifi
 # AdalineRegressor tests
 @pytest.fixture
 def adaline_regressor():
-    return AdalineRegressor(eta=0.01, n_iter=50)
+    return AdalineRegressor(eta0=0.01, max_iter=50)
 
 def test_adaline_regressor_fit_predict(adaline_regressor):
     X_train, X_test, y_train, y_test = create_dataset('regression')

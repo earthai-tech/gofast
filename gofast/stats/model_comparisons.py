@@ -797,7 +797,6 @@ def perform_nemenyi_test2(
         pairwise_comparisons)
     return pairwise_comparisons
 
-
 @isdf 
 def perform_wilcoxon_test2(
       model_performance_data: Union[Dict[str, List[float]], DataFrame]

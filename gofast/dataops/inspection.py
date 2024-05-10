@@ -2,7 +2,7 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 
-"""performs broad data checks and preprocessing of the data."""
+"""Performs broad data checks and preprocessing of the data."""
 from __future__ import annotations, print_function 
 import numpy as np 
 
@@ -15,7 +15,6 @@ from ..api.util import get_table_size
 from ..decorators import isdf
 from ..tools.coreutils import to_numeric_dtypes
 from ..tools.validator import is_frame
-
 
 TW = get_table_size() 
 
@@ -49,7 +48,7 @@ def verify_data_integrity(data: DataFrame, /) -> Tuple[bool, dict]:
     Example
     -------
     >>> import pandas as pd 
-    >>> from gofast.dataops.quality import verify_data_integrity
+    >>> from gofast.dataops.inspection import verify_data_integrity
     >>> data = pd.DataFrame({'A': [1, 2, None], 'B': [4, 5, 6], 'C': [7, 8, 8]})
     >>> is_valid, report = verify_data_integrity(data)
     >>> print(f"Data is valid: {is_valid}\nReport: {report}")
@@ -189,7 +188,7 @@ def inspect_data(
     
     Examples
     --------
-    >>> from gofast.dataops.quality import inspect_data
+    >>> from gofast.dataops.inspection import inspect_data
     >>> import numpy as np
     >>> import pandas as pd
     

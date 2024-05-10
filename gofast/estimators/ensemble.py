@@ -462,7 +462,6 @@ class EnsembleNeuroFuzzy(BaseEstimator, RegressorMixin):
                                 for estimator in self.nf_estimators])
         return np.mean(predictions, axis=0)
 
-
 class SimpleAverageRegressor(BaseEstimator, RegressorMixin):
     r"""
     Simple Average Ensemble Regressor.

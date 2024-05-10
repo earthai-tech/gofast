@@ -91,7 +91,7 @@ def check_anova_assumptions(
 
     Examples
     --------
-    >>> from gofast.stats.utils import check_anova_assumptions
+    >>> from gofast.stats.inferential import check_anova_assumptions
     >>> data = {
             'Group1': [20, 21, 19, 20, 21],
             'Group2': [30, 31, 29, 30, 31],
@@ -307,7 +307,7 @@ def wilcoxon_signed_rank_test(
     --------
     Performing a Wilcoxon Signed-Rank Test:
 
-    >>> from gofast.stats.utils import wilcoxon_signed_rank_test
+    >>> from gofast.stats.inferential import wilcoxon_signed_rank_test
     >>> data1 = np.random.normal(loc=10, scale=2, size=30)
     >>> data2 = data1 + np.random.normal(loc=0, scale=1, size=30)
     >>> statistic, p_value = wilcoxon_signed_rank_test(data1, data2)
@@ -454,7 +454,7 @@ def t_test_independent(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.stats.utils import t_test_independent
+    >>> from gofast.stats.inferential import t_test_independent
     >>> sample1 = [22, 23, 25, 27, 29]
     >>> sample2 = [18, 20, 21, 20, 19]
     >>> t_stat, p_value, reject_null = t_test_independent(sample1, sample2)
@@ -585,7 +585,7 @@ def paired_t_test(
     --------
     Performing a Paired t-Test:
 
-    >>> from gofast.stats.utils import paired_t_test
+    >>> from gofast.stats.inferential import paired_t_test
     >>> data1 = np.random.normal(loc=10, scale=2, size=30)
     >>> data2 = data1 + np.random.normal(loc=0, scale=1, size=30)
     >>> statistic, p_value = paired_t_test(data1, data2)
@@ -744,7 +744,7 @@ def mixed_effects_model(
         
     >>> import numpy as np 
     >>> import pandas as pd 
-    >>> from gofast.stats.utils import mixed_effects_model
+    >>> from gofast.stats.inferential import mixed_effects_model
     >>> df = pd.DataFrame({
     ...     'subject_id': [1, 1, 2, 2],
     ...     'score': [5.5, 6.5, 5.0, 6.0],
@@ -857,7 +857,7 @@ def levene_test(
 
     >>> import numpy as np 
     >>> import pandas as pd 
-    >>> from gofast.stats.utils import levene_test
+    >>> from gofast.stats.inferential import levene_test
     >>> sample1 = np.random.normal(loc=0, scale=1, size=50)
     >>> sample2 = np.random.normal(loc=0.5, scale=1.5, size=50)
     >>> sample3 = np.random.normal(loc=-0.5, scale=0.5, size=50)
@@ -975,7 +975,7 @@ def mcnemar_test(
     --------
     Performing McNemar's test with array inputs:
 
-    >>> from gofast.stats.utils import mcnemar_test
+    >>> from gofast.stats.inferential import mcnemar_test
     >>> sample1 = [0, 1, 0, 1]
     >>> sample2 = [1, 0, 1, 1]
     >>> statistic, p_value = mcnemar_test(sample1, sample2)
@@ -1102,7 +1102,7 @@ def kruskal_wallis_test(
     Performing a Kruskal-Wallis H Test with array inputs:
     
     >>> import numpy as np 
-    >>> from gofast.stats.utils import kruskal_wallis_test
+    >>> from gofast.stats.inferential import kruskal_wallis_test
     >>> sample1 = np.random.normal(loc=10, scale=2, size=30)
     >>> sample2 = np.random.normal(loc=12, scale=2, size=30)
     >>> sample3 = np.random.normal(loc=11, scale=2, size=30)
@@ -1226,7 +1226,7 @@ def kolmogorov_smirnov_test(
     Examples
     --------
     >>> import numpy as np
-    >>> from gofast.stats.utils import kolmogorov_smirnov_test
+    >>> from gofast.stats.inferential import kolmogorov_smirnov_test
     >>> data1 = np.random.normal(loc=0, scale=1, size=100)
     >>> data2 = np.random.normal(loc=0.5, scale=1.5, size=100)
     >>> statistic, p_value = kolmogorov_smirnov_test(data1, data2)
@@ -1440,7 +1440,7 @@ def cronbach_alpha(
     Using a numpy array:
     
     >>> import numpy as np 
-    >>> from gofast.stats.utils import cronbach_alpha
+    >>> from gofast.stats.inferential import cronbach_alpha
     >>> scores = np.array([[2, 3, 4], [4, 4, 5], [3, 5, 4]])
     >>> cronbach_alpha(scores)
     0.75
@@ -1552,7 +1552,7 @@ def chi2_test(
     >>> from scipy import stats
     >>> import seaborn as sns
     >>> import matplotlib.pyplot as plt
-    >>> from gofast.stats.utils import chi2_test 
+    >>> from gofast.stats.inferential import chi2_test 
     >>> data = pd.DataFrame({'A': [10, 20, 30], 'B': [20, 15, 30]})
     >>> chi2_stat, p_value, reject_null = chi2_test(data)
     >>> print(f"Chi2 Statistic: {chi2_stat}, P-value: {p_value}, Reject Null: {reject_null}")
@@ -1662,7 +1662,7 @@ def anova_test(
     >>> import seaborn as sns
     >>> import matplotlib.pyplot as plt
     >>> import numpy as np
-    >>> from gofast.stats.utils import goanova_test  
+    >>> from gofast.stats.inferential import goanova_test  
     >>> data = {'group1': [1, 2, 3], 'group2': [4, 5, 6], 'group3': [7, 8, 9]}
     >>> f_stat, p_value, reject_null = anova_test(data, alpha=0.05, view=True)
     >>> print(f"F-statistic: {f_stat}, P-value: {p_value}, Reject Null: {reject_null}")
@@ -1774,7 +1774,7 @@ def bootstrap(
 
     Examples
     --------
-    >>> from gofast.stats.utils import bootstrap
+    >>> from gofast.stats.inferential import bootstrap
     >>> import numpy as np
     >>> np.random.seed(0)
     >>> data = np.arange(10)
@@ -2027,7 +2027,7 @@ def statistical_tests(
     
     >>> import numpy as np 
     >>> import pandas as pd 
-    >>> from gofast.stats.utils import statistical_tests
+    >>> from gofast.stats.inferential import statistical_tests
     >>> data1 = np.random.normal(loc=10, scale=2, size=30)
     >>> data2 = np.random.normal(loc=12, scale=2, size=30)
     >>> result = statistical_tests(data1, data2, test_type='ttest_paired')
@@ -2322,7 +2322,7 @@ def check_and_fix_rm_anova_data(
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.stats.utils import check_and_fix_rm_anova_data
+    >>> from gofast.stats.inferential import check_and_fix_rm_anova_data
     >>> data = {
     ...     'subject_id': [1, 1, 1, 2, 2, 2, 3, 3, 3],
     ...     'score': [5, 3, 8, 4, 6, 7, 6, 5, 8],

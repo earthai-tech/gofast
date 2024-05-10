@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
-#   Author: LKouadio <etanoyau@gmail.com>
+#   Author: LKouadio <eta0noyau@gmail.com>
 
 from __future__ import annotations 
 import numpy as np
@@ -36,11 +36,11 @@ class AdalineStochasticRegressor(BaseEstimator, RegressorMixin):
     The weight update rule in SGD for Adaline is given by:
 
     .. math::
-        w := w + \eta (y^{(i)} - \phi(z^{(i)})) x^{(i)}
+        w := w + \eta0 (y^{(i)} - \phi(z^{(i)})) x^{(i)}
 
     where:
     - :math:`w` is the weight vector.
-    - :math:`\eta` is the learning rate.
+    - :math:`\eta0` is the learning rate.
     - :math:`y^{(i)}` is the true value for the \(i\)-th training instance.
     - :math:`\phi(z^{(i)})` is the predicted value using the linear activation function.
     - :math:`x^{(i)}` is the feature vector of the \(i\)-th training instance.
@@ -50,10 +50,10 @@ class AdalineStochasticRegressor(BaseEstimator, RegressorMixin):
 
     Parameters
     ----------
-    eta : float, default=0.0001
+    eta0 : float, default=0.0001
         Learning rate (between 0.0 and 1.0).
 
-    n_iter : int, default=10
+    max_iter : int, default=10
         Number of passes over the training dataset (epochs).
 
     shuffle : bool, default=True
@@ -101,7 +101,7 @@ class AdalineStochasticRegressor(BaseEstimator, RegressorMixin):
     >>> X_train_std = sc.fit_transform(X_train)
     >>> X_test_std = sc.transform(X_test)
 
-    >>> ada_sgd_reg = AdalineStochasticRegressor(eta=0.0001, n_iter=1000)
+    >>> ada_sgd_reg = AdalineStochasticRegressor(eta0=0.0001, max_iter=1000)
     >>> ada_sgd_reg.fit(X_train_std, y_train)
     >>> y_pred = ada_sgd_reg.predict(X_test_std)
     >>> print('Mean Squared Error:', np.mean((y_pred - y_test) ** 2))
@@ -109,13 +109,13 @@ class AdalineStochasticRegressor(BaseEstimator, RegressorMixin):
 
     def __init__(
         self, 
-        eta=0.0001, 
-        n_iter=10, 
+        eta0=0.0001, 
+        max_iter=10, 
         shuffle=True,
         random_state=None 
         ):
-        self.eta = eta
-        self.n_iter = n_iter
+        self.eta0 = eta0
+        self.max_iter = max_iter
         self.shuffle = shuffle
         self.random_state=random_state 
 
@@ -140,14 +140,14 @@ class AdalineStochasticRegressor(BaseEstimator, RegressorMixin):
         # self.weights_ = np.zeros(1 + X.shape[1])
         self.cost_ = []
 
-        for i in range(self.n_iter):
+        for i in range(self.max_iter):
             if self.shuffle:
                 X, y = shuffle(X, y)
             cost = []
             for xi, target in zip(X, y):
                 error = target - self.predict(xi.reshape (1, -1))
-                self.weights_[1:] += self.eta * xi * error
-                self.weights_[0] += self.eta * error
+                self.weights_[1:] += self.eta0 * xi * error
+                self.weights_[0] += self.eta0 * error
                 cost.append(error**2 / 2.0)
             self.cost_.append(np.mean(cost))
         return self
@@ -194,20 +194,20 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
     The weights are updated incrementally for each training example:
 
     .. math::
-        w := w + \eta (y^{(i)} - \phi(z^{(i)})) x^{(i)}
+        w := w + \eta0 (y^{(i)} - \phi(z^{(i)})) x^{(i)}
 
-    where :math:`\eta` is the learning rate. This incremental update approach 
+    where :math:`\eta0` is the learning rate. This incremental update approach 
     helps in adapting the classifier more robustly to large and varying datasets, 
     ensuring that each training instance directly influences the model's learning.
 
     Parameters
     ----------
-    eta : float, optional (default=0.01)
+    eta0 : float, optional (default=0.01)
         The learning rate, determining the step size at each iteration while 
         moving toward a minimum of a loss function. The value must be between 
         0.0 and 1.0.
 
-    n_iter : int, optional (default=10)
+    max_iter : int, optional (default=10)
         The number of passes over the training data (aka epochs).
 
     shuffle : bool, optional (default=True)
@@ -245,9 +245,9 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
     >>> from gofast.estimators.adaline import AdalineStochasticClassifier
     >>> X = [[0., 0.], [1., 1.]]
     >>> y = [0, 1]
-    >>> clf = AdalineStochasticClassifier(eta=0.01, n_iter=10)
+    >>> clf = AdalineStochasticClassifier(eta0=0.01, max_iter=10)
     >>> clf.fit(X, y)
-    AdalineStochasticClassifier(eta=0.01, n_iter=10)
+    AdalineStochasticClassifier(eta0=0.01, max_iter=10)
 
     See Also
     --------
@@ -256,10 +256,10 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
 
     """
 
-    def __init__(self, eta:float = .01 , n_iter: int = 50 , shuffle=True, 
+    def __init__(self, eta0:float = .01 , max_iter: int = 50 , shuffle=True, 
                  random_state:int = None ) :
-        self.eta=eta 
-        self.n_iter=n_iter 
+        self.eta0=eta0 
+        self.max_iter=max_iter 
         self.shuffle=shuffle 
         self.random_state=random_state 
         
@@ -295,7 +295,7 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
             )
         self._init_weights (X.shape[1])
         self.cost_=list() 
-        for i in range(self.n_iter ): 
+        for i in range(self.max_iter ): 
             if self.shuffle: 
                 X, y = self._shuffle (X, y) 
             cost =[] 
@@ -408,7 +408,7 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
         """
         output = self.activation (self.net_input(X))
         errors =(y - output ) 
-        self.weights_[1:] += self.eta * X.dot(errors) 
+        self.weights_[1:] += self.eta0 * X.dot(errors) 
         cost = errors **2 /2. 
         
         return cost 
@@ -533,11 +533,11 @@ class AdalineRegressor(BaseEstimator, RegressorMixin):
     rule:
 
     .. math::
-        w := w + \eta \sum_{i} (y^{(i)} - \phi(z^{(i)})) x^{(i)}
+        w := w + \eta0 \sum_{i} (y^{(i)} - \phi(z^{(i)})) x^{(i)}
 
     where:
     - :math:`w` represents the weight vector.
-    - :math:`\eta` is the learning rate.
+    - :math:`\eta0` is the learning rate.
     - :math:`y^{(i)}` is the actual observed value for the \(i\)-th sample.
     - :math:`\phi(z^{(i)})` is the predicted value obtained from the linear model.
     - :math:`x^{(i)}` is the feature vector of the \(i\)-th sample.
@@ -548,12 +548,12 @@ class AdalineRegressor(BaseEstimator, RegressorMixin):
 
     Parameters
     ----------
-    eta : float, optional (default=0.01)
+    eta0 : float, optional (default=0.01)
         The learning rate, determining the step size at each iteration while
         moving toward a minimum of the loss function. The value should be between
         0.0 and 1.0.
 
-    n_iter : int, optional (default=50)
+    max_iter : int, optional (default=50)
         The number of passes over the training dataset (epochs).
 
     random_state : int, optional (default=None)
@@ -579,7 +579,7 @@ class AdalineRegressor(BaseEstimator, RegressorMixin):
     >>> y = diabetes.target
     >>> X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.3, random_state=0)
-    >>> ada = AdalineRegressor(eta=0.01, n_iter=50)
+    >>> ada = AdalineRegressor(eta0=0.01, max_iter=50)
     >>> ada.fit(X_train, y_train)
     >>> y_pred = ada.predict(X_test)
     >>> print('Mean Squared Error:', np.mean((y_pred - y_test) ** 2))
@@ -599,9 +599,9 @@ class AdalineRegressor(BaseEstimator, RegressorMixin):
 
     """
 
-    def __init__(self, eta=0.01, n_iter=50, random_state =None):
-        self.eta = eta
-        self.n_iter = n_iter
+    def __init__(self, eta0=0.01, max_iter=50, random_state =None):
+        self.eta0 = eta0
+        self.max_iter = max_iter
         self.random_state=random_state 
 
     def fit(self, X, y):
@@ -626,11 +626,11 @@ class AdalineRegressor(BaseEstimator, RegressorMixin):
         # self.weights_ = np.zeros(1 + X.shape[1])
         self.errors_ = []
 
-        for _ in range(self.n_iter):
+        for _ in range(self.max_iter):
             errors = 0
             for xi, target in zip(X, y):
                 error = target - self.predict(xi.reshape ( 1, -1))
-                update = self.eta * error
+                update = self.eta0 * error
                 self.weights_[1:] += update * xi
                 self.weights_[0] += update
                 errors += error ** 2
@@ -669,11 +669,11 @@ class AdalineClassifier(BaseEstimator, ClassifierMixin):
     following rule:
 
     .. math::
-        w := w + \eta \sum_{i} (y^{(i)} - \phi(z^{(i)})) x^{(i)}
+        w := w + \eta0 \sum_{i} (y^{(i)} - \phi(z^{(i)})) x^{(i)}
 
     where:
     - :math:`w` represents the weight vector.
-    - :math:`\eta` is the learning rate.
+    - :math:`\eta0` is the learning rate.
     - :math:`y^{(i)}` is the actual label for the \(i\)-th sample.
     - :math:`\phi(z^{(i)})` is the predicted label, obtained from the
       linear model activation.
@@ -685,12 +685,12 @@ class AdalineClassifier(BaseEstimator, ClassifierMixin):
 
     Parameters
     ----------
-    eta : float, optional (default=0.01)
+    eta0 : float, optional (default=0.01)
         The learning rate, determining the step size at each iteration while
         moving toward a minimum of the loss function. The value should be between
         0.0 and 1.0.
 
-    n_iter : int, optional (default=50)
+    max_iter : int, optional (default=50)
         The number of passes over the training dataset (epochs).
 
     random_state : int, optional (default=None)
@@ -716,7 +716,7 @@ class AdalineClassifier(BaseEstimator, ClassifierMixin):
     >>> y = iris.target
     >>> X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.3, random_state=0)
-    >>> ada = AdalineClassifier(eta=0.01, n_iter=50)
+    >>> ada = AdalineClassifier(eta0=0.01, max_iter=50)
     >>> ada.fit(X_train, y_train)
     >>> y_pred = ada.predict(X_test)
     >>> print('Accuracy:', np.mean(y_pred == y_test))
@@ -736,9 +736,9 @@ class AdalineClassifier(BaseEstimator, ClassifierMixin):
 
     """
 
-    def __init__(self, eta=0.01, n_iter=50, random_state=None ):
-        self.eta = eta
-        self.n_iter = n_iter
+    def __init__(self, eta0=0.01, max_iter=50, random_state=None ):
+        self.eta0 = eta0
+        self.max_iter = max_iter
         self.random_state=random_state  
         
     def fit(self, X, y):
@@ -763,10 +763,10 @@ class AdalineClassifier(BaseEstimator, ClassifierMixin):
         # self.weights_ = np.zeros(1 + X.shape[1])
         self.errors_ = []
 
-        for _ in range(self.n_iter):
+        for _ in range(self.max_iter):
             errors = 0
             for xi, target in zip(X, y):
-                update = self.eta * (target - self.predict(xi.reshape(1,-1)))
+                update = self.eta0 * (target - self.predict(xi.reshape(1,-1)))
                 self.weights_[1:] += update * xi
                 self.weights_[0] += update
                 errors += int(update != 0.0)
@@ -860,10 +860,10 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
     The weight update rule for Adaline is defined as follows:
 
     .. math::
-        w := w + \eta \sum_{i} (y^{(i)} - \phi(w^T x^{(i)})) x^{(i)}
+        w := w + \eta0 \sum_{i} (y^{(i)} - \phi(w^T x^{(i)})) x^{(i)}
 
     where:
-    - :math:`\eta` is the learning rate.
+    - :math:`\eta0` is the learning rate.
     - :math:`y^{(i)}` is the true value or label for the \(i\)-th sample.
     - :math:`\phi(w^T x^{(i)})` is the predicted value, where :math:`\phi` 
       is the identity function (i.e., :math:`\phi(z) = z`), reflecting the 
@@ -872,11 +872,11 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
 
     Parameters
     ----------
-    eta : float
+    eta0 : float
         Learning rate (between 0.0 and 1.0). Determines the step size at each 
         iteration  while moving toward a minimum of the loss function.
 
-    n_iter : int
+    max_iter : int
         The number of passes over the training dataset (epochs).
 
     random_state : int, optional (default=42)
@@ -900,7 +900,7 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
     >>> boston = load_boston()
     >>> X = boston.data
     >>> y = boston.target
-    >>> model = AdalineMixte(eta=0.0001, n_iter=1000)
+    >>> model = AdalineMixte(eta0=0.0001, max_iter=1000)
     >>> model.fit(X, y)
     >>> y_pred = model.predict(X)
     >>> print('Mean Squared Error:', np.mean((y_pred - y) ** 2))
@@ -910,7 +910,7 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
     >>> iris = load_iris()
     >>> X = iris.data
     >>> y = iris.target
-    >>> model = AdalineMixte(eta=0.0001, n_iter=1000)
+    >>> model = AdalineMixte(eta0=0.0001, max_iter=1000)
     >>> model.fit(X, y)
     >>> y_pred = model.predict(X)
     >>> print('Accuracy:', np.mean(y_pred == y))
@@ -939,10 +939,10 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
 
     """
 
-    def __init__(self, eta:float = .01 , n_iter: int = 50 , 
+    def __init__(self, eta0:float = .01 , max_iter: int = 50 , 
                  random_state:int = 42 ) :
-        self.eta=eta 
-        self.n_iter=n_iter 
+        self.eta0=eta0 
+        self.max_iter=max_iter 
         self.random_state=random_state 
         
     def fit(self , X, y ): 
@@ -977,12 +977,12 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
         self.weights_ = rgen.normal(loc=0. , scale =.01 , size = 1 + X.shape[1]
                               )
         self.cost_ =list()    
-        for i in range (self.n_iter): 
+        for i in range (self.max_iter): 
             net_input = self.net_input (X) 
             output = self.activation (net_input) 
             errors =  ( y -  output ) 
-            self.weights_[1:] += self.eta * X.T.dot(errors)
-            self.weights_[0] += self.eta * errors.sum() 
+            self.weights_[1:] += self.eta0 * X.T.dot(errors)
+            self.weights_[0] += self.eta0 * errors.sum() 
             
             if self.task_type == "continuous":
                 cost = (errors**2).sum() / 2.0

@@ -13,14 +13,13 @@ from ..api.types import Optional, List,  Union, Tuple
 from ..api.types import DataFrame, ArrayLike, Array1D, Series
 from ..decorators import DynamicMethod
 from ..tools.validator import check_consistent_length 
-from ..tools.coreutils import ensure_visualization_compatibility, ellipsis2false 
-from ..tools.coreutils import to_series_if 
+from ..tools.coreutils import ensure_visualization_compatibility
+from ..tools.coreutils import to_series_if, ellipsis2false 
 from ..tools.coreutils import get_colors_and_alphas
 from ..tools.funcutils import make_data_dynamic
 from ..tools.funcutils import flatten_data_if, update_series_index 
 from ..tools.funcutils import update_index, convert_and_format_data
 from ..tools.funcutils import series_naming 
-
 from .utils import validate_stats_plot_type, prepare_stats_plot
 
 __all__= [ 
@@ -108,7 +107,7 @@ def gini_coeffs(
     --------
     >>> import numpy as np 
     >>> import pandas as pd 
-    >>> from gofast.stats.utils import gini_coeffs
+    >>> from gofast.stats.descriptive import gini_coeffs
     >>> gini_coeffs(np.array([1, 2, 3, 4, 5]))
     0.26666666666666666
 
@@ -207,7 +206,7 @@ def corr(
 
     Examples
     --------
-    >>> from gofast.stats.utils import corr
+    >>> from gofast.stats.descriptive import corr
     >>> data = pd.DataFrame({
     ...     'A': [1, 2, 3, 4],
     ...     'B': [4, 3, 2, 1],
@@ -309,7 +308,7 @@ def skew(
 
     Examples
     --------
-    >>> from gofast.stats.utils import skew
+    >>> from gofast.stats.descriptive import skew
     >>> import numpy as np
     >>> data = np.random.normal(loc=0, scale=1, size=1000)
     >>> calculate_skewness(data)
@@ -454,7 +453,7 @@ def kurtosis(
 
     Examples
     --------
-    >>> from gofast.stats.utils import kurtosis
+    >>> from gofast.stats.descriptive import kurtosis
     >>> import numpy as np
     >>> data = np.random.normal(0, 1, 1000)
     >>> print(kurtosis(data))
@@ -567,7 +566,7 @@ def wmedian(
     Examples
     --------
     >>> import numpy as np
-    >>> from gofast.stats.utils import wmean 
+    >>> from gofast.stats.descriptive import wmean 
     >>> data = np.array([1, 2, 3])
     >>> weights = np.array([3, 1, 2])
     >>> wmedian(data, weights)
@@ -712,7 +711,7 @@ def mode(
 
     Examples
     --------
-    >>> from gofast.stats.utils import mode
+    >>> from gofast.stats.descriptive import mode
     >>> data_array = [1, 2, 2, 3, 4]
     >>> mode(data_array)
     2
@@ -836,7 +835,7 @@ def var(
 
     Examples
     --------
-    >>> from gofast.stats.utils import var
+    >>> from gofast.stats.descriptive import var
     >>> data_array = [1, 2, 3, 4, 5]
     >>> var(data_array)
     2.0
@@ -984,7 +983,7 @@ def std(
 
     Examples
     --------
-    >>> from gofast.stats.utils import std
+    >>> from gofast.stats.descriptive import std
     >>> data_array = [1, 2, 3, 4, 5]
     >>> std(data_array)
     1.4142135623730951
@@ -1134,7 +1133,7 @@ def quartiles(
 
     Examples
     --------
-    >>> from gofast.stats.utils import quartiles
+    >>> from gofast.stats.descriptive import quartiles
     >>> data_array = [1, 2, 3, 4, 5]
     >>> quartiles(data_array)
     array([2., 3., 4.])
@@ -1287,7 +1286,7 @@ def quantile(
     Examples
     --------
     >>> import numpy as np
-    >>> from gofast.stats.utils import quantile
+    >>> from gofast.stats.descriptive import quantile
     >>> data_array = [1, 2, 3, 4, 5]
     >>> quantile(data_array, q=0.5)
     3.0
@@ -1480,7 +1479,7 @@ def median(
 
     Examples
     --------
-    >>> from gofast.stats.utils import median
+    >>> from gofast.stats.descriptive import median
     >>> data_array = [3, 1, 4, 1, 5]
     >>> median(data_array)
     3.0
@@ -1632,7 +1631,7 @@ def mean(
 
     Examples
     --------
-    >>> from gofast.stats.utils import mean
+    >>> from gofast.stats.descriptive import mean
     >>> data_array = [1, 2, 3, 4, 5]
     >>> mean(data_array)
     3.0
@@ -1849,7 +1848,7 @@ def iqr(
     --------
     >>> import numpy as np 
     >>> import pandas as pd 
-    >>> from gofast.stats.utils import iqr
+    >>> from gofast.stats.descriptive import iqr
     >>> data_array = [1, 2, 3, 4, 5]
     >>> iqr(data_array)
     2.0
@@ -1973,7 +1972,7 @@ def hmean(
 
     Examples
     --------
-    >>> from gofast.stats.utils import hmean
+    >>> from gofast.stats.descriptive import hmean
     >>> hmean([1, 2, 4])
     1.7142857142857142
 
@@ -2116,7 +2115,7 @@ def get_range(
 
     Examples
     --------
-    >>> from gofast.stats.utils import get_range
+    >>> from gofast.stats.descriptive import get_range
     >>> data_array = [1, 2, 3, 4, 5]
     >>> get_range(data_array)
     4
@@ -2289,7 +2288,7 @@ def describe(
     
     >>> import numpy as np
     >>> import pandas as pd
-    >>> from gofast.stats.utils import describe
+    >>> from gofast.stats.descriptive import describe
     >>> data = np.random.rand(100, 4)
     >>> describe(data, as_frame=True)
     
@@ -2411,7 +2410,7 @@ def z_scores(
     --------
     >>> import numpy as np 
     >>> import pandas as pd 
-    >>> from gofast.stats.utils import z_scores
+    >>> from gofast.stats.descriptive import z_scores
     
     Calculating Z-scores for an array:
     >>> data_array = [1, 2, 3, 4, 5]

@@ -3,7 +3,7 @@
 import numpy as np 
 import pandas as pd 
 
-import gofast.stats.utils # noqa 
+import gofast.stats.descriptive # noqa 
 from gofast.api.formatter import MultiFrameFormatter 
 from gofast.api.util import escape_dataframe_elements 
 from gofast.decorators import DynamicMethod 
@@ -37,7 +37,7 @@ def summary(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.api.summary import summary 
+    >>> from gofast._public import summary 
     >>> data = {
     ...     'A': [1, 2, 3, 4, 5],
     ...     'B': [5, 6, None, 8, 9],
