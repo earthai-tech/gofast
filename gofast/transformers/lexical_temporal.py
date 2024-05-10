@@ -9,6 +9,7 @@ import pandas as pd
 
 from sklearn.base import BaseEstimator,TransformerMixin 
 from sklearn.feature_extraction.text import TfidfVectorizer
+
 from ..tools.validator import build_data_if 
 
 __all__=[ "TextToVectorTransformer", "TextFeatureExtractor",
@@ -109,7 +110,8 @@ class TextToVectorTransformer(BaseEstimator, TransformerMixin):
         """
  
         X = build_data_if(
-            X , input_name="col_", force=True, raise_exception=True ) 
+            X , input_name="col", force=True, raise_exception=True ) 
+ 
         if isinstance(X, pd.DataFrame):
             if self.columns == 'auto':
                 # Automatically determine text columns
@@ -166,13 +168,16 @@ class TextToVectorTransformer(BaseEstimator, TransformerMixin):
         new transformed columns are returned, without any of the original 
         columns from the DataFrame.
         """
+        X = build_data_if(
+            X , input_name="col", force=True, raise_exception=True ) 
         if isinstance(X, pd.DataFrame):
-            if not self.append_transformed and not self.keep_original:
+            if self.keep_original: 
+                self.append_transformed =True 
+                
+            if not self.append_transformed:
                 transformed_data = pd.DataFrame(index=X.index)
             else:
-                transformed_data = ( 
-                    X.copy() if self.keep_original else pd.DataFrame(index=X.index)
-                    )
+                transformed_data = X.copy() 
             for col in self.columns:
                 transformed = self.vectorizers_[col].transform(X[col])
                 for i in range(transformed.shape[1]):
@@ -180,6 +185,11 @@ class TextToVectorTransformer(BaseEstimator, TransformerMixin):
                     transformed_data[new_col_name] = ( 
                         transformed[:, i].toarray().ravel()
                         )
+            if not self.keep_original: 
+                try: 
+                    transformed_data = transformed_data.drop(columns = self.columns )
+                except: pass 
+            
             return transformed_data
         elif isinstance(X, np.ndarray):
             transformed = self.vectorizers_['array'].transform(X.flatten())

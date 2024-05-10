@@ -4,7 +4,8 @@
 # All rights reserved.
 
 from functools import wraps
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
+import re
 import inspect 
 import types 
 import warnings
@@ -2382,6 +2383,87 @@ def validate_and_adjust_ranges(**kwargs):
 
     return adjusted_ranges
 
+def recheck_data_types(
+    data: Union[pd.DataFrame, pd.Series, list, dict], 
+    coerce_numeric: bool = True, 
+    coerce_datetime: bool = True,
+    column_prefix: str = "col", 
+    return_as_numpy: Union[bool, str] = "auto"
+) -> Union[pd.DataFrame, pd.Series, np.ndarray]:
+    """
+    Rechecks and coerces column data types in a DataFrame to the most appropriate
+    numeric or datetime types if initially identified as objects. It can also handle
+    non-DataFrame inputs by attempting to construct a DataFrame before processing.
+
+    Parameters
+    ----------
+    data : pd.DataFrame, pd.Series, list, or dict
+        The data to process. If not a DataFrame, an attempt will be made to convert it.
+    coerce_numeric : bool, default=True
+        If True, tries to convert object columns to numeric data types.
+    coerce_datetime : bool, default=True
+        If True, tries to convert object columns to datetime data types.
+    column_prefix : str, default="col"
+        Prefix for column names when constructing a DataFrame from non-DataFrame input.
+    return_as_numpy : bool or str, default="auto"
+        If True or "auto", converts the DataFrame to a NumPy array upon returning.
+        If "auto", the output type matches the input type.
+
+    Returns
+    -------
+    Union[pd.DataFrame, np.ndarray]
+        The processed data, either as a DataFrame or a NumPy array.
+
+    Examples
+    --------
+    >>> data = {'a': ['1', '2', '3'], 'b': ['2021-01-01', '2021-02-01', 'not a date'], 
+                'c': ['1.1', '2.2', '3.3']}
+    >>> df = pd.DataFrame(data)
+    >>> df = recheck_data_types(df)
+    >>> print(df.dtypes)
+    a             int64
+    b            object  # remains object due to mixed valid and invalid dates
+    c           float64
+    """
+    return_as_numpy= parameter_validator(
+        "return_as_numpy", target_strs={"auto", True, False})(return_as_numpy)
+    is_frame = True
+    if not isinstance(data, pd.DataFrame):
+        is_frame = False
+        try:
+            data = pd.DataFrame(data, columns=[
+                column_prefix + str(i) for i in range(len(data))])
+        except Exception as e:
+            raise ValueError(
+                "Failed to construct a DataFrame from the provided data. "
+                "Ensure that your input data is structured correctly, such as "
+                "a list of lists or a dictionary with equal-length lists. "
+                "Alternatively, provide a DataFrame directly.") from e
+            
+    for column in data.columns:
+        if data[column].dtype == 'object':
+            if coerce_datetime:
+                try:
+                    data[column] = pd.to_datetime(data[column])
+                    continue  # Skip further processing if datetime conversion is successful
+                except ValueError:
+                    pass  # Continue if datetime conversion fails
+
+            if coerce_numeric:
+                try:
+                    data[column] = pd.to_numeric(data[column])
+                except ValueError:
+                    pass  # Keep as object if conversion fails
+
+    if return_as_numpy == "auto" and not is_frame:
+        return_as_numpy = True  # Automatically determine if output should be a NumPy array
+
+    if return_as_numpy is True: # Explicitly set to True since "auto" is True
+        return data.to_numpy()
+
+    return data
+
+
 def validate_keras_model(
         model: Any, custom_check: Optional[Callable[[Any], bool]] = None,
         deep_check: bool = False, raise_exception =False ) -> bool:
@@ -4237,6 +4319,48 @@ def check_y(y,
        
     return y
 
+def validate_dtype_selector(dtype_selector: str) -> str:
+    """
+    Validates and categorizes the dtype_selector using regex, including handling 
+    cases where 'only' is specifically included.
+    
+    Parameters:
+    - dtype_selector (str): The input dtype selector string.
+
+    Returns:
+    - str: A categorized dtype_selector based on predefined patterns. 
+          If 'only' is included,
+           the returned category will reflect this to enable specific data 
+           type handling.
+
+    Raises:
+    - ValueError: If the input dtype_selector does not match any predefined
+      category.
+    """
+    types = [
+        "numeric", "numeric_only", "categoric", "categoric_only", 
+        "biselect","biselector", "datetime"]
+    # Regex patterns for matching dtype_selector categories with an optional 'only'
+    numeric_pattern = r"numeric(_only)?"
+    categoric_pattern = r"categoric(al|_only)?|categorical"
+    datetime_pattern = r"dt|datetime"
+    biselect_pattern = r"bi[-_]?selector|biselect|biselector"
+
+    # Check if 'only' is included and modify the category accordingly
+    suffix = "_only" if "only" in str(dtype_selector).lower() else ""
+
+    if re.match(numeric_pattern, dtype_selector, re.IGNORECASE):
+        return f"numeric{suffix}"
+    elif re.match(categoric_pattern, dtype_selector, re.IGNORECASE):
+        return f"categoric{suffix}"
+    elif re.match(datetime_pattern, dtype_selector, re.IGNORECASE):
+        return "datetime"
+    elif re.match(biselect_pattern, dtype_selector, re.IGNORECASE):
+        return "biselect"
+
+    raise ValueError(
+        f"Invalid dtype_selector provided. Valid options are :{types}")
+    
 def build_data_if(
     data, 
     columns=None, 
@@ -4289,6 +4413,9 @@ def build_data_if(
         data = np.array(data)
     elif isinstance ( data, pd.Series): 
         data =data.to_frame () 
+        
+    # Ensure data is two dimensional 
+    data = ensure_2d(data)
     # Check if data needs to be converted to a DataFrame
     if to_frame and not isinstance(data, pd.DataFrame):
         if columns is None and not force:
@@ -4310,6 +4437,11 @@ def build_data_if(
         input_name=input_name,
         force =force, 
         )
+    if isinstance (data, pd.DataFrame): 
+        # re_check data_types 
+        data = recheck_data_types(
+            data, coerce_datetime=True, coerce_numeric=True, 
+            return_as_numpy=False )
     return data  # Return original data if conditions are not met
 
 def build_data_if2 (

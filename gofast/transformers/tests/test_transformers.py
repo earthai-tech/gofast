@@ -38,7 +38,9 @@ from gofast.transformers.feature_engineering import (
     CategoryFrequencyEncoder,
     ) 
 from gofast.transformers.lexical_temporal import  ( 
-    TextFeatureExtractor, DateFeatureExtractor
+    TextFeatureExtractor, 
+    DateFeatureExtractor, 
+    TextToVectorTransformer
     )
 from gofast.transformers.ts import ( 
     TimeSeriesFeatureExtractor,
@@ -66,6 +68,7 @@ from gofast.transformers.image import (
 )
 
 # 
+# 
 # install scikit-image 
 try: 
     from skimage.transform import resize # noqa 
@@ -74,6 +77,63 @@ except:
     if not is_module_installed("skimage", distribution_name='scikit-image'): 
         install_package('skimage', dist_name='scikit-image', 
                         infer_dist_name= True )
+        
+def test_text_vectorizer_initialization():
+    transformer = TextToVectorTransformer()
+    assert transformer.columns == 'auto'
+    assert transformer.append_transformed is True
+    assert transformer.keep_original is False
+
+def test_text_vectorizer_auto_detect_columns():
+    df = pd.DataFrame({
+        'text': ['hello world', 'test text'],
+        'number': [1, 2]
+    })
+    transformer = TextToVectorTransformer()
+    transformed_df = transformer.fit_transform(df)
+    assert 'text_tfidf_0' in transformed_df.columns
+
+def test_text_vectorizer_specified_columns():
+    df = pd.DataFrame({
+        'text1': ['hello world', 'example text'],
+        'text2': ['another column', 'with text']
+    })
+    transformer = TextToVectorTransformer(columns=['text1'])
+    transformed_df = transformer.fit_transform(df)
+    assert 'text1_tfidf_0' in transformed_df.columns
+    assert 'text2_tfidf_0' not in transformed_df.columns
+
+def test_text_vectorizer_append_transformed_false():
+    df = pd.DataFrame({
+        'text': ['hello world', 'test text']
+    })
+    transformer = TextToVectorTransformer(append_transformed=False)
+    transformed_df = transformer.fit_transform(df)
+    assert 'text' not in transformed_df.columns
+    assert len(transformed_df.columns) > 0
+
+def test_text_vectorizer_keep_original():
+    df = pd.DataFrame({
+        'text': ['hello world', 'test text']
+    })
+    transformer = TextToVectorTransformer(append_transformed=True, keep_original=True)
+    transformed_df = transformer.fit_transform(df)
+    assert 'text' in transformed_df.columns
+    assert 'text_tfidf_0' in transformed_df.columns
+
+def test_vectorization_on_numpy_input():
+    data = np.array(['hello world', 'test text'])
+    transformer = TextToVectorTransformer()
+    transformed_array = transformer.fit_transform(data)
+    assert transformed_array.shape[1] > 0
+
+def test_error_on_nonexistent_column():
+    df = pd.DataFrame({
+        'text': ['hello world', 'test text']
+    })
+    transformer = TextToVectorTransformer(columns=['nonexistent'])
+    with pytest.raises(ValueError):
+        transformer.fit(df)
 
 def test_seasonal_decompose_transformer():
     # Create a sample DataFrame with time series data

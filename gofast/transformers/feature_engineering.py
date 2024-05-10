@@ -1185,7 +1185,7 @@ class StratifyFromBaseFeature(BaseEstimator, TransformerMixin):
     def _categorize_feature(self, X):
         """Categorizes the numerical feature."""
         # Implement logic to categorize 'base_feature' here
-        from .tools.mlutils import discretize_categories
+        from ..tools.mlutils import discretize_categories
         X = discretize_categories(X, in_cat=self.base_feature, 
             new_cat="class_label", divby =self.threshold_operator,
             higherclass = self.max_category
@@ -1339,7 +1339,7 @@ class CategoryBaseStratifier(BaseEstimator, TransformerMixin):
         tuple of DataFrames
             The stratified training and testing sets.
         """
-        from .tools.mlutils import stratify_categories 
+        from ..tools.mlutils import stratify_categories 
         # stratification logic here (e.g., using pd.cut)
         strat_train_set, strat_test_set = stratify_categories(
             X, self.base_column, test_size = self.test_size, 
@@ -1473,7 +1473,7 @@ class CategorizeFeatures(BaseEstimator, TransformerMixin ):
             The transformed array with the additional combined attribute.
         
         """
-        from .tools.mlutils import codify_variables 
+        from ..tools.mlutils import codify_variables 
         # -------------------------------------------
         if _is_arraylike_1d(X): 
             raise ValueError ("One-dimensional or Series is not allowed."

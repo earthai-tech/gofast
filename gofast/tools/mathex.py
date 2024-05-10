@@ -56,6 +56,48 @@ _logger =gofastlog.get_gofast_logger(__name__)
 
 mu0 = 4 * np.pi * 1e-7 
 
+__all__=[
+    'adaptive_moving_average', 
+    'adjust_for_control_vars',
+    'calculate_adjusted_lr', 
+    'calculate_binary_iv', 
+    'calculate_optimal_bins', 
+    'calculate_residuals', 
+    'compute_balance_accuracy',
+    'compute_effort_yield',
+    'compute_errors', 
+    'compute_sunburst_data',
+    'compute_cost_based_threshold', 
+    'compute_sensitivity_specificity', 
+    'compute_youdens_index',
+    'cubic_regression', 
+    'exponential_regression', 
+    'get_bearing', 
+    'get_distance',
+    'infer_sankey_columns', 
+    'interpolate1d', 
+    'interpolate2d', 
+    'label_importance',
+    'linear_regression',
+    'linkage_matrix', 
+    'logarithmic_regression',
+    'make_mxs', 
+    'minmax_scaler',
+    'moving_average',
+    'normalize',
+    'optimized_spearmanr', 
+    'quadratic_regression', 
+    'rank_data', 
+    'savgol_filter', 
+    'scale_y', 
+    'sinusoidal_regression',
+    'smooth1d', 
+    'smoothing', 
+    'standard_scaler', 
+    'step_regression',
+    'weighted_spearman_rank', 
+    ]
+
 def compute_balance_accuracy(
     y_true, y_pred, 
     epsilon=1e-15,
@@ -3030,7 +3072,7 @@ def linkage_matrix(
     as_frame =False,
     optimal_ordering=False, 
  )->NDArray: 
-    r""" Compute the distance matrix from the hierachical clustering algorithm
+    r""" Compute the distance matrix from the hierachical clustering algorithm.
     
     Parameters 
     ------------ 
@@ -5049,7 +5091,7 @@ def get_distance(
     **kws
     ): 
     """
-    Compute distance between points
+    Compute distance between points.
     
     Parameters
     ------------

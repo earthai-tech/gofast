@@ -14,32 +14,38 @@ from gofast.datasets.io import get_data, remove_data
 from gofast.tools.coreutils import is_module_installed 
 from gofast.tools.funcutils import install_package 
 from gofast.tools.baseutils import remove_target_from_array
-from gofast.tools.dataops import summarize_text_columns
-from gofast.tools.dataops import enrich_data_spectrum
-from gofast.tools.dataops import simple_extractive_summary
-from gofast.tools.dataops import format_long_column_names
-from gofast.tools.dataops import sanitize
-from gofast.tools.dataops import read_data
-from gofast.tools.dataops import fetch_remote_data, get_remote_data
-from gofast.tools.dataops import request_data
-from gofast.tools.dataops import store_or_retrieve_data, base_storage
-from gofast.tools.dataops import audit_data, verify_data_integrity 
-from gofast.tools.dataops import handle_categorical_features
-from gofast.tools.dataops import convert_date_features
-from gofast.tools.dataops import handle_missing_data
-from gofast.tools.dataops import handle_outliers_in
-from gofast.tools.dataops import scale_data
-from gofast.tools.dataops import inspect_data
-from gofast.tools.dataops import augment_data
-from gofast.tools.dataops import assess_outlier_impact
-from gofast.tools.dataops import transform_dates
-from gofast.tools.dataops import merge_frames_on_index  
-from gofast.tools.dataops  import apply_tfidf_vectorization  
-from gofast.tools.dataops  import apply_bow_vectorization  
-from gofast.tools.dataops  import apply_word_embeddings  
-from gofast.tools.dataops  import boxcox_transformation  
-from gofast.tools.dataops  import check_missing_data  
 
+from gofast.dataops.enrichment import enrich_data_spectrum
+from gofast.dataops.enrichment import simple_extractive_summary
+from gofast.dataops.inspection import verify_data_integrity 
+from gofast.dataops.inspection import inspect_data
+
+from gofast.dataops.management import read_data
+from gofast.dataops.management import fetch_remote_data, get_remote_data
+from gofast.dataops.management import request_data
+from gofast.dataops.management import store_or_retrieve_data, base_storage
+
+from gofast.dataops.preprocessing import augment_data
+from gofast.dataops.preprocessing import transform_dates 
+from gofast.dataops.preprocessing import apply_tfidf_vectorization  
+from gofast.dataops.preprocessing import apply_bow_vectorization  
+from gofast.dataops.preprocessing import apply_word_embeddings  
+from gofast.dataops.preprocessing import boxcox_transformation
+  
+from gofast.dataops.quality import audit_data 
+from gofast.dataops.quality import handle_categorical_features
+from gofast.dataops.quality import convert_date_features
+from gofast.dataops.quality import handle_missing_data
+from gofast.dataops.quality import handle_outliers_in
+from gofast.dataops.quality import scale_data
+from gofast.dataops.quality import assess_outlier_impact
+from gofast.dataops.quality import merge_frames_on_index
+from gofast.dataops.quality import check_missing_data  
+
+from gofast.dataops.transformation import format_long_column_names
+from gofast.dataops.transformation import sanitize, summarize_text_columns
+
+#%
 try : 
     import requests #noqa
 except : 
@@ -125,7 +131,7 @@ class TestRemoveTargetFromArray(unittest.TestCase):
 
 # Note: This test case is conceptual and may need adjustments for real-world usage
 class TestReadData(unittest.TestCase):
-    @patch('gofast.tools.dataops.pd.read_csv')
+    @patch('gofast.dataops.pd.read_csv')
     def test_read_data_csv(self, mock_read_csv):
         with resources.path ('gofast.datasets.data', "bagoue.csv") as p : 
             file = str(p)
@@ -149,7 +155,7 @@ class TestRequestData(unittest.TestCase):
         self.assertEqual(response, 'response text')
 
 class TestFetchRemoteData(unittest.TestCase):
-    @patch('gofast.tools.dataops.urllib.request.urlopen')
+    @patch('gofast.dataops.urllib.request.urlopen')
     @patch('builtins.open', new_callable=mock_open)
     def test_fetch_remote_data_success(self, mock_file, mock_urlopen):
         mock_urlopen.return_value.read.return_value = b'data'
@@ -157,7 +163,7 @@ class TestFetchRemoteData(unittest.TestCase):
         self.assertTrue(status)
 
 class TestGetRemoteData(unittest.TestCase):
-    @patch('gofast.tools.dataops.urllib.request.urlopen')
+    @patch('gofast.dataops.urllib.request.urlopen')
     @patch('builtins.open', new_callable=mock_open)
     def test_get_remote_data_success(self, mock_file, mock_urlopen):
         mock_urlopen.return_value.read.return_value = b'data'
@@ -166,16 +172,16 @@ class TestGetRemoteData(unittest.TestCase):
 
 
 # class TestMoveFile(unittest.TestCase):
-#     @patch('gofast.tools.dataops.shutil.move')
-#     @patch('gofast.tools.dataops.os.makedirs')
-#     @patch('gofast.tools.dataops.os.path.exists', return_value=False)
+#     @patch('gofast.dataops.shutil.move')
+#     @patch('gofast.dataops.os.makedirs')
+#     @patch('gofast.dataops.os.path.exists', return_value=False)
 #     def test_move_file(self, mock_exists, mock_makedirs, mock_move):
 #         move_file('source_file.txt', 'dest_dir')
 #         mock_makedirs.assert_called_once_with('dest_dir', exist_ok=True)
 #         mock_move.assert_called_once_with('source_file.txt', 'dest_dir/source_file.txt')
 
 class TestStoreOrRetrieveData(unittest.TestCase):
-    @patch('gofast.tools.dataops.pd.HDFStore', autospec=True)
+    @patch('gofast.dataops.pd.HDFStore', autospec=True)
     def test_store_data(self, mock_store):
         mock_store.return_value.__enter__.return_value = MagicMock()
         datasets = {'dataset1': np.array([1, 2, 3]), 'df1': pd.DataFrame({'A': [4, 5, 6]})}
@@ -184,7 +190,7 @@ class TestStoreOrRetrieveData(unittest.TestCase):
         self.assertFalse(mock_store.return_value.__enter__.return_value.put.called or 
                         mock_store.return_value.__enter__.return_value.create_dataset.called)
 
-    @patch('gofast.tools.dataops.h5py.File', autospec=True)
+    @patch('gofast.dataops.h5py.File', autospec=True)
     def test_retrieve_data(self, mock_h5file):
         mock_h5file.return_value.__enter__.return_value.keys.return_value = ['dataset1']
         type(mock_h5file.return_value.__enter__.return_value).get = MagicMock(
@@ -194,14 +200,14 @@ class TestStoreOrRetrieveData(unittest.TestCase):
         # self.assertIn('dataset1', result)
 
 class TestBaseStorage(unittest.TestCase):
-    @patch('gofast.tools.dataops.h5py.File', autospec=True)
+    @patch('gofast.dataops.h5py.File', autospec=True)
     def test_base_storage_store(self, mock_h5file):
         mock_h5file.return_value.__enter__.return_value.create_dataset = MagicMock()
         datasets = {'dataset1': np.array([1, 2, 3]), 'df1': pd.DataFrame({'A': [4, 5, 6]})}
         base_storage('my_datasets.h5', datasets, 'store')
         self.assertTrue(mock_h5file.return_value.__enter__.return_value.create_dataset.called)
 
-    @patch('gofast.tools.dataops.h5py.File', autospec=True)
+    @patch('gofast.dataops.h5py.File', autospec=True)
     def test_base_storage_retrieve(self, mock_h5file):
         mock_h5file.return_value.__enter__.return_value.keys.return_value = ['dataset1']
         mock_h5file.return_value.__enter__.return_value.get = MagicMock(
@@ -220,10 +226,10 @@ class TestVerifyDataIntegrity(unittest.TestCase):
         self.assertIn('outliers', report)
 
 class TestAuditData(unittest.TestCase):
-    @patch('gofast.tools.dataops.scale_data')
-    @patch('gofast.tools.dataops.convert_date_features')
-    @patch('gofast.tools.dataops.handle_missing_data')
-    @patch('gofast.tools.dataops.handle_outliers_in_data')
+    @patch('gofast.dataops.scale_data')
+    @patch('gofast.dataops.convert_date_features')
+    @patch('gofast.dataops.handle_missing_data')
+    @patch('gofast.dataops.handle_outliers_in_data')
     def test_audit_data(self, mock_outliers, mock_missing, mock_convert_date, mock_scale):
         data = pd.DataFrame({'A': [1, 2, None], 'B': [4, None, 6]})
         audited_data, _ = audit_data(data, handle_outliers=True, 

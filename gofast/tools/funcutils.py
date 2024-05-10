@@ -1,17 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Funcutils
-=========
-
 `gofast.tools.funcutils` is a utilities package providing various 
 functionalities for functional programming tasks.
-
-Features:
-    - Currying and Partial Application
-    - Function Composition
-    - Memoization
-    - High-order Functions
-    - Utility Functions
 """
 import sys 
 import time

@@ -844,7 +844,7 @@ class TargetProcessor:
             # No class weight adjustment
             self.class_weights_ = None
 
-        # Apply weights to the target - This is an example of how you might 
+        # Apply weights to the target - This is an example of how we could 
         # use the weights.
         # In practice, these weights are typically used during model training,
         # not directly applied to the target array.

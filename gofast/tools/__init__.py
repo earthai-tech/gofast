@@ -11,9 +11,6 @@ are facilitated by :mod:`~gofast.tools.mlutils` and
 import importlib
 
 MODULE_MAPPING = {
-    'assistutils': [
-        'assist_me'
-    ], 
     'baseutils': [
         'binning_statistic', 
         'categorize_target',
@@ -50,45 +47,6 @@ MODULE_MAPPING = {
         'split_train_test',
         'split_train_test_by_id',
         'store_or_write_hdf5',
-    ],
-    'dataops': [
-        'analyze_data_corr',
-        'apply_bow_vectorization',
-        'apply_tfidf_vectorization', 
-        'apply_word_embeddings',
-        'assess_outlier_impact', 
-        'augment_data', 
-        'audit_data', 
-        'base_transform',
-        'boxcox_transformation',
-        'check_missing_data',
-        'convert_date_features', 
-        'correlation_ops', 
-        'data_assistant', 
-        'drop_correlated_features', 
-        'enrich_data_spectrum', 
-        'fetch_remote_data', 
-        'format_long_column_names',
-        'handle_categorical_features',
-        'handle_datasets_with_hdfstore',
-        'handle_duplicates', 
-        'handle_unique_identifiers', 
-        'handle_missing_data', 
-        'handle_outliers_in',
-        'handle_skew', 
-        'inspect_data',
-        'outlier_performance_impact',
-        'prepare_data',
-        'read_data', 
-        'quality_control',
-        'request_data', 
-        'sanitize', 
-        'scale_data',
-        'simple_extractive_summary',
-        'store_or_retrieve_data',
-        'summarize_text_columns',
-        'transform_dates',
-        'verify_data_integrity'
     ],
     'mathex': [
         'adaptive_moving_average', 
