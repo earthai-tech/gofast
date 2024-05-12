@@ -11,6 +11,7 @@ import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
 
+from ..api.property import BaseClass 
 from ..tools.validator import check_X_y, get_estimator_name, check_array 
 from ..tools.validator import check_is_fitted
 
@@ -66,7 +67,7 @@ class DecisionTreeBasedRegressor(BaseEstimator, RegressorMixin):
 
     Examples
     --------
-    >>> from gofast.estimators.tree.tree.tree import DecisionTreeBasedRegressor
+    >>> from gofast.estimators.tree import DecisionTreeBasedRegressor
     >>> rte = DecisionTreeBasedRegressor(
     ...     n_estimators=100, max_depth=3, random_state=42)
     >>> X, y = np.random.rand(100, 4), np.random.rand(100)
@@ -216,7 +217,7 @@ class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
     -------
     Here's an example of how to use the `DecisionTreeBasedClassifier`:
 
-    >>> from gofast.estimators.tree.tree.tree import DecisionTreeBasedClassifier
+    >>> from gofast.estimators.tree import DecisionTreeBasedClassifier
     >>> rtec = DecisionTreeBasedClassifier(n_estimators=100, max_depth=3,
     ...                                     random_state=42)
     >>> X, y = np.random.rand(100, 4), np.random.randint(0, 2, 100)
@@ -434,7 +435,7 @@ class StandardEstimator:
 
         return self
     
-class DecisionStumpRegressor (StandardEstimator):
+class DecisionStumpRegressor (BaseClass, StandardEstimator):
     r"""
     A simple decision stump regressor for use in gradient boosting.
 
@@ -485,6 +486,7 @@ class DecisionStumpRegressor (StandardEstimator):
     Examples
     --------
     >>> from sklearn.datasets import make_regression
+    >>> from gofast.estimators.tree import DecisionStumpRegressor
     >>> X, y = make_regression(n_samples=100, n_features=1, noise=10)
     >>> stump = DecisionStumpRegressor()
     >>> stump.fit(X, y)
@@ -492,6 +494,7 @@ class DecisionStumpRegressor (StandardEstimator):
     """
 
     def __init__(self ):
+        super().__init__()
         self.split_feature=None
         self.split_value=None
         self.left_value=None

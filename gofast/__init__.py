@@ -75,8 +75,8 @@ suppress_warnings()
 
 # Import public API components
 # Example of lazily importing a submodule
-_lazy_import(".data", "data")
-_lazy_import(".models", "models")
+# _lazy_import(".tools", "tools")
+# _lazy_import(".models", "models")
 
 # Setup logging configuration
 from .util import setup_logging
@@ -85,4 +85,4 @@ setup_logging()
 __doc__ += f"\nVersion: {__version__}\n"
 
 # Public API
-__all__ = ["data", "models", "setup_logging", "suppress_warnings"]
+__all__ = ["setup_logging", "__version__"]

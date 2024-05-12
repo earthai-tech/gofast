@@ -90,7 +90,9 @@ __all__=[
         'split_dataframes', 
         'summarize_text_columns',
         'transform_dates',
-        'verify_data_integrity'
+        'verify_data_integrity', 
+        'smart_group', 
+        'group_and_filter', 
     ]
 
 

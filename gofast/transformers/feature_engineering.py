@@ -1473,7 +1473,7 @@ class CategorizeFeatures(BaseEstimator, TransformerMixin ):
             The transformed array with the additional combined attribute.
         
         """
-        from ..tools.mlutils import codify_variables 
+        from ..tools.mlutils import soft_encoder 
         # -------------------------------------------
         if _is_arraylike_1d(X): 
             raise ValueError ("One-dimensional or Series is not allowed."
@@ -1485,7 +1485,7 @@ class CategorizeFeatures(BaseEstimator, TransformerMixin ):
         X, self.num_columns_, self.cat_columns_ = to_numeric_dtypes(
             X, return_feature_types=True
             )
-        X, self.cat_codes_ = codify_variables( 
+        X, self.cat_codes_ = soft_encoder( 
             X ,
             columns = self.columns, 
             func =self.func, 

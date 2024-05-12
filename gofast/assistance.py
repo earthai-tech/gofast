@@ -66,11 +66,13 @@ TASK_MAPPING = {
         'make_pipe', 
         'one_click_preprocess',
         'soft_data_split',
+        'stratify_categories',
         'smart_split',
+        'soft_encoder', 
         'soft_scaler', 
         'soft_imputer', 
         'handle_imbalance',
-        'resampling'
+        'resampling',
     ],
     'data_analysis': [
         'analyze_data_corr', 

@@ -15,7 +15,7 @@ from sklearn.manifold import MDS
 from ..api.types import Optional, Union, Tuple
 from ..api.types import DataFrame, ArrayLike, Array1D, Series
 from ..tools.validator import assert_xy_in
-from ..tools.validator import _is_arraylike_1d 
+from ..tools.validator import _is_arraylike_1d, is_frame 
 from ..tools.coreutils import to_series_if 
 from ..tools.coreutils import get_colors_and_alphas
 from ..tools.funcutils import make_data_dynamic
@@ -25,12 +25,11 @@ __all__=[
     "perform_spectral_clustering","mds_similarity"
     ]
 
-
 def correlation(
    x: Optional[Union[str, Array1D, Series]] = None,  
    y: Optional[Union[str, Array1D, Series]] = None, 
-   method: str = 'pearson', 
    data: Optional[DataFrame] = None,
+   method: str = 'pearson', 
    view: bool = False, 
    plot_type: Optional[str] = None, 
    cmap: str = 'viridis', 
@@ -51,12 +50,12 @@ def correlation(
         The second dataset for correlation analysis. Can be an array-like object
         or a column name in `data`. If omitted, and `x` is a DataFrame, calculates
         the correlation matrix of `x`.
-    method : str, default 'pearson'
-        The method of correlation ('pearson', 'kendall', 'spearman') or a callable
-        with the signature (np.ndarray, np.ndarray) -> float.
     data : Optional[DataFrame], default None
         A DataFrame containing `x` and/or `y` columns if they are specified as 
         column names.
+    method : str, default 'pearson'
+        The method of correlation ('pearson', 'kendall', 'spearman') or a callable
+        with the signature (np.ndarray, np.ndarray) -> float.
     view : bool, default False
         If True, visualizes the correlation using a scatter plot (for pairwise 
         correlation) or a heatmap (for correlation matrices).
@@ -138,6 +137,8 @@ def correlation(
     tabular data.
     
     """
+    if data is not None: 
+        is_frame ( data, df_only=True, raise_exception=True, objname="Data")
     if x is None and y is None:
         if data is not None:
             cor_matrix= data.corr(method=method, **kws)
@@ -185,7 +186,6 @@ def correlation(
         plt.show()
 
     return correlation_matrix if 'correlation_matrix' in locals() else correlation_value
-
 
 def perform_linear_regression(
     x: Union[ArrayLike, list, str] = None, 
@@ -265,6 +265,7 @@ def perform_linear_regression(
     >>> import numpy as np
     >>> import pandas as pd
     >>> from sklearn.linear_model import LinearRegression
+    >>> from gofast.stats.relationships import perform_linear_regression
     >>> x = np.random.rand(100)
     >>> y = 2.5 * x + np.random.normal(0, 0.5, 100)
     >>> model, coefficients, intercept = perform_linear_regression(x, y)

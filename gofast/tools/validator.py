@@ -99,7 +99,6 @@ def validate_scores(
     >>> print(validate_scores(scores_multi, true_labels_multi, accept_multi_output=True))
     [array([[0.1, 0.9]]), array([[0.8, 0.2]])]
     """
-    
     # Check if scores are in a list for multi-output handling
     if isinstance(scores, list):
         if not accept_multi_output:

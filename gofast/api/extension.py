@@ -49,6 +49,7 @@ class RegexMap:
             'best_params_': re.compile(r".*(param(eter)?s?).*", re.IGNORECASE),
             'best_scores_': re.compile(r".*score.*", re.IGNORECASE),
             'cv_results_': re.compile(r".*(cv_?results?|fold_?results?).*", re.IGNORECASE),
+            'optimizer': re.compile( r".*(optimizer?s?|grid|search).*", re.IGNORECASE),
             'scoring': re.compile(r".*(scori?|metric(s)?).*",re.IGNORECASE )
         }
 
@@ -87,7 +88,7 @@ class RegexMap:
         based on their semantic content.
         """
         for key, pattern in self.patterns.items():
-            if pattern.match(search_term):
+            if pattern.match(str(search_term)):
                 return key
         return None
     

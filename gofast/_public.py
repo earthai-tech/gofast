@@ -3,7 +3,7 @@
 import numpy as np 
 import pandas as pd 
 
-import gofast.stats.descriptive # noqa 
+# import gofast.stats.descriptive # noqa 
 from gofast.api.formatter import MultiFrameFormatter 
 from gofast.api.util import escape_dataframe_elements 
 from gofast.decorators import DynamicMethod 

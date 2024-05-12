@@ -25,10 +25,10 @@ from .util import generate_categorical_values, generate_regression_output
 from .util import apply_scaling, rename_data_columns 
 from .util import adjust_parameters_to_fit_samples 
 
-def create_dataset(
-    task='classification', 
+def make_data(
     n_samples=100, 
     n_features=5, 
+    task='classification', 
     n_classes=2, 
     n_informative=2, 
     n_clusters_per_class=1, 
@@ -50,13 +50,13 @@ def create_dataset(
 
     Parameters
     ----------
-    task : str, optional
-        The type of dataset to generate. Options are 'classification' or 
-        'regression'. Defaults to 'classification'.
     n_samples : int, optional
         The total number of samples to generate. Defaults to 100.
     n_features : int, optional
         The number of features to generate for each sample. Defaults to 5.
+    task : str, optional
+        The type of dataset to generate. Options are 'classification' or 
+        'regression'. Defaults to 'classification'.
     n_classes : int, optional
         The number of classes (only used for classification). Defaults to 2.
     n_informative : int, optional
@@ -97,8 +97,8 @@ def create_dataset(
     --------
     Generate a simple classification dataset and split into training and testing:
 
-    >>> from gofast.datasets.generate import create_dataset
-    >>> X_train, X_test, y_train, y_test = create_dataset(task='classification', 
+    >>> from gofast.datasets.generate import make_data
+    >>> X_train, X_test, y_train, y_test = make_data(task='classification', 
     ... n_samples=150, n_features=4, n_classes=3, test_size=0.2, random_state=7, 
     ... split_X_y=True)
 
@@ -143,7 +143,6 @@ def create_dataset(
         return train_test_split(X, y, test_size=test_size, random_state=random_state)
         
     return X, y 
-
 
 def make_classification(
     n_samples=100,
@@ -477,7 +476,7 @@ def make_classification(
         noise=nan_percentage, 
         seed=seed
         ) 
-    return ( data,  p_c, p_w_c)  if return_distributions and n_labels >1 else data 
+    return ( data,  p_c, p_w_c)  if return_distributions and n_labels > 1 else data 
 
 def make_regression( 
     n_samples=70,

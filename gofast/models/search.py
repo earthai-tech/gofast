@@ -19,17 +19,20 @@ from sklearn.model_selection import cross_val_score, StratifiedKFold, LeaveOneOu
 try:from skopt import BayesSearchCV 
 except:pass 
 
-from .._docstring import DocstringComponents, _core_docs 
 from .._gofastlog import gofastlog
+from ..api.structures import Boxspace
+from ..api.docstring import DocstringComponents, _core_docs 
+from ..api.property import BaseClass 
+from ..api.summary import ModelSummary, ResultSummary 
 from ..api.types import _F, List,ArrayLike, NDArray, Dict, Any, Optional, Union
 from ..exceptions import EstimatorError, NotFittedError
-from ..tools.box import Boxspace 
 from ..tools.coreutils import _assert_all_types, get_params, save_job
 from ..tools.coreutils import listing_items_format, pretty_printer
 from ..tools.validator import check_X_y, check_array, check_consistent_length 
 from ..tools.validator import get_estimator_name
 
-from .utils import get_scorers, dummy_evaluation
+from .utils import get_scorers, dummy_evaluation, get_optimizer_name
+from .utils import _standardize_input 
  
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -41,7 +44,7 @@ _param_docs = DocstringComponents.from_nested_components(
     core=_core_docs["params"], 
     )
 
-class MultipleSearch:
+class MultipleSearch (BaseClass):
     r"""
     A class for concurrently performing parameter tuning across multiple estimators 
     using different search strategies.
@@ -96,6 +99,9 @@ class MultipleSearch:
     Examples
     --------
     >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from gofast.models.search import MultipleSearch
+    >>> from gofast.datasets import make_classification
+    >>> X, y = make_classification(n_samples = 100, n_features= 5 )
     >>> estimators = {'rf': RandomForestClassifier()}
     >>> param_grids = {'rf': {'n_estimators': [100, 200], 'max_depth': [10, 20]}}
     >>> optimizers = ['grid', 'random']
@@ -110,7 +116,8 @@ class MultipleSearch:
         param_grids, 
         optimizers, 
         cv=4, 
-        n_iter=10, 
+        n_iter=10,
+        scoring=None,
         savejob=False, 
         filename=None
         ):
@@ -119,6 +126,7 @@ class MultipleSearch:
         self.optimizers = optimizers
         self.cv = cv
         self.n_iter=n_iter
+        self.scoring=scoring
         self.savejob = savejob
         self.filename = filename
         self.best_params_ = {}
@@ -135,27 +143,37 @@ class MultipleSearch:
         y : array-like of shape (n_samples,)
             Target values.
         """
+        results={}
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             with ThreadPoolExecutor(max_workers=len(self.optimizers)) as executor:
                 futures = []
                 for optimizer in self.optimizers:
                     for name, estimator in self.estimators.items():
-                        future = executor.submit(self._search, estimator,
-                                                 self.param_grids[name], optimizer, X, y)
+                        future = executor.submit(
+                            self._search, estimator,
+                            self.param_grids[name], optimizer, X, y, self.scoring )
                         futures.append(future)
 
                 for future in tqdm(futures, desc='Optimizing parameters', 
                                    ncols=100, ascii=True, unit='search'):
-                    result = future.result()
-                    self.best_params_.update(result)
+                    best_params, result = future.result()
+                    self.best_params_.update(best_params)
+                    results.update(result)
 
         if self.savejob and self.filename:
             joblib.dump(self.best_params_, self.filename)
-            
+   
+        self.summary_= ModelSummary(
+            descriptor = "MultipleSearch",  **results).summary(results)
+        
+        self.best_params = ResultSummary(name="BestParams").add_results(
+            self.best_params_)
+        
         return self 
 
-    def _search(self, estimator, param_grid, optimizer, X, y):
+
+    def _search(self, estimator, param_grid, optimizer, X, y, scoring):
         """
         Conducts a parameter search using the specified optimizer on the
         given estimator.
@@ -178,17 +196,29 @@ class MultipleSearch:
         dict
             The best parameters found for the estimator using the optimizer.
         """
-        if optimizer in ['grid', 'GSCV', 'GridSearchCV']:
-            search = GridSearchCV(estimator, param_grid, cv=self.cv)
-        elif optimizer in ['random', 'RSCV', 'RandomizedSearchCV']:
-            search = RandomizedSearchCV(estimator, param_grid, cv=self.cv, n_iter=self.n_iter)
-        elif optimizer in ['bayes', 'BSCV', 'BayesSearchCV']:
-            search = BayesSearchCV(estimator, param_grid, cv=self.cv, n_iter=self.n_iter)
+        optimizer = get_optimizer_name(optimizer, error ='ignore')
+        if optimizer=='GridSearchCV':
+            search = GridSearchCV(estimator, param_grid, cv=self.cv, scoring=scoring)
+        elif optimizer =='RandomizedSearchCV':
+            search = RandomizedSearchCV(estimator, param_grid, cv=self.cv, n_iter=self.n_iter, 
+                                        scoring=scoring)
+        elif optimizer =='BayesSearchCV':
+            search = BayesSearchCV(estimator, param_grid, cv=self.cv, n_iter=self.n_iter, 
+                                   scoring=scoring)
         else:
             raise ValueError(f"Invalid search method: {optimizer}")
 
         search.fit(X, y)
-        return {(estimator.__class__.__name__, optimizer): search.best_params_}
+        best_params = {estimator.__class__.__name__: search.best_params_} 
+        result = {estimator.__class__.__name__: {
+                    "best_estimator_": search.best_estimator_, 
+                    "best_params_": search.best_params_, 
+                    "scoring": _standardize_input(scoring), 
+                    "optimizer": get_optimizer_name(optimizer),
+                    "cv_results_": search.cv_results_ ,
+                    }
+                }
+        return best_params, result 
         
 class MultipleSearch0:
     """
@@ -283,9 +313,11 @@ class MultipleSearch0:
         y : array-like of shape (n_samples,)
             Target values.
         """
+        results={}
         self.best_params_ = {}
         self.best_estimator_ = {}
         self.cv_results_ = {}
+        
         for name, estimator in self.estimators.items():
             param_grid = self.param_grids.get(name, {})
             search = self._get_search(estimator, param_grid, name)
@@ -293,14 +325,20 @@ class MultipleSearch0:
             self.best_params_[name] = search.best_params_
             self.best_estimator_[name] = search.best_estimator_
             self.cv_results_[name] = search.cv_results_
-
+            
+            results[estimator]={"best_estimator_": search.best_estimator_, 
+                                "best_params_": search.best_params_, 
+                                "cv_results_": search.cv_results_ ,
+                                "scoring": _standardize_input(self.scoring) 
+                                }
+            
         if self.savejob:
             self.filename = self.filename or "saved_data.joblib"
             joblib.dump({'best_params_': self.best_params_, 
                         'best_estimator_': self.best_estimator_,
                         'cv_results_': self.cv_results_}, 
                         self.filename)
-                    
+        self.summary_= ModelSummary(descriptor="MultipleSearch").summary(results)
         return self 
         
     def _get_search(self, estimator, param_grid, name):
@@ -321,19 +359,20 @@ class MultipleSearch0:
         search : GridSearchCV, RandomizedSearchCV or BayesSearchCV object
             The search object.
         """
-        if self.optimizer in ['grid', 'GSCV', 'GridSearchCV']:
+        optimizer = get_optimizer_name(self.optimizer, error ='ignore')
+        if optimizer =='GridSearchCV':
             return GridSearchCV(estimator, param_grid, cv=self.cv, 
             n_jobs=self.n_job, scoring=self.scoring, **self.grid_kws)
-        elif self.optimizer in ['random', 'RSCV', 'RandomizedSearchCV']:
+        elif optimizer =='RandomizedSearchCV':
             return RandomizedSearchCV(estimator, param_grid, n_iter=self.n_iter, 
             cv=self.cv, n_jobs=self.n_job, scoring=self.scoring, **self.grid_kws)
-        elif self.optimizer in ['bayes', 'BSCV', 'BayesSearchCV']:
+        elif optimizer=='BayesSearchCV':
             return BayesSearchCV(estimator, param_grid, n_iter=self.n_iter, cv=self.cv,
             n_jobs=self.n_job, scoring=self.scoring, **self.grid_kws)
         else:
             raise ValueError(f"Invalid search method: {self.optimizer}")
 
-class CrossValidator:
+class CrossValidator (BaseClass):
     """
     A class for handling cross-validation of machine learning models.
 
@@ -342,7 +381,7 @@ class CrossValidator:
 
     Attributes
     ----------
-    clf : BaseEstimator
+    estimator : BaseEstimator
         The machine learning model to be used for cross-validation.
     cv : int, optional
         The number of folds for cross-validation (default is 5).
@@ -364,22 +403,34 @@ class CrossValidator:
     ---------
     >>> from gofast.models.search import CrossValidator
     >>> from sklearn.tree import DecisionTreeClassifier
+    >>> from gofast.datasets import make_classification 
     >>> clf = DecisionTreeClassifier()
     >>> cross_validator = CrossValidator(clf, cv=5, scoring='accuracy')
-    >>> X, y = # Load your dataset here
+    >>> X, y = make_classification (n_samples=100, n_features =7)
     >>> cross_validator.fit(X, y)
     >>> cross_validator.displayResults()
+    Result(
+      {
+
+           Classifier/Regressor : DecisionTreeClassifier
+           Cross-validation scores : [0.85, 1.0, 0.8, 0.95, 0.85]
+           Mean score : 0.8900
+
+      }
+    )
+
+    [ 3 entries ]
     """
 
     def __init__(
-            self, clf: BaseEstimator,
-            cv: int = 5, 
-            scoring: str = 'accuracy'
-            ):
+        self, estimator: BaseEstimator,
+        cv: int = 5, 
+        scoring: str = 'accuracy'
+        ):
         """
         Initializes the CrossValidator with a classifier and evaluation parameters.
         """
-        self.clf = clf
+        self.estimator = estimator
         self.cv = cv
         self.scoring = scoring
 
@@ -401,13 +452,13 @@ class CrossValidator:
             If the target labels `y` are not provided for supervised 
             learning models.
         """
-        if y is None and issubclass(self.clf.__class__, BaseEstimator):
+        if y is None and issubclass(self.estimator.__class__, BaseEstimator):
             raise ValueError("Target labels `y` must be provided for"
                              " supervised learning models.")
         
-        scores = cross_val_score(self.clf, X, y, cv=self.cv, scoring=self.scoring)
+        scores = cross_val_score(self.estimator, X, y, cv=self.cv, scoring=self.scoring)
         mean_score = scores.mean()
-        self.results_ = (scores, mean_score)
+        self.score_results_ = (scores, mean_score)
 
         return self 
     
@@ -426,9 +477,9 @@ class CrossValidator:
             If cross-validation has not been performed yet.
         """
         self.inspect 
-        if self.results_ is None:
+        if self.score_results_ is None:
             raise ValueError("Cross-validation has not been performed yet.")
-        return self.results_[1]
+        return self.score_results_[1]
     
         return self 
 
@@ -442,14 +493,18 @@ class CrossValidator:
             If cross-validation has not been performed yet.
         """
         self.inspect 
-        if self.results_ is None:
+        if self.score_results_ is None:
             raise ValueError("Cross-validation has not been performed yet.")
         
-        scores, mean_score = self.results_
-        clf_name = self.clf.__class__.__name__
-        print(f'Classifier/Regressor: {clf_name}')
-        print(f'Cross-validation scores: {scores}')
-        print(f'Mean score: {mean_score:.4f}')
+        scores, mean_score = self.score_results_
+        estimator_name = self.estimator.__class__.__name__
+        result = {'Classifier/Regressor':f'{estimator_name}', 
+                   "Cross-validation scores": f"{list(scores)}", 
+                   "Mean score": f"{mean_score:.4f}"
+                   }
+        
+        summary = ResultSummary().add_results(result)
+        print(summary)
 
     def setCVStrategy(self, cv_strategy: Union[int, str, object], 
                         n_splits: int = 5, random_state: int = None):
@@ -526,7 +581,9 @@ class CrossValidator:
         X: ArrayLike, 
         y: ArrayLike, 
         metrics: Optional[Dict[str, _F[[ArrayLike, ArrayLike], float]]] = None, 
-        display_results: bool = False
+        metrics_kwargs: dict={},
+        display_results: bool = False, 
+        
         ):
         """
         Applies the configured cross-validation strategy to the given dataset
@@ -550,7 +607,9 @@ class CrossValidator:
             
         display_results : bool, optional
             Whether to print the cross-validation results. Default is False.
-
+        metrics_kwargs: dict, 
+            Dictionnary containing each each metric name listed in `metrics`. 
+            
         Stores
         -------
         cv_results_ : dict
@@ -604,7 +663,7 @@ class CrossValidator:
             X_train, X_test = X[train_index], X[test_index]
             y_train, y_test = y[train_index], y[test_index]
 
-            model_clone = clone(self.model)
+            model_clone = clone(self.estimator)
             model_clone.fit(X_train, y_train)
             y_pred = model_clone.predict(X_test)
 
@@ -613,7 +672,14 @@ class CrossValidator:
 
             if metrics:
                 for metric_name, metric_func in metrics.items():
-                    metric_score = metric_func(y_test, y_pred)
+                    if metrics_kwargs: 
+                        metric_kws = ( metrics_kwargs[metric_name] 
+                            if metric_name in metrics_kwargs else {}
+                            )
+                    else:
+                        metric_kws ={} 
+                        
+                    metric_score = metric_func(y_test, y_pred, **metric_kws)
                     self.cv_results_['additional_metrics'][metric_name].append(metric_score)
 
         self.cv_results_['mean_score'] = np.mean(self.cv_results_['scores'])
@@ -624,6 +690,8 @@ class CrossValidator:
                 mean_metric = np.mean(self.cv_results_['additional_metrics'][metric])
                 self.cv_results_['additional_metrics'][metric] = mean_metric
 
+        self.summary_ = ResultSummary(
+            name ='CVSummary').add_results(self.cv_results_)
         if display_results:
             self._display_results()
 
@@ -643,11 +711,15 @@ class CrossValidator:
         """
         if not hasattr(self, 'cv_results_'):
             raise ValueError("Cross-validation not applied. Please call apply_cv_strategy.")
-
-        print(f"CV Mean Score: {self.cv_results_['mean_score']:.3f}")
-        print(f"CV Standard Deviation: {self.cv_results_['std_dev']:.3f}")
-        print("Scores per fold: ", self.cv_results_['scores'])
-
+        
+        result= {"CV Mean Score":f"{self.cv_results_['mean_score']:.4f}", 
+                 "CV Standard Deviation":f"{self.cv_results_['std_dev']:.4f}", 
+                 "Scores per fold": list(np.around(self.cv_results_['scores'], 4))
+                 }
+        summary =ResultSummary(name='CVResult').add_results(result
+            )
+        print(summary)
+    
 
     @property 
     def inspect(self): 
@@ -663,7 +735,7 @@ class CrossValidator:
             raise NotFittedError(msg.format(expobj=self))
         return 1 
 
-class BaseSearch: 
+class BaseSearch (BaseClass): 
     __slots__=(
         '_base_estimator',
         'grid_params', 
@@ -880,7 +952,7 @@ Examples
 """.format (params=_param_docs,
 )
     
-class SearchMultiple:
+class SearchMultiple(BaseClass):
     def __init__ (
         self, 
         estimators: _F, 
@@ -1143,7 +1215,7 @@ the metrics used to evaluate model errors. Can be any others metrics  in
 """.format (params=_param_docs,
 )
     
-class BaseEvaluation: 
+class BaseEvaluation (BaseClass): 
     def __init__(
         self, 
         estimator: _F,

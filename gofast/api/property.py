@@ -19,7 +19,9 @@ from abc import (
     ABC, 
     abstractmethod, 
     )
+import numpy as np
 import pandas as pd 
+from typing import Any, Dict, Iterable
 
 
 __all__ = [ 
@@ -101,6 +103,122 @@ class GofastConfig:
             "Modification of WHITESPACE_ESCAPE is not allowed as"
             " it may affect the Gofast API frame formatter across all modules.")
 
+class BaseClass:
+    """
+    A base class that provides a nicely formatted string representation
+    of any derived class instances, summarizing their attributes and
+    handling collections intelligently.
+    
+    Attributes
+    ----------
+    MAX_DISPLAY_ITEMS : int
+        The maximum number of items to display when summarizing
+        collections. Default is 5.
+
+    Methods
+    -------
+    __repr__() -> str
+        Returns a formatted representation representation of the instance.
+    _format_attr(key: str, value: Any) -> str
+        Formats an individual attribute for the string representation.
+    _summarize_iterable(iterable: Iterable) -> str
+        Returns a summarized string representation of an iterable.
+    _summarize_dict(dictionary: Dict) -> str
+        Returns a summarized string representation of a dictionary.
+    _summarize_array(array: np.ndarray) -> str
+        Summarizes a NumPy array to a concise representation.
+    _summarize_dataframe(df: pd.DataFrame) -> str
+        Summarizes a pandas DataFrame to a concise representation.
+    _summarize_series(series: pd.Series) -> str
+        Summarizes a pandas Series to a concise representation.
+    Examples
+    --------
+    >>> class Optimizer(BaseClass):
+    ...     def __init__(self, name, iterations):
+    ...         self.name = name
+    ...         self.iterations = iterations
+    ...         self.parameters = [1, 2, 3, 4, 5, 6, 7]
+    >>> optimizer = Optimizer("SGD", 100)
+    >>> print(optimizer)
+    Optimizer(name=SGD, iterations=100, parameters=[1, 2, 3, 4, 5, ...])
+
+    Notes
+    -----
+    The base class is designed to be inherited by classes that wish to
+    have a robust and informative string representation for debugging
+    and logging purposes. It handles complex data types by summarizing
+    them if they exceed the MAX_DISPLAY_ITEMS limit. This behavior can
+    be adjusted by modifying the class attribute MAX_DISPLAY_ITEMS.
+    """
+    MAX_DISPLAY_ITEMS = 5
+
+    def __repr__(self) -> str:
+        attributes = [self._format_attr(key, value) 
+                      for key, value in self.__dict__.items() 
+                      if not key.startswith('_') and not key.endswith('_')
+                      ]
+        return f"{self.__class__.__name__}({', '.join(attributes)})"
+
+    def _format_attr(self, key: str, value: Any) -> str:
+        """Formats a single attribute for inclusion in the string representation."""
+        if isinstance(value, (list, tuple, set)):
+            return f"{key}={self._summarize_iterable(value)}"
+        elif isinstance(value, dict):
+            return f"{key}={self._summarize_dict(value)}"
+        elif isinstance(value, np.ndarray):
+            return f"{key}={self._summarize_array(value)}"
+        elif isinstance(value, pd.DataFrame):
+            return f"{key}={self._summarize_dataframe(value)}"
+        elif isinstance(value, pd.Series):
+            return f"{key}={self._summarize_series(value)}"
+        else:
+            return f"{key}={value}"
+
+    def _summarize_iterable(self, iterable: Iterable) -> str:
+        """Summarizes an iterable object to a concise representation 
+        if it exceeds the display limit."""
+        if len(iterable) > self.MAX_DISPLAY_ITEMS:
+            limited_items = ', '.join(map(str, list(iterable)[:self.MAX_DISPLAY_ITEMS]))
+            return f"[{limited_items}, ...]"
+        else:
+            return f"[{', '.join(map(str, iterable))}]"
+
+    def _summarize_dict(self, dictionary: Dict) -> str:
+        """Summarizes a dictionary object to a concise representation
+        if it exceeds the display limit."""
+        if len(dictionary) > self.MAX_DISPLAY_ITEMS:
+            limited_items = ', '.join(f"{k}: {v}" for k, v in list(
+                dictionary.items())[:self.MAX_DISPLAY_ITEMS])
+            return f"{{ {limited_items}, ... }}"
+        else:
+            return f"{{ {', '.join(f'{k}: {v}' for k, v in dictionary.items()) }}}"
+
+    def _summarize_array(self, array: np.ndarray) -> str:
+        """Summarizes array object to a concise representation if 
+        it exceeds the display rows."""
+        if array.size > self.MAX_DISPLAY_ITEMS:
+            limited_items = ', '.join(map(str, array.flatten()[:self.MAX_DISPLAY_ITEMS]))
+            return f"[{limited_items}, ...]"
+        else:
+            return f"[{', '.join(map(str, array.flatten()))}]"
+
+    def _summarize_dataframe(self, df: pd.DataFrame) -> str:
+        """Summarizes a DataFrame object to a concise representation if it
+        exceeds the display limit."""
+        if len(df) > self.MAX_DISPLAY_ITEMS:
+            return f"DataFrame({len(df)} rows, {len(df.columns)} columns)"
+        else:
+            return f"DataFrame: {df.to_string(index=False)}"
+
+    def _summarize_series(self, series: pd.Series) -> str:
+        """Summarizes a series object to a concise representation if it
+        exceeds the display limit."""
+        if len(series) > self.MAX_DISPLAY_ITEMS:
+            limited_items = ', '.join(f"{series.index[i]}: {series[i]}" for i in range(
+                self.MAX_DISPLAY_ITEMS))
+            return f"Series([{limited_items}, ...])"
+        else:
+            return f"Series: {series.to_string(index=False)}"
 
 class BasePlot(ABC): 
     r""" Base class  deals with Machine learning and conventional Plots. 

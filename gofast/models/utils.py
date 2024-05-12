@@ -3,6 +3,9 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 from __future__ import annotations 
+import re
+import inspect
+import warnings
 import itertools 
 import numpy as np 
 import pandas as pd
@@ -387,7 +390,104 @@ def get_optimizer_method(optimizer: str) -> Type[BaseEstimator]:
         
     # Search for the corresponding optimizer class
     return standard_optimizer_dict.get(optimizer)
+
+
+def get_optimizer_name(optimizer, error='raise'):
+    """
+    Retrieve the name of the optimizer based on an input string.
     
+    This function searches for known optimizer identifiers within the input
+    string using regular expressions and returns the formal name of the
+    optimizer if a match is found. If no match is found, it handles the
+    situation based on the specified error handling mode ('raise', 'ignore',
+    'warn').
+
+    Parameters
+    ----------
+    optimizer : str
+        The input string potentially containing an optimizer name.
+    error : str, optional
+        Error handling mode: 'raise' (default) to raise an exception,
+        'ignore' to return a default message, and 'warn' to issue a warning.
+    
+    Returns
+    -------
+    str
+        The formal name of the optimizer if found, or a default message
+        based on the error handling mode.
+    
+    Raises
+    ------
+    ValueError
+        If no optimizer is found and error mode is 'raise'.
+    
+    Notes
+    -----
+    The function uses regular expressions for flexible and efficient matching.
+    The pattern matching checks for exact words and common abbreviations or
+    acronyms related to optimizer names.
+
+    Examples
+    --------
+    >>> from gofast.models.utils import get_optimizer_name
+    >>> get_optimizer_name("I used random search CV for optimization")
+    'RandomizedSearchCV'
+
+    >>> get_optimizer_name("What is GSCV?", error='warn')
+    UserWarning: Optimizer not found. Valid options include: RandomizedSearchCV, 
+    GridSearchCV, etc.
+
+    >>> get_optimizer_name("optimize with GASCV")
+    'GeneticSearchCV'
+    
+    """
+    optimizer = _standardize_input(optimizer )
+    opt_dict = {
+       'RandomizedSearchCV': r"\b(random|RSCV|RandomizedSearchCV)\b",
+       'GridSearchCV': r"\b(grid|GSCV|GridSearchCV)\b",
+       'BayesSearchCV': r"\b(bayes|BSCV|BayesSearchCV)\b",
+       'AnnealingSearchCV': r"\b(annealing|ASCV|AnnealingSearchCV)\b",
+       'SwarmSearchCV': r"\b(swarm|pso|SWCV|PSOSCV|SwarmSearchCV)\b",
+       'SequentialSearchCV': r"\b(sequential|SSCV|SMBOSearchCV)\b",
+       'EvolutionarySearchCV': r"\b(evolution(?:ary)?|ESCV|EvolutionarySearchCV)\b",
+       'GradientSearchCV': r"\b(gradient|GBSCV|GradientBasedSearchCV)\b",
+       'GeneticSearchCV': r"\b(genetic|GASCV|GeneticSearchCV)\b"
+   }
+    
+    optimizer_input = str(optimizer).lower()
+    for key, pattern in opt_dict.items():
+        if re.search(pattern.lower(), optimizer_input):
+            return key
+
+    valid_opts = ', '.join(opt_dict.keys())
+    error_message = f"Optimizer not found. Valid options include: {valid_opts}."
+
+    if error == 'raise':
+        raise ValueError(error_message)
+    elif error == 'warn':
+        warnings.warn(error_message, UserWarning)
+    
+    return "Optimizer not found"
+
+def _standardize_input(input_obj):
+    """
+    Standardizes the input to be a string. If the input is a class or an 
+    instance of a class, it retrieves the class name. If it's a string, 
+    it returns it as is.
+    """
+    if isinstance ( input_obj, str ): 
+        return input_obj
+    if inspect.isclass(input_obj):
+        # It's a class type
+        return input_obj.__name__
+    
+    elif hasattr(input_obj, '__class__'):
+        # It's an instance of a class
+        return input_obj.__class__.__name__
+    else:
+        # It's something else
+        return str(input_obj)
+
 def process_estimators_and_params(
     param_grids: List[Union[Dict[str, List[Any]], Tuple[BaseEstimator, Dict[str, List[Any]]]]],
     estimators: Optional[List[BaseEstimator]] = None

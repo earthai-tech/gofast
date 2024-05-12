@@ -92,7 +92,7 @@ __all__=[
     "save_dataframes", 
     "stats_from_prediction", 
     "one_click_preprocess", 
-    "codify_variables", 
+    "soft_encoder", 
     "display_feature_contributions"
     ]
 
@@ -177,9 +177,8 @@ def one_click_preprocess(
     """
     # Convert input data to a DataFrame if it is not one already,
     # handling any issues silently.
-    data = build_data_if(data, to_frame=True, force=True,
-                         input_name='col', raise_warning='silence')
-
+    data = build_data_if(data, to_frame=True, force=True, input_name='col',
+                         raise_warning='silence')
     # Set a seed for reproducibility in operations that involve randomness.
     np.random.seed(seed)
 
@@ -274,7 +273,7 @@ def one_click_preprocess(
     # Return the preprocessed DataFrame.
     return data_processed
 
-def codify_variables (
+def soft_encoder (
     data:DataFrame | ArrayLike, /, 
     columns: List[str] =None, 
     func: _F=None, 
@@ -342,7 +341,7 @@ def codify_variables (
         
     Examples
     --------
-    >>> from gofast.tools.mlutils import codify_variables
+    >>> from gofast.tools.mlutils import soft_encoder
     >>> # Sample dataset with categorical variables
     >>> data = {'Height': [152, 175, 162, 140, 170],
     ...         'Color': ['Red', 'Blue', 'Green', 'Red', 'Blue'],
@@ -351,7 +350,7 @@ def codify_variables (
     ...         'Weight': [80, 75, 55, 61, 70]
     ...        }
     >>> # Basic encoding without additional parameters
-    >>> df_encoded = codify_variables(data)
+    >>> df_encoded = soft_encoder(data)
     >>> df_encoded.head(2)
     Out[1]:
        Height  Weight  Color  Size  Shape
@@ -359,7 +358,7 @@ def codify_variables (
     1     175      75      0     0      1
     
     >>> # Returning a map of categorical codes
-    >>> df_encoded, map_codes = codify_variables(data, return_cat_codes=True)
+    >>> df_encoded, map_codes = soft_encoder(data, return_cat_codes=True)
     >>> map_codes
     Out[2]:
     {'Color': {2: 'Red', 0: 'Blue', 1: 'Green'},
@@ -376,7 +375,7 @@ def codify_variables (
     ...         return 1
     ...     else:
     ...         return x
-    >>> df_encoded = codify_variables(data, func=cat_func)
+    >>> df_encoded = soft_encoder(data, func=cat_func)
     >>> df_encoded.head(3)
     Out[3]:
        Height  Color    Size     Shape  Weight
@@ -385,7 +384,7 @@ def codify_variables (
     2     162      1  Medium  Triangle      55
     
     >>> # Perform one-hot encoding
-    >>> df_encoded = codify_variables(data, get_dummies=True)
+    >>> df_encoded = soft_encoder(data, get_dummies=True)
     >>> df_encoded.head(3)
     Out[4]:
        Height  Weight  Color_Blue  Color_Green  Color_Red  Size_Large  Size_Medium  \
@@ -399,7 +398,7 @@ def codify_variables (
     2           0             0             0               1
     
     >>> # Specifying explicit categories
-    >>> df_encoded = codify_variables(data, categories={'Size': ['Small', 'Large', 'Medium']})
+    >>> df_encoded = soft_encoder(data, categories={'Size': ['Small', 'Large', 'Medium']})
     >>> df_encoded.head()
     Out[5]:
        Height  Color     Shape  Weight  Size
@@ -504,7 +503,6 @@ def codify_variables (
         df.rename(columns={temp_col: col}, inplace=True) 
 
     # Return DataFrame and mappings if required
-    
     mapresult.add_results(map_codes)
     return (df, mapresult) if return_cat_codes else df
 
@@ -3193,7 +3191,7 @@ def make_pipe(
     num_pipe=Pipeline(npipe)
     
     if for_pca : 
-        encoding=  ('OrdinalEncoder',OrdinalEncoder())
+        encoding=  ('OrdinalEncoder', OrdinalEncoder())
     else:  encoding =  (
         'OneHotEncoder', OneHotEncoder())
         

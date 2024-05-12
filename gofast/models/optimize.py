@@ -442,10 +442,10 @@ def _get_optimizer_method(optimizer: str) -> Any:
         'GridSearchCV': ['GSCV', 'GridSearchCV'], 
         'BayesSearchCV': ['BSCV', 'BayesSearchCV'], 
         'AnnealingSearchCV': ['ASCV',"AnnealingSearchCV" ], 
-        'PSOSearchCV': ['PSCV', 'PSOSearchCV'], 
-        'SMBOSearchCV': ['SSCV', 'SMBOSearchCV'], 
+        'SwarmSearchCV': ['SWCV', 'PSOSCV', 'SwarmSearchCV'], 
+        'SequentialSearchCV': ['SSCV', 'SMBOSearchCV'], 
         'EvolutionarySearchCV': ['ESCV', 'EvolutionarySearchCV'], 
-        'GradientBasedSearchCV':['GBSCV', 'GradientBasedSearchCV'], 
+        'GradientSearchCV':['GBSCV', 'GradientBasedSearchCV'], 
         'GeneticSearchCV': ['GASCV', 'GeneticSearchCV']
     }
 

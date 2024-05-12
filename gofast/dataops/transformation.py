@@ -9,8 +9,8 @@ import warnings
 import numpy as np 
 import pandas as pd 
 
-from ..api.types import List,  DataFrame, Optional
-from ..api.types import Union, TypeGuard, Tuple
+from ..api.types import List, DataFrame, Optional, Dict
+from ..api.types import Union,TypeGuard, Tuple, Any
 from ..decorators import isdf
 from ..tools.coreutils import to_numeric_dtypes
 from ..tools.validator import  build_data_if,  parameter_validator  
@@ -22,6 +22,8 @@ __all__= [
     "summarize_text_columns", 
     "sanitize", 
     "split_dataframes", 
+    "smart_group", 
+    "group_and_filter", 
     ]
 
 def summarize_text_columns(
@@ -529,12 +531,279 @@ def format_long_column_names(
 
     return data
 
+def group_and_filter(
+    data: DataFrame, /, 
+    group_column: str, 
+    groups: List[Any], 
+    sort: bool = False, 
+    sort_by: Optional[Union[str, List[str]]] = None, 
+    mode: str = 'strict', 
+    handle_na: bool = False, 
+    na_fill_value: Any = None, 
+    conditional_filters: Optional[Dict[str, tuple]] = None
+    ):
+
+    """
+    Filter a DataFrame based on specified group values in a column and apply
+    additional conditional filters. Optionally sort the resulting DataFrame.
+
+    Parameters
+    ----------
+    data : DataFrame
+        The pandas DataFrame to process.
+    group_column : str
+        The name of the column to filter groups from.
+    groups : list
+        List of groups to filter in the group_column.
+    sort : bool, optional
+        Whether to sort the resulting DataFrame; uses `sort_by` if provided.
+    sort_by : str or list of str, optional
+        Columns to sort by; defaults to `group_column` if None.
+    mode : str, optional
+        Operational mode, 'strict' raises errors on unique identifiers, 'soft' 
+        bypasses this check.
+    handle_na : bool, optional
+        Specifies whether to handle NA values in `group_column`.
+    na_fill_value : any, optional
+        Value to fill NA in `group_column` if `handle_na` is True.
+    conditional_filters : dict, optional
+        Additional column-specific conditions in the form {column: (operator, value)}.
+
+    Returns
+    -------
+    DataFrame
+        Filtered (and possibly sorted) DataFrame.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.dataops.transformation import group_and_filter
+    >>> df = pd.DataFrame({
+    ...     'A': ['a', 'b', 'a', 'd'],
+    ...     'B': [1, 2, 3, 4]
+    ... })
+    >>> group_and_filter(df, 'A', ['a', 'd'], sort=True)
+       A  B
+    0  a  1
+    2  a  3
+    3  d  4
+
+    >>> group_and_filter(df, 'A', ['a'], handle_na=True, na_fill_value='missing')
+       A  B
+    0  a  1
+    2  a  3
+
+    >>> group_and_filter(df, 'A', ['a'], conditional_filters={'B': ('>', 2)}, 
+    ...                  mode='soft')
+       A  B
+    2  a  3
+
+    Notes
+    -----
+    The function raises a ValueError if the `group_column` does not exist in the
+    DataFrame or if it is used in 'strict' mode on a column with unique identifiers 
+    when not allowed. The use of `query` in conditional filters supports complex 
+    filtering expressions efficiently.
+    """
+    if not isinstance(data, pd.DataFrame):
+        raise TypeError("Expected 'data' to be a pandas DataFrame,"
+                        f" but got {type(data).__name__}.")
+
+    if group_column not in data.columns:
+        raise ValueError(f"Column '{group_column}' does not exist in the DataFrame.")
+
+    if handle_na:
+        data[group_column].fillna(na_fill_value, inplace=True)
+
+    if conditional_filters:
+        for col, (operator, val) in conditional_filters.items():
+            if col in data.columns:
+                data = data.query(f"{col} {operator} @val")
+
+    filtered_data = data[data[group_column].isin(groups)]
+
+    if mode == 'strict' and filtered_data[group_column].is_unique:
+        raise ValueError("Cannot perform grouping on a unique identifier"
+                         " column in 'strict' mode.")
+
+    if sort:
+        sort_columns = sort_by if sort_by else group_column
+        filtered_data = filtered_data.sort_values(by=sort_columns)
+
+    return filtered_data
 
 
+def validate_list_of_strings(value, param_name):
+    """Helper function to validate that a parameter is a list of strings."""
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError(f"'{param_name}' should be a list of strings")
 
+def validate_dict(value, param_name):
+    """Helper function to validate that a parameter is a dictionary."""
+    if not isinstance(value, dict):
+        raise ValueError(f"'{param_name}' should be a dictionary")
 
+def smart_group(
+    data: DataFrame, 
+    group_by: Union[str, List[str]], 
+    aggregations: Optional[Dict[str, Union[str, List[str], Dict[str, Any]]]] = None,
+    having: Optional[Dict[str, Any]] = None, 
+    fill_na: Optional[Dict[str, Any]] = None, 
+    sort_by: Optional[Union[str, List[str]]] = None, 
+    ascending: bool = True,
+    drop_na: bool = False,
+    keep_columns: Optional[List[str]] = None
+) -> DataFrame:
+    """
+    Groups a DataFrame by specified column(s) and applies various optional
+    transformations including aggregation, conditional filtering, and sorting.
 
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The DataFrame to be processed.
+    group_by : str or List[str]
+        The column(s) to group the DataFrame by.
+    aggregations : dict, optional
+        Specifies the aggregation operations to apply after grouping.
+        The dictionary should map column names to aggregation functions
+        or lists of functions.
+    having : dict, optional
+        Allows filtering on the aggregated results. Each key-value pair 
+        specifies the column and condition to filter by.
+    fill_na : dict, optional
+        Specifies values to replace NA/NaN values in the DataFrame before
+        grouping. The dictionary maps column names to fill values.
+    sort_by : str or List[str], optional
+        Specifies one or more columns to sort the resulting DataFrame by.
+    ascending : bool, optional
+        Determines if the sorting should be ascending (True) or descending (False).
+    drop_na : bool, optional
+        If True, rows with NA values in the `group_by` columns will be dropped
+        before grouping.
+    keep_columns : List[str], optional
+        List of non-aggregated columns to retain in the resulting DataFrame.
+        
+    Returns
+    -------
+    pd.DataFrame
+        The grouped (and potentially aggregated, filtered, and sorted) DataFrame.
 
+    Examples
+    --------
+    >>> import numpy as np 
+    >>> import pandas as pd 
+    >>> from gofast.dataops.transformation import smart_group 
+    
+    # Example of grouping by a single column with aggregation:
+    >>> df = pd.DataFrame({
+    ...     'A': ['foo', 'bar', 'foo', 'bar'],
+    ...     'B': [1, 2, 3, 4],
+    ...     'C': [2, 4, 6, 8]
+    ... })
+    >>> smart_group(df, group_by='A', aggregations={'B': 'sum', 'C': 'mean'})
+         B    C
+    A          
+    bar  6  6.0
+    foo  4  4.0
+    
+    # Example of using the 'having' filter to further filter aggregated results:
+    >>> smart_group(df, group_by='A', aggregations={'B': 'sum', 'C': 'mean'},
+    ...             having={'B': '>4'})
+         B    C
+    A          
+    bar  6  6.0
+
+    # Example of using 'fill_na' to handle missing values before grouping:
+    >>> df.loc[2, 'B'] = None
+    >>> smart_group(df, group_by='A', fill_na={'B': 0}, aggregations={'B': 'sum'})
+           B
+    A       
+    bar  6.0
+    foo  1.0
+    
+    # Example of sorting the results:
+    >>> smart_group(df, group_by='A', sort_by='C', ascending=False,
+    ...             keep_columns=['C'])
+        index    A  count  C
+     0      0  bar      2  4
+     1      1  foo      2  2
+    Notes
+    -----
+    - The 'aggregations' parameter should be used carefully to ensure that
+      specified aggregation functions are compatible with the data types of
+      the columns being aggregated.
+    - The 'having' parameter allows complex filtering but requires understanding
+      of how aggregated column names are formed.
+    """
+    # Assertions for input validation
+    assert isinstance(data, pd.DataFrame), "Expected 'data' to be a pandas DataFrame"
+    if isinstance(group_by, list):
+        validate_list_of_strings(group_by, 'group_by')
+    elif not isinstance(group_by, str):
+        raise ValueError("'group_by' should be either a string or a list of strings")
+
+    assert isinstance(ascending, bool), "'ascending' should be a boolean"
+    assert isinstance(drop_na, bool), "'drop_na' should be a boolean"
+
+    if aggregations:
+        validate_dict(aggregations, 'aggregations')
+    if having:
+        validate_dict(having, 'having')
+    if fill_na:
+        validate_dict(fill_na, 'fill_na')
+    if keep_columns:
+        validate_list_of_strings(keep_columns, 'keep_columns')
+        
+    if sort_by:
+        if isinstance(sort_by, list):
+            validate_list_of_strings(sort_by, 'sort_by')
+        elif not isinstance(sort_by, str):
+            raise ValueError("'sort_by' should be either a string or a list of strings")
+            
+    # Ensure group_by is a list
+    if isinstance(group_by, str):
+        group_by = [group_by]  # Convert string to list for consistent handling
+    
+    # Combine group_by and keep_columns for selection
+    if keep_columns:
+        columns_to_select = group_by + keep_columns
+        data = data[columns_to_select]
+    
+    # Handle missing values
+    if fill_na:
+        data = data.fillna(fill_na)
+    elif drop_na:
+        data = data.dropna(subset=group_by)
+    
+    # Grouping and aggregation
+    grouped = data.groupby(group_by)
+    if aggregations:
+        result = grouped.agg(aggregations)
+    else:
+        result = grouped.size().reset_index(name='count')
+    
+    # Reintroduce non-aggregated columns that were kept
+    if keep_columns:
+        # Reset index for result to allow proper merging
+        result.reset_index(inplace=True)
+        
+        for col in keep_columns:
+            if col not in result.columns:
+                # Perform a merge operation to reintroduce the column from the original data
+                additional_data = data[[*group_by, col]].drop_duplicates(subset=group_by)
+                result = result.merge(additional_data, on=group_by, how='left')
+    
+    # Apply conditions specified in 'having' if any
+    if having:
+        query = " & ".join([f"{key}{value}" for key, value in having.items()])
+        result = result.query(query)
+    
+    # Sorting the final result if specified
+    if sort_by:
+        result = result.sort_values(by=sort_by, ascending=ascending)
+    
+    return result
 
 
 
