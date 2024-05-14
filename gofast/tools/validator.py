@@ -2445,7 +2445,7 @@ def recheck_data_types(
                 try:
                     data[column] = pd.to_datetime(data[column])
                     continue  # Skip further processing if datetime conversion is successful
-                except ValueError:
+                except (TypeError, ValueError):
                     pass  # Continue if datetime conversion fails
 
             if coerce_numeric:
@@ -4367,7 +4367,8 @@ def build_data_if(
     input_name='data', 
     force=False, 
     raise_warning=True,
-    raise_exception=False
+    raise_exception=False, 
+    coerce_datetime=False, 
 ):
     """
     Converts input data into a pandas DataFrame if necessary and requested,
@@ -4393,7 +4394,8 @@ def build_data_if(
     raise_exception : bool, default=False
         If True, raises an exception instead of a warning when conversion
         requirements are not met.
-
+    coerce_datetime : bool, default=False
+        If True, tries to convert object columns to datetime data types.
     Returns
     -------
     pd.DataFrame
@@ -4439,8 +4441,9 @@ def build_data_if(
     if isinstance (data, pd.DataFrame): 
         # re_check data_types 
         data = recheck_data_types(
-            data, coerce_datetime=True, coerce_numeric=True, 
-            return_as_numpy=False )
+            data, coerce_datetime=coerce_datetime,
+            coerce_numeric=True, return_as_numpy=False
+            )
     return data  # Return original data if conditions are not met
 
 def build_data_if2 (

@@ -8,6 +8,7 @@ from numbers import Integral, Real
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin, clone
 from sklearn.base import is_regressor, is_classifier 
 from sklearn.metrics import r2_score
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor 
 
 from ..tools.validator import check_X_y, get_estimator_name, check_array 
 from ..tools.validator import check_is_fitted
@@ -17,7 +18,6 @@ from ..tools._param_validation import StrOptions
 from ..tools._param_validation import validate_params
 from ..transformers import KMeansFeaturizer
     
-
 __all__=["KMFClassifier", "KMFRegressor"]
 
 class KMFClassifier(BaseEstimator, ClassifierMixin):
@@ -77,7 +77,8 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
     ----------
     base_estimator : estimator object
         The base machine learning estimator to fit on the transformed data.
-        This estimator should follow the scikit-learn estimator interface.
+        This estimator should follow the scikit-learn estimator interface. 
+        If no estimator is passed, the default is ``DecisionTreeClassifier``
 
     n_clusters : int, default=7
         The number of clusters to form in the k-means clustering process.
@@ -171,7 +172,7 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
     """
     def __init__(
         self,
-        base_estimator, 
+        base_estimator=None, 
         n_clusters=3, 
         target_scale=1.0, 
         random_state=None, 
@@ -184,7 +185,7 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
         algorithm='lloyd', 
         to_sparse=False, 
         ):
-        self.base_estimator = base_estimator
+        self.base_estimator = base_estimator 
         self.n_clusters = n_clusters
         self.target_scale = target_scale
         self.random_state = random_state
@@ -217,6 +218,9 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
             Returns self.
         """
         X, y = check_X_y(X, y, estimator =self, )
+        if self.base_estimator is None: 
+            self.base_estimator =  DecisionTreeClassifier()
+            
         is_classifier(self.base_estimator )
         self.featurizer_ = KMeansFeaturizer(
             n_clusters=self.n_clusters,
@@ -470,7 +474,8 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
           Informatics 17, 1203–1228. https://doi.org/10.1007/s12145-024-01236-3
     """
     def __init__(
-        self, base_regressor, 
+        self, 
+        base_regressor=None, 
         n_clusters=7, 
         target_scale=1.0, 
         random_state=None, 
@@ -536,11 +541,14 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
           potentially using the target variable to influence cluster formation.
         - The transformed data is then used to fit the base regressor.
         """
+        
+        if self.base_regressor is None: 
+            self.base_regressor = DecisionTreeRegressor()
     
         # Check if the base estimator is a regressor
         if not is_regressor(self.base_regressor):
-            raise ValueError("The provided base estimator "
-                             f"{get_estimator_name (self.base_regressor)!r}"
+            name_estimator = get_estimator_name(self.base_regressor)
+            raise ValueError(f"The provided base estimator {name_estimator!r}"
                              " is not a regressor.")
         # Validate the input
         X, y = check_X_y(X, y, estimator=self)

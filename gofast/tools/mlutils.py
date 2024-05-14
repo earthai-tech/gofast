@@ -102,6 +102,7 @@ def one_click_preprocess(
     target_columns=None,
     columns=None, 
     impute_strategy=None,
+    coerce_datetime=False, 
     seed=None, 
     **process_kws
     ):
@@ -131,9 +132,13 @@ def one_click_preprocess(
         Defines specific strategies for imputing missing values, separately
         for 'numeric' and 'categorical' data types. The default strategy is
         {'numeric': 'median', 'categorical': 'constant'}.
+    coerce_datetime : bool, default=False
+        If True, tries to convert object columns to datetime data types when 
+        `data` is a numpy array. 
     seed : int, optional
         Random seed for operations that involve randomization, ensuring
         reproducibility of results. Defaults to None.
+    
     **process_kws : keyword arguments, optional
         Additional arguments that can be passed to preprocessing steps, such
         as parameters for scaling or encoding methods.
@@ -178,7 +183,9 @@ def one_click_preprocess(
     # Convert input data to a DataFrame if it is not one already,
     # handling any issues silently.
     data = build_data_if(data, to_frame=True, force=True, input_name='col',
-                         raise_warning='silence')
+                         raise_warning='silence',
+                         coerce_datetime=coerce_datetime 
+                         )
     # Set a seed for reproducibility in operations that involve randomness.
     np.random.seed(seed)
 
