@@ -23,7 +23,7 @@ from ..api.types import Optional, Tuple, Any, List, Union, Callable, NDArray
 from ..api.types import Dict, ArrayLike, DataFrame, Series
 from ..tools.coreutils import is_iterable, make_obj_consistent_if
 from ..tools.funcutils import ensure_pkg 
-from ..tools.validator import _is_cross_validated, validate_yy
+from ..tools.validator import _is_cross_validated, validate_yy, validate_keras_model
 from ..tools.validator import assert_xy_in, get_estimator_name, check_is_fitted
 from .utils import _set_sns_style, _make_axe_multiple
 from .utils import make_plot_colors  
@@ -1593,7 +1593,7 @@ def plot_cv(
     """
     kf = KFold(n_splits=n_splits)
     fold_performance = []
-
+    validate_keras_model(model_fn, raise_exception= True )
     for fold, (train_index, val_index) in enumerate(kf.split(X), 1):
         # Split data
         X_train, X_val = X[train_index], X[val_index]
@@ -1722,8 +1722,10 @@ def plot_actual_vs_predicted(
 
     if show_grid:
         ax.grid(visible=show_grid, linestyle=grid_style)
-
+  
     # Calculate and display metrics
+    if isinstance (metrics, str): 
+        metrics = [metrics]
     metrics_text = ""
     if metrics is not None:
         available_metrics = {
@@ -1746,17 +1748,18 @@ def plot_actual_vs_predicted(
                 transform=ax.transAxes, fontsize=9, 
                                   bbox=dict(boxstyle="round,pad=0.5",
                                             facecolor='white', 
-                                            edgecolor='black', alpha=0.7))
+                                            edgecolor='black', 
+                                            alpha=0.7)
+                    )
     
             # Dynamically place the legend
             legend_loc = 'best' if metrics_box.get_bbox_patch(
                 ).get_extents().y0 > 0.5 else 'lower right'
+            ax.legend(loc=legend_loc)
         else: 
             warnings.warn(f"Metric '{metrics}' is not recognized. "
                           f"Available metrics are {list(available_metrics.keys())}.", 
                           UserWarning)
-            
-    ax.legend(loc=legend_loc)
     
     plt.tight_layout()
     plt.show()
@@ -1766,7 +1769,7 @@ def plot_actual_vs_predicted(
 def plot_regression_diagnostics(
     x: ArrayLike,
     *ys: List[ArrayLike],
-    titles: List[str],
+    titles: List[str]=None,
     xlabel: str = 'X',
     ylabel: str = 'Y',
     figsize: Tuple[int, int] = (15, 5),
@@ -1782,7 +1785,7 @@ def plot_regression_diagnostics(
         The independent variable data.
     ys : List[np.ndarray]
         A list of dependent variable datasets to be plotted against x.
-    titles : List[str]
+    titles : List[str], optional 
         Titles for each subplot.
     xlabel : str, default='X'
         Label for the x-axis.
@@ -1795,11 +1798,6 @@ def plot_regression_diagnostics(
     reg_kws: dict, 
         Additional parameters passed to `seaborn.regplot`. 
         
-    Returns
-    -------
-    fig : plt.Figure
-        The matplotlib figure object with the plots.
-
     Example
     -------
     >>> import numpy as np 
@@ -1817,10 +1815,21 @@ def plot_regression_diagnostics(
     >>> plt.show()
     """
     fig, axes = plt.subplots(1, len(ys), figsize=figsize, sharey=True)
-    
+    if len(ys)==1: 
+        axes = [axes]
+    default_titles = [ None for _ in range ( len(ys)) ]
+    if isinstance (titles, str): 
+        titles =[titles]
+    if titles is not None: 
+        # ensure titles met the length of y 
+        titles = list(titles ) + default_titles
+    else: titles = default_titles 
+        
     for i, ax in enumerate(axes):
         sns.regplot(x=x, y=ys[i], ax=ax, ci=ci, **reg_kws)
-        ax.set_title(titles[i])
+        
+        if titles[i] is not None: 
+            ax.set_title(titles[i])
         ax.set_xlabel(xlabel)
         if i == 0:
             ax.set_ylabel(ylabel)
@@ -1828,7 +1837,7 @@ def plot_regression_diagnostics(
             ax.set_ylabel('')
 
     plt.tight_layout()
-    return fig
+    
 
 def plot_residuals_vs_leverage(
     residuals: ArrayLike,

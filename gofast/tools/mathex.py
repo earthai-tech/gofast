@@ -50,7 +50,8 @@ from .validator import check_classification_targets, check_y, check_array
 from .validator import assert_xy_in, _ensure_y_is_valid, ensure_non_negative
 from .validator import check_epsilon, parameter_validator, is_binary_class 
 from .validator import validate_sample_weights, validate_multiclass_target
-from .validator import validate_length_range, validate_scores 
+from .validator import validate_length_range, validate_scores, ensure_2d
+from .validator import is_frame 
 
 _logger =gofastlog.get_gofast_logger(__name__)
 
@@ -97,6 +98,15 @@ __all__=[
     'step_regression',
     'weighted_spearman_rank', 
     ]
+from scipy.stats import pearsonr
+def compute_p_values(dataframe, target_column):
+    p_values = {}
+    for column in dataframe.columns:
+        if column != target_column:
+            corr, p_value = pearsonr(dataframe[column], dataframe[target_column])
+            p_values[column] = p_value
+    return p_values
+
 
 def compute_balance_accuracy(
     y_true, y_pred, 
@@ -2200,7 +2210,6 @@ def infer_sankey_columns(data: DataFrame, /,
 
     return sources, targets, values
 
-
 def compute_sunburst_data(
     data: DataFrame, /, 
     hierarchy: Optional[List[str]] = None, 
@@ -2258,6 +2267,8 @@ def compute_sunburst_data(
         {'name': 'B2', 'value': 1, 'parent': 'B'}
     ]
     """
+    
+    is_frame ( data, df_only =True , raise_exception=True )
     # If hierarchy is not provided, infer it from all columns except the last
     if hierarchy is None:
         hierarchy = data.columns[:-1].tolist()
@@ -2887,6 +2898,7 @@ def normalize(X, y=None):
     >>> X = np.array([[1, 2], [3, 4], [5, 6]])
     >>> X_normalized = normalize(X)
     """
+    X = ensure_2d(X)
     X_norm = np.linalg.norm(X, axis=1, keepdims=True)
     X_normalized = X / X_norm
 

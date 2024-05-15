@@ -3,7 +3,7 @@
 import numpy as np 
 import pandas as pd 
 
-# import gofast.stats.descriptive # noqa 
+import gofast.stats.descriptive # noqa 
 from gofast.api.formatter import MultiFrameFormatter 
 from gofast.api.util import escape_dataframe_elements 
 from gofast.decorators import DynamicMethod 
@@ -107,6 +107,6 @@ def summary(
         
     dfs = [ escape_dataframe_elements(df) for df in dfs]
     summary = MultiFrameFormatter(
-        titles=titles, max_rows ="auto", max_cols =5)
+        titles=titles, max_rows ="auto", max_cols ="auto")
     summary.add_dfs(*dfs)
     print(summary)
