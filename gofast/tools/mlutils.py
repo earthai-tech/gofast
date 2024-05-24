@@ -219,7 +219,7 @@ def one_click_preprocess(
     # Identify numeric and categorical features based on their data type.
     numeric_features = data.select_dtypes(include=['int64', 'float64']).columns.tolist()
     categorical_features = data.select_dtypes(include=['object']).columns.tolist()
-
+    
     # Exclude target columns from the numeric features list if specified.
     if target_columns:
         numeric_features = [col for col in numeric_features 
@@ -233,19 +233,22 @@ def one_click_preprocess(
 
     # Define transformation pipeline for categorical 
     # features: imputation and one-hot encoding.
-    categorical_transformer = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy=impute_strategy['categorical'], 
-                                  fill_value=fill_value)),
-        ('onehot', OneHotEncoder(handle_unknown=handle_unknown))
-    ])
+    steps = [('imputer', SimpleImputer(
+        strategy=impute_strategy['categorical'], fill_value=fill_value))
+        ] 
+    categorical_step = ('onehot', OneHotEncoder(handle_unknown=handle_unknown))
+    if categorical_features: 
+        steps += [categorical_step]
+        
+    categorical_transformer = Pipeline(steps=steps)
 
     # Combine the numeric and categorical transformations with ColumnTransformer.
+    transformer_steps = [('num', numeric_transformer, numeric_features)] 
+    if categorical_features: 
+        transformer_steps +=[('cat', categorical_transformer, categorical_features)]
+        
     preprocessor = ColumnTransformer(
-        transformers=[
-            ('num', numeric_transformer, numeric_features),
-            ('cat', categorical_transformer, categorical_features)
-        ],
-        remainder=remainder
+        transformers=transformer_steps, remainder=remainder
     )
 
     # Fit and transform the data using the defined ColumnTransformer.
@@ -254,13 +257,22 @@ def one_click_preprocess(
     # Attempt to retrieve processed column names for creating
     # a DataFrame from the transformed data.
     try:
-        processed_columns = numeric_features + list(get_feature_names(
-            preprocessor.named_transformers_['cat']['onehot'], categorical_features)
-            ) + [col for col in data.columns if col not in numeric_features + categorical_features]
+        
+        if categorical_features: 
+            processed_columns = numeric_features + list(get_feature_names(
+                preprocessor.named_transformers_['cat']['onehot'], categorical_features)
+                ) + [col for col in data.columns 
+                     if col not in numeric_features + categorical_features]
+        else: 
+            processed_columns = numeric_features  + [
+                col for col in data.columns if col not in numeric_features]
     except:
         # Fallback for older versions of scikit-learn or other compatibility issues.
-        cat_features_names = get_feature_names(preprocessor.named_transformers_['cat'])
-        processed_columns = numeric_features + list(cat_features_names)
+        if categorical_features: 
+            cat_features_names = get_feature_names(preprocessor.named_transformers_['cat'])
+            processed_columns = numeric_features + list(cat_features_names)
+        else: 
+            processed_columns = numeric_features
 
     # Check if the transformed data is a sparse matrix and convert to dense if necessary.
     if sparse.issparse(data_processed):

@@ -25,6 +25,13 @@ try:
     import pymc3 as pm
 except: pass 
 
+__all__=[ 
+    "stochastic_volatility_model", "hierarchical_linear_model", 
+    "normal_pdf", "normal_cdf", "binomial_pmf", "poisson_logpmf", 
+    "uniform_sampling", "plot_normal_cdf", "plot_normal_cdf2", 
+    "plot_normal_pdf", 
+    ]
+
 @Extract1dArrayOrSeries(column=0, method='soft', verbose=True)
 @ensure_pkg("pymc3")
 def stochastic_volatility_model(
