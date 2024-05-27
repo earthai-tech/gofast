@@ -22,6 +22,7 @@ from scipy.stats import rankdata
 from scipy.optimize import curve_fit
 from scipy.signal import argrelextrema 
 from scipy.spatial.distance import pdist, squareform 
+from scipy.stats import pearsonr, spearmanr, kendalltau
 
 from sklearn.metrics import confusion_matrix, roc_curve, roc_auc_score
 from sklearn.utils.multiclass import unique_labels
@@ -33,6 +34,7 @@ from ..api.docstring import refglossary
 from ..api.types import _T, _F,_SP, List, Tuple, Union
 from ..api.types import ArrayLike, NDArray, DType, Optional
 from ..api.types import Series, DataFrame,  Dict
+from ..api.summary import ResultSummary 
 from ..compat.scipy import check_scipy_interpolate
 from ..decorators import AppendDocReferences
 from ..exceptions import SiteError
@@ -97,16 +99,139 @@ __all__=[
     'standard_scaler', 
     'step_regression',
     'weighted_spearman_rank', 
+    'compute_p_values'
     ]
-from scipy.stats import pearsonr
-def compute_p_values(dataframe, target_column):
-    p_values = {}
-    for column in dataframe.columns:
-        if column != target_column:
-            corr, p_value = pearsonr(dataframe[column], dataframe[target_column])
-            p_values[column] = p_value
-    return p_values
 
+def compute_p_values(
+    data, depvar,
+    method='pearson', 
+    significance_threshold=0.05, 
+    ignore=None
+    ):
+    """
+    Compute p-values for the correlation between each independent variable
+    and a dependent variable.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        The DataFrame containing the dataset.
+    depvar : str or pandas Series
+        The name of the dependent variable as a string or a pandas Series.
+    method : {'pearson', 'spearman', 'kendall'}, optional
+        The correlation method to use. Default is 'pearson'.
+    significance_threshold : float, optional
+        The significance threshold for p-values. Default is 0.05.
+    ignore : str or list, optional
+        Columns to ignore during computation.
+
+    Returns
+    -------
+    p_values : dict
+        A dictionary containing independent variables as keys and their 
+        corresponding p-values.
+
+    Raises
+    ------
+    ValueError
+        If depvar is not found in DataFrame columns or if an invalid 
+        correlation method is specified.
+
+    Notes
+    -----
+    - If depvar is a string, it checks whether it exists in the DataFrame's 
+      columns. If it doesn't exist, it raises a ValueError.
+    - The function computes p-values for the specified correlation method 
+      between each independent variable
+      and the dependent variable. It excludes the depvar column from the 
+      computation if it's in the DataFrame.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> from gofast.tools.mathex import compute_p_values
+    >>> np.random.seed(0)
+    >>> data = pd.DataFrame({
+    ...     'x1': np.random.randn(100),
+    ...     'x2': np.random.randn(100),
+    ...     'y': np.random.randn(100)
+    ... })
+    >>> p_values = compute_p_values(data, 'y', method='pearson') 
+    >>> print(p_values ) 
+    P-values(
+      {
+
+           x1 : None
+           x2 : None
+
+      }
+    )
+
+    [ 2 entries ]
+    >>> p_values = compute_p_values(data, 'y', method='pearson',
+    ...                             significance_threshold=None)
+    >>> p_values
+    Out[76]: <P-values with 2 entries. Use print() to see detailed contents.>
+
+    >>> print(p_values)
+    P-values(
+      {
+
+           x1 : 0.4516405974318084
+           x2 : 0.5797578201347333
+
+      }
+    )
+
+    [ 2 entries ]
+    """
+    if isinstance (depvar, str):
+        if depvar not in data.columns:
+            raise ValueError(f"'{depvar}' not found in DataFrame columns.")
+        depvar = data[depvar]
+        data = data.drop(columns=depvar.name)
+    
+    if ignore is not None: 
+        if isinstance ( ignore, str): 
+            ignore =[ignore]
+        # check whether column is in data 
+        column2ignore = [ col for col in ignore if col in data.columns]
+        data = data.drop (columns= column2ignore)
+        
+    check_consistent_length(data, depvar)
+    
+    corr_methods = {
+        'pearson': pearsonr,
+        'spearman': spearmanr,
+        'kendall': kendalltau
+    }
+     
+    # Select only numeric columns
+    data = data.select_dtypes(include=[np.number])
+    if data.empty:
+        raise ValueError("P-value calculations expect numeric data, but"
+                         " the DataFrame contains no numeric data.")
+    
+    if method not in corr_methods:
+        raise ValueError("Invalid correlation method. Supported methods:"
+                         " 'pearson', 'spearman', 'kendall'.")
+
+    p_values = {}
+    for column in data.columns:
+        if column != depvar.name and (ignore is None or column not in ignore):
+            corr_func = corr_methods[method]
+            corr, p_value = corr_func(data[column], depvar)
+            if significance_threshold: 
+                p_values[column] = ( 
+                    p_value if p_value <= significance_threshold else "reject"
+                    )
+            else: 
+                p_values[column] = p_value 
+            
+    p_values = ResultSummary("P-values").add_results(p_values)
+    
+    return p_values
 
 def compute_balance_accuracy(
     y_true, y_pred, 

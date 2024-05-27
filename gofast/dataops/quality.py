@@ -266,7 +266,7 @@ def audit_data(
     
     # make a report obj 
     if return_report: 
-        report_obj= ReportFactory(title ="Data Audit")
+        report_obj= ReportFactory(title ="Data Audition")
         report_obj.add_mixed_types(report, table_width= TW)
     
     return (data, report_obj) if return_report else data
@@ -2537,7 +2537,12 @@ class _QualityControl(ReportFactory):
         message = f"{checks_count} checks performed"
         if hasattr(self, "data_polished"):
             message += ", data polished"
-        return f"<QualityControl: {message}. Use print() to see detailed contents>"
+        extra =( 
+            "Use print() to see detailed contents" 
+            if self.results_ else "No issues detected"
+            )
+        return f"<QualityControl: {message}. {extra}>"
+                
 
 if __name__ == "__main__":
     # Example usage of the function

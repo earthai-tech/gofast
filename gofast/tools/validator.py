@@ -215,9 +215,9 @@ def validate_square_matrix(data, /, align=False, align_mode="auto", message=''):
 
     Notes:
     ------
-    A square matrix is defined as having equal number of rows and columns. This function
-    checks the dimensionality of the data and optionally aligns the index and columns
-    if `align` is set to True.
+    A square matrix is defined as having equal number of rows and columns. 
+    This function checks the dimensionality of the data and optionally aligns 
+    the index and columns if `align` is set to True.
     """
     if not is_square_matrix(data):
         raise ValueError(f"Input must be a square matrix. {message}")

@@ -168,7 +168,7 @@ def detect_datetime_columns(data: DataFrame, / ) -> List[str]:
     ['date', 'timestamp']
     """
     datetime_columns = []
-
+    is_frame (data, df_only=True, raise_exception= True, objname='Data' )
     for col in data.columns:
         if pd.api.types.is_numeric_dtype(data[col]) and data[col].dropna().empty:
             # Skip numeric columns with no values, as they cannot be dates

@@ -21,7 +21,7 @@ __all__= [
     "format_long_column_names", 
     "summarize_text_columns", 
     "sanitize", 
-    "split_dataframes", 
+    "split_data", 
     "smart_group", 
     "group_and_filter", 
     ]
@@ -199,7 +199,7 @@ def summarize_text_columns(
 
     return data
 
-def split_dataframes(
+def split_data(
     data: DataFrame, /, 
     dtype_selector: str = "biselect", 
     columns: Optional[Union[list, tuple]] = None, 
@@ -269,13 +269,13 @@ def split_dataframes(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.dataops.transformation import split_dataframes
+    >>> from gofast.dataops.transformation import split_data
     >>> df = pd.DataFrame({
     ...     'A': [1, 2, 3],
     ...     'B': pd.to_datetime(['2021-01-01', '2022-01-01', '2023-01-01']),
     ...     'C': ['apple', 'banana', 'cherry']
     ... })
-    >>> numeric_df, categoric_df = split_dataframes(df, 'biselect')
+    >>> numeric_df, categoric_df = split_data(df, 'biselect')
     >>> print(numeric_df)
        A
     0  1
@@ -349,9 +349,15 @@ def split_dataframes(
     elif dtype_selector =="biselect":
         # Use 'join' to combine dataframes to avoid duplicating 
         # columns that appear in both
-        combined_df = numeric_df.join(
-            categoric_df.loc[:, categoric_df.columns.difference(numeric_df.columns)]
-            )
+        if numeric_df.empty: 
+            combined_df = categoric_df.join(
+                numeric_df.loc[:, numeric_df.columns.difference(categoric_df.columns)]
+                )
+        else: 
+            combined_df = numeric_df.join(
+                categoric_df.loc[:, categoric_df.columns.difference(numeric_df.columns)]
+                )
+
         return ( 
             combined_df.loc[:, numeric_df.columns], 
             combined_df.loc[:, categoric_df.columns.difference(numeric_df.columns)]

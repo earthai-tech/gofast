@@ -1795,6 +1795,8 @@ def perform_posthoc_test2(
 
     Examples
     --------
+    >>> import pandas as pd 
+    >>> from gofast.stats.model_comparisons import perform_posthoc_test
     >>> model_performance_data = pd.DataFrame({
     ...     'Model_A': [0.8, 0.82, 0.78, 0.81, 0.79],
     ...     'Model_B': [0.79, 0.84, 0.76, 0.82, 0.78],
@@ -1808,6 +1810,7 @@ def perform_posthoc_test2(
     ValueError
         If an unsupported `test_method` is specified.
     """
+    test_method = str(test_method)
     if test_method.lower() == 'tukey':
         from statsmodels.stats.multicomp import pairwise_tukeyhsd
         # Flatten the DataFrame for Tukey's HSD test

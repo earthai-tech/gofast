@@ -48,7 +48,7 @@ from .quality import (
 from .transformation import ( 
     format_long_column_names, 
     sanitize, 
-    split_dataframes, 
+    split_data, 
     summarize_text_columns
   )
 
@@ -87,7 +87,7 @@ __all__=[
         'scale_data',
         'simple_extractive_summary',
         'store_or_retrieve_data',
-        'split_dataframes', 
+        'split_data', 
         'summarize_text_columns',
         'transform_dates',
         'verify_data_integrity', 

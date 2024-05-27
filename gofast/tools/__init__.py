@@ -58,6 +58,7 @@ MODULE_MAPPING = {
         'compute_balance_accuracy',
         'compute_effort_yield',
         'compute_errors', 
+        'compute_p_values',
         'compute_sunburst_data',
         'compute_cost_based_threshold', 
         'compute_sensitivity_specificity', 
