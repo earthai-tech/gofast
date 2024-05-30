@@ -16,6 +16,7 @@ from tqdm import tqdm
 from datetime import datetime
 import matplotlib.pyplot as plt 
 from joblib import Parallel, delayed
+from scipy.signal import argrelextrema 
 from matplotlib.ticker import FixedLocator
 from sklearn.utils import all_estimators 
 from collections.abc import Iterable as IterableInstance
@@ -23,16 +24,432 @@ from collections.abc import Iterable as IterableInstance
 from ..api.property import  Config
 from ..api.types import Union, List, Optional, Tuple, Iterable, Any, Set 
 from ..api.types import _T, _F, DataFrame, ArrayLike, Series, NDArray
+from ..compat.scipy import check_scipy_interpolate
 from ..decorators import Dataify 
 from ..exceptions import FileHandlingError
 from ._dependency import import_optional_dependency
 from .coreutils import is_iterable , ellipsis2false, smart_format  
 from .coreutils import to_numeric_dtypes, validate_feature
-from .coreutils import _assert_all_types, exist_features 
+from .coreutils import _assert_all_types, exist_features, reshape
 from .validator import check_consistent_length, get_estimator_name
 from .validator import _is_arraylike_1d, array_to_frame, build_data_if
+from .validator import _is_numeric_dtype, check_y, check_consistency_size 
 from .validator import is_categorical, is_valid_policies, contains_nested_objects 
-from .validator import parameter_validator, normalize_array 
+from .validator import parameter_validator, normalize_array, check_array 
+
+__all__= [ 
+    'array2hdf5',
+    'binning_statistic',
+    'categorize_target',
+    'category_count',
+    'denormalizer',
+    'extract_target',
+    'fancier_downloader',
+    'fillNaN',
+    'get_target',
+    'interpolate2d',
+    'interpolate_grid',
+    'labels_validator',
+    'normalizer',
+    'remove_outliers',
+    'remove_target_from_array',
+    'rename_labels_in',
+    'save_or_load',
+    'scale_y',
+    'select_features',
+    'select_features',
+    'smooth1d',
+    'smoothing',
+    'soft_bin_stat',
+    'speed_rowwise_process'
+    ]
+
+def remove_outliers(
+    ar: ArrayLike|DataFrame, /, 
+    method: str = 'IQR',
+    threshold: float = 3.0,
+    fill_value: Optional[float] = None,
+    axis: int = 1,
+    interpolate: bool = False,
+    kind: str = 'linear'
+) -> ArrayLike|DataFrame:
+    """
+    Efficient strategy to remove outliers in the data. 
+    
+    An outlier is a data point in a sample, observation, or distribution 
+    that lies outside the overall pattern. A commonly used rule is to 
+    consider a data point an outlier if it is more than 1.5 * IQR below 
+    the first quartile or above the third quartile.
+    
+    Two approaches are used to identify and remove outliers:
+
+    - Inter Quartile Range (``IQR``)
+      IQR is the most commonly used and most trusted approach in 
+      research. Outliers are defined as points lying below Q1 - 1.5 * IQR 
+      or above Q3 + 1.5 * IQR. The quartiles and IQR are calculated as follows:
+      
+      .. math::
+          
+        Q1 = \frac{1}{4}(n + 1),\\
+        Q3 = \frac{3}{4}(n + 1),\\
+        IQR = Q3 - Q1,\\
+        \text{Upper} = Q3 + 1.5 \times IQR,\\
+        \text{Lower} = Q1 - 1.5 \times IQR.
+    
+    - Z-score 
+      Also known as a standard score, this value helps to understand how 
+      far a data point is from the mean. After setting a threshold, data 
+      points with Z-scores beyond this threshold are considered outliers.
+      
+      .. math::
+          
+          \text{Zscore} = \frac{(\text{data\_point} - \text{mean})}{\text{std\_deviation}}
+      
+    A threshold value of generally 3.0 is chosen as 99.7% of data points 
+    lie within +/- 3 standard deviations in a Gaussian Distribution.
+
+    Parameters
+    ----------
+    ar : Union[np.ndarray, pd.DataFrame]
+        The input data from which to remove outliers, either a numpy array 
+        or pandas DataFrame.
+    method : str, default 'IQR'
+        Method to detect and remove outliers:
+        - ``'IQR'`` uses the Inter Quartile Range to define outliers.
+        - ``'Z-score'`` identifies outliers based on standard deviation.
+        See detailed explanation on how each method works in the function's 
+        description.
+    threshold : float, default 3.0
+        For ``'Z-score'``, this is the number of standard deviations a data point
+        must be from the mean to be considered an outlier. For 'IQR', 
+        this multiplies the IQR range.
+    fill_value : float, optional
+        Value used to replace outliers. If None, outliers are removed from 
+        the dataset.
+    axis : int, default 1
+        Specifies the axis along which to remove outliers, applicable to 
+        multi-dimensional data.
+    interpolate : bool, default False
+        Enables interpolation to estimate and replace outliers, only applicable
+        if `fill_value` is NaN.
+    kind : str, default 'linear'
+        Type of interpolation used if interpolation is True. Options include
+        ``'nearest'``, ``'linear'``, ``'cubic'``.
+    
+    Returns
+    -------
+    Union[np.ndarray, DataFrame]
+        Array or DataFrame with outliers removed or replaced.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.tools.baseutils import remove_outliers 
+    >>> np.random.seed(42)
+    >>> data = np.random.randn(7, 3)
+    >>> data_r = remove_outliers(data)
+    >>> data.shape, data_r.shape
+    (7, 3), (5, 3)
+    >>> remove_outliers(data, fill_value=np.nan)
+    array([[ 0.49671415, -0.1382643 ,  0.64768854],
+           [ 1.52302986, -0.23415337, -0.23413696],
+           [ 1.57921282,  0.76743473, -0.46947439],
+           [ 0.54256004, -0.46341769, -0.46572975],
+           [ 0.24196227,         nan,         nan],
+           [-0.56228753, -1.01283112,  0.31424733],
+           [-0.90802408,         nan,  1.46564877]])
+    >>> remove_outliers(data[:, 0], fill_value=np.nan, interpolate=True)
+    >>> import matplotlib.pyplot as plt
+    >>> plt.plot(np.arange(len(data)), data, 'r-')
+    """
+    method = str(method).lower()
+    
+    if isinstance (ar, pd.DataFrame):
+        return _remove_outliers( ar, n_std= threshold )
+    
+    is_series = isinstance ( ar, pd.Series)
+    arr =np.array (ar, dtype = float)
+
+    if method =='iqr': 
+        Q1 = np.percentile(arr[~np.isnan(arr)], 25,) 
+        Q3 = np.percentile(arr[~np.isnan(arr)], 75)
+        IQR = Q3 - Q1
+        
+        upper = Q3 + 1.5 * IQR  
+        
+        upper_arr = np.array (arr >= upper) 
+        lower = Q3 - 1.5 * IQR 
+        lower_arr =  np.array ( arr <= lower )
+        # replace the oulier by nan 
+        arr [upper_arr]= fill_value if fill_value else np.nan  
+        arr[ lower_arr]= fill_value if fill_value else np.nan 
+        
+    if method =='z-score': 
+        from scipy import stats
+        z = np.abs(stats.zscore(arr[~np.isnan(arr)]))
+        zmask  = np.array ( z > threshold )
+        arr [zmask]= fill_value if fill_value else np.nan
+        
+    if fill_value is None: 
+        # delete nan if fill value is not provided 
+        arr = arr[ ~np.isnan (arr ).any(axis =1)
+                  ]  if np.ndim (arr) > 1 else arr [~np.isnan(arr)]
+
+    if interpolate: 
+        arr = interpolate_grid (arr, method = kind)
+        
+    if is_series: 
+        arr =pd.Series (arr.squeeze(), name =ar.name )
+    return arr 
+
+def _remove_outliers(data, n_std=3):
+    """Remove outliers from a dataframe."""
+    # separate cat feature and numeric features 
+    # if exists 
+    df, numf, catf = to_numeric_dtypes(
+        data , return_feature_types= True,  drop_nan_columns =True )
+    # get on;y the numeric 
+    df = df[numf]
+    for col in df.columns:
+        # print('Working on column: {}'.format(col))
+        mean = df[col].mean()
+        sd = df[col].std()
+        df = df[(df[col] <= mean+(n_std*sd))]
+    # get the index and select only the index 
+    index = df.index 
+    # get the data by index then 
+    # concatename 
+    df_cat = data [catf].iloc [ index ]
+    df = pd.concat ( [df_cat, df ], axis = 1 )
+    
+    return df
+
+def interpolate_grid (
+    arr, / , 
+    method ='cubic', 
+    fill_value='auto', 
+    view = False,
+    ): 
+    """
+    Interpolate data containing missing values. 
+
+    Parameters 
+    -----------
+    arr: ArrayLike2D 
+       Two dimensional array for interpolation 
+    method: str, default='cubic'
+      kind of interpolation. It could be ['nearest'|'linear'|'cubic']. 
+     
+    fill_value: float, str, default='auto' 
+       Fill the interpolated grid at the egdes or surrounding NaN with 
+       a filled value. The ``auto`` uses the forward and backward 
+       fill strategy. 
+       
+    view: bool, default=False, 
+       Quick visualize the interpolated grid. 
+ 
+    Returns 
+    ---------
+    arri: ArrayLike2d 
+       Interpolated 2D grid. 
+       
+    See also 
+    ---------
+    spi.griddata: 
+        Scipy interpolate Grid data 
+    fillNaN: 
+        Fill missing data strategy. 
+        
+    Examples
+    ---------
+    >>> import numpy as np
+    >>> from gofast.tools.coreutils import interpolate_grid 
+    >>> x = [28, np.nan, 50, 60] ; y = [np.nan, 1000, 2000, 3000]
+    >>> xy = np.vstack ((x, y))._T
+    >>> xyi = interpolate_grid (xy, view=True ) 
+    >>> xyi 
+    array([[  28.        ,   28.        ],
+           [  22.78880663, 1000.        ],
+           [  50.        , 2000.        ],
+           [  60.        , 3000.        ]])
+
+    """
+    spi = check_scipy_interpolate()
+    if spi is None:
+        return None
+    
+    is2d = True 
+    if not hasattr(arr, '__array__'): 
+        arr = np.array (arr) 
+    
+    if arr.ndim==1: 
+        #convert to two dimension array
+        arr = np.vstack ((arr, arr ))
+        is2d =False 
+        # raise TypeError(
+        #     "Expect two dimensional array for grid interpolation.")
+        
+    # make x, y array for mapping 
+    x = np.arange(0, arr.shape[1])
+    y = np.arange(0, arr.shape[0])
+    #mask invalid values
+    arr= np.ma.masked_invalid(arr) 
+    xx, yy = np.meshgrid(x, y)
+    #get only the valid values
+    x1 = xx[~arr.mask]
+    y1 = yy[~arr.mask]
+    newarr = arr[~arr.mask]
+    
+    arri = spi.griddata(
+        (x1, y1),
+        newarr.ravel(),
+        (xx, yy), 
+        method=method
+        )
+    
+    if fill_value =='auto': 
+        arri = fillNaN(arri, method ='both ')
+    else:
+        arri [np.isnan(arri)] = float( _assert_all_types(
+            fill_value, float, int, objname ="'fill_value'" )
+            ) 
+
+    if view : 
+        fig, ax  = plt.subplots (nrows = 1, ncols = 2 , sharey= True, )
+        ax[0].imshow(arr ,interpolation='nearest', label ='Raw Grid')
+        ax[1].imshow (arri, interpolation ='nearest', 
+                      label = 'Interpolate Grid')
+        
+        ax[0].set_title ('Raw Grid') 
+        ax[1].set_title ('Interpolate Grid') 
+        
+        plt.show () 
+        
+    if not is2d: 
+        arri = arri[0, :]
+        
+    return arri 
+
+def fillNaN(
+    arr: Union[ArrayLike, Series, DataFrame], /, 
+    method: str = 'ff'
+    ) -> Union[ArrayLike, Series, DataFrame]:
+    """
+    Fill NaN values in a numpy array, pandas Series, or pandas DataFrame 
+    using specified methods for forward filling, backward filling, or both.
+
+    Parameters
+    ----------
+    arr : Union[np.ndarray, pd.Series, pd.DataFrame]
+        The input data containing NaN values to be filled. This can be a numpy
+        array, pandas Series,  or DataFrame expected to contain numeric data
+        types.
+    method : str, optional
+        The method used for filling NaN values. Valid options are:
+        - 'ff': forward fill (default)
+        - 'bf': backward fill
+        - 'both': applies both forward and backward fill sequentially
+
+    Returns
+    -------
+    Union[np.ndarray, pd.Series, pd.DataFrame]
+        The array with NaN values filled according to the specified method. 
+        The return type matches the input type (numpy array, Series, or DataFrame).
+
+    Raises
+    ------
+    ValueError
+        If an unsupported filling method is specified.
+
+    Notes
+    -----
+    The function is designed to handle scenarios where NaN values are 
+    framed between valid numbersand at the ends of the dataset. Forward fill 
+    (``ff``) is preferred when NaNs are at the end of the data, while backward 
+    fill (``bf``) is better suited for NaNs at the beginning. The `both` method
+    combines both fills but at a higher computation cost.
+
+    Examples
+    --------
+    >>> import numpy as np 
+    >>> from gofast.tools.baseutils import fillNaN 
+    >>> arr2d = np.random.randn(7, 3)
+    >>> arr2d[[0, 2, 3, 3], [0, 2, 1, 2]] = np.nan
+    >>> print(arr2d)
+    [[       nan -0.74636104  1.12731613]
+     [0.48178017 -0.18593812 -0.67673698]
+     [0.17143421 -2.15184895        nan]
+     [-0.6839212         nan        nan]]
+    >>> print(fillNaN(arr2d))
+    [[       nan -0.74636104  1.12731613]
+     [0.48178017 -0.18593812 -0.67673698]
+     [0.17143421 -2.15184895 -2.15184895]
+     [-0.6839212 -0.6839212 -0.6839212]]
+    >>> print(fillNaN(arr2d, 'bf'))
+    [[-0.74636104 -0.74636104  1.12731613]
+     [0.48178017 -0.18593812 -0.67673698]
+     [0.17143421 -2.15184895        nan]
+     [-0.6839212         nan        nan]]
+    >>> print(fillNaN(arr2d, 'both'))
+    [[-0.74636104 -0.74636104  1.12731613]
+     [0.48178017 -0.18593812 -0.67673698]
+     [0.17143421 -2.15184895 -2.15184895]
+     [-0.6839212 -0.6839212 -0.6839212]]
+
+    References
+    ----------
+    Further details can be found at:
+    https://pyquestions.com/most-efficient-way-to-forward-fill-nan-values-in-numpy-array
+    """
+    name_or_columns=None 
+    if not hasattr(arr, '__array__'): 
+        arr = np.array(arr)
+        
+    arr = _handle_non_numeric(arr, action ='fill missing values NaN')
+    
+    if isinstance (arr, (pd.Series, pd.DataFrame)): 
+        name_or_columns = arr.name if isinstance (arr, pd.Series) else arr.columns 
+        arr = arr.to_numpy() # get numpy array 
+        
+    def ffill (arr): 
+        """ Forward fill."""
+        idx = np.where (~mask, np.arange(mask.shape[1]), 0)
+        np.maximum.accumulate (idx, axis =1 , out =idx )
+        return arr[np.arange(idx.shape[0])[:, None], idx ]
+    
+    def bfill (arr): 
+        """ Backward fill """
+        idx = np.where (~mask, np.arange(mask.shape[1]) , mask.shape[1]-1)
+        idx = np.minimum.accumulate(idx[:, ::-1], axis =1)[:, ::-1]
+        return arr [np.arange(idx.shape [0])[:, None], idx ]
+    
+    method= str(method).lower().strip() 
+    
+    if arr.ndim ==1: 
+        arr = reshape(arr, axis=1)  
+        
+    if method  in ('backward', 'bf',  'bwd'):
+        method = 'bf' 
+    elif method in ('forward', 'ff', 'fwd'): 
+        method= 'ff' 
+    elif method in ('both', 'ffbf', 'fbwf', 'bff', 'full'): 
+        method ='both'
+    if method not in ('bf', 'ff', 'both'): 
+        raise ValueError ("Expect a backward <'bf'>, forward <'ff'> fill "
+                          f" or both <'bff'> not {method!r}")
+    mask = np.isnan (arr )  
+    if method =='both': 
+        arr = ffill(arr) ;
+        #mask = np.isnan (arr)  
+        arr = bfill(arr) 
+    if method in ('bf', 'ff'): 
+        arr = ffill(arr) if method =='ff' else bfill(arr)
+        
+    if name_or_columns is not None: 
+        arr = pd.Series ( arr.squeeze(), name = name_or_columns) if isinstance (
+            name_or_columns, str ) else pd.DataFrame(arr, columns = name_or_columns)
+        
+    return arr 
 
 def convert_array_dimensions(
         *arrays, target_dim=1, new_shape=None, orient='row'):
@@ -2898,3 +3315,1100 @@ def save_figure(fig, filename=None, dpi=300, close=True, ax=None,
     if close:
         plt.close(fig)
         print("Figure closed.")
+
+def _handle_non_numeric(data, action='normalize'):
+    """Process input data (Series, DataFrame, or ndarray) to ensure 
+    it contains only numeric data.
+    
+    Parameters:
+    data (pandas.Series, pandas.DataFrame, numpy.ndarray): Input data to process.
+    
+    Returns:
+    numpy.ndarray: An array containing only numeric data.
+    
+    Raises:
+    ValueError: If the processed data is empty after removing non-numeric types.
+    TypeError: If the input is not a Series, DataFrame, or ndarray.
+    """
+    if isinstance(data, pd.Series) or isinstance(data, pd.DataFrame):
+        if isinstance(data, pd.Series):
+            # Convert Series to DataFrame to use select_dtypes
+            data = data.to_frame()
+            # Convert back to Series if needed
+            numeric_data = data.select_dtypes(include=[np.number]).squeeze()  
+        elif isinstance(data, pd.DataFrame):
+            # For DataFrame, use select_dtypes to filter numeric data.
+            numeric_data = data.select_dtypes(include=[np.number])
+        # For pandas data structures, select only numeric data types.
+        if numeric_data.empty:
+            raise ValueError(f"No numeric data to {action}.")
+    elif isinstance(data, np.ndarray):
+        # For numpy arrays, ensure the dtype is numeric.
+        if not np.issubdtype(data.dtype, np.number):
+            # Attempt to convert non-numeric numpy array to a numeric one by coercion
+            try:
+                numeric_data = data.astype(np.float64)
+            except ValueError:
+                raise ValueError("Array contains non-numeric data that cannot"
+                                 " be converted to numeric type.")
+        else:
+            numeric_data = data
+    else:
+        raise TypeError("Input must be a pandas Series, DataFrame, or a numpy array.")
+    
+    # Check if resulting numeric data is empty
+    if numeric_data.size == 0:
+        raise ValueError("No numeric data available after processing.")
+    
+    return numeric_data
+
+
+def _nan_checker(arr, allow_nan=False):
+    """Check and handle NaN values in a numpy array, pandas Series, 
+    or pandas DataFrame.
+
+    Parameters:
+    arr (numpy.ndarray, pandas.Series, pandas.DataFrame): The data to check
+    for NaNs.
+    allow_nan (bool): If False, raises an error if NaNs are found. If True, 
+    replaces NaNs with zero.
+
+    Returns:
+    numpy.ndarray, pandas.Series, pandas.DataFrame: Data with NaNs handled 
+    according to allow_nan.
+
+    Raises:
+    ValueError: If NaNs are found and allow_nan is False.
+    """
+    # Check for NaNs across different types
+    if not allow_nan:
+        if isinstance(arr, (np.ndarray, pd.Series, pd.DataFrame)): 
+            contain_nans = np.isnan(arr).any() if isinstance (
+                arr, np.ndarray)  else pd.isnull(arr).values.any()
+            if contain_nans:
+                raise ValueError("NaN values found, set allow_nan=True to handle them.")
+    if allow_nan:
+        if isinstance(arr, np.ndarray):
+            arr = np.nan_to_mode(arr)  # Replace NaNs with zero for numpy arrays
+        elif isinstance(arr, (pd.Series, pd.DataFrame)):
+            arr = arr.fillna(0)  # Replace NaNs with zero for pandas Series or DataFrame
+    
+    return arr
+
+def normalizer(
+    *arrays: tuple[np.ndarray], 
+    method: str = '01', 
+    scaler: str = 'naive', 
+    allow_nan: bool = False, 
+    axis: Optional[int] = None) -> List[np.ndarray]:
+    """
+    Normalize given arrays using a specified method and scaler, optionally 
+    along a specified axis. 
+    
+    Handles non-numeric data and NaNs according to the parameters.
+
+    Parameters
+    ----------
+    arrays : tuple of np.ndarray
+        A tuple containing one or more arrays (either 1D or 2D) to be normalized.
+    method : str, default '01'
+        Specifies the normalization method to apply. Options include:
+        - '01' : Normalizes the data to the range [0, 1].
+        - 'zscore' : Uses Z-score normalization (standardization).
+        - 'sum' : Scales the data so that the sum is 1.
+        Note that the 'sum' method is not compatible with the 'sklearn' scaler.
+    scaler : str, default 'naive'
+        Specifies the type of scaling technique to use. Options include:
+        - 'naive' : Simple mathematical operations based on the method.
+        - 'sklearn' : Utilizes scikit-learn's MinMaxScaler or StandardScaler,
+          depending on the `method` specified.
+    allow_nan : bool, default False
+        Determines how NaN values should be handled. If False, the function 
+        will raise an error if NaN values are present. If True, NaNs will be 
+        replaced with zero or handled by an imputer,
+        depending on the context.
+    axis : int, optional
+        The axis along which to normalize the data. By default (None), the 
+        data is normalized based on all elements. If specified, normalization 
+        is done along the axis for 2D arrays:
+        - axis=0 : Normalize each column.
+        - axis=1 : Normalize each row.
+
+    Returns
+    -------
+    list of np.ndarray
+        A list of normalized arrays. If only one array is provided, a single 
+        normalized array is returned.
+
+    Raises
+    ------
+    ValueError
+        If `allow_nan` is False and NaNs are detected.
+        If an invalid normalization method or combination of scaler and method 
+        is specified.
+
+    Notes
+    -----
+    - The function internally converts pandas DataFrames and Series to numpy 
+      arrays for processing.
+    - Non-numeric data types within arrays are filtered out before normalization.
+    - It's important to consider the scale of values and distribution of data
+      when choosing a normalization method,
+      as each method can significantly affect the outcome and interpretation 
+      of results.
+
+    Examples
+    --------
+    >>> import numpy as np 
+    >>> from gofast.tools.baseutils import normalizer 
+    >>> arr = np.array([10, 20, 30, 40, 50])
+    >>> normalizer(arr, method='01', scaler='naive')
+    array([0. , 0.25, 0.5 , 0.75, 1. ])
+    
+    >>> arr2d = np.array([[1, 2], [3, 4]])
+    >>> normalizer(arr2d, method='zscore', axis=0)
+    array([[-1., -1.], [ 1.,  1.]])
+    """
+    from sklearn.preprocessing import MinMaxScaler, StandardScaler
+
+    def _normalize_array(arr, method, scaler):
+        arr = _nan_checker(arr, allow_nan = allow_nan )
+        if scaler in ['sklearn', 'scikit-learn']:
+            is_array_1d =False 
+            if method == 'sum':
+                raise ValueError("`sum` method is not valid with `scaler`='sklearn'.")
+            scaler_object = MinMaxScaler() if method == '01' else StandardScaler()
+            
+            if arr.ndim ==1: 
+                arr = ( 
+                    np.asarray(arr).reshape(-1, 0) if axis ==0 
+                    else np.asarray(arr).reshape(1, -1)  
+                    )
+                is_array_1d =True 
+            scaled = scaler_object.fit_transform(
+                arr if axis == 0 else arr.T).T if axis == 0 else\
+                scaler_object.fit_transform(arr.T).T
+            if is_array_1d: 
+                scaled = scaled.flatten() 
+        else:  # naive scaling
+            if axis is None:
+                arr_min = np.min(arr)
+                arr_max = np.max(arr)
+            else:
+                arr_min = np.min(arr, axis=axis, keepdims=True)
+                arr_max = np.max(arr, axis=axis, keepdims=True)
+
+            arr, name_or_columns, index  = pandas_manager(arr )
+            if method == '01':
+                scaled = (arr - arr_min) / (arr_max - arr_min)
+            elif method == 'zscore':
+                mean = np.mean(arr, axis=axis, keepdims=True)
+                std = np.std(arr, axis=axis, keepdims=True)
+                scaled = (arr - mean) / std
+            elif method == 'sum':
+                sum_val = np.sum(arr, axis=axis, keepdims=True)
+                scaled = arr / sum_val
+            else:
+                raise ValueError(f"Unknown method '{method}'. Valid methods"
+                                 " are '01', 'zscore', and 'sum'.")
+                
+        # revert back to series or dataframe is given as it 
+        if name_or_columns is not None: 
+            scaled = pandas_manager(
+                scaled, todo='set', name_or_columns=name_or_columns, 
+                index= index 
+                )
+
+        return scaled
+    # Normalize each array
+    normalized_arrays = []
+    for arr in arrays:
+        if not hasattr(arr, '__array__'):
+            arr = np.asarray(arr)
+        arr = _handle_non_numeric(arr)
+        normalized = _normalize_array(arr, method, scaler)
+        normalized_arrays.append(normalized)
+
+    return normalized_arrays[0] if len(normalized_arrays) == 1 else normalized_arrays
+
+
+def smooth1d(
+    ar, /, 
+    drop_outliers:bool=True, 
+    ma:bool=True, 
+    absolute:bool=False,
+    interpolate:bool=False, 
+    view:bool=False , 
+    x: ArrayLike=None, 
+    xlabel:str =None, 
+    ylabel:str =None, 
+    fig_size:tuple = ( 10, 5) 
+    )-> ArrayLike[float]: 
+    """ Smooth one-dimensional array. 
+    
+    Parameters 
+    -----------
+    ar: ArrayLike 1d 
+       Array of one-dimensional 
+       
+    drop_outliers: bool, default=True 
+       Remove the outliers in the data before smoothing 
+       
+    ma: bool, default=True, 
+       Use the moving average for smoothing array value. This seems more 
+       realistic.
+       
+    interpolate: bool, default=False 
+       Interpolate value to fit the original data size after NaN filling. 
+       
+       .. versionadded:: 0.2.8 
+       
+    absolute: bool, default=False, 
+       keep postive the extrapolated scaled values. Indeed, when scaling data, 
+       negative value can be appear due to the polyfit function. to absolute 
+       this value, set ``absolute=True``. Note that converting to values to 
+       positive must be considered as the last option when values in the 
+       array must be positive.
+       
+    view: bool, default =False 
+       Display curves 
+    x: ArrayLike, optional 
+       Abscissa array for visualization. If given, it must be consistent 
+       with the given array `ar`. Raises error otherwise. 
+    xlabel: str, optional 
+       Label of x 
+    ylabel:str, optional 
+       label of y  
+    fig_size: tuple , default=(10, 5)
+       Matplotlib figure size
+       
+    Returns 
+    --------
+    yc: ArrayLike 
+       Smoothed array value. 
+       
+    Examples 
+    ---------
+    >>> import numpy as np 
+    >>> from gofast.tools.mathex  import smooth1d 
+    >>> # add Guassian Noise 
+    >>> np.random.seed (42)
+    >>> ar = np.random.randn (20 ) * 20 + np.random.normal ( 20 )
+    >>> ar [:7 ]
+    array([6.42891445e+00, 3.75072493e-02, 1.82905357e+01, 2.92957265e+01,
+           6.20589038e+01, 2.26399535e+01, 1.12596434e+01])
+    >>> arc = smooth1d (ar, view =True , ma =False )
+    >>> arc [:7 ]
+    array([12.08603102, 15.29819907, 18.017749  , 20.27968322, 22.11900412,
+           23.5707141 , 24.66981557])
+    >>> arc = smooth1d (ar, view =True )# ma=True by default 
+    array([ 5.0071604 ,  5.90839339,  9.6264018 , 13.94679804, 17.67369252,
+           20.34922943, 22.00836725])
+    """
+    from .mathex import moving_average 
+    # convert data into an iterable object 
+    ar = np.array(
+        is_iterable(ar, exclude_string = True , transform =True )) 
+    
+    if not _is_arraylike_1d(ar): 
+        raise TypeError("Expect one-dimensional array. Use `gofast.smoothing`"
+                        " for handling two-dimensional array.")
+    if not _is_numeric_dtype(ar): 
+        raise ValueError (f"{ar.dtype.name!r} is not allowed. Expect a numeric"
+                          " array")
+        
+    arr = ar.copy() 
+    if drop_outliers: 
+        arr = remove_outliers( 
+            arr, fill_value = np.nan , interpolate = interpolate )
+    # Nan is not allow so fill NaN if exists in array 
+    # is arraylike 1d 
+    if not interpolate:
+        # fill NaN 
+        arr = reshape ( fillNaN( arr , method ='both') ) 
+    if ma: 
+        arr = moving_average(arr, method ='sma')
+    # if extrapolation give negative  values
+    # whether to keep as it was or convert to positive values. 
+    # note that converting to positive values is 
+    arr, *_  = scale_y ( arr ) 
+    # if extrapolation gives negative values
+    # convert to positive values or keep it intact. 
+    # note that converting to positive values is 
+    # can be used as the last option when array 
+    # data must be positive.
+    if absolute: 
+        arr = np.abs (arr )
+    if view: 
+        x = np.arange ( len(ar )) if x is None else np.array (x )
+
+        check_consistency_size( x, ar )
+            
+        fig,  ax = plt.subplots (1, 1, figsize = fig_size)
+        ax.plot (x, 
+                 ar , 
+                 'ok-', 
+                 label ='raw curve'
+                 )
+        ax.plot (x, 
+                 arr, 
+                 c='#0A4CEE',
+                 marker = 'o', 
+                 label ='smooth curve'
+                 ) 
+        
+        ax.legend ( ) 
+        ax.set_xlabel (xlabel or '')
+        ax.set_ylabel ( ylabel or '') 
+        
+    return arr 
+
+def smoothing (
+    ar, /, 
+    drop_outliers = True ,
+    ma=True,
+    absolute =False,
+    interpolate=False, 
+    axis = 0, 
+    view = False, 
+    fig_size =(7, 7), 
+    xlabel =None, 
+    ylabel =None , 
+    cmap ='binary'
+    ): 
+    """ Smooth data along axis. 
+    
+    Parameters 
+    -----------
+    ar: ArrayLike 1d or 2d 
+       One dimensional or two dimensional array. 
+       
+    drop_outliers: bool, default=True 
+       Remove the outliers in the data before smoothing along the given axis 
+       
+    ma: bool, default=True, 
+       Use the moving average for smoothing array value along axis. This seems 
+       more realistic rather than using only the scaling method. 
+       
+    absolute: bool, default=False, 
+       keep positive the extrapolated scaled values. Indeed, when scaling data, 
+       negative value can be appear due to the polyfit function. to absolute 
+       this value, set ``absolute=True``. Note that converting to values to 
+       positive must be considered as the last option when values in the 
+       array must be positive.
+       
+    axis: int, default=0 
+       Axis along with the data must be smoothed. The default is the along  
+       the row. 
+       
+    view: bool, default =False 
+       Visualize the two dimensional raw and smoothing grid. 
+       
+    xlabel: str, optional 
+       Label of x 
+       
+    ylabel:str, optional 
+    
+       label of y  
+    fig_size: tuple , default=(7, 5)
+       Matplotlib figure size 
+       
+    cmap: str, default='binary'
+       Matplotlib.colormap to manage the `view` color 
+      
+    Return 
+    --------
+    arr0: ArrayLike 
+       Smoothed array value. 
+    
+    Examples 
+    ---------
+    >>> import numpy as np 
+    >>> from gofast.tools.mathex  import smoothing
+    >>> # add Guassian Noises 
+    >>> np.random.seed (42)
+    >>> ar = np.random.randn (20, 7 ) * 20 + np.random.normal ( 20, 7 )
+    >>> ar [:3, :3 ]
+    array([[ 31.5265026 ,  18.82693352,  34.5459903 ],
+           [ 36.94091413,  12.20273182,  32.44342041],
+           [-12.90613711,  10.34646896,   1.33559714]])
+    >>> arc = smoothing (ar, view =True , ma =False )
+    >>> arc [:3, :3 ]
+    array([[32.20356863, 17.18624398, 41.22258603],
+           [33.46353806, 15.56839464, 19.20963317],
+           [23.22466498, 13.8985316 ,  5.04748584]])
+    >>> arcma = smoothing (ar, view =True )# ma=True by default
+    >>> arcma [:3, :3 ]
+    array([[23.96547827,  8.48064226, 31.81490918],
+           [26.21374675, 13.33233065, 12.29345026],
+           [22.60143346, 16.77242118,  2.07931194]])
+    >>> arcma_1 = smoothing (ar, view =True, axis =1 )
+    >>> arcma_1 [:3, :3 ]
+    array([[18.74017857, 26.91532187, 32.02914421],
+           [18.4056216 , 21.81293014, 21.98535213],
+           [-1.44359989,  3.49228057,  7.51734762]])
+    """
+    ar = np.array ( 
+        is_iterable(ar, exclude_string = True , transform =True )
+        ) 
+    if ( 
+            str (axis).lower().find('1')>=0 
+            or str(axis).lower().find('column')>=0
+            ): 
+        axis = 1 
+    else : axis =0 
+    
+    if _is_arraylike_1d(ar): 
+        ar = reshape ( ar, axis = 0 ) 
+    # make a copy
+    arr = ar.copy() 
+    along_axis = arr.shape [1] if axis == 0 else len(ar) 
+    arr0 = np.zeros_like (arr)
+    for ix in range (along_axis): 
+        value = arr [:, ix ] if axis ==0 else arr[ix , :]
+        yc = smooth1d(value, drop_outliers = drop_outliers , 
+                      ma= ma, view =False , absolute =absolute , 
+                      interpolate= interpolate, 
+                      ) 
+        if axis ==0: 
+            arr0[:, ix ] = yc 
+        else : arr0[ix, :] = yc 
+        
+    if view: 
+        fig, ax  = plt.subplots (nrows = 1, ncols = 2 , sharey= True,
+                                 figsize = fig_size )
+        ax[0].imshow(arr ,interpolation='nearest', label ='Raw Grid', 
+                     cmap = cmap )
+        ax[1].imshow (arr0, interpolation ='nearest', label = 'Smooth Grid', 
+                      cmap =cmap  )
+        
+        ax[0].set_title ('Raw Grid') 
+        ax[0].set_xlabel (xlabel or '')
+        ax[0].set_ylabel ( ylabel or '')
+        ax[1].set_title ('Smooth Grid') 
+        ax[1].set_xlabel (xlabel or '')
+        ax[1].set_ylabel ( ylabel or '')
+        plt.legend
+        plt.show () 
+        
+    if 1 in ar.shape: 
+        arr0 = reshape (arr0 )
+        
+    return arr0 
+    
+def scale_y(
+    y: ArrayLike , 
+    x: ArrayLike =None, 
+    deg: int = None,  
+    func:_F =None
+    )-> Tuple[ArrayLike, ArrayLike, _F]: 
+    """ Scaling value using a fitting curve. 
+    
+    Create polyfit function from a specifc data points `x` to correct `y` 
+    values.  
+    
+    :param y: array-like of y-axis. Is the array of value to be scaled. 
+    
+    :param x: array-like of x-axis. If `x` is given, it should be the same 
+        length as `y`, otherwise and error will occurs. Default is ``None``. 
+    
+    :param func: callable - The model function, ``f(x, ...)``. It must take 
+        the independent variable as the first argument and the parameters
+        to fit as separate remaining arguments.  `func` can be a ``linear``
+        function i.e  for ``f(x)= ax +b`` where `a` is slope and `b` is the 
+        intercept value. It is recommended according to the `y` value 
+        distribution to set up  a custom function for better fitting. If `func`
+        is given, the `deg` is not needed.   
+        
+    :param deg: polynomial degree. If  value is ``None``, it should  be 
+        computed using the length of extrema (local and/or global) values.
+ 
+    :returns: 
+        - y: array scaled - projected sample values got from `f`.
+        - x: new x-axis - new axis  `x_new` generated from the samples.
+        - linear of polynomial function `f` 
+        
+    :references: 
+        Wikipedia, Curve fitting, https://en.wikipedia.org/wiki/Curve_fitting
+        Wikipedia, Polynomial interpolation, https://en.wikipedia.org/wiki/Polynomial_interpolation
+    :Example: 
+        >>> import numpy as np 
+        >>> import matplotlib.pyplot as plt 
+        >>> from gofast.exmath import scale_values 
+        >>> rdn = np.random.RandomState(42) 
+        >>> x0 =10 * rdn.rand(50)
+        >>> y = 2 * x0  +  rnd.randn(50) -1
+        >>> plt.scatter(x0, y)
+        >>> yc, x , f = scale_values(y) 
+        >>> plt.plot(x, y, x, yc) 
+        
+    """   
+    
+    y = check_y( y )
+    
+    if str(func).lower() != 'none': 
+        if not hasattr(func, '__call__') or not inspect.isfunction (func): 
+            raise TypeError(
+                f'`func` argument is not a callable; got {type(func).__name__!r}')
+
+    # get the number of local minimum to approximate degree. 
+    minl, = argrelextrema(y, np.less) 
+    # get the number of degrees
+    degree = len(minl) + 1
+    if x is None: 
+        x = np.arange(len(y)) # np.linspace(0, 4, len(y))
+        
+    x= check_y (x , input_name="x") 
+    
+    if len(x) != len(y): 
+        raise ValueError(" `x` and `y` arrays must have the same length."
+                        f"'{len(x)}' and '{len(y)}' are given.")
+
+    coeff = np.polyfit(x, y, int(deg) if deg is not None else degree)
+    f = np.poly1d(coeff) if func is  None else func 
+    yc = f (x ) # corrected value of y 
+
+    return  yc, x ,  f 
+
+def interpolate1d (
+    arr:ArrayLike, 
+    kind:str = 'slinear', 
+    method:str=None, 
+    order:Optional[int] = None, 
+    fill_value:str ='extrapolate',
+    limit:Tuple[float] =None, 
+    **kws
+    )-> ArrayLike:
+    """ Interpolate array containing invalid values `NaN`
+    
+    Usefull function to interpolate the missing frequency values in the 
+    tensor components. 
+    
+    Parameters 
+    ----------
+    arr: array_like 
+        Array to interpolate containg invalid values. The invalid value here 
+        is `NaN`. 
+        
+    kind: str or int, optional
+        Specifies the kind of interpolation as a string or as an integer 
+        specifying the order of the spline interpolator to use. The string 
+        has to be one of ``linear``, ``nearest``, ``nearest-up``, ``zero``, 
+        ``slinear``,``quadratic``, ``cubic``, ``previous``, or ``next``. 
+        ``zero``, ``slinear``, ``quadratic``and ``cubic`` refer to a spline 
+        interpolation of zeroth, first, second or third order; ``previous`` 
+        and ``next`` simply return the previous or next value of the point; 
+        ``nearest-up`` and ``nearest`` differ when interpolating half-integers 
+        (e.g. 0.5, 1.5) in that ``nearest-up`` rounds up and ``nearest`` rounds 
+        down. If `method` param is set to ``pd`` which refers to pd.interpolate 
+        method , `kind` can be set to ``polynomial`` or ``pad`` interpolation. 
+        Note that the polynomial requires you to specify an `order` while 
+        ``pad`` requires to specify the `limit`. Default is ``slinear``.
+        
+    method: str, optional, default='mean' 
+        Method of interpolation. Can be ``base`` for `scipy.interpolate.interp1d`
+        ``mean`` or ``bff`` for scaling methods and ``pd``for pandas interpolation 
+        methods. Note that the first method is fast and efficient when the number 
+        of NaN in the array if relatively few. It is less accurate to use the 
+        `base` interpolation when the data is composed of many missing values.
+        Alternatively, the scaled method(the  second one) is proposed to be the 
+        alternative way more efficient. Indeed, when ``mean`` argument is set, 
+        function replaces the NaN values by the nonzeros in the raw array and 
+        then uses the mean to fit the data. The result of fitting creates a smooth 
+        curve where the index of each NaN in the raw array is replaced by its 
+        corresponding values in the fit results. The same approach is used for
+        ``bff`` method. Conversely, rather than averaging the nonzeros values, 
+        it uses the backward and forward strategy  to fill the NaN before scaling.
+        ``mean`` and ``bff`` are more efficient when the data are composed of 
+        lot of missing values. When the interpolation `method` is set to `pd`, 
+        function uses the pandas interpolation but ended the interpolation with 
+        forward/backward NaN filling since the interpolation with pandas does
+        not deal with all NaN at the begining or at the end of the array. Default 
+        is ``base``.
+        
+    fill_value: array-like or (array-like, array_like) or ``extrapolate``, optional
+        If a ndarray (or float), this value will be used to fill in for requested
+        points outside of the data range. If not provided, then the default is
+        NaN. The array-like must broadcast properly to the dimensions of the 
+        non-interpolation axes.
+        If a two-element tuple, then the first element is used as a fill value
+        for x_new < x[0] and the second element is used for x_new > x[-1]. 
+        Anything that is not a 2-element tuple (e.g., list or ndarray,
+        regardless of shape) is taken to be a single array-like argument meant 
+        to be used for both bounds as below, above = fill_value, fill_value.
+        Using a two-element tuple or ndarray requires bounds_error=False.
+        Default is ``extrapolate``. 
+        
+    kws: dict 
+        Additional keyword arguments from :class:`spi.interp1d`. 
+    
+    Returns 
+    -------
+    array like - New interpoolated array. `NaN` values are interpolated. 
+    
+    Notes 
+    ----- 
+    When interpolated thoughout the complete frequencies  i.e all the frequency 
+    values using the ``base`` method, the missing data in `arr`  can be out of 
+    the `arr` range. So, for consistency and keep all values into the range of 
+    frequency, the better idea is to set the param `fill_value` in kws argument
+    of ``spi.interp1d`` to `extrapolate`. This will avoid an error to raise when 
+    the value to  interpolated is extra-bound of `arr`. 
+    
+    
+    References 
+    ----------
+    https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.interp1d.html
+    https://www.askpython.com/python/examples/interpolation-to-fill-missing-entries
+    
+    Examples 
+    --------
+    >>> import numpy as np 
+    >>> import matplotlib.pyplot as plt 
+    >>> from gofast.tools.baseutils   import interpolate1d,
+    >>> z = np.random.randn(17) *10 # assume 17 freq for 17 values of tensor Z 
+    >>> z [[7, 10, 16]] =np.nan # replace some indexes by NaN values 
+    >>> zit = interpolate1d (z, kind ='linear')
+    >>> z 
+    ... array([ -1.97732415, -16.5883156 ,   8.44484348,   0.24032979,
+              8.30863276,   4.76437029, -15.45780568,          nan,
+             -4.11301794, -10.94003412,          nan,   9.22228383,
+            -15.40298253,  -7.24575491,  -7.15149205, -20.9592011 ,
+                     nan]),
+    >>> zn 
+    ...array([ -1.97732415, -16.5883156 ,   8.44484348,   0.24032979,
+             8.30863276,   4.76437029, -15.45780568,  -4.11301794,
+           -10.94003412,   9.22228383, -15.40298253,  -7.24575491,
+            -7.15149205, -20.9592011 , -34.76691014, -48.57461918,
+           -62.38232823])
+    >>> zmean = interpolate1d (z,  method ='mean')
+    >>> zbff = interpolate1d (z, method ='bff')
+    >>> zpd = interpolate1d (z,  method ='pd')
+    >>> plt.plot( np.arange (len(z)),  zit, 'v--', 
+              np.arange (len(z)), zmean, 'ok-',
+              np.arange (len(z)), zbff, '^g:',
+              np.arange (len(z)), zpd,'<b:', 
+              np.arange (len(z)), z,'o', 
+              )
+    >>> plt.legend(['interp1d', 'mean strategy', 'bff strategy',
+                    'pandas strategy', 'data'], loc='best')
+    
+    """
+    method = method or 'mean'; method =str(method).strip().lower() 
+    if method in ('pandas', 'pd', 'series', 'dataframe','df'): 
+        method = 'pd' 
+    elif method in ('interp1d', 'scipy', 'base', 'simpler', 'i1d'): 
+        method ='base' 
+    
+    if not hasattr (arr, '__complex__'): 
+        
+        arr = check_y(arr, allow_nan= True, to_frame= True ) 
+    # check whether there is nan and masked invalid 
+    # and take only the valid values 
+    t_arr = arr.copy() 
+    
+    spi = check_scipy_interpolate() 
+    if method =='base':
+        mask = ~np.ma.masked_invalid(arr).mask  
+        arr = arr[mask] # keep the valid values
+        f = spi.interp1d( x= np.arange(len(arr)), y= arr, kind =kind, 
+                         fill_value =fill_value, **kws) 
+        arr_new = f(np.arange(len(t_arr)))
+        
+    if method in ('mean', 'bff'): 
+        arr_new = arr.copy()
+        
+        if method =='mean': 
+            # use the mean of the valid value
+            # and fill the nan value
+            mean = t_arr[~np.isnan(t_arr)].mean()  
+            t_arr[np.isnan(t_arr)]= mean  
+            
+        if method =='bff':
+            # fill NaN values back and forward.
+            t_arr = fillNaN(t_arr, method = method)
+            t_arr= reshape(t_arr)
+            
+        yc, *_= scale_y (t_arr)
+        # replace the at NaN positions value in  t_arr 
+        # with their corresponding scaled values 
+        arr_new [np.isnan(arr_new)]= yc[np.isnan(arr_new)]
+        
+    if method =='pd': 
+        t_arr= pd.Series (t_arr, dtype = t_arr.dtype )
+        t_arr = np.array(t_arr.interpolate(
+            method =kind, order=order, limit = limit ))
+        arr_new = reshape(fillNaN(t_arr, method= 'bff')) # for consistency 
+        
+    return arr_new 
+
+def interpolate2d (
+    arr2d: NDArray[float] , 
+    method:str  = 'slinear', 
+    **kws
+    ): 
+    """ Interpolate the data in 2D dimensional array. 
+    
+    If the data contains some missing values. It should be replaced by the 
+    interpolated values. 
+    
+    Parameters 
+    -----------
+    arr2d : np.ndarray, shape  (N, M)
+        2D dimensional data 
+        
+    method: str, default ``linear``
+        Interpolation technique to use. Can be ``nearest``or ``pad``. 
+    
+    kws: dict 
+        Additional keywords. Refer to :func:`~.interpolate1d`. 
+        
+    Returns 
+    -------
+    arr2d:  np.ndarray, shape  (N, M)
+        2D dimensional data interpolated 
+    
+    Examples 
+    ---------
+    >>> # Assume watex is installed 
+    >>> from watex.methods.em import EM 
+    >>> from gofast.tools.baseutils  import interpolate2d 
+    >>> # make 2d matrix of frequency
+    >>> emObj = EM().fit(r'data/edis')
+    >>> freq2d = emObj.make2d (out = 'freq')
+    >>> freq2d_i = interpolate2d(freq2d ) 
+    >>> freq2d.shape 
+    ...(55, 3)
+    >>> freq2d 
+    ... array([[7.00000e+04, 7.00000e+04, 7.00000e+04],
+           [5.88000e+04, 5.88000e+04, 5.88000e+04],
+           ...
+            [6.87500e+00, 6.87500e+00, 6.87500e+00],
+            [        nan,         nan, 5.62500e+00]])
+    >>> freq2d_i
+    ... array([[7.000000e+04, 7.000000e+04, 7.000000e+04],
+           [5.880000e+04, 5.880000e+04, 5.880000e+04],
+           ...
+           [6.875000e+00, 6.875000e+00, 6.875000e+00],
+           [5.625000e+00, 5.625000e+00, 5.625000e+00]])
+    
+    References 
+    ----------
+    
+    https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.interpolate.html
+    https://docs.scipy.org/doc/scipy-0.14.0/reference/generated/scipy.interpolate.interp2d.html        
+        
+    """ 
+    arr2d = np.array(arr2d)
+    
+    if len(arr2d.shape) ==1: 
+        arr2d = arr2d[:, None] # put on 
+    if arr2d.shape[0] ==1: 
+        arr2d = reshape (arr2d, axis=0)
+    
+    if not hasattr (arr2d , '__complex__'): 
+        arr2d = check_array(
+            arr2d, 
+            to_frame = False, 
+            input_name ="arr2d",
+            force_all_finite="allow-nan" ,
+            dtype =arr2d.dtype, 
+            )
+    arr2d  = np.hstack ([ 
+        reshape (interpolate1d(arr2d[:, ii], 
+                kind=method, 
+                method ='pd', 
+                 **kws), 
+                 axis=0)
+             for ii in  range (arr2d.shape[1])]
+        )
+    return arr2d 
+
+def denormalizer(
+    data: Union[np.ndarray, pd.Series, pd.DataFrame], 
+    min_value: float, max_value: float, 
+    method: str = '01', 
+    std_dev_factor: float = 3
+    ) -> Union[np.ndarray, pd.Series, pd.DataFrame]:
+    """
+    Denormalizes data from a normalized scale back to its original scale.
+
+    Parameters
+    ----------
+    data : Union[np.ndarray, pd.Series, pd.DataFrame]
+        The data to be denormalized, can be a NumPy array, 
+        pandas Series, or pandas DataFrame.
+    min_value : float
+        The minimum value of the original scale before normalization.
+    max_value : float
+        The maximum value of the original scale before normalization.
+    method : str, optional
+        The normalization method used. Supported methods are:
+        - '01' : Min-Max normalization to range [0, 1].
+        - 'zscore' : Standard score normalization (zero mean, unit variance).
+        - 'sum' : Normalization by sum of elements.
+        Default is '01'.
+    std_dev_factor : float, optional
+        The factor determining the range for standard deviation. 
+        This is used only for 'zscore' method. Default is 3.
+
+    Returns
+    -------
+    Union[np.ndarray, pd.Series, pd.DataFrame]
+        The denormalized data, converted back to its original scale.
+
+    Raises
+    ------
+    ValueError
+        If an unsupported normalization method is provided.
+
+    Notes
+    -----
+    The denormalization process depends on the normalization method:
+    
+    - For Min-Max normalization ('01'):
+     .. math:: 
+         
+         `denormalized\_data = data \cdot (max\_value - min\_value) + min\_value`
+    
+    - For z-score normalization ('zscore'):
+      Assuming the original data follows a normal distribution:
+          
+      .. math:: 
+          `denormalized\_data = data \cdot std\_dev + mean`
+      where 
+      
+      .. math::
+          `mean = \frac{min\_value + max\_value}{2}`
+      and 
+      
+      .. math::
+          `std\_dev = \frac{max\_value - min\_value}{2 \cdot std\_dev\_factor}`
+    
+    - For sum normalization ('sum'):
+        
+      .. math::
+          
+          `denormalized\_data = data \cdot \frac{max\_value - min\_value}{\sum(data)} + min\_value`
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from gofast.tools.baseutils import denormalizer 
+    
+    >>> normalized_data = np.array([0, 0.5, 1])
+    >>> min_value = 10
+    >>> max_value = 20
+    >>> denormalized_data = denormalizer(normalized_data, min_value, max_value)
+    >>> print(denormalized_data)
+    [10. 15. 20.]
+
+    >>> normalized_series = pd.Series([0, 0.5, 1])
+    >>> denormalized_series = denormalizer(normalized_series, min_value, max_value)
+    >>> print(denormalized_series)
+    0    10.0
+    1    15.0
+    2    20.0
+    dtype: float64
+
+    >>> normalized_df = pd.DataFrame([[0, 0.5], [1, 0.2]])
+    >>> denormalized_df = denormalizer(normalized_df, min_value, max_value)
+    >>> print(denormalized_df)
+         0     1
+    0  10.0  15.0
+    1  20.0  12.0
+    """
+
+    if isinstance(data, (pd.Series, pd.DataFrame)):
+        data_values = data.to_numpy()
+        is_pandas = True
+    else:
+        data_values = np.asarray(data)
+        is_pandas = False
+
+    if method == '01':
+        denormalized_data = data_values * (max_value - min_value) + min_value
+    elif method == 'zscore':
+        mean = (min_value + max_value) / 2
+        # Adjusting for specified standard deviation factor
+        std_dev = (max_value - min_value) /  (2 * std_dev_factor)  
+        denormalized_data = data_values * std_dev + mean
+    elif method == 'sum':
+        total = np.sum(data_values)
+        denormalized_data = data_values * (max_value - min_value) / total + min_value
+    else:
+        raise ValueError(f"Unsupported normalization method: {method}")
+
+    if is_pandas:
+        if isinstance(data, pd.Series):
+            return pd.Series(denormalized_data, index=data.index, name=data.name)
+        elif isinstance(data, pd.DataFrame):
+            return pd.DataFrame(denormalized_data, index=data.index, columns=data.columns)
+    else:
+        return denormalized_data
+
+def _handle_get_action(
+        data: Any, action: str, error: str) -> Union[bool, Tuple[np.ndarray, Any]]:
+    is_pandas = isinstance(data, (pd.Series, pd.DataFrame))
+    if action == 'check_only':
+        return is_pandas
+
+    arr = data.to_numpy() if is_pandas else data
+    index = data.index if is_pandas else None  
+    if error == 'raise' and not is_pandas:
+        raise TypeError("Expected a pandas Series or DataFrame, but got a non-pandas type.")
+    elif error == 'warn' and not is_pandas:
+        warnings.warn("Expected a pandas Series or DataFrame, but got a non-pandas type.")
+
+    name_or_columns = data.name if isinstance(data, pd.Series) else\
+        data.columns if is_pandas else None
+    return arr, name_or_columns, index 
+
+def _handle_set_action(data: Any, name_or_columns: Any, action: str, error: str, 
+                       index=None, 
+                       ) -> Union[pd.Series, pd.DataFrame]:
+    if name_or_columns is None and action != 'default':
+        raise ValueError(
+            "The 'name_or_columns' parameter cannot be None when setting data. "
+            "Provide a valid 'name_or_columns' or set the 'action' to 'default'."
+        )
+    is_pandas = isinstance(data, (pd.Series, pd.DataFrame))
+    
+    if is_pandas and name_or_columns is None:
+        # Not set anymore when is already a series or dataframe.
+        name_or_columns =  data.name if isinstance(data, pd.Series) else data.columns 
+        
+    data = np.asarray(data).squeeze()
+    if data.ndim == 1:
+        if isinstance(name_or_columns, (list, tuple)):
+            if error == 'raise':
+                raise ValueError("1D array provided; 'name_or_columns' should be a single string.")
+            name_or_columns = list(name_or_columns)[0]
+        return pd.Series(data, name=name_or_columns, index =index  )
+    else:
+        if isinstance(name_or_columns, str):
+            name_or_columns = [name_or_columns]
+        return pd.DataFrame(data, columns=name_or_columns, index =index )
+
+def pandas_manager(
+    data: Any, todo: str = 'get', 
+    name_or_columns: Any = None, 
+    action: str = 'as_array', 
+    error: str = 'passthrough', 
+    index: bool = None
+) -> Union[np.ndarray, pd.Series, pd.DataFrame, Tuple[np.ndarray, Any], bool]:
+    """
+    Manages pandas objects by getting or setting data, with error handling.
+
+    Parameters
+    ----------
+    data : Any
+        The input data which can be a numpy array, pandas Series, or DataFrame.
+    todo : str, optional
+        Specifies the action to perform: 'get' or 'set'. Default is 'get'.
+    name_or_columns : Any, optional
+        Name for Series or columns for DataFrame when setting data.
+    action : str, optional
+        Specifies the sub-action for 'get': 'as_array' or 'check_only'. 
+        Default is 'as_array'.
+    error : str, optional
+        Error handling strategy: 'passthrough', 'raise', or 'warn'. 
+        Default is 'passthrough'.
+    index : bool, optional
+        Whether to include the index when getting or setting data. Default is None.
+
+    Returns
+    -------
+    Union[np.ndarray, pd.Series, pd.DataFrame, Tuple[np.ndarray, Any], bool]
+        Depending on the action, returns different types of results:
+        - If `todo` is 'get' and `action` is 'check_only': returns a boolean 
+          indicating if the data is a pandas object.
+        - If `todo` is 'get' and `action` is 'as_array': returns the data as 
+          a NumPy array along with the original pandas attributes.
+        - If `todo` is 'set': returns the data as a pandas Series or DataFrame.
+
+    Raises
+    ------
+    ValueError
+        If the 'todo' parameter is not 'get' or 'set'.
+        If 'name_or_columns' is None when setting data and action is not 'default'.
+    TypeError
+        If the data is not a pandas Series or DataFrame when expected.
+
+ 
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from gofast.tools.baseutils import pandas_manager
+
+    Get action with pandas DataFrame:
+    >>> df = pd.DataFrame([[1, 2], [3, 4]], columns=['A', 'B'])
+    >>> array, columns, index = pandas_manager(df, todo='get', action='as_array')
+    >>> print(array)
+    [[1 2]
+     [3 4]]
+    >>> print(columns)
+    Index(['A', 'B'], dtype='object')
+
+    Set action with 1D numpy array:
+    >>> arr = np.array([1, 2, 3])
+    >>> series = pandas_manager(arr, todo='set', name_or_columns='Value')
+    >>> print(series)
+    0    1
+    1    2
+    2    3
+    Name: Value, dtype: int64
+
+    Set action with 2D numpy array:
+    >>> arr_2d = np.array([[1, 2], [3, 4]])
+    >>> df_2d = pandas_manager(arr_2d, todo='set', name_or_columns=['A', 'B'])
+    >>> print(df_2d)
+       A  B
+    0  1  2
+    1  3  4
+    """
+    todo = todo.lower()
+    if todo not in ('get', 'set'):
+        raise ValueError("Invalid 'todo' parameter. Must be 'get' or 'set'.")
+
+    if todo == 'get':
+        return _handle_get_action(data, action, error)
+    elif todo == 'set':
+        return _handle_set_action(
+            data, name_or_columns, action , error, index)
+
+
+
+
+        
+    
+        
+
+
+        
+        
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    

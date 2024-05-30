@@ -96,7 +96,6 @@ __all__=[
     "display_feature_contributions"
     ]
 
-
 def one_click_preprocess(
     data: DataFrame, 
     target_columns=None,

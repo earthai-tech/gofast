@@ -1277,7 +1277,7 @@ def data_assistant(data: DataFrame, view: bool=False):
             " to be used in these models.")
         helper_funcs ["4. help-non-numeric data"]=( 
             "Use: `pandas.get_dummies()`, `sklearn.preprocessing.LabelEncoder`"
-            " `gofast.tools.codify_variables`,"
+            " `gofast.tools.soft_encoder`,"
             " `gofast.dataops.handle_categorical_features` and more ..."
             ) 
         
@@ -1303,7 +1303,7 @@ def data_assistant(data: DataFrame, view: bool=False):
             )
         helper_funcs ["5. help-correlated features"]= ( 
             "Use: `pandas.DataFrame.go_corr`, `gofast.tools.analyze_data_corr`,"
-            " gofast.dataops.correlation_ops`, `gofast.dataops.drop_correlated_features`,"
+            " `gofast.dataops.correlation_ops`, `gofast.dataops.drop_correlated_features`,"
             " `gofast.stats.descriptive.corr` and more ...")
         
     # Distribution analysis

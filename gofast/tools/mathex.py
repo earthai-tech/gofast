@@ -20,7 +20,6 @@ from scipy.linalg import lstsq
 from scipy.ndimage import convolve1d
 from scipy.stats import rankdata
 from scipy.optimize import curve_fit
-from scipy.signal import argrelextrema 
 from scipy.spatial.distance import pdist, squareform 
 from scipy.stats import pearsonr, spearmanr, kendalltau
 
@@ -32,23 +31,22 @@ from .._gofastlog import gofastlog
 from ..api.box import KeyBox
 from ..api.docstring import refglossary
 from ..api.types import _T, _F,_SP, List, Tuple, Union
-from ..api.types import ArrayLike, NDArray, DType, Optional
+from ..api.types import ArrayLike, NDArray, Optional
 from ..api.types import Series, DataFrame,  Dict
 from ..api.summary import ResultSummary 
-from ..compat.scipy import check_scipy_interpolate
 from ..decorators import AppendDocReferences
 from ..exceptions import SiteError
 
 from ._arraytools import axis_slice
 from .coreutils import _assert_all_types, _validate_name_in
-from .coreutils import concat_array_from_list, remove_outliers 
+from .coreutils import concat_array_from_list
 from .coreutils import find_close_position, normalize_string 
 from .coreutils import to_numeric_dtypes, ellipsis2false
 from .coreutils import smart_format, type_of_target, is_iterable 
-from .coreutils import reshape, fillNaN, assert_ratio
+from .coreutils import reshape, assert_ratio
 from .validator import _is_arraylike_1d, _is_numeric_dtype, validate_multioutput 
-from .validator import check_consistency_size, check_consistent_length 
-from .validator import check_classification_targets, check_y, check_array
+from .validator import check_consistent_length 
+from .validator import check_classification_targets, check_y
 from .validator import assert_xy_in, _ensure_y_is_valid, ensure_non_negative
 from .validator import check_epsilon, parameter_validator, is_binary_class 
 from .validator import validate_sample_weights, validate_multiclass_target
@@ -78,24 +76,18 @@ __all__=[
     'get_bearing', 
     'get_distance',
     'infer_sankey_columns', 
-    'interpolate1d', 
-    'interpolate2d', 
     'label_importance',
     'linear_regression',
     'linkage_matrix', 
     'logarithmic_regression',
     'make_mxs', 
     'minmax_scaler',
-    'moving_average',
     'normalize',
     'optimized_spearmanr', 
     'quadratic_regression', 
     'rank_data', 
     'savgol_filter', 
-    'scale_y', 
     'sinusoidal_regression',
-    'smooth1d', 
-    'smoothing', 
     'standard_scaler', 
     'step_regression',
     'weighted_spearman_rank', 
@@ -3034,6 +3026,131 @@ def normalize(X, y=None):
 
     return X_normalized
 
+def moving_average (
+    y:ArrayLike,
+    *, 
+    window_size:int  = 3 , 
+    method:str  ='sma',
+    mode:str  ='same', 
+    alpha: int  =.5 
+)-> ArrayLike: 
+    """ A moving average is  used with time series data to smooth out
+    short-term fluctuations and highlight longer-term trends or cycles.
+    
+    Funtion analyzes data points by creating a series of averages of different
+    subsets of the full data set. 
+    
+    Parameters 
+    ----------
+    y : array_like, shape (N,)
+        the values of the time history of the signal.
+        
+    window_size : int
+        the length of the window. Must be greater than 1 and preferably
+        an odd integer number.Default is ``3``
+        
+    method: str 
+        variant of moving-average. Can be ``sma``, ``cma``, ``wma`` and ``ema`` 
+        for simple, cummulative, weight and exponential moving average. Default 
+        is ``sma``. 
+        
+    mode: str
+        returns the convolution at each point of overlap, with an output shape
+        of (N+M-1,). At the end-points of the convolution, the signals do not 
+        overlap completely, and boundary effects may be seen. Can be ``full``,
+        ``same`` and ``valid``. See :doc:`~np.convole` for more details. Default 
+        is ``same``. 
+        
+    alpha: float, 
+        smoothing factor. Only uses in exponential moving-average. Default is 
+        ``.5``.
+    
+    Returns 
+    --------
+    ya: array like, shape (N,) 
+        Averaged time history of the signal
+    
+    Notes 
+    -------
+    The first element of the moving average is obtained by taking the average 
+    of the initial fixed subset of the number series. Then the subset is
+    modified by "shifting forward"; that is, excluding the first number of the
+    series and including the next value in the subset.
+    
+    Examples
+    --------- 
+    >>> import numpy as np ; import matplotlib.pyplot as plt 
+    >>> from gofast.tools.tools   import moving_average 
+    >>> data = np.random.randn (37) 
+    >>> # add gaussion noise to the data 
+    >>> data = 2 * np.sin( data)  + np.random.normal (0, 1 , len(data))
+    >>> window = 5  # fixed size to 5 
+    >>> sma = moving_average(data, window) 
+    >>> cma = moving_average(data, window, method ='cma' )
+    >>> wma = moving_average(data, window, method ='wma' )
+    >>> ema = moving_average(data, window, method ='ema' , alpha =0.6)
+    >>> x = np.arange(len(data))
+    >>> plt.plot (x, data, 'o', x, sma , 'ok--', x, cma, 'g-.', x, wma, 'b:')
+    >>> plt.legend (['data', 'sma', 'cma', 'wma'])
+    
+    References 
+    ----------
+    .. * [1] https://en.wikipedia.org/wiki/Moving_average
+    .. * [2] https://www.sciencedirect.com/topics/engineering/hanning-window
+    .. * [3] https://stackoverflow.com/questions/12816011/weighted-moving-average-with-numpy-convolve
+    
+    """
+    y = np.array(y)
+    try:
+        window_size = np.abs(_assert_all_types(int(window_size), int))
+    except ValueError:
+        raise ValueError("window_size has to be of type int")
+    if window_size < 1:
+        raise TypeError("window_size size must be a positive odd number")
+    if  window_size > len(y):
+        raise TypeError("window_size is too large for averaging. Window"
+                        f" must be greater than 0 and less than {len(y)}")
+    
+    method =str(method).lower().strip().replace ('-', ' ') 
+    
+    if method in ('simple moving average',
+                  'simple', 'sma'): 
+        method = 'sma' 
+    elif method  in ('cumulative average', 
+                     'cumulative', 'cma'): 
+        method ='cma' 
+    elif method  in ('weighted moving average',
+                     'weight', 'wma'): 
+        method = 'wma'
+    elif method in('exponential moving average',
+                   'exponential', 'ema'):
+        method = 'ema'
+    else : 
+        raise ValueError ("Variant average methods only includes "
+                          f" {smart_format(['sma', 'cma', 'wma', 'ema'], 'or')}")
+    if  1. <= alpha <= 0 : 
+        raise ValueError ('alpha should be less than 1. and greater than 0. ')
+        
+    if method =='sma': 
+        ya = np.convolve(y , np.ones (window_size), mode ) / window_size 
+        
+    if method =='cma': 
+        y = np.cumsum (y) 
+        ya = np.array([ y[ii]/ len(y[:ii +1]) for ii in range(len(y))]) 
+        
+    if method =='wma': 
+        w = np.cumsum(np.ones(window_size, dtype = float))
+        w /= np.sum(w)
+        ya = np.convolve(y, w[::-1], mode ) #/window_size
+        
+    if method =='ema': 
+        ya = np.array ([y[0]]) 
+        for ii in range(1, len(y)): 
+            v = y[ii] * alpha + ( 1- alpha ) * ya[-1]
+            ya = np.append(ya, v)
+            
+    return ya 
+
 def get_azimuth (
     xlon: str | ArrayLike, 
     ylat: str| ArrayLike, 
@@ -3400,87 +3517,6 @@ def linkage_matrix(
                                               ]
                                      )
     return row_clusters 
-
-def interpolate2d (
-        arr2d: NDArray[float] , 
-        method:str  = 'slinear', 
-        **kws): 
-    """ Interpolate the data in 2D dimensional array. 
-    
-    If the data contains some missing values. It should be replaced by the 
-    interpolated values. 
-    
-    Parameters 
-    -----------
-    arr2d : np.ndarray, shape  (N, M)
-        2D dimensional data 
-        
-    method: str, default ``linear``
-        Interpolation technique to use. Can be ``nearest``or ``pad``. 
-    
-    kws: dict 
-        Additional keywords. Refer to :func:`~.interpolate1d`. 
-        
-    Returns 
-    -------
-    arr2d:  np.ndarray, shape  (N, M)
-        2D dimensional data interpolated 
-    
-    Examples 
-    ---------
-    >>> from gofast.methods.em import EM 
-    >>> from gofast.tools.mathex  import interpolate2d 
-    >>> # make 2d matrix of frequency
-    >>> emObj = EM().fit(r'data/edis')
-    >>> freq2d = emObj.make2d (out = 'freq')
-    >>> freq2d_i = interpolate2d(freq2d ) 
-    >>> freq2d.shape 
-    ...(55, 3)
-    >>> freq2d 
-    ... array([[7.00000e+04, 7.00000e+04, 7.00000e+04],
-           [5.88000e+04, 5.88000e+04, 5.88000e+04],
-           ...
-            [6.87500e+00, 6.87500e+00, 6.87500e+00],
-            [        nan,         nan, 5.62500e+00]])
-    >>> freq2d_i
-    ... array([[7.000000e+04, 7.000000e+04, 7.000000e+04],
-           [5.880000e+04, 5.880000e+04, 5.880000e+04],
-           ...
-           [6.875000e+00, 6.875000e+00, 6.875000e+00],
-           [5.625000e+00, 5.625000e+00, 5.625000e+00]])
-    
-    References 
-    ----------
-    
-    https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.interpolate.html
-    https://docs.scipy.org/doc/scipy-0.14.0/reference/generated/scipy.interpolate.interp2d.html        
-        
-    """ 
-    arr2d = np.array(arr2d)
-    
-    if len(arr2d.shape) ==1: 
-        arr2d = arr2d[:, None] # put on 
-    if arr2d.shape[0] ==1: 
-        arr2d = reshape (arr2d, axis=0)
-    
-    if not hasattr (arr2d , '__complex__'): 
-        arr2d = check_array(
-            arr2d, 
-            to_frame = False, 
-            input_name ="arr2d",
-            force_all_finite="allow-nan" ,
-            dtype =arr2d.dtype, 
-            )
-    arr2d  = np.hstack ([ 
-        reshape (interpolate1d(arr2d[:, ii], 
-                kind=method, 
-                method ='pd', 
-                 **kws), 
-                 axis=0)
-             for ii in  range (arr2d.shape[1])]
-        )
-    return arr2d 
-
 
 @AppendDocReferences(refglossary.__doc__)
 def scalePosition(
@@ -3953,642 +3989,6 @@ def get_station_number (
 #FR1: #9EB3DD # (158, 179, 221)
 #FR2: #3B70F2 # (59, 112, 242) #repl rgb(52, 54, 99)
 #FR3: #0A4CEE # (10, 76, 238)
-
-def scale_y(
-        y: ArrayLike , 
-        x: ArrayLike =None, 
-        deg: int = None,  
-        func:_F =None
-        )-> Tuple[ArrayLike, ArrayLike, _F]: 
-    """ Scaling value using a fitting curve. 
-    
-    Create polyfit function from a specifc data points `x` to correct `y` 
-    values.  
-    
-    :param y: array-like of y-axis. Is the array of value to be scaled. 
-    
-    :param x: array-like of x-axis. If `x` is given, it should be the same 
-        length as `y`, otherwise and error will occurs. Default is ``None``. 
-    
-    :param func: callable - The model function, ``f(x, ...)``. It must take 
-        the independent variable as the first argument and the parameters
-        to fit as separate remaining arguments.  `func` can be a ``linear``
-        function i.e  for ``f(x)= ax +b`` where `a` is slope and `b` is the 
-        intercept value. It is recommended according to the `y` value 
-        distribution to set up  a custom function for better fitting. If `func`
-        is given, the `deg` is not needed.   
-        
-    :param deg: polynomial degree. If  value is ``None``, it should  be 
-        computed using the length of extrema (local and/or global) values.
- 
-    :returns: 
-        - y: array scaled - projected sample values got from `f`.
-        - x: new x-axis - new axis  `x_new` generated from the samples.
-        - linear of polynomial function `f` 
-        
-    :references: 
-        Wikipedia, Curve fitting, https://en.wikipedia.org/wiki/Curve_fitting
-        Wikipedia, Polynomial interpolation, https://en.wikipedia.org/wiki/Polynomial_interpolation
-    :Example: 
-        >>> import numpy as np 
-        >>> import matplotlib.pyplot as plt 
-        >>> from gofast.exmath import scale_values 
-        >>> rdn = np.random.RandomState(42) 
-        >>> x0 =10 * rdn.rand(50)
-        >>> y = 2 * x0  +  rnd.randn(50) -1
-        >>> plt.scatter(x0, y)
-        >>> yc, x , f = scale_values(y) 
-        >>> plt.plot(x, y, x, yc) 
-        
-    """   
-    y = check_y( y )
-    
-    if str(func).lower() != 'none': 
-        if not hasattr(func, '__call__') or not inspect.isfunction (func): 
-            raise TypeError(
-                f'`func` argument is a callable not {type(func).__name__!r}')
-
-    # get the number of local minimum to approximate degree. 
-    minl, = argrelextrema(y, np.less) 
-    # get the number of degrees
-    degree = len(minl) + 1
-    if x is None: 
-        x = np.arange(len(y)) # np.linspace(0, 4, len(y))
-        
-    x= check_y (x , input_name="x") 
-    
-    if len(x) != len(y): 
-        raise ValueError(" `x` and `y` arrays must have the same length."
-                        f"'{len(x)}' and '{len(y)}' are given.")
-        
-    coeff = np.polyfit(x, y, int(deg) if deg is not None else degree)
-    f = np.poly1d(coeff) if func is  None else func 
-    yc = f (x ) # corrected value of y 
-
-    return  yc, x ,  f  
-
-def smooth1d(
-    ar, /, 
-    drop_outliers:bool=True, 
-    ma:bool=True, 
-    absolute:bool=False,
-    interpolate:bool=False, 
-    view:bool=False , 
-    x: ArrayLike=None, 
-    xlabel:str =None, 
-    ylabel:str =None, 
-    fig_size:tuple = ( 10, 5) 
-    )-> ArrayLike[float]: 
-    """ Smooth one-dimensional array. 
-    
-    Parameters 
-    -----------
-    ar: ArrayLike 1d 
-       Array of one-dimensional 
-       
-    drop_outliers: bool, default=True 
-       Remove the outliers in the data before smoothing 
-       
-    ma: bool, default=True, 
-       Use the moving average for smoothing array value. This seems more 
-       realistic.
-       
-    interpolate: bool, default=False 
-       Interpolate value to fit the original data size after NaN filling. 
-       
-       .. versionadded:: 0.2.8 
-       
-    absolute: bool, default=False, 
-       keep postive the extrapolated scaled values. Indeed, when scaling data, 
-       negative value can be appear due to the polyfit function. to absolute 
-       this value, set ``absolute=True``. Note that converting to values to 
-       positive must be considered as the last option when values in the 
-       array must be positive.
-       
-    view: bool, default =False 
-       Display curves 
-    x: ArrayLike, optional 
-       Abscissa array for visualization. If given, it must be consistent 
-       with the given array `ar`. Raises error otherwise. 
-    xlabel: str, optional 
-       Label of x 
-    ylabel:str, optional 
-       label of y  
-    fig_size: tuple , default=(10, 5)
-       Matplotlib figure size
-       
-    Returns 
-    --------
-    yc: ArrayLike 
-       Smoothed array value. 
-       
-    Examples 
-    ---------
-    >>> import numpy as np 
-    >>> from gofast.tools.mathex  import smooth1d 
-    >>> # add Guassian Noise 
-    >>> np.random.seed (42)
-    >>> ar = np.random.randn (20 ) * 20 + np.random.normal ( 20 )
-    >>> ar [:7 ]
-    array([6.42891445e+00, 3.75072493e-02, 1.82905357e+01, 2.92957265e+01,
-           6.20589038e+01, 2.26399535e+01, 1.12596434e+01])
-    >>> arc = smooth1d (ar, view =True , ma =False )
-    >>> arc [:7 ]
-    array([12.08603102, 15.29819907, 18.017749  , 20.27968322, 22.11900412,
-           23.5707141 , 24.66981557])
-    >>> arc = smooth1d (ar, view =True )# ma=True by default 
-    array([ 5.0071604 ,  5.90839339,  9.6264018 , 13.94679804, 17.67369252,
-           20.34922943, 22.00836725])
-    """
-    # convert data into an iterable object 
-    ar = np.array(
-        is_iterable(ar, exclude_string = True , transform =True )) 
-    
-    if not _is_arraylike_1d(ar): 
-        raise TypeError("Expect one-dimensional array. Use `gofast.smoothing`"
-                        " for handling two-dimensional array.")
-    if not _is_numeric_dtype(ar): 
-        raise ValueError (f"{ar.dtype.name!r} is not allowed. Expect a numeric"
-                          " array")
-        
-    arr = ar.copy() 
-    if drop_outliers: 
-        arr = remove_outliers( 
-            arr, fill_value = np.nan , interpolate = interpolate )
-    # Nan is not allow so fill NaN if exists in array 
-    # is arraylike 1d 
-    if not interpolate:
-        # fill NaN 
-        arr = reshape ( fillNaN( arr , method ='both') ) 
-    if ma: 
-        arr = moving_average(arr, method ='sma')
-    # if extrapolation give negative  values
-    # whether to keep as it was or convert to positive values. 
-    # note that converting to positive values is 
-    arr, *_  = scale_y ( arr ) 
-    # if extrapolation gives negative values
-    # convert to positive values or keep it intact. 
-    # note that converting to positive values is 
-    # can be used as the last option when array 
-    # data must be positive.
-    if absolute: 
-        arr = np.abs (arr )
-    if view: 
-        x = np.arange ( len(ar )) if x is None else np.array (x )
-
-        check_consistency_size( x, ar )
-            
-        fig,  ax = plt.subplots (1, 1, figsize = fig_size)
-        ax.plot (x, 
-                 ar , 
-                 'ok-', 
-                 label ='raw curve'
-                 )
-        ax.plot (x, 
-                 arr, 
-                 c='#0A4CEE',
-                 marker = 'o', 
-                 label ='smooth curve'
-                 ) 
-        
-        ax.legend ( ) 
-        ax.set_xlabel (xlabel or '')
-        ax.set_ylabel ( ylabel or '') 
-        
-    return arr 
-
-def smoothing (
-    ar, /, 
-    drop_outliers = True ,
-    ma=True,
-    absolute =False,
-    interpolate=False, 
-    axis = 0, 
-    view = False, 
-    fig_size =(7, 7), 
-    xlabel =None, 
-    ylabel =None , 
-    cmap ='binary'
-    ): 
-    """ Smooth data along axis. 
-    
-    Parameters 
-    -----------
-    ar: ArrayLike 1d or 2d 
-       One dimensional or two dimensional array. 
-       
-    drop_outliers: bool, default=True 
-       Remove the outliers in the data before smoothing along the given axis 
-       
-    ma: bool, default=True, 
-       Use the moving average for smoothing array value along axis. This seems 
-       more realistic rather than using only the scaling method. 
-       
-    absolute: bool, default=False, 
-       keep positive the extrapolated scaled values. Indeed, when scaling data, 
-       negative value can be appear due to the polyfit function. to absolute 
-       this value, set ``absolute=True``. Note that converting to values to 
-       positive must be considered as the last option when values in the 
-       array must be positive.
-       
-    axis: int, default=0 
-       Axis along with the data must be smoothed. The default is the along  
-       the row. 
-       
-    view: bool, default =False 
-       Visualize the two dimensional raw and smoothing grid. 
-       
-    xlabel: str, optional 
-       Label of x 
-       
-    ylabel:str, optional 
-    
-       label of y  
-    fig_size: tuple , default=(7, 5)
-       Matplotlib figure size 
-       
-    cmap: str, default='binary'
-       Matplotlib.colormap to manage the `view` color 
-      
-    Return 
-    --------
-    arr0: ArrayLike 
-       Smoothed array value. 
-    
-    Examples 
-    ---------
-    >>> import numpy as np 
-    >>> from gofast.tools.mathex  import smoothing
-    >>> # add Guassian Noises 
-    >>> np.random.seed (42)
-    >>> ar = np.random.randn (20, 7 ) * 20 + np.random.normal ( 20, 7 )
-    >>> ar [:3, :3 ]
-    array([[ 31.5265026 ,  18.82693352,  34.5459903 ],
-           [ 36.94091413,  12.20273182,  32.44342041],
-           [-12.90613711,  10.34646896,   1.33559714]])
-    >>> arc = smoothing (ar, view =True , ma =False )
-    >>> arc [:3, :3 ]
-    array([[32.20356863, 17.18624398, 41.22258603],
-           [33.46353806, 15.56839464, 19.20963317],
-           [23.22466498, 13.8985316 ,  5.04748584]])
-    >>> arcma = smoothing (ar, view =True )# ma=True by default
-    >>> arcma [:3, :3 ]
-    array([[23.96547827,  8.48064226, 31.81490918],
-           [26.21374675, 13.33233065, 12.29345026],
-           [22.60143346, 16.77242118,  2.07931194]])
-    >>> arcma_1 = smoothing (ar, view =True, axis =1 )
-    >>> arcma_1 [:3, :3 ]
-    array([[18.74017857, 26.91532187, 32.02914421],
-           [18.4056216 , 21.81293014, 21.98535213],
-           [-1.44359989,  3.49228057,  7.51734762]])
-    """
-    ar = np.array ( 
-        is_iterable(ar, exclude_string = True , transform =True )
-        ) 
-    if ( 
-            str (axis).lower().find('1')>=0 
-            or str(axis).lower().find('column')>=0
-            ): 
-        axis = 1 
-    else : axis =0 
-    
-    if _is_arraylike_1d(ar): 
-        ar = reshape ( ar, axis = 0 ) 
-    # make a copy
-    arr = ar.copy() 
-    along_axis = arr.shape [1] if axis == 0 else len(ar) 
-    arr0 = np.zeros_like (arr)
-    for ix in range (along_axis): 
-        value = arr [:, ix ] if axis ==0 else arr[ix , :]
-        yc = smooth1d(value, drop_outliers = drop_outliers , 
-                      ma= ma, view =False , absolute =absolute , 
-                      interpolate= interpolate, 
-                      ) 
-        if axis ==0: 
-            arr0[:, ix ] = yc 
-        else : arr0[ix, :] = yc 
-        
-    if view: 
-        fig, ax  = plt.subplots (nrows = 1, ncols = 2 , sharey= True,
-                                 figsize = fig_size )
-        ax[0].imshow(arr ,interpolation='nearest', label ='Raw Grid', 
-                     cmap = cmap )
-        ax[1].imshow (arr0, interpolation ='nearest', label = 'Smooth Grid', 
-                      cmap =cmap  )
-        
-        ax[0].set_title ('Raw Grid') 
-        ax[0].set_xlabel (xlabel or '')
-        ax[0].set_ylabel ( ylabel or '')
-        ax[1].set_title ('Smooth Grid') 
-        ax[1].set_xlabel (xlabel or '')
-        ax[1].set_ylabel ( ylabel or '')
-        plt.legend
-        plt.show () 
-        
-    if 1 in ar.shape: 
-        arr0 = reshape (arr0 )
-        
-    return arr0 
-    
-  
-def interpolate1d (
-        arr:ArrayLike[DType[_T]], 
-        kind:str = 'slinear', 
-        method:str=None, 
-        order:Optional[int] = None, 
-        fill_value:str ='extrapolate',
-        limit:Tuple[float] =None, 
-        **kws
-    )-> ArrayLike[DType[_T]]:
-    """ Interpolate array containing invalid values `NaN`
-    
-    Usefull function to interpolate the missing frequency values in the 
-    tensor components. 
-    
-    Parameters 
-    ----------
-    arr: array_like 
-        Array to interpolate containg invalid values. The invalid value here 
-        is `NaN`. 
-        
-    kind: str or int, optional
-        Specifies the kind of interpolation as a string or as an integer 
-        specifying the order of the spline interpolator to use. The string 
-        has to be one of ``linear``, ``nearest``, ``nearest-up``, ``zero``, 
-        ``slinear``,``quadratic``, ``cubic``, ``previous``, or ``next``. 
-        ``zero``, ``slinear``, ``quadratic``and ``cubic`` refer to a spline 
-        interpolation of zeroth, first, second or third order; ``previous`` 
-        and ``next`` simply return the previous or next value of the point; 
-        ``nearest-up`` and ``nearest`` differ when interpolating half-integers 
-        (e.g. 0.5, 1.5) in that ``nearest-up`` rounds up and ``nearest`` rounds 
-        down. If `method` param is set to ``pd`` which refers to pd.interpolate 
-        method , `kind` can be set to ``polynomial`` or ``pad`` interpolation. 
-        Note that the polynomial requires you to specify an `order` while 
-        ``pad`` requires to specify the `limit`. Default is ``slinear``.
-        
-    method: str, optional, default='mean' 
-        Method of interpolation. Can be ``base`` for `scipy.interpolate.interp1d`
-        ``mean`` or ``bff`` for scaling methods and ``pd``for pandas interpolation 
-        methods. Note that the first method is fast and efficient when the number 
-        of NaN in the array if relatively few. It is less accurate to use the 
-        `base` interpolation when the data is composed of many missing values.
-        Alternatively, the scaled method(the  second one) is proposed to be the 
-        alternative way more efficient. Indeed, when ``mean`` argument is set, 
-        function replaces the NaN values by the nonzeros in the raw array and 
-        then uses the mean to fit the data. The result of fitting creates a smooth 
-        curve where the index of each NaN in the raw array is replaced by its 
-        corresponding values in the fit results. The same approach is used for
-        ``bff`` method. Conversely, rather than averaging the nonzeros values, 
-        it uses the backward and forward strategy  to fill the NaN before scaling.
-        ``mean`` and ``bff`` are more efficient when the data are composed of 
-        lot of missing values. When the interpolation `method` is set to `pd`, 
-        function uses the pandas interpolation but ended the interpolation with 
-        forward/backward NaN filling since the interpolation with pandas does
-        not deal with all NaN at the begining or at the end of the array. Default 
-        is ``base``.
-        
-    fill_value: array-like or (array-like, array_like) or ``extrapolate``, optional
-        If a ndarray (or float), this value will be used to fill in for requested
-        points outside of the data range. If not provided, then the default is
-        NaN. The array-like must broadcast properly to the dimensions of the 
-        non-interpolation axes.
-        If a two-element tuple, then the first element is used as a fill value
-        for x_new < x[0] and the second element is used for x_new > x[-1]. 
-        Anything that is not a 2-element tuple (e.g., list or ndarray,
-        regardless of shape) is taken to be a single array-like argument meant 
-        to be used for both bounds as below, above = fill_value, fill_value.
-        Using a two-element tuple or ndarray requires bounds_error=False.
-        Default is ``extrapolate``. 
-        
-    kws: dict 
-        Additional keyword arguments from :class:`spi.interp1d`. 
-    
-    Returns 
-    -------
-    array like - New interpoolated array. `NaN` values are interpolated. 
-    
-    Notes 
-    ----- 
-    When interpolated thoughout the complete frequencies  i.e all the frequency 
-    values using the ``base`` method, the missing data in `arr`  can be out of 
-    the `arr` range. So, for consistency and keep all values into the range of 
-    frequency, the better idea is to set the param `fill_value` in kws argument
-    of ``spi.interp1d`` to `extrapolate`. This will avoid an error to raise when 
-    the value to  interpolated is extra-bound of `arr`. 
-    
-    
-    References 
-    ----------
-    https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.interp1d.html
-    https://www.askpython.com/python/examples/interpolation-to-fill-missing-entries
-    
-    Examples 
-    --------
-    >>> import numpy as np 
-    >>> import matplotlib.pyplot as plt 
-    >>> from gofast.tools.mathex   import interpolate1d,
-    >>> z = np.random.randn(17) *10 # assume 17 freq for 17 values of tensor Z 
-    >>> z [[7, 10, 16]] =np.nan # replace some indexes by NaN values 
-    >>> zit = interpolate1d (z, kind ='linear')
-    >>> z 
-    ... array([ -1.97732415, -16.5883156 ,   8.44484348,   0.24032979,
-              8.30863276,   4.76437029, -15.45780568,          nan,
-             -4.11301794, -10.94003412,          nan,   9.22228383,
-            -15.40298253,  -7.24575491,  -7.15149205, -20.9592011 ,
-                     nan]),
-    >>> zn 
-    ...array([ -1.97732415, -16.5883156 ,   8.44484348,   0.24032979,
-             8.30863276,   4.76437029, -15.45780568,  -4.11301794,
-           -10.94003412,   9.22228383, -15.40298253,  -7.24575491,
-            -7.15149205, -20.9592011 , -34.76691014, -48.57461918,
-           -62.38232823])
-    >>> zmean = interpolate1d (z,  method ='mean')
-    >>> zbff = interpolate1d (z, method ='bff')
-    >>> zpd = interpolate1d (z,  method ='pd')
-    >>> plt.plot( np.arange (len(z)),  zit, 'v--', 
-              np.arange (len(z)), zmean, 'ok-',
-              np.arange (len(z)), zbff, '^g:',
-              np.arange (len(z)), zpd,'<b:', 
-              np.arange (len(z)), z,'o', 
-              )
-    >>> plt.legend(['interp1d', 'mean strategy', 'bff strategy',
-                    'pandas strategy', 'data'], loc='best')
-    
-    """
-    method = method or 'mean'; method =str(method).strip().lower() 
-    if method in ('pandas', 'pd', 'series', 'dataframe','df'): 
-        method = 'pd' 
-    elif method in ('interp1d', 'scipy', 'base', 'simpler', 'i1d'): 
-        method ='base' 
-    
-    if not hasattr (arr, '__complex__'): 
-        
-        arr = check_y(arr, allow_nan= True, to_frame= True ) 
-    # check whether there is nan and masked invalid 
-    # and take only the valid values 
-    t_arr = arr.copy() 
-    
-    spi = check_scipy_interpolate() 
-    if method =='base':
-        mask = ~np.ma.masked_invalid(arr).mask  
-        arr = arr[mask] # keep the valid values
-        f = spi.interp1d( x= np.arange(len(arr)), y= arr, kind =kind, 
-                         fill_value =fill_value, **kws) 
-        arr_new = f(np.arange(len(t_arr)))
-        
-    if method in ('mean', 'bff'): 
-        arr_new = arr.copy()
-        
-        if method =='mean': 
-            # use the mean of the valid value
-            # and fill the nan value
-            mean = t_arr[~np.isnan(t_arr)].mean()  
-            t_arr[np.isnan(t_arr)]= mean  
-            
-        if method =='bff':
-            # fill NaN values back and forward.
-            t_arr = fillNaN(t_arr, method = method)
-            t_arr= reshape(t_arr)
-            
-        yc, *_= scale_y (t_arr)
-        # replace the at NaN positions value in  t_arr 
-        # with their corresponding scaled values 
-        arr_new [np.isnan(arr_new)]= yc[np.isnan(arr_new)]
-        
-    if method =='pd': 
-        t_arr= pd.Series (t_arr, dtype = t_arr.dtype )
-        t_arr = np.array(t_arr.interpolate(
-            method =kind, order=order, limit = limit ))
-        arr_new = reshape(fillNaN(t_arr, method= 'bff')) # for consistency 
-        
-    return arr_new 
-   
-
-def moving_average (
-    y:ArrayLike[DType[_T]],
-    *, 
-    window_size:int  = 3 , 
-    method:str  ='sma',
-    mode:str  ='same', 
-    alpha: int  =.5 
-)-> ArrayLike[DType[_T]]: 
-    """ A moving average is  used with time series data to smooth out
-    short-term fluctuations and highlight longer-term trends or cycles.
-    
-    Funtion analyzes data points by creating a series of averages of different
-    subsets of the full data set. 
-    
-    Parameters 
-    ----------
-    y : array_like, shape (N,)
-        the values of the time history of the signal.
-        
-    window_size : int
-        the length of the window. Must be greater than 1 and preferably
-        an odd integer number.Default is ``3``
-        
-    method: str 
-        variant of moving-average. Can be ``sma``, ``cma``, ``wma`` and ``ema`` 
-        for simple, cummulative, weight and exponential moving average. Default 
-        is ``sma``. 
-        
-    mode: str
-        returns the convolution at each point of overlap, with an output shape
-        of (N+M-1,). At the end-points of the convolution, the signals do not 
-        overlap completely, and boundary effects may be seen. Can be ``full``,
-        ``same`` and ``valid``. See :doc:`~np.convole` for more details. Default 
-        is ``same``. 
-        
-    alpha: float, 
-        smoothing factor. Only uses in exponential moving-average. Default is 
-        ``.5``.
-    
-    Returns 
-    --------
-    ya: array like, shape (N,) 
-        Averaged time history of the signal
-    
-    Notes 
-    -------
-    The first element of the moving average is obtained by taking the average 
-    of the initial fixed subset of the number series. Then the subset is
-    modified by "shifting forward"; that is, excluding the first number of the
-    series and including the next value in the subset.
-    
-    Examples
-    --------- 
-    >>> import numpy as np ; import matplotlib.pyplot as plt 
-    >>> from gofast.tools.mathex   import moving_average 
-    >>> data = np.random.randn (37) 
-    >>> # add gaussion noise to the data 
-    >>> data = 2 * np.sin( data)  + np.random.normal (0, 1 , len(data))
-    >>> window = 5  # fixed size to 5 
-    >>> sma = moving_average(data, window) 
-    >>> cma = moving_average(data, window, method ='cma' )
-    >>> wma = moving_average(data, window, method ='wma' )
-    >>> ema = moving_average(data, window, method ='ema' , alpha =0.6)
-    >>> x = np.arange(len(data))
-    >>> plt.plot (x, data, 'o', x, sma , 'ok--', x, cma, 'g-.', x, wma, 'b:')
-    >>> plt.legend (['data', 'sma', 'cma', 'wma'])
-    
-    References 
-    ----------
-    .. * [1] https://en.wikipedia.org/wiki/Moving_average
-    .. * [2] https://www.sciencedirect.com/topics/engineering/hanning-window
-    .. * [3] https://stackoverflow.com/questions/12816011/weighted-moving-average-with-numpy-convolve
-    
-    """
-    y = np.array(y)
-    try:
-        window_size = np.abs(_assert_all_types(int(window_size), int))
-    except ValueError:
-        raise ValueError("window_size has to be of type int")
-    if window_size < 1:
-        raise TypeError("window_size size must be a positive odd number")
-    if  window_size > len(y):
-        raise TypeError("window_size is too large for averaging. Window"
-                        f" must be greater than 0 and less than {len(y)}")
-    
-    method =str(method).lower().strip().replace ('-', ' ') 
-    
-    if method in ('simple moving average',
-                  'simple', 'sma'): 
-        method = 'sma' 
-    elif method  in ('cumulative average', 
-                     'cumulative', 'cma'): 
-        method ='cma' 
-    elif method  in ('weighted moving average',
-                     'weight', 'wma'): 
-        method = 'wma'
-    elif method in('exponential moving average',
-                   'exponential', 'ema'):
-        method = 'ema'
-    else : 
-        raise ValueError ("Variant average methods only includes "
-                          f" {smart_format(['sma', 'cma', 'wma', 'ema'], 'or')}")
-    if  1. <= alpha <= 0 : 
-        raise ValueError ('alpha should be less than 1. and greater than 0. ')
-        
-    if method =='sma': 
-        ya = np.convolve(y , np.ones (window_size), mode ) / window_size 
-        
-    if method =='cma': 
-        y = np.cumsum (y) 
-        ya = np.array([ y[ii]/ len(y[:ii +1]) for ii in range(len(y))]) 
-        
-    if method =='wma': 
-        w = np.cumsum(np.ones(window_size, dtype = float))
-        w /= np.sum(w)
-        ya = np.convolve(y, w[::-1], mode ) #/window_size
-        
-    if method =='ema': 
-        ya = np.array ([y[0]]) 
-        for ii in range(1, len(y)): 
-            v = y[ii] * alpha + ( 1- alpha ) * ya[-1]
-            ya = np.append(ya, v)
-            
-    return ya 
-
 
 def get_profile_angle (
         easting: float =None, northing: float =None, msg:str ="ignore" ): 
