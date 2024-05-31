@@ -17,6 +17,7 @@ from datetime import datetime
 import matplotlib.pyplot as plt 
 from joblib import Parallel, delayed
 from scipy.signal import argrelextrema 
+from scipy.interpolate import interp1d, griddata
 from matplotlib.ticker import FixedLocator
 from sklearn.utils import all_estimators 
 from collections.abc import Iterable as IterableInstance
@@ -35,7 +36,7 @@ from .validator import check_consistent_length, get_estimator_name
 from .validator import _is_arraylike_1d, array_to_frame, build_data_if
 from .validator import _is_numeric_dtype, check_y, check_consistency_size 
 from .validator import is_categorical, is_valid_policies, contains_nested_objects 
-from .validator import parameter_validator, normalize_array, check_array 
+from .validator import parameter_validator, normalize_array
 
 __all__= [ 
     'array2hdf5',
@@ -47,8 +48,8 @@ __all__= [
     'fancier_downloader',
     'fillNaN',
     'get_target',
-    'interpolate2d',
     'interpolate_grid',
+    'interpolate_data', 
     'labels_validator',
     'normalizer',
     'remove_outliers',
@@ -200,6 +201,7 @@ def remove_outliers(
         
     if is_series: 
         arr =pd.Series (arr.squeeze(), name =ar.name )
+        
     return arr 
 
 def _remove_outliers(data, n_std=3):
@@ -3561,8 +3563,6 @@ def smooth1d(
     interpolate: bool, default=False 
        Interpolate value to fit the original data size after NaN filling. 
        
-       .. versionadded:: 0.2.8 
-       
     absolute: bool, default=False, 
        keep postive the extrapolated scaled values. Indeed, when scaling data, 
        negative value can be appear due to the polyfit function. to absolute 
@@ -3590,7 +3590,7 @@ def smooth1d(
     Examples 
     ---------
     >>> import numpy as np 
-    >>> from gofast.tools.mathex  import smooth1d 
+    >>> from gofast.tools.baseutils  import smooth1d 
     >>> # add Guassian Noise 
     >>> np.random.seed (42)
     >>> ar = np.random.randn (20 ) * 20 + np.random.normal ( 20 )
@@ -3724,7 +3724,7 @@ def smoothing (
     Examples 
     ---------
     >>> import numpy as np 
-    >>> from gofast.tools.mathex  import smoothing
+    >>> from gofast.tools.baseutils  import smoothing
     >>> # add Guassian Noises 
     >>> np.random.seed (42)
     >>> ar = np.random.randn (20, 7 ) * 20 + np.random.normal ( 20, 7 )
@@ -3796,333 +3796,292 @@ def smoothing (
         
     return arr0 
     
-def scale_y(
-    y: ArrayLike , 
-    x: ArrayLike =None, 
-    deg: int = None,  
-    func:_F =None
-    )-> Tuple[ArrayLike, ArrayLike, _F]: 
-    """ Scaling value using a fitting curve. 
-    
-    Create polyfit function from a specifc data points `x` to correct `y` 
-    values.  
-    
-    :param y: array-like of y-axis. Is the array of value to be scaled. 
-    
-    :param x: array-like of x-axis. If `x` is given, it should be the same 
-        length as `y`, otherwise and error will occurs. Default is ``None``. 
-    
-    :param func: callable - The model function, ``f(x, ...)``. It must take 
-        the independent variable as the first argument and the parameters
-        to fit as separate remaining arguments.  `func` can be a ``linear``
-        function i.e  for ``f(x)= ax +b`` where `a` is slope and `b` is the 
-        intercept value. It is recommended according to the `y` value 
-        distribution to set up  a custom function for better fitting. If `func`
-        is given, the `deg` is not needed.   
-        
-    :param deg: polynomial degree. If  value is ``None``, it should  be 
-        computed using the length of extrema (local and/or global) values.
- 
-    :returns: 
-        - y: array scaled - projected sample values got from `f`.
-        - x: new x-axis - new axis  `x_new` generated from the samples.
-        - linear of polynomial function `f` 
-        
-    :references: 
-        Wikipedia, Curve fitting, https://en.wikipedia.org/wiki/Curve_fitting
-        Wikipedia, Polynomial interpolation, https://en.wikipedia.org/wiki/Polynomial_interpolation
-    :Example: 
-        >>> import numpy as np 
-        >>> import matplotlib.pyplot as plt 
-        >>> from gofast.exmath import scale_values 
-        >>> rdn = np.random.RandomState(42) 
-        >>> x0 =10 * rdn.rand(50)
-        >>> y = 2 * x0  +  rnd.randn(50) -1
-        >>> plt.scatter(x0, y)
-        >>> yc, x , f = scale_values(y) 
-        >>> plt.plot(x, y, x, yc) 
-        
-    """   
-    
-    y = check_y( y )
-    
-    if str(func).lower() != 'none': 
-        if not hasattr(func, '__call__') or not inspect.isfunction (func): 
-            raise TypeError(
-                f'`func` argument is not a callable; got {type(func).__name__!r}')
-
-    # get the number of local minimum to approximate degree. 
-    minl, = argrelextrema(y, np.less) 
-    # get the number of degrees
-    degree = len(minl) + 1
-    if x is None: 
-        x = np.arange(len(y)) # np.linspace(0, 4, len(y))
-        
-    x= check_y (x , input_name="x") 
-    
-    if len(x) != len(y): 
-        raise ValueError(" `x` and `y` arrays must have the same length."
-                        f"'{len(x)}' and '{len(y)}' are given.")
-
-    coeff = np.polyfit(x, y, int(deg) if deg is not None else degree)
-    f = np.poly1d(coeff) if func is  None else func 
-    yc = f (x ) # corrected value of y 
-
-    return  yc, x ,  f 
-
-def interpolate1d (
-    arr:ArrayLike, 
-    kind:str = 'slinear', 
-    method:str=None, 
-    order:Optional[int] = None, 
-    fill_value:str ='extrapolate',
-    limit:Tuple[float] =None, 
-    **kws
-    )-> ArrayLike:
-    """ Interpolate array containing invalid values `NaN`
-    
-    Usefull function to interpolate the missing frequency values in the 
-    tensor components. 
-    
-    Parameters 
-    ----------
-    arr: array_like 
-        Array to interpolate containg invalid values. The invalid value here 
-        is `NaN`. 
-        
-    kind: str or int, optional
-        Specifies the kind of interpolation as a string or as an integer 
-        specifying the order of the spline interpolator to use. The string 
-        has to be one of ``linear``, ``nearest``, ``nearest-up``, ``zero``, 
-        ``slinear``,``quadratic``, ``cubic``, ``previous``, or ``next``. 
-        ``zero``, ``slinear``, ``quadratic``and ``cubic`` refer to a spline 
-        interpolation of zeroth, first, second or third order; ``previous`` 
-        and ``next`` simply return the previous or next value of the point; 
-        ``nearest-up`` and ``nearest`` differ when interpolating half-integers 
-        (e.g. 0.5, 1.5) in that ``nearest-up`` rounds up and ``nearest`` rounds 
-        down. If `method` param is set to ``pd`` which refers to pd.interpolate 
-        method , `kind` can be set to ``polynomial`` or ``pad`` interpolation. 
-        Note that the polynomial requires you to specify an `order` while 
-        ``pad`` requires to specify the `limit`. Default is ``slinear``.
-        
-    method: str, optional, default='mean' 
-        Method of interpolation. Can be ``base`` for `scipy.interpolate.interp1d`
-        ``mean`` or ``bff`` for scaling methods and ``pd``for pandas interpolation 
-        methods. Note that the first method is fast and efficient when the number 
-        of NaN in the array if relatively few. It is less accurate to use the 
-        `base` interpolation when the data is composed of many missing values.
-        Alternatively, the scaled method(the  second one) is proposed to be the 
-        alternative way more efficient. Indeed, when ``mean`` argument is set, 
-        function replaces the NaN values by the nonzeros in the raw array and 
-        then uses the mean to fit the data. The result of fitting creates a smooth 
-        curve where the index of each NaN in the raw array is replaced by its 
-        corresponding values in the fit results. The same approach is used for
-        ``bff`` method. Conversely, rather than averaging the nonzeros values, 
-        it uses the backward and forward strategy  to fill the NaN before scaling.
-        ``mean`` and ``bff`` are more efficient when the data are composed of 
-        lot of missing values. When the interpolation `method` is set to `pd`, 
-        function uses the pandas interpolation but ended the interpolation with 
-        forward/backward NaN filling since the interpolation with pandas does
-        not deal with all NaN at the begining or at the end of the array. Default 
-        is ``base``.
-        
-    fill_value: array-like or (array-like, array_like) or ``extrapolate``, optional
-        If a ndarray (or float), this value will be used to fill in for requested
-        points outside of the data range. If not provided, then the default is
-        NaN. The array-like must broadcast properly to the dimensions of the 
-        non-interpolation axes.
-        If a two-element tuple, then the first element is used as a fill value
-        for x_new < x[0] and the second element is used for x_new > x[-1]. 
-        Anything that is not a 2-element tuple (e.g., list or ndarray,
-        regardless of shape) is taken to be a single array-like argument meant 
-        to be used for both bounds as below, above = fill_value, fill_value.
-        Using a two-element tuple or ndarray requires bounds_error=False.
-        Default is ``extrapolate``. 
-        
-    kws: dict 
-        Additional keyword arguments from :class:`spi.interp1d`. 
-    
-    Returns 
-    -------
-    array like - New interpoolated array. `NaN` values are interpolated. 
-    
-    Notes 
-    ----- 
-    When interpolated thoughout the complete frequencies  i.e all the frequency 
-    values using the ``base`` method, the missing data in `arr`  can be out of 
-    the `arr` range. So, for consistency and keep all values into the range of 
-    frequency, the better idea is to set the param `fill_value` in kws argument
-    of ``spi.interp1d`` to `extrapolate`. This will avoid an error to raise when 
-    the value to  interpolated is extra-bound of `arr`. 
-    
-    
-    References 
-    ----------
-    https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.interp1d.html
-    https://www.askpython.com/python/examples/interpolation-to-fill-missing-entries
-    
-    Examples 
-    --------
-    >>> import numpy as np 
-    >>> import matplotlib.pyplot as plt 
-    >>> from gofast.tools.baseutils   import interpolate1d,
-    >>> z = np.random.randn(17) *10 # assume 17 freq for 17 values of tensor Z 
-    >>> z [[7, 10, 16]] =np.nan # replace some indexes by NaN values 
-    >>> zit = interpolate1d (z, kind ='linear')
-    >>> z 
-    ... array([ -1.97732415, -16.5883156 ,   8.44484348,   0.24032979,
-              8.30863276,   4.76437029, -15.45780568,          nan,
-             -4.11301794, -10.94003412,          nan,   9.22228383,
-            -15.40298253,  -7.24575491,  -7.15149205, -20.9592011 ,
-                     nan]),
-    >>> zn 
-    ...array([ -1.97732415, -16.5883156 ,   8.44484348,   0.24032979,
-             8.30863276,   4.76437029, -15.45780568,  -4.11301794,
-           -10.94003412,   9.22228383, -15.40298253,  -7.24575491,
-            -7.15149205, -20.9592011 , -34.76691014, -48.57461918,
-           -62.38232823])
-    >>> zmean = interpolate1d (z,  method ='mean')
-    >>> zbff = interpolate1d (z, method ='bff')
-    >>> zpd = interpolate1d (z,  method ='pd')
-    >>> plt.plot( np.arange (len(z)),  zit, 'v--', 
-              np.arange (len(z)), zmean, 'ok-',
-              np.arange (len(z)), zbff, '^g:',
-              np.arange (len(z)), zpd,'<b:', 
-              np.arange (len(z)), z,'o', 
-              )
-    >>> plt.legend(['interp1d', 'mean strategy', 'bff strategy',
-                    'pandas strategy', 'data'], loc='best')
-    
-    """
-    method = method or 'mean'; method =str(method).strip().lower() 
-    if method in ('pandas', 'pd', 'series', 'dataframe','df'): 
-        method = 'pd' 
-    elif method in ('interp1d', 'scipy', 'base', 'simpler', 'i1d'): 
-        method ='base' 
-    
-    if not hasattr (arr, '__complex__'): 
-        
-        arr = check_y(arr, allow_nan= True, to_frame= True ) 
-    # check whether there is nan and masked invalid 
-    # and take only the valid values 
-    t_arr = arr.copy() 
-    
-    spi = check_scipy_interpolate() 
-    if method =='base':
-        mask = ~np.ma.masked_invalid(arr).mask  
-        arr = arr[mask] # keep the valid values
-        f = spi.interp1d( x= np.arange(len(arr)), y= arr, kind =kind, 
-                         fill_value =fill_value, **kws) 
-        arr_new = f(np.arange(len(t_arr)))
-        
-    if method in ('mean', 'bff'): 
-        arr_new = arr.copy()
-        
-        if method =='mean': 
-            # use the mean of the valid value
-            # and fill the nan value
-            mean = t_arr[~np.isnan(t_arr)].mean()  
-            t_arr[np.isnan(t_arr)]= mean  
-            
-        if method =='bff':
-            # fill NaN values back and forward.
-            t_arr = fillNaN(t_arr, method = method)
-            t_arr= reshape(t_arr)
-            
-        yc, *_= scale_y (t_arr)
-        # replace the at NaN positions value in  t_arr 
-        # with their corresponding scaled values 
-        arr_new [np.isnan(arr_new)]= yc[np.isnan(arr_new)]
-        
-    if method =='pd': 
-        t_arr= pd.Series (t_arr, dtype = t_arr.dtype )
-        t_arr = np.array(t_arr.interpolate(
-            method =kind, order=order, limit = limit ))
-        arr_new = reshape(fillNaN(t_arr, method= 'bff')) # for consistency 
-        
-    return arr_new 
-
-def interpolate2d (
-    arr2d: NDArray[float] , 
-    method:str  = 'slinear', 
-    **kws
-    ): 
-    """ Interpolate the data in 2D dimensional array. 
-    
-    If the data contains some missing values. It should be replaced by the 
-    interpolated values. 
-    
-    Parameters 
-    -----------
-    arr2d : np.ndarray, shape  (N, M)
-        2D dimensional data 
-        
-    method: str, default ``linear``
-        Interpolation technique to use. Can be ``nearest``or ``pad``. 
-    
-    kws: dict 
-        Additional keywords. Refer to :func:`~.interpolate1d`. 
-        
-    Returns 
-    -------
-    arr2d:  np.ndarray, shape  (N, M)
-        2D dimensional data interpolated 
-    
-    Examples 
-    ---------
-    >>> # Assume watex is installed 
-    >>> from watex.methods.em import EM 
-    >>> from gofast.tools.baseutils  import interpolate2d 
-    >>> # make 2d matrix of frequency
-    >>> emObj = EM().fit(r'data/edis')
-    >>> freq2d = emObj.make2d (out = 'freq')
-    >>> freq2d_i = interpolate2d(freq2d ) 
-    >>> freq2d.shape 
-    ...(55, 3)
-    >>> freq2d 
-    ... array([[7.00000e+04, 7.00000e+04, 7.00000e+04],
-           [5.88000e+04, 5.88000e+04, 5.88000e+04],
-           ...
-            [6.87500e+00, 6.87500e+00, 6.87500e+00],
-            [        nan,         nan, 5.62500e+00]])
-    >>> freq2d_i
-    ... array([[7.000000e+04, 7.000000e+04, 7.000000e+04],
-           [5.880000e+04, 5.880000e+04, 5.880000e+04],
-           ...
-           [6.875000e+00, 6.875000e+00, 6.875000e+00],
-           [5.625000e+00, 5.625000e+00, 5.625000e+00]])
-    
-    References 
-    ----------
-    
-    https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.interpolate.html
-    https://docs.scipy.org/doc/scipy-0.14.0/reference/generated/scipy.interpolate.interp2d.html        
-        
-    """ 
-    arr2d = np.array(arr2d)
-    
-    if len(arr2d.shape) ==1: 
-        arr2d = arr2d[:, None] # put on 
-    if arr2d.shape[0] ==1: 
-        arr2d = reshape (arr2d, axis=0)
-    
-    if not hasattr (arr2d , '__complex__'): 
-        arr2d = check_array(
-            arr2d, 
-            to_frame = False, 
-            input_name ="arr2d",
-            force_all_finite="allow-nan" ,
-            dtype =arr2d.dtype, 
+def _count_local_minima(arr: ArrayLike, method: str = 'robust') -> int:
+    if method == 'base':
+        return sum(
+            1 for i in range(1, len(arr) - 1) if arr[i] < arr[i - 1] 
+            and arr[i] < arr[i + 1]
             )
-    arr2d  = np.hstack ([ 
-        reshape (interpolate1d(arr2d[:, ii], 
-                kind=method, 
-                method ='pd', 
-                 **kws), 
-                 axis=0)
-             for ii in  range (arr2d.shape[1])]
-        )
-    return arr2d 
+    else:
+        return len(argrelextrema(np.array(arr), np.less)[0])
+
+def scale_y(
+    y: ArrayLike, 
+    x: ArrayLike = None, 
+    deg: int = "auto", 
+    func: _F = None, 
+    return_xf: bool = False, 
+    view: bool = False
+) -> Tuple[ArrayLike, ArrayLike, _F]:
+    """
+    Scaling value using a fitting curve.
+
+    Create polyfit function from specific data points `x` to correct `y` 
+    values.
+
+    Parameters
+    ----------
+    y : ArrayLike
+        Array-like of y-axis. This is the array of values to be scaled.
+    x : ArrayLike, optional
+        Array-like of x-axis. If `x` is given, it should be the same length 
+        as `y`, otherwise an error will occur. Default is ``None``.
+    deg : int, optional
+        Polynomial degree. If value is ``auto`` or ``None``, it will be computed 
+        using the length of extrema (local and/or global) values.
+    func : _F, optional
+        Callable - The model function, ``f(x, ...)``. It must take the 
+        independent variable as the first argument and the parameters to 
+        fit as separate remaining arguments. `func` can be a ``linear`` 
+        function i.e. for ``f(x)= ax + b`` where `a` is slope and `b` is 
+        the intercept value. It is recommended to set up a custom function 
+        according to the `y` value distribution for better fitting. If 
+        `func` is given, `deg` is not needed.
+    return_xf : bool, optional
+        If True, returns the new x-axis and the fitting function. Default 
+        is ``False``.
+    view : bool, optional
+        If True, visualizes the original and scaled data. Default is 
+        ``False``.
+
+    Returns
+    -------
+    yc : ArrayLike
+        Array of scaled/projected sample values obtained from `f`.
+    x : ArrayLike
+        New x-axis generated from the samples (if `return_xf` is True).
+    f : _F
+        Linear or polynomial function `f` (if `return_xf` is True).
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import matplotlib.pyplot as plt
+    >>> np.random.seed(42)
+    >>> x0 = 10 * np.random.rand(50)
+    >>> y = 2 * x0 + np.random.randn(50) - 1
+    >>> plt.scatter(x0, y)
+    >>> yc, x, f = scale_y(y, return_xf=True, view=True)
+    >>> plt.plot(x, y, label='Original Data')
+    >>> plt.plot(x, yc, label='Scaled Data')
+    >>> plt.legend()
+    >>> plt.show()
+
+    Notes
+    -----
+    - The function checks if `x` and `y` are of the same length.
+    - If `func` is provided, `deg` is ignored.
+    - The function raises a `TypeError` if `func` is not callable.
+    - The degree of the polynomial is determined by the number of local 
+      minima plus one.
+    - In case of fitting errors, a `ValueError` is raised with a suggestion 
+      to check the polynomial degree.
+      
+    References 
+    -----------
+    Wikipedia, Curve fitting, https://en.wikipedia.org/wiki/Curve_fitting
+    Wikipedia, Polynomial interpolation, https://en.wikipedia.org/wiki/Polynomial_interpolation
+    """
+    _, name_or_columns, index = pandas_manager(y )
+    
+    y = check_y(y, y_numeric =True )
+    if func is not None and (not callable(func) or not hasattr(func, '__call__')):
+        raise TypeError(f"`func` argument is not a callable; got {type(func).__name__!r}")
+
+    degree = _count_local_minima(y) + 1
+    if x is None:
+        x = np.arange(len(y))
+        
+    x = check_y(x, input_name="x")
+    
+    if len(x) != len(y):
+        raise ValueError("`x` and `y` arrays must have the same length."
+                         f" Got lengths {len(x)} and {len(y)}.")
+    
+    deg= None if deg =='auto' else deg 
+    
+    try: 
+        coeff = np.polyfit(x, y, int(deg) if deg is not None else degree)
+        f = np.poly1d(coeff) if func is None else func
+        yc = f(x)
+    except np.linalg.LinAlgError:
+        raise ValueError("Check the number of degrees. SVD did not converge"
+                         " in Linear Least Squares.")
+
+    if view: 
+        plt.plot(x, y, "-ok", label='Original Data')
+        plt.plot(x, yc, "-or", label='Scaled Data')
+        plt.xlabel ("x") ; plt.ylabel("y")
+        plt.legend()
+        plt.show()
+    
+    yc = pandas_manager(yc, todo="set", name_or_columns=name_or_columns,
+                        index =index ) 
+    
+    return (yc, x, f) if return_xf else yc
+
+def _visualize_interpolation(
+    original_data: Union[np.ndarray, pd.Series, pd.DataFrame], 
+    interpolated_data: Union[np.ndarray, pd.Series, pd.DataFrame]) -> None:
+    """
+    Helper function to visualize original and interpolated data.
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+    
+    if isinstance(original_data, (pd.Series, np.ndarray)
+                  ) and original_data.ndim == 1:
+        axes[0].plot(original_data, label='Original Data', marker='o')
+        axes[1].plot(interpolated_data, label='Interpolated Data', marker='o')
+    elif isinstance(original_data, (pd.DataFrame, np.ndarray)
+                    ) and original_data.ndim == 2:
+        axes[0].imshow(original_data, aspect='auto', interpolation='none')
+        axes[1].imshow(interpolated_data, aspect='auto', interpolation='none')
+    
+    axes[0].set_title('Original Data')
+    axes[1].set_title('Interpolated Data')
+    plt.show()
+
+def interpolate_data(
+    data: Union[ArrayLike, Series, DataFrame], 
+    method: str = 'slinear', 
+    order: Optional[int] = None, 
+    fill_value: str = 'extrapolate', 
+    axis: int = 0, 
+    drop_outliers: bool = False, 
+    outlier_method: str = "IQR", 
+    view: bool = False, 
+    **kwargs
+) -> Union[ArrayLike, Series, DataFrame]:
+    """
+    Interpolates 1D or 2D data, allowing for NaN values, and visualizes 
+    the result if requested.
+
+    Parameters
+    ----------
+    data : Union[np.ndarray, pd.Series, pd.DataFrame]
+        Input data to be interpolated. Can be a 1D or 2D numpy array, 
+        pandas Series, or pandas DataFrame.
+    method : str, optional
+        Method of interpolation. Options include 'linear', 'nearest', 
+        'zero', 'slinear', 'quadratic', and 'cubic'. Default is 'slinear'.
+    order : Optional[int], optional
+        The order of the spline interpolation. Only applicable for some 
+        methods. Default is None.
+    fill_value : str, optional
+        Specifies the fill value for points outside the interpolation 
+        domain. Default is 'extrapolate'.
+    axis : int, optional
+        Axis along which to interpolate, if data is a DataFrame. Default 
+        is 0.
+    drop_outliers : bool, optional
+        If True, outliers will be removed before interpolation. Default 
+        is False.
+    outlier_method : str, optional
+        Method for outlier detection if drop_outliers is True. Options 
+        are 'IQR' and 'z-score'. Default is 'IQR'.
+    view : bool, optional
+        If True, visualizes the original and interpolated data in two 
+        panels. Default is False.
+    **kwargs
+        Additional keyword arguments to pass to the interpolation 
+        function.
+
+    Returns
+    -------
+    Union[np.ndarray, pd.Series, pd.DataFrame]
+        Interpolated data, returned in the same type as the input data.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd 
+    >>> from gofast.tools.baseutils import interpolate_data
+    >>> s = pd.Series([1, np.nan, 3, 4, np.nan, 6])
+    >>> interpolate_data(s, view=True)
+    0    1.0
+    1    2.0
+    2    3.0
+    3    4.0
+    4    5.0
+    5    6.0
+    dtype: float64
+
+    >>> df = pd.DataFrame([[1, np.nan, 3], [4, 5, np.nan], [np.nan, 8, 9]])
+    >>> interpolate_data(df, view=True)
+         0    1    2
+    0  1.0  6.5  3.0
+    1  4.0  5.0  6.0
+    2  4.0  8.0  9.0
+
+    Notes
+    -----
+    - The 'slinear' method is not available for 2D interpolation. It 
+      defaults to 'linear' for 2D data.
+    - The 'extrapolate' fill_value is not available for 2D interpolation 
+      and defaults to 0.
+    - If drop_outliers is True, the specified outlier detection method 
+      will be applied before interpolation.
+    """
+    valid_methods = ['linear', 'nearest', 'zero', 'slinear', 'quadratic', 'cubic']
+    method = str(method).lower() 
+    if method not in valid_methods:
+        raise ValueError(
+            f"Invalid method. Expected one of {valid_methods}, got {method}.")
+
+    if not isinstance(data, (pd.Series, pd.DataFrame)):
+        data = np.asarray(data)
+    
+    data = _handle_non_numeric(data, action="interpolate")
+    data, name_or_columns, index = pandas_manager(data)
+    if drop_outliers: 
+        data = remove_outliers(data, method=outlier_method)
+        
+    if isinstance(data, pd.Series):
+        x = np.arange(len(data))
+        y = data.values
+        mask = ~np.isnan(y)
+        f = interp1d(x[mask], y[mask], kind=method, fill_value=fill_value,
+                     bounds_error=False, **kwargs)
+        data_interp = f(x)
+        result = pd.Series(data_interp, index=data.index)
+    
+    elif isinstance(data, pd.DataFrame):
+        data_interp = data.apply(lambda col: interpolate_data(
+            col, method=method, 
+            order=order, fill_value=fill_value, axis=axis, 
+            **kwargs), axis=axis)
+        result = data_interp
+    
+    elif data.ndim == 1:
+        x = np.arange(len(data))
+        y = data
+        mask = ~np.isnan(y)
+        f = interp1d(x[mask], y[mask], kind=method, fill_value=fill_value,
+                     bounds_error=False, **kwargs)
+        data_interp = f(x)
+        result = data_interp
+    
+    elif data.ndim == 2:
+        # slinear not available for two dimensional interpolation 
+        method = 'linear' if method.find("linear")>=0 else method 
+        
+        x = np.arange(data.shape[1])
+        y = np.arange(data.shape[0])
+        x_grid, y_grid = np.meshgrid(x, y)
+        mask = ~np.isnan(data)
+        points = np.array((y_grid[mask], x_grid[mask])).T
+        values = data[mask]
+        x_new, y_new = np.meshgrid(x, y)
+        # 'extrapolate fill_value' not available.
+        fill_value = 0. if str(fill_value).find("extra")>=0 else fill_value
+        data_interp = griddata(points, values, (
+            y_new, x_new), method=method, fill_value=fill_value, **kwargs)
+        result = data_interp
+ 
+    if view:
+        _visualize_interpolation(data, result)
+    
+    return result
 
 def denormalizer(
     data: Union[np.ndarray, pd.Series, pd.DataFrame], 
@@ -4263,6 +4222,9 @@ def _handle_get_action(
 
     name_or_columns = data.name if isinstance(data, pd.Series) else\
         data.columns if is_pandas else None
+        
+    if action=='keep_frame': 
+        arr= data 
     return arr, name_or_columns, index 
 
 def _handle_set_action(data: Any, name_or_columns: Any, action: str, error: str, 
@@ -4310,7 +4272,12 @@ def pandas_manager(
     name_or_columns : Any, optional
         Name for Series or columns for DataFrame when setting data.
     action : str, optional
-        Specifies the sub-action for 'get': 'as_array' or 'check_only'. 
+        Specifies the sub-action for 'get': 'as_array' or 'check_only' or 'keep_frame'. 
+        - `as_array` converts data to Numpy array 
+        - `check_only` checks only whether the data is passed as pandas Series or 
+          DataFrame
+        - `keep_frame` keeps the dataframe but returns additionals frame attributes 
+          like columns/name  and index. 
         Default is 'as_array'.
     error : str, optional
         Error handling strategy: 'passthrough', 'raise', or 'warn'. 

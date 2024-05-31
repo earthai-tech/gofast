@@ -65,6 +65,7 @@ __all__= [
     "plot_feature_correlation", 
     "get_best_kPCA_params", 
     "shrink_covariance_cv_score",
+    "align_estimators_with_params"
     
   ]
 

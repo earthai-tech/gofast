@@ -19,6 +19,7 @@ from scipy.cluster.hierarchy import linkage
 from scipy.linalg import lstsq
 from scipy.ndimage import convolve1d
 from scipy.stats import rankdata
+from scipy.signal import argrelextrema 
 from scipy.optimize import curve_fit
 from scipy.spatial.distance import pdist, squareform 
 from scipy.stats import pearsonr, spearmanr, kendalltau
@@ -3151,6 +3152,64 @@ def moving_average (
             
     return ya 
 
+def count_local_minima(arr, /, method='robust', order=1):
+    """
+    Count the number of local minima in a 1D array.
+    
+    Parameters
+    ----------
+    arr : array_like
+        Input array.
+    method : {'base', 'robust'}, optional
+        Method to use for finding local minima. 
+        'base' uses a simple comparison, while 'robust' 
+        uses scipy's argrelextrema function. Default is 'robust'.
+    order : int, optional
+        How many points on each side to use for the comparison 
+        to consider a point as a local minimum (only used with 
+        'robust' method). Default is 1.
+    
+    Returns
+    -------
+    int
+        Number of local minima in the array.
+    
+    Examples
+    --------
+    >>> from gofast.tools.mathex import count_local_minima
+    >>> arr = [1, 3, 2, 4, 1, 0, 2, 1]
+    >>> count_local_minima(arr, method='base')
+    2
+    >>> count_local_minima(arr, method='robust')
+    3
+    
+    Notes
+    -----
+    - The 'base' method compares each element with its immediate 
+      neighbors, which might be less accurate for noisy data.
+    - The 'robust' method uses scipy's argrelextrema function, which 
+      allows for more flexible and accurate detection of local minima 
+      by considering a specified number of neighboring points.
+    """
+    arr= check_y (arr , y_numeric =True, estimator="Array" )
+    method= parameter_validator(
+        "method", target_strs= {"base", "robust"})(method)
+    if method == 'base':
+        local_minima_count = 0
+        # Iterate through the array from the second element 
+        # to the second-to-last element
+        for i in range(1, len(arr) - 1):
+            if arr[i] < arr[i - 1] and arr[i] < arr[i + 1]:
+                local_minima_count += 1
+        return local_minima_count
+    elif method == 'robust':
+        # Find indices of local minima
+        local_minima_indices = argrelextrema(np.array(arr), 
+                                             np.less, 
+                                             order=order)[0]
+        # The number of local minima is the length of the indices array
+        return len(local_minima_indices)
+    
 def get_azimuth (
     xlon: str | ArrayLike, 
     ylat: str| ArrayLike, 

@@ -7895,7 +7895,6 @@ def split_train_test_by_id(
 
     return train_set, test_set
 
-  
 def parallelize_jobs(
     function: _F[..., Any],
     tasks: Sequence[Dict[str, Any]] = (),
@@ -7972,8 +7971,9 @@ def parallelize_jobs(
     
     return results
  
-def denormalize(data: ArrayLike, min_value: float, max_value: float
-                ) -> ArrayLike:
+def denormalize(
+    data: ArrayLike, min_value: float, max_value: float
+    ) -> ArrayLike:
     """
     Denormalizes data from a normalized scale back to its original scale.
 

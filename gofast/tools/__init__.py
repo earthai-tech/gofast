@@ -21,7 +21,7 @@ MODULE_MAPPING = {
          'fancier_downloader',
          'fillNaN',
          'get_target',
-         'interpolate2d',
+         'interpolate_data',
          'interpolate_grid',
          'labels_validator',
          'normalizer',
