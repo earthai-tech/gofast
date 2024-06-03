@@ -120,7 +120,7 @@ def compute_p_values(
 
     Returns
     -------
-    p_values : dict
+    p_values : :class:`gofast.api.summary.ResultSummary` object 
         A dictionary containing independent variables as keys and their 
         corresponding p-values.
 
@@ -179,12 +179,26 @@ def compute_p_values(
 
     [ 2 entries ]
     """
+    if isinstance (data, pd.Series): 
+        data = data.to_frame() 
+        
+    if not isinstance (data, pd.DataFrame): 
+        raise TypeError(f"'data' should be a frame, not {type(data).__name__!r}")
+        
     if isinstance (depvar, str):
         if depvar not in data.columns:
             raise ValueError(f"'{depvar}' not found in DataFrame columns.")
         depvar = data[depvar]
         data = data.drop(columns=depvar.name)
-    
+        
+    elif hasattr (depvar, '__array__'): 
+        depvar = depvar.squeeze () 
+        if depvar.ndim ==2: 
+            raise TypeError ("Dependent variable 'depvar' should be Series or"
+                             " one-dimensional array, not a two-dimensional.")
+        if not isinstance (depvar, pd.Series): 
+            depvar = pd.Series ( depvar, name = 'depvar')
+            
     if ignore is not None: 
         if isinstance ( ignore, str): 
             ignore =[ignore]

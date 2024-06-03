@@ -356,47 +356,6 @@ class SwarmSearchCV(PSOBaseSearch):
         error_score=np.nan, 
         return_train_score=True, 
         ):
-        """
-        Initialize the PSOSearchCV with the given parameters.
-
-        Parameters
-        ----------
-        estimator : estimator object
-            The machine learning estimator to be optimized.
-
-        param_space : dict
-            Dictionary with parameters names as keys and lists or tuples as values.
-            Each entry specifies the hyperparameter search space.
-
-        scoring : str, callable, list, tuple, dict, or None, default=None
-            A string or a scorer callable object / function with signature 
-            scorer(estimator, X, y). If None, the estimator's default scorer 
-            is used.
-
-        cv : int, cross-validation generator or an iterable, default=3
-            Determines the cross-validation splitting strategy.
-
-        n_particles : int, default=30
-            Number of particles in the swarm.
-
-        max_iter : int, default=100
-            Maximum number of iterations for the optimization process.
-
-        inertia_weight : float, default=0.9
-            Inertia weight that influences the particle's velocity.
-
-        cognitive_coeff : float, default=2.0
-            Cognitive coefficient to guide particles towards their own best 
-            known position.
-
-        social_coeff : float, default=2.0
-            Social coefficient to guide particles towards the swarm's best 
-            known position.
-
-        random_state : int, RandomState instance or None, default=None
-            Controls the randomness of the estimator and the algorithm.
-            
-        """
         super().__init__(
             estimator=estimator, 
             param_space=param_space, 

@@ -212,7 +212,7 @@ class ModelSummary(KeyBox):
         self.descriptor=descriptor 
         self.summary_report = ""
         
-    def summary(self, model_results, **kwargs):
+    def summary(self, model_results, title=None, **kwargs):
         """
         Generates a summary report from the provided model tuning results and
         stores it in the object.
@@ -222,6 +222,8 @@ class ModelSummary(KeyBox):
         model_results : dict
             The results of model tuning to be summarized. Can include results
             from a single model or multiple models.
+        title : str
+            The title of the summary report.
         **kwargs : dict
             Additional keyword arguments passed to the summarize_optimized_results
             function for customization of the summary generation process.
@@ -232,7 +234,7 @@ class ModelSummary(KeyBox):
             The ModelSummary instance with the generated summary report stored.
         """
         self.summary_report = summarize_optimized_results(
-            model_results, result_title=self.title, **kwargs)
+            model_results, result_title=title or self.title, **kwargs)
         return self
     
     def add_multi_contents(
@@ -1869,10 +1871,11 @@ def format_cls_obj(obj):
 def summarize_model_results(
     model_results, 
     title=None, 
-    max_width=100,
+    max_width=None,
     top_line='=', 
     sub_line='-', 
-    bottom_line='='
+    bottom_line='=', 
+    max_col_lengths=None, 
     ):
     """
     Summarizes the results of model tuning, including the best estimator, best 
@@ -1957,9 +1960,11 @@ def summarize_model_results(
         model_results
     )
     # compute the max keys 
-    max_width = get_table_width(inline_contents, max_column_width=max_width)
+    if max_width is None: 
+        max_width = get_table_width(inline_contents, max_column_width=100)
     # Preparing data for the CV results DataFrame
     formatted_table=''
+ 
     if 'cv_results_' in standardized_results:
         if not any ('split' in cv_key for cv_key in standardized_results['cv_results_']):
             warnings.warn(
@@ -1969,9 +1974,11 @@ def summarize_model_results(
         if not df.empty: 
             # Formatting CV results DataFrame
             formatted_table = format_dataframe(
-                df, title="Tuning Results", max_width=max_width, 
+                df, title="Tuning Results (*=score)",
+                max_width=max_width, 
                 top_line=top_line, sub_line=sub_line, 
-                bottom_line=bottom_line
+                bottom_line=bottom_line, 
+                max_col_lengths= max_col_lengths , 
             )
             max_width = len(formatted_table.split('\n')[0]) #
         # Combining inline content and formatted table
@@ -1982,6 +1989,36 @@ def summarize_model_results(
     formatted_table=f'\n\n{formatted_table}' if 'cv_results_' in standardized_results else ''
     summary = f"{summary_inline_tab}{formatted_table}"
     return summary
+
+def get_max_col_lengths ( model_results_list, max_text_length=50 ): 
+    """ Recompute the maximum column length to let the length of all columns 
+    be consistent with all dataframes."""
+    # make the inline model results 
+    stand_results = [ ]
+    for model_result in model_results_list: 
+        inline_contents, standardized_results= summarize_inline_model_results(
+            model_result
+        )
+        stand_results.append ( standardized_results)
+    
+    combined_df=[] 
+    for s_result in stand_results: 
+        if 'cv_results_' in s_result:
+            df = prepare_cv_results_dataframe(s_result['cv_results_'])
+            combined_df.append ( df)
+    if combined_df: 
+        combined_df = pd.concat (combined_df, axis=0)
+        
+    max_col_lengths = {
+        col: max(len(col), max(df[col].astype(str).apply(
+            lambda x: len(x) if len(x) <= max_text_length else max_text_length + 3)))
+        for col in combined_df.columns
+    }
+    
+    # update max_with 
+    max_width = get_table_width(combined_df, max_column_width=100) # default
+    return max_col_lengths, max_width 
+
 
 def summarize_inline_model_results(model_results ):
     """
@@ -2048,7 +2085,6 @@ def summarize_inline_model_results(model_results ):
     """
     # Standardize keys in model_results
     standardized_results = standardize_keys(model_results)
-    
     # Validate presence of required information
     required_keys = ['best_estimator_', 'best_params_']
     if not any(key in standardized_results for key in required_keys):
@@ -2058,7 +2094,7 @@ def summarize_inline_model_results(model_results ):
     # Prepare inline contents
     inline_contents = {
         "Best estimator": fetch_estimator_name(standardized_results.get(
-            'best_estimator_', '<Unknown>')),
+        'best_estimator_', '<Unknown>')),
         "Best parameters": standardized_results.get('best_params_', '<Undefined>')
     }
 
@@ -2172,21 +2208,30 @@ def summarize_optimized_results(model_results, result_title=None, **kwargs):
     # If handling multiple models' results (structure 2):
     # Separate keys (estimator names) and values (their corresponding results)
     estimators_keys, model_results_list = zip(*model_results.items())
-    
+
+    # Get max_col_length to be consistent of all lines 
+    max_col_lengths, base_max_width= get_max_col_lengths(model_results_list )
     # Generate formatted summaries for each model's results
     formatted_results = [
-        summarize_model_results(model_result, **kwargs)
+        summarize_model_results(
+            model_result,
+            max_col_lengths= max_col_lengths, 
+            max_width= base_max_width, 
+            **kwargs
+        )
         for model_result in model_results_list
     ]
+    # update again max_width 
     # Determine maximum width based on the '=' separator line in the first model's summary
-    max_width = max(len(line) for line in formatted_results[0].split('\n') if '==' in line)
-    
+    max_width= max(len(line) for line in formatted_results[0].split('\n') if '==' in line)
+    if max_width <= base_max_width: 
+        max_width=base_max_width
+        
     # update the formated results with maxwidth 
     # formatted_results = [
     #     summarize_model_results(model_result, max_width=max_width, **kwargs)
     #     for model_result in model_results_list
     # ]
-    
     # Prepare separator lines and centered estimator keys as headers
     up_line = '=' * max_width  # Top border
     down_line = '-' * max_width  # Sub-header
@@ -2207,7 +2252,7 @@ def summarize_optimized_results(model_results, result_title=None, **kwargs):
     table_name = result_title or 'Optimized Results'
     
     # Compile the full summary by joining individual model summaries
-    return f'{table_name.center(max_width)}' + '\n\n'.join(formatted_results_with_keys)
+    return f'{table_name.center(max_width)}' + '\n' + '\n\n'.join(formatted_results_with_keys)
 
 
 def standardize_keys(model_results):
@@ -2356,13 +2401,13 @@ def prepare_cv_results_dataframe(cv_results):
             mean_score = format_value(np.nanmean(cv_scores))
             fold_data = {
                 "Params ": f"({', '.join([ str(i) for i in params.values()])})", 
-                "Mean CV Score": mean_score,
-                "Std. CV Score": std_score,
+                "Mean*": mean_score,
+                "Std.*": std_score,
             }
         if 'mean_test_score' in cv_results:
-            fold_data["Overall Mean Score"] = format_value(cv_results['mean_test_score'][i])
+            fold_data["Overall Mean*"] = format_value(cv_results['mean_test_score'][i])
         if 'std_test_score' in cv_results:
-            fold_data["Overall Std. Score"] = format_value(cv_results['std_test_score'][i])
+            fold_data["Overall Std.*"] = format_value(cv_results['std_test_score'][i])
         if 'rank_test_score' in cv_results:
             fold_data['Rank'] = cv_results['rank_test_score'][i]
         
@@ -2434,7 +2479,8 @@ def format_dataframe(
     max_width='auto',
     top_line='=', 
     sub_line='-', 
-    bottom_line='='
+    bottom_line='=', 
+    max_col_lengths=None 
     ):
     """
     Formats a pandas DataFrame into a string representation of a table,
@@ -2497,11 +2543,12 @@ def format_dataframe(
     
     # Calculate max length for each column including the column name,
     # and account for truncation
-    max_col_lengths = {
-        col: max(len(col), max(df[col].astype(str).apply(
-            lambda x: len(x) if len(x) <= max_text_length else max_text_length + 3)))
-        for col in df.columns
-    }
+    if max_col_lengths is None: 
+        max_col_lengths = {
+            col: max(len(col), max(df[col].astype(str).apply(
+                lambda x: len(x) if len(x) <= max_text_length else max_text_length + 3)))
+            for col in df.columns
+        }
     initial_space = max_index_length + sum(
         max_col_lengths.values()) + len(df.columns) - 1  # Spaces between columns
 

@@ -3493,6 +3493,7 @@ def normalizer(
             if is_array_1d: 
                 scaled = scaled.flatten() 
         else:  # naive scaling
+            arr, name_or_columns, index  = pandas_manager(arr )
             if axis is None:
                 arr_min = np.min(arr)
                 arr_max = np.max(arr)
@@ -3500,8 +3501,8 @@ def normalizer(
                 arr_min = np.min(arr, axis=axis, keepdims=True)
                 arr_max = np.max(arr, axis=axis, keepdims=True)
 
-            arr, name_or_columns, index  = pandas_manager(arr )
             if method == '01':
+                
                 scaled = (arr - arr_min) / (arr_max - arr_min)
             elif method == 'zscore':
                 mean = np.mean(arr, axis=axis, keepdims=True)
@@ -3532,7 +3533,6 @@ def normalizer(
         normalized_arrays.append(normalized)
 
     return normalized_arrays[0] if len(normalized_arrays) == 1 else normalized_arrays
-
 
 def smooth1d(
     ar, /, 
@@ -4027,7 +4027,8 @@ def interpolate_data(
     if method not in valid_methods:
         raise ValueError(
             f"Invalid method. Expected one of {valid_methods}, got {method}.")
-
+    
+    
     if not isinstance(data, (pd.Series, pd.DataFrame)):
         data = np.asarray(data)
     
@@ -4080,6 +4081,14 @@ def interpolate_data(
  
     if view:
         _visualize_interpolation(data, result)
+    
+    if name_or_columns is not None: 
+        result = pandas_manager(
+            result, 
+            name_or_columns = name_or_columns,
+            index = index, 
+            todo='set'
+        )
     
     return result
 
@@ -4259,7 +4268,7 @@ def pandas_manager(
     action: str = 'as_array', 
     error: str = 'passthrough', 
     index: bool = None
-) -> Union[np.ndarray, pd.Series, pd.DataFrame, Tuple[np.ndarray, Any], bool]:
+) -> Union[np.ndarray, Series, DataFrame, Tuple[np.ndarray, Any], bool]:
     """
     Manages pandas objects by getting or setting data, with error handling.
 

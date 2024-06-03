@@ -23,7 +23,7 @@ class RegexMap:
 
     Examples
     --------
-    >>> from gofast.api.util import RegexMap
+    >>> from gofast.api.extension import RegexMap
     >>> regex_map = RegexMap()
     >>> regex_map.find_key('model')
     'best_estimator_'
@@ -47,7 +47,7 @@ class RegexMap:
             'best_estimator_': re.compile(
                 r".*(estimator|model|classifier|regressor).*", re.IGNORECASE),
             'best_params_': re.compile(r".*(param(eter)?s?).*", re.IGNORECASE),
-            'best_scores_': re.compile(r".*score.*", re.IGNORECASE),
+            'best_score_': re.compile(r".*(score(s)?).*", re.IGNORECASE),
             'cv_results_': re.compile(r".*(cv_?results?|fold_?results?).*", re.IGNORECASE),
             'optimizer': re.compile( r".*(optimizer?s?|grid|search).*", re.IGNORECASE),
             'scoring': re.compile(r".*(scori?|metric(s)?).*",re.IGNORECASE )

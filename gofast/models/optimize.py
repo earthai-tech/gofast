@@ -94,7 +94,8 @@ def optimize_search(
     def perform_search(estimator_name, estimator, param_grid):
         search = optimizer_class(estimator, param_grid, n_jobs=n_jobs, **search_kwargs)
         search.fit(X, y)
-        return (estimator_name, search.best_estimator_, search.best_params_, search.cv_results_)
+        return (estimator_name, search.best_estimator_, search.best_params_,
+                search.best_score_, search.cv_results_)
 
     # Parallel execution of the search for each estimator
     results = Parallel(n_jobs=n_jobs)(delayed(perform_search)(
@@ -102,9 +103,12 @@ def optimize_search(
         for name, est in tqdm(estimators.items(), desc="Optimizing Estimators",
                               ncols=100, ascii=True))
 
-    result_dict = {name: {'best_estimator_': best_est, 'best_params_': best_params,
-                          'cv_results_': cv_res}
-                   for name, best_est, best_params, cv_res in results}
+    result_dict = {name: {'best_estimator_': best_est, 
+                          'best_params_': best_params,
+                          'best_score_': best_score, 
+                          'cv_results_': cv_res, 
+                          }
+                  for name, best_est, best_params, best_score,  cv_res in results}
 
     # Optionally save results to a joblib file
     if save_results:
@@ -194,7 +198,13 @@ def optimize_search2(estimators, param_grids, X, y, optimizer='GSCV',
                       ncols=103, ascii=True):
             search.fit(X, y)
             pbar.update(1)
-        return name, search.best_estimator_, search.best_params_, search.cv_results_
+        return ( 
+            name, 
+            search.best_estimator_, 
+            search.best_params_,  
+            search.best_score_, 
+            search.cv_results_
+            )
     
     estimators, param_grids= validate_parameters()
     try: 
@@ -215,13 +225,14 @@ def optimize_search2(estimators, param_grids, X, y, optimizer='GSCV',
     else: 
         result_dict = {name: {'best_estimator': best_est, 
                               'best_params': best_params,
+                              'best_score': best_sc, 
                               'cv_results': cv_res}
-                   for name, best_est, best_params, cv_res in results}    
+                   for name, best_est, best_params, best_sc, cv_res in results}    
     
     if save_results:
         joblib.dump(result_dict, "optimization_results.joblib")
 
-    return ModelSummary(*result_dict).summary(result_dict)
+    return ModelSummary(**result_dict).summary(result_dict)
 
 def optimize_hyperparams(
     estimator, 
@@ -603,7 +614,9 @@ def _optimize_search2(
     )
     results_dict = {est.__class__.__name__: {'best_estimator_': result.best_estimator_, 
                           'best_params_': result.best_params_,
-                          'cv_results_': result.cv_results_}
+                          'best_score_': result.best_score_, 
+                          'cv_results_': result.cv_results_, 
+                          }
                   for est, result in zip(estimators, results)}
     
     return results_dict

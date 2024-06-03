@@ -247,7 +247,7 @@ def skew(
     data: Union[ArrayLike, pd.DataFrame],
     columns: Optional[List[str]] = None,
     axis: int =0, 
-    as_frame: bool = False,
+    as_frame: bool = True,
     view: bool = False, 
     plot_type: Optional[str] = 'density', 
     cmap: str = 'viridis', 
@@ -276,7 +276,7 @@ def skew(
     axis: optional, {index (0), columns (1)}
          Axis for the function to be applied on. Default is 0. 
          
-    as_frame : bool, default=False
+    as_frame : bool, default=True
         If True and `data` is ArrayLike, converts `data` to a Pandas DataFrame
         before calculating skewness. Useful for structured array-like inputs.
         

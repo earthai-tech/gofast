@@ -589,8 +589,8 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
         Parameters
         ----------
         X : array-like of shape (n_samples, n_features)
-            Input samples for which to make predictions. Here, n_samples is the number
-            of samples and n_features is the number of features.
+            Input samples for which to make predictions. Here, n_samples is 
+            the number of samples and n_features is the number of features.
     
         Returns
         -------

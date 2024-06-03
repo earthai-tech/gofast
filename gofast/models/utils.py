@@ -65,7 +65,6 @@ __all__= [
     "plot_feature_correlation", 
     "get_best_kPCA_params", 
     "shrink_covariance_cv_score",
-    "align_estimators_with_params"
     
   ]
 
@@ -308,6 +307,9 @@ def params_combinations(param_space):
     {'C': 100, 'gamma': 0.0001, 'kernel': 'linear'}
     {'C': 100, 'gamma': 0.0001, 'kernel': 'rbf'}
     """
+    if not isinstance (param_space, dict): 
+        raise TypeError ( "Expect a dictionnary for 'param_space';"
+                         f" got {type(param_space).__name__!r}")
     keys = param_space.keys()
     values = param_space.values()
     for combination in itertools.product(*values):
@@ -346,7 +348,7 @@ def get_optimizer_method(optimizer: str) -> Type[BaseEstimator]:
     >>> optimizer_class = get_optimizer_method('RSCV')
     >>> print(optimizer_class)
     <class 'sklearn.model_selection.RandomizedSearchCV'>
-    >>> optimizer_class = get_optimizer_method('GASCV')
+    >>> optimizer_class = get_optimizer_method('GESCV')
     >>> print(optimizer_class)
     <class 'gofast.models.selection.GeneticSearchCV'>
     """

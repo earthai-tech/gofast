@@ -538,7 +538,7 @@ def test_describe_as_frame_false():
 def test_calculate_skewness_with_array():
     """Test skewness calculation with a numpy array input."""
     data = np.random.normal(0, 1, size=1000)
-    skewness = skew(data)
+    skewness = skew(data, as_frame=False )
     assert isinstance(skewness, float), "Skewness should be a float for array input"
 
 def test_calculate_skewness_with_dataframe():
@@ -547,7 +547,7 @@ def test_calculate_skewness_with_dataframe():
         'normal': np.random.normal(0, 1, 1000),
         'right_skewed': np.random.exponential(1, 1000)
     })
-    skewness = skew(df, as_frame=True)
+    skewness = skew(df)
     assert isinstance(skewness, pd.DataFrame), ( 
         "Skewness should be a Series for DataFrame input with as_frame=True"
         )
@@ -558,7 +558,7 @@ def test_calculate_skewness_with_dataframe():
 def test_calculate_skewness_view_false():
     """Test that no plot is generated when view=False."""
     data = np.random.normal(0, 1, size=1000)
-    skewness = skew(data, view=False)
+    skewness = skew(data, as_frame=False, view=False)
     # This test assumes the function does not raise an exception
     assert isinstance(skewness, float), "Skewness calculation should succeed without generating a plot"
 

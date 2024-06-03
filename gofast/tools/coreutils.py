@@ -8013,6 +8013,9 @@ def denormalize(
         `data_norm = (data - min_value) / (max_value - min_value)`
     The denormalize function uses the inverse of this formula to restore the data.
     """
+    if not isinstance (data, (pd.Series, pd.DataFrame)): 
+        data = np.asarray( data )
+        
     return data * (max_value - min_value) + min_value
    
 def download_progress_hook(t):

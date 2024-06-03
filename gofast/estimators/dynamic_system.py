@@ -379,7 +379,6 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
         self.linear_model = linear_model
         self.memory_depth = memory_depth
 
-
     def _preprocess_data(self, X):
         """
         Preprocess the input data by applying the input nonlinearity and
@@ -503,13 +502,13 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
     
         # Generate default predictions for the first 'memory_depth' samples
         if self.memory_depth > 0:
-            # You can customize this logic as needed. For example, you could use a simple mean, median,
+            # You can customize this logic as needed. For example,
+            # you could use a simple mean, median,
             # or the mode of `y_pred_transformed`, or even another model's predictions.
             default_prediction = np.mean(y_pred_transformed) if len(y_pred_transformed) > 0 else 0
             y_pred[:self.memory_depth] = default_prediction
     
         return y_pred
-
 
 class EnsembleHWClassifier(BaseEstimator, ClassifierMixin):
     r"""
