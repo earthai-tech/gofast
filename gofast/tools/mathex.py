@@ -234,9 +234,9 @@ def compute_balance_accuracy(
     normalize=False, 
     sample_weight=None):
     """
-    Compute the balanced accuracy for binary or multiclass classification problems,
-    determining the appropriate calculation method based on the label type and
-    specified strategy.
+    Compute the balanced accuracy for binary or multiclass classification 
+    problems, determining the appropriate calculation method based on the 
+    label type and specified strategy.
 
     Parameters
     ----------
@@ -248,29 +248,33 @@ def compute_balance_accuracy(
         A small constant added to the denominator in calculations to prevent
         division by zero.
     zero_division : int, default=0
-        The value to return when a zero division occurs during calculation, typically
-        encountered when a class is missing in the predictions.
+        The value to return when a zero division occurs during calculation, 
+        typically encountered when a class is missing in the predictions.
     strategy : {'ovr', 'ovo'}, default='ovr'
         Strategy for handling multiclass classification:
-        - 'ovr': One-vs-Rest, calculates balanced accuracy for each class against all others.
-        - 'ovo': One-vs-One, calculates balanced accuracy for each pair of classes.
+        - 'ovr': One-vs-Rest, calculates balanced accuracy for each class
+          against all others.
+        - 'ovo': One-vs-One, calculates balanced accuracy for each pair 
+          of classes.
     normalize : bool, default=False
-        If True, normalizes the confusion matrix before calculating the balanced accuracy.
+        If True, normalizes the confusion matrix before calculating the 
+        balanced accuracy.
     sample_weight : array-like of shape (n_samples,), optional
-        Weights for each sample. If provided, the calculation will take these into
-        account.
+        Weights for each sample. If provided, the calculation will take 
+        these into account.
 
     Returns
     -------
     float or np.ndarray
-        The balanced accuracy score. Returns a single float for binary classification
-        or an array of scores for multiclass classification, depending on the strategy.
+        The balanced accuracy score. Returns a single float for binary 
+        classification or an array of scores for multiclass classification, 
+        depending on the strategy.
 
     Notes
     -----
-    Balanced accuracy is particularly useful for evaluating classifiers on imbalanced
-    datasets. It calculates the average of recall obtained on each class, effectively
-    handling classes without bias.
+    Balanced accuracy is particularly useful for evaluating classifiers 
+    on imbalanced datasets. It calculates the average of recall obtained on 
+    each class, effectively handling classes without bias.
 
     Examples
     --------

@@ -43,13 +43,13 @@ __all__= [
 
 @make_data_dynamic(capture_columns=True, dynamize=False)
 def gini_coeffs(
-    data: Union[pd.DataFrame, np.ndarray],
+    data: Union[DataFrame, np.ndarray],
     columns: Optional[Union[str, List[str]]] = None,
     as_frame: bool = False,
     view: bool = False,
     fig_size: Tuple[int, int] = (10, 6)
 ):
-    """
+    r"""
     Calculate the Gini coefficient of a dataset and optionally visualize
     the Lorenz curve.
 

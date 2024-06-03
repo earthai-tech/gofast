@@ -16,7 +16,7 @@ from .util import flex_df_formatter, is_dataframe_long, get_display_dimensions
 from .util import insert_ellipsis_to_df , extract_truncate_df
 from .util import get_column_widths_in, distribute_column_widths  
 from .util import GOFAST_ESCAPE, select_df_styles, series_to_dataframe
-from .util import to_camel_case
+from .util import to_camel_case, format_iterable
 
 class MultiFrameFormatter (metaclass=MetaLen):
     """
@@ -2004,58 +2004,6 @@ def construct_table_for_different_columns(dataframes, titles):
     
     return tables_str.rstrip()
 
-def format_iterable(attr):
-    """
-    Formats an iterable with a string representation that includes
-    statistical or structural information depending on the iterable's type.
-    """
-    def _numeric_stats(iterable):
-        return {
-            'min': round(np.min(iterable), 4),
-            'max': round(np.max(iterable), 4),
-            'mean': round(np.mean(iterable), 4),
-            'len': len(iterable)
-        }
-    
-    def _format_numeric_iterable(iterable):
-        stats = _numeric_stats(iterable)
-        return ( 
-            f"{type(iterable).__name__} (min={stats['min']},"
-            f" max={stats['max']}, mean={stats['mean']}, len={stats['len']})"
-            )
-
-    def _format_ndarray(array):
-        stats = _numeric_stats(array.flat) if np.issubdtype(array.dtype, np.number) else {}
-        details = ", ".join([f"{key}={value}" for key, value in stats.items()])
-        return f"ndarray ({details}, shape={array.shape}, dtype={array.dtype})"
-    
-    def _format_pandas_object(obj):
-        if isinstance(obj, pd.Series):
-            stats = _numeric_stats(obj) if obj.dtype != 'object' else {}
-            details = ", ".join([f"{key}={value}" for key, value in stats.items()])
-            if details: 
-                details +=', '
-            return f"Series ({details}len={obj.size}, dtype={obj.dtype})"
-        elif isinstance(obj, pd.DataFrame):
-            numeric_cols = obj.select_dtypes(include=np.number).columns
-            stats = _numeric_stats(obj[numeric_cols].values.flat) if not numeric_cols.empty else {}
-            details = ", ".join([f"{key}={value}" for key, value in stats.items()])
-            if details: 
-                details +=', '
-            return ( 
-                f"DataFrame ({details}n_rows={obj.shape[0]},"
-                f" n_cols={obj.shape[1]}, dtypes={obj.dtypes.unique()})"
-                )
-    
-    if isinstance(attr, (list, tuple, set)) and all(
-            isinstance(item, (int, float)) for item in attr):
-        return _format_numeric_iterable(attr)
-    elif isinstance(attr, np.ndarray):
-        return _format_ndarray(attr)
-    elif isinstance(attr, (pd.Series, pd.DataFrame)):
-        return _format_pandas_object(attr)
-    
-    return str(attr)
 
 def get_formatter_classes():
     """

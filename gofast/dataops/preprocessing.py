@@ -406,14 +406,15 @@ def base_transform(
         The level of noise (as a fraction between 0 and 1) to introduce into 
         the numeric columns. If None, no noise is added. Default is None.
     seed : int, optional
-        Seed for the random number generator, ensuring reproducibility of the noise
-        and other random aspects of preprocessing. Default is None.
+        Seed for the random number generator, ensuring reproducibility of 
+        the noise and other random aspects of preprocessing. Default is None.
 
     Returns
     -------
     pandas.DataFrame
-        The preprocessed DataFrame with numeric features scaled, missing values imputed,
-        categorical variables encoded, and optionally noise added.
+        The preprocessed DataFrame with numeric features scaled, missing 
+        values imputed, categorical variables encoded, and optionally noise 
+        added.
 
     Examples
     --------
@@ -952,6 +953,7 @@ def _handle_missing_values(
     else:
         raise ValueError("Invalid missing_value_handling option. Choose"
                          " 'fill', 'drop', or 'ignore'.")
+        
 def _generate_tfidf_features(
         text_data: pd.Series, max_features: int, 
         stop_words: Union[str, List[str]]) -> pd.DataFrame:

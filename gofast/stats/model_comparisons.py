@@ -1835,9 +1835,9 @@ def perform_posthoc_test2(
 
 @isdf 
 def visualize_model_performance(
-        model_performance_data: DataFrame, 
-        plot_type: str='scatter', 
-        **kwargs: Any):
+    model_performance_data: DataFrame, 
+    plot_type: str='scatter', 
+    **kwargs: Any):
     """
     Visualizes the performance of different models using a variety of plot types.
     This function aims to provide a versatile way to graphically compare model

@@ -163,8 +163,7 @@ def plot_dendroheat(
             if float(mpl_version[2]) < 1. :
                 orient = 'right'
                 
-    r = dendrogram(row_cluster , orientation= orient,  
-                   **kwd )
+    r = dendrogram(row_cluster , orientation= orient,  **kwd )
     # 2. reorder the data in our initial dataframe according 
     # to the clustering label that can be accessed by a dendrogram 
     # which is essentially a Python dictionnary via a key leaves 

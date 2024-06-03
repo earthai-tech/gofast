@@ -4,7 +4,7 @@
 
 import numpy as np
 import pandas as pd 
-from .util import format_value 
+from .util import format_value,format_dict_result
 
 class Bunch:
     """
@@ -501,7 +501,31 @@ class Boxspace(dict):
         """
         return super().__dir__() + list(self.keys()) # self.keys()
 
-            
+    def __repr__(self):
+        """
+        Provides a detailed string representation of the Boxspace object.
+        
+        Returns
+        -------
+        str
+            A string representation of the Boxspace object including its type 
+            and key-value pairs.
+        """
+        keys = ', '.join(list(self.keys()))
+        return f"<Bunch object with keys: {keys}>"
+
+    def __str__(self):
+        """
+        Provides a user-friendly string representation of the Boxspace object.
+        
+        Returns
+        -------
+        str
+            A string representation of the Boxspace object showing its key-value pairs.
+        """
+        dict_o = {k:v for k, v in self.items() if '__' not in str(k)}
+        return format_dict_result(dict_o, dict_name="Bunch", include_message=True)      
+              
 class FlexDict(dict):
     """
     A `FlexDict` is a dictionary subclass that provides flexible attribute-style
@@ -650,9 +674,26 @@ class FlexDict(dict):
         keys = ', '.join(self.keys())
         return f"<FlexDict with keys: {keys}>"
 
-            
-            
-            
+# # write a function that accept dictionnary  and format the result accordingly 
+# DictionnaryName( { 
+#                     key1: value1, 
+#                     key2: value2, 
+#                     key3: value3, 
+#                     ...: ..., 
+#                   }
+# )
+        
+# # the space to reach the key is the sum of the length "DictionnaryName( {" + "  " + the maximum 
+# # key length of the dictionnay "maxkeylength" then add ":" and value. If value is exceeded 
+# # max character 50, then use three dots "..." and. 
+
+
+# # for instance : 
+#     def format_dict_result( dict_name, max_char=50): 
+#         # implement the rest. you can rename the function to make it 
+#         # intuitive and the name of parameters also 
+    
+
             
             
             
