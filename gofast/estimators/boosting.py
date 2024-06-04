@@ -16,8 +16,6 @@ __all__=[
     "BoostingTreeClassifier",
     "HybridBoostingClassifier",
     "HybridBoostingRegressor",
-    "EnsembleHBTRegressor", 
-    "EnsembleHBTClassifier",
     ]
 
 class BoostingTreeRegressor(BaseEstimator, RegressorMixin):
@@ -1268,7 +1266,7 @@ class HybridBoostingRegressor(BaseEstimator, RegressorMixin):
         combined_predictions = dt_predictions + gb_predictions
         return combined_predictions
 
-class EnsembleHBTClassifier(BaseEstimator, ClassifierMixin):
+class EnsembleBTClassifier(BaseEstimator, ClassifierMixin):
     r"""
     Hybrid Boosted Regression Tree Ensemble Classifier.
 
