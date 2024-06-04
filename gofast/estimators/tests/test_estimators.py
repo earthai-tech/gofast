@@ -77,7 +77,7 @@ def test_hammerstein_wiener_regressor(sample_data):
 
 def test_ensemble_hw_classifier(classification_data):
     X_train, X_test, y_train, y_test = classification_data
-    classifier = EnsembleHWClassifier(n_estimators=10, learning_rate=0.1)
+    classifier = EnsembleHWClassifier(n_estimators=10, eta0=0.1)
     classifier.fit(X_train, y_train)
     predictions = classifier.predict(X_test)
     accuracy = np.mean(predictions == y_test)
@@ -110,7 +110,7 @@ def test_weighted_average_regressor(sample_data):
 
 def test_ensemble_hbt_regressor(sample_data):
     X_train, X_test, y_train, y_test = sample_data
-    model = EnsembleHBTRegressor(n_estimators=10, learning_rate=0.05, max_depth=3)
+    model = EnsembleHBTRegressor(n_estimators=10, eta0=0.05, max_depth=3)
     model.fit(X_train, y_train)
     predictions = model.predict(X_test)
     assert mean_squared_error(y_test, predictions) < 50000  # Example threshold
@@ -444,7 +444,7 @@ def test_hybrid_boosted_tree_classifier():
 
     # Create and fit the HybridBoostedTreeClassifier
     ensemble = HybridBoostedTreeClassifier(
-        n_estimators=50, learning_rate=0.01, max_depth=3)
+        n_estimators=50, eta0=0.01, max_depth=3)
     ensemble.fit(X_train, y_train)
 
     # Make predictions and calculate accuracy
@@ -523,7 +523,7 @@ def test_hybrid_boosted_tree_ensemble_regressor():
         X, y, test_size=0.3, random_state=0)
 
     # Create and fit the HybridBoostedTreeEnsembleRegressor
-    ensemble = EnsembleHBTRegressor(n_estimators=50, max_depth=3, learning_rate=0.1)
+    ensemble = EnsembleHBTRegressor(n_estimators=50, max_depth=3, eta0=0.1)
     ensemble.fit(X_train, y_train)
 
     # Make predictions and calculate mean squared error

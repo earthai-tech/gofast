@@ -10,6 +10,7 @@ import numpy as np
 
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
+from sklearn.utils import resample
 
 from ..api.property import BaseClass 
 from ..tools.validator import check_X_y, get_estimator_name, check_array 
@@ -150,7 +151,7 @@ class DecisionTreeBasedRegressor(BaseEstimator, RegressorMixin):
         return np.mean(predictions, axis=0)
 
 class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
-    r"""
+    """
     Decision Tree-Based Classifier.
 
     This classifier leverages an ensemble of decision trees to enhance prediction 
@@ -174,7 +175,71 @@ class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
     random_state : int, optional
         Controls the randomness of the tree building process and the bootstrap 
         sampling of the data points (if bootstrapping is used).
-
+    
+    criterion : str, default="squared_error"
+        The function to measure the quality of a split. Supported criteria 
+        are "squared_error" for the mean squared error, which is equal to 
+        variance reduction as feature selection criterion, and "friedman_mse", 
+        which uses mean squared error with Friedman's improvement score for 
+        potential splits.
+        
+    splitter : str, default="best"
+        The strategy used to choose the split at each node. Supported strategies 
+        are "best" to choose the best split and "random" to choose the best 
+        random split.
+        
+    min_samples_split : int or float, default=2
+        The minimum number of samples required to split an internal node:
+        - If int, then consider min_samples_split as the minimum number.
+        - If float, then min_samples_split is a fraction and ceil
+        (min_samples_split * n_samples) are the minimum number of samples 
+        for each split.
+        
+    min_samples_leaf : int or float, default=1
+        The minimum number of samples required to be at a leaf node. A split 
+        point at any depth will only be considered if it leaves at least 
+        min_samples_leaf training samples in each of the left and right branches.
+        - If int, then consider min_samples_leaf as the minimum number.
+        - If float, then min_samples_leaf is a fraction and ceil
+        (min_samples_leaf * n_samples) are the minimum number of samples for 
+        each node.
+        
+    min_weight_fraction_leaf : float, default=0.0
+        The minimum weighted fraction of the sum total of weights (of all the input 
+        samples) required to be at a leaf node. Samples have equal weight when 
+        sample_weight is not provided.
+        
+    max_features : int, float, str or None, default=None
+        The number of features to consider when looking for the best split:
+        - If int, then consider max_features features at each split.
+        - If float, then max_features is a fraction and int(max_features * n_features) 
+          features are considered at each split.
+        - If "auto", then max_features=n_features.
+        - If "sqrt", then max_features=sqrt(n_features).
+        - If "log2", then max_features=log2(n_features).
+        - If None, then max_features=n_features.
+        
+    random_state : int, RandomState instance or None, default=None
+        Controls the randomness of the estimator. The features are always 
+        randomly permuted at each split. When max_features < n_features, 
+        the algorithm will select max_features at random at each split 
+        before finding the best split among them. 
+        - Pass an int for reproducible output across multiple function calls.
+        
+    max_leaf_nodes : int or None, default=None
+        Grow a tree with max_leaf_nodes in best-first fashion. Best nodes are
+        defined as relative reduction in impurity. If None, then unlimited 
+        number of leaf nodes.
+        
+    min_impurity_decrease : float, default=0.0
+        A node will be split if this split induces a decrease of the impurity 
+        greater than or equal to this value.
+        
+    ccp_alpha : non-negative float, default=0.0
+        Complexity parameter used for Minimal Cost-Complexity Pruning. The 
+        subtree with the largest cost complexity that is smaller than ccp_alpha
+        will be chosen.
+    
     Attributes
     ----------
     tree_classifiers_ : list of DecisionTreeClassifier
@@ -243,13 +308,35 @@ class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
       base learners in ensemble methods.
 
     """
-
-    def __init__(self, n_estimators=100, max_depth=3, random_state=None):
+    def __init__(
+        self, n_estimators=10, 
+        max_depth=None, 
+        criterion='gini', 
+        splitter='best', 
+        min_samples_split=2, 
+        min_samples_leaf=1, 
+        min_weight_fraction_leaf=0.0, 
+        max_features=None, 
+        random_state=None, 
+        max_leaf_nodes=None, 
+        min_impurity_decrease=0.0, 
+        class_weight=None, 
+        ccp_alpha=0.0
+    ):
         self.n_estimators = n_estimators
         self.max_depth = max_depth
-        self.random_state = random_state 
-        
-        
+        self.criterion = criterion
+        self.splitter = splitter
+        self.min_samples_split = min_samples_split
+        self.min_samples_leaf = min_samples_leaf
+        self.min_weight_fraction_leaf = min_weight_fraction_leaf
+        self.max_features = max_features
+        self.random_state = random_state
+        self.max_leaf_nodes = max_leaf_nodes
+        self.min_impurity_decrease = min_impurity_decrease
+        self.class_weight = class_weight
+        self.ccp_alpha = ccp_alpha
+
     def fit(self, X, y):
         """
         Fit the Regression Tree Ensemble Classifier model to the data.
@@ -266,19 +353,38 @@ class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
         self : object
             Returns self.
         """
-        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
+        X, y = check_X_y(
+            X, y, 
+            accept_sparse= True, 
+            accept_large_sparse= True, 
+            estimator = get_estimator_name(self )
+            )
         self.estimators_ = []
         for _ in range(self.n_estimators):
-            tree = DecisionTreeClassifier(max_depth=self.max_depth, 
-                                          random_state=self.random_state)
-            tree.fit(X, y)
+            X_resampled, y_resampled = resample(
+                X, y, random_state=self.random_state)
+            tree = DecisionTreeClassifier(
+                max_depth=self.max_depth, 
+                criterion=self.criterion, 
+                splitter=self.splitter, 
+                min_samples_split=self.min_samples_split, 
+                min_samples_leaf=self.min_samples_leaf, 
+                min_weight_fraction_leaf=self.min_weight_fraction_leaf, 
+                max_features=self.max_features, 
+                random_state=self.random_state, 
+                max_leaf_nodes=self.max_leaf_nodes, 
+                min_impurity_decrease=self.min_impurity_decrease,
+                class_weight=self.class_weight, 
+                ccp_alpha=self.ccp_alpha
+            )
+            tree.fit(X_resampled, y_resampled)
             self.estimators_.append(tree)
 
         return self
 
     def predict(self, X):
         """
-        Predict using the Regression Tree Ensemble Classifier model.
+        Predict class for X.
 
         Parameters
         ----------
@@ -287,8 +393,8 @@ class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
 
         Returns
         -------
-        y_pred : array-like of shape (n_samples,)
-            The predicted class labels.
+        y : ndarray of shape (n_samples,)
+            The predicted classes.
         """
         check_is_fitted(self, 'estimators_')
         X = check_array(
@@ -299,13 +405,14 @@ class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
             )
         predictions = np.array([tree.predict(X) for tree in self.estimators_])
         # Majority voting
-        y_pred = stats.mode(predictions, axis=0).mode[0]
-        return y_pred
-    
+        majority_vote = np.apply_along_axis(
+            lambda x: np.bincount(x).argmax(), axis=0, arr=predictions)
+        # y_pred = stats.mode(predictions, axis=0).mode[0]
+        return majority_vote
+
     def predict_proba(self, X):
         """
-        Predict class probabilities using the Decision Tree Based Ensemble 
-        Classifier model.
+        Predict class probabilities for X.
 
         Parameters
         ----------
@@ -314,18 +421,658 @@ class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
 
         Returns
         -------
-        proba : array-like of shape (n_samples, n_classes)
+        p : ndarray of shape (n_samples, n_classes)
             The class probabilities of the input samples.
         """
         check_is_fitted(self, 'estimators_')
-        X = check_array(X, accept_sparse=True)
-
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
         # Collect probabilities from each estimator
-        all_proba = np.array([tree.predict_proba(X) for tree in self.estimators_])
+        probas = np.array([tree.predict_proba(X) for tree in self.estimators_])
         # Average probabilities across all estimators
-        avg_proba = np.mean(all_proba, axis=0)
+        avg_proba = np.mean(probas, axis=0)
         return avg_proba
-   
+
+class WeightedTreeClassifier(BaseEstimator, ClassifierMixin):
+    r"""
+    Weighted Tree Classifier.
+
+    The Weighted Tree Classifier is an ensemble learning model that 
+    combines decision trees with gradient boosting techniques to tackle binary 
+    classification tasks.
+    
+    By integrating multiple decision trees with varying weights, this classifier
+    achieves high accuracy and reduces the risk of overfitting.
+
+    Parameters
+    ----------
+    n_estimators : int, default=50
+        The number of decision trees in the ensemble.
+    eta0 : float, default=0.1
+        The learning rate for gradient boosting, controlling how much each tree
+        influences the overall prediction.
+    max_depth : int, default=3
+        The maximum depth of each decision tree, determining the complexity of
+        the model.
+        
+    criterion : {"gini", "entropy"}, default="gini"
+        The function to measure the quality of a split. Supported criteria 
+        are "gini" for the Gini impurity and "entropy" for the information 
+        gain.
+
+    splitter : {"best", "random"}, default="best"
+        The strategy used to choose the split at each node. Supported 
+        strategies are "best" to choose the best split and "random" to 
+        choose the best random split.
+
+    min_samples_split : int or float, default=2
+        The minimum number of samples required to split an internal node:
+        - If int, then consider min_samples_split as the minimum number.
+        - If float, then min_samples_split is a fraction and 
+          `ceil(min_samples_split * n_samples)` are the minimum number of 
+          samples for each split.
+
+    min_samples_leaf : int or float, default=1
+        The minimum number of samples required to be at a leaf node. A 
+        split point at any depth will only be considered if it leaves at 
+        least `min_samples_leaf` training samples in each of the left and 
+        right branches.
+        - If int, then consider `min_samples_leaf` as the minimum number.
+        - If float, then `min_samples_leaf` is a fraction and 
+          `ceil(min_samples_leaf * n_samples)` are the minimum number of 
+          samples for each node.
+
+    min_weight_fraction_leaf : float, default=0.0
+        The minimum weighted fraction of the sum total of weights (of all 
+        the input samples) required to be at a leaf node. Samples have 
+        equal weight when sample_weight is not provided.
+
+    max_features : int, float, str or None, default=None
+        The number of features to consider when looking for the best split:
+        - If int, then consider `max_features` features at each split.
+        - If float, then `max_features` is a fraction and 
+          `int(max_features * n_features)` features are considered at each 
+          split.
+        - If "auto", then `max_features=n_features`.
+        - If "sqrt", then `max_features=sqrt(n_features)`.
+        - If "log2", then `max_features=log2(n_features)`.
+        - If None, then `max_features=n_features`.
+
+    random_state : int, RandomState instance or None, default=None
+        Controls the randomness of the estimator. The features are always 
+        randomly permuted at each split. When `max_features` < n_features, 
+        the algorithm will select `max_features` at random at each split 
+        before finding the best split among them. 
+        - Pass an int for reproducible output across multiple function calls.
+
+    max_leaf_nodes : int or None, default=None
+        Grow a tree with `max_leaf_nodes` in best-first fashion. Best nodes 
+        are defined as relative reduction in impurity. If None, then 
+        unlimited number of leaf nodes.
+
+    min_impurity_decrease : float, default=0.0
+        A node will be split if this split induces a decrease of the impurity 
+        greater than or equal to this value.
+
+    class_weight : dict, list of dicts, "balanced" or None, default=None
+        Weights associated with classes in the form `{class_label: weight}`. 
+        If None, all classes are supposed to have weight one. If "balanced", 
+        the class weights will be adjusted inversely proportional to class 
+        frequencies in the input data as `n_samples / (n_classes * np.bincount(y))`.
+
+    ccp_alpha : non-negative float, default=0.0
+        Complexity parameter used for Minimal Cost-Complexity Pruning. The 
+        subtree with the largest cost complexity that is smaller than 
+        `ccp_alpha` will be chosen.
+
+    Attributes
+    ----------
+    base_estimators_ : list of DecisionTreeClassifier
+        List of base learners, each a DecisionTreeClassifier.
+    weights_ : list
+        Weights associated with each base learner, influencing their contribution
+        to the final prediction.
+
+    Example
+    -------
+    Here's an example of how to use the `HybridBoostingTreeClassifier` on the
+    Iris dataset for binary classification:
+
+    >>> from sklearn.datasets import load_iris
+    >>> from sklearn.model_selection import train_test_split
+    >>> from gofast.estimators.tree import HybridBoostingTreeClassifier
+
+    >>> # Load the Iris dataset
+    >>> iris = load_iris()
+    >>> X = iris.data[:, :2]
+    >>> y = (iris.target != 0) * 1  # Converting to binary classification
+
+    >>> # Split the data into training and testing sets
+    >>> X_train, X_test, y_train, y_test = train_test_split(
+    ...     X, y, test_size=0.3, random_state=0)
+
+    >>> # Create and fit the WeightedTreeClassifier
+    >>> hybrid_boosted_tree = WeightedTreeClassifier(
+    ...     n_estimators=50, eta0=0.01, max_depth=3)
+    >>> hybrid_boosted_tree.fit(X_train, y_train)
+
+    >>> # Make predictions and evaluate the model
+    >>> y_pred = hybrid_boosted_tree.predict(X_test)
+    >>> accuracy = np.mean(y_pred == y_test)
+    >>> print('Accuracy:', accuracy)
+
+    Notes
+    -----
+    The Hybrid Boosted Tree Classifier uses a series of mathematical steps to refine
+    the predictions iteratively:
+    
+    1. Weighted Error Calculation:
+       .. math::
+           \text{Weighted Error} = \sum_{i=1}^{n} (weights_i \cdot (y_i \neq y_{\text{pred}_i}))
+    
+    2. Weight Calculation for Base Learners:
+       .. math::
+           \text{Weight} = \text{learning\_rate} \cdot\\
+               \log\left(\frac{1 - \text{Weighted Error}}{\text{Weighted Error}}\right)
+    
+    3. Update Sample Weights:
+       .. math::
+           \text{Sample\_Weights} = \exp(-\text{Weight} \cdot y \cdot y_{\text{pred}})
+    
+    where:
+    - :math:`n` is the number of samples in the training data.
+    - :math:`weights_i` are the weights associated with each sample.
+    - :math:`y_i` is the true label of each sample.
+    - :math:`y_{\text{pred}_i}` is the predicted label by the classifier.
+    - :math:`\text{learning\_rate}` is a parameter that controls the rate at 
+      which the model learns.
+    
+    This model effectively combines the predictive power of multiple trees 
+    through boosting, adjusting errors from previous iterations to 
+    enhance overall accuracy.
+
+    The Hybrid Boosted Tree Classifier is suitable for binary classification
+    tasks where you want to combine the strengths of decision trees and
+    gradient boosting. It can be used in various applications, such as
+    fraud detection, spam classification, and more.
+
+    The model's performance depends on the quality of the data, the choice of
+    hyperparameters, and the number of estimators. With proper tuning, it can
+    achieve high classification accuracy.
+
+    See Also
+    --------
+    - `sklearn.ensemble.GradientBoostingClassifier`: Scikit-learn's Gradient
+      Boosting Classifier for comparison.
+    - `sklearn.tree.DecisionTreeClassifier`: Decision tree classifier used as
+      base learners in ensemble methods.
+    - `sklearn.metrics.accuracy_score`: A common metric for evaluating
+      classification models.
+
+    """
+    def __init__(
+        self, 
+        n_estimators=50, 
+        eta0=0.1, 
+        max_depth=3, 
+        criterion="gini", 
+        splitter="best", 
+        min_samples_split=2, 
+        min_samples_leaf=1, 
+        min_weight_fraction_leaf=0., 
+        max_features=None, 
+        random_state=None, 
+        max_leaf_nodes=None, 
+        min_impurity_decrease=0.,
+        class_weight=None, 
+        ccp_alpha=0. 
+        ):
+        self.n_estimators = n_estimators
+        self.eta0 = eta0
+        self.max_depth = max_depth
+        self.criterion = criterion 
+        self.splitter = splitter 
+        self.min_samples_split = min_samples_split 
+        self.min_samples_leaf = min_samples_leaf
+        self.min_weight_fraction_leaf = min_weight_fraction_leaf 
+        self.max_features = max_features 
+        self.random_state = random_state 
+        self.max_leaf_nodes = max_leaf_nodes 
+        self.min_impurity_decrease = min_impurity_decrease
+        self.class_weight = class_weight 
+        self.ccp_alpha = ccp_alpha 
+
+    def fit(self, X, y):
+        """Fit training data.
+
+        Parameters
+        ----------
+        X : {array-like}, shape = [n_samples, n_features]
+            Training vectors, where n_samples is the number of samples and
+            n_features is the number of features.
+        y : array-like, shape = [n_samples]
+            Target values.
+
+        Returns
+        -------
+        self : object
+        
+        """
+        self.base_estimators_ = []
+        self.weights_ = []
+        # Initialize sample weights
+        sample_weights = self._compute_sample_weights(y) 
+    
+        for _ in range(self.n_estimators):
+            # Fit a decision tree on the weighted dataset
+            base_estimator = DecisionTreeClassifier(
+                max_depth=self.max_depth,
+                criterion=self.criterion, 
+                splitter=self.splitter, 
+                min_samples_split=self.min_samples_split, 
+                min_samples_leaf=self.min_samples_leaf, 
+                min_weight_fraction_leaf=self.min_weight_fraction_leaf, 
+                max_features=self.max_features, 
+                random_state=self.random_state, 
+                max_leaf_nodes=self.max_leaf_nodes, 
+                min_impurity_decrease=self.min_impurity_decrease,
+                class_weight=self.class_weight, 
+                ccp_alpha=self.ccp_alpha
+            )
+                
+            base_estimator.fit(X, y, sample_weight=sample_weights)
+            
+            # Calculate weighted error
+            y_pred = base_estimator.predict(X)
+            errors = (y != y_pred)
+            weighted_error = np.sum(sample_weights * errors) / np.sum(sample_weights)
+    
+            if weighted_error == 0:
+                # Prevent log(0) scenario
+                continue
+    
+            # Weight calculation for this base estimator
+            weight = self.eta0 * np.log((1 - weighted_error) / weighted_error)
+            # Update sample weights for next iteration
+            sample_weights = self._update_sample_weights(y, y_pred, weight)
+            
+            # Store the base estimator and its weight
+            self.base_estimators_.append(base_estimator)
+            self.weights_.append(weight)
+    
+        return self
+
+    def predict(self, X):
+        check_is_fitted(self, 'base_estimators_')
+        y_pred = np.zeros(X.shape[0])
+    
+        for base_estimator, weight in zip(self.base_estimators_, self.weights_):
+            y_pred += weight * base_estimator.predict(X)
+    
+        # Normalize predictions before applying sign
+        y_pred = y_pred / np.sum(self.weights_) if self.weights_ else y_pred
+        return np.sign(y_pred)
+
+    def predict_proba(self, X):
+        """
+        Predict class probabilities using the Hybrid Boosted Tree Classifier 
+        model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        proba : array-like of shape (n_samples, 2)
+            The class probabilities of the input samples.
+        """
+        check_is_fitted(self, 'base_estimators_')
+        X = check_array(X, accept_sparse=True)
+        # Compute weighted sum of predictions from all base estimators
+        weighted_predictions = sum(weight * estimator.predict(X) 
+                                   for weight, estimator in zip(
+                                           self.weights_, self.base_estimators_))
+
+        # Convert to probabilities using the sigmoid function
+        proba_positive_class = 1 / (1 + np.exp(-weighted_predictions))
+        proba_negative_class = 1 - proba_positive_class
+
+        return np.vstack((proba_negative_class, proba_positive_class)).T
+
+    def _compute_sample_weights(self, y):
+        """Compute sample weights."""
+        return np.ones_like(y) / len(y)
+
+    def _update_sample_weights(self, y, y_pred, weight):
+        """Update sample weights."""
+        return np.exp(-weight * y * y_pred)
+    
+
+class WeightedTreeRegressor(BaseEstimator, RegressorMixin):
+    """
+    Weighted Tree Regressor.
+
+    The Weighted Tree Regressor is an ensemble learning model that 
+    combines decision trees with gradient boosting techniques to tackle regression tasks.
+    
+    By integrating multiple decision trees with varying weights, this regressor
+    achieves high accuracy and reduces the risk of overfitting.
+
+    Parameters
+    ----------
+    n_estimators : int, default=50
+        The number of decision trees in the ensemble.
+    eta0 : float, default=0.1
+        The learning rate for gradient boosting, controlling how much each tree
+        influences the overall prediction.
+    max_depth : int, default=3
+        The maximum depth of each decision tree, determining the complexity of
+        the model.
+    criterion : {"squared_error", "friedman_mse", "absolute_error", "poisson"},\
+        default="squared_error"
+        The function to measure the quality of a split.
+    splitter : {"best", "random"}, default="best"
+        The strategy used to choose the split at each node.
+    min_samples_split : int or float, default=2
+        The minimum number of samples required to split an internal node.
+    min_samples_leaf : int or float, default=1
+        The minimum number of samples required to be at a leaf node.
+    min_weight_fraction_leaf : float, default=0.0
+        The minimum weighted fraction of the sum total of weights (of all the input samples)
+        required to be at a leaf node.
+    max_features : int, float, str or None, default=None
+        The number of features to consider when looking for the best split.
+    random_state : int, RandomState instance or None, default=None
+        Controls the randomness of the estimator.
+    max_leaf_nodes : int or None, default=None
+        Grow a tree with `max_leaf_nodes` in best-first fashion.
+    min_impurity_decrease : float, default=0.0
+        A node will be split if this split induces a decrease of the impurity 
+        greater than or equal to this value.
+
+    Attributes
+    ----------
+    base_estimators_ : list of DecisionTreeRegressor
+        List of base learners, each a DecisionTreeRegressor.
+    weights_ : list
+        Weights associated with each base learner, influencing their contribution
+        to the final prediction.
+
+    Example
+    -------
+    Here's an example of how to use the `WeightedTreeRegressor` on a dataset:
+
+    >>> from sklearn.datasets import make_regression
+    >>> from sklearn.model_selection import train_test_split
+    >>> from gofast.estimators.tree import WeightedTreeRegressor
+
+    >>> X, y = make_regression(n_samples=100, n_features=4, noise=0.1)
+    >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, 
+                                                            random_state=0)
+
+    >>> reg = WeightedTreeRegressor(n_estimators=50, eta0=0.1, max_depth=3)
+    >>> reg.fit(X_train, y_train)
+    >>> y_pred = reg.predict(X_test)
+
+    Notes
+    -----
+    This model effectively combines the predictive power of multiple trees 
+    through boosting, adjusting errors from previous iterations to 
+    enhance overall accuracy.
+
+    The model's performance depends on the quality of the data, the choice of
+    hyperparameters, and the number of estimators. With proper tuning, it can
+    achieve high regression accuracy.
+    """
+
+    def __init__(
+        self, 
+        n_estimators=50, 
+        eta0=0.1, 
+        max_depth=3, 
+        criterion="squared_error", 
+        splitter="best", 
+        min_samples_split=2, 
+        min_samples_leaf=1, 
+        min_weight_fraction_leaf=0., 
+        max_features=None, 
+        random_state=None, 
+        max_leaf_nodes=None, 
+        min_impurity_decrease=0.
+        ):
+        self.n_estimators = n_estimators
+        self.eta0 = eta0
+        self.max_depth = max_depth
+        self.criterion = criterion 
+        self.splitter = splitter 
+        self.min_samples_split = min_samples_split 
+        self.min_samples_leaf = min_samples_leaf
+        self.min_weight_fraction_leaf = min_weight_fraction_leaf 
+        self.max_features = max_features 
+        self.random_state = random_state 
+        self.max_leaf_nodes = max_leaf_nodes 
+        self.min_impurity_decrease = min_impurity_decrease
+
+    def fit(self, X, y):
+        """
+        Fit training data.
+
+        Parameters
+        ----------
+        X : {array-like}, shape = [n_samples, n_features]
+            Training vectors, where n_samples is the number of samples and
+            n_features is the number of features.
+        y : array-like, shape = [n_samples]
+            Target values.
+
+        Returns
+        -------
+        self : object
+        """
+        X, y = check_X_y(X, y, accept_sparse=True, accept_large_sparse=True)
+        self.base_estimators_ = []
+        self.weights_ = []
+        residuals = y
+
+        for _ in range(self.n_estimators):
+            base_estimator = DecisionTreeRegressor(
+                max_depth=self.max_depth,
+                criterion=self.criterion, 
+                splitter=self.splitter, 
+                min_samples_split=self.min_samples_split, 
+                min_samples_leaf=self.min_samples_leaf, 
+                min_weight_fraction_leaf=self.min_weight_fraction_leaf, 
+                max_features=self.max_features, 
+                random_state=self.random_state, 
+                max_leaf_nodes=self.max_leaf_nodes, 
+                min_impurity_decrease=self.min_impurity_decrease
+            )
+                
+            base_estimator.fit(X, residuals)
+            predictions = base_estimator.predict(X)
+
+            residuals -= self.eta0 * predictions
+            self.base_estimators_.append(base_estimator)
+            self.weights_.append(self.eta0)
+    
+        return self
+
+    def predict(self, X):
+        """
+        Predict using the Weighted Tree Regressor model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        y : ndarray of shape (n_samples,)
+            The predicted values.
+        """
+        check_is_fitted(self, 'base_estimators_')
+        X = check_array(X, accept_sparse=True)
+        y_pred = np.zeros(X.shape[0])
+    
+        for base_estimator, weight in zip(self.base_estimators_, self.weights_):
+            y_pred += weight * base_estimator.predict(X)
+    
+        return y_pred
+
+    def _compute_sample_weights(self, y):
+        """Compute sample weights."""
+        return np.ones_like(y) / len(y)
+
+    def _update_sample_weights(self, y, y_pred, weight):
+        """Update sample weights."""
+        return np.exp(-weight * y * y_pred)
+
+
+class WeightedTreeRegressor0(BaseEstimator, RegressorMixin):
+    r"""
+    Weighted Regression Tree (BRT) for regression tasks.
+
+    The Hybrid Boosted Tree Regressor is a powerful ensemble learning model
+    that combines multiple Boosted Regression Tree (BRT) models. Each BRT
+    model is itself an ensemble created using boosting principles.
+    
+    This ensemble model combines multiple Boosted Regression Tree models,
+    each of which is an ensemble in itself, created using the 
+    principles of boosting.
+    
+    In `HybridBoostingTreeRegressor` class, the `n_estimators` parameter 
+    controls the number of individual Boosted Regression Trees in the ensemble,
+    and `brt_params` is a dictionary of parameters to be passed to each Boosted 
+    Regression Tree model. The `GradientBoostingRegressor` from scikit-learn 
+    is used as the individual BRT model. This class's fit method trains 
+    each BRT model on the entire dataset, and the predict method averages 
+    their predictions for the final output.
+
+    Parameters
+    ----------
+    n_estimators : int, default=50
+        The number of Boosted Regression Tree models in the ensemble.
+    brt_params : dict, default=None
+        Dictionary of parameters for configuring each Boosted Regression Tree model. 
+        If None, default parameters are used.
+
+    Attributes
+    ----------
+    brt_ensembles_ : list of GradientBoostingRegressor
+        A list containing the fitted Boosted Regression Tree models.
+
+    Example
+    -------
+    Here's an example of how to initialize and use the `HybridBoostingTreeRegressor`:
+    ```python
+    from gofast.estimators.boosting import HybridBoostingTreeRegressor
+    import numpy as np
+
+    brt_params = {'n_estimators': 100, 'max_depth': 3, 'eta0': 0.1}
+    hybrid_brt = HybridBoostingTreeRegressor(n_estimators=10, brt_params=brt_params)
+    X, y = np.random.rand(100, 4), np.random.rand(100)
+    hybrid_brt.fit(X, y)
+    y_pred = hybrid_brt.predict(X)
+    ```
+
+    Notes
+    -----
+    The Hybrid Boosted Tree Regressor employs an iterative process to refine 
+    predictions:
+
+    1. Calculate Residuals:
+       .. math::
+           \text{Residuals} = y - F_k(x)
+
+    2. Update Predictions:
+       .. math::
+           F_{k+1}(x) = F_k(x) + \text{eta0} \cdot h_k(x)
+
+    where:
+    - :math:`F_k(x)` is the prediction of the ensemble at iteration \(k\).
+    - :math:`y` is the true target values.
+    - :math:`\text{eta0}` is the learning rate, influencing the impact
+      of each tree.
+    - :math:`h_k(x)` is the prediction update contributed by the new tree at 
+      iteration \(k\).
+
+    The Hybrid Boosted Regression Tree Ensemble is particularly effective for
+    regression tasks requiring accurate modeling of complex relationships 
+    within data, such as in financial markets, real estate, or any predictive 
+    modeling that benefits from robust and precise forecasts.
+
+    The model's performance significantly depends on the quality of the data, 
+    the setting of hyperparameters, and the adequacy of the training process.
+
+    See Also
+    --------
+    - `sklearn.ensemble.GradientBoostingRegressor`: Compare to Scikit-learn's 
+      Gradient Boosting Regressor.
+    - `sklearn.tree.DecisionTreeRegressor`: The type of regressor used as base 
+      learners in this ensemble method.
+    """
+    def __init__(self, n_estimators=10, brt_params=None):
+        self.n_estimators = n_estimators
+        self.brt_params = brt_params or {}
+
+    def fit(self, X, y):
+        """
+        Fit the Hybrid Boosted Regression Tree Ensemble model to the data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The training input samples.
+        y : array-like of shape (n_samples,)
+            The target values (real numbers).
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
+        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
+        self.brt_ensembles_ = []
+        for _ in range(self.n_estimators):
+            brt = DecisionTreeRegressor(**self.brt_params)
+            brt.fit(X, y)
+            self.brt_ensembles_.append(brt)
+
+        return self
+
+    def predict(self, X):
+        """
+        Predict using the Hybrid Boosted Regression Tree Ensemble model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            The predicted values.
+        """
+        check_is_fitted(self, "brt_ensembles_")
+        
+        X = check_array(
+            X,
+            accept_large_sparse=True,
+            accept_sparse= True,
+            to_frame=False, 
+            )
+        
+        predictions = np.array([brt.predict(X) for brt in self.brt_ensembles_])
+        return np.mean(predictions, axis=0)
+    
 class StandardEstimator:
     """Base class for all classes in gofast for parameters retrievals
 

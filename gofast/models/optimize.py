@@ -16,11 +16,12 @@ from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 
 from ..api.box import KeyBox 
 from ..api.types import Any, Dict, List,Union, Tuple, Optional, ArrayLike
-from ..api.types import Array1D, NDArray 
+from ..api.types import _F, Array1D, NDArray
 from ..api.summary import ModelSummary
 from ..tools.coreutils import ellipsis2false , smart_format
 from ..tools.validator import get_estimator_name 
 from .utils import get_optimizer_method, align_estimators_with_params
+from .utils import params_combinations 
 
 __all__=["optimize_search", "optimize_search2", "parallelize_search", 
          "optimize_hyperparams"]
@@ -120,47 +121,86 @@ def optimize_search(
     summary.summary(result_dict)
     return summary
 
-def optimize_search2(estimators, param_grids, X, y, optimizer='GSCV', 
-                     save_results=False, n_jobs=-1, **search_kwargs):
+def _validate_parameters(param_grids, estimators):
+    return align_estimators_with_params(param_grids, estimators)
+
+def _initialize_search(optimizer, estimator, param_grid, **search_kwargs):
+    optimizer_class = get_optimizer_method(optimizer)
+    return optimizer_class(estimator, param_grid, **search_kwargs)
+
+def _perform_search(name, estimator, param_grid, optimizer, X, y, 
+                    search_kwargs, progress_bar_desc):
+    search = _initialize_search(optimizer, estimator, param_grid, **search_kwargs)
+    #n_iter = len( params_combinations(param_grid )) 
+    n_iter = search_kwargs.get('n_iter', len( list(params_combinations(param_grid )) ))
+    pbar = tqdm(total=n_iter, desc=progress_bar_desc, ncols=103, ascii=True,
+                position=0, leave=True)
+    
+    for _ in range(n_iter):
+        search.fit(X, y)
+        pbar.update(1)
+        
+    pbar.close()
+    
+    return (
+        name, 
+        search.best_estimator_, 
+        search.best_params_,  
+        search.best_score_, 
+        search.cv_results_
+    )
+
+def optimize_search2(
+    estimators: Dict[str, BaseEstimator], 
+    param_grids: Dict[str, Any],
+    X: ArrayLike, 
+    y: ArrayLike, 
+    optimizer: str='GSCV', 
+    save_results: bool=False, 
+    n_jobs: int=-1, 
+    **search_kwargs: Any 
+    ):
     """
     Perform hyperparameter optimization for a list of estimators.
 
-    This function applies a specified optimization technique (e.g., Grid Search)
-    to a range of estimators and their associated parameter grids. It allows for
-    the simultaneous tuning of multiple models, facilitating the selection of the
-    best model and parameters based on the provided data.
+    This function applies a specified optimization technique (e.g., 
+    Grid Search) to a range of estimators and their associated 
+    parameter grids. It allows for the simultaneous tuning of multiple 
+    models, facilitating the selection of the best model and parameters 
+    based on the provided data.
 
     Parameters
     ----------
     estimators : list of estimator objects or tuples (str, estimator)
-        A list of estimators or (name, estimator) tuples. Each estimator is an
-        instance of a model to be optimized. If a tuple is provided, the first
-        element is used as the name of the estimator.
+        A list of estimators or (name, estimator) tuples. Each estimator 
+        is an instance of a model to be optimized. If a tuple is provided, 
+        the first element is used as the name of the estimator.
 
     param_grids : list of dicts
-        A list of dictionaries, where each dictionary contains the parameters to
-        be searched for the corresponding estimator in `estimators`. Each key in
-        the dictionary is a parameter name, and the associated value is a list of
-        values to try for that parameter.
+        A list of dictionaries, where each dictionary contains the 
+        parameters to be searched for the corresponding estimator in 
+        `estimators`. Each key in the dictionary is a parameter name, and 
+        the associated value is a list of values to try for that parameter.
 
     X : array-like of shape (n_samples, n_features)
-        Training data, with `n_samples` as the number of samples and `n_features`
-        as the number of features.
+        Training data, with `n_samples` as the number of samples and 
+        `n_features` as the number of features.
 
     y : array-like of shape (n_samples,) or (n_samples, n_outputs)
         Target values corresponding to `X`.
 
     optimizer : str, default='GSCV'
-        The optimization technique to apply. 'GSCV' refers to Grid Search Cross
-        Validation. Additional optimizers can be implemented and specified here.
+        The optimization technique to apply. 'GSCV' refers to Grid Search 
+        Cross Validation. Additional optimizers can be implemented and 
+        specified here.
 
     save_results : bool, default=False
-        If True, the optimization results (best parameters and scores) for each
-        estimator are saved to a file.
+        If True, the optimization results (best parameters and scores) for 
+        each estimator are saved to a file.
 
     n_jobs : int, default=-1
-        The number of jobs to run in parallel for `optimizer`. `-1` means using
-        all processors.
+        The number of jobs to run in parallel for `optimizer`. `-1` means 
+        using all processors.
 
     search_kwargs : dict, optional
         Additional keyword arguments to pass to the optimizer function.
@@ -168,80 +208,131 @@ def optimize_search2(estimators, param_grids, X, y, optimizer='GSCV',
     Returns
     -------
     results : dict
-        A dictionary containing the optimization results for each estimator.
-        The keys are the estimator names, and the values are the results
+        A dictionary containing the optimization results for each estimator. 
+        The keys are the estimator names, and the values are the results 
         returned by the optimizer for that estimator.
 
     Examples
     --------
+    >>> from sklearn.svm import SVC
+    >>> from sklearn.linear_model import SGDClassifier
+    >>> from sklearn.datasets import make_classification
+    >>> from sklearn.model_selection import train_test_split
+    >>> from gofast.models.optimize import optimize
+    >>> X, y = make_classification(n_samples=100, n_features=7, 
+                                   random_state=42)
+    >>> X_train, X_test, y_train, y_test = train_test_split(X, y, 
+                                                            test_size=0.2, 
+                                                            random_state=42)
+    >>> estimators = [SVC(), SGDClassifier()]
+    >>> param_grids = [{'C': [1, 10], 'kernel': ['linear', 'rbf']}, 
+                       {'max_iter': [10, 50], 'alpha': [0.0001, 0.001]}]
+    >>> result = optimize(estimators, param_grids, X_train, y_train, 
+                          n_jobs=1, n_iter=10)
+    >>> print(result)
+                      Optimized Results                       
+    ==============================================================
+    |                            SVC                             |
+    --------------------------------------------------------------
+                            Model Results                         
+    ==============================================================
+    Best estimator       : SVC
+    Best parameters      : {'C': 1, 'kernel': 'rbf'}
+    Best score           : 0.9625
+    nCV                  : 5
+    Params combinations  : 4
+    ==============================================================
+    
+                       Tuning Results (*=score)                   
+    ==============================================================
+            Params   Mean*  Std.* Overall Mean* Overall Std.* Rank
+    --------------------------------------------------------------
+    0   (1, linear) 0.9375 0.0395        0.9375        0.0395    3
+    1      (1, rbf) 0.9625 0.0500        0.9625        0.0500    1
+    2  (10, linear) 0.9250 0.0468        0.9250        0.0468    4
+    3     (10, rbf) 0.9625 0.0306        0.9625        0.0306    1
+    ==============================================================
+    
+    
+    ==============================================================
+    |                       SGDClassifier                        |
+    --------------------------------------------------------------
+                            Model Results                         
+    ==============================================================
+    Best estimator       : SGDClassifier
+    Best parameters      : {'alpha': 0.0001, 'max_iter': 100}
+    Best score           : 0.9750
+    nCV                  : 5
+    Params combinations  : 4
+    ==============================================================
+    
+                       Tuning Results (*=score)                   
+    ==============================================================
+            Params   Mean*  Std.* Overall Mean* Overall Std.* Rank
+    --------------------------------------------------------------
+    0 (0.0001, 100) 0.9750 0.0306        0.9750        0.0306    1
+    1 (0.0001, 300) 0.9625 0.0500        0.9625        0.0500    3
+    2  (0.001, 100) 0.9750 0.0306        0.9750        0.0306    1
+    3  (0.001, 300) 0.9500 0.0468        0.9500        0.0468    4
+    ==============================================================
+
     >>> from sklearn.ensemble import RandomForestClassifier
     >>> from sklearn.model_selection import train_test_split
     >>> from gofast.datasets import make_classification 
-    >>> from gofast.models.optimize import optimize_search2
+    >>> from gofast.estimators.adaline import AdalineStochasticClassifier 
     >>> X, y = make_classification (n_samples =100, n_features=7, return_X_y=True)
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y)
     >>> estimators = [RandomForestClassifier()]
     >>> param_grids = [{'n_estimators': [100, 200], 'max_depth': [10, 20]}]
     >>> result_dict=optimize_search2(estimators, param_grids, X_train, y_train)
-    """
-    def validate_parameters():
-        return align_estimators_with_params (param_grids, estimators)
-        
-    def initialize_search(optimizer, estimator, param_grid):
-        optimizer_class = get_optimizer_method(optimizer)
-        return optimizer_class(estimator, param_grid, **search_kwargs)
+    Notes
+    -----
+    - The function uses joblib for parallel processing. Ensure that the 
+      objects passed to the function are pickleable.
+    - The progress bars are displayed using tqdm to show the progress of 
+      each estimator's optimization process.
+    - The optimization technique can be extended to include other methods 
+      by implementing additional optimizers and specifying them in the 
+      `optimizer` parameter.
 
-    def perform_search(name, estimator, param_grid, pbar):
-        search = initialize_search(optimizer, estimator, param_grid) 
-        for _ in tqdm(range(search_kwargs.get('n_iter', 1)), position=0,
-                      leave=False, desc="{:<20}".format(f"Optimizing {name}"),
-                      ncols=103, ascii=True):
-            search.fit(X, y)
-            pbar.update(1)
-        return ( 
-            name, 
-            search.best_estimator_, 
-            search.best_params_,  
-            search.best_score_, 
-            search.cv_results_
-            )
+    """
+    def make_estimator_name (estimator): 
+        return get_estimator_name(estimator ) if not isinstance ( 
+            estimator, str) else estimator
     
-    estimators, param_grids= validate_parameters()
+    estimators, param_grids = _validate_parameters(param_grids, estimators)
+    max_length = max([len(str(estimator)) for estimator in estimators])
+    
     try: 
-        progress_bars = [tqdm(total=search_kwargs.get('n_iter', 1), position=i + 1,
-                            desc="{:<20}".format(f"Optimizing {name}"),
-                            ncols=103, ascii=True) for i, name in enumerate(estimators)
-                         ]
-        results = Parallel(n_jobs=n_jobs)(delayed(perform_search)(
-            name, estimators[name], param_grids[name], progress_bars[i])
-                  for i, name in enumerate(estimators))
-    
-        for pbar in progress_bars:
-            pbar.close()
+        results = Parallel(n_jobs=n_jobs)(delayed(_perform_search)(
+            name, estimators[i], param_grids[i], optimizer, X, y, search_kwargs,
+            f"Optimizing {make_estimator_name(name):<{max_length}}")
+            for i, name in enumerate(estimators))
     except: 
         result_dict= _optimize_search2(
             X, y, param_grids=param_grids, estimators=estimators, 
              **search_kwargs)
     else: 
-        result_dict = {name: {'best_estimator': best_est, 
-                              'best_params': best_params,
-                              'best_score': best_sc, 
-                              'cv_results': cv_res}
-                   for name, best_est, best_params, best_sc, cv_res in results}    
+        result_dict = {make_estimator_name(name): {
+            'best_estimator': best_est, 'best_params': best_params, 
+            'best_score': best_sc, 'cv_results': cv_res
+            }
+           for name, best_est, best_params, best_sc, cv_res in results
+        }
     
     if save_results:
         joblib.dump(result_dict, "optimization_results.joblib")
-
+    
     return ModelSummary(**result_dict).summary(result_dict)
 
 def optimize_hyperparams(
-    estimator, 
-    param_grid, 
-    X, y, 
-    cv=5, 
-    scoring=None, 
-    optimizer= 'GridSearchCV', 
-    n_jobs=-1, 
+    estimator: BaseEstimator, 
+    param_grid: Dict[str, Any], 
+    X: ArrayLike, y: ArrayLike, 
+    cv: int=5, 
+    scoring: str | _F=None, 
+    optimizer: str= 'GridSearchCV', 
+    n_jobs: int=-1, 
     savejob: bool= ..., 
     savefile: str=None, 
     **kws 

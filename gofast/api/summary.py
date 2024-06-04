@@ -2466,7 +2466,7 @@ def detect_structure_type(model_results):
         return 'structure_1'
 
     # Check for structure_2 by looking for nested dictionaries that contain specific keys
-    if all(isinstance(val, dict) and all(key in val for key in structure_1_keys) 
+    if all(isinstance(val, dict) and all(key in standardize_keys(val) for key in structure_1_keys) 
            for val in model_results.values()):
         return 'structure_2'
 

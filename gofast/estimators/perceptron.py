@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
-#   Author: LKouadio <etanoyau@gmail.com>
+#   Author: LKouadio <eta0noyau@gmail.com>
 
 from __future__ import annotations 
 import numpy as np
@@ -41,16 +41,16 @@ class BasePerceptron(BaseEstimator, ClassifierMixin):
     prediction :math:`\hat{y}^{(i)}`, the weights are updated as:
 
     .. math::
-        w := w + \eta (y^{(i)} - \hat{y}^{(i)}) x^{(i)}
+        w := w + \eta0 (y^{(i)} - \hat{y}^{(i)}) x^{(i)}
 
-    where :math:`\eta` is the learning rate, :math:`w` is the weight vector, and
+    where :math:`\eta0` is the learning rate, :math:`w` is the weight vector, and
     :math:`x^{(i)}` is the feature vector of the :math:`i`-th example. The update
     occurs if the prediction :math:`\hat{y}^{(i)}` is incorrect, thereby gradually
     moving the decision boundary towards an optimal position.
 
     Parameters
     ----------
-    eta : float, default=0.01
+    eta0 : float, default=0.01
         The learning rate, a value between 0.0 and 1.0. It controls the
         magnitude of weight updates and hence the speed of convergence.
 
@@ -114,7 +114,7 @@ class BasePerceptron(BaseEstimator, ClassifierMixin):
     >>> X_test_std = sc.transform(X_test)
 
     # Create and fit the model
-    >>> ppn = BasePerceptron(eta=0.01, n_iter=40)
+    >>> ppn = BasePerceptron(eta0=0.01, n_iter=40)
     >>> ppn.fit(X_train_std, y_train)
 
     # Predict and evaluate
@@ -124,11 +124,11 @@ class BasePerceptron(BaseEstimator, ClassifierMixin):
 
     def __init__(
         self, 
-        eta:float = .01 , 
+        eta0:float = .01 , 
         n_iter: int = 50 , 
         random_state:int = None 
         ) :
-        self.eta=eta 
+        self.eta0=eta0 
         self.n_iter=n_iter 
         self.random_state=random_state 
         
@@ -168,7 +168,7 @@ class BasePerceptron(BaseEstimator, ClassifierMixin):
         for _ in range (self.n_iter):
             errors =0 
             for xi, target in zip(X, y):
-                update = self.eta * (target - self.predict(xi.reshape(1, -1)))
+                update = self.eta0 * (target - self.predict(xi.reshape(1, -1)))
                 self.weights_[1:] += update * xi 
                 self.weights_[0] += update 
                 errors  += int(update !=0.) 
@@ -236,11 +236,11 @@ class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
     in the context of gradient descent is mathematically formulated as follows:
 
     .. math::
-        w := w - \eta \nabla J(w)
+        w := w - \eta0 \nabla J(w)
 
     where:
     - :math:`w` represents the weight vector of the model.
-    - :math:`\eta` is the learning rate, which controls the step size during the 
+    - :math:`\eta0` is the learning rate, which controls the step size during the 
       iterative weight update process.
     - :math:`\nabla J(w)` denotes the gradient of the cost function \(J\), 
       calculated with respect to the weights. This gradient points in the direction 
@@ -254,7 +254,7 @@ class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
 
     Parameters
     ----------
-    eta : float
+    eta0 : float
         Learning rate, between 0.0 and 1.0. It controls the step size at each
         iteration while moving toward a minimum of the cost function.
 
@@ -280,14 +280,14 @@ class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
     >>> iris = load_iris()
     >>> X = iris.data
     >>> y = iris.target
-    >>> gd_clf = GradientDescentClassifier(eta=0.01, n_iter=50)
+    >>> gd_clf = GradientDescentClassifier(eta0=0.01, n_iter=50)
     >>> gd_clf.fit(X, y)
     >>> y_pred = gd_clf.predict(X)
     >>> print('Accuracy:', np.mean(y_pred == y))
 
     Notes
     -----
-    The learning rate (eta) is a critical parameter that affects the convergence
+    The learning rate (eta0) is a critical parameter that affects the convergence
     of the algorithm. A small learning rate can lead to slow convergence, while a
     large learning rate can cause oscillations or divergence in the cost function.
     The number of epochs controls the number of times the algorithm iterates
@@ -300,8 +300,8 @@ class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
     
     """
 
-    def __init__(self, eta=0.01, n_iter=50, shuffle=True):
-        self.eta = eta
+    def __init__(self, eta0=0.01, n_iter=50, shuffle=True):
+        self.eta0 = eta0
         self.n_iter = n_iter
         self.shuffle = shuffle
 
@@ -351,8 +351,8 @@ class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
                 if self.shuffle:
                     X, y_bin = shuffle(X, y_bin)
                 errors = y_bin - self._predict_proba(X, i)
-                self.weights_[i, 1:] += self.eta * X.T.dot(errors)
-                self.weights_[i, 0] += self.eta * errors.sum()
+                self.weights_[i, 1:] += self.eta0 * X.T.dot(errors)
+                self.weights_[i, 0] += self.eta0 * errors.sum()
         return self
     
     def _predict_proba(self, X, class_idx):
@@ -449,10 +449,10 @@ class GradientDescentRegressor(BaseEstimator, RegressorMixin):
     updating the model weights to reduce the cost function, using the following rule:
 
     .. math::
-        w := w - \eta \sum_{i} (y^{(i)} - \phi(z^{(i)})) x^{(i)}
+        w := w - \eta0 \sum_{i} (y^{(i)} - \phi(z^{(i)})) x^{(i)}
 
     Here:
-    - :math:`\eta` is the learning rate, which controls the step size in the 
+    - :math:`\eta0` is the learning rate, which controls the step size in the 
       weight update process.
     - :math:`y^{(i)}` represents the true target value for the \(i\)-th sample.
     - :math:`\phi(z^{(i)})` is the predicted target value, where :math:`\phi(z)` 
@@ -465,7 +465,7 @@ class GradientDescentRegressor(BaseEstimator, RegressorMixin):
 
     Parameters
     ----------
-    eta : float, default=0.0001
+    eta0 : float, default=0.0001
         Learning rate (between 0.0 and 1.0). Controls the step size for weight
         updates during training.
 
@@ -497,7 +497,7 @@ class GradientDescentRegressor(BaseEstimator, RegressorMixin):
     >>> y = boston.target
     >>> X_train, X_test, y_train, y_test = train_test_split(
     ...     X, y, test_size=0.3, random_state=0)
-    >>> gd_reg = GradientDescentRegressor(eta=0.0001, n_iter=1000)
+    >>> gd_reg = GradientDescentRegressor(eta0=0.0001, n_iter=1000)
     >>> gd_reg.fit(X_train, y_train)
     >>> y_pred = gd_reg.predict(X_test)
     >>> mse = np.mean((y_pred - y_test) ** 2)
@@ -506,7 +506,7 @@ class GradientDescentRegressor(BaseEstimator, RegressorMixin):
     Notes
     -----
     Gradient Descent is a widely used optimization technique for training
-    linear regression models. The learning rate (eta) and the number of
+    linear regression models. The learning rate (eta0) and the number of
     iterations (n_iter) are crucial hyperparameters that impact the training
     process. Careful tuning of these hyperparameters is necessary for
     achieving optimal results.
@@ -515,8 +515,8 @@ class GradientDescentRegressor(BaseEstimator, RegressorMixin):
     --------
     LinearRegression : Linear regression from Scikit-Learn.
     """
-    def __init__(self, eta=0.0001, n_iter=1000, random_state =None):
-        self.eta = eta
+    def __init__(self, eta0=0.0001, n_iter=1000, random_state =None):
+        self.eta0 = eta0
         self.n_iter = n_iter
         self.random_state = random_state 
 
@@ -541,8 +541,8 @@ class GradientDescentRegressor(BaseEstimator, RegressorMixin):
 
         for i in range(self.n_iter):
             errors = y - self.predict(X)
-            self.weights_[1:] += self.eta * X.T.dot(errors)
-            self.weights_[0] += self.eta * errors.sum()
+            self.weights_[1:] += self.eta0 * X.T.dot(errors)
+            self.weights_[0] += self.eta0 * errors.sum()
             cost = (errors**2).sum() / 2.0
             self.cost_.append(cost)
         
