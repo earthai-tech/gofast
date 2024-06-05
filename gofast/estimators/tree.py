@@ -5,7 +5,6 @@
 from __future__ import annotations
 from collections import defaultdict 
 import inspect 
-from scipy import stats
 import numpy as np
 
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
@@ -18,86 +17,195 @@ from ..tools.validator import check_is_fitted
 
 
 __all__=[ 
-    "DecisionStumpRegressor","DecisionTreeBasedRegressor",
-    "DecisionTreeBasedClassifier"
+    "DecisionStumpRegressor",
+    "DecisionTreeBasedRegressor",
+    "DecisionTreeBasedClassifier",
+    "WeightedTreeClassifier", 
+    "WeightedTreeRegressor", 
     ]
 
+
 class DecisionTreeBasedRegressor(BaseEstimator, RegressorMixin):
-    r"""
-    Decision Tree-based Regression for Regression Tasks.
+    """
+    Decision Tree-based Regressor for Regression Tasks.
 
-    The `DecisionTreeBasedRegressor` employs an ensemble approach, combining 
-    multiple Decision Regression Trees to form a more robust regression model. 
-    Each tree in the ensemble independently predicts the outcome, and the final 
-    prediction is derived by averaging these individual predictions. This method 
-    is effective in reducing variance and improving prediction accuracy over a 
-    single decision tree.
+    The `DecisionTreeBasedRegressor` employs an ensemble approach, 
+    combining multiple Decision Regression Trees to form a more 
+    robust regression model. Each tree in the ensemble independently 
+    predicts the outcome, and the final prediction is derived by averaging 
+    these individual predictions. This method is effective in reducing 
+    variance and improving prediction accuracy over a single decision tree.
 
-    Mathematical Formulation:
-    The ensemble prediction is computed by averaging the predictions from each 
-    individual Regression Tree within the ensemble, as follows:
+    Parameters
+    ----------
+    n_estimators : int, default=100
+        The number of trees in the ensemble.
+    max_depth : int, default=3
+        The maximum depth of each regression tree.
+    criterion : {"squared_error", "friedman_mse", "absolute_error", "poisson"},\
+        default="squared_error"
+        The function to measure the quality of a split. Supported criteria 
+        are "squared_error" for mean squared error, "friedman_mse" for 
+        mean squared error with improvement score by Friedman, "absolute_error" 
+        for mean absolute error, and "poisson" for Poisson deviance.
+        
+    splitter : {"best", "random"}, default="best"
+        The strategy used to choose the split at each node. Supported 
+        strategies are "best" to choose the best split and "random" to 
+        choose the best random split.
+        
+    min_samples_split : int or float, default=2
+        The minimum number of samples required to split an internal node:
+        - If int, then consider `min_samples_split` as the minimum number.
+        - If float, then `min_samples_split` is a fraction and 
+          `ceil(min_samples_split * n_samples)` are the minimum number of 
+          samples for each split.
+          
+    min_samples_leaf : int or float, default=1
+        The minimum number of samples required to be at a leaf node:
+        - If int, then consider `min_samples_leaf` as the minimum number.
+        - If float, then `min_samples_leaf` is a fraction and 
+          `ceil(min_samples_leaf * n_samples)` are the minimum number of 
+          samples for each node.
+          
+    min_weight_fraction_leaf : float, default=0.0
+        The minimum weighted fraction of the sum total of weights (of all 
+        the input samples) required to be at a leaf node.
+        
+    max_features : int, float, str or None, default=None
+        The number of features to consider when looking for the best split:
+        - If int, then consider `max_features` features at each split.
+        - If float, then `max_features` is a fraction and 
+          `int(max_features * n_features)` features are considered at each 
+          split.
+        - If "auto", then `max_features=n_features`.
+        - If "sqrt", then `max_features=sqrt(n_features)`.
+        - If "log2", then `max_features=log2(n_features)`.
+        - If None, then `max_features=n_features`.
+        
+    random_state : int, RandomState instance or None, default=None
+        Controls the randomness of the estimator. The features are always 
+        randomly permuted at each split. When `max_features` < n_features, 
+        the algorithm will select `max_features` at random at each split 
+        before finding the best split among them. Pass an int for reproducible 
+        output across multiple function calls.
+        
+    max_leaf_nodes : int or None, default=None
+        Grow a tree with `max_leaf_nodes` in best-first fashion. Best nodes 
+        are defined as relative reduction in impurity. If None, then unlimited 
+        number of leaf nodes.
+        
+    min_impurity_decrease : float, default=0.0
+        A node will be split if this split induces a decrease of the impurity 
+        greater than or equal to this value.
+    ccp_alpha : non-negative float, default=0.0
+        Complexity parameter used for Minimal Cost-Complexity Pruning. The 
+        subtree with the largest cost complexity that is smaller than 
+        `ccp_alpha` will be chosen.
+        
+    subsample : float, default=1.0
+        The fraction of samples to be used for fitting each base learner.
+        
+    bootstrap : bool, default=True
+        Whether samples are drawn with replacement. If False, sampling 
+        without replacement is performed.
+        
+    verbose : int, default=0
+        Controls the verbosity when fitting and predicting.
+
+    Attributes
+    ----------
+    estimators_ : list of DecisionTreeRegressor
+        The collection of fitted sub-estimators.
+    oob_score_ : float
+        Out-of-bag score for the training dataset.
+
+    Examples
+    --------
+    Here's an example of how to use the `DecisionTreeBasedRegressor` on a 
+    dataset:
+
+    >>> from sklearn.datasets import make_regression
+    >>> from sklearn.model_selection import train_test_split
+    >>> from gofast.estimators.tree import DecisionTreeBasedRegressor
+
+    >>> X, y = make_regression(n_samples=100, n_features=4, noise=0.1)
+    >>> X_train, X_test, y_train, y_test = train_test_split(X, y, 
+    ...                                                     test_size=0.3, 
+    ...                                                     random_state=0)
+    
+    >>> reg = DecisionTreeBasedRegressor(n_estimators=50, 
+    ...                                  max_depth=3, verbose=1)
+    >>> reg.fit(X_train, y_train)
+    >>> y_pred = reg.predict(X_test)
+
+    Notes
+    -----
+    This model effectively combines the predictive power of multiple trees 
+    through averaging, reducing variance and improving accuracy over a 
+    single decision tree. The ensemble prediction is computed by averaging 
+    the predictions from each individual Regression Tree within the ensemble, 
+    as follows:
 
     .. math::
         y_{\text{pred}} = \frac{1}{N} \sum_{i=1}^{N} y_{\text{tree}_i}
 
     where:
     - :math:`N` is the number of trees in the ensemble.
-    - :math:`y_{\text{pred}}` is the final predicted value aggregated from all
-      trees.
-    - :math:`y_{\text{tree}_i}` represents the prediction made by the \(i\)-th 
-      Regression Tree.
+    - :math:`y_{\text{pred}}` is the final predicted value aggregated from 
+      all trees.
+    - :math:`y_{\text{tree}_i}` represents the prediction made by the 
+      :math:`i`-th Regression Tree.
 
-    This ensemble approach leverages the strength of multiple learning estimators 
-    to achieve better performance than what might be obtained from any single tree, 
-    especially in the presence of complex data relationships and high variance in 
-    the training data.
-
-    Parameters
-    ----------
-    n_estimators : int
-        The number of trees in the ensemble.
-    max_depth : int
-        The maximum depth of each regression tree.
-    random_state : int
-        Controls the randomness of the estimator.
-
-    Attributes
-    ----------
-    estimators_ : list of DecisionTreeRegressor
-        The collection of fitted sub-estimators.
-
-    Examples
-    --------
-    >>> from gofast.estimators.tree import DecisionTreeBasedRegressor
-    >>> rte = DecisionTreeBasedRegressor(
-    ...     n_estimators=100, max_depth=3, random_state=42)
-    >>> X, y = np.random.rand(100, 4), np.random.rand(100)
-    >>> rte.fit(X, y)
-    >>> y_pred = rte.predict(X)
+    The use of bootstrap sampling and subsampling enhances model robustness 
+    and provides an estimate of model performance through out-of-bag (OOB) 
+    score when subsampling is enabled.
 
     See Also
     --------
-    - sklearn.ensemble.RandomForestRegressor: A popular ensemble method
-      based on decision trees for regression tasks.
-    - sklearn.tree.DecisionTreeRegressor: Decision tree regressor used as
-      base learners in ensemble methods.
-    - sklearn.metrics.mean_squared_error: A common metric for evaluating
-      regression models.
-     - gofast.estimators.tree.tree.tree.BoostedRegressionTree: An enhanced BRT
-
-    Notes
-    -----
-    - The Regression Tree Ensemble is built by fitting multiple Regression
-      Tree models.
-    - Each tree is trained on the entire dataset, and their predictions are
-      averaged to obtain the final prediction.
+    sklearn.ensemble.RandomForestRegressor : A popular ensemble method 
+        based on decision trees for regression tasks.
+    sklearn.tree.DecisionTreeRegressor : Decision tree regressor used as 
+        base learners in ensemble methods.
+    sklearn.metrics.mean_squared_error : A common metric for evaluating 
+        regression models.
+    gofast.estimators.tree.BoostedRegressionTree : An enhanced BRT.
     """
 
-    def __init__(self, n_estimators=100, max_depth=3, random_state=None):
+    def __init__(
+        self, 
+        n_estimators=100, 
+        max_depth=3, 
+        criterion="squared_error", 
+        splitter="best", 
+        min_samples_split=2, 
+        min_samples_leaf=1, 
+        min_weight_fraction_leaf=0., 
+        max_features=None, 
+        random_state=None, 
+        max_leaf_nodes=None, 
+        min_impurity_decrease=0.,
+        ccp_alpha=0., 
+        subsample=1.0, 
+        bootstrap=True,
+        verbose=0
+    ):
         self.n_estimators = n_estimators
         self.max_depth = max_depth
+        self.criterion = criterion
+        self.splitter = splitter
+        self.min_samples_split = min_samples_split
+        self.min_samples_leaf = min_samples_leaf
+        self.min_weight_fraction_leaf = min_weight_fraction_leaf
+        self.max_features = max_features
         self.random_state = random_state
-        
+        self.max_leaf_nodes = max_leaf_nodes
+        self.min_impurity_decrease = min_impurity_decrease
+        self.ccp_alpha = ccp_alpha
+        self.subsample = subsample
+        self.bootstrap = bootstrap
+        self.verbose = verbose
+
     def fit(self, X, y):
         """
         Fit the Regression Tree Ensemble model to the data.
@@ -114,16 +222,50 @@ class DecisionTreeBasedRegressor(BaseEstimator, RegressorMixin):
         self : object
             Returns self.
         """
-        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
+        X, y = check_X_y(X, y, accept_sparse=True)
         self.estimators_ = []
-        for _ in range(self.n_estimators):
-            tree = DecisionTreeRegressor(max_depth=self.max_depth,
-                                         random_state=self.random_state)
-            tree.fit(X, y)
+        self.oob_score_ = None
+        n_samples = X.shape[0]
+        sample_indices = np.arange(n_samples)
+
+        for i in range(self.n_estimators):
+            if self.bootstrap:
+                subsample_indices = np.random.choice(
+                    sample_indices, size=int(self.subsample * n_samples), replace=True
+                )
+            else:
+                subsample_indices = sample_indices[:int(self.subsample * n_samples)]
+
+            tree = DecisionTreeRegressor(
+                max_depth=self.max_depth,
+                criterion=self.criterion,
+                splitter=self.splitter,
+                min_samples_split=self.min_samples_split,
+                min_samples_leaf=self.min_samples_leaf,
+                min_weight_fraction_leaf=self.min_weight_fraction_leaf,
+                max_features=self.max_features,
+                random_state=self.random_state,
+                max_leaf_nodes=self.max_leaf_nodes,
+                min_impurity_decrease=self.min_impurity_decrease,
+                ccp_alpha=self.ccp_alpha
+            )
+            
+            tree.fit(X[subsample_indices], y[subsample_indices])
             self.estimators_.append(tree)
 
-        return self
+            if self.verbose > 0:
+                print(f"Fitted estimator {i + 1}/{self.n_estimators}")
 
+        if self.bootstrap and self.subsample < 1.0:
+            oob_indices = np.setdiff1d(sample_indices, subsample_indices)
+            if len(oob_indices) > 0:
+                oob_predictions = np.mean(
+                    [tree.predict(X[oob_indices]) for tree in self.estimators_], axis=0
+                )
+                self.oob_score_ = np.mean((y[oob_indices] - oob_predictions) ** 2)
+
+        return self
+    
     def predict(self, X):
         """
         Predict using the Regression Tree Ensemble model.
@@ -139,15 +281,10 @@ class DecisionTreeBasedRegressor(BaseEstimator, RegressorMixin):
             The predicted values.
         """
         check_is_fitted(self, 'estimators_')
-        
-        X = check_array(
-            X,
-            accept_large_sparse=True,
-            accept_sparse= True,
-            to_frame=False, 
-            )
-        
+        X = check_array(X, accept_sparse=True)
+
         predictions = np.array([tree.predict(X) for tree in self.estimators_])
+        
         return np.mean(predictions, axis=0)
 
 class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
@@ -840,6 +977,30 @@ class WeightedTreeRegressor(BaseEstimator, RegressorMixin):
     The model's performance depends on the quality of the data, the choice of
     hyperparameters, and the number of estimators. With proper tuning, it can
     achieve high regression accuracy.
+    
+    The model updates residuals in each iteration to improve accuracy. The 
+    residuals are calculated as:
+
+    .. math:: r_i = y_i - \eta \cdot f_m(X_i)
+
+    where:
+    - :math:`r_i` is the residual for sample :math:`i`.
+    - :math:`y_i` is the true value for sample :math:`i`.
+    - :math:`\eta` is the learning rate.
+    - :math:`f_m` is the prediction of the :math:`m`-th tree.
+
+    The final prediction is the sum of weighted predictions of all trees:
+
+    .. math:: \hat{y} = \sum_{m=1}^{M} \eta \cdot f_m(X)
+
+    See Also
+    --------
+    sklearn.ensemble.GradientBoostingRegressor : Scikit-learn's Gradient 
+        Boosting Regressor for comparison.
+    sklearn.tree.DecisionTreeRegressor : Decision tree regressor used as 
+        base learners in ensemble methods.
+    sklearn.metrics.mean_squared_error : A common metric for evaluating 
+        regression models.
     """
 
     def __init__(
@@ -945,145 +1106,6 @@ class WeightedTreeRegressor(BaseEstimator, RegressorMixin):
         """Update sample weights."""
         return np.exp(-weight * y * y_pred)
 
-
-class WeightedTreeRegressor0(BaseEstimator, RegressorMixin):
-    r"""
-    Weighted Regression Tree (BRT) for regression tasks.
-
-    The Hybrid Boosted Tree Regressor is a powerful ensemble learning model
-    that combines multiple Boosted Regression Tree (BRT) models. Each BRT
-    model is itself an ensemble created using boosting principles.
-    
-    This ensemble model combines multiple Boosted Regression Tree models,
-    each of which is an ensemble in itself, created using the 
-    principles of boosting.
-    
-    In `HybridBoostingTreeRegressor` class, the `n_estimators` parameter 
-    controls the number of individual Boosted Regression Trees in the ensemble,
-    and `brt_params` is a dictionary of parameters to be passed to each Boosted 
-    Regression Tree model. The `GradientBoostingRegressor` from scikit-learn 
-    is used as the individual BRT model. This class's fit method trains 
-    each BRT model on the entire dataset, and the predict method averages 
-    their predictions for the final output.
-
-    Parameters
-    ----------
-    n_estimators : int, default=50
-        The number of Boosted Regression Tree models in the ensemble.
-    brt_params : dict, default=None
-        Dictionary of parameters for configuring each Boosted Regression Tree model. 
-        If None, default parameters are used.
-
-    Attributes
-    ----------
-    brt_ensembles_ : list of GradientBoostingRegressor
-        A list containing the fitted Boosted Regression Tree models.
-
-    Example
-    -------
-    Here's an example of how to initialize and use the `HybridBoostingTreeRegressor`:
-    ```python
-    from gofast.estimators.boosting import HybridBoostingTreeRegressor
-    import numpy as np
-
-    brt_params = {'n_estimators': 100, 'max_depth': 3, 'eta0': 0.1}
-    hybrid_brt = HybridBoostingTreeRegressor(n_estimators=10, brt_params=brt_params)
-    X, y = np.random.rand(100, 4), np.random.rand(100)
-    hybrid_brt.fit(X, y)
-    y_pred = hybrid_brt.predict(X)
-    ```
-
-    Notes
-    -----
-    The Hybrid Boosted Tree Regressor employs an iterative process to refine 
-    predictions:
-
-    1. Calculate Residuals:
-       .. math::
-           \text{Residuals} = y - F_k(x)
-
-    2. Update Predictions:
-       .. math::
-           F_{k+1}(x) = F_k(x) + \text{eta0} \cdot h_k(x)
-
-    where:
-    - :math:`F_k(x)` is the prediction of the ensemble at iteration \(k\).
-    - :math:`y` is the true target values.
-    - :math:`\text{eta0}` is the learning rate, influencing the impact
-      of each tree.
-    - :math:`h_k(x)` is the prediction update contributed by the new tree at 
-      iteration \(k\).
-
-    The Hybrid Boosted Regression Tree Ensemble is particularly effective for
-    regression tasks requiring accurate modeling of complex relationships 
-    within data, such as in financial markets, real estate, or any predictive 
-    modeling that benefits from robust and precise forecasts.
-
-    The model's performance significantly depends on the quality of the data, 
-    the setting of hyperparameters, and the adequacy of the training process.
-
-    See Also
-    --------
-    - `sklearn.ensemble.GradientBoostingRegressor`: Compare to Scikit-learn's 
-      Gradient Boosting Regressor.
-    - `sklearn.tree.DecisionTreeRegressor`: The type of regressor used as base 
-      learners in this ensemble method.
-    """
-    def __init__(self, n_estimators=10, brt_params=None):
-        self.n_estimators = n_estimators
-        self.brt_params = brt_params or {}
-
-    def fit(self, X, y):
-        """
-        Fit the Hybrid Boosted Regression Tree Ensemble model to the data.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The training input samples.
-        y : array-like of shape (n_samples,)
-            The target values (real numbers).
-
-        Returns
-        -------
-        self : object
-            Returns self.
-        """
-        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
-        self.brt_ensembles_ = []
-        for _ in range(self.n_estimators):
-            brt = DecisionTreeRegressor(**self.brt_params)
-            brt.fit(X, y)
-            self.brt_ensembles_.append(brt)
-
-        return self
-
-    def predict(self, X):
-        """
-        Predict using the Hybrid Boosted Regression Tree Ensemble model.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The input samples.
-
-        Returns
-        -------
-        y_pred : array-like of shape (n_samples,)
-            The predicted values.
-        """
-        check_is_fitted(self, "brt_ensembles_")
-        
-        X = check_array(
-            X,
-            accept_large_sparse=True,
-            accept_sparse= True,
-            to_frame=False, 
-            )
-        
-        predictions = np.array([brt.predict(X) for brt in self.brt_ensembles_])
-        return np.mean(predictions, axis=0)
-    
 class StandardEstimator:
     """Base class for all classes in gofast for parameters retrievals
 

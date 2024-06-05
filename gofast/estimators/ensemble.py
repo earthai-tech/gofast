@@ -7,12 +7,15 @@ import re
 import numpy as np
 
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin, clone
+from sklearn.ensemble import BaggingClassifier, GradientBoostingClassifier
+from sklearn.ensemble import BaggingRegressor, GradientBoostingRegressor
 from sklearn.pipeline import _name_estimators
 from sklearn.preprocessing import LabelEncoder
-
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from .._gofastlog import  gofastlog
 from ..tools.validator import check_X_y, get_estimator_name, check_array 
 from ..tools.validator import check_is_fitted
+
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -1071,5 +1074,610 @@ class WeightedAverageClassifier(BaseEstimator, ClassifierMixin):
         weighted_avg_proba = np.average(probas, axis=0, weights=self.weights)
     
         return weighted_avg_proba
+
+class EnsembleClassifier(BaseEstimator, ClassifierMixin):
+    def __init__(
+        self,
+        base_estimator=None,
+        n_estimators=50,
+        learning_rate=0.1,
+        max_depth=3,
+        strategy='hybrid',  # 'hybrid', 'bagging', 'boosting'
+        random_state=None,
+        max_samples=1.0,
+        max_features=1.0,
+        bootstrap=True,
+        bootstrap_features=False,
+        oob_score=False,
+        warm_start=False,
+        n_jobs=None,
+        verbose=0,
+        min_impurity_decrease=0.0,
+        init=None,
+        min_samples_split=2,
+        min_samples_leaf=1,
+        min_weight_fraction_leaf=0.0,
+        max_leaf_nodes=None,
+        validation_fraction=0.1,
+        n_iter_no_change=None,
+        tol=1e-4,
+        ccp_alpha=0.0
+    ):
+        self.base_estimator = base_estimator
+        self.n_estimators = n_estimators
+        self.learning_rate = learning_rate
+        self.max_depth = max_depth
+        self.strategy = strategy
+        self.random_state = random_state
+        self.max_samples = max_samples
+        self.max_features = max_features
+        self.bootstrap = bootstrap
+        self.bootstrap_features = bootstrap_features
+        self.oob_score = oob_score
+        self.warm_start = warm_start
+        self.n_jobs = n_jobs
+        self.verbose = verbose
+        self.min_impurity_decrease = min_impurity_decrease
+        self.init = init
+        self.min_samples_split = min_samples_split
+        self.min_samples_leaf = min_samples_leaf
+        self.min_weight_fraction_leaf = min_weight_fraction_leaf
+        self.max_leaf_nodes = max_leaf_nodes
+        self.validation_fraction = validation_fraction
+        self.n_iter_no_change = n_iter_no_change
+        self.tol = tol
+        self.ccp_alpha = ccp_alpha
+
+        if self.base_estimator is None:
+            self.base_estimator = DecisionTreeClassifier(max_depth=self.max_depth)
+
+    def fit(self, X, y):
+        X, y = check_X_y(
+            X, y, accept_sparse= True, 
+            accept_large_sparse= True, 
+            estimator= get_estimator_name(self), 
+        )
+        self.strategy = str(self.strategy).lower() 
+        if self.strategy == 'bagging':
+            self._fit_bagging(X, y)
+        elif self.strategy == 'boosting':
+            self._fit_boosting(X, y)
+        elif self.strategy == 'hybrid':
+            self._fit_hybrid(X, y)
+        else:
+            raise ValueError(
+                "Invalid strategy, choose from 'hybrid', 'bagging', 'boosting'")
+        
+        return self
+
+    def _fit_bagging(self, X, y):
+        self.model_ = BaggingClassifier(
+            base_estimator=self.base_estimator,
+            n_estimators=self.n_estimators,
+            random_state=self.random_state,
+            max_samples=self.max_samples,
+            max_features=self.max_features,
+            bootstrap=self.bootstrap,
+            bootstrap_features=self.bootstrap_features,
+            oob_score=self.oob_score,
+            warm_start=self.warm_start,
+            n_jobs=self.n_jobs,
+            verbose=self.verbose,
+        )
+        self.model_.fit(X, y)
+
+    def _fit_boosting(self, X, y):
+        self.model_ = GradientBoostingClassifier(
+            n_estimators=self.n_estimators,
+            learning_rate=self.learning_rate,
+            max_depth=self.max_depth,
+            random_state=self.random_state,
+            min_impurity_decrease=self.min_impurity_decrease,
+            init=self.init,
+            max_features=self.max_features,
+            verbose=self.verbose,
+            min_samples_split=self.min_samples_split,
+            min_samples_leaf=self.min_samples_leaf,
+            min_weight_fraction_leaf=self.min_weight_fraction_leaf,
+            max_leaf_nodes=self.max_leaf_nodes,
+            validation_fraction=self.validation_fraction,
+            n_iter_no_change=self.n_iter_no_change,
+            tol=self.tol,
+            ccp_alpha=self.ccp_alpha
+        )
+        self.model_.fit(X, y)
+
+    def _fit_hybrid(self, X, y):
+        self.model_ = BaggingClassifier(
+            base_estimator=GradientBoostingClassifier(
+                n_estimators=self.n_estimators // 2,
+                learning_rate=self.learning_rate,
+                max_depth=self.max_depth,
+                random_state=self.random_state,
+                min_impurity_decrease=self.min_impurity_decrease,
+                init=self.init,
+                max_features=self.max_features,
+                verbose=self.verbose,
+                min_samples_split=self.min_samples_split,
+                min_samples_leaf=self.min_samples_leaf,
+                min_weight_fraction_leaf=self.min_weight_fraction_leaf,
+                max_leaf_nodes=self.max_leaf_nodes,
+                validation_fraction=self.validation_fraction,
+                n_iter_no_change=self.n_iter_no_change,
+                tol=self.tol,
+                ccp_alpha=self.ccp_alpha
+            ),
+            n_estimators=2,  # number of boosting models in the bagging
+            random_state=self.random_state,
+            max_samples=self.max_samples,
+            max_features=self.max_features,
+            bootstrap=self.bootstrap,
+            bootstrap_features=self.bootstrap_features,
+            oob_score=self.oob_score,
+            warm_start=self.warm_start,
+            n_jobs=self.n_jobs,
+            verbose=self.verbose,
+        )
+        self.model_.fit(X, y)
+
+    def predict(self, X):
+        """
+        Predict using the fitted ensemble model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            The predicted values.
+
+        Notes
+        -----
+        This method uses the fitted ensemble model to predict the target 
+        values for the input samples. The input samples `X` are checked 
+        for validity, ensuring they conform to the expected format and 
+        type.
+
+        The predictions are computed by aggregating the outputs of the 
+        individual base estimators in the ensemble. Depending on the 
+        chosen strategy (bagging, boosting, or hybrid), the aggregation 
+        method may vary. For bagging, the predictions are averaged, while 
+        for boosting, the predictions are a weighted sum of the individual 
+        estimator outputs.
+
+        Raises
+        ------
+        NotFittedError
+            If the estimator is not fitted, i.e., `fit` has not been 
+            called before `predict`.
+
+        See Also
+        --------
+        sklearn.utils.validation.check_array : Utility function to check 
+            the input array.
+        sklearn.utils.validation.check_is_fitted : Utility function to check 
+            if the estimator is fitted.
+        """
+        check_is_fitted(self, 'model_')
+        X = check_array(
+            X, accept_sparse=True, 
+            accept_large_sparse=True,
+            estimator=get_estimator_name(self)
+        )
+        return self.model_.predict(X)
+    
+    def predict_proba(self, X):
+        """
+        Predict class probabilities using the fitted ensemble model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        p : array-like of shape (n_samples, n_classes)
+            The class probabilities of the input samples. The order of the 
+            classes corresponds to that in the attribute `classes_`.
+
+        Notes
+        -----
+        This method uses the fitted ensemble model to predict the 
+        probabilities of the classes for the input samples. The input 
+        samples `X` are checked for validity, ensuring they conform to the 
+        expected format and type.
+
+        The probability predictions are computed by aggregating the 
+        probability outputs of the individual base estimators in the 
+        ensemble. This method is only applicable for classification tasks 
+        and will raise an error if used with a regressor.
+
+        The `predict_proba` method is particularly useful for tasks 
+        requiring probabilistic predictions rather than discrete class 
+        labels. It can be used for applications such as uncertainty 
+        estimation, thresholding, and calibration.
+
+        Raises
+        ------
+        NotFittedError
+            If the estimator is not fitted, i.e., `fit` has not been 
+            called before `predict_proba`.
+
+        AttributeError
+            If the base estimator does not have a `predict_proba` method.
+
+        See Also
+        --------
+        sklearn.utils.validation.check_array : Utility function to check 
+            the input array.
+        sklearn.utils.validation.check_is_fitted : Utility function to check 
+            if the estimator is fitted.
+        """
+        check_is_fitted(self, 'model_')
+        X = check_array(
+            X, accept_large_sparse= True, 
+            accept_sparse= True, 
+            input_name="X", 
+        )
+        return self.model_.predict_proba(X)
+
+
+class EnsembleRegressor(BaseEstimator, RegressorMixin):
+    """
+    Ensemble Regressor.
+
+    The `EnsembleRegressor` employs an ensemble approach, combining 
+    multiple regression models to form a more robust and accurate model. 
+    It supports three strategies: bagging, boosting, and a hybrid approach 
+    that combines both bagging and boosting.
+
+    Parameters
+    ----------
+    base_estimator : estimator object, default=None
+        The base estimator to fit on random subsets of the dataset. If None, 
+        then the base estimator is a `DecisionTreeRegressor`.
+        
+    n_estimators : int, default=50
+        The number of base estimators in the ensemble. For the hybrid strategy, 
+        this is the total number of base estimators combined across bagging 
+        and boosting.
+        
+    learning_rate : float, default=0.1
+        Learning rate shrinks the contribution of each tree by `learning_rate`.
+        This parameter is only used for the boosting and hybrid strategies.
+        
+    max_depth : int, default=3
+        The maximum depth of the individual regression estimators. This 
+        controls the complexity of each base estimator.
+        
+    strategy : {'hybrid', 'bagging', 'boosting'}, default='hybrid'
+        The strategy to use for the ensemble. Options are:
+        - 'bagging': Use Bagging strategy.
+        - 'boosting': Use Boosting strategy.
+        - 'hybrid': Combine Bagging and Boosting strategies.
+        
+    random_state : int or RandomState, default=None
+        Controls the randomness of the estimator for reproducibility. Pass 
+        an int for reproducible output across multiple function calls.
+        
+    max_samples : float or int, default=1.0
+        The number of samples to draw from X to train each base estimator. If 
+        float, then draw `max_samples * n_samples` samples.
+        
+    max_features : int or float, default=1.0
+        The number of features to draw from X to train each base estimator. If 
+        float, then draw `max_features * n_features` features.
+        
+    bootstrap : bool, default=True
+        Whether samples are drawn with replacement. If False, sampling without 
+        replacement is performed.
+        
+    bootstrap_features : bool, default=False
+        Whether features are drawn with replacement.
+        
+    oob_score : bool, default=False
+        Whether to use out-of-bag samples to estimate the generalization error.
+        
+    warm_start : bool, default=False
+        When set to True, reuse the solution of the previous call to fit and 
+        add more estimators to the ensemble.
+        
+    n_jobs : int, default=None
+        The number of jobs to run in parallel for both `fit` and `predict`. 
+        None means 1 unless in a `joblib.parallel_backend` context.
+        
+    verbose : int, default=0
+        Controls the verbosity when fitting and predicting. Higher values 
+        indicate more messages.
+        
+    min_impurity_decrease : float, default=0.0
+        A node will be split if this split induces a decrease of the impurity 
+        greater than or equal to this value. Used to control tree growth.
+        
+    init : estimator object, default=None
+        An estimator object that is used to compute the initial predictions. 
+        Used only for boosting.
+        
+    min_samples_split : int or float, default=2
+        The minimum number of samples required to split an internal node.
+        - If int, consider `min_samples_split` as the minimum number.
+        - If float, `min_samples_split` is a fraction and 
+        `ceil(min_samples_split * n_samples)` 
+          is the minimum number of samples for each split.
+        
+    min_samples_leaf : int or float, default=1
+        The minimum number of samples required to be at a leaf node. A split 
+        point at any depth will only be considered if it leaves at least 
+        `min_samples_leaf` training samples in each of the left and right branches.
+        - If int, consider `min_samples_leaf` as the minimum number.
+        - If float, `min_samples_leaf` is a fraction and 
+          `ceil(min_samples_leaf * n_samples)` is the minimum number of samples 
+          for each node.
+        
+    min_weight_fraction_leaf : float, default=0.0
+        The minimum weighted fraction of the sum total of weights required to 
+        be at a leaf node.
+        
+    max_leaf_nodes : int, default=None
+        Grow trees with `max_leaf_nodes` in best-first fashion. Best nodes 
+        are defined as relative reduction in impurity. If None, unlimited 
+        number of leaf nodes.
+        
+    validation_fraction : float, default=0.1
+        The proportion of training data to set aside as validation set for 
+        early stopping. Used only for boosting.
+        
+    n_iter_no_change : int, default=None
+        Used to decide if early stopping will be used to terminate training 
+        when validation score is not improving. Used only for boosting.
+        
+    tol : float, default=1e-4
+        Tolerance for the early stopping. Used only for boosting.
+        
+    ccp_alpha : float, default=0.0
+        Complexity parameter used for Minimal Cost-Complexity Pruning.
+
+    Attributes
+    ----------
+    model_ : object
+        The fitted ensemble model.
+        
+    Examples
+    --------
+    Here's an example of how to use the `EnsembleHybridRegressor` on a dataset:
+
+    .. code-block:: python
+
+        >>> from sklearn.datasets import make_regression
+        >>> from sklearn.model_selection import train_test_split
+        >>> from sklearn.metrics import mean_squared_error
+        >>> from ensemble_hybrid_regressor import EnsembleRegressor
+    
+        >>> X, y = make_regression(n_samples=100, n_features=20, random_state=42)
+        >>> X_train, X_test, y_train, y_test = train_test_split(X, y, 
+        ...                                                     test_size=0.3, 
+        ...                                                     random_state=42)
+        
+        >>> reg = EnsembleRegressor(n_estimators=50, strategy='hybrid', 
+        ...                               random_state=42)
+        >>> reg.fit(X_train, y_train)
+        >>> y_pred = reg.predict(X_test)
+        >>> print("Regression MSE:", mean_squared_error(y_test, y_pred))
+
+    Notes
+    -----
+    This model combines the predictive power of multiple trees through 
+    bagging, boosting, or a hybrid approach, effectively reducing variance 
+    and improving accuracy over a single decision tree. The ensemble 
+    prediction is computed by averaging the predictions from each individual 
+    regression model within the ensemble.
+
+    The hybrid strategy uses a combination of bagging and boosting, where 
+    the bagging model contains boosting models as its base estimators. This 
+    leverages the strengths of both approaches to achieve better performance.
+
+    .. math::
+        y_{\text{pred}} = \frac{1}{N} \sum_{i=1}^{N} y_{\text{tree}_i}
+
+    where:
+    - :math:`N` is the number of trees in the ensemble.
+    - :math:`y_{\text{pred}}` is the final predicted value aggregated from 
+      all trees.
+    - :math:`y_{\text{tree}_i}` represents the prediction made by the 
+      :math:`i`-th regression tree.
+
+    See Also
+    --------
+    sklearn.ensemble.BaggingRegressor : A bagging regressor.
+    sklearn.ensemble.GradientBoostingRegressor : A gradient boosting regressor.
+    sklearn.metrics.mean_squared_error : A common metric for evaluating 
+        regression models.
+    """
+
+    def __init__(
+        self,
+        base_estimator=None,
+        n_estimators=50,
+        learning_rate=0.1,
+        max_depth=3,
+        strategy='hybrid', 
+        random_state=None,
+        max_samples=1.0,
+        max_features=1.0,
+        bootstrap=True,
+        bootstrap_features=False,
+        oob_score=False,
+        warm_start=False,
+        n_jobs=None,
+        verbose=0,
+        min_impurity_decrease=0.0,
+        init=None,
+        min_samples_split=2,
+        min_samples_leaf=1,
+        min_weight_fraction_leaf=0.0,
+        max_leaf_nodes=None,
+        validation_fraction=0.1,
+        n_iter_no_change=None,
+        tol=1e-4,
+        ccp_alpha=0.0
+    ):
+        self.base_estimator = base_estimator
+        self.n_estimators = n_estimators
+        self.learning_rate = learning_rate
+        self.max_depth = max_depth
+        self.strategy = strategy
+        self.random_state = random_state
+        self.max_samples = max_samples
+        self.max_features = max_features
+        self.bootstrap = bootstrap
+        self.bootstrap_features = bootstrap_features
+        self.oob_score = oob_score
+        self.warm_start = warm_start
+        self.n_jobs = n_jobs
+        self.verbose = verbose
+        self.min_impurity_decrease = min_impurity_decrease
+        self.init = init
+        self.min_samples_split = min_samples_split
+        self.min_samples_leaf = min_samples_leaf
+        self.min_weight_fraction_leaf = min_weight_fraction_leaf
+        self.max_leaf_nodes = max_leaf_nodes
+        self.validation_fraction = validation_fraction
+        self.n_iter_no_change = n_iter_no_change
+        self.tol = tol
+        self.ccp_alpha = ccp_alpha
+
+        if self.base_estimator is None:
+            self.base_estimator = DecisionTreeRegressor(max_depth=self.max_depth)
+
+    def fit(self, X, y):
+        X, y = check_X_y(
+            X, y, 
+            accept_large_sparse=True,  
+            accept_sparse=True, 
+            estimator= get_estimator_name(self )
+            )
+
+        if self.strategy == 'bagging':
+            self._fit_bagging(X, y)
+        elif self.strategy == 'boosting':
+            self._fit_boosting(X, y)
+        elif self.strategy == 'hybrid':
+            self._fit_hybrid(X, y)
+        else:
+            raise ValueError(
+                "Invalid strategy, choose from 'hybrid', 'bagging', 'boosting'")
+        
+        return self
+
+    def _fit_bagging(self, X, y):
+        self.model_ = BaggingRegressor(
+            base_estimator=self.base_estimator,
+            n_estimators=self.n_estimators,
+            random_state=self.random_state,
+            max_samples=self.max_samples,
+            max_features=self.max_features,
+            bootstrap=self.bootstrap,
+            bootstrap_features=self.bootstrap_features,
+            oob_score=self.oob_score,
+            warm_start=self.warm_start,
+            n_jobs=self.n_jobs,
+            verbose=self.verbose,
+        )
+        self.model_.fit(X, y)
+
+    def _fit_boosting(self, X, y):
+        self.model_ = GradientBoostingRegressor(
+            n_estimators=self.n_estimators,
+            learning_rate=self.learning_rate,
+            max_depth=self.max_depth,
+            random_state=self.random_state,
+            min_impurity_decrease=self.min_impurity_decrease,
+            init=self.init,
+            max_features=self.max_features,
+            verbose=self.verbose,
+            min_samples_split=self.min_samples_split,
+            min_samples_leaf=self.min_samples_leaf,
+            min_weight_fraction_leaf=self.min_weight_fraction_leaf,
+            max_leaf_nodes=self.max_leaf_nodes,
+            validation_fraction=self.validation_fraction,
+            n_iter_no_change=self.n_iter_no_change,
+            tol=self.tol,
+            ccp_alpha=self.ccp_alpha
+        )
+        self.model_.fit(X, y)
+
+    def _fit_hybrid(self, X, y):
+        self.model_ = BaggingRegressor(
+            base_estimator=GradientBoostingRegressor(
+                n_estimators=self.n_estimators // 2,
+                learning_rate=self.learning_rate,
+                max_depth=self.max_depth,
+                random_state=self.random_state,
+                min_impurity_decrease=self.min_impurity_decrease,
+                init=self.init,
+                max_features=self.max_features,
+                verbose=self.verbose,
+                min_samples_split=self.min_samples_split,
+                min_samples_leaf=self.min_samples_leaf,
+                min_weight_fraction_leaf=self.min_weight_fraction_leaf,
+                max_leaf_nodes=self.max_leaf_nodes,
+                validation_fraction=self.validation_fraction,
+                n_iter_no_change=self.n_iter_no_change,
+                tol=self.tol,
+                ccp_alpha=self.ccp_alpha
+            ),
+            n_estimators=2,  # number of boosting models in the bagging
+            random_state=self.random_state,
+            max_samples=self.max_samples,
+            max_features=self.max_features,
+            bootstrap=self.bootstrap,
+            bootstrap_features=self.bootstrap_features,
+            oob_score=self.oob_score,
+            warm_start=self.warm_start,
+            n_jobs=self.n_jobs,
+            verbose=self.verbose,
+        )
+        self.model_.fit(X, y)
+
+    def predict(self, X):
+        check_is_fitted(self, 'model_')
+        X = check_array(X)
+        return self.model_.predict(X)
+
+# Example usage
+if __name__ == "__main__":
+    from sklearn.datasets import make_regression
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import mean_squared_error
+
+    # Regression example
+    X, y = make_regression(n_samples=100, n_features=20, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+    reg = EnsembleRegressor(n_estimators=50, strategy='hybrid', random_state=42)
+    reg.fit(X_train, y_train)
+    y_pred = reg.predict(X_test)
+    print("Regression MSE:", mean_squared_error(y_test, y_pred))
+
+
+    from sklearn.datasets import make_classification
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import accuracy_score
+
+    # Classification example
+    X, y = make_classification(n_samples=100, n_features=20, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+    clf = EnsembleClassifier(n_estimators=50, strategy='hybrid', random_state=42)
+    clf.fit(X_train, y_train)
+    y_pred = clf.predict(X_test)
+    print("Classification Accuracy:", accuracy_score(y_test, y_pred))
+
+
+
 
 
