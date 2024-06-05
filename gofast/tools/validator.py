@@ -1494,6 +1494,77 @@ def validate_nan_policy(nan_policy, *arrays, sample_weights=None):
 
     return arrays 
 
+def validate_fit_weights(y, sample_weight=None, weighted_y=False):
+    """
+    Validate and compute sample weights for fitting.
+
+    Parameters
+    ----------
+    y : array-like of shape (n_samples,)
+        Target values.
+
+    sample_weight : array-like of shape (n_samples,), default=None
+        Sample weights. If None, then samples are equally weighted.
+
+    weighted_y : bool, default=False
+        If True, compute the weighted target values.
+
+    Returns
+    -------
+    sample_weight : array-like of shape (n_samples,)
+        Validated sample weights.
+
+    weighted_y_values : array-like of shape (n_samples,), optional
+        Weighted target values if `weighted_y` is True.
+
+    Raises
+    ------
+    ValueError
+        If `sample_weight` is not None and its length does not match the length of `y`.
+        If any value in `sample_weight` is negative.
+
+    Notes
+    -----
+    This function checks the input sample weights, ensuring they are consistent with
+    the target values `y`. If `sample_weight` is None, it returns an array of ones
+    indicating equal weighting. Otherwise, it validates and returns the given 
+    sample weights. If `weighted_y` is True, it also computes and returns the 
+    weighted target values.
+
+    Examples
+    --------
+    >>> import numpy as np 
+    >>> y = np.array([0, 1, 1, 0, 1])
+    >>> validate_fit_weights(y)
+    array([1., 1., 1., 1., 1.])
+
+    >>> sample_weight = np.array([1, 0.5, 1, 1.5, 1])
+    >>> validate_fit_weights(y, sample_weight)
+    array([1. , 0.5, 1. , 1.5, 1. ])
+
+    >>> validate_fit_weights(y, sample_weight, weighted_y=True)
+    (array([1. , 0.5, 1. , 1.5, 1. ]), array([0. , 0.5, 1. , 0. , 1. ]))
+
+    >>> validate_fit_weights(y, weighted_y=True)
+    (array([1., 1., 1., 1., 1.]), array([0., 1., 1., 0., 1.]))
+    """
+    y = check_array(y, ensure_2d=False)
+    
+    if sample_weight is None:
+        sample_weight = np.ones_like(y, dtype=float)
+    else:
+        sample_weight = check_array(sample_weight, ensure_2d=False)
+        check_consistent_length(y, sample_weight)
+
+        if not np.all(sample_weight >= 0):
+            raise ValueError("Sample weights must be non-negative")
+    
+    if weighted_y:
+        weighted_y_values = y * sample_weight
+        return sample_weight, weighted_y_values
+    
+    return sample_weight
+
 def is_valid_policies(nan_policy, /, allowed_policies=None):
     """
     Validates the `nan_policy` or any policy argument to ensure it is one

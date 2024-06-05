@@ -1080,7 +1080,7 @@ class EnsembleClassifier(BaseEstimator, ClassifierMixin):
         self,
         base_estimator=None,
         n_estimators=50,
-        learning_rate=0.1,
+        eta0=0.1,
         max_depth=3,
         strategy='hybrid',  # 'hybrid', 'bagging', 'boosting'
         random_state=None,
@@ -1105,7 +1105,7 @@ class EnsembleClassifier(BaseEstimator, ClassifierMixin):
     ):
         self.base_estimator = base_estimator
         self.n_estimators = n_estimators
-        self.learning_rate = learning_rate
+        self.eta0 = eta0
         self.max_depth = max_depth
         self.strategy = strategy
         self.random_state = random_state
@@ -1131,7 +1131,7 @@ class EnsembleClassifier(BaseEstimator, ClassifierMixin):
         if self.base_estimator is None:
             self.base_estimator = DecisionTreeClassifier(max_depth=self.max_depth)
 
-    def fit(self, X, y):
+    def fit(self, X, y, sample_weight =None ):
         X, y = check_X_y(
             X, y, accept_sparse= True, 
             accept_large_sparse= True, 
@@ -1139,20 +1139,20 @@ class EnsembleClassifier(BaseEstimator, ClassifierMixin):
         )
         self.strategy = str(self.strategy).lower() 
         if self.strategy == 'bagging':
-            self._fit_bagging(X, y)
+            self._fit_bagging(X, y, sample_weight)
         elif self.strategy == 'boosting':
-            self._fit_boosting(X, y)
+            self._fit_boosting(X, y, sample_weight)
         elif self.strategy == 'hybrid':
-            self._fit_hybrid(X, y)
+            self._fit_hybrid(X, y, sample_weight)
         else:
             raise ValueError(
                 "Invalid strategy, choose from 'hybrid', 'bagging', 'boosting'")
         
         return self
 
-    def _fit_bagging(self, X, y):
+    def _fit_bagging(self, X, y, sample_weight):
         self.model_ = BaggingClassifier(
-            base_estimator=self.base_estimator,
+            estimator=self.base_estimator,
             n_estimators=self.n_estimators,
             random_state=self.random_state,
             max_samples=self.max_samples,
@@ -1164,12 +1164,12 @@ class EnsembleClassifier(BaseEstimator, ClassifierMixin):
             n_jobs=self.n_jobs,
             verbose=self.verbose,
         )
-        self.model_.fit(X, y)
+        self.model_.fit(X, y, sample_weight)
 
-    def _fit_boosting(self, X, y):
+    def _fit_boosting(self, X, y, sample_weight):
         self.model_ = GradientBoostingClassifier(
             n_estimators=self.n_estimators,
-            learning_rate=self.learning_rate,
+            learning_rate=self.eta0,
             max_depth=self.max_depth,
             random_state=self.random_state,
             min_impurity_decrease=self.min_impurity_decrease,
@@ -1185,13 +1185,13 @@ class EnsembleClassifier(BaseEstimator, ClassifierMixin):
             tol=self.tol,
             ccp_alpha=self.ccp_alpha
         )
-        self.model_.fit(X, y)
+        self.model_.fit(X, y, sample_weight)
 
-    def _fit_hybrid(self, X, y):
+    def _fit_hybrid(self, X, y, sample_weight):
         self.model_ = BaggingClassifier(
-            base_estimator=GradientBoostingClassifier(
+            estimator=GradientBoostingClassifier(
                 n_estimators=self.n_estimators // 2,
-                learning_rate=self.learning_rate,
+                learning_rate=self.eta0,
                 max_depth=self.max_depth,
                 random_state=self.random_state,
                 min_impurity_decrease=self.min_impurity_decrease,
@@ -1218,7 +1218,7 @@ class EnsembleClassifier(BaseEstimator, ClassifierMixin):
             n_jobs=self.n_jobs,
             verbose=self.verbose,
         )
-        self.model_.fit(X, y)
+        self.model_.fit(X, y, sample_weight)
 
     def predict(self, X):
         """
@@ -1346,8 +1346,8 @@ class EnsembleRegressor(BaseEstimator, RegressorMixin):
         this is the total number of base estimators combined across bagging 
         and boosting.
         
-    learning_rate : float, default=0.1
-        Learning rate shrinks the contribution of each tree by `learning_rate`.
+    eta0 : float, default=0.1
+        Learning rate shrinks the contribution of each tree by `eta0`.
         This parameter is only used for the boosting and hybrid strategies.
         
     max_depth : int, default=3
@@ -1502,7 +1502,7 @@ class EnsembleRegressor(BaseEstimator, RegressorMixin):
         self,
         base_estimator=None,
         n_estimators=50,
-        learning_rate=0.1,
+        eta0=0.1,
         max_depth=3,
         strategy='hybrid', 
         random_state=None,
@@ -1527,7 +1527,7 @@ class EnsembleRegressor(BaseEstimator, RegressorMixin):
     ):
         self.base_estimator = base_estimator
         self.n_estimators = n_estimators
-        self.learning_rate = learning_rate
+        self.eta0 = eta0
         self.max_depth = max_depth
         self.strategy = strategy
         self.random_state = random_state
@@ -1553,29 +1553,28 @@ class EnsembleRegressor(BaseEstimator, RegressorMixin):
         if self.base_estimator is None:
             self.base_estimator = DecisionTreeRegressor(max_depth=self.max_depth)
 
-    def fit(self, X, y):
+    def fit(self, X, y, sample_weight=None ):
         X, y = check_X_y(
             X, y, 
             accept_large_sparse=True,  
             accept_sparse=True, 
             estimator= get_estimator_name(self )
             )
-
         if self.strategy == 'bagging':
-            self._fit_bagging(X, y)
+            self._fit_bagging(X, y, sample_weight)
         elif self.strategy == 'boosting':
-            self._fit_boosting(X, y)
+            self._fit_boosting(X, y, sample_weight)
         elif self.strategy == 'hybrid':
-            self._fit_hybrid(X, y)
+            self._fit_hybrid(X, y, sample_weight)
         else:
             raise ValueError(
                 "Invalid strategy, choose from 'hybrid', 'bagging', 'boosting'")
         
         return self
 
-    def _fit_bagging(self, X, y):
+    def _fit_bagging(self, X, y, sample_weight):
         self.model_ = BaggingRegressor(
-            base_estimator=self.base_estimator,
+            estimator=self.base_estimator,
             n_estimators=self.n_estimators,
             random_state=self.random_state,
             max_samples=self.max_samples,
@@ -1589,10 +1588,10 @@ class EnsembleRegressor(BaseEstimator, RegressorMixin):
         )
         self.model_.fit(X, y)
 
-    def _fit_boosting(self, X, y):
+    def _fit_boosting(self, X, y, sample_weight):
         self.model_ = GradientBoostingRegressor(
             n_estimators=self.n_estimators,
-            learning_rate=self.learning_rate,
+            learning_rate=self.eta0,
             max_depth=self.max_depth,
             random_state=self.random_state,
             min_impurity_decrease=self.min_impurity_decrease,
@@ -1608,13 +1607,13 @@ class EnsembleRegressor(BaseEstimator, RegressorMixin):
             tol=self.tol,
             ccp_alpha=self.ccp_alpha
         )
-        self.model_.fit(X, y)
+        self.model_.fit(X, y, sample_weight)
 
-    def _fit_hybrid(self, X, y):
+    def _fit_hybrid(self, X, y, sample_weight):
         self.model_ = BaggingRegressor(
-            base_estimator=GradientBoostingRegressor(
+        estimator=GradientBoostingRegressor(
                 n_estimators=self.n_estimators // 2,
-                learning_rate=self.learning_rate,
+                learning_rate=self.eta0,
                 max_depth=self.max_depth,
                 random_state=self.random_state,
                 min_impurity_decrease=self.min_impurity_decrease,
@@ -1641,7 +1640,7 @@ class EnsembleRegressor(BaseEstimator, RegressorMixin):
             n_jobs=self.n_jobs,
             verbose=self.verbose,
         )
-        self.model_.fit(X, y)
+        self.model_.fit(X, y, sample_weight)
 
     def predict(self, X):
         check_is_fitted(self, 'model_')

@@ -3,7 +3,7 @@
 from __future__ import annotations 
 from scipy import stats
 import numpy as np
-
+from tqdm import tqdm 
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.ensemble import GradientBoostingRegressor, GradientBoostingClassifier
 from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
@@ -12,10 +12,8 @@ from ..tools.validator import check_X_y, get_estimator_name, check_array
 from ..tools.validator import check_is_fitted
 
 __all__=[
-    "BoostingTreeRegressor",
-    "BoostingTreeClassifier",
-    "HybridBoostingClassifier",
-    "HybridBoostingRegressor",
+    "BoostingTreeRegressor","BoostingTreeClassifier",
+    "HybridBoostingClassifier","HybridBoostingRegressor",
     ]
 
 class BoostingTreeRegressor(BaseEstimator, RegressorMixin):
@@ -149,6 +147,9 @@ class BoostingTreeRegressor(BaseEstimator, RegressorMixin):
     ccp_alpha : non-negative float, default=0.0
         Complexity parameter used for Minimal Cost-Complexity Pruning. The subtree 
         with the largest cost complexity that is smaller than ccp_alpha will be chosen.
+        
+    verbose : int, default=0
+        Controls the verbosity when fitting and predicting.
     
     Attributes
     ----------
@@ -213,7 +214,8 @@ class BoostingTreeRegressor(BaseEstimator, RegressorMixin):
         random_state=None, 
         max_leaf_nodes=None, 
         min_impurity_decrease=0.,
-        ccp_alpha=0. 
+        ccp_alpha=0., 
+        verbose=False 
         ):
         self.n_estimators = n_estimators
         self.eta0 = eta0
@@ -230,6 +232,7 @@ class BoostingTreeRegressor(BaseEstimator, RegressorMixin):
         self.max_leaf_nodes = max_leaf_nodes 
         self.min_impurity_decrease = min_impurity_decrease
         self.ccp_alpha = ccp_alpha 
+        self.verbose=verbose 
 
     def _loss_derivative(self, y, y_pred):
         """
@@ -305,6 +308,10 @@ class BoostingTreeRegressor(BaseEstimator, RegressorMixin):
         self.initial_prediction_ = np.mean(y)
         y_pred = np.full(y.shape, self.initial_prediction_)
         
+        if self.verbose:
+            progress_bar = tqdm(range(self.n_estimators), ascii=True, ncols= 100,
+                desc=f'Fitting {self.__class__.__name__}', 
+                )
         for _ in range(self.n_estimators):
             tree = DecisionTreeRegressor(
                 max_depth=self.max_depth,
@@ -331,7 +338,13 @@ class BoostingTreeRegressor(BaseEstimator, RegressorMixin):
             
             y_pred += self.eta0 * prediction
             self.estimators_.append(tree)
-
+            
+            if self.verbose: 
+                progress_bar.update (1)
+                
+        if self.verbose: 
+            progress_bar.close() 
+            
         return self
 
     def predict(self, X):
@@ -484,7 +497,10 @@ class BoostingTreeClassifier(BaseEstimator, ClassifierMixin):
         Complexity parameter used for Minimal Cost-Complexity Pruning. The 
         subtree with the largest cost complexity that is smaller than 
         `ccp_alpha` will be chosen.
-
+        
+    verbose : int, default=0
+        Controls the verbosity when fitting.
+    
     Attributes
     ----------
     estimators_ : list of DecisionTreeClassifier
@@ -552,7 +568,8 @@ class BoostingTreeClassifier(BaseEstimator, ClassifierMixin):
         max_leaf_nodes=None, 
         min_impurity_decrease=0.,
         class_weight=None, 
-        ccp_alpha=0. 
+        ccp_alpha=0., 
+        verbose=0 
         ):
         self.n_estimators = n_estimators
         self.max_depth = max_depth
@@ -568,6 +585,8 @@ class BoostingTreeClassifier(BaseEstimator, ClassifierMixin):
         self.min_impurity_decrease = min_impurity_decrease
         self.class_weight = class_weight 
         self.ccp_alpha = ccp_alpha 
+        self.verbose=verbose 
+        
 
     def fit(self, X, y):
         """
@@ -616,6 +635,10 @@ class BoostingTreeClassifier(BaseEstimator, ClassifierMixin):
         self.initial_prediction_ = np.log(np.mean(y) / (1 - np.mean(y)))
         y_pred = np.full(y.shape, self.initial_prediction_, dtype=float)
         
+        if self.verbose:
+            progress_bar = tqdm(range(self.n_estimators), ascii=True, ncols= 100,
+                desc=f'Fitting {self.__class__.__name__}', 
+                )
         for _ in range(self.n_estimators):
             tree = DecisionTreeClassifier(
                 max_depth=self.max_depth, 
@@ -642,7 +665,13 @@ class BoostingTreeClassifier(BaseEstimator, ClassifierMixin):
             # Update predictions
             y_pred += self.eta0 * (2 * prediction - 1)
             self.estimators_.append(tree)
-
+ 
+            if self.verbose: 
+                progress_bar.update (1)
+                    
+        if self.verbose: 
+            progress_bar.close() 
+            
         return self
 
     def predict(self, X):
@@ -698,7 +727,7 @@ class BoostingTreeClassifier(BaseEstimator, ClassifierMixin):
             y_pred += self.eta0 * (2 * tree.predict(X) - 1)
 
         return np.where(1 / (1 + np.exp(-y_pred)) > 0.5, 1, 0)
-#CCCXXX dodo    
+  
     def predict_proba(self, X):
         """
         Predict class probabilities for samples in `X`.
@@ -899,7 +928,8 @@ class HybridBoostingClassifier(BaseEstimator, ClassifierMixin):
         min_impurity_decrease=0.,
         class_weight=None, 
         ccp_alpha=0.,
-        random_state=None
+        random_state=None, 
+        verbose=False 
         ):
         self.n_estimators = n_estimators
         self.eta0 = eta0
@@ -915,25 +945,31 @@ class HybridBoostingClassifier(BaseEstimator, ClassifierMixin):
         self.class_weight = class_weight
         self.ccp_alpha = ccp_alpha
         self.random_state = random_state
+        self.verbose = verbose 
 
-    def fit(self, X, y):
+
+    def fit(self, X, y, sample_weight =None ):
         """
         Fit the Hybrid Boosting Classifier model to the data.
-
+    
         Parameters
         ----------
         X : array-like of shape (n_samples, n_features)
             The training input samples.
         y : array-like of shape (n_samples,)
             The target values.
-
+    
         Returns
         -------
         self : object
             Returns self.
         """
-        X, y = check_X_y(X, y)
+        X, y = check_X_y(X, y, accept_sparse=True, estimator=self )
         
+        if self.verbose:
+            print("Starting fit of Hybrid Boosting Classifier")
+            print("Fitting Decision Tree Classifier...")
+    
         # First layer: Decision Tree Classifier
         self.decision_tree_ = DecisionTreeClassifier(
             criterion=self.criterion,
@@ -949,17 +985,38 @@ class HybridBoostingClassifier(BaseEstimator, ClassifierMixin):
             class_weight=self.class_weight,
             ccp_alpha=self.ccp_alpha
         )
-        self.decision_tree_.fit(X, y)
-        
+        self.decision_tree_.fit(X, y, sample_weight=sample_weight)
+    
+        if self.verbose:
+            print("Decision Tree Classifier fitted successfully.")
+            print("Fitting Gradient Boosting Classifier...")
+    
         # Second layer: Gradient Boosting Classifier
-        self.gradient_boosting_ = GradientBoostingClassifier(
-            learning_rate=self.eta0,
-            n_estimators=self.n_estimators,
-            max_depth=self.max_depth,
-            random_state=self.random_state
-        )
-        self.gradient_boosting_.fit(X, y)
-        
+        if self.verbose:
+            with tqdm(total=self.n_estimators, ascii=True,
+                      desc='Fitting GradientBoostingClassifier ') as pbar:
+                for i in range(self.n_estimators):
+                    self.gradient_boosting_ = GradientBoostingClassifier(
+                        learning_rate=self.eta0,
+                        n_estimators=i+1,  # Incremental fitting by increasing the number of estimators
+                        max_depth=self.max_depth,
+                        random_state=self.random_state
+                    )
+                    self.gradient_boosting_.fit(X, y, sample_weight=sample_weight)
+                    pbar.update(1)
+        else:
+            self.gradient_boosting_ = GradientBoostingClassifier(
+                learning_rate=self.eta0,
+                n_estimators=self.n_estimators,
+                max_depth=self.max_depth,
+                random_state=self.random_state
+            )
+            self.gradient_boosting_.fit(X, y, sample_weight=sample_weight)
+    
+        if self.verbose:
+            print("Gradient Boosting Classifier fitted successfully.")
+            print("Hybrid Boosting Classifier fit completed.")
+    
         return self
 
     def predict(self, X):
@@ -1148,7 +1205,6 @@ class HybridBoostingRegressor(BaseEstimator, RegressorMixin):
       Gradient Boosting model trained on the residuals.
 
     """
-
     def __init__(
         self, 
         n_estimators=100, 
@@ -1164,7 +1220,8 @@ class HybridBoostingRegressor(BaseEstimator, RegressorMixin):
         min_impurity_decrease=0.,
         ccp_alpha=0.,
         random_state=None,
-    ):
+        verbose=0
+        ):
         self.n_estimators = n_estimators
         self.eta0 = eta0
         self.max_depth = max_depth

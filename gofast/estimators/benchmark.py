@@ -107,7 +107,7 @@ class BenchmarkRegressor(BaseEstimator, RegressorMixin):
         self.meta_regressor = meta_regressor
         self.cv = cv
 
-    def fit(self, X, y):
+    def fit(self, X, y, sample_weight=None ):
         """ Fit the training data 
         
         Parameters 
@@ -132,11 +132,11 @@ class BenchmarkRegressor(BaseEstimator, RegressorMixin):
         """
         # Create and fit the stacking model
         self.stacked_model_ = StackingRegressor(
-           estimators=self.base.estimators,
+           estimators=self.base_estimators,
             final_estimator=self.meta_regressor,
             cv=self.cv
         )
-        self.stacked_model_.fit(X, y)
+        self.stacked_model_.fit(X, y, sample_weight = sample_weight ) 
         return self
 
     def predict(self, X):
@@ -261,7 +261,7 @@ class BenchmarkClassifier(BaseEstimator, ClassifierMixin):
         self.meta_classifier = meta_classifier
         self.cv = cv
 
-    def fit(self, X, y):
+    def fit(self, X, y, sample_weight=None ):
         """ Fit the training data 
         
         Parameters 
@@ -296,7 +296,7 @@ class BenchmarkClassifier(BaseEstimator, ClassifierMixin):
             final_estimator=self.meta_classifier,
             cv=self.cv
         )
-        self.stacked_model_.fit(X, y)
+        self.stacked_model_.fit(X, y, sample_weight =sample_weight)
         return self
 
     def predict(self, X):

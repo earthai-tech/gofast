@@ -54,7 +54,7 @@ class BasePerceptron(BaseEstimator, ClassifierMixin):
         The learning rate, a value between 0.0 and 1.0. It controls the
         magnitude of weight updates and hence the speed of convergence.
 
-    n_iter : int, default=50
+    max_iter : int, default=50
         The number of passes over the training data (also known as epochs).
         It determines how many times the algorithm iterates through the entire
         dataset.
@@ -75,7 +75,7 @@ class BasePerceptron(BaseEstimator, ClassifierMixin):
     Notes
     -----
     The perceptron algorithm does not converge if the data is not linearly
-    separable. In such cases, the number of iterations (n_iter) controls the
+    separable. In such cases, the number of iterations (max_iter) controls the
     termination of the algorithm.
 
     This implementation initializes the weights to zero but can be modified
@@ -114,7 +114,7 @@ class BasePerceptron(BaseEstimator, ClassifierMixin):
     >>> X_test_std = sc.transform(X_test)
 
     # Create and fit the model
-    >>> ppn = BasePerceptron(eta0=0.01, n_iter=40)
+    >>> ppn = BasePerceptron(eta0=0.01, max_iter=40)
     >>> ppn.fit(X_train_std, y_train)
 
     # Predict and evaluate
@@ -125,11 +125,11 @@ class BasePerceptron(BaseEstimator, ClassifierMixin):
     def __init__(
         self, 
         eta0:float = .01 , 
-        n_iter: int = 50 , 
+        max_iter: int = 50 , 
         random_state:int = None 
         ) :
         self.eta0=eta0 
-        self.n_iter=n_iter 
+        self.max_iter=max_iter 
         self.random_state=random_state 
         
     def fit(self , X, y ): 
@@ -165,7 +165,7 @@ class BasePerceptron(BaseEstimator, ClassifierMixin):
         rgen = np.random.RandomState(self.random_state)
         self.weights_ = rgen.normal(loc=0. , scale =.01 , size = 1 + X.shape[1])
         self.errors_ =list() 
-        for _ in range (self.n_iter):
+        for _ in range (self.max_iter):
             errors =0 
             for xi, target in zip(X, y):
                 update = self.eta0 * (target - self.predict(xi.reshape(1, -1)))
@@ -258,7 +258,7 @@ class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
         Learning rate, between 0.0 and 1.0. It controls the step size at each
         iteration while moving toward a minimum of the cost function.
 
-    n_iter : int
+    max_iter : int
         Number of epochs, i.e., complete passes over the entire training dataset.
 
     shuffle : bool
@@ -280,7 +280,7 @@ class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
     >>> iris = load_iris()
     >>> X = iris.data
     >>> y = iris.target
-    >>> gd_clf = GradientDescentClassifier(eta0=0.01, n_iter=50)
+    >>> gd_clf = GradientDescentClassifier(eta0=0.01, max_iter=50)
     >>> gd_clf.fit(X, y)
     >>> y_pred = gd_clf.predict(X)
     >>> print('Accuracy:', np.mean(y_pred == y))
@@ -300,9 +300,9 @@ class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
     
     """
 
-    def __init__(self, eta0=0.01, n_iter=50, shuffle=True):
+    def __init__(self, eta0=0.01, max_iter=50, shuffle=True):
         self.eta0 = eta0
-        self.n_iter = n_iter
+        self.max_iter = max_iter
         self.shuffle = shuffle
 
     def fit(self, X, y):
@@ -347,7 +347,7 @@ class GradientDescentClassifier(BaseEstimator, ClassifierMixin):
         
         for i in range(n_classes):
             y_bin = Y_bin[:, i]
-            for _ in range(self.n_iter):
+            for _ in range(self.max_iter):
                 if self.shuffle:
                     X, y_bin = shuffle(X, y_bin)
                 errors = y_bin - self._predict_proba(X, i)
@@ -469,7 +469,7 @@ class GradientDescentRegressor(BaseEstimator, RegressorMixin):
         Learning rate (between 0.0 and 1.0). Controls the step size for weight
         updates during training.
 
-    n_iter : int, default=1000
+    max_iter : int, default=1000
         Number of passes over the training dataset (epochs). Specifies how many
         times the algorithm iterates over the entire dataset during training.
 
@@ -497,7 +497,7 @@ class GradientDescentRegressor(BaseEstimator, RegressorMixin):
     >>> y = boston.target
     >>> X_train, X_test, y_train, y_test = train_test_split(
     ...     X, y, test_size=0.3, random_state=0)
-    >>> gd_reg = GradientDescentRegressor(eta0=0.0001, n_iter=1000)
+    >>> gd_reg = GradientDescentRegressor(eta0=0.0001, max_iter=1000)
     >>> gd_reg.fit(X_train, y_train)
     >>> y_pred = gd_reg.predict(X_test)
     >>> mse = np.mean((y_pred - y_test) ** 2)
@@ -507,7 +507,7 @@ class GradientDescentRegressor(BaseEstimator, RegressorMixin):
     -----
     Gradient Descent is a widely used optimization technique for training
     linear regression models. The learning rate (eta0) and the number of
-    iterations (n_iter) are crucial hyperparameters that impact the training
+    iterations (max_iter) are crucial hyperparameters that impact the training
     process. Careful tuning of these hyperparameters is necessary for
     achieving optimal results.
 
@@ -515,9 +515,9 @@ class GradientDescentRegressor(BaseEstimator, RegressorMixin):
     --------
     LinearRegression : Linear regression from Scikit-Learn.
     """
-    def __init__(self, eta0=0.0001, n_iter=1000, random_state =None):
+    def __init__(self, eta0=0.0001, max_iter=1000, random_state =None):
         self.eta0 = eta0
-        self.n_iter = n_iter
+        self.max_iter = max_iter
         self.random_state = random_state 
 
     def fit(self, X, y):
@@ -539,7 +539,7 @@ class GradientDescentRegressor(BaseEstimator, RegressorMixin):
         self.weights_ = np.zeros(1 + X.shape[1])
         self.cost_ = []
 
-        for i in range(self.n_iter):
+        for i in range(self.max_iter):
             errors = y - self.predict(X)
             self.weights_[1:] += self.eta0 * X.T.dot(errors)
             self.weights_[0] += self.eta0 * errors.sum()

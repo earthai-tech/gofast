@@ -86,9 +86,7 @@ def test_ensemble_hw_classifier(classification_data):
 
 def test_ensemble_hw_regressor(sample_data):
     X_train, X_test, y_train, y_test = sample_data
-    regressor = EnsembleHWRegressor(hweights_estimators=[
-        HammersteinWienerRegressor() for _ in range(5)  # Assume similar configuration
-    ])
+    regressor = EnsembleHWRegressor(n_estimators=5 )
     regressor.fit(X_train, y_train)
     predictions = regressor.predict(X_test)
     assert mean_squared_error(y_test, predictions) < 50000  # Example threshold
@@ -168,11 +166,11 @@ def test_adaline_mixte(adaline_mixte):
 # Tests for GradientDescentClassifier and GradientDescentRegressor
 @pytest.fixture
 def gradient_descent_classifier():
-    return GradientDescentClassifier(eta=0.01, n_iter=50)
+    return GradientDescentClassifier(eta0=0.01, max_iter=50)
 
 @pytest.fixture
 def gradient_descent_regressor():
-    return GradientDescentRegressor(eta=0.0001, n_iter=1000)
+    return GradientDescentRegressor(eta0=0.0001, max_iter=1000)
 
 def test_gradient_descent_classifier(gradient_descent_classifier):
     X_train, X_test, y_train, y_test = create_dataset('classification', n_classes=2)
@@ -301,8 +299,8 @@ def decision_stump():
 def test_decision_stump_fit_predict(decision_stump):
     X_train, _, y_train, _ = create_dataset('regression')
     decision_stump.fit(X_train, y_train)
-    assert hasattr(decision_stump, 'split_feature')
-    assert hasattr(decision_stump, 'left_value') and hasattr(decision_stump, 'right_value')
+    assert hasattr(decision_stump, 'split_feature_')
+    assert hasattr(decision_stump, 'left_value_') and hasattr(decision_stump, 'right_value_')
 
 def test_decision_stump_invalid_input(decision_stump):
     with pytest.raises(NotFittedError):
