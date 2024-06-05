@@ -768,30 +768,41 @@ class WeightedTreeRegressor(BaseEstimator, RegressorMixin):
     ----------
     n_estimators : int, default=50
         The number of decision trees in the ensemble.
+        
     eta0 : float, default=0.1
         The learning rate for gradient boosting, controlling how much each tree
         influences the overall prediction.
+        
     max_depth : int, default=3
         The maximum depth of each decision tree, determining the complexity of
         the model.
+        
     criterion : {"squared_error", "friedman_mse", "absolute_error", "poisson"},\
         default="squared_error"
         The function to measure the quality of a split.
+        
     splitter : {"best", "random"}, default="best"
         The strategy used to choose the split at each node.
+        
     min_samples_split : int or float, default=2
         The minimum number of samples required to split an internal node.
+        
     min_samples_leaf : int or float, default=1
         The minimum number of samples required to be at a leaf node.
+        
     min_weight_fraction_leaf : float, default=0.0
         The minimum weighted fraction of the sum total of weights (of all the input samples)
         required to be at a leaf node.
+        
     max_features : int, float, str or None, default=None
         The number of features to consider when looking for the best split.
+        
     random_state : int, RandomState instance or None, default=None
         Controls the randomness of the estimator.
+        
     max_leaf_nodes : int or None, default=None
         Grow a tree with `max_leaf_nodes` in best-first fashion.
+        
     min_impurity_decrease : float, default=0.0
         A node will be split if this split induces a decrease of the impurity 
         greater than or equal to this value.
