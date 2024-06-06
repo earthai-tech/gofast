@@ -128,7 +128,7 @@ class HammersteinWienerClassifier(BaseEstimator, ClassifierMixin):
         self.nonlinearity_in = nonlinearity_in
         self.nonlinearity_out = nonlinearity_out
         self.memory_depth = memory_depth
-        self._validate_parameters()
+        
 
     def _validate_parameters(self):
         """
@@ -585,7 +585,7 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
         self.linear_model = linear_model
         self.memory_depth = memory_depth
         self.random_state = random_state
-        self._validate_parameters()
+        
         
     def _validate_parameters(self):
         """
@@ -715,6 +715,7 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
         HammersteinWienerRegressor._validate_parameters :
             Validates and initializes the parameters.
         """
+        self._validate_parameters()
         X_transformed = self.nonlinearity_in(X)
         n_samples, n_features = X_transformed.shape
         if n_samples <= self.memory_depth:

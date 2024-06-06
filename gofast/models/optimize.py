@@ -135,11 +135,9 @@ def _perform_search(name, estimator, param_grid, optimizer, X, y,
     n_iter = search_kwargs.get('n_iter', len( list(params_combinations(param_grid )) ))
     pbar = tqdm(total=n_iter, desc=progress_bar_desc, ncols=103, ascii=True,
                 position=0, leave=True)
-    
     for _ in range(n_iter):
         search.fit(X, y)
         pbar.update(1)
-        
     pbar.close()
     
     return (
@@ -303,22 +301,22 @@ def optimize_search2(
     estimators, param_grids = _validate_parameters(param_grids, estimators)
     max_length = max([len(str(estimator)) for estimator in estimators])
     
-    try: 
-        results = Parallel(n_jobs=n_jobs)(delayed(_perform_search)(
-            name, estimators[i], param_grids[i], optimizer, X, y, search_kwargs,
-            f"Optimizing {make_estimator_name(name):<{max_length}}")
-            for i, name in enumerate(estimators))
-    except: 
-        result_dict= _optimize_search2(
-            X, y, param_grids=param_grids, estimators=estimators, 
-             **search_kwargs)
-    else: 
-        result_dict = {make_estimator_name(name): {
-            'best_estimator': best_est, 'best_params': best_params, 
-            'best_score': best_sc, 'cv_results': cv_res
-            }
-           for name, best_est, best_params, best_sc, cv_res in results
+    # try: 
+    results = Parallel(n_jobs=n_jobs)(delayed(_perform_search)(
+        name, estimators[i], param_grids[i], optimizer, X, y, search_kwargs,
+        f"Optimizing {make_estimator_name(name):<{max_length}}")
+        for i, name in enumerate(estimators))
+    # except: 
+    #     result_dict= _optimize_search2(
+    #         X, y, param_grids=param_grids, estimators=estimators, 
+    #          **search_kwargs)
+    # else: 
+    result_dict = {make_estimator_name(name): {
+        'best_estimator': best_est, 'best_params': best_params, 
+        'best_score': best_sc, 'cv_results': cv_res
         }
+       for name, best_est, best_params, best_sc, cv_res in results
+    }
     
     if save_results:
         joblib.dump(result_dict, "optimization_results.joblib")
