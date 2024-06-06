@@ -1391,7 +1391,6 @@ class DecisionStumpRegressor(BaseClass, StandardEstimator):
         
         return decision_scores
 
-        
     def score(self, X, y, sample_weight=None):
         """
         Calculate the coefficient of determination :math:`R^2` of the 
@@ -1440,7 +1439,6 @@ class DecisionStumpRegressor(BaseClass, StandardEstimator):
         check_is_fitted(self, "fitted_") 
         y_pred = self.predict(X)
         return r2_score(y, y_pred, sample_weight=sample_weight)
-
 
 class DecisionStumpClassifier(BaseClass, StandardEstimator):
     r"""

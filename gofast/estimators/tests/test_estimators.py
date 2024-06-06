@@ -203,7 +203,7 @@ def test_simple_average_regressor(simple_average_regressor):
 @pytest.fixture
 def majority_vote_classifier():
     clfs = [LogisticRegression(), DecisionTreeClassifier(), KNeighborsClassifier()]
-    return MajorityVoteClassifier(clfs=clfs)
+    return MajorityVoteClassifier(classifiers=clfs)
 
 def test_majority_vote_classifier_fit_predict(majority_vote_classifier):
     X_train, X_test, y_train, y_test = create_dataset('classification')

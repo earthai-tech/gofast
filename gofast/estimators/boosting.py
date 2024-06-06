@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import annotations 
-from scipy import stats
 import numpy as np
 from tqdm import tqdm 
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.ensemble import GradientBoostingRegressor, GradientBoostingClassifier
+from sklearn.metrics  import  mean_squared_error
 from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
 
 from ..tools.validator import check_X_y, get_estimator_name, check_array 
@@ -874,7 +874,10 @@ class HybridBoostingClassifier(BaseEstimator, ClassifierMixin):
         the algorithm will select `max_features` at random at each split
         before finding the best split among them. Pass an int for
         reproducible output across multiple function calls.
-
+        
+    verbose : int, default=False
+        Controls the verbosity when fitting
+        
     Attributes
     ----------
     decision_tree_ : DecisionTreeClassifier
@@ -993,12 +996,13 @@ class HybridBoostingClassifier(BaseEstimator, ClassifierMixin):
     
         # Second layer: Gradient Boosting Classifier
         if self.verbose:
-            with tqdm(total=self.n_estimators, ascii=True,
+            with tqdm(total=self.n_estimators, ascii=True,ncols= 100,
                       desc='Fitting GradientBoostingClassifier ') as pbar:
                 for i in range(self.n_estimators):
                     self.gradient_boosting_ = GradientBoostingClassifier(
                         learning_rate=self.eta0,
-                        n_estimators=i+1,  # Incremental fitting by increasing the number of estimators
+                        # Incremental fitting by increasing the number of estimators
+                        n_estimators=i+1,  
                         max_depth=self.max_depth,
                         random_state=self.random_state
                     )
@@ -1014,7 +1018,7 @@ class HybridBoostingClassifier(BaseEstimator, ClassifierMixin):
             self.gradient_boosting_.fit(X, y, sample_weight=sample_weight)
     
         if self.verbose:
-            print("Gradient Boosting Classifier fitted successfully.")
+            print("\nGradient Boosting Classifier fitted successfully.")
             print("Hybrid Boosting Classifier fit completed.")
     
         return self
@@ -1159,7 +1163,10 @@ class HybridBoostingRegressor(BaseEstimator, RegressorMixin):
         the algorithm will select `max_features` at random at each split
         before finding the best split among them. Pass an int for
         reproducible output across multiple function calls.
-
+        
+    verbose : int, default=False
+        Controls the verbosity when fitting
+        
     Attributes
     ----------
     decision_tree_ : DecisionTreeRegressor
@@ -1235,18 +1242,19 @@ class HybridBoostingRegressor(BaseEstimator, RegressorMixin):
         self.min_impurity_decrease = min_impurity_decrease
         self.ccp_alpha = ccp_alpha
         self.random_state = random_state
+        self.verbose=verbose 
 
-    def fit(self, X, y):
+    def fit(self, X, y, sample_weight=None):
         """
         Fit the Hybrid Boosting Regressor model to the data.
-
+    
         Parameters
         ----------
         X : array-like of shape (n_samples, n_features)
             The training input samples.
         y : array-like of shape (n_samples,)
             The target values.
-
+    
         Returns
         -------
         self : object
@@ -1255,10 +1263,14 @@ class HybridBoostingRegressor(BaseEstimator, RegressorMixin):
         X, y = check_X_y(
             X, y, 
             accept_sparse=True, 
-            accept_large_sparse= True, 
-            y_numeric =True, 
-            estimator= get_estimator_name(self)
+            accept_large_sparse=True, 
+            y_numeric=True, 
+            estimator=self.__class__.__name__
         )
+        if self.verbose:
+            print("Starting fit of Hybrid Boosting Regressor")
+            print("Fitting Decision Tree Regressor...")
+    
         # First layer: Decision Tree Regressor
         self.decision_tree_ = DecisionTreeRegressor(
             criterion=self.criterion,
@@ -1273,13 +1285,20 @@ class HybridBoostingRegressor(BaseEstimator, RegressorMixin):
             min_impurity_decrease=self.min_impurity_decrease,
             ccp_alpha=self.ccp_alpha
         )
-        
-        self.decision_tree_.fit(X, y)
+    
+        self.decision_tree_.fit(X, y, sample_weight=sample_weight)
         dt_predictions = self.decision_tree_.predict(X)
-        
+    
+        if self.verbose:
+            print("Decision Tree Regressor fitted successfully.")
+            print("Calculating residuals...")
+    
         # Calculate residuals for Gradient Boosting
         residuals = y - dt_predictions
-        
+    
+        if self.verbose:
+            print("Fitting Gradient Boosting Regressor...")
+    
         # Second layer: Gradient Boosting Regressor
         self.gradient_boosting_ = GradientBoostingRegressor(
             learning_rate=self.eta0,
@@ -1287,20 +1306,48 @@ class HybridBoostingRegressor(BaseEstimator, RegressorMixin):
             max_depth=self.max_depth,
             random_state=self.random_state
         )
+    
+        self.gradient_boosting_.fit(X, residuals, sample_weight=sample_weight)
+        if self.verbose:
+            with tqdm(total=self.n_estimators, ascii=True, ncols=100,
+                      desc='Fitting GradientBoostingRegressor') as pbar:
+                for i in range(self.n_estimators):
+                    # self.gradient_boosting_.n_estimators = i + 1
+                    # self.gradient_boosting_.fit(X, residuals)
+                    pbar.update(1)
+                    
+        gb_predictions = self.gradient_boosting_.predict(X)
+    
+        if self.verbose:
+            print("\nGradient Boosting Regressor fitted successfully.")
+            print("Calculating weights for combination...")
+    
+        # Calculate weights based on performance (using mean squared error)
+        dt_mse = mean_squared_error(y, dt_predictions)
+        gb_mse = mean_squared_error(y, gb_predictions)
         
-        self.gradient_boosting_.fit(X, residuals)
-        
+        self.dt_weight_ = 1 / dt_mse
+        self.gb_weight_ = 1 / gb_mse
+    
+        # Normalize weights
+        total_weight = self.dt_weight_ + self.gb_weight_
+        self.dt_weight_ /= total_weight
+        self.gb_weight_ /= total_weight
+    
+        if self.verbose:
+            print("Hybrid Boosting Regressor fit completed.")
+    
         return self
-
+    
     def predict(self, X):
         """
         Predict target values for samples in `X`.
-
+    
         Parameters
         ----------
         X : array-like of shape (n_samples, n_features)
             The input samples.
-
+    
         Returns
         -------
         y_pred : array-like of shape (n_samples,)
@@ -1308,488 +1355,27 @@ class HybridBoostingRegressor(BaseEstimator, RegressorMixin):
         """
         check_is_fitted(self, 'decision_tree_')
         check_is_fitted(self, 'gradient_boosting_')
+        check_is_fitted(self, 'dt_weight_')
+        check_is_fitted(self, 'gb_weight_')
+        
         X = check_array(
-            X, accept_large_sparse= True, 
-            accept_sparse= True, 
-            estimator= get_estimator_name (self ), 
-            to_frame= False, 
-            input_name='X', 
-            )
+            X, accept_large_sparse=True, 
+            accept_sparse=True, 
+            estimator=self.__class__.__name__, 
+            to_frame=False, 
+            input_name='X'
+        )
         
         dt_predictions = self.decision_tree_.predict(X)
         gb_predictions = self.gradient_boosting_.predict(X)
         
-        # Combine predictions
-        combined_predictions = dt_predictions + gb_predictions
+        # Combine predictions using the calculated weights
+        combined_predictions = (self.dt_weight_ * dt_predictions) + (
+            self.gb_weight_ * gb_predictions)
         return combined_predictions
 
-class EnsembleBTClassifier(BaseEstimator, ClassifierMixin):
-    r"""
-    Hybrid Boosted Regression Tree Ensemble Classifier.
 
-    This classifier leverages an ensemble of Boosted Decision Tree classifiers,
-    each being a full implementation of the GradientBoostingClassifier. This 
-    ensemble approach enhances prediction accuracy and robustness by combining
-    the strengths of multiple boosted trees.
 
-    In the `EnsembleHBTClassifier`, each classifier in the `gb_ensembles_` list 
-    is an independent Boosted Decision Tree model. The `fit` method trains each 
-    model on the entire dataset, while the `predict` method applies majority 
-    voting among all models to determine the final class labels. The `gb_params` 
-    parameter allows for customization of each individual Gradient Boosting model.
-
-    Parameters
-    ----------
-    n_estimators : int
-        The number of Boosted Decision Tree models in the ensemble.
-    gb_params : dict
-        Parameters to be passed to each GradientBoostingClassifier model, such
-        as the number of boosting stages, learning rate, and tree depth.
-
-    Attributes
-    ----------
-    gb_ensembles_ : list of GradientBoostingClassifier
-        A list containing the fitted Boosted Decision Tree models.
-
-    Notes
-    -----
-    The Hybrid Boosted Tree Ensemble Classifier uses majority voting based on 
-    the predictions from multiple Boosted Decision Tree models. Mathematically,
-    the ensemble's decision-making process is formulated as follows:
-
-    .. math::
-        C_{\text{final}}(x) = \text{argmax}\left(\sum_{i=1}^{n} \delta(C_i(x), \text{mode})\right)
-
-    where:
-    - :math:`C_{\text{final}}(x)` is the final predicted class label for input \(x\).
-    - :math:`\delta(C_i(x), \text{mode})` is an indicator function that counts 
-      the occurrence of the most frequent class label predicted by the \(i\)-th 
-      Boosted Tree.
-    - :math:`n` is the number of Boosted Decision Trees in the ensemble.
-    - :math:`C_i(x)` is the class label predicted by the \(i\)-th Boosted Decision Tree.
-
-    This ensemble method significantly reduces the likelihood of overfitting and 
-    increases the predictive performance by leveraging the diverse predictive 
-    capabilities of multiple models.
-    
-    Examples
-    --------
-    >>> from gofast.estimators.boosting import EnsembleHBTClassifier
-    >>> gb_params = {'n_estimators': 50, 'max_depth': 3, 'eta0': 0.1}
-    >>> hybrid_gb = HBTEnsembleClassifier(n_estimators=10,
-                                              gb_params=gb_params)
-    >>> X, y = np.random.rand(100, 4), np.random.randint(0, 2, 100)
-    >>> hybrid_gb.fit(X, y)
-    >>> y_pred = hybrid_gb.predict(X)
-    """
-
-    def __init__(self, n_estimators=10, gb_params=None):
-        self.n_estimators = n_estimators
-        self.gb_params = gb_params or {}
-        
-
-    def fit(self, X, y):
-        """
-        Fit the Hybrid Boosted Regression Tree Ensemble Classifier 
-        model to the data.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The training input samples.
-        y : array-like of shape (n_samples,)
-            The target class labels.
-
-        Returns
-        -------
-        self : object
-            Returns self.
-        """
-        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
-        self.gb_ensembles_ = []
-        for _ in range(self.n_estimators):
-            gb = GradientBoostingClassifier(**self.gb_params)
-            gb.fit(X, y)
-            self.gb_ensembles_.append(gb)
-
-        return self
-
-    def predict(self, X):
-        """
-        Predict using the Hybrid Boosted Regression Tree Ensemble 
-        Classifier model.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The input samples.
-
-        Returns
-        -------
-        y_pred : array-like of shape (n_samples,)
-            The predicted class labels.
-        """
-        check_is_fitted(self, 'gb_ensembles_')
-        X = check_array(
-            X,
-            accept_large_sparse=True,
-            accept_sparse= True,
-            to_frame=False, 
-            )
-        predictions = np.array([gb.predict(X) for gb in self.gb_ensembles_])
-        # Majority voting for classification
-        y_pred = stats.mode(predictions, axis=0).mode[0]
-        return y_pred
-    
-class EnsembleHBTRegressor(BaseEstimator, RegressorMixin):
-    r"""
-    Hybrid Boosted Tree Ensemble Regressor.
-
-    This ensemble model combines decision trees with gradient boosting for 
-    regression tasks. Designed to enhance prediction accuracy, the Hybrid 
-    Boosted Tree Ensemble Regressor adjusts the weight of each decision tree 
-    based on its performance, optimizing predictions across a wide range of 
-    applications.
-
-    Parameters
-    ----------
-    n_estimators : int, default=50
-        The number of decision trees in the ensemble.
-    eta0 : float, default=0.1
-        The learning rate for gradient boosting, affecting how rapidly the 
-        model adapts to the problem.
-    max_depth : int, default=3
-        The maximum depth allowed for each decision tree, controlling complexity.
-
-    Attributes
-    ----------
-    base_estimators_ : list of DecisionTreeRegressor
-        List of base learners, each a DecisionTreeRegressor.
-    weights_ : list
-        Weights assigned to each base learner, influencing their impact on the 
-        final prediction.
-
-    Notes
-    -----
-    The Hybrid Boosted Tree Ensemble Regressor employs gradient boosting to
-    enhance and correct predictions iteratively:
-
-    1. Residual Calculation:
-       .. math::
-           \text{Residual} = y - F_k(x)
-
-    2. Weighted Error Calculation:
-       .. math::
-           \text{Weighted Error} = \sum_{i=1}^{n} (weights_i \cdot \text{Residual}_i)^2
-
-    3. Weight Calculation for Base Learners:
-       .. math::
-           \text{Weight} = \text{learning\_rate} \cdot \frac{1}{1 + \text{Weighted Error}}
-
-    4. Update Predictions:
-       .. math::
-           F_{k+1}(x) = F_k(x) + \text{Weight} \cdot \text{Residual}
-
-    where:
-    - :math:`F_k(x)` is the prediction of the ensemble at iteration \(k\).
-    - :math:`y` represents the true target values.
-    - :math:`\text{Residual}` is the difference between the true values and the
-      ensemble prediction.
-    - :math:`\text{Weighted Error}` is the squared residuals weighted by their
-      respective sample weights.
-    - :math:`\text{Weight}` is the weight assigned to the predictions from the 
-      new tree in the boosting process.
-    - :math:`n` is the number of samples.
-    - :math:`weights_i` is the weight of each sample.
-    - :math:`\text{learning\_rate}` is a hyperparameter controlling the 
-      influence of each new tree.
-
-    Example
-    -------
-    Here's an example of how to use the `EnsembleHBTRegressor`
-    on the Boston Housing dataset:
-
-    >>> from sklearn.datasets import load_boston
-    >>> from sklearn.model_selection import train_test_split
-    >>> from gofast.estimators.boosting import EnsembleHBTRegressor
-
-    >>> # Load the dataset
-    >>> boston = load_boston()
-    >>> X = boston.data
-    >>> y = boston.target
-
-    >>> # Split the data into training and testing sets
-    >>> X_train, X_test, y_train, y_test = train_test_split(
-    ...     X, y, test_size=0.3, random_state=0)
-
-    >>> # Create and fit the EnsembleHBTRegressor
-    >>> hybrid_regressor = HBTEnsembleRegressor(
-    ...     n_estimators=50, eta0=0.01, max_depth=3)
-    >>> hybrid_regressor.fit(X_train, y_train)
-
-    >>> # Make predictions and evaluate the model
-    >>> y_pred = hybrid_regressor.predict(X_test)
-    >>> mse = np.mean((y_pred - y_test) ** 2)
-    >>> print('Mean Squared Error:', mse)
-
-    Applications and Performance
-    ----------------------------
-    The Hybrid Boosted Tree Ensemble Regressor is a versatile model suitable
-    for various regression tasks, including real estate price prediction,
-    financial forecasting, and more. Its performance depends on the quality
-    of the data, the choice of hyperparameters, and the number of estimators.
-
-    When tuned correctly, it can achieve high accuracy and robustness, making
-    it a valuable tool for predictive modeling.
-
-    See Also
-    --------
-    - `sklearn.ensemble.GradientBoostingRegressor`: Scikit-learn's Gradient
-      Boosting Regressor for comparison.
-    - `sklearn.tree.DecisionTreeRegressor`: Decision tree regressor used as
-      base learners in ensemble methods.
-    - `sklearn.metrics.mean_squared_error`: A common metric for evaluating
-      regression models.
-    - gofast.estimators.boosting.HybridBoostingTreeRegressor: Hybrid Boosted Regression 
-      Tree for regression tasks.
-    """
-
-    def __init__(self, n_estimators=50, eta0=0.1, max_depth=3):
-        self.n_estimators = n_estimators
-        self.eta0 = eta0
-        self.max_depth = max_depth
-
-
-    def fit(self, X, y):
-        """Fit training data.
-
-        Parameters
-        ----------
-        X : {array-like}, shape = [n_samples, n_features]
-            Training vectors, where n_samples is the number of samples and
-            n_features is the number of features.
-        y : array-like, shape = [n_samples]
-            Target values.
-
-        Returns
-        -------
-        self : object
-        """
-        self.base_estimators_ = []
-        self.weights_ = []
-        F_k = np.zeros(len(y))
-
-        for _ in range(self.n_estimators):
-            # Calculate residuals
-            residual = y - F_k
-            
-            # Fit a decision tree on the residuals
-            base_estimator = DecisionTreeRegressor(max_depth=self.max_depth)
-            base_estimator.fit(X, residual)
-            
-            # Calculate weighted error
-            weighted_error = np.sum((residual - base_estimator.predict(X)) ** 2)
-            
-            # Calculate weight for this base estimator
-            weight = self.eta0 / (1 + weighted_error)
-            
-            # Update predictions
-            F_k += weight * base_estimator.predict(X)
-            
-            # Store the base estimator and its weight
-            self.base_estimators_.append(base_estimator)
-            self.weights_.append(weight)
-        
-        return self
-
-    def predict(self, X):
-        """Return regression predictions.
-
-        Parameters
-        ----------
-        X : {array-like}, shape = [n_samples, n_features]
-            Samples.
-
-        Returns
-        -------
-        y_pred : array-like, shape = [n_samples]
-            Predicted target values.
-        """
-        check_is_fitted(self, 'weights_')
-        y_pred = np.zeros(X.shape[0])
-        for i, base_estimator in enumerate(self.base_estimators_):
-            y_pred += self.weights_[i] * base_estimator.predict(X)
-        
-        return y_pred
-    
-class _GradientBoostingRegressor:
-    r"""
-    A simple gradient boosting regressor for regression tasks.
-
-    Gradient Boosting builds an additive model in a forward stage-wise fashion. 
-    At each stage, regression trees are fit on the negative gradient of the loss function.
-
-    Parameters
-    ----------
-    n_estimators : int, optional (default=100)
-        The number of boosting stages to be run. This is essentially the 
-        number of decision trees in the ensemble.
-
-    eta0 : float, optional (default=1.0)
-        Learning rate shrinks the contribution of each tree. There is a 
-        trade-off between eta0 and n_estimators.
-        
-    max_depth : int, default=1
-        The maximum depth of the individual regression estimators.
-        
-    Attributes
-    ----------
-    estimators_ : list of DecisionStumpRegressor
-        The collection of fitted sub-estimators.
-
-    Methods
-    -------
-    fit(X, y)
-        Fit the gradient boosting model to the training data.
-    predict(X)
-        Predict continuous target values for samples in X.
-    decision_function(X)
-        Compute the raw decision scores for the input data.
-
-    Mathematical Formula
-    --------------------
-    Given a differentiable loss function L(y, F(x)), the model is 
-    constructed as follows:
-    
-    .. math:: 
-        F_{m}(x) = F_{m-1}(x) + \\gamma_{m} h_{m}(x)
-
-    where F_{m} is the model at iteration m, \\gamma_{m} is the step size, 
-    and h_{m} is the weak learner.
-
-    Examples
-    --------
-    >>> from sklearn.datasets import make_regression
-    >>> X, y = make_regression(n_samples=100, n_features=1, noise=10)
-    >>> model = GradientBoostingRegressor(n_estimators=100, eta0=0.1)
-    >>> model.fit(X, y)
-    >>> print(model.predict(X)[:5])
-    >>> print(model.decision_function(X)[:5])
-
-    References
-    ----------
-    - J. H. Friedman, "Greedy Function Approximation: A Gradient Boosting Machine," 1999.
-    - T. Hastie, R. Tibshirani, and J. Friedman, "The Elements of Statistical Learning," Springer, 2009.
-
-    See Also
-    --------
-    DecisionTreeRegressor, RandomForestRegressor, AdaBoostRegressor
-
-    Applications
-    ------------
-    Gradient Boosting Regressor is commonly used in various regression tasks where the relationship 
-    between features and target variable is complex and non-linear. It is particularly effective 
-    in predictive modeling and risk assessment applications.
-    """
-
-    def __init__(self, n_estimators=100, eta0=1.0, max_depth=1):
-        self.n_estimators = n_estimators
-        self.eta0 = eta0
-        self.max_depth=max_depth
-
-    def fit(self, X, y):
-        """
-        Fit the gradient boosting regressor to the training data.
-
-        The method sequentially adds decision stumps to the ensemble, each one 
-        correcting its predecessor. The fitting process involves finding the best 
-        stump at each stage that reduces the overall prediction error.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The input samples used for training. Each row in X is a sample and each 
-            column is a feature.
-
-        y : array-like of shape (n_samples,)
-            The target values (continuous). The regression targets are continuous 
-            values which the model will attempt to predict.
-
-        Raises
-        ------
-        ValueError
-            If input arrays X and y have incompatible shapes.
-
-        Notes
-        -----
-        - The fit process involves computing pseudo-residuals which are the gradients 
-          of the loss function with respect to the model's predictions. These are used 
-          as targets for the subsequent weak learner.
-        - The model complexity increases with each stage, controlled by the learning rate.
-
-        Examples
-        --------
-        >>> from sklearn.datasets import make_regression
-        >>> X, y = make_regression(n_samples=100, n_features=1, noise=10)
-        >>> reg = GradientBoostingRegressor(n_estimators=50, eta0=0.1)
-        >>> reg.fit(X, y)
-        """
-        if X.shape[0] != y.shape[0]:
-            raise ValueError("Mismatched number of samples between X and y")
-
-        # Initialize the prediction to zero
-        F_m = np.zeros(y.shape)
-
-        for m in range(self.n_estimators):
-            # Compute residuals
-            residuals = y - F_m
-
-            # # Fit a regression tree to the negative gradient
-            tree = DecisionTreeRegressor(max_depth=self.max_depth)
-            tree.fit(X, residuals)
-
-            # Update the model predictions
-            F_m += self.eta0 * tree.predict(X)
-
-            # Store the fitted estimator
-            self.estimators_.append(tree)
-
-        return self
-
-    def predict(self, X):
-        """
-        Predict continuous target values for samples in X.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The input samples.
-
-        Returns
-        -------
-        y_pred : array-like of shape (n_samples,)
-            The predicted target values.
-        """
-        F_m = sum(self.eta0 * estimator.predict(X)
-                  for estimator in self.estimators_)
-        return F_m
-
-    def decision_function(self, X):
-        """
-        Compute the raw decision scores for the input data.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Input samples.
-
-        Returns
-        -------
-        decision_scores : array-like of shape (n_samples,)
-            The raw decision scores for each sample.
-        """
-        return sum(self.eta0 * estimator.predict(X)
-                   for estimator in self.estimators_)
     
 
 
