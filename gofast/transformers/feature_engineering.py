@@ -973,7 +973,8 @@ class KMeansFeaturizer(BaseEstimator, TransformerMixin):
             algorithm=self.algorithm,
             copy_x=self.copy_x,
             tol=self.tol,
-            random_state=self.random_state
+            random_state=self.random_state, 
+            verbose= self.verbose, 
         ).fit(data_for_clustering)
 
         if y is not None:

@@ -11,133 +11,34 @@ import numpy as np
 from tqdm import tqdm 
 
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
-from sklearn.linear_model import LogisticRegression, LinearRegression 
 from sklearn.utils import resample
 from sklearn.preprocessing import LabelBinarizer # noqa 
 from ..tools.validator import check_X_y, check_array 
 from ..tools.validator import check_is_fitted
+from ..tools.baseutils import normalizer 
 from .util import select_default_estimator 
 
 __all__= [
     "HammersteinWienerClassifier","HammersteinWienerRegressor",
     "EnsembleHWClassifier", "EnsembleHWRegressor",
     ]
+# revise the class according to: 
+# In fact I have seen the error. why predict_proba and predict are wrong. 
+# Indeed classifier is mostly scikitlearn classifier that can hancle multiclass 
+# so before using classifier for y , dont need to binarize again, it can be apply 
+# to the classifier and can handle it , for instance LogisticRegression can handle 
+# multiclass that ie mean predict multiclass label. 
+# so the nonlinearity_out and nonlinearity_in can be applied to X and does 
+# not modified the shape 
+# howerver , the best strategy is the use the classifier to predict probability of 
+# the class and use nonlinearity_out to apply to this probabilities 
+# Then the predict proba method just concatenate the default prediction and y_pred_proba 
+# prediction with the shape egal to (n_samples, n_classes ) 
+# However the predict method use the predict probabilities predicted and converted 
+# to class label using np.argmax  . 
 
-            
-    
-class HammersteinWienerClassifier1(BaseEstimator, ClassifierMixin):
-    def __init__(self, classifier="LogisticRegression", nonlinearity_in='tanh', nonlinearity_out='sigmoid', memory_depth=5, verbose=False):
-        self.classifier = classifier
-        self.nonlinearity_in = nonlinearity_in
-        self.nonlinearity_out = nonlinearity_out
-        self.memory_depth = memory_depth
-        self.verbose = verbose
-
-    def _validate_parameters(self):
-        func_dict = {
-            'tanh': np.tanh,
-            'sigmoid': lambda x: 1 / (1 + np.exp(-x)),
-            'relu': lambda x: np.maximum(0, x),
-            'leaky_relu': lambda x: np.where(x > 0, x, 0.01 * x)
-        }
-        if isinstance(self.nonlinearity_in, str):
-            if self.nonlinearity_in not in func_dict:
-                raise ValueError(f"nonlinearity_in '{self.nonlinearity_in}' is not supported. Choose from {list(func_dict.keys())}")
-            self.nonlinearity_in = func_dict[self.nonlinearity_in]
-        elif not callable(self.nonlinearity_in):
-            raise ValueError("nonlinearity_in must be a callable function")
-
-        if isinstance(self.nonlinearity_out, str):
-            if self.nonlinearity_out not in func_dict:
-                raise ValueError(f"nonlinearity_out '{self.nonlinearity_out}' is not supported. Choose from {list(func_dict.keys())}")
-            self.nonlinearity_out = func_dict[self.nonlinearity_out]
-        elif not callable(self.nonlinearity_out):
-            raise ValueError("nonlinearity_out must be a callable function")
-
-        if not isinstance(self.memory_depth, int) or self.memory_depth < 1:
-            raise ValueError("memory_depth must be a positive integer")
-
-        if self.classifier == "LogisticRegression":
-            self.classifier = LogisticRegression()
-        elif not hasattr(self.classifier, 'fit') or not hasattr(self.classifier, 'predict'):
-            raise ValueError("classifier must have fit and predict methods")
-
-    def fit(self, X, y, sample_weight=None):
-        X, y = check_X_y(X, y, estimator=self)
-        self.lb_ = LabelBinarizer().fit(y)
-        y_bin = self.lb_.transform(y)
-        if self.lb_.classes_.shape[0] == 2:
-            y_bin = np.hstack([1 - y_bin, y_bin])
-
-        if self.verbose:
-            print("Fitting Hammerstein Wiener Classifier....")
-        X_lagged = self._preprocess_data(X)
-        y_adjusted = y_bin[self.memory_depth:]
-
-        if sample_weight is not None:
-            sample_weight = np.array(sample_weight)
-            if sample_weight.shape[0] != y_adjusted.shape[0]:
-                raise ValueError("Sample weights array length must match the adjusted target array length.")
-            self.classifier.fit(X_lagged, y_adjusted, sample_weight=sample_weight[self.memory_depth:])
-        else:
-            self.classifier.fit(X_lagged, y_adjusted)
-
-        self.fitted_ = True
-        if self.verbose:
-            print("Fitting Hammerstein Wiener Classifier completed.")
-        return self
-
-    def _preprocess_data(self, X):
-        self._validate_parameters()
-        if self.verbose:
-            print("Start preprocessing X and control Memory Depth...")
-        X_transformed = self.nonlinearity_in(X)
-        n_samples, n_features = X_transformed.shape
-        if n_samples <= self.memory_depth:
-            raise ValueError("Not enough samples to match the memory depth")
-        X_lagged = np.zeros((n_samples - self.memory_depth, self.memory_depth * n_features))
-        for i in range(self.memory_depth, n_samples):
-            X_lagged[i - self.memory_depth, :] = X_transformed[i - self.memory_depth:i, :].flatten()
-        if self.verbose:
-            print("Preprocess X and Memory depth control completed.")
-            
-        return X_lagged
-
-    def predict(self, X):
-        check_is_fitted(self, 'fitted_')
-        X = check_array(X, input_name= "X")
-        X_lagged = self._preprocess_data(X)
-        y_linear = self.classifier.predict(X_lagged)
-        y_pred = self.nonlinearity_out(y_linear)
-        if self.lb_.classes_.shape[0] > 2:
-            y_pred = np.argmax(y_pred, axis=1)
-        else:
-            y_pred = np.where(y_pred >= 0.5, 1, 0)
-
-        default_prediction = np.array([self.lb_.classes_[0]] * self.memory_depth)
-        return np.concatenate((default_prediction, y_pred))
-
-    def predict_proba(self, X):
-        check_is_fitted(self, 'fitted_')
-        X = check_array(X, accept_large_sparse= True, accept_sparse= True, 
-                        input_name= "X")
-        X_lagged = self._preprocess_data(X)
-        print(X_lagged.shape)
-        # (95, 5)
-        print(X_lagged)
-        proba_linear = self.classifier.predict_proba(X_lagged)
-        print(np.array(proba_linear).shape  )
-        print(np.apply_along_axis(self.nonlinearity_out, 1, proba_linear).shape) 
-        #(3, 95, 2)
-        # (3, 95, 2)
-        # for 3 classes , probab should output something like :
-            # array([[0.7., 0.3, 0.1],
-            #        [0.9, 0.02, 0.08],
-            #        [0.2, 0.7, .1],
-            #        [0.02, 0.08, 0.9],
-            #        ...
-        return np.apply_along_axis(self.nonlinearity_out, 1, proba_linear)
-
+# what do you think because I think this make sense with the HammersteinWienerClassifier
+# we expect this will definitively fix the error in shape etc 
 
 class HammersteinWienerClassifier(BaseEstimator, ClassifierMixin):
     def __init__(self, classifier="LogisticRegression", nonlinearity_in='tanh',
@@ -172,22 +73,16 @@ class HammersteinWienerClassifier(BaseEstimator, ClassifierMixin):
         if not isinstance(self.memory_depth, int) or self.memory_depth < 1:
             raise ValueError("memory_depth must be a positive integer")
 
-        if self.classifier == "LogisticRegression":
-            self.classifier = LogisticRegression()
-        elif not hasattr(self.classifier, 'fit') or not hasattr(self.classifier, 'predict'):
-            raise ValueError("classifier must have fit and predict methods")
+        self.classifier = select_default_estimator(self.classifier, 'classification')
 
     def fit(self, X, y, sample_weight=None):
         X, y = check_X_y(X, y, estimator=self)
         self.lb_ = LabelBinarizer().fit(y)
-        y_bin = self.lb_.transform(y)
-        if self.lb_.classes_.shape[0] == 2:
-            y_bin = np.hstack([1 - y_bin, y_bin])
 
         if self.verbose:
             print("Fitting Hammerstein Wiener Classifier....")
         X_lagged = self._preprocess_data(X)
-        y_adjusted = y_bin[self.memory_depth:]
+        y_adjusted = y[self.memory_depth:]
 
         if sample_weight is not None:
             sample_weight = np.array(sample_weight)
@@ -217,35 +112,51 @@ class HammersteinWienerClassifier(BaseEstimator, ClassifierMixin):
             print("Preprocess X and Memory depth control completed.")
         return X_lagged
 
+    def predict0(self, X):
+        check_is_fitted(self, 'fitted_')
+        X = check_array(X)
+        #X_lagged = self._preprocess_data(X)
+        proba = self.predict_proba(X)
+        return np.argmax(proba, axis=1)
+    
     def predict(self, X):
         check_is_fitted(self, 'fitted_')
         X = check_array(X)
         X_lagged = self._preprocess_data(X)
-        y_linear = self.classifier.predict(X_lagged)
+        y_linear = np.asarray( self.classifier.predict(X_lagged)) 
+        print(y_linear [:2])
         y_pred = self.nonlinearity_out(y_linear)
-
+        
+        print(y_pred [:2])
         if self.lb_.classes_.shape[0] > 2:
             y_pred = np.argmax(y_pred, axis=1)
+            print("yes")
         else:
             y_pred = np.where(y_pred >= 0.5, 1, 0)
+            print("yop")
 
         default_prediction = np.array([self.lb_.classes_[0]] * self.memory_depth)
+        print(default_prediction)
+
         y_pred_full = np.concatenate((default_prediction, y_pred))
 
-        return y_pred_full# self.lb_.inverse_transform(y_pred_full)
+        return y_pred # y_pred_full
 
     def predict_proba(self, X):
         check_is_fitted(self, 'fitted_')
         X = check_array(X, accept_large_sparse=True, accept_sparse=True, input_name="X")
         X_lagged = self._preprocess_data(X)
-        proba_linear = np.asarray( self.classifier.predict_proba(X_lagged)) 
+        proba_linear = np.asarray(self.classifier.predict_proba(X_lagged))
         
-        # If the classifier is binary, ensure output shape is (n_samples, 2)
-        if proba_linear.shape[1] == 1:
-            proba_linear = np.hstack([1 - proba_linear, proba_linear])
-        
-        return proba_linear
+        if self.lb_.classes_.shape[0] > 2:
+            proba = np.zeros_like(proba_linear)
+            for i in range(proba_linear.shape[1]):
+                proba[:, i] = self.nonlinearity_out(proba_linear[:, i])
+            return proba
+        else:
+            return self.nonlinearity_out(proba_linear)
 
+        
 class HammersteinWienerClassifier0(BaseEstimator, ClassifierMixin):
     r"""
     Hammerstein-Wiener Classifier for Dynamic Classification Tasks.
@@ -704,7 +615,7 @@ class HammersteinWienerClassifier0(BaseEstimator, ClassifierMixin):
         X = check_array(X)
         X_lagged = self._preprocess_data(X)
         proba_linear = self.classifier.predict_proba(X_lagged)
-        return np.apply_along_axis(self.nonlinearity_out, 1, proba_linear)
+        return normalizer (np.apply_along_axis(self.nonlinearity_out, 1, proba_linear))
     
 class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
     """
@@ -820,7 +731,7 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
 
     def __init__(
         self,
-        linear_model="LinearRegression", 
+        linear_model="lreg", 
         nonlinearity_in='tanh', 
         nonlinearity_out='tanh', 
         memory_depth=5, 
@@ -833,7 +744,6 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
         self.memory_depth = memory_depth
         self.random_state = random_state
         self.verbose = verbose 
-        
         
     def _validate_parameters(self):
         """
@@ -905,11 +815,7 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
         if not isinstance(self.memory_depth, int) or self.memory_depth < 1:
             raise ValueError("memory_depth must be a positive integer")
     
-        if self.linear_model == "LinearRegression":
-            self.linear_model = LinearRegression()
-        elif not hasattr(self.linear_model, 'fit') or not hasattr(
-                self.linear_model, 'predict'):
-            raise ValueError("linear_model must have fit and predict methods")
+        self.linear_model = select_default_estimator (self.linear_model)
 
     def _preprocess_data(self, X):
         """

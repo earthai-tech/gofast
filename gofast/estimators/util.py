@@ -3,6 +3,7 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 from __future__ import annotations
+import re
 from scipy.sparse import issparse
 import numpy as np 
 
@@ -540,7 +541,7 @@ def optimize_hyperparams(
     return search.best_estimator_ if hasattr(search, 'best_estimator_') else search
 
 def select_default_estimator(
-        estimator: str, BaseEstimator, problem: str = 'regression'):
+        estimator: str|BaseEstimator, problem: str = 'regression'):
     """
     Select a default estimator based on the given problem type.
 
@@ -588,23 +589,22 @@ def select_default_estimator(
     Examples
     --------
     >>> from gofast.estimators.util import select_default_estimator
-    >>> from sklearn.base import BaseEstimator
 
     Select a default logistic regression estimator:
     
-    >>> estimator = select_default_estimator('logit', BaseEstimator, 'classification')
+    >>> estimator = select_default_estimator('logit', 'classification')
     >>> print(estimator)
     LogisticRegression()
 
     Select a default decision tree classifier:
     
-    >>> estimator = select_default_estimator('dtc', BaseEstimator, 'classification')
+    >>> estimator = select_default_estimator('dtc',  'classification')
     >>> print(estimator)
     DecisionTreeClassifier()
 
     Select a default linear regression estimator:
     
-    >>> estimator = select_default_estimator('linreg', BaseEstimator, 'regression')
+    >>> estimator = select_default_estimator('linreg', 'regression')
     >>> print(estimator)
     LinearRegression()
 
@@ -625,42 +625,40 @@ def select_default_estimator(
     .. [1] Pedregosa et al., "Scikit-learn: Machine Learning in Python", 
            Journal of Machine Learning Research, 12, pp. 2825-2830, 2011.
     """
-
-    aka_logit = {"logisticregression", "logit", "MaxEnt", "logistic"}
-    aka_dt = {"decisiontreeclassifier", "dt", "dtc", "tree", "decisiontreeregressor"}
-    regression_defaults = {"linearregression", "linreg",}
+    # Define the mapping of regex patterns to the corresponding estimators
+    estimator_mapping = {
+        r"logistic(regression)?|logit|max(ent|imum[-_ ]?entropy)": LogisticRegression,
+        r"decision[-_ ]?tree(classifier|regressor)?|dtc?|tree": {
+            'classification': DecisionTreeClassifier,
+            'regression': DecisionTreeRegressor
+        },
+        r"linear(regression)?|lreg|lin(reg|ear[-_ ]model)?": LinearRegression
+    }
 
     if isinstance(estimator, str):
         estimator_lower = estimator.lower()
         problem_lower = problem.lower()
+        for pattern, est in estimator_mapping.items():
+            if re.match(pattern, estimator_lower, re.IGNORECASE):
+                if isinstance(est, dict):
+                    if problem_lower in est:
+                        return est[problem_lower]()
+                    else:
+                        raise ValueError(
+                            "Invalid problem type for decision tree. Supported"
+                            " types are 'regression' and 'classification'.")
+                return est()
         
-        if problem_lower in {'classification', 'class', 'clf'}:
-            if estimator_lower in aka_logit:
-                return LogisticRegression()
-            elif estimator_lower in aka_dt:
-                return DecisionTreeClassifier()
-            else:
-                raise ValueError(
-                    "Invalid estimator for classification. Supported estimators: "
-                    "logistic regression and decision tree classifiers.")
-                
-        elif problem_lower == 'regression':
-            if estimator_lower in regression_defaults:
-                return LinearRegression()
-            elif estimator_lower in aka_dt:
-                return DecisionTreeRegressor()
-            else:
-                raise ValueError(
-                    "Invalid estimator for regression. Supported estimators: "
-                    "linear regression and decision tree regressors.")
-        else:
-            raise ValueError(
-                "Invalid problem type. Supported types are 'regression' and 'classification'.")
+        raise ValueError(
+            "Invalid estimator name. Supported estimators: logistic regression,"
+            " decision tree, and linear regression.")
     
     if not hasattr(estimator, 'fit') or not hasattr(estimator, 'predict'):
         raise ValueError("The provided estimator must have fit and predict methods.")
     
     return estimator
+
+
 
 # Example usage
 if __name__ == "__main__":
