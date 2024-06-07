@@ -97,7 +97,6 @@ def optimize_search(
         search.fit(X, y)
         return (estimator_name, search.best_estimator_, search.best_params_,
                 search.best_score_, search.cv_results_)
-
     # Parallel execution of the search for each estimator
     results = Parallel(n_jobs=n_jobs)(delayed(perform_search)(
         name, est, param_grids[name])
@@ -131,12 +130,12 @@ def _initialize_search(optimizer, estimator, param_grid, **search_kwargs):
 def _perform_search(name, estimator, param_grid, optimizer, X, y, 
                     search_kwargs, progress_bar_desc):
     search = _initialize_search(optimizer, estimator, param_grid, **search_kwargs)
-    #n_iter = len( params_combinations(param_grid )) 
-    n_iter = search_kwargs.get('n_iter', len( list(params_combinations(param_grid )) ))
-    pbar = tqdm(total=n_iter, desc=progress_bar_desc, ncols=103, ascii=True,
+    search.fit(X, y)
+    n_combinaisons = len( list(params_combinations(param_grid )))
+    #n_iter = search_kwargs.get('n_iter', len( list(params_combinations(param_grid )) ))
+    pbar = tqdm(total=n_combinaisons, desc=progress_bar_desc, ncols=103, ascii=True,
                 position=0, leave=True)
-    for _ in range(n_iter):
-        search.fit(X, y)
+    for _ in range(n_combinaisons):
         pbar.update(1)
     pbar.close()
     
@@ -216,7 +215,7 @@ def optimize_search2(
     >>> from sklearn.linear_model import SGDClassifier
     >>> from sklearn.datasets import make_classification
     >>> from sklearn.model_selection import train_test_split
-    >>> from gofast.models.optimize import optimize
+    >>> from gofast.models.optimize import optimize_search2
     >>> X, y = make_classification(n_samples=100, n_features=7, 
                                    random_state=42)
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y, 
@@ -224,8 +223,8 @@ def optimize_search2(
                                                             random_state=42)
     >>> estimators = [SVC(), SGDClassifier()]
     >>> param_grids = [{'C': [1, 10], 'kernel': ['linear', 'rbf']}, 
-                       {'max_iter': [10, 50], 'alpha': [0.0001, 0.001]}]
-    >>> result = optimize(estimators, param_grids, X_train, y_train, 
+                       {'max_iter': [50, 100], 'alpha': [0.0001, 0.001]}]
+    >>> result = optimize_search2(estimators, param_grids, X_train, y_train, 
                           n_jobs=1, n_iter=10)
     >>> print(result)
                       Optimized Results                       
@@ -283,6 +282,7 @@ def optimize_search2(
     >>> estimators = [RandomForestClassifier()]
     >>> param_grids = [{'n_estimators': [100, 200], 'max_depth': [10, 20]}]
     >>> result_dict=optimize_search2(estimators, param_grids, X_train, y_train)
+    
     Notes
     -----
     - The function uses joblib for parallel processing. Ensure that the 

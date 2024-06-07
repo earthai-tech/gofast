@@ -2,6 +2,13 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 
+"""
+:mod:`gofast.estimtors.ensemble` implements various ensemble methods for  
+classification and regression tasks within the gofast library. Ensemble methods 
+combine the predictions of multiple base estimators to improve generalizability 
+and  robustness over a single estimator.
+"""
+
 from __future__ import annotations 
 import re  
 import numpy as np
@@ -15,12 +22,15 @@ from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.utils import check_random_state
 
 from tqdm import tqdm 
-from ._base import fit_with_estimator, determine_weights, apply_scaling 
-from ._base import optimize_hyperparams, normalize_sum  
+
 from .._gofastlog import  gofastlog
 from ..tools.validator import check_X_y, get_estimator_name, check_array 
 from ..tools.validator import check_is_fitted, parameter_validator 
 from ..tools.validator import validate_fit_weights
+
+from .util import fit_with_estimator, determine_weights, apply_scaling 
+from .util import optimize_hyperparams, normalize_sum  
+
 _logger = gofastlog().get_gofast_logger(__name__)
 
 __all__=[
