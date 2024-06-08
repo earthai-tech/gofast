@@ -15,8 +15,9 @@ from sklearn.preprocessing import RobustScaler, MinMaxScaler, StandardScaler
 
 from ..tools.validator import check_array, check_X_y
 from ..tools.validator import validate_fit_weights
+from ..tools.validator import validate_positive_integer
     
-def activator(z, activation='sigmoid', clip_value=250 ):
+def activator(z, activation='sigmoid', alpha =1., clipping_threshold=250 ):
     """
     Apply the specified activation function to the input array `z`.
 
@@ -76,9 +77,12 @@ def activator(z, activation='sigmoid', clip_value=250 ):
     .. [1] Goodfellow, I., Bengio, Y., & Courville, A. (2016). Deep Learning.
            MIT Press. http://www.deeplearningbook.org
     """
+    clipping_threshold= validate_positive_integer(
+        clipping_threshold, "clipping_threshold")
     if isinstance(activation, str):
+        activation= activation.lower() 
         if activation == 'sigmoid':
-            z = np.clip(z, -clip_value, clip_value)
+            z = np.clip(z, -clipping_threshold, clipping_threshold)
             return 1 / (1 + np.exp(-z))
         elif activation == 'relu':
             return np.maximum(0, z)
@@ -87,12 +91,12 @@ def activator(z, activation='sigmoid', clip_value=250 ):
         elif activation == 'identity':
             return z
         elif activation == 'elu':
-            alpha = 1.0
+            # alpha = 1.0
             return np.where(z > 0, z, alpha * (np.exp(z) - 1))
         elif activation == 'tanh':
             return np.tanh(z)
         elif activation == 'softmax':
-            z = np.clip(z, -250, 250)
+            z = np.clip(z, -clipping_threshold, clipping_threshold)
             exp_z = np.exp(z - np.max(z, axis=1, keepdims=True))
             return exp_z / np.sum(exp_z, axis=1, keepdims=True)
         else:

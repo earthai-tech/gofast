@@ -7,8 +7,7 @@ import numpy as np
 from tqdm import tqdm
 
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
-from sklearn.preprocessing import LabelBinarizer #, StandardScaler, OneHotEncoder
-# from sklearn.neural_network import MLPRegressor,MLPClassifier
+from sklearn.preprocessing import LabelBinarizer
 from sklearn.metrics import accuracy_score, r2_score
 from sklearn.utils import shuffle
 
@@ -66,8 +65,6 @@ class Perceptron(BaseEstimator, RegressorMixin, ClassifierMixin):
         The number of passes over the training data (also known as epochs).
         It determines how many times the algorithm iterates through the entire
         dataset.
-
-   
 
     tol : float, default=1e-4
         The tolerance for stopping criteria. If the number of updates is 
