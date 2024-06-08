@@ -112,38 +112,56 @@ def align_estimators_with_params(param_grids, estimators=None):
     --------
     >>> from sklearn.ensemble import RandomForestClassifier
     >>> from sklearn.svm import SVC
-    >>> from gofast.models.utils import align_estimator_with_params 
+    >>> from gofast.models.utils import align_estimators_with_params 
 
     >>> estimators1 = [{"rf": RandomForestClassifier()}, {"svc": SVC()}]
     >>> param_grids1 = [("rf", {'n_estimators': [100, 200], 'max_depth': [10, 20]}), 
                     ("svc", {"C": [1, 10], "gamma": [.001, .01, .00001]})]
-
     >>> new_estimators1, new_param_grids1 = align_estimators_with_params(
         param_grids1, estimators1)
     >>> print(new_estimators1)
     >>> print(new_param_grids1)
-
+    [RandomForestClassifier(), SVC()]
+    [{'n_estimators': [100, 200], 'max_depth': [10, 20]}, 
+     {'C': [1, 10], 'gamma': [0.001, 0.01, 1e-05]}]
+    
     >>> estimators2 = [RandomForestClassifier(), SVC()]
     >>> param_grids2 = [{'n_estimators': [100, 200], 'max_depth': [10, 20]}, 
                     {"C": [1, 10], "gamma": [.001, .01, .00001]}]
-
     >>> new_estimators2, new_param_grids2 = align_estimators_with_params(
         param_grids2, estimators2)
     >>> print(new_estimators2)
     >>> print(new_param_grids2)
-
+    [RandomForestClassifier(), SVC()]
+    [{'n_estimators': [100, 200], 'max_depth': [10, 20]},
+     {'C': [1, 10], 'gamma': [0.001, 0.01, 1e-05]}]
+    
     >>> estimators3 = [{"rf": RandomForestClassifier()}, {"svc": SVC()}]
     >>> param_grids3 = [("svc", {"C": [1, 10], "gamma": [.001, .01, .00001]}), 
                     ("rf", {'n_estimators': [100, 200], 'max_depth': [10, 20]})]
-
     >>> new_estimators3, new_param_grids3 = align_estimators_with_params(
         param_grids3, estimators3)
     >>> print(new_estimators3)
     >>> print(new_param_grids3)
+    [SVC(), RandomForestClassifier()]
+    [{'C': [1, 10], 'gamma': [0.001, 0.01, 1e-05]},
+     {'n_estimators': [100, 200], 'max_depth': [10, 20]}]
 
+    >>> estimators4 = {'SVC': SVC(), 'SGDClassifier': SGDClassifier()}
+    >>> param_grids4 = {'SVC': {'C': [1, 10], 'kernel': ['linear', 'rbf']},
+                        'SGDClassifier': {'max_iter': [50, 100], 'alpha': [0.0001, 0.001]}}
+    >>> new_estimators4, new_param_grids4 = align_estimators_with_params(
+         param_grids4, estimators4)
+    >>> print(new_estimators4)
+    >>> print(new_param_grids4)
+    
     """
     if estimators is None:
         return process_estimators_and_params(param_grids)
+    
+    if estimators is not None: 
+        estimators, param_grids= parse_estimators_and_params(
+            estimators, param_grids, control="passthrough")
 
     param_grids = [param_grids] if isinstance(param_grids, dict) else param_grids
 
@@ -159,6 +177,113 @@ def align_estimators_with_params(param_grids, estimators=None):
             estimators, estimator_names, param_grid_names)
 
     return estimators, param_grids
+
+def parse_estimators_and_params(
+        estimators, param_grids, control='passthrough'):
+    """
+    Parse and validate estimators and parameter grids.
+
+    This function checks the provided estimators and parameter grids for 
+    consistency and validity. It ensures that the lengths of the estimators 
+    and parameter grids match, that the keys in both dictionaries are the same, 
+    and that each estimator implements the `fit` method.
+
+    Parameters
+    ----------
+    estimators : dict or list
+        Dictionary of estimator names to estimator instances, or a list of estimators.
+    
+    param_grids : dict or list
+        Dictionary of estimator names to parameter grids, or a list of parameter grids.
+    
+    control : str, default='passthrough'
+        Control the behavior of the function. If 'strict', the function will 
+        raise errors for invalid inputs. If 'passthrough', the function will 
+        return the inputs as they are if they are not dictionaries.
+    
+    Returns
+    -------
+    tuple
+        A tuple containing a list of estimators and a list of parameter grids, 
+        ordered by the estimator names.
+    
+    Raises
+    ------
+    ValueError
+        If the lengths of the estimators and parameter grids do not match, 
+        if the keys in both dictionaries are not the same, or if any estimator 
+        does not implement the `fit` method when control is 'strict'.
+    
+    Examples
+    --------
+    >>> from sklearn.svm import SVC
+    >>> from sklearn.linear_model import SGDClassifier
+    >>> from gofast.models.utils import parse_estimators_and_params
+    >>> estimators = {'SVC': SVC(), 'SGDClassifier': SGDClassifier()}
+    >>> param_grids = {'SVC': {'C': [1, 10], 'kernel': ['linear', 'rbf']}, 
+    ...                'SGDClassifier': {'max_iter': [50, 100], 'alpha': [0.0001, 0.001]}}
+    >>> parse_estimators_and_params(estimators, param_grids)
+    ([SGDClassifier(), SVC()], 
+     [{'max_iter': [50, 100], 'alpha': [0.0001, 0.001]}, 
+      {'C': [1, 10], 'kernel': ['linear', 'rbf']}])
+    """
+    if isinstance(estimators, dict) and isinstance(param_grids, dict):
+        if len(estimators) != len(param_grids):
+            raise ValueError(
+                "The number of estimators and parameter grids must be the same.")
+        
+        estimator_keys = set(estimators.keys())
+        param_grid_keys = set(param_grids.keys())
+
+        if estimator_keys != param_grid_keys:
+            raise ValueError(
+                "The keys in estimators and param_grids must be the same.")
+
+        ordered_estimators = []
+        ordered_param_grids = []
+
+        for key in estimators:
+            estimator = estimators[key]
+            if not hasattr(estimator, 'fit'):
+                raise ValueError(
+                    f"The estimator {key} does not implement a 'fit' method.")
+            ordered_estimators.append(estimator)
+            ordered_param_grids.append(param_grids[key])
+
+        return ordered_estimators, ordered_param_grids
+
+    elif control == 'strict':
+        raise ValueError(
+            "Both estimators and param_grids must be dictionaries in strict mode.")
+    
+    elif control == 'passthrough':
+        if isinstance(estimators, dict):
+            # Transform estimator dict to list and check if each implements fit method
+            ordered_estimators = []
+            for key in estimators:
+                estimator = estimators[key]
+                if not hasattr(estimator, 'fit'):
+                    raise ValueError(
+                        f"The estimator {key} does not implement a 'fit' method.")
+                ordered_estimators.append(estimator)
+        else:
+            ordered_estimators = estimators
+
+        if isinstance(param_grids, dict):
+            # Transform param_grid dict to list of param grids
+            ordered_param_grids = [param_grids[key] for key in param_grids]
+        else:
+            ordered_param_grids = param_grids
+
+        # Check if lengths match
+        if len(ordered_estimators) != len(ordered_param_grids):
+            raise ValueError(
+                "The number of estimators and parameter grids must be the same.")
+
+        return ordered_estimators, ordered_param_grids
+
+    else:
+        raise ValueError("Unknown control value. Use 'strict' or 'passthrough'.")
 
 def _unpack_estimators(estimators):
     """
@@ -543,7 +668,6 @@ def process_estimators_and_params(
     [{'C': [1, 10, 100], 'kernel': ['linear', 'rbf']}, {'n_estimators': [10, 50, 100],
                                                         'max_depth': [5, 10, None]}]
     """
-    
     if all(isinstance(grid, (tuple, list)) for grid in param_grids):
         # Extract estimators and parameter grids from tuples
         estimators, param_grids = zip(*param_grids)

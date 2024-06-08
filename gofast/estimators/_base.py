@@ -8,11 +8,9 @@ from tqdm import tqdm
 
 from sklearn.base import BaseEstimator
 from sklearn.preprocessing import LabelBinarizer, StandardScaler, OneHotEncoder
-from sklearn.neural_network import MLPRegressor,MLPClassifier
-from sklearn.metrics import accuracy_score
-from sklearn.utils import shuffle
+from sklearn.neural_network import MLPRegressor, MLPClassifier
+from sklearn.utils import shuffle as skl_shuffle
 
-from .._gofastlog import  gofastlog
 from ..tools.validator import check_X_y, check_array 
 from ..tools.validator import check_is_fitted
 from ..tools.funcutils import ensure_pkg 
@@ -292,12 +290,13 @@ class GradientDescentBase(BaseEstimator):
     
         for i in range(self.max_iter):
             if self.shuffle:
-                X, y = shuffle(X, y, random_state=self.random_state)
+                X, y = skl_shuffle(X, y, random_state=self.random_state)
     
             self._update_weights(X, y)
             if is_classifier:
                 net_input = self._net_input(X)
-                proba = activator(net_input, self.activation)
+                proba = activator(net_input, self.activation,
+                                  clipping_threshold=self.clipping_threshold)
                 # proba = self._sigmoid(net_input)
                 loss = -np.mean(y * np.log(proba + 1e-9) + (1 - y) * np.log(1 - proba + 1e-9))
             else:
@@ -457,13 +456,18 @@ class GradientDescentBase(BaseEstimator):
                 "Probability estimates are not available for regression.")
     
         net_input = self._net_input(X)
-        proba = activator(net_input, self.activation)
+        proba = activator(net_input, self.activation,
+                          clipping_threshold=self.clipping_threshold)
         # proba = self._sigmoid(net_input)
         if proba.shape[1] == 1:
             return np.vstack([1 - proba.ravel(), proba.ravel()]).T
         else:
             return proba / proba.sum(axis=1, keepdims=True)
     
+@ensure_pkg("skfuzzy", extra="The `skfuzzy` package is required for the"
+            " `NeuroFuzzy` estimators to function correctly. Please install"
+            " it to proceed."
+    )
 class NeuroFuzzyBase(BaseEstimator):
     """
     NeuroFuzzyBase is a base class for neuro-fuzzy network-based models that 
@@ -1089,6 +1093,11 @@ class NeuroFuzzyBase(BaseEstimator):
         y_proba = self.mlp_.predict_proba(X_scaled)
         return y_proba
 
+@ensure_pkg(
+    "skfuzzy", 
+    extra= ( "The `skfuzzy` is required for the `FuzzyNeuralNet`"
+            " estimators to function correctly.")
+    )
 class FuzzyNeuralNetBase(BaseEstimator):
     """
     FuzzyNeuralNetBase is a base class for ensemble neuro-fuzzy network-based 

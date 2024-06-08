@@ -4,7 +4,6 @@
 Optimizing searches helper functions
 """
 
-# import numpy as np
 import joblib
 import concurrent 
 from concurrent.futures import ThreadPoolExecutor
@@ -13,18 +12,272 @@ import numpy as np
 from joblib import Parallel, delayed
 from sklearn.base import BaseEstimator 
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
+from sklearn.model_selection import ParameterGrid
 
 from ..api.box import KeyBox 
 from ..api.types import Any, Dict, List,Union, Tuple, Optional, ArrayLike
-from ..api.types import _F, Array1D, NDArray
+from ..api.types import _F, Array1D, NDArray, Callable 
 from ..api.summary import ModelSummary
 from ..tools.coreutils import ellipsis2false , smart_format
-from ..tools.validator import get_estimator_name 
+from ..tools.validator import get_estimator_name , check_X_y 
+from ..tools.validator import filter_valid_kwargs
 from .utils import get_optimizer_method, align_estimators_with_params
-from .utils import params_combinations 
+from .utils import params_combinations # noqa
 
-__all__=["optimize_search", "optimize_search2", "parallelize_search", 
-         "optimize_hyperparams"]
+__all__=[
+    "Optimizer", 
+    "optimize_search", 
+    "optimize_search2", 
+    "parallelize_search", 
+    "optimize_hyperparams",
+    ]
+
+class Optimizer:
+    """
+    Optimizer class for hyperparameter optimization of multiple estimators.
+
+    This class facilitates the process of hyperparameter optimization for 
+    multiple machine learning estimators using various optimization techniques 
+    such as Grid Search Cross Validation (GSCV). It allows the user to specify 
+    the estimators, parameter grids, and other optimization settings, and 
+    provides functionalities to perform the optimization and save the results.
+
+    Parameters
+    ----------
+    estimators : dict or list
+        A dictionary of estimator names to estimator instances, or a list of 
+        estimator instances. Each estimator is an instance of a model to be 
+        optimized. If a dictionary is provided, the keys are used as the names 
+        of the estimators.
+
+    param_grids : dict or list
+        A dictionary of estimator names to parameter grids, or a list of 
+        parameter grids. Each parameter grid is a dictionary where the keys 
+        are parameter names and the values are lists of parameter settings to 
+        try for that parameter.
+
+    optimizer : str, default='GSCV'
+        The optimization technique to apply. 'GSCV' refers to Grid Search 
+        Cross Validation. Supported optimizers include:
+        
+        - 'GSCV', 'GridSearchCV' for Grid Search Cross Validation.
+        - 'RSCV', 'RandomizedSearchCV' for Randomized Search Cross Validation.
+        - 'BSCV', 'BayesSearchCV' for Bayesian Optimization.
+        - 'ASCV', 'AnnealingSearchCV' for Simulated Annealing-based Search.
+        - 'SWCV', 'PSOSCV', 'SwarmSearchCV' for Particle Swarm Optimization.
+        - 'SSCV', 'SequentialSearchCV' for Sequential Model-Based Optimization.
+        - 'ESCV', 'EvolutionarySearchCV' for Evolutionary Algorithms-based Search.
+        - 'GBSCV', 'GradientSearchCV' for Gradient-Based Optimization.
+        - 'GESCV', 'GeneticSearchCV' for Genetic Algorithms-based Search.
+    
+    save_results : bool, default=False
+        If True, the optimization results (best parameters and scores) for 
+        each estimator are saved to a file.
+
+    n_jobs : int, default=-1
+        The number of jobs to run in parallel for the optimization process. 
+        `-1` means using all processors.
+
+    scoring : str, callable, list/tuple, or dict, default=None
+        A string (see model evaluation documentation), a callable (see 
+        defining your scoring strategy from metric functions), a list/tuple 
+        of strings or callables, or a dictionary mapping scorer names to 
+        strings/callables.
+
+    cv : int, cross-validation generator or an iterable, default=None
+        Determines the cross-validation splitting strategy. Possible inputs 
+        for `cv` are:
+          - None, to use the default 5-fold cross-validation,
+          - int, to specify the number of folds in a (Stratified)KFold,
+          - CV splitter,
+          - An iterable yielding (train, test) splits as arrays of indices.
+
+    search_kwargs : dict, optional
+        Additional keyword arguments to pass to the optimizer function.
+
+    Examples
+    --------
+    >>> from sklearn.svm import SVC
+    >>> from sklearn.linear_model import SGDClassifier
+    >>> from gofast.models.optimize import Optimizer
+    >>> estimators = {'SVC': SVC(), 'SGDClassifier': SGDClassifier()}
+    >>> param_grids = {'SVC': {'C': [1, 10], 'kernel': ['linear', 'rbf']}, 
+    ...                'SGDClassifier': {'max_iter': [50, 100], 'alpha': [0.0001, 0.001]}}
+    >>> optimizer = Optimizer(estimators, param_grids, optimizer='GSCV', n_jobs=1)
+    >>> results = optimizer.fit(X_train, y_train)
+    >>> print(results)
+                      Optimized Results                       
+    ==============================================================
+    |                            SVC                             |
+    --------------------------------------------------------------
+                            Model Results                         
+    ==============================================================
+    Best estimator       : SVC
+    Best parameters      : {'C': 1, 'kernel': 'rbf'}
+    Best score           : 0.9625
+    nCV                  : 5
+    Params combinations  : 4
+    ==============================================================
+    
+                       Tuning Results (*=score)                   
+    ==============================================================
+            Params   Mean*  Std.* Overall Mean* Overall Std.* Rank
+    --------------------------------------------------------------
+    0   (1, linear) 0.9375 0.0395        0.9375        0.0395    3
+    1      (1, rbf) 0.9625 0.0500        0.9625        0.0500    1
+    2  (10, linear) 0.9250 0.0468        0.9250        0.0468    4
+    3     (10, rbf) 0.9625 0.0306        0.9625        0.0306    1
+    ==============================================================
+    
+    Notes
+    -----
+    The learning rate (`eta0`) and the number of iterations (`max_iter`) are 
+    crucial hyperparameters that impact the training process. Careful tuning 
+    of these hyperparameters is necessary for achieving optimal results.
+
+    The function uses joblib for parallel processing. Ensure that the 
+    objects passed to the function are pickleable.
+
+    The progress bars are displayed using tqdm to show the progress of each 
+    estimator's optimization process.
+
+    The optimization technique can be extended to include other methods by 
+    implementing additional optimizers and specifying them in the `optimizer` 
+    parameter.
+
+    See Also
+    --------
+    sklearn.model_selection.GridSearchCV : Exhaustive search over specified 
+        parameter values for an estimator.
+    sklearn.model_selection.RandomizedSearchCV : Randomized search on hyper 
+        parameters.
+
+    References
+    ----------
+    .. [1] Bergstra, J., & Bengio, Y. (2012). Random Search for Hyper-Parameter 
+           Optimization. Journal of Machine Learning Research, 13, 281-305.
+    .. [2] Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., 
+           Grisel, O., ... & Duchesnay, E. (2011). Scikit-learn: Machine 
+           Learning in Python. Journal of Machine Learning Research, 12, 2825-2830.
+    """
+    def __init__(
+        self, 
+        estimators, 
+        param_grids, 
+        optimizer='GSCV', 
+        save_results=False,
+        n_jobs=-1, 
+        scoring=None, 
+        cv=None, 
+        **search_kwargs
+    ):
+        self.estimators = estimators
+        self.param_grids = param_grids
+        self.optimizer = optimizer
+        self.save_results = save_results
+        self.n_jobs = n_jobs
+        self.scoring = scoring
+        self.cv = cv
+        self.search_kwargs = search_kwargs
+    
+    def fit(self, X, y):
+        """
+        Perform hyperparameter optimization for a list of estimators.
+    
+        This method applies a specified optimization technique (e.g., 
+        Grid Search) to a range of estimators and their associated 
+        parameter grids. It allows for the simultaneous tuning of multiple 
+        models, facilitating the selection of the best model and parameters 
+        based on the provided data.
+    
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data, with `n_samples` as the number of samples and 
+            `n_features` as the number of features. It supports both dense and 
+            sparse matrix formats.
+        
+        y : array-like of shape (n_samples,) or (n_samples, n_outputs)
+            Target values corresponding to `X`.
+    
+        Returns
+        -------
+        result_dict : ModelSummary
+            A ModelSummary object containing the optimization results for each 
+            estimator. The object includes information on the best estimator, 
+            best parameters, best score, and cross-validation results for each 
+            model.
+    
+        Notes
+        -----
+        The function leverages parallel processing using joblib to expedite the 
+        hyperparameter search process. The progress of the optimization is 
+        displayed using tqdm progress bars.
+    
+        The hyperparameter optimization is flexible and can be extended to use 
+        different optimization techniques by specifying the `optimizer` parameter.
+    
+        Examples
+        --------
+        >>> from sklearn.svm import SVC
+        >>> from sklearn.linear_model import SGDClassifier
+        >>> from gofast.models.optimize import Optimizer
+        >>> from sklearn.datasets import make_classification
+        >>> from sklearn.model_selection import train_test_split
+        >>> X, y = make_classification(n_samples=100, n_features=7, random_state=42)
+        >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        >>> estimators = {'SVC': SVC(), 'SGDClassifier': SGDClassifier()}
+        >>> param_grids = {'SVC': {'C': [1, 10], 'kernel': ['linear', 'rbf']}, 
+        ...                'SGDClassifier': {'max_iter': [50, 100], 'alpha': [0.0001, 0.001]}}
+        >>> optimizer = Optimizer(estimators, param_grids, optimizer='GSCV', n_jobs=1)
+        >>> results = optimizer.fit(X_train, y_train)
+        >>> print(results)
+                          Optimized Results                       
+        ==============================================================
+        |                            SVC                             |
+        --------------------------------------------------------------
+                                Model Results                         
+        ==============================================================
+        Best estimator       : SVC
+        Best parameters      : {'C': 1, 'kernel': 'rbf'}
+        Best score           : 0.9625
+        nCV                  : 5
+        Params combinations  : 4
+        ==============================================================
+        
+                           Tuning Results (*=score)                   
+        ==============================================================
+                Params   Mean*  Std.* Overall Mean* Overall Std.* Rank
+        --------------------------------------------------------------
+        0   (1, linear) 0.9375 0.0395        0.9375        0.0395    3
+        1      (1, rbf) 0.9625 0.0500        0.9625        0.0500    1
+        2  (10, linear) 0.9250 0.0468        0.9250        0.0468    4
+        3     (10, rbf) 0.9625 0.0306        0.9625        0.0306    1
+        ==============================================================
+ 
+        """
+        X, y = check_X_y(X, y, accept_sparse=True, accept_large_sparse=True)
+        estimators, param_grids = _validate_parameters(
+            self.param_grids, self.estimators)
+        max_length = max([len(str(estimator)) for estimator in estimators])
+    
+        results = Parallel(n_jobs=self.n_jobs)(delayed(_perform_search)(
+            name, estimators[i], param_grids[i], 
+            self.optimizer, X, y, self.scoring, self.cv, self.search_kwargs,
+            f"Optimizing {get_estimator_name(name):<{max_length}}") for i, 
+            name in enumerate(estimators))
+    
+        result_dict = {get_estimator_name(name): {
+            'best_estimator': best_est, 'best_params': best_params, 
+            'best_score': best_sc, 'cv_results': cv_res
+            } for name, best_est, best_params, best_sc, cv_res in results
+        }
+    
+        if self.save_results:
+            joblib.dump(result_dict, "optimization_results.joblib")
+    
+        return ModelSummary(
+            descriptor="Optimizer", **result_dict).summary(result_dict)
 
 def optimize_search(
     estimators: Dict[str, BaseEstimator], 
@@ -120,39 +373,14 @@ def optimize_search(
     summary.summary(result_dict)
     return summary
 
-def _validate_parameters(param_grids, estimators):
-    return align_estimators_with_params(param_grids, estimators)
-
-def _initialize_search(optimizer, estimator, param_grid, **search_kwargs):
-    optimizer_class = get_optimizer_method(optimizer)
-    return optimizer_class(estimator, param_grid, **search_kwargs)
-
-def _perform_search(name, estimator, param_grid, optimizer, X, y, 
-                    search_kwargs, progress_bar_desc):
-    search = _initialize_search(optimizer, estimator, param_grid, **search_kwargs)
-    search.fit(X, y)
-    n_combinaisons = len( list(params_combinations(param_grid )))
-    #n_iter = search_kwargs.get('n_iter', len( list(params_combinations(param_grid )) ))
-    pbar = tqdm(total=n_combinaisons, desc=progress_bar_desc, ncols=103, ascii=True,
-                position=0, leave=True)
-    for _ in range(n_combinaisons):
-        pbar.update(1)
-    pbar.close()
-    
-    return (
-        name, 
-        search.best_estimator_, 
-        search.best_params_,  
-        search.best_score_, 
-        search.cv_results_
-    )
-
 def optimize_search2(
     estimators: Dict[str, BaseEstimator], 
     param_grids: Dict[str, Any],
     X: ArrayLike, 
     y: ArrayLike, 
-    optimizer: str='GSCV', 
+    optimizer: str='GSCV',
+    scoring: str | Callable=None, 
+    cv:int|Callable =None, 
     save_results: bool=False, 
     n_jobs: int=-1, 
     **search_kwargs: Any 
@@ -298,12 +526,13 @@ def optimize_search2(
         return get_estimator_name(estimator ) if not isinstance ( 
             estimator, str) else estimator
     
-    estimators, param_grids = _validate_parameters(param_grids, estimators)
+    estimators, param_grids = _validate_parameters(param_grids, estimators,)
     max_length = max([len(str(estimator)) for estimator in estimators])
     
     # try: 
     results = Parallel(n_jobs=n_jobs)(delayed(_perform_search)(
-        name, estimators[i], param_grids[i], optimizer, X, y, search_kwargs,
+        name, estimators[i], param_grids[i], optimizer, X, y, 
+        scoring, cv, search_kwargs,
         f"Optimizing {make_estimator_name(name):<{max_length}}")
         for i, name in enumerate(estimators))
     # except: 
@@ -711,6 +940,129 @@ def _optimize_search2(
     return results_dict
 
 
+def _validate_parameters(param_grids, estimators):
+    """
+    Align estimators with their corresponding parameter grids.
+
+    This function ensures that the estimators and their parameter grids are 
+    correctly aligned and compatible for optimization.
+
+    Parameters
+    ----------
+    param_grids : dict
+        Dictionary of parameter grids for each estimator.
+    
+    estimators : dict
+        Dictionary of estimator names to estimator instances.
+
+    Returns
+    -------
+    tuple
+        A tuple containing aligned lists of estimators and parameter grids.
+    """
+    return align_estimators_with_params(param_grids, estimators)
+
+
+def _initialize_search(optimizer, estimator, param_grid, scoring, cv, **search_kwargs):
+    """
+    Initialize the optimizer search method.
+
+    This function initializes the specified optimizer with the given estimator 
+    and parameter grid, filtering valid keyword arguments for the optimizer class.
+
+    Parameters
+    ----------
+    optimizer : str
+        The optimization technique to apply (e.g., 'GridSearchCV').
+    
+    estimator : estimator instance
+        The estimator instance to be optimized.
+    
+    param_grid : dict
+        Dictionary of parameter grids for the estimator.
+    
+    scoring : str or callable
+        Scoring method to evaluate the predictions on the test set.
+    
+    cv : int, cross-validation generator or iterable
+        Determines the cross-validation splitting strategy.
+
+    search_kwargs : dict
+        Additional keyword arguments for the optimizer.
+
+    Returns
+    -------
+    search_instance : optimizer class instance
+        An instance of the optimizer class initialized with the provided parameters.
+    """
+    optimizer_class = get_optimizer_method(optimizer)
+    search_kwargs = filter_valid_kwargs(optimizer_class, search_kwargs)
+    return optimizer_class(
+        estimator, param_grid, scoring=scoring, cv=cv, **search_kwargs)
+
+
+def _perform_search(
+        name, estimator, param_grid, optimizer, X, y, scoring, cv, 
+        search_kwargs, progress_bar_desc):
+    """
+    Perform the hyperparameter search.
+
+    This function performs the hyperparameter optimization for a given estimator 
+    and parameter grid using the specified optimizer.
+
+    Parameters
+    ----------
+    name : str
+        Name of the estimator.
+    
+    estimator : estimator instance
+        The estimator instance to be optimized.
+    
+    param_grid : dict
+        Dictionary of parameter grids for the estimator.
+    
+    optimizer : str
+        The optimization technique to apply (e.g., 'GridSearchCV').
+    
+    X : array-like of shape (n_samples, n_features)
+        Training data.
+    
+    y : array-like of shape (n_samples,)
+        Target values.
+    
+    scoring : str or callable
+        Scoring method to evaluate the predictions on the test set.
+    
+    cv : int, cross-validation generator or iterable
+        Determines the cross-validation splitting strategy.
+    
+    search_kwargs : dict
+        Additional keyword arguments for the optimizer.
+    
+    progress_bar_desc : str
+        Description for the progress bar.
+
+    Returns
+    -------
+    tuple
+        A tuple containing the name of the estimator, best estimator, best parameters, 
+        best score, and cross-validation results.
+    """
+    search = _initialize_search(optimizer, estimator, param_grid, scoring, cv, **search_kwargs)
+    search.fit(X, y)
+    n_combinations = len(list(ParameterGrid(param_grid)))
+    pbar = tqdm(total=n_combinations, desc=progress_bar_desc, ncols=103, ascii=True, position=0, leave=True)
+    for _ in range(n_combinations):
+        pbar.update(1)
+    pbar.close()
+
+    return (
+        name,
+        search.best_estimator_,
+        search.best_params_,
+        search.best_score_,
+        search.cv_results_
+    )
 
 
 
