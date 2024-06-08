@@ -17,6 +17,7 @@ from ..tools._param_validation import Interval
 from ..tools._param_validation import StrOptions
 from ..tools._param_validation import validate_params
 from ..transformers import KMeansFeaturizer
+from .util import select_default_estimator
     
 __all__=["KMFClassifier", "KMFRegressor"]
 
@@ -57,21 +58,22 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
             \left( \sum_{x y \in C_i} \|x y - \mu'_i \|_2^2 \right)
 
     where:
-        - :math:`x y` denotes the augmented data point, a combination of the 
-          feature vector x and the target y. This combination guides the 
-          clustering process by considering both feature characteristics 
-          and target variable information.
-        - :math:`\mu'_i` is the centroid of the augmented data points in the 
-          cluster :math:`C_i`, including target variable information, aligning
-          the clusters with the underlying class structure.
-        - The first summation :math:`\sum_{i=1}^{k}` sums over all k-clusters, 
-          focusing on minimizing the variance within each cluster.
-        - The inner summation :math:`\sum_{x y \in C_i}` represents the sum over 
-          all augmented data points :math:`x y` in the cluster :math:`C_i`.
-        - :math:`\|x y - \mu'_i \|_2^2` is the squared Euclidean distance between
-          each augmented data point :math:`x y` and its cluster centroid 
-          :math:`\mu'_i`. Minimizing this distance ensures points are as close 
-            as possible to their cluster center.
+        
+    - :math:`x y` denotes the augmented data point, a combination of the 
+      feature vector x and the target y. This combination guides the 
+      clustering process by considering both feature characteristics 
+      and target variable information.
+    - :math:`\mu'_i` is the centroid of the augmented data points in the 
+      cluster :math:`C_i`, including target variable information, aligning
+      the clusters with the underlying class structure.
+    - The first summation :math:`\sum_{i=1}^{k}` sums over all k-clusters, 
+      focusing on minimizing the variance within each cluster.
+    - The inner summation :math:`\sum_{x y \in C_i}` represents the sum over 
+      all augmented data points :math:`x y` in the cluster :math:`C_i`.
+    - :math:`\|x y - \mu'_i \|_2^2` is the squared Euclidean distance between
+      each augmented data point :math:`x y` and its cluster centroid 
+      :math:`\mu'_i`. Minimizing this distance ensures points are as close 
+        as possible to their cluster center.
 
     Parameters
     ----------
@@ -220,7 +222,10 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
         X, y = check_X_y(X, y, estimator =self, )
         if self.base_estimator is None: 
             self.base_estimator =  DecisionTreeClassifier()
-            
+        
+        self.base_estimator = select_default_estimator(
+            self.base_estimator, 'classification')
+        
         is_classifier(self.base_estimator )
         self.featurizer_ = KMeansFeaturizer(
             n_clusters=self.n_clusters,
@@ -374,24 +379,26 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
 
     .. math::
 
-        \min_{C_1,\cdots,C_k, \mu'_1,\cdots,\mu'_k} \sum_{i=1}^{k} \left( \sum_{x y \in C_i} \|x y - \mu'_i \|_2^2 \right)
+        \min_{C_1,\cdots,C_k, \mu'_1,\cdots,\mu'_k} \sum_{i=1}^{k}\\
+            \left( \sum_{x y \in C_i} \|x y - \mu'_i \|_2^2 \right)
 
     where:
-        - :math:`x y` denotes the augmented data point, a combination of the 
-          feature vector x and the target y. This combination guides the 
-          clustering process by considering both feature characteristics and 
-          target variable information.
-        - :math:`\mu'_i` is the centroid of the augmented data points in the 
-          cluster :math:`C_i`, including target variable information, aligning 
-          the clusters with the underlying class structure.
-        - The first summation :math:`\sum_{i=1}^{k}` sums over all k-clusters, 
-          focusing on minimizing the variance within each cluster.
-        - The inner summation :math:`\sum_{x y \in C_i}` represents the sum over 
-          all augmented data points :math:`x y` in the cluster :math:`C_i`.
-        - :math:`\|x y - \mu'_i \|_2^2` is the squared Euclidean distance between 
-          each augmented data point :math:`x y` and its cluster centroid 
-          :math:`\mu'_i`. Minimizing this distance ensures points are as close as 
-          possible to their cluster center.
+        
+    - :math:`x y` denotes the augmented data point, a combination of the 
+      feature vector x and the target y. This combination guides the 
+      clustering process by considering both feature characteristics and 
+      target variable information.
+    - :math:`\mu'_i` is the centroid of the augmented data points in the 
+      cluster :math:`C_i`, including target variable information, aligning 
+      the clusters with the underlying class structure.
+    - The first summation :math:`\sum_{i=1}^{k}` sums over all k-clusters, 
+      focusing on minimizing the variance within each cluster.
+    - The inner summation :math:`\sum_{x y \in C_i}` represents the sum over 
+      all augmented data points :math:`x y` in the cluster :math:`C_i`.
+    - :math:`\|x y - \mu'_i \|_2^2` is the squared Euclidean distance between 
+      each augmented data point :math:`x y` and its cluster centroid 
+      :math:`\mu'_i`. Minimizing this distance ensures points are as close as 
+      possible to their cluster center.
 
     Parameters
     ----------
@@ -544,7 +551,9 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
         
         if self.base_regressor is None: 
             self.base_regressor = DecisionTreeRegressor()
-    
+        
+        self.base_estimator = select_default_estimator( self.base_estimator)
+        
         # Check if the base estimator is a regressor
         if not is_regressor(self.base_regressor):
             name_estimator = get_estimator_name(self.base_regressor)

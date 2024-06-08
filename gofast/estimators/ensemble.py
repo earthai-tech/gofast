@@ -522,7 +522,15 @@ class MajorityVoteClassifier(BaseEstimator, ClassifierMixin):
                              " weights. Got {0} and {1} respectively.".format(
                 len(self.classifiers), len(self.weights)
             ))
+            
+# robustly implement NeuroFuzzyRegressor robustly , add more parameter for 
+# making more robust and flexible. estimator must handle binary and multiclass 
+# target. 
+# skip documentation for brievity 
 
+
+
+    
 class EnsembleNeuroFuzzy(BaseEstimator, RegressorMixin):
     r""" Neuro-Fuzzy Ensemble for Regression Tasks.
 

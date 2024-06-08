@@ -16,6 +16,92 @@ from sklearn.preprocessing import RobustScaler, MinMaxScaler, StandardScaler
 from ..tools.validator import check_array, check_X_y
 from ..tools.validator import validate_fit_weights
     
+def activator(z, activation='sigmoid', clip_value=250 ):
+    """
+    Apply the specified activation function to the input array `z`.
+
+    Parameters
+    ----------
+    z : array-like
+        Input array to which the activation function is applied.
+    
+    activation : str or callable, default='sigmoid'
+        The activation function to apply. Supported activation functions are:
+        'sigmoid', 'relu', 'leaky_relu', 'identity', 'elu', 'tanh', 'softmax'.
+        If a callable is provided, it should take `z` as input and return the
+        transformed output.
+
+    Returns
+    -------
+    activation_output : array-like
+        The output array after applying the activation function.
+
+    Notes
+    -----
+    The available activation functions are defined as follows:
+
+    - Sigmoid: :math:`\sigma(z) = \frac{1}{1 + \exp(-z)}`
+    - ReLU: :math:`\text{ReLU}(z) = \max(0, z)`
+    - Leaky ReLU: :math:`\text{Leaky ReLU}(z) = \max(0.01z, z)`
+    - Identity: :math:`\text{Identity}(z) = z`
+    - ELU: :math:`\text{ELU}(z) = \begin{cases}
+                  z & \text{if } z > 0 \\
+                  \alpha (\exp(z) - 1) & \text{if } z \leq 0
+                \end{cases}`
+    - Tanh: :math:`\tanh(z) = \frac{\exp(z) - \exp(-z)}{\exp(z) + \exp(-z)}`
+    - Softmax: :math:`\text{Softmax}(z)_i = \frac{\exp(z_i)}{\sum_{j} \exp(z_j)}`
+
+    Examples
+    --------
+    >>> from gofast.estimators.util import activator
+    >>> z = np.array([1.0, 2.0, -1.0, -2.0])
+    >>> activator(z, activation='relu')
+    array([1.0, 2.0, 0.0, 0.0])
+    
+    >>> activator(z, activation='tanh')
+    array([ 0.76159416,  0.96402758, -0.76159416, -0.96402758])
+    
+    >>> activator(z, activation='softmax')
+    array([[0.25949646, 0.70682242, 0.02817125, 0.00550986],
+           [0.25949646, 0.70682242, 0.02817125, 0.00550986],
+           [0.25949646, 0.70682242, 0.02817125, 0.00550986],
+           [0.25949646, 0.70682242, 0.02817125, 0.00550986]])
+
+    See Also
+    --------
+    GradientDescentBase : Base class for gradient descent-based algorithms.
+    
+    References
+    ----------
+    .. [1] Goodfellow, I., Bengio, Y., & Courville, A. (2016). Deep Learning.
+           MIT Press. http://www.deeplearningbook.org
+    """
+    if isinstance(activation, str):
+        if activation == 'sigmoid':
+            z = np.clip(z, -clip_value, clip_value)
+            return 1 / (1 + np.exp(-z))
+        elif activation == 'relu':
+            return np.maximum(0, z)
+        elif activation == 'leaky_relu':
+            return np.where(z > 0, z, z * 0.01)
+        elif activation == 'identity':
+            return z
+        elif activation == 'elu':
+            alpha = 1.0
+            return np.where(z > 0, z, alpha * (np.exp(z) - 1))
+        elif activation == 'tanh':
+            return np.tanh(z)
+        elif activation == 'softmax':
+            z = np.clip(z, -250, 250)
+            exp_z = np.exp(z - np.max(z, axis=1, keepdims=True))
+            return exp_z / np.sum(exp_z, axis=1, keepdims=True)
+        else:
+            raise ValueError(f"Unsupported activation function: {activation}")
+    elif callable(activation):
+        return activation(z)
+    else:
+        raise ValueError("Activation must be a string or a callable function")
+
 def get_default_meta_estimator(
         meta_estimator: BaseEstimator = None, problem: str = 'regression'
         ) -> BaseEstimator:
@@ -657,8 +743,6 @@ def select_default_estimator(
         raise ValueError("The provided estimator must have fit and predict methods.")
     
     return estimator
-
-
 
 # Example usage
 if __name__ == "__main__":

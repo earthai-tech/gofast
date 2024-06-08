@@ -17,7 +17,7 @@ from tqdm import tqdm
 
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.utils import shuffle
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, accuracy_score, r2_score 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelBinarizer
 
@@ -308,6 +308,7 @@ class AdalineStochasticRegressor(BaseEstimator, RegressorMixin):
                 if val_error < self.tol:
                     if self.verbose:
                         print(f'Early stopping at epoch {i+1}')
+                        progress_bar.update(self.max_iter - i )
                     break
 
             if self.learning_rate == 'adaptive':
@@ -707,6 +708,7 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
                 if val_error < self.tol:
                     if self.verbose:
                         print(f'Early stopping at epoch {i+1}')
+                        progress_bar.update(self.max_iter - i )
                     break
 
             if self.learning_rate == 'adaptive':
@@ -1130,7 +1132,8 @@ class AdalineRegressor(BaseEstimator, RegressorMixin):
                 val_error = np.mean((y_val - y_val_pred) ** 2)
                 if val_error < self.tol:
                     if self.verbose:
-                        print(f'Early stopping at epoch {i+1}')
+                        print(f'\nEarly stopping at epoch {i+1}')
+                        progress_bar.update(self.max_iter - i )
                     break
 
             if self.verbose:
@@ -1493,6 +1496,7 @@ class AdalineClassifier(BaseEstimator, ClassifierMixin):
                 if val_error < self.tol:
                     if self.verbose:
                         print(f'Early stopping at epoch {i+1}')
+                        progress_bar.update(self.max_iter - i )
                     break
 
             if self.verbose:
@@ -1988,6 +1992,7 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
                 if val_error < self.tol:
                     if self.verbose:
                         print(f'Early stopping at epoch {i+1}')
+                        progress_bar.update(self.max_iter - i )
                     break
 
             if self.verbose:
@@ -2177,9 +2182,51 @@ class AdalineMixte(BaseEstimator, ClassifierMixin, RegressorMixin):
     
         return np.vstack((proba_negative_class, proba_positive_class)).T
 
-    def __repr__(self): 
-        tup = tuple(f"{key}={val}".replace("'", '') for key, val in 
-                     self.get_params().items())
+    def score(self, X, y, sample_weight=None):
+        """
+        Returns the mean accuracy on the given test data and labels for 
+        classification tasks, and the coefficient of determination R^2 for 
+        regression tasks.
+    
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Test samples.
+    
+        y : array-like of shape (n_samples,)
+            True labels for classification tasks, or continuous target values 
+            for regression tasks.
+    
+        sample_weight : array-like of shape (n_samples,), default=None
+            Sample weights.
+    
+        Returns
+        -------
+        score : float
+            Mean accuracy for classification tasks, and R^2 score for 
+            regression tasks.
+        """
+    
+        check_is_fitted(self, 'weights_')
+        X, y = check_X_y(X, y, estimator= self ) 
+        y_pred = self.predict(X)
         
-        return self.__class__.__name__ + str(tup).replace("'", "")
+        if self.task_type != "continuous":
+            return accuracy_score(y, y_pred, sample_weight=sample_weight)
+        else:
+            return r2_score(y, y_pred, sample_weight=sample_weight)
+        
+    def __repr__(self):
+        """
+        Provide a string representation of the Perceptron object, displaying 
+        its parameters in a formatted manner for better readability.
+    
+        Returns
+        -------
+        repr : str
+            String representation of the Perceptron object with its parameters.
+        """
+        params = ",\n    ".join(f"{key}={val}" for key, val in self.get_params().items())
+        return f"{self.__class__.__name__}(\n    {params}\n)"
+    
 
