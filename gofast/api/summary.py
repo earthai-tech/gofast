@@ -60,7 +60,7 @@ class ResultSummary:
     )
     """
     def __init__(self, name=None, pad_keys=None, max_char=None,
-                 flatten_nested_dicts =True):
+                 flatten_nested_dicts =True, mute_note=False):
         """
         Initialize the ResultSummary with optional customization for display.
         """
@@ -68,6 +68,7 @@ class ResultSummary:
         self.pad_keys = pad_keys
         self.max_char = max_char or get_table_size()
         self.flatten_nested_dicts = flatten_nested_dicts 
+        self.mute_note=mute_note
         self.results = {}
         
     def add_results(self, results):
@@ -157,7 +158,8 @@ class ResultSummary:
         note = ( "\n\n[ Note: Data may be truncated. For the complete dictionary"
                 " data, access the corresponding 'results' attribute ]"
                 ) if "..." in result_str else ''
-        
+        if self.mute_note: 
+            note =''
         return f"{result_title}\n{result_str}{note}"
 
     def __repr__(self):
@@ -2414,6 +2416,7 @@ def prepare_cv_results_dataframe(cv_results):
         data.append(fold_data)
     # Create DataFrame
     df = pd.DataFrame(data)
+    df.drop_duplicates(inplace=True)
     return df
 
 def detect_structure_type(model_results):

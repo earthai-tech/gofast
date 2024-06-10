@@ -143,7 +143,8 @@ See also:
 def boxplot(
     data: ArrayLike | DataFrame, /, 
     labels: list[str],
-    title: str, y_label: str, 
+    title: str, 
+    y_label: str, 
     figsize: tuple[int, int]=(8, 8), 
     color: str="lightgreen", 
     showfliers: bool=True, 

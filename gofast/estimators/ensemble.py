@@ -2021,9 +2021,6 @@ class EnsembleClassifier(BaseEstimator, ClassifierMixin):
         self.tol = tol
         self.ccp_alpha = ccp_alpha
 
-        if self.base_estimator is None:
-            self.base_estimator = DecisionTreeClassifier(max_depth=self.max_depth)
-            
     def fit(self, X, y, sample_weight=None):
         """
         Fit the EnsembleClassifier model to the data.
@@ -2105,6 +2102,9 @@ class EnsembleClassifier(BaseEstimator, ClassifierMixin):
             accept_large_sparse=True,
             estimator=get_estimator_name(self),
         )
+        if self.base_estimator is None:
+            self.base_estimator = DecisionTreeClassifier(max_depth=self.max_depth)
+            
         self.strategy = str(self.strategy).lower()
         if self.strategy == 'bagging':
             self._fit_bagging(X, y, sample_weight)
@@ -2517,9 +2517,6 @@ class EnsembleRegressor(BaseEstimator, RegressorMixin):
         self.tol = tol
         self.ccp_alpha = ccp_alpha
 
-        if self.base_estimator is None:
-            self.base_estimator = DecisionTreeRegressor(max_depth=self.max_depth)
-            
     def fit(self, X, y, sample_weight=None):
         """
         Fit the EnsembleRegressor model to the data.
@@ -2600,6 +2597,9 @@ class EnsembleRegressor(BaseEstimator, RegressorMixin):
             accept_sparse=True, 
             estimator=get_estimator_name(self)
         )
+        if self.base_estimator is None:
+            self.base_estimator = DecisionTreeRegressor(max_depth=self.max_depth)
+            
         if self.strategy == 'bagging':
             self._fit_bagging(X, y, sample_weight)
         elif self.strategy == 'boosting':

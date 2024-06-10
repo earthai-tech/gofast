@@ -3383,8 +3383,11 @@ def beautify_dict(d, space=4, key=None, max_char=None):
         # get it automatically 
         max_char, _ =get_terminal_size()
     # Determine the longest key for alignment
-    max_key_length = max(len(str(k)) for k in d.keys())
-
+    if len(d)==0: 
+        max_key_length=0 
+    else:
+        max_key_length = max(len(str(k)) for k in d.keys())
+    
     # Create a list of formatted rows
     formatted_rows = []
     for dkey, value in sorted(d.items()):

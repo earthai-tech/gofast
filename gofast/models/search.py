@@ -31,7 +31,7 @@ from ..tools.coreutils import listing_items_format, pretty_printer
 from ..tools.validator import check_X_y, check_array, check_consistent_length 
 from ..tools.validator import get_estimator_name
 
-from .utils import get_scorers, dummy_evaluation, get_optimizer_name
+from .utils import get_scorers, dummy_evaluation, get_strategy_name
 from .utils import _standardize_input 
  
 _logger = gofastlog().get_gofast_logger(__name__)
@@ -50,7 +50,7 @@ class MultipleSearch (BaseClass):
     using different search strategies.
 
     This class allows users to specify multiple machine learning estimators and perform 
-    parameter tuning using various optimizers like GridSearchCV, RandomizedSearchCV, 
+    parameter tuning using various strategies like GridSearchCV, RandomizedSearchCV, 
     or BayesSearchCV simultaneously in parallel. The best parameters for each estimator 
     can be saved to a file.
 
@@ -62,8 +62,8 @@ class MultipleSearch (BaseClass):
     param_grids : dict
         A dictionary of parameter grids for the corresponding estimators. 
         Format: {'estimator_name': param_grid}.
-    optimizers : list of str
-        List of optimizers to use for parameter tuning. Options: 'grid', 'random', 'bayes'.
+    strategies : list of str
+        List of strategies to use for parameter tuning. Options: 'grid', 'random', 'bayes'.
     cv : int, cross-validation generator or an iterable, optional
         Determines the cross-validation splitting strategy. Default is 4.
     n_iter : int, optional
@@ -76,12 +76,12 @@ class MultipleSearch (BaseClass):
     Attributes
     ----------
     best_params_ : dict
-        The best found parameters for each estimator and optimizer combination.
+        The best found parameters for each estimator and strategy combination.
 
     Methods
     -------
     fit(X, y):
-        Run the parameter tuning for each estimator using each optimizer in
+        Run the parameter tuning for each estimator using each strategy in
         parallel on the given data.
 
     Notes
@@ -104,8 +104,8 @@ class MultipleSearch (BaseClass):
     >>> X, y = make_classification(n_samples = 100, n_features= 5 )
     >>> estimators = {'rf': RandomForestClassifier()}
     >>> param_grids = {'rf': {'n_estimators': [100, 200], 'max_depth': [10, 20]}}
-    >>> optimizers = ['grid', 'random']
-    >>> ms = MultipleSearch(estimators, param_grids, optimizers)
+    >>> strategies = ['grid', 'random']
+    >>> ms = MultipleSearch(estimators, param_grids, strategies)
     >>> ms.fit(X, y)
     >>> print(ms.best_params_)
 
@@ -114,7 +114,7 @@ class MultipleSearch (BaseClass):
     def __init__(self, 
         estimators, 
         param_grids, 
-        optimizers, 
+        strategies, 
         cv=4, 
         n_iter=10,
         scoring=None,
@@ -123,7 +123,7 @@ class MultipleSearch (BaseClass):
         ):
         self.estimators = estimators
         self.param_grids = param_grids
-        self.optimizers = optimizers
+        self.strategies = strategies
         self.cv = cv
         self.n_iter=n_iter
         self.scoring=scoring
@@ -133,7 +133,7 @@ class MultipleSearch (BaseClass):
 
     def fit(self, X, y):
         """
-        Run the parameter tuning for each estimator using each optimizer in parallel 
+        Run the parameter tuning for each estimator using each strategy in parallel 
         on the given data.
 
         Parameters
@@ -146,13 +146,13 @@ class MultipleSearch (BaseClass):
         results={}
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            with ThreadPoolExecutor(max_workers=len(self.optimizers)) as executor:
+            with ThreadPoolExecutor(max_workers=len(self.strategies)) as executor:
                 futures = []
-                for optimizer in self.optimizers:
+                for strategy in self.strategies:
                     for name, estimator in self.estimators.items():
                         future = executor.submit(
                             self._search, estimator,
-                            self.param_grids[name], optimizer, X, y, self.scoring )
+                            self.param_grids[name], strategy, X, y, self.scoring )
                         futures.append(future)
 
                 for future in tqdm(futures, desc='Optimizing parameters', 
@@ -173,9 +173,9 @@ class MultipleSearch (BaseClass):
         return self 
 
 
-    def _search(self, estimator, param_grid, optimizer, X, y, scoring):
+    def _search(self, estimator, param_grid, strategy, X, y, scoring):
         """
-        Conducts a parameter search using the specified optimizer on the
+        Conducts a parameter search using the specified strategy on the
         given estimator.
 
         Parameters
@@ -184,8 +184,8 @@ class MultipleSearch (BaseClass):
             The machine learning estimator to tune.
         param_grid : dict
             The parameter grid for tuning.
-        optimizer : str
-            The optimizer to use for parameter tuning.
+        strategy : str
+            The strategy to use for parameter tuning.
         X : array-like of shape (n_samples, n_features)
             Training data.
         y : array-like of shape (n_samples,)
@@ -194,19 +194,19 @@ class MultipleSearch (BaseClass):
         Returns
         -------
         dict
-            The best parameters found for the estimator using the optimizer.
+            The best parameters found for the estimator using the strategy.
         """
-        optimizer = get_optimizer_name(optimizer, error ='ignore')
-        if optimizer=='GridSearchCV':
+        strategy = get_strategy_name(strategy, error ='ignore')
+        if strategy=='GridSearchCV':
             search = GridSearchCV(estimator, param_grid, cv=self.cv, scoring=scoring)
-        elif optimizer =='RandomizedSearchCV':
+        elif strategy =='RandomizedSearchCV':
             search = RandomizedSearchCV(estimator, param_grid, cv=self.cv, n_iter=self.n_iter, 
                                         scoring=scoring)
-        elif optimizer =='BayesSearchCV':
+        elif strategy =='BayesSearchCV':
             search = BayesSearchCV(estimator, param_grid, cv=self.cv, n_iter=self.n_iter, 
                                    scoring=scoring)
         else:
-            raise ValueError(f"Invalid search method: {optimizer}")
+            raise ValueError(f"Invalid search method: {strategy}")
 
         search.fit(X, y)
         best_params = {estimator.__class__.__name__: search.best_params_} 
@@ -214,7 +214,7 @@ class MultipleSearch (BaseClass):
                     "best_estimator_": search.best_estimator_, 
                     "best_params_": search.best_params_, 
                     "scoring": _standardize_input(scoring), 
-                    "optimizer": get_optimizer_name(optimizer),
+                    "strategy": get_strategy_name(strategy),
                     "cv_results_": search.cv_results_ ,
                     }
                 }
@@ -237,7 +237,7 @@ class MultipleSearch0:
     param_grids : dict
         Parameter grids for the corresponding estimators.
         Format: {'estimator_name': param_grid}.
-    optimizer : str, optional
+    strategy : str, optional
         Method for parameter tuning: 'grid', 'random', 'bayes'. Default is 'grid'.
     savejob : bool, optional
         Save tuning results to a joblib file. Default is False.
@@ -273,7 +273,7 @@ class MultipleSearch0:
     >>> from sklearn.ensemble import RandomForestClassifier
     >>> estimators = {'rf': RandomForestClassifier()}
     >>> param_grids = {'rf': {'n_estimators': [100, 200]}}
-    >>> ms = MultipleSearch(estimators, param_grids, optimizer='grid')
+    >>> ms = MultipleSearch(estimators, param_grids, strategy='grid')
     >>> ms.fit(X, y)
     >>> print(ms.best_params_)
 
@@ -282,7 +282,7 @@ class MultipleSearch0:
     def __init__(self, 
         estimators, 
         param_grids, 
-        optimizer='grid', 
+        strategy='grid', 
         savejob=False, 
         filename=None, 
         cv=None, 
@@ -293,7 +293,7 @@ class MultipleSearch0:
         ):
         self.estimators = estimators
         self.param_grids = param_grids
-        self.optimizer = optimizer
+        self.strategy = strategy
         self.savejob = savejob
         self.filename = filename
         self.cv = cv or 5
@@ -343,7 +343,7 @@ class MultipleSearch0:
         
     def _get_search(self, estimator, param_grid, name):
         """
-        Get the search object based on the optimizer.
+        Get the search object based on the strategy.
 
         Parameters
         ----------
@@ -359,18 +359,18 @@ class MultipleSearch0:
         search : GridSearchCV, RandomizedSearchCV or BayesSearchCV object
             The search object.
         """
-        optimizer = get_optimizer_name(self.optimizer, error ='ignore')
-        if optimizer =='GridSearchCV':
+        strategy = get_strategy_name(self.strategy, error ='ignore')
+        if strategy =='GridSearchCV':
             return GridSearchCV(estimator, param_grid, cv=self.cv, 
             n_jobs=self.n_job, scoring=self.scoring, **self.grid_kws)
-        elif optimizer =='RandomizedSearchCV':
+        elif strategy =='RandomizedSearchCV':
             return RandomizedSearchCV(estimator, param_grid, n_iter=self.n_iter, 
             cv=self.cv, n_jobs=self.n_job, scoring=self.scoring, **self.grid_kws)
-        elif optimizer=='BayesSearchCV':
+        elif strategy=='BayesSearchCV':
             return BayesSearchCV(estimator, param_grid, n_iter=self.n_iter, cv=self.cv,
             n_jobs=self.n_job, scoring=self.scoring, **self.grid_kws)
         else:
-            raise ValueError(f"Invalid search method: {self.optimizer}")
+            raise ValueError(f"Invalid search method: {self.strategy}")
 
 class CrossValidator (BaseClass):
     """
@@ -741,7 +741,7 @@ class BaseSearch (BaseClass):
         'grid_params', 
         'scoring',
         'cv', 
-        '_optimizer', 
+        '_strategy', 
         'grid_kws', 
         'best_params_',
         'cv_results_',
@@ -755,7 +755,7 @@ class BaseSearch (BaseClass):
         base_estimator:_F,
         grid_params:Dict[str,Any],
         cv:int =4,
-        optimizer:str ='GridSearchCV',
+        strategy:str ='GridSearchCV',
         scoring:str = 'nmse',
         savejob:bool=False, 
         filename:str=None, 
@@ -771,7 +771,7 @@ class BaseSearch (BaseClass):
         self.cv_results_= None
         self.feature_importances_= None
         self.grid_kws = grid_kws 
-        self._optimizer = optimizer 
+        self._strategy = strategy 
         self.verbose=verbose
         self.filename=filename
 
@@ -792,21 +792,21 @@ class BaseSearch (BaseClass):
         self._base_estimator =base_est 
         
     @property 
-    def optimizer(self): 
+    def strategy(self): 
         """ Kind of searched. `RandomizedSearchCV` or `GridSearchCV`."""
-        return self._optimizer 
+        return self._strategy 
     
-    @optimizer.setter 
-    def optimizer (self, ksearch): 
-        """`optimizer attribute checker"""
+    @strategy.setter 
+    def strategy (self, ksearch): 
+        """`strategy attribute checker"""
         if 'gridsearchcv1'.find( str(ksearch).lower())>=0: 
             ksearch = 'GridSearchCV' 
         elif 'randomizedsearchcv2'.find( str(ksearch).lower())>=0:
             ksearch = 'RandomizedSearchCV'
         else: raise ValueError (
-            " Unkown the optimizer of parameter search {ksearch!r}."
+            " Unkown the strategy of parameter search {ksearch!r}."
             " Supports only 'GridSearchCV' and 'RandomizedSearchCV'.")
-        self._optimizer = ksearch 
+        self._strategy = ksearch 
 
     def fit(self,  X, y): 
         """ Fit method using base Estimator and populate BaseSearch 
@@ -844,11 +844,11 @@ class BaseSearch (BaseClass):
                        )
                 warnings.warn(msg)
         
-        self.optimizer =self._optimizer 
+        self.strategy =self._strategy 
         
-        if self.optimizer =='GridSearchCV': 
+        if self.strategy =='GridSearchCV': 
             searchGridMethod = GridSearchCV 
-        elif self.optimizer=='RandomizedSearchCV': 
+        elif self.strategy=='RandomizedSearchCV': 
             searchGridMethod= RandomizedSearchCV 
             
         if self.scoring in ( 'nmse', None): 
@@ -925,7 +925,7 @@ filename: str,
 
 {params.core.cv}
     The default is ``4``.
-optimizer:str, default='GridSearchCV' or '1'
+strategy:str, default='GridSearchCV' or '1'
     Kind of grid parameter searches. Can be ``1`` for ``GridSearchCV`` or
     ``2`` for ``RandomizedSearchCV``. 
 {params.core.scoring} 
@@ -959,7 +959,7 @@ class SearchMultiple(BaseClass):
         scoring:str,  
         grid_params: Dict[str, Any],
         *, 
-        optimizer:str ='GridSearchCV', 
+        strategy:str ='GridSearchCV', 
         cv: int =7, 
         random_state:int =42,
         savejob:bool =False,
@@ -970,7 +970,7 @@ class SearchMultiple(BaseClass):
         self.estimators = estimators 
         self.scoring=scoring 
         self.grid_params=grid_params
-        self.optimizer=optimizer 
+        self.strategy=strategy 
         self.cv=cv
         self.savejob=savejob
         self.filename=filename 
@@ -1015,11 +1015,11 @@ class SearchMultiple(BaseClass):
         
         for j, estm in enumerate(self.estimators):
             estm_name = get_estimator_name(estm)
-            msg = f'{estm_name} is evaluated with {self.optimizer}.'
+            msg = f'{estm_name} is evaluated with {self.strategy}.'
             searchObj = BaseSearch(base_estimator=estm, 
                                     grid_params= self.grid_params[j], 
                                     cv = self.cv, 
-                                    optimizer=self.optimizer, 
+                                    strategy=self.strategy, 
                                     scoring=self.scoring, 
                                     **self.grid_kws
                                       )
@@ -1028,7 +1028,7 @@ class SearchMultiple(BaseClass):
             
             if self.verbose > 7 :
                 msg += ( 
-                    f"\End {self.optimizer} search. Set estimator {estm_name!r}"
+                    f"\End {self.strategy} search. Set estimator {estm_name!r}"
                     " best parameters, cv_results and other importances" 
                     " attributes\n'"
                  )
@@ -1132,7 +1132,7 @@ grid_params: list
 
 {params.core.scoring}
    
-optimizer:str, default='GridSearchCV' or '1'
+strategy:str, default='GridSearchCV' or '1'
     Kind of grid parameter searches. Can be ``1`` for ``GridSearchCV`` or
     ``2`` for ``RandomizedSearchCV``. 
     
@@ -1185,7 +1185,7 @@ Examples
                        scoring ='accuracy', 
                        verbose =1,   #> 7 put more verbose 
                        savejob=False ,  # set true to save job in binary disk file.
-                       optimizer='GridSearchCV').fit(X, y)
+                       strategy='GridSearchCV').fit(X, y)
 >>> # Once the parameters are fined tuned, we can display the fined tuning 
 >>> # results using displayFineTunedResults`` function
 >>> displayFineTunedResults (gobj.models.values_) 
@@ -1474,7 +1474,7 @@ pipeline: Callable or :class:`~sklearn.pipeline.Pipeline` object
     Refer to https://scikit-learn.org/stable/modules/classes.html#module-sklearn.pipeline
     for further details. 
     
-optimizer: str, default ='GridSearchCV'
+strategy: str, default ='GridSearchCV'
     Kind of grid search method. Could be ``GridSearchCV`` or 
     ``RandomizedSearchCV``.
 

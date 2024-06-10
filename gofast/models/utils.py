@@ -112,38 +112,56 @@ def align_estimators_with_params(param_grids, estimators=None):
     --------
     >>> from sklearn.ensemble import RandomForestClassifier
     >>> from sklearn.svm import SVC
-    >>> from gofast.models.utils import align_estimator_with_params 
+    >>> from gofast.models.utils import align_estimators_with_params 
 
     >>> estimators1 = [{"rf": RandomForestClassifier()}, {"svc": SVC()}]
     >>> param_grids1 = [("rf", {'n_estimators': [100, 200], 'max_depth': [10, 20]}), 
                     ("svc", {"C": [1, 10], "gamma": [.001, .01, .00001]})]
-
     >>> new_estimators1, new_param_grids1 = align_estimators_with_params(
         param_grids1, estimators1)
     >>> print(new_estimators1)
     >>> print(new_param_grids1)
-
+    [RandomForestClassifier(), SVC()]
+    [{'n_estimators': [100, 200], 'max_depth': [10, 20]}, 
+     {'C': [1, 10], 'gamma': [0.001, 0.01, 1e-05]}]
+    
     >>> estimators2 = [RandomForestClassifier(), SVC()]
     >>> param_grids2 = [{'n_estimators': [100, 200], 'max_depth': [10, 20]}, 
                     {"C": [1, 10], "gamma": [.001, .01, .00001]}]
-
     >>> new_estimators2, new_param_grids2 = align_estimators_with_params(
         param_grids2, estimators2)
     >>> print(new_estimators2)
     >>> print(new_param_grids2)
-
+    [RandomForestClassifier(), SVC()]
+    [{'n_estimators': [100, 200], 'max_depth': [10, 20]},
+     {'C': [1, 10], 'gamma': [0.001, 0.01, 1e-05]}]
+    
     >>> estimators3 = [{"rf": RandomForestClassifier()}, {"svc": SVC()}]
     >>> param_grids3 = [("svc", {"C": [1, 10], "gamma": [.001, .01, .00001]}), 
                     ("rf", {'n_estimators': [100, 200], 'max_depth': [10, 20]})]
-
     >>> new_estimators3, new_param_grids3 = align_estimators_with_params(
         param_grids3, estimators3)
     >>> print(new_estimators3)
     >>> print(new_param_grids3)
+    [SVC(), RandomForestClassifier()]
+    [{'C': [1, 10], 'gamma': [0.001, 0.01, 1e-05]},
+     {'n_estimators': [100, 200], 'max_depth': [10, 20]}]
 
+    >>> estimators4 = {'SVC': SVC(), 'SGDClassifier': SGDClassifier()}
+    >>> param_grids4 = {'SVC': {'C': [1, 10], 'kernel': ['linear', 'rbf']},
+                        'SGDClassifier': {'max_iter': [50, 100], 'alpha': [0.0001, 0.001]}}
+    >>> new_estimators4, new_param_grids4 = align_estimators_with_params(
+         param_grids4, estimators4)
+    >>> print(new_estimators4)
+    >>> print(new_param_grids4)
+    
     """
     if estimators is None:
         return process_estimators_and_params(param_grids)
+    
+    if estimators is not None: 
+        estimators, param_grids= parse_estimators_and_params(
+            estimators, param_grids, control="passthrough")
 
     param_grids = [param_grids] if isinstance(param_grids, dict) else param_grids
 
@@ -159,6 +177,113 @@ def align_estimators_with_params(param_grids, estimators=None):
             estimators, estimator_names, param_grid_names)
 
     return estimators, param_grids
+
+def parse_estimators_and_params(
+        estimators, param_grids, control='passthrough'):
+    """
+    Parse and validate estimators and parameter grids.
+
+    This function checks the provided estimators and parameter grids for 
+    consistency and validity. It ensures that the lengths of the estimators 
+    and parameter grids match, that the keys in both dictionaries are the same, 
+    and that each estimator implements the `fit` method.
+
+    Parameters
+    ----------
+    estimators : dict or list
+        Dictionary of estimator names to estimator instances, or a list of estimators.
+    
+    param_grids : dict or list
+        Dictionary of estimator names to parameter grids, or a list of parameter grids.
+    
+    control : str, default='passthrough'
+        Control the behavior of the function. If 'strict', the function will 
+        raise errors for invalid inputs. If 'passthrough', the function will 
+        return the inputs as they are if they are not dictionaries.
+    
+    Returns
+    -------
+    tuple
+        A tuple containing a list of estimators and a list of parameter grids, 
+        ordered by the estimator names.
+    
+    Raises
+    ------
+    ValueError
+        If the lengths of the estimators and parameter grids do not match, 
+        if the keys in both dictionaries are not the same, or if any estimator 
+        does not implement the `fit` method when control is 'strict'.
+    
+    Examples
+    --------
+    >>> from sklearn.svm import SVC
+    >>> from sklearn.linear_model import SGDClassifier
+    >>> from gofast.models.utils import parse_estimators_and_params
+    >>> estimators = {'SVC': SVC(), 'SGDClassifier': SGDClassifier()}
+    >>> param_grids = {'SVC': {'C': [1, 10], 'kernel': ['linear', 'rbf']}, 
+    ...                'SGDClassifier': {'max_iter': [50, 100], 'alpha': [0.0001, 0.001]}}
+    >>> parse_estimators_and_params(estimators, param_grids)
+    ([SGDClassifier(), SVC()], 
+     [{'max_iter': [50, 100], 'alpha': [0.0001, 0.001]}, 
+      {'C': [1, 10], 'kernel': ['linear', 'rbf']}])
+    """
+    if isinstance(estimators, dict) and isinstance(param_grids, dict):
+        if len(estimators) != len(param_grids):
+            raise ValueError(
+                "The number of estimators and parameter grids must be the same.")
+        
+        estimator_keys = set(estimators.keys())
+        param_grid_keys = set(param_grids.keys())
+
+        if estimator_keys != param_grid_keys:
+            raise ValueError(
+                "The keys in estimators and param_grids must be the same.")
+
+        ordered_estimators = []
+        ordered_param_grids = []
+
+        for key in estimators:
+            estimator = estimators[key]
+            if not hasattr(estimator, 'fit'):
+                raise ValueError(
+                    f"The estimator {key} does not implement a 'fit' method.")
+            ordered_estimators.append(estimator)
+            ordered_param_grids.append(param_grids[key])
+
+        return ordered_estimators, ordered_param_grids
+
+    elif control == 'strict':
+        raise ValueError(
+            "Both estimators and param_grids must be dictionaries in strict mode.")
+    
+    elif control == 'passthrough':
+        if isinstance(estimators, dict):
+            # Transform estimator dict to list and check if each implements fit method
+            ordered_estimators = []
+            for key in estimators:
+                estimator = estimators[key]
+                if not hasattr(estimator, 'fit'):
+                    raise ValueError(
+                        f"The estimator {key} does not implement a 'fit' method.")
+                ordered_estimators.append(estimator)
+        else:
+            ordered_estimators = estimators
+
+        if isinstance(param_grids, dict):
+            # Transform param_grid dict to list of param grids
+            ordered_param_grids = [param_grids[key] for key in param_grids]
+        else:
+            ordered_param_grids = param_grids
+
+        # Check if lengths match
+        if len(ordered_estimators) != len(ordered_param_grids):
+            raise ValueError(
+                "The number of estimators and parameter grids must be the same.")
+
+        return ordered_estimators, ordered_param_grids
+
+    else:
+        raise ValueError("Unknown control value. Use 'strict' or 'passthrough'.")
 
 def _unpack_estimators(estimators):
     """
@@ -316,64 +441,64 @@ def params_combinations(param_space):
     for combination in itertools.product(*values):
         yield dict(zip(keys, combination))
 
-def get_optimizer_method(optimizer: str) -> Type[BaseEstimator]:
+def get_strategy_method(strategy: str) -> Type[BaseEstimator]:
     """
-    Returns the corresponding optimizer class based on the provided optimizer 
+    Returns the corresponding strategy class based on the provided strategy 
     string.
     
-    This function accounts for standard optimizers as well as custom optimizers 
+    This function accounts for standard strategys as well as custom strategys 
     defined in gofast.
 
     Parameters
     ----------
-    optimizer : str
-        The name or abbreviation of the optimizer.
+    strategy : str
+        The name or abbreviation of the strategy.
 
     Returns
     -------
     Type[BaseEstimator]
-        The class of the optimizer corresponding to the provided optimizer 
+        The class of the strategy corresponding to the provided strategy 
         string.
 
     Raises
     ------
     ImportError
-        If a required external optimizer class (e.g., BayesSearchCV) is not 
+        If a required external strategy class (e.g., BayesSearchCV) is not 
         installed.
     ValueError
-        If no matching optimizer is found or the optimizer name is unrecognized.
+        If no matching strategy is found or the strategy name is unrecognized.
 
     Examples
     --------
-    >>> from gofast.models.utils import get_optimizer_method
-    >>> optimizer_class = get_optimizer_method('RSCV')
-    >>> print(optimizer_class)
+    >>> from gofast.models.utils import get_strategy_method
+    >>> strategy_class = get_strategy_method('RSCV')
+    >>> print(strategy_class)
     <class 'sklearn.model_selection.RandomizedSearchCV'>
-    >>> optimizer_class = get_optimizer_method('GESCV')
-    >>> print(optimizer_class)
+    >>> strategy_class = get_strategy_method('GESCV')
+    >>> print(strategy_class)
     <class 'gofast.models.selection.GeneticSearchCV'>
     """
-    # Ensure the optimizer name is standardized
-    optimizer = validate_optimizer(optimizer) 
+    # Ensure the strategy name is standardized
+    strategy = validate_strategy(strategy) 
     
-    # Mapping of optimizer names to their respective classes
-    # Standard optimizer dictionary
-    standard_optimizer_dict = {
+    # Mapping of strategy names to their respective classes
+    # Standard strategy dictionary
+    standard_strategy_dict = {
         'GridSearchCV': GridSearchCV,
         'RandomizedSearchCV': RandomizedSearchCV,
     }
     try: from skopt import BayesSearchCV
     except: 
-        if optimizer =='BayesSearchCV': 
+        if strategy =='BayesSearchCV': 
             emsg= ("scikit-optimize is required for 'BayesSearchCV'"
                    " but not installed.")
             import_optional_dependency('skopt', extra= emsg )
         pass 
-    else : standard_optimizer_dict["BayesSearchCV"]= BayesSearchCV
+    else : standard_strategy_dict["BayesSearchCV"]= BayesSearchCV
     
-    # Update standard optimizer with gofast optimizers if 
+    # Update standard strategy with gofast strategys if 
     # not exist previously.
-    if optimizer not in standard_optimizer_dict.keys(): 
+    if strategy not in standard_strategy_dict.keys(): 
         from gofast.models.selection import ( 
             SwarmSearchCV, 
             SequentialSearchCV, 
@@ -382,7 +507,7 @@ def get_optimizer_method(optimizer: str) -> Type[BaseEstimator]:
             GradientSearchCV,
             GeneticSearchCV 
             ) 
-        gofast_optimizer_dict = { 
+        gofast_strategy_dict = { 
             'SwarmSearchCV': SwarmSearchCV,
             'SequentialSearchCV': SequentialSearchCV,
             'AnnealingSearchCV': AnnealingSearchCV,
@@ -390,26 +515,26 @@ def get_optimizer_method(optimizer: str) -> Type[BaseEstimator]:
             'GradientSearchCV': GradientSearchCV,
             'GeneticSearchCV': GeneticSearchCV,
             }
-        standard_optimizer_dict ={**standard_optimizer_dict,**gofast_optimizer_dict }
+        standard_strategy_dict ={**standard_strategy_dict,**gofast_strategy_dict }
         
-    # Search for the corresponding optimizer class
-    return standard_optimizer_dict.get(optimizer)
+    # Search for the corresponding strategy class
+    return standard_strategy_dict.get(strategy)
 
 
-def get_optimizer_name(optimizer, error='raise'):
+def get_strategy_name(strategy, error='raise'):
     """
-    Retrieve the name of the optimizer based on an input string.
+    Retrieve the name of the strategy based on an input string.
     
-    This function searches for known optimizer identifiers within the input
+    This function searches for known strategy identifiers within the input
     string using regular expressions and returns the formal name of the
-    optimizer if a match is found. If no match is found, it handles the
+    strategy if a match is found. If no match is found, it handles the
     situation based on the specified error handling mode ('raise', 'ignore',
     'warn').
 
     Parameters
     ----------
-    optimizer : str
-        The input string potentially containing an optimizer name.
+    strategy : str
+        The input string potentially containing an strategy name.
     error : str, optional
         Error handling mode: 'raise' (default) to raise an exception,
         'ignore' to return a default message, and 'warn' to issue a warning.
@@ -417,35 +542,35 @@ def get_optimizer_name(optimizer, error='raise'):
     Returns
     -------
     str
-        The formal name of the optimizer if found, or a default message
+        The formal name of the strategy if found, or a default message
         based on the error handling mode.
     
     Raises
     ------
     ValueError
-        If no optimizer is found and error mode is 'raise'.
+        If no strategy is found and error mode is 'raise'.
     
     Notes
     -----
     The function uses regular expressions for flexible and efficient matching.
     The pattern matching checks for exact words and common abbreviations or
-    acronyms related to optimizer names.
+    acronyms related to strategy names.
 
     Examples
     --------
-    >>> from gofast.models.utils import get_optimizer_name
-    >>> get_optimizer_name("I used random search CV for optimization")
+    >>> from gofast.models.utils import get_strategy_name
+    >>> get_strategy_name("I used random search CV for optimization")
     'RandomizedSearchCV'
 
-    >>> get_optimizer_name("What is GSCV?", error='warn')
+    >>> get_strategy_name("What is GSCV?", error='warn')
     UserWarning: Optimizer not found. Valid options include: RandomizedSearchCV, 
     GridSearchCV, etc.
 
-    >>> get_optimizer_name("optimize with GASCV")
+    >>> get_strategy_name("optimize with GASCV")
     'GeneticSearchCV'
     
     """
-    optimizer = _standardize_input(optimizer )
+    strategy = _standardize_input(strategy )
     opt_dict = {
        'RandomizedSearchCV': r"\b(random|RSCV|RandomizedSearchCV)\b",
        'GridSearchCV': r"\b(grid|GSCV|GridSearchCV)\b",
@@ -458,9 +583,9 @@ def get_optimizer_name(optimizer, error='raise'):
        'GeneticSearchCV': r"\b(genetic|GASCV|GeneticSearchCV)\b"
    }
     
-    optimizer_input = str(optimizer).lower()
+    strategy_input = str(strategy).lower()
     for key, pattern in opt_dict.items():
-        if re.search(pattern.lower(), optimizer_input):
+        if re.search(pattern.lower(), strategy_input):
             return key
 
     valid_opts = ', '.join(opt_dict.keys())
@@ -543,7 +668,6 @@ def process_estimators_and_params(
     [{'C': [1, 10, 100], 'kernel': ['linear', 'rbf']}, {'n_estimators': [10, 50, 100],
                                                         'max_depth': [5, 10, None]}]
     """
-    
     if all(isinstance(grid, (tuple, list)) for grid in param_grids):
         # Extract estimators and parameter grids from tuples
         estimators, param_grids = zip(*param_grids)
@@ -555,66 +679,67 @@ def process_estimators_and_params(
         raise ValueError("Estimators are missing. They must be provided either "
                          "in param_grids or as a separate list.")
         
-def validate_optimizer(optimizer: Union[str, _F]) -> str:
+def validate_strategy(strategy: Union[str, _F]) -> str:
     """
-    Check whether the given optimizer is a recognized optimizer type.
+    Check whether the given strategy is a recognized strategy type.
 
-    This function validates if the provided optimizer, either as a string 
+    This function validates if the provided strategy, either as a string 
     or an instance of a class derived from BaseEstimator, corresponds to a 
-    known optimizer type. If the optimizer is recognized, its standardized 
+    known strategy type. If the strategy is recognized, its standardized 
     name is returned. Otherwise, a ValueError is raised.
 
     Parameters
     ----------
-    optimizer : Union[str, _F]
-        The optimizer to validate. This can be a string name or an instance 
-        of an optimizer class.
+    strategy : Union[str, _F]
+        The strategy to validate. This can be a string name or an instance 
+        of an strategy class.
 
     Returns
     -------
     str
-        The standardized name of the optimizer.
+        The standardized name of the strategy.
 
     Raises
     ------
     ValueError
-        If the optimizer is not recognized.
+        If the strategy is not recognized.
 
     Examples
     --------
     >>> from sklearn.ensemble import RandomForestClassifier 
     >>> from gofast.models.selection import AnnealingSearchCV
-    >>> from gofast.models.utils import validate_optimizer
-    >>> validate_optimizer("RSCV")
+    >>> from gofast.models.utils import validate_strategy
+    >>> validate_strategy("RSCV")
     'RandomizedSearchCV'
-    >>> validate_optimizer(AnnealingSearchCV)
+    >>> validate_strategy(AnnealingSearchCV)
     'AnnealingSearchCV'
-    >>> validate_optimizer (RandomForestClassifier)
+    >>> validate_strategy (RandomForestClassifier)
     ValueError ...
     """
-    # Mapping of optimizer names to their possible abbreviations and variations
+    # Mapping of strategy names to their possible abbreviations and variations
     opt_dict = {
         'RandomizedSearchCV': ['RSCV', 'RandomizedSearchCV'], 
         'GridSearchCV': ['GSCV', 'GridSearchCV'], 
         'BayesSearchCV': ['BSCV', 'BayesSearchCV'], 
-        'AnnealingSearchCV': ['ANSCV', "AnnealingSearchCV"], 
+        'AnnealingSearchCV': ['ASCV', "AnnealingSearchCV"], 
         'SwarmSearchCV': ['SWSCV', 'SwarmSearchCV'], 
         'SequentialSearchCV': ['SQSCV', 'SequentialSearchCV'], 
         'EvolutionarySearchCV': ['EVSCV', 'EvolutionarySearchCV'], 
-        'GradientSearchCV':['GRSCV', 'GradientSearchCV'], 
-        'GeneticSearchCV': ['GESCV', 'GeneticSearchCV']
+        'GradientSearchCV': ['GBSCV', 'GradientSearchCV'], 
+        'GeneticSearchCV': ['GENSCV', 'GeneticSearchCV']
     }
 
-    optimizer_name = optimizer if isinstance(
-        optimizer, str) else get_estimator_name(optimizer)
+
+    strategy_name = strategy if isinstance(
+        strategy, str) else get_estimator_name(strategy)
 
     for key, values in opt_dict.items():
-        if optimizer_name.lower() in [v.lower() for v in values]:
+        if strategy_name.lower() in [v.lower() for v in values]:
             return key
 
-    valid_optimizers = [v1[1] for v1 in opt_dict.values()]
-    raise ValueError(f"Invalid 'optimizer' parameter '{optimizer_name}'."
-                     f" Choose from {smart_format(valid_optimizers, 'or')}.")
+    valid_strategys = [v1[1] for v1 in opt_dict.values()]
+    raise ValueError(f"Invalid 'strategy' parameter '{strategy_name}'."
+                     f" Choose from {smart_format(valid_strategys, 'or')}.")
     
 def find_best_C(X, y, C_range, cv=5, scoring='accuracy', 
                 scoring_reg='neg_mean_squared_error'):
@@ -663,7 +788,6 @@ def find_best_C(X, y, C_range, cv=5, scoring='accuracy',
     >>> best_C = find_best_C(X, y, C_range)
     >>> print(f"Best C value: {best_C}")
     """
-
     X, y = check_X_y(X,  y, to_frame= True, )
     task_type = type_of_target(y)
     best_score = ( 0 if task_type == 'binary' or task_type == 'multiclass'

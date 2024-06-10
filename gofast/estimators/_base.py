@@ -2,27 +2,26 @@
 
 from __future__ import annotations
 from collections import defaultdict 
+from abc import ABCMeta
+from abc import abstractmethod
 import inspect 
 import numpy as np 
 from tqdm import tqdm
 
 from sklearn.base import BaseEstimator
 from sklearn.preprocessing import LabelBinarizer, StandardScaler, OneHotEncoder
-from sklearn.neural_network import MLPRegressor,MLPClassifier
-from sklearn.metrics import accuracy_score
-from sklearn.utils import shuffle
+from sklearn.neural_network import MLPRegressor, MLPClassifier
+from sklearn.utils import shuffle as skl_shuffle
 
-from .._gofastlog import  gofastlog
 from ..tools.validator import check_X_y, check_array 
 from ..tools.validator import check_is_fitted
-from ..tools.funcutils import ensure_pkg 
 from .util import activator 
 try: 
     from skfuzzy.control import Antecedent
     import skfuzzy as fuzz
 except: pass 
 
-class GradientDescentBase(BaseEstimator):
+class GradientDescentBase(BaseEstimator, metaclass=ABCMeta):
     """
     Base class for Gradient Descent optimization.
 
@@ -134,9 +133,10 @@ class GradientDescentBase(BaseEstimator):
     .. [2] Ruder, S. (2016). "An overview of gradient descent optimization algorithms".
            arXiv preprint arXiv:1609.04747.
     """
-
+    @abstractmethod
     def __init__(
         self, 
+        *, 
         eta0=0.01, 
         max_iter=1000, 
         tol=1e-4, 
@@ -292,12 +292,13 @@ class GradientDescentBase(BaseEstimator):
     
         for i in range(self.max_iter):
             if self.shuffle:
-                X, y = shuffle(X, y, random_state=self.random_state)
+                X, y = skl_shuffle(X, y, random_state=self.random_state)
     
             self._update_weights(X, y)
             if is_classifier:
                 net_input = self._net_input(X)
-                proba = activator(net_input, self.activation)
+                proba = activator(net_input, self.activation,
+                                  clipping_threshold=self.clipping_threshold)
                 # proba = self._sigmoid(net_input)
                 loss = -np.mean(y * np.log(proba + 1e-9) + (1 - y) * np.log(1 - proba + 1e-9))
             else:
@@ -457,14 +458,16 @@ class GradientDescentBase(BaseEstimator):
                 "Probability estimates are not available for regression.")
     
         net_input = self._net_input(X)
-        proba = activator(net_input, self.activation)
+        proba = activator(net_input, self.activation,
+                          clipping_threshold=self.clipping_threshold)
         # proba = self._sigmoid(net_input)
         if proba.shape[1] == 1:
             return np.vstack([1 - proba.ravel(), proba.ravel()]).T
         else:
             return proba / proba.sum(axis=1, keepdims=True)
     
-class NeuroFuzzyBase(BaseEstimator):
+
+class NeuroFuzzyBase(BaseEstimator, metaclass=ABCMeta):
     """
     NeuroFuzzyBase is a base class for neuro-fuzzy network-based models that 
     integrate fuzzy logic and neural networks to perform classification or 
@@ -653,8 +656,10 @@ class NeuroFuzzyBase(BaseEstimator):
            System," IEEE Transactions on Systems, Man, and Cybernetics, vol. 
            23, no. 3, pp. 665-685, 1993.
     """
+    @abstractmethod
     def __init__(
         self, 
+        *, 
         n_clusters=3, 
         eta0=0.001, 
         max_iter=200, 
@@ -1089,7 +1094,7 @@ class NeuroFuzzyBase(BaseEstimator):
         y_proba = self.mlp_.predict_proba(X_scaled)
         return y_proba
 
-class FuzzyNeuralNetBase(BaseEstimator):
+class FuzzyNeuralNetBase(BaseEstimator, metaclass=ABCMeta):
     """
     FuzzyNeuralNetBase is a base class for ensemble neuro-fuzzy network-based 
     models that integrates fuzzy logic and neural networks to perform 
@@ -1249,8 +1254,10 @@ class FuzzyNeuralNetBase(BaseEstimator):
            23, no. 3, pp. 665-685, 1993.
     """
 
+    @abstractmethod
     def __init__(
         self, 
+        *, 
         n_clusters=3, 
         n_estimators=10,
         eta0=0.001, 

@@ -1,28 +1,32 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
-#   Author: LKouadio <eta0noyau@gmail.com>
+#   Author: LKouadio <etanoyau@gmail.com>
+
+"""
+:mod:`~gofast.estimators.perceptron` contains a collection of estimators
+implementing various machine learning algorithms based on perceptron and 
+gradient descent techniques. The implementations are designed to provide 
+robust and flexible models for both classification and regression tasks. 
+"""
 
 from __future__ import annotations 
 import numpy as np
 from tqdm import tqdm
 
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
-from sklearn.preprocessing import LabelBinarizer
+from sklearn.preprocessing import LabelBinarizer 
 from sklearn.metrics import accuracy_score, r2_score
-from sklearn.utils import shuffle
-
 try:from sklearn.utils import type_of_target
 except: from ..tools.coreutils import type_of_target 
+
 from .._gofastlog import  gofastlog
-from ..tools.validator import check_X_y, get_estimator_name, check_array 
-from ..tools.validator import check_is_fitted
 from ..tools.funcutils import ensure_pkg 
+from ..tools.validator import check_X_y, check_array 
+from ..tools.validator import check_is_fitted
 from ._base import FuzzyNeuralNetBase, NeuroFuzzyBase
 from ._base import GradientDescentBase 
 
-
 _logger = gofastlog().get_gofast_logger(__name__)
-
 
 __all__=[
     "Perceptron", 
@@ -254,7 +258,8 @@ class Perceptron(BaseEstimator, RegressorMixin, ClassifierMixin):
         >>> X_test_std = sc.transform(X_test)
     
         # Create and fit the model
-        >>> ppn = Perceptron(eta0=0.01, max_iter=40, problem='classification')
+        >>> ppn = Perceptron(eta0=0.01, max_iter=40, problem='classification', 
+                             verbose=True)
         >>> ppn.fit(X_train_std, y_train)
     
         # Predict and evaluate
@@ -603,7 +608,7 @@ class Perceptron(BaseEstimator, RegressorMixin, ClassifierMixin):
             " `NeuroFuzzyRegressor` to function correctly. Please install"
             " it to proceed."
     )
-class NeuroFuzzyRegressor(NeuroFuzzyBase, RegressorMixin):
+class NeuroFuzzyRegressor(RegressorMixin, NeuroFuzzyBase):
     """
     NeuroFuzzyRegressor is a neuro-fuzzy network-based regressor that
     integrates fuzzy logic and neural networks to perform regression tasks.
@@ -776,6 +781,7 @@ class NeuroFuzzyRegressor(NeuroFuzzyBase, RegressorMixin):
     """
     def __init__(
         self, 
+        *, 
         n_clusters=3, 
         eta0=0.001, 
         max_iter=200, 
@@ -943,7 +949,11 @@ class NeuroFuzzyRegressor(NeuroFuzzyBase, RegressorMixin):
  
         return self._predict(X)
     
-class NeuroFuzzyClassifier(NeuroFuzzyBase, ClassifierMixin):
+@ensure_pkg(
+    "skfuzzy", ("The `skfuzzy` package is required for the "
+     " `NeuroFuzzyClassifier`to function correctly.")
+    )
+class NeuroFuzzyClassifier(ClassifierMixin, NeuroFuzzyBase):
     """
     NeuroFuzzyClassifier is a neuro-fuzzy network-based classifier that 
     integrates fuzzy logic and neural networks to perform classification tasks.
@@ -1115,6 +1125,7 @@ class NeuroFuzzyClassifier(NeuroFuzzyBase, ClassifierMixin):
     """
     def __init__(
         self, 
+        *,
         n_clusters=3, 
         eta0=0.001, 
         max_iter=200, 
@@ -1345,111 +1356,8 @@ class NeuroFuzzyClassifier(NeuroFuzzyBase, ClassifierMixin):
         """
         return self._predict_proba(X)
 
-
-class GradientDescentClassifier(GradientDescentBase, ClassifierMixin):
-    def __init__(
-            self, 
-            eta0=0.001, 
-            max_iter=1000, 
-            tol=1e-4, 
-            early_stopping=False, 
-            validation_fraction=0.1, 
-            n_iter_no_change=5,
-            learning_rate='constant', 
-            power_t=0.5, 
-            alpha=0.0001, 
-            batch_size='auto', 
-            clipping_threshold=250,
-            shuffle=True, 
-            random_state=None, 
-            verbose=False,
-            ):
-        super().__init__(
-            eta0=eta0, 
-            max_iter=max_iter, 
-            tol=tol, 
-            early_stopping=early_stopping, 
-            validation_fraction=validation_fraction, 
-            n_iter_no_change=n_iter_no_change, 
-            learning_rate=learning_rate, 
-            power_t=power_t, 
-            alpha=alpha, 
-            batch_size=batch_size, 
-            clipping_threshold=clipping_threshold,
-            shuffle=shuffle, 
-            random_state=random_state, 
-            verbose=verbose, 
-            )
-
-    def fit(self, X, y, sample_weight=None):
-        return self._fit(X, y, is_classifier=True)
-
-    def predict(self, X):
-        check_is_fitted(self, 'weights_')
-        X = check_array(X, accept_sparse=True)
-        return self._predict(X)
-
-    def predict_proba(self, X):
-        check_is_fitted(self, 'weights_')
-        X = check_array(X, accept_sparse=True)
-        return self._predict_proba(X)
-
-    def score(self, X, y, sample_weight=None):
-        X, y = check_X_y(X, y)
-        y_pred = self.predict(X)
-        return accuracy_score(y, y_pred, sample_weight=sample_weight)
-
-class GradientDescentRegressor(GradientDescentBase, RegressorMixin):
-    def __init__(
-        self, 
-        eta0=0.001, 
-        max_iter=1000, 
-        shuffle=True, 
-        random_state=None, 
-        verbose=False,
-        tol=1e-4, 
-        early_stopping=False, 
-        validation_fraction=0.1, 
-        n_iter_no_change=5,
-        learning_rate='constant', 
-        power_t=0.5, 
-        alpha=0.0001, 
-        batch_size='auto', 
-        clipping_threshold=250
-        ):
-        super().__init__(
-            eta0=eta0, 
-            max_iter=max_iter, 
-            tol=tol, 
-            early_stopping=early_stopping, 
-            validation_fraction=validation_fraction, 
-            n_iter_no_change=n_iter_no_change, 
-            learning_rate=learning_rate, 
-            power_t=power_t, 
-            alpha=alpha, 
-            batch_size=batch_size, 
-            clipping_threshold=clipping_threshold,
-            shuffle=shuffle, 
-            random_state=random_state, 
-            verbose=verbose, 
-            )
-
-    def fit(self, X, y):
-        return self._fit(X, y, is_classifier=False)
-
-    def predict(self, X):
-        check_is_fitted(self, 'weights_')
-        X = check_array(X, accept_sparse=True)
-        return self._predict(X)
-
-    def score(self, X, y, sample_weight=None):
-        X, y = check_X_y(X, y)
-        y_pred = self.predict(X)
-        return r2_score(y, y_pred, sample_weight=sample_weight)
-
-
-class GradientDescentClassifier0(BaseEstimator, ClassifierMixin):
-    r"""
+class GradientDescentClassifier(ClassifierMixin, GradientDescentBase):
+    """
     Gradient Descent Classifier for Binary and Multi-Class Classification.
 
     This classifier leverages the gradient descent optimization algorithm to 
@@ -1461,7 +1369,6 @@ class GradientDescentClassifier0(BaseEstimator, ClassifierMixin):
     multiple binary classification problems, making it easier to apply the 
     strengths of binary classifiers.
 
-    Mathematical Formulation:
     The principle of gradient descent involves iteratively updating the model 
     parameters to minimize a predefined cost function. The weight update rule 
     in the context of gradient descent is mathematically formulated as follows:
@@ -1485,23 +1392,80 @@ class GradientDescentClassifier0(BaseEstimator, ClassifierMixin):
 
     Parameters
     ----------
-    eta0 : float
+    eta0 : float, default=0.001
         Learning rate, between 0.0 and 1.0. It controls the step size at each
         iteration while moving toward a minimum of the cost function.
 
-    max_iter : int
+    max_iter : int, default=1000
         Number of epochs, i.e., complete passes over the entire training dataset.
 
-    shuffle : bool
-        If True, shuffles the training data before each epoch to prevent cycles
-        and ensure better convergence.
+    tol : float, default=1e-4
+        Tolerance for the optimization. Training will stop when the loss improvement 
+        is less than this value for `n_iter_no_change` consecutive epochs.
+
+    early_stopping : bool, default=False
+        Whether to use early stopping to terminate training when validation 
+        score is not improving.
+
+    validation_fraction : float, default=0.1
+        The proportion of training data to set aside as validation set for 
+        early stopping.
+
+    n_iter_no_change : int, default=5
+        Maximum number of epochs with no improvement to wait before stopping 
+        training.
+
+    learning_rate : {'constant', 'invscaling', 'adaptive'}, default='constant'
+        Learning rate schedule for weight updates:
+        - 'constant': learning rate remains constant.
+        - 'invscaling': gradually decreases the learning rate at each time step.
+        - 'adaptive': keeps the learning rate constant to `eta0` as long as 
+          training loss keeps decreasing.
+
+    power_t : float, default=0.5
+        The exponent for inverse scaling learning rate.
+
+    alpha : float, default=0.0001
+        Regularization term (L2 penalty).
+
+    activation : {'sigmoid', 'relu', 'leaky_relu', 'identity', 'elu', 'tanh', 'softmax'},\
+        default='sigmoid'
+        Activation function to use.
+        - Sigmoid: :math:`\sigma(z) = \frac{1}{1 + \exp(-z)}`
+        - ReLU: :math:`\text{ReLU}(z) = \max(0, z)`
+        - Leaky ReLU: :math:`\text{Leaky ReLU}(z) = \max(0.01z, z)`
+        - Identity: :math:`\text{Identity}(z) = z`
+        - ELU: :math:`\text{ELU}(z) = \begin{cases}
+                      z & \text{if } z > 0 \\
+                      \alpha (\exp(z) - 1) & \text{if } z \leq 0
+                    \end{cases}`
+        - Tanh: :math:`\tanh(z) = \frac{\exp(z) - \exp(-z)}{\exp(z) + \exp(-z)}`
+        - Softmax: :math:`\text{Softmax}(z)_i = \frac{\exp(z_i)}{\sum_{j} \exp(z_j)}`
+        
+    batch_size : int or {'auto'}, default='auto'
+        Size of minibatches for stochastic optimizers. If 'auto', batch size 
+        is set to `min(200, n_samples)`.
+
+    clipping_threshold : int, default=250
+        Threshold value to clip the input `z` to avoid overflow in activation 
+        functions like 'sigmoid' and 'softmax'.
+
+    shuffle : bool, default=True
+        Whether or not to shuffle the training data before each epoch.
+
+    random_state : int, RandomState instance or None, default=None
+        Seed for the random number generator. If provided, it ensures 
+        reproducibility of results.
+
+    verbose : bool, default=False
+        Whether to print progress messages to stdout.
 
     Attributes
     ----------
-    weights_ : 2d-array
+    weights_ : array of shape (n_classes, n_features + 1)
         Weights for each binary classifier, one row per classifier.
 
-    classes_ : array
+    classes_ : array of shape (n_classes,)
         Unique class labels identified in the training data.
 
     Examples
@@ -1513,6 +1477,7 @@ class GradientDescentClassifier0(BaseEstimator, ClassifierMixin):
     >>> y = iris.target
     >>> gd_clf = GradientDescentClassifier(eta0=0.01, max_iter=50)
     >>> gd_clf.fit(X, y)
+    GradientDescentClassifier(...)
     >>> y_pred = gd_clf.predict(X)
     >>> print('Accuracy:', np.mean(y_pred == y))
 
@@ -1529,143 +1494,233 @@ class GradientDescentClassifier0(BaseEstimator, ClassifierMixin):
     LogisticRegression : Logistic Regression classifier from Scikit-Learn.
     SGDClassifier : Linear classifier with Stochastic Gradient Descent.
     
+    References
+    ----------
+    .. [1] Goodfellow, I., Bengio, Y., & Courville, A. (2016). Deep Learning.
+           MIT Press. http://www.deeplearningbook.org
     """
 
-    def __init__(self, eta0=0.01, max_iter=50, shuffle=True):
-        self.eta0 = eta0
-        self.max_iter = max_iter
-        self.shuffle = shuffle
-
-    def fit(self, X, y, sample_weight =None ):
+    def __init__(
+        self, 
+        *, 
+        eta0=0.001, 
+        max_iter=1000, 
+        tol=1e-4, 
+        early_stopping=False, 
+        validation_fraction=0.1, 
+        n_iter_no_change=5,
+        learning_rate='constant', 
+        power_t=0.5, 
+        alpha=0.0001, 
+        activation='sigmoid',
+        batch_size='auto', 
+        clipping_threshold=250,
+        shuffle=True, 
+        random_state=None, 
+        verbose=False,
+    ):
+        super().__init__(
+            eta0=eta0, 
+            max_iter=max_iter, 
+            tol=tol, 
+            early_stopping=early_stopping, 
+            validation_fraction=validation_fraction, 
+            n_iter_no_change=n_iter_no_change, 
+            learning_rate=learning_rate, 
+            power_t=power_t, 
+            alpha=alpha, 
+            activation=activation,
+            batch_size=batch_size, 
+            clipping_threshold=clipping_threshold,
+            shuffle=shuffle, 
+            random_state=random_state, 
+            verbose=verbose, 
+        )
+        
+    def fit(self, X, y, sample_weight=None):
         """
         Fit the model to the training data.
     
-        This method fits a binary classifier for each class using a 
-        One-vs-Rest approach when dealing with multiple classes. It initializes
-        weights, applies binarization to the target values, and iteratively 
-        updates weights using gradient descent.
+        This method trains the classifier using the training data `X` and target 
+        values `y`. It leverages the gradient descent optimization algorithm to 
+        iteratively update the model parameters to minimize the loss function. 
+        If `early_stopping` is enabled, it will monitor the validation loss and 
+        stop training when the improvement is less than the specified tolerance 
+        for `n_iter_no_change` consecutive epochs.
     
-        Parameters:
-        - X : {array-like, sparse matrix}, shape (n_samples, n_features)
-            Training vectors, where n_samples is the number of samples and
-            n_features is the number of features.
-        - y : array-like, shape (n_samples,)
-            Target values (class labels).
+        Parameters
+        ----------
+        X : array-like or sparse matrix, shape (n_samples, n_features)
+            Training data where `n_samples` is the number of samples and 
+            `n_features` is the number of features. The input data can be dense 
+            or sparse.
     
-        Returns:
-        - self : object
+        y : array-like, shape (n_samples,)
+            Target values (class labels). The target values should be discrete 
+            for classification tasks.
+    
+        sample_weight : array-like of shape (n_samples,), default=None
+            Sample weights. If provided, these weights will be used to adjust 
+            the importance of individual samples during training. Currently, 
+            this parameter is not used by the method but is included for API 
+            consistency.
+    
+        Returns
+        -------
+        self : object
             Returns an instance of self.
-        """
-        X, y = check_X_y(X, y, estimator=self)
-        self.classes_ = np.unique(y)
-        n_features = X.shape[1]
-        n_classes = len(self.classes_)
-        
-        # Initialize weights
-        self.weights_ = np.zeros((n_classes, n_features + 1))
-        
-        # Ensure binary classification is handled properly
-        if n_classes == 2:
-            self.label_binarizer_ = LabelBinarizer(pos_label=1, neg_label=0)
-        else:
-            self.label_binarizer_ = LabelBinarizer()
-        
-        Y_bin = self.label_binarizer_.fit_transform(y)
-        
-        # Adjust for binary case with single output column from LabelBinarizer
-        if n_classes == 2 and Y_bin.shape[1] == 1:
-            Y_bin = np.hstack([1 - Y_bin, Y_bin])
-        
-        for i in range(n_classes):
-            y_bin = Y_bin[:, i]
-            for _ in range(self.max_iter):
-                if self.shuffle:
-                    X, y_bin = shuffle(X, y_bin)
-                errors = y_bin - self._predict_proba(X, i)
-                self.weights_[i, 1:] += self.eta0 * X.T.dot(errors)
-                self.weights_[i, 0] += self.eta0 * errors.sum()
-        return self
     
-    def _predict_proba(self, X, class_idx):
-        """
-        Calculate the class probabilities for a given class index using 
-        the model's net input.
+        Notes
+        -----
+        - The method uses the gradient descent optimization algorithm, where the 
+          weights are updated as follows:
+        
+          .. math::
+              w := w - \eta0 \nabla J(w)
+        
+          where:
+          - :math:`w` represents the weight vector of the model.
+          - :math:`\eta0` is the learning rate.
+          - :math:`\nabla J(w)` denotes the gradient of the cost function \(J\), 
+            calculated with respect to the weights.
+        
+        - The method supports early stopping, which terminates training when the 
+          improvement in the validation loss is less than the specified tolerance 
+          for a given number of consecutive epochs.
     
-        Parameters:
-        - X : {array-like, sparse matrix}, shape (n_samples, n_features)
-            Samples for which to predict the probabilities.
-        - class_idx : int
-            Index of the class for which the probability is predicted.
+        Examples
+        --------
+        >>> from sklearn.datasets import load_iris
+        >>> from gofast.estimators.perceptron import GradientDescentClassifier
+        >>> iris = load_iris()
+        >>> X = iris.data
+        >>> y = iris.target
+        >>> gd_clf = GradientDescentClassifier(eta0=0.01, max_iter=50)
+        >>> gd_clf.fit(X, y)
+        GradientDescentClassifier(...)
+        >>> y_pred = gd_clf.predict(X)
+        >>> print('Accuracy:', np.mean(y_pred == y))
     
-        Returns:
-        - proba : array-like, shape (n_samples,)
-            Probability estimates for the specified class.
-        """
-        net_input = self.net_input(X, class_idx)
-        return np.where(net_input >= 0.0, 1, 0)
-
-    def net_input(self, X, class_idx):
-        """
-        Compute the net input (linear combination plus bias) for a 
-        specified class index.
+        See Also
+        --------
+        GradientDescentBase : 
+            Base class for gradient descent-based algorithms.
     
-        Parameters:
-        - X : {array-like, sparse matrix}, shape (n_samples, n_features)
-            Samples for which to calculate the net input.
-        - class_idx : int
-            Index of the class for which the net input is calculated.
-    
-        Returns:
-        - net_input : array-like, shape (n_samples,)
-            Calculated net input for the specified class.
+        References
+        ----------
+        .. [1] Goodfellow, I., Bengio, Y., & Courville, A. (2016). Deep Learning.
+               MIT Press. http://www.deeplearningbook.org
         """
-        return np.dot(X, self.weights_[class_idx, 1:]) + self.weights_[class_idx, 0]
+        return self._fit(X, y, is_classifier=True)
 
     def predict(self, X):
         """
-        Predict class labels for samples in X.
+        Predict class labels for samples in `X`.
     
-        The predicted class label for each sample in X is the class that yields 
-        the highest net input
-        value (before activation function).
+        This method uses the trained model to predict the class labels for the 
+        input samples `X`. The predicted class label for each sample is the class 
+        that yields the highest net input value (before activation function).
     
-        Parameters:
-        - X : {array-like, sparse matrix}, shape (n_samples, n_features)
-            Samples to predict for.
+        Parameters
+        ----------
+        X : array-like or sparse matrix, shape (n_samples, n_features)
+            Samples for which to predict the class labels. The input data can be 
+            dense or sparse.
     
-        Returns:
-        - labels : array-like, shape (n_samples,)
-            Predicted class label for each sample.
+        Returns
+        -------
+        y_pred : array-like, shape (n_samples,)
+            Predicted class labels for each sample in `X`.
+    
+        Notes
+        -----
+        The method first checks if the model has been fitted by verifying the 
+        presence of the `weights_` attribute. It then processes the input data `X` 
+        and uses the model's weights to compute the net input values. The class 
+        labels are determined based on the highest net input value.
+    
+        Examples
+        --------
+        >>> from sklearn.datasets import load_iris
+        >>> from gofast.estimators.perceptron import GradientDescentClassifier
+        >>> iris = load_iris()
+        >>> X = iris.data
+        >>> y = iris.target
+        >>> gd_clf = GradientDescentClassifier(eta0=0.01, max_iter=50)
+        >>> gd_clf.fit(X, y)
+        GradientDescentClassifier(...)
+        >>> y_pred = gd_clf.predict(X)
+        >>> print(y_pred)
+    
+        See Also
+        --------
+        predict_proba : Predict class probabilities for samples in `X`.
+    
+        References
+        ----------
+        .. [1] Goodfellow, I., Bengio, Y., & Courville, A. (2016). Deep Learning.
+               MIT Press. http://www.deeplearningbook.org
         """
         check_is_fitted(self, 'weights_')
-        X = check_array(X, accept_large_sparse=True, accept_sparse=True, to_frame=False)
-        probas = np.array([self.net_input(X, i) for i in range(len(self.classes_))]).T
-        return self.classes_[np.argmax(probas, axis=1)]
-
-    def score(self, X, y):
+        X = check_array(X, accept_sparse=True, estimator= self, input_name="X")
+        return self._predict(X)
+    
+    def predict_proba(self, X):
         """
-        Return the mean accuracy on the given test data and labels.
+        Predict class probabilities for samples in `X`.
     
-        In multi-label classification, this is a subset accuracy where all labels
-        for each sample must be correctly predicted to count as a correct prediction.
+        This method computes the probability estimates for each class for the 
+        input samples `X`. The probabilities are determined using the specified 
+        activation function.
     
-        Parameters:
-        - X : {array-like, sparse matrix}, shape (n_samples, n_features)
-            Test samples.
-        - y : array-like, shape (n_samples,)
-            True labels for X.
+        Parameters
+        ----------
+        X : array-like or sparse matrix, shape (n_samples, n_features)
+            Samples for which to predict the class probabilities. The input data 
+            can be dense or sparse.
     
-        Returns:
-        - score : float
-            Mean accuracy of self.predict(X) wrt. y.
+        Returns
+        -------
+        y_proba : array-like, shape (n_samples, n_classes)
+            Predicted class probabilities for each sample in `X`. Each row 
+            corresponds to a sample, and each column corresponds to a class.
+    
+        Notes
+        -----
+        The method first checks if the model has been fitted by verifying the 
+        presence of the `weights_` attribute. It then processes the input data `X` 
+        and uses the model's weights to compute the net input values. The 
+        probabilities are computed using the activation function (e.g., sigmoid, 
+        softmax) specified during model initialization.
+    
+        Examples
+        --------
+        >>> from sklearn.datasets import load_iris
+        >>> from gofast.estimators.perceptron import GradientDescentClassifier
+        >>> iris = load_iris()
+        >>> X = iris.data
+        >>> y = iris.target
+        >>> gd_clf = GradientDescentClassifier(eta0=0.01, max_iter=50)
+        >>> gd_clf.fit(X, y)
+        GradientDescentClassifier(...)
+        >>> y_proba = gd_clf.predict_proba(X)
+        >>> print(y_proba)
+    
+        See Also
+        --------
+        predict : Predict class labels for samples in `X`.
+    
+        References
+        ----------
+        .. [1] Goodfellow, I., Bengio, Y., & Courville, A. (2016). Deep Learning.
+               MIT Press. http://www.deeplearningbook.org
         """
-        X = check_array(X, accept_large_sparse=True, accept_sparse=True,
-                        to_frame=False)
-        y_pred = self.predict(X)
-        return accuracy_score(y, y_pred)
+        check_is_fitted(self, 'weights_')
+        X = check_array(X, accept_sparse=True, estimator= self, input_name="X")
+        return self._predict_proba(X)
 
-class GradientDescentRegressor0(BaseEstimator, RegressorMixin):
-    r"""
+class GradientDescentRegressor(RegressorMixin, GradientDescentBase):
+    """
     Gradient Descent Regressor for Linear Regression.
 
     This regressor employs the gradient descent optimization algorithm to
@@ -1696,7 +1751,7 @@ class GradientDescentRegressor0(BaseEstimator, RegressorMixin):
 
     Parameters
     ----------
-    eta0 : float, default=0.0001
+    eta0 : float, default=0.001
         Learning rate (between 0.0 and 1.0). Controls the step size for weight
         updates during training.
 
@@ -1704,32 +1759,77 @@ class GradientDescentRegressor0(BaseEstimator, RegressorMixin):
         Number of passes over the training dataset (epochs). Specifies how many
         times the algorithm iterates over the entire dataset during training.
 
+    tol : float, default=1e-4
+        Tolerance for the stopping criterion. Training will stop when the 
+        improvement in the cost function is less than `tol` for `n_iter_no_change`
+        consecutive iterations.
+
+    early_stopping : bool, default=False
+        Whether to use early stopping to terminate training when validation 
+        score is not improving.
+
+    validation_fraction : float, default=0.1
+        Proportion of training data to set aside as validation set for 
+        early stopping. Only used if `early_stopping` is True.
+
+    n_iter_no_change : int, default=5
+        Number of iterations with no improvement to wait before stopping 
+        training early.
+
+    learning_rate : {'constant', 'invscaling', 'adaptive'}, default='constant'
+        Learning rate schedule for weight updates.
+        - 'constant': Learning rate remains constant.
+        - 'invscaling': Gradually decreases the learning rate at each time step.
+        - 'adaptive': Keeps the learning rate constant as long as training 
+          loss keeps decreasing.
+
+    power_t : float, default=0.5
+        The exponent for inverse scaling learning rate. Used when 
+        `learning_rate='invscaling'`.
+
+    alpha : float, default=0.0001
+        L2 penalty (regularization term) parameter.
+
+    batch_size : int or 'auto', default='auto'
+        Size of minibatches for stochastic optimizers. If 'auto', batch size is
+        set to `min(200, n_samples)`.
+
+    clipping_threshold : float, default=250
+        Threshold for clipping gradients to avoid overflow during training.
+
+    shuffle : bool, default=True
+        Whether to shuffle the training data before each epoch.
+
     random_state : int or None, default=None
-        Seed for the random number generator. If provided, it ensures
-        reproducibility of results. Set to None for non-deterministic behavior.
+        Seed for the random number generator. If provided, ensures reproducibility
+        of results.
+
+    verbose : bool, default=False
+        Whether to print progress messages to stdout.
 
     Attributes
     ----------
-    weights_ : 1d-array
+    weights_ : ndarray of shape (n_features + 1,)
         Weights after fitting. These weights represent the coefficients for
         the linear combination of features.
 
-    cost_ : list
+    cost_ : list of float
         List containing the value of the cost function at each epoch during
         training. Useful for monitoring the convergence of the algorithm.
 
     Examples
     --------
-    >>> from sklearn.datasets import load_boston
+    >>> from sklearn.datasets import load_diabetes
     >>> from sklearn.model_selection import train_test_split
     >>> from gofast.estimators.perceptron import GradientDescentRegressor
-    >>> boston = load_boston()
-    >>> X = boston.data
-    >>> y = boston.target
+    >>> diabetes = load_diabetes()
+    >>> X = diabetes.data
+    >>> y = diabetes.target
     >>> X_train, X_test, y_train, y_test = train_test_split(
     ...     X, y, test_size=0.3, random_state=0)
-    >>> gd_reg = GradientDescentRegressor(eta0=0.0001, max_iter=1000)
+    >>> gd_reg = GradientDescentRegressor(eta0=0.001, max_iter=1000, verbose=True)
     >>> gd_reg.fit(X_train, y_train)
+    GradientDescentRegressor(...)
     >>> y_pred = gd_reg.predict(X_test)
     >>> mse = np.mean((y_pred - y_test) ** 2)
     >>> print('Mean Squared Error:', mse)
@@ -1745,67 +1845,215 @@ class GradientDescentRegressor0(BaseEstimator, RegressorMixin):
     See Also
     --------
     LinearRegression : Linear regression from Scikit-Learn.
+    
+    References
+    ----------
+    .. [1] Goodfellow, I., Bengio, Y., & Courville, A. (2016). Deep Learning.
+           MIT Press. http://www.deeplearningbook.org
+    .. [2] Bottou, L. (2010). "Large-Scale Machine Learning with Stochastic Gradient Descent".
+           Proceedings of COMPSTAT'2010.
+    .. [3] Ruder, S. (2016). "An overview of gradient descent optimization algorithms".
+           arXiv preprint arXiv:1609.04747.
     """
-    def __init__(self, 
-                 eta0=0.0001, 
-                 max_iter=1000, 
-                 # random_state and verbose should be placed as last parameters 
-                 random_state =None,
-                 verbose=False 
-                 ):
-        self.eta0 = eta0
-        self.max_iter = max_iter
-        self.random_state = random_state 
-
-    def fit(self, X, y):
-        """Fit training data.
-
+    def __init__(
+        self, 
+        *, 
+        eta0=0.001, 
+        max_iter=1000, 
+        tol=1e-4, 
+        early_stopping=False, 
+        validation_fraction=0.1, 
+        n_iter_no_change=5,
+        learning_rate='constant', 
+        power_t=0.5, 
+        alpha=0.0001, 
+        batch_size='auto',
+        clipping_threshold=250, 
+        shuffle=True, 
+        random_state=None, 
+        verbose=False,
+    ):
+        super().__init__(
+            eta0=eta0, 
+            max_iter=max_iter, 
+            tol=tol, 
+            early_stopping=early_stopping, 
+            validation_fraction=validation_fraction, 
+            n_iter_no_change=n_iter_no_change, 
+            learning_rate=learning_rate, 
+            power_t=power_t, 
+            alpha=alpha, 
+            batch_size=batch_size, 
+            clipping_threshold=clipping_threshold,
+            shuffle=shuffle, 
+            random_state=random_state, 
+            verbose=verbose, 
+        )
+        
+    def fit(self, X, y, sample_weight=None):
+        """
+        Fit the GradientDescentRegressor model to the training data.
+    
+        This method trains the GradientDescentRegressor on the provided training
+        data `X` and target values `y`. It utilizes the gradient descent optimization
+        algorithm to iteratively update the model's weights, aiming to minimize the 
+        cost function, typically the mean squared error for regression tasks.
+    
         Parameters
         ----------
-        X : {array-like}, shape = [n_samples, n_features]
-            Training vectors, where n_samples is the number of samples and
-            n_features is the number of features.
-        y : array-like, shape = [n_samples]
+        X : array-like of shape (n_samples, n_features)
+            Training data where `n_samples` is the number of samples and 
+            `n_features` is the number of features.
+    
+        y : array-like of shape (n_samples,)
             Target values.
-
+    
+        sample_weight : array-like of shape (n_samples,), default=None
+            Individual weights for each sample. If not provided, all samples 
+            are given equal weight. Note that `sample_weight` is not utilized 
+            in this implementation, but included for API consistency.
+    
         Returns
         -------
         self : object
-        """
-        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
-        self.weights_ = np.zeros(1 + X.shape[1])
-        self.cost_ = []
-
-        for i in range(self.max_iter):
-            errors = y - self.predict(X)
-            self.weights_[1:] += self.eta0 * X.T.dot(errors)
-            self.weights_[0] += self.eta0 * errors.sum()
-            cost = (errors**2).sum() / 2.0
-            self.cost_.append(cost)
+            Returns an instance of self.
+    
+        Notes
+        -----
+        The fit method involves the following steps:
         
-        return self
-
-    def net_input(self, X):
-        """Calculate net input"""
-        return np.dot(X, self.weights_[1:]) + self.weights_[0]
-
+        1. **Initialization**:
+           - The weights are initialized, typically to small random values.
+        
+        2. **Gradient Descent Iteration**:
+           - For each epoch (iteration over the dataset):
+             - The predictions are made using the current weights.
+             - The errors are calculated as the difference between the predictions
+               and the actual target values.
+             - The gradients are computed based on these errors.
+             - The weights are updated using the computed gradients.
+        
+        The weights are updated according to the rule:
+        
+        .. math::
+            w := w - \eta0 \sum_{i} (y^{(i)} - \phi(z^{(i)})) x^{(i)}
+        
+        where:
+        - :math:`\eta0` is the learning rate.
+        - :math:`y^{(i)}` is the true target value.
+        - :math:`\phi(z^{(i)})` is the predicted target value.
+        - :math:`x^{(i)}` is the feature vector of the \(i\)-th sample.
+    
+        Examples
+        --------
+        >>> from gofast.estimators.perceptron import GradientDescentRegressor
+        >>> from sklearn.datasets import load_boston
+        >>> from sklearn.model_selection import train_test_split
+        >>> boston = load_boston()
+        >>> X = boston.data
+        >>> y = boston.target
+        >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
+        >>> gd_reg = GradientDescentRegressor(eta0=0.001, max_iter=1000)
+        >>> gd_reg.fit(X_train, y_train)
+        GradientDescentRegressor(...)
+        >>> y_pred = gd_reg.predict(X_test)
+        >>> mse = np.mean((y_pred - y_test) ** 2)
+        >>> print('Mean Squared Error:', mse)
+    
+        See Also
+        --------
+        GradientDescentBase : Base class for gradient descent-based algorithms.
+    
+        References
+        ----------
+        .. [1] Goodfellow, I., Bengio, Y., & Courville, A. (2016). Deep Learning.
+               MIT Press. http://www.deeplearningbook.org
+        """
+        return self._fit(X, y, is_classifier=False)
+    
     def predict(self, X):
-        """Return continuous output"""
-        check_is_fitted (self, 'weights_') 
-        X = check_array(
-            X,
-            accept_large_sparse=True,
-            accept_sparse= True,
-            to_frame=False, 
-            )
-        return self.net_input(X)
+        """
+        Predict continuous target values using the trained GradientDescentRegressor model.
+    
+        This method generates predictions for the input samples in `X` based on the
+        trained weights of the GradientDescentRegressor. It calculates the net input 
+        (weighted sum of features) and applies the linear activation function to 
+        produce the predicted values.
+    
+        Parameters
+        ----------
+        X : array-like or sparse matrix of shape (n_samples, n_features)
+            Input samples where `n_samples` is the number of samples and 
+            `n_features` is the number of features.
+    
+        Returns
+        -------
+        y_pred : array-like of shape (n_samples,)
+            Predicted continuous target values.
+    
+        Notes
+        -----
+        The predict method involves the following steps:
+    
+        1. **Input Validation**:
+           - Checks if the model has been fitted by verifying the presence of the
+             learned weights.
+           - Validates the input array `X` for consistency.
+    
+        2. **Prediction**:
+           - Computes the net input for each sample in `X` using the formula:
+        
+           .. math::
+               z = X \cdot w + b
+        
+           where:
+           - :math:`X` is the input feature matrix.
+           - :math:`w` is the weight vector.
+           - :math:`b` is the bias term.
+        
+           - Since the regressor uses a linear activation function, the output is 
+             directly the net input.
+        
+        Examples
+        --------
+        >>> from gofast.estimators.perceptron import GradientDescentRegressor
+        >>> from sklearn.datasets import load_boston
+        >>> from sklearn.model_selection import train_test_split
+        >>> boston = load_boston()
+        >>> X = boston.data
+        >>> y = boston.target
+        >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
+        >>> gd_reg = GradientDescentRegressor(eta0=0.001, max_iter=1000)
+        >>> gd_reg.fit(X_train, y_train)
+        GradientDescentRegressor(...)
+        >>> y_pred = gd_reg.predict(X_test)
+        >>> print('Predicted values:', y_pred)
+    
+        See Also
+        --------
+        GradientDescentBase : Base class for gradient descent-based algorithms.
+    
+        References
+        ----------
+        .. [1] Goodfellow, I., Bengio, Y., & Courville, A. (2016). Deep Learning.
+               MIT Press. http://www.deeplearningbook.org
+        """
+        check_is_fitted(self, 'weights_')
+        X = check_array(X, accept_sparse=True, estimator=self, input_name="X") 
+        return self._predict(X)
 
-
-class FuzzyNeuralNetClassifier(FuzzyNeuralNetBase, ClassifierMixin):
+@ensure_pkg(
+    "skfuzzy", 
+    extra= ( "The `skfuzzy` is required for the `FuzzyNeuralNetClassifier`"
+            "to function correctly.")
+    )
+class FuzzyNeuralNetClassifier(ClassifierMixin, FuzzyNeuralNetBase):
     """
     FuzzyNeuralNetClassifier is an ensemble neuro-fuzzy network-based 
     classifier that integrates fuzzy logic and neural networks to perform 
     classification tasks.
+    
+    See more in :ref:`User Guide`. 
 
     Parameters
     ----------
@@ -1974,6 +2222,7 @@ class FuzzyNeuralNetClassifier(FuzzyNeuralNetBase, ClassifierMixin):
     """
     def __init__(
         self, 
+        *, 
         n_estimators=10,
         n_clusters=3, 
         eta0=0.001, 
@@ -2231,13 +2480,19 @@ class FuzzyNeuralNetClassifier(FuzzyNeuralNetBase, ClassifierMixin):
         y_proba_avg = np.mean(y_proba_ensemble, axis=0)
         
         return y_proba_avg
-
-class FuzzyNeuralNetRegressor(FuzzyNeuralNetBase, RegressorMixin):
+    
+@ensure_pkg(
+    "skfuzzy", ("The `skfuzzy` package is required for the "
+     " `FuzzyNeuralNetRegressor`to function correctly.")
+    )
+class FuzzyNeuralNetRegressor(RegressorMixin, FuzzyNeuralNetBase):
     """
     FuzzyNeuralNetRegressor is an ensemble neuro-fuzzy network-based 
     regressor that integrates fuzzy logic and neural networks to perform 
     regression tasks.
 
+    See more in :ref:`User Guide`. 
+    
     Parameters
     ----------
     n_clusters : int, default=3
@@ -2404,6 +2659,7 @@ class FuzzyNeuralNetRegressor(FuzzyNeuralNetBase, RegressorMixin):
     """
     def __init__(
         self, 
+        *, 
         n_estimators=10,
         n_clusters=3, 
         eta0=0.001, 

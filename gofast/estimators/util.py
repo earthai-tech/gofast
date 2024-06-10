@@ -15,9 +15,9 @@ from sklearn.preprocessing import RobustScaler, MinMaxScaler, StandardScaler
 
 from ..tools.validator import check_array, check_X_y
 from ..tools.validator import validate_fit_weights
-from ..tools.validator import validate_positive_integer
+from ..tools.validator import validate_positive_integer 
     
-def activator(z, activation='sigmoid', alpha =1., clipping_threshold=250 ):
+def activator(z, activation='sigmoid', alpha=1.0, clipping_threshold=250):
     """
     Apply the specified activation function to the input array `z`.
 
@@ -31,6 +31,13 @@ def activator(z, activation='sigmoid', alpha =1., clipping_threshold=250 ):
         'sigmoid', 'relu', 'leaky_relu', 'identity', 'elu', 'tanh', 'softmax'.
         If a callable is provided, it should take `z` as input and return the
         transformed output.
+
+    alpha : float, default=1.0
+        The alpha value for activation functions that use it (e.g., ELU).
+
+    clipping_threshold : int, default=250
+        Threshold value to clip the input `z` to avoid overflow in activation
+        functions like 'sigmoid' and 'softmax'.
 
     Returns
     -------
@@ -77,10 +84,11 @@ def activator(z, activation='sigmoid', alpha =1., clipping_threshold=250 ):
     .. [1] Goodfellow, I., Bengio, Y., & Courville, A. (2016). Deep Learning.
            MIT Press. http://www.deeplearningbook.org
     """
-    clipping_threshold= validate_positive_integer(
-        clipping_threshold, "clipping_threshold")
+    clipping_threshold = validate_positive_integer(
+        clipping_threshold, "clipping_threshold"
+    )
     if isinstance(activation, str):
-        activation= activation.lower() 
+        activation = activation.lower()
         if activation == 'sigmoid':
             z = np.clip(z, -clipping_threshold, clipping_threshold)
             return 1 / (1 + np.exp(-z))
@@ -91,7 +99,6 @@ def activator(z, activation='sigmoid', alpha =1., clipping_threshold=250 ):
         elif activation == 'identity':
             return z
         elif activation == 'elu':
-            # alpha = 1.0
             return np.where(z > 0, z, alpha * (np.exp(z) - 1))
         elif activation == 'tanh':
             return np.tanh(z)

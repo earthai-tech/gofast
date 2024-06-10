@@ -24,6 +24,62 @@ from inspect import signature, Parameter, isclass
 from ._array_api import get_namespace, _asarray_with_order
 FLOAT_DTYPES = (np.float64, np.float32, np.float16)
 
+
+def filter_valid_kwargs(callable_obj, kwargs):
+    """
+    Filter and return only the valid keyword arguments for a given callable object.
+
+    This function checks if the arguments in `kwargs` are valid for the 
+    provided callable object (function, lambda function, method, or class). 
+    If any argument is not valid, it is removed from `kwargs`. The function 
+    returns only the valid `kwargs`.
+
+    Parameters
+    ----------
+    callable_obj : callable
+        The callable object (function, lambda function, method, or class) for 
+        which the keyword arguments need to be validated.
+    
+    kwargs : dict
+        Dictionary of keyword arguments to be validated against the callable object.
+
+    Returns
+    -------
+    valid_kwargs : dict
+        Dictionary containing only the valid keyword arguments for the callable object.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import filter_valid_kwargs
+    >>> def example_func(a, b, c=3):
+    ...     pass
+    >>> kwargs = {'a': 1, 'b': 2, 'd': 4}
+    >>> filter_valid_kwargs(example_func, kwargs)
+    {'a': 1, 'b': 2}
+    
+    >>> class ExampleClass:
+    ...     def __init__(self, x, y, z=10):
+    ...         pass
+    >>> kwargs = {'x': 1, 'y': 2, 'a': 3}
+    >>> filter_valid_kwargs(ExampleClass, kwargs)
+    {'x': 1, 'y': 2}
+
+    Notes
+    -----
+    This function uses the `inspect` module to retrieve the signature of 
+    the given callable object and validate the keyword arguments.
+    """
+    # Get the function signature
+    signature = inspect.signature(callable_obj)
+    
+    # Extract parameter names from the function signature
+    valid_params = set(signature.parameters.keys())
+
+    # Filter kwargs to retain only valid parameters
+    valid_kwargs = {k: v for k, v in kwargs.items() if k in valid_params}
+
+    return valid_kwargs
+
 def validate_scores(
     scores, true_labels=None, 
     mode="strict", 

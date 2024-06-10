@@ -683,7 +683,7 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
         if self.early_stopping:
             X, X_val, y, y_val = train_test_split(
                 X, y, test_size=self.validation_fraction, random_state=self.random_state)
-        
+         
         if self.verbose:
             progress_bar = tqdm(
                 total=self.max_iter, ascii=True, ncols=100,
@@ -699,16 +699,17 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
                     error = target[idx] - self.activation(xi, idx)
                     self.weights_[1:, idx] += self.eta0 * xi * error
                     self.weights_[0, idx] += self.eta0 * error
-                    cost.append(error ** 2 / 2.0)
+                    cost.append(error ** 2 / 2.0) 
             self.cost_.append(np.mean(cost))
-            
             if self.early_stopping:
-                y_val_pred = self.predict(X_val)
+                y_val_pred = self.predict(X_val).reshape (-1, 1)
                 val_error = np.mean((y_val - y_val_pred) ** 2)
                 if val_error < self.tol:
                     if self.verbose:
                         print(f'Early stopping at epoch {i+1}')
-                        progress_bar.update(self.max_iter - i )
+                        progress_bar.n = self.max_iter  # Force the progress bar to complete
+                        progress_bar.last_print_n = self.max_iter
+                        progress_bar.update(0)  # Refresh the progress bar display
                     break
 
             if self.learning_rate == 'adaptive':

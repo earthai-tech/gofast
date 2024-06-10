@@ -1759,10 +1759,12 @@ class GeneticSearchCV(GeneticBaseSearch):
             out = evaluate_candidates(candidate_params)
             # Extract scores and update best parameters and estimator
             scores = out["mean_test_score"]
-            for idx, score in enumerate(scores):
-                if score > self.best_score_:
+            params= out["params"]
+            #print(len(params), len(scores))
+            for score, candidate_param in zip(scores, params):
+                if score >= self.best_score_:
                     self.best_score_ = score
-                    self.best_params_ = candidate_params[idx]
+                    self.best_params_ = candidate_param #s[idx]
                     self.best_estimator_ = clone(self.estimator).set_params(
                         **self.best_params_)
 
