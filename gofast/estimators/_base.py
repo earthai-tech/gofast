@@ -466,7 +466,6 @@ class GradientDescentBase(BaseEstimator, metaclass=ABCMeta):
         else:
             return proba / proba.sum(axis=1, keepdims=True)
     
-
 class NeuroFuzzyBase(BaseEstimator, metaclass=ABCMeta):
     """
     NeuroFuzzyBase is a base class for neuro-fuzzy network-based models that 

@@ -312,9 +312,9 @@ class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
 
     Parameters
     ----------
-    n_estimators : int
+    n_estimators : int, default=100
         The number of decision trees in the ensemble.
-    max_depth : int
+    max_depth : int, default=3
         The maximum depth of each tree in the ensemble.
     random_state : int, optional
         Controls the randomness of the tree building process and the bootstrap 
@@ -386,7 +386,7 @@ class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
     
     Attributes
     ----------
-    tree_classifiers_ : list of DecisionTreeClassifier
+    estimators_ : list of DecisionTreeClassifier
         A list containing the fitted decision tree classifiers.
 
     Notes
@@ -408,19 +408,6 @@ class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
     increases the predictive performance by leveraging the diverse predictive 
     capabilities of multiple models.
 
-    Parameters
-    ----------
-    n_estimators : int, default=100
-        The number of decision trees in the ensemble.
-    max_depth : int, default=3
-        The maximum depth of each decision tree.
-    random_state : int or None, default=None
-        Controls the randomness of the estimator for reproducibility.
-
-    Attributes
-    ----------
-    estimators_ : list of DecisionTreeClassifier
-        The collection of fitted sub-estimators.
 
     Example
     -------

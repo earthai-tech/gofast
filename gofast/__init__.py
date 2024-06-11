@@ -10,7 +10,7 @@ GOFast: Accelerate Your Machine Learning Workflow
 data science workflow, enhancing productivity, ease of use, and community-driven
 improvements.
 """
-
+import os
 import logging
 import warnings
 import importlib
@@ -73,6 +73,8 @@ def suppress_warnings(suppress=True):
 
 suppress_warnings()
 
+# Disable oneDNN custom operations
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 # Import public API components
 # Example of lazily importing a submodule
 # _lazy_import(".tools", "tools")

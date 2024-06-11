@@ -65,8 +65,6 @@ __all__= [
     "plot_feature_correlation", 
     "get_best_kPCA_params", 
     "shrink_covariance_cv_score",
-    "align_estimators_with_params"
-    
   ]
 
 def align_estimators_with_params(param_grids, estimators=None):
@@ -446,7 +444,7 @@ def get_strategy_method(strategy: str) -> Type[BaseEstimator]:
     Returns the corresponding strategy class based on the provided strategy 
     string.
     
-    This function accounts for standard strategys as well as custom strategys 
+    This function accounts for standard strategies as well as custom strategys 
     defined in gofast.
 
     Parameters
@@ -496,7 +494,7 @@ def get_strategy_method(strategy: str) -> Type[BaseEstimator]:
         pass 
     else : standard_strategy_dict["BayesSearchCV"]= BayesSearchCV
     
-    # Update standard strategy with gofast strategys if 
+    # Update standard strategy with gofast strategies if 
     # not exist previously.
     if strategy not in standard_strategy_dict.keys(): 
         from gofast.models.selection import ( 
@@ -519,7 +517,6 @@ def get_strategy_method(strategy: str) -> Type[BaseEstimator]:
         
     # Search for the corresponding strategy class
     return standard_strategy_dict.get(strategy)
-
 
 def get_strategy_name(strategy, error='raise'):
     """
@@ -1181,7 +1178,8 @@ def visualize_score_distribution(
     return ax
 
 def performance_over_time(
-    cv_results, ax=None,
+    cv_results,
+    ax=None,
     title='Performance Over Time', 
     xlabel='Timestamp', 
     ylabel='Score', 
@@ -1612,7 +1610,6 @@ def plot_roc_curve_per_fold(cv_results, fold_indices, y, metric='roc_auc'):
     plt.title("ROC Curve per Fold")
     plt.legend(loc="lower right")
     plt.show()
-
 
 def plot_confidence_intervals(cv_results, metric='mean_test_score'):
     """

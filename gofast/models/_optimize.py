@@ -12,11 +12,12 @@ from tqdm import tqdm
 import numpy as np 
 
 from sklearn.model_selection import ParameterGrid
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.base import BaseEstimator
 
 from ..api.summary import ModelSummary, ResultSummary
 from ..api.types import Any, Dict, List,Union, Tuple, Optional, ArrayLike
-from ..tools.coreutils import get_params
+from ..tools.coreutils import get_params, smart_format
 from ..tools.validator import filter_valid_kwargs
 from .utils import get_strategy_method, align_estimators_with_params
 
@@ -135,8 +136,17 @@ class BaseOptimizer(metaclass=ABCMeta):
     """
     
     @abstractmethod
-    def __init__(self, estimators, param_grids, strategy='GSCV', scoring=None,
-                 cv=None, save_results=False, n_jobs=-1, **search_kwargs):
+    def __init__(
+        self, 
+        estimators, 
+        param_grids, 
+        strategy='GSCV', 
+        scoring=None,
+        cv=None, 
+        save_results=False, 
+        n_jobs=-1, 
+        **search_kwargs
+        ):
         self.estimators = estimators
         self.param_grids = param_grids
         self.strategy = strategy
@@ -209,7 +219,6 @@ class BaseOptimizer(metaclass=ABCMeta):
         """
         self._validate_parameters()
         self._control_strategy()
-
 
     def save_results_to_file(self, results_dict, filename=None):
         """
@@ -559,3 +568,63 @@ def _process_estimators_and_params(
     else:
         raise ValueError("Estimators are missing. They must be provided either "
                          "in param_grids or as a separate list.")
+
+def _get_strategy_method(strategy: str) -> Any:
+    """
+    Returns the correctstrategy class based on the inputstrategy string,
+    ignoring case sensitivity.
+
+    Parameters
+    ----------
+    strategy : str
+        The name or abbreviation of thestrategy.
+
+    Returns
+    -------
+    Any
+        Thestrategy class corresponding to the providedstrategy string.
+
+    Raises
+    ------
+    ValueError
+        If no matchingstrategy is found.
+
+    Examples
+    --------
+    >>>strategy_class = get_strategy_method('RSCV')
+    >>> print(strategy_class)
+    <class 'sklearn.model_selection.RandomizedSearchCV'>
+    """
+
+    # Mapping ofstrategy names to their possible abbreviations and variations
+    opt_dict = { 
+        'RandomizedSearchCV': ['RSCV', 'RandomizedSearchCV'], 
+        'GridSearchCV': ['GSCV', 'GridSearchCV'], 
+        'BayesSearchCV': ['BSCV', 'BayesSearchCV'], 
+        'AnnealingSearchCV': ['ASCV',"AnnealingSearchCV" ], 
+        'SwarmSearchCV': ['SWCV', 'PSOSCV', 'SwarmSearchCV'], 
+        'SequentialSearchCV': ['SQCV', 'SMBOSearchCV'], 
+        'EvolutionarySearchCV': ['EVSCV', 'EvolutionarySearchCV'], 
+        'GradientSearchCV':['GBSCV', 'GradientBasedSearchCV'], 
+        'GeneticSearchCV': ['GENSCV', 'GeneticSearchCV']
+    }
+
+    # Mapping ofstrategy names to their respective classes
+    strategy_dict = {
+        'GridSearchCV': GridSearchCV,
+        'RandomizedSearchCV': RandomizedSearchCV,
+    }
+    try: from skopt import BayesSearchCV
+    except: pass 
+    else :strategy_dict["BayesSearchCV"]= BayesSearchCV
+    # Normalize the inputstrategy string to ignore case
+    strategy_lower =strategy.lower()
+
+    # Search for the correspondingstrategy class
+    for key, aliases in opt_dict.items():
+        if strategy_lower in [alias.lower() for alias in aliases]:
+            return strategy_dict[key]
+
+    # Raise an error if no matchingstrategy is found
+    raise ValueError(f"Invalid 'strategy' parameter '{strategy}'."
+                     f" Choose from {smart_format(opt_dict.keys(), 'or')}.") 

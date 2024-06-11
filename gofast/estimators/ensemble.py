@@ -759,7 +759,8 @@ class SimpleAverageRegressor(BaseEstimator, RegressorMixin):
         base_estimators, 
         normalize_predictions=False, 
         estimator_params=None, 
-        random_state=None, verbose=False
+        random_state=None, 
+        verbose=False
         ):
         self.base_estimators = base_estimators
         self.normalize_predictions = normalize_predictions
@@ -877,7 +878,6 @@ class SimpleAverageRegressor(BaseEstimator, RegressorMixin):
                  for pred in predictions])
         
         y_pred = np.mean(predictions, axis=0)
-        
         
         return y_pred
 

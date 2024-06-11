@@ -11,30 +11,22 @@ from tqdm import tqdm
 from joblib import Parallel, delayed
 
 from sklearn.base import BaseEstimator 
-from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 
 from ..api.box import KeyBox 
 from ..api.types import Any, Dict, List,Union, Optional, ArrayLike
 from ..api.types import _F, Array1D, NDArray, Callable 
-from ..api.summary import ModelSummary, ResultSummary
-from ..tools.coreutils import ellipsis2false , smart_format, get_params
+from ..api.summary import ModelSummary
+from ..tools.coreutils import ellipsis2false 
 from ..tools.validator import get_estimator_name , check_X_y 
 from ._optimize import BaseOptimizer, _perform_search, _validate_parameters
 from .utils import get_strategy_method, params_combinations # noqa
 
 
 __all__=[
-    "Optimizer",
-    "Optimizer2" , 
-    "OptimizeSearch",
-    "ParallelizeSearch", 
-    "OptimizeHyperparams", 
-    "optimize_search", 
-    "optimize_search2", 
-    "parallelize_search", 
-    "optimize_hyperparams",
+    "Optimizer", "Optimizer2" , "OptimizeSearch", "ParallelizeSearch", 
+    "OptimizeHyperparams",  "ParallelOptimizer", "optimize_search", 
+    "parallelize_search", "optimize_hyperparams", "optimize_search2", 
     ]
-
 
 class OptimizeHyperparams(BaseOptimizer):
     """
@@ -575,49 +567,6 @@ class Optimizer(BaseOptimizer):
         self.save_results_to_file(result_dict)
         return self.construct_model_summary(result_dict, descriptor="Optimizer")
 
-    def __repr__(self):
-        """
-        Return a string representation of the Optimizer object.
-
-        This method provides a concise summary of the Optimizer instance, 
-        including the names of the estimators and the type of optimization 
-        technique being used. If the optimization has been performed, it also 
-        includes a summary of the results.
-
-        Returns
-        -------
-        str
-            A string representation of the Optimizer object.
-        """
-        if self.summary_ is None:
-            param_values = get_params(self)
-            summary = ResultSummary( name="Optimizer", mute_note= True)
-            summary.add_results(param_values)
-            message = ("[Optimizer has not been fit yet. Please fit the"
-                    " object to get tuning results.]")
-            return summary.__str__() + "\n\n" + message 
-    
-        return self.summary_.__repr__()  
-
-    def __str__(self):
-        """
-        Return a user-friendly string representation of the Optimizer object.
-
-        This method provides a detailed summary of the optimization process, 
-        including the best parameters and scores for each estimator if the 
-        optimization has been completed. If the optimization has not been 
-        performed, it provides a summary of the setup.
-
-        Returns
-        -------
-        str
-            A detailed string representation of the Optimizer object.
-        """
-        if self.summary_ is None:
-            return "<Optimizer: Object with no summary yet.>"
-        
-        return self.summary_.__str__()
-
 class OptimizeSearch(BaseOptimizer):
     """
     OptimizeSearch class for hyperparameter optimization of multiple 
@@ -802,8 +751,6 @@ class OptimizeSearch(BaseOptimizer):
         The hyperparameter optimization is flexible and can be extended to use 
         different optimization techniques by specifying the `strategy` parameter.
     
-        Mathematical Formulation
-        ------------------------
         The optimization process involves searching for the best set of 
         hyperparameters that minimizes or maximizes a given scoring function. 
         Given a set of hyperparameters :math:`\theta`, the goal is to find:
@@ -978,8 +925,6 @@ class ParallelizeSearch(BaseOptimizer):
     The `ParallelizeSearch` class uses `ThreadPoolExecutor` for parallel 
     processing and `tqdm` for progress display.
 
-    Mathematical Formulation
-    ------------------------
     The optimization process involves searching for the best set of 
     hyperparameters that minimizes or maximizes a given scoring function. 
     Given a set of hyperparameters :math:`\theta`, the goal is to find:
@@ -1126,8 +1071,6 @@ class ParallelizeSearch(BaseOptimizer):
                Learning in Python. Journal of Machine Learning Research, 12, 
                2825-2830.
         """
-        pack_models, = ellipsis2false(self.pack_models)
-
         o = {}
         pack = {}
         
@@ -1158,11 +1101,12 @@ class ParallelizeSearch(BaseOptimizer):
                 pack[f"{est_name}"] = {
                     "best_params_": best_params,
                     "best_estimator_": best_estimator,
+                    
                     "cv_results_": cv_results
                 }
                 o[f"{est_name}"] = KeyBox(**pack[f"{est_name}"])
 
-                if self.save_results and not pack_models:
+                if self.save_results and not self.pack_models:
                     file_name = f"{est_name}_{self.estimators.index(estimator)}.joblib"
                     joblib.dump((best_estimator, best_params), file_name)
                     print(f"Results saved to {file_name}")
@@ -1174,7 +1118,6 @@ class ParallelizeSearch(BaseOptimizer):
         self.summary_ = ModelSummary(descriptor="ParallelizeSearch", **o)
         self.summary_.summary(o)
         return self.summary_
-
 
 class Optimizer2(BaseOptimizer):
     """
@@ -1310,12 +1253,12 @@ class Optimizer2(BaseOptimizer):
         self, 
         estimators: Dict[str, BaseEstimator], 
         param_grids: Dict[str, Any], 
-        strategy='GSCV', 
-        scoring=None, 
-        cv=None, 
-        save_results=False, 
-        n_jobs=-1, 
-        **search_kwargs
+        strategy: str='GSCV', 
+        scoring: Union[str, Callable] = None, 
+        cv: Union [int, Callable] =None, 
+        save_results: bool=False, 
+        n_jobs: int=-1, 
+        **search_kwargs:Any
         ):
         super().__init__(
             estimators=estimators, 
@@ -1460,6 +1403,348 @@ class Optimizer2(BaseOptimizer):
 
         self.summary_ = ModelSummary(descriptor="Optimizer2", **o)
         return self.summary_.summary(o)
+    
+class ParallelOptimizer(BaseOptimizer):
+    """
+    ParallelOptimizer for hyperparameter optimization of multiple estimators.
+
+    This class performs parallel hyperparameter optimization on a list of 
+    estimators using various search strategies. It inherits from the 
+    BaseOptimizer class, leveraging its common functionality and adding 
+    parallel processing capabilities.
+
+    Parameters
+    ----------
+    estimators : dict of str, estimator objects
+        A dictionary where keys are estimator names and values are estimator 
+        instances. Each estimator is an instance of a model to be optimized.
+
+    param_grids : dict of str, dict
+        A dictionary where keys are estimator names (matching those in 
+        `estimators`) and values are parameter grids. Each parameter grid is 
+        a dictionary where the keys are parameter names and the values are 
+        lists of parameter settings to try for that parameter.
+
+    strategy : str, default='GSCV'
+        The search strategy to apply for hyperparameter optimization. 
+        Supported strategies include:
+        
+        - 'GSCV', 'GridSearchCV' for Grid Search Cross Validation.
+        - 'RSCV', 'RandomizedSearchCV' for Randomized Search Cross 
+          Validation.
+        - 'BSCV', 'BayesSearchCV' for Bayesian Optimization.
+        - 'ASCV', 'AnnealingSearchCV' for Simulated Annealing-based Search.
+        - 'SWSCV', 'PSOSCV' for Swarm Optimization.
+        - 'SQSCV', 'SequentialSearchCV' for Sequential Model-Based 
+          Optimization.
+        - 'EVSCV', 'EvolutionarySearchCV' for Evolutionary Algorithms-based 
+          Search.
+        - 'GBSCV', 'GradientSearchCV' for Gradient-Based Optimization.
+        - 'GENSCV', 'GeneticSearchCV' for Genetic Algorithms-based Search.
+
+    scoring : str or callable, default=None
+        A string (see model evaluation documentation) or a scorer callable 
+        object / function with signature `scorer(estimator, X, y)`.
+
+    cv : int or cross-validation generator or iterable, default=None
+        Determines the cross-validation splitting strategy. Possible inputs 
+        for `cv` are:
+          - None, to use the default 5-fold cross-validation,
+          - int, to specify the number of folds in a (Stratified)KFold,
+          - CV splitter,
+          - An iterable yielding (train, test) splits as arrays of indices.
+
+    save_results : bool, default=False
+        If True, the optimization results (best parameters and scores) for 
+        each estimator are saved to a file.
+
+    n_jobs : int, default=-1
+        The number of jobs to run in parallel for the optimization process. 
+        `-1` means using all processors.
+
+    **search_kwargs : dict, optional
+        Additional keyword arguments to pass to the search constructor.
+
+    Methods
+    -------
+    _optimize(estimator_name, estimator, param_grid, X, y)
+        Perform the optimization for a single estimator and return the results.
+
+    fit(X, y)
+        Run the optimization for all estimators in parallel and return the 
+        summary of results.
+
+    Notes
+    -----
+    This class leverages parallel processing to efficiently optimize 
+    hyperparameters for multiple estimators. It supports various search 
+    strategies, making it flexible for different optimization needs.
+
+    The optimization process aims to find the best hyperparameters 
+    :math:`\theta^*` that minimize the objective function :math:`L(\theta)` 
+    over the given parameter grid :math:`\Theta`:
+
+    .. math:: 
+        \theta^* = \arg\min_{\theta \in \Theta} L(\theta)
+
+    Examples
+    --------
+    >>> from gofast.models.optimize import ParallelOptimizer
+    >>> from sklearn.datasets import load_iris
+    >>> from sklearn.svm import SVC
+    >>> from sklearn.ensemble import RandomForestClassifier
+
+    >>> data = load_iris()
+    >>> X, y = data.data, data.target
+
+    >>> estimators = {
+    >>>     'SVC': SVC(),
+    >>>     'RandomForest': RandomForestClassifier()
+    >>> }
+
+    >>> param_grids = {
+    >>>     'SVC': {'kernel': ['linear', 'rbf'], 'C': [1, 10]},
+    >>>     'RandomForest': {'n_estimators': [50, 100], 'max_depth': [5, 10]}
+    >>> }
+
+    >>> optimizer = ParallelOptimizer(estimators, param_grids, strategy='GSCV'
+                                      , cv=5, save_results=True)
+    >>> results = optimizer.fit(X, y)
+    Optimizing SVC                   : 100%|##############################| 4/4 
+    Optimizing RandomForestClassifier: 100%|##############################| 4/4 
+    
+    >>> print(results) 
+                          Optimized Results                      
+    =============================================================
+    |                            SVC                            |
+    -------------------------------------------------------------
+                            Model Results                        
+    =============================================================
+    Best estimator       : SVC
+    Best parameters      : {'C': 1, 'kernel': 'linear'}
+    Best score           : 0.9800
+    nCV                  : 5
+    Params combinations  : 4
+    =============================================================
+
+                       Tuning Results (*=score)                  
+    =============================================================
+           Params   Mean*  Std.* Overall Mean* Overall Std.* Rank
+    -------------------------------------------------------------
+    0  (1, linear) 0.9800 0.0163        0.9800        0.0163    1
+    1     (1, rbf) 0.9667 0.0211        0.9667        0.0211    4
+    2 (10, linear) 0.9733 0.0389        0.9733        0.0389    3
+    3    (10, rbf) 0.9800 0.0163        0.9800        0.0163    1
+    =============================================================
+
+
+    =============================================================
+    |                   RandomForestClassifier                  |
+    -------------------------------------------------------------
+                            Model Results                        
+    =============================================================
+    Best estimator       : RandomForestClassifier
+    Best parameters      : {'max_depth': 5, 'n_estimators': 100}
+    Best score           : 0.9667
+    nCV                  : 5
+    Params combinations  : 4
+    =============================================================
+
+                       Tuning Results (*=score)                  
+    =============================================================
+           Params   Mean*  Std.* Overall Mean* Overall Std.* Rank
+    -------------------------------------------------------------
+    0      (5, 50) 0.9533 0.0340        0.9533        0.0340    4
+    1     (5, 100) 0.9667 0.0211        0.9667        0.0211    1
+    2     (10, 50) 0.9600 0.0249        0.9600        0.0249    3
+    3    (10, 100) 0.9667 0.0211        0.9667        0.0211    1
+    =============================================================
+
+    See Also
+    --------
+    BaseOptimizer : Base class for hyperparameter optimization.
+    sklearn.model_selection.GridSearchCV : Exhaustive search over specified 
+        parameter values for an estimator.
+    sklearn.model_selection.RandomizedSearchCV : Randomized search on hyper 
+        parameters.
+    ModelSummary : Class for summarizing model results.
+
+    References
+    ----------
+    .. [1] Bergstra, J., & Bengio, Y. (2012). Random Search for Hyper-Parameter 
+           Optimization. Journal of Machine Learning Research, 13, 281-305.
+    .. [2] Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., 
+           Grisel, O., ... & Duchesnay, E. (2011). Scikit-learn: Machine 
+           Learning in Python. Journal of Machine Learning Research, 12, 
+           2825-2830.
+    """
+    def __init__(
+        self, 
+        estimators, 
+        param_grids, 
+        strategy='GSCV', 
+        scoring=None, 
+        cv=None, 
+        n_jobs=-1, 
+        save_results=False, 
+        **search_kwargs
+        ):
+        super().__init__( 
+            estimators = estimators, 
+            param_grids= param_grids, 
+            strategy=strategy, 
+            scoring=scoring, 
+            cv=cv, 
+            save_results=save_results, 
+            n_jobs=n_jobs, 
+            **search_kwargs)
+
+    def _optimize(self, estimator_name, estimator, param_grid, X, y):
+        search = self.strategy_(
+            estimator, 
+            param_grid, 
+            scoring=self.scoring, 
+            cv=self.cv, 
+            n_jobs=self.n_jobs, 
+            **self.search_kwargs
+            )
+        desc = f"Optimizing {estimator_name:<{self._max_name_length_}}"
+        n_combinations = len(list(params_combinations(param_grid)))
+        with tqdm(total=n_combinations, desc=desc, ascii=True, ncols=100 ) as pbar:
+            search.fit(X, y)
+           
+            best_estimator = search.best_estimator_
+            best_params = search.best_params_
+            best_score = search.best_score_
+            cv_results = search.cv_results_
+    
+            result = {
+                "best_estimator_": best_estimator,
+                "best_params_": best_params,
+                "best_score_": best_score,
+                "cv_results_": cv_results
+            }
+    
+            if self.save_results:
+                self.save_results_to_file(result, f"{estimator_name}_results")
+            
+            pbar.update(n_combinations)
+
+        return estimator_name, result
+
+    def fit(self, X, y):
+        """
+        Run the hyperparameter optimization for all estimators in parallel.
+
+        This method performs the optimization process for each estimator 
+        using the specified strategy, running the tasks in parallel to 
+        expedite the process. The results are summarized and returned.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input data to fit.
+
+        y : array-like of shape (n_samples,) or (n_samples, n_outputs)
+            The target variable to try to predict in supervised learning.
+
+        Returns
+        -------
+        summary_ : ModelSummary
+            A summary object containing the results of the hyperparameter 
+            optimization for each estimator.
+
+        Notes
+        -----
+        This method first validates the search parameters to ensure they are 
+        correctly specified. It then constructs a dictionary of estimators 
+        and their names, and calculates the maximum length of estimator 
+        names for display purposes. The optimization is performed in parallel 
+        using joblib's `Parallel` and `delayed` functions. The results are 
+        collected in a dictionary and summarized using a `ModelSummary` 
+        object.
+
+        The optimization process aims to find the best hyperparameters 
+        :math:`\theta^*` for each estimator that minimize the objective 
+        function :math:`L(\theta)` over the given parameter grid 
+        :math:`\Theta`:
+
+        .. math:: 
+            \theta^* = \arg\min_{\theta \in \Theta} L(\theta)
+
+        Examples
+        --------
+        >>> from gofast.models.optimize import ParallelOptimizer
+        >>> from sklearn.datasets import load_iris
+        >>> from sklearn.svm import SVC
+        >>> from sklearn.ensemble import RandomForestClassifier
+
+        >>> data = load_iris()
+        >>> X, y = data.data, data.target
+
+        >>> estimators = {
+        >>>     'SVC': SVC(),
+        >>>     'RandomForest': RandomForestClassifier()
+        >>> }
+
+        >>> param_grids = {
+        >>>     'SVC': {'kernel': ['linear', 'rbf'], 'C': [1, 10]},
+        >>>     'RandomForest': {'n_estimators': [50, 100], 'max_depth': [5, 10]}
+        >>> }
+
+        >>> optimizer = ParallelOptimizer(estimators, param_grids, strategy='GSCV',
+                                          cv=5, save_results=True)
+        >>> results = optimizer.fit(X, y)
+
+        >>> for estimator_name, result in results.items():
+        >>>     print(f"{estimator_name}:")
+        >>>     print(f"Best Estimator: {result['best_estimator_']}")
+        >>>     print(f"Best Params: {result['best_params_']}")
+        >>>     print(f"Best Score: {result['best_score_']}")
+        SVC:
+        Best Estimator: SVC(C=1, kernel='linear')
+        Best Params: {'C': 1, 'kernel': 'linear'}
+        Best Score: 0.9800000000000001
+        RandomForestClassifier:
+        Best Estimator: RandomForestClassifier(max_depth=5)
+        Best Params: {'max_depth': 5, 'n_estimators': 100}
+        Best Score: 0.9666666666666668
+
+        See Also
+        --------
+        BaseOptimizer : Base class for hyperparameter optimization.
+        sklearn.model_selection.GridSearchCV : Exhaustive search over specified 
+            parameter values for an estimator.
+        sklearn.model_selection.RandomizedSearchCV : Randomized search on hyper 
+            parameters.
+        ModelSummary : Class for summarizing model results.
+
+        References
+        ----------
+        .. [1] Bergstra, J., & Bengio, Y. (2012). Random Search for 
+               Hyper-Parameter Optimization. Journal of Machine Learning 
+               Research, 13, 281-305.
+        .. [2] Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., 
+               Thirion, B., Grisel, O., ... & Duchesnay, E. (2011). 
+               Scikit-learn: Machine Learning in Python. Journal of Machine 
+               Learning Research, 12, 2825-2830.
+        """
+
+        self._validate_search_params() 
+        estimators = {get_estimator_name(estimator): estimator for estimator 
+                      in self.estimators}
+        self._max_name_length_= max ( len(name) for name in estimators.keys())
+        
+        results = Parallel(n_jobs=self.n_jobs)(
+            delayed(self._optimize)(name, estimator, self.param_grids[ii], X, y)
+            for ii, (name, estimator)  in enumerate (zip(
+                    estimators.keys(), estimators.values())
+        )
+            )
+
+        results = dict(results)
+        self.summary_ = ModelSummary(descriptor="ParallelOptimizer", **results)
+        return self.summary_.summary(results)
 
 def optimize_search(
     estimators: Dict[str, BaseEstimator], 
@@ -1920,65 +2205,6 @@ def parallelize_search(
     summary.summary(o)
     return summary
 
-def _get_strategy_method(strategy: str) -> Any:
-    """
-    Returns the correctstrategy class based on the inputstrategy string,
-    ignoring case sensitivity.
-
-    Parameters
-    ----------
-    strategy : str
-        The name or abbreviation of thestrategy.
-
-    Returns
-    -------
-    Any
-        Thestrategy class corresponding to the providedstrategy string.
-
-    Raises
-    ------
-    ValueError
-        If no matchingstrategy is found.
-
-    Examples
-    --------
-    >>>strategy_class = get_strategy_method('RSCV')
-    >>> print(strategy_class)
-    <class 'sklearn.model_selection.RandomizedSearchCV'>
-    """
-
-    # Mapping ofstrategy names to their possible abbreviations and variations
-    opt_dict = { 
-        'RandomizedSearchCV': ['RSCV', 'RandomizedSearchCV'], 
-        'GridSearchCV': ['GSCV', 'GridSearchCV'], 
-        'BayesSearchCV': ['BSCV', 'BayesSearchCV'], 
-        'AnnealingSearchCV': ['ASCV',"AnnealingSearchCV" ], 
-        'SwarmSearchCV': ['SWCV', 'PSOSCV', 'SwarmSearchCV'], 
-        'SequentialSearchCV': ['SQCV', 'SMBOSearchCV'], 
-        'EvolutionarySearchCV': ['EVSCV', 'EvolutionarySearchCV'], 
-        'GradientSearchCV':['GBSCV', 'GradientBasedSearchCV'], 
-        'GeneticSearchCV': ['GASCV', 'GeneticSearchCV']
-    }
-
-    # Mapping ofstrategy names to their respective classes
-    strategy_dict = {
-        'GridSearchCV': GridSearchCV,
-        'RandomizedSearchCV': RandomizedSearchCV,
-    }
-    try: from skopt import BayesSearchCV
-    except: pass 
-    else :strategy_dict["BayesSearchCV"]= BayesSearchCV
-    # Normalize the inputstrategy string to ignore case
-    strategy_lower =strategy.lower()
-
-    # Search for the correspondingstrategy class
-    for key, aliases in opt_dict.items():
-        if strategy_lower in [alias.lower() for alias in aliases]:
-            return strategy_dict[key]
-
-    # Raise an error if no matchingstrategy is found
-    raise ValueError(f"Invalid 'strategy' parameter '{strategy}'."
-                     f" Choose from {smart_format(opt_dict.keys(), 'or')}.") 
 
 
 
