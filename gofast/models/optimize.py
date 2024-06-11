@@ -1075,10 +1075,10 @@ class ParallelizeSearch(BaseOptimizer):
         pack = {}
         
         self._validate_search_params()
-        
+
         if self.pack_models: 
             self.save_results =True 
-    
+
         with ThreadPoolExecutor() as executor:
             futures = []
             for estimator, param_grid in zip(self.estimators, self.param_grids):
@@ -1089,7 +1089,8 @@ class ParallelizeSearch(BaseOptimizer):
 
             for future, estimator in zip(
                     tqdm(concurrent.futures.as_completed(futures),
-                         total=len(futures), desc="Optimizing Estimators", 
+                         total=len(futures),
+                         desc=f"Optimizing {self.estimators_nickname_} Estimators", 
                          ncols=100, ascii=True),
                     self.estimators):
                 est_name = get_estimator_name(estimator)

@@ -18,7 +18,7 @@ from sklearn.base import BaseEstimator
 from ..api.summary import ModelSummary, ResultSummary
 from ..api.types import Any, Dict, List,Union, Tuple, Optional, ArrayLike
 from ..tools.coreutils import get_params, smart_format
-from ..tools.validator import filter_valid_kwargs
+from ..tools.validator import filter_valid_kwargs, get_estimator_name
 from .utils import get_strategy_method, align_estimators_with_params
 
 
@@ -219,7 +219,8 @@ class BaseOptimizer(metaclass=ABCMeta):
         """
         self._validate_parameters()
         self._control_strategy()
-
+        self.estimators_nickname 
+        
     def save_results_to_file(self, results_dict, filename=None):
         """
         Save the optimization results to a joblib file.
@@ -258,7 +259,100 @@ class BaseOptimizer(metaclass=ABCMeta):
         self.summary_ = ModelSummary(descriptor=descriptor, **results_dict)
         self.summary_.summary(results_dict)
         return self.summary_
+    
+    def get_estimator_shortname(self, estimator, existing_short_names):
+        """
+        Generate a short name for an estimator based on its class name.
+    
+        Parameters
+        ----------
+        estimator : estimator object
+            The estimator instance for which to generate a short name.
+    
+        existing_short_names : set
+            A set of short names that are already in use to ensure uniqueness.
+    
+        Returns
+        -------
+        short_name : str
+            The generated short name for the estimator.
+        """
+        name_map = {
+            'LogisticRegression': 'LogReg',
+            'RandomForestClassifier': 'RF',
+            'GradientBoostingClassifier': 'GBC',
+            'SupportVectorClassifier': 'SVC',
+            'KNeighborsClassifier': 'KNN',
+            'DecisionTreeClassifier': 'DT',
+            'AdaBoostClassifier': 'ABC',
+            'ExtraTreesClassifier': 'ET',
+            'MultinomialNB': 'MNB',
+            'BernoulliNB': 'BNB',
+            'GaussianNB': 'GNB',
+            'LinearDiscriminantAnalysis': 'LDA',
+            'QuadraticDiscriminantAnalysis': 'QDA'
+            # ...
+        }
+    
+        estimator_name = estimator.__class__.__name__
+        short_name = name_map.get(estimator_name, '')
+    
+        if not short_name:
+            # Create a short name by taking the first letter of each capitalized word
+            short_name = ''.join([word[0] for word in estimator_name.split() if word[0].isupper()])
+            if not short_name:
+                short_name = estimator_name[:3]
+    
+        # Ensure the short name is unique
+        original_short_name = short_name
+        counter = 1
+        while short_name in existing_short_names:
+            short_name = f"{original_short_name}{counter}"
+            counter += 1
+        
+        return short_name
+    
+    def generate_estimator_shortnames(self):
+        """
+        Generate short names for a list of estimators.
+    
+        Parameters
+        ----------
+        estimators : list of estimator objects
+            The list of estimator instances for which to generate short names.
+    
+        Returns
+        -------
+        short_names : dict
+            A dictionary where the keys are the original estimator class names 
+            and the values are the generated short names.
+        """
+        short_names = {}
+        existing_short_names = set()
+        for estimator in self.estimators:
+            original_name = get_estimator_name(estimator)
+            short_name = self.get_estimator_shortname(estimator, existing_short_names)
+            short_names[original_name] = short_name
+            existing_short_names.add(short_name)
+        return short_names
+    
+    @property
+    def estimators_nickname(self):
+        """
+        Generate a concatenated string of short names for all estimators.
 
+        This property generates short names for each estimator and concatenates
+        them into a single string, separated by dots.
+
+        Returns
+        -------
+        nickname : str
+            The concatenated short names of all estimators.
+        """
+        self.estimators_nickname_ = '.'.join(
+            self.generate_estimator_shortnames().values())
+        return self.estimators_nickname_
+        
     def __repr__(self):
         """
         Return a string representation of the BaseOptimizer object.
@@ -301,7 +395,6 @@ class BaseOptimizer(metaclass=ABCMeta):
             return f"<{self.__class__.__name__}: Object with no summary yet.>"
 
         return self.summary_.__str__()
-
 
 def _optimize_search2(
     X: ArrayLike,
