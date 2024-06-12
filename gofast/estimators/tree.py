@@ -8,37 +8,42 @@ import numpy as np
 from tqdm import tqdm
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
-from sklearn.utils import resample
+# from sklearn.utils import resample
 from sklearn.metrics import r2_score , accuracy_score
 
-from ._base import StandardEstimator 
+from ._base import StandardEstimator, BaseDTB 
 from ..api.property import BaseClass 
 from ..tools.validator import check_X_y, get_estimator_name, check_array 
 from ..tools.validator import check_is_fitted, validate_fit_weights 
 
 __all__=[ 
     "DecisionStumpRegressor", "DecisionStumpClassifier",
-    "DecisionTreeBasedRegressor", "DecisionTreeBasedClassifier",
+    "DTBRegressor", "DTBClassifier",
     "WeightedTreeClassifier", "WeightedTreeRegressor", 
     ]
 
-class DecisionTreeBasedRegressor(BaseEstimator, RegressorMixin):
+
+class DTBRegressor(BaseDTB, RegressorMixin):
     """
     Decision Tree-based Regressor for Regression Tasks.
 
-    The `DecisionTreeBasedRegressor` employs an ensemble approach, 
-    combining multiple Decision Regression Trees to form a more 
-    robust regression model. Each tree in the ensemble independently 
-    predicts the outcome, and the final prediction is derived by averaging 
-    these individual predictions. This method is effective in reducing 
-    variance and improving prediction accuracy over a single decision tree.
+    The `DTBRegressor` employs an ensemble approach, combining multiple 
+    Decision Regression Trees to form a more robust regression model. Each 
+    tree in the ensemble independently predicts the outcome, and the final 
+    prediction is derived by averaging these individual predictions. This 
+    method is effective in reducing variance and improving prediction accuracy 
+    over a single decision tree.
 
     Parameters
     ----------
     n_estimators : int, default=100
         The number of trees in the ensemble.
-    max_depth : int, default=3
-        The maximum depth of each regression tree.
+        
+    max_depth : int, default=None
+        The maximum depth of each regression tree. If `None`, then nodes are 
+        expanded until all leaves are pure or until all leaves contain less than
+        `min_samples_split` samples.
+        
     criterion : {"squared_error", "friedman_mse", "absolute_error", "poisson"},\
         default="squared_error"
         The function to measure the quality of a split. Supported criteria 
@@ -119,20 +124,18 @@ class DecisionTreeBasedRegressor(BaseEstimator, RegressorMixin):
 
     Examples
     --------
-    Here's an example of how to use the `DecisionTreeBasedRegressor` on a 
-    dataset:
+    Here's an example of how to use the `DTBRegressor` on a dataset:
 
     >>> from sklearn.datasets import make_regression
     >>> from sklearn.model_selection import train_test_split
-    >>> from gofast.estimators.tree import DecisionTreeBasedRegressor
+    >>> from gofast.estimators.tree import DTBRegressor
 
     >>> X, y = make_regression(n_samples=100, n_features=4, noise=0.1)
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y, 
     ...                                                     test_size=0.3, 
     ...                                                     random_state=0)
     
-    >>> reg = DecisionTreeBasedRegressor(n_estimators=50, 
-    ...                                  max_depth=3, verbose=1)
+    >>> reg = DTBRegressor(n_estimators=50, max_depth=3, verbose=1)
     >>> reg.fit(X_train, y_train)
     >>> y_pred = reg.predict(X_test)
 
@@ -172,7 +175,7 @@ class DecisionTreeBasedRegressor(BaseEstimator, RegressorMixin):
     def __init__(
         self, 
         n_estimators=100, 
-        max_depth=3, 
+        max_depth=None, 
         criterion="squared_error", 
         splitter="best", 
         min_samples_split=2, 
@@ -181,120 +184,204 @@ class DecisionTreeBasedRegressor(BaseEstimator, RegressorMixin):
         max_features=None, 
         random_state=None, 
         max_leaf_nodes=None, 
-        min_impurity_decrease=0.,
+        min_impurity_decrease=0., 
         ccp_alpha=0., 
         subsample=1.0, 
         bootstrap=True,
         verbose=0
     ):
-        self.n_estimators = n_estimators
-        self.max_depth = max_depth
-        self.criterion = criterion
-        self.splitter = splitter
-        self.min_samples_split = min_samples_split
-        self.min_samples_leaf = min_samples_leaf
-        self.min_weight_fraction_leaf = min_weight_fraction_leaf
-        self.max_features = max_features
-        self.random_state = random_state
-        self.max_leaf_nodes = max_leaf_nodes
-        self.min_impurity_decrease = min_impurity_decrease
-        self.ccp_alpha = ccp_alpha
+        super().__init__(
+            n_estimators=n_estimators, 
+            max_depth=max_depth, 
+            criterion=criterion, 
+            splitter=splitter, 
+            min_samples_split=min_samples_split, 
+            min_samples_leaf=min_samples_leaf, 
+            min_weight_fraction_leaf=min_weight_fraction_leaf, 
+            max_features=max_features, 
+            random_state=random_state, 
+            max_leaf_nodes=max_leaf_nodes, 
+            min_impurity_decrease=min_impurity_decrease, 
+            ccp_alpha=ccp_alpha, 
+            verbose=verbose
+        )
         self.subsample = subsample
         self.bootstrap = bootstrap
-        self.verbose = verbose
-
-    def fit(self, X, y, sample_weight=None):
-        """
-        Fit the Regression Tree Ensemble model to the data.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The training input samples.
-        y : array-like of shape (n_samples,)
-            The target values (real numbers).
-
-        Returns
-        -------
-        self : object
-            Returns self.
-        """
-        X, y = check_X_y(X, y, accept_sparse=True)
-        self.estimators_ = []
-        self.oob_score_ = None
-        n_samples = X.shape[0]
-        sample_indices = np.arange(n_samples)
-        sample_weight = validate_fit_weights(y, sample_weight=sample_weight)
-
-        if self.verbose > 0:
-            progress_bar = tqdm(
-                range(self.n_estimators), ascii=True, ncols= 100,
-                desc=f'Fitting {self.__class__.__name__}', 
-                )
-        for i in range(self.n_estimators):
-            if self.bootstrap:
-                subsample_indices = np.random.choice(
-                    sample_indices, size=int(self.subsample * n_samples), replace=True
-                )
-            else:
-                subsample_indices = sample_indices[:int(self.subsample * n_samples)]
-
-            tree = DecisionTreeRegressor(
-                max_depth=self.max_depth,
-                criterion=self.criterion,
-                splitter=self.splitter,
-                min_samples_split=self.min_samples_split,
-                min_samples_leaf=self.min_samples_leaf,
-                min_weight_fraction_leaf=self.min_weight_fraction_leaf,
-                max_features=self.max_features,
-                random_state=self.random_state,
-                max_leaf_nodes=self.max_leaf_nodes,
-                min_impurity_decrease=self.min_impurity_decrease,
-                ccp_alpha=self.ccp_alpha
-            )
-
-            tree.fit(X[subsample_indices], y[subsample_indices],
-                     sample_weight=sample_weight[subsample_indices])
-            self.estimators_.append(tree)
-
-            if self.verbose > 0:
-                progress_bar.update(1)
-
-        if self.verbose > 0:
-            progress_bar.close()
-
-        if self.bootstrap and self.subsample < 1.0:
-            oob_indices = np.setdiff1d(sample_indices, subsample_indices)
-            if len(oob_indices) > 0:
-                oob_predictions = np.mean(
-                    [tree.predict(X[oob_indices]) for tree in self.estimators_], axis=0
-                )
-                self.oob_score_ = np.mean((y[oob_indices] - oob_predictions) ** 2)
-
-        return self
-
-    def predict(self, X):
-        """
-        Predict using the Regression Tree Ensemble model.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The input samples.
-
-        Returns
-        -------
-        y_pred : array-like of shape (n_samples,)
-            The predicted values.
-        """
-        check_is_fitted(self, 'estimators_')
-        X = check_array(X, accept_sparse=True)
-
-        predictions = np.array([tree.predict(X) for tree in self.estimators_])
         
+    def _create_tree(self):
+        """
+        Create a new instance of `DecisionTreeRegressor`.
+    
+        This method initializes a `DecisionTreeRegressor` with the parameters
+        specified in the `DTBRegressor` instance. The created decision tree
+        will be used as a base estimator within the ensemble.
+    
+        Returns
+        -------
+        tree : DecisionTreeRegressor
+            A new instance of a decision tree regressor.
+    
+        Parameters
+        ----------
+        max_depth : int, default=None
+            The maximum depth of the tree. If `None`, then nodes are expanded
+            until all leaves are pure or until all leaves contain less than
+            `min_samples_split` samples.
+    
+        criterion : {"squared_error", "friedman_mse", "absolute_error", "poisson"},\
+            default="squared_error"
+            The function to measure the quality of a split. Supported criteria are
+            "squared_error" for mean squared error, "friedman_mse" for mean squared
+            error with improvement score by Friedman, "absolute_error" for mean absolute
+            error, and "poisson" for Poisson deviance.
+    
+        splitter : {"best", "random"}, default="best"
+            The strategy used to choose the split at each node. Supported strategies
+            are "best" to choose the best split and "random" to choose the best
+            random split.
+    
+        min_samples_split : int or float, default=2
+            The minimum number of samples required to split an internal node:
+            - If int, then consider `min_samples_split` as the minimum number.
+            - If float, then `min_samples_split` is a fraction and 
+            `ceil(min_samples_split * n_samples)` are the minimum number of samples
+            for each split.
+    
+        min_samples_leaf : int or float, default=1
+            The minimum number of samples required to be at a leaf node:
+            - If int, then consider `min_samples_leaf` as the minimum number.
+            - If float, then `min_samples_leaf` is a fraction and 
+            `ceil(min_samples_leaf * n_samples)` are the minimum number of samples
+            for each node.
+    
+        min_weight_fraction_leaf : float, default=0.0
+            The minimum weighted fraction of the sum total of weights required to 
+            be at a leaf node. Samples have equal weight when sample_weight is 
+            not provided.
+    
+        max_features : int, float, str or None, default=None
+            The number of features to consider when looking for the best split:
+            - If int, then consider `max_features` features at each split.
+            - If float, then `max_features` is a fraction and 
+            `int(max_features * n_features)` features are considered at each split.
+            - If "auto", then `max_features=n_features`.
+            - If "sqrt", then `max_features=sqrt(n_features)`.
+            - If "log2", then `max_features=log2(n_features)`.
+            - If None, then `max_features=n_features`.
+    
+        random_state : int, RandomState instance or None, default=None
+            Controls the randomness of the estimator. The features are always
+            randomly permuted at each split. When `max_features` < n_features,
+            the algorithm will select `max_features` at random at each split
+            before finding the best split among them. Pass an int for reproducible
+            output across multiple function calls.
+    
+        max_leaf_nodes : int or None, default=None
+            Grow a tree with `max_leaf_nodes` in best-first fashion. Best nodes
+            are defined as relative reduction in impurity. If None, then unlimited
+            number of leaf nodes.
+    
+        min_impurity_decrease : float, default=0.0
+            A node will be split if this split induces a decrease of the impurity
+            greater than or equal to this value.
+    
+        ccp_alpha : non-negative float, default=0.0
+            Complexity parameter used for Minimal Cost-Complexity Pruning. The
+            subtree with the largest cost complexity that is smaller than
+            `ccp_alpha` will be chosen.
+    
+        Examples
+        --------
+        Here's an example of how to use the `_create_tree` method within `DTBRegressor`:
+    
+        >>> from gofast.estimators.ensemble import DTBRegressor
+        >>> reg = DTBRegressor(max_depth=4, criterion='absolute_error', random_state=42)
+        >>> tree = reg._create_tree()
+        >>> print("Created tree:", tree)
+    
+        See Also
+        --------
+        sklearn.tree.DecisionTreeRegressor : Decision tree regressor used as
+            the base learner in the ensemble.
+    
+        References
+        ----------
+        .. [1] Breiman, L. "Random forests." Machine learning 45.1 (2001): 5-32.
+        .. [2] Quinlan, J. R. "C4.5: programs for machine learning." Elsevier, 2014.
+        """
+        return DecisionTreeRegressor(
+            max_depth=self.max_depth,
+            criterion=self.criterion,
+            splitter=self.splitter,
+            min_samples_split=self.min_samples_split,
+            min_samples_leaf=self.min_samples_leaf,
+            min_weight_fraction_leaf=self.min_weight_fraction_leaf,
+            max_features=self.max_features,
+            random_state=self.random_state,
+            max_leaf_nodes=self.max_leaf_nodes,
+            min_impurity_decrease=self.min_impurity_decrease,
+            ccp_alpha=self.ccp_alpha
+        )
+    
+    def _aggregate_predictions(self, predictions):
+        """
+        Aggregate predictions from multiple decision trees.
+    
+        This method combines the predictions from all individual trees in
+        the ensemble. For regression tasks, the predictions are averaged
+        to form the final output.
+    
+        Parameters
+        ----------
+        predictions : array-like of shape (n_estimators, n_samples)
+            The predictions from all individual trees.
+    
+        Returns
+        -------
+        aggregated_predictions : array-like of shape (n_samples,)
+            The aggregated predictions.
+    
+        Notes
+        -----
+        The aggregation of predictions for regression tasks can be mathematically
+        described as:
+    
+        .. math::
+            y_{\text{pred}} = \frac{1}{N} \sum_{i=1}^{N} y_{\text{tree}_i}
+    
+        where:
+        - :math:`N` is the number of trees in the ensemble.
+        - :math:`y_{\text{pred}}` is the final predicted value aggregated from
+          all trees.
+        - :math:`y_{\text{tree}_i}` represents the prediction made by the
+          :math:`i`-th tree.
+    
+        Examples
+        --------
+        Here's an example of how to use the `_aggregate_predictions` 
+        method within `DTBRegressor`:
+    
+        >>> from gofast.estimators.ensemble import DTBRegressor
+        >>> import numpy as np
+        >>> reg = DTBRegressor(n_estimators=3)
+        >>> predictions = np.array([[2.0, 3.0], [2.5, 2.5], [3.0, 3.5]])
+        >>> aggregated_predictions = reg._aggregate_predictions(predictions)
+        >>> print("Aggregated predictions:", aggregated_predictions)
+    
+        See Also
+        --------
+        sklearn.ensemble.BaggingRegressor : A bagging regressor that also uses
+            aggregation of predictions from multiple base estimators.
+    
+        References
+        ----------
+        .. [1] Breiman, L. "Bagging predictors." Machine learning 24.2 (1996): 123-140.
+        .. [2] Friedman, J., Hastie, T., & Tibshirani, R. "The Elements of Statistical
+               Learning." Springer Series in Statistics. (2001).
+        """
         return np.mean(predictions, axis=0)
 
-class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
+class DTBClassifier(BaseDTB, ClassifierMixin):
     """
     Decision Tree-Based Classifier.
 
@@ -314,6 +401,7 @@ class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
     ----------
     n_estimators : int, default=100
         The number of decision trees in the ensemble.
+        
     max_depth : int, default=3
         The maximum depth of each tree in the ensemble.
     random_state : int, optional
@@ -408,7 +496,6 @@ class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
     increases the predictive performance by leveraging the diverse predictive 
     capabilities of multiple models.
 
-
     Example
     -------
     Here's an example of how to use the `DecisionTreeBasedClassifier`:
@@ -440,145 +527,220 @@ class DecisionTreeBasedClassifier(BaseEstimator, ClassifierMixin):
 
     """
     def __init__(
-        self, n_estimators=10, 
+        self, 
+        n_estimators=100, 
         max_depth=None, 
-        criterion='gini', 
-        splitter='best', 
+        criterion="gini", 
+        splitter="best", 
         min_samples_split=2, 
         min_samples_leaf=1, 
-        min_weight_fraction_leaf=0.0, 
+        min_weight_fraction_leaf=0., 
         max_features=None, 
         random_state=None, 
         max_leaf_nodes=None, 
-        min_impurity_decrease=0.0, 
+        min_impurity_decrease=0., 
         class_weight=None, 
-        ccp_alpha=0.0, 
+        ccp_alpha=0., 
+        subsample=1.0,
+        bootstrap=True,
         verbose=0 
-    ):
-        self.n_estimators = n_estimators
-        self.max_depth = max_depth
-        self.criterion = criterion
-        self.splitter = splitter
-        self.min_samples_split = min_samples_split
-        self.min_samples_leaf = min_samples_leaf
-        self.min_weight_fraction_leaf = min_weight_fraction_leaf
-        self.max_features = max_features
-        self.random_state = random_state
-        self.max_leaf_nodes = max_leaf_nodes
-        self.min_impurity_decrease = min_impurity_decrease
+      ):
+        super().__init__(
+            n_estimators=n_estimators, 
+            max_depth=max_depth, 
+            criterion=criterion, 
+            splitter=splitter, 
+            min_samples_split=min_samples_split, 
+            min_samples_leaf=min_samples_leaf, 
+            min_weight_fraction_leaf=min_weight_fraction_leaf, 
+            max_features=max_features, 
+            random_state=random_state, 
+            max_leaf_nodes=max_leaf_nodes, 
+            min_impurity_decrease=min_impurity_decrease, 
+            ccp_alpha=ccp_alpha, 
+            verbose=verbose
+        )
         self.class_weight = class_weight
-        self.ccp_alpha = ccp_alpha
-        self.verbose=verbose
+        self.subsample=subsample 
+        self.bootstrap = bootstrap
 
-    def fit(self, X, y, sample_weight =None):
+    def _create_tree(self):
         """
-        Fit the Regression Tree Ensemble Classifier model to the data.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The training input samples.
-        y : array-like of shape (n_samples,)
-            The target class labels.
+        This method initializes a new `DecisionTreeClassifier` instance with the
+        parameters specified in the class constructor. It is used to create the
+        individual decision trees that will form the ensemble.
 
         Returns
         -------
-        self : object
-            Returns self.
+        tree : `DecisionTreeClassifier`
+            A new instance of `DecisionTreeClassifier` configured with the parameters
+            provided in the class constructor.
+
+        Notes
+        -----
+        The `DecisionTreeClassifier` is a fundamental component of the ensemble,
+        and its configuration affects the overall performance of the classifier.
+        Key parameters include the maximum depth of the tree (`max_depth`), 
+        the criterion for splitting nodes (`criterion`), and others as specified
+        in the constructor.
+
+        .. math::
+            H(X) = -\sum_{i=1}^{k} p_i \log(p_i)
+
+        where:
+        - :math:`H(X)` is the entropy of the node.
+        - :math:`p_i` is the proportion of samples belonging to class :math:`i`
+        at the node.
+
+        Examples
+        --------
+        >>> from gofast.estimators.ensemble import _create_tree
+        >>> dtc = _create_tree()
+        >>> print(dtc)
+
+        See Also
+        --------
+        `sklearn.tree.DecisionTreeClassifier` :
+            Scikit-learn's Decision Tree Classifier.
+
+        References
+        ----------
+        .. [1] Breiman, L. (2001). Random forests. Machine learning, 45(1), 5-32.
         """
-        X, y = check_X_y(
-            X, y, 
-            accept_sparse= True, 
-            accept_large_sparse= True, 
-            estimator = get_estimator_name(self )
-            )
-        self.estimators_ = []
-        if self.verbose > 0:
-            progress_bar = tqdm(
-                range(self.n_estimators), ascii=True, ncols= 100,
-                desc=f'Fitting {self.__class__.__name__}', 
-                )
-            
-        for _ in range(self.n_estimators):
-            X_resampled, y_resampled = resample(
-                X, y, random_state=self.random_state)
-            tree = DecisionTreeClassifier(
-                max_depth=self.max_depth, 
-                criterion=self.criterion, 
-                splitter=self.splitter, 
-                min_samples_split=self.min_samples_split, 
-                min_samples_leaf=self.min_samples_leaf, 
-                min_weight_fraction_leaf=self.min_weight_fraction_leaf, 
-                max_features=self.max_features, 
-                random_state=self.random_state, 
-                max_leaf_nodes=self.max_leaf_nodes, 
-                min_impurity_decrease=self.min_impurity_decrease,
-                class_weight=self.class_weight, 
-                ccp_alpha=self.ccp_alpha
-            )
-            tree.fit(X_resampled, y_resampled, sample_weight= sample_weight ) 
-            self.estimators_.append(tree)
-            
-            if self.verbose > 0:
-                progress_bar.update(1)
+        return DecisionTreeClassifier(
+            max_depth=self.max_depth, 
+            criterion=self.criterion, 
+            splitter=self.splitter, 
+            min_samples_split=self.min_samples_split, 
+            min_samples_leaf=self.min_samples_leaf, 
+            min_weight_fraction_leaf=self.min_weight_fraction_leaf, 
+            max_features=self.max_features, 
+            random_state=self.random_state, 
+            max_leaf_nodes=self.max_leaf_nodes, 
+            min_impurity_decrease=self.min_impurity_decrease,
+            class_weight=self.class_weight, 
+            ccp_alpha=self.ccp_alpha
+        )
 
-        if self.verbose > 0:
-            progress_bar.close()
-
-        return self
-
-    def predict(self, X):
+    def _aggregate_predictions(self, predictions):
         """
-        Predict class for X.
+        This method aggregates the predictions from multiple decision trees 
+        through majority voting. 
+        
+        Each decision tree in the ensemble makes a prediction for each sample,
+         and the final class label is determined by the majority vote of
+        these predictions.
 
         Parameters
         ----------
-        X : array-like of shape (n_samples, n_features)
-            The input samples.
+        predictions : array-like of shape (n_estimators, n_samples)
+            Predictions from each decision tree in the ensemble.
 
         Returns
         -------
-        y : ndarray of shape (n_samples,)
-            The predicted classes.
+        majority_vote : ndarray of shape (n_samples,)
+            The final class labels determined by majority voting.
+
+        Notes
+        -----
+        Majority voting is a robust method for combining predictions from an ensemble
+        of classifiers. It reduces the variance of the final prediction by averaging
+        out the individual biases of the base classifiers.
+
+        .. math::
+            C_{\text{final}}(x) = \text{argmax}\left(\sum_{i=1}^{n} \delta(C_i(x), \text{mode})\right)
+
+        where:
+        - :math:`C_{\text{final}}(x)` is the final predicted class label for
+          input :math:`x`.
+        - :math:`\delta(C_i(x), \text{mode})` is an indicator function that 
+          counts the occurrence of the most frequent class label predicted by
+          the :math:`i`-th tree.
+        - :math:`n` is the number of decision trees in the ensemble.
+        - :math:`C_i(x)` is the class label predicted by the :math:`i`-th 
+          decision tree.
+
+        Examples
+        --------
+        >>> from gofast.estimators.ensemble import _aggregate_predictions
+        >>> predictions = np.array([[0, 1, 0], [1, 1, 0], [0, 1, 1]])
+        >>> majority_vote = _aggregate_predictions(predictions)
+        >>> print(majority_vote)
+
+        See Also
+        --------
+        `sklearn.ensemble.RandomForestClassifier` : Scikit-learn's Random Forest
+          Classifier for ensemble-based classification.
+
+        References
+        ----------
+        .. [1] Breiman, L. (1996). Bagging predictors. Machine learning, 24(2), 123-140.
         """
-        check_is_fitted(self, 'estimators_')
-        X = check_array(
-            X,
-            accept_large_sparse=True,
-            accept_sparse= True,
-            to_frame=False, 
-            )
-        predictions = np.array([tree.predict(X) for tree in self.estimators_])
-        # Majority voting
         majority_vote = np.apply_along_axis(
             lambda x: np.bincount(x).argmax(), axis=0, arr=predictions)
-        # y_pred = stats.mode(predictions, axis=0).mode[0]
         return majority_vote
-
+    
     def predict_proba(self, X):
         """
-        Predict class probabilities for X.
-
+        Predict Probabilities
+    
+        Predict class probabilities for the input samples using the 
+        ensemble of decision trees.
+    
         Parameters
         ----------
         X : array-like of shape (n_samples, n_features)
             The input samples.
-
+    
         Returns
         -------
         p : ndarray of shape (n_samples, n_classes)
             The class probabilities of the input samples.
+    
+        Notes
+        -----
+        The predicted probabilities are obtained by averaging the probabilities 
+        predicted by each decision tree in the ensemble. This approach leverages 
+        the strengths of each individual classifier to provide a more robust 
+        probability estimate.
+    
+        .. math::
+            P(C_k | x) = \frac{1}{n} \sum_{i=1}^{n} P(C_k | x, \theta_i)
+    
+        where:
+        - :math:`P(C_k | x)` is the predicted probability of class :math:`k` 
+          given input :math:`x`.
+        - :math:`n` is the number of decision trees in the ensemble.
+        - :math:`P(C_k | x, \theta_i)` is the probability predicted by the 
+          :math:`i`-th decision tree with parameters :math:`\theta_i`.
+    
+        Examples
+        --------
+        >>> from gofast.estimators.ensemble import DTBClassifier
+        >>> X = np.random.rand(10, 4)
+        >>> clf = DTBClassifier(n_estimators=50, max_depth=3, random_state=42)
+        >>> clf.fit(X, np.random.randint(0, 2, 10))
+        >>> probas = clf.predict_proba(X)
+        >>> print(probas)
+    
+        See Also
+        --------
+        `sklearn.ensemble.RandomForestClassifier.predict_proba` : Predict class
+          probabilities with a Random Forest classifier.
+    
+        References
+        ----------
+        .. [1] Friedman, J., Hastie, T., & Tibshirani, R. (2001). The elements
+           of statistical learning. Springer series in statistics, 1(10).
         """
         check_is_fitted(self, 'estimators_')
         X = check_array(
             X,
             accept_large_sparse=True,
-            accept_sparse= True,
+            accept_sparse=True,
             to_frame=False, 
-            )
-        # Collect probabilities from each estimator
+        )
         probas = np.array([tree.predict_proba(X) for tree in self.estimators_])
-        # Average probabilities across all estimators
         avg_proba = np.mean(probas, axis=0)
         return avg_proba
 
@@ -1131,7 +1293,6 @@ class WeightedTreeRegressor(BaseEstimator, RegressorMixin):
     
         return y_pred
 
-
 class DecisionStumpRegressor(BaseClass, StandardEstimator):
     r"""
     A simple decision stump regressor for use in gradient boosting.
@@ -1257,7 +1418,8 @@ class DecisionStumpRegressor(BaseClass, StandardEstimator):
         n_samples, n_features = X.shape
         
         if self.verbose:
-            progress_bar = tqdm(range(n_features), ascii=True, ncols= 100,
+            progress_bar = tqdm(
+                range(n_features), ascii=True, ncols= 100,
                 desc=f'Fitting {self.__class__.__name__}', 
                 )
         for feature in range(n_features):

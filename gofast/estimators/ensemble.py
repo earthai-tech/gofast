@@ -12,36 +12,28 @@ and  robustness over a single estimator.
 from __future__ import annotations 
 import re  
 import numpy as np
-
+from tqdm import tqdm 
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin, clone
-from sklearn.ensemble import BaggingClassifier, GradientBoostingClassifier
-from sklearn.ensemble import BaggingRegressor, GradientBoostingRegressor
 from sklearn.pipeline import _name_estimators
 from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.utils import check_random_state
 
-from tqdm import tqdm 
-
-from .._gofastlog import  gofastlog
-from ..tools.validator import check_X_y, get_estimator_name, check_array 
+from ..tools.validator import check_X_y, check_array 
 from ..tools.validator import check_is_fitted, parameter_validator 
 from ..tools.validator import validate_fit_weights
-
+from ._base import EnsembleBase
 from .util import fit_with_estimator, determine_weights, apply_scaling 
 from .util import optimize_hyperparams, normalize_sum  
 
-_logger = gofastlog().get_gofast_logger(__name__)
-
 __all__=[
-  "MajorityVoteClassifier", 
-  "EnsembleNeuroFuzzy", 
-  "SimpleAverageRegressor",
-  "SimpleAverageClassifier", 
-  "WeightedAverageRegressor", 
-  "WeightedAverageClassifier",
-  "EnsembleClassifier", 
-  "EnsembleRegressor"
+      "MajorityVoteClassifier", 
+      "SimpleAverageRegressor",
+      "SimpleAverageClassifier", 
+      "WeightedAverageRegressor", 
+      "WeightedAverageClassifier",
+      "EnsembleClassifier", 
+      "EnsembleRegressor"
   ]
 
 class MajorityVoteClassifier(BaseEstimator, ClassifierMixin):
@@ -209,7 +201,6 @@ class MajorityVoteClassifier(BaseEstimator, ClassifierMixin):
                                   is not None else {}
                                   )
         self.verbose = verbose
-        
         self.classifier_names_ = {}
         
     def fit(self, X, y, sample_weight=None):
@@ -523,149 +514,6 @@ class MajorityVoteClassifier(BaseEstimator, ClassifierMixin):
                 len(self.classifiers), len(self.weights)
             ))
             
-# robustly implement NeuroFuzzyRegressor robustly , add more parameter for 
-# making more robust and flexible. estimator must handle binary and multiclass 
-# target. 
-# skip documentation for brievity 
-
-
-
-    
-class EnsembleNeuroFuzzy(BaseEstimator, RegressorMixin):
-    r""" Neuro-Fuzzy Ensemble for Regression Tasks.
-
-    This ensemble model leverages the strengths of multiple neuro-fuzzy models, 
-    which integrate neural network learning capabilities with fuzzy logic's 
-    qualitative reasoning. The ensemble averages the predictions from these 
-    models to enhance prediction accuracy and robustness, especially in 
-    capturing complex and non-linear relationships within data.
-
-    Each NeuroFuzzyModel in the ensemble is assumed to be a pre-defined class 
-    with its own fit and predict methods. This allows each model to specialize 
-    in different aspects of the data. The ensemble model fits each neuro-fuzzy 
-    estimator on the training data and averages their predictions to produce 
-    the final output.
-
-    Neuro-fuzzy models are particularly effective in scenarios where data 
-    exhibits ambiguous or imprecise characteristics, commonly found in real-world 
-    applications like control systems, weather forecasting, and financial modeling.
-
-    The predictions of the Neuro-Fuzzy Ensemble are computed by averaging the 
-    outputs of individual neuro-fuzzy models. The mathematical formulation is 
-    described as follows:
-
-    1. Neuro-Fuzzy Model Prediction:
-       .. math::
-           \hat{y}_i = f_{\text{NF}_i}(X)
-
-       where :math:`f_{\text{NF}_i}` represents the prediction function of the 
-       \(i\)-th neuro-fuzzy model, and \(X\) denotes the input features.
-
-    2. Ensemble Prediction (Averaging):
-       .. math::
-           \hat{y}_{\text{ensemble}} = \frac{1}{N} \sum_{i=1}^{N} \hat{y}_i
-
-       where:
-       - :math:`\hat{y}_i` is the prediction of the \(i\)-th neuro-fuzzy model.
-       - :math:`N` is the number of neuro-fuzzy models in the ensemble.
-
-    Parameters
-    ----------
-    nf_estimators : list of NeuroFuzzyModel objects
-        List of neuro-fuzzy model estimators. Each estimator in the list
-        should be pre-configured with its own settings and hyperparameters.
-
-    Attributes
-    ----------
-    fitted_ : bool
-        True if the ensemble model has been fitted.
-
-    Examples
-    --------
-    >>> # Import necessary libraries
-    >>> import numpy as np
-    >>> from gofast.estimators.ensemble import EnsembleNeuroFuzzy
-    
-    >>> # Define two Neuro-Fuzzy models with different configurations
-    >>> nf1 = NeuroFuzzyModel(...)
-    >>> nf2 = NeuroFuzzyModel(...)
-    
-    >>> # Create a Neuro-Fuzzy Ensemble Regressor with the models
-    >>> ensemble = EnsembleNeuroFuzzy([nf1, nf2])
-
-    >>> # Generate random data for demonstration
-    >>> X, y = np.random.rand(100, 1), np.random.rand(100)
-    
-    >>> # Fit the ensemble on the data and make predictions
-    >>> ensemble.fit(X, y)
-    >>> y_pred = ensemble.predict(X)
-
-    Notes
-    -----
-    - The Neuro-Fuzzy Ensemble model combines the predictions of multiple
-      neuro-fuzzy estimators to provide a more accurate and robust regression
-      prediction.
-    - Each NeuroFuzzyModel in the ensemble should be pre-configured with its
-      own settings, architecture, and hyperparameters.
-      
-    This method of averaging helps to mitigate potential overfitting or biases 
-    in individual model predictions, leveraging the diverse capabilities of 
-    each model to achieve a more accurate and reliable ensemble prediction.
-    
-    """
-
-    def __init__(self, nf_estimators):
-        self.nf_estimators = nf_estimators
-
-    def fit(self, X, y):
-        """
-        Fit the Neuro-Fuzzy Ensemble model to the data.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Training data input.
-        y : array-like of shape (n_samples,)
-            Target values.
-
-        Returns
-        -------
-        self : object
-            Returns self.
-        """
-        X, y = check_X_y( X, y, estimator = get_estimator_name(self ))
-        for estimator in self.nf_estimators:
-            estimator.fit(X, y)
-        self.fitted_ = True
-        return self
-
-    def predict(self, X):
-        """
-        Predict using the Neuro-Fuzzy Ensemble model.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Samples to predict for.
-
-        Returns
-        -------
-        y_pred : array-like of shape (n_samples,)
-            Predicted values, averaged across all Neuro-Fuzzy estimators.
-        """
-        check_is_fitted(self, 'fitted_')
-        
-        X = check_array(
-            X,
-            accept_large_sparse=True,
-            accept_sparse= True,
-            to_frame=False, 
-            )
-
-        predictions = np.array([estimator.predict(X)
-                                for estimator in self.nf_estimators])
-        return np.mean(predictions, axis=0)
-
 class SimpleAverageRegressor(BaseEstimator, RegressorMixin):
     """
     Simple Average Ensemble Regressor.
@@ -1798,7 +1646,7 @@ class WeightedAverageClassifier(BaseEstimator, ClassifierMixin):
         
         return weighted_avg_proba
     
-class EnsembleClassifier(BaseEstimator, ClassifierMixin):
+class EnsembleClassifier(ClassifierMixin, EnsembleBase):
     """
     Ensemble Classifier.
 
@@ -1809,10 +1657,7 @@ class EnsembleClassifier(BaseEstimator, ClassifierMixin):
 
     Parameters
     ----------
-    base_estimator : estimator object, default=None
-        The base estimator to fit on random subsets of the dataset. If None, 
-        then the base estimator is a `DecisionTreeClassifier`.
-        
+    
     n_estimators : int, default=50
         The number of base estimators in the ensemble. For the hybrid strategy, 
         this is the total number of base estimators combined across bagging 
@@ -1822,19 +1667,33 @@ class EnsembleClassifier(BaseEstimator, ClassifierMixin):
         Learning rate shrinks the contribution of each classifier by `eta0`.
         This parameter is only used for the boosting and hybrid strategies.
         
-    max_depth : int, default=3
-        The maximum depth of the individual classification estimators. This 
-        controls the complexity of each base estimator.
+    max_depth : int, default=None
+        The maximum depth of the individual classification estimators. This
+        parameter controls the complexity of each base estimator in the ensemble.
+        Setting `max_depth` limits the number of nodes in each tree, thereby
+        preventing overfitting. A higher `max_depth` allows the model to learn
+        more intricate patterns in the data, but it can also lead to overfitting
+        if set too high.
+
+        - If `None`, then nodes are expanded until all leaves contain less than
+          `min_samples_split` samples.
+        - If an integer value is provided, the tree will grow until the specified
+          maximum depth is reached.
+
+        The choice of `max_depth` balances the bias-variance tradeoff:
+        - A shallow tree (low `max_depth`) might underfit the data, capturing only
+          the most obvious patterns and leaving out finer details.
+        - A deep tree (high `max_depth`) might overfit the data, capturing noise
+          and outliers along with the underlying patterns.
+
+        It is crucial to tune this parameter based on cross-validation or other
+        model evaluation techniques to ensure optimal performance.
         
     strategy : {'hybrid', 'bagging', 'boosting'}, default='hybrid'
         The strategy to use for the ensemble. Options are:
         - 'bagging': Use Bagging strategy.
         - 'boosting': Use Boosting strategy.
         - 'hybrid': Combine Bagging and Boosting strategies.
-        
-    random_state : int or RandomState, default=None
-        Controls the randomness of the estimator for reproducibility. Pass 
-        an int for reproducible output across multiple function calls.
         
     max_samples : float or int, default=1.0
         The number of samples to draw from X to train each base estimator. If 
@@ -1909,6 +1768,14 @@ class EnsembleClassifier(BaseEstimator, ClassifierMixin):
     ccp_alpha : float, default=0.0
         Complexity parameter used for Minimal Cost-Complexity Pruning.
     
+    base_estimator : estimator object, default=None
+        The base estimator to fit on random subsets of the dataset. If None, 
+        then the base estimator is a `DecisionTreeClassifier`.
+        
+    random_state : int or RandomState, default=None
+        Controls the randomness of the estimator for reproducibility. Pass 
+        an int for reproducible output across multiple function calls.
+        
     verbose : int, default=0
         Controls the verbosity when fitting and predicting. Higher values 
         indicate more messages.
@@ -1922,23 +1789,21 @@ class EnsembleClassifier(BaseEstimator, ClassifierMixin):
     --------
     Here's an example of how to use the `EnsembleClassifier` on a dataset:
 
-    .. code-block:: python
+    >>> from sklearn.datasets import make_classification
+    >>> from sklearn.model_selection import train_test_split
+    >>> from sklearn.metrics import accuracy_score
+    >>> from gofast.estimators.ensemble import EnsembleClassifier
 
-        >>> from sklearn.datasets import make_classification
-        >>> from sklearn.model_selection import train_test_split
-        >>> from sklearn.metrics import accuracy_score
-        >>> from gofast.estimators.ensemble import EnsembleClassifier
+    >>> X, y = make_classification(n_samples=100, n_features=20, random_state=42)
+    >>> X_train, X_test, y_train, y_test = train_test_split(X, y, 
+    ...                                                     test_size=0.3, 
+    ...                                                     random_state=42)
     
-        >>> X, y = make_classification(n_samples=100, n_features=20, random_state=42)
-        >>> X_train, X_test, y_train, y_test = train_test_split(X, y, 
-        ...                                                     test_size=0.3, 
-        ...                                                     random_state=42)
-        
-        >>> clf = EnsembleClassifier(n_estimators=50, strategy='hybrid', 
-        ...                          random_state=42)
-        >>> clf.fit(X_train, y_train)
-        >>> y_pred = clf.predict(X_test)
-        >>> print("Classification accuracy:", accuracy_score(y_test, y_pred))
+    >>> clf = EnsembleClassifier(n_estimators=50, strategy='hybrid', 
+    ...                          random_state=42)
+    >>> clf.fit(X_train, y_train)
+    >>> y_pred = clf.predict(X_test)
+    >>> print("Classification accuracy:", accuracy_score(y_test, y_pred))
 
     Notes
     -----
@@ -1969,14 +1834,15 @@ class EnsembleClassifier(BaseEstimator, ClassifierMixin):
     sklearn.metrics.accuracy_score : A common metric for evaluating 
         classification models.
     """
+    is_classifier = True
+    default_base_estimator = DecisionTreeClassifier
+
     def __init__(
-        self,
-        base_estimator=None,
+        self, 
         n_estimators=50,
         eta0=0.1,
-        max_depth=3,
-        strategy='hybrid', 
-        random_state=None,
+        max_depth=None,
+        strategy='hybrid',
         max_samples=1.0,
         max_features=1.0,
         bootstrap=True,
@@ -1993,83 +1859,102 @@ class EnsembleClassifier(BaseEstimator, ClassifierMixin):
         validation_fraction=0.1,
         n_iter_no_change=None,
         tol=1e-4,
-        ccp_alpha=0.0, 
-        verbose=0
-    ):
-        self.base_estimator = base_estimator
-        self.n_estimators = n_estimators
-        self.eta0 = eta0
-        self.max_depth = max_depth
-        self.strategy = strategy
-        self.random_state = random_state
-        self.max_samples = max_samples
-        self.max_features = max_features
-        self.bootstrap = bootstrap
-        self.bootstrap_features = bootstrap_features
-        self.oob_score = oob_score
-        self.warm_start = warm_start
-        self.n_jobs = n_jobs
-        self.verbose = verbose
-        self.min_impurity_decrease = min_impurity_decrease
-        self.init = init
-        self.min_samples_split = min_samples_split
-        self.min_samples_leaf = min_samples_leaf
-        self.min_weight_fraction_leaf = min_weight_fraction_leaf
-        self.max_leaf_nodes = max_leaf_nodes
-        self.validation_fraction = validation_fraction
-        self.n_iter_no_change = n_iter_no_change
-        self.tol = tol
-        self.ccp_alpha = ccp_alpha
-
-    def fit(self, X, y, sample_weight=None):
+        ccp_alpha=0.0,
+        base_estimator=None,
+        random_state=None,
+        verbose=False
+        ):
+        super().__init__(
+            base_estimator =base_estimator, 
+            n_estimators=n_estimators, 
+            eta0=eta0,
+            max_depth=max_depth,
+            strategy=strategy,
+            random_state=random_state,
+            max_samples=max_samples,
+            max_features=max_features,
+            bootstrap=bootstrap,
+            bootstrap_features=bootstrap_features,
+            oob_score=oob_score,
+            warm_start=warm_start,
+            n_jobs=n_jobs,
+            min_impurity_decrease=min_impurity_decrease,
+            init=init,
+            min_samples_split=min_samples_split,
+            min_samples_leaf=min_samples_leaf,
+            min_weight_fraction_leaf=min_weight_fraction_leaf,
+            max_leaf_nodes=max_leaf_nodes,
+            validation_fraction=validation_fraction,
+            n_iter_no_change=n_iter_no_change,
+            tol=tol,
+            ccp_alpha=ccp_alpha,
+            verbose=verbose
+            )
+        
+    def predict_proba(self, X):
         """
-        Fit the EnsembleClassifier model to the data.
+        Predict class probabilities using the fitted ensemble model.
     
         Parameters
         ----------
         X : array-like of shape (n_samples, n_features)
-            The training input samples. It can be a dense or sparse matrix.
-            
-        y : array-like of shape (n_samples,)
-            The target class labels.
-    
-        sample_weight : array-like of shape (n_samples,), default=None
-            Individual weights for each sample. If None, all samples are
-            given equal weight.
+            The input samples. It can be a dense or sparse matrix.
     
         Returns
         -------
-        self : object
-            Returns self.
+        p : array-like of shape (n_samples, n_classes)
+            The class probabilities of the input samples. The order of the 
+            classes corresponds to that in the attribute `classes_`.
     
         Notes
         -----
-        The `fit` method trains the ensemble classifier on the input data `X`
-        and target labels `y`. Depending on the specified `strategy`, it
-        will employ either bagging, boosting, or a hybrid approach to
-        fit the ensemble model.
+        This method uses the fitted ensemble model to predict the probabilities
+        of the classes for the input samples. The input samples `X` are checked
+        for validity, ensuring they conform to the expected format and type.
     
-        - For `bagging`, the model fits several base classifiers on different
-          random subsets of the original dataset and then aggregates their predictions.
-        - For `boosting`, the model fits several base classifiers sequentially,
-          each trying to correct the errors of the previous one.
-        - For `hybrid`, the model combines both bagging and boosting strategies,
-          leveraging the strengths of both methods.
+        The probability predictions are computed by aggregating the probability
+        outputs of the individual base estimators in the ensemble. This method
+        is only applicable for classification tasks and will raise an error if
+        used with a regressor.
     
-        This method ensures that the input data `X` and target labels `y` are
-        checked for validity, ensuring they conform to the expected format and type.
-        It also handles large sparse matrices efficiently.
+        The mathematical formulation of the probability prediction process
+        can be described as follows:
     
-        The chosen strategy is converted to lowercase to ensure consistency
-        and avoid case-related issues. If an invalid strategy is specified,
-        a `ValueError` is raised.
+        .. math::
+            P_{\text{class}} = \frac{1}{N} \sum_{i=1}^{N} P_{\text{est}_i}
+    
+        where:
+        - :math:`N` is the number of base estimators in the ensemble.
+        - :math:`P_{\text{class}}` is the final predicted probability aggregated
+          from all base estimators.
+        - :math:`P_{\text{est}_i}` represents the predicted probability made by
+          the :math:`i`-th base estimator.
+    
+        The `predict_proba` method is particularly useful for tasks requiring
+        probabilistic predictions rather than discrete class labels. It can be
+        used for applications such as uncertainty estimation, thresholding,
+        and calibration.
+    
+        Raises
+        ------
+        NotFittedError
+            If the estimator is not fitted, i.e., `fit` has not been called
+            before `predict_proba`.
+    
+        AttributeError
+            If the base estimator does not have a `predict_proba` method.
     
         Examples
         --------
+        Here's an example of how to use the `predict_proba` method with
+        `EnsembleClassifier`:
+    
         >>> from gofast.estimators.ensemble import EnsembleClassifier
         >>> from sklearn.datasets import make_classification
         >>> from sklearn.model_selection import train_test_split
-        >>> from sklearn.metrics import accuracy_score
+    
+        Classification Example:
+    
         >>> X, y = make_classification(n_samples=100, n_features=20, random_state=42)
         >>> X_train, X_test, y_train, y_test = train_test_split(X, y, 
         ...                                                     test_size=0.3, 
@@ -2077,213 +1962,26 @@ class EnsembleClassifier(BaseEstimator, ClassifierMixin):
         >>> clf = EnsembleClassifier(n_estimators=50, strategy='hybrid', 
         ...                          random_state=42)
         >>> clf.fit(X_train, y_train)
-        >>> y_pred = clf.predict(X_test)
-        >>> print("Classification accuracy:", accuracy_score(y_test, y_pred))
+        >>> probas = clf.predict_proba(X_test)
+        >>> print("Predicted probabilities:", probas)
     
         See Also
         --------
-        sklearn.utils.validation.check_X_y : Utility function to check the input
-            data and target labels.
         sklearn.utils.validation.check_array : Utility function to check the input
             array.
         sklearn.utils.validation.check_is_fitted : Utility function to check if the
             estimator is fitted.
+        sklearn.ensemble.BaggingClassifier : A bagging classifier.
+        sklearn.ensemble.GradientBoostingClassifier : A gradient boosting classifier.
     
         References
         ----------
         .. [1] Breiman, L. "Bagging predictors." Machine learning 24.2 (1996): 123-140.
         .. [2] Freund, Y., & Schapire, R. E. "Experiments with a new boosting algorithm."
-               icml. Vol. 96. 1996.
+               ICML. Vol. 96. 1996.
         .. [3] Friedman, J., Hastie, T., & Tibshirani, R. "The Elements of Statistical
                Learning." Springer Series in Statistics. (2001).
-        """
-        X, y = check_X_y(
-            X, y, accept_sparse=True,
-            accept_large_sparse=True,
-            estimator=get_estimator_name(self),
-        )
-        if self.base_estimator is None:
-            self.base_estimator = DecisionTreeClassifier(max_depth=self.max_depth)
-            
-        self.strategy = str(self.strategy).lower()
-        if self.strategy == 'bagging':
-            self._fit_bagging(X, y, sample_weight)
-        elif self.strategy == 'boosting':
-            self._fit_boosting(X, y, sample_weight)
-        elif self.strategy == 'hybrid':
-            self._fit_hybrid(X, y, sample_weight)
-        else:
-            raise ValueError(
-                "Invalid strategy, choose from 'hybrid', 'bagging', 'boosting'")
     
-        return self
-
-    def _fit_bagging(self, X, y, sample_weight):
-        self.model_ = BaggingClassifier(
-            estimator=self.base_estimator,
-            n_estimators=self.n_estimators,
-            random_state=self.random_state,
-            max_samples=self.max_samples,
-            max_features=self.max_features,
-            bootstrap=self.bootstrap,
-            bootstrap_features=self.bootstrap_features,
-            oob_score=self.oob_score,
-            warm_start=self.warm_start,
-            n_jobs=self.n_jobs,
-            verbose=self.verbose,
-        )
-        self.model_.fit(X, y, sample_weight)
-
-    def _fit_boosting(self, X, y, sample_weight):
-        self.model_ = GradientBoostingClassifier(
-            n_estimators=self.n_estimators,
-            learning_rate=self.eta0,
-            max_depth=self.max_depth,
-            random_state=self.random_state,
-            min_impurity_decrease=self.min_impurity_decrease,
-            init=self.init,
-            max_features=self.max_features,
-            verbose=self.verbose,
-            min_samples_split=self.min_samples_split,
-            min_samples_leaf=self.min_samples_leaf,
-            min_weight_fraction_leaf=self.min_weight_fraction_leaf,
-            max_leaf_nodes=self.max_leaf_nodes,
-            validation_fraction=self.validation_fraction,
-            n_iter_no_change=self.n_iter_no_change,
-            tol=self.tol,
-            ccp_alpha=self.ccp_alpha
-        )
-        self.model_.fit(X, y, sample_weight)
-
-    def _fit_hybrid(self, X, y, sample_weight):
-        self.model_ = BaggingClassifier(
-            estimator=GradientBoostingClassifier(
-                n_estimators=self.n_estimators // 2,
-                learning_rate=self.eta0,
-                max_depth=self.max_depth,
-                random_state=self.random_state,
-                min_impurity_decrease=self.min_impurity_decrease,
-                init=self.init,
-                max_features=self.max_features,
-                verbose=self.verbose,
-                min_samples_split=self.min_samples_split,
-                min_samples_leaf=self.min_samples_leaf,
-                min_weight_fraction_leaf=self.min_weight_fraction_leaf,
-                max_leaf_nodes=self.max_leaf_nodes,
-                validation_fraction=self.validation_fraction,
-                n_iter_no_change=self.n_iter_no_change,
-                tol=self.tol,
-                ccp_alpha=self.ccp_alpha
-            ),
-            n_estimators=2,  # number of boosting models in the bagging
-            random_state=self.random_state,
-            max_samples=self.max_samples,
-            max_features=self.max_features,
-            bootstrap=self.bootstrap,
-            bootstrap_features=self.bootstrap_features,
-            oob_score=self.oob_score,
-            warm_start=self.warm_start,
-            n_jobs=self.n_jobs,
-            verbose=self.verbose,
-        )
-        self.model_.fit(X, y, sample_weight)
-
-    def predict(self, X):
-        """
-        Predict using the fitted ensemble model.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The input samples.
-
-        Returns
-        -------
-        y_pred : array-like of shape (n_samples,)
-            The predicted values.
-
-        Notes
-        -----
-        This method uses the fitted ensemble model to predict the target 
-        values for the input samples. The input samples `X` are checked 
-        for validity, ensuring they conform to the expected format and 
-        type.
-
-        The predictions are computed by aggregating the outputs of the 
-        individual base estimators in the ensemble. Depending on the 
-        chosen strategy (bagging, boosting, or hybrid), the aggregation 
-        method may vary. For bagging, the predictions are averaged, while 
-        for boosting, the predictions are a weighted sum of the individual 
-        estimator outputs.
-
-        Raises
-        ------
-        NotFittedError
-            If the estimator is not fitted, i.e., `fit` has not been 
-            called before `predict`.
-
-        See Also
-        --------
-        sklearn.utils.validation.check_array : Utility function to check 
-            the input array.
-        sklearn.utils.validation.check_is_fitted : Utility function to check 
-            if the estimator is fitted.
-        """
-        check_is_fitted(self, 'model_')
-        X = check_array(
-            X, accept_sparse=True, 
-            accept_large_sparse=True,
-            estimator=get_estimator_name(self)
-        )
-        return self.model_.predict(X)
-    
-    def predict_proba(self, X):
-        """
-        Predict class probabilities using the fitted ensemble model.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The input samples.
-
-        Returns
-        -------
-        p : array-like of shape (n_samples, n_classes)
-            The class probabilities of the input samples. The order of the 
-            classes corresponds to that in the attribute `classes_`.
-
-        Notes
-        -----
-        This method uses the fitted ensemble model to predict the 
-        probabilities of the classes for the input samples. The input 
-        samples `X` are checked for validity, ensuring they conform to the 
-        expected format and type.
-
-        The probability predictions are computed by aggregating the 
-        probability outputs of the individual base estimators in the 
-        ensemble. This method is only applicable for classification tasks 
-        and will raise an error if used with a regressor.
-
-        The `predict_proba` method is particularly useful for tasks 
-        requiring probabilistic predictions rather than discrete class 
-        labels. It can be used for applications such as uncertainty 
-        estimation, thresholding, and calibration.
-
-        Raises
-        ------
-        NotFittedError
-            If the estimator is not fitted, i.e., `fit` has not been 
-            called before `predict_proba`.
-
-        AttributeError
-            If the base estimator does not have a `predict_proba` method.
-
-        See Also
-        --------
-        sklearn.utils.validation.check_array : Utility function to check 
-            the input array.
-        sklearn.utils.validation.check_is_fitted : Utility function to check 
-            if the estimator is fitted.
         """
         check_is_fitted(self, 'model_')
         X = check_array(
@@ -2293,7 +1991,8 @@ class EnsembleClassifier(BaseEstimator, ClassifierMixin):
         )
         return self.model_.predict_proba(X)
 
-class EnsembleRegressor(BaseEstimator, RegressorMixin):
+
+class EnsembleRegressor(RegressorMixin, EnsembleBase):
     """
     Ensemble Regressor.
 
@@ -2304,10 +2003,6 @@ class EnsembleRegressor(BaseEstimator, RegressorMixin):
 
     Parameters
     ----------
-    base_estimator : estimator object, default=None
-        The base estimator to fit on random subsets of the dataset. If None, 
-        then the base estimator is a `DecisionTreeRegressor`.
-        
     n_estimators : int, default=50
         The number of base estimators in the ensemble. For the hybrid strategy, 
         this is the total number of base estimators combined across bagging 
@@ -2317,20 +2012,34 @@ class EnsembleRegressor(BaseEstimator, RegressorMixin):
         Learning rate shrinks the contribution of each tree by `eta0`.
         This parameter is only used for the boosting and hybrid strategies.
         
-    max_depth : int, default=3
-        The maximum depth of the individual regression estimators. This 
-        controls the complexity of each base estimator.
-        
+    max_depth : int, default=None
+        The maximum depth of the individual regression estimators. This
+        parameter controls the complexity of each base estimator in the ensemble.
+        Setting `max_depth` limits the number of nodes in each tree, thereby
+        preventing overfitting. A higher `max_depth` allows the model to learn
+        more intricate patterns in the data, but it can also lead to overfitting
+        if set too high.
+
+        - If `None`, then nodes are expanded until all leaves contain less than
+          `min_samples_split` samples.
+        - If an integer value is provided, the tree will grow until the specified
+          maximum depth is reached.
+
+        The choice of `max_depth` balances the bias-variance tradeoff:
+        - A shallow tree (low `max_depth`) might underfit the data, capturing only
+          the most obvious patterns and leaving out finer details.
+        - A deep tree (high `max_depth`) might overfit the data, capturing noise
+          and outliers along with the underlying patterns.
+
+        It is crucial to tune this parameter based on cross-validation or other
+        model evaluation techniques to ensure optimal performance.
+            
     strategy : {'hybrid', 'bagging', 'boosting'}, default='hybrid'
         The strategy to use for the ensemble. Options are:
         - 'bagging': Use Bagging strategy.
         - 'boosting': Use Boosting strategy.
         - 'hybrid': Combine Bagging and Boosting strategies.
-        
-    random_state : int or RandomState, default=None
-        Controls the randomness of the estimator for reproducibility. Pass 
-        an int for reproducible output across multiple function calls.
-        
+ 
     max_samples : float or int, default=1.0
         The number of samples to draw from X to train each base estimator. If 
         float, then draw `max_samples * n_samples` samples.
@@ -2404,6 +2113,14 @@ class EnsembleRegressor(BaseEstimator, RegressorMixin):
     ccp_alpha : float, default=0.0
         Complexity parameter used for Minimal Cost-Complexity Pruning.
         
+    base_estimator : estimator object, default=None
+        The base estimator to fit on random subsets of the dataset. If None, 
+        then the base estimator is a `DecisionTreeRegressor`.
+        
+    random_state : int or RandomState, default=None
+        Controls the randomness of the estimator for reproducibility. Pass 
+        an int for reproducible output across multiple function calls.
+        
     verbose : int, default=0
         Controls the verbosity when fitting and predicting. Higher values 
         indicate more messages.
@@ -2417,23 +2134,21 @@ class EnsembleRegressor(BaseEstimator, RegressorMixin):
     --------
     Here's an example of how to use the `EnsembleHybridRegressor` on a dataset:
 
-    .. code-block:: python
+    >>> from sklearn.datasets import make_regression
+    >>> from sklearn.model_selection import train_test_split
+    >>> from sklearn.metrics import mean_squared_error
+    >>> from gofast.estimators.ensemble import EnsembleRegressor
 
-        >>> from sklearn.datasets import make_regression
-        >>> from sklearn.model_selection import train_test_split
-        >>> from sklearn.metrics import mean_squared_error
-        >>> from ensemble_hybrid_regressor import EnsembleRegressor
+    >>> X, y = make_regression(n_samples=100, n_features=20, random_state=42)
+    >>> X_train, X_test, y_train, y_test = train_test_split(X, y, 
+    ...                                                     test_size=0.3, 
+    ...                                                     random_state=42)
     
-        >>> X, y = make_regression(n_samples=100, n_features=20, random_state=42)
-        >>> X_train, X_test, y_train, y_test = train_test_split(X, y, 
-        ...                                                     test_size=0.3, 
-        ...                                                     random_state=42)
-        
-        >>> reg = EnsembleRegressor(n_estimators=50, strategy='hybrid', 
-        ...                               random_state=42)
-        >>> reg.fit(X_train, y_train)
-        >>> y_pred = reg.predict(X_test)
-        >>> print("Regression MSE:", mean_squared_error(y_test, y_pred))
+    >>> reg = EnsembleRegressor(n_estimators=50, strategy='hybrid', 
+    ...                               random_state=42)
+    >>> reg.fit(X_train, y_train)
+    >>> y_pred = reg.predict(X_test)
+    >>> print("Regression MSE:", mean_squared_error(y_test, y_pred))
 
     Notes
     -----
@@ -2465,14 +2180,15 @@ class EnsembleRegressor(BaseEstimator, RegressorMixin):
         regression models.
     """
 
+    is_classifier = False
+    default_base_estimator = DecisionTreeRegressor
+    
     def __init__(
         self,
-        base_estimator=None,
         n_estimators=50,
         eta0=0.1,
-        max_depth=3,
+        max_depth=None,
         strategy='hybrid', 
-        random_state=None,
         max_samples=1.0,
         max_features=1.0,
         bootstrap=True,
@@ -2490,299 +2206,38 @@ class EnsembleRegressor(BaseEstimator, RegressorMixin):
         n_iter_no_change=None,
         tol=1e-4,
         ccp_alpha=0.0,
+        base_estimator=None,
+        random_state=None,
         verbose=0
-    ):
-        self.base_estimator = base_estimator
-        self.n_estimators = n_estimators
-        self.eta0 = eta0
-        self.max_depth = max_depth
-        self.strategy = strategy
-        self.random_state = random_state
-        self.max_samples = max_samples
-        self.max_features = max_features
-        self.bootstrap = bootstrap
-        self.bootstrap_features = bootstrap_features
-        self.oob_score = oob_score
-        self.warm_start = warm_start
-        self.n_jobs = n_jobs
-        self.verbose = verbose
-        self.min_impurity_decrease = min_impurity_decrease
-        self.init = init
-        self.min_samples_split = min_samples_split
-        self.min_samples_leaf = min_samples_leaf
-        self.min_weight_fraction_leaf = min_weight_fraction_leaf
-        self.max_leaf_nodes = max_leaf_nodes
-        self.validation_fraction = validation_fraction
-        self.n_iter_no_change = n_iter_no_change
-        self.tol = tol
-        self.ccp_alpha = ccp_alpha
+       ):
+        super().__init__(
+            base_estimator =base_estimator, 
+            n_estimators=n_estimators, 
+            eta0=eta0,
+            max_depth=max_depth,
+            strategy=strategy,
+            random_state=random_state,
+            max_samples=max_samples,
+            max_features=max_features,
+            bootstrap=bootstrap,
+            bootstrap_features=bootstrap_features,
+            oob_score=oob_score,
+            warm_start=warm_start,
+            n_jobs=n_jobs,
+            min_impurity_decrease=min_impurity_decrease,
+            init=init,
+            min_samples_split=min_samples_split,
+            min_samples_leaf=min_samples_leaf,
+            min_weight_fraction_leaf=min_weight_fraction_leaf,
+            max_leaf_nodes=max_leaf_nodes,
+            validation_fraction=validation_fraction,
+            n_iter_no_change=n_iter_no_change,
+            tol=tol,
+            ccp_alpha=ccp_alpha,
+            verbose=verbose
+       )
 
-    def fit(self, X, y, sample_weight=None):
-        """
-        Fit the EnsembleRegressor model to the data.
-    
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The training input samples. It can be a dense or sparse matrix.
-            
-        y : array-like of shape (n_samples,)
-            The target values.
-    
-        sample_weight : array-like of shape (n_samples,), default=None
-            Individual weights for each sample. If None, all samples are
-            given equal weight.
-    
-        Returns
-        -------
-        self : object
-            Returns self.
-    
-        Notes
-        -----
-        The `fit` method trains the ensemble regressor on the input data `X`
-        and target values `y`. Depending on the specified `strategy`, it
-        will employ either bagging, boosting, or a hybrid approach to
-        fit the ensemble model.
-    
-        - For `bagging`, the model fits several base regressors on different
-          random subsets of the original dataset and then aggregates their predictions.
-        - For `boosting`, the model fits several base regressors sequentially,
-          each trying to correct the errors of the previous one.
-        - For `hybrid`, the model combines both bagging and boosting strategies,
-          leveraging the strengths of both methods.
-    
-        This method ensures that the input data `X` and target values `y` are
-        checked for validity, ensuring they conform to the expected format and type.
-        It also handles large sparse matrices efficiently.
-    
-        If an invalid strategy is specified, a `ValueError` is raised.
-    
-        Examples
-        --------
-        >>> from gofast.estimators.ensemble import EnsembleRegressor
-        >>> from sklearn.datasets import make_regression
-        >>> from sklearn.model_selection import train_test_split
-        >>> from sklearn.metrics import mean_squared_error
-        >>> X, y = make_regression(n_samples=100, n_features=20, random_state=42)
-        >>> X_train, X_test, y_train, y_test = train_test_split(X, y, 
-        ...                                                     test_size=0.3, 
-        ...                                                     random_state=42)
-        >>> reg = EnsembleRegressor(n_estimators=50, strategy='hybrid', 
-        ...                         random_state=42)
-        >>> reg.fit(X_train, y_train)
-        >>> y_pred = reg.predict(X_test)
-        >>> print("Regression MSE:", mean_squared_error(y_test, y_pred))
-    
-        See Also
-        --------
-        sklearn.utils.validation.check_X_y : Utility function to check the input
-            data and target values.
-        sklearn.utils.validation.check_array : Utility function to check the input
-            array.
-        sklearn.utils.validation.check_is_fitted : Utility function to check if the
-            estimator is fitted.
-    
-        References
-        ----------
-        .. [1] Breiman, L. "Bagging predictors." Machine learning 24.2 (1996): 123-140.
-        .. [2] Freund, Y., & Schapire, R. E. "Experiments with a new boosting algorithm."
-               icml. Vol. 96. 1996.
-        .. [3] Friedman, J., Hastie, T., & Tibshirani, R. "The Elements of Statistical
-               Learning." Springer Series in Statistics. (2001).
-        """
-        X, y = check_X_y(
-            X, y, 
-            accept_large_sparse=True,  
-            accept_sparse=True, 
-            estimator=get_estimator_name(self)
-        )
-        if self.base_estimator is None:
-            self.base_estimator = DecisionTreeRegressor(max_depth=self.max_depth)
-            
-        if self.strategy == 'bagging':
-            self._fit_bagging(X, y, sample_weight)
-        elif self.strategy == 'boosting':
-            self._fit_boosting(X, y, sample_weight)
-        elif self.strategy == 'hybrid':
-            self._fit_hybrid(X, y, sample_weight)
-        else:
-            raise ValueError(
-                "Invalid strategy, choose from 'hybrid', 'bagging', 'boosting'")
-    
-        return self
-
-    def _fit_bagging(self, X, y, sample_weight):
-        self.model_ = BaggingRegressor(
-            estimator=self.base_estimator,
-            n_estimators=self.n_estimators,
-            random_state=self.random_state,
-            max_samples=self.max_samples,
-            max_features=self.max_features,
-            bootstrap=self.bootstrap,
-            bootstrap_features=self.bootstrap_features,
-            oob_score=self.oob_score,
-            warm_start=self.warm_start,
-            n_jobs=self.n_jobs,
-            verbose=self.verbose,
-        )
-        self.model_.fit(X, y)
-
-    def _fit_boosting(self, X, y, sample_weight):
-        self.model_ = GradientBoostingRegressor(
-            n_estimators=self.n_estimators,
-            learning_rate=self.eta0,
-            max_depth=self.max_depth,
-            random_state=self.random_state,
-            min_impurity_decrease=self.min_impurity_decrease,
-            init=self.init,
-            max_features=self.max_features,
-            verbose=self.verbose,
-            min_samples_split=self.min_samples_split,
-            min_samples_leaf=self.min_samples_leaf,
-            min_weight_fraction_leaf=self.min_weight_fraction_leaf,
-            max_leaf_nodes=self.max_leaf_nodes,
-            validation_fraction=self.validation_fraction,
-            n_iter_no_change=self.n_iter_no_change,
-            tol=self.tol,
-            ccp_alpha=self.ccp_alpha
-        )
-        self.model_.fit(X, y, sample_weight)
-
-    def _fit_hybrid(self, X, y, sample_weight):
-        self.model_ = BaggingRegressor(
-        estimator=GradientBoostingRegressor(
-                n_estimators=self.n_estimators // 2,
-                learning_rate=self.eta0,
-                max_depth=self.max_depth,
-                random_state=self.random_state,
-                min_impurity_decrease=self.min_impurity_decrease,
-                init=self.init,
-                max_features=self.max_features,
-                verbose=self.verbose,
-                min_samples_split=self.min_samples_split,
-                min_samples_leaf=self.min_samples_leaf,
-                min_weight_fraction_leaf=self.min_weight_fraction_leaf,
-                max_leaf_nodes=self.max_leaf_nodes,
-                validation_fraction=self.validation_fraction,
-                n_iter_no_change=self.n_iter_no_change,
-                tol=self.tol,
-                ccp_alpha=self.ccp_alpha
-            ),
-            n_estimators=2,  # number of boosting models in the bagging
-            random_state=self.random_state,
-            max_samples=self.max_samples,
-            max_features=self.max_features,
-            bootstrap=self.bootstrap,
-            bootstrap_features=self.bootstrap_features,
-            oob_score=self.oob_score,
-            warm_start=self.warm_start,
-            n_jobs=self.n_jobs,
-            verbose=self.verbose,
-        )
-        self.model_.fit(X, y, sample_weight)
-        
-    def predict(self, X):
-        """
-        Predict using the fitted EnsembleRegressor model.
-    
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The input samples. This can be a dense or sparse matrix. The input 
-            samples are checked for validity, ensuring they conform to the 
-            expected format and type.
-    
-        Returns
-        -------
-        y_pred : array-like of shape (n_samples,)
-            The predicted values. The predictions are computed by aggregating 
-            the outputs of the individual base estimators in the ensemble.
-    
-        Notes
-        -----
-        This method uses the fitted ensemble model to predict the target values 
-        for the input samples. The input samples `X` are checked for validity, 
-        ensuring they conform to the expected format and type.
-    
-        Depending on the chosen strategy (bagging, boosting, or hybrid), the 
-        aggregation method may vary:
-        - For bagging, the predictions are averaged.
-        - For boosting, the predictions are a weighted sum of the individual 
-          estimator outputs.
-        - For hybrid, the predictions leverage both bagging and boosting methods 
-          to provide a final prediction.
-    
-        Raises
-        ------
-        NotFittedError
-            If the estimator is not fitted, i.e., `fit` has not been called before 
-            `predict`.
-    
-        Examples
-        --------
-        >>> from gofast.estimators.ensemble import EnsembleRegressor
-        >>> from sklearn.datasets import make_regression
-        >>> from sklearn.model_selection import train_test_split
-        >>> X, y = make_regression(n_samples=100, n_features=20, random_state=42)
-        >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
-        >>> reg = EnsembleRegressor(n_estimators=50, strategy='hybrid', random_state=42)
-        >>> reg.fit(X_train, y_train)
-        >>> y_pred = reg.predict(X_test)
-        >>> print(y_pred)
-    
-        See Also
-        --------
-        sklearn.utils.validation.check_array : 
-            Utility function to check the input array.
-        sklearn.utils.validation.check_is_fitted : 
-            Utility function to check if the estimator is fitted.
-    
-        References
-        ----------
-        .. [1] Breiman, L. "Bagging predictors." Machine learning 24.2 (1996): 123-140.
-        .. [2] Freund, Y., & Schapire, R. E. "Experiments with a new boosting 
-           algorithm." icml. Vol. 96. 1996.
-        .. [3] Friedman, J., Hastie, T., & Tibshirani, R. "The Elements of 
-           Statistical Learning." Springer Series in Statistics. (2001).
-        """
-        check_is_fitted(self, 'model_')
-        X = check_array(X, accept_large_sparse= True, accept_sparse= True , 
-                        estimator= get_estimator_name( self )
-                        )
-        return self.model_.predict(X)
-
-
-# Example usage
-if __name__ == "__main__":
-    from sklearn.datasets import make_regression
-    from sklearn.model_selection import train_test_split
-    from sklearn.metrics import mean_squared_error
-
-    # Regression example
-    X, y = make_regression(n_samples=100, n_features=20, random_state=42)
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
-
-    reg = EnsembleRegressor(n_estimators=50, strategy='hybrid', random_state=42)
-    reg.fit(X_train, y_train)
-    y_pred = reg.predict(X_test)
-    print("Regression MSE:", mean_squared_error(y_test, y_pred))
-
-
-    from sklearn.datasets import make_classification
-    from sklearn.model_selection import train_test_split
-    from sklearn.metrics import accuracy_score
-
-    # Classification example
-    X, y = make_classification(n_samples=100, n_features=20, random_state=42)
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
-
-    clf = EnsembleClassifier(n_estimators=50, strategy='hybrid', random_state=42)
-    clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
-    print("Classification Accuracy:", accuracy_score(y_test, y_pred))
-
-
+ 
 
 
 

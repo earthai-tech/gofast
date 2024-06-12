@@ -77,11 +77,7 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
 
     Parameters
     ----------
-    base_estimator : estimator object
-        The base machine learning estimator to fit on the transformed data.
-        This estimator should follow the scikit-learn estimator interface. 
-        If no estimator is passed, the default is ``DecisionTreeClassifier``
-
+   
     n_clusters : int, default=7
         The number of clusters to form in the k-means clustering process.
 
@@ -124,6 +120,11 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
         K-means algorithm variant to use. The options include 'lloyd' for the 
         standard k-means algorithm and 'elkan' for the Elkan variant.
         
+     estimator : estimator object
+         The base machine learning estimator to fit on the transformed data.
+         This estimator should follow the scikit-learn estimator interface. 
+         If no estimator is passed, the default is ``DecisionTreeClassifier``
+         
     to_sparse : bool, default=False
             If True, the input data `X` will be converted to a sparse matrix
             before applying the transformation. This is useful for handling
@@ -135,7 +136,7 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
     featurizer_ : KMeansFeaturizer object
         The KMeansFeaturizer instance used to transform the input data.
 
-    base_estimator_ : estimator object
+    estimator_ : estimator object
         The fitted instance of the base estimator used for final predictions.
 
     Notes
@@ -174,7 +175,6 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
     """
     def __init__(
         self,
-        base_estimator=None, 
         n_clusters=3, 
         target_scale=1.0, 
         random_state=None, 
@@ -182,12 +182,14 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
         init='k-means++', 
         n_init="auto", 
         max_iter=300, 
-        tol=1e-4, copy_x=True, 
+        tol=1e-4,
+        copy_x=True, 
         verbose=0, 
         algorithm='lloyd', 
+        estimator=None, 
         to_sparse=False, 
         ):
-        self.base_estimator = base_estimator 
+        
         self.n_clusters = n_clusters
         self.target_scale = target_scale
         self.random_state = random_state
@@ -199,6 +201,7 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
         self.copy_x = copy_x
         self.verbose = verbose
         self.algorithm = algorithm
+        self.estimator = estimator 
         self.to_sparse=to_sparse
 
     def fit(self, X, y):
@@ -220,13 +223,13 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
             Returns self.
         """
         X, y = check_X_y(X, y, estimator =self, )
-        if self.base_estimator is None: 
-            self.base_estimator =  DecisionTreeClassifier()
+        if self.estimator is None: 
+            self.estimator =  DecisionTreeClassifier()
         
-        self.base_estimator = select_default_estimator(
-            self.base_estimator, 'classification')
+        self.estimator= select_default_estimator(
+            self.estimator, 'classification')
         
-        is_classifier(self.base_estimator )
+        is_classifier(self.estimator)
         self.featurizer_ = KMeansFeaturizer(
             n_clusters=self.n_clusters,
             target_scale=self.target_scale,
@@ -242,8 +245,8 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
             to_sparse=self.to_sparse, 
         )
         X_transformed = self.featurizer_.fit_transform(X, y)
-        self.base_estimator_ = clone(self.base_estimator)
-        self.base_estimator_.fit(X_transformed, y)
+        self.estimator_ = clone(self.estimator)
+        self.estimator_.fit(X_transformed, y)
         
         return self
 
@@ -261,8 +264,9 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
         y_pred : array-like of shape (n_samples,)
             Predicted class labels.
         """
+        check_is_fitted(self, ["estimator_", "featurizer_"])
         X_transformed = self.featurizer_.transform(X)
-        return self.base_estimator_.predict(X_transformed)
+        return self.estimator_.predict(X_transformed)
 
     def predict_proba(self, X):
         """
@@ -283,9 +287,9 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
         NotImplementedError
             If the base estimator does not support probability predictions.
         """
-        if hasattr(self.base_estimator_, "predict_proba"):
+        if hasattr(self, "predict_proba"):
             X_transformed = self.featurizer_.transform(X)
-            return self.base_estimator_.predict_proba(X_transformed)
+            return self.estimator_.predict_proba(X_transformed)
         else:
             raise NotImplementedError("Base estimator does not support predict_proba")
             
@@ -338,17 +342,17 @@ class KMFClassifier(BaseEstimator, ClassifierMixin):
         """
     
         # Check if the model is fitted
-        check_is_fitted(self, ['featurizer_', 'base_classifier_'])
+        check_is_fitted(self, ['featurizer_', 'estimator_'])
     
         # Check if the base classifier has the decision_function method
-        if not hasattr(self.base_classifier_, "decision_function"):
+        if not hasattr(self.estimator_, "decision_function"):
             raise AttributeError("The base classifier does not implement a decision function.")
     
         # Transform the data using the trained KMeansFeaturizer
         X_transformed = self.featurizer_.transform(X)
     
         # Compute and return the decision function from the base classifier
-        return self.base_classifier_.decision_function(X_transformed)
+        return self.estimator_.decision_function(X_transformed)
    
 class KMFRegressor(BaseEstimator, RegressorMixin):
     r"""
@@ -402,9 +406,6 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
 
     Parameters
     ----------
-    base_regressor : estimator object
-        The base machine learning regressor estimator to fit on the transformed 
-        data. This estimator should follow the scikit-learn estimator interface.
 
     n_clusters : int, default=7
         The number of clusters to form in the k-means clustering process.
@@ -448,6 +449,10 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
         K-means algorithm variant to use. The options include 'lloyd' for the 
         standard k-means algorithm and 'elkan' for the Elkan variant.
         
+    estimator : estimator object
+        The base machine learning regressor estimator to fit on the transformed 
+        data. This estimator should follow the scikit-learn estimator interface.
+        
     to_sparse : bool, default=False
             If True, the input data `X` will be converted to a sparse matrix
             before applying the transformation. This is useful for handling
@@ -459,7 +464,7 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
     featurizer_ : KMeansFeaturizer object
         The featurizer used to transform the data.
 
-    base_regressor_ : estimator object
+    estimator_ : estimator object
         The base regressor used for prediction.
 
     Examples
@@ -470,7 +475,7 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
     >>> from sklearn.model_selection import train_test_split 
     >>> X, y = load_iris (return_X_y=True) 
     >>> X_train, X_test, y_train, y_test = train_test_split( X, y) 
-    >>> kmf_regressor = KMFRegressor(base_regressor=LinearRegression(), n_clusters=5)
+    >>> kmf_regressor = KMFRegressor(base_estimator=LinearRegression(), n_clusters=5)
     >>> kmf_regressor.fit(X_train, y_train)
     >>> y_pred = kmf_regressor.predict(X_test)
     
@@ -482,7 +487,6 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
     """
     def __init__(
         self, 
-        base_regressor=None, 
         n_clusters=7, 
         target_scale=1.0, 
         random_state=None, 
@@ -494,9 +498,10 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
         copy_x=True, 
         verbose=0, 
         algorithm='lloyd', 
+        estimator=None, 
         to_sparse=False
         ):
-        self.base_regressor = base_regressor
+        
         self.n_clusters = n_clusters
         self.target_scale = target_scale
         self.random_state = random_state
@@ -508,6 +513,7 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
         self.copy_x = copy_x
         self.verbose = verbose
         self.algorithm = algorithm
+        self.estimator = estimator
         self.to_sparse=to_sparse
 
     def fit(self, X, y):
@@ -549,15 +555,15 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
         - The transformed data is then used to fit the base regressor.
         """
         
-        if self.base_regressor is None: 
-            self.base_regressor = DecisionTreeRegressor()
+        if self.estimator is None: 
+            self.estimator = DecisionTreeRegressor()
         
-        self.base_estimator = select_default_estimator( self.base_estimator)
+        self.estimator = select_default_estimator( self.estimator)
         
         # Check if the base estimator is a regressor
-        if not is_regressor(self.base_regressor):
-            name_estimator = get_estimator_name(self.base_regressor)
-            raise ValueError(f"The provided base estimator {name_estimator!r}"
+        if not is_regressor(self.estimator):
+            name_estimator = get_estimator_name(self.estimator)
+            raise ValueError(f"The provided estimator {name_estimator!r}"
                              " is not a regressor.")
         # Validate the input
         X, y = check_X_y(X, y, estimator=self)
@@ -578,8 +584,8 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
         )
         X_transformed = self.featurizer_.fit_transform(X, y)
         # Fit the base regressor
-        self.base_regressor_ = clone(self.base_regressor)
-        self.base_regressor_.fit(X_transformed, y)
+        self.estimator_ = clone(self.estimator)
+        self.estimator_.fit(X_transformed, y)
         return self
 
     def predict(self, X):
@@ -628,11 +634,11 @@ class KMFRegressor(BaseEstimator, RegressorMixin):
         """
         X= check_array(X, estimator= self, input_name= 'X')
         # Check if the model is fitted
-        check_is_fitted(self, ['featurizer_', 'base_regressor_'])
+        check_is_fitted(self, ['featurizer_', 'estimator_'])
         # Transform the data using the trained KMeansFeaturizer
         X_transformed = self.featurizer_.transform(X)
         # Predict using the base regressor on the transformed data
-        return self.base_regressor_.predict(X_transformed)
+        return self.estimator_.predict(X_transformed)
 
     def score(self, X, y):
         """

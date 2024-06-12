@@ -2404,10 +2404,13 @@ def validate_dates(
 
     return start_date.year, end_date.year
 
-def validate_positive_integer(value, variable_name, include_zero=False):
+
+
+
+def validate_positive_integer(value, variable_name, include_zero=False, round_float=None):
     """
     Validates whether the given value is a positive integer or zero based 
-    on the parameter.
+    on the parameter and rounds float values according to the specified method.
 
     Parameters:
     ----------
@@ -2417,6 +2420,9 @@ def validate_positive_integer(value, variable_name, include_zero=False):
         The name of the variable for error message purposes.
     include_zero : bool, optional
         If True, zero is considered a valid value. Default is False.
+    round_float : str, optional
+        If "ceil", rounds up float values; if "floor", rounds down float values;
+        if None, truncates float values to the nearest whole number towards zero.
 
     Returns:
     -------
@@ -2426,18 +2432,30 @@ def validate_positive_integer(value, variable_name, include_zero=False):
     Raises:
     ------
     ValueError
-        If the value is not a positive integer or zero (based on `include_zero`).
+        If the value is not a positive integer or zero (based on `include_zero`),
+        or if the `round_float` parameter is improperly specified.
     """
+    import math
+    
     # Determine the minimum acceptable value
     min_value = 0 if include_zero else 1
 
-    # Check for NumPy integer or float types as well
+    # Check for proper type and round if necessary
     if not isinstance(value, (int, float, np.integer, np.floating)):
         raise ValueError(f"{variable_name} must be an integer or float.")
 
-    if isinstance(value, float) and not value.is_integer():
-        raise ValueError(f"{variable_name} must be a whole number, got {value}.")
-
+    if isinstance(value, float):
+        if round_float == "ceil":
+            value = math.ceil(value)
+        elif round_float == "floor":
+            value = math.floor(value)
+        elif round_float is None:
+            value = int(value)
+        else:
+            raise ValueError(f"Invalid rounding method '{round_float}'."
+                             " Choose 'ceil', 'floor', or None.")
+    # if isinstance(value, float) and not value.is_integer():
+    #     raise ValueError(f"{variable_name} must be a whole number, got {value}.")
     if value < min_value:
         condition = "a non-negative integer" if include_zero else "a positive integer"
         raise ValueError(f"{variable_name} must be {condition}, got {value}.")

@@ -653,26 +653,7 @@ class OptimizeSearch(BaseOptimizer):
 
     The hyperparameter optimization can be extended to use different 
     optimization techniques by specifying the `strategy` parameter.
-
-    See Also
-    --------
-    sklearn.model_selection.GridSearchCV : Exhaustive search over specified 
-        parameter values for an estimator.
-    sklearn.model_selection.RandomizedSearchCV : Randomized search on hyper 
-        parameters.
-    ModelSummary : Class for summarizing model results.
-
-    References
-    ----------
-    .. [1] Bergstra, J., & Bengio, Y. (2012). Random Search for Hyper-Parameter 
-           Optimization. Journal of Machine Learning Research, 13, 281-305.
-    .. [2] Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., 
-           Grisel, O., ... & Duchesnay, E. (2011). Scikit-learn: Machine 
-           Learning in Python. Journal of Machine Learning Research, 12, 
-           2825-2830.
-
-    Mathematical Formulation
-    ------------------------
+    
     The optimization process involves searching for the best set of 
     hyperparameters that minimizes or maximizes a given scoring function. 
     Given a set of hyperparameters :math:`\theta`, the goal is to find:
@@ -690,6 +671,23 @@ class OptimizeSearch(BaseOptimizer):
     over a parameter grid, respectively. Bayesian optimization techniques, 
     such as `BayesSearchCV`, model the objective function and select the 
     next hyperparameters to evaluate based on this model.
+
+    See Also
+    --------
+    sklearn.model_selection.GridSearchCV : Exhaustive search over specified 
+        parameter values for an estimator.
+    sklearn.model_selection.RandomizedSearchCV : Randomized search on hyper 
+        parameters.
+    ModelSummary : Class for summarizing model results.
+
+    References
+    ----------
+    .. [1] Bergstra, J., & Bengio, Y. (2012). Random Search for Hyper-Parameter 
+           Optimization. Journal of Machine Learning Research, 13, 281-305.
+    .. [2] Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., 
+           Grisel, O., ... & Duchesnay, E. (2011). Scikit-learn: Machine 
+           Learning in Python. Journal of Machine Learning Research, 12, 
+           2825-2830.
 
     """
     def __init__(
@@ -1386,7 +1384,8 @@ class Optimizer2(BaseOptimizer):
                        for ii, (name, est) in enumerate (estimators.items())}
 
             for future in tqdm(concurrent.futures.as_completed(futures), 
-                               total=len(futures), desc="Optimizing Estimators", 
+                               total=len(futures), 
+                               desc=f"Optimizing {self.estimators_nickname_} Estimators", 
                                ncols=100, ascii=True):
                 name = futures[future]
                 _, best_est, best_params, best_score, cv_results = future.result()

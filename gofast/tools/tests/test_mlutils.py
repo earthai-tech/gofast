@@ -31,7 +31,7 @@ from gofast.datasets.load import load_bagoue, load_hlogs
 from gofast.tools.coreutils import find_features_in, smart_label_classifier, cleaner 
 from gofast.tools.mlutils import fetch_tgz_from_url, evaluate_model  
 from gofast.tools.mlutils import get_global_score, get_correlated_features    
-from gofast.tools.mlutils import codify_variables, resampling, bin_counting 
+from gofast.tools.mlutils import soft_encoder, resampling, bin_counting 
 from gofast.tools.mlutils import soft_imputer, soft_scaler, select_feature_importances 
 from gofast.tools.mlutils import make_pipe, build_data_preprocessor 
 from gofast.tools.mlutils import  load_model, bi_selector
@@ -135,7 +135,7 @@ def test_bin_counting () :
     Xr, _= _prepare_dataset(return_raw= True ) 
     # get the categorical variables 
     num_var , cat_var = bi_selector ( Xr )
-    Xcoded = codify_variables (Xr, columns = cat_var )
+    Xcoded = soft_encoder (Xr, columns = cat_var )
     # get the categ
     Xnew = pd.concat ((X, Xcoded), axis = 1 )
     #Xnew =Xnew.astype (float)
@@ -187,7 +187,7 @@ def test_codify_variables_simple_encoding():
     df = pd.DataFrame(data)
     
     # Perform simple encoding
-    df_encoded, map_codes = codify_variables(df, return_cat_codes=True)
+    df_encoded, map_codes = soft_encoder(df, return_cat_codes=True)
     
     # Assert that the output is as expected (example based on docstring)
     assert 'Color' in df_encoded.columns
@@ -204,7 +204,7 @@ def test_codify_variables_one_hot_encoding():
     df = pd.DataFrame(data)
     
     # Perform one-hot encoding
-    df_encoded = codify_variables(df, get_dummies=True)
+    df_encoded = soft_encoder(df, get_dummies=True)
     
     # Asserts to check if one-hot encoding is applied correctly
     assert 'Color_Red' in df_encoded.columns

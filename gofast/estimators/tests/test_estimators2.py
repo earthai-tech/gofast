@@ -13,7 +13,6 @@ from gofast.estimators.boosting import HybridBoostingRegressor
 from gofast.estimators.tree import DecisionStumpClassifier
 from gofast.estimators.tree import DecisionStumpRegressor 
 
-
 def test_regressor_fit_predict():
     X, y = make_regression(n_samples=100, n_features=1, noise=0.1, random_state=42)
     stump = DecisionStumpRegressor()

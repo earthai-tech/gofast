@@ -16,26 +16,17 @@ from tqdm import tqdm
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.preprocessing import LabelBinarizer 
 from sklearn.metrics import accuracy_score, r2_score
-try:from sklearn.utils import type_of_target
-except: from ..tools.coreutils import type_of_target 
 
-from .._gofastlog import  gofastlog
 from ..tools.funcutils import ensure_pkg 
 from ..tools.validator import check_X_y, check_array 
 from ..tools.validator import check_is_fitted
-from ._base import FuzzyNeuralNetBase, NeuroFuzzyBase
-from ._base import GradientDescentBase 
-
-_logger = gofastlog().get_gofast_logger(__name__)
+from ._base import FuzzyNeuralNetBase, NeuroFuzzyBase, GradientDescentBase 
+from .util import detect_problem_type 
 
 __all__=[
-    "Perceptron", 
-    "GradientDescentClassifier",
-    "GradientDescentRegressor", 
-    "NeuroFuzzyRegressor", 
-    "NeuroFuzzyClassifier", 
-    "FuzzyNeuralNetClassifier", 
-    "FuzzyNeuralNetRegressor", 
+    "Perceptron", "LightGDClassifier","LightGDRegressor", 
+    "NeuroFuzzyRegressor", "NeuroFuzzyClassifier", 
+    "FuzzyNeuralNetClassifier", "FuzzyNeuralNetRegressor", 
     ]
 
 class Perceptron(BaseEstimator, RegressorMixin, ClassifierMixin):
@@ -281,21 +272,10 @@ class Perceptron(BaseEstimator, RegressorMixin, ClassifierMixin):
                Ideas Immanent in Nervous Activity. Bulletin of Mathematical
                Biophysics, 5(4), 115-133.
         """
-        X, y = check_X_y(X, y, estimator=self)
+        X, y = check_X_y(X, y, estimator=self,)
         
-        self.problem = str(self.problem).lower()
+        self.problem = detect_problem_type(self.problem, y, estimator=self )
         
-        if self.problem == 'auto':
-            self.problem = type_of_target(y)
-            
-        if self.problem in ["binary", "multiclass", "classification"]: 
-            self.problem = 'classification'
-        elif self.problem in ["continuous", "regression"]:
-            self.problem = 'regression'
-        
-        if self.problem not in ["classification", "regression"]:
-            raise ValueError(f"Unsupported task type: {self.problem}")
-            
         if self.problem == 'classification':
             self.label_binarizer_ = LabelBinarizer()
             y = self.label_binarizer_.fit_transform(y)
@@ -1356,9 +1336,9 @@ class NeuroFuzzyClassifier(ClassifierMixin, NeuroFuzzyBase):
         """
         return self._predict_proba(X)
 
-class GradientDescentClassifier(ClassifierMixin, GradientDescentBase):
+class LightGDClassifier(ClassifierMixin, GradientDescentBase):
     """
-    Gradient Descent Classifier for Binary and Multi-Class Classification.
+    Light Gradient Descent Classifier for Binary and Multi-Class Classification.
 
     This classifier leverages the gradient descent optimization algorithm to 
     efficiently train binary classifiers for each class using a One-vs-Rest (OvR) 
@@ -1471,14 +1451,14 @@ class GradientDescentClassifier(ClassifierMixin, GradientDescentBase):
     Examples
     --------
     >>> from sklearn.datasets import load_iris
-    >>> from gofast.estimators.perceptron import GradientDescentClassifier
+    >>> from gofast.estimators.perceptron import LightGDClassifier
     >>> iris = load_iris()
     >>> X = iris.data
     >>> y = iris.target
-    >>> gd_clf = GradientDescentClassifier(eta0=0.01, max_iter=50)
-    >>> gd_clf.fit(X, y)
-    GradientDescentClassifier(...)
-    >>> y_pred = gd_clf.predict(X)
+    >>> lightgb_clf = LightGDClassifier(eta0=0.01, max_iter=50)
+    >>> lightgb_clf.fit(X, y)
+    LightGDClassifier(...)
+    >>> y_pred = lightgb_clf.predict(X)
     >>> print('Accuracy:', np.mean(y_pred == y))
 
     Notes
@@ -1536,6 +1516,7 @@ class GradientDescentClassifier(ClassifierMixin, GradientDescentBase):
             random_state=random_state, 
             verbose=verbose, 
         )
+
         
     def fit(self, X, y, sample_weight=None):
         """
@@ -1591,13 +1572,13 @@ class GradientDescentClassifier(ClassifierMixin, GradientDescentBase):
         Examples
         --------
         >>> from sklearn.datasets import load_iris
-        >>> from gofast.estimators.perceptron import GradientDescentClassifier
+        >>> from gofast.estimators.perceptron import LightGDClassifier
         >>> iris = load_iris()
         >>> X = iris.data
         >>> y = iris.target
-        >>> gd_clf = GradientDescentClassifier(eta0=0.01, max_iter=50)
+        >>> gd_clf = LightGDClassifier(eta0=0.01, max_iter=50)
         >>> gd_clf.fit(X, y)
-        GradientDescentClassifier(...)
+        LightGDClassifier(...)
         >>> y_pred = gd_clf.predict(X)
         >>> print('Accuracy:', np.mean(y_pred == y))
     
@@ -1642,13 +1623,13 @@ class GradientDescentClassifier(ClassifierMixin, GradientDescentBase):
         Examples
         --------
         >>> from sklearn.datasets import load_iris
-        >>> from gofast.estimators.perceptron import GradientDescentClassifier
+        >>> from gofast.estimators.perceptron import LightGDClassifier
         >>> iris = load_iris()
         >>> X = iris.data
         >>> y = iris.target
-        >>> gd_clf = GradientDescentClassifier(eta0=0.01, max_iter=50)
+        >>> gd_clf = LightGDClassifier(eta0=0.01, max_iter=50)
         >>> gd_clf.fit(X, y)
-        GradientDescentClassifier(...)
+        LightGDClassifier(...)
         >>> y_pred = gd_clf.predict(X)
         >>> print(y_pred)
     
@@ -1696,13 +1677,13 @@ class GradientDescentClassifier(ClassifierMixin, GradientDescentBase):
         Examples
         --------
         >>> from sklearn.datasets import load_iris
-        >>> from gofast.estimators.perceptron import GradientDescentClassifier
+        >>> from gofast.estimators.perceptron import LightGDClassifier
         >>> iris = load_iris()
         >>> X = iris.data
         >>> y = iris.target
-        >>> gd_clf = GradientDescentClassifier(eta0=0.01, max_iter=50)
+        >>> gd_clf = LightGDClassifier(eta0=0.01, max_iter=50)
         >>> gd_clf.fit(X, y)
-        GradientDescentClassifier(...)
+        LightGDClassifier(...)
         >>> y_proba = gd_clf.predict_proba(X)
         >>> print(y_proba)
     
@@ -1719,9 +1700,9 @@ class GradientDescentClassifier(ClassifierMixin, GradientDescentBase):
         X = check_array(X, accept_sparse=True, estimator= self, input_name="X")
         return self._predict_proba(X)
 
-class GradientDescentRegressor(RegressorMixin, GradientDescentBase):
+class LightGDRegressor(RegressorMixin, GradientDescentBase):
     """
-    Gradient Descent Regressor for Linear Regression.
+    Light Gradient Descent Regressor for Linear Regression.
 
     This regressor employs the gradient descent optimization algorithm to
     perform linear regression tasks. The GradientDescentRegressor predicts 
@@ -1730,7 +1711,6 @@ class GradientDescentRegressor(RegressorMixin, GradientDescentBase):
     training, the model's weights are updated by calculating the gradient of 
     the cost function and adjusting the weights to minimize the error.
 
-    Mathematical Formulation:
     The core of the gradient descent for linear regression involves iteratively
     updating the model weights to reduce the cost function, using the following rule:
 
@@ -1821,30 +1801,31 @@ class GradientDescentRegressor(RegressorMixin, GradientDescentBase):
     --------
     >>> from sklearn.datasets import load_diabetes
     >>> from sklearn.model_selection import train_test_split
-    >>> from gofast.estimators.perceptron import GradientDescentRegressor
+    >>> from gofast.estimators.perceptron import LightGDRegressor
     >>> diabetes = load_diabetes()
     >>> X = diabetes.data
     >>> y = diabetes.target
     >>> X_train, X_test, y_train, y_test = train_test_split(
     ...     X, y, test_size=0.3, random_state=0)
-    >>> gd_reg = GradientDescentRegressor(eta0=0.001, max_iter=1000, verbose=True)
+    >>> gd_reg = LightGDRegressor(eta0=0.001, max_iter=1000, verbose=True)
     >>> gd_reg.fit(X_train, y_train)
-    GradientDescentRegressor(...)
+    LightGDRegressor(...)
     >>> y_pred = gd_reg.predict(X_test)
     >>> mse = np.mean((y_pred - y_test) ** 2)
     >>> print('Mean Squared Error:', mse)
 
     Notes
     -----
-    Gradient Descent is a widely used optimization technique for training
-    linear regression models. The learning rate (eta0) and the number of
-    iterations (max_iter) are crucial hyperparameters that impact the training
-    process. Careful tuning of these hyperparameters is necessary for
-    achieving optimal results.
+    The learning rate (eta0) is a critical parameter that affects the convergence
+    of the algorithm. A small learning rate can lead to slow convergence, while a
+    large learning rate can cause oscillations or divergence in the cost function.
+    The number of epochs controls the number of times the algorithm iterates
+    over the entire dataset.
 
     See Also
     --------
-    LinearRegression : Linear regression from Scikit-Learn.
+    LinearRegression : Ordinary least squares Linear Regression.
+    SGDRegressor : Linear regressor with Stochastic Gradient Descent.
     
     References
     ----------
@@ -1892,7 +1873,7 @@ class GradientDescentRegressor(RegressorMixin, GradientDescentBase):
         
     def fit(self, X, y, sample_weight=None):
         """
-        Fit the GradientDescentRegressor model to the training data.
+        Fit the LightGDRegressor model to the training data.
     
         This method trains the GradientDescentRegressor on the provided training
         data `X` and target values `y`. It utilizes the gradient descent optimization
@@ -1946,16 +1927,16 @@ class GradientDescentRegressor(RegressorMixin, GradientDescentBase):
     
         Examples
         --------
-        >>> from gofast.estimators.perceptron import GradientDescentRegressor
+        >>> from gofast.estimators.perceptron import LightGDRegressor
         >>> from sklearn.datasets import load_boston
         >>> from sklearn.model_selection import train_test_split
         >>> boston = load_boston()
         >>> X = boston.data
         >>> y = boston.target
         >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
-        >>> gd_reg = GradientDescentRegressor(eta0=0.001, max_iter=1000)
+        >>> gd_reg = LightGDRegressor(eta0=0.001, max_iter=1000)
         >>> gd_reg.fit(X_train, y_train)
-        GradientDescentRegressor(...)
+        LightGDRegressor(...)
         >>> y_pred = gd_reg.predict(X_test)
         >>> mse = np.mean((y_pred - y_test) ** 2)
         >>> print('Mean Squared Error:', mse)
@@ -1973,7 +1954,7 @@ class GradientDescentRegressor(RegressorMixin, GradientDescentBase):
     
     def predict(self, X):
         """
-        Predict continuous target values using the trained GradientDescentRegressor model.
+        Predict continuous target values using the trained LightGDRegressor model.
     
         This method generates predictions for the input samples in `X` based on the
         trained weights of the GradientDescentRegressor. It calculates the net input 
@@ -2016,16 +1997,16 @@ class GradientDescentRegressor(RegressorMixin, GradientDescentBase):
         
         Examples
         --------
-        >>> from gofast.estimators.perceptron import GradientDescentRegressor
+        >>> from gofast.estimators.perceptron import LightGDRegressor
         >>> from sklearn.datasets import load_boston
         >>> from sklearn.model_selection import train_test_split
         >>> boston = load_boston()
         >>> X = boston.data
         >>> y = boston.target
         >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
-        >>> gd_reg = GradientDescentRegressor(eta0=0.001, max_iter=1000)
+        >>> gd_reg = LightGDRegressor(eta0=0.001, max_iter=1000)
         >>> gd_reg.fit(X_train, y_train)
-        GradientDescentRegressor(...)
+        LightGDRegressor(...)
         >>> y_pred = gd_reg.predict(X_test)
         >>> print('Predicted values:', y_pred)
     

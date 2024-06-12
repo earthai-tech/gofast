@@ -13,8 +13,10 @@ from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.model_selection import cross_val_score
 from sklearn.preprocessing import RobustScaler, MinMaxScaler, StandardScaler
 
+try:from sklearn.utils import type_of_target
+except: from ..tools.coreutils import type_of_target 
 from ..tools.validator import check_array, check_X_y
-from ..tools.validator import validate_fit_weights
+from ..tools.validator import validate_fit_weights, get_estimator_name
 from ..tools.validator import validate_positive_integer 
     
 def activator(z, activation='sigmoid', alpha=1.0, clipping_threshold=250):
@@ -112,6 +114,137 @@ def activator(z, activation='sigmoid', alpha=1.0, clipping_threshold=250):
         return activation(z)
     else:
         raise ValueError("Activation must be a string or a callable function")
+ 
+def detect_problem_type(problem, y, multi_output=False, estimator=None):
+    """
+    Detect and set the type of machine learning problem based on the target `y`.
+
+    This function determines whether the given machine learning problem is a 
+    classification, regression, or multi-label task. When `problem` is set to 
+    'auto', it utilizes scikit-learn's `type_of_target` function to automatically 
+    identify the nature of the problem. The function normalizes the problem type 
+    string, validates it, and ensures it is one of the supported types. It also 
+    handles multi-output scenarios and raises appropriate errors when necessary.
+
+    Parameters
+    ----------
+    problem : str
+        The initial problem type. Accepted values are 'auto', 'binary', 
+        'multiclass', 'classification', 'continuous', 'regression', or 
+        'multilabel-indicator'. If set to 'auto', the function will automatically 
+        detect the problem type based on `y`.
+
+    y : array-like
+        The target values. This can be a list, numpy array, pandas Series, or 
+        any array-like structure containing the target labels or values.
+
+    multi_output : bool, default=False
+        Whether the task is a multi-output (multi-label) problem. If set to 
+        `True`, the function will handle multi-label classification problems 
+        and allow the problem type 'multilabel-indicator'.
+
+    estimator : object, optional
+        The estimator object. If provided, it will be used in the error message 
+        when a multi-label indicator is detected but `multi_output` is not 
+        supported.
+
+    Returns
+    -------
+    detected_problem : str
+        The detected and validated problem type. Possible values are 
+        'classification', 'regression', or 'multilabel-indicator'.
+
+    Raises
+    ------
+    ValueError
+        If the detected or provided problem type is not supported, or if 
+        multi-output is not tolerated but a multi-label indicator is detected.
+
+    Examples
+    --------
+    >>> from sklearn.datasets import load_iris, fetch_california_housing
+    >>> from sklearn.preprocessing import MultiLabelBinarizer
+    >>> from gofast.estimators.util import detect_problem_type
+    
+    # For a classification problem
+    >>> iris = load_iris()
+    >>> X_iris, y_iris = iris.data, iris.target
+    >>> problem = detect_problem_type('auto', y_iris)
+    >>> print(problem)
+    'classification'
+    
+    # For a regression problem
+    >>> housing = fetch_california_housing()
+    >>> X_housing, y_housing = housing.data, housing.target
+    >>> problem = detect_problem_type('auto', y_housing)
+    >>> print(problem)
+    'regression'
+    
+    # For a multi-label classification problem
+    >>> mlb = MultiLabelBinarizer()
+    >>> y_multi = mlb.fit_transform([(1, 2), (3,), (1, 2, 3)])
+    >>> problem = detect_problem_type('auto', y_multi, multi_output=True)
+    >>> print(problem)
+    'classification'
+
+    Notes
+    -----
+    The `detect_problem_type` function is essential for determining the nature 
+    of the machine learning task based on the target variable `y`. It uses 
+    scikit-learn's `type_of_target` function to identify whether the problem 
+    is a binary classification, multiclass classification, regression, or 
+    multi-label classification.
+
+    The function normalizes the `problem` parameter to ensure consistency and 
+    checks if `multi_output` is `True` to handle multi-label classification 
+    scenarios. If the problem type is not supported or if there is a 
+    contradiction between `multi_output` and the detected problem type, a 
+    `ValueError` is raised with an appropriate message.
+
+    See Also
+    --------
+    sklearn.utils.multiclass.type_of_target : Determine the type of data indicated 
+        by the target.
+    
+    References
+    ----------
+    .. [1] Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., 
+           Grisel, O., Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V., 
+           Vanderplas, J., Passos, A., Cournapeau, D., Brucher, M., Perrot, M., 
+           & Duchesnay, E. (2011). Scikit-learn: Machine Learning in Python. 
+           Journal of Machine Learning Research, 12, 2825-2830.
+    """
+    # Define the set of classification problem types
+    classification_problems = {"binary", "multiclass", "classification"}
+    
+    # Convert the problem type to lowercase to ensure consistency
+    problem = str(problem).lower()
+    
+    # Automatically detect the problem type if set to 'auto'
+    if problem == 'auto':
+        problem = type_of_target(y)
+    
+    # Check for multi-label indicator with multi-output set to False
+    if problem == "multilabel-indicator" and not multi_output:
+        error_message = "Detected 'multilabel-indicator' while multi-output is not supported"
+        if estimator is not None:
+            error_message += f" by {get_estimator_name(estimator)}"
+        raise ValueError(f"{error_message}.")
+    
+    # Add 'multilabel-indicator' to classification problems if multi-output is True
+    if multi_output:
+        classification_problems.add("multilabel-indicator")
+    
+    # Determine the problem type
+    if problem in classification_problems:
+        detected_problem = 'classification'
+    elif problem in {"continuous", "regression"}:
+        detected_problem = 'regression'
+    else:
+        # Raise an error if the problem type is not supported
+        raise ValueError(f"Unsupported task type: {problem}")
+    
+    return detected_problem
 
 def get_default_meta_estimator(
         meta_estimator: BaseEstimator = None, problem: str = 'regression'
@@ -636,6 +769,118 @@ def optimize_hyperparams(
     search.fit(X, y)
     # Return the best estimator if available, otherwise return the search object
     return search.best_estimator_ if hasattr(search, 'best_estimator_') else search
+
+def estimate_memory_depth(X, default_depth=5):
+    """
+    Estimates the memory depth for a HammersteinWienerRegressor when none 
+    is specified.
+
+    Args:
+    X (np.array): The input dataset, assumed to be time-series data.
+    default_depth (int): Default memory depth if a smart estimate cannot be determined.
+
+    Returns:
+    int: An estimated memory depth.
+    """
+    if X.ndim != 2:
+        raise ValueError("Input data X must be a 2D array where rows are"
+                         " observations and columns are features.")
+
+    # Check the autocorrelation of the first feature as a simple example
+    feature_autocorr = np.correlate(X[:, 0], X[:, 0], mode='full')
+    max_lag = len(feature_autocorr) // 2  # Middle of the correlation array
+    feature_autocorr = feature_autocorr[max_lag:]  # Take the second half (positive lags)
+
+    # Find the first lag where autocorrelation drops below 0.5
+    # This could be a simplistic criterion for determining the memory
+    significant_lags = np.where(feature_autocorr < 0.5 * np.max(feature_autocorr))[0]
+    if significant_lags.size > 0:
+        estimated_depth = significant_lags[0]
+        if estimated_depth > 0:
+            return estimated_depth
+    # Return the default depth if no significant autocorrelation drop is found
+    return default_depth 
+
+def validate_memory_depth(X, memory_depth=None, default_depth=5):
+    """
+    Validates the provided memory depth or estimates it if None. This function 
+    ensures that the memory depth is a positive integer and does not exceed the 
+    number of available samples in the dataset. If no memory depth is provided, 
+    it estimates a sensible default based on the autocorrelation of the input 
+    dataset or a predefined heuristic.
+
+    Parameters
+    ----------
+    X : np.array
+        The input dataset, assumed to be time-series data. It should be a 2D NumPy 
+        array where rows represent time points and columns represent variables.
+    memory_depth : int, optional
+        The memory depth to validate. It must be a positive integer and cannot
+        exceed the length of the dataset. The default is None, which triggers
+        estimation of memory depth.
+    default_depth : int or str, optional
+        Specifies the default depth to use if `memory_depth` is None. If set to 
+        ``"auto"``, the function will calculate the default as half the number of
+        samples. The default is 5.
+
+    Returns
+    -------
+    int
+        The validated or estimated memory depth.
+
+    Raises
+    ------
+    ValueError
+        If `memory_depth` is not a positive integer, or if it exceeds the number 
+        of samples, or if it is not a whole number when expected.
+
+    Notes
+    -----
+    The function utilizes a heuristic based on the autocorrelation of the first 
+    feature to estimate memory depth if none is provided. This estimation process 
+    is crucial for dynamic modeling in systems where the appropriate memory depth 
+    is not straightforward to determine.
+
+    Examples
+    --------
+    >>> from gofast.estimators.util import validate_memory_depth
+    >>> import numpy as np
+    >>> X = np.random.rand(100, 10)  # A dataset with 100 samples and 10 features
+    >>> validated_depth = validate_memory_depth(X)
+    >>> print(validated_depth)
+
+    See Also
+    --------
+    estimate_memory_depth : The function used for estimating memory depth based on 
+                            autocorrelation if no memory depth is provided.
+
+    References
+    ----------
+    .. [1] Ljung, L. (1999). System Identification - Theory for the User. Prentice Hall, 
+           Upper Saddle River, N.J.
+    
+    """
+    num_samples = X.shape[0]
+    if memory_depth is not None:
+        memory_depth = validate_positive_integer(memory_depth, "memory_depth",  
+                                                 round_float="ceil") 
+        if memory_depth > num_samples:
+            raise ValueError("Memory depth cannot exceed the number"
+                             f" of samples ({num_samples}).")
+        return memory_depth
+    else:
+        if default_depth == "auto":
+            default_depth = num_samples // 2  
+
+        estimated_depth = estimate_memory_depth(X, default_depth)
+        if estimated_depth > num_samples:
+            raise ValueError("Estimated memory depth exceeds the number"
+                             f" of samples ({num_samples}). Consider"
+                             " reducing the default depth or using a"
+                             " different estimation technique.")
+            
+        return estimated_depth
+
 
 def select_default_estimator(
         estimator: str|BaseEstimator, problem: str = 'regression'):

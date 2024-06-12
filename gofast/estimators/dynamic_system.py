@@ -16,148 +16,14 @@ from sklearn.preprocessing import LabelBinarizer # noqa
 from ..tools.validator import check_X_y, check_array 
 from ..tools.validator import check_is_fitted
 from ..tools.baseutils import normalizer 
-from .util import select_default_estimator 
+from .util import select_default_estimator, validate_memory_depth 
 
 __all__= [
     "HammersteinWienerClassifier","HammersteinWienerRegressor",
     "EnsembleHWClassifier", "EnsembleHWRegressor",
     ]
-# revise the class according to: 
-# In fact I have seen the error. why predict_proba and predict are wrong. 
-# Indeed classifier is mostly scikitlearn classifier that can hancle multiclass 
-# so before using classifier for y , dont need to binarize again, it can be apply 
-# to the classifier and can handle it , for instance LogisticRegression can handle 
-# multiclass that ie mean predict multiclass label. 
-# so the nonlinearity_out and nonlinearity_in can be applied to X and does 
-# not modified the shape 
-# howerver , the best strategy is the use the classifier to predict probability of 
-# the class and use nonlinearity_out to apply to this probabilities 
-# Then the predict proba method just concatenate the default prediction and y_pred_proba 
-# prediction with the shape egal to (n_samples, n_classes ) 
-# However the predict method use the predict probabilities predicted and converted 
-# to class label using np.argmax  . 
-
-# what do you think because I think this make sense with the HammersteinWienerClassifier
-# we expect this will definitively fix the error in shape etc 
 
 class HammersteinWienerClassifier(BaseEstimator, ClassifierMixin):
-    def __init__(self, classifier="LogisticRegression", nonlinearity_in='tanh',
-                 nonlinearity_out='sigmoid', memory_depth=5, verbose=False):
-        self.classifier = classifier
-        self.nonlinearity_in = nonlinearity_in
-        self.nonlinearity_out = nonlinearity_out
-        self.memory_depth = memory_depth
-        self.verbose = verbose
-
-    def _validate_parameters(self):
-        func_dict = {
-            'tanh': np.tanh,
-            'sigmoid': lambda x: 1 / (1 + np.exp(-x)),
-            'relu': lambda x: np.maximum(0, x),
-            'leaky_relu': lambda x: np.where(x > 0, x, 0.01 * x)
-        }
-        if isinstance(self.nonlinearity_in, str):
-            if self.nonlinearity_in not in func_dict:
-                raise ValueError(f"nonlinearity_in '{self.nonlinearity_in}' is not supported. Choose from {list(func_dict.keys())}")
-            self.nonlinearity_in = func_dict[self.nonlinearity_in]
-        elif not callable(self.nonlinearity_in):
-            raise ValueError("nonlinearity_in must be a callable function")
-
-        if isinstance(self.nonlinearity_out, str):
-            if self.nonlinearity_out not in func_dict:
-                raise ValueError(f"nonlinearity_out '{self.nonlinearity_out}' is not supported. Choose from {list(func_dict.keys())}")
-            self.nonlinearity_out = func_dict[self.nonlinearity_out]
-        elif not callable(self.nonlinearity_out):
-            raise ValueError("nonlinearity_out must be a callable function")
-
-        if not isinstance(self.memory_depth, int) or self.memory_depth < 1:
-            raise ValueError("memory_depth must be a positive integer")
-
-        self.classifier = select_default_estimator(self.classifier, 'classification')
-
-    def fit(self, X, y, sample_weight=None):
-        X, y = check_X_y(X, y, estimator=self)
-        self.lb_ = LabelBinarizer().fit(y)
-
-        if self.verbose:
-            print("Fitting Hammerstein Wiener Classifier....")
-        X_lagged = self._preprocess_data(X)
-        y_adjusted = y[self.memory_depth:]
-
-        if sample_weight is not None:
-            sample_weight = np.array(sample_weight)
-            if sample_weight.shape[0] != y_adjusted.shape[0]:
-                raise ValueError("Sample weights array length must match the adjusted target array length.")
-            self.classifier.fit(X_lagged, y_adjusted, sample_weight=sample_weight[self.memory_depth:])
-        else:
-            self.classifier.fit(X_lagged, y_adjusted)
-
-        self.fitted_ = True
-        if self.verbose:
-            print("Fitting Hammerstein Wiener Classifier completed.")
-        return self
-
-    def _preprocess_data(self, X):
-        self._validate_parameters()
-        if self.verbose:
-            print("Start preprocessing X and control Memory Depth...")
-        X_transformed = self.nonlinearity_in(X)
-        n_samples, n_features = X_transformed.shape
-        if n_samples <= self.memory_depth:
-            raise ValueError("Not enough samples to match the memory depth")
-        X_lagged = np.zeros((n_samples - self.memory_depth, self.memory_depth * n_features))
-        for i in range(self.memory_depth, n_samples):
-            X_lagged[i - self.memory_depth, :] = X_transformed[i - self.memory_depth:i, :].flatten()
-        if self.verbose:
-            print("Preprocess X and Memory depth control completed.")
-        return X_lagged
-
-    def predict0(self, X):
-        check_is_fitted(self, 'fitted_')
-        X = check_array(X)
-        #X_lagged = self._preprocess_data(X)
-        proba = self.predict_proba(X)
-        return np.argmax(proba, axis=1)
-    
-    def predict(self, X):
-        check_is_fitted(self, 'fitted_')
-        X = check_array(X)
-        X_lagged = self._preprocess_data(X)
-        y_linear = np.asarray( self.classifier.predict(X_lagged)) 
-        print(y_linear [:2])
-        y_pred = self.nonlinearity_out(y_linear)
-        
-        print(y_pred [:2])
-        if self.lb_.classes_.shape[0] > 2:
-            y_pred = np.argmax(y_pred, axis=1)
-            print("yes")
-        else:
-            y_pred = np.where(y_pred >= 0.5, 1, 0)
-            print("yop")
-
-        default_prediction = np.array([self.lb_.classes_[0]] * self.memory_depth)
-        print(default_prediction)
-
-        y_pred_full = np.concatenate((default_prediction, y_pred))
-
-        return y_pred # y_pred_full
-
-    def predict_proba(self, X):
-        check_is_fitted(self, 'fitted_')
-        X = check_array(X, accept_large_sparse=True, accept_sparse=True, input_name="X")
-        X_lagged = self._preprocess_data(X)
-        proba_linear = np.asarray(self.classifier.predict_proba(X_lagged))
-        
-        if self.lb_.classes_.shape[0] > 2:
-            proba = np.zeros_like(proba_linear)
-            for i in range(proba_linear.shape[1]):
-                proba[:, i] = self.nonlinearity_out(proba_linear[:, i])
-            return proba
-        else:
-            return self.nonlinearity_out(proba_linear)
-
-        
-class HammersteinWienerClassifier0(BaseEstimator, ClassifierMixin):
     r"""
     Hammerstein-Wiener Classifier for Dynamic Classification Tasks.
 
@@ -197,12 +63,6 @@ class HammersteinWienerClassifier0(BaseEstimator, ClassifierMixin):
 
     Parameters
     ----------
-    classifier : object, default=LogisticRegression()
-        Linear classifier model for the dynamic block. Should support fit 
-        and predict methods. For multi-class classification, it can be set to 
-        use softmax regression (e.g., 
-        LogisticRegression with multi_class='multinomial').
-
     nonlinearity_in : str or callable, default='tanh'
         Nonlinear function applied to inputs. This can be a string 
         ('tanh', 'sigmoid', 'relu', 'leaky_relu') to select a predefined 
@@ -220,6 +80,12 @@ class HammersteinWienerClassifier0(BaseEstimator, ClassifierMixin):
         defines the 'memory' of the system, enabling the model to use past 
         information for current predictions.
         
+    classifier : object, Optional, default=LogisticRegression()
+        Linear classifier model for the dynamic block. Should support fit 
+        and predict methods. For multi-class classification, it can be set to 
+        use softmax regression (e.g., 
+        LogisticRegression with multi_class='multinomial').
+
     verbose : int, default=False
         Controls the verbosity when fitting.
         
@@ -264,10 +130,10 @@ class HammersteinWienerClassifier0(BaseEstimator, ClassifierMixin):
 
     def __init__(
         self, 
-        classifier="logit", 
         nonlinearity_in='tanh', 
         nonlinearity_out='sigmoid', 
         memory_depth=5, 
+        classifier=None, 
         verbose=False 
         ):
         self.classifier = classifier
@@ -338,11 +204,8 @@ class HammersteinWienerClassifier0(BaseEstimator, ClassifierMixin):
         elif not callable(self.nonlinearity_out):
             raise ValueError("nonlinearity_out must be a callable function")
 
-        if not isinstance(self.memory_depth, int) or self.memory_depth < 1:
-            raise ValueError("memory_depth must be a positive integer")
-
         self.classifier = select_default_estimator (
-            self.classifier, problem="classification")
+            self.classifier or "logit", problem="classification")
         
     def fit(self, X, y, sample_weight=None):
         """
@@ -403,6 +266,9 @@ class HammersteinWienerClassifier0(BaseEstimator, ClassifierMixin):
         if self.verbose: 
             print("Fitting Hammerstein Wiener Classifier....")
         X_lagged = self._preprocess_data(X)
+        self.memory_depth = validate_memory_depth(
+            X, self.memory_depth,default_depth="auto" )
+        
         y_adjusted = y[self.memory_depth:]
     
         if sample_weight is not None:
@@ -480,7 +346,7 @@ class HammersteinWienerClassifier0(BaseEstimator, ClassifierMixin):
                 X_transformed[i - self.memory_depth:i, :].flatten()
                 )
         if self.verbose: 
-            print("Proprocess X and Memory depth control completed.")
+            print("Preprocess X and Memory depth control completed.")
             
         return X_lagged
     
@@ -645,12 +511,6 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
 
     Parameters
     ----------
-    linear_model : object or str, default="LinearRegression"
-        A linear model for the dynamic block. This should be an estimator 
-        with fit and predict methods (e.g., LinearRegression from scikit-learn). 
-        If a string is provided, it must be "LinearRegression". The choice of 
-        linear model influences how the system's linear dynamics are captured.
-
     nonlinearity_in : str or callable, default='tanh'
         Nonlinear function applied to system inputs. This can be a string 
         ('tanh', 'sigmoid', 'relu', 'leaky_relu') to select a predefined 
@@ -670,6 +530,12 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
         value means more past data points are used, which can enhance model 
         accuracy but increase computational complexity.
 
+    linear_model : object or str, Optional,  default="LinearRegression"
+        A linear model for the dynamic block. This should be an estimator 
+        with fit and predict methods (e.g., LinearRegression from scikit-learn). 
+        If a string is provided, it must be "LinearRegression". The choice of 
+        linear model influences how the system's linear dynamics are captured.
+        
     random_state : int, RandomState instance or None, default=None
         Controls the randomness of the estimator. Pass an int for reproducible 
         output across multiple function calls.
@@ -731,10 +597,10 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
 
     def __init__(
         self,
-        linear_model="lreg", 
         nonlinearity_in='tanh', 
         nonlinearity_out='tanh', 
         memory_depth=5, 
+        linear_model=None, 
         random_state=None, 
         verbose=False 
         ):
@@ -793,7 +659,6 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
             'leaky_relu': lambda x: np.where(x > 0, x, 0.01 * x),
             'identity': lambda x: x
         }
-    
         if isinstance(self.nonlinearity_in, str):
             if self.nonlinearity_in not in func_dict:
                 raise ValueError(
@@ -811,11 +676,9 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
             self.nonlinearity_out = func_dict[self.nonlinearity_out]
         elif not callable(self.nonlinearity_out):
             raise ValueError("nonlinearity_out must be a callable function")
-    
-        if not isinstance(self.memory_depth, int) or self.memory_depth < 1:
-            raise ValueError("memory_depth must be a positive integer")
-    
-        self.linear_model = select_default_estimator (self.linear_model)
+            
+        self.linear_model = select_default_estimator (
+            self.linear_model or "lreg")
 
     def _preprocess_data(self, X):
         """
@@ -872,6 +735,10 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
         self._validate_parameters()
         if self.verbose :
             print("Starting Memory depth control... ")
+        
+        self.memory_depth = validate_memory_depth(
+            X, self.memory_depth,default_depth="auto" )
+        
         X_transformed = self.nonlinearity_in(X)
         n_samples, n_features = X_transformed.shape
         if n_samples <= self.memory_depth:
@@ -952,7 +819,7 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
             print(" Fitting Hammerstein Wiener Regressor... ")
         X_lagged = self._preprocess_data(X)
         y_adjusted = y[self.memory_depth:]
-
+        
         if sample_weight is not None:
             sample_weight = np.array(sample_weight)
             if sample_weight.shape[0] != y_adjusted.shape[0]:
@@ -1061,10 +928,6 @@ class EnsembleHWClassifier(BaseEstimator, ClassifierMixin):
     eta0 : float, default=0.1
         The learning rate for gradient boosting, influencing how base classifier 
         weights are adjusted.
-    classifier : object or str, default="LogisticRegression"
-        The base classifier to be used in the ensemble. If a string is provided, 
-        it must be "LogisticRegression". The classifier should have fit and 
-        predict methods.
     nonlinearity_in : str or callable, default='tanh'
         Nonlinear function applied to inputs. This can be a string ('tanh', 
         'sigmoid', 'relu', 'leaky_relu') to select a predefined function or 
@@ -1079,6 +942,11 @@ class EnsembleHWClassifier(BaseEstimator, ClassifierMixin):
         The number of past time steps to consider in the model. This parameter 
         defines the 'memory' of the system, enabling the model to use past 
         information for current predictions.
+    classifier : object or str, Optional, default="LogisticRegression"
+        The base classifier to be used in the ensemble. If a string is provided, 
+        it must be "LogisticRegression". The classifier should have fit and 
+        predict methods.
+        
     random_state : int, RandomState instance or None, default=None
         Controls the randomness of the estimator. Pass an int for reproducible 
         output across multiple function calls.
@@ -1166,16 +1034,16 @@ class EnsembleHWClassifier(BaseEstimator, ClassifierMixin):
         nonlinearity_in='tanh', 
         nonlinearity_out='sigmoid', 
         memory_depth=5, 
-        classifier="LogisticRegression",
+        classifier=None,
         random_state=None, 
         verbose=False 
         ):
         self.n_estimators = n_estimators
         self.eta0 = eta0
-        self.classifier = classifier
         self.nonlinearity_in = nonlinearity_in
         self.nonlinearity_out = nonlinearity_out
         self.memory_depth = memory_depth
+        self.classifier = classifier
         self.random_state = random_state
         self.verbose=verbose 
 
@@ -1417,10 +1285,6 @@ class EnsembleHWRegressor(BaseEstimator, RegressorMixin):
     eta0 : float, default=0.1
         The learning rate for gradient boosting, influencing how base regressor 
         weights are adjusted.
-    regressor : object or str, default="LinearRegression"
-        The base regressor to be used in the ensemble. If a string is provided, 
-        it must be "LinearRegression". The regressor should have fit and 
-        predict methods.
     nonlinearity_in : str or callable, default='tanh'
         Nonlinear function applied to inputs. This can be a string ('tanh', 
         'sigmoid', 'relu', 'leaky_relu') to select a predefined function or 
@@ -1431,6 +1295,10 @@ class EnsembleHWRegressor(BaseEstimator, RegressorMixin):
         be a string ('identity') to select a predefined function or a callable 
         for a custom function. It models the nonlinear transformation at the 
         output stage.
+    regressor : object or str, optional, default="LinearRegression"
+        The base regressor to be used in the ensemble. If a string is provided, 
+        it must be "LinearRegression". The regressor should have fit and 
+        predict methods.
     memory_depth : int, default=5
         The number of past time steps to consider in the model. This parameter 
         defines the 'memory' of the system, enabling the model to use past 
@@ -1528,10 +1396,10 @@ class EnsembleHWRegressor(BaseEstimator, RegressorMixin):
         self, 
         n_estimators=50, 
         eta0=0.1, 
-        regressor="LinearRegression",
         nonlinearity_in='tanh', 
         nonlinearity_out='identity', 
         memory_depth=5, 
+        regressor=None,
         random_state=None, 
         verbose=False 
         
@@ -1580,7 +1448,7 @@ class EnsembleHWRegressor(BaseEstimator, RegressorMixin):
         self.base_regressors_ = []
         self.weights_ = []
         y_pred = np.zeros(len(y))
-        
+    
         if self.verbose: 
             progress_bar = tqdm(
                 total=len(self.n_estimators), 

@@ -278,19 +278,26 @@ class BaseOptimizer(metaclass=ABCMeta):
             The generated short name for the estimator.
         """
         name_map = {
+            'LinearRegression': 'LinReg',
             'LogisticRegression': 'LogReg',
             'RandomForestClassifier': 'RF',
-            'GradientBoostingClassifier': 'GBC',
-            'SupportVectorClassifier': 'SVC',
+            'GradientBoostingClassifier': 'GBM',
+            'GradientBoostingRegressor': 'GBM',
+            'SupportVectorClassifier': 'SVM',
+            'SupportVectorRegressor': 'SVM',
             'KNeighborsClassifier': 'KNN',
             'DecisionTreeClassifier': 'DT',
-            'AdaBoostClassifier': 'ABC',
+            'DecisionTreeRegressor': 'DT',
+            'AdaBoostClassifier': 'AB',
+            'AdaBoostRegressor': 'AB',
             'ExtraTreesClassifier': 'ET',
+            'ExtraTreesRegressor': 'ET',
             'MultinomialNB': 'MNB',
             'BernoulliNB': 'BNB',
             'GaussianNB': 'GNB',
             'LinearDiscriminantAnalysis': 'LDA',
-            'QuadraticDiscriminantAnalysis': 'QDA'
+            'QuadraticDiscriminantAnalysis': 'QDA', 
+            'XGBClassifier': "XGB"
             # ...
         }
     
