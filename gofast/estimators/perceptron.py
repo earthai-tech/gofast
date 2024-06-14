@@ -20,7 +20,7 @@ from sklearn.metrics import accuracy_score, r2_score
 from ..tools.funcutils import ensure_pkg 
 from ..tools.validator import check_X_y, check_array 
 from ..tools.validator import check_is_fitted
-from ._base import FuzzyNeuralNetBase, NeuroFuzzyBase, GradientDescentBase 
+from ._base import BaseFuzzyNeuralNet, BaseNeuroFuzzy, BaseGD 
 from .util import detect_problem_type 
 
 __all__=[
@@ -588,7 +588,7 @@ class Perceptron(BaseEstimator, RegressorMixin, ClassifierMixin):
             " `NeuroFuzzyRegressor` to function correctly. Please install"
             " it to proceed."
     )
-class NeuroFuzzyRegressor(RegressorMixin, NeuroFuzzyBase):
+class NeuroFuzzyRegressor(RegressorMixin, BaseNeuroFuzzy):
     """
     NeuroFuzzyRegressor is a neuro-fuzzy network-based regressor that
     integrates fuzzy logic and neural networks to perform regression tasks.
@@ -933,7 +933,7 @@ class NeuroFuzzyRegressor(RegressorMixin, NeuroFuzzyBase):
     "skfuzzy", ("The `skfuzzy` package is required for the "
      " `NeuroFuzzyClassifier`to function correctly.")
     )
-class NeuroFuzzyClassifier(ClassifierMixin, NeuroFuzzyBase):
+class NeuroFuzzyClassifier(ClassifierMixin, BaseNeuroFuzzy):
     """
     NeuroFuzzyClassifier is a neuro-fuzzy network-based classifier that 
     integrates fuzzy logic and neural networks to perform classification tasks.
@@ -1336,7 +1336,7 @@ class NeuroFuzzyClassifier(ClassifierMixin, NeuroFuzzyBase):
         """
         return self._predict_proba(X)
 
-class LightGDClassifier(ClassifierMixin, GradientDescentBase):
+class LightGDClassifier(ClassifierMixin, BaseGD):
     """
     Light Gradient Descent Classifier for Binary and Multi-Class Classification.
 
@@ -1700,7 +1700,7 @@ class LightGDClassifier(ClassifierMixin, GradientDescentBase):
         X = check_array(X, accept_sparse=True, estimator= self, input_name="X")
         return self._predict_proba(X)
 
-class LightGDRegressor(RegressorMixin, GradientDescentBase):
+class LightGDRegressor(RegressorMixin, BaseGD):
     """
     Light Gradient Descent Regressor for Linear Regression.
 
@@ -2028,7 +2028,7 @@ class LightGDRegressor(RegressorMixin, GradientDescentBase):
     extra= ( "The `skfuzzy` is required for the `FuzzyNeuralNetClassifier`"
             "to function correctly.")
     )
-class FuzzyNeuralNetClassifier(ClassifierMixin, FuzzyNeuralNetBase):
+class FuzzyNeuralNetClassifier(ClassifierMixin, BaseFuzzyNeuralNet):
     """
     FuzzyNeuralNetClassifier is an ensemble neuro-fuzzy network-based 
     classifier that integrates fuzzy logic and neural networks to perform 
@@ -2466,7 +2466,7 @@ class FuzzyNeuralNetClassifier(ClassifierMixin, FuzzyNeuralNetBase):
     "skfuzzy", ("The `skfuzzy` package is required for the "
      " `FuzzyNeuralNetRegressor`to function correctly.")
     )
-class FuzzyNeuralNetRegressor(RegressorMixin, FuzzyNeuralNetBase):
+class FuzzyNeuralNetRegressor(RegressorMixin, BaseFuzzyNeuralNet):
     """
     FuzzyNeuralNetRegressor is an ensemble neuro-fuzzy network-based 
     regressor that integrates fuzzy logic and neural networks to perform 

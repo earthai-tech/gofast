@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
+#   License: BSD-3-Clause
+#   Author: LKouadio <etanoyau@gmail.com>
 
 import numpy as np 
 import pandas as pd 
-
 import matplotlib.pyplot as plt
 
 from ..api.types import ArrayLike, DataFrame 

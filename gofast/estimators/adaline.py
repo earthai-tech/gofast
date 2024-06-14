@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
-#   Author: LKouadio <eta0noyau@gmail.com>
+#   Author: LKouadio <etanoyau@gmail.com>
 """
 The `gofast.estimators.adaline` module implements various versions of the 
 Adaptive Linear Neuron (Adaline) algorithm for both regression and 
@@ -16,22 +16,27 @@ import numpy as np
 from tqdm import tqdm 
 
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
-from sklearn.utils import shuffle
 from sklearn.metrics import mean_squared_error, accuracy_score, r2_score 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelBinarizer
+from sklearn.utils import shuffle
 
 try:from sklearn.utils import type_of_target
 except: from ..tools.coreutils import type_of_target 
 from ..tools.validator import check_X_y, check_array 
 from ..tools.validator import check_is_fitted, parameter_validator 
-
+from ..tools._param_validation import validate_params
+from ..tools._param_validation import Interval, StrOptions, Real, Integral
+from ._base_adaline import BaseAdalineStochastic 
+from .util import activator 
+  
 __all__= [
         "AdalineClassifier","AdalineMixte","AdalineRegressor",
         "AdalineStochasticRegressor","AdalineStochasticClassifier",
     ]
 
-class AdalineStochasticRegressor(BaseEstimator, RegressorMixin):
+
+class AdalineStochasticRegressor(BaseAdalineStochastic, RegressorMixin):
     """
     Adaline Stochastic Gradient Descent Regressor.
 
@@ -158,33 +163,49 @@ class AdalineStochasticRegressor(BaseEstimator, RegressorMixin):
            and Duchesnay, E. (2011). Scikit-learn: Machine Learning in Python. 
            Journal of Machine Learning Research, 12, 2825-2830.
     """
+    @validate_params(
+        {
+            "eta0": [Interval(Real, 0, 1, closed="neither")],
+            "max_iter": [Interval(Integral, 1, None, closed="left")],
+            "early_stopping": [bool],
+            "validation_fraction": [Interval(Real, 0, 1, closed="neither")],
+            "tol": [Interval(Real, 0, None, closed="neither")],
+            "warm_start": [bool],
+            "learning_rate": [StrOptions({"constant", "adaptive"})],
+            "eta0_decay": [Interval(Real, 0, 1, closed="neither")],
+            "shuffle": [bool],
+            "random_state": [Integral, None],
+            "verbose": [bool]
+        }
+    )
     def __init__(
-        self, 
-        eta0=0.0001, 
-        max_iter=1000, 
-        early_stopping=False, 
-        validation_fraction=0.1,
-        tol=1e-4,
-        warm_start=False,
-        learning_rate='constant',
-        eta0_decay=0.99,
-        shuffle=True, 
-        random_state=None, 
-        verbose=False
-    ):
-        self.eta0 = eta0
-        self.max_iter = max_iter
-        self.shuffle = shuffle
+            self, 
+            eta0=0.001, 
+            max_iter=1000, 
+            early_stopping=False, 
+            validation_fraction=0.1, 
+            tol=1e-4, 
+            warm_start=False, 
+            learning_rate='constant', 
+            eta0_decay=0.99, 
+            shuffle=True, 
+            random_state=None, 
+            verbose=False
+            ):
+        super().__init__(
+            eta0=eta0, 
+            max_iter=max_iter, 
+            early_stopping=early_stopping, 
+            validation_fraction=validation_fraction, 
+            tol=tol, 
+            warm_start=warm_start, 
+            learning_rate=learning_rate, 
+            eta0_decay=eta0_decay, 
+            shuffle=shuffle, 
+            random_state=random_state, 
+            verbose=verbose
+            )
         
-        self.early_stopping = early_stopping
-        self.validation_fraction = validation_fraction
-        self.tol = tol
-        self.warm_start = warm_start
-        self.learning_rate = learning_rate
-        self.eta0_decay = eta0_decay
-        self.random_state = random_state
-        self.verbose = verbose
-
     def fit(self, X, y, sample_weight=None):
         """
         Fit training data.
@@ -271,14 +292,14 @@ class AdalineStochasticRegressor(BaseEstimator, RegressorMixin):
     
         """
         X, y = check_X_y(X, y, estimator=self)
-        rgen = np.random.RandomState(self.random_state)
+        
         self.learning_rate = parameter_validator(
             "learning_rate", target_strs={"adaptive", "constant"})(
                 self.learning_rate)
                 
         if not self.warm_start or not hasattr(self, 'weights_'):
-            self.weights_ = rgen.normal(loc=0.0, scale=0.01, size=1 + X.shape[1])
-        
+            self._initialize_weights(X.shape[1])
+       
         self.cost_ = []
 
         if self.early_stopping:
@@ -322,10 +343,6 @@ class AdalineStochasticRegressor(BaseEstimator, RegressorMixin):
         
         return self
 
-    def net_input(self, X):
-        """Calculate net input"""
-        return np.dot(X, self.weights_[1:]) + self.weights_[0]
-    
     def predict(self, X):
         """
         Predict continuous output.
@@ -391,8 +408,12 @@ class AdalineStochasticRegressor(BaseEstimator, RegressorMixin):
         check_is_fitted(self, 'weights_')
         X = check_array(X, accept_large_sparse=True, accept_sparse=True)
         return self.net_input(X)
+    
+    def _is_classifier (self): 
+        """ Flag to indicate that regressor is not a classifier."""
+        return False  
 
-class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
+class AdalineStochasticClassifier(BaseAdalineStochastic, ClassifierMixin):
     """
     Adaptive Linear Neuron Classifier with Stochastic Gradient Descent.
 
@@ -459,7 +480,24 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
     eta0_decay : float, default=0.99
         Factor by which the learning rate `eta0` is multiplied at each epoch if 
         `learning_rate` is set to 'adaptive'.
-
+        
+    activation : str or callable, default='sigmoid'
+        The activation function to apply. Supported activation functions are:
+        'sigmoid', 'relu', 'leaky_relu', 'identity', 'elu', 'tanh', 'softmax'.
+        If a callable is provided, it should take `z` as input and return the
+        transformed output.
+        
+        - Sigmoid: :math:`\sigma(z) = \frac{1}{1 + \exp(-z)}`
+        - ReLU: :math:`\text{ReLU}(z) = \max(0, z)`
+        - Leaky ReLU: :math:`\text{Leaky ReLU}(z) = \max(0.01z, z)`
+        - Identity: :math:`\text{Identity}(z) = z`
+        - ELU: :math:`\text{ELU}(z) = \begin{cases}
+                      z & \text{if } z > 0 \\
+                      \alpha (\exp(z) - 1) & \text{if } z \leq 0
+                    \end{cases}`
+        - Tanh: :math:`\tanh(z) = \frac{\exp(z) - \exp(-z)}{\exp(z) + \exp(-z)}`
+        - Softmax: :math:`\text{Softmax}(z)_i = \frac{\exp(z_i)}{\sum_{j} \exp(z_j)}`
+        
     shuffle : bool, default=True
         Whether to shuffle the training data before each epoch. Shuffling helps 
         in preventing cycles and ensures that individual samples are encountered 
@@ -548,32 +586,56 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
     .. [1] Widrow, B., Hoff, M.E., 1960. Adaptive switching circuits. IRE WESCON 
            Convention Record, New York, 96-104.
     """
+
+    @validate_params(
+        {
+            "eta0": [Interval(Real, 0, 1, closed="neither")],
+            "max_iter": [Interval(Integral, 1, None, closed="left")],
+            "early_stopping": [bool],
+            "validation_fraction": [Interval(Real, 0, 1, closed="neither")],
+            "tol": [Interval(Real, 0, None, closed="neither")],
+            "warm_start": [bool],
+            "learning_rate": [StrOptions({"constant", "adaptive"})],
+            "eta0_decay": [Interval(Real, 0, 1, closed="neither")],
+            "activation": [ StrOptions(
+                {'sigmoid', 'relu', 'leaky_relu', 'identity', 'elu', 'tanh', 'softmax'}),
+                callable], 
+            "shuffle": [bool],
+            "random_state": [Integral, None],
+            "verbose": [bool]
+        }
+    )
     def __init__(
-        self, 
-        eta0=0.01, 
-        max_iter=1000, 
-        early_stopping=False, 
-        validation_fraction=0.1,
-        tol=1e-4,
-        warm_start=False,
-        learning_rate='constant',
-        eta0_decay=0.99,
-        shuffle=True, 
-        random_state=None, 
-        verbose=False
-    ):
-        self.eta0 = eta0
-        self.max_iter = max_iter
-        self.early_stopping = early_stopping
-        self.validation_fraction = validation_fraction
-        self.tol = tol
-        self.warm_start = warm_start
-        self.learning_rate = learning_rate
-        self.eta0_decay = eta0_decay
-        self.shuffle = shuffle
-        self.random_state = random_state
-        self.verbose = verbose
+            self, 
+            eta0=0.001, 
+            max_iter=1000, 
+            early_stopping=False, 
+            validation_fraction=0.1, 
+            tol=1e-4, 
+            warm_start=False, 
+            learning_rate='constant', 
+            eta0_decay=0.99, 
+            activation="sigmoid", 
+            shuffle=True, 
+            random_state=None, 
+            verbose=False
+            ):
+        super().__init__(
+            eta0=eta0, 
+            max_iter=max_iter, 
+            early_stopping=early_stopping, 
+            validation_fraction=validation_fraction, 
+            tol=tol, 
+            warm_start=warm_start, 
+            learning_rate=learning_rate, 
+            eta0_decay=eta0_decay, 
+            shuffle=shuffle, 
+            random_state=random_state, 
+            verbose=verbose
+            )
+        self.activation=activation 
         
+
     def fit(self, X, y, sample_weight=None):
         """
         Fit training data.
@@ -672,8 +734,9 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
         
         rgen = np.random.RandomState(self.random_state)
         
-        if self.learning_rate not in {"adaptive", "constant"}:
-            raise ValueError("learning_rate must be 'adaptive' or 'constant'")
+        self.learning_rate = parameter_validator(
+            "learning_rate", target_strs={"adaptive", "constant"})(
+                self.learning_rate)
 
         if not self.warm_start or not hasattr(self, 'weights_'):
             self.weights_ = rgen.normal(loc=0.0, scale=0.01, size=(X.shape[1] + 1, y.shape[1]))
@@ -722,14 +785,6 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
             progress_bar.close()
 
         return self
-    
-    def net_input(self, X, idx):
-        """Calculate net input"""
-        return np.dot(X, self.weights_[1:, idx]) + self.weights_[0, idx]
-
-    def activation(self, X, idx):
-        """Compute linear activation"""
-        return self.net_input(X, idx)
     
     def predict(self, X):
         """
@@ -813,6 +868,7 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
             # Return the inverse transform of the binary array
             return self.label_binarizer_.inverse_transform(binary_arr)
         
+    
     def predict_proba(self, X):
         """
         Probability estimates.
@@ -878,17 +934,21 @@ class AdalineStochasticClassifier(BaseEstimator, ClassifierMixin):
         check_is_fitted(self, 'weights_')
         X = check_array(X, accept_large_sparse=True, accept_sparse=True)
         if len(self.label_binarizer_.classes_) == 2:
-            proba = self._sigmoid(self.activation(X, 0))
+            proba = self._activator(self.net_activation(X, 0))
             return np.vstack([1 - proba, proba]).T
         else:
-            proba = [self._sigmoid(self.activation(X, idx)
-                                   ) for idx in range(self.weights_.shape[1])]
+            proba = [self._activator(self.net_activation(X, idx)) for idx in range(
+                self.weights_.shape[1])]
             return np.column_stack(proba)
+    
+    def _activator (self, z): 
+        """Compute the activation function, defayult is sigmoid."""
+        return activator (z, self.activation  )
 
-    def _sigmoid(self, z):
-        """Compute the sigmoid function"""
-        return 1 / (1 + np.exp(-z))
-
+    def _is_classifier (self):
+        "Flag to indicate the type of problem."
+        return True 
+    
 class AdalineRegressor(BaseEstimator, RegressorMixin):
     r"""
     Adaline Gradient Descent Regressor.

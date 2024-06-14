@@ -207,11 +207,12 @@ def one_click_preprocess(
     remainder = process_kws.pop("remainder", 'passthrough')
 
     # If specific columns are specified, reduce the DataFrame to these columns only.
-    if columns:
+    if columns is not None:
+        columns = list(is_iterable(columns, exclude_string= True, transform =True )) 
         data = data[columns] if isinstance(columns, list) else data[[columns]]
 
     # Convert target_columns to a list if it's a single column passed as string.
-    if target_columns:
+    if target_columns is not None:
         target_columns = [target_columns] if isinstance(
             target_columns, str) else target_columns
 
@@ -220,7 +221,7 @@ def one_click_preprocess(
     categorical_features = data.select_dtypes(include=['object']).columns.tolist()
     
     # Exclude target columns from the numeric features list if specified.
-    if target_columns:
+    if target_columns is not None:
         numeric_features = [col for col in numeric_features 
                             if col not in target_columns]
 
