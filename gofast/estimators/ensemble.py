@@ -22,7 +22,7 @@ from sklearn.utils import check_random_state
 from ..tools.validator import check_X_y, check_array 
 from ..tools.validator import check_is_fitted, parameter_validator 
 from ..tools.validator import validate_fit_weights
-from ._base import EnsembleBase
+from ._ensemble import BaseEnsemble
 from .util import fit_with_estimator, determine_weights, apply_scaling 
 from .util import optimize_hyperparams, normalize_sum  
 
@@ -1646,7 +1646,7 @@ class WeightedAverageClassifier(BaseEstimator, ClassifierMixin):
         
         return weighted_avg_proba
     
-class EnsembleClassifier(ClassifierMixin, EnsembleBase):
+class EnsembleClassifier(ClassifierMixin, BaseEnsemble):
     """
     Ensemble Classifier.
 
@@ -1992,7 +1992,7 @@ class EnsembleClassifier(ClassifierMixin, EnsembleBase):
         return self.model_.predict_proba(X)
 
 
-class EnsembleRegressor(RegressorMixin, EnsembleBase):
+class EnsembleRegressor(RegressorMixin, BaseEnsemble):
     """
     Ensemble Regressor.
 

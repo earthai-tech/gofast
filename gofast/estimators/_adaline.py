@@ -1,11 +1,8 @@
 # -*- coding: utf-8 -*-
-#   License: BSD-3-Clause
-#   Author: LKouadio <etanoyau@gmail.com>
 
 from abc import ABCMeta, abstractmethod
 import numpy as np 
 from sklearn.base import BaseEstimator
-
 
 class BaseAdalineStochastic(BaseEstimator, metaclass=ABCMeta):
     """

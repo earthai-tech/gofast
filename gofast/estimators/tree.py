@@ -5,26 +5,18 @@
 from __future__ import annotations
 from numbers import Integral, Real
 import numpy as np
-from tqdm import tqdm
+
 from sklearn.base import ClassifierMixin, RegressorMixin
 from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
-# from sklearn.utils import resample
-from sklearn.metrics import r2_score , accuracy_score
+from sklearn.utils._param_validation import Interval, StrOptions
 
-from ._base_tree import  BaseDTB, BaseWeightedTree 
-from ._base_classes import StandardEstimator 
-from ..api.property import BaseClass 
-from ..tools.validator import check_X_y, get_estimator_name, check_array 
-from ..tools.validator import check_is_fitted, validate_fit_weights 
-from ..tools._param_validation import validate_params 
-from ..tools._param_validation import Interval, StrOptions
+from ._tree import  BaseDTB, BaseWeightedTree 
+from ..tools.validator import check_array 
+from ..tools.validator import check_is_fitted
 
-__all__=[ 
-    "DecisionStumpRegressor", "DecisionStumpClassifier",
-    "DTBRegressor", "DTBClassifier",
-    "WeightedTreeClassifier", "WeightedTreeRegressor", 
-    ]
 
+__all__=[ "DTBRegressor", "DTBClassifier", 
+         "WeightedTreeClassifier", "WeightedTreeRegressor",]
 
 class DTBRegressor(BaseDTB, RegressorMixin):
     """
@@ -175,31 +167,15 @@ class DTBRegressor(BaseDTB, RegressorMixin):
     gofast.estimators.tree.BoostedRegressionTree : An enhanced BRT.
     """
     
-    @validate_params(
-        {
-            "n_estimators": [Interval(Integral, 1, None, closed="left")],
-            "max_depth": [Interval(Integral, 1, None, closed="left"), None], 
-            "criterion": [StrOptions(
-                {"squared_error", "friedman_mse", "absolute_error", "poisson"})],
-            "splitter": [StrOptions({"best", "random"})],
-            "min_samples_split": [Interval(Integral, 1, None, closed="left")],
-            "min_samples_leaf": [Interval(Integral, 1, None, closed="left")],
-            "min_weight_fraction_leaf": [Interval(Real, 0, None, closed="left")],
-            "max_features": [
-                StrOptions({"auto", "sqrt", "log2"}), 
-                Interval ( Integral, 1, None, closed="left"), 
-                Interval(Real, 1., None, closed="left"), 
-                None, 
-                ],
-            "random_state": ["random_state"],
-            "max_leaf_nodes": [Interval(Integral, 0, None, closed="left"), None],
-            "min_impurity_decrease": [Interval(Real, 0, None, closed="left")],
-            "ccp_alpha": [Interval(Real, 0., 1, closed="left")],
-            "subsample": [Interval(Real, 1, None, closed="left")],
-            "verbose": [Interval(Integral, 0, None, closed="left"), bool],
-            "bootstrap": [bool],
-        }
-    )
+    _parameter_constraints: dict = {
+        **BaseDTB._parameter_constraints,
+        "criterion": [StrOptions(
+            {"squared_error", "friedman_mse", "absolute_error", "poisson"})],
+        "subsample": [Interval(Real, 1, None, closed="left")],
+        "verbose": [Interval(Integral, 0, None, closed="left"), "boolean"],
+        "bootstrap": ["boolean"],
+    }
+    
     def __init__(
         self, 
         n_estimators=100, 
@@ -554,31 +530,15 @@ class DTBClassifier(BaseDTB, ClassifierMixin):
       base learners in ensemble methods.
 
     """
-    @validate_params(
-        {
-            #"n_estimators": [Interval(Integral, 1, None, closed="left")],
-            "max_depth": [Interval(Integral, 1, None, closed="left"),None], 
-            "criterion": [StrOptions({"gini", "entropy"})],
-            "splitter": [StrOptions({"best", "random"})],
-            "min_samples_split": [Interval(Integral, 1, None, closed="left")],
-            "min_samples_leaf": [Interval(Integral, 1, None, closed="left")],
-            "min_weight_fraction_leaf": [Interval(Real, 0, None, closed="left")],
-            "max_features": [
-                StrOptions({"auto", "sqrt", "log2"}), 
-                Interval ( Integral, 1, None, closed="left"), 
-                Interval(Real, 1., None, closed="left"), 
-                None, 
-                ],
-            "random_state": ["random_state"],
-            "max_leaf_nodes": [Interval(Integral, 0, None, closed="left"), None],
-            "min_impurity_decrease": [Interval(Real, 0, None, closed="left")],
-            "class_weight": [dict, None],
-            "ccp_alpha": [Interval(Real, 0., 1, closed="left")],
-            "subsample": [Interval(Real, 1, None, closed="left")],
-            "verbose": [Interval(Integral, 0, None, closed="left"), bool],
-            "bootstrap": [bool],
-        }
-    )
+    _parameter_constraints: dict = {
+        **BaseDTB._parameter_constraints,
+        "criterion": [StrOptions({"gini", "entropy"})],
+        "class_weight": [dict, list, StrOptions({"balanced"}), None],
+        "subsample": [Interval(Real, 1, None, closed="left")],
+        "verbose": [Interval(Integral, 0, None, closed="left"), bool],
+        "bootstrap": [bool],
+    }
+    
     def __init__(
         self, 
         n_estimators=100, 
@@ -969,31 +929,12 @@ class WeightedTreeClassifier(BaseWeightedTree, ClassifierMixin):
     .. [2] Pedregosa, F. et al. (2011). "Scikit-learn: Machine Learning in
            Python," Journal of Machine Learning Research, 12:2825-2830.
     """
-
-    @validate_params(
-        {
-            "n_estimators": [Interval(int, 1, None, closed="left")],
-            "eta0": [Interval(float, 0, 1, closed="both")],
-            "max_depth": [Interval(int, 1, None, closed="left")], 
-            "criterion": [StrOptions({"gini", "entropy"})],
-            "splitter": [StrOptions({"best", "random"})],
-            "min_samples_split": [Interval(int, 2, None, closed="left")],
-            "min_samples_leaf": [Interval(int, 1, None, closed="left")],
-            "min_weight_fraction_leaf": [Interval(float, 0, None, closed="left")],
-            "max_features": [
-                StrOptions({"auto", "sqrt", "log2"}), 
-                Interval(int, 1, None, closed="left"), 
-                Interval(float, 0., 1., closed="both"), 
-                None, 
-                ],
-            "random_state": ["random_state"],
-            "max_leaf_nodes": [Interval(int, 1, None, closed="left"), None],
-            "min_impurity_decrease": [Interval(float, 0, None, closed="left")],
-            "ccp_alpha": [Interval(float, 0., 1, closed="left")],
-            "verbose": [Interval(int, 0, None, closed="left"), bool],
-            "class_weight": [StrOptions({"balanced"}), None, dict],
-        }
-    )
+    _parameter_constraints: dict = {
+        **BaseWeightedTree._parameter_constraints,
+        "criterion": [StrOptions({"gini", "entropy"})],
+        "class_weight": [dict, list, StrOptions({"balanced"}), None],
+        "verbose": [Interval(Integral, 0, None, closed="left"), bool],
+    }
     def __init__(
         self, 
         n_estimators=50, 
@@ -1029,7 +970,101 @@ class WeightedTreeClassifier(BaseWeightedTree, ClassifierMixin):
         )
         self.class_weight = class_weight
         self.ccp_alpha = ccp_alpha
-
+    
+    def fit(self, X, y, sample_weight=None, check_input=True ):
+        """
+        Fit the ensemble of weighted decision trees to the training data.
+    
+        This method trains the ensemble of decision trees on the provided 
+        training data `X` and target values `y`. For classification tasks, it 
+        adjusts the weights of the samples to focus on the ones that are 
+        misclassified. For regression tasks, it updates the residuals at each 
+        iteration to minimize the prediction error.
+    
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training vectors, where `n_samples` is the number of samples and
+            `n_features` is the number of features.
+    
+        y : array-like of shape (n_samples,)
+            Target values. For classification, these are the class labels. For 
+            regression, these are the continuous values to predict.
+    
+        sample_weight : array-like of shape (n_samples,), default=None
+            Individual weights for each sample. If None, all samples are given 
+            equal weight. This parameter is used only for regression tasks.
+    
+        check_input : bool, default=True
+            Allow to bypass several input checking.
+            Don't use this parameter unless you know what you're doing.
+            
+        Returns
+        -------
+        self : object
+            Returns self.
+    
+        Notes 
+        -------
+        The fitting process involves different steps for classification and 
+        regression tasks:
+    
+        **For Classification:**
+        1. **Initialization of sample weights**:
+           .. math::
+               w_i = \frac{1}{n}, \quad \forall i \in \{1, \ldots, n\}
+           where `n` is the number of samples.
+    
+        2. **Iteration for each tree**:
+           a. Train a decision tree on the weighted dataset.
+           b. Predict the labels and calculate the weighted error:
+              .. math::
+                  \text{Weighted Error} = \sum_{i=1}^{n} (w_i \cdot (y_i \neq y_{\text{pred}_i}))
+           c. Compute the weight for the current tree:
+              .. math::
+                  \alpha = \eta_0 \cdot \log\left(\frac{1 - \text{Weighted Error}}{\text{Weighted Error}}\right)
+           d. Update the sample weights for the next iteration:
+              .. math::
+                  w_i = w_i \cdot \exp(\alpha \cdot (y_i \neq y_{\text{pred}_i}))
+    
+        - This method must be called before `predict` or `predict_proba`.
+        - For classification, the sample weights are adjusted at each iteration 
+          to focus on the samples that are misclassified.
+        - For regression, the residuals are updated at each iteration to 
+          minimize the prediction error.  
+        Examples
+        --------
+        >>> from gofast.estimators._base_tree import BaseWeightedTree
+        >>> from gofast.estimators.tree import WeightedTreeClassifier
+        >>> from sklearn.datasets import make_classification
+        >>> from sklearn.model_selection import train_test_split
+    
+        >>> X, y = make_classification(n_samples=100, n_features=20, random_state=42)
+        >>> X_train, X_test, y_train, y_test = train_test_split(X, y)
+        >>> clf = WeightedTreeClassifier(n_estimators=10, eta0=0.1, max_depth=3)
+        >>> clf.fit(X_train, y_train)
+ 
+    
+        See Also
+        --------
+        BaseWeightedTree.predict : Predict using the trained ensemble of trees.
+    
+        References
+        ----------
+        .. [1] Friedman, J.H. "Greedy Function Approximation: A Gradient Boosting
+               Machine," The Annals of Statistics, 2001.
+        .. [2] Pedregosa, F. et al. (2011). "Scikit-learn: Machine Learning in
+               Python," Journal of Machine Learning Research, 12:2825-2830.
+        """
+    
+        super().fit(
+            X,
+            y,
+            sample_weight=sample_weight,
+            check_input=check_input,
+        )
+        return self
+        
     def _make_estimator(self):
         return DecisionTreeClassifier(
             max_depth=self.max_depth,
@@ -1208,31 +1243,12 @@ class WeightedTreeRegressor(BaseWeightedTree, RegressorMixin):
     .. [2] Pedregosa, F. et al. (2011). "Scikit-learn: Machine Learning in
            Python," Journal of Machine Learning Research, 12:2825-2830.
     """
-
-    @validate_params(
-        {
-            "n_estimators": [Interval(int, 1, None, closed="left")],
-            "eta0": [Interval(float, 0, 1, closed="both")],
-            "max_depth": [Interval(int, 1, None, closed="left")],
-            "criterion": [StrOptions(
-                {"squared_error", "friedman_mse", "absolute_error", "poisson"})],
-            "splitter": [StrOptions({"best", "random"})],
-            "min_samples_split": [Interval(int, 2, None, closed="left")],
-            "min_samples_leaf": [Interval(int, 1, None, closed="left")],
-            "min_weight_fraction_leaf": [Interval(float, 0, None, closed="left")],
-            "max_features": [
-                StrOptions({"auto", "sqrt", "log2"}),
-                Interval(int, 1, None, closed="left"),
-                Interval(float, 0., 1., closed="both"),
-                None,
-            ],
-            "random_state": ["random_state"],
-            "max_leaf_nodes": [Interval(int, 1, None, closed="left"), None],
-            "min_impurity_decrease": [Interval(float, 0, None, closed="left")],
-            "ccp_alpha": [Interval(float, 0., 1, closed="left")],
-            "verbose": [Interval(int, 0, None, closed="left"), bool],
-        }
-    )
+    _parameter_constraints: dict = {
+        **BaseWeightedTree._parameter_constraints,
+        "criterion": [StrOptions(
+            {"squared_error", "friedman_mse", "absolute_error", "poisson"})],
+        "verbose": [Interval(Integral, 0, None, closed="left"), bool],
+    }
     def __init__(
         self, 
         n_estimators=50, 
@@ -1265,7 +1281,70 @@ class WeightedTreeRegressor(BaseWeightedTree, RegressorMixin):
             verbose=verbose
         )
 
-
+    def fit(self, X, y, sample_weight=None, check_input=True ):
+        """
+        Fit the ensemble of weighted decision trees to the training data.
+    
+        This method trains the ensemble of decision trees on the provided 
+        training data `X` and target values `y`. For classification tasks, it 
+        adjusts the weights of the samples to focus on the ones that are 
+        misclassified. For regression tasks, it updates the residuals at each 
+        iteration to minimize the prediction error.
+    
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training vectors, where `n_samples` is the number of samples and
+            `n_features` is the number of features.
+    
+        y : array-like of shape (n_samples,)
+            Target values. For classification, these are the class labels. For 
+            regression, these are the continuous values to predict.
+    
+        sample_weight : array-like of shape (n_samples,), default=None
+            Individual weights for each sample. If None, all samples are given 
+            equal weight. This parameter is used only for regression tasks.
+            
+        check_input : bool, default=True
+            Allow to bypass several input checking.
+            Don't use this parameter unless you know what you're doing.
+            
+    
+        Returns
+        -------
+        self : object
+            Returns self.
+    
+        Notes 
+        -------
+        The fitting process involves different steps for regression tasks:
+    
+        **For Regression:**
+        1. **Initialization of residuals**:
+           .. math::
+               r_i = y_i, \quad \forall i \in \{1, \ldots, n\}
+    
+        2. **Iteration for each tree**:
+           a. Train a decision tree on the residuals.
+           b. Predict the residuals and update them:
+              .. math::
+                  r_i = r_i - \eta_0 \cdot f_m(X_i)
+           where `f_m(X_i)` is the prediction of the `m`-th tree for input `X_i`.
+      
+        - This method must be called before `predict` or `predict_proba`.
+        - For classification, the sample weights are adjusted at each iteration 
+          to focus on the samples that are misclassified.
+        - For regression, the residuals are updated at each iteration to 
+          minimize the prediction error.  
+        """
+        super().fit(
+            X,
+            y,
+            sample_weight=sample_weight,
+            check_input=check_input,
+        )
+        return self
+    
     def _make_estimator(self):
         return DecisionTreeRegressor(
             max_depth=self.max_depth,
@@ -1282,596 +1361,6 @@ class WeightedTreeRegressor(BaseWeightedTree, RegressorMixin):
 
     def _is_classifier(self):
         return False
-    
-class DecisionStumpRegressor(BaseClass, StandardEstimator):
-    r"""
-    A simple decision stump regressor for use in gradient boosting.
-
-    This class implements a basic decision stump, which is a decision tree 
-    with only one decision node and two leaves. The stump splits the data 
-    based on the feature and threshold that minimizes the error.
-    
-    For each feature, the stump examines all possible thresholds
-    (unique values of the feature). The MSE for a split at a given 
-    threshold t is calculated as follows:
-
-    .. math::
-        MSE = \sum_{i \in \text{left}(t)} (y_i - \overline{y}_{\text{left}})^2 +
-              \sum_{i \in \text{right}(t)} (y_i - \overline{y}_{\text{right}})^2
-
-    where :math:`\text{left}(t)` and :math:`\text{right}(t)` are the sets of indices 
-    of samples that fall to the left and right of the threshold t, respectively. 
-    :math:`\overline{y}_{\text{left}}` and :math:`\overline{y}_{\text{right}}` 
-    are the mean values of the target variable for the samples in each of these 
-    two sets.
-
-    The algorithm selects the feature and threshold that yield the lowest MSE.
-
-    Parameters
-    ----------
-    min_samples_split : int, default=2
-        The minimum number of samples required to consider a split at a node.
-
-    min_samples_leaf : int, default=1
-        The minimum number of samples required to be at a leaf node. A split point 
-        at any depth will only be considered if it leaves at least this many training 
-        samples in each of the left and right branches.
-        
-    verbose : int, default=False
-        Controls the verbosity when fitting and predicting.
-        
-    Attributes
-    ----------
-    split_feature_ : int
-        Index of the feature used for the split.
-
-    split_value_ : float
-        Threshold value used for the split.
-
-    left_value_ : float
-        The value predicted for samples where the feature value is less than or 
-        equal to the split value.
-
-    right_value_ : float
-        The value predicted for samples where the feature value is greater than 
-        the split value.
-
-    feature_importances_ : ndarray
-        The feature importances (if calculated), reflecting the reduction in MSE 
-        contributed by each feature.
-
-    Methods
-    -------
-    fit(X, y, sample_weight=None)
-        Fit the decision stump to the data.
-
-    predict(X)
-        Predict target values for the given input data using the trained 
-        decision stump.
-
-    decision_function(X)
-        Compute the raw decision scores for the given input data.
-
-    score(X, y, sample_weight=None)
-        Return the coefficient of determination R^2 of the prediction.
-       
-    Examples
-    --------
-    >>> from sklearn.datasets import make_regression
-    >>> from gofast.estimators.tree import DecisionStumpRegressor
-    >>> X, y = make_regression(n_samples=100, n_features=1, noise=10)
-    >>> stump = DecisionStumpRegressor()
-    >>> stump.fit(X, y)
-    >>> predictions = stump.predict(X)
-    """
-
-    def __init__(self, min_samples_split=2, min_samples_leaf=1, verbose=False):
-        self.min_samples_split = min_samples_split
-        self.min_samples_leaf = min_samples_leaf
-        self.verbose=verbose
-        
-        self.split_feature_ = None
-        self.split_value_ = None
-        self.left_value_ = None
-        self.right_value_ = None
-        self.feature_importances_ = None
-        
-
-    def fit(self, X, y, sample_weight=None):
-        """
-        Fits the decision stump to the data.
-
-        The method iterates over all features and their unique values to 
-        find the split 
-        that minimizes the mean squared error.
-
-        Parameters
-        ----------
-        X : ndarray of shape (n_samples, n_features)
-            The input samples.
-        y : ndarray of shape (n_samples,)
-            The target values.
-
-        Return 
-        -------
-        self: object 
-           Return self.
-        Notes
-        -----
-        The decision stump is a weak learner and is primarily used in
-        ensemble methods like AdaBoost and Gradient Boosting.
-        """
-        X, y = check_X_y(X, y )
-        sample_weight = validate_fit_weights(np.ones(X.shape[0]), sample_weight)
-        self.feature_importances_ = np.zeros(X.shape[1])
-        min_error = float('inf')
-        n_samples, n_features = X.shape
-        
-        if self.verbose:
-            progress_bar = tqdm(
-                range(n_features), ascii=True, ncols= 100,
-                desc=f'Fitting {self.__class__.__name__}', 
-                )
-        for feature in range(n_features):
-            sorted_idx = np.argsort(X[:, feature])
-            X_sorted, y_sorted, weights_sorted = ( 
-                X[sorted_idx, feature], y[sorted_idx], sample_weight[sorted_idx]
-                )
-            for i in range(self.min_samples_leaf, n_samples - self.min_samples_leaf):
-                if i < self.min_samples_split or X_sorted[i] == X_sorted[i - 1]:
-                    continue
-                left_mask = sorted_idx[:i]
-                right_mask = sorted_idx[i:]
-                if len(left_mask) < self.min_samples_leaf or len(
-                        right_mask) < self.min_samples_leaf:
-                    continue
-
-                left_value = np.average(y_sorted[:i], weights=weights_sorted[:i])
-                right_value = np.average(y_sorted[i:], weights=weights_sorted[i:])
-                error = (np.sum(weights_sorted[:i] * ((y_sorted[:i] - left_value) ** 2)) +
-                         np.sum(weights_sorted[i:] * ((y_sorted[i:] - right_value) ** 2)))
-
-                if error < min_error:
-                    min_error = error
-                    self.split_feature_ = feature
-                    self.split_value_ = X_sorted[i - 1]
-                    self.left_value_ = left_value
-                    self.right_value_ = right_value
-                    self.feature_importances_[feature] += min_error - error
-            
-            if self.verbose:
-                progress_bar.update(1)
-
-        if self.verbose:
-            progress_bar.close()
-                
-        self.fitted_ = True
-
-        return self 
-       
-    def predict(self, X):
-        """
-        Predict target values for the given input data using the trained 
-        decision stump.
-
-        The prediction is based on the split learned during the fitting 
-        process. Each sample in X is assigned a value based on which side 
-        of the split it falls on.
-
-        Parameters
-        ----------
-        X : ndarray of shape (n_samples, n_features)
-            The input samples for which predictions are to be made.
-
-        Returns
-        -------
-        y_pred : ndarray of shape (n_samples,)
-            The predicted target values for each sample in X.
-
-        Examples
-        --------
-        >>> from sklearn.datasets import make_regression
-        >>> X, y = make_regression(n_samples=100, n_features=1, noise=10)
-        >>> stump = DecisionStumpRegressor()
-        >>> stump.fit(X, y)
-        >>> predictions = stump.predict(X)
-        >>> print(predictions[:5])
-
-        Notes
-        -----
-        The `predict` method should be called only after the `fit` method has 
-        been called. It uses the `split_feature`, `split_value`, `left_value`,
-        and `right_value` attributes set by the `fit` method to make predictions.
-        """
-        check_is_fitted(self, "fitted_")
-        left_mask = X[:, self.split_feature_] <= self.split_value_
-        y_pred = np.where(left_mask, self.left_value_, self.right_value_)
-        return y_pred
-        
-    def decision_function(self, X):
-        """
-        Compute the raw decision scores for the given input data.
-
-        The decision function calculates the continuous value for each sample in X
-        based on the trained decision stump. It reflects the model's degree of 
-        certainty about the classification.
-
-        Parameters
-        ----------
-        X : ndarray of shape (n_samples, n_features)
-            The input samples for which decision scores are to be computed.
-
-        Returns
-        -------
-        decision_scores : ndarray of shape (n_samples,)
-            The raw decision scores for each sample in X.
-
-        Examples
-        --------
-        >>> from sklearn.datasets import make_regression
-        >>> X, y = make_regression(n_samples=100, n_features=1, noise=10)
-        >>> stump = DecisionStumpRegressor()
-        >>> stump.fit(X, y)
-        >>> decision_scores = stump.decision_function(X)
-        >>> print(decision_scores[:5])
-
-        Notes
-        -----
-        This method should be called after the model has been fitted. It uses the
-        attributes set during the `fit` method (i.e., `split_feature`, `split_value`,
-        `left_value`, `right_value`) to compute the decision scores.
-        """
-        check_is_fitted(self, "fitted_") 
-        # # Calculate the decision scores based on the split
-        decision_scores = np.where(
-            X[:, self.split_feature_] <= self.split_value_,
-            self.left_value_, self.right_value_
-            )
-        
-        return decision_scores
-
-    def score(self, X, y, sample_weight=None):
-        """
-        Calculate the coefficient of determination :math:`R^2` of the 
-        prediction.
-    
-        The :math:`R^2` score is a statistical measure of how well the predictions 
-        approximate the true data points. An :math:`R^2` of 1 indicates that 
-        the model perfectly predicts the target values, whereas an :math:`R^2` 
-        of 0 indicates that the model predicts as well as a model that always 
-        predicts the mean of the target  values, regardless of the input 
-        features.
-    
-        Parameters
-        ----------
-        X : ndarray of shape (n_samples, n_features)
-            The input samples. For each feature in the dataset, the method 
-            predicts a response based on the decision stump model.
-        
-        y : ndarray of shape (n_samples,)
-            True values for the target variable. These are the values that 
-            the model attempts to predict.
-    
-        sample_weight : ndarray of shape (n_samples,), default=None
-            Individual weights for each sample. If provided, the :math:`R^2` score 
-            will be calculated with these weights, emphasizing the importance of 
-            certain samples more than others.
-    
-        Returns
-        -------
-        score : float
-            The :math:`R^2` score that indicates the proportion of variance in the 
-            dependent variable that is predictable from the independent variables. 
-            Values range from -∞ (a model that performs infinitely worse than 
-            the mean model) to 1. A model that always predicts the exact true 
-            value would achieve a score of 1.
-    
-        Examples
-        --------
-        >>> from sklearn.datasets import make_regression
-        >>> X, y = make_regression(n_samples=100, n_features=1, noise=0.1)
-        >>> stump = DecisionStumpRegressor()
-        >>> stump.fit(X, y)
-        >>> score = stump.score(X, y)
-        >>> print(f"R^2 score: {score:.2f}")
-        """
-        check_is_fitted(self, "fitted_") 
-        y_pred = self.predict(X)
-        return r2_score(y, y_pred, sample_weight=sample_weight)
-
-class DecisionStumpClassifier(BaseClass, StandardEstimator):
-    r"""
-    A simple decision stump classifier that uses a single-level decision tree for
-    binary classification. This classifier identifies the best feature and
-    threshold to split the data into two groups, aiming to minimize impurity in 
-    each node.
-
-    The decision stump makes a binary decision: it assigns every sample in one
-    subset to one class and all samples in the other subset to another class. The
-    choice of subset is based on a threshold applied to one feature.
-
-    .. math::
-        I(node) = 1 - \max(p, 1-p)
-
-    Where \( I(node) \) is the impurity of the node, and \( p \) is the proportion
-    of the samples in the node that belong to the most frequent class.
-
-    Parameters
-    ----------
-    min_samples_split : int, default=2
-        The minimum number of samples required to consider a split at a node.
-
-    min_samples_leaf : int, default=1
-        The minimum number of samples required to be at a leaf node. This parameter
-        ensures that each leaf has at least `min_samples_leaf` samples, which
-        helps prevent the tree from overfitting.
-        
-    verbose : int, default=False
-        Controls the verbosity when fitting.
-
-    Attributes
-    ----------
-    split_feature_ : int
-        The index of the feature used for the best split.
-
-    split_value_ : float
-        The threshold value used for the split at `split_feature_`.
-
-    left_class_ : int
-        The class label assigned to samples where the feature value is less than
-        or equal to the threshold.
-
-    right_class_ : int
-        The class label assigned to samples where the feature value is greater
-        than the threshold.
-
-    See Also
-    --------
-    DecisionTreeClassifier : A classifier that uses multiple levels of decision
-                             nodes, providing more complex classification boundaries.
-
-    Examples
-    --------
-    >>> from sklearn.datasets import make_classification
-    >>> from gofast.estimators.tree import DecisionStumpClassifier
-    >>> X, y = make_classification(n_samples=100, n_features=2, random_state=42)
-    >>> stump = DecisionStumpClassifier(min_samples_split=4, min_samples_leaf=2)
-    >>> stump.fit(X, y)
-    >>> print(stump.predict([[0, 0], [1, 1]]))
-    [0 1]
-
-    Notes
-    -----
-    This implementation is simplified and intended for binary classification only.
-    It does not handle multi-class classification and does not support more advanced
-    tree-building methods that consider information gain or Gini impurity.
-    """
-    def __init__(self, min_samples_split=2, min_samples_leaf=1, verbose=False):
-        self.min_samples_split = min_samples_split
-        self.min_samples_leaf = min_samples_leaf
-        self.verbose=verbose
-        self.split_feature_ = None
-        self.split_value_ = None
-        self.left_class_ = None
-        self.right_class_ = None
-        
-        
-    def fit(self, X, y, sample_weight=None):
-        r"""
-        Fit the decision stump model to the binary classification data.
-    
-        The fitting process involves finding the feature and threshold that 
-        minimize the impurity of the resulting binary split. This is achieved by 
-        calculating the error as the negative of the weighted sum of correct 
-        classifications in both left and right groups formed by the threshold. 
-        The goal is to maximize the number of correct predictions by selecting 
-        the optimal split.
-    
-        .. math::
-            error = - \left( \sum_{i \in \text{{left}}}w_i(y_i = \text{{left\_class}}) + 
-            \sum_{j \in \text{{right}}}w_j(y_j = \text{{right\_class}}) \right)
-    
-        Where `left_class` and `right_class` are the classes predicted for the 
-        left and right groups, respectively, \( y_i \) is the actual class of the 
-        ith sample, and \( w_i \) is the sample weight of the ith sample.
-    
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Training vectors, where n_samples is the number of samples and
-            n_features is the number of features.
-    
-        y : array-like of shape (n_samples,)
-            Target values (class labels in classification).
-        
-        sample_weight : array-like of shape (n_samples,), default=None
-            Sample weights. If None, then samples are equally weighted. The length 
-            of `sample_weight` must match the number of samples.
-    
-        Returns
-        -------
-        self : object
-            Returns self with the fitted model. The following attributes are set after 
-            fitting:
-                - `split_feature_` : Index of the feature used for the best split.
-                - `split_value_` : Threshold value at the best split.
-                - `left_class_` : Class label for samples on the left of the threshold.
-                - `right_class_` : Class and data handling, this method modifies internal
-                                   state and prepares the model for prediction.
-    
-        Examples
-        --------
-        >>> from sklearn.datasets import make_classification
-        >>> X, y = make_classification(n_samples=100, n_features=2, random_state=42)
-        >>> stump = DecisionStumpClassifier()
-        >>> stump.fit(X, y)
-        >>> stump.predict([[0.1, -0.1], [0.3, 0.3]])
-        array([0, 1])
-    
-        Notes
-        -----
-        The method checks the input data using `check_X_y` from sklearn, which verifies
-        that the data is correctly formatted and that the number of samples and labels
-        matches. It also requires the `get_estimator_name` function to properly identify
-        the estimator in error messages and validations.
-        """
-        X, y = check_X_y(X, y, estimator=self)
-        min_error = float('inf')
-        n_samples, n_features = X.shape
-    
-        sample_weight = validate_fit_weights(y, sample_weight ) 
-        if self.verbose:
-            progress_bar = tqdm(range(n_features), ascii=True, ncols= 100,
-                desc=f'Fitting {self.__class__.__name__}' )
-            
-        for feature in range(n_features):
-            thresholds = np.unique(X[:, feature])
-            for threshold in thresholds:
-                left_mask = X[:, feature] <= threshold
-                right_mask = ~left_mask
-    
-                if np.sum(left_mask) < self.min_samples_leaf or np.sum(
-                        right_mask) < self.min_samples_leaf:
-                    continue
-    
-                left_class = np.bincount(y[left_mask], weights=sample_weight[left_mask]).argmax()
-                right_class = np.bincount(y[right_mask], weights=sample_weight[right_mask]).argmax()
-    
-                error = - (
-                    np.sum(sample_weight[left_mask] * (y[left_mask] == left_class)) + 
-                    np.sum(sample_weight[right_mask] * (y[right_mask] == right_class))
-                )
-    
-                if error < min_error:
-                    min_error = error
-                    self.split_feature_ = feature
-                    self.split_value_ = threshold
-                    self.left_class_ = left_class
-                    self.right_class_ = right_class
-            
-            if self.verbose:
-                progress_bar.update(1)
-
-        if self.verbose:
-            progress_bar.close()
-            
-        self.fitted_ = True
-        return self
-
-    def predict(self, X):
-        """
-        Predict class labels for samples in X.
-    
-        The predictions are based on the simple rule using the `split_feature_` and 
-        `split_value_` determined during the fitting process. Depending on whether 
-        the feature value for a given sample is less than or equal to `split_value_`, 
-        the prediction is either `left_class_` or `right_class_`.
-    
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The input samples.
-    
-        Returns
-        -------
-        y_pred : ndarray of shape (n_samples,)
-            The predicted class labels for each sample in X.
-    
-        Examples
-        --------
-        >>> from sklearn.datasets import make_classification
-        >>> X, y = make_classification(n_samples=100, n_features=2, random_state=42)
-        >>> stump = DecisionStumpClassifier()
-        >>> stump.fit(X, y)
-        >>> print(stump.predict([[0.1, -0.1], [0.3, 0.3]]))
-        [0 1]
-        """
-        check_is_fitted(self, "fitted_") 
-        left_mask = X[:, self.split_feature_] <= self.split_value_
-        y_pred = np.where(left_mask, self.left_class_, self.right_class_)
-        return y_pred
-    
-    def predict_proba(self, X):
-        """
-        Predict class probabilities for samples in X.
-    
-        The probabilities are computed as the frequencies of the `left_class_` and 
-        `right_class_` in the training data. For each sample in X, this method 
-        returns the probability of the sample belonging to the `left_class_` or 
-        `right_cap` class based on the position relative to the `split_value_`.
-    
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The input samples.
-    
-        Returns
-        -------
-        proba : ndarray of shape (n_samples, 2)
-            The probability of the sample belonging to each class.
-    
-        Examples
-        --------
-        >>> from sklearn.datasets import make_classification
-        >>> X, y = make_classification(n_samples=100, n_features=5, random_state=42)
-        >>> stump = DecisionStumpClassifier()
-        >>> stump.fit(X, y)
-        >>> print(stump.predict_proba([[0.1, -0.1], [0.3, 0.3]]))
-        [[0.7 0.3]
-         [0.2 0.8]]
-        """
-        check_is_fitted(self, "fitted_") 
-        left_mask = X[:, self.split_feature_] <= self.split_value_
-        proba_left = np.mean(self.left_class_ == 1)
-        proba_right = np.mean(self.right_class_ == 1)
-        proba = np.zeros((X.shape[0], 2))
-        proba[:, 0] = np.where(left_mask, 1 - proba_left, 1 - proba_right)
-        proba[:, 1] = np.where(left_mask, proba_left, proba_right)
-        return proba
-    
-    def score(self, X, y):
-        """
-        Return the mean accuracy on the given test data and labels.
-    
-        This method computes the accuracy, which is the fraction of correctly predicted
-        labels to the total number of observations. It uses the `predict` method to obtain 
-        the class labels for the input samples and compares them with the true labels.
-    
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Test samples.
-    
-        y : array-like of shape (n_samples,)
-            True labels for X.
-    
-        Returns
-        -------
-        score : float
-            Mean accuracy of self.predict(X) wrt. y. The score is a float in the range [0, 1]
-            where 1 indicates perfect accuracy.
-    
-        Examples
-        --------
-        >>> from sklearn.datasets import make_classification
-        >>> X, y = make_classification(n_samples=100, n_features=2, random_state=42)
-        >>> stump = DecisionStumpClassifier()
-        >>> stump.fit(X, y)
-        >>> accuracy = stump.score(X, y)
-        >>> print(f"Accuracy: {accuracy:.2f}")
-        
-        Notes
-        -----
-        This method checks if the estimator is fitted by using `check_is_fitted` before
-        proceeding with predictions and scoring. If the model is not fitted, it will raise
-        a `NotFittedError`. The inputs are validated using `check_X_y` from sklearn, which
-        ensures that the dimensions and types of X and y are compatible and appropriate for
-        the estimator.
-        """
-        check_is_fitted(self, "fitted_") 
-        X, y = check_X_y(X, y, estimator=get_estimator_name(self))
-        y_pred = self.predict(X)
-        return accuracy_score(y, y_pred)
 
 
 

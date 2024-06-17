@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
 
 from abc import ABCMeta, abstractmethod
+from numbers import Integral, Real
 import numpy as np
 from tqdm import tqdm
+from scipy.sparse import issparse
 from sklearn.base import BaseEstimator
-from ..tools.validator import check_X_y, check_array, check_is_fitted
+
+from ..tools.validator import check_array, check_is_fitted
+from sklearn.utils._param_validation import Interval, StrOptions
+#from ..tools._param_validation import Interval, StrOptions
 from .util  import validate_fit_weights, validate_positive_integer
 
 class BaseWeightedTree(BaseEstimator, metaclass=ABCMeta):
@@ -163,6 +168,31 @@ class BaseWeightedTree(BaseEstimator, metaclass=ABCMeta):
     .. [2] Pedregosa, F. et al. (2011). "Scikit-learn: Machine Learning in
            Python," Journal of Machine Learning Research, 12:2825-2830.
     """
+    _parameter_constraints: dict = {
+        "eta0":  [Interval(Real, 0., 1.0, closed="both")],
+        "splitter": [StrOptions({"best", "random"})],
+        "max_depth": [Interval(Integral, 1, None, closed="left"), None],
+        "min_samples_split": [
+            Interval(Integral, 2, None, closed="left"),
+            Interval(Real, 0.0, 1.0, closed="right"),
+        ],
+        "min_samples_leaf": [
+            Interval(Integral, 1, None, closed="left"),
+            Interval(Real, 0.0, 1.0, closed="neither"),
+        ],
+        "min_weight_fraction_leaf": [Interval(Real, 0.0, 0.5, closed="both")],
+        "max_features": [
+            Interval(Integral, 1, None, closed="left"),
+            Interval(Real, 0.0, 1.0, closed="right"),
+            StrOptions({"auto", "sqrt", "log2"}, deprecated={"auto"}),
+            None,
+        ],
+        "random_state": ["random_state"],
+        "max_leaf_nodes": [Interval(Integral, 2, None, closed="left"), None],
+        "min_impurity_decrease": [Interval(Real, 0.0, None, closed="left")],
+        "ccp_alpha": [Interval(Real, 0.0, None, closed="left")],
+    }
+    
     @abstractmethod
     def __init__(
         self, 
@@ -198,7 +228,7 @@ class BaseWeightedTree(BaseEstimator, metaclass=ABCMeta):
     def _make_estimator(self):
         pass
     
-    def fit(self, X, y, sample_weight=None):
+    def fit(self, X, y, sample_weight=None, check_input=True ):
         """
         Fit the ensemble of weighted decision trees to the training data.
     
@@ -221,6 +251,11 @@ class BaseWeightedTree(BaseEstimator, metaclass=ABCMeta):
         sample_weight : array-like of shape (n_samples,), default=None
             Individual weights for each sample. If None, all samples are given 
             equal weight. This parameter is used only for regression tasks.
+            
+        check_input : bool, default=True
+            Allow to bypass several input checking.
+            Don't use this parameter unless you know what you're doing.
+            
     
         Returns
         -------
@@ -293,11 +328,38 @@ class BaseWeightedTree(BaseEstimator, metaclass=ABCMeta):
         .. [2] Pedregosa, F. et al. (2011). "Scikit-learn: Machine Learning in
                Python," Journal of Machine Learning Research, 12:2825-2830.
         """
+        self._validate_params() 
+        if check_input:
+            # Need to validate separately here.
+            # We can't pass multi_output=True because that would allow y to be
+            # csr.
+            check_X_params = dict(accept_sparse="csc")
+            check_y_params = dict(ensure_2d=False, dtype=None)
+            X, y = self._validate_data(
+                X, y, validate_separately=(check_X_params, check_y_params)
+            )
+            if issparse(X):
+                X.sort_indices()
 
-        X, y = check_X_y(X, y, accept_sparse=True, accept_large_sparse=True)
+                if X.indices.dtype != np.intc or X.indptr.dtype != np.intc:
+                    raise ValueError(
+                        "No support for np.int64 index based sparse matrices"
+                    )
+
+            if self.criterion == "poisson":
+                if np.any(y < 0):
+                    raise ValueError(
+                        "Some value(s) of y are negative which is"
+                        " not allowed for Poisson regression."
+                    )
+                if np.sum(y) <= 0:
+                    raise ValueError(
+                        "Sum of y is not positive which is "
+                        "necessary for Poisson regression."
+                    )
+            
         self.base_estimators_ = []
         self.weights_ = []
-
         if self._is_classifier():
             sample_weights = self._compute_sample_weights(y)
         else:
@@ -434,33 +496,18 @@ class BaseWeightedTree(BaseEstimator, metaclass=ABCMeta):
             return np.sign(y_pred)
         else:
             return y_pred
-    
-        def predict(self, X):
-            """Predict using the Weighted Tree model."""
-            check_is_fitted(self, 'base_estimators_')
-            X = check_array(X, accept_sparse=True)
-            y_pred = np.zeros(X.shape[0])
-    
-            for base_estimator, weight in zip(self.base_estimators_, self.weights_):
-                y_pred += weight * base_estimator.predict(X)
-    
-            if self._is_classifier():
-                y_pred = y_pred / np.sum(self.weights_) if self.weights_ else y_pred
-                return np.sign(y_pred)
-            else:
-                return y_pred
-    
-        @abstractmethod
-        def _is_classifier(self):
-            pass
-    
-        def _compute_sample_weights(self, y):
-            """Compute sample weights."""
-            return np.ones_like(y) / len(y)
-    
-        def _update_sample_weights(self, y, y_pred, weight):
-            """Update sample weights."""
-            return np.exp(-weight * y * y_pred)
+   
+    @abstractmethod
+    def _is_classifier(self):
+        pass
+
+    def _compute_sample_weights(self, y):
+        """Compute sample weights."""
+        return np.ones_like(y) / len(y)
+
+    def _update_sample_weights(self, y, y_pred, weight):
+        """Update sample weights."""
+        return np.exp(-weight * y * y_pred)
     
 class BaseDTB(BaseEstimator, metaclass=ABCMeta):
     """
@@ -644,7 +691,30 @@ class BaseDTB(BaseEstimator, metaclass=ABCMeta):
     .. [2] Friedman, J., Hastie, T., & Tibshirani, R. "The Elements of Statistical
            Learning." Springer Series in Statistics. (2001).
     """
-
+    _parameter_constraints: dict = {
+        "splitter": [StrOptions({"best", "random"})],
+        "max_depth": [Interval(Integral, 1, None, closed="left"), None],
+        "min_samples_split": [
+            Interval(Integral, 2, None, closed="left"),
+            Interval(Real, 0.0, 1.0, closed="right"),
+        ],
+        "min_samples_leaf": [
+            Interval(Integral, 1, None, closed="left"),
+            Interval(Real, 0.0, 1.0, closed="neither"),
+        ],
+        "min_weight_fraction_leaf": [Interval(Real, 0.0, 0.5, closed="both")],
+        "max_features": [
+            Interval(Integral, 1, None, closed="left"),
+            Interval(Real, 0.0, 1.0, closed="right"),
+            StrOptions({"auto", "sqrt", "log2"}, deprecated={"auto"}),
+            None,
+        ],
+        "random_state": ["random_state"],
+        "max_leaf_nodes": [Interval(Integral, 2, None, closed="left"), None],
+        "min_impurity_decrease": [Interval(Real, 0.0, None, closed="left")],
+        "ccp_alpha": [Interval(Real, 0.0, None, closed="left")],
+    }
+    
     @abstractmethod
     def __init__(
         self, 
@@ -676,7 +746,7 @@ class BaseDTB(BaseEstimator, metaclass=ABCMeta):
         self.ccp_alpha = ccp_alpha
         self.verbose = verbose
         
-    def fit(self, X, y, sample_weight=None):
+    def fit(self, X, y, sample_weight=None, check_input=True):
         """
         Fit the ensemble model to the data.
     
@@ -789,7 +859,33 @@ class BaseDTB(BaseEstimator, metaclass=ABCMeta):
                Learning." Springer Series in Statistics. (2001).
     
         """
-        X, y = check_X_y(X, y, accept_sparse=True)
+        self._validate_params() 
+        if check_input: 
+            check_X_params = dict(accept_sparse="csc")
+            check_y_params = dict(ensure_2d=False, dtype=None)
+            X, y = self._validate_data(
+                X, y, validate_separately=(check_X_params, check_y_params)
+            )
+            if issparse(X):
+                X.sort_indices()
+
+                if X.indices.dtype != np.intc or X.indptr.dtype != np.intc:
+                    raise ValueError(
+                        "No support for np.int64 index based sparse matrices"
+                    )
+
+            if self.criterion == "poisson":
+                if np.any(y < 0):
+                    raise ValueError(
+                        "Some value(s) of y are negative which is"
+                        " not allowed for Poisson regression."
+                    )
+                if np.sum(y) <= 0:
+                    raise ValueError(
+                        "Sum of y is not positive which is "
+                        "necessary for Poisson regression."
+                    )
+        
         self.estimators_ = []
         n_samples = X.shape[0]
         sample_indices = np.arange(n_samples)

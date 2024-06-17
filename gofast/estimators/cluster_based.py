@@ -3,18 +3,13 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 from __future__ import annotations 
-from numbers import Integral, Real
-
 from sklearn.base import ClassifierMixin, RegressorMixin
 from sklearn.metrics import r2_score
 
 from ..tools.validator import check_is_fitted
-from ..tools._param_validation import Hidden, HasMethods 
-from ..tools._param_validation import Interval, StrOptions
-from ..tools._param_validation import validate_params
-from ._base_cluster import BaseKMF
+from ._cluster_based import BaseKMF
 from .util import select_default_estimator
-    
+
 __all__=["KMFClassifier", "KMFRegressor"]
 
 
@@ -180,31 +175,6 @@ class KMFClassifier(BaseKMF, ClassifierMixin):
            Python. Journal of Machine Learning Research. 12:2825-2830.
     """
     base_estimator = select_default_estimator("dt", "classification")
-        
-    @validate_params(
-        {
-        "n_clusters": [Interval(Integral, 1, None, closed="left")],
-        "sample_weight": ["array-like", None],
-        "init": [StrOptions({"k-means++", "random"}), callable, "array-like"],
-        "n_init": [
-            StrOptions({"auto"}),
-            Hidden(StrOptions({"warn"})),
-            Interval(Integral, 1, None, closed="left"),
-        ],
-        "max_iter": [Interval(Integral, 1, None, closed="left")],
-        "verbose": [Interval(Integral, 0, None, closed="left"), bool],
-        "tol": [Interval(Real, 0, None, closed="left")],
-        "random_state": ["random_state"],
-        "copy_x": [bool],
-        "algorithm": [
-            StrOptions({"lloyd", "elkan", "auto", "full"}, deprecated={"auto", "full"})
-        ],
-        "estimator": [
-            HasMethods(["fit", "predict"])
-            ],
-        "to_sparse": [bool]
-        }
-    )
 
     def __init__(
         self,
@@ -544,31 +514,7 @@ class KMFRegressor(BaseKMF, RegressorMixin):
            Python. Journal of Machine Learning Research. 12:2825-2830.
     """
     base_estimator = select_default_estimator("dt")
-    
-    @validate_params(
-        {
-            "n_clusters": [Interval(Integral, 1, None, closed="left")],
-            "sample_weight": ["array-like", None],
-            "init": [StrOptions({"k-means++", "random"}), callable, "array-like"],
-            "n_init": [
-                StrOptions({"auto"}),
-                Hidden(StrOptions({"warn"})),
-                Interval(Integral, 1, None, closed="left"),
-            ],
-            "max_iter": [Interval(Integral, 1, None, closed="left")],
-            "verbose": [Interval(Integral, 0, None, closed="left"), bool],
-            "tol": [Interval(Real, 0, None, closed="left")],
-            "random_state": ["random_state"],
-            "copy_x": [bool],
-            "algorithm": [
-                StrOptions({"lloyd", "elkan", "auto", "full"}, deprecated={"auto", "full"})
-            ],
-            "estimator": [
-                HasMethods(["fit", "predict"])
-                ],
-            "to_sparse": [bool]
-        }
-    )
+
     def __init__(
         self,
         n_clusters=3,
@@ -601,7 +547,7 @@ class KMFRegressor(BaseKMF, RegressorMixin):
             to_sparse=to_sparse
         )
         
-    def score(self, X, y):
+    def score(self, X, y, sample_weight=None):
         """
         Return the coefficient of determination R^2 of the prediction.
     
@@ -632,8 +578,8 @@ class KMFRegressor(BaseKMF, RegressorMixin):
             for a dependent variable that's explained by an independent variable 
             or variables in a regression model.
     
-        Mathematical Formulation
-        ------------------------
+        Notes
+        -----
         The R^2 score, or coefficient of determination, is computed as follows:
     
         .. math::
@@ -645,6 +591,13 @@ class KMFRegressor(BaseKMF, RegressorMixin):
         - :math:`\\hat{y}_i` are the predicted values,
         - :math:`\\bar{y}` is the mean of the true values,
         - :math:`n` is the number of samples.
+  
+        - The R^2 score used here is not a symmetric function and hence can be 
+          negative if the model is worse than a simple mean predictor.
+        - The score method evaluates the performance of the model on the test 
+          dataset. Higher scores indicate a model that better captures the 
+          variability of the dataset.
+        - Ensure that the `fit` method has been called before invoking `score`.
     
         Examples
         --------
@@ -656,15 +609,6 @@ class KMFRegressor(BaseKMF, RegressorMixin):
         >>> kmf_regressor = KMFRegressor(n_clusters=5)
         >>> kmf_regressor.fit(X_train, y_train)
         >>> r2 = kmf_regressor.score(X_test, y_test)
-    
-        Notes
-        -----
-        - The R^2 score used here is not a symmetric function and hence can be 
-          negative if the model is worse than a simple mean predictor.
-        - The score method evaluates the performance of the model on the test 
-          dataset. Higher scores indicate a model that better captures the 
-          variability of the dataset.
-        - Ensure that the `fit` method has been called before invoking `score`.
     
         See Also
         --------
@@ -682,7 +626,7 @@ class KMFRegressor(BaseKMF, RegressorMixin):
         """
         check_is_fitted(self, ["estimator_", "featurizer_"])
         predictions = self.predict(X)
-        return r2_score(y, predictions)
+        return r2_score(y, predictions, sample_weight= sample_weight )
 
 
 

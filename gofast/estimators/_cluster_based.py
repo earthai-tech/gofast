@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import annotations
-
+from numbers import Integral, Real
 from abc import ABCMeta
 from abc import abstractmethod
 
 from sklearn.base import BaseEstimator, clone
+from sklearn.utils._param_validation import Hidden, HasMethods 
+from sklearn.utils._param_validation  import Interval, StrOptions
 from ..tools.validator import check_X_y
 from ..tools.validator import check_is_fitted
 from ..transformers import KMeansFeaturizer
 from .util import fit_with_estimator 
-
 
 class BaseKMF(BaseEstimator, metaclass=ABCMeta):
     """
@@ -168,7 +169,25 @@ class BaseKMF(BaseEstimator, metaclass=ABCMeta):
     .. [3] Pedregosa, F. et al. (2011). Scikit-learn: Machine Learning in 
            Python. Journal of Machine Learning Research. 12:2825-2830.
     """
-
+    _parameter_constraints: dict = {
+        "n_clusters": [Interval(Integral, 1, None, closed="left")],
+        "init": [StrOptions({"k-means++", "random"}), callable, "array-like"],
+        "n_init": [
+            StrOptions({"auto"}),
+            Hidden(StrOptions({"warn"})),
+            Interval(Integral, 1, None, closed="left"),
+        ],
+        "max_iter": [Interval(Integral, 1, None, closed="left")],
+        "verbose": [Interval(Integral, 0, None, closed="left"), "boolean"],
+        "tol": [Interval(Real, 0, None, closed="left")],
+        "random_state": ["random_state"],
+        "copy_x": [bool],
+        "algorithm": [
+            StrOptions({"lloyd", "elkan", "auto", "full"}, deprecated={"auto", "full"})],
+        "estimator": [HasMethods(["fit", "predict"]), None],
+        "to_sparse": ["boolean"]
+        }
+    
     @abstractmethod
     def __init__(
         self,
@@ -229,8 +248,8 @@ class BaseKMF(BaseEstimator, metaclass=ABCMeta):
         self : object
             Returns self.
     
-        Mathematical Formulation
-        ------------------------
+        Notes
+        -----
         The fitting process involves two main steps:
     
         1. **Transformation**:
@@ -245,7 +264,13 @@ class BaseKMF(BaseEstimator, metaclass=ABCMeta):
            The transformed data is used to fit the base estimator:
            .. math::
                \hat{y} = \text{BaseEstimator}(\text{Transformed Data})
-    
+       
+        - The `fit` method must be called before `predict` or `predict_proba`.
+        - Input data `X` and `y` are validated to ensure they meet the required 
+          format and conditions.
+        - The effectiveness of the fitting process depends on both the clustering 
+          quality and the suitability of the base estimator for the given dataset.
+          
         Examples
         --------
         >>> from gofast.estimators.cluster_based import KMFClassifier
@@ -256,15 +281,7 @@ class BaseKMF(BaseEstimator, metaclass=ABCMeta):
         >>> X_train, X_test, y_train, y_test = train_test_split(X, y)
         >>> kmf_classifier = KMFClassifier(n_clusters=5)
         >>> kmf_classifier.fit(X_train, y_train)
-    
-        Notes
-        -----
-        - The `fit` method must be called before `predict` or `predict_proba`.
-        - Input data `X` and `y` are validated to ensure they meet the required 
-          format and conditions.
-        - The effectiveness of the fitting process depends on both the clustering 
-          quality and the suitability of the base estimator for the given dataset.
-    
+
         See Also
         --------
         BaseKMF._fit_featurizer : Fit the KMeansFeaturizer on the input data.
@@ -280,6 +297,13 @@ class BaseKMF(BaseEstimator, metaclass=ABCMeta):
         .. [2] Pedregosa, F. et al. (2011). Scikit-learn: Machine Learning in 
                Python. Journal of Machine Learning Research. 12:2825-2830.
         """
+        self._validate_params() 
+        check_X_params = dict(accept_sparse="csc")
+        check_y_params = dict(ensure_2d=False, dtype=None)
+        X, y = self._validate_data(
+            X, y, validate_separately=(check_X_params, check_y_params)
+        )
+        
         X, y = check_X_y(X, y, estimator=self)
         X_transformed = self._fit_featurizer(X, y)
         self._fit_estimator(X_transformed, y, sample_weight )

@@ -27,7 +27,7 @@ from ..tools.validator import check_X_y, check_array
 from ..tools.validator import check_is_fitted, parameter_validator 
 from ..tools._param_validation import validate_params
 from ..tools._param_validation import Interval, StrOptions, Real, Integral
-from ._base_adaline import BaseAdalineStochastic 
+from ._adaline import BaseAdalineStochastic 
 from .util import activator 
   
 __all__= [

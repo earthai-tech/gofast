@@ -20,7 +20,7 @@ from sklearn.metrics import accuracy_score, r2_score
 from ..tools.funcutils import ensure_pkg 
 from ..tools.validator import check_X_y, check_array 
 from ..tools.validator import check_is_fitted
-from ._base import BaseFuzzyNeuralNet, BaseNeuroFuzzy, BaseGD 
+from ._neural import BaseFuzzyNeuralNet, BaseNeuroFuzzy, BaseGD 
 from .util import detect_problem_type 
 
 __all__=[

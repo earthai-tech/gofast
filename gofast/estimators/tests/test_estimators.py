@@ -18,6 +18,7 @@ from gofast.estimators.adaline import AdalineClassifier, AdalineMixte
 from gofast.estimators.adaline import AdalineRegressor 
 from gofast.estimators.adaline import AdalineStochasticRegressor 
 from gofast.estimators.adaline import AdalineStochasticClassifier 
+from gofast.estimators.base import DecisionStumpRegressor 
 from gofast.estimators.benchmark import BenchmarkRegressor
 from gofast.estimators.benchmark import BenchmarkClassifier
 from gofast.estimators.boosting import HybridBoostingClassifier 
@@ -40,7 +41,7 @@ from gofast.estimators.perceptron import LightGDClassifier
 from gofast.estimators.perceptron import LightGDRegressor
 from gofast.estimators.tree import DTBClassifier 
 from gofast.estimators.tree import DTBRegressor
-from gofast.estimators.tree import DecisionStumpRegressor 
+
 
 
 @pytest.fixture

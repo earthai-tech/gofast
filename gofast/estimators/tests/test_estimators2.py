@@ -6,12 +6,13 @@ import numpy as np
 from sklearn.datasets import make_classification, make_regression
 from sklearn.metrics import accuracy_score, mean_squared_error
 
+from gofast.estimators.base import DecisionStumpClassifier
+from gofast.estimators.base import DecisionStumpRegressor 
 from gofast.estimators.boosting import BoostingTreeClassifier
 from gofast.estimators.boosting import BoostingTreeRegressor
 from gofast.estimators.boosting import HybridBoostingClassifier
 from gofast.estimators.boosting import HybridBoostingRegressor
-from gofast.estimators.tree import DecisionStumpClassifier
-from gofast.estimators.tree import DecisionStumpRegressor 
+
 
 def test_regressor_fit_predict():
     X, y = make_regression(n_samples=100, n_features=1, noise=0.1, random_state=42)
