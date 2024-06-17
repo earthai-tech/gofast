@@ -5,7 +5,7 @@ import numpy as np
 from tqdm import tqdm
 from sklearn.base import BaseEstimator
 from ..tools.validator import check_X_y, check_array, check_is_fitted
-from .util  import validate_fit_weights 
+from .util  import validate_fit_weights, validate_positive_integer
 
 class BaseWeightedTree(BaseEstimator, metaclass=ABCMeta):
     """
@@ -799,7 +799,9 @@ class BaseDTB(BaseEstimator, metaclass=ABCMeta):
                 range(self.n_estimators), ascii=True, ncols=100,
                 desc=f'Fitting {self.__class__.__name__}', 
             )
-    
+        # TODO 
+        self.n_estimators = validate_positive_integer(
+            self.n_estimators, "n_estimators", round_float="ceil") 
         for i in range(self.n_estimators):
             if self.bootstrap:
                 subsample_indices = np.random.choice(

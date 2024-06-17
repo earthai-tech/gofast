@@ -6,7 +6,7 @@ from __future__ import annotations
 from numbers import Integral, Real
 import numpy as np
 from tqdm import tqdm
-from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
+from sklearn.base import ClassifierMixin, RegressorMixin
 from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
 # from sklearn.utils import resample
 from sklearn.metrics import r2_score , accuracy_score
@@ -17,9 +17,7 @@ from ..api.property import BaseClass
 from ..tools.validator import check_X_y, get_estimator_name, check_array 
 from ..tools.validator import check_is_fitted, validate_fit_weights 
 from ..tools._param_validation import validate_params 
-from ..tools._param_validation import Hidden, HasMethods 
 from ..tools._param_validation import Interval, StrOptions
-from ..tools._param_validation import validate_params
 
 __all__=[ 
     "DecisionStumpRegressor", "DecisionStumpClassifier",
@@ -180,7 +178,7 @@ class DTBRegressor(BaseDTB, RegressorMixin):
     @validate_params(
         {
             "n_estimators": [Interval(Integral, 1, None, closed="left")],
-            "max_depth": [Interval(Integral, 1, None, closed="left")], 
+            "max_depth": [Interval(Integral, 1, None, closed="left"), None], 
             "criterion": [StrOptions(
                 {"squared_error", "friedman_mse", "absolute_error", "poisson"})],
             "splitter": [StrOptions({"best", "random"})],
@@ -558,8 +556,8 @@ class DTBClassifier(BaseDTB, ClassifierMixin):
     """
     @validate_params(
         {
-            "n_estimators": [Interval(Integral, 1, None, closed="left")],
-            "max_depth": [Interval(Integral, 1, None, closed="left")], 
+            #"n_estimators": [Interval(Integral, 1, None, closed="left")],
+            "max_depth": [Interval(Integral, 1, None, closed="left"),None], 
             "criterion": [StrOptions({"gini", "entropy"})],
             "splitter": [StrOptions({"best", "random"})],
             "min_samples_split": [Interval(Integral, 1, None, closed="left")],
