@@ -2197,6 +2197,107 @@ def aggregate_cv_results(cv_results):
     
     return final_results
 
+# but sometimes , the parameter can accept string, or float like the 
+# SVC parameters, add parameter in apply_param_types to control this and 
+# if 'auto', resole this problem automatically. here is an example of issues 
+
+# ValueError: 
+# All the 5 fits failed.
+# It is very likely that your model is misconfigured.
+# You can try to debug the error by setting error_score='raise'.
+
+# Below are more details about the failures:
+# --------------------------------------------------------------------------------
+# 5 fits failed with the following error:
+# Traceback (most recent call last):
+#   File "C:\Users\Daniel\Anaconda3\envs\watex\lib\site-packages\sklearn\model_selection\_validation.py", line 686, in _fit_and_score
+#     estimator.fit(X_train, y_train, **fit_params)
+#   File "C:\Users\Daniel\Anaconda3\envs\watex\lib\site-packages\sklearn\svm\_base.py", line 180, in fit
+#     self._validate_params()
+#   File "C:\Users\Daniel\Anaconda3\envs\watex\lib\site-packages\sklearn\base.py", line 581, in _validate_params
+#     validate_parameter_constraints(
+#   File "C:\Users\Daniel\Anaconda3\envs\watex\lib\site-packages\sklearn\utils\_param_validation.py", line 96, in validate_parameter_constraints
+#     raise InvalidParameterError(
+# sklearn.utils._param_validation.InvalidParameterError: The 'gamma' parameter of SVC must be a str among {'scale', 'auto'} or a float in the range [0.0, inf). Got '0.0505' instead.
+            
+
+
+def get_param_types2(estimator: BaseEstimator) -> dict:
+    """
+    Get the parameter types for a given estimator.
+    
+    Parameters
+    ----------
+    estimator : BaseEstimator
+        An instance of a scikit-learn estimator.
+    
+    Returns
+    -------
+    param_types : dict
+        A dictionary mapping parameter names to their types.
+    """
+    params = estimator.get_params()
+    param_types = {param: type(value) for param, value in params.items()}
+    return param_types
+
+def resolve_param_type(value, expected_types):
+    """
+    Resolve the type of a parameter value based on the expected types.
+    
+    Parameters
+    ----------
+    value : any
+        The parameter value to be resolved.
+    expected_types : tuple
+        A tuple of expected types.
+    
+    Returns
+    -------
+    resolved_value : any
+        The parameter value converted to the appropriate type if possible,
+        otherwise the original value.
+    """
+    for expected_type in expected_types:
+        try:
+            if expected_type == str and value in {'scale', 'auto'}:
+                return value
+            return expected_type(value)
+        except (ValueError, TypeError):
+            continue
+    return value
+
+def apply_param_types2(estimator: BaseEstimator, param_dict: dict) -> dict:
+    """
+    Apply the parameter types to the values in the given dictionary.
+    
+    Parameters
+    ----------
+    estimator : BaseEstimator
+        An instance of a scikit-learn estimator.
+    param_dict : dict
+        A dictionary of hyperparameters.
+    
+    Returns
+    -------
+    new_param_dict : dict
+        A new dictionary with values converted to the expected types.
+    """
+    param_types = get_param_types(estimator)
+    new_param_dict = {}
+    
+    for param, value in param_dict.items():
+        if param in param_types:
+            expected_type = param_types[param]
+            if expected_type in {str, float}:
+                new_param_dict[param] = resolve_param_type(value, (str, float))
+            else:
+                new_param_dict[param] = expected_type(value)
+        else:
+            new_param_dict[param] = value  # keep original if param not found
+    
+    return new_param_dict
+
+                                                                                                                      
 def get_param_types(estimator: BaseEstimator) -> dict:
     """
     Get the parameter types for a given estimator.
@@ -2240,5 +2341,13 @@ def apply_param_types(estimator: BaseEstimator, param_dict: dict) -> dict:
             new_param_dict[param] = expected_type(value)
         else:
             new_param_dict[param] = value  # keep original if param not found
-    
+        
+        # sometimes, param can hold string and float, try to convert to float 
+        # if string is passed 
+        if isinstance ( new_param_dict[param], str): 
+            try : 
+                new_param_dict[param] = float( new_param_dict[param]) 
+            except : 
+                pass 
+            
     return new_param_dict

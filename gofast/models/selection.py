@@ -896,6 +896,7 @@ class GradientSearchCV(GradientBaseSearch):
                 )
             increased_params = apply_param_types(self.estimator, increased_params)
             decreased_params = apply_param_types(self.estimator, decreased_params)
+            print(increased_params)
             evaluate_candidates([increased_params])
             evaluate_candidates([decreased_params])
 

@@ -26,13 +26,13 @@ from ..api.property import BaseClass
 from ..api.summary import ModelSummary, ResultSummary 
 from ..api.types import _F, List,ArrayLike, NDArray, Dict, Any, Optional, Union
 from ..exceptions import EstimatorError, NotFittedError
-from ..tools.coreutils import _assert_all_types, get_params, save_job
+from ..tools.coreutils import _assert_all_types, save_job
 from ..tools.coreutils import listing_items_format, pretty_printer
 from ..tools.validator import check_X_y, check_array, check_consistent_length 
 from ..tools.validator import get_estimator_name
 
 from .utils import get_scorers, dummy_evaluation, get_strategy_name
-from .utils import _standardize_input 
+from .utils import _standardize_input , get_strategy_method
  
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -220,158 +220,6 @@ class MultipleSearch (BaseClass):
                 }
         return best_params, result 
         
-class MultipleSearch0:
-    """
-    A class for performing parameter tuning across multiple 
-    estimators using different search strategies.
-
-    Allows specification of multiple machine learning estimators 
-    and performs parameter tuning using GridSearchCV, RandomizedSearchCV, 
-    or BayesSearchCV. Results, including best parameters and estimators,
-    can be saved to a file.
-
-    Parameters
-    ----------
-    estimators : dict
-        Estimators for tuning. Format: {'estimator_name': estimator_object}.
-    param_grids : dict
-        Parameter grids for the corresponding estimators.
-        Format: {'estimator_name': param_grid}.
-    strategy : str, optional
-        Method for parameter tuning: 'grid', 'random', 'bayes'. Default is 'grid'.
-    savejob : bool, optional
-        Save tuning results to a joblib file. Default is False.
-    filename : str, optional
-        Filename for saving the joblib file. Required if savejob is True.
-    cv : int, cross-validation generator or an iterable, optional
-        Determines the cross-validation splitting strategy. Default is None.
-    n_iter : int, optional
-        Number of iterations for random or Bayes search. Default is 10.
-    n_job : int or None, optional
-        Number of jobs to run in parallel. None means 1. Default is None.
-    scoring : str, callable, list/tuple or dict, optional
-        A single string or a callable to evaluate the predictions. Default is None.
-    grid_kws : dict, optional
-        Additional keyword arguments to pass to the search method. Default is None.
-
-    Attributes
-    ----------
-    best_params_ : dict
-        Best found parameters for each estimator.
-    best_estimator_ : dict
-        Best estimator for each search.
-    cv_results_ : dict
-        Cross validation results for each search.
-
-    Raises
-    ------
-    ValueError
-        If an invalid search method is specified.
-
-    Examples
-    --------
-    >>> from sklearn.ensemble import RandomForestClassifier
-    >>> estimators = {'rf': RandomForestClassifier()}
-    >>> param_grids = {'rf': {'n_estimators': [100, 200]}}
-    >>> ms = MultipleSearch(estimators, param_grids, strategy='grid')
-    >>> ms.fit(X, y)
-    >>> print(ms.best_params_)
-
-    """
-
-    def __init__(self, 
-        estimators, 
-        param_grids, 
-        strategy='grid', 
-        savejob=False, 
-        filename=None, 
-        cv=None, 
-        n_iter=10, 
-        n_job=None, 
-        scoring=None, 
-        grid_kws=None
-        ):
-        self.estimators = estimators
-        self.param_grids = param_grids
-        self.strategy = strategy
-        self.savejob = savejob
-        self.filename = filename
-        self.cv = cv or 5
-        self.n_iter = n_iter
-        self.n_job = n_job
-        self.scoring = scoring
-        self.grid_kws = grid_kws or {}
-
-    def fit(self, X, y):
-        """
-        Fit the parameter tuning for each estimator on the given data.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Training data.
-        y : array-like of shape (n_samples,)
-            Target values.
-        """
-        results={}
-        self.best_params_ = {}
-        self.best_estimator_ = {}
-        self.cv_results_ = {}
-        
-        for name, estimator in self.estimators.items():
-            param_grid = self.param_grids.get(name, {})
-            search = self._get_search(estimator, param_grid, name)
-            search.fit(X, y)
-            self.best_params_[name] = search.best_params_
-            self.best_estimator_[name] = search.best_estimator_
-            self.cv_results_[name] = search.cv_results_
-            
-            results[estimator]={"best_estimator_": search.best_estimator_, 
-                                "best_params_": search.best_params_, 
-                                "cv_results_": search.cv_results_ ,
-                                "scoring": _standardize_input(self.scoring) 
-                                }
-            
-        if self.savejob:
-            self.filename = self.filename or "saved_data.joblib"
-            joblib.dump({'best_params_': self.best_params_, 
-                        'best_estimator_': self.best_estimator_,
-                        'cv_results_': self.cv_results_}, 
-                        self.filename)
-        self.summary_= ModelSummary(descriptor="MultipleSearch").summary(results)
-        return self 
-        
-    def _get_search(self, estimator, param_grid, name):
-        """
-        Get the search object based on the strategy.
-
-        Parameters
-        ----------
-        estimator : estimator object
-            The estimator to tune.
-        param_grid : dict
-            Parameter grid to search.
-        name : str
-            Name of the estimator.
-
-        Returns
-        -------
-        search : GridSearchCV, RandomizedSearchCV or BayesSearchCV object
-            The search object.
-        """
-        strategy = get_strategy_name(self.strategy, error ='ignore')
-        if strategy =='GridSearchCV':
-            return GridSearchCV(estimator, param_grid, cv=self.cv, 
-            n_jobs=self.n_job, scoring=self.scoring, **self.grid_kws)
-        elif strategy =='RandomizedSearchCV':
-            return RandomizedSearchCV(estimator, param_grid, n_iter=self.n_iter, 
-            cv=self.cv, n_jobs=self.n_job, scoring=self.scoring, **self.grid_kws)
-        elif strategy=='BayesSearchCV':
-            return BayesSearchCV(estimator, param_grid, n_iter=self.n_iter, cv=self.cv,
-            n_jobs=self.n_job, scoring=self.scoring, **self.grid_kws)
-        else:
-            raise ValueError(f"Invalid search method: {self.strategy}")
-
 class CrossValidator (BaseClass):
     """
     A class for handling cross-validation of machine learning models.
@@ -731,7 +579,7 @@ class CrossValidator (BaseClass):
                " this method"
                )
         
-        if not hasattr (self, "results_" ): 
+        if not hasattr (self, "score_results_" ): 
             raise NotFittedError(msg.format(expobj=self))
         return 1 
 
@@ -748,6 +596,7 @@ class BaseSearch (BaseClass):
         'feature_importances_',
         'best_estimator_',
         'verbose',
+        'savejob', 
         'grid_kws',
         )
     def __init__(
@@ -755,7 +604,7 @@ class BaseSearch (BaseClass):
         base_estimator:_F,
         grid_params:Dict[str,Any],
         cv:int =4,
-        strategy:str ='GridSearchCV',
+        strategy:str ='GSCV',
         scoring:str = 'nmse',
         savejob:bool=False, 
         filename:str=None, 
@@ -763,7 +612,7 @@ class BaseSearch (BaseClass):
         **grid_kws
         ): 
         
-        self._base_estimator = base_estimator 
+        self.base_estimator = base_estimator 
         self.grid_params = grid_params 
         self.scoring = scoring 
         self.cv = cv 
@@ -771,42 +620,11 @@ class BaseSearch (BaseClass):
         self.cv_results_= None
         self.feature_importances_= None
         self.grid_kws = grid_kws 
-        self._strategy = strategy 
+        self.strategy = strategy 
+        self.savejob= savejob
         self.verbose=verbose
         self.filename=filename
 
-    @property 
-    def base_estimator (self): 
-        """ Return the base estimator class"""
-        return self._base_estimator 
-    
-    @base_estimator.setter 
-    def base_estimator (self, base_est): 
-        if not hasattr (base_est, 'fit'): 
-            raise EstimatorError(
-                f"Wrong estimator {get_estimator_name(base_est)!r}. Each"
-                " estimator must have a fit method. Refer to scikit-learn"
-                " https://scikit-learn.org/stable/modules/classes.html API"
-                " reference to build your own estimator.") 
-
-        self._base_estimator =base_est 
-        
-    @property 
-    def strategy(self): 
-        """ Kind of searched. `RandomizedSearchCV` or `GridSearchCV`."""
-        return self._strategy 
-    
-    @strategy.setter 
-    def strategy (self, ksearch): 
-        """`strategy attribute checker"""
-        if 'gridsearchcv1'.find( str(ksearch).lower())>=0: 
-            ksearch = 'GridSearchCV' 
-        elif 'randomizedsearchcv2'.find( str(ksearch).lower())>=0:
-            ksearch = 'RandomizedSearchCV'
-        else: raise ValueError (
-            " Unkown the strategy of parameter search {ksearch!r}."
-            " Supports only 'GridSearchCV' and 'RandomizedSearchCV'.")
-        self._strategy = ksearch 
 
     def fit(self,  X, y): 
         """ Fit method using base Estimator and populate BaseSearch 
@@ -833,31 +651,16 @@ class BaseSearch (BaseClass):
             Returns :class:`~.BaseSearch` 
     
         """
-        if callable (self.base_estimator): 
-            self.base_estimator= self.base_estimator () 
-            parameters = get_params (self.base_estimator.__init__)
-            
-            if self.verbose > 0: 
-                msg = ("Estimator {!r} is cloned with default arguments{!r}"
-                       " for cross validation search.".format(
-                           get_estimator_name (self.base_estimator), parameters)
-                       )
-                warnings.warn(msg)
+        base_estimator = clone (self.base_estimator )
+        self.strategy_=get_strategy_method(self.strategy)
         
-        self.strategy =self._strategy 
-        
-        if self.strategy =='GridSearchCV': 
-            searchGridMethod = GridSearchCV 
-        elif self.strategy=='RandomizedSearchCV': 
-            searchGridMethod= RandomizedSearchCV 
-            
         if self.scoring in ( 'nmse', None): 
             self.scoring ='neg_mean_squared_error'
         # assert scoring values 
         get_scorers(scorer= self.scoring , check_scorer= True, error ='raise' ) 
          
-        gridObj = searchGridMethod(
-            self.base_estimator, 
+        gridObj = self.strategy_(
+            base_estimator, 
             self.grid_params,
             scoring = self.scoring , 
             cv = self.cv,
@@ -866,7 +669,7 @@ class BaseSearch (BaseClass):
         gridObj.fit(X, y)
         
         #make_introspection(self,  gridObj)
-        params = ('best_params_','best_estimator_','cv_results_')
+        params = ('best_params_','best_estimator_', 'best_score_', 'cv_results_')
         params_values = [getattr (gridObj , param, None) for param in params] 
         
         for param , param_value in zip(params, params_values ):
@@ -879,10 +682,22 @@ class BaseSearch (BaseClass):
         else : 
             setattr(self,'feature_importances_', attr_value)
         
-        self.data_=  { f"{get_estimator_name (self.base_estimator)}":  params_values} 
+        self.data_=  { f"{get_estimator_name (base_estimator)}":  params_values} 
         if self.savejob: 
-            self.filename = self.filename or get_estimator_name ( self.base_estimator)+ '.results'
+            self.filename = self.filename or get_estimator_name ( 
+                base_estimator)+ '.results'
             save_job ( job= self.data_ , savefile = self.filename ) 
+
+        results = { get_estimator_name(base_estimator): {
+            "best_params_": self.best_params_, 
+            "best_estimator_": self.best_estimator_, 
+            "best_score_": self.best_score_, 
+            "cv_results_": self.cv_results_, 
+            }
+        }
+        self.summary_= ModelSummary(
+            descriptor = f"{self.__class__.__name__}",  **results
+            ).summary(results)
 
         return self
     
@@ -1095,6 +910,11 @@ class SearchMultiple(BaseClass):
     
         if self.verbose:  
             pprint(msg)    
+            
+        
+        self.summary_= ModelSummary(
+            descriptor = f"{self.__class__.__name__}",  **self.data_
+            ).summary(self.data_)
 
         return self 
 

@@ -2048,8 +2048,6 @@ def save_job(
     append_date: bool, default=True, 
        Append the date  of the day to the filename. 
        
-       .. versionadded:: 0.2.3
-       
     protocol: int, optional 
         The optional *protocol* argument tells the pickler to use the
         given protocol; supported protocols are 0, 1, 2, 3, 4 and 5.
