@@ -175,8 +175,10 @@ class BaseGD(BaseEstimator, metaclass=ABCMeta):
 
     def _update_weights(self, X_batch, y_batch):
         errors = y_batch - self._net_input(X_batch)
+        epsilon = 1e-10  # Small value to prevent division by zero
+        
         if self.learning_rate == 'invscaling':
-            eta = self.eta0 / (self.n_iter_ ** self.power_t)
+            eta = self.eta0 / (max(self.n_iter_, epsilon) ** self.power_t)
         elif self.learning_rate == 'adaptive':
             eta = (
                 self.eta0 if self.no_improvement_count_ < self.n_iter_no_change 
@@ -184,10 +186,18 @@ class BaseGD(BaseEstimator, metaclass=ABCMeta):
             )
         else:
             eta = self.eta0
-
+            
+        # Check for NaN or infinite values in X_batch and errors
+        if np.any(np.isnan(X_batch)) or np.any(np.isinf(X_batch)) or np.any(
+                np.isnan(errors)) or np.any(np.isinf(errors)):
+            if self.verbose > 7: 
+                print("NaN or infinite values detected, skipping weight update.")
+            return
+    
         self.weights_[1:] += eta * X_batch.T.dot(errors) - self.alpha * self.weights_[1:]
         self.weights_[0] += eta * errors.sum(axis=0)
-        
+
+
     def _fit(self, X, y, is_classifier):
         """
         Fit the model according to the given training data.

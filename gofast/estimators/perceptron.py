@@ -1372,7 +1372,7 @@ class LightGDClassifier(ClassifierMixin, BaseGD):
 
     Parameters
     ----------
-    eta0 : float, default=0.001
+    eta0 : float, default=0.0001
         Learning rate, between 0.0 and 1.0. It controls the step size at each
         iteration while moving toward a minimum of the cost function.
 
@@ -1483,7 +1483,7 @@ class LightGDClassifier(ClassifierMixin, BaseGD):
     def __init__(
         self, 
         *, 
-        eta0=0.001, 
+        eta0=0.0001, 
         max_iter=1000, 
         tol=1e-4, 
         early_stopping=False, 
@@ -1731,7 +1731,7 @@ class LightGDRegressor(RegressorMixin, BaseGD):
 
     Parameters
     ----------
-    eta0 : float, default=0.001
+    eta0 : float, default=0.0001
         Learning rate (between 0.0 and 1.0). Controls the step size for weight
         updates during training.
 
@@ -1839,7 +1839,7 @@ class LightGDRegressor(RegressorMixin, BaseGD):
     def __init__(
         self, 
         *, 
-        eta0=0.001, 
+        eta0=0.0001, 
         max_iter=1000, 
         tol=1e-4, 
         early_stopping=False, 

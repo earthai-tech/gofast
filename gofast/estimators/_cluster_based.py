@@ -304,7 +304,6 @@ class BaseKMF(BaseEstimator, metaclass=ABCMeta):
             X, y, validate_separately=(check_X_params, check_y_params)
         )
         
-        X, y = check_X_y(X, y, estimator=self)
         X_transformed = self._fit_featurizer(X, y)
         self._fit_estimator(X_transformed, y, sample_weight )
         return self

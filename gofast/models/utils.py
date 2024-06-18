@@ -67,6 +67,7 @@ __all__= [
     "shrink_covariance_cv_score",
   ]
 
+
 def align_estimators_with_params(param_grids, estimators=None):
     """
     Reorganize estimators and their corresponding parameter grids.
@@ -2078,7 +2079,6 @@ def compile_cv_results(params_list, results_list):
         compiled_results.append(compiled_result)
     return compiled_results
 
-
 def aggregate_cv_results(cv_results):
     """
     Aggregates cross-validation (CV) results for each unique parameter set, computing
@@ -2197,3 +2197,48 @@ def aggregate_cv_results(cv_results):
     
     return final_results
 
+def get_param_types(estimator: BaseEstimator) -> dict:
+    """
+    Get the parameter types for a given estimator.
+    
+    Parameters
+    ----------
+    estimator : BaseEstimator
+        An instance of a scikit-learn estimator.
+    
+    Returns
+    -------
+    param_types : dict
+        A dictionary mapping parameter names to their types.
+    """
+    params = estimator.get_params()
+    param_types = {param: type(value) for param, value in params.items()}
+    return param_types
+
+def apply_param_types(estimator: BaseEstimator, param_dict: dict) -> dict:
+    """
+    Apply the parameter types to the values in the given dictionary.
+    
+    Parameters
+    ----------
+    estimator : BaseEstimator
+        An instance of a scikit-learn estimator.
+    param_dict : dict
+        A dictionary of hyperparameters.
+    
+    Returns
+    -------
+    new_param_dict : dict
+        A new dictionary with values converted to the expected types.
+    """
+    param_types = get_param_types(estimator)
+    new_param_dict = {}
+    
+    for param, value in param_dict.items():
+        if param in param_types:
+            expected_type = param_types[param]
+            new_param_dict[param] = expected_type(value)
+        else:
+            new_param_dict[param] = value  # keep original if param not found
+    
+    return new_param_dict

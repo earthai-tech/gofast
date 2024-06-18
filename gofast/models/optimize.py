@@ -385,9 +385,14 @@ class Optimizer(BaseOptimizer):
 
     Examples
     --------
+    >>> from sklearn.datasets import load_iris
+    >>> from sklearn.model_selection import train_test_split
     >>> from sklearn.svm import SVC
     >>> from sklearn.linear_model import SGDClassifier
     >>> from gofast.models.optimize import Optimizer
+    >>> X, y = load_iris(return_X_y=True)
+    >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, 
+    ...                                                     random_state=42)
     >>> estimators = {'SVC': SVC(), 'SGDClassifier': SGDClassifier()}
     >>> param_grids = {'SVC': {'C': [1, 10], 'kernel': ['linear', 'rbf']}, 
     ...                'SGDClassifier': {'max_iter': [50, 100], 'alpha': [0.0001, 0.001]}}
