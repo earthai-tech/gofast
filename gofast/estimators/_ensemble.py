@@ -7,8 +7,11 @@ from sklearn.base import BaseEstimator
 
 from sklearn.ensemble import BaggingClassifier, GradientBoostingClassifier
 from sklearn.ensemble import BaggingRegressor, GradientBoostingRegressor
-from ..tools.validator import check_X_y, check_array
+from ..tools.validator import check_array
 from ..tools.validator import check_is_fitted, get_estimator_name
+
+from sklearn.utils._param_validation import Interval, StrOptions, HasMethods
+from numbers import Integral, Real
 
 class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
     """
@@ -21,11 +24,6 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
     
     Parameters
     ----------
-    base_estimator : estimator object, default=None
-        The base estimator to fit on random subsets of the dataset. 
-        If `None`, the default base estimator will be used, which is 
-        defined in the subclasses.
-        
     n_estimators : int, default=50
         The number of base estimators in the ensemble. For the 
         hybrid strategy, this is the total number of base estimators 
@@ -128,6 +126,11 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
     ccp_alpha : float, default=0.0
         Complexity parameter used for Minimal Cost-Complexity Pruning.
     
+    estimator : estimator object, default=None
+        The base estimator to fit on random subsets of the dataset. 
+        If `None`, the default base estimator will be used, which is 
+        defined in the subclasses.
+        
     verbose : int, default=0
         Controls the verbosity when fitting and predicting. Higher values 
         indicate more messages.
@@ -216,11 +219,40 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
     .. [3] Friedman, J., Hastie, T., & Tibshirani, R. "The Elements of Statistical 
            Learning." Springer Series in Statistics. (2001).
     """
-
+    _parameter_constraints: dict = {
+        "estimator": [HasMethods(["fit", "predict"]), None],
+        "n_estimators": [Interval(Integral, 1, None, closed="left")],
+        "eta0": [Interval(Real, 0, None, closed="left")],
+        "max_depth": [Interval(Integral, 1, None, closed="left")],
+        "strategy": [StrOptions({"hybrid", "bagging", "boosting"})],
+        "random_state": ["random_state"],
+        "max_samples": [Interval(Integral, 1, None, closed="left"), 
+                        Interval(Real, 0.0, 1.0, closed="both")],
+        "max_features": [Interval(Integral, 1, None, closed="left"), 
+                         Interval(Real, 0.0, 1.0, closed="both")],
+        "bootstrap": [bool],
+        "bootstrap_features": [bool],
+        "oob_score": [bool],
+        "warm_start": [bool],
+        "n_jobs": [Interval(Integral, None, None, closed="neither"), None],
+        "min_impurity_decrease": [Interval(Real, 0.0, None, closed="left")],
+        "init": [HasMethods(["fit", "predict"]), None],
+        "min_samples_split": [Interval(Integral, 2, None, closed="left"), 
+                              Interval(Real, 0.0, 1.0, closed="right")],
+        "min_samples_leaf": [Interval(Integral, 1, None, closed="left"), 
+                             Interval(Real, 0.0, 1.0, closed="right")],
+        "min_weight_fraction_leaf": [Interval(Real, 0.0, 0.5, closed="both")],
+        "max_leaf_nodes": [Interval(Integral, 2, None, closed="left"), None],
+        "validation_fraction": [Interval(Real, 0.0, 1.0, closed="both")],
+        "n_iter_no_change": [Interval(Integral, 1, None, closed="left"), None],
+        "tol": [Interval(Real, 0.0, None, closed="left")],
+        "ccp_alpha": [Interval(Real, 0.0, None, closed="left")],
+        "verbose": [Interval(Integral, 0, None, closed="left"), "boolean"],
+    }
+    
     @abstractmethod
     def __init__(
         self,
-        base_estimator=None,
         n_estimators=50,
         eta0=0.1,
         max_depth=3,
@@ -243,9 +275,10 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
         n_iter_no_change=None,
         tol=1e-4,
         ccp_alpha=0.0,
+        estimator=None,
         verbose=0
     ):
-        self.base_estimator = base_estimator
+        self.estimator = estimator
         self.n_estimators = n_estimators
         self.eta0 = eta0
         self.max_depth = max_depth
@@ -371,13 +404,17 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
                Learning." Springer Series in Statistics. (2001).
     
         """
-        X, y = check_X_y(
-            X, y, accept_sparse=True,
-            accept_large_sparse=True,
-            estimator=get_estimator_name(self),
+        
+        self._validate_params() 
+        
+        check_X_params = dict (accept_sparse=True, )
+        check_y_params = dict(ensure_2d=False, dtype=None)
+        X, y = self._validate_data(
+            X, y, reset =True, 
+            validate_separately= (check_X_params, check_y_params)
         )
-        if self.base_estimator is None:
-            self.base_estimator = self.default_base_estimator(max_depth=self.max_depth)
+        if self.estimator is None:
+            self.estimator = self.default_estimator(max_depth=self.max_depth)
 
         self.strategy = str(self.strategy).lower()
         if self.strategy == 'bagging':
@@ -627,7 +664,7 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
         probabilistic outputs). For regression, the final prediction is
         the average of all base estimators' predictions.
     
-        The base estimator used can be specified by the `base_estimator`
+        The base estimator used can be specified by the `estimator`
         parameter. If not provided, a default estimator is used.
     
         Examples
@@ -647,8 +684,8 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
         >>> X, y = check_X_y(X, y, accept_sparse=True, accept_large_sparse=True)
         >>> sample_weight = None
         >>> is_classifier = True
-        >>> base_estimator = DecisionTreeClassifier(max_depth=3)
-        >>> obj = EnsembleClassifier(base_estimator=base_estimator)
+        >>> estimator = DecisionTreeClassifier(max_depth=3)
+        >>> obj = EnsembleClassifier(estimator=estimator)
         >>> obj._fit_bagging(X, y, sample_weight, is_classifier)
         >>> print("Fitted bagging classifier model:", obj.model_)
     
@@ -658,8 +695,8 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
         >>> X, y = check_X_y(X, y, accept_sparse=True, accept_large_sparse=True)
         >>> sample_weight = None
         >>> is_classifier = False
-        >>> base_estimator = DecisionTreeRegressor(max_depth=3)
-        >>> obj = EnsembleRegressor(base_estimator=base_estimator)
+        >>> estimator = DecisionTreeRegressor(max_depth=3)
+        >>> obj = EnsembleRegressor(estimator=estimator)
         >>> obj._fit_bagging(X, y, sample_weight, is_classifier)
         >>> print("Fitted bagging regressor model:", obj.model_)
     
@@ -675,7 +712,7 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
         """
         if is_classifier:
             self.model_ = BaggingClassifier(
-                estimator=self.base_estimator,
+                estimator=self.estimator,
                 n_estimators=self.n_estimators,
                 random_state=self.random_state,
                 max_samples=self.max_samples,
@@ -689,7 +726,7 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
             )
         else:
             self.model_ = BaggingRegressor(
-                estimator=self.base_estimator,
+                estimator=self.estimator,
                 n_estimators=self.n_estimators,
                 random_state=self.random_state,
                 max_samples=self.max_samples,
@@ -751,7 +788,7 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
         probabilistic outputs). For regression, the final prediction is
         the weighted sum of all base estimators' predictions.
     
-        The base estimator used can be specified by the `base_estimator`
+        The base estimator used can be specified by the `estimator`
         parameter. If not provided, a default estimator is used.
     
         Examples
@@ -771,8 +808,8 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
         >>> X, y = check_X_y(X, y, accept_sparse=True, accept_large_sparse=True)
         >>> sample_weight = None
         >>> is_classifier = True
-        >>> base_estimator = GradientBoostingClassifier(max_depth=3)
-        >>> obj = EnsembleClassifier(base_estimator=base_estimator)
+        >>> estimator = GradientBoostingClassifier(max_depth=3)
+        >>> obj = EnsembleClassifier(estimator=estimator)
         >>> obj._fit_boosting(X, y, sample_weight, is_classifier)
         >>> print("Fitted boosting classifier model:", obj.model_)
     
@@ -782,8 +819,8 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
         >>> X, y = check_X_y(X, y, accept_sparse=True, accept_large_sparse=True)
         >>> sample_weight = None
         >>> is_classifier = False
-        >>> base_estimator = GradientBoostingRegressor(max_depth=3)
-        >>> obj = EnsembleRegressor(base_estimator=base_estimator)
+        >>> estimator = GradientBoostingRegressor(max_depth=3)
+        >>> obj = EnsembleRegressor(estimator=estimator)
         >>> obj._fit_boosting(X, y, sample_weight, is_classifier)
         >>> print("Fitted boosting regressor model:", obj.model_)
     
@@ -941,7 +978,7 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
     
         """
         if is_classifier:
-            base_estimator = GradientBoostingClassifier(
+            estimator = GradientBoostingClassifier(
                 n_estimators=self.n_estimators // 2,
                 learning_rate=self.eta0,
                 max_depth=self.max_depth,
@@ -960,7 +997,7 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
                 ccp_alpha=self.ccp_alpha
             )
         else:
-            base_estimator = GradientBoostingRegressor(
+            estimator = GradientBoostingRegressor(
                 n_estimators=self.n_estimators // 2,
                 learning_rate=self.eta0,
                 max_depth=self.max_depth,
@@ -981,7 +1018,7 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
     
         if is_classifier:
             self.model_ = BaggingClassifier(
-                estimator=base_estimator,
+                estimator=estimator,
                 n_estimators=2,  # number of boosting models in the bagging
                 random_state=self.random_state,
                 max_samples=self.max_samples,
@@ -995,7 +1032,7 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
             )
         else:
             self.model_ = BaggingRegressor(
-                estimator=base_estimator,
+                estimator=estimator,
                 n_estimators=2,  # number of boosting models in the bagging
                 random_state=self.random_state,
                 max_samples=self.max_samples,

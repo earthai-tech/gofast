@@ -24,7 +24,7 @@ from ..tools.validator import check_is_fitted, parameter_validator
 from ..tools.validator import validate_fit_weights
 from ._ensemble import BaseEnsemble
 from .util import fit_with_estimator, determine_weights, apply_scaling 
-from .util import optimize_hyperparams, normalize_sum  
+from .util import optimize_hyperparams, normalize_sum 
 
 __all__=[
       "MajorityVoteClassifier", 
@@ -1835,7 +1835,7 @@ class EnsembleClassifier(ClassifierMixin, BaseEnsemble):
         classification models.
     """
     is_classifier = True
-    default_base_estimator = DecisionTreeClassifier
+    default_base_estimator = DecisionTreeClassifier 
 
     def __init__(
         self, 
@@ -1860,12 +1860,11 @@ class EnsembleClassifier(ClassifierMixin, BaseEnsemble):
         n_iter_no_change=None,
         tol=1e-4,
         ccp_alpha=0.0,
-        base_estimator=None,
+        estimator=None,
         random_state=None,
         verbose=False
         ):
         super().__init__(
-            base_estimator =base_estimator, 
             n_estimators=n_estimators, 
             eta0=eta0,
             max_depth=max_depth,
@@ -1888,6 +1887,7 @@ class EnsembleClassifier(ClassifierMixin, BaseEnsemble):
             n_iter_no_change=n_iter_no_change,
             tol=tol,
             ccp_alpha=ccp_alpha,
+            estimator =estimator, 
             verbose=verbose
             )
         
@@ -2179,9 +2179,8 @@ class EnsembleRegressor(RegressorMixin, BaseEnsemble):
     sklearn.metrics.mean_squared_error : A common metric for evaluating 
         regression models.
     """
-
     is_classifier = False
-    default_base_estimator = DecisionTreeRegressor
+    default_base_estimator = DecisionTreeRegressor 
     
     def __init__(
         self,
@@ -2206,12 +2205,11 @@ class EnsembleRegressor(RegressorMixin, BaseEnsemble):
         n_iter_no_change=None,
         tol=1e-4,
         ccp_alpha=0.0,
-        base_estimator=None,
+        estimator=None,
         random_state=None,
         verbose=0
        ):
         super().__init__(
-            base_estimator =base_estimator, 
             n_estimators=n_estimators, 
             eta0=eta0,
             max_depth=max_depth,
@@ -2233,6 +2231,7 @@ class EnsembleRegressor(RegressorMixin, BaseEnsemble):
             validation_fraction=validation_fraction,
             n_iter_no_change=n_iter_no_change,
             tol=tol,
+            estimator =estimator, 
             ccp_alpha=ccp_alpha,
             verbose=verbose
        )

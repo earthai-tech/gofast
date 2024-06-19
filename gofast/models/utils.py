@@ -2337,6 +2337,9 @@ def apply_param_types(estimator: BaseEstimator, param_dict: dict) -> dict:
     
     for param, value in param_dict.items():
         if param in param_types:
+            if value is None: 
+                new_param_dict[param] = value
+                continue 
             expected_type = param_types[param]
             new_param_dict[param] = expected_type(value)
         else:
@@ -2351,3 +2354,114 @@ def apply_param_types(estimator: BaseEstimator, param_dict: dict) -> dict:
                 pass 
             
     return new_param_dict
+
+def process_performance_data(df, mode='average', on='@data'):
+    """
+    Process performance data based on specified parameters.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing performance data with each cell being a list of scores.
+        If the DataFrame contains only numerical values, it will be automatically
+        converted to a DataFrame with each value wrapped in a list.
+    
+    mode : str, optional, default='average'
+        Processing mode. Options:
+        - 'average': Averages each row array value at each index.
+        - 'rowX': Processes data based on the specific row index (e.g., 'row0', 'row1').
+        - 'dX': Same as 'rowX'.
+        - 'cvX': Processes data based on the specific column index (e.g., 'cv0', 'cv1').
+        - 'cX': Same as 'cvX'.
+    
+    on : str, optional, default='@data'
+        Specifies the axis of processing.
+        - '@data': Processes data based on rows.
+        - '@cv': Processes data based on columns.
+    
+    Returns
+    -------
+    pd.DataFrame
+        Processed DataFrame with columns names and processed values.
+    
+    Raises
+    ------
+    ValueError
+        If the parameters for 'mode' or 'on' are invalid, or if the specified
+        row or column index is out of bounds.
+    
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.models.utils import process_performance_data
+    >>> df = pd.DataFrame({
+    ...     'DecisionTreeClassifier': [[0.9667, 0.9667, 0.9, 0.9667, 1.0],
+    ...                                [0.9667, 0.9667, 0.9, 0.9667, 1.0],
+    ...                                [0.9667, 0.9667, 0.9, 0.9667, 1.0]],
+    ...     'LogisticRegression': [[0.9667, 1.0, 0.9333, 0.9667, 1.0],
+    ...                             [0.9667, 1.0, 0.9333, 0.9667, 1.0],
+    ...                             [0.9667, 1.0, 0.9333, 0.9667, 1.0]]
+    ... })
+    >>> process_performance_data(df, mode='average')
+        DecisionTreeClassifier  LogisticRegression
+     0                 0.96002             0.97334
+     1                 0.96002             0.97334
+     2                 0.96002             0.97334
+    >>> process_performance_data(df, mode='row0')
+        DecisionTreeClassifier  LogisticRegression
+     0                  0.9667              0.9667
+     1                  0.9667              0.9667
+     2                  0.9667              0.9667
+    >>> process_performance_data(df, mode='cv1', on='@cv')
+        DecisionTreeClassifier  LogisticRegression
+     0                  0.9667                 1.0
+     1                  0.9667                 1.0
+     2                  0.9667                 1.0
+    """
+    # Check if each cell is a list of scores
+    if not all(isinstance(i, list) for col in df.columns for i in df[col]):
+        # If the DataFrame contains only numerical values, wrap each value in a list
+        if df.applymap(lambda x: isinstance(x, (int, float))).all().all():
+            df = df.applymap(lambda x: [x])
+        else:
+            raise ValueError("DataFrame should contain lists of scores in each cell.")
+
+    if mode == 'average':
+        # Average each row array value at each index
+        if on == '@cv':
+            # Average across cross-validation folds
+            processed_data = {}
+            for col in df.columns:
+                # Transpose the list of lists to get columns of CV results
+                transposed_cv = list(zip(*df[col]))
+                processed_data[col] = [sum(cv_fold) / len(cv_fold) for cv_fold in transposed_cv]
+            return pd.DataFrame(processed_data)
+        else:
+            # Average each row array value at each index
+            processed_data = {col: df[col].apply(lambda x: sum(x) / len(x)) for col in df.columns}
+            
+        return pd.DataFrame(processed_data)
+
+    if on == '@data':
+        # Process based on row index
+        if mode.startswith('row') or mode.startswith('d'):
+            index = int(mode[3]) if mode.startswith('row') else int(mode[1])
+            if index >= len(df):
+                raise ValueError(f"Invalid row index: {index}. DataFrame only has {len(df)} rows.")
+            processed_data = {col: df[col].apply(lambda x: x[index]) for col in df.columns}
+            return pd.DataFrame(processed_data)
+
+    if on == '@cv':
+        # Process based on column index
+        if mode.startswith('cv') or mode.startswith('c'):
+            index = int(mode[2]) if mode.startswith('cv') else int(mode[1])
+            max_len = max(df[col].apply(len).max() for col in df.columns)
+            if index >= max_len:
+                raise ValueError(
+                    f"Invalid column index: {index}. DataFrame columns have"
+                    f" a maximum of {max_len} values.")
+            processed_data = {col: [row[index] for row in df[col]] for col in df.columns}
+            return pd.DataFrame(processed_data)
+
+    raise ValueError("Invalid parameters for 'mode' or 'on'")
+

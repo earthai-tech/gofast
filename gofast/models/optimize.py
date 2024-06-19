@@ -1221,6 +1221,18 @@ class Optimizer2(BaseOptimizer):
 
     The hyperparameter optimization can be extended to use different 
     optimization techniques by specifying the `strategy` parameter.
+    
+    The optimization process involves searching for the best set of 
+    hyperparameters that minimizes or maximizes a given scoring function. 
+    Given a set of hyperparameters :math:`\theta`, the goal is to find:
+
+    .. math::
+        \theta^* = \arg\min_{\theta \in \Theta} \mathbb{E}_{(X, y) \sim D} 
+        [L(f(X; \theta), y)]
+
+    where :math:`\Theta` represents the hyperparameter space, :math:`D` 
+    denotes the data distribution, :math:`L` is the loss function, and 
+    :math:`f(X; \theta)` is the model's prediction function.
 
     See Also
     --------
@@ -1239,19 +1251,6 @@ class Optimizer2(BaseOptimizer):
            Learning in Python. Journal of Machine Learning Research, 12, 
            2825-2830.
 
-    Mathematical Formulation
-    ------------------------
-    The optimization process involves searching for the best set of 
-    hyperparameters that minimizes or maximizes a given scoring function. 
-    Given a set of hyperparameters :math:`\theta`, the goal is to find:
-
-    .. math::
-        \theta^* = \arg\min_{\theta \in \Theta} \mathbb{E}_{(X, y) \sim D} 
-        [L(f(X; \theta), y)]
-
-    where :math:`\Theta` represents the hyperparameter space, :math:`D` 
-    denotes the data distribution, :math:`L` is the loss function, and 
-    :math:`f(X; \theta)` is the model's prediction function.
     """
     def __init__(
         self, 
@@ -1312,6 +1311,19 @@ class Optimizer2(BaseOptimizer):
         The hyperparameter optimization is flexible and can be extended to use 
         different optimization techniques by specifying the `strategy` parameter.
 
+        The optimization process involves searching for the best set of 
+        hyperparameters that minimizes or maximizes a given scoring function. 
+        Given a set of hyperparameters :math:`\theta`, the goal is to find:
+
+        .. math::
+            \theta^* = \arg\min_{\theta \in \Theta} \mathbb{E}_{(X, y) \sim D} 
+            [L(f(X; \theta), y)]
+
+        where :math:`\Theta` represents the hyperparameter space, :math:`D` 
+        denotes the data distribution, :math:`L` is the loss function, and 
+        :math:`f(X; \theta)` is the model's prediction function.
+        
+        
         Examples
         --------
         >>> from sklearn.svm import SVC
@@ -1349,19 +1361,6 @@ class Optimizer2(BaseOptimizer):
                Learning in Python. Journal of Machine Learning Research, 12, 
                2825-2830.
 
-        Mathematical Formulation
-        ------------------------
-        The optimization process involves searching for the best set of 
-        hyperparameters that minimizes or maximizes a given scoring function. 
-        Given a set of hyperparameters :math:`\theta`, the goal is to find:
-
-        .. math::
-            \theta^* = \arg\min_{\theta \in \Theta} \mathbb{E}_{(X, y) \sim D} 
-            [L(f(X; \theta), y)]
-
-        where :math:`\Theta` represents the hyperparameter space, :math:`D` 
-        denotes the data distribution, :math:`L` is the loss function, and 
-        :math:`f(X; \theta)` is the model's prediction function.
         """
         def make_estimator_name (estimator): 
             return get_estimator_name(estimator ) if not isinstance ( 
