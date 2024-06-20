@@ -33,6 +33,7 @@ from ..tools.validator import get_estimator_name, filter_valid_kwargs
 from .utils import get_scorers, dummy_evaluation, get_strategy_name
 from .utils import _standardize_input , get_strategy_method 
 from .utils import align_estimators_with_params, process_performance_data 
+from .utils import update_if_higher 
  
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -138,6 +139,64 @@ class MultipleSearch(BaseClass):
     >>> ms.fit(X, y)
     >>> print(ms.best_params_)
 
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from sklearn.tree import DecisionTreeClassifier
+    >>> from gofast.models.search import MultipleSearch
+    >>> from gofast.datasets import make_classification
+    >>> X, y = make_classification(n_samples=100, n_features=5)
+    >>> estimators = {'rf': RandomForestClassifier(), 'dtc': DecisionTreeClassifier()}
+    >>> param_grids = {'rf': {'n_estimators': [100, 200], 'max_depth': [10, 20]}, 
+    ...          'dtc': {"max_depth": [ 11, 22, 30]}}
+    >>> strategies = ['GSCV', 'RSCV']
+    >>> ms = MultipleSearch(estimators, param_grids, strategies, scoring='accuracy')
+    >>> ms.fit(X, y)
+    >>> print(ms.summary_) 
+                        Optimized Results                     
+    ==========================================================
+    |                 RandomForestClassifier                 |
+    ----------------------------------------------------------
+                          Model Results                       
+    ==========================================================
+    Best estimator       : RandomForestClassifier
+    Best parameters      : {'max_depth': 10, 'n_estimators'...
+    Best score           : 0.9800
+    Scoring              : accuracy
+    nCV                  : 4
+    Params combinations  : 4
+    ==========================================================
+
+                     Tuning Results (*=score)                 
+    ==========================================================
+        Params   Mean*  Std.* Overall Mean* Overall Std.* Rank
+    ----------------------------------------------------------
+    0 (10, 100) 0.9800 0.0200        0.9800        0.0200    1
+    1 (10, 200) 0.9800 0.0200        0.9800        0.0200    1
+    2 (20, 100) 0.9800 0.0200        0.9800        0.0200    1
+    3 (20, 200) 0.9800 0.0200        0.9800        0.0200    1
+    ==========================================================
+
+
+    ==========================================================
+    |                 DecisionTreeClassifier                 |
+    ----------------------------------------------------------
+                          Model Results                       
+    ==========================================================
+    Best estimator       : DecisionTreeClassifier
+    Best parameters      : {'max_depth': 22}
+    Best score           : 0.9700
+    Scoring              : accuracy
+    nCV                  : 4
+    Params combinations  : 3
+    ==========================================================
+
+                     Tuning Results (*=score)                 
+    ==========================================================
+        Params   Mean*  Std.* Overall Mean* Overall Std.* Rank
+    ----------------------------------------------------------
+    0      (11) 0.9600 0.0000        0.9600        0.0000    2
+    1      (22) 0.9700 0.0173        0.9700        0.0173    1
+    2      (30) 0.9600 0.0000        0.9600        0.0000    2
+    ==========================================================
     See Also
     --------
     sklearn.model_selection.GridSearchCV : Exhaustive search over specified 
@@ -172,7 +231,6 @@ class MultipleSearch(BaseClass):
         self.scoring = scoring
         self.savejob = savejob
         self.filename = filename
-        self.best_params_ = {}
         
     def fit(self, X, y):
         r"""
@@ -212,7 +270,7 @@ class MultipleSearch(BaseClass):
         >>> X, y = make_classification(n_samples=100, n_features=5)
         >>> estimators = {'rf': RandomForestClassifier()}
         >>> param_grids = {'rf': {'n_estimators': [100, 200], 'max_depth': [10, 20]}}
-        >>> strategies = ['grid', 'random']
+        >>> strategies = ['GSCV', 'RSCV']
         >>> ms = MultipleSearch(estimators, param_grids, strategies)
         >>> ms.fit(X, y)
         >>> print(ms.best_params_)
@@ -233,6 +291,8 @@ class MultipleSearch(BaseClass):
                Journal of Machine Learning Research, 12, 2825-2830.
         """
         results = {}
+        self.best_params_ = {}
+        
         estimators, param_grids = align_estimators_with_params(
             self.param_grids, self.estimators)
         with warnings.catch_warnings():
@@ -245,14 +305,12 @@ class MultipleSearch(BaseClass):
                             self._search, estimator,
                             param_grid, strategy, X, y, self.scoring)
                         futures.append(future)
-    
-                for future in tqdm(futures, desc='Optimizing parameters', 
-                                   ncols=100, ascii=True, unit='search'):
-                    best_params, result = future.result()
-                    self.best_params_.update(best_params)
-                    results.update(result)
-    
-        if self.savejob and self.filename:
+                
+                results, self.best_params_ =self._update_results_based_on_score(
+                    futures, results, self.best_params_ )
+
+        if self.savejob: 
+            self.filename = self.filename or "ms_results.joblib"
             joblib.dump(self.best_params_, self.filename)
     
         self.summary_ = ModelSummary(
@@ -261,7 +319,7 @@ class MultipleSearch(BaseClass):
             self.best_params_)
         
         return self
-
+    
     def _search(self, estimator, param_grid, strategy, X, y, scoring):
         """
         Conducts a parameter search using the specified strategy on the
@@ -296,13 +354,102 @@ class MultipleSearch(BaseClass):
         result = {estimator.__class__.__name__: {
                     "best_estimator_": search.best_estimator_, 
                     "best_params_": search.best_params_, 
+                    "best_score_": search.best_score_, 
                     "scoring": _standardize_input(scoring), 
                     "strategy": strategy_name,
                     "cv_results_": search.cv_results_ ,
                     }
                 }
-        return best_params, result 
-   
+        return best_params, result
+    
+    def _update_results_based_on_score(
+            self, futures, results=None, best_params=None):
+        """
+        Updates results and `self.best_params_` based on the best score 
+        of each estimator.
+    
+        Parameters
+        ----------
+        futures : list
+            List of futures containing the results of the parameter search.
+        results : dict, optional
+            A dictionary to store the updated results. If not provided, a new 
+            dictionary is created.
+        best_params : dict, optional
+            A dictionary to store the best parameters of each estimator. If not 
+            provided, a new dictionary is created.
+    
+        Returns
+        -------
+        results : dict
+            The updated results dictionary.
+        best_params : dict
+            The updated best parameters dictionary.
+    
+        Notes
+        -----
+        This method iterates through the futures, retrieves the results of 
+        the parameter search, and updates the instance's `results` and 
+        `best_params_` attributes based on the highest score for each estimator. 
+        It uses the `update_if_higher` function to ensure that only results with 
+        higher scores are retained.
+    
+        Examples
+        --------
+        >>> from concurrent.futures import ThreadPoolExecutor
+        >>> from sklearn.ensemble import RandomForestClassifier
+        >>> from sklearn.datasets import make_classification
+        >>> import numpy as np
+        >>> class DummyClass:
+        ...     def __init__(self):
+        ...         self.best_params_ = {}
+        ...         self.results_ = {}
+        >>> dummy_instance = DummyClass()
+        >>> def dummy_search_function(estimator, param_grid, strategy, X, y):
+        ...     best_params = {estimator.__class__.__name__: {'n_estimators': 100}}
+        ...     result = {
+        ...         estimator.__class__.__name__: {
+        ...             "best_estimator_": estimator,
+        ...             "best_params_": {'n_estimators': 100},
+        ...             "best_score_": np.random.rand(),
+        ...             "strategy": strategy,
+        ...             "cv_results_": None,
+        ...         }
+        ...     }
+        ...     return best_params, result
+        >>> X, y = make_classification(n_samples=100, n_features=5)
+        >>> estimators = [RandomForestClassifier()]
+        >>> param_grids = [{'n_estimators': [100, 200], 'max_depth': [10, 20]}]
+        >>> strategies = ['GSCV', 'RSCV']
+        >>> futures = []
+        >>> with ThreadPoolExecutor(max_workers=len(strategies)) as executor:
+        ...     for strategy in strategies:
+        ...         for estimator, param_grid in zip(estimators, param_grids):
+        ...             future = executor.submit(
+        ...                 dummy_search_function, estimator, param_grid, strategy, X, y
+        ...             )
+        ...             futures.append(future)
+        >>> updated_results, updated_best_params = dummy_instance._update_results_based_on_score(
+        ...      futures)
+        >>> print(updated_results)
+        >>> print(updated_best_params)
+        """
+        results = results or {}
+        best_params = best_params or {}
+        for future in tqdm(futures, desc='Optimizing parameters', ncols=100, 
+                           ascii=True, unit='search'):
+            best_param, result = future.result()
+            estimator_name = list(best_param.keys())[0]
+            results, best_params = update_if_higher(
+                results, 
+                estimator_name, 
+                result[estimator_name]["best_score_"],
+                result, 
+                best_params
+            )
+        return results, best_params
+
+
 class PerformanceTuning(BaseClass):
     """
     Fine-tune multiple estimators and create performance data for model comparison.

@@ -2464,4 +2464,73 @@ def process_performance_data(df, mode='average', on='@data'):
             return pd.DataFrame(processed_data)
 
     raise ValueError("Invalid parameters for 'mode' or 'on'")
+    
+
+def update_if_higher(
+    results_dict, 
+    estimator_name, 
+    new_score, 
+    result_data, 
+    best_params_dict=None
+    ):
+    """
+    Updates the results dictionary with the new score if it is higher than the 
+    current score and updates the best_params dictionary accordingly.
+
+    Parameters
+    ----------
+    results_dict : dict
+        The dictionary containing the results of each estimator.
+    estimator_name : str
+        The key in the dictionary to update (name of the estimator).
+    new_score : float
+        The new score to compare and potentially update.
+    result_data : dict
+        The result dictionary containing additional details to update.
+    best_params_dict : dict, optional
+        The dictionary containing the best parameters for each estimator.
+
+    Returns
+    -------
+    results_dict : dict
+        The updated results dictionary.
+    best_params_dict : dict
+        The updated best parameters dictionary.
+
+    Notes
+    -----
+    This function ensures that the `results_dict` and `best_params_dict` are 
+    updated only if the new score is higher than the existing score for a 
+    given estimator. If the estimator is not already in the `results_dict`, it 
+    adds the estimator and its corresponding result data.
+
+    Examples
+    --------
+    >>> results = {}
+    >>> best_params = {}
+    >>> estimator_name = 'RandomForest'
+    >>> new_score = 0.85
+    >>> result_data = {
+    ...     'RandomForest': {
+    ...         'best_estimator_': rf_best_estimator,
+    ...         'best_params_': rf_best_params,
+    ...         'best_score_': 0.85,
+    ...         'scoring': 'accuracy',
+    ...         'strategy': 'GridSearchCV',
+    ...         'cv_results_': rf_cv_results,
+    ...     }
+    ... }
+    >>> update_if_higher(results, estimator_name, new_score, result_data, best_params)
+    """
+    best_params_dict = best_params_dict or {}
+    if estimator_name in results_dict:
+        if new_score > results_dict[estimator_name]['best_score_']:
+            results_dict[estimator_name] = result_data[estimator_name]
+            best_params_dict[estimator_name] = result_data[estimator_name]['best_params_']
+    else:
+        results_dict[estimator_name] = result_data[estimator_name]
+        best_params_dict[estimator_name] = result_data[estimator_name]['best_params_']
+        
+    return results_dict, best_params_dict
+
 
