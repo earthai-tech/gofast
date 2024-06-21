@@ -2197,31 +2197,6 @@ def aggregate_cv_results(cv_results):
     
     return final_results
 
-# but sometimes , the parameter can accept string, or float like the 
-# SVC parameters, add parameter in apply_param_types to control this and 
-# if 'auto', resole this problem automatically. here is an example of issues 
-
-# ValueError: 
-# All the 5 fits failed.
-# It is very likely that your model is misconfigured.
-# You can try to debug the error by setting error_score='raise'.
-
-# Below are more details about the failures:
-# --------------------------------------------------------------------------------
-# 5 fits failed with the following error:
-# Traceback (most recent call last):
-#   File "C:\Users\Daniel\Anaconda3\envs\watex\lib\site-packages\sklearn\model_selection\_validation.py", line 686, in _fit_and_score
-#     estimator.fit(X_train, y_train, **fit_params)
-#   File "C:\Users\Daniel\Anaconda3\envs\watex\lib\site-packages\sklearn\svm\_base.py", line 180, in fit
-#     self._validate_params()
-#   File "C:\Users\Daniel\Anaconda3\envs\watex\lib\site-packages\sklearn\base.py", line 581, in _validate_params
-#     validate_parameter_constraints(
-#   File "C:\Users\Daniel\Anaconda3\envs\watex\lib\site-packages\sklearn\utils\_param_validation.py", line 96, in validate_parameter_constraints
-#     raise InvalidParameterError(
-# sklearn.utils._param_validation.InvalidParameterError: The 'gamma' parameter of SVC must be a str among {'scale', 'auto'} or a float in the range [0.0, inf). Got '0.0505' instead.
-            
-
-
 def get_param_types2(estimator: BaseEstimator) -> dict:
     """
     Get the parameter types for a given estimator.

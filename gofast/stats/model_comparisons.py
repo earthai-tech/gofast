@@ -1617,7 +1617,7 @@ def get_p_adj_for_groups(df, group1, group2):
 
     Examples:
     --------
-    >>> 
+    >>> import pandas as pd 
     >>> data = pd.DataFrame({
     ...     'group1': ['Model_A', 'Model_A', 'Model_B'],
     ...     'group2': ['Model_B', 'Model_C', 'Model_C'],
@@ -1698,7 +1698,7 @@ def compute_stats_comparisons(data_or_result, test_type='wilcoxon'):
     Examples:
     --------
     >>> from gofast.stats.model_comparisons import compute_stats_comparisons
-    >>> from gofast.stats.model_comparisons import perform_wilcoxon_base_test
+    >>> from gofast.stats.model_comparisons import perform_wilcoxon_test2
     >>> performance_data = pd.DataFrame({
     ...     'Model_A': [1.0, 0.9, 0.78],
     ...     'Model_B': [0.9, 1.0, 0.9],
@@ -1710,7 +1710,7 @@ def compute_stats_comparisons(data_or_result, test_type='wilcoxon'):
     1  Model_A  Model_C  0.781714
     2  Model_B  Model_C  0.900000
     
-    >>> wilcoxon_result = perform_wilcoxon_base_test (performance_data)
+    >>> wilcoxon_result = perform_wilcoxon_test2 (performance_data)
     >>> print(wilcoxon_result.result)
             Model_A Model_B Model_C
     Model_A    <NA>     0.5     1.0
@@ -1730,9 +1730,10 @@ def compute_stats_comparisons(data_or_result, test_type='wilcoxon'):
     }
 
     valid_tests = {'wilcoxon', 'nemenyi'}
-
-    if test_type not in valid_tests:
-        raise ValueError(f"Unsupported test type specified. Use {valid_tests} instead.")
+    test_type = parameter_validator(
+        "test_type", target_strs= valid_tests, 
+        error_msg=f"Unsupported test type specified. Use {valid_tests} instead." 
+    ) (test_type)
 
     # Perform the selected test
     if isinstance(data_or_result, pd.DataFrame):
@@ -1744,7 +1745,7 @@ def compute_stats_comparisons(data_or_result, test_type='wilcoxon'):
     result_df = transform_comparison_data(result_df)
 
     comparison_results = DataFrameFormatter( 
-        title ="{test_type} Results", keyword='result', 
+        title =f"{test_type} Results", keyword='result', 
         descriptor=f"{test_type}Test").add_df (result_df)
     
     return comparison_results
@@ -2227,8 +2228,9 @@ def compute_model_summary(
     
     # Return the models ranked by the summary statistic
     summary= summary.sort_values(ascending= not higher_is_better)
-    formatted_summary = DataFrameFormatter(
-        'Summary Statistics', keyword='summary').add_df ( summary) 
+    formatted_summary = DataFrameFormatter('Summary Statistics', 
+        descriptor="ModelSummary", keyword='summary', 
+        series_name = "average_score").add_df (summary) 
     
     return formatted_summary # Bunch object and print to see content 
 

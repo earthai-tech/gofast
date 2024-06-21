@@ -17,7 +17,7 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler,MinMaxScaler, OrdinalEncoder
 from sklearn.preprocessing import OneHotEncoder, PolynomialFeatures, RobustScaler
-
+from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.feature_selection import SelectFromModel
 from sklearn.impute import SimpleImputer
@@ -33,12 +33,12 @@ from ..tools.coreutils import  ellipsis2false, to_numeric_dtypes, is_iterable
 from ..tools.coreutils import exist_features, type_of_target
 from ..tools.validator import  get_estimator_name, check_X_y, is_frame
 from ..tools.validator import _is_arraylike_1d, build_data_if, check_array 
-from ..tools.validator import check_is_fitted
+from ..tools.validator import check_is_fitted, check_consistent_length 
 
 __all__= [
     'FeatureImportanceSelector', 
     'SequentialBackwardSelector',
-    'FloatCategoricalToIntTransformer', 
+    'FloatCategoricalToInt', 
     'KMeansFeaturizer',
     'AttributesCombinator', 
     'StratifyFromBaseFeature',
@@ -56,6 +56,7 @@ __all__= [
     'PolynomialFeatureCombiner', 
     'DimensionalityReducer', 
     'CategoricalEncoder', 
+    'CategoricalEncoder2',
     'FeatureScaler', 
     'MissingValueImputer', 
     'ColumnSelector', 
@@ -347,7 +348,7 @@ class FeatureImportanceSelector(BaseEstimator, TransformerMixin):
             # Default feature names if X was an array
             return [f"feature_{i}" for i in self.important_indices_]
 
-class FloatCategoricalToIntTransformer(BaseEstimator, TransformerMixin):
+class FloatCategoricalToInt(BaseEstimator, TransformerMixin):
     """
     A transformer that detects floating-point columns in a DataFrame 
     representing categorical variables and converts them to integers.
@@ -356,6 +357,21 @@ class FloatCategoricalToIntTransformer(BaseEstimator, TransformerMixin):
     variables are represented as floating-point numbers but essentially 
     contain integer values, for example, [0.0, 1.0, 2.0] representing different 
     categories.
+
+    Parameters
+    ----------
+    dtype : {'auto', dtype}, default='auto'
+        If `dtype` is 'auto' and `as_frame` is False, the transformed array 
+        dtype is coerced to object. For other values of `dtype` when `as_frame`
+        is False, the array is returned as it is, and the transformation may 
+        be meaningless if not converting all array elements to integers or 
+        keeping them as floats.
+    as_frame : bool, default=True
+        If `as_frame` is True, the data is kept as a DataFrame. If not passed 
+        as a frame, a default `col_prefix` is created.
+    col_prefix : str, default='feature'
+        The prefix to use for column names if a numpy array is passed. This can 
+        be changed if it is not intuitive enough.
 
     Attributes
     ----------
@@ -367,10 +383,10 @@ class FloatCategoricalToIntTransformer(BaseEstimator, TransformerMixin):
     --------
     >>> import pandas as pd
     >>> from sklearn.pipeline import Pipeline
-    >>> from gofast.transformers import FloatCategoricalToIntTransformer
+    >>> from gofast.transformers.feature_engineering import FloatCategoricalToInt
     >>> data = {'category': [0.0, 1.0, 2.0, 1.0], 'value': [23.5, 12.6, 15.0, 22.1]}
     >>> df = pd.DataFrame(data)
-    >>> transformer = FloatCategoricalToIntTransformer()
+    >>> transformer = FloatCategoricalToInt()
     >>> transformer.fit(df)
     >>> transformed = transformer.transform(df)
     >>> print(transformed)
@@ -383,15 +399,40 @@ class FloatCategoricalToIntTransformer(BaseEstimator, TransformerMixin):
     Notes
     -----
     The fit method determines which columns are to be transformed by checking 
-    if the unique values in each floating-point column are integers ending with 
-    .0. During the transform phase, these columns are then cast to the integer 
-    type, preserving their categorical nature but in a more memory-efficient 
-    format.
+    if the unique values in each floating-point column are integers ending 
+    with .0. During the transform phase, these columns are then cast to the 
+    integer type, preserving their categorical nature but in a more 
+    memory-efficient format.
 
     The transformer does not modify the input DataFrame directly; instead, it 
     returns a transformed copy.
-    """
+
+    The mathematical formulation for determining if a floating-point column 
+    contains integer values is based on checking the modulo operation:
     
+    .. math::
+        \text{if } \forall x \in \text{column}, \ x \mod 1 == 0,\\
+            \ \text{then the column is converted to integers}
+
+    See Also
+    --------
+    pandas.DataFrame.astype : Cast a pandas object to a specified dtype.
+    numpy.mod : Return element-wise remainder of division.
+
+    References
+    ----------
+    .. [1] Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., 
+           Grisel, O., Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V., 
+           Vanderplas, J., Passos, A., Cournapeau, D., Brucher, M., Perrot, M., 
+           Duchesnay, É. (2011). Scikit-learn: Machine Learning in Python. 
+           Journal of Machine Learning Research, 12, 2825-2830.
+    """
+
+    def __init__(self, dtype='auto', as_frame=True, col_prefix='feature'): 
+        self.dtype = dtype  
+        self.as_frame = as_frame  
+        self.col_prefix = col_prefix  
+
     def fit(self, X, y=None):
         """
         Fit the transformer to the DataFrame.
@@ -408,23 +449,6 @@ class FloatCategoricalToIntTransformer(BaseEstimator, TransformerMixin):
         self : object
             Returns the instance itself.
         """
-        if not isinstance(X, pd.DataFrame): 
-            try : # Default construct data
-                X=build_data_if(X, input_name='feature_', 
-                                raise_exception=True, force=True
-                ) 
-            except Exception as e :
-                raise TypeError(
-                    "Expect a DataFrame 'X'. Got {type(X).__name__!r}"
-                    ) from e 
-        # Identify columns to transform based on their unique values
-        self.columns_to_transform_ = []
-        for col in X.columns:
-            if X[col].dtype == float:
-                unique_vals = np.unique(X[col])
-                # Check if unique values are integers ending with .0 (e.g., 0.0, 1.0)
-                if all(np.mod(unique_vals, 1) == 0):
-                    self.columns_to_transform_.append(col)
         return self
     
     def transform(self, X):
@@ -434,20 +458,39 @@ class FloatCategoricalToIntTransformer(BaseEstimator, TransformerMixin):
 
         Parameters
         ----------
-        X : pandas.DataFrame
-            The input DataFrame to transform.
+        X : pandas.DataFrame or numpy.ndarray
+            The input data to transform.
 
         Returns
         -------
-        X_transformed : pandas.DataFrame
-            The transformed DataFrame with floating-point columns converted 
-            to integers.
+        X_transformed : pandas.DataFrame or numpy.ndarray
+            The transformed data with floating-point columns converted to integers.
         """
+        original_type = 'pd.DataFrame'
+        if isinstance(X, np.ndarray): 
+            original_type = 'np.ndarray'
+        X = build_data_if(X, input_name=self.col_prefix, raise_exception=True,
+                          force=True)
+
+        # Identify columns to transform based on their unique values
+        self.columns_to_transform_ = [
+            col for col in X.columns if X[col].dtype == float and all(np.mod(X[col], 1) == 0)
+        ]
+
         # Copy DataFrame to avoid modifying the original data
         X_transformed = X.copy()
+
         # Convert identified columns to integer type
         for col in self.columns_to_transform_:
             X_transformed[col] = X_transformed[col].astype(int)
+
+        # Revert to original type if input was numpy array and `as_frame` is False
+        if original_type == 'np.ndarray' and not self.as_frame:
+            if self.dtype == 'auto': 
+                X_transformed = X_transformed.to_numpy()
+            else:
+                X_transformed = X_transformed.astype(self.dtype).values
+
         return X_transformed
 
 class SequentialBackwardSelector(BaseEstimator, TransformerMixin):
@@ -839,6 +882,15 @@ class KMeansFeaturizer(BaseEstimator, TransformerMixin):
             before applying the transformation. This is useful for handling
             large datasets more efficiently. If False, the data format of `X`
             is preserved.
+
+    encoding : {'onehot', 'bin-counting', 'label', 'frequency', 'mean_target'},\
+        default='onehot'
+        Encoding strategy for cluster labels:
+        - 'onehot': One-hot encoding of the cluster assignments.
+        - 'bin-counting': Probabilistic bin-counting encoding.
+        - 'label': Label encoding of the cluster assignments.
+        - 'frequency': Frequency encoding of the cluster assignments.
+        - 'mean_target': Mean target encoding based on target values provided during fit.
     
     Attributes 
     -----------
@@ -893,78 +945,110 @@ class KMeansFeaturizer(BaseEstimator, TransformerMixin):
         copy_x=True,
         verbose=0, 
         algorithm='lloyd', 
-        to_sparse=False, 
+        to_sparse=False,
+        encoding='onehot' 
         ):
         self.n_clusters = n_clusters
         self.target_scale = target_scale
         self.random_state = random_state
-        self.n_components=n_components
-        self.init=init
-        self.n_init=n_init
-        self.max_iter=max_iter 
-        self.tol=tol 
-        self.copy_x=copy_x 
-        self.verbose=verbose 
-        self.algorithm=algorithm
-        self.to_sparse=to_sparse
-        
+        self.n_components = n_components
+        self.init = init
+        self.n_init = n_init
+        self.max_iter = max_iter
+        self.tol = tol
+        self.copy_x = copy_x
+        self.verbose = verbose
+        self.algorithm = algorithm
+        self.to_sparse = to_sparse
+        self.encoding = encoding
+
     def fit(self, X, y=None):
         """
-        Fit the model to the data.
-
-        The method runs k-means on the input data `X`. If `n_components` is specified,
-        PCA is applied for dimensionality reduction before clustering. When the target 
-        variable `y` is provided, it augments the feature space, enhancing the clustering 
-        process to align with the target variable.
-
+        Fit the KMeansFeaturizer to the data.
+    
+        The `fit` method applies PCA if `n_components` is specified, scales
+        the target variable if provided, and fits the KMeans model to the data.
+    
         Parameters
         ----------
         X : array-like or sparse matrix of shape (n_samples, n_features)
-            Training data where n_samples is the number of samples and n_features is the 
-            number of features.
-
+            Training instances to cluster. It must be a dense array or a sparse matrix.
         y : array-like of shape (n_samples,), default=None
-            Target values relative to `X`. Used to augment the feature space if provided.
-
+            Target values (class labels in classification, real numbers in regression).
+            If provided, the target values are scaled and included in the clustering 
+            process to guide the clustering.
+    
         Returns
         -------
         self : object
-            Returns the fitted instance.
-
-        Raises
-        ------
-        ValueError
-            If `n_components` is not an integer or a float.
-
+            Returns the instance itself.
+    
+        Notes
+        -----
+        If `n_components` is specified, PCA is applied to reduce the dimensionality
+        of the input data `X`. This is particularly useful for high-dimensional data.
+    
+        If `y` is provided, it is scaled by the `target_scale` parameter and
+        concatenated with `X` to influence the clustering. This helps in creating 
+        clusters that are more informative with respect to the target variable.
+    
+        The KMeans algorithm is applied to the data, and the cluster centers are
+        adjusted if `y` is provided during fitting [2]_.
+    
+        The mathematical formulation of the KMeans algorithm is as follows:
+    
+        .. math::
+            \min_{C} \sum_{i=1}^{n} \min_{\mu_j \in C} \|x_i - \mu_j\|^2
+    
+        where :math:`\mu_j` are the cluster centers.
+    
         Examples
         --------
+        >>> from gofast.transformers.feature_engineering import KMeansFeaturizer
         >>> from sklearn.datasets import make_blobs
         >>> X, y = make_blobs(n_samples=100, centers=3, n_features=2, random_state=42)
-        >>> featurizer = KMeansFeaturizer(n_clusters=3, target_scale=5.0)
+        >>> featurizer = KMeansFeaturizer(n_clusters=3)
         >>> featurizer.fit(X, y)
+        >>> print(featurizer.cluster_centers_)
+    
+        See Also
+        --------
+        sklearn.cluster.KMeans : 
+            The underlying KMeans implementation used by this transformer.
+        sklearn.decomposition.PCA : 
+            Principal Component Analysis used for dimensionality reduction.
+    
+        References
+        ----------
+        .. [1] Kouadio, K.L., Liu, J., Liu, R., Wang, Y., Liu, W., 2024. 
+              K-Means Featurizer: A booster for intricate datasets. Earth Sci. 
+              Informatics 17, 1203–1228. https://doi.org/10.1007/s12145-024-01236-3
+              
+        .. [2] MacQueen, J. (1967). "Some Methods for classification and Analysis
+               of Multivariate Observations". Proceedings of 5th Berkeley 
+               Symposium on Mathematical Statistics and Probability. 
+               University of California Press. pp. 281–297.
         """
-
-        # Validate inputs
+        # Validate input array X
         X = check_array(X, accept_sparse=True)
         if y is not None:
+            # Validate target array y
             y = check_array(y, ensure_2d=False)
 
         # Apply PCA if n_components is specified
         if self.n_components is not None:
-            if not isinstance(self.n_components, (int, float)):
-                raise ValueError("n_components must be an int or a float, "
-                                 f"got {type(self.n_components)} instead.")
             pca = PCA(n_components=self.n_components)
             X = pca.fit_transform(X)
 
-        # Prepare data for k-means
+        # Scale target and concatenate with X if y is provided
         if y is not None:
+            self.y_ = np.asarray(y).copy() 
             y_scaled = y[:, np.newaxis] * self.target_scale
             data_for_clustering = np.hstack((X, y_scaled))
         else:
             data_for_clustering = X
 
-        # Pre-training k-means model on data with or without target
+        # Fit the KMeans model on the data
         self.km_model_ = KMeans(
             n_clusters=self.n_clusters,
             init=self.init,
@@ -974,88 +1058,494 @@ class KMeansFeaturizer(BaseEstimator, TransformerMixin):
             copy_x=self.copy_x,
             tol=self.tol,
             random_state=self.random_state, 
-            verbose= self.verbose, 
+            verbose=self.verbose, 
         ).fit(data_for_clustering)
 
+        # Adjust centroids if y was used during fit
         if y is not None:
-            # Adjust centroids if y was used
-            # Run k-means a second time to get the clusters in the original space
-            # without target info. Initialize using centroids found in pre-training.
-            # Go through a single iteration of cluster assignment and centroid 
-            # recomputation.
-            self.km_model_= KMeans(n_clusters=self.n_clusters,
-                        init=self.km_model_.cluster_centers_[:,:-1], #[:, :-1]
-                        n_init=1,
-                        max_iter=1)
+            self.km_model_ = KMeans(
+                n_clusters=self.n_clusters,
+                init=self.km_model_.cluster_centers_[:, :-1],
+                n_init=1,
+                max_iter=1
+            )
             self.km_model_.fit(X)
             
+        # Store cluster centers
         self.cluster_centers_ = self.km_model_.cluster_centers_
-
         return self
-
+    
     def transform(self, X):
         """
-        Transform the data by appending the closest cluster ID to each sample.
-
-        This method applies the fitted k-means model to predict the closest cluster
-        for each sample in the provided dataset `X`. It then appends the cluster ID
-        as an additional feature. The method handles both dense and sparse matrices
-        efficiently by converting `X` to a sparse format for concatenation if 
-        necessary.
-
+        Transform the data by encoding the closest cluster ID for each sample.
+    
+        The `transform` method predicts the closest cluster for each sample in the 
+        provided dataset `X` and encodes the cluster assignments according to the 
+        specified encoding strategy. The transformed data can include cluster assignments 
+        as features using various encoding methods such as one-hot, bin-counting, label, 
+        frequency, and mean target encoding.
+    
         Parameters
         ----------
         X : array-like or sparse matrix of shape (n_samples, n_features)
             New data to transform. It can be a dense array or a sparse matrix.
-
+    
         Returns
         -------
-        X_transformed : sparse matrix of shape (n_samples, n_features + 1)
-            The transformed data with an additional feature indicating the cluster 
-            ID for each sample. The output is in sparse matrix format to optimize
-            memory usage.
-
-        Raises
-        ------
-        NotFittedError
-            If this method is called before the model is fitted.
-
+        X_transformed : array-like or sparse matrix of shape \
+            (n_samples, n_features + n_encoded_features)
+            The transformed data with additional features indicating the encoded 
+            cluster assignments. The number of additional features depends on the 
+            encoding strategy used.
+    
+        Notes
+        -----
+        The method checks if the KMeans model is fitted. It validates the input data
+        and predicts the closest cluster for each sample. Based on the `encoding` 
+        strategy, it transforms the cluster assignments into new features.
+    
+        Encoding strategies include:
+        - `onehot`: One-hot encoding of the cluster assignments.
+        - `bin-counting`: Probabilistic bin-counting encoding.
+        - `label`: Label encoding of the cluster assignments.
+        - `frequency`: Frequency encoding of the cluster assignments.
+        - `mean_target`: Mean target encoding based on target values provided during fit.
+    
+        The mathematical formulation of the transformation is based on the cluster 
+        assignments predicted by the KMeans algorithm:
+    
+        .. math::
+            \text{Cluster}_i = \arg\min_{\mu_j \in C} \|x_i - \mu_j\|^2
+    
         Examples
         --------
+        >>> from gofast.transformers.feature_engineering import KMeansFeaturizer
         >>> from sklearn.datasets import make_blobs
-        >>> X, _ = make_blobs(n_samples=100, centers=3, n_features=2, random_state=42)
-        >>> featurizer = KMeansFeaturizer(n_clusters=3)
-        >>> featurizer.fit(X)
+        >>> X, y = make_blobs(n_samples=100, centers=3, n_features=2, random_state=42)
+        >>> featurizer = KMeansFeaturizer(n_clusters=3, encoding='onehot')
+        >>> featurizer.fit(X, y)
         >>> X_transformed = featurizer.transform(X)
+        >>> print(X_transformed)
+    
+        See Also
+        --------
+        sklearn.cluster.KMeans : The underlying KMeans implementation used by this transformer.
+
         """
         # Check if the model is fitted
         check_is_fitted(self, 'km_model_')
         
-        # Validate input
+        # Validate input array X
         X = check_array(X, accept_sparse=True)
-        # Convert X to a sparse matrix if it's not already
-        if not sparse.issparse(X) and self.to_sparse:
-            X = sparse.csr_matrix(X)
+        
         # Predict the closest cluster for each sample
         clusters = self.km_model_.predict(X)
-        if self.to_sparse: 
-            clusters_sparse = sparse.csr_matrix(clusters.reshape(-1, 1))
-            # Concatenate the original data with the cluster labels
-            X_transformed = sparse.hstack((X, clusters_sparse))
+    
+        if self.encoding == 'bin-counting':
+            # Bin-counting encoding
+            n_clusters = len(set(clusters))
+            cluster_counts = np.bincount(clusters, minlength=n_clusters)
+            cluster_probabilities = cluster_counts / cluster_counts.sum()
+            clusters_bin_count = np.zeros((X.shape[0], n_clusters))
+            for idx, cluster_id in enumerate(clusters):
+                clusters_bin_count[idx, cluster_id] = cluster_probabilities[cluster_id]
+            if self.to_sparse:
+                clusters_sparse = sparse.csr_matrix(clusters_bin_count)
+                X_transformed = sparse.hstack((X, clusters_sparse), format='csr')
+            else:
+                X_transformed = np.hstack((X, clusters_bin_count))
+        elif self.encoding == 'onehot':
+            # One-hot encoding
+            n_clusters = len(set(clusters))
+            clusters_onehot = np.zeros((X.shape[0], n_clusters))
+            for idx, cluster_id in enumerate(clusters):
+                clusters_onehot[idx, cluster_id] = 1
+            if self.to_sparse:
+                clusters_sparse = sparse.csr_matrix(clusters_onehot)
+                X_transformed = sparse.hstack((X, clusters_sparse), format='csr')
+            else:
+                X_transformed = np.hstack((X, clusters_onehot))
+        elif self.encoding == 'frequency':
+            # Frequency encoding
+            n_clusters = len(set(clusters))
+            cluster_counts = np.bincount(clusters, minlength=n_clusters)
+            cluster_frequencies = cluster_counts / len(clusters)
+            clusters_frequency = cluster_frequencies[clusters].reshape(-1, 1)
+            if self.to_sparse:
+                clusters_sparse = sparse.csr_matrix(clusters_frequency)
+                X_transformed = sparse.hstack((X, clusters_sparse), format='csr')
+            else:
+                X_transformed = np.hstack((X, clusters_frequency))
+        elif self.encoding == 'mean_target':
+            # Mean target encoding
+            if hasattr(self, 'y_'):
+                n_clusters = len(set(clusters))
+                target_means = np.zeros(n_clusters)
+                for cluster in range(n_clusters):
+                    target_means[cluster] = self.y_[clusters == cluster].mean()
+                clusters_mean_target = target_means[clusters].reshape(-1, 1)
+                if self.to_sparse:
+                    clusters_sparse = sparse.csr_matrix(clusters_mean_target)
+                    X_transformed = sparse.hstack((X, clusters_sparse), format='csr')
+                else:
+                    X_transformed = np.hstack((X, clusters_mean_target))
+            else:
+                raise ValueError(
+                    "Mean target encoding requires target values provided during fit.")
         else:
-            X_transformed= np.hstack((X, clusters [:, np.newaxis] ))
-
+            # Label encoding
+            # Default strategy: just add the cluster labels as a new feature
+            clusters_reshaped = clusters.reshape(-1, 1)
+            if self.to_sparse:
+                clusters_sparse = sparse.csr_matrix(clusters_reshaped)
+                X_transformed = sparse.hstack((X, clusters_sparse), format='csr')
+            else:
+                X_transformed = np.hstack((X, clusters_reshaped))
+    
         return X_transformed
+
+class CategoricalEncoder2(BaseEstimator, TransformerMixin):
+    """
+    CategoricalEncoder is a transformer that encodes categorical variables in
+    a DataFrame or numpy array using various encoding strategies such as label
+    encoding, one-hot encoding, bin-counting, frequency encoding, and mean-target
+    encoding.
+
+    Parameters
+    ----------
+    encoding : {'label', 'onehot', 'bin-counting', 'frequency', 'mean_target'}, default='label'
+        Encoding strategy for categorical variables:
+        - 'label': Label encoding of the categorical variables.
+        - 'onehot': One-hot encoding of the categorical variables.
+        - 'bin-counting': Probabilistic bin-counting encoding.
+        - 'frequency': Frequency encoding of the categorical variables.
+        - 'mean_target': Mean target encoding based on target values provided during fit.
+    target : array-like of shape (n_samples,), default=None
+        Target values (class labels in classification, real numbers in regression).
+        Required if `encoding='mean_target'`.
+
+    Attributes
+    ----------
+    label_encoders_ : dict
+        Dictionary of label encoders for each categorical variable.
+
+    Examples
+    --------
+    >>> from gofast.transformers.feature_engineering import CategoricalEncoder
+    >>> import pandas as pd
+    >>> data = {'category': ['a', 'b', 'a', 'c'], 'value': [1, 2, 3, 4]}
+    >>> df = pd.DataFrame(data)
+    >>> encoder = CategoricalEncoder(encoding='onehot')
+    >>> encoder.fit(df)
+    >>> df_encoded = encoder.transform(df)
+    >>> print(df_encoded)
+
+    Notes
+    -----
+    The `fit` method detects categorical variables in the input data. If the input
+    is a DataFrame, it identifies columns of type `object` or `category`. If the
+    input is a numpy array, it identifies floating-point columns that should be
+    considered as categorical.
+
+    The mathematical formulation of encoding strategies are as follows:
+
+    - Label Encoding:
+        Assigns a unique integer to each category.
+    - One-hot Encoding:
+        .. math:: X_{ij} = \begin{cases} 1 & \text{if category is present}\\
+            \\ 0 & \text{otherwise} \end{cases}
+    - Bin-counting:
+        Converts categories into probabilities based on their frequency.
+    - Frequency Encoding:
+        .. math:: X_{ij} = \frac{\text{count of category j}}{\text{total count}}
+    - Mean-target Encoding:
+        .. math:: X_{ij} = \frac{\sum y_j}{\text{count of category j}}
+
+    See Also
+    --------
+    sklearn.preprocessing.LabelEncoder : Encode labels with value between 0 and n_classes-1.
+    pandas.get_dummies : Convert categorical variable(s) into dummy/indicator variables.
+
+    References
+    ----------
+    .. [1] Micci-Barreca, D. (2001). "A preprocessing scheme for high-cardinality
+          categorical attributes in classification and prediction problems". 
+          ACM SIGKDD Explorations Newsletter, 3(1), 27-32.
+    """
+
+    def __init__(self, encoding='label', target=None):
+        self.encoding = encoding
+        self.target = target
+        
+    def fit(self, X, y=None):
+        """
+        Fit the CategoricalEncoder to the data.
     
-        def __repr__(self):
-            """ Pretty format for guidance following the API... """
-            _t = ("n_clusters", "target_scale", "random_state", "n_components")
-            outm = ( '<{!r}:' + ', '.join(
-                [f"{k}={ False if getattr(self, k)==... else  getattr(self, k)!r}" 
-                 for k in _t]) + '>' 
-                ) 
-            return  outm.format(self.__class__.__name__)
+        The `fit` method detects categorical variables in the input data, creates 
+        label encoders for each categorical variable, and prepares for encoding 
+        based on the specified strategy. If the target variable `y` is provided, 
+        it is stored for use in mean-target encoding.
     
+        Parameters
+        ----------
+        X : array-like or DataFrame of shape (n_samples, n_features)
+            Training data containing categorical variables. If a DataFrame is passed,
+            it identifies columns of type `object` or `category` for encoding. If a 
+            numpy array is passed, it identifies floating-point columns that should 
+            be considered as categorical.
+        y : array-like of shape (n_samples,), default=None
+            Target values (class labels in classification, real numbers in regression).
+            Required if `encoding='mean_target'`.
+    
+        Returns
+        -------
+        self : object
+            Returns the instance itself.
+    
+        Notes
+        -----
+        If the input `X` is a DataFrame, the method identifies columns with data types 
+        `object` or `category` as categorical variables. It then creates a `LabelEncoder` 
+        for each categorical variable to transform string or object categories into 
+        integer codes.
+    
+        If the input `X` is a numpy array, it identifies columns with floating-point 
+        data types as potential categorical variables and creates `LabelEncoder` 
+        instances for these columns.
+    
+        If `y` is provided and `encoding='mean_target'`, the method stores `y` for 
+        calculating the mean target values for each category during the transform step.
+    
+        The mathematical formulation for the encoding strategies include:
+    
+        - Label Encoding:
+            Assigns a unique integer to each category.
+        - One-hot Encoding:
+            .. math:: X_{ij} = \begin{cases} 1 & \text{if category is present}\\
+                \\ 0 & \text{otherwise} \end{cases}
+        - Bin-counting:
+            Converts categories into probabilities based on their frequency.
+        - Frequency Encoding:
+            .. math:: X_{ij} = \frac{\text{count of category j}}{\text{total count}}
+        - Mean-target Encoding:
+            .. math:: X_{ij} = \frac{\sum y_j}{\text{count of category j}}
+    
+        Examples
+        --------
+        >>> from gofast.transformers.feature_engineering import CategoricalEncoder2
+        >>> import pandas as pd
+        >>> data = {'category': ['a', 'b', 'a', 'c'], 'value': [1, 2, 3, 4]}
+        >>> df = pd.DataFrame(data)
+        >>> encoder = CategoricalEncoder2(encoding='mean_target')
+        >>> target = [10, 20, 10, 30]
+        >>> encoder.fit(df, target)
+        >>> print(encoder.label_encoders_)
+    
+        See Also
+        --------
+        sklearn.preprocessing.LabelEncoder : 
+            Encode labels with value between 0 and n_classes-1.
+        pandas.get_dummies : 
+            Convert categorical variable(s) into dummy/indicator variables.
+ 
+        """
+        self.label_encoders_ = {}
+        if isinstance(X, pd.DataFrame):
+            self._fit_dataframe(X, y)
+        else:
+            X= np.asarray (X)
+            if y is not None: 
+                y= np.asarray (y ) 
+                check_consistent_length(X, y )
+            self._fit_array(X, y)
+        return self
+
+    def _fit_dataframe(self, X, y=None):
+        for col in X.select_dtypes(include=['object', 'category']).columns:
+            le = LabelEncoder()
+            le.fit(X[col])
+            self.label_encoders_[col] = le
+
+        if y is not None:
+            self.target = y
+
+    def _fit_array(self, X, y=None):
+        float_columns = self._get_float_columns(X)
+        for col in float_columns:
+            le = LabelEncoder()
+            le.fit(X[:, col])
+            self.label_encoders_[col] = le
+
+        if y is not None:
+            self.target = y
+            
+    def transform(self, X):
+        """
+        Transform the data by encoding the categorical variables.
+    
+        The `transform` method encodes the categorical variables in the input data `X`
+        based on the encoding strategy specified during the initialization of the 
+        `CategoricalEncoder`. The transformed data includes encoded categorical variables
+        and numerical data concatenated together.
+    
+        Parameters
+        ----------
+        X : array-like or DataFrame of shape (n_samples, n_features)
+            New data to transform. It can be a dense array or a DataFrame. If a DataFrame
+            is passed, it applies encoding to the identified categorical columns. If a numpy
+            array is passed, it applies encoding to the identified floating-point columns
+            considered as categorical.
+    
+        Returns
+        -------
+        X_transformed : array-like or DataFrame of shape \
+            (n_samples, n_features + n_encoded_features)
+            The transformed data with additional features indicating the encoded 
+            categorical variables. The number of additional features depends on the 
+            encoding strategy used.
+    
+        Notes
+        -----
+        The method checks if the `CategoricalEncoder` has been fitted by ensuring that
+        `label_encoders_` have been created. It validates the input data and applies
+        the encoding strategy to the identified categorical variables.
+    
+        Encoding strategies include:
+        - `label`: Label encoding of the categorical variables.
+        - `onehot`: One-hot encoding of the categorical variables.
+        - `bin-counting`: Probabilistic bin-counting encoding.
+        - `frequency`: Frequency encoding of the categorical variables.
+        - `mean_target`: Mean target encoding based on target values provided during fit.
+    
+        The mathematical formulation of the transformation is based on the encoding 
+        strategy:
+    
+        - Label Encoding:
+            Assigns a unique integer to each category.
+        - One-hot Encoding:
+            .. math:: X_{ij} = \begin{cases} 1 & \text{if category is present}\\
+                \\ 0 & \text{otherwise} \end{cases}
+        - Bin-counting:
+            Converts categories into probabilities based on their frequency.
+        - Frequency Encoding:
+            .. math:: X_{ij} = \frac{\text{count of category j}}{\text{total count}}
+        - Mean-target Encoding:
+            .. math:: X_{ij} = \frac{\sum y_j}{\text{count of category j}}
+    
+        Examples
+        --------
+        >>> from gofast.transformers.feature_engineering import CategoricalEncoder
+        >>> import pandas as pd
+        >>> data = {'category': ['a', 'b', 'a', 'c'], 'value': [1, 2, 3, 4]}
+        >>> df = pd.DataFrame(data)
+        >>> encoder = CategoricalEncoder(encoding='onehot')
+        >>> encoder.fit(df)
+        >>> df_encoded = encoder.transform(df)
+        >>> print(df_encoded)
+    
+        See Also
+        --------
+        sklearn.preprocessing.LabelEncoder : Encode labels with value between 0 and n_classes-1.
+        pandas.get_dummies : Convert categorical variable(s) into dummy/indicator variables.
+    
+        """
+        check_is_fitted(self, 'label_encoders_')
+        if isinstance(X, pd.DataFrame):
+            return self._transform_dataframe(X)
+        else:
+            X = np.asarray (X )
+            return self._transform_array(X)
+
+    def _transform_dataframe(self, X):
+        X_encoded = X.copy()
+
+        for col, le in self.label_encoders_.items():
+            X_encoded[col] = le.transform(X_encoded[col])
+
+        if self.encoding == 'onehot':
+            X_encoded = pd.get_dummies(X_encoded, columns=self.label_encoders_.keys())
+        elif self.encoding == 'bin-counting':
+            X_encoded = self._bin_counting_encode(X_encoded)
+        elif self.encoding == 'frequency':
+            X_encoded = self._frequency_encode(X_encoded)
+        elif self.encoding == 'mean_target':
+            if self.target is not None:
+                X_encoded = self._mean_target_encode(X_encoded)
+            else:
+                raise ValueError(
+                    "Mean target encoding requires target values provided"
+                    " during fit.")
+
+        return X_encoded
+
+    def _transform_array(self, X):
+        float_columns = self._get_float_columns(X)
+        X_encoded = X.copy()
+
+        for col in float_columns:
+            X_encoded[:, col] = self.label_encoders_[col].transform(X[:, col])
+
+        if self.encoding == 'onehot':
+            X_encoded = self._onehot_encode_array(X_encoded, float_columns)
+        elif self.encoding == 'bin-counting':
+            X_encoded = self._bin_counting_encode_array(X_encoded, float_columns)
+        elif self.encoding == 'frequency':
+            X_encoded = self._frequency_encode_array(X_encoded, float_columns)
+        elif self.encoding == 'mean_target':
+            if self.target is not None:
+                X_encoded = self._mean_target_encode_array(X_encoded, float_columns)
+            else:
+                raise ValueError("Mean target encoding requires"
+                                 " target values provided during fit.")
+
+        return X_encoded
+
+    def _get_float_columns(self, X):
+        return [i for i in range(X.shape[1]) if np.issubdtype(X[:, i].dtype, np.floating)]
+
+    def _onehot_encode_array(self, X, float_columns):
+        return pd.get_dummies(pd.DataFrame(X), columns=float_columns).values
+
+    def _bin_counting_encode(self, X):
+        for col in self.label_encoders_.keys():
+            col_dummies = pd.get_dummies(X[col], prefix=col)
+            col_prob = col_dummies.div(col_dummies.sum(axis=1), axis=0)
+            X = pd.concat([X.drop(columns=[col]), col_prob], axis=1)
+        return X
+
+    def _bin_counting_encode_array(self, X, float_columns):
+        X_df = pd.DataFrame(X)
+        for col in float_columns:
+            col_dummies = pd.get_dummies(X_df[col], prefix=col)
+            col_prob = col_dummies.div(col_dummies.sum(axis=1), axis=0)
+            X_df = pd.concat([X_df.drop(columns=[col]), col_prob], axis=1)
+        return X_df.values
+
+    def _frequency_encode(self, X):
+        for col in self.label_encoders_.keys():
+            freq = X[col].value_counts(normalize=True)
+            X[col] = X[col].map(freq)
+        return X
+
+    def _frequency_encode_array(self, X, float_columns):
+        X_df = pd.DataFrame(X)
+        for col in float_columns:
+            freq = X_df[col].value_counts(normalize=True)
+            X_df[col] = X_df[col].map(freq)
+        return X_df.values
+
+    def _mean_target_encode(self, X):
+        for col in self.label_encoders_.keys():
+            means = X.groupby(col)[self.target.name].mean()
+            X[col] = X[col].map(means)
+        return X
+
+    def _mean_target_encode_array(self, X, float_columns):
+        X_df = pd.DataFrame(X)
+        for col in float_columns:
+            means = X_df.groupby(col)[self.target].mean()
+            X_df[col] = X_df[col].map(means)
+        return X_df.values
 
 class StratifyFromBaseFeature(BaseEstimator, TransformerMixin):
     """
