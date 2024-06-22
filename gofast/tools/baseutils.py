@@ -2059,12 +2059,16 @@ def remove_target_from_array(arr,/,  target_indices):
     modified_arr = np.delete(arr, target_indices, axis=1)
     return modified_arr, target_arr
 
+# revise the code, elevate the style of programming, return only target if 
+# return_X_y is False 
+
 def extract_target(
-    data: Union[ArrayLike, DataFrame],/, 
+    data: Union[ArrayLike, DataFrame], 
     target_names: Union[str, int, List[Union[str, int]]],
     drop: bool = True,
     columns: Optional[List[str]] = None,
-) -> Tuple[Union[ArrayLike, Series, DataFrame], Union[ArrayLike, DataFrame]]:
+    return_y_X: bool = False
+) -> Union[ArrayLike, Series, DataFrame, Tuple[ArrayLike, pd.DataFrame]]:
     """
     Extracts specified target column(s) from a multidimensional numpy array
     or pandas DataFrame. 
@@ -2088,14 +2092,16 @@ def extract_target(
         If provided and `data` is a DataFrame, specifies new names for the 
         columns in `data`. The length of `columns` must match the number of 
         columns in `data`. This parameter is ignored if `data` is a NumPy array.
+    return_y_X : bool, default False
+        If True, returns a tuple (y, X) where X is the data with the target columns
+        removed and y is the target columns. If False, returns only y.
 
     Returns
     -------
-    Tuple[Union[np.ndarray, pd.Series, pd.DataFrame], Union[np.ndarray, pd.DataFrame]]
-        A tuple containing two elements:
-        - The extracted column(s) as a NumPy array or pandas Series/DataFrame.
-        - The original data with the extracted columns optionally removed, as a
-          NumPy array or pandas DataFrame.
+    Union[ArrayLike, pd.Series, pd.DataFrame, Tuple[ pd.DataFrame, ArrayLike]]
+        If return_X_y is True, returns a tuple (X, y) where X is the data with the 
+        target columns removed and y is the target columns. If return_X_y is False, 
+        returns only y.
 
     Raises
     ------
@@ -2109,13 +2115,18 @@ def extract_target(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.tools.baseutils import extract_target
     >>> df = pd.DataFrame({
     ...     'A': [1, 2, 3],
     ...     'B': [4, 5, 6],
     ...     'C': [7, 8, 9]
     ... })
-    >>> target, remaining = extract_target(df, 'B', drop=True)
+    >>> target = extract_target(df, 'B', drop=True, return_y_X=False)
+    >>> print(target)
+    0    4
+    1    5
+    2    6
+    Name: B, dtype: int64
+    >>> target, remaining = extract_target(df, 'B', drop=True, return_y_X=True)
     >>> print(target)
     0    4
     1    5
@@ -2127,22 +2138,23 @@ def extract_target(
     1  2  8
     2  3  9
     >>> arr = np.random.rand(5, 3)
-    >>> target, modified_arr = extract_target(arr, 2, )
+    >>> target, modified_arr = extract_target(arr, 2, return_X_y=True)
     >>> print(target)
     >>> print(modified_arr)
     """
-    if isinstance (data, pd.Series): 
-        data = data.to_frame() 
-    if _is_arraylike_1d(data): 
-        # convert to 2d array 
-        data = data.reshape (-1, 1)
-    
+    if isinstance(data, pd.Series):
+        data = data.to_frame()
+    if np.ndim(data) == 1:
+        data = np.expand_dims(data, axis=1)
+
     is_frame = isinstance(data, pd.DataFrame)
-    
+
     if is_frame and columns is not None:
+        columns = is_iterable(columns, exclude_string= True, transform= True)
         if len(columns) != data.shape[1]:
-            raise ValueError("`columns` must match the number of columns in"
-                             f" `data`. Expected {data.shape[1]}, got {len(columns)}.")
+            raise ValueError(
+                "`columns` must match the number of columns in"" `data`."
+                f" Expected {data.shape[1]}, got {len(columns)}.")
         data.columns = columns
 
     if isinstance(target_names, (int, str)):
@@ -2150,18 +2162,17 @@ def extract_target(
 
     if all(isinstance(name, int) for name in target_names):
         if max(target_names, default=-1) >= data.shape[1]:
-            raise ValueError("All integer indices must be within the"
-                             " column range of the data.")
+            raise ValueError(
+                "All integer indices must be within the column range of the data.")
     elif any(isinstance(name, int) for name in target_names) and is_frame:
         target_names = [data.columns[name] if isinstance(name, int) 
                         else name for name in target_names]
 
     if is_frame:
-        missing_cols = [name for name in target_names 
-                        if name not in data.columns]
+        missing_cols = [name for name in target_names if name not in data.columns]
         if missing_cols:
-            raise ValueError(f"Column names {missing_cols} do not match "
-                             "any column in the DataFrame.")
+            raise ValueError(f"Column names {missing_cols} do not match any"
+                             " column in the DataFrame.")
         target = data.loc[:, target_names]
         if drop:
             data = data.drop(columns=target_names)
@@ -2172,11 +2183,13 @@ def extract_target(
         target = data[:, target_names]
         if drop:
             data = np.delete(data, target_names, axis=1)
-            
-    if  isinstance (target, np.ndarray): # squeeze the array 
-        target = np.squeeze (target)
-        
-    return target, data
+
+    if isinstance(target, np.ndarray):
+        target = np.squeeze(target)
+
+    if return_y_X:
+        return target, data
+    return target
 
 def _extract_target(
         X, target: Union[ArrayLike, int, str, List[Union[int, str]]]):
