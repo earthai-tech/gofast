@@ -75,16 +75,46 @@ suppress_warnings()
 
 # Disable oneDNN custom operations
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-# Import public API components
-# Example of lazily importing a submodule
-# _lazy_import(".tools", "tools")
-# _lazy_import(".models", "models")
 
+# Import public API components
 # Setup logging configuration
-from .util import setup_logging
+from .util import setup_logging 
 setup_logging()
+
+# Public API flag
+__set_public__ = False
+
+def check_public_api():
+    """Check if public API should be made available."""
+    global __all__
+    if __set_public__:
+        from . import _public # noqa 
+        from .assistance import assist_me, gofast_explorer as explore 
+        __all__.extend(["assist_me", "explore"])
+        globals().update({"assist_me": assist_me, "explore": explore})
+        # warnings.warn("Public API has been enabled.", UserWarning)
+
+# Property to automatically check public API when __set_public__ changes
+class GoFastConfig:
+    def __init__(self):
+        self._set_public = False
+
+    @property
+    def __set_public__(self):
+        return self._set_public
+
+    @__set_public__.setter
+    def __set_public__(self, value):
+        self._set_public = value
+        check_public_api()
+
+gofast_config = GoFastConfig()
+
+# Update the module to use the new property
+
+__builtins__.__dict__['__set_public__'] = gofast_config.__set_public__
 
 __doc__ += f"\nVersion: {__version__}\n"
 
 # Public API
-__all__ = ["setup_logging", "__version__"]
+__all__ = ["setup_logging", "__version__", "check_public_api"]

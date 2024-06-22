@@ -64,12 +64,6 @@ def setup_gofast_logging (default_path='_gflog.yml'):
     gofastlog.load_configuration(config_file_path)
     
 
-def make_public_api (): 
-    # make summary API public 
-    import gofast._public  # noqa 
-
-make_public_api () 
-
 if __name__ == "__main__":
     setup_logging()
 
