@@ -8,7 +8,6 @@ from sklearn.metrics import r2_score
 
 from ..tools.validator import check_is_fitted
 from ._cluster_based import BaseKMF
-from .util import select_default_estimator
 
 __all__=["KMFClassifier", "KMFRegressor"]
 
@@ -192,7 +191,6 @@ class KMFClassifier(BaseKMF, ClassifierMixin):
     .. [3] Pedregosa, F. et al. (2011). Scikit-learn: Machine Learning in 
            Python. Journal of Machine Learning Research. 12:2825-2830.
     """
-    base_estimator = select_default_estimator("dt", "classification")
 
     def __init__(
         self,
@@ -551,7 +549,6 @@ class KMFRegressor(BaseKMF, RegressorMixin):
     .. [3] Pedregosa, F. et al. (2011). Scikit-learn: Machine Learning in 
            Python. Journal of Machine Learning Research. 12:2825-2830.
     """
-    base_estimator = select_default_estimator("dt")
 
     def __init__(
         self,
