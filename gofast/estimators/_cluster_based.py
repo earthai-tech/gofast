@@ -8,10 +8,9 @@ from abc import abstractmethod
 from sklearn.base import BaseEstimator, clone
 from sklearn.utils._param_validation import Hidden, HasMethods 
 from sklearn.utils._param_validation  import Interval, StrOptions
-from ..tools.validator import check_X_y
 from ..tools.validator import check_is_fitted
 from ..transformers import KMeansFeaturizer
-from .util import fit_with_estimator 
+from .util import fit_with_estimator, select_best_model 
 
 class BaseKMF(BaseEstimator, metaclass=ABCMeta):
     """
@@ -93,6 +92,24 @@ class BaseKMF(BaseEstimator, metaclass=ABCMeta):
         If True, the input data `X` will be converted to a sparse matrix before
         applying the transformation. This is useful for handling large datasets
         more efficiently. If False, the data format of `X` is preserved.
+        
+     encoding : {'onehot', 'bin-counting', 'label', 'frequency', 'mean_target'},\
+         default='onehot'
+         Encoding strategy for cluster labels:
+         - 'onehot': One-hot encoding of the categorical variables. This creates 
+           a binary column for each category and assigns a 1 or 0 based on 
+           whether the category is present in the sample.
+         - 'bin-counting': Probabilistic bin-counting encoding. This converts 
+           categorical values into probabilities based on their frequency of 
+           occurrence in the dataset.
+         - 'label': Label encoding of the categorical variables. This assigns 
+           a unique integer to each category.
+         - 'frequency': Frequency encoding of the categorical variables. This 
+           assigns the frequency of each category's occurrence in the dataset 
+           as the encoded value.
+         - 'mean_target': Mean target encoding based on target values provided 
+           during fit. This assigns the mean of the target variable for each 
+           category.
 
     Notes
     -----
@@ -146,7 +163,7 @@ class BaseKMF(BaseEstimator, metaclass=ABCMeta):
     >>> from sklearn.datasets import make_classification
     >>> from sklearn.tree import DecisionTreeClassifier
     >>> class MyKMFClassifier(BaseKMF):
-    ...     base_estimator = DecisionTreeClassifier()
+    ...     estimator = DecisionTreeClassifier()
     >>> X, y = make_classification(n_samples=100, n_features=20, 
                                    random_state=42)
     >>> model = MyKMFClassifier(n_clusters=5)
@@ -185,7 +202,10 @@ class BaseKMF(BaseEstimator, metaclass=ABCMeta):
         "algorithm": [
             StrOptions({"lloyd", "elkan", "auto", "full"}, deprecated={"auto", "full"})],
         "estimator": [HasMethods(["fit", "predict"]), None],
-        "to_sparse": ["boolean"]
+        "to_sparse": ["boolean"], 
+        "encoding": [ StrOptions(
+            {'onehot', 'bin-counting', 'label', 'frequency', 'mean_target'}), 
+            None],
         }
     
     @abstractmethod
@@ -203,7 +223,8 @@ class BaseKMF(BaseEstimator, metaclass=ABCMeta):
         verbose=0,
         algorithm='lloyd',
         estimator=None,
-        to_sparse=False
+        to_sparse=False,
+        encoding=None
     ):
         self.n_clusters = n_clusters
         self.target_scale = target_scale
@@ -218,6 +239,7 @@ class BaseKMF(BaseEstimator, metaclass=ABCMeta):
         self.algorithm = algorithm
         self.estimator = estimator
         self.to_sparse = to_sparse
+        self.encoding=encoding 
         
     def fit(self, X, y, sample_weight=None):
         """
@@ -303,11 +325,19 @@ class BaseKMF(BaseEstimator, metaclass=ABCMeta):
         X, y = self._validate_data(
             X, y, validate_separately=(check_X_params, check_y_params)
         )
-        
+        # Hide the default estimator so make a copy instead. 
+        self.estimator_ = self.estimator 
+        if self.estimator_ is None: 
+            self.estimator_ = select_best_model(
+                X, y, self.estimator_,
+                problem = ( 
+                    "regression" if self._estimator_type=='regressor' 
+                    else "classification") 
+                )
         X_transformed = self._fit_featurizer(X, y)
         self._fit_estimator(X_transformed, y, sample_weight )
         return self
-
+    
     def predict(self, X):
         """
         Predict class labels or target values for samples in `X`.
@@ -454,6 +484,7 @@ class BaseKMF(BaseEstimator, metaclass=ABCMeta):
             verbose=self.verbose,
             algorithm=self.algorithm,
             to_sparse=self.to_sparse,
+            encoding= self.encoding
         )
         return self.featurizer_.fit_transform(X, y)
 
@@ -507,9 +538,6 @@ class BaseKMF(BaseEstimator, metaclass=ABCMeta):
                K-Means Featurizer: A booster for intricate datasets. Earth Sci. 
                Informatics 17, 1203–1228. https://doi.org/10.1007/s12145-024-01236-3
         """
-        self.estimator_ = self.estimator 
-        if self.estimator_ is None: 
-            self.estimator_ = self.base_estimator 
         self.estimator_ = clone(self.estimator_)
         self.estimator_ = fit_with_estimator(
             self.estimator_, X_transformed, y, sample_weight= sample_weight )

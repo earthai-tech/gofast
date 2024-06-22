@@ -146,6 +146,109 @@ except ImportError:
 
         return pd.DataFrame(data)
 
+def iteritems_compat(series: pd.Series):
+    """
+    Compatibility function for iterating over Series items.
+
+    Parameters
+    ----------
+    series : pd.Series
+        The pandas Series to iterate over.
+
+    Returns
+    -------
+    iterator
+        An iterator over the (index, value) pairs of the series.
+    
+    Example
+    --------
+    from gofast.compat.pandas import iteritems_compat
+
+    # Example usage of iteritems_compat
+    series = pd.Series([1, 2, 3])
+    for index, value in iteritems_compat(series):
+        print(f"Index: {index}, Value: {value}")
+    """
+    if PD_LT_2:
+        return series.iteritems()
+    else:
+        return series.items()
+
+def make_dataframe_compat():
+    """
+    Compatibility function for creating a sample DataFrame.
+
+    Returns
+    -------
+    DataFrame
+        A pandas DataFrame with sample data.
+        
+    Example 
+    --------
+    from gofast.compat.pandas import make_dataframe_compat
+
+    # Example usage of make_dataframe_compat
+    df = make_dataframe_compat()
+    print(df)
+    """
+    if PD_LT_2:
+        return make_dataframe()
+    else:
+        import string
+
+        def rands_array(nchars, size, dtype="O"):
+            """
+            Generate an array of byte strings.
+            """
+            rands_chars = np.array(
+                list(string.ascii_letters + string.digits), dtype=(np.str_, 1)
+            )
+            retval = (
+                np.random.choice(rands_chars, size=nchars * np.prod(size))
+                .view((np.str_, nchars))
+                .reshape(size)
+            )
+            if dtype is None:
+                return retval
+            else:
+                return retval.astype(dtype)
+
+        n = 30
+        k = 4
+        index = pd.Index(rands_array(nchars=10, size=n), name=None)
+        data = {
+            c: pd.Series(np.random.randn(n), index=index)
+            for c in string.ascii_uppercase[:k]
+        }
+
+        return pd.DataFrame(data)
+
+def is_pandas_version_less_than(version: str) -> bool:
+    """
+    Check if the current pandas version is less than the specified version.
+
+    Parameters
+    ----------
+    version : str
+        The version to compare against.
+
+    Returns
+    -------
+    bool
+        True if the current pandas version is less than the specified version.
+        
+    Example 
+    -------
+    from gofast.compat.pandas import is_pandas_version_less_than
+
+    # Example usage of is_pandas_version_less_than
+    if is_pandas_version_less_than("2.0.0"):
+        print("Pandas version is less than 2.0.0")
+    else:
+        print("Pandas version is 2.0.0 or greater")
+
+    """
+    return pd.__version__ < version
 
 def to_numpy(po: pd.DataFrame) -> np.ndarray:
     """

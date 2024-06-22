@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
+
 """Concentrates on assessing and improving the quality of the data."""
 from __future__ import annotations, print_function 
 import re
@@ -24,7 +25,6 @@ from ..decorators import Extract1dArrayOrSeries
 from ..tools.baseutils import reshape_to_dataframe
 from ..tools.coreutils import ellipsis2false, smart_format
 from ..tools.coreutils import assert_ratio
-from ..tools.coreutils import normalize_string
 from ..tools.validator import is_frame, parameter_validator  
 from ..tools.validator import _is_numeric_dtype
 
@@ -522,12 +522,10 @@ def scale_data(
     report = {'method_used': method, 'columns_scaled': list(numeric_cols)}
     
     original_data = data.copy()
-    method=normalize_string (method, target_strs=('minmax', "standard", "norm"),
-                             match_method='contains', return_target_only=True)
     # Determine which scaling method to use
-    if method not in ['minmax', 'norm', 'standard']:
-        raise ValueError("Invalid scaling method. Choose 'minmax',"
-                         " 'norm', or 'standard'.")
+    method = parameter_validator (
+        "method", target_strs=('minmax', "standard", "norm")) (method)
+
     if use_sklearn:
         try:
             from sklearn.preprocessing import MinMaxScaler, StandardScaler

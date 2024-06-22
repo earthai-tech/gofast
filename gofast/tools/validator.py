@@ -50,7 +50,6 @@ def filter_valid_kwargs(callable_obj, kwargs):
 
     Examples
     --------
-    >>> from gofast.tools.validator import filter_valid_kwargs
     >>> def example_func(a, b, c=3):
     ...     pass
     >>> kwargs = {'a': 1, 'b': 2, 'd': 4}
@@ -63,12 +62,18 @@ def filter_valid_kwargs(callable_obj, kwargs):
     >>> kwargs = {'x': 1, 'y': 2, 'a': 3}
     >>> filter_valid_kwargs(ExampleClass, kwargs)
     {'x': 1, 'y': 2}
+    >>> filter_valid_kwargs(ExampleClass(), kwargs)
+    {'x': 1, 'y': 2}
 
     Notes
     -----
     This function uses the `inspect` module to retrieve the signature of 
     the given callable object and validate the keyword arguments.
     """
+    # If the callable_obj is an instance, get its class
+    if not inspect.isclass(callable_obj) and not callable(callable_obj):
+        callable_obj = callable_obj.__class__
+
     # Get the function signature
     signature = inspect.signature(callable_obj)
     

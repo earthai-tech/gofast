@@ -6,7 +6,6 @@ we have choice to use 'pyximport' (Cython Compilation for Developers) or setup
 configuration. the latter one as recommended so. For further details 
 refer to  http://docs.cython.org/en/latest/src/tutorial/cython_tutorial.html
 
-@author: Daniel
 """
 #import pyximport; pyximport.install(pyimport=True)
 from numpy.distutils.misc_util import Configuration

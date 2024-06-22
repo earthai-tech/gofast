@@ -1,8 +1,12 @@
 #!/usr/bin/env python
 
 # Standard library imports
-from setuptools import setup
+from setuptools import setup, Extension, find_packages
+from setuptools.command.build_ext import build_ext
 import builtins
+import numpy
+import os
+import sys
 
 # Compatibility layer for Python 2 and 3
 try:
@@ -26,13 +30,13 @@ DESCRIPTION = "Accelerate Your Machine Learning Workflow"
 LONG_DESCRIPTION = open('README.md', 'r', encoding='utf8').read()
 MAINTAINER = "Laurent Kouadio"
 MAINTAINER_EMAIL = 'etanoyau@gmail.com'
-URL = "https://github.com/WEgeophysics/gofast"
+URL = "https://github.com/earthai-tech/gofast"
 DOWNLOAD_URL = "https://pypi.org/project/gofast/#files"
 LICENSE = "BSD-3-Clause"
 PROJECT_URLS = {
     "API Documentation": "https://gofast.readthedocs.io/en/latest/api_references.html",
     "Home page": "https://gofast.readthedocs.io",
-    "Bugs tracker": "https://github.com/WEgeophysics/gofast/issues",
+    "Bugs tracker": "https://github.com/earthai-tech/gofast/issues",
     "Installation guide": "https://gofast.readthedocs.io/en/latest/installation.html",
     "User guide": "https://gofast.readthedocs.io/en/latest/user_guide.html",
 }
@@ -56,45 +60,42 @@ PACKAGE_DATA = {
     ]
 }
 
+# Cython extension modules
+ext_modules = [
+    Extension("gofast.pyx.example", ["gofast/pyx/example.pyx"], include_dirs=[numpy.get_include()]),
+    # Add other Cython modules here
+]
+
+class BuildExt(build_ext):
+    def build_extensions(self):
+        numpy_includes = numpy.get_include()
+        for ext in self.extensions:
+            ext.include_dirs.append(numpy_includes)
+        build_ext.build_extensions(self)
+
 # Entry points and other dynamic settings
 setup_kwargs = {
     'entry_points': {
-        'gofast.commands': [
-            'gf=gofast.cli:cli',
-        ],
         'console_scripts': [
+            'gofast=gofast.cli:cli',
             'version=gofast.cli:version',
         ]
     },
-    'packages': [
-        'gofast',
-        'gofast._build',
-        'gofast.analysis',
-        'gofast.datasets',
-        'gofast.datasets.data',
-        'gofast.datasets.descr',
-        'gofast.experimental',
-        'gofast.externals',
-        'gofast.externals._pkgs',
-        'gofast.geo',
-        'gofast.models',
-        'gofast.plot',
-        'gofast.pyx',
-        'gofast.stats',
-        'gofast.tools',
-    ],
+    'packages': find_packages(),
+    'ext_modules': ext_modules,
+    'cmdclass': {'build_ext': BuildExt},
     'install_requires': [
         "cython>=0.29.33",
         "scikit-learn >=1.1.2",
         "seaborn>=0.12.0",
-        "pandas>=1.4.0",
+        "pandas < 2.0.3", # >=1.4.0 # use version 1 >=1.4.0
         "pyyaml>=5.0.0",
         "tqdm>=4.64.1",
         "joblib>=1.2.0",
         "threadpoolctl>=3.1.0",
         "matplotlib>=3.5.3",
         "statsmodels>=0.13.1",
-        "numpy>=1.23.0",
+        "numpy <2.0.x", # >=1.23.0 # > # use version 1>=1.23.0
         "scipy>=1.9.0",
         "h5py>=3.2.0",
         # "pytest",

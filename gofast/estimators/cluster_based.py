@@ -8,7 +8,6 @@ from sklearn.metrics import r2_score
 
 from ..tools.validator import check_is_fitted
 from ._cluster_based import BaseKMF
-from .util import select_default_estimator
 
 __all__=["KMFClassifier", "KMFRegressor"]
 
@@ -98,7 +97,25 @@ class KMFClassifier(BaseKMF, ClassifierMixin):
         If True, the input data `X` will be converted to a sparse matrix before 
         applying the transformation. This is useful for handling large datasets 
         more efficiently. If False, the data format of `X` is preserved.
-
+        
+     encoding : {'onehot', 'bin-counting', 'label', 'frequency', 'mean_target'},\
+         default='onehot'
+         Encoding strategy for cluster labels:
+         - 'onehot': One-hot encoding of the categorical variables. This creates 
+           a binary column for each category and assigns a 1 or 0 based on 
+           whether the category is present in the sample.
+         - 'bin-counting': Probabilistic bin-counting encoding. This converts 
+           categorical values into probabilities based on their frequency of 
+           occurrence in the dataset.
+         - 'label': Label encoding of the categorical variables. This assigns 
+           a unique integer to each category.
+         - 'frequency': Frequency encoding of the categorical variables. This 
+           assigns the frequency of each category's occurrence in the dataset 
+           as the encoded value.
+         - 'mean_target': Mean target encoding based on target values provided 
+           during fit. This assigns the mean of the target variable for each 
+           category.
+           
     Notes
     -----
     - The effectiveness of the KMFClassifier depends on the choice of the base 
@@ -150,12 +167,12 @@ class KMFClassifier(BaseKMF, ClassifierMixin):
     >>> from gofast.estimators.cluster_based import KMFClassifier
     >>> from sklearn.datasets import make_classification
     >>> from sklearn.model_selection import train_test_split
-    >>> X, y = make_classification(n_samples=100, n_features=20, 
-                                   random_state=42)
+    >>> X, y = make_classification(n_samples=100, n_features=20, random_state=42)
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y)
     >>> kmf_classifier = KMFClassifier(n_clusters=5)
     >>> kmf_classifier.fit(X_train, y_train)
     >>> y_pred = kmf_classifier.predict(X_test)
+    >>> kmf_classifier.score (X_test, y_test)
 
     See Also
     --------
@@ -174,7 +191,6 @@ class KMFClassifier(BaseKMF, ClassifierMixin):
     .. [3] Pedregosa, F. et al. (2011). Scikit-learn: Machine Learning in 
            Python. Journal of Machine Learning Research. 12:2825-2830.
     """
-    base_estimator = select_default_estimator("dt", "classification")
 
     def __init__(
         self,
@@ -190,7 +206,8 @@ class KMFClassifier(BaseKMF, ClassifierMixin):
         verbose=0,
         algorithm='lloyd',
         estimator=None,
-        to_sparse=False
+        to_sparse=False,
+        encoding=None 
     ):
         super().__init__(
             n_clusters=n_clusters,
@@ -205,7 +222,8 @@ class KMFClassifier(BaseKMF, ClassifierMixin):
             verbose=verbose,
             algorithm=algorithm,
             estimator=estimator,
-            to_sparse=to_sparse
+            to_sparse=to_sparse, 
+            encoding =encoding
         )
 
     def predict(self, X):
@@ -438,6 +456,24 @@ class KMFRegressor(BaseKMF, RegressorMixin):
         If True, the input data `X` will be converted to a sparse matrix before 
         applying the transformation. This is useful for handling large datasets 
         more efficiently. If False, the data format of `X` is preserved.
+        
+    encoding : {'onehot', 'bin-counting', 'label', 'frequency', 'mean_target'},\
+        default='onehot'
+        Encoding strategy for cluster labels:
+        - 'onehot': One-hot encoding of the categorical variables. This creates 
+          a binary column for each category and assigns a 1 or 0 based on 
+          whether the category is present in the sample.
+        - 'bin-counting': Probabilistic bin-counting encoding. This converts 
+          categorical values into probabilities based on their frequency of 
+          occurrence in the dataset.
+        - 'label': Label encoding of the categorical variables. This assigns 
+          a unique integer to each category.
+        - 'frequency': Frequency encoding of the categorical variables. This 
+          assigns the frequency of each category's occurrence in the dataset 
+          as the encoded value.
+        - 'mean_target': Mean target encoding based on target values provided 
+          during fit. This assigns the mean of the target variable for each 
+          category.
 
     Notes
     -----
@@ -494,7 +530,7 @@ class KMFRegressor(BaseKMF, RegressorMixin):
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y)
     >>> kmf_regressor = KMFRegressor(n_clusters=5)
     >>> kmf_regressor.fit(X_train, y_train)
-
+    >>> kmf_regressor.score (X_test, y_test)
     
     See Also
     --------
@@ -513,7 +549,6 @@ class KMFRegressor(BaseKMF, RegressorMixin):
     .. [3] Pedregosa, F. et al. (2011). Scikit-learn: Machine Learning in 
            Python. Journal of Machine Learning Research. 12:2825-2830.
     """
-    base_estimator = select_default_estimator("dt")
 
     def __init__(
         self,
@@ -529,7 +564,8 @@ class KMFRegressor(BaseKMF, RegressorMixin):
         verbose=0,
         algorithm='lloyd',
         estimator=None,
-        to_sparse=False
+        to_sparse=False, 
+        encoding=None
     ):
         super().__init__(
             n_clusters=n_clusters,
@@ -544,7 +580,8 @@ class KMFRegressor(BaseKMF, RegressorMixin):
             verbose=verbose,
             algorithm=algorithm,
             estimator=estimator,
-            to_sparse=to_sparse
+            to_sparse=to_sparse,
+            encoding=encoding
         )
         
     def score(self, X, y, sample_weight=None):

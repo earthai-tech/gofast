@@ -284,8 +284,8 @@ def one_click_preprocess(
 
     # Attempt to use a custom transformer if available.
     try:
-        from ..transformers import FloatCategoricalToIntTransformer
-        data_processed = FloatCategoricalToIntTransformer(
+        from ..transformers import FloatCategoricalToInt
+        data_processed = FloatCategoricalToInt(
             ).fit_transform(data_processed)
     except:
         pass

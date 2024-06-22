@@ -2197,31 +2197,6 @@ def aggregate_cv_results(cv_results):
     
     return final_results
 
-# but sometimes , the parameter can accept string, or float like the 
-# SVC parameters, add parameter in apply_param_types to control this and 
-# if 'auto', resole this problem automatically. here is an example of issues 
-
-# ValueError: 
-# All the 5 fits failed.
-# It is very likely that your model is misconfigured.
-# You can try to debug the error by setting error_score='raise'.
-
-# Below are more details about the failures:
-# --------------------------------------------------------------------------------
-# 5 fits failed with the following error:
-# Traceback (most recent call last):
-#   File "C:\Users\Daniel\Anaconda3\envs\watex\lib\site-packages\sklearn\model_selection\_validation.py", line 686, in _fit_and_score
-#     estimator.fit(X_train, y_train, **fit_params)
-#   File "C:\Users\Daniel\Anaconda3\envs\watex\lib\site-packages\sklearn\svm\_base.py", line 180, in fit
-#     self._validate_params()
-#   File "C:\Users\Daniel\Anaconda3\envs\watex\lib\site-packages\sklearn\base.py", line 581, in _validate_params
-#     validate_parameter_constraints(
-#   File "C:\Users\Daniel\Anaconda3\envs\watex\lib\site-packages\sklearn\utils\_param_validation.py", line 96, in validate_parameter_constraints
-#     raise InvalidParameterError(
-# sklearn.utils._param_validation.InvalidParameterError: The 'gamma' parameter of SVC must be a str among {'scale', 'auto'} or a float in the range [0.0, inf). Got '0.0505' instead.
-            
-
-
 def get_param_types2(estimator: BaseEstimator) -> dict:
     """
     Get the parameter types for a given estimator.
@@ -2337,6 +2312,9 @@ def apply_param_types(estimator: BaseEstimator, param_dict: dict) -> dict:
     
     for param, value in param_dict.items():
         if param in param_types:
+            if value is None: 
+                new_param_dict[param] = value
+                continue 
             expected_type = param_types[param]
             new_param_dict[param] = expected_type(value)
         else:
@@ -2351,3 +2329,183 @@ def apply_param_types(estimator: BaseEstimator, param_dict: dict) -> dict:
                 pass 
             
     return new_param_dict
+
+def process_performance_data(df, mode='average', on='@data'):
+    """
+    Process performance data based on specified parameters.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing performance data with each cell being a list of scores.
+        If the DataFrame contains only numerical values, it will be automatically
+        converted to a DataFrame with each value wrapped in a list.
+    
+    mode : str, optional, default='average'
+        Processing mode. Options:
+        - 'average': Averages each row array value at each index.
+        - 'rowX': Processes data based on the specific row index (e.g., 'row0', 'row1').
+        - 'dX': Same as 'rowX'.
+        - 'cvX': Processes data based on the specific column index (e.g., 'cv0', 'cv1').
+        - 'cX': Same as 'cvX'.
+    
+    on : str, optional, default='@data'
+        Specifies the axis of processing.
+        - '@data': Processes data based on rows.
+        - '@cv': Processes data based on columns.
+    
+    Returns
+    -------
+    pd.DataFrame
+        Processed DataFrame with columns names and processed values.
+    
+    Raises
+    ------
+    ValueError
+        If the parameters for 'mode' or 'on' are invalid, or if the specified
+        row or column index is out of bounds.
+    
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.models.utils import process_performance_data
+    >>> df = pd.DataFrame({
+    ...     'DecisionTreeClassifier': [[0.9667, 0.9667, 0.9, 0.9667, 1.0],
+    ...                                [0.9667, 0.9667, 0.9, 0.9667, 1.0],
+    ...                                [0.9667, 0.9667, 0.9, 0.9667, 1.0]],
+    ...     'LogisticRegression': [[0.9667, 1.0, 0.9333, 0.9667, 1.0],
+    ...                             [0.9667, 1.0, 0.9333, 0.9667, 1.0],
+    ...                             [0.9667, 1.0, 0.9333, 0.9667, 1.0]]
+    ... })
+    >>> process_performance_data(df, mode='average')
+        DecisionTreeClassifier  LogisticRegression
+     0                 0.96002             0.97334
+     1                 0.96002             0.97334
+     2                 0.96002             0.97334
+    >>> process_performance_data(df, mode='row0')
+        DecisionTreeClassifier  LogisticRegression
+     0                  0.9667              0.9667
+     1                  0.9667              0.9667
+     2                  0.9667              0.9667
+    >>> process_performance_data(df, mode='cv1', on='@cv')
+        DecisionTreeClassifier  LogisticRegression
+     0                  0.9667                 1.0
+     1                  0.9667                 1.0
+     2                  0.9667                 1.0
+    """
+    # Check if each cell is a list of scores
+    if not all(isinstance(i, list) for col in df.columns for i in df[col]):
+        # If the DataFrame contains only numerical values, wrap each value in a list
+        if df.applymap(lambda x: isinstance(x, (int, float))).all().all():
+            df = df.applymap(lambda x: [x])
+        else:
+            raise ValueError("DataFrame should contain lists of scores in each cell.")
+
+    if mode == 'average':
+        # Average each row array value at each index
+        if on == '@cv':
+            # Average across cross-validation folds
+            processed_data = {}
+            for col in df.columns:
+                # Transpose the list of lists to get columns of CV results
+                transposed_cv = list(zip(*df[col]))
+                processed_data[col] = [sum(cv_fold) / len(cv_fold) for cv_fold in transposed_cv]
+            return pd.DataFrame(processed_data)
+        else:
+            # Average each row array value at each index
+            processed_data = {col: df[col].apply(lambda x: sum(x) / len(x)) for col in df.columns}
+            
+        return pd.DataFrame(processed_data)
+
+    if on == '@data':
+        # Process based on row index
+        if mode.startswith('row') or mode.startswith('d'):
+            index = int(mode[3]) if mode.startswith('row') else int(mode[1])
+            if index >= len(df):
+                raise ValueError(f"Invalid row index: {index}. DataFrame only has {len(df)} rows.")
+            processed_data = {col: df[col].apply(lambda x: x[index]) for col in df.columns}
+            return pd.DataFrame(processed_data)
+
+    if on == '@cv':
+        # Process based on column index
+        if mode.startswith('cv') or mode.startswith('c'):
+            index = int(mode[2]) if mode.startswith('cv') else int(mode[1])
+            max_len = max(df[col].apply(len).max() for col in df.columns)
+            if index >= max_len:
+                raise ValueError(
+                    f"Invalid column index: {index}. DataFrame columns have"
+                    f" a maximum of {max_len} values.")
+            processed_data = {col: [row[index] for row in df[col]] for col in df.columns}
+            return pd.DataFrame(processed_data)
+
+    raise ValueError("Invalid parameters for 'mode' or 'on'")
+    
+
+def update_if_higher(
+    results_dict, 
+    estimator_name, 
+    new_score, 
+    result_data, 
+    best_params_dict=None
+    ):
+    """
+    Updates the results dictionary with the new score if it is higher than the 
+    current score and updates the best_params dictionary accordingly.
+
+    Parameters
+    ----------
+    results_dict : dict
+        The dictionary containing the results of each estimator.
+    estimator_name : str
+        The key in the dictionary to update (name of the estimator).
+    new_score : float
+        The new score to compare and potentially update.
+    result_data : dict
+        The result dictionary containing additional details to update.
+    best_params_dict : dict, optional
+        The dictionary containing the best parameters for each estimator.
+
+    Returns
+    -------
+    results_dict : dict
+        The updated results dictionary.
+    best_params_dict : dict
+        The updated best parameters dictionary.
+
+    Notes
+    -----
+    This function ensures that the `results_dict` and `best_params_dict` are 
+    updated only if the new score is higher than the existing score for a 
+    given estimator. If the estimator is not already in the `results_dict`, it 
+    adds the estimator and its corresponding result data.
+
+    Examples
+    --------
+    >>> results = {}
+    >>> best_params = {}
+    >>> estimator_name = 'RandomForest'
+    >>> new_score = 0.85
+    >>> result_data = {
+    ...     'RandomForest': {
+    ...         'best_estimator_': rf_best_estimator,
+    ...         'best_params_': rf_best_params,
+    ...         'best_score_': 0.85,
+    ...         'scoring': 'accuracy',
+    ...         'strategy': 'GridSearchCV',
+    ...         'cv_results_': rf_cv_results,
+    ...     }
+    ... }
+    >>> update_if_higher(results, estimator_name, new_score, result_data, best_params)
+    """
+    best_params_dict = best_params_dict or {}
+    if estimator_name in results_dict:
+        if new_score > results_dict[estimator_name]['best_score_']:
+            results_dict[estimator_name] = result_data[estimator_name]
+            best_params_dict[estimator_name] = result_data[estimator_name]['best_params_']
+    else:
+        results_dict[estimator_name] = result_data[estimator_name]
+        best_params_dict[estimator_name] = result_data[estimator_name]['best_params_']
+        
+    return results_dict, best_params_dict
+
+

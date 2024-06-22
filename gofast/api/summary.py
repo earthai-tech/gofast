@@ -5,6 +5,7 @@ import copy
 import warnings 
 import numpy as np
 import pandas as pd
+from ..compat.pandas import iteritems_compat 
 
 from .extension import RegexMap, isinstance_, fetch_estimator_name 
 from .formatter import MultiFrameFormatter, DataFrameFormatter, DescriptionFormatter 
@@ -41,7 +42,9 @@ class ResultSummary:
         If set to ``False``, nested dictionaries are displayed with full 
         indentation and key alignment, which improves readability for complex 
         structures. Defaults to ``True``.
-
+    mute_note: bool, default=False 
+       Skip displaying the note after result formatage. 
+       
     Examples
     --------
     >>> from gofast.api.summary import ResultSummary
@@ -2584,7 +2587,7 @@ def format_dataframe(
     title_str = f"{title.center(table_width)}" if title else ""
     for index, row in df.iterrows():
         row_str = f"{str(index).ljust(max_index_length)} " + " ".join(
-            [f"{value:>{max_col_lengths[col]}}" for col, value in row.iteritems()])
+            [f"{value:>{max_col_lengths[col]}}" for col, value in iteritems_compat(row)])
         rows.append(row_str)
     
     # Combine all parts

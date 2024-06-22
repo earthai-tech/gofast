@@ -350,6 +350,11 @@ class DataFrameFormatter(metaclass=MetaLen):
         representation of the formatter to provide additional context or 
         categorization. Defaults to ``"DataFrameFormatter"``.
         
+    series_name: str, optional, 
+       Is the name the series when series is passed rather than dataframe. 
+       If given, the `series_name` whould replace the dataframe default integer 
+       columns. 
+        
     Attributes
     ----------
     df : pandas.DataFrame or None
@@ -430,11 +435,13 @@ class DataFrameFormatter(metaclass=MetaLen):
     snake_case conversion of column names.
     """
 
-    def __init__(self, title=None, keyword=None, style=None, descriptor=None):
+    def __init__(self, title=None, keyword=None, style=None, descriptor=None, 
+                 series_name=None):
         self.title = title
         self.keyword = keyword
         self.style=style
         self.descriptor=descriptor
+        self.series_name=series_name 
         self.df = None
         self._column_name_mapping = {}
         
@@ -461,7 +468,7 @@ class DataFrameFormatter(metaclass=MetaLen):
             Enables method chaining.
         """
         if isinstance(df, pd.Series):
-            df = df.to_frame()
+            df = df.to_frame(self.series_name) 
         elif not isinstance(df, pd.DataFrame):
             raise ValueError("Input must be a pandas DataFrame or Series.")
         
