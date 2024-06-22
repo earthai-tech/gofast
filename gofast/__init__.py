@@ -112,7 +112,7 @@ gofast_config = GoFastConfig()
 
 # Update the module to use the new property
 
-__builtins__.__dict__['__set_public__'] = gofast_config.__set_public__
+__builtins__['__set_public__'] = gofast_config.__set_public__
 
 __doc__ += f"\nVersion: {__version__}\n"
 
