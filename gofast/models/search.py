@@ -681,7 +681,12 @@ class PerformanceTuning(BaseClass):
         return self
 
     def _cv_performance_data_base(self, X, y): 
+        
         if self.estimators is None: 
+            if self.param_grids is not None: 
+                # check whether estimators are gives as tuple ( estim, params )
+                self.estimators, self.param_grids = align_estimators_with_params(
+                    self.param_grids)
             raise ValueError("Estimators cannot be None for base tuning.")
             
         performance_data, results_mean = self._run_cross_validator(X, y)

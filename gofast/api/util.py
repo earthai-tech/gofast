@@ -586,7 +586,6 @@ def is_numeric_type(df, target="index"):
     else:  # Single level index or columns
         return pd.api.types.is_numeric_dtype(data_attribute.dtype)
 
-
 def extract_truncate_df(df, include_truncate=False, max_rows=100, max_cols=7, 
                         return_indices_cols=False):
     """
@@ -647,7 +646,6 @@ def extract_truncate_df(df, include_truncate=False, max_rows=100, max_cols=7,
     148  148
     149  149
     """
-
     # check indices whether it is numeric, if Numeric keepit otherwise reset it 
     truncated_df = df.copy() 
     name_indexes = [] 
@@ -735,8 +733,7 @@ def extract_matching_columns(header_line, data_columns):
         # Check if the column is exactly in the normalized header parts
         if column in normalized_header_parts:
             matching_columns.append(column)
-    
-    
+
     return matching_columns
 
 def insert_ellipsis_to_df(sub_df, full_df=None, include_index=True):
@@ -1620,7 +1617,6 @@ def df_advanced_style(
             
         new_lines.append(new_line)
 
-    
     max_line_width = max(len(line) for line in new_lines)
     table_width = max_line_width if table_width == 'auto' else max(
         min(table_width, max_line_width), len(header))

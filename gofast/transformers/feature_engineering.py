@@ -1033,7 +1033,8 @@ class KMeansFeaturizer(BaseEstimator, TransformerMixin):
         X = check_array(X, accept_sparse=True)
         if y is not None:
             # Validate target array y
-            y = check_array(y, ensure_2d=False)
+            y= np.asarray (y).ravel() # for consistency
+            X, y  = check_X_y(X, y, estimator =self )
 
         # Apply PCA if n_components is specified
         if self.n_components is not None:
@@ -1042,7 +1043,7 @@ class KMeansFeaturizer(BaseEstimator, TransformerMixin):
 
         # Scale target and concatenate with X if y is provided
         if y is not None:
-            self.y_ = np.asarray(y).copy() 
+            self.y_ = np.asarray(y).copy()
             y_scaled = y[:, np.newaxis] * self.target_scale
             data_for_clustering = np.hstack((X, y_scaled))
         else:
@@ -2820,7 +2821,7 @@ class FrameUnionFlex(BaseEstimator, TransformerMixin):
             pass 
         else: 
             # Keep category values as integers. 
-            X_transformed = FloatCategoricalToIntTransformer(
+            X_transformed = FloatCategoricalToInt(
                 ).fit_transform (X_transformed)
     
         return X_transformed

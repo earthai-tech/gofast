@@ -14,7 +14,6 @@ from ._tree import  BaseDTB, BaseWeightedTree
 from ..tools.validator import check_array 
 from ..tools.validator import check_is_fitted
 
-
 __all__=[ "DTBRegressor", "DTBClassifier", 
          "WeightedTreeClassifier", "WeightedTreeRegressor",]
 
