@@ -1490,9 +1490,8 @@ def analyze_data_corr(
     autofit : bool, optional
         If True, adjusts the column widths and the number of visible rows
         based on the DataFrame's content and available display size. 
-        When `autofit` is ``True``,`no_corr_placeholder` 
-        takes the empty value for non-correlated items.  
-        Default is True. 
+        When `autofit` is ``True``,`no_corr_placeholder` takes the empty value 
+        for non-correlated items.  Default is True. 
     view : bool, optional
         If True, displays a heatmap of the correlation matrix using matplotlib and
         seaborn. Default is False.

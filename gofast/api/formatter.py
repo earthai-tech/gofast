@@ -192,13 +192,13 @@ class MultiFrameFormatter (metaclass=MetaLen):
         str
             A string representation of the constructed table.
         """
-        if is_any_long_dataframe(*self.dfs): 
+        if is_any_long_dataframe(*self.dfs, max_rows=self.max_rows,
+                                 max_cols=self.max_cols): 
             return construct_long_dataframes_with_same_columns(
                 self.dfs, titles = self.titles,
-                max_cols =self.max_cols, max_rows= self.max_rows,
+                max_cols =5, max_rows= self.max_rows,
                 style = self.style, 
                 )
-        
         return construct_tables_for_same_columns(self.dfs, self.titles)
     
     def _dataframe_with_different_columns(self):
@@ -215,7 +215,7 @@ class MultiFrameFormatter (metaclass=MetaLen):
         if is_any_long_dataframe(*self.dfs, max_cols= self.max_cols ): 
             # construct fake dfs for better aligment. 
             dfs = make_fake_dfs(
-                self.dfs, max_rows= self.max_rows, max_cols= self.max_cols)
+                self.dfs, max_rows= self.max_rows, max_cols= 5)
             # return construct_long_dataframes_with_different_columns(
             #     self.dfs, titles = self.titles,
             #     max_cols = 7, max_rows= 11, style = self.style, 
@@ -1769,7 +1769,8 @@ def construct_long_dataframes_with_same_columns(
          # Set the title for the current table if provided
         title = titles[i].title() if titles and i < len(titles) else ""
         formatted_df = flex_df_formatter(
-            df, title=title, max_rows=max_rows, max_cols=max_cols, 
+            df, title=title, max_rows=max_rows, 
+             max_cols=max_cols, 
              index= include_index, style= style, 
              column_widths= column_widths, 
              max_index_length= max_index_length, 
