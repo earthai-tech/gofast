@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
+"""
+The :mod:`gofast.api.summary` module offers a comprehensive suite of tools for
+generating and formatting summaries and reports, ensuring clear and consistent
+ presentation of analytical results.
+"""
+
 import copy
 import warnings 
 import numpy as np
@@ -15,6 +21,30 @@ from .util import to_snake_case, get_table_size
 from .util import format_value, df_to_custom_dict, format_text, to_camel_case  
 from .util import find_maximum_table_width, format_df, format_correlations
 from .util import beautify_dict 
+
+__all__=[
+     'ModelSummary',
+     'ReportFactory',
+     'ResultSummary',
+     'Summary',
+     'calculate_maximum_length',
+     'detect_structure_type',
+     'ensure_list_with_defaults',
+     'extract_model_name_and_dict',
+     'get_max_col_lengths',
+     'get_table_width',
+     'key_dataframe_format',
+     'key_formatter_format',
+     'normalize_table_widths',
+     'prepare_cv_results_dataframe',
+     'standardize_keys',
+     'summarize_inline_model_results',
+     'summarize_inline_table',
+     'summarize_model_results',
+     'summarize_optimized_results',
+     'summarize_tables',
+     'uniform_dfs_formatter'
+     ]
 
 class ResultSummary:
     """

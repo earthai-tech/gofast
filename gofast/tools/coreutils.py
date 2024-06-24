@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
+"""
+:mod:`gofast.tools.coreutils` module provides a diverse set of utility functions 
+and tools for data manipulation, validation, formatting, and processing. 
+"""
 
 from __future__ import annotations, print_function 
 import os 
@@ -45,7 +49,98 @@ from ..compat.scipy import check_scipy_interpolate, optimize_minimize
 
 _logger = gofastlog.get_gofast_logger(__name__)
 
- 
+__all__=[
+     'add_noises_to',
+     'adjust_to_samples',
+     'assert_ratio',
+     'check_dimensionality',
+     'check_uniform_type',
+     'cleaner',
+     'colors_to_names',
+     'cpath',
+     'decompose_colormap',
+     'denormalize',
+     'display_infos',
+     'download_progress_hook',
+     'exist_features',
+     'extract_coordinates',
+     'features_in',
+     'fetch_json_data_from_url',
+     'fill_nan_in',
+     'find_by_regex',
+     'find_close_position',
+     'find_features_in',
+     'format_to_datetime',
+     'generate_alpha_values',
+     'generate_mpl_styles',
+     'generic_getattr',
+     'get_colors_and_alphas',
+     'get_confidence_ratio',
+     'get_installation_name',
+     'get_params',
+     'get_valid_key',
+     'get_valid_kwargs',
+     'get_xy_coordinates',
+     'hex_to_rgb',
+     'interpol_scipy',
+     'is_classification_task',
+     'is_depth_in',
+     'is_in_if',
+     'is_installing',
+     'is_iterable',
+     'is_module_installed',
+     'ismissing',
+     'load_serialized_data',
+     'make_ids',
+     'move_cfile',
+     'normalize_string',
+     'numstr2dms',
+     'pair_data',
+     'parallelize_jobs',
+     'parse_attrs',
+     'parse_csv',
+     'parse_json',
+     'parse_md_data',
+     'parse_yaml',
+     'process_and_extract_data',
+     'projection_validator',
+     'random_sampling',
+     'random_selector',
+     'random_state_validator',
+     'read_from_excelsheets',
+     'read_main',
+     'read_worksheets',
+     'rename_files',
+     'repeat_item_insertion',
+     'replace_data',
+     'resample_data',
+     'reshape',
+     'sanitize_frame_cols',
+     'sanitize_unicode_string',
+     'save_job',
+     'savepath_',
+     'serialize_data',
+     'smart_label_classifier',
+     'split_train_test',
+     'split_train_test_by_id',
+     'squeeze_specific_dim',
+     'store_or_write_hdf5',
+     'str2columns',
+     'test_set_check_id',
+     'to_hdf5',
+     'to_numeric_dtypes',
+     'to_series_if',
+     'type_of_target',
+     'unpack_list_of_dicts',
+     'url_checker',
+     'validate_feature',
+     'validate_ratio',
+     'validate_url',
+     'validate_url_by_validators',
+     'wrap_infos',
+     'zip_extractor'
+ ] 
+
 def format_to_datetime(data, date_col, verbose=0, **dt_kws):
     """
     Reformats a specified column in a DataFrame to Pandas datetime format.
@@ -4068,67 +4163,6 @@ def is_depth_in (X, name, columns = None, error= 'ignore'):
         
     return  X , depth     
     
-    
-def count_func (path , verbose = 0 ): 
-    """ Count function and method using 'ast' modules 
-    
-    Parameters
-    -----------
-    path: str, Path-like object,    
-        Path to the python module file 
-    verbose: int, default=0 
-        Different to 0 outputs the counting details. 
-        
-    Returns
-    -----------
-    cobj or None: Returns the counter object from module `ast` or nothing if 
-        `verbose` is ``False``. 
-        
-    """
-    
-    cobj ={}
-    import_optional_dependency('ast')
-    import ast 
-    class CountFunc (ast.NodeVisitor): 
-        func_count=0 
-        # def visit_FunctionDef(self, node): 
-        #     self.func_count +=1 
-        # def visit_Lambda(self, node): 
-        #     self.func_count +=1 
-        def visit_ClassDef(self, node): 
-            self.func_count +=1 
-        # def visit_Module(self, node): 
-        #     self.func_count +=1 
-        # def visit_Call(self, node): 
-        #     self.func_count +=1 
-     
-    if os.path.isdir (path): 
-        pyfiles = [ os.path.join (path , f) 
-                   for f in os.listdir (path) if f.endswith ('.py') ] 
-    elif os.path.isfile (path) : 
-        pyfiles = [ path ] 
-    else : 
-        raise TypeError (f"Expects a path-like object, got {path!r}") 
-        
-    val=0
-    
-    if verbose : 
-        print("module = {:^12}".format(os.path.dirname (pyfiles[0])))
-    for mod in pyfiles : 
-
-        p=ast.parse (open(mod, encoding='utf-8').read())
-        f= CountFunc()
-        f.visit(p)
-        cobj[os.path.basename (mod)]= f.func_count 
-        val += f.func_count 
-        if verbose: 
-            print("### {:^7}{:<17} ={:>7}".format (' ', os.path.basename (mod), 
-                                              f.func_count ))
-            
-    print(">>>Total = {:>24}".format(val )) if verbose else print() 
- 
-    return cobj if not verbose else None 
-
 def smart_label_classifier (
         arr: ArrayLike, /, values: float | List[float]= None , labels =None, 
         order ='soft', func: _F=None, raise_warn=True): 

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-`gofast.tools.funcutils` is a utilities package providing various 
+:mod:`gofast.tools.funcutils` is a utilities package providing various 
 functionalities for functional programming tasks.
 """
 import sys 
@@ -27,24 +27,35 @@ from .coreutils import get_installation_name, is_module_installed
 # Configure  logging
 _logger=gofastlog.get_gofast_logger(__name__)
 
-__all__=[ 
-    "compose", 
-    "memoize", 
-    "merge_dicts", 
-    "retry_operation", 
-    "flatten_list",
-    "install_package", 
-    "apply_transform", 
-    "to_pandas",
-    "flatten_data_if", 
-    "update_series_index", 
-    "update_dataframe_index", 
-    "convert_to_pandas", 
-    "update_index", 
-    "convert_and_format_data", 
-    "validate_years"
-  ]
-
+__all__=[
+    'apply_transform',
+    'batch_processor',
+    'cast_numeric',
+    'compose',
+    'conditional_apply',
+    'conditional_decorator',
+    'context_checker',
+    'convert_and_format_data',
+    'convert_to_pandas',
+    'curry',
+    'drop_nan_if',
+    'ensure_pkg',
+    'flatten_data_if',
+    'flatten_list',
+    'install_package',
+    'is_valid_if',
+    'make_data_dynamic',
+    'memoize',
+    'merge_dicts',
+    'preserve_input_type',
+    'retry_operation',
+    'series_naming',
+    'to_pandas',
+    'update_dataframe_index',
+    'update_index',
+    'update_series_index',
+    'validate_years'
+    ]
 
 def curry(check_types=False, strict=False, allow_extra_args=False):
     """

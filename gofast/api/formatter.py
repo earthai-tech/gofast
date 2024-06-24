@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
+"""
+:mod:`gofast.api.formatter` module provides classes and functions for 
+formatting data and reports.
+"""
 
 # import textwrap
 import re
@@ -17,6 +21,23 @@ from .util import insert_ellipsis_to_df , extract_truncate_df
 from .util import get_column_widths_in, distribute_column_widths  
 from .util import GOFAST_ESCAPE, select_df_styles, series_to_dataframe
 from .util import to_camel_case, format_iterable
+
+__all__=[
+     'BoxFormatter',
+     'DataFrameFormatter',
+     'DescriptionFormatter',
+     'MetricFormatter',
+     'MultiFrameFormatter',
+     'construct_long_dataframes_with_same_columns',
+     'construct_table_for_different_columns',
+     'construct_tables_for_same_columns',
+     'format_value',
+     'formatter_validator',
+     'get_formatter_classes',
+     'have_same_columns',
+     'is_any_long_dataframe',
+     'max_widths_across_dfs',
+ ]
 
 class MultiFrameFormatter (metaclass=MetaLen):
     """

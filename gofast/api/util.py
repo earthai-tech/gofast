@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
+
+"""
+:mod:`gofast.api.util` module provides utility functions and classes to 
+support various data manipulation and analysis tasks.
+"""
+
 import os 
 import re
 import shutil
@@ -12,6 +18,195 @@ from .property import GofastConfig
 
 # Attempting to modify the property will raise an error
 GOFAST_ESCAPE= GofastConfig().WHITESPACE_ESCAPE 
+
+__all__=[ 
+     'TerminalSize',
+     'auto_adjust_dataframe_display',
+     'beautify_dict',
+     'calculate_column_widths',
+     'calculate_widths',
+     'check_dataframe_columns',
+     'check_index_column_types',
+     'count_functions',
+     'determine_display_columns',
+     'df_advanced_style',
+     'df_base_style',
+     'df_to_custom_dict',
+     'distribute_column_widths',
+     'escape_dataframe_elements',
+     'extract_matching_columns',
+     'extract_truncate_df',
+     'find_best_display_params',
+     'find_best_display_params2',
+     'find_max_display',
+     'find_max_widths',
+     'find_maximum_table_width',
+     'flex_df_formatter',
+     'format_correlations',
+     'format_df',
+     'generate_column_name_mapping',
+     'generate_legend',
+     'get_column_widths_in',
+     'get_dataframe_subset',
+     'get_display_dimensions',
+     'get_displayable_columns',
+     'get_frame_chars',
+     'get_table_size',
+     'get_terminal_size',
+     'get_terminal_size',
+     'insert_ellipsis_to_df',
+     'is_dataframe_long',
+     'is_numeric_index',
+     'is_numeric_type',
+     'make_format_df',
+     'max_column_lengths',
+     'optimize_col_width',
+     'parse_component_kind',
+     'propose_layout',
+     'rearrange',
+     'remove_extra_spaces',
+     'resolve_auto_settings',
+     'select_df_styles',
+     'series_to_dataframe',
+     'to_camel_case',
+     'to_snake_case',
+     'validate_data'
+ ]
+
+class TerminalSize:
+    """
+    A utility class to get the size of the terminal window. This class provides
+    methods to obtain the terminal size across different platforms, ensuring
+    compatibility and providing a fallback size when necessary.
+
+    Attributes
+    ----------
+    DEFAULT_SIZE : tuple
+        A default terminal size to fallback to when the actual terminal size
+        cannot be determined. The default is (80, 20).
+
+    Methods
+    -------
+    get_terminal_size()
+        Get the size of the terminal window as (columns, rows). Attempts multiple 
+        methods to ensure compatibility across different platforms.
+    _get_terminal_size_windows()
+        Get the terminal size for Windows platforms using ctypes.
+    _get_terminal_size_unix()
+        Get the terminal size for Unix-like platforms using ioctl syscall.
+
+    Notes
+    -----
+    The `get_terminal_size` method first tries to use `shutil.get_terminal_size` 
+    with a fallback to `DEFAULT_SIZE`. If that fails, it checks the operating 
+    system and attempts to use platform-specific methods. On Windows, it uses 
+    the `ctypes` library to query the terminal size. On Unix-like systems, it 
+    uses the `ioctl` syscall.
+
+    Examples
+    --------
+    >>> from gofast.api.util import TerminalSize
+    >>> TerminalSize.get_terminal_size()
+    (80, 25)
+
+    See Also
+    --------
+    shutil.get_terminal_size : Get the size of the terminal window.
+    
+    References
+    ----------
+    .. [1] Python Software Foundation. Python Language Reference, version 3.9.
+       Available at http://www.python.org
+    .. [2] Python `shutil` module documentation. Available at 
+       https://docs.python.org/3/library/shutil.html#get_terminal_size
+    """
+    
+    DEFAULT_SIZE = (80, 20)
+
+    @staticmethod
+    def get_terminal_size():
+        """
+        Get the size of the terminal window as (columns, rows).
+        Attempts multiple methods to ensure compatibility across different 
+        platforms.
+
+        Returns
+        -------
+        tuple
+            The size of the terminal as (columns, rows).
+        """
+        try:
+            size = shutil.get_terminal_size(fallback=TerminalSize.DEFAULT_SIZE)
+            return size.columns, size.lines
+        except Exception:
+            pass  # Ignore and try other methods
+
+        if os.name == 'nt':
+            return TerminalSize._get_terminal_size_windows()
+        elif os.name == 'posix':
+            return TerminalSize._get_terminal_size_unix()
+
+        return TerminalSize.DEFAULT_SIZE
+
+    @staticmethod
+    def _get_terminal_size_windows():
+        """
+        Get the terminal size for Windows platforms using ctypes.
+
+        Returns
+        -------
+        tuple
+            The size of the terminal as (columns, rows).
+        """
+        import struct
+        from ctypes import windll, create_string_buffer
+        try:
+            h = windll.kernel32.GetStdHandle(-12)
+            csbi = create_string_buffer(22)
+            res = windll.kernel32.GetConsoleScreenBufferInfo(h, csbi)
+            if res:
+                (_, _, _, _, _, left, top, right, bottom, _, _) = struct.unpack(
+                    "hhhhHhhhhhh", csbi.raw)
+                sizex = right - left + 1
+                sizey = bottom - top + 1
+                return sizex, sizey
+        except Exception:
+            pass  # Ignore and fallback to default
+
+        return TerminalSize.DEFAULT_SIZE
+
+    @staticmethod
+    def _get_terminal_size_unix():
+        """
+        Get the terminal size for Unix-like platforms using ioctl syscall.
+
+        Returns
+        -------
+        tuple
+            The size of the terminal as (columns, rows).
+        """
+        import struct
+        import fcntl
+        import termios
+        def ioctl_GWINSZ(fd):
+            try:
+                return struct.unpack('hh', fcntl.ioctl(
+                    fd, termios.TIOCGWINSZ, '1234'))
+            except Exception:
+                return None
+
+        size = ioctl_GWINSZ(0) or ioctl_GWINSZ(1) or ioctl_GWINSZ(2)
+        if not size:
+            try:
+                with open(os.ctermid(), 'rb') as fd:
+                    size = ioctl_GWINSZ(fd.fileno())
+            except Exception:
+                pass  # Ignore and fallback to default
+
+        if size:
+            return size[1], size[0]
+
+        return TerminalSize.DEFAULT_SIZE
 
 def escape_dataframe_elements(
     df, /, 
@@ -2489,7 +2684,6 @@ def format_df(
     ensuring all fields are visible without exceeding the provided max text length.
     
     """
-
     # Set the title or default to an empty string
     title = str(title or '').title()
    
@@ -3571,78 +3765,6 @@ def format_dict_result(
             if include_message else "\n".join(formatted_lines)
             )
 
-
-class TerminalSize:
-    DEFAULT_SIZE = (80, 20)
-
-    @staticmethod
-    def get_terminal_size():
-        """
-        Get the size of the terminal window as (columns, rows).
-        Attempts multiple methods to ensure compatibility across different platforms.
-        """
-        try:
-            size = shutil.get_terminal_size(fallback=TerminalSize.DEFAULT_SIZE)
-            return size.columns, size.lines
-        except Exception:
-            pass  # Ignore and try other methods
-
-        if os.name == 'nt':
-            return TerminalSize._get_terminal_size_windows()
-        elif os.name == 'posix':
-            return TerminalSize._get_terminal_size_unix()
-
-        return TerminalSize.DEFAULT_SIZE
-
-    @staticmethod
-    def _get_terminal_size_windows():
-        """
-        Get the terminal size for Windows platforms using ctypes.
-        """
-        import struct
-        from ctypes import windll, create_string_buffer
-        try:
-            h = windll.kernel32.GetStdHandle(-12)
-            csbi = create_string_buffer(22)
-            res = windll.kernel32.GetConsoleScreenBufferInfo(h, csbi)
-            if res:
-                (_, _, _, _, _, left, top, right, bottom, _, _) = struct.unpack("hhhhHhhhhhh", csbi.raw)
-                sizex = right - left + 1
-                sizey = bottom - top + 1
-                return sizex, sizey
-        except Exception:
-            pass  # Ignore and fallback to default
-
-        return TerminalSize.DEFAULT_SIZE
-
-    @staticmethod
-    def _get_terminal_size_unix():
-        """
-        Get the terminal size for Unix-like platforms using ioctl syscall.
-        """
-        import struct
-        import fcntl
-        import termios
-        def ioctl_GWINSZ(fd):
-            try:
-                return struct.unpack('hh', fcntl.ioctl(
-                    fd, termios.TIOCGWINSZ, '1234'))
-            except Exception:
-                return None
-
-        size = ioctl_GWINSZ(0) or ioctl_GWINSZ(1) or ioctl_GWINSZ(2)
-        if not size:
-            try:
-                with open(os.ctermid(), 'rb') as fd:
-                    size = ioctl_GWINSZ(fd.fileno())
-            except Exception:
-                pass  # Ignore and fallback to default
-
-        if size:
-            return size[1], size[0]
-
-        return TerminalSize.DEFAULT_SIZE
-
 def max_column_lengths(df, include_index='auto', max_text_char=50):
     """
     Calculate the maximum column lengths for a DataFrame, truncating text 
@@ -3765,11 +3887,12 @@ def find_max_display(df, include_index=True, buffer_space=3, max_text_char=50):
         display_cols = determine_display_columns(col_widths, term_width, buffer_space)
     else:
         display_cols = list(df.columns)
-    
+        
+    max_cols = len(display_cols)
     # Determine maximum number of rows that fit within terminal height
     max_rows = min(len(df), term_height - 1)  # 1 row for the header
     
-    return max_rows, display_cols
+    return max_rows, max_cols
 
 def determine_display_columns(col_widths, max_width, buffer_space):
     """
@@ -3814,111 +3937,360 @@ def determine_display_columns(col_widths, max_width, buffer_space):
 
     return display_cols
 
-class DynamicDataFrame:
-    def __init__(self, df, max_colwidth=50, precision=4, include_index=True):
-        self.df = df
-        self.max_colwidth = max_colwidth
-        self.precision = precision
-        self.include_index = include_index
-        self._set_terminal_size()
+def rearrange(obj):
+    """
+    Rearrange the given dictionary, DataFrame, or list such that elements are 
+    arranged as first element, last element, second element, second last 
+    element, and so on.
 
-    def set_option(self, option, value):
-        if option == 'display.max_colwidth':
-            self.max_colwidth = value
-        elif option == 'display.precision':
-            self.precision = value
-        elif option == 'display.include_index':
-            self.include_index = value
-        self._set_terminal_size()
+    Parameters
+    ----------
+    obj : Union[Dict, pd.DataFrame, List]
+        The object to be rearranged. This can be a dictionary, DataFrame, 
+        or list.
 
-    def _set_terminal_size(self):
-        self.terminal_size = os.get_terminal_size()
+    Returns
+    -------
+    Union[Dict, pd.DataFrame, List]
+        The rearranged object with the same type and length as the input.
+    
+    Notes
+    -----
+    The function handles different types of objects by rearranging their 
+    elements in a specific pattern:
+    - For dictionaries, keys and values are rearranged.
+    - For DataFrames, columns are rearranged.
+    - For lists, elements are rearranged.
+    
+    The rearrangement pattern can be described as:
+    .. math::
+        \text{rearranged} = [x_0, x_{-1}, x_1, x_{-2}, x_2, \ldots]
 
-    def _get_max_col_lengths(self):
-        max_lengths = {}
-        if self.include_index:
-            max_lengths['index'] = max(len(str(i)) for i in self.df.index)
-
-        for col in self.df.columns:
-            max_lengths[col] = max(len(str(col)), self.df[col].astype(str).str.len().max())
-
-        return max_lengths
-
-    def _truncate(self, s, max_length):
-        return (s[:max_length - 3] + '...') if len(s) > max_length else s
-
-    def _format_value(self, value):
-        if isinstance(value, float):
-            return f"{value:.{self.precision}f}"
-        return str(value)
-
-    def _print_row(self, row):
-        formatted_row = [self._truncate(self._format_value(value), self.max_colwidth
-                                        ) for value in row]
-        print(" | ".join(formatted_row))
-
-    def display(self):
-        max_lengths = self._get_max_col_lengths()
-        terminal_width = self.terminal_size.columns
-        terminal_height = self.terminal_size.lines
-
-        total_width = 0
-        if self.include_index:
-            total_width += max_lengths['index'] + 3  # Include space for index column
-
-        cols_to_display = []
-        for col in self.df.columns:
-            col_width = min(max_lengths[col], self.max_colwidth)
-            if total_width + col_width + 3 > terminal_width:
-                break
-            cols_to_display.append(col)
-            total_width += col_width + 3
-
-        rows_to_display = min(len(self.df), terminal_height - 3)  # Reserve lines for headers and ellipsis
-
-        # Print column headers
-        header = ['Index'] if self.include_index else []
-        header.extend([self._truncate(col, self.max_colwidth) for col in cols_to_display])
-        print(" | ".join(header))
-
-        # Print rows
-        for i in range(rows_to_display):
-            if self.include_index:
-                row = [self.df.index[i]]
+    Examples
+    --------
+    >>> from gofast.api.util import rearrange
+    >>> dico = {'A': 'valueA', 'B': 'valueB', 'C': 'valueC', 'D': 'valueD'}
+    >>> rearrange(dico)
+    {'A': 'valueA', 'D': 'valueD', 'B': 'valueB', 'C': 'valueC'}
+    
+    >>> data = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6], 'C': [7, 8, 9]})
+    >>> rearrange(data)
+       A  C  B
+    0  1  7  4
+    1  2  8  5
+    2  3  9  6
+    
+    >>> lst = ['A', 'B', 'C', 'D']
+    >>> rearrange(lst)
+    ['A', 'D', 'B', 'C']
+    
+    See Also
+    --------
+    pandas.DataFrame : Two-dimensional, size-mutable, potentially heterogeneous 
+        tabular data.
+    
+    References
+    ----------
+    .. [1] Python Software Foundation. Python Language Reference, version 3.9. 
+       Available at http://www.python.org
+    .. [2] Wes McKinney. "pandas: a Foundational Python Library for Data 
+       Analysis and Statistics." Python for Data Analysis. O'Reilly Media, 
+       2012.
+    """
+    def rearrange_list(lst):
+        rearranged = []
+        i, j = 0, len(lst) - 1
+        while i <= j:
+            if i == j:
+                rearranged.append(lst[i])
             else:
-                row = []
-            row.extend([self.df.iloc[i][col] for col in cols_to_display])
-            self._print_row(row)
+                rearranged.append(lst[i])
+                rearranged.append(lst[j])
+            i += 1
+            j -= 1
+        return rearranged
+    
+    if isinstance(obj, dict):
+        keys, values = list(obj.keys()), list(obj.values())
+        rearranged_keys = rearrange_list(keys)
+        rearranged_values = rearrange_list(values)
+        return dict(zip(rearranged_keys, rearranged_values))
+    
+    elif isinstance(obj, pd.DataFrame):
+        cols = obj.columns.tolist()
+        rearranged_cols = rearrange_list(cols)
+        return obj[rearranged_cols]
+    
+    elif isinstance(obj, list):
+        return rearrange_list(obj)
+    
+    else:
+        raise TypeError("Input must be a dictionary, DataFrame, or list.")
 
-        if len(self.df) > rows_to_display:
-            print("...")
+def propose_layout(data, include_index=True, max_text_char=50, buffer_space=2):
+    """
+    Propose the number of columns and rows to display based on the terminal 
+    size.
 
-        if len(self.df.columns) > len(cols_to_display):
-            print(f"[Displaying {len(cols_to_display)} of {len(self.df.columns)} columns]")
-        if len(self.df) > rows_to_display:
-            print(f"[Displaying {rows_to_display} of {len(self.df)} rows]")
+    Parameters
+    ----------
+    data : `pandas.DataFrame`
+        The data to display. This should be a pandas DataFrame containing the 
+        data you want to fit into the terminal.
+    
+    include_index : `bool`, optional
+        Whether to include the index in the computation. If `True`, the index 
+        width is considered in the layout calculation. Default is `True`.
+    
+    max_text_char : `int`, optional
+        Maximum number of characters for text values in columns. This truncates 
+        the text values to ensure they fit within the specified limit. 
+        Default is 50.
+    
+    buffer_space : `int`, optional
+        The space in characters between columns to ensure readability. Default 
+        is 2.
+
+    Returns
+    -------
+    tuple
+        The number of columns and rows to display.
+
+    Notes
+    -----
+    The function computes the layout by first determining the terminal size 
+    using `get_terminal_size`. It then calculates the width of each column 
+    and the index (if included) by using the `max_column_lengths` function. 
+    The number of columns that can fit in the terminal is determined based on 
+    the cumulative width of the columns and the buffer space. The number of 
+    rows is simply the terminal height minus a fixed space for headers and 
+    padding.
+
+    The calculation can be summarized as:
+
+    .. math::
+        \text{num\_columns} = \left\lfloor \frac{\text{available\_width}}\\
+            {\text{column\_width} + \text{buffer\_space}} \right\rfloor
+
+        \text{num\_rows} = \text{terminal\_height} - 2
+
+    where :math:`\text{available\_width}` is the terminal width minus the index 
+    width (if included).
+
+    Examples
+    --------
+    >>> from gofast.api.util import propose_layout
+    >>> import pandas as pd
+    >>> data = pd.DataFrame({
+    ...     'Column1': range(10),
+    ...     'Column2': ['short', 'a bit longer', 'even longer than before', 
+    ...                'short'] * 2,
+    ...     'Column3': ['some long text here', 'short', 
+    ...                'even longer text than before', 'tiny'] * 2
+    ... })
+    >>> columns, rows = propose_layout(data, include_index=True)
+    >>> print(f"Proposed layout: {columns} columns, {rows} rows")
+
+    See Also
+    --------
+    get_terminal_size : Function to get the size of the terminal.
+    max_column_lengths : Function to calculate the maximum column lengths 
+    for a DataFrame.
+
+    References
+    ----------
+    .. [1] Python Software Foundation. Python Language Reference, version 3.9. 
+       Available at http://www.python.org
+    .. [2] Wes McKinney. "pandas: a Foundational Python Library for Data 
+       Analysis and Statistics." Python for Data Analysis. O'Reilly Media, 
+       2012.
+    """
+    data = validate_data(data )
+    
+    terminal_width, terminal_height = get_terminal_size()
+    
+    col_lengths, index_length = max_column_lengths(
+        data, include_index=include_index, max_text_char=max_text_char)
+    
+    # Calculate total width needed for the columns
+    total_col_width = sum(col_lengths.values())
+    
+    # Add buffer space between columns and include index width if necessary
+    if include_index:
+        total_width = index_length + total_col_width + (
+            buffer_space * (len(col_lengths) + 1))
+    else:
+        total_width = total_col_width + (buffer_space * len(col_lengths))
+    
+    # Determine the number of columns that can fit in the terminal width
+    if total_width <= terminal_width:
+        num_columns = len(col_lengths)
+    else:
+        cumulative_width = 0
+        num_columns = 0
+        col_lengths = rearrange(col_lengths)
+        for col, length in col_lengths.items():
+            cumulative_width += length + buffer_space
+            if cumulative_width > terminal_width:
+                break
+            num_columns += 1
+
+    # Determine the number of rows that can fit in the terminal height
+    num_rows = terminal_height - 2  # Subtracting 2 for header row and padding
+    
+    # Ensure at least one column and row are displayed
+    num_columns = max(1, num_columns)
+    num_rows = max(1, num_rows)
+
+    return num_rows, num_columns
+
+def count_functions(
+    module_name, 
+    include_class=False, 
+    return_counts=True, 
+    include_private=False, 
+    include_local=True
+    ):
+    """
+    Count and list the number of functions and classes in a specified module.
+
+    Parameters
+    ----------
+    module_name : str
+        The name of the module to inspect, in the format `package.module`.
+    include_class : bool, optional
+        Whether to include classes in the count and listing. Default is 
+        `False`.
+    return_counts : bool, optional
+        Whether to return only the count of functions and classes (if 
+        ``include_class`` is `True`). If `False`, returns a list of functions 
+        and classes in alphabetical order. Default is `True`.
+    include_private : bool, optional
+        Whether to include private functions and classes (those starting with 
+        `_`). Default is `False`.
+    include_local : bool, optional
+        Whether to include local (nested) functions in the count and listing. 
+        Default is `True`.
+
+    Returns
+    -------
+    int or list
+        If ``return_counts`` is `True`, returns the count of functions and 
+        classes (if ``include_class`` is `True`). If ``return_counts`` is 
+        `False`, returns a list of function and class names (if 
+        ``include_class`` is `True`) in alphabetical order.
+
+    Notes
+    -----
+    This function dynamically imports the specified module and analyzes its 
+    Abstract Syntax Tree (AST) to count and list functions and classes. It 
+    provides flexibility to include or exclude private and local functions 
+    based on the parameters provided.
+
+    The process can be summarized as:
+
+    .. math::
+        \text{total\_count} = 
+        \text{len(functions)} + \text{len(classes)}
+
+    where:
+
+    - :math:`\text{functions}` is the list of functions found in the module.
+    - :math:`\text{classes}` is the list of classes found in the module 
+      (if ``include_class`` is `True`).
+
+    Examples
+    --------
+    >>> from gofast.api.util import count_functions_classes
+    >>> count_functions_classes('gofast.api.util', include_class=True,
+                                return_counts=True)
+    10
+
+    >>> count_functions('gofast.api.util', include_class=True,
+                                return_counts=False)
+    ['ClassA', 'ClassB', 'func1', 'func2', 'func3']
+
+    >>> count_functions('gofast.api.util', include_class=False, 
+                                return_counts=True, include_private=True)
+    15
+
+    >>> count_functions('gofast.api.util', include_class=False, 
+                                return_counts=False, include_private=True)
+    ['_private_func1', '_private_func2', 'func1', 'func2']
+
+    See Also
+    --------
+    ast : Abstract Syntax Tree (AST) module for parsing Python source code.
+
+    References
+    ----------
+    .. [1] Python Software Foundation. Python Language Reference, version 3.9. 
+       Available at http://www.python.org
+    .. [2] Python `ast` module documentation. Available at 
+       https://docs.python.org/3/library/ast.html
+    """
+ 
+    try:
+        import ast
+    except ImportError as e:  # Catch the specific ImportError exception
+        raise ImportError(
+            "The 'ast' module could not be imported. This module is essential"
+            " for analyzing Python source code to count functions and classes."
+            " Ensure that you are using a standard Python distribution, which"
+            " includes the 'ast' module by default."
+        ) from e
+
+    import inspect
+    import importlib
+    # Import the module dynamically
+    module = importlib.import_module(module_name)
+
+    # Get the source code of the module
+    source = inspect.getsource(module)
+
+    # Parse the source code into an AST
+    tree = ast.parse(source)
+
+    # Initialize lists to store function and class names
+    functions = []
+    classes = []
+
+    def is_local_function(node):
+        """Determine if the function is local (nested)."""
+        while node:
+            if isinstance(node, ast.FunctionDef):
+                return True
+            node = getattr(node, 'parent', None)
+        return False
+
+    # Add parent references to each node
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            child.parent = node
+
+    # Traverse the AST to find function and class definitions
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            if (include_private or not node.name.startswith('_')) and \
+               (include_local or not is_local_function(node.parent)):
+                functions.append(node.name)
+        elif isinstance(node, ast.ClassDef) and include_class:
+            if include_private or not node.name.startswith('_'):
+                classes.append(node.name)
+
+    # Combine and sort the lists if needed
+    if include_class:
+        result = sorted(functions + classes)
+    else:
+        result = sorted(functions)
+
+    if return_counts:
+        return len(result)
+    else:
+        return result
 
 if __name__=='__main__': 
-    
-    # Example usage:
-    data = {
-        "ID": [1, 2, 3, 4, 5],
-        "Description": [
-            "Long text data that should be truncated to fit in the display",
-            "Another long text data that should be truncated",
-            "Short text",
-            "Even longer text data that will definitely need truncation",
-            "Moderate length text"
-        ],
-        "Value": [3.14159, 2.71828, 1.61803, 0.57721, 1.41421]
-    }
 
-    df = pd.DataFrame(data)
-    dynamic_df = DynamicDataFrame(df)
-    dynamic_df.set_option('display.max_colwidth', 20)
-    dynamic_df.set_option('display.precision', 3)
-    dynamic_df.set_option('display.include_index', True)
-    dynamic_df.display()
     
     # Example usage:
     data = {

@@ -2,6 +2,12 @@
 # BSD-3-Clause License
 # Copyright (c) 2024 gofast developers.
 # All rights reserved.
+"""
+:mod:`gofast.tools.validator` module provides a comprehensive set of functions 
+and warnings for validating and ensuring the integrity of data. This includes 
+utilities for checking data consistency, validating machine learning targets, 
+ensuring proper data types, and handling various validation scenarios.
+"""
 
 from functools import wraps
 from typing import Any, Callable, Optional, Union
@@ -24,6 +30,69 @@ from inspect import signature, Parameter, isclass
 from ._array_api import get_namespace, _asarray_with_order
 FLOAT_DTYPES = (np.float64, np.float32, np.float16)
 
+__all__=[
+     'DataConversionWarning',
+     'PositiveSpectrumWarning',
+     'array_to_frame',
+     'array_to_frame2',
+     'assert_all_finite',
+     'assert_xy_in',
+     'build_data_if',
+     'build_data_if2',
+     'check_X_y',
+     'check_array',
+     'check_classification_targets',
+     'check_consistency_size',
+     'check_consistent_length',
+     'check_epsilon',
+     'check_is_fitted',
+     'check_is_fitted2',
+     'check_memory',
+     'check_mixed_data_types',
+     'check_random_state',
+     'check_scalar',
+     'check_symmetric',
+     'check_y',
+     'contains_nested_objects',
+     'convert_array_to_pandas',
+     'ensure_2d',
+     'ensure_non_negative',
+     'filter_valid_kwargs',
+     'get_estimator_name',
+     'handle_zero_division',
+     'has_fit_parameter',
+     'has_required_attributes',
+     'is_binary_class',
+     'is_categorical',
+     'is_frame',
+     'is_installed',
+     'is_keras_model',
+     'is_normalized',
+     'is_square_matrix',
+     'is_time_series',
+     'is_valid_policies',
+     'normalize_array',
+     'parameter_validator',
+     'to_dtype_str',
+     'validate_and_adjust_ranges',
+     'validate_comparison_data',
+     'validate_data_types',
+     'validate_dates',
+     'validate_distribution',
+     'validate_dtype_selector',
+     'validate_fit_weights',
+     'validate_keras_model',
+     'validate_length_range',
+     'validate_multiclass_target',
+     'validate_multioutput',
+     'validate_nan_policy',
+     'validate_positive_integer',
+     'validate_sample_weights',
+     'validate_scores',
+     'validate_square_matrix',
+     'validate_weights',
+     'validate_yy'
+ ]
 
 def filter_valid_kwargs(callable_obj, kwargs):
     """
@@ -4406,6 +4475,8 @@ def check_y(y,
     allow_nan= False, 
     ):
     """
+    Validates the target array `y`, ensuring it is suitable for classification 
+    or regression tasks based on its content and the specified strategy.
     
     Parameters 
     -----------
@@ -4602,7 +4673,7 @@ def build_data_if2 (
     force=False, 
     **kws
     ): 
-    """ Contruct data from dict or array if necessary informations are given
+    """ Contruct data from dict or array if necessary informations are given.
     
     Paramaters 
     -------------
@@ -4820,7 +4891,9 @@ def array_to_frame2(
     
 def _check_y_1d(y, *, warn=False, input_name ='y'):
     """Ravel column or 1d numpy array, else raises an error.
-    and Isolated part of check_X_y dedicated to y validation
+    
+    and Isolated part of check_X_y dedicated to y validation.
+    
     Parameters
     ----------
     y : array-like

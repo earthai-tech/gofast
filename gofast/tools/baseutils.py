@@ -1,4 +1,15 @@
 # -*- coding: utf-8 -*-
+#   License: BSD-3-Clause
+#   Author: LKouadio <etanoyau@gmail.com>
+
+"""
+:mod:`gofast.tools.baseutils` module offers essential utilities for data 
+processing and analysis, including functions for normalization, 
+interpolation, feature selection, outlier removal, and various data 
+manipulation tasks.
+
+"""
+
 from __future__ import annotations 
 import os 
 import copy 
