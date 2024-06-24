@@ -1846,8 +1846,8 @@ def auto_adjust_dataframe_display(df, header=True, index=True, sample_size=100):
     >>> print(df.to_string(max_rows=max_rows, max_cols=max_cols))
     """
     validate_data(df)
-    # Get terminal size
     
+    # Get terminal size
     terminal_size = shutil.get_terminal_size()
     screen_width = terminal_size.columns
     screen_height = terminal_size.lines
@@ -3571,7 +3571,278 @@ def format_dict_result(
             if include_message else "\n".join(formatted_lines)
             )
 
+
+class TerminalSize:
+    DEFAULT_SIZE = (80, 20)
+
+    @staticmethod
+    def get_terminal_size():
+        """
+        Get the size of the terminal window as (columns, rows).
+        Attempts multiple methods to ensure compatibility across different platforms.
+        """
+        try:
+            size = shutil.get_terminal_size(fallback=TerminalSize.DEFAULT_SIZE)
+            return size.columns, size.lines
+        except Exception:
+            pass  # Ignore and try other methods
+
+        if os.name == 'nt':
+            return TerminalSize._get_terminal_size_windows()
+        elif os.name == 'posix':
+            return TerminalSize._get_terminal_size_unix()
+
+        return TerminalSize.DEFAULT_SIZE
+
+    @staticmethod
+    def _get_terminal_size_windows():
+        """
+        Get the terminal size for Windows platforms using ctypes.
+        """
+        import struct
+        from ctypes import windll, create_string_buffer
+        try:
+            h = windll.kernel32.GetStdHandle(-12)
+            csbi = create_string_buffer(22)
+            res = windll.kernel32.GetConsoleScreenBufferInfo(h, csbi)
+            if res:
+                (_, _, _, _, _, left, top, right, bottom, _, _) = struct.unpack("hhhhHhhhhhh", csbi.raw)
+                sizex = right - left + 1
+                sizey = bottom - top + 1
+                return sizex, sizey
+        except Exception:
+            pass  # Ignore and fallback to default
+
+        return TerminalSize.DEFAULT_SIZE
+
+    @staticmethod
+    def _get_terminal_size_unix():
+        """
+        Get the terminal size for Unix-like platforms using ioctl syscall.
+        """
+        import struct
+        import fcntl
+        import termios
+        def ioctl_GWINSZ(fd):
+            try:
+                return struct.unpack('hh', fcntl.ioctl(
+                    fd, termios.TIOCGWINSZ, '1234'))
+            except Exception:
+                return None
+
+        size = ioctl_GWINSZ(0) or ioctl_GWINSZ(1) or ioctl_GWINSZ(2)
+        if not size:
+            try:
+                with open(os.ctermid(), 'rb') as fd:
+                    size = ioctl_GWINSZ(fd.fileno())
+            except Exception:
+                pass  # Ignore and fallback to default
+
+        if size:
+            return size[1], size[0]
+
+        return TerminalSize.DEFAULT_SIZE
+
+def max_column_lengths(df, include_index='auto', max_text_char=50):
+    """
+    Calculate the maximum column lengths for a DataFrame, truncating text 
+    values to max_text_char if they exceed it.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The DataFrame for which to calculate column lengths.
+    include_index : bool or str, optional
+        Whether to include the index in the calculation. If 'auto', 
+        the function includes the index if it is not the default 
+        integer index (default is 'auto').
+    max_text_char : int, optional
+        Maximum number of characters for text values in columns 
+        (default is 50).
+
+    Returns
+    -------
+    col_lengths : dict
+        A dictionary with column names as keys and their maximum lengths 
+        as values.
+    index_length : int
+        The maximum length of the index if include_index is True or 'auto',
+        otherwise 0.
+
+    Examples
+    --------
+    >>> df = pd.DataFrame({
+    ...     'A': [1, 2, 3, 4],
+    ...     'B': ['short', 'a bit longer', 'even longer than before', 
+    ...           'short'],
+    ...     'C': ['some long text here', 'short', 
+    ...           'even longer text than before', 'tiny']
+    ... })
+    >>> max_column_lengths(df, include_index=True, max_text_char=15)
+    ({'A': 1, 'B': 15, 'C': 15}, 1)
+
+    >>> max_column_lengths(df, include_index=False, max_text_char=10)
+    ({'A': 1, 'B': 10, 'C': 10}, 0)
+    
+    >>> max_column_lengths(df, include_index='auto', max_text_char=10)
+    ({'A': 1, 'B': 10, 'C': 10}, 0)
+    """
+    def truncate_and_measure(val):
+        return min(len(str(val)), max_text_char)
+
+    col_lengths = {
+        col: max(len(col), df[col].astype(str).map(truncate_and_measure).max())
+        for col in df.columns
+    }
+
+    if include_index == 'auto':
+        include_index = not df.index.equals(pd.RangeIndex(start=0, stop=len(df)))
+
+    index_length = 0
+    if include_index:
+        index_length = max(len(str(idx)) for idx in df.index)
+
+    return col_lengths, index_length
+
+#from gofast.api.util import validate_data 
+def find_max_display(df, include_index=True, buffer_space=3 , max_text_char=50):
+    df =validate_data(df)
+    # Get terminal size
+    term_width, term_height = TerminalSize.get_terminal_size()
+    
+    # Calculate max column lengths
+    col_lengths, index_length = max_column_lengths(df, include_index, max_text_char)
+    
+    # Total width calculation
+    total_width = sum(col_lengths.values()) + 3 * len(col_lengths)  # 3 for the space and buffer between columns
+    if include_index:
+        total_width += index_length + 3  # Adding index length and buffer
+    
+    # Max columns
+    max_cols = len(df.columns)
+    if total_width > term_width:
+        col_width = {col: length + 3 for col, length in col_lengths.items()}
+        cumulative_width = index_length + 3 if include_index else 0
+        max_cols = 0
+        for col, width in col_width.items():
+            if cumulative_width + width > term_width:
+                break
+            cumulative_width += width
+            max_cols += 1
+    
+    # Max rows
+    max_rows = min(len(df), term_height - 1)  # 1 row for the header
+    
+    return max_rows, max_cols
+
+class DynamicDataFrame:
+    def __init__(self, df, max_colwidth=50, precision=4, include_index=True):
+        self.df = df
+        self.max_colwidth = max_colwidth
+        self.precision = precision
+        self.include_index = include_index
+        self._set_terminal_size()
+
+    def set_option(self, option, value):
+        if option == 'display.max_colwidth':
+            self.max_colwidth = value
+        elif option == 'display.precision':
+            self.precision = value
+        elif option == 'display.include_index':
+            self.include_index = value
+        self._set_terminal_size()
+
+    def _set_terminal_size(self):
+        self.terminal_size = os.get_terminal_size()
+
+    def _get_max_col_lengths(self):
+        max_lengths = {}
+        if self.include_index:
+            max_lengths['index'] = max(len(str(i)) for i in self.df.index)
+
+        for col in self.df.columns:
+            max_lengths[col] = max(len(str(col)), self.df[col].astype(str).str.len().max())
+
+        return max_lengths
+
+    def _truncate(self, s, max_length):
+        return (s[:max_length - 3] + '...') if len(s) > max_length else s
+
+    def _format_value(self, value):
+        if isinstance(value, float):
+            return f"{value:.{self.precision}f}"
+        return str(value)
+
+    def _print_row(self, row):
+        formatted_row = [self._truncate(self._format_value(value), self.max_colwidth
+                                        ) for value in row]
+        print(" | ".join(formatted_row))
+
+    def display(self):
+        max_lengths = self._get_max_col_lengths()
+        terminal_width = self.terminal_size.columns
+        terminal_height = self.terminal_size.lines
+
+        total_width = 0
+        if self.include_index:
+            total_width += max_lengths['index'] + 3  # Include space for index column
+
+        cols_to_display = []
+        for col in self.df.columns:
+            col_width = min(max_lengths[col], self.max_colwidth)
+            if total_width + col_width + 3 > terminal_width:
+                break
+            cols_to_display.append(col)
+            total_width += col_width + 3
+
+        rows_to_display = min(len(self.df), terminal_height - 3)  # Reserve lines for headers and ellipsis
+
+        # Print column headers
+        header = ['Index'] if self.include_index else []
+        header.extend([self._truncate(col, self.max_colwidth) for col in cols_to_display])
+        print(" | ".join(header))
+
+        # Print rows
+        for i in range(rows_to_display):
+            if self.include_index:
+                row = [self.df.index[i]]
+            else:
+                row = []
+            row.extend([self.df.iloc[i][col] for col in cols_to_display])
+            self._print_row(row)
+
+        if len(self.df) > rows_to_display:
+            print("...")
+
+        if len(self.df.columns) > len(cols_to_display):
+            print(f"[Displaying {len(cols_to_display)} of {len(self.df.columns)} columns]")
+        if len(self.df) > rows_to_display:
+            print(f"[Displaying {rows_to_display} of {len(self.df)} rows]")
+
+
+
 if __name__=='__main__': 
+    
+    # Example usage:
+    data = {
+        "ID": [1, 2, 3, 4, 5],
+        "Description": [
+            "Long text data that should be truncated to fit in the display",
+            "Another long text data that should be truncated",
+            "Short text",
+            "Even longer text data that will definitely need truncation",
+            "Moderate length text"
+        ],
+        "Value": [3.14159, 2.71828, 1.61803, 0.57721, 1.41421]
+    }
+
+    df = pd.DataFrame(data)
+    dynamic_df = DynamicDataFrame(df)
+    dynamic_df.set_option('display.max_colwidth', 20)
+    dynamic_df.set_option('display.precision', 3)
+    dynamic_df.set_option('display.include_index', True)
+    dynamic_df.display()
+    
     # Example usage:
     data = {
         'col0': [1, 2, 3, 4],
