@@ -862,10 +862,13 @@ class Summary(FlexDict):
         custom formatting as specified by the user.
         """
         self.summary_report = format_correlations(
-            df, min_corr=min_corr, high_corr=high_corr, use_symbols= use_symbols, 
-                            hide_diag= hide_diag,
-                            title = self.title or 'Correlation Table', 
-                            **kwargs)
+            df, min_corr=min_corr, 
+            high_corr=high_corr, 
+            use_symbols= use_symbols, 
+            hide_diag= hide_diag,
+            title = self.title or 'Correlation Table', 
+            **kwargs
+            )
         
         return self 
     
