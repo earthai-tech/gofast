@@ -586,7 +586,7 @@ def is_numeric_type(df, target="index"):
     else:  # Single level index or columns
         return pd.api.types.is_numeric_dtype(data_attribute.dtype)
 
-def extract_truncate_df(df, include_truncate=False, max_rows=100, max_cols=5, 
+def extract_truncate_df(df, include_truncate=False, max_rows=100, max_cols=7, 
                         return_indices_cols=False):
     """
     Extracts a subset of rows and columns from a dataframe based on its string 
@@ -605,7 +605,7 @@ def extract_truncate_df(df, include_truncate=False, max_rows=100, max_cols=5,
         the dataframe, by default 100.
     max_cols : int, optional
         Maximum number of columns to display in the string representation of 
-        the dataframe, by default 5.
+        the dataframe, by default 7.
     return_indices_cols : bool, optional
         If True, returns the indices, column names, and subset dataframe,
         by default False.
@@ -646,8 +646,6 @@ def extract_truncate_df(df, include_truncate=False, max_rows=100, max_cols=5,
     148  148
     149  149
     """
-    rows_value = max_rows 
-    cols_value = max_cols 
     # check indices whether it is numeric, if Numeric keepit otherwise reset it 
     truncated_df = df.copy() 
     name_indexes = [] 
@@ -655,12 +653,9 @@ def extract_truncate_df(df, include_truncate=False, max_rows=100, max_cols=5,
         name_indexes = truncated_df.index.tolist() 
         truncated_df.reset_index (drop=True, inplace =True)
     columns = truncated_df.columns.tolist() 
-
+    
     max_rows, max_cols = find_best_display_params2(df)(
         max_rows=max_rows, max_cols=max_rows)
-    # adjust rows and cols to fit the terminal size 
-    max_rows = _adjust_value(max_value= rows_value, auto_value=max_rows )
-    max_cols = _adjust_value(max_value= cols_value, auto_value= max_cols)
     
     df_string= truncated_df.to_string(
         index =True, header=True, max_rows=max_rows, max_cols=max_cols )
@@ -751,7 +746,8 @@ def insert_ellipsis_to_df(sub_df, full_df=None, include_index=True):
         The DataFrame into which ellipsis will be inserted.
     full_df : pd.DataFrame, optional
         The full DataFrame from which sub_df is derived. If provided, used to 
-        determine whether ellipsis are needed for rows or columns.
+        determine
+        whether ellipsis are needed for rows or columns.
     include_index : bool, default True
         Whether to include ellipsis in the index if rows are truncated.
 
@@ -857,7 +853,8 @@ def flex_df_formatter(
         for formatting.
     title : str, optional
         Title to display above the DataFrame. If provided, this is centered 
-        above the DataFrame output.
+        above the DataFrame
+        output.
     max_rows : int, str, optional
         The maximum number of rows to display. If set to 'auto', the number 
         of rows displayed will be determined based on available terminal space
@@ -881,7 +878,8 @@ def flex_df_formatter(
         below the header (column names).
     table_width : int, str, optional
         The overall width of the table. If set to 'auto', it will adjust
-        based on the content and the terminal width.
+        based on the content
+        and the terminal width.
     output_format : str, optional
         The format of the output. Supports 'string' for plain text output or 
         'html' for HTML formatted output.
@@ -2491,6 +2489,7 @@ def format_df(
     ensuring all fields are visible without exceeding the provided max text length.
     
     """
+
     # Set the title or default to an empty string
     title = str(title or '').title()
    
@@ -2498,11 +2497,11 @@ def format_df(
         # If autofit is True, use custom logic to adjust DataFrame display settings
         # dynamically based on content and available space.
         # Here, the function extract_truncate_df limits the display to 11 rows
-        # and 5 columns for larger data sets to fit the console or output window.
-        df_escaped = extract_truncate_df(df,  max_rows="auto", max_cols=5)
+        # and 7 columns for larger data sets to fit the console or output window.
+        df_escaped = extract_truncate_df(df, max_rows="auto", max_cols="auto")
         # insert_ellipsis_to_df might add visual cues (ellipsis) to indicate truncated parts.
         df = insert_ellipsis_to_df(df_escaped, df) 
- 
+
     # Use helper functions to format cells and calculate widths
     max_col_widths, max_index_width = calculate_widths(df, max_text_length)
 
@@ -3089,14 +3088,6 @@ def get_terminal_size():
             size = (80, 24)
     return size.columns, size.lines
 
-###XXX TODO
-# get the auto maximum columns to display based on the terminal size from daframes. 
-# compute all the columns of the dataframe and find the max_columns to display in order 
-# to fit the terminal. you can add parameter for space betwen columns ( add default value) 
-# and also include_index parameter; if include index , also consider the index when 
-# find the number of appropriates index , Note that for multidataframe, you can iterate 
-# though all index of dataframes to find the maximum, and compute the columns ... 
-# add other paramters for constrol flexibility . 
 def optimize_col_width (max_cols=4, df=None, min_col_width=10):
     """
     Determines the optimal width for each column based on the terminal size to
@@ -3133,12 +3124,13 @@ def optimize_col_width (max_cols=4, df=None, min_col_width=10):
     >>> print("Maximum column width for display:", max_width)
     """
     terminal_width, _ = get_terminal_size()
+    
     if df is not None:
         df = validate_data (df)
         if isinstance(min_col_width, str) and min_col_width == "auto":
             min_col_width = min(len(str(col)) for col in df.columns)
         max_cols = min(max_cols, len(df.columns))
-
+    
     if str(min_col_width) == 'auto':
         min_col_width = 10 # In the case df is not provided while "auto" is set
     # Calculate total required width including buffer space between columns
@@ -3712,36 +3704,115 @@ def max_column_lengths(df, include_index='auto', max_text_char=50):
 
     return col_lengths, index_length
 
-#from gofast.api.util import validate_data 
-def find_max_display(df, include_index=True, buffer_space=3 , max_text_char=50):
-    df =validate_data(df)
+def find_max_display(df, include_index=True, buffer_space=3, max_text_char=50):
+    """
+    Find the maximum number of rows and columns to display in the terminal 
+    without overlapping, fitting well within the terminal size.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The DataFrame to be displayed.
+    include_index : bool or str, optional
+        Whether to include the index in the calculation. If 'auto', 
+        the function includes the index if it is not the default 
+        integer index (default is True).
+    buffer_space : int, optional
+        The buffer space between columns (default is 3).
+    max_text_char : int, optional
+        Maximum number of characters for text values in columns 
+        (default is 50).
+
+    Returns
+    -------
+    max_rows : int
+        Maximum number of rows that can be displayed.
+    max_cols : int
+        Maximum number of columns that can be displayed.
+
+    Examples
+    --------
+    >>> df = pd.DataFrame({
+    ...     'A': [1, 2, 3, 4],
+    ...     'B': ['short', 'a bit longer', 'even longer than before', 
+    ...           'short'],
+    ...     'C': ['some long text here', 'short', 
+    ...           'even longer text than before', 'tiny']
+    ... })
+    >>> find_max_display(df, include_index=True, max_text_char=15)
+    (4, 3)
+    
+    >>> find_max_display(df, include_index='auto', max_text_char=10)
+    (4, 3)
+    """
+    # Validate the DataFrame
+    df = validate_data(df)
+    
     # Get terminal size
     term_width, term_height = TerminalSize.get_terminal_size()
     
-    # Calculate max column lengths
+    # Calculate max column lengths, potentially including index length
     col_lengths, index_length = max_column_lengths(df, include_index, max_text_char)
     
     # Total width calculation
-    total_width = sum(col_lengths.values()) + 3 * len(col_lengths)  # 3 for the space and buffer between columns
+    total_width = sum(col_lengths.values()) + buffer_space * len(col_lengths)
     if include_index:
-        total_width += index_length + 3  # Adding index length and buffer
+        total_width += index_length + buffer_space
     
-    # Max columns
-    max_cols = len(df.columns)
+    # Determine maximum number of columns that fit within terminal width
     if total_width > term_width:
-        col_width = {col: length + 3 for col, length in col_lengths.items()}
-        cumulative_width = index_length + 3 if include_index else 0
-        max_cols = 0
-        for col, width in col_width.items():
-            if cumulative_width + width > term_width:
-                break
-            cumulative_width += width
-            max_cols += 1
+        col_widths = {col: length + buffer_space for col, length in col_lengths.items()}
+        display_cols = determine_display_columns(col_widths, term_width, buffer_space)
+    else:
+        display_cols = list(df.columns)
     
-    # Max rows
+    # Determine maximum number of rows that fit within terminal height
     max_rows = min(len(df), term_height - 1)  # 1 row for the header
     
-    return max_rows, max_cols
+    return max_rows, display_cols
+
+def determine_display_columns(col_widths, max_width, buffer_space):
+    """
+    Determine which columns to display based on the available width.
+
+    Parameters
+    ----------
+    col_widths : dict
+        Dictionary of column names and their respective widths.
+    max_width : int
+        Maximum available width in the terminal.
+    buffer_space : int
+        Space between columns.
+
+    Returns
+    -------
+    display_cols : list
+        List of columns to be displayed.
+    """
+    cumulative_width = 0
+    display_cols = []
+    col_items = list(col_widths.items())
+    
+    # Try to fit as many columns from the start
+    for col, width in col_items:
+        if cumulative_width + width > max_width:
+            break
+        display_cols.append(col)
+        cumulative_width += width
+
+    remaining_width = max_width - cumulative_width
+
+    # Fit columns from the end if there's space left
+    for col, width in reversed(col_items[len(display_cols):]):
+        if width + buffer_space > remaining_width:
+            break
+        display_cols.append(col)
+        remaining_width -= (width + buffer_space)
+    
+    # Combine start and end columns
+    display_cols = display_cols[:len(display_cols)//2] + display_cols[-len(display_cols)//2:]
+
+    return display_cols
 
 class DynamicDataFrame:
     def __init__(self, df, max_colwidth=50, precision=4, include_index=True):
@@ -3826,8 +3897,6 @@ class DynamicDataFrame:
             print(f"[Displaying {len(cols_to_display)} of {len(self.df.columns)} columns]")
         if len(self.df) > rows_to_display:
             print(f"[Displaying {rows_to_display} of {len(self.df)} rows]")
-
-
 
 if __name__=='__main__': 
     
