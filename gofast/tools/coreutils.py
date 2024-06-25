@@ -2,8 +2,8 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-:mod:`gofast.tools.coreutils` module provides a diverse set of utility functions 
-and tools for data manipulation, validation, formatting, and processing. 
+`coreutils` module provides a diverse set of utility functions and tools for
+data manipulation, validation, formatting, and processing. 
 """
 
 from __future__ import annotations, print_function 

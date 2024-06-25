@@ -2,7 +2,7 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-The `gofast.api.extension` module provides extended utilities and classes for 
+The `extension` module provides extended utilities and classes for 
 cloning objects, fetching and resolving estimator names, and performing 
 introspection tasks.
 """

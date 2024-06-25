@@ -3,10 +3,9 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """
-:mod:`gofast.estimtors.ensemble` implements various ensemble methods for  
-classification and regression tasks within the gofast library. Ensemble methods 
-combine the predictions of multiple base estimators to improve generalizability 
-and  robustness over a single estimator.
+`ensemble` implements various ensemble methods for classification
+and regression tasks for combining the predictions of multiple base estimators
+to improve generalizability and  robustness over a single estimator.
 """
 
 from __future__ import annotations 

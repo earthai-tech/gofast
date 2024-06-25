@@ -2,7 +2,7 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-The :mod:`gofast.api.summary` module offers a comprehensive suite of tools for
+The `summary` module offers a comprehensive suite of tools for
 generating and formatting summaries and reports, ensuring clear and consistent
  presentation of analytical results.
 """

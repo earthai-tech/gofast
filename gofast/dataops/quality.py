@@ -25,8 +25,8 @@ from ..decorators import Extract1dArrayOrSeries
 from ..tools.baseutils import reshape_to_dataframe
 from ..tools.coreutils import ellipsis2false, smart_format
 from ..tools.coreutils import assert_ratio
-from ..tools.validator import is_frame, parameter_validator  
-from ..tools.validator import _is_numeric_dtype
+from ..tools.validator import is_frame, parameter_validator, validate_numeric  
+from ..tools.validator import _is_numeric_dtype, filter_valid_kwargs
 
 TW = get_table_size() 
 
@@ -776,7 +776,7 @@ def handle_missing_data(
 @isdf
 def assess_outlier_impact(
     data, 
-    outlier_threshold=3, 
+    outlier_threshold: int=3, 
     handle_na='ignore', 
     view=False, 
     fig_size=(14, 6)
@@ -870,7 +870,9 @@ def assess_outlier_impact(
         
     # Convert data to a NumPy array if it's not already
     data = np.asarray(data)
-
+    
+    outlier_threshold = validate_numeric(
+        outlier_threshold, allow_negative=False )
     # Handle missing values according to the specified method
     handle_na = parameter_validator(
         "handle_na", target_strs={"ignore", "fill", "drop"}) (handle_na)
@@ -1591,7 +1593,7 @@ def analyze_data_corr(
 
 def correlation_ops(
     data: DataFrame, 
-    correlation_type:str='all', 
+    corr_type:str='all', 
     min_corr: float=0.5, 
     high_corr: float=0.8, 
     method: str| Callable[[ArrayLike, ArrayLike], float]='pearson', 
@@ -1610,7 +1612,7 @@ def correlation_ops(
     ----------
     data : pandas.DataFrame
         The DataFrame on which to perform the correlation analysis.
-    correlation_type : str, optional
+    corr_type : str, optional
         The type of correlations to consider in the analysis. Valid options
         are 'all', 'strong only', 'strong positive', 'strong negative', and
         'moderate'. Defaults to 'all'.
@@ -1669,6 +1671,7 @@ def correlation_ops(
                       correlations.
     """
     # Compute the correlation matrix using a predefined analysis function
+    corr_kws = filter_valid_kwargs(analyze_data_corr, corr_kws)
     corr_summary = analyze_data_corr(
         data, method=method, min_periods=min_periods, **corr_kws)
     
@@ -1677,9 +1680,9 @@ def correlation_ops(
     
     corr_matrix = corr_summary.corr_matrix
     # validate correlation_type parameter 
-    correlation_type = parameter_validator('correlation_type',
+    corr_type = parameter_validator('correlation_type',
         ["all","strong only", "strong positive", "strong negative", "moderate" ]
-        )(correlation_type)
+        )(corr_type)
     # Storage for correlation pairs
     strong_positives, strong_negatives, moderates = [], [], []
 
@@ -1688,19 +1691,19 @@ def correlation_ops(
         for j in range(i + 1, len(corr_matrix.columns)):
             corr_value = corr_matrix.iloc[i, j]
             if ( 
-                    correlation_type in ['all', 'strong only', 'strong positive'] 
+                    corr_type in ['all', 'strong only', 'strong positive'] 
                     and corr_value >= high_corr ) :
                 strong_positives.append(
                     (corr_matrix.columns[i], corr_matrix.columns[j], corr_value)
                     )
             if ( 
-                    correlation_type in ['all', 'strong only', 'strong negative'] 
+                    corr_type in ['all', 'strong only', 'strong negative'] 
                     and corr_value <= -high_corr ):
                 strong_negatives.append(
                     (corr_matrix.columns[i], corr_matrix.columns[j], corr_value)
                     )
             if ( 
-                    correlation_type in ['all', 'moderate'] 
+                    corr_type in ['all', 'moderate'] 
                     and min_corr <= abs(corr_value) < high_corr ) :
                 moderates.append((corr_matrix.columns[i], corr_matrix.columns[j],
                                   corr_value))
@@ -1724,7 +1727,7 @@ def correlation_ops(
         setattr(formatted_report, "correlated_pairs", dfs)
         return formatted_report
     else:
-        insights=ReportFactory(title=f"Correlation Type: {correlation_type}",
+        insights=ReportFactory(title=f"Correlation Type: {corr_type}",
             descriptor="CorrelationOps" ).add_recommendations(
             (
             "No significant correlations detected in the provided dataset. "
@@ -1736,12 +1739,14 @@ def correlation_ops(
             )
         return insights
     
-@Dataify (auto_columns=True)    
+@Dataify (auto_columns=True)  
 def drop_correlated_features(
     data: DataFrame, 
     method: str | Callable[[ArrayLike, ArrayLike], float] = 'pearson', 
     threshold: float = 0.8, 
     display_corrtable: bool = False, 
+    strategy: Optional[str] = None, 
+    corr_type: str ='all', 
     **corr_kws
     ):
     """
@@ -1769,6 +1774,17 @@ def drop_correlated_features(
         If set to True, the correlation matrix is printed before removing 
         correlated features. This can be useful for visualization and manual 
         review of the correlation values. Defaults to False.
+    strategy : {'both', 'first', 'last'}, optional
+        Strategy for dropping correlated features. 'both' drops all correlated 
+        features, 'first' drops the first feature in each correlated pair, and 
+        'last' drops the last feature in each correlated pair.
+        Default is 'both'.
+    corr_type : {'negative', 'positive', 'all'}, optional
+        Type of correlation to consider when dropping features. 'negative' drops 
+        only negatively correlated features, 'positive' drops only positively 
+        correlated features, and 'both' drops features with absolute correlation 
+        values above the threshold regardless of sign. Default is 'both'.
+        
     **corr_kws : dict
         Additional keyword arguments to be passed to the 
         :func:`analyze_data_corr` correlation function.
@@ -1789,7 +1805,8 @@ def drop_correlated_features(
     ...     'C': [5, 3, 2, 1, 1]
     ... })
     >>> print(data.corr())
-    >>> reduced_data = drop_correlated_features(data, threshold=0.8)
+    >>> reduced_data = drop_correlated_features(
+    ...     data, threshold=0.8, strategy='first')
     >>> print(reduced_data)
 
     Notes
@@ -1800,10 +1817,10 @@ def drop_correlated_features(
     is particularly useful in the preprocessing steps for statistical modeling 
     and machine learning.
 
-    The choice of correlation method and threshold should be guided by specific 
-    analytical needs and the nature of the dataset. Lower thresholds increase 
-    the number of features removed, potentially simplifying the model but at 
-    the risk of losing important information.
+    The choice of correlation method, threshold, and strategy should be guided 
+    by specific analytical needs and the nature of the dataset. Lower thresholds 
+    increase the number of features removed, potentially simplifying the model but 
+    at the risk of losing important information.
 
     See Also
     --------
@@ -1811,24 +1828,124 @@ def drop_correlated_features(
     gofast.dataops.quality.analyze_data_corr: Function to analyze correlations 
     with more detailed options and outputs.
     """
+    # Validate parameters
+    strategy = strategy or 'all'
+    strategy = parameter_validator(
+        "strategy", target_strs={"both", "first", "last"})(strategy)
+    corr_type = parameter_validator(
+        "correlation_type `corr_type`",
+        target_strs={"negative", "positive", "all"})(corr_type)
+  
     # Compute the correlation matrix using a predefined analysis function
+    corr_kws = filter_valid_kwargs(analyze_data_corr, corr_kws)
     corr_summary = analyze_data_corr(
-        data, method=method, high_corr=threshold,  **corr_kws)
+        data, method=method, high_corr=threshold, **corr_kws
+    )
     
     if display_corrtable:
         print(corr_summary)
         
-    # Compute the absolute correlation matrix and the upper triangle
-    corr_matrix = corr_summary.corr_matrix.abs()
-    upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+    # Compute the correlation matrix based on kind
+    if corr_type == 'negative':
+        corr_matrix = corr_summary.corr_matrix.where(corr_summary.corr_matrix < 0)
+    elif corr_type == 'positive':
+        corr_matrix = corr_summary.corr_matrix.where(corr_summary.corr_matrix > 0)
+    else:  # 'both'
+        corr_matrix = corr_summary.corr_matrix
 
-    # Identify columns to drop based on the threshold
-    to_drop = [column for column in upper.columns if any(upper[column] > threshold)]
+    corr_matrix = corr_matrix.abs()
+    upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+    
+    # Identify columns to drop based on the threshold and strategy 
+    to_drop = _drop_correlated_features(upper, threshold, strategy)
 
     # Drop the identified columns and return the reduced DataFrame
     df_reduced = data.drop(to_drop, axis=1)
     
+    if df_reduced.empty: # mean that data has feature correlated 
+        c=f"{corr_type.title()} c" if corr_type in {
+            "positive", 'negative'} else "C"
+        info=ReportFactory(
+            title=f"{c}orrelation Drop Strategy: {strategy}",
+            descriptor="CorrDropOps" ).add_recommendations(
+            (
+           "All features are highly correlated and have been dropped. "
+            "Consider adjusting the strategy to 'first' or 'last' to retain "
+            "some features or re-evaluate the correlation threshold."
+            ), 
+            keys= 'Recommendation', max_char_text= TW
+            )
+        print(info)
+
     return df_reduced
+
+def _rearrange_corr_features(
+        corr_matrix: pd.DataFrame, col: str, threshold: float) -> tuple:
+    """
+    Rearrange the correlated features based on their position in the 
+    correlation matrix.
+    
+    Parameters
+    ----------
+    corr_matrix : pandas.DataFrame
+        The correlation matrix.
+    col : str
+        The column name to rearrange.
+    threshold : float
+        The correlation coefficient threshold above which one of the features 
+        in a pair will be removed.
+    
+    Returns
+    -------
+    tuple
+        A tuple of correlated feature names arranged by their positions in
+        the correlation matrix.
+    """
+    col_index = list(corr_matrix.columns).index(col)
+    pair_feature = list(corr_matrix[col][corr_matrix[col].abs() > threshold].index)
+    pair_index = list(corr_matrix.columns).index(pair_feature[0])
+    
+    if col_index > pair_index:
+        return (pair_feature[0], col)
+    return (col, pair_feature[0])
+
+def _drop_correlated_features(
+    corr_matrix: pd.DataFrame, threshold: float, strategy: str
+) -> set:
+    """
+    Identify columns to drop based on the correlation matrix, threshold, and strategy.
+
+    Parameters
+    ----------
+    corr_matrix : pandas.DataFrame
+        The correlation matrix.
+    threshold : float
+        The correlation coefficient threshold above which one of the features
+        in a pair will be removed.
+    strategy : {'both', 'first', 'last'}
+        Strategy for dropping correlated features. 'both' drops all correlated
+        features, 'first' drops the first feature in each correlated pair, and 
+        'last' drops the last feature in each correlated pair.
+
+    Returns
+    -------
+    set
+        A set of column names to drop.
+    """
+    correlations_pairs = []
+    for column in corr_matrix.columns:
+        if any(corr_matrix[column].abs() > threshold):
+            pair_features = _rearrange_corr_features(corr_matrix, column, threshold)
+            correlations_pairs.append(pair_features)
+
+    if strategy == 'both':
+        to_drop = set([feature for pair in correlations_pairs for feature in pair])
+    elif strategy == 'first':
+        to_drop = set([a for a, _ in correlations_pairs])
+    elif strategy == 'last':
+        to_drop = set([b for _, b in correlations_pairs])
+    
+    return to_drop
 
 @Dataify (auto_columns=True)
 def handle_skew(

@@ -2,7 +2,7 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-The :mod:`gofast.api.structure` module includes data structures such as `Boxspace`,
+The `structure` module includes data structures such as `Boxspace`,
 `Bunch`, and `FlexDict` that provide flexible and efficient ways to organize,
 store, and manipulate structured data within the gofast framework.
 """

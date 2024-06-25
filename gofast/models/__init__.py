@@ -1,10 +1,5 @@
 """
 Validation and optimization sub-package. 
-
-The  `gofast.models` subpackage organizes and exposes various model
-training, evaluation, and hyperparameter optimization functionalities. 
-It offers a comprehensive suite of tools for machine learning practitioners 
-looking to build, evaluate, and optimize models efficiently. 
 """
 
 from .utils import ( 

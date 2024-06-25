@@ -3,8 +3,8 @@
 # Copyright (c) 2024 gofast developers.
 # All rights reserved.
 """
-:mod:`gofast.tools.validator` module provides a comprehensive set of functions 
-and warnings for validating and ensuring the integrity of data. This includes 
+`validator` module provides a comprehensive set of functions and warnings
+ for validating and ensuring the integrity of data. This includes 
 utilities for checking data consistency, validating machine learning targets, 
 ensuring proper data types, and handling various validation scenarios.
 """
@@ -86,6 +86,7 @@ __all__=[
      'validate_multiclass_target',
      'validate_multioutput',
      'validate_nan_policy',
+     'validate_numeric', 
      'validate_positive_integer',
      'validate_sample_weights',
      'validate_scores',
@@ -3002,6 +3003,157 @@ def assert_xy_in (
         y = y.astype (np.float64)
         
     return ( np.array(x), np.array (y) ) if asarray else (x, y )  
+
+def validate_numeric(
+    value, 
+    convert_to='float', 
+    allow_negative=True, 
+    min_value=None, 
+    max_value=None, 
+    check_mode='soft'
+    ):
+    """
+    Validates if a given value is numeric. It can accept numeric strings 
+    and numpy arrays of single values. Optionally converts the value to 
+    either float or integer.
+
+    Parameters
+    ----------
+    value : Any
+        The value to be validated as numeric. This can be of any type 
+        but is expected to be convertible to a numeric type. Accepted 
+        types include numeric strings (e.g., `"42"`), single-element 
+        numpy arrays (e.g., `np.array([3.14])`), integers, and floats.
+    convert_to : str, optional
+        The type to convert the validated numeric value to. Options are 
+        ``'float'`` or ``'int'``. Defaults to ``'float'``. 
+        - If ``'float'``, the value will be converted to a floating-point number.
+        - If ``'int'``, the value will be converted to an integer.
+    allow_negative : bool, optional
+        Whether to allow negative values. Defaults to ``True``. 
+        - If ``True``, negative values are allowed.
+        - If ``False``, negative values will raise a `ValueError`.
+    min_value : float or int, optional
+        The minimum value allowed. If `None`, no minimum value check 
+        is applied. Defaults to ``None``.
+    max_value : float or int, optional
+        The maximum value allowed. If `None`, no maximum value check 
+        is applied. Defaults to ``None``.
+    check_mode : str, optional
+        The mode of checking the value. Options are ``'soft'`` or ``'strict'``. 
+        Defaults to ``'soft'``. 
+        - If ``'soft'``, iterables containing a single value are accepted 
+          and the single value is validated.
+        - If ``'strict'``, only non-iterable numeric values are accepted.
+
+    Returns
+    -------
+    float or int
+        The validated and optionally converted numeric value. The type 
+        of the return value is determined by the `convert_to` parameter.
+
+    Raises
+    ------
+    ValueError
+        If the value is not numeric or does not meet the specified criteria.
+
+    Notes
+    -----
+    The function performs several checks and transformations:
+    1. If the value is a numpy array with a single element, it extracts 
+       the element.
+    2. If the value is a numeric string, it attempts to convert it to 
+       a float.
+    3. If `check_mode` is ``'soft'`` and the value is an iterable with 
+       a single element, it extracts and validates the element.
+    4. It validates whether the value is numeric.
+    5. It converts the value to the specified type (`float` or `int`).
+    6. It checks if negative values are allowed.
+    7. It checks if the value is within the specified `min_value` and 
+       `max_value` range.
+
+    The mathematical formulation for the validation can be expressed as:
+
+    .. math::
+        y = 
+        \begin{cases} 
+        x & \text{if } x \in \mathbb{R} \\
+        \text{convert_to}(x) & \text{if } x \in \text{numeric\_string} \\
+        \text{single\_element}(x) & \text{if } x \in \text{numpy\_array} \\
+        \end{cases}
+
+    Where:
+    - :math:`x` is the input value
+    - :math:`y` is the output value after validation and conversion
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import validate_numeric
+    >>> validate_numeric("42", convert_to='int')
+    42
+    >>> validate_numeric(np.array([3.14]), convert_to='float')
+    3.14
+    >>> validate_numeric([123], check_mode='soft')
+    123.0
+    >>> validate_numeric([123], check_mode='strict')
+    Traceback (most recent call last):
+        ...
+    ValueError: Value '[123]' is not a numeric type.
+    >>> validate_numeric("-123.45", allow_negative=False)
+    Traceback (most recent call last):
+        ...
+    ValueError: Negative values are not allowed: -123.45
+
+    See Also
+    --------
+    numpy.array : Numpy arrays, which can be validated by this function.
+
+    References
+    ----------
+    .. [1] "NumPy Documentation", https://numpy.org/doc/stable/
+    """
+    # Check if the value is a numpy array with a single element
+    if isinstance(value, np.ndarray):
+        if value.size != 1:
+            raise ValueError("Numpy array must contain exactly one element.")
+        value = value.item()
+    
+    # If check_mode is 'soft', handle single-element iterables
+    if check_mode == 'soft' and isinstance(
+            value, (list, tuple, set)) and len(value) == 1:
+        value = next(iter(value))
+    
+    # Check if the value is a numeric string
+    if isinstance(value, str):
+        try:
+            value = float(value)
+        except ValueError:
+            raise ValueError(f"Value '{value}' is not a valid numeric string.")
+    
+    # Check if the value is numeric
+    if not isinstance(value, (int, float)):
+        raise ValueError(f"Value '{value}' is not a numeric type.")
+
+    # Convert the value to the desired type
+    if convert_to == 'int':
+        value = int(value)
+    else:
+        value = float(value)
+
+    # Check if negative values are allowed
+    if not allow_negative and value < 0:
+        raise ValueError(f"Negative values are not allowed: {value}")
+
+    # Check if the value is within the specified range
+    if min_value is not None and value < min_value:
+        raise ValueError(
+            f"Value {value} is less than the minimum allowed value {min_value}.")
+    if max_value is not None and value > max_value:
+        raise ValueError(
+            f"Value {value} is greater than the maximum allowed value {max_value}.")
+
+    return value
+
 
 def _validate_input(ignore: str, x, y, _is_arraylike_1d):
     """

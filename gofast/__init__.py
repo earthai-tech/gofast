@@ -92,7 +92,7 @@ def check_public_api():
         from .assistance import assist_me, gofast_explorer as explore
         __all__.extend(["assist_me", "explore"])
         globals().update({"assist_me": assist_me, "explore": explore})
-        # Warnings.warn("Public API has been enabled.", UserWarning)
+        warnings.warn("Public API has been enabled.", UserWarning)
 
 # Property to automatically check public API when __set_public__ changes
 class GoFastConfig:

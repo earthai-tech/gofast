@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-:mod:`gofast.tools.funcutils` is a utilities package providing various 
-functionalities for functional programming tasks.
+`funcutils` is a utilities package providing various functionalities for 
+functional programming tasks.
 """
 import sys 
 import time

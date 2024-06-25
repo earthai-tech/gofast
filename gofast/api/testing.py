@@ -2,7 +2,7 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-The :mod:`gofast.api.testing` module provides a collection of assertion functions
+The `testing` module provides a collection of assertion functions
 and utilities designed to validate and verify the correctness of data formats,
 model summaries, and report contents. 
 """

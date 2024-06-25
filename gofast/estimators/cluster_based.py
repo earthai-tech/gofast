@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
+"""
+`cluster_based` module offers cluster-based machine learning models
+leveraging clustering techniques to enhance predictive performance.
+"""
 
 from __future__ import annotations 
 from sklearn.base import ClassifierMixin, RegressorMixin

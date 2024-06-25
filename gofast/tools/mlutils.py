@@ -2,8 +2,7 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-Learning utilities for data transformation, 
-model learning and inspections. 
+Learning utilities for data transformation, model learning and inspections. 
 """
 from __future__ import annotations 
 import os

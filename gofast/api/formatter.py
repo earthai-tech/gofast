@@ -2,7 +2,7 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-:mod:`gofast.api.formatter` module provides classes and functions for 
+`formatter` module provides classes and functions for 
 formatting data and reports.
 """
 

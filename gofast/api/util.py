@@ -3,7 +3,7 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """
-:mod:`gofast.api.util` module provides utility functions and classes to 
+`util` module provides utility functions and classes to 
 support various data manipulation and analysis tasks.
 """
 
@@ -728,7 +728,6 @@ def is_numeric_index(df):
     # Check if the index data type is a subtype of numpy number
     return pd.api.types.is_numeric_dtype(df.index.dtype)
     
-
 def is_numeric_type(df, target="index"):
     """
     Checks if the index or columns of a DataFrame are numeric.
@@ -777,12 +776,15 @@ def is_numeric_type(df, target="index"):
     
     # Handle both regular and MultiIndex cases
     if hasattr(data_attribute, 'levels'):  # MultiIndex case
-        return all(pd.api.types.is_numeric_dtype(level.dtype) for level in data_attribute.levels)
+        return all(pd.api.types.is_numeric_dtype(level.dtype)
+                   for level in data_attribute.levels)
     else:  # Single level index or columns
         return pd.api.types.is_numeric_dtype(data_attribute.dtype)
 
-def extract_truncate_df(df, include_truncate=False, max_rows=100, max_cols=7, 
-                        return_indices_cols=False):
+def extract_truncate_df(
+    df, include_truncate=False, max_rows=100, max_cols=7, 
+    return_indices_cols=False
+    ):
     """
     Extracts a subset of rows and columns from a dataframe based on its string 
     representation. Optionally includes truncated indices and returns them 
@@ -849,8 +851,12 @@ def extract_truncate_df(df, include_truncate=False, max_rows=100, max_cols=7,
         truncated_df.reset_index (drop=True, inplace =True)
     columns = truncated_df.columns.tolist() 
     
-    max_rows, max_cols = find_best_display_params2(df)(
-        max_rows=max_rows, max_cols=max_rows)
+    # XXX CHECK: Use propose layout currently for a test purpose. 
+    # checking stability of `propose layout`. 
+    
+    max_rows, max_cols = propose_layout(df)
+    # max_rows, max_cols = find_best_display_params2(df)(
+    #     max_rows=max_rows, max_cols=max_rows)
     
     df_string= truncated_df.to_string(
         index =True, header=True, max_rows=max_rows, max_cols=max_cols )
@@ -2137,9 +2143,12 @@ def find_best_display_params(
 
     # Collect maximum row and column counts needed for each DataFrame
     for df in dfs:
-        optimal_rows, optimal_cols = auto_adjust_dataframe_display(
-            df, header=header, index=index, sample_size=sample_size
+        optimal_rows, optimal_cols = propose_layout(
+            df, include_index= index
         )
+        # optimal_rows, optimal_cols = auto_adjust_dataframe_display(
+        #     df, header=header, index=index, sample_size=sample_size
+        # )
         max_rows_list.append(optimal_rows)
         max_cols_list.append(optimal_cols)
 
@@ -2195,12 +2204,17 @@ def find_best_display_params2(*dfs, index=True, header=True, sample_size=100):
     """
     max_rows_list = []
     max_cols_list = []
-
+    
     # Collect maximum row and column counts needed for each DataFrame
     for df in dfs:
-        optimal_rows, optimal_cols = auto_adjust_dataframe_display(
-            df, header=header, index=index, sample_size=sample_size
+        # XXX CHECK: Use propose layout currently for a test purpose. 
+        # checking stability of `propose layout`. 
+        optimal_rows, optimal_cols = propose_layout(
+            df, include_index= index
         )
+        # optimal_rows, optimal_cols = auto_adjust_dataframe_display(
+        #     df, header=header, index=index, sample_size=sample_size
+        # )
         max_rows_list.append(optimal_rows)
         max_cols_list.append(optimal_cols)
 
@@ -3813,7 +3827,7 @@ def max_column_lengths(df, include_index='auto', max_text_char=50):
         return min(len(str(val)), max_text_char)
 
     col_lengths = {
-        col: max(len(col), df[col].astype(str).map(truncate_and_measure).max())
+        str(col): max(len(str(col)), df[col].astype(str).map(truncate_and_measure).max())
         for col in df.columns
     }
 
@@ -4149,7 +4163,7 @@ def count_functions(
     include_class=False, 
     return_counts=True, 
     include_private=False, 
-    include_local=True
+    include_local=False
     ):
     """
     Count and list the number of functions and classes in a specified module.
@@ -4170,7 +4184,7 @@ def count_functions(
         `_`). Default is `False`.
     include_local : bool, optional
         Whether to include local (nested) functions in the count and listing. 
-        Default is `True`.
+        Default is `False`.
 
     Returns
     -------

@@ -2,6 +2,13 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 
+"""
+`util` module provides utility functions for machine learning estimators. 
+It includes tools for scaling, problem detection, weight determination, 
+memory depth estimation, hyperparameter optimization, model selection, and 
+estimator validation.
+"""
+
 from __future__ import annotations
 import warnings 
 import re
@@ -20,6 +27,15 @@ from ..api.types import DataFrame, Series, Tuple, Union, Dict, Optional
 from ..tools.validator import check_array, check_X_y
 from ..tools.validator import validate_fit_weights, get_estimator_name
 from ..tools.validator import validate_positive_integer 
+
+__all__=[
+     'activator','apply_scaling','detect_problem_type',
+     'determine_weights','estimate_memory_depth','fit_with_estimator',
+     'get_default_meta_estimator','normalize_sum','optimize_hyperparams',
+     'select_best_classification_model','select_best_model',
+     'select_best_regression_model','select_default_estimator',
+     'validate_memory_depth'
+ ]
     
 def activator(z, activation='sigmoid', alpha=1.0, clipping_threshold=250):
     """
