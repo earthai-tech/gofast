@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
+"""
+Provides utility functions for data management, simulation adjustments,
+distribution checks, and extraction of geographical data.
+"""
+
 import re
 import copy
 import random
@@ -18,6 +23,33 @@ from ..compat.sklearn import  train_test_split
 from ..tools.coreutils import is_in_if, add_noises_to
 from ..tools.coreutils import smart_format, is_iterable, validate_ratio 
 from .metadata import SimulationMetadata
+
+__all__= [
+     'apply_scaling',
+     'build_continent_country_dict',
+     'build_dataset_description',
+     'build_distributions_from',
+     'build_reserve_details_by_country',
+     'check_distributions',
+     'extract_minerals_from_countries',
+     'extract_minerals_from_regions',
+     'fetch_simulation_metadata',
+     'find_countries_and_minerals_by_region',
+     'find_countries_by_distributions',
+     'find_countries_by_minerals',
+     'find_countries_by_region',
+     'find_mineral_by_country',
+     'find_mineral_distributions',
+     'find_mineral_location',
+     'generate_regression_output',
+     'generate_synthetic_values',
+     'is_structure_nested',
+     'manage_data',
+     'manage_nested_lists',
+     'rename_data_columns',
+     'select_location_for_mineral',
+     'validate_noise_level',
+  ]
 
 def validate_region(region, mode="strict"):
     """

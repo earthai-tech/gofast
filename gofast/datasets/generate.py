@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
+"""
+Provides functions for generating synthetic datasets for diverse applications
+such as demographics, agriculture, classification, sales, medical diagnostics,
+and more.
+"""
 
 from __future__ import annotations 
 import warnings 
@@ -24,6 +29,28 @@ from .util import manage_data, get_item_from, generate_synthetic_values
 from .util import generate_categorical_values, generate_regression_output
 from .util import apply_scaling, rename_data_columns 
 from .util import adjust_parameters_to_fit_samples 
+
+__all__=[
+     'make_african_demo',
+     'make_agronomy_feedback',
+     'make_cc_factors',
+     'make_classification',
+     'make_data',
+     'make_drill_ops',
+     'make_elogging',
+     'make_erp',
+     'make_ert',
+     'make_gadget_sales',
+     'make_medical_diagnosis',
+     'make_mining_ops',
+     'make_regression',
+     'make_retail_store',
+     'make_social_media_comments',
+     'make_sounding',
+     'make_tem',
+     'make_water_demand',
+     'make_well_logging'
+ ]
 
 def make_data(
     n_samples=100, 

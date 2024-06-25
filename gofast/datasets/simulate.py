@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
+"""
+Provides functions for simulating synthetic datasets across various domains,
+including environment, energy, customer behavior, and more.
+"""
+
 import inspect 
 import pandas as pd
 import numpy as np

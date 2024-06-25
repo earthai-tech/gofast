@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
+"""
+Defines metadata structures for simulations, including the Metadata
+class and descriptor.
+"""
 
 from ._globals import RESERVES_DESCR
 

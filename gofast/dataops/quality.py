@@ -1829,7 +1829,7 @@ def drop_correlated_features(
     with more detailed options and outputs.
     """
     # Validate parameters
-    strategy = strategy or 'all'
+    strategy = strategy or 'both'
     strategy = parameter_validator(
         "strategy", target_strs={"both", "first", "last"})(strategy)
     corr_type = parameter_validator(
