@@ -2,9 +2,9 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-The `gofast.estimators.adaline` module implements various versions of the 
-Adaptive Linear Neuron (Adaline) algorithm for both regression and 
-classification tasks. The Adaline algorithm is a foundational model in machine 
+`adaline` module implements various versions of the Adaptive Linear Neuron 
+(Adaline) algorithm for both regression and classification tasks.
+The Adaline algorithm is a foundational model in machine 
 learning that uses a linear activation function and is trained using gradient 
 descent. This module includes different variants of Adaline to handle 
 stochastic and batch training as well as mixed tasks that can perform both 

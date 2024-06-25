@@ -646,7 +646,7 @@ def get_display_dimensions(
     *dfs, index=True, 
     header=True, 
     max_rows=11, 
-    max_cols=7, 
+    max_cols=5, 
     return_min_dimensions=True
     ):
     """
@@ -693,9 +693,12 @@ def get_display_dimensions(
     """
     def get_single_df_metrics(df):
         # Use external functions to get recommended dimensions
-        auto_rows, auto_cols = auto_adjust_dataframe_display(
-            df, index=index, header=header)
+        # XXX CHECK: Use propose layout currently for a test purpose. 
+        # checking stability of `propose layout`. 
         
+        # auto_rows, auto_cols = auto_adjust_dataframe_display(
+        #     df, index=index, header=header)
+        auto_rows, auto_cols = propose_layout(df, include_index= index )
         # Adjust these dimensions based on input limits
         adjusted_rows = _adjust_value(max_rows, auto_rows)
         adjusted_cols = _adjust_value(max_cols, auto_cols)
@@ -1302,7 +1305,9 @@ def select_df_styles(style, df, **kwargs):
     return style
 
 def is_dataframe_long(
-        df, max_rows=100, max_cols=7, return_rows_cols_size=False):
+        df, max_rows=100, max_cols=7, 
+        return_rows_cols_size=False, 
+        ):
     """
     Determines whether a DataFrame is considered 'long' based on the 
     number of rows and columns.
@@ -1359,12 +1364,8 @@ def is_dataframe_long(
     rows, columns = df.shape  
     
     # Get terminal size
-    # terminal_size = shutil.get_terminal_size()
-    # terminal_cols = terminal_size.columns
-    # terminal_rows = terminal_size.lines
     _, auto_rows = get_terminal_size()
-    auto_cols= get_displayable_columns(
-        df, buffer_space=3, min_col_width="auto")
+    auto_cols= get_displayable_columns(df, min_col_width="auto")
     if max_rows == "auto": 
         max_rows = auto_rows 
         # to terminal row sizes 
@@ -1378,7 +1379,6 @@ def is_dataframe_long(
         max_rows = _adjust_value(max_rows, auto_rows)
         max_cols = _adjust_value(max_cols, auto_cols)
         return max_rows, max_cols 
-    
     # Check if the DataFrame exceeds the specified row or column limits
     return rows > max_rows or columns > max_cols
 
@@ -2834,7 +2834,9 @@ def validate_data(data, columns=None, error_mode='raise'):
         raise TypeError(
             "Unsupported data type. Data must be a DataFrame, array, dict, or Series."
             f" Got {type(data).__name__!r}")
-
+        
+    df = round_numeric_values(df)
+    
     return df
 
 def format_correlations(
@@ -3356,7 +3358,7 @@ def optimize_col_width (max_cols=4, df=None, min_col_width=10):
     else:
         return min_col_width  # Return min_col_width if no columns fit
 
-def get_displayable_columns(cols_or_df, /, buffer_space=4, min_col_width=10):
+def get_displayable_columns(cols_or_df, /, buffer_space=2, min_col_width=10):
     """
     Computes the number of columns that can be displayed in the terminal based
     on the maximum column width, considering a buffer space between columns.
@@ -3403,16 +3405,20 @@ def get_displayable_columns(cols_or_df, /, buffer_space=4, min_col_width=10):
     # Create a temporary DataFrame to facilitate column width calculation
     df = pd.DataFrame(columns=cols)
     # Calculate the optimal column width
-    max_col_width = optimize_col_width(max_cols=num_cols, df=df,
+    max_col_width = optimize_col_width(max_cols=num_cols, df=df, 
                                        min_col_width=min_col_width)
     # Retrieve the current terminal width
     terminal_width, _ = get_terminal_size()
-
-    # Calculate the total space available per column including buffer
-    available_space_per_column = max_col_width + buffer_space
-    # Determine the maximum number of columns that can fit in the terminal
-    max_displayable_cols = terminal_width // available_space_per_column
-
+    try: 
+        # XXX CHECK: Use propose layout currently for a test purpose. 
+        # checking stability of `propose layout`. 
+        _, max_displayable_cols= propose_layout(df)
+    except: 
+        # Calculate the total space available per column including buffer
+        available_space_per_column = max_col_width + buffer_space
+        # Determine the maximum number of columns that can fit in the terminal
+        max_displayable_cols = terminal_width // available_space_per_column
+    
     return min(num_cols, max_displayable_cols)
 
 def to_camel_case(text, delimiter=None, use_regex=False):
@@ -3840,7 +3846,7 @@ def max_column_lengths(df, include_index='auto', max_text_char=50):
 
     return col_lengths, index_length
 
-def find_max_display(df, include_index=True, buffer_space=3, max_text_char=50):
+def find_max_display(df, include_index=True, buffer_space=2, max_text_char=50):
     """
     Find the maximum number of rows and columns to display in the terminal 
     without overlapping, fitting well within the terminal size.
@@ -4102,7 +4108,7 @@ def propose_layout(data, include_index=True, max_text_char=50, buffer_space=2):
     ...     'Column3': ['some long text here', 'short', 
     ...                'even longer text than before', 'tiny'] * 2
     ... })
-    >>> columns, rows = propose_layout(data, include_index=True)
+    >>> rows, columns = propose_layout(data, include_index=True)
     >>> print(f"Proposed layout: {columns} columns, {rows} rows")
 
     See Also
@@ -4120,7 +4126,6 @@ def propose_layout(data, include_index=True, max_text_char=50, buffer_space=2):
        2012.
     """
     data = validate_data(data )
-    
     terminal_width, terminal_height = get_terminal_size()
     
     col_lengths, index_length = max_column_lengths(
@@ -4130,23 +4135,24 @@ def propose_layout(data, include_index=True, max_text_char=50, buffer_space=2):
     total_col_width = sum(col_lengths.values())
     
     # Add buffer space between columns and include index width if necessary
+    # -1 for number of interval NI = Number of Columns -1 
+    total_width = total_col_width + (buffer_space * (len(col_lengths) - 1) )
     if include_index:
-        total_width = index_length + total_col_width + (
-            buffer_space * (len(col_lengths) + 1))
-    else:
-        total_width = total_col_width + (buffer_space * len(col_lengths))
+        total_width += index_length + buffer_space 
     
     # Determine the number of columns that can fit in the terminal width
     if total_width <= terminal_width:
         num_columns = len(col_lengths)
     else:
-        cumulative_width = 0
+        get_columns =[]
+        cumulative_width =0
         num_columns = 0
         col_lengths = rearrange(col_lengths)
         for col, length in col_lengths.items():
             cumulative_width += length + buffer_space
             if cumulative_width > terminal_width:
                 break
+            get_columns.append (col)
             num_columns += 1
 
     # Determine the number of rows that can fit in the terminal height
@@ -4303,30 +4309,87 @@ def count_functions(
     else:
         return result
 
-if __name__=='__main__': 
+def round_numeric_values(df, precision=4):
+    """
+    Rounds numeric floating values in a DataFrame to the specified 
+    precision. Integers and non-numeric values are not modified.
 
-    
-    # Example usage:
-    data = {
-        'col0': [1, 2, 3, 4],
-        'col1': [4, 3, 2, 1],
-        'col2': [10, 20, 30, 40],
-        'col3': [40, 30, 20, 10],
-        'col4': [5, 6, 7, 8]
-    }
-    df = pd.DataFrame(data)
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame whose numeric floating values are to be rounded. 
+        The DataFrame can contain mixed data types, including integers, 
+        floating-point numbers, and non-numeric values.
+    precision : int, optional
+        The number of decimal places to round to. Defaults to 4. 
+        - If `precision` is set to a positive integer, it specifies 
+          the number of decimal places.
+        - If `precision` is set to a negative integer, it specifies 
+          the number of positions to the left of the decimal point.
 
-    # Calling the function
-    result = format_correlations(df, 0.8, 0.9, False, hide_diag= True)
-    print(result)
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame with numeric floating values rounded to the 
+        specified precision. Integers and non-numeric values remain 
+        unchanged.
 
-    # Example usage
-    data = {
-        'col0': [1, 2, 3, 4],
-        'col1': [4, 3, 2, 1],
-        'col2': [10, 20, 30, 40],
-        'col3': [40, 30, 20, 10],
-        'col4': [5, 6, 7, 8]
-    }
+    Raises
+    ------
+    ValueError
+        If `precision` is not an integer.
+
+    Notes
+    -----
+    This function applies rounding only to floating-point numbers. 
+    Integers and non-numeric values remain unchanged. The function 
+    uses pandas' `applymap` to apply the rounding operation element-wise 
+    across the DataFrame.
+
+    The mathematical formulation for the rounding operation is given by:
+
+    .. math::
+        y = 
+        \begin{cases} 
+        \text{round}(x, \text{precision}) & \text{if } x \in \mathbb{R} \\
+        x & \text{otherwise} \\
+        \end{cases}
+
+    Where:
+    - :math:`x` is the input value
+    - :math:`y` is the output value after rounding
+    - :math:`\text{precision}` is the specified number of decimal places
+
+    Examples
+    --------
+    >>> from gofast.api.util import round_numeric_values
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'A': [1.12345, 2.6789, 3],
+    ...     'B': [4, 5.98765, 'text'],
+    ...     'C': [7.123456, 8.654321, 9.0]
+    ... })
+    >>> round_numeric_values(df, precision=2)
+           A      B     C
+    0  1.12      4  7.12
+    1  2.68  5.99  8.65
+    2     3  text     9
+
+    See Also
+    --------
+    pandas.DataFrame.applymap : Element-wise operation on DataFrame.
+
+    References
+    ----------
+    .. [1] "NumPy Documentation", https://numpy.org/doc/stable/
+
+    """
+    def round_if_float(x):
+        if isinstance(x, float):
+            return round(x, precision)
+        return x
+
+    return df.applymap(round_if_float)
+
 
     

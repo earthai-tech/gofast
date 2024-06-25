@@ -62,7 +62,7 @@ def plot_woodland(
     fig_size: Tuple [int, int]=(11, 9),
     fmt: str=".2f",
     linewidths: float=.5,
-    xrot: int=45,
+    xrot: int=90,
     yrot: int=0,
     cmap: Optional[str]=None,
     cbar: bool=True,
@@ -103,7 +103,7 @@ def plot_woodland(
         The width of the lines that will divide each cell in the heatmap. 
         Default is 0.5.
     xrot : float, optional
-        Rotation angle in degrees for x-axis labels. Default is 45.
+        Rotation angle in degrees for x-axis labels. Default is 90.
     yrot : float, optional
         Rotation angle in degrees for y-axis labels. Default is 0.
     cmap : str or Colormap, optional

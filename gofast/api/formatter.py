@@ -216,8 +216,10 @@ class MultiFrameFormatter (metaclass=MetaLen):
         if is_any_long_dataframe(*self.dfs, max_rows=self.max_rows,
                                  max_cols=self.max_cols): 
             return construct_long_dataframes_with_same_columns(
-                self.dfs, titles = self.titles,
-                max_cols =5, max_rows= self.max_rows,
+                self.dfs, 
+                titles = self.titles,
+                max_cols =5, 
+                max_rows= self.max_rows,
                 style = self.style, 
                 )
         return construct_tables_for_same_columns(self.dfs, self.titles)

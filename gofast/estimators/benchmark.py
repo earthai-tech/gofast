@@ -2,8 +2,8 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-The `benchmark` module offers benchmark models for evaluating 
-machine learning performance,  providing a baseline for comparing other models.
+`benchmark` module offers benchmark models for evaluating machine learning
+ performance,  providing a baseline for comparing other models.
 """
 
 from __future__ import annotations 

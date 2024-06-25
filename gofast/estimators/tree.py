@@ -2,7 +2,7 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-The `tree` module provides tree-based models for machine learning.
+`tree` module provides tree-based models for machine learning.
 """
 
 from __future__ import annotations
