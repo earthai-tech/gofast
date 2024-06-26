@@ -1,12 +1,9 @@
 # -*- coding: utf-8 -*-
 # Created by jrpeacock  https://github.com/MTgeophysics/mtpy.git> 
-# edited by LKouadio 
+# edited by LKouadio https://github.com/earthai-tech/pycsamt
 
 """
-GIS Utilities 
-================
-
-This module contains tools to help project between coordinate systems. The 
+Provides tools to help project between coordinate systems. The 
 module will first use GDAL if installed.  If GDAL is not installed then 
 pyproj is used. Main functions are:
         
@@ -21,21 +18,12 @@ latitude and longitude can be input as:
     * float(DD.decimal_degrees)
     
 """
-
 import numpy as np
-
 from .._gofastlog import gofastlog
-from ..decorators import (
-    deprecated ,
-    gdal_data_check
-    )
-from ..exceptions import ( 
-    GISError
-    )
-  
+from ..decorators import CheckGDALData, Deprecated 
+from ..exceptions import GISError
 try : 
     from ._set_gdal import HAS_GDAL, EPSG_DICT, NEW_GDAL 
-    
     if HAS_GDAL:
         from osgeo import osr
         from osgeo.ogr import OGRERR_NONE
@@ -46,6 +34,36 @@ except :
     pass 
 
 _logger = gofastlog.get_gofast_logger(__name__)
+
+__all__=[
+     'assert_elevation_value',
+     'assert_lat_value',
+     'assert_lon_value',
+     'assert_xy_coordinate_system',
+     'convert_position_float2str',
+     'convert_position_str2float',
+     'epsg_project',
+     'get_epsg',
+     'get_utm_string_from_sr',
+     'get_utm_zone',
+     'get_utm_zone_2',
+     'll_to_utm',
+     'project_point_ll2utm',
+     'project_point_ll2utm_2',
+     'project_point_utm2ll',
+     'project_point_utm2ll_2',
+     'project_points_ll2utm',
+     'split_utm_zone',
+     'transform_ll_to_utm',
+     'transform_utm_to_ll',
+     'utm_letter_designator',
+     'utm_to_ll',
+     'utm_wgs84_conv',
+     'utm_zone_to_epsg',
+     'validate_epsg',
+     'validate_input_values',
+     'validate_utm_zone'
+     ]
 
 def assert_xy_coordinate_system (x, y ): 
     """ Assert the coordinates system of x and y. 
@@ -276,7 +294,7 @@ def convert_position_float2str(position):
 
     return position_str
 
-@deprecated("NATO UTM zone is used in other part of mtpy,"
+@Deprecated("NATO UTM zone is used in other part of mtpy,"
             " this function is for Standard UTM")
 def get_utm_string_from_sr(spatialreference):
     """
@@ -880,7 +898,7 @@ def utm_to_ll(reference_ellipsoid, northing, easting, zone):
     if zone_letter >= 'N':
         NorthernHemisphere = 1  # point is in northern hemisphere
     else:
-        NorthernHemisphere = 0  # point is in southern hemisphere
+        NorthernHemisphere = 0  # point is in southern hemisphere   # noqa
         y -= 10000000.0  # remove 10,000,000 meter offset used for southern hemisphere
 
     # +3 puts origin in middle of zone
@@ -895,7 +913,7 @@ def utm_to_ll(reference_ellipsoid, northing, easting, zone):
     phi1_rad = (mu + (3 * e1 / 2 - 27 * e1 ** 3 / 32) * np.sin(2 * mu)
                 + (21 * e1 ** 2 / 16 - 55 * e1 ** 4 / 32) * np.sin(4 * mu)
                 + (151 * e1 ** 3 / 96) * np.sin(6 * mu))
-    phi1 = phi1_rad * _rad2deg
+    phi1 = phi1_rad * _rad2deg # noqa
 
     n1 = a / np.sqrt(1 - ecc_squared * np.sin(phi1_rad) ** 2)
     t1 = np.tan(phi1_rad) ** 2
@@ -966,8 +984,8 @@ def utm_wgs84_conv(lat, lon):
     return tup
 
 
-@gdal_data_check
-@deprecated("This function may be removed in later release."
+@CheckGDALData
+@Deprecated("This function may be removed in later release."
             " gofast.geo.gisutils.project_point_utm2ll() should be "
             "used instead.")
 def transform_utm_to_ll(easting, northing, zone,
@@ -995,8 +1013,8 @@ def transform_utm_to_ll(easting, northing, zone,
     return utm_to_ll_geo_transform.TransformPoint(easting, northing, 0)
 
 
-@gdal_data_check
-@deprecated("This function may be removed in later release. "
+@CheckGDALData
+@Deprecated("This function may be removed in later release. "
             "gofast.geo.gisutils.project_point_ll2utm() should be "
             "used instead.")
 def transform_ll_to_utm(lon, lat, reference_ellipsoid='WGS84'):

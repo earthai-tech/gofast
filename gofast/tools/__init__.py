@@ -112,7 +112,7 @@ MODULE_MAPPING = {
         'load_csv', 
         'load_model',
         'make_pipe', 
-        'one_click_preprocess', 
+        'one_click_prep', 
         'resampling',
         'save_dataframes', 
         'select_feature_importances', 

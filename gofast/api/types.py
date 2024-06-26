@@ -3,8 +3,7 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """ 
-`GoFast`_ Type variables
-========================
+`GoFast`_ Type variables.
 
 The `GoFast` library employs specialized type variables to enhance the clarity 
 and precision of type hints throughout the package. These custom type hints 

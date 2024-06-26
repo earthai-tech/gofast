@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """
-The `geo` module offers specialized tools for geosciences analysis.
+The `hydro` module offers specialized tools for hydrogeology analysis.
 """
 
 import math

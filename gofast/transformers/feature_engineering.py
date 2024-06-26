@@ -2,6 +2,10 @@
 #   Licence:BSD 3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 
+"""Provides a comprehensive collection of classes for feature engineering, 
+including feature selection, transformation, scaling, and encoding to enhance 
+machine learning model inputs."""
+
 from __future__ import division, annotations  
 
 import itertools 

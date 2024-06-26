@@ -1,8 +1,9 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-Optimizing searches helper functions
-"""
+Provides classes and functions designed to optimize machine learning models, 
+featuring methods for hyperparameter tuning and strategies for executing 
+searches in parallel."""
 
 import joblib
 import concurrent 

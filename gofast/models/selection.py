@@ -2,6 +2,10 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 
+"""Provides advanced search algorithms for hyperparameter tuning, including 
+evolutionary methods and gradient-based approaches to optimize machine 
+learning model configurations."""
+
 import warnings 
 import random
 import itertools 

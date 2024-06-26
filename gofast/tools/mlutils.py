@@ -90,12 +90,12 @@ __all__=[
     "smart_split",
     "save_dataframes", 
     "stats_from_prediction", 
-    "one_click_preprocess", 
+    "one_click_prep", 
     "soft_encoder", 
     "display_feature_contributions"
     ]
 
-def one_click_preprocess(
+def one_click_prep (
     data: DataFrame, 
     target_columns=None,
     columns=None, 

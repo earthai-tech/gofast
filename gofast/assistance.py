@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 
+"""Provides tools for assisting users with navigating and utilizing the features
+ of the `gofast` library, including direct support and exploration functions."""
+
 import importlib
 import pkgutil
 import warnings
@@ -64,7 +67,7 @@ TASK_MAPPING = {
         'split_train_test_by_id',
         'build_data_preprocessor',
         'make_pipe', 
-        'one_click_preprocess',
+        'one_click_prep',
         'soft_data_split',
         'stratify_categories',
         'smart_split',
@@ -264,6 +267,9 @@ def gofast_explorer(package_path, /,  exclude_names=None):
     exclude_names = exclude_names or default_exclusion
     exclude_names = [exclude_names] if isinstance (exclude_names, str) else exclude_names
     
+    if str(package_path)=="gofast": 
+        return _get_gofast_package_descriptions ()
+    
     # Exclude 'gofast.' in package path if exists
     package_path= str(package_path).lower().replace ('gofast.', '')
     base_package = "gofast"
@@ -301,6 +307,53 @@ def gofast_explorer(package_path, /,  exclude_names=None):
     description_report = ReportFactory(title=title)
     description_report.add_mixed_types(description_dict, table_width=TW)
 
+    print(description_report)
+
+def _get_gofast_package_descriptions(include_private=False):
+    descriptions = {
+        "_build": "Contains build scripts and configurations for the package.",
+        "analysis": "Includes modules for data analysis and statistical computations.",
+        "api": "Provides API interfaces and methods for external integration.",
+        "backends": "Houses different backend implementations for various operations.",
+        "cli": "Command-line interface tools and scripts.",
+        "compat": "Ensures compatibility with different versions and dependencies.",
+        "dataops": "Data operations and management utilities.",
+        "datasets": "Contains datasets and data loading utilities.",
+        "estimators": "Machine learning estimators and related utilities.",
+        "experimental": "Experimental features and modules under development.",
+        "externals": "External dependencies and third-party integrations.",
+        "geo": "Geospatial data processing and analysis tools.",
+        "gflogs": "Logging utilities specific to the gofast framework.",
+        "models": "Defines various machine learning models.",
+        "plot": "Plotting and visualization tools.",
+        "pyx": "Python extension modules for performance enhancement.",
+        "stats": "Statistical functions and analysis tools.",
+        "tools": "Miscellaneous tools and utilities for the package.",
+        "transformers": "Transformers and preprocessing modules for data transformation.",
+        "__init__[m]": "Initialization file for the package.",
+        "_dep_config[m]": "Dependency configuration settings.",
+        "_distributor_init[m]": "Initialization for distribution setup.",
+        "_gofastlog[m]": "Logging configurations and settings for gofast.",
+        "_public[m]": "Public API definitions and exports.",
+        "assistance[m]": "Helper functions and assistance utilities.",
+        "base[m]": "Base classes and core functionalities.",
+        "config[m]": "Configuration settings and utilities.",
+        "decorators[m]": "Decorators for various functionalities within the package.",
+        "exceptions[m]": "Custom exceptions and error handling.",
+        "metrics[m]": "Performance metrics and evaluation tools.",
+        "model_selection[m]": "Tools for model selection and validation.",
+        "query[m]": "Query utilities for data retrieval and manipulation.",
+        "util[m]": "Base package initialization utility functions."
+    }
+    
+    if not include_private:
+        descriptions = {k: v for k, v in descriptions.items() if not k.startswith('_')}
+    
+    # Generate and display a report
+    TW = get_table_size()
+    title = "Subpackages & Modules[m]"
+    description_report = ReportFactory(title=title)
+    description_report.add_mixed_types(descriptions, table_width=TW)
     print(description_report)
 
 

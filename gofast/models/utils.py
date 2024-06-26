@@ -2,6 +2,10 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 
+"""Provides a comprehensive set of utilities for evaluating, visualizing, and 
+analyzing machine learning models, including tools for cross-validation, 
+performance metrics, and results presentation."""
+
 from __future__ import annotations 
 import re
 import inspect

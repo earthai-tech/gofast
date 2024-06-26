@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Enables Geosciences tools
+# Created on Sat Feb  3 20:58:51 2024
+# @author:Lkouadio <etanoyau@gmail.com> a.k.a Daniel
+"""Enables Geosciences tools.
 
 The API and results of this estimator might change without any deprecation
 cycle.
@@ -11,9 +13,6 @@ as an attribute of the impute module::
     >>> from gofast.experimental import enable_geo_tools  # noqa
     >>> # now you can import normally from impute
     >>> from gofast.geo import Profile, Location
-    
-Created on Sat Feb  3 20:58:51 2024
-@author: Daniel
 """
 
 from ..geo.site import Profile, Location

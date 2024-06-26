@@ -2,11 +2,11 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-The `deep_search` module provides classes and functions for advanced model 
-training, hyperparameter tuning, and architecture search using deep learning 
-models. It is designed to work with TensorFlow and offers utilities for 
-efficient model evaluation, tuning strategies like Hyperband and Population-Based 
-Training (PBT), and various model-building utilities.
+Provides classes and functions for advanced model training, hyperparameter
+tuning, and architecture search using deep learning models. It is designed to 
+work with TensorFlow and offers utilities for efficient model evaluation, 
+tuning strategies like Hyperband and Population-Based Training (PBT), and 
+various model-building utilities.
 
 Note: This module requires TensorFlow to be installed. If TensorFlow is not 
 available, the module will raise an ImportError with instructions to install 

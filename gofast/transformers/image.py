@@ -2,6 +2,10 @@
 #   Licence:BSD 3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 
+"""Provides a variety of image processing transformers, including resizing, 
+normalization, color manipulation, and feature extraction for advanced 
+image analysis tasks."""
+
 from __future__ import division, annotations  
 import os
 import numpy as np 

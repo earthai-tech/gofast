@@ -2,6 +2,9 @@
 #   Licence:BSD 3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 
+"""Provides specialized transformers for extracting features from textual 
+and temporal data, including vectorization of text and extraction."""
+
 from __future__ import division, annotations
 import warnings
 import numpy as np   
@@ -12,8 +15,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 
 from ..tools.validator import build_data_if 
 
-__all__=[ "TextToVectorTransformer", "TextFeatureExtractor",
-         "DateFeatureExtractor" ]
+__all__=[ "TextToVectorTransformer", "TextFeatureExtractor"]
 
 class TextToVectorTransformer(BaseEstimator, TransformerMixin):
     """
@@ -281,83 +283,5 @@ class TextFeatureExtractor(BaseEstimator, TransformerMixin):
         return self.vectorizer.transform(X)
 
 
-class DateFeatureExtractor(BaseEstimator, TransformerMixin):
-    """
-    Extract year, month, and day features from date columns.
 
-    Parameters
-    ----------
-    date_format : str, default="%Y-%m-%d"
-        The date format to use for parsing date columns.
-
-    Examples
-    --------
-    >>> date_data = pd.DataFrame({'date': ['2021-01-01', '2021-02-01']})
-    >>> extractor = DateFeatureExtractor()
-    >>> features = extractor.fit_transform(date_data)
-
-    Methods
-    -------
-    fit(X, y=None)
-        Fit the transformer to the date data.
-
-    transform(X, y=None)
-        Transform the input date data into year, month, and day features.
-    """
-    def __init__(self, date_format="%Y-%m-%d"):
-        """
-        Initialize the DateFeatureExtractor.
-
-        Parameters
-        ----------
-        date_format : str, default="%Y-%m-%d"
-            The date format to use for parsing date columns.
-
-        """
-        self.date_format = date_format
-        
-    def fit(self, X, y=None):
-        """
-        Fit the transformer to the date data.
-
-        Parameters
-        ----------
-        X : DataFrame, shape (n_samples, n_features)
-            Date data to be transformed.
-
-        y : array-like, shape (n_samples,), optional, default=None
-            Target values. Not used in this transformer.
-
-        Returns
-        -------
-        self : object
-            Returns the instance itself.
-
-        """
-        return self
-    
-    def transform(self, X, y=None):
-        """
-        Transform the input date data into year, month, and day features.
-
-        Parameters
-        ----------
-        X : DataFrame, shape (n_samples, n_features)
-            Date data to be transformed.
-
-        y : array-like, shape (n_samples,), optional, default=None
-            Target values. Not used in this transformer.
-
-        Returns
-        -------
-        new_X : DataFrame, shape (n_samples, n_features * 3)
-            Transformed data with year, month, and day features for each date column.
-
-        """
-        new_X = X.copy()
-        for col in X.columns:
-            new_X[col + '_year'] = pd.to_datetime(X[col], format=self.date_format).dt.year
-            new_X[col + '_month'] = pd.to_datetime(X[col], format=self.date_format).dt.month
-            new_X[col + '_day'] = pd.to_datetime(X[col], format=self.date_format).dt.day
-        return new_X
 

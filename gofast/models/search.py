@@ -2,6 +2,10 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 
+"""Provides a set of classes for model selection and hyperparameter tuning, 
+including tools for cross-validation and automated search strategies to 
+optimize model performance."""
+
 from __future__ import annotations 
 
 import inspect

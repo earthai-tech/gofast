@@ -2,6 +2,9 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 
+"""Provides a set of functions for calculating descriptive statistics, including
+ measures of central tendency, dispersion, and shape."""
+
 from __future__ import annotations 
 import numpy as np
 from scipy import stats
