@@ -82,7 +82,7 @@ from .util import setup_logging
 setup_logging()
 
 # Public API flag
-__set_public__ = False
+PUBLIC = False
 
 def check_public_api():
     """Check if public API should be made available."""
@@ -101,18 +101,18 @@ class GoFastConfig:
         self._set_public = False
 
     @property
-    def __set_public__(self):
+    def PUBLIC(self):
         return self._set_public
 
-    @__set_public__.setter
-    def __set_public__(self, value):
+    @PUBLIC.setter
+    def PUBLIC(self, value):
         self._set_public = value
         check_public_api()
 
 config = GoFastConfig()
 
 # Update the module to use the new property
-__builtins__['__set_public__'] = config.__set_public__
+__builtins__['PUBLIC'] = config.PUBLIC
 
 __doc__ += f"\nVersion: {__version__}\n"
 
