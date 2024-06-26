@@ -325,6 +325,7 @@ def _get_gofast_package_descriptions(include_private=False):
         "geo": "Geospatial data processing and analysis tools.",
         "gflogs": "Logging utilities specific to the gofast framework.",
         "models": "Defines various machine learning models.",
+        "nn": "Neural network models, data processing, training, and hyperparameter tuning tools.",
         "plot": "Plotting and visualization tools.",
         "pyx": "Python extension modules for performance enhancement.",
         "stats": "Statistical functions and analysis tools.",
