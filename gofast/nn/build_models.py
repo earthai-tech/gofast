@@ -40,7 +40,7 @@ def build_lstm_model(
     loss: str = 'mean_squared_error',
     units: int = 50,
     output_units: int = 1,
-    optimizer: Union[str, Adam] = 'adam',
+    optimizer: Union[str, _Optimizer] = 'adam',
     metrics: Optional[list] = None
 ) -> Sequential:
     """

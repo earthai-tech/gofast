@@ -208,10 +208,12 @@ __all__ = [
     "_Loss",
     "_Regularizer",
     "_Optimizer",
+    "_Sequential", 
     "_History",
     "_Callback",
     "_Model", 
-    "_Metric"
+    "_Metric", 
+    
 ]
 
 _T = TypeVar('_T')
@@ -768,6 +770,12 @@ class _Model:
               callbacks: List[_Callback] = []) -> _History:
         pass
 
+class _Sequential: 
+    """ Base class for Sequential used to create  neural networks models."""
+    
+    def __init__( self, model: _Model ): 
+        self.model= model  
+    
 class _Metric:
     """
     Base class for metrics used to evaluate machine learning models.

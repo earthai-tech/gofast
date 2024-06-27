@@ -37,7 +37,7 @@ try:
 except BaseException as e : 
     warnings.warn(f"{extra_msg}: {e}" )
 else: 
-    from tensorflow.keras.models import Sequential
+    # from tensorflow.keras.models import Sequential
     from tensorflow.keras.optimizers import  Adam
     from tensorflow.keras.models import load_model
     
@@ -1072,9 +1072,6 @@ def train_model(
 
     return train_losses, val_losses, checkpoint_dir
 
-
-
-
 def plot_predictions(
     predicted_custom: ArrayLike, 
     predicted_mse: ArrayLike, 
@@ -1463,9 +1460,9 @@ def make_future_predictions(
 
 
 def cross_validate_lstm(
-    model: Sequential,
-    X: np.ndarray,
-    y: np.ndarray, 
+    model: _Model,
+    X: ArrayLike,
+    y: ArrayLike, 
     tscv: Optional[Union[TimeSeriesSplit, int]] = 4,
     metric: Union[str, Callable] = "mse",
     scaler: Optional[Union[MinMaxScaler, StandardScaler]] = None,

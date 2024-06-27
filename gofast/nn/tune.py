@@ -22,7 +22,7 @@ from sklearn.model_selection import KFold, TimeSeriesSplit
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from ..api.types import _Tensor, _Dataset, _Optimizer
-from ..api.types import  _Callback, _Model
+from ..api.types import  _Callback, _Model, _Sequential 
 from ..api.types import List, Union, Dict, Tuple, DataFrame, Series 
 from ..api.types import ArrayLike , Callable, Any
 
@@ -622,7 +622,7 @@ class Hyperband:
                                                 'score': self.best_score_})
         return self
 def base_tuning(
-    model: _Model,
+    model:_Sequential ,
     train_data: Tuple[ArrayLike, ArrayLike],
     val_data: Tuple[ArrayLike, ArrayLike],
     test_data: Tuple[ArrayLike, ArrayLike],
@@ -1652,7 +1652,7 @@ def _create_sequences(data: ArrayLike, n_lag: int) -> Tuple[ArrayLike, ArrayLike
     return np.array(X), np.array(y)
 
 def _build_lstm_model(n_lag: int, learning_rate: float, activation='relu'
-                      ) -> Sequential:
+                      ) -> _Model:
     """
     Builds and compiles an LSTM model based on the specified input shape 
     and learning rate.
@@ -1674,7 +1674,7 @@ def _build_lstm_model(n_lag: int, learning_rate: float, activation='relu'
     return model
 
 def _cross_validate_lstm(
-        model: Sequential, 
+        model: _Sequential , 
         X: np.ndarray, y: np.ndarray, 
         tscv: TimeSeriesSplit, metric: str, 
         scaler: Union[MinMaxScaler, StandardScaler], 
