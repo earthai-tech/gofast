@@ -28,8 +28,12 @@ else:
     from tensorflow.keras.optimizers import  Adam, SGD, RMSprop
 
 __all__= [ 
-    "build_lstm_model", "build_mlp_model", "create_attention_model", 
-    "create_autoencoder_model", "create_cnn_model", "create_lstm_model"
+    "build_lstm_model", 
+    "build_mlp_model",
+    "create_attention_model", 
+    "create_autoencoder_model", 
+    "create_cnn_model",
+    "create_lstm_model"
 ]
 
 def build_lstm_model(
