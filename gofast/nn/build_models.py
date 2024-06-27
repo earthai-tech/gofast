@@ -9,7 +9,7 @@ CNNs, and other types of models.
 """
 
 import warnings 
-from ..api.types import _Loss, _Regularizer, _Optimizer, _Metric 
+from ..api.types import _Loss, _Regularizer, _Optimizer, _Metric, _Sequential  
 from ..api.types import List, Optional, Union, Tuple 
 from ..tools._dependency import import_optional_dependency  
 
@@ -42,7 +42,7 @@ def build_lstm_model(
     output_units: int = 1,
     optimizer: Union[str, _Optimizer] = 'adam',
     metrics: Optional[list] = None
-) -> Sequential:
+) -> _Sequential:
     """
     Constructs and compiles an LSTM model with customizable configurations, 
     allowing for flexible input shapes.
@@ -183,7 +183,7 @@ def build_mlp_model(
     include_batch_norm: bool = False,
     custom_metrics: List[Union[str, _Metric]] = ['accuracy'],
     initializer: str = 'glorot_uniform'
-    ) -> Sequential:
+    ) -> _Sequential:
     """
     Constructs and compiles a Multilayer Perceptron (MLP) model, suitable for 
     classification tasks with multiple classes. This function sets up a neural 
