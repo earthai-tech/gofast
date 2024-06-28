@@ -2,10 +2,7 @@
 #   Licence:BSD 3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-Factor Analysis (FA)
-====================
-
-Here, we give an overview of implementations with vizualization of some factor 
+FA gives an overview with vizualization of implementations of some factor 
 analyses. For some remaining factor analysis methods, including Maximum 
 Likelihood Factor Analysis, Direct Oblimin Rotation, Varimax Rotation, and 
 others, it's recommended to refer to specialized texts in statistics or use 

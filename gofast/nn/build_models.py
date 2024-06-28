@@ -8,34 +8,44 @@ Includes functions for creating LSTM, MLP, Attention-based models, Autoencoders,
 CNNs, and other types of models.
 """
 
-import warnings 
-from ..api.types import _Loss, _Regularizer, _Optimizer, _Metric, _Sequential  
-from ..api.types import List, Optional, Union, Tuple 
-from ..tools._dependency import import_optional_dependency  
+from ..api.types import _Loss, _Regularizer, _Optimizer, _Metric, _Sequential
+from ..api.types import _Model, List, Optional, Union, Tuple
+from ..tools.funcutils import ensure_pkg
+from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 
-extra_msg = "`build_models` module expects the `tensorflow` library to be installed."
-try: 
-    import_optional_dependency('tensorflow', extra=extra_msg)
-    import tensorflow as tf
-except BaseException as e : 
-    warnings.warn(f"{extra_msg}: {e}" )
-else: 
-    from tensorflow.keras.models import Model,  Sequential
-    from tensorflow.keras.layers import Dense, Dropout, BatchNormalization
-    from tensorflow.keras.layers import LSTM, Input
-    from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten
-    from tensorflow.keras.layers import Attention, Concatenate
-    from tensorflow.keras.optimizers import  Adam, SGD, RMSprop
+if KERAS_BACKEND:
+    # Lazy-load the required Keras dependencies
+    Model = KERAS_DEPS.Model
+    Sequential = KERAS_DEPS.Sequential
+    Dense = KERAS_DEPS.Dense
+    Dropout = KERAS_DEPS.Dropout
+    BatchNormalization = KERAS_DEPS.BatchNormalization
+    LSTM = KERAS_DEPS.LSTM
+    Input = KERAS_DEPS.Input
+    Conv2D = KERAS_DEPS.Conv2D
+    MaxPooling2D = KERAS_DEPS.MaxPooling2D
+    Flatten = KERAS_DEPS.Flatten
+    Attention = KERAS_DEPS.Attention
+    Concatenate = KERAS_DEPS.Concatenate
+    Adam = KERAS_DEPS.Adam
+    SGD = KERAS_DEPS.SGD
+    RMSprop = KERAS_DEPS.RMSprop
 
-__all__= [ 
-    "build_lstm_model", 
+__all__ = [
+    "build_lstm_model",
     "build_mlp_model",
-    "create_attention_model", 
-    "create_autoencoder_model", 
+    "create_attention_model",
+    "create_autoencoder_model",
     "create_cnn_model",
     "create_lstm_model"
 ]
 
+DEP_MSG=dependency_message('build_lstm_model')
+
+@ensure_pkg(
+    KERAS_BACKEND or "keras",
+    extra=DEP_MSG
+)
 def build_lstm_model(
     n_lag: Optional[int] = None,
     input_shape: Optional[Tuple[int, int]] = None,
@@ -46,7 +56,7 @@ def build_lstm_model(
     output_units: int = 1,
     optimizer: Union[str, _Optimizer] = 'adam',
     metrics: Optional[list] = None
-) -> _Sequential:
+) -> _Sequential: # pass 
     """
     Constructs and compiles an LSTM model with customizable configurations, 
     allowing for flexible input shapes.
@@ -174,6 +184,10 @@ def build_lstm_model(
     
     return model
 
+@ensure_pkg(
+    KERAS_BACKEND or "keras",
+    extra=DEP_MSG
+)
 def build_mlp_model(
     input_dim: int, 
     output_classes: int = 6,
@@ -315,6 +329,10 @@ def build_mlp_model(
 
     return model
 
+@ensure_pkg(
+    KERAS_BACKEND or "keras",
+    extra=DEP_MSG
+)
 def create_attention_model(
     input_dim: int,
     seq_length: int,
@@ -324,7 +342,7 @@ def create_attention_model(
     dropout_rate: float = 0.2,
     output_units: int = 1,
     output_activation: str = "sigmoid"
-) -> 'tf.keras.Model':
+) -> '_Model':
     """
     Creates a sequence model with an attention mechanism dynamically based on the
     specified architecture parameters.
@@ -455,13 +473,17 @@ def create_attention_model(
     
     return model
 
+@ensure_pkg(
+    KERAS_BACKEND or "keras",
+    extra=DEP_MSG
+)
 def create_autoencoder_model(
     input_dim: int,
     encoder_layers: List[Tuple[int, Optional[str], float]],
     decoder_layers: List[Tuple[int, Optional[str], float]],
     code_activation: Optional[str] = None,
     output_activation: str = "sigmoid"
-) -> 'tf.keras.Model':
+) -> '_Model':
     """
     Creates an Autoencoder model dynamically based on the specified architecture
     parameters for the encoder and decoder.
@@ -581,6 +603,10 @@ def create_autoencoder_model(
     
     return autoencoder
 
+@ensure_pkg(
+    KERAS_BACKEND or "keras",
+    extra=DEP_MSG
+)
 def create_cnn_model(
     input_shape: Tuple[int, int, int],
     conv_layers: List[Tuple[int, Tuple[int, int], Optional[str], float]],
@@ -588,7 +614,7 @@ def create_cnn_model(
     dense_activation: str = "relu",
     output_units: int = 1,
     output_activation: str = "sigmoid"
-) -> 'tf.keras.Model':
+) -> '_Model':
     """
     Creates a CNN model dynamically based on the specified architecture 
     parameters.
@@ -704,6 +730,10 @@ def create_cnn_model(
     model.add(Dense(output_units, activation=output_activation))
     return model
 
+@ensure_pkg(
+    KERAS_BACKEND or "keras",
+    extra=DEP_MSG
+)
 def create_lstm_model(
     input_shape: Tuple[int, int], 
     n_units_list: List[int], 
@@ -711,7 +741,7 @@ def create_lstm_model(
     activation: str = "relu", 
     dropout_rate: float = 0.2, 
     dense_activation: Optional[str] = None
-) -> 'tf.keras.Model':
+) -> '_Model':
     """
     Creates an LSTM model dynamically based on the specified architecture 
     parameters.

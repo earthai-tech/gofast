@@ -4033,7 +4033,7 @@ def display_feature_contributions(
 
     # Extract feature importances
     importances = model.feature_importances_
-
+    
     # Optionally, display the feature importances using the chosen visualization package
     feature_names = model.feature_names_in_ if hasattr(
             model, 'feature_names_in_') else [f'feature_{i}' for i in range(X.shape[1])]
@@ -4057,7 +4057,6 @@ def display_feature_contributions(
 
     # Map feature names to their importances
     feature_importance_dict = dict(zip(feature_names, importances))
-    
     summary = ReportFactory(title="Feature Contributions Table",).add_mixed_types(
         feature_importance_dict)
     

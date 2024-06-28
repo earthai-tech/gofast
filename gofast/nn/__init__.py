@@ -11,18 +11,46 @@ available, the module will raise an ImportError with instructions to install
 TensorFlow.
 
 """
+import warnings
+from .generate import create_sequences, data_generator
+from ..compat.tf import import_keras_dependencies, check_keras_backend
 
+# Custom message for missing dependencies
+EXTRA_MSG = "`nn` sub-package expects the `tensorflow` or `keras` library to be installed."
+
+# Lazy-load Keras dependencies
+KERAS_DEPS={}
 try:
-    import tensorflow as tf # noqa
-except :
-    pass
-else: 
+    KERAS_DEPS = import_keras_dependencies(extra_msg=EXTRA_MSG, error='ignore')
+except BaseException as e:
+    warnings.warn(f"{EXTRA_MSG}: {e}")
+
+# Check if TensorFlow or Keras is installed
+KERAS_BACKEND = check_keras_backend(error='ignore')
+
+def dependency_message(module_name):
+    """
+    Generate a custom message for missing dependencies.
+
+    Parameters
+    ----------
+    module_name : str
+        The name of the module that requires the dependencies.
+
+    Returns
+    -------
+    str
+        A message indicating the required dependencies.
+    """
+    return (
+        f"`{module_name}` needs either the `tensorflow` or `keras` package to be "
+        "installed. Please install one of these packages to use this function."
+    )
+
+if KERAS_BACKEND:
     from .build_models import (
         build_lstm_model, build_mlp_model, create_attention_model, 
         create_autoencoder_model, create_cnn_model, create_lstm_model
-    )
-    from .generate import (
-        create_sequences, data_generator
     )
     from .train import (
         calculate_validation_loss, cross_validate_lstm, evaluate_model, 
@@ -33,7 +61,7 @@ else:
         Hyperband, PBTTrainer, base_tuning, custom_loss, deep_cv_tuning, 
         fair_neural_tuning, find_best_lr, lstm_ts_tuner, robust_tuning
     )
-    __all__=[
+    __all__ = [
         "plot_history",
         "base_tuning",
         "robust_tuning",
@@ -55,12 +83,13 @@ else:
         "create_autoencoder_model",
         "create_attention_model",
         "plot_errors",
-        "plot_predictions", 
-        "find_best_lr", 
-        "create_sequences", 
-        "make_future_predictions", 
-        "build_lstm_model", 
-        "lstm_ts_tuner", 
-        "cross_validate_lstm", 
+        "plot_predictions",
+        "find_best_lr",
+        "create_sequences",
+        "make_future_predictions",
+        "build_lstm_model",
+        "lstm_ts_tuner",
+        "cross_validate_lstm",
     ]
+
     

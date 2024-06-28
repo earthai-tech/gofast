@@ -241,7 +241,6 @@ class PSOBaseSearch(BaseSearchCV):
                 hyperparameters[param] = _choose_single_numeric(values)
             else:
                 raise ValueError(f"Invalid parameter space for {param}.")
-    
         return hyperparameters
 
     def _random_velocity(self):
@@ -297,33 +296,6 @@ class PSOBaseSearch(BaseSearchCV):
         )
         return score
     
-    def _evaluate_particle0(self, particle, X, y):
-        """
-        Evaluate the fitness of a particle's position.
-    
-        Parameters
-        ----------
-        particle : dict
-            A particle representing a set of hyperparameters.
-    
-        X : array-like of shape (n_samples, n_features)
-            Training vectors.
-    
-        y : array-like of shape (n_samples,)
-            Target values.
-    
-        Returns
-        -------
-        score : float
-            The fitness score of the particle's position.
-        """
-        estimator = clone(self.estimator).set_params(**particle['position'])
-        score = np.mean(cross_val_score(
-            estimator, X, y, cv=self.cv,
-            scoring=self.scoring, n_jobs=self.n_jobs)
-            )
-        return score
-
     def _move_particles(self, particles, global_best):
         """
         Update the positions and velocities of particles in the swarm.
@@ -367,6 +339,10 @@ class PSOBaseSearch(BaseSearchCV):
             # Skip update for categorical hyperparameters
             if isinstance(value, str):
                 continue
+            ### XXX TODO: check how to compute the param and value when 
+            # max_depth is None, or value is None 
+            # if particle['best_position'][param] is None: 
+            #     continue 
             # Generate random coefficients
             r1, r2 = random.random(), random.random()
     

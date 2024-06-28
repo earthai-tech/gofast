@@ -147,7 +147,7 @@ def _resume(deg_or_min, value):
 
 def convert_position_str2float(position_str):
     """
-    Convert a position string in the format of DD:MM:SS to decimal degrees
+    Convert a position string in the format of DD:MM:SS to decimal degrees.
     
     Parameters
     -------------
@@ -192,7 +192,7 @@ def convert_position_str2float(position_str):
 
 def assert_lat_value(latitude):
     """
-    make sure latitude is in decimal degrees
+    Make sure latitude is in decimal degrees.
     """
     # if latitude in [None, 'None']:
     #     return None
@@ -214,7 +214,7 @@ def assert_lat_value(latitude):
 
 def assert_lon_value(longitude):
     """
-    make sure longitude is in decimal degrees
+    Make sure longitude is in decimal degrees.
     """
     if longitude in [None, 'None']:
         return None
@@ -235,7 +235,7 @@ def assert_lon_value(longitude):
 
 def assert_elevation_value(elevation):
     """
-    make sure elevation is a floating point number
+    Make sure elevation is a floating point number.
     """
 
     try:
@@ -249,10 +249,10 @@ def assert_elevation_value(elevation):
 
 def convert_position_float2str(position):
     """
-    convert position float to a string in the format of DD:MM:SS
+    Convert position float to a string in the format of DD:MM:SS.
     
     Parameters
-    -------------
+    ------------
     **position** : float
                    decimal degrees of latitude or longitude
                        
@@ -298,7 +298,7 @@ def convert_position_float2str(position):
             " this function is for Standard UTM")
 def get_utm_string_from_sr(spatialreference):
     """
-    return utm zone string from spatial reference instance
+    Get utm zone string from spatial reference instance.
     """
     zone_number = spatialreference.GetUTMZone()
     if zone_number > 0:
@@ -311,7 +311,7 @@ def get_utm_string_from_sr(spatialreference):
 
 def get_utm_zone_2(latitude, longitude):
     """
-    Get utm zone from a given latitude and longitude
+    Get utm zone from a given latitude and longitude.
     """
     zone_number = (int(1 + (longitude + 180.0) / 6.0))
     ## why is this needed here, GDAL only needs N-orth or S-outh
@@ -733,7 +733,7 @@ _ellipsoid = [
 #             "used instead.")
 def ll_to_utm(reference_ellipsoid, lat, lon):
     """
-    converts lat/long to UTM coords.  Equations from USGS Bulletin 1532
+    Converts lat/long to UTM coords.  Equations from USGS Bulletin 1532
     East Longitudes are positive, West longitudes are negative.
     North latitudes are positive, South latitudes are negative
     Lat and Long are in decimal degrees
@@ -873,7 +873,7 @@ def _utm_letter_designator(lat):
 
 def utm_to_ll(reference_ellipsoid, northing, easting, zone):
     """
-    converts UTM coords to lat/long.  Equations from USGS Bulletin 1532
+    Converts UTM coords to lat/long.  Equations from USGS Bulletin 1532
     East Longitudes are positive, West longitudes are negative.
     North latitudes are positive, South latitudes are negative
     Lat and Long are in decimal degrees.
@@ -962,7 +962,10 @@ epsg_dict = {28350: ['+proj=utm +zone=50 +south +ellps=GRS80 +towgs84=0,0,0,0,0,
 
 def utm_wgs84_conv(lat, lon):
     """
-    Bidirectional UTM-WGS84 converter https://github.com/Turbo87/utm/blob/master/utm/conversion.py
+    Bidirectional UTM-WGS84 converter. 
+    
+    See More in https://github.com/Turbo87/utm/blob/master/utm/conversion.py.
+    
     :param lat:
     :param lon:
     :return: tuple(e, n, zone, lett)
@@ -1020,6 +1023,7 @@ def transform_utm_to_ll(easting, northing, zone,
 def transform_ll_to_utm(lon, lat, reference_ellipsoid='WGS84'):
     """
     transform a (lon,lat) to  a UTM coordinate.
+    
     The UTM zone number will be determined by longitude. South-North will be determined by Lat.
     :param lon: degree
     :param lat: degree
@@ -1061,7 +1065,7 @@ def transform_ll_to_utm(lon, lat, reference_ellipsoid='WGS84'):
 # ==============================================================================
 def get_utm_zone(latitude, longitude):
     """
-    Get utm zone from a given latitude and longitude
+    Get utm zone from a given latitude and longitude.
 
     :param latitude: latitude in [ 'DD:mm:ss.ms' | 'DD.decimal' | float ]
     :type latitude: [ string | float ]
@@ -1098,7 +1102,7 @@ def get_utm_zone(latitude, longitude):
 
 def utm_letter_designator(latitude):
     """
-    Get the UTM zone letter designation for a given latitude
+    Get the UTM zone letter designation for a given latitude.
 
     :param latitude: latitude in [ 'DD:mm:ss.ms' | 'DD.decimal' | float ]
     :type latitude: [ string | float ]
@@ -1143,7 +1147,7 @@ def utm_letter_designator(latitude):
 
 def split_utm_zone(utm_zone):
     """
-    Split utme zone into zone number and is northing
+    Split utme zone into zone number and is northing.
 
     :param utm_zone: utm zone string as {0-9}{0-9}{C-X} or {+,-}{0-9}{0-9}
     :type utm_zone: [ string | int ]
@@ -1179,7 +1183,7 @@ def split_utm_zone(utm_zone):
 
 def utm_zone_to_epsg(zone_number, is_northern):
     """
-    get epsg code (WGS84 datum) for a given utm zone
+    get epsg code (WGS84 datum) for a given utm zone.
 
     :param zone_number: UTM zone number
     :type zone_number: int
@@ -1210,8 +1214,8 @@ def utm_zone_to_epsg(zone_number, is_northern):
 
 def get_epsg(latitude, longitude):
     """
-    get epsg code for the utm projection (WGS84 datum) of a given latitude
-    and longitude pair
+    Get epsg code for the utm projection (WGS84 datum) of a given latitude
+    and longitude pair.
 
     :param latitude: latitude in [ 'DD:mm:ss.ms' | 'DD.decimal' | float ]
     :type latitude: [ string | float ]
@@ -1235,7 +1239,7 @@ def get_epsg(latitude, longitude):
 
 def _get_gdal_coordinate_system(datum):
     """
-    Get coordinate function from GDAL give a datum or EPSG number
+    Get coordinate function from GDAL give a datum or EPSG number.
 
     :param datum: can be a well know datum or an EPSG number
     :type: [ int | string ]
@@ -1263,7 +1267,7 @@ def _get_gdal_coordinate_system(datum):
 
 def validate_epsg(epsg):
     """
-    Make sure epsg is an integer
+    Make sure epsg is an integer.
 
     :param epsg: EPSG number
     :type epsg: [ int | str ]
@@ -1288,7 +1292,7 @@ def validate_epsg(epsg):
 
 def validate_utm_zone(utm_zone):
     """
-    Make sure utm zone is a valid string
+    Make sure utm zone is a valid string.
 
     :param utm_zone: UTM zone as {0-9}{0-9}{C-X} or {+, -}{0-9}{0-9}
     :type utm_zone: [ int | string ]
@@ -1312,8 +1316,8 @@ def validate_utm_zone(utm_zone):
 
 def validate_input_values(values, location_type=None):
     """
-    make sure the input values for lat, lon, easting, northing will be an 
-    numpy array with a float data type
+    Make sure the input values for lat, lon, easting, northing will be an 
+    numpy array with a float data type.
 
     can input a string as a comma separated list
 
@@ -1439,7 +1443,6 @@ def _get_gdal_projection_utm2ll(datum, utm_zone, epsg):
 
 def _get_pyproj_projection(datum, utm_zone, epsg):
     """
-
     Get the pyproj transfrom point function for given datum, utm_zone, epsg to
     transform either a UTM point to latitude and longitude, or latitude
     and longitude point to UTM.
@@ -1654,7 +1657,7 @@ def project_point_utm2ll(easting, northing, utm_zone, datum='WGS84', epsg=None):
 
 def epsg_project(x, y, epsg_from, epsg_to, proj_str=None):
     """
-    project some xy points using the pyproj modules
+    Project some xy points using the pyproj modules.
 
     Parameters
     ----------

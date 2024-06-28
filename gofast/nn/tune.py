@@ -25,32 +25,43 @@ from ..api.types import _Tensor, _Dataset, _Optimizer
 from ..api.types import  _Callback, _Model, _Sequential 
 from ..api.types import List, Union, Dict, Tuple, DataFrame, Series 
 from ..api.types import ArrayLike , Callable, Any
-
 from ..tools._dependency import import_optional_dependency 
 from ..tools.coreutils import is_iterable, type_of_target 
+from ..tools.funcutils import ensure_pkg 
 from ..tools.validator import check_consistent_length
 from ..tools.validator import validate_keras_model,  is_frame
 
-extra_msg = "`tune` module expects the `tensorflow` library to be installed."
-try: 
-    import_optional_dependency('tensorflow', extra=extra_msg)
-    import tensorflow as tf
-except BaseException as e : 
-    warnings.warn(f"{extra_msg}: {e}" )
-else: 
-    from tensorflow.keras.models import Sequential
-    from tensorflow.keras.layers import Dense
-    from tensorflow.keras.layers import LSTM
-    from tensorflow.keras.optimizers import  Adam
-    from tensorflow.keras.callbacks import TensorBoard
-    from tensorflow.keras.callbacks import EarlyStopping 
+from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 
+if KERAS_BACKEND:
+    Adam = KERAS_DEPS.Adam
+    RMSprop = KERAS_DEPS.RMSprop
+    SGD = KERAS_DEPS.SGD
+    EarlyStopping=KERAS_DEPS.EarlyStopping
+    TensorBoard=KERAS_DEPS.TensorBoard
+    LSTM=KERAS_DEPS.LSTM
+    load_model = KERAS_DEPS.load_model
+    mnist = KERAS_DEPS.mnist
+    Loss = KERAS_DEPS.Loss
+    Sequential = KERAS_DEPS.Sequential
+    Dense = KERAS_DEPS.Dense
+    reduce_mean = KERAS_DEPS.reduce_mean
+    GradientTape = KERAS_DEPS.GradientTape
+    square = KERAS_DEPS.square
+    Dataset=KERAS_DEPS.Dataset 
+    LearningRateScheduler=KERAS_DEPS.LearningRateScheduler
+    clone_model=KERAS_DEPS.clone_model
+    
+    
 __all__= [ 
     'Hyperband', 'PBTTrainer', 'base_tuning', 'custom_loss', 'deep_cv_tuning', 
     'fair_neural_tuning', 'find_best_lr', 'lstm_ts_tuner', 'robust_tuning'
     
 ]
 
+DEP_MSG=dependency_message('tune')
+
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 class PBTTrainer:
     """
     Implements Population Based Training (PBT), a hyperparameter optimization
@@ -360,6 +371,7 @@ class PBTTrainer:
             self.population[i] = (self.model_fn(), perturbed_hyperparams)  
             # Reinitialize model
 
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 class Hyperband:
     """
     Implements the Hyperband hyperparameter optimization algorithm, utilizing 
@@ -621,6 +633,8 @@ class Hyperband:
                     self.model_results_.append({'config': self.best_params_, 
                                                 'score': self.best_score_})
         return self
+
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 def base_tuning(
     model:_Sequential ,
     train_data: Tuple[ArrayLike, ArrayLike],
@@ -748,6 +762,7 @@ def base_tuning(
     
     return best_model, best_accuracy, test_accuracy
 
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 def robust_tuning(
     model_fn: Callable[..., _Model],
     dataset: Tuple[ArrayLike, ArrayLike],
@@ -910,11 +925,12 @@ def robust_tuning(
         if avg_score > best_score:
             best_score = avg_score
             best_params = params
-            best_model = tf.keras.models.clone_model(model)
+            best_model = clone_model(model)
             best_model.set_weights(model.get_weights())
 
     return best_model, best_params, best_score
 
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 def fair_neural_tuning(
     model_fn: Callable[..., _Model],
     train_data: Tuple[ArrayLike, ArrayLike],
@@ -1047,13 +1063,14 @@ def fair_neural_tuning(
         if accuracy > best_score:
             best_score = accuracy
             best_params = params
-            best_model = tf.keras.models.clone_model(model)
+            best_model = clone_model(model)
             best_model.set_weights(model.get_weights())
 
     best_model.evaluate(test_data[0], test_data[1], verbose=0)[1]
     
     return best_model, best_params, best_score
 
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 def deep_cv_tuning(
     model_fn: Callable[..., _Model],
     dataset: Tuple[ArrayLike, ArrayLike],
@@ -1202,11 +1219,12 @@ def deep_cv_tuning(
         if avg_score > best_score:
             best_score = avg_score
             best_params = params
-            best_model = tf.keras.models.clone_model(model)
+            best_model = clone_model(model)
             best_model.set_weights(model.get_weights())
 
     return best_model, best_params, best_score
 
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 def custom_loss(
     y_true: _Tensor, 
     y_pred: _Tensor, 
@@ -1304,12 +1322,13 @@ def custom_loss(
     check_consistent_length(y_true,y_pred )
     
     def loss(y_true, y_pred):
-        mse = tf.reduce_mean(tf.square(y_true - y_pred), axis=-1)
-        additional_term = tf.reduce_mean(tf.square(y_true - y_estimated), axis=-1)
+        mse = reduce_mean(square(y_true - y_pred), axis=-1)
+        additional_term = reduce_mean(square(y_true - y_estimated), axis=-1)
         return mse + lambda_value * additional_term
     
-    return tf.keras.losses.Loss(name=loss_name, reduction=reduction)(loss)
+    return Loss(name=loss_name, reduction=reduction)(loss)
 
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 def find_best_lr(
     model_fn: Callable, 
     train_data: Union[Tuple[ArrayLike, ArrayLike], _Dataset], 
@@ -1429,16 +1448,16 @@ def find_best_lr(
         if batch_size is None:
             raise ValueError("When using NumPy arrays as train_data, batch_size"
                              " must be specified.")
-        train_data = tf.data.Dataset.from_tensor_slices(train_data).shuffle(
+        train_data = Dataset.from_tensor_slices(train_data).shuffle(
             buffer_size=10000).batch(batch_size)
         steps_per_epoch = len(train_data)
 
-    lr_schedule = tf.keras.callbacks.LearningRateScheduler(
+    lr_schedule = LearningRateScheduler(
         lambda epoch: initial_lr + (max_lr - initial_lr) * epoch / (epochs - 1)
     )
 
     model = model_fn()
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=initial_lr),
+    model.compile(optimizer=Adam(learning_rate=initial_lr),
                   loss=loss)
 
     history = model.fit(train_data, epochs=epochs, steps_per_epoch=steps_per_epoch,
@@ -1463,6 +1482,7 @@ def find_best_lr(
 
     return optimal_lr
 
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 def lstm_ts_tuner(
     data: DataFrame,
     target: Union[str, Series, ArrayLike],

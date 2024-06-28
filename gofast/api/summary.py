@@ -1846,6 +1846,7 @@ def format_report(report_data, report_title=None, max_table_width= 70, **kws ):
         if not isinstance_(value, (pd.DataFrame, DataFrameFormatter, 
                                    DescriptionFormatter, MultiFrameFormatter) 
                            ):
+            #XXX TODO
             # Formatting non-DataFrame values with key alignment
             report_lines.append(format_text(
                 formatted_value, 

@@ -409,7 +409,7 @@ class SwarmSearchCV(PSOBaseSearch):
         global_best_position = None
         global_best_score = -np.inf
         global_best_candidates = []
-
+       
         for iteration in range(self.max_iter): 
             for particle in particles:
                 # Evaluate the current position using a separate method
@@ -431,7 +431,6 @@ class SwarmSearchCV(PSOBaseSearch):
                     print(f"Particle velocity: {particle['velocity']}")
                     print(f"Particle current score: {current_score}")
     
-      
             # Add the best candidate of this iteration
             global_best_candidates.append(global_best_position)
     

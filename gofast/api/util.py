@@ -2362,7 +2362,7 @@ def find_maximum_table_width(summary_contents, header_marker='='):
 
 def format_text(
         text, key=None, key_length=15, max_char_text=50, 
-        add_frame_lines =False, border_line='=' ):
+        add_frame_lines =False, border_line='=' , buffer_space = 4 ):
     """
     Formats a block of text to fit within a specified maximum character width,
     optionally prefixing it with a key. If the text exceeds the maximum width,
@@ -2385,6 +2385,10 @@ def format_text(
        If True, frame the text with '=' line (top and bottom)
     border_line: str, optional 
       The border line to frame the text.  Default is '='
+    buffer_space: int, default=4 
+       The extra space to force breaken the text. Using a large value will 
+       provide nice reading and force terminating the line sentence with no 
+       preprosition like `a`, 'of' or `the` etc. 
       
     Returns
     -------
@@ -2410,12 +2414,11 @@ def format_text(
     - Text that exceeds the `max_char_text` limit is wrapped to new lines, with
       proper alignment to match the initial line's formatting.
     """
-    
     if key is not None:
         # If key_length is None, use the length of the key + 1 
         # for the space after the key
         if key_length is None:
-            key_length = len(key) + 1
+            key_length = len(key) # + 1
         key_str = f"{key.ljust(key_length)} : "
     elif key_length is not None:
         # If key is None but key_length is specified, use spaces
@@ -2424,23 +2427,24 @@ def format_text(
         # If both key and key_length are None, there's no key part
         key_str = ""
     
-    # Adjust max_char_text based on the length of the key part
-    effective_max_char_text = (max_char_text - len(key_str) + 2 if key_str else max_char_text)
+    # Adjust max_char_text based on the length of the key part: +3 for " : ". 
+    effective_max_char_text = (max_char_text - len(key_str) + buffer_space 
+                               if key_str else max_char_text)
     formatted_text = ""
     text=str(text)
     while text:
         # If the remaining text is shorter than the effective
         # max length, or if there's no key part, add it as is
-        if len(text) <= effective_max_char_text - 4 or not key_str: # -4 for extraspace 
+        if len(text) <= effective_max_char_text - buffer_space or not key_str:
             formatted_text += key_str + text
             break
         else:
             # Find the space to break the line, ensuring it doesn't
             # exceed effective_max_char_text
-            break_point = text.rfind(' ', 0, effective_max_char_text-4)
+            break_point = text.rfind(' ', 0, effective_max_char_text- buffer_space)
             
             if break_point == -1:  # No spaces found, force break
-                break_point = effective_max_char_text -4 
+                break_point = effective_max_char_text -buffer_space 
             # Add the line to formatted_text
             formatted_text += key_str + text[:break_point].rstrip() + "\n"
             # Remove the added part from text
@@ -2450,7 +2454,7 @@ def format_text(
             key_str = " " * len(key_str)
 
     if add_frame_lines: 
-        frame_lines = border_line * (effective_max_char_text + 1 )
+        frame_lines = border_line * max_char_text  # (effective_max_char_text + 1 )
         formatted_text = frame_lines +'\n' + formatted_text +'\n' + frame_lines
 
     return formatted_text

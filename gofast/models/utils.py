@@ -895,7 +895,7 @@ def get_cv_mean_std_scores(
 
 def get_split_best_scores(cvres:Dict[str, ArrayLike], 
                        split:int=0)->Dict[str, float]: 
-    """ Get the best score at each split from cross-validation results
+    """Get the best score at each split from cross-validation results.
     
     Parameters 
     -----------
@@ -958,7 +958,7 @@ def display_model_max_details(cvres:Dict[str, ArrayLike], cv:int =4):
 
     
 def display_fine_tuned_results ( cvmodels: list[_F] ): 
-    """Display fined -tuning results 
+    """Display fined -tuning results.
     
     Parameters 
     -----------
@@ -2313,10 +2313,9 @@ def apply_param_types(estimator: BaseEstimator, param_dict: dict) -> dict:
     """
     param_types = get_param_types(estimator)
     new_param_dict = {}
-    
     for param, value in param_dict.items():
         if param in param_types:
-            if value is None: 
+            if value is None : 
                 new_param_dict[param] = value
                 continue 
             expected_type = param_types[param]

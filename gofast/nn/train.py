@@ -9,7 +9,6 @@ evaluating models, making future predictions, plotting errors, training and
 evaluating models, and more.
 """
 import os
-import warnings 
 import json
 import matplotlib
 import matplotlib.pyplot as plt
@@ -24,22 +23,26 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from ..api.types import _Tensor,  _Optimizer
 from ..api.types import _History, _Callback, _Model
 from ..api.types import List, Optional, Union, Dict, Tuple
-from ..api.types import ArrayLike , Callable, Any, Generator
-from ..tools._dependency import import_optional_dependency 
+from ..api.types import ArrayLike, Callable, Any, Generator
 from ..tools.coreutils import denormalize
+from ..tools.funcutils import ensure_pkg 
 from ..tools.validator import check_X_y, check_consistent_length
 from ..tools.validator import validate_keras_model
 
-extra_msg = "`train` module expects the `tensorflow` library to be installed."
-try: 
-    import_optional_dependency('tensorflow', extra=extra_msg)
-    import tensorflow as tf
-except BaseException as e : 
-    warnings.warn(f"{extra_msg}: {e}" )
-else: 
-    # from tensorflow.keras.models import Sequential
-    from tensorflow.keras.optimizers import  Adam
-    from tensorflow.keras.models import load_model
+from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
+
+if KERAS_BACKEND:
+    Adam = KERAS_DEPS.Adam
+    RMSprop = KERAS_DEPS.RMSprop
+    SGD = KERAS_DEPS.SGD
+    load_model = KERAS_DEPS.load_model
+    mnist = KERAS_DEPS.mnist
+    Loss = KERAS_DEPS.Loss
+    Sequential = KERAS_DEPS.Sequential
+    Dense = KERAS_DEPS.Dense
+    reduce_mean = KERAS_DEPS.reduce_mean
+    GradientTape = KERAS_DEPS.GradientTape
+    square = KERAS_DEPS.square
     
 __all__=[
      'calculate_validation_loss',
@@ -55,6 +58,12 @@ __all__=[
      'train_model'
  ]
 
+DEP_MSG=dependency_message('train')
+
+@ensure_pkg(
+    KERAS_BACKEND or "keras",
+    extra=DEP_MSG
+)
 def plot_history(
     history: _History, 
     title: str = 'Model Learning Curve',
@@ -163,7 +172,10 @@ def plot_history(
     ax2.legend()
     return ax1, ax2
 
-
+@ensure_pkg(
+    KERAS_BACKEND or "keras",
+    extra=DEP_MSG
+)
 def train_and_evaluate2(
     model_config: Dict[str, Any], 
     resource: int, 
@@ -236,25 +248,25 @@ def train_and_evaluate2(
     """
     # Load and prepare dataset
     if dataset is None:
-        (x_train, y_train), (x_val, y_val) = tf.keras.datasets.mnist.load_data()
+        (x_train, y_train), (x_val, y_val) = mnist.load_data()
         x_train = x_train.reshape(-1, 784).astype('float32') / 255
         x_val = x_val.reshape(-1, 784).astype('float32') / 255
     else:
         (x_train, y_train), (x_val, y_val) = dataset
 
     # Define model architecture
-    model = tf.keras.Sequential([
-        tf.keras.layers.Dense(model_config['units'], activation='relu', 
+    model = Sequential([
+        Dense(model_config['units'], activation='relu', 
                               input_shape=(784,)),
-        tf.keras.layers.Dense(10, activation='softmax')
+        Dense(10, activation='softmax')
     ])
     # Select optimizer
     if optimizer.lower() == 'adam':
-        opt = tf.keras.optimizers.Adam(learning_rate=model_config['learning_rate'])
+        opt = Adam(learning_rate=model_config['learning_rate'])
     elif optimizer.lower() == 'sgd':
-        opt = tf.keras.optimizers.SGD(learning_rate=model_config['learning_rate'])
+        opt = SGD(learning_rate=model_config['learning_rate'])
     elif optimizer.lower() == 'rmsprop':
-        opt = tf.keras.optimizers.RMSprop(learning_rate=model_config['learning_rate'])
+        opt = RMSprop(learning_rate=model_config['learning_rate'])
     else:
         raise ValueError(f"Optimizer '{optimizer}' is not supported.")
     
@@ -270,6 +282,10 @@ def train_and_evaluate2(
     best_val_accuracy = max(history.history['val_accuracy'])
     return best_val_accuracy
 
+@ensure_pkg(
+    KERAS_BACKEND or "keras",
+    extra=DEP_MSG
+)
 def train_and_evaluate(model_config: Dict[str, Any], resource: int) -> float:
     """
     Trains and evaluates a Keras model using the specified configuration
@@ -325,20 +341,20 @@ def train_and_evaluate(model_config: Dict[str, Any], resource: int) -> float:
     """
 
     # Define a simple model based on the configuration
-    model = tf.keras.Sequential([
-        tf.keras.layers.Dense(model_config['units'], 
+    model = Sequential([
+        Dense(model_config['units'], 
                               activation='relu', input_shape=(784,)),
-        tf.keras.layers.Dense(10, activation='softmax')
+        Dense(10, activation='softmax')
     ])
     
     # Compile the model
-    model.compile(optimizer=tf.keras.optimizers.Adam(
+    model.compile(optimizer=Adam(
         learning_rate=model_config['learning_rate']),
                   loss='sparse_categorical_crossentropy',
                   metrics=['accuracy'])
     
     # Load and prepare the MNIST dataset
-    (x_train, y_train), (x_val, y_val) = tf.keras.datasets.mnist.load_data()
+    (x_train, y_train), (x_val, y_val) = mnist.load_data()
     x_train = x_train.reshape(-1, 784).astype('float32') / 255
     x_val = x_val.reshape(-1, 784).astype('float32') / 255
     
@@ -351,7 +367,10 @@ def train_and_evaluate(model_config: Dict[str, Any], resource: int) -> float:
     
     return best_val_accuracy
 
-
+@ensure_pkg(
+    KERAS_BACKEND or "keras",
+    extra=DEP_MSG
+)
 def train_epoch(
     model: _Model, 
     optimizer: _Optimizer, 
@@ -462,19 +481,19 @@ def train_epoch(
     for x_batch, y_actual_batch, y_estimated_batch in _data_generator(
         x_train, y_train_actual, y_train_estimated, batch_size):
         
-        with tf.GradientTape() as tape:
+        with GradientTape() as tape:
             y_pred_batch = model(x_batch, training=True)
             if use_custom_loss and y_train_estimated is not None:
                 loss = _custom_loss(
                     y_actual_batch, y_pred_batch, 
                     y_estimated_batch, lambda_value)
             else:
-                loss = tf.keras.losses.mean_squared_error(
+                loss = mean_squared_error(
                     y_actual_batch, y_pred_batch)
         
         gradients = tape.gradient(loss, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-        epoch_train_loss.append(tf.reduce_mean(loss).numpy())
+        epoch_train_loss.append(reduce_mean(loss).numpy())
 
     # Assume calculate_validation_loss is a predefined function
     val_loss = calculate_validation_loss(
@@ -562,12 +581,16 @@ def _custom_loss(
     check_consistent_length(y_true,y_pred )
     
     def loss(y_true, y_pred):
-        mse = tf.reduce_mean(tf.square(y_true - y_pred), axis=-1)
-        additional_term = tf.reduce_mean(tf.square(y_true - y_estimated), axis=-1)
+        mse = reduce_mean(square(y_true - y_pred), axis=-1)
+        additional_term = reduce_mean(square(y_true - y_estimated), axis=-1)
         return mse + lambda_value * additional_term
     
-    return tf.keras.losses.Loss(name=loss_name, reduction=reduction)(loss)
+    return Loss(name=loss_name, reduction=reduction)(loss)
 
+@ensure_pkg(
+    KERAS_BACKEND or "keras",
+    extra=DEP_MSG
+)
 def calculate_validation_loss(
     model: _Model, 
     x_val: ArrayLike, 
@@ -665,7 +688,7 @@ def calculate_validation_loss(
     if use_custom_loss and y_val_estimated is not None:
         loss = _custom_loss(y_val_actual, val_preds, y_val_estimated, lambda_value)
     else:
-        loss = tf.keras.losses.mean_squared_error(y_val_actual, val_preds)
+        loss = mean_squared_error(y_val_actual, val_preds)
     return np.mean(loss.numpy())
 
 
@@ -789,7 +812,11 @@ def _data_generator(
                 x_batch, y_actual_batch, y_estimated_batch)
 
         yield (x_batch, y_actual_batch, y_estimated_batch)
-        
+
+@ensure_pkg(
+    KERAS_BACKEND or "keras",
+    extra=DEP_MSG
+)        
 def evaluate_model(
     model_path: str, 
     Xt: ArrayLike, 
@@ -919,8 +946,12 @@ def evaluate_model(
     
     return test_metrics
 
+@ensure_pkg(
+    KERAS_BACKEND or "keras",
+    extra=DEP_MSG
+)
 def train_model(
-    model: 'tf.keras.Model', 
+    model: '_Model', 
     x_train: ArrayLike, 
     y_train_actual: ArrayLike, 
     y_train_estimated: Optional[ArrayLike] = None, 
@@ -1072,6 +1103,10 @@ def train_model(
 
     return train_losses, val_losses, checkpoint_dir
 
+@ensure_pkg(
+    KERAS_BACKEND or "keras",
+    extra=DEP_MSG
+)
 def plot_predictions(
     predicted_custom: ArrayLike, 
     predicted_mse: ArrayLike, 
@@ -1195,6 +1230,10 @@ def plot_predictions(
         plt.savefig(filename)
     return plt.gca()
 
+@ensure_pkg(
+    KERAS_BACKEND or "keras",
+    extra=DEP_MSG
+)
 def plot_errors(
     predicted_custom: ArrayLike, 
     predicted_mse: ArrayLike, 
@@ -1318,6 +1357,10 @@ def plot_errors(
         plt.savefig(filename)
     return plt.gca()
 
+@ensure_pkg(
+    KERAS_BACKEND or "keras",
+    extra=DEP_MSG
+)
 def make_future_predictions(
     model: Any, 
     last_known_sequence: ArrayLike, 
@@ -1458,7 +1501,10 @@ def make_future_predictions(
     
     return future_predictions
 
-
+@ensure_pkg(
+    KERAS_BACKEND or "keras",
+    extra=DEP_MSG
+)
 def cross_validate_lstm(
     model: _Model,
     X: ArrayLike,

@@ -2206,7 +2206,7 @@ class BaseEvaluation (BaseClass):
             )
         return 1 
   
-BaseEvaluation.__doc__="""\"""
+BaseEvaluation.__doc__="""\
 Base class for evaluating machine learning models using cross-validation and
 pipeline transformations.
 
