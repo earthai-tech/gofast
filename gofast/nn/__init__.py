@@ -16,12 +16,16 @@ from .generate import create_sequences, data_generator
 from ..compat.tf import import_keras_dependencies, check_keras_backend
 
 # Custom message for missing dependencies
-EXTRA_MSG = "`nn` sub-package expects the `tensorflow` or `keras` library to be installed."
+EXTRA_MSG = ( 
+    "`nn` sub-package expects the `tensorflow` or"
+    " `keras` library to be installed."
+    )
 
 # Lazy-load Keras dependencies
 KERAS_DEPS={}
 try:
-    KERAS_DEPS = import_keras_dependencies(extra_msg=EXTRA_MSG, error='ignore')
+    KERAS_DEPS = import_keras_dependencies(
+        extra_msg=EXTRA_MSG, error='ignore')
 except BaseException as e:
     warnings.warn(f"{EXTRA_MSG}: {e}")
 

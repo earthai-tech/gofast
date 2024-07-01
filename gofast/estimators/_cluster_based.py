@@ -357,8 +357,8 @@ class BaseKMF(BaseEstimator, metaclass=ABCMeta):
         y_pred : array-like of shape (n_samples,)
             Predicted class labels or target values for each sample.
     
-        Mathematical Formulation
-        ------------------------
+        Notes
+        -----
         The prediction process involves two main steps:
     
         1. **Transformation**:
@@ -374,7 +374,13 @@ class BaseKMF(BaseEstimator, metaclass=ABCMeta):
            values using the base estimator:
            .. math::
                \hat{y} = \text{BaseEstimator}(\text{Transformed Data})
-    
+
+        - Ensure that the `fit` method has been called before invoking `predict`.
+        - The performance of the predictions depends on both the clustering 
+          quality and the effectiveness of the base estimator.
+        - This method checks if the model is fitted and raises a `NotFittedError` 
+          if the model is not fitted.
+          
         Examples
         --------
         >>> from gofast.estimators.cluster_based import KMFClassifier
@@ -387,13 +393,6 @@ class BaseKMF(BaseEstimator, metaclass=ABCMeta):
         >>> kmf_classifier.fit(X_train, y_train)
         >>> y_pred = kmf_classifier.predict(X_test)
     
-        Notes
-        -----
-        - Ensure that the `fit` method has been called before invoking `predict`.
-        - The performance of the predictions depends on both the clustering 
-          quality and the effectiveness of the base estimator.
-        - This method checks if the model is fitted and raises a `NotFittedError` 
-          if the model is not fitted.
     
         See Also
         --------

@@ -51,12 +51,12 @@ def build_lstm_model(
     input_shape: Optional[Tuple[int, int]] = None,
     learning_rate: float = 0.01,
     activation: str = 'relu',
-    loss: str = 'mean_squared_error',
+    loss: str = 'mse',
     units: int = 50,
     output_units: int = 1,
     optimizer: Union[str, _Optimizer] = 'adam',
     metrics: Optional[list] = None
-) -> _Sequential: # pass 
+) -> _Sequential: 
     """
     Constructs and compiles an LSTM model with customizable configurations, 
     allowing for flexible input shapes.
@@ -167,6 +167,9 @@ def build_lstm_model(
            MIT Press.
     """
     # Determine input shape based on n_lag or direct input_shape
+    if str(loss).lower() =='mse': 
+        loss="mean_squared_error"
+        
     if not input_shape:
         if n_lag is None:
             raise ValueError("Either n_lag or input_shape must be provided.")
@@ -284,7 +287,6 @@ def build_mlp_model(
     .. [1] Goodfellow, Ian, et al. "Deep Learning." MIT press, 2016.
     .. [2] Chollet, François. "Deep Learning with Python." Manning Publications Co., 2017.
     """
-
 
     if activation_functions is None:
         activation_functions = ['relu'] * len(hidden_units)
@@ -713,7 +715,6 @@ def create_cnn_model(
            Gradient-based learning applied to document recognition. 
            Proceedings of the IEEE, 86(11), 2278-2324.
     """
-
     model = Sequential()
     for i, (filters, kernel_size, activation, dropout) in enumerate(conv_layers):
         if i == 0:
