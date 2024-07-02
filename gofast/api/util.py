@@ -2999,10 +2999,12 @@ def format_correlations(
     if autofit: 
         # remove ... to avoid confusion with no correlated symbol 
         no_corr_placeholder=''
-        
+    #XXX TODO . 
     formatted_corr = corr_matrix.applymap(format_value)
+    print(propose_layout(formatted_corr))
     formatted_df = format_df(formatted_corr, autofit= autofit)
     max_width = find_maximum_table_width(formatted_df)
+    print(max_width, )
     legend = ""
     if use_symbols:
         legend = generate_legend(
