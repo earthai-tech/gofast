@@ -1218,6 +1218,8 @@ class BoxFormatter:
         ]
 
         item_template = "|{key:<{key_width}}| {desc:<{desc_width}}|"
+        next_marker ='.'
+        baseline = ". {next_marker:>{key_width}}  {next_marker:>{desc_width}}"
         for key, desc in dict_table.items():
             wrapped_desc = self.wrap_text(desc, descr_width)
             for i, line in enumerate(wrapped_desc):
@@ -1229,8 +1231,13 @@ class BoxFormatter:
                     content_lines.append(item_template.format(
                         key="", key_width=longest_key, desc=line, 
                         desc_width=descr_width))
-            content_lines.append('-' * header_width)
-
+            content_lines.append (
+                baseline.format(
+                            next_marker=next_marker, 
+                            key_width=longest_key, 
+                            desc_width=descr_width)
+                )
+            #content_lines.append('-' * header_width)
         # Replace the last separator with equal sign to signify the end
         content_lines[-1] = '=' * header_width
 
@@ -1814,12 +1821,13 @@ def construct_long_dataframes_with_same_columns(
          # Set the title for the current table if provided
         title = titles[i].title() if titles and i < len(titles) else ""
         formatted_df = flex_df_formatter(
-            df, title=title, max_rows=max_rows, 
-             max_cols=max_cols, 
-             index= include_index, style= style, 
-             column_widths= column_widths, 
-             max_index_length= max_index_length, 
-             **kwargs
+            df, title=title, 
+            max_rows=max_rows, 
+            max_cols=max_cols, 
+            index= include_index, style= style, 
+            column_widths= column_widths, 
+            max_index_length= max_index_length, 
+            **kwargs
         )
         if i > 0: 
           formatted_df = remove_header_lines( 

@@ -95,7 +95,7 @@ setup_kwargs = {
         "threadpoolctl>=3.1.0",
         "matplotlib>=3.5.3",
         "statsmodels>=0.13.1",
-        "numpy <2.0.x", # >=1.23.0 # > # use version 1>=1.23.0
+        "numpy <2.0", # >=1.23.0 # > # use version 1>=1.23.0
         "scipy>=1.9.0",
         "h5py>=3.2.0",
         # "pytest",

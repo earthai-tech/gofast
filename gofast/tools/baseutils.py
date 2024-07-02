@@ -60,6 +60,7 @@ __all__= [
     'interpolate_grid',
     'interpolate_data', 
     'labels_validator',
+    'make_df', 
     'normalizer',
     'remove_outliers',
     'remove_target_from_array',
@@ -4377,7 +4378,160 @@ def pandas_manager(
         return _handle_set_action(
             data, name_or_columns, action , error, index)
 
+def make_df(
+    X, y=None, 
+    prefix=None, 
+    target_names=None,
+    coerce=False, 
+    error='raise', 
+    fill_value=np.nan,
+    truncate_X=False
+):
+    """
+    Prepare a DataFrame from input data `X` and `y` with appropriate naming
+    conventions and length checks.
 
+    Parameters
+    ----------
+    X : array-like or DataFrame
+        Input features. If not a DataFrame, `X` will be converted into one with 
+        column names generated using the `prefix` parameter.
+
+    y : array-like or Series, optional
+        Target values. If provided, `y` will be converted into a DataFrame. 
+        If `y` is a 1D array and `target_names` is not given, 'target' will be 
+        used as the default name. For a 2D array, `target_names` will be used 
+        to name the columns.
+
+    prefix : str, optional
+        Prefix for feature column names if `X` is not a DataFrame. Default is 'feature_'.
+
+    target_names : list of str, optional
+        Names for target columns if `y` is 2D. If `target_names` is not provided, 
+        columns will be named using 'target_' prefix.
+
+    coerce : bool, optional
+        Whether to coerce the lengths of `X` and `y` to match if they are inconsistent.
+        Default is False. If True and `len(X) < len(y)`, `X` will be repeated to 
+        match `y`'s length. If `len(y) < len(X)`, `y` will be forward-filled to 
+        match `X`'s length.
+
+    error : str, optional
+        Error handling strategy. Options are:
+        - 'raise': Raises an error if lengths of `X` and `y` are inconsistent 
+          and `coerce` is False.
+        - 'warn': Issues a warning instead of raising an error.
+        - 'ignore': Ignores the inconsistency and proceeds. Default is 'raise'.
+
+    fill_value : scalar, optional
+        Value to use for filling missing values if `coerce` is True and 
+        `len(y) < len(X)`. Default is `np.nan`.
+
+    truncate_X : bool, optional
+        If True and `len(y) < len(X)`, truncate `X` to match the length of `y`.
+        Default is False.
+
+    Returns
+    -------
+    DataFrame
+        Combined DataFrame with features and target(s).
+
+    Notes
+    -----
+    This function is useful for preparing data for machine learning tasks, 
+    ensuring consistency between features and targets. The function handles 
+    common issues such as inconsistent lengths and missing values, providing 
+    options to coerce or truncate data as needed.
+
+    Examples
+    --------
+    >>> from gofast.tools.baseutils import make_df
+    >>> X = np.random.rand(90, 5)
+    >>> y = np.random.rand(100)
+    >>> df = make_data(X, y, coerce=True, error='ignore')
+    >>> print(df.head())
+
+    See Also
+    --------
+    pd.DataFrame : Pandas DataFrame constructor.
+    np.asarray : Convert input to an array.
+
+    References
+    ----------
+    .. [1] Pandas Documentation: https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html
+    .. [2] NumPy Documentation: https://numpy.org/doc/stable/reference/generated/numpy.asarray.html
+    """
+    
+    def to_dataframe(data, prefix, default_name=None):
+        if isinstance(data, pd.DataFrame):
+            return data
+        if isinstance(data, pd.Series):
+            return data.to_frame(name=default_name)
+        data = np.asarray(data)
+        if data.ndim == 1:
+            default_name ='feature' if default_name=='feature_' else default_name 
+            return pd.DataFrame(data, columns=[default_name])
+        column_names = [f"{prefix}{i}" for i in range(data.shape[1])]
+        
+        default_name = column_names if (
+            default_name is None or default_name == f'{prefix}') else default_name
+        
+        if isinstance(default_name, str):
+            default_name = [default_name]
+        
+        if isinstance(default_name, (list, tuple)) and len(default_name) != len(column_names):
+            if error == 'warn':
+                warnings.warn("Provided default names must match the number"
+                              " of columns in data. Using generated names instead.")
+            elif error == 'raise':
+                raise ValueError("Provided default names must match the number of columns in data.")
+            default_name = column_names
+        
+        return pd.DataFrame(data, columns=default_name)
+
+    prefix = prefix or 'feature_'
+    
+    # Convert X to DataFrame
+    X = to_dataframe(X, prefix, f"{prefix}")
+    
+    # Convert y to DataFrame if it is provided
+    if y is not None:
+        if isinstance(target_names, str):
+            target_names = [target_names]
+            
+        y = to_dataframe(y, 'target_', target_names if target_names else 'target')
+
+    # Check for length consistency
+    if y is not None:
+        if len(X) != len(y):
+            msg = f"Inconsistent lengths: len(X)={len(X)}, len(y)={len(y)}."
+            if len(X) < len(y):
+                if error == 'raise' and not coerce:
+                    raise ValueError(msg)
+                elif coerce:
+                    multiplier = (len(y) // len(X)) + 1
+                    X = pd.concat([X] * multiplier).reset_index(drop=True).iloc[:len(y)]
+                    warnings.warn(f"{msg} Coercing X to match y length.")
+                elif error == 'ignore':
+                    pass
+            elif len(y) < len(X):
+                if truncate_X:
+                    X = X.iloc[:len(y)]
+                    if error =='warn': 
+                        warnings.warn(f"{msg} Truncating X to match y length.")
+                elif coerce:
+                    y = y.reindex(np.arange(len(X)), method='ffill',
+                                  fill_value=fill_value)
+                    warnings.warn(f"{msg} Forward filling y to match X length.")
+                else:
+                    raise ValueError(
+                        msg + " y cannot have fewer rows than X. Please check the input.")
+
+    # Combine X and y
+    if y is not None:
+        return pd.concat([X.reset_index(drop=True), y.reset_index(drop=True)], axis=1)
+    
+    return X
 
 
         

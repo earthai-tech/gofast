@@ -8,6 +8,7 @@ and more.
 """
 
 from __future__ import annotations 
+import inspect 
 import warnings 
 import random
 from datetime import timedelta
@@ -17,7 +18,7 @@ import numpy as np
 from ._globals import HYDRO_PARAMS, HYDRO_PARAM_UNITS 
 from ._globals import RELEVANT_HYDRO_PARAMS, HYDRO_PARAM_RANGES  
 
-from ..tools.baseutils import remove_target_from_array
+from ..tools.baseutils import make_df, remove_target_from_array 
 from ..tools.coreutils import assert_ratio, is_iterable 
 from ..tools.coreutils import _assert_all_types
 from ..tools.coreutils import smart_format, random_sampling 
@@ -28,7 +29,7 @@ from ..tools.validator import parameter_validator, validate_positive_integer
 from .util import manage_data, get_item_from, generate_synthetic_values
 from .util import generate_categorical_values, generate_regression_output
 from .util import apply_scaling, rename_data_columns 
-from .util import adjust_parameters_to_fit_samples 
+from .util import adjust_parameters_to_fit_samples, fetch_simulation_metadata  
 
 __all__=[
      'make_african_demo',
@@ -56,6 +57,8 @@ def make_data(
     n_samples=100, 
     n_features=5, 
     task='classification', 
+    as_frame=True, 
+    return_X_y=False, 
     n_classes=2, 
     n_informative=2, 
     n_clusters_per_class=1, 
@@ -65,7 +68,7 @@ def make_data(
     test_size=0.3, 
     shuffle=True, 
     split_X_y=False, 
-    noise=0.0
+    noise=0.0, 
 ):
     """
     Generates synthetic datasets for classification or regression tasks, 
@@ -79,35 +82,54 @@ def make_data(
     ----------
     n_samples : int, optional
         The total number of samples to generate. Defaults to 100.
+
     n_features : int, optional
         The number of features to generate for each sample. Defaults to 5.
+
     task : str, optional
         The type of dataset to generate. Options are 'classification' or 
         'regression'. Defaults to 'classification'.
+
+    as_frame : bool, optional
+        If True, returns the dataset as a pandas DataFrame. Defaults to True.
+
+    return_X_y : bool, optional
+        If True, returns a tuple (X, y) instead of a single object. 
+        Defaults to False.
+
     n_classes : int, optional
         The number of classes (only used for classification). Defaults to 2.
+
     n_informative : int, optional
         The number of informative features (only used for classification). 
         Defaults to 2.
+
     n_clusters_per_class : int, optional
         The number of clusters per class (only used for classification). 
         Defaults to 1.
+
     n_redundant : int, optional
         The number of redundant features (only used for classification). 
         Defaults to 0.
+
     n_repeated : int, optional
         The number of repeated features (only used for classification). 
         Defaults to 0.
+
     random_state : int, optional
         The seed used by the random number generator. Defaults to 42.
+
     test_size : float, optional
         The proportion of the dataset to include in the test split. 
         Defaults to 0.3.
+
     shuffle : bool, optional
         Whether or not to shuffle the data before splitting. Defaults to True.
+
     split_X_y : bool, optional
         Whether to split the dataset into training and test sets. 
         Defaults to False.
+
     noise : float, optional
         The standard deviation of the Gaussian noise added to the output 
         (only used for regression). Defaults to 0.0.
@@ -117,34 +139,56 @@ def make_data(
     X_train, X_test, y_train, y_test : ndarray
         The training and testing sets of features and labels (if `split_X_y` 
         is True).
+
     X, y : ndarray
         The features and labels of the dataset (if `split_X_y` is False).
+
+    DataFrame
+        If `as_frame` is True and `return_X_y` is False, returns a pandas 
+        DataFrame containing the features and target.
 
     Examples
     --------
     Generate a simple classification dataset and split into training and testing:
 
-    >>> from gofast.datasets.generate import make_data
+    >>> from gofast.datasets.make import make_data
     >>> X_train, X_test, y_train, y_test = make_data(task='classification', 
-    ... n_samples=150, n_features=4, n_classes=3, test_size=0.2, random_state=7, 
-    ... split_X_y=True)
+    ... n_samples=150, n_features=4, n_classes=3, test_size=0.2, 
+    ... random_state=7, split_X_y=True)
 
     Generate a regression dataset without splitting:
 
-    >>> X, y = create_dataset(task='regression', n_samples=200, n_features=6, 
+    >>> X, y = make_data(task='regression', n_samples=200, n_features=6, 
     ... noise=0.1, random_state=8)
 
     Notes
     -----
-    - When generating classification datasets, if the number of classes is two,
-      the function creates a binary classification dataset.
+    - When generating classification datasets, if the number of classes is 
+      two, the function creates a binary classification dataset.
     - For regression tasks, the noise parameter can be adjusted to simulate 
       real-world data where outputs have Gaussian noise.
-    - Setting `split_X_y` to False is useful when the entire dataset is needed 
-      for processes such as cross-validation or when using custom data splitting 
-      strategies.
-    """
+    - Setting `split_X_y` to False is useful when the entire dataset is 
+      needed for processes such as cross-validation or when using custom 
+      data splitting strategies.
 
+    See Also
+    --------
+    sklearn.datasets.make_classification : Generate a random n-class 
+                                           classification problem.
+    sklearn.datasets.make_regression : Generate a random regression problem.
+    sklearn.model_selection.train_test_split : Split arrays or matrices 
+                                                into random train and test 
+                                                subsets.
+
+    References
+    ----------
+    .. [1] Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., 
+           Grisel, O., Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V., 
+           Vanderplas, J., Passos, A., Cournapeau, D., Brucher, M., Perrot, M., 
+           & Duchesnay, E. (2011). Scikit-learn: Machine Learning in Python. 
+           Journal of Machine Learning Research, 12, 2825–2830.
+    """
+  
     from sklearn.datasets import make_classification, make_regression
     from sklearn.model_selection import train_test_split
     n_samples = validate_positive_integer(n_samples, "samples")
@@ -164,12 +208,27 @@ def make_data(
     else:
         X, y = make_regression(n_samples=n_samples, n_features=n_features, 
                                noise=noise, random_state=random_state, shuffle=shuffle)
-
-    # Splitting dataset into training and test sets
-    if split_X_y: 
-        return train_test_split(X, y, test_size=test_size, random_state=random_state)
         
-    return X, y 
+    frame = make_df(X, y)
+    if as_frame and not return_X_y: 
+        return frame
+    
+    if as_frame: 
+        X= make_df(X)
+        y= make_df(y).squeeze()
+        
+    # Splitting dataset into training and test sets
+    if split_X_y:
+        return train_test_split(X, y, test_size=test_size, random_state=random_state)
+    
+    if return_X_y: 
+        return X, y 
+    
+    # get the col whose 'target is in thenname 
+    target_names=[col for col in frame.columns if 'target' in col ]
+   
+    return manage_data(frame, as_frame=as_frame, target_names=target_names) 
+
 
 def make_classification(
     n_samples=100,
@@ -764,6 +823,9 @@ def make_social_media_comments(
     >>> df = make_social_media_comments(n=100, seed=42)
     >>> print(df.head())
     """
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
+    
     np.random.seed(seed)
     samples = validate_positive_integer(samples, "samples")
  
@@ -789,7 +851,9 @@ def make_social_media_comments(
         target_names=target_names, 
         test_size=test_size,
         noise= noise, 
-        seed=seed
+        seed=seed, 
+        DESCR=dataset_descr, 
+        FDESCR=features_descr, 
         ) 
 
 def make_african_demo(*, 
@@ -912,6 +976,9 @@ def make_african_demo(*,
 
     """ 
     from ._globals import AFRICAN_COUNTRIES
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
+    
     start_year, end_year = validate_dates(start_year, end_year)
     # Random seed for reproducibility
     np.random.seed(seed); data = []
@@ -965,7 +1032,9 @@ def make_african_demo(*,
         target_names=target_names, 
         test_size=test_size,
         noise= noise, 
-        seed=seed
+        seed=seed,
+        DESCR=dataset_descr, 
+        FDESCR=features_descr, 
         ) 
 
     return demo_data
@@ -995,6 +1064,7 @@ def make_agronomy_feedback(*,
     In real-world agronomy studies, data collection would involve more 
     detailed and precise measurements, and the interaction between these 
     variables can be quite complex.
+    
     Parameters
     ----------
     samples : int
@@ -1086,6 +1156,9 @@ def make_agronomy_feedback(*,
 
     """
     from ._globals import COMMON_PESTICIDES, COMMON_CROPS 
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
+    
     # Random seed for reproducibility
     np.random.seed(seed)
     n_specimens = int(_assert_all_types(n_specimens, int, float,
@@ -1149,7 +1222,9 @@ def make_agronomy_feedback(*,
         target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
-        seed=seed
+        seed=seed, 
+        DESCR=dataset_descr, 
+        FDESCR=features_descr, 
         ) 
 
 def make_mining_ops(
@@ -1314,6 +1389,9 @@ def make_mining_ops(
 
     """
     from ._globals import ORE_TYPE, EXPLOSIVE_TYPE, EQUIPMENT_TYPE
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
+    
     # Random seed for reproducibility
     np.random.seed(seed)
     
@@ -1341,22 +1419,22 @@ def make_mining_ops(
 
     # Construct the DataFrame
     mining_data = pd.DataFrame({
-        'easting_m': eastings,
-        'northing_m': northings,
-        'depth_m': depths,
+        'easting': eastings, # m
+        'northing': northings, # m
+        'depth': depths, #m
         'ore_type': ore_types,
-        'ore_concentration_percent': ore_concentrations,
-        'drill_diameter_mm': drill_diameters,
-        'blast_hole_depth_m': blast_hole_depths,
-        'explosive_type': explosive_types,
-        'explosive_amount_kg': explosive_amounts,
+        'ore_concentration': ore_concentrations, # percentage
+        'drill_diameter': drill_diameters, # mm
+        'blast_hole_depth': blast_hole_depths, # m
+        'explosive_type': explosive_types, 
+        'explosive_amount': explosive_amounts, # kg
         'equipment_type': equipment_types,
-        'equipment_age_years': equipment_ages,
-        'daily_production_tonnes': daily_productions
+        'equipment_age': equipment_ages,
+        'daily_production': daily_productions # tons
     })
 
     target_names = list (is_iterable ( 
-        target_names or 'daily_production_tonnes',
+        target_names or 'daily_production',
         exclude_string= True, transform =True )
         )
     # map to make it a little bit real.
@@ -1374,6 +1452,8 @@ def make_mining_ops(
         test_size=test_size,
         noise= noise, 
         seed=seed, 
+        DESCR=dataset_descr, 
+        FDESCR=features_descr, 
         ) 
     return mining_data
 
@@ -1494,6 +1574,9 @@ def make_sounding(
     >>> print(sounding_data.head())
 
     """
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
+    
     # Random seed for reproducibility
     np.random.seed(seed)
     
@@ -1519,15 +1602,15 @@ def make_sounding(
     # Constructing the DataFrame
     sounding_data = pd.DataFrame({
         'survey_point_id': survey_point_ids,
-        'layer_depth_m': layer_depths,
-        'resistivity_ohm_meter': resistivities,
-        'seismic_velocity_m_s': velocities
+        'layer_depth': layer_depths, # m
+        'resistivity': resistivities, # ohm_meter
+        'seismic_velocity': velocities # m/s
     })
     # resample the data and reset index 
     sounding_data = random_sampling(sounding_data, samples, random_state=seed )
     sounding_data.reset_index (drop =True, inplace =True )
     target_names = list (is_iterable ( 
-        target_names or 'resistivity_ohm_meter',exclude_string= True, transform =True )
+        target_names or 'resistivity',exclude_string= True, transform =True )
         )
     return manage_data(
         sounding_data,
@@ -1537,7 +1620,9 @@ def make_sounding(
         target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
-        seed=seed
+        seed=seed, 
+        DESCR=dataset_descr, 
+        FDESCR=features_descr, 
         ) 
 
 def make_medical_diagnosis(
@@ -1649,6 +1734,10 @@ def make_medical_diagnosis(
 
     """
     from ._globals import DIAGNOSIS_UNITS, WATER_QUAL_NEEDS
+    
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
+    
     # Random seed for reproducibility
     np.random.seed(seed)
     
@@ -1778,7 +1867,9 @@ def make_medical_diagnosis(
         test_size=test_size,
         noise= noise, 
         seed=seed, 
-        feature_units=DIAGNOSIS_UNITS
+        feature_units=DIAGNOSIS_UNITS, 
+        DESCR=dataset_descr, 
+        FDESCR=features_descr, 
         ) 
 
 
@@ -1896,6 +1987,9 @@ def make_well_logging(*,
     >>> print(well_logging_data.head())
 
     """
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
+    
     # Random seed for reproducibility
     np.random.seed(seed)
     
@@ -1909,14 +2003,14 @@ def make_well_logging(*,
 
     # Construct the DataFrame
     well_logging_dataset = pd.DataFrame({
-        'depth_m': depths,
-        'gamma_ray_api': gamma_ray,
-        'resistivity_ohm_meter': resistivity,
-        'neutron_porosity_percent': neutron_porosity,
-        'density_g_cm3': density
+        'depth': depths, # m
+        'gamma_ray': gamma_ray,# api
+        'resistivity': resistivity, # _ohm_meter
+        'neutron_porosity': neutron_porosity, # percent
+        'density': density # _g_cm3
     })
     target_names = list (is_iterable ( 
-        target_names or 'neutron_porosity_percent', exclude_string= True,
+        target_names or 'neutron_porosity', exclude_string= True,
         transform =True )
         )
 
@@ -1928,7 +2022,9 @@ def make_well_logging(*,
         target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
-        seed=seed
+        seed=seed, 
+        DESCR=dataset_descr, 
+        FDESCR=features_descr, 
         ) 
 
 def make_ert(
@@ -2049,6 +2145,8 @@ def make_ert(
     >>> print(ert_data.head())
 
     """
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
     # Random seed for reproducibility
     np.random.seed(seed)
     
@@ -2066,15 +2164,15 @@ def make_ert(
 
     # Construct the DataFrame
     ert_dataset = pd.DataFrame({
-        'electrode_position_m': electrode_positions,
-        'cable_length_m': cable_lengths,
-        'resistivity_ohm_meter': resistivity_measurements,
-        'battery_voltage_v': battery_voltage,
+        'electrode_position': electrode_positions, #m
+        'cable_length': cable_lengths, #m
+        'resistivity': resistivity_measurements, #_ohm_meter
+        'battery_voltage': battery_voltage,# volt
         'equipment_type': equipment_type
     })
 
     target_names = list (is_iterable ( 
-        target_names or 'resistivity_ohm_meter', exclude_string= True, transform =True )
+        target_names or 'resistivity', exclude_string= True, transform =True )
         )
     return manage_data(
         ert_dataset,
@@ -2084,7 +2182,9 @@ def make_ert(
         target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
-        seed=seed
+        seed=seed, 
+        DESCR=dataset_descr, 
+        FDESCR=features_descr, 
         ) 
 
 def make_tem(
@@ -2206,6 +2306,8 @@ def make_tem(
     >>> print(tem_data.head())
 
     """
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
     # Adjust ranges
     ranges = validate_and_adjust_ranges(lat_range=lat_range, lon_range=lon_range, 
                                         time_range=time_range,
@@ -2237,7 +2339,7 @@ def make_tem(
     tem_survey_data = pd.DataFrame({
         'latitude': latitudes,
         'longitude': longitudes,
-        'time_ms': times,
+        'time': times, #_ms
         'tem_measurement': measurements,
         'equipment_type': equipment
     })
@@ -2252,7 +2354,9 @@ def make_tem(
         target_names=target_names, 
         test_size=test_size,
         noise= noise, 
-        seed=seed
+        seed=seed, 
+        DESCR=dataset_descr, 
+        FDESCR= features_descr 
         ) 
 
 def make_erp(*, 
@@ -2378,6 +2482,8 @@ def make_erp(*,
     >>> print(dataset.head())
 
     """
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
     # Adjust ranges
     ranges = validate_and_adjust_ranges(lat_range=lat_range, lon_range=lon_range, 
                                         resistivity_range=resistivity_range,
@@ -2427,7 +2533,9 @@ def make_erp(*,
         target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
-        seed=seed
+        seed=seed, 
+        DESCR=dataset_descr, 
+        FDESCR= features_descr, 
         ) 
 
 def make_elogging(
@@ -2542,6 +2650,9 @@ def make_elogging(
     >>> print(log_data.head())
 
     """
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
+    
     samples = validate_positive_integer(samples, "samples")
     start_date, end_date = validate_dates(
         start_date, end_date, return_as_date_str= True)
@@ -2581,7 +2692,9 @@ def make_elogging(
         target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
-        seed=seed
+        seed=seed, 
+        DESCR=dataset_descr, 
+        FDESCR=features_descr, 
         ) 
 
 def make_gadget_sales(
@@ -2699,6 +2812,9 @@ def make_gadget_sales(
     >>> print(sales_data.head())
 
     """
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
+    
     samples = validate_positive_integer(samples, "samples")
     start_date, end_date = validate_dates(
         start_date, end_date, return_as_date_str= True)
@@ -2739,6 +2855,8 @@ def make_gadget_sales(
         target_names=target_names, 
         test_size=test_size, 
         noise= noise, 
+        DESCR= dataset_descr, 
+        FDESCR= features_descr, 
         seed=seed
         ) 
 
@@ -2852,6 +2970,9 @@ def make_retail_store(
     >>> print(dataset.head())
 
     """
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
+    
     samples = validate_positive_integer(samples, "samples")
     # Random seed for reproducibility
     np.random.seed(seed)
@@ -2899,6 +3020,8 @@ def make_retail_store(
         target_names=target_names, 
         test_size=test_size,
         noise= noise, 
+        DESCR=dataset_descr, 
+        FDESCR=features_descr, 
         seed=seed
         ) 
 
@@ -2999,6 +3122,8 @@ def make_cc_factors(
     make_water_demands :Generate a synthetic water demand needs dataset.
     make_mining_ops : Simulate the mining operations.
     """
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
 
     # Features influencing climate change
     features = {
@@ -3077,7 +3202,9 @@ def make_cc_factors(
         split_X_y=split_X_y,
         target_names=target_names,
         test_size=test_size,
-        descr=features, 
+        features_dict=features, 
+        DESCR= dataset_descr, 
+        FDESCR=features_descr, 
         seed=seed,
         **kws
     )
@@ -3194,7 +3321,12 @@ def make_water_demand(
 
      [700 rows x 39 columns]
     """
+    from ..api.util import to_snake_case
     from ._globals import WATER_QUAL_NEEDS, WATER_QUAN_NEEDS, SDG6_CHALLENGES
+    
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
+    
     # Random seed for reproducibility
     samples = validate_positive_integer(samples, "samples")
     np.random.seed(seed)
@@ -3233,7 +3365,7 @@ def make_water_demand(
 
     # Create a DataFrame from the data dictionary
     water_data  = pd.DataFrame(data_dict)
-    water_data.columns = [ c.lower() for c in water_data.columns ]
+    water_data.columns = [ to_snake_case(c.lower()) for c in water_data.columns ]
 
     target_names = list (is_iterable ( 
         target_names or 'drinking', 
@@ -3245,9 +3377,11 @@ def make_water_demand(
         return_X_y= return_X_y, 
         split_X_y=split_X_y, 
         target_names=target_names, 
-        descr= { **WATER_QUAN_NEEDS, **WATER_QUAL_NEEDS,**SDG6_CHALLENGES}, 
+        sgd6_details= { **WATER_QUAN_NEEDS, **WATER_QUAL_NEEDS,**SDG6_CHALLENGES}, 
         test_size=test_size, 
         noise = noise, 
+        DESCR=dataset_descr, 
+        FDESCR= features_descr, 
         seed=seed, 
         **kws
         )
@@ -3334,6 +3468,9 @@ def make_drill_ops(
     vital to consult with domain experts when applying insights derived from
     this data to real-world scenarios.
     """
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
+    
     ops_details = {
         "deep_mine_targets": [
             'aquifer_pressure', 
@@ -3374,6 +3511,8 @@ def make_drill_ops(
         split_X_y=split_X_y, 
         target_names=target_names, 
         feature_units= HYDRO_PARAM_UNITS, 
+        DESCR=dataset_descr, 
+        FDESCR= features_descr, 
         test_size=test_size, 
         noise = noise, 
         seed=seed
@@ -3431,5 +3570,3 @@ def _make_drill_ops(
             data[feature] = generate_synthetic_values(samples, min_val, max_val, noise, seed)
 
     return pd.DataFrame(data)
-
-
