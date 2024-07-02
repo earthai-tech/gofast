@@ -253,8 +253,8 @@ def make_classification(
     sparse=False,
     return_indicator="dense",
     return_distributions=False,
-    return_X_y=True, 
-    as_frame=False, 
+    return_X_y=False, 
+    as_frame=True, 
     feature_columns=None, 
     target_columns=None,
     split_X_y=False, 
@@ -417,10 +417,10 @@ def make_classification(
     shuffle : bool, default=True
         Shuffle the samples and the features.
         
-    return_X_y : bool, default=True
+    return_X_y : bool, default=False
          If True, returns (data, target) instead of a single array.
          
-    as_frame : bool, default=False
+    as_frame : bool, default=True
         If True, the data is returned as a pandas DataFrame.
         
     feature_columns, target_columns : list of str, optional
@@ -571,8 +571,8 @@ def make_regression(
     bias=0.0, 
     scale=None, 
     regression_type='linear', 
-    as_frame=False, 
-    return_X_y=True, 
+    as_frame=True, 
+    return_X_y=False, 
     split_X_y=False, 
     test_size=0.3, 
     target_indices=None, 
@@ -606,7 +606,7 @@ def make_regression(
         Type of regression pattern to simulate. Options include 'linear', 
         'quadratic', 'cubic', 'exponential', 'logarithmic', 'sinusoidal',
         and 'step'.
-    as_frame : bool, default=False
+    as_frame : bool, default=True
         If True, the data is returned as a pandas DataFrame.
     return_X_y : bool, default=False
         If True, returns (data, target) instead of a single array.
@@ -717,8 +717,8 @@ def make_regression(
     )
 def make_social_media_comments(
     *, samples=1000, 
-    as_frame=False, 
-    return_X_y= True, 
+    as_frame=True, 
+    return_X_y= False, 
     split_X_y=False, 
     target_names=None,  
     test_size=.3, 
@@ -738,14 +738,14 @@ def make_social_media_comments(
     samples : int, optional
         The number of comments to generate. Default is 1000.
 
-    as_frame : bool, default=False
+    as_frame : bool, default=True
         If True, the data is returned as a pandas DataFrame with appropriately 
         typed columns (numeric). The target is returned as a pandas DataFrame 
         or Series, depending on the number of target columns.
         If `return_X_y` is True, then both `data` and `target` are returned 
         as pandas DataFrames or Series.
     
-    return_X_y : bool, default=True
+    return_X_y : bool, default=False
         If True, returns `(data, target)` instead of a Bowlspace object. 
         See the "Returns" section below for more information about the 
         `data` and `target` objects.
@@ -861,8 +861,8 @@ def make_african_demo(*,
     end_year=2020, 
     countries= None, 
     n_samples=None, 
-    as_frame=False, 
-    return_X_y=True, 
+    as_frame=True, 
+    return_X_y=False, 
     split_X_y=False, 
     target_names=None,  
     test_size=.3, 
@@ -896,14 +896,14 @@ def make_african_demo(*,
         adjusting `n_years` from `start_year` to `end_year` accordingly to meet 
         this target.
         
-    as_frame : bool, default=False
+    as_frame : bool, default=True
         If True, the data is returned as a pandas DataFrame with appropriately 
         typed columns (numeric). The target is returned as a pandas DataFrame 
         or Series, depending on the number of target columns.
         If `return_X_y` is True, then both `data` and `target` are returned 
         as pandas DataFrames or Series.
     
-    return_X_y : bool, default=True
+    return_X_y : bool, default=False
         If True, returns `(data, target)` instead of a Bowlspace object. 
         See the "Returns" section below for more information about the 
         `data` and `target` objects.
@@ -1043,8 +1043,8 @@ def make_agronomy_feedback(*,
     samples=100, 
     num_years=5, 
     n_specimens=7, 
-    as_frame=False, 
-    return_X_y= True, 
+    as_frame=True, 
+    return_X_y= False, 
     split_X_y=False, 
     target_names=None,  
     test_size=.3, 
@@ -1077,14 +1077,14 @@ def make_agronomy_feedback(*,
        Number of differnt crop and pesticide types to include in the 
        dataset.
  
-    as_frame : bool, default=False
+    as_frame : bool, default=True
         If True, the data is a pandas DataFrame including columns with
         appropriate dtypes (numeric). The target is
         a pandas DataFrame or Series depending on the number of target columns.
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=True
+    return_X_y : bool, default=False
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -1230,8 +1230,8 @@ def make_agronomy_feedback(*,
 def make_mining_ops(
     *, 
     samples=1000, 
-    as_frame=False, 
-    return_X_y= True, 
+    as_frame=True, 
+    return_X_y= False, 
     split_X_y=False, 
     target_names=None,  
     test_size=.3, 
@@ -1311,14 +1311,14 @@ def make_mining_ops(
     samples : int
         The number of entries (rows) in the dataset.
 
-    as_frame : bool, default=False
+    as_frame : bool, default=True
         If True, the data is a pandas DataFrame including columns with
         appropriate dtypes (numeric). The target is
         a pandas DataFrame or Series depending on the number of target columns.
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=True
+    return_X_y : bool, default=False
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -1460,8 +1460,8 @@ def make_mining_ops(
 def make_sounding(
     *, samples=100, 
     num_layers=5, 
-    as_frame=False, 
-    return_X_y= True, 
+    as_frame=True, 
+    return_X_y= False, 
     split_X_y=False, 
     target_names=None,  
     test_size=.3, 
@@ -1496,14 +1496,14 @@ def make_sounding(
     num_layers : int
         The number of subsurface layers to simulate for each survey point.
 
-    as_frame : bool, default=False
+    as_frame : bool, default=True
         If True, the data is a pandas DataFrame including columns with
         appropriate dtypes (numeric). The target is
         a pandas DataFrame or Series depending on the number of target columns.
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=True
+    return_X_y : bool, default=False
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -1627,8 +1627,8 @@ def make_sounding(
 
 def make_medical_diagnosis(
     *,samples=1000, 
-    as_frame=False, 
-    return_X_y= True, 
+    as_frame=True, 
+    return_X_y= False, 
     split_X_y=False, 
     target_names=None,  
     test_size=.3, 
@@ -1655,14 +1655,14 @@ def make_medical_diagnosis(
     samples : int
         The number of entries (patients) in the dataset.
 
-    as_frame : bool, default=False
+    as_frame : bool, default=True
         If True, the data is a pandas DataFrame including columns with
         appropriate dtypes (numeric). The target is
         a pandas DataFrame or Series depending on the number of target columns.
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=True
+    return_X_y : bool, default=False
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -1877,8 +1877,8 @@ def make_well_logging(*,
     depth_start=0., 
     depth_end=200., 
     depth_interval=.5, 
-    as_frame=False, 
-    return_X_y= True, 
+    as_frame=True, 
+    return_X_y= False, 
     split_X_y=False, 
     target_names=None,  
     test_size=.3, 
@@ -1908,14 +1908,14 @@ def make_well_logging(*,
     depth_interval : float
         The interval between depth measurements in meters.
 
-    as_frame : bool, default=False
+    as_frame : bool, default=True
         If True, the data is a pandas DataFrame including columns with
         appropriate dtypes (numeric). The target is
         a pandas DataFrame or Series depending on the number of target columns.
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=True
+    return_X_y : bool, default=False
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -2031,8 +2031,8 @@ def make_ert(
     *, 
     samples=100, 
     equipment_type='SuperSting R8', 
-    as_frame=False, 
-    return_X_y=True, 
+    as_frame=True, 
+    return_X_y=False, 
     split_X_y=False, 
     target_names=None,  
     test_size=.3, 
@@ -2062,14 +2062,14 @@ def make_ert(
         The type of ERT equipment used. Should be one of 
         'SuperSting R8', 'Ministing or Sting R1', or 'OhmMapper'.
 
-    as_frame : bool, default=False
+    as_frame : bool, default=True
         If True, the data is a pandas DataFrame including columns with
         appropriate dtypes (numeric). The target is
         a pandas DataFrame or Series depending on the number of target columns.
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=True
+    return_X_y : bool, default=False
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -2194,8 +2194,8 @@ def make_tem(
     lon_range=(-118.50, -117.00), 
     time_range=(0.01, 10.0), 
     measurement_range=(100, 10000), 
-    as_frame=False, 
-    return_X_y=True, 
+    as_frame=True, 
+    return_X_y=False, 
     split_X_y=False, 
     target_names=None,  
     test_size=.3, 
@@ -2224,14 +2224,14 @@ def make_tem(
     measurement_range : tuple of float
         The range of TEM measurements (min_measurement, max_measurement).
 
-    as_frame : bool, default=False
+    as_frame : bool, default=True
         If True, the data is a pandas DataFrame including columns with
         appropriate dtypes (numeric). The target is
         a pandas DataFrame or Series depending on the number of target columns.
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=True
+    return_X_y : bool, default=False
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -2364,8 +2364,8 @@ def make_erp(*,
     lat_range=(34.00, 36.00), 
     lon_range =(-118.50, -117.00), 
     resistivity_range=(10, 1000),
-    as_frame=False, 
-    return_X_y=True, 
+    as_frame=True, 
+    return_X_y=False, 
     split_X_y=False, 
     target_names=None,  
     test_size=.3, 
@@ -2401,14 +2401,14 @@ def make_erp(*,
     resistivity_range : tuple of float
         The range of resistivity values (min_resistivity, max_resistivity).
         
-    as_frame : bool, default=False
+    as_frame : bool, default=True
         If True, the data is a pandas DataFrame including columns with
         appropriate dtypes (numeric). The target is
         a pandas DataFrame or Series depending on the number of target columns.
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=True
+    return_X_y : bool, default=False
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -2543,8 +2543,8 @@ def make_elogging(
     start_date='2021-01-01', 
     end_date='2021-01-31', 
     log_levels=None, 
-    as_frame=False, 
-    return_X_y=True, 
+    as_frame=True, 
+    return_X_y=False, 
     split_X_y=False, 
     target_names=None,  
     test_size=.3, 
@@ -2570,14 +2570,14 @@ def make_elogging(
         A list of log levels (e.g., ['INFO', 'WARNING', 'ERROR']). 
         If None, defaults to ['INFO', 'DEBUG', 'WARNING', 'ERROR', 'CRITICAL'].
 
-    as_frame : bool, default=False
+    as_frame : bool, default=True
         If True, the data is a pandas DataFrame including columns with
         appropriate dtypes (numeric). The target is
         a pandas DataFrame or Series depending on the number of target columns.
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=True
+    return_X_y : bool, default=False
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -2701,8 +2701,8 @@ def make_gadget_sales(
     *, samples=500, 
     start_date='2021-12-26', 
     end_date='2022-01-10', 
-    as_frame=False, 
-    return_X_y=True, 
+    as_frame=True, 
+    return_X_y=False, 
     split_X_y=False, 
     target_names=None,  
     test_size=.3, 
@@ -2732,14 +2732,14 @@ def make_gadget_sales(
     samples : int
         The number of sales entries to generate.
 
-    as_frame : bool, default=False
+    as_frame : bool, default=True
         If True, the data is a pandas DataFrame including columns with
         appropriate dtypes (numeric). The target is
         a pandas DataFrame or Series depending on the number of target columns.
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=True
+    return_X_y : bool, default=False
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -2862,8 +2862,8 @@ def make_gadget_sales(
 
 def make_retail_store(
     *, samples=1000, 
-    as_frame=False, 
-    return_X_y=True, 
+    as_frame=True, 
+    return_X_y=False, 
     split_X_y=False, 
     target_names=None,  
     test_size=.3, 
@@ -2893,7 +2893,7 @@ def make_retail_store(
     samples : int
         The number of entries (rows) in the dataset.
 
-    as_frame : bool, default=False
+    as_frame : bool, default=True
         If True, the data is a pandas DataFrame including columns with
         appropriate dtypes (numeric). The target is
         a pandas DataFrame or Series depending on the number of target columns.
@@ -3027,8 +3027,8 @@ def make_retail_store(
 
 def make_cc_factors(
     *, samples=1000,  
-    as_frame=False, 
-    return_X_y=True, 
+    as_frame=True, 
+    return_X_y=False, 
     split_X_y=False, 
     target_names=None, 
     feedback_threshold='auto',
@@ -3048,12 +3048,12 @@ def make_cc_factors(
         of the dataset, with each sample representing an observation of the
         climate change factors and feedbacks.
 
-    as_frame : bool, optional, default=False
+    as_frame : bool, optional, default=True
         Determines the format of the returned data. If ``True``, the data and
         target are returned as a pandas DataFrame and Series, respectively, providing
         labeled columns and easier integration with pandas functionality.
 
-    return_X_y : bool, optional, default=True
+    return_X_y : bool, optional, default=False
         Controls the structure of the returned dataset. If ``True``, the function
         returns two separate objects: one for the data (features) and one for the
         target (feedbacks). If ``False``, returns a single Boxspace object containing
@@ -3211,8 +3211,8 @@ def make_cc_factors(
 
 def make_water_demand(
     *, samples=700, 
-    as_frame=False, 
-    return_X_y=True, 
+    as_frame=True, 
+    return_X_y=False, 
     split_X_y=False, 
     target_names=None,  
     test_size=.3, 
@@ -3231,14 +3231,14 @@ def make_water_demand(
     noise : float, Optional
         Probability of a value being missing in the dataset.
 
-    as_frame : bool, default=False
+    as_frame : bool, default=True
         If True, the data is a pandas DataFrame including columns with
         appropriate dtypes (numeric). The target is
         a pandas DataFrame or Series depending on the number of target columns.
         If `return_X_y` is True, then (`data`, `target`) will be pandas
         DataFrames or Series as described below.
 
-    return_X_y : bool, default=True
+    return_X_y : bool, default=False
         If True, returns ``(data, target)`` instead of a Bowlspace object. See
         below for more information about the `data` and `target` object.
         
@@ -3388,8 +3388,8 @@ def make_water_demand(
 
 def make_drill_ops(
     *, samples=1000,
-    as_frame=False,
-    return_X_y=True,
+    as_frame=True,
+    return_X_y=False,
     split_X_y=False,
     target_names=None,
     ops='deep_mining',
@@ -3413,10 +3413,11 @@ def make_drill_ops(
     as_frame : bool, optional
         Determines the format of the returned dataset. If set to True, the dataset
         is returned as a pandas DataFrame, facilitating easier data manipulation and
-        analysis. Default is False.
+        analysis. Default is True.
     return_X_y : bool, optional
         If True, separates the dataset into features (X) and targets (y).
-        This is particularly useful for supervised learning tasks. Default is True.
+        This is particularly useful for supervised learning tasks. 
+        Default is False.
     split_X_y : bool, optional
         If True and return_X_y is also True, further splits the dataset into
         training and testing subsets based on the `test_size` parameter. This
