@@ -1093,7 +1093,6 @@ class BoxFormatter:
         >>> print(formatter)
         # This will print the dictionary content formatted as a table within a box.
         """
-
         if self.title:
             title_str = f"{self.title.center(width - 4)}"
             top_border = f"|{'=' * (width - 2)}|"
@@ -1158,6 +1157,75 @@ class BoxFormatter:
 
         return wrapped_lines
     
+    def format_dict0(self, dict_table, descr_width=45):
+        """
+        Formats and displays a dictionary as a neatly organized table within a
+        formatted box. Each key-value pair in the dictionary is treated as a row
+        in the table, with the key representing a feature name and the value
+        its description. This method is designed to enhance the readability
+        and presentation of detailed information, particularly useful for
+        displaying feature descriptions or similar data.
+    
+        Parameters:
+        -----------
+        dict_table : dict
+            A dictionary where the keys are feature names (or any descriptive
+            label) and the values are the corresponding descriptions or details
+            to be presented in the table.
+        descr_width : int, default=45
+            The desired width of the description column in the table. This
+            determines how text in the description column is wrapped and
+            affects the overall width of the table.
+    
+        The method dynamically adjusts the width of the first column based on
+        the longest key in `dict_table`, ensuring that the table remains
+        well-structured and readable regardless of the length of the feature
+        names. The entire table, including headers and borders, is then added
+        to the content attribute of the instance, ready to be displayed when
+        the instance is printed.
+    
+        Example Usage:
+        --------------
+        >>> from gofast.api.formatter import BoxFormatter
+        >>> formatter = BoxFormatter("Feature Descriptions")
+        >>> feature_dict = {
+                "Feature1": "This feature represents X and is used for Y.",
+                "Feature2": "A brief description of feature 2."
+            }
+        >>> formatter.add_dict(feature_dict, descr_width=50)
+        >>> print(formatter)
+    
+        This will display a formatted table with the given feature names and
+        descriptions, neatly organized and wrapped according to the specified
+        `descr_width`, and centered if a title is provided.
+        """
+        longest_key = max(map(len, dict_table.keys())) + 2 # extract 
+        header_width = longest_key + descr_width + 3
+
+        content_lines = [
+            self._format_title(header_width),
+            self._format_header(longest_key, descr_width, header_width),
+        ]
+
+        item_template = "|{key:<{key_width}}| {desc:<{desc_width}}|"
+        for key, desc in dict_table.items():
+            wrapped_desc = self.wrap_text(desc, descr_width)
+            for i, line in enumerate(wrapped_desc):
+                if i == 0:
+                    content_lines.append(item_template.format(
+                        key=key, key_width=longest_key, desc=line, 
+                        desc_width=descr_width))
+                else:
+                    content_lines.append(item_template.format(
+                        key="", key_width=longest_key, desc=line, 
+                        desc_width=descr_width))
+            content_lines.append('-' * header_width)
+
+        # Replace the last separator with equal sign to signify the end
+        content_lines[-1] = '=' * header_width
+
+        self.content = "\n".join(content_lines)
+    
     def format_dict(self, dict_table, descr_width=45):
         """
         Formats and displays a dictionary as a neatly organized table within a
@@ -1200,15 +1268,15 @@ class BoxFormatter:
         descriptions, neatly organized and wrapped according to the specified
         `descr_width`, and centered if a title is provided.
         """
-        longest_key = max(map(len, dict_table.keys())) + 2
+        longest_key = max(map(len, dict_table.keys())) + 2 # extract 
         header_width = longest_key + descr_width + 3
-
+###XXX todo
         content_lines = [
             self._format_title(header_width),
             self._format_header(longest_key, descr_width, header_width),
         ]
 
-        item_template = "{key:<{key_width}}| {desc:<{desc_width}}"
+        item_template = "|{key:<{key_width}}| {desc:<{desc_width}}|"
         for key, desc in dict_table.items():
             wrapped_desc = self.wrap_text(desc, descr_width)
             for i, line in enumerate(wrapped_desc):
@@ -1229,13 +1297,13 @@ class BoxFormatter:
 
     def _format_title(self, width):
         if self.title:
-            title_line = f"{self.title.center(width - 4)}"
+            title_line = f"|{self.title.center(width)}|"
             return f"{'=' * width}\n{title_line}\n{'~' * width}"
         else:
             return f"{'=' * width}"
 
     def _format_header(self, key_width, desc_width, total_width):
-        header_line = f"{'Name':<{key_width}}| {'Description':<{desc_width}} "
+        header_line = f"|{'Name':<{key_width}}| {'Description':<{desc_width}}|"
         return f"{header_line}\n{'~' * total_width}"
         
 class DescriptionFormatter(metaclass=MetaLen):

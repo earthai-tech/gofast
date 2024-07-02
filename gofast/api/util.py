@@ -22,6 +22,7 @@ GOFAST_ESCAPE= GofastConfig().WHITESPACE_ESCAPE
 __all__=[ 
      'TerminalSize',
      'auto_adjust_dataframe_display',
+     'autofit_display', 
      'beautify_dict',
      'calculate_column_widths',
      'calculate_widths',
@@ -51,6 +52,7 @@ __all__=[
      'get_display_dimensions',
      'get_displayable_columns',
      'get_frame_chars',
+     'get_table_width_from', 
      'get_table_size',
      'get_terminal_size',
      'get_terminal_size',
@@ -67,6 +69,7 @@ __all__=[
      'remove_extra_spaces',
      'resolve_auto_settings',
      'select_df_styles',
+     'select_optimal_display_dimensions', 
      'series_to_dataframe',
      'to_camel_case',
      'to_snake_case',
@@ -856,11 +859,9 @@ def extract_truncate_df(
     
     # XXX CHECK: Use propose layout currently for a test purpose. 
     # checking stability of `propose layout`. 
-    
-    max_rows, max_cols = propose_layout(df)
-    # max_rows, max_cols = find_best_display_params2(df)(
-    #     max_rows=max_rows, max_cols=max_rows)
-    
+    max_rows , max_cols = select_optimal_display_dimensions ( 
+        df, max_rows= max_rows, max_cols = max_cols, )
+  
     df_string= truncated_df.to_string(
         index =True, header=True, max_rows=max_rows, max_cols=max_cols )
     # Find all index occurrences at the start of each line
@@ -888,6 +889,79 @@ def extract_truncate_df(
         return indices, columns, subset_df
     
     return subset_df 
+
+def select_optimal_display_dimensions(
+        df, max_rows="auto", max_cols="auto", **layout_kws):
+    """
+    Select optimal rows and columns for displaying a DataFrame within 
+    terminal constraints.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame to be validated and adjusted.
+    max_rows : {'auto', int}, optional
+        The maximum number of rows to display. If 'auto', it is determined 
+        automatically.
+        Default is 'auto'.
+    max_cols : {'auto', int}, optional
+        The maximum number of columns to display. If 'auto', it is determined 
+        automatically.
+        Default is 'auto'.
+    **layout_kws : dict, optional
+        Additional keyword arguments passed to `propose_layout` for customizing layout.
+    
+    Returns
+    -------
+    max_rows : int
+        The optimal number of rows for display.
+    max_cols : int
+        The optimal number of columns for display.
+    
+    Notes
+    -----
+    The function first validates the input DataFrame and then calculates the optimal 
+    number of rows and columns that can be displayed within the given constraints. 
+    It ensures that the display dimensions do not exceed the automatically calculated 
+    layout dimensions or the actual size of the DataFrame.
+    
+    Examples
+    --------
+    >>> from gofast.api.util import select_optimal_display_dimensions
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'A': range(1, 101),
+    ...     'B': ['long_text'] * 100,
+    ...     'C': range(101, 201)
+    ... })
+    >>> max_rows, max_cols = select_optimal_display_dimensions(df, max_rows=10, max_cols=5)
+    >>> print(f"Max Rows: {max_rows}, Max Columns: {max_cols}")
+    """
+    # Validate the input DataFrame
+    df = validate_data(df)
+    
+    # Propose optimal layout based on the DataFrame and additional layout settings
+    auto_nrows, auto_ncols = propose_layout(df, **layout_kws)
+    
+    # Determine the maximum number of columns to display
+    if max_cols == "auto":
+        max_cols = auto_ncols
+    
+    # Determine the maximum number of rows to display
+    if max_rows == "auto":
+        max_rows = auto_nrows
+    
+    # Ensure the given maximum columns do not exceed 
+    # the automatically calculated maximum
+    max_cols = min(max_cols, auto_ncols)
+    
+    # Ensure the given maximum rows do not exceed the actual 
+    # number of rows in the DataFrame
+    nrows = len(df)
+    if max_rows > nrows:
+        max_rows = auto_nrows
+    
+    return max_rows, max_cols
 
 def extract_matching_columns(header_line, data_columns):
     """
@@ -1755,7 +1829,6 @@ def df_advanced_style(
      1  |     4  5  6
      ===================
     """
-
     # Split the formatted DataFrame string into individual lines.
     lines = formatted_df.split('\n')
     new_lines = []
@@ -2361,8 +2434,14 @@ def find_maximum_table_width(summary_contents, header_marker='='):
     return max(header_line_lengths, default=0)
 
 def format_text(
-        text, key=None, key_length=15, max_char_text=50, 
-        add_frame_lines =False, border_line='=' , buffer_space = 4 ):
+    text, 
+    key=None, 
+    key_length=15, 
+    max_char_text=50, 
+    add_frame_lines =False, 
+    border_line='=' , 
+    buffer_space = 4 
+    ):
     """
     Formats a block of text to fit within a specified maximum character width,
     optionally prefixing it with a key. If the text exceeds the maximum width,
@@ -2628,7 +2707,7 @@ def format_df(
     df, 
     max_text_length=50, 
     title=None, 
-    autofit=False, 
+    autofit=True, 
     ):
     """
     Formats a pandas DataFrame for pretty-printing in a console or
@@ -2708,12 +2787,7 @@ def format_df(
     if autofit: 
         # If autofit is True, use custom logic to adjust DataFrame display settings
         # dynamically based on content and available space.
-        # Here, the function extract_truncate_df limits the display to 11 rows
-        # and 7 columns for larger data sets to fit the console or output window.
-        df_escaped = extract_truncate_df(df, max_rows="auto", max_cols="auto")
-        # insert_ellipsis_to_df might add visual cues (ellipsis) to indicate truncated parts.
-        df = insert_ellipsis_to_df(df_escaped, df) 
-
+        df = autofit_display(df )
     # Use helper functions to format cells and calculate widths
     max_col_widths, max_index_width = calculate_widths(df, max_text_length)
 
@@ -2743,6 +2817,157 @@ def format_df(
         max_width = find_maximum_table_width(formatted_string)
         title = title.center(max_width) + "\n"
     return title + formatted_string
+
+def is_autofit_needed(
+        df, 
+        check_rows=True, 
+        include_index="auto", 
+        **layout_kws
+    ):
+    """
+    Determine if autofit is needed for displaying the DataFrame within 
+    terminal constraints.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame to be evaluated.
+    check_rows : bool, optional
+        Whether to consider the number of rows in the evaluation. Default is True.
+    include_index : {'auto', bool}, optional
+        Whether to include the index in the layout proposal. If 'auto', the index is 
+        included if it contains string values. Default is 'auto'.
+    **layout_kws : dict, optional
+        Additional keyword arguments passed to `propose_layout` for customizing layout.
+    
+    Returns
+    -------
+    bool
+        True if autofit is needed, False otherwise.
+    
+    Notes
+    -----
+    The function compares the number of columns and rows (if `check_rows` is True) in 
+    the proposed layout based on the terminal size with the actual dimensions of the 
+    DataFrame. If the proposed number of columns is less than the number of columns in 
+    the DataFrame, or if the proposed number of rows is less than the number of rows in 
+    the DataFrame (when `check_rows` is True), autofit is needed.
+    
+    Examples
+    --------
+    >>> from gofast.api.util import is_autofit_needed
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'A': range(1, 101),
+    ...     'B': ['long_text'] * 100,
+    ...     'C': range(101, 201)
+    ... })
+    >>> autofit_required = is_autofit_needed(df)
+    >>> print(f"Is autofit needed? {autofit_required}")
+    """
+    # Propose optimal layout based on the DataFrame and additional layout settings
+    nrows, ncols = propose_layout(df, include_index=include_index, **layout_kws)
+    
+    # Determine if autofit is needed
+    if not check_rows:
+        return ncols < len(df.columns)
+    else:
+        return (ncols < len(df.columns)) or (nrows < len(df))
+
+def autofit_display(
+    df, 
+    max_rows='auto', 
+    max_cols='auto', 
+    include_index='auto',
+    max_text_char=50,
+    buffer_space=2
+):
+    """
+    Automatically adjusts the DataFrame to fit within the terminal layout.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame to be adjusted for display.
+    max_rows : {'auto', int}, optional
+        The maximum number of rows to display. If 'auto', it is determined 
+        automatically based on terminal dimensions. Default is 'auto'.
+    max_cols : {'auto', int}, optional
+        The maximum number of columns to display. If 'auto', it is determined 
+        automatically based on terminal dimensions. Default is 'auto'.
+    include_index : {'auto', bool}, optional
+        Whether to include the DataFrame index in the display. If 'auto', the index 
+        is included if it contains string values. If True, the index is always 
+        included. If False, the index is never included. Default is 'auto'.
+    max_text_char : int, optional
+        The maximum number of characters for text columns before truncation occurs. 
+        Values exceeding this limit are truncated. Default is 50.
+    buffer_space : int, optional
+        The number of spaces between columns. This space is also applied between 
+        the index and the first column if the index is included. Default is 2.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The adjusted DataFrame that fits within the terminal layout.
+
+    Notes
+    -----
+    The function dynamically adjusts the DataFrame display settings based on the 
+    content and the available terminal space. The number of rows and columns to 
+    display is determined either by the provided maximum values or calculated 
+    automatically to fit within the terminal window. Truncation is applied to 
+    both rows and columns, and ellipses (`...`) are inserted to indicate 
+    truncated parts of the DataFrame.
+
+    The layout adjustment can be formulated as follows:
+
+    .. math::
+        n_{rows} = \min(\text{max\_rows}, \text{auto\_nrows})
+    
+    .. math::
+        n_{cols} = \min(\text{max\_cols}, \text{auto\_ncols})
+    
+    Where :math:`\text{auto\_nrows}` and :math:`\text{auto\_ncols}` are the 
+    automatically determined number of rows and columns that can fit in the 
+    terminal, and :math:`\text{max\_rows}` and :math:`\text{max\_cols}` are the 
+    user-provided maximum values.
+
+    Examples
+    --------
+    >>> from gofast.api.util import autofit_display
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'A': range(1, 101),
+    ...     'B': ['long_text'] * 100,
+    ...     'C': range(101, 201)
+    ... })
+    >>> display_df = autofit_display(df, max_rows=10, max_cols=5)
+    >>> print(display_df)
+
+    See Also
+    --------
+    pandas.DataFrame : Two-dimensional, size-mutable, potentially heterogeneous 
+        tabular data.
+
+    References
+    ----------
+    .. [1] G. McKinney, "Data Structures for Statistical Computing in Python," 
+           Proceedings of the 9th Python in Science Conference, 2010.
+    """
+    # Determine the layout automatically based on the DataFrame and display settings.
+    # # Find the best display parameters based on given or auto values.
+    # # Ensure ncols does not exceed the auto-determined number of columns.
+    nrows , ncols = select_optimal_display_dimensions ( 
+        df, max_rows= max_rows, max_cols = max_cols, )
+    
+    # Extract and truncate the DataFrame to fit within the determined rows and columns.
+    df_escaped = extract_truncate_df(df, max_rows=nrows, max_cols=ncols)
+    
+    # Insert ellipsis into the DataFrame to indicate truncation points.
+    df = insert_ellipsis_to_df(df_escaped, df)
+    
+    return df
 
 def validate_data(data, columns=None, error_mode='raise'):
     """
@@ -2840,7 +3065,6 @@ def validate_data(data, columns=None, error_mode='raise'):
             f" Got {type(data).__name__!r}")
         
     df = round_numeric_values(df)
-    
     return df
 
 def format_correlations(
@@ -2856,7 +3080,7 @@ def format_correlations(
     error_mode='warn', 
     precomputed=False,
     legend_markers=None, 
-    autofit=False, 
+    autofit="auto", 
     ):
     """
     Computes and formats the correlation matrix for a DataFrame's numeric columns, 
@@ -2908,7 +3132,7 @@ def format_correlations(
     autofit : bool, optional
         If True, adjusts the column widths and the number of visible rows
         based on the DataFrame's content and available display size. Default
-        is False.
+        is 'auto'.
        
     Returns
     -------
@@ -2996,21 +3220,135 @@ def format_correlations(
         else:
             return f"{value:.4f}"
     
+    if autofit =='auto': 
+        autofit = is_autofit_needed(corr_matrix)
+        
     if autofit: 
         # remove ... to avoid confusion with no correlated symbol 
-        no_corr_placeholder=''
-        
+        no_corr_placeholder='' 
     formatted_corr = corr_matrix.applymap(format_value)
+    
     formatted_df = format_df(formatted_corr, autofit= autofit)
-    max_width = find_maximum_table_width(formatted_df)
+    max_width = get_table_width_from(formatted_df)
+    # max_width = find_maximum_table_width(formatted_df)
     legend = ""
     if use_symbols:
         legend = generate_legend(
-            legend_markers, no_corr_placeholder, hide_diag,  max_width)
+            legend_markers, 
+            no_corr_placeholder, 
+            hide_diag,  
+            max_width
+        )
     if title:
         title = title.center(max_width) + "\n"
 
     return title + formatted_df + legend
+
+def get_table_width_from(
+    formatted_str, /,
+    border_char="=", 
+    check_first=True, 
+    deep_check=True, 
+    width_strategy='max', 
+    error="warn"):
+    """
+    Calculate the maximum table width from the given formatted string based on 
+    the border style.
+    
+    Parameters
+    ----------
+    formatted_str : str
+        The string containing the formatted table.
+    border_char : str, optional
+        The character used for the table border. Default is '='.
+    check_first : bool, optional
+        If True, check the width of the first border line found and return it. 
+        If False, check for additional border lines if the first one is found. 
+        Default is True.
+    deep_check : bool, optional
+        If True, evaluate all lines containing the border character to determine 
+        the table width. If False, follow the `check_first` strategy. Default is 
+        True.
+    width_strategy : {'max', 'min', 'average'}, optional
+        Strategy to determine the table width if `deep_check` is True. 'max' 
+        returns the longest border line. 'min' returns the shortest border line. 
+        'average' returns the average width of all border lines. Default is 'max'.
+    error : {'warn', 'raise', 'ignore'}, optional
+        How to handle cases where no border line is found. 'warn' logs a warning 
+        message. 'raise' raises an exception. 'ignore' does nothing and returns 
+        None. Default is 'warn'.
+    
+    Returns
+    -------
+    int or None
+        The calculated table width, or None if no border line is found and error 
+        handling is set to 'ignore'.
+    
+    Notes
+    -----
+    This function identifies lines in the `formatted_str` containing the 
+    `border_char` and calculates the width of the table based on the specified 
+    strategies and checks.
+    
+    The calculation follows these steps:
+    
+    1. Identify lines in `formatted_str` containing `border_char`.
+    2. If no such lines are found, handle the error based on `error` parameter.
+    3. If `deep_check` is False:
+        - If `check_first` is True, return the length of the first border line.
+        - Otherwise, return the length of the last border line.
+    4. If `deep_check` is True:
+        - Compute the lengths of all border lines.
+        - If `width_strategy` is 'average', return the average length of border 
+          lines:
+          
+          .. math:: 
+              \text{average\_width} = \frac{\sum_{i=1}^{n} \text{length}_i}{n}
+        
+        - If `width_strategy` is 'min', return the minimum length of border lines.
+        - If `width_strategy` is 'max', return the maximum length of border lines.
+    
+    Examples
+    --------
+    >>> from gofast.api.util import get_table_width_from
+    >>> formatted_str = "=======\n| Col |\n=======\n"
+    >>> get_table_width_from(formatted_str)
+    7
+    
+    >>> formatted_str = "=====\n| C |\n=====\n"
+    >>> get_table_width_from(formatted_str, border_char='=')
+    5
+    
+    See Also
+    --------
+    pandas.DataFrame : DataFrame structure used in pandas for data manipulation 
+        and analysis.
+    
+    References
+    ----------
+    .. [1] McKinney, Wes. "Data Structures for Statistical Computing in Python." 
+           Proceedings of the 9th Python in Science Conference. 2010.
+    """
+    border_lines = [line for line in formatted_str.splitlines() if border_char in line]
+
+    if not border_lines:
+        if error== "warn":
+            warnings.warn(" No border line found in the formatted string.")
+        elif error== "raise":
+            raise ValueError("Error: No border line found in the formatted string.")
+        return None
+
+    if not deep_check:
+        return len(border_lines[0]) if check_first else len(border_lines[-1])
+
+    line_lengths = [len(line) for line in border_lines]
+
+    if width_strategy == 'average':
+        return sum(line_lengths) // len(line_lengths)
+    elif width_strategy == 'min':
+        return min(line_lengths)
+    else:  # width_strategy == 'max'
+        return max(line_lengths)
 
 def generate_legend(
     custom_markers=None, 
@@ -3122,9 +3460,9 @@ def generate_legend(
         legend_text, 
         key='Legend', 
         key_length=len('Legend'), 
-        max_char_text=max_width + len('Legend'), 
+        max_char_text=max_width, # + len('Legend'), 
         add_frame_lines=add_frame_lines,
-        border_line=border_line
+        border_line=border_line, 
         )
     return legend
 

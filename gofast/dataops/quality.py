@@ -1548,13 +1548,11 @@ def analyze_data_corr(
     =====================
 
     .....................
-    Legend : ...:
-             Non-correlated,
-             ++: Strong
-             positive, --:
-             Strong
-             negative, -+:
-             Moderate
+    Legend : ++: Strong
+             positive,
+             --: Strong
+             negative,
+             -+: Moderate
     .....................
     
     Notes
