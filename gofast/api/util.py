@@ -1169,6 +1169,10 @@ def flex_df_formatter(
             float_format=lambda x: float_format.format(x) if isinstance(
                 x, (float, np.float64)) else x
             )
+    # update max_cols with the auto maximum width layout calculation 
+    _, auto_max_cols = propose_layout(df, include_index= index, )
+    if max_cols > auto_max_cols : 
+        max_cols = auto_max_cols 
         
     style= select_df_styles(style, df )
     if style =='advanced': 
