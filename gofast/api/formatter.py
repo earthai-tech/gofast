@@ -20,7 +20,7 @@ from .util import flex_df_formatter, is_dataframe_long, get_display_dimensions
 from .util import insert_ellipsis_to_df , extract_truncate_df
 from .util import get_column_widths_in, distribute_column_widths  
 from .util import GOFAST_ESCAPE, select_df_styles, series_to_dataframe
-from .util import to_camel_case, format_iterable
+from .util import to_camel_case, format_iterable, get_table_size 
 
 __all__=[
      'BoxFormatter',
@@ -992,7 +992,8 @@ class BoxFormatter:
     >>> formatter.add_dict(dict_content, 50)
     >>> print(formatter)
     """
-
+    TW= get_table_size()
+    
     def __init__(self, title='', descriptor =None):
         self.title = title
         self.content = ''
@@ -1029,6 +1030,8 @@ class BoxFormatter:
         box_width : int, optional
             The width of the box within which the text is to be wrapped.
         """
+        box_width = self.TW if (
+            box_width is None or box_width == 'auto') else box_width
         self.has_content = True
         self.content = self.format_box(text, box_width, is_dict=False)
 
@@ -1049,7 +1052,7 @@ class BoxFormatter:
         self.has_content = True
         self.format_dict(dict_table, descr_width)
 
-        
+    
     def format_box(self, text, width, is_dict):
         """
         Formats text or a dictionary to be displayed within a bordered box, 
@@ -1093,7 +1096,6 @@ class BoxFormatter:
         >>> print(formatter)
         # This will print the dictionary content formatted as a table within a box.
         """
-
         if self.title:
             title_str = f"{self.title.center(width - 4)}"
             top_border = f"|{'=' * (width - 2)}|"
@@ -1157,7 +1159,7 @@ class BoxFormatter:
         wrapped_lines.append(current_line)
 
         return wrapped_lines
-    
+
     def format_dict(self, dict_table, descr_width=45):
         """
         Formats and displays a dictionary as a neatly organized table within a
@@ -1185,8 +1187,8 @@ class BoxFormatter:
         to the content attribute of the instance, ready to be displayed when
         the instance is printed.
     
-        Example Usage:
-        --------------
+        Example
+        -------
         >>> from gofast.api.formatter import BoxFormatter
         >>> formatter = BoxFormatter("Feature Descriptions")
         >>> feature_dict = {
@@ -1200,15 +1202,22 @@ class BoxFormatter:
         descriptions, neatly organized and wrapped according to the specified
         `descr_width`, and centered if a title is provided.
         """
-        longest_key = max(map(len, dict_table.keys())) + 2
-        header_width = longest_key + descr_width + 3
-
+        longest_key = max(map(len, dict_table.keys())) + 2 
+        
+        descr_width = descr_width or "auto"
+        if descr_width =='auto': 
+            # Set descr_width to terminal width minus padding
+            descr_width = self.TW - ( longest_key + 4 ) 
+            header_width = self.TW
+        else: 
+            header_width = longest_key + descr_width + 4
+        
         content_lines = [
             self._format_title(header_width),
             self._format_header(longest_key, descr_width, header_width),
         ]
 
-        item_template = "{key:<{key_width}}| {desc:<{desc_width}}"
+        item_template = "|{key:<{key_width}}| {desc:<{desc_width}}|"
         for key, desc in dict_table.items():
             wrapped_desc = self.wrap_text(desc, descr_width)
             for i, line in enumerate(wrapped_desc):
@@ -1229,13 +1238,13 @@ class BoxFormatter:
 
     def _format_title(self, width):
         if self.title:
-            title_line = f"{self.title.center(width - 4)}"
+            title_line = f"|{self.title.center(width-2)}|"
             return f"{'=' * width}\n{title_line}\n{'~' * width}"
         else:
             return f"{'=' * width}"
 
     def _format_header(self, key_width, desc_width, total_width):
-        header_line = f"{'Name':<{key_width}}| {'Description':<{desc_width}} "
+        header_line = f"|{'Name':<{key_width}}| {'Description':<{desc_width}}|"
         return f"{header_line}\n{'~' * total_width}"
         
 class DescriptionFormatter(metaclass=MetaLen):
@@ -1308,7 +1317,6 @@ class DescriptionFormatter(metaclass=MetaLen):
     # | as age, loan status, and annual income, which... |
     # |==================================================|
     """
-
     def __init__(self, content, title='', descriptor=None):
         self.content = content
         self.title = title
@@ -1330,18 +1338,32 @@ class DescriptionFormatter(metaclass=MetaLen):
         """
         return "<DescriptionFormatter: Use print() to view detailed content>"
 
-    def description(self):
+    def description(self, descr_width= 'auto', box_width ='auto' ):
         """
         Utilizes the BoxFormatter class to format the content (either plain text
         or a dictionary of descriptions) for display. Depending on the type of
         content, it appropriately calls either add_text or add_dict method of
         BoxFormatter.
 
+        Parameters
+        ----------
+        descr_width : int or str, default='auto'
+            The desired width of the description column in the table. If set
+            to 'auto', the width is calculated based on the terminal width.
+            This determines how text in the description column is wrapped and
+            affects the overall width of the table.
+            
+        box_width : int or str, default='auto'
+            The width of the box within which the text is to be wrapped. If
+            set to 'auto', the width is calculated based on the terminal
+            width.
+    
         Returns
         -------
         BoxFormatter
-            An instance of BoxFormatter containing the formatted description, ready
-            for display.
+            An instance of BoxFormatter containing the formatted description,
+            ready for display.
+            
         """
         formatter = BoxFormatter(
             title=self.title if self.title else "Feature Descriptions", 
@@ -1350,10 +1372,10 @@ class DescriptionFormatter(metaclass=MetaLen):
         if isinstance(self.content, dict):
             # If the content is a dictionary, format it as a table of feature
             # descriptions.
-            formatter.add_dict(self.content, descr_width=50)
+            formatter.add_dict(self.content, descr_width=descr_width)
         else:
             # If the content is a simple text, format it directly.
-            formatter.add_text(self.content)
+            formatter.add_text(self.content, box_width = box_width )
 
         return formatter
     
