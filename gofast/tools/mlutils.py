@@ -49,7 +49,7 @@ from .coreutils import _assert_all_types, is_in_if,  ellipsis2false
 from .coreutils import smart_format, is_iterable, get_valid_kwargs
 from .coreutils import is_classification_task, to_numeric_dtypes
 from .coreutils import validate_feature, download_progress_hook, exist_features
-from .coreutils import contains_delimiter 
+from .coreutils import contains_delimiter, nan_to_na 
 from .funcutils import ensure_pkg
 from .validator import _is_numeric_dtype, _is_arraylike_1d 
 from .validator import get_estimator_name, check_array, check_consistent_length
@@ -450,8 +450,8 @@ def soft_encoder (
                        raise_warning='silence')
 
     # Recheck and convert data to numeric dtypes if possible
-    df = to_numeric_dtypes(df)
-
+    # and handle NaN to fit it specified types. 
+    df = nan_to_na(to_numeric_dtypes(df)) 
     # Ensure columns are iterable and parse them if necessary
     if columns is not None:
         columns = list(is_iterable(columns, exclude_string=True, 
@@ -499,7 +499,9 @@ def soft_encoder (
     if categories is None:
         categories = {}
         for col in cat_columns:
-            categories[col] = list(np.unique(df[col]))
+            # Drop NaN values before finding unique categories
+            unique_values = np.unique(df[col].dropna())
+            categories[col] =  list(unique_values) 
 
     # Ensure categories is a dictionary
     if not isinstance(categories, dict):

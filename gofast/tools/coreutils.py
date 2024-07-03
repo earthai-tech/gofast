@@ -93,6 +93,7 @@ __all__=[
      'load_serialized_data',
      'make_ids',
      'move_cfile',
+     'nan_to_na', 
      'normalize_string',
      'numstr2dms',
      'pair_data',
@@ -6542,57 +6543,280 @@ def type_of_target(y):
 
     return 'unknown'
 
-def add_noises_to(data, /, noise=.1, seed =None, gaussian_noise=False ):
+
+def add_noises_to(
+    data, /, 
+    noise=0.1, 
+    seed=None, 
+    gaussian_noise=False,
+    cat_missing_value=pd.NA
+    ):
     """
-    Adds NaN values to a pandas DataFrame.
+    Adds NaN or specified missing values to a pandas DataFrame.
 
     Parameters
     ----------
-    dataframe : pandas.DataFrame
-        The DataFrame to which NaN values will be added.
-    noise : float, default='10%'
-        The percentage of values to be replaced with NaN in each column. 
-        This must be a number between 0 and 1. Default is 0.1 (10%).
-    seed: int, array-like, BitGenerator, np.random.RandomState, \
-        np.random.Generator, optional
-       If int, array-like, or BitGenerator, seed for random number generator. 
-       If np.random.RandomState or np.random.Generator, use as given.
+    data : pandas.DataFrame
+        The DataFrame to which NaN values or specified missing 
+        values will be added.
+
+    noise : float, default=0.1
+        The percentage of values to be replaced with NaN or the 
+        specified missing value in each column. This must be a 
+        number between 0 and 1. Default is 0.1 (10%).
+
+        .. math:: \text{noise} = \frac{\text{number of replaced values}}{\text{total values in column}}
+
+    seed : int, array-like, BitGenerator, np.random.RandomState, np.random.Generator, optional
+        Seed for random number generator to ensure reproducibility. 
+        If `seed` is an int, array-like, or BitGenerator, it will be 
+        used to seed the random number generator. If `seed` is a 
+        np.random.RandomState or np.random.Generator, it will be used 
+        as given.
+
     gaussian_noise : bool, default=False
-        If True, adds Gaussian noise to the data. Otherwise,
-        replaces values with NaN.
+        If `True`, adds Gaussian noise to the data. Otherwise, replaces 
+        values with NaN or the specified missing value.
+
+    cat_missing_value : scalar, default=pd.NA
+        The value to use for missing data in categorical columns. By 
+        default, `pd.NA` is used.
+
     Returns
     -------
     pandas.DataFrame
-        A DataFrame with NaN values added.
+        A DataFrame with NaN or specified missing values added.
+
+    Notes
+    -----
+    The function modifies the DataFrame by either adding Gaussian noise 
+    to numerical columns or replacing a percentage of values in each 
+    column with NaN or a specified missing value.
+
+    The Gaussian noise is added according to the formula:
+
+    .. math:: \text{new_value} = \text{original_value} + \mathcal{N}(0, \text{noise})
+
+    where :math:`\mathcal{N}(0, \text{noise})` represents a normal 
+    distribution with mean 0 and standard deviation equal to `noise`.
 
     Examples
     --------
     >>> from gofast.tools.coreutils import add_noises_to
+    >>> import pandas as pd
     >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': ['x', 'y', 'z']})
-    >>> new_df = add_nan_to_dataframe(df, noises=0.2)
+    >>> new_df = add_noises_to(df, noise=0.2)
+    >>> new_df
+         A     B
+    0  1.0  <NA>
+    1  NaN     y
+    2  3.0  <NA>
+
     >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
     >>> new_df = add_noises_to(df, noise=0.1, gaussian_noise=True)
+    >>> new_df
+              A         B
+    0  1.063292  3.986400
+    1  2.103962  4.984292
+    2  2.856601  6.017380
+
+    See Also
+    --------
+    pandas.DataFrame : Two-dimensional, size-mutable, potentially 
+        heterogeneous tabular data.
+    numpy.random.normal : Draw random samples from a normal 
+        (Gaussian) distribution.
+
+    References
+    ----------
+    .. [1] Harris, C. R., Millman, K. J., van der Walt, S. J., et al. 
+           (2020). Array programming with NumPy. Nature, 585(7825), 
+           357-362.
     """
+    is_frame = isinstance (data, pd.DataFrame ) 
+    if not is_frame: 
+        data = pd.DataFrame(data ) 
+        
     np.random.seed(seed)
     if noise is None: 
         return data 
+    
     noise = assert_ratio(noise)
+    
     if gaussian_noise:
-        # Add Gaussian noise to the data
-        noise_data = data.apply(lambda x: x + np.random.normal(
-            0, noise, size=x.shape))
+        # Add Gaussian noise to numerical columns only
+        def add_gaussian_noise(column):
+            if pd.api.types.is_numeric_dtype(column):
+                return column + np.random.normal(0, noise, size=column.shape)
+            return column
+        
+        noise_data = data.apply(add_gaussian_noise)
+        
+        if not is_frame: 
+            noise_data = np.asarray(noise_data)
         return noise_data
     else:
-        # Replace values with NaN
+        # Replace values with NaN or specified missing value
         df_with_nan = data.copy()
         nan_count_per_column = int(noise * len(df_with_nan))
 
         for column in df_with_nan.columns:
-            nan_indices = random.sample(range(len(df_with_nan)),
-                                        nan_count_per_column)
-            df_with_nan.loc[nan_indices, column] = np.nan
-
+            nan_indices = random.sample(range(len(df_with_nan)), nan_count_per_column)
+            if pd.api.types.is_numeric_dtype(df_with_nan[column]):
+                df_with_nan.loc[nan_indices, column] = np.nan
+            else:
+                df_with_nan.loc[nan_indices, column] = cat_missing_value
+                
+        if not is_frame: 
+            df_with_nan = df_with_nan.values 
+            
         return df_with_nan
+
+def nan_to_na(
+    data, /, 
+    cat_missing_value=pd.NA, 
+    nan_spec=np.nan
+    ):
+    """
+    Converts specified NaN values in categorical columns of a pandas 
+    DataFrame or Series to `pd.NA` or another specified missing value.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame or pandas.Series
+        The input DataFrame or Series in which specified NaN values in 
+        categorical columns will be converted.
+        
+    cat_missing_value : scalar, default=pd.NA
+        The value to use for missing data in categorical columns. By 
+        default, `pd.NA` is used. This ensures that categorical columns 
+        do not contain `np.nan` values, which can cause type 
+        inconsistencies.
+
+    nan_spec : scalar, default=np.nan
+        The value that is treated as NaN in the input data. By default, 
+        `np.nan` is used. This allows flexibility in specifying what is 
+        considered as NaN.
+
+    Returns
+    -------
+    pandas.DataFrame or pandas.Series
+        The DataFrame or Series with specified NaN values in categorical 
+        columns converted to the specified missing value.
+
+    Notes
+    -----
+    This function ensures consistency in the representation of missing 
+    values in categorical columns, avoiding issues that arise from the 
+    presence of specified NaN values in such columns.
+
+    The conversion follows the logic:
+    
+    .. math:: 
+        \text{If column is categorical and contains `nan_spec`} 
+        \rightarrow \text{Replace `nan_spec` with `cat_missing_value`}
+
+    Examples
+    --------
+    >>> from gofast.tools.coreutils import nan_to_na
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> df = pd.DataFrame({'A': [1.0, 2.0, np.nan], 'B': ['x', np.nan, 'z']})
+    >>> df['B'] = df['B'].astype('category')
+    >>> df = nan_to_na(df)
+    >>> df
+         A     B
+    0  1.0     x
+    1  2.0  <NA>
+    2  NaN     z
+
+    See Also
+    --------
+    pandas.DataFrame : Two-dimensional, size-mutable, potentially 
+        heterogeneous tabular data.
+    pandas.Series : One-dimensional ndarray with axis labels.
+    numpy.nan : IEEE 754 floating point representation of Not a Number 
+        (NaN).
+
+    References
+    ----------
+    .. [1] Harris, C. R., Millman, K. J., van der Walt, S. J., et al. 
+           (2020). Array programming with NumPy. Nature, 585(7825), 
+           357-362.
+
+    """
+    if not isinstance (data, (pd.Series, pd.DataFrame)): 
+        raise ValueError("Input must be a pandas DataFrame or Series."
+                         f" Got {type(data).__name__!r} instead.")
+        
+    def has_nan_values(series, nan_spec):
+        """Check if nan_spec exists in the series."""
+        return series.isin([nan_spec]).any()
+    
+    if isinstance(data, pd.Series):
+        if has_nan_values(data, nan_spec):
+            if pd.api.types.is_categorical_dtype(data):
+                return data.replace({nan_spec: cat_missing_value})
+        return data
+    
+    elif isinstance(data, pd.DataFrame):
+        df_copy = data.copy()
+        for column in df_copy.columns:
+            if has_nan_values(df_copy[column], nan_spec):
+                if pd.api.types.is_categorical_dtype(df_copy[column]):
+                    df_copy[column] = df_copy[column].replace({nan_spec: cat_missing_value})
+        return df_copy
+
+def validate_noise(noise):
+    """
+    Validates the `noise` parameter and returns either the noise value
+    as a float or the string 'gaussian'.
+
+    Parameters
+    ----------
+    noise : str or float or None
+        The noise parameter to be validated. It can be the string
+        'gaussian', a float value, or None.
+
+    Returns
+    -------
+    float or str
+        The validated noise value as a float or the string 'gaussian'.
+
+    Raises
+    ------
+    ValueError
+        If the `noise` parameter is a string other than 'gaussian' or
+        cannot be converted to a float.
+
+    Examples
+    --------
+    >>> validate_noise('gaussian')
+    'gaussian'
+    >>> validate_noise(0.1)
+    0.1
+    >>> validate_noise(None)
+    None
+    >>> validate_noise('0.2')
+    0.2
+
+    """
+    if isinstance(noise, str):
+        if noise.lower() == 'gaussian':
+            return 'gaussian'
+        else:
+            try:
+                noise = float(noise)
+            except ValueError:
+                raise ValueError("The `noise` parameter accepts the string"
+                                 " 'gaussian' or a float value.")
+    elif noise is not None:
+        try:
+            noise = float(noise)
+        except ValueError:
+            raise ValueError("The `noise` parameter must be convertible to a float.")
+    
+    return noise
 
 def fancier_repr_formatter(obj, max_attrs=7):
     """

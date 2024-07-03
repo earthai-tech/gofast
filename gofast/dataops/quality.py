@@ -36,6 +36,7 @@ __all__= [
     "audit_data",
     "check_correlated_features", 
     "check_missing_data",
+    "check_unique_values", 
     "correlation_ops",
     "drop_correlated_features",
     "handle_duplicates",
@@ -668,9 +669,9 @@ def handle_outliers_in(
     report_obj.add_mixed_types(report, table_width= int(TW/2))
     return (data, report_obj) if return_report else data
 
-@isdf
+@isdf 
 def handle_missing_data(
-    data:DataFrame, /, 
+    data: DataFrame, /, 
     method: Optional[str] = None,  
     fill_value: Optional[Any] = None,
     dropna_threshold: float = 0.5, 
@@ -680,76 +681,127 @@ def handle_missing_data(
     fig_size: Tuple[int, int] = (12, 5)
 ) -> Union[DataFrame, Tuple[DataFrame, dict]]:
     """
-    Analyzes patterns of missing data in the DataFrame. 
-    
-    Optionally, function displays a heatmap before and after handling missing 
-    data, and handles missing data based on the specified method.
+    Analyzes and handles patterns of missing data in the DataFrame.
 
     Parameters
     ----------
-    data : pd.DataFrame
+    data : pandas.DataFrame
         The DataFrame to analyze and handle missing data.
-    method : str, optional
-        Method to handle missing data. Options: 'drop_rows', 'drop_cols', 'fill_mean',
-        'fill_median', 'fill_value'. If None, no handling is performed.
-    fill_value : Any, optional
-        Value to use when filling missing data for 'fill_value' method.
-    dropna_threshold : float, optional
-        Threshold for dropping rows/columns with missing data. 
-        Only used with 'drop_rows' or 'drop_cols' method.
-    return_report : bool, optional
-        If True, returns a tuple of the DataFrame and a report dictionary.
-    view : bool, optional
-        If True, displays a heatmap of missing data before and after handling.
-    cmap : str, optional
-        The colormap for the heatmap visualization.
-    fig_size : Tuple[int, int], optional
-        The size of the figure for the heatmap.
         
+    method : str, optional
+        Method to handle missing data. Options are:
+        - 'drop_rows': Drop rows with missing data based on `dropna_threshold`.
+        - 'drop_cols': Drop columns with missing data based on `dropna_threshold`.
+        - 'fill_mean': Fill missing numerical data with the mean of the column.
+        - 'fill_median': Fill missing numerical data with the median of the column.
+        - 'fill_value': Fill missing data with the specified `fill_value`.
+        - 'ffill': Forward fill to propagate the next values.
+        - 'bfill': Backward fill to propagate the previous values.
+        If `None`, 'ffill' (forward fill) is used as the default method.
+        
+    fill_value : Any, optional
+        Value to use when filling missing data for the 'fill_value' method. 
+        This parameter is required if `method` is 'fill_value'.
+        
+    dropna_threshold : float, optional
+        Threshold for dropping rows/columns with missing data, expressed as 
+        a proportion. Only used with 'drop_rows' or 'drop_cols' method. 
+        Default is 0.5.
+        
+    return_report : bool, optional
+        If `True`, returns a tuple of the DataFrame and a report dictionary.
+        Default is `False`.
+        
+    view : bool, optional
+        If `True`, displays a heatmap of missing data before and after handling.
+        Default is `False`.
+        
+    cmap : str, optional
+        The colormap for the heatmap visualization. Default is 'viridis'.
+        
+    fig_size : Tuple[int, int], optional
+        The size of the figure for the heatmap. Default is (12, 5).
+
     Returns
     -------
-    Union[pd.DataFrame, Tuple[pd.DataFrame, dict]]
+    Union[pandas.DataFrame, Tuple[pandas.DataFrame, dict]]
         DataFrame after handling missing data and optionally a report dictionary.
 
-    Example
-    -------
-    >>> import pandas as pd 
+    Notes
+    -----
+    This function ensures the appropriate handling of missing data based on 
+    the specified method. If no method is provided, forward fill ('ffill') 
+    is used by default.
+
+    The drop thresholds for rows or columns are calculated as:
+    
+    .. math::
+        \text{Threshold} = \text{dropna_threshold} \times \text{number of columns/rows}
+    
+    Examples
+    --------
     >>> from gofast.dataops.quality import handle_missing_data
+    >>> import pandas as pd
+    >>> import numpy as np
     >>> data = pd.DataFrame({'A': [1, np.nan, 3], 'B': [np.nan, 5, 6]})
     >>> updated_data, report = handle_missing_data(
-        data, view=True, method='fill_mean', return_report=True)
-    >>> print(report) 
-    >>> report.stats 
+    ...     data, view=True, method='fill_mean', return_report=True)
+    >>> print(report)
+    >>> report['stats']
     {'method_used': 'fill_mean', 'fill_value': None, 'dropna_threshold': None}
+
+    See Also
+    --------
+    pandas.DataFrame.dropna : Remove missing values.
+    pandas.DataFrame.fillna : Fill missing values.
+    pandas.DataFrame.ffill : Forward fill.
+    pandas.DataFrame.bfill : Backward fill.
+
+    References
+    ----------
+    .. [1] McKinney, W. (2010). Data Structures for Statistical Computing in Python. 
+           Proceedings of the 9th Python in Science Conference, 51-56.
+    .. [2] Harris, C. R., Millman, K. J., van der Walt, S. J., et al. (2020). 
+           Array programming with NumPy. Nature, 585(7825), 357-362.
     """
-    is_frame (data, df_only=True, raise_exception=True)
+ 
+    is_frame(data, df_only=True, raise_exception=True)
+    
     # Analyze missing data
     original_data = data.copy()
     missing_data = pd.DataFrame(data.isnull().sum(), columns=['missing_count'])
     missing_data['missing_percentage'] = (missing_data['missing_count'] / len(data)) * 100
 
     # Handling missing data based on method
+    if method is None:
+        method = 'ffill'  
+
     handling_methods = {
         'drop_rows': lambda d: d.dropna(thresh=int(dropna_threshold * len(d.columns))),
         'drop_cols': lambda d: d.dropna(axis=1, thresh=int(dropna_threshold * len(d))),
-        'fill_mean': lambda d: d.fillna(d.mean()),
-        'fill_median': lambda d: d.fillna(d.median()),
-        'fill_value': lambda d: d.fillna(fill_value)
+        'fill_mean': lambda d: d.fillna(d.mean(numeric_only=True)),
+        'fill_median': lambda d: d.fillna(d.median(numeric_only=True)),
+        'fill_value': lambda d: d.fillna(fill_value),
+        'ffill': lambda d: d.ffill(),
+        'bfill': lambda d: d.bfill()
     }
 
     if method in handling_methods:
         if method == 'fill_value' and fill_value is None:
             raise ValueError("fill_value must be specified for 'fill_value' method.")
         data = handling_methods[method](data)
-    elif method:
+
+    else:
         raise ValueError(f"Invalid method specified: {method}")
 
     # Visualization of missing data before and after handling
     if view:
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+
         plt.figure(figsize=fig_size)
         plt.subplot(1, 2, 1)
-        sns.heatmap(original_data.isnull(), yticklabels=False, cbar=False, 
-                    cmap=cmap)
+        sns.heatmap(original_data.isnull(), yticklabels=False, cbar=False, cmap=cmap)
         plt.title('Before Handling Missing Data')
         
         plt.subplot(1, 2, 2)
@@ -767,16 +819,16 @@ def handle_missing_data(
             "dropna_threshold": dropna_threshold if method in [
                 'drop_rows', 'drop_cols'] else None
         },
-        "describe%% Basic statistics": missing_data.describe().round(4) 
+        "describe%% Basic statistics": missing_data.describe().round(4)
     }
-    report_obj= ReportFactory(title ="Missing Handling", **data_report )
-    report_obj.add_mixed_types(data_report, table_width= TW)
+    report_obj = ReportFactory(title="Missing Handling", **data_report)
+    report_obj.add_mixed_types(data_report, table_width=TW)
+    
     return (data, report_obj) if return_report else data
-
 
 @isdf
 def assess_outlier_impact(
-    data, 
+    data: ArrayLike, /,
     outlier_threshold: int=3, 
     handle_na='ignore', 
     view=False, 
@@ -1013,7 +1065,6 @@ def merge_frames_on_index(
 
     return merged_df
 
-
 @isdf 
 def check_missing_data(
     data: DataFrame, /, 
@@ -1096,11 +1147,11 @@ def check_missing_data(
     is_frame( data, df_only= True, raise_exception= True )
     missing_count = data.isnull().sum()
     missing_count = missing_count[missing_count > 0]
-    missing_percentage = (missing_count / len(data)) * 100
+    missing_percentage = ((missing_count / len(data)) * 100).round(4)
 
     missing_stats = pd.DataFrame({'Count': missing_count,
                      'Percentage': missing_percentage})
-    verbosity_texts={}
+
     if view and not missing_count.empty:
         labels = missing_stats.index.tolist()
         sizes = missing_stats['Percentage'].values.tolist()
@@ -1117,9 +1168,9 @@ def check_missing_data(
         
         if startangle > 360:
             startangle %= 360
-            verbosity_texts['start_angle']=(
-                "Start angle greater than 180 degrees. Using modulo "
-                f"to adjust: startangle={startangle}") 
+            print(
+            "Start angle is greater than 180 degrees. Using modulo "
+            f"to adjust: startangle={startangle}") 
         if not validate_autopct_format(autopct):
             raise ValueError("`autopct` format is not valid. It should be a"
                              "  format string like '%1.1f%%'.")
@@ -1131,11 +1182,16 @@ def check_missing_data(
         ax.set_title('Missing Data Distribution')
         plt.show()
         
-    verbosity_texts ['missing_stats%% Missing Table']= missing_stats
-    if verbose and verbosity_texts: 
-        summary = ReportFactory('Missing Report').add_mixed_types(
-            verbosity_texts, table_width= TW )
-        print(summary)
+    if verbose: 
+        if missing_stats.empty: 
+            print("No missing data detected in the DataFrame."
+                  " All columns are complete.")
+          
+        else:
+            summary= ResultSummary(
+                "MissingCheckResults", pad_keys="auto").add_results(
+                missing_stats.to_dict(orient='index'))
+            print(summary)
 
     return missing_stats
 
@@ -1211,8 +1267,8 @@ def data_assistant(data: DataFrame, view: bool=False):
     texts = {"Starting assistance...": formatted_datetime}
     
     # Initialize dictionaries to store sections of the report
-    recommendations = {}# "RECOMMENDATIONS": "-" * 12}
-    helper_funcs = {} #"HELPER FUNCTIONS": "-" * 12}
+    recommendations = {}
+    helper_funcs = {} 
     
     # Checking for missing values
     texts ["1. Checking for missing values"]="Passed"
@@ -1234,8 +1290,8 @@ def data_assistant(data: DataFrame, view: bool=False):
             ) 
         helper_funcs["1. Missing values "]= ( 
             "Use: pandas.DataFrame.fillna(), sklearn.impute.SimpleImputer"
-            " ~.tools.soft_imputer, ~.tools.one_click_prep"
-            " ~.dataops.handle_missing_data and more..."
+            " ~.tools.soft_imputer, ~.tools.one_click_prep, ~.dataops.check_missing_data"
+            " ~.dataops.handle_missing_data, ~.transformers.MissingValueImputer and more..."
             )
     # Descriptive statistics
     texts ["2. Descriptive Statistics"]="Done"
@@ -1268,7 +1324,7 @@ def data_assistant(data: DataFrame, view: bool=False):
         texts["   #  Non-numeric features"]= smart_format( 
             data.select_dtypes( exclude=[np.number]).columns.tolist())
         
-        recommendations [ "4. Non-numeric data"]= (
+        recommendations ["4. Non-numeric data"]= (
             "Improper handling of non-numeric data can lead to misleading"
             " results or poor model performance. For instance, ordinal "
             " encoding of inherently nominal data can imply a nonexistent"
@@ -1286,7 +1342,9 @@ def data_assistant(data: DataFrame, view: bool=False):
     texts["5. Correlation analysis"]="Done"
     numeric_data = data.select_dtypes(include=[np.number])
     texts["   #  Numeric corr-feasible features"]=format_iterable(numeric_data)
-    if numeric_data.shape[1] > 1:
+    if numeric_data.empty: 
+        texts["   #  Numeric corr-feasible features"]="No numeric features found."
+    elif numeric_data.ndim > 1:
         exist_correlated = check_correlated_features(numeric_data)
         texts["   #  Correlation matrix review"]="Done"
         texts["   #  Are correlated features found?"] = "Yes" if exist_correlated else "No"
@@ -1309,9 +1367,7 @@ def data_assistant(data: DataFrame, view: bool=False):
                 "Use: pandas.DataFrame.go_corr, ~.dataops.analyze_data_corr,"
                 " ~.dataops.correlation_ops, ~.dataops.drop_correlated_features,"
                 " ~.stats.descriptive.corr` and more ...")
-    else: 
-        texts["   #  Numeric corr-feasible features"]="No numeric features found."
-        
+    
     # Distribution analysis
     texts["6. Checking for potential outliers"]="Passed"
     skew_cols =[]
@@ -1369,21 +1425,15 @@ def data_assistant(data: DataFrame, view: bool=False):
             " ~.tools.handle_duplicates and more ...")
         
     # Unique value check
-    texts["8. Unique value check"]="Passed"
-    unique_cols =[]
-    for col in data.columns:
-        if data[col].nunique() < 10:
-            value = data[col].unique()
-            unique_cols.append (( col, list(value))) 
+    texts["8. Unique value check with threshold=10"]="Passed"
     
+    unique_cols =check_unique_values(
+        data, return_unique_cols=True, unique_threshold=10)
     if unique_cols: 
-        #print(unique_cols)
-        texts["8. Unique value check"]="Failed"
+        texts["8. Unique value check with threshold=10"]="Failed"
         texts["   #  Found unique value column?"]="Yes"
-        texts["   #  Duplicated indices"]=', '.join(
-            [ f"{col}-{str(val) if len(val)<=3 else format_iterable(val)}" 
-             for col, val in unique_cols ]
-            ) 
+        texts["   #  Uniques columns"]=smart_format(unique_cols)
+        
         recommendations ["8. Unique identifiers"]= ( 
             "Unique identifiers typically do not possess any intrinsic"
             " predictive power because they are unique to each record."
@@ -1395,7 +1445,8 @@ def data_assistant(data: DataFrame, view: bool=False):
         helper_funcs["8. Unique identifiers"]= ( 
             "Use: ~.dataops.handle_unique_identifiers,"
             " ~.transformers.BaseCategoricalEncoder,"
-            " ~.transformers.CategoricalEncoder, and more ..."
+            " ~.transformers.CategoricalEncoder,"
+            " ~.transformers.CategorizeFeatures', and more ..."
             )
     
     report_txt= {**texts}
@@ -1424,7 +1475,6 @@ def data_assistant(data: DataFrame, view: bool=False):
     else:
         # Provide actionable steps when there are recommendations and/or helper functions
         report_txt["NOTE"] = "-" * note_line
-        
         # Add a "TO DO" section with specific guidance
         report_txt["TO DO"] = (
             "Please review the insights and recommendations provided to"
@@ -1452,8 +1502,168 @@ def data_assistant(data: DataFrame, view: bool=False):
         assistance_reports.append(helper_tools_report)
 
     assemble_reports( *assistance_reports, display=True)
- 
     
+    
+@Dataify(auto_columns= True, ignore_mismatch=True)  
+def check_unique_values(
+    data: DataFrame, 
+    columns: Optional[List[str]] = None, 
+    unique_threshold: Union[int, str] = 1,
+    only_unique: bool = False,
+    include_nan: bool = False,
+    return_unique_cols: bool = False,
+    verbose: bool = False
+) -> Union[DataFrame,Series, List[str]]:
+    """
+    Checks for unique values in a pandas DataFrame and provides detailed 
+    analysis.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame to analyze for unique values.
+        
+    columns : list of str, optional
+        List of column names to check. If `None`, all columns are checked.
+        
+    unique_threshold : int or str, default 1
+        Threshold for defining unique values. If an integer, it specifies 
+        the minimum count of unique values for consideration. If 'auto', 
+        the function automatically determines uniqueness:
+        - Integer columns: Count repetitive values.
+        - Float columns with integer-like values (e.g., 1.0, 2.0): Count 
+          unique values.
+        - Float columns with non-integer-like values: Ignore.
+        - Categorical columns: Apply standard uniqueness check.
+        
+    only_unique : bool, default False
+        If `True`, returns only the columns with unique values.
+        
+    include_nan : bool, default False
+        If `True`, includes NaN values in the uniqueness check.
+        
+    return_unique_cols : bool, default False
+        If `True`, returns a list of columns that contain unique values.
+        
+    verbose : bool, default False
+        If `True`, prints detailed output including counts of unique 
+        values per column and columns above the threshold.
+
+    Returns
+    -------
+    Union[pandas.DataFrame, pd.Series, list of str]
+        A DataFrame or Series with the count of unique values per column, 
+        or a list of columns with unique values, depending on the 
+        parameters.
+
+    Notes
+    -----
+    This function analyzes the uniqueness of values in a DataFrame. The 
+    threshold for uniqueness can be set manually or determined 
+    automatically based on data types.
+
+    The uniqueness check for 'auto' threshold is performed as follows:
+    
+    .. math::
+        \text{if column is integer: count repetitive values}
+    
+    .. math::
+        \text{if column is float and all values are integer-like: count unique values}
+    
+    .. math::
+        \text{if column is float and not integer-like: ignore}
+    
+    .. math::
+        \text{if column is categorical: apply standard uniqueness check}
+
+    Examples
+    --------
+    >>> from gofast.dataops.quality import check_unique_values
+    >>> import pandas as pd
+    >>> data = pd.DataFrame({'A': [1, 2, 2, 3], 'B': ['x', 'y', 'y', 'z'], 'C': [1.0, 2.0, 2.0, 3.0]})
+    >>> check_unique_values(data, verbose=True)
+    Unique value counts per column:
+    A    3
+    B    3
+    C    3
+    dtype: int64
+    >>> check_unique_values(data, unique_threshold='auto', verbose=True)
+    Unique value counts per column:
+    A    3
+    B    3
+    C    3
+    dtype: int64
+    >>> check_unique_values(data, only_unique=True, unique_threshold='auto')
+       A  B  C
+    0  1  x  1.0
+    1  2  y  2.0
+    2  2  y  2.0
+    3  3  z  3.0
+    >>> check_unique_values(data, return_unique_cols=True, unique_threshold='auto')
+    ['A', 'B', 'C']
+
+    See Also
+    --------
+    pandas.DataFrame.nunique : Count unique values in DataFrame columns.
+    pandas.Series.nunique : Count unique values in Series.
+    pandas.Series.value_counts : Count occurrences of unique values in Series.
+
+    References
+    ----------
+    .. [1] McKinney, W. (2010). Data Structures for Statistical Computing in Python. 
+           Proceedings of the 9th Python in Science Conference, 51-56.
+    .. [2] Harris, C. R., Millman, K. J., van der Walt, S. J., et al. (2020). 
+           Array programming with NumPy. Nature, 585(7825), 357-362.
+    """
+    unique_counter = {}
+    summary = ResultSummary("UniqueValues", pad_keys="auto", flatten_nested_dicts=False)
+    
+    if columns is None:
+        columns = data.columns.tolist()
+
+    unique_counts = pd.Series(index=columns, dtype=int)
+    
+    for col in columns:
+        if pd.api.types.is_integer_dtype(data[col]):
+            unique_counts[col] = data[col].value_counts().lt(2).sum()
+        elif pd.api.types.is_float_dtype(data[col]):
+            float_zero_remainder = all(data[col].dropna().mod(1) == 0)
+            if float_zero_remainder:
+                unique_counts[col] = data[col].value_counts().lt(2).sum()
+            else:
+                unique_counts[col] = 0
+        elif pd.api.types.is_categorical_dtype(data[col]) or pd.api.types.is_object_dtype(data[col]):
+            unique_counts[col] = data[col].nunique(dropna=not include_nan)
+        else:
+            unique_counts[col] = 0
+    
+    if verbose:
+        unique_counter["counts_per_columns"] = unique_counts.to_dict()
+
+    if unique_threshold == 'auto':
+        unique_columns = unique_counts[unique_counts > 0].index
+    elif isinstance(unique_threshold, (int, float)):
+        unique_columns = unique_counts[unique_counts >= unique_threshold].index
+    else:
+        raise ValueError("unique_threshold must be 'auto' or a numeric value.")
+    
+    if only_unique:
+        unique_data = data[unique_columns]
+        if verbose:
+            unique_counter["columns_above_threshold"] = unique_columns.tolist()
+            summary.add_results(unique_counter)
+            print(summary)
+        return unique_data
+
+    if return_unique_cols:
+        if verbose:
+            unique_counter["columns"] = unique_columns.tolist()
+            summary.add_results(unique_counter)
+            print(summary)
+        return unique_columns.tolist()
+    
+    return unique_counts
+
 @Dataify(auto_columns= True, ignore_mismatch=True, prefix="feature_")   
 def check_correlated_features(
     data, /, threshold: float=0.8, 

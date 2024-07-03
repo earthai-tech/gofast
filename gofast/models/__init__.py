@@ -33,7 +33,8 @@ from .utils import (
     plot_feature_correlation, 
     base_evaluation, 
     get_best_kPCA_params
-    ) 
+  ) 
+
 __all__=[
     "get_best_kPCA_params", 
     "get_scorers",

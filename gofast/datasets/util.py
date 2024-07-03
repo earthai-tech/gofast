@@ -20,7 +20,7 @@ import pandas as pd
 from ..api.formatter import DescriptionFormatter
 from ..api.structures import Boxspace
 from ..compat.sklearn import  train_test_split 
-from ..tools.coreutils import is_in_if, add_noises_to
+from ..tools.coreutils import is_in_if, add_noises_to, validate_noise 
 from ..tools.coreutils import smart_format, is_iterable, validate_ratio 
 from .metadata import SimulationMetadata
 
@@ -1700,14 +1700,12 @@ def manage_data(
         samples.
     
     """
-    
     # Ensure the correct data types for the parameters
     as_frame, return_X_y, split_X_y = map(
         lambda x: bool(x), [as_frame, return_X_y, split_X_y]
     )
     test_size = float(test_size)
-    if noise is not None:
-        noise = float(noise)
+   
     if seed is not None:
         seed = int(seed)
     
@@ -1725,8 +1723,18 @@ def manage_data(
         y = data [target_names].squeeze ()  
         data.drop( columns = target_names, inplace =True )
         
-    # Noises only in the data not in target
-    data = add_noises_to(data, noise=noise, seed=seed)
+    # Apply noises: Noises only in the data not in target
+    add_gaussian_noise=False 
+    noise = validate_noise(noise )
+    
+    if noise=='gaussian': 
+        add_gaussian_noise=True 
+        #Small value of noise. Do nothing when gaussian noises 
+        # is applied, just to skip value error. 
+        noise =.1 
+        
+    data = add_noises_to(
+        data, noise=noise, seed=seed, gaussian_noise= add_gaussian_noise)
 
     if not as_frame:
         data = np.asarray(data)
@@ -1739,7 +1747,11 @@ def manage_data(
         return data, y
 
     frame[feature_names] = add_noises_to(
-        frame[feature_names], noise=noise, seed=seed)
+        frame[feature_names], 
+        noise=noise,
+        seed=seed, 
+        gaussian_noise= add_gaussian_noise
+        )
 
     if as_frame:
         return frame
@@ -1752,6 +1764,7 @@ def manage_data(
         feature_names=feature_names,
         **kwargs
     )
+
 
 def get_item_from ( spec , /,  default_items, default_number = 7 ): 
     """ Accept either interger or a list. 
