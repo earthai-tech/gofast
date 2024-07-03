@@ -34,6 +34,7 @@ __all__= [
     "analyze_data_corr",
     "assess_outlier_impact",
     "audit_data",
+    "check_correlated_features", 
     "check_missing_data",
     "correlation_ops",
     "drop_correlated_features",
@@ -1217,7 +1218,7 @@ def data_assistant(data: DataFrame, view: bool=False):
     texts ["1. Checking for missing values"]="Passed"
     if data.isnull().sum().sum() > 0:
         texts ["1. Checking for missing values"]="Failed"
-        texts["   #  Found missing values in the dataset?"]='yes'
+        texts["   #  Found missing values in the dataset?"]='Yes'
         #print("Found missing values in the dataset.")
         missing_data = data.isnull().sum()
         missing_data = missing_data[missing_data > 0]
@@ -1225,16 +1226,16 @@ def data_assistant(data: DataFrame, view: bool=False):
             [missing_data.name] if isinstance (
                 missing_data, pd.Series ) else missing_data.columns ) 
         
-        recommendations["1. rec-missing values "]= ( 
+        recommendations["1. Missing values "]= ( 
             "Missing data can lead to biased or invalid conclusions"
             " if not handled properly, as many statistical methods assume"
             " complete data. Consider imputing or dropping the missing values."
             " See helper functions for handling missing values."
             ) 
-        helper_funcs["1. help-missing values "]= ( 
-            "Use: pandas.DataFrame.fillna(), `sklearn.impute.SimpleImputer`"
-            " `gofast.tools.soft_imputer`, `gofast.tools.one_click_preprocess`"
-            " `gofast.dataops.handle_missing_values` and more..."
+        helper_funcs["1. Missing values "]= ( 
+            "Use: pandas.DataFrame.fillna(), sklearn.impute.SimpleImputer"
+            " ~.tools.soft_imputer, ~.tools.one_click_prep"
+            " ~.dataops.handle_missing_data and more..."
             )
     # Descriptive statistics
     texts ["2. Descriptive Statistics"]="Done"
@@ -1244,30 +1245,30 @@ def data_assistant(data: DataFrame, view: bool=False):
     zero_var_cols = data.columns[data.nunique() == 1]
     if len(zero_var_cols) > 0:
         texts ["3. Checking zero variance features"]="Failed"
-        texts ["   #  Found zero variance columns?"]="yes"
+        texts ["   #  Found zero variance columns?"]="Yes"
         texts["   #  Zeros variances columns"]=( 
             f"{smart_format(zero_var_cols.tolist())}"
             )
         
-        recommendations["3. rec-zero variances features"]=(
+        recommendations["3. Zero variances features"]=(
             "Zero variance features offer no useful information for modeling"
             " because they do not vary across observations. This means they"
             " cannot help in predicting the target variable or in distinguishing"
             " between different instances. Consider dropping them as they do not "
             " provide any information, redundant computation, model complexity..."
             )
-        helper_funcs["3. help-zero variances features"]= ( 
-            "Use: `pandas.DataFrame.drop(columns =<zero_var_cols>)`")
+        helper_funcs["3. Zero variances features"]= ( 
+            "Use: pandas.DataFrame.drop(columns =<zero_var_cols>)")
         
     # Data types analysis
-    texts["4. Data types summary"]="Passed"
+    texts["4. Data types summary"]="Done"
     if (data.dtypes == 'object').any():
         texts["   #  Summary types"]="Include string or mixed types"
-        texts["   #  Non-numeric data types found?"]="yes"
+        texts["   #  Non-numeric data types found?"]="Yes"
         texts["   #  Non-numeric features"]= smart_format( 
             data.select_dtypes( exclude=[np.number]).columns.tolist())
         
-        recommendations [ "4. rec-non-numeric data"]= (
+        recommendations [ "4. Non-numeric data"]= (
             "Improper handling of non-numeric data can lead to misleading"
             " results or poor model performance. For instance, ordinal "
             " encoding of inherently nominal data can imply a nonexistent"
@@ -1275,36 +1276,41 @@ def data_assistant(data: DataFrame, view: bool=False):
             " Consider transforming into a numeric format through encoding"
             " techniques (like one-hot encoding, label encoding, or embedding)"
             " to be used in these models.")
-        helper_funcs ["4. help-non-numeric data"]=( 
-            "Use: `pandas.get_dummies()`, `sklearn.preprocessing.LabelEncoder`"
-            " `gofast.tools.soft_encoder`,"
-            " `gofast.dataops.handle_categorical_features` and more ..."
+        helper_funcs ["4. Non-numeric data"]=( 
+            "Use: pandas.get_dummies(), sklearn.preprocessing.LabelEncoder"
+            " ~.tools.soft_encoder, ~.transformers.CategoricalEncoder2"
+            " ~.dataops.handle_categorical_features and more ..."
             ) 
         
     # Correlation analysis
-    texts["5. Correlation analysis"]="Passed"
+    texts["5. Correlation analysis"]="Done"
     numeric_data = data.select_dtypes(include=[np.number])
     texts["   #  Numeric corr-feasible features"]=format_iterable(numeric_data)
     if numeric_data.shape[1] > 1:
- 
-        texts["   #  Correlation matrix review"]="yes"
+        exist_correlated = check_correlated_features(numeric_data)
+        texts["   #  Correlation matrix review"]="Done"
+        texts["   #  Are correlated features found?"] = "Yes" if exist_correlated else "No"
+
         if view: 
             sns.heatmap(numeric_data.corr(), annot=True, cmap='coolwarm')
             plt.title('Correlation Matrix')
             plt.show()
             texts["   #  corr-matrix view"]="See displayed figure..."
-            
-        recommendations["5. rec-correlated features"]= (
-            "Highly correlated features can lead to multicollinearity in"
-            " regression models, where it becomes difficult to estimate the"
-            " relationship of each independent variable with the dependent"
-            " variable due to redundancy. Review highly correlated variables"
-            " as they might affect model performance due to multicollinearity."
-            )
-        helper_funcs ["5. help-correlated features"]= ( 
-            "Use: `pandas.DataFrame.go_corr`, `gofast.tools.analyze_data_corr`,"
-            " `gofast.dataops.correlation_ops`, `gofast.dataops.drop_correlated_features`,"
-            " `gofast.stats.descriptive.corr` and more ...")
+        
+        if exist_correlated: 
+            recommendations["5. Correlated features"]= (
+                "Highly correlated features can lead to multicollinearity in"
+                " regression models, where it becomes difficult to estimate the"
+                " relationship of each independent variable with the dependent"
+                " variable due to redundancy. Review highly correlated variables"
+                " as they might affect model performance due to multicollinearity."
+                )
+            helper_funcs ["5. Correlated features"]= ( 
+                "Use: pandas.DataFrame.go_corr, ~.dataops.analyze_data_corr,"
+                " ~.dataops.correlation_ops, ~.dataops.drop_correlated_features,"
+                " ~.stats.descriptive.corr` and more ...")
+    else: 
+        texts["   #  Numeric corr-feasible features"]="No numeric features found."
         
     # Distribution analysis
     texts["6. Checking for potential outliers"]="Passed"
@@ -1324,29 +1330,32 @@ def data_assistant(data: DataFrame, view: bool=False):
         texts["   #  Distribution analysis view"]="See displayed figure..."
         
     if skew_cols : 
-        texts["   #  Outliers found?"]="yes"
+        texts["6. Checking for potential outliers"]="Failed"
+        
+        texts["   #  Outliers found?"]="Yes"
         texts["   #  Skewness columns"]=', '.join(
             [ f"{skew}-{val:.4f}" for skew, val in  skew_cols ]) 
-        recommendations["6. rec-distribution ~ skewness"]= (
+        recommendations["6. Distribution ~ skewness"]= (
             "Skewness can distort the mean and standard deviation of the data."
             " Measures of skewed data do not accurately represent the center"
             " and variability of the data, potentially leading to misleading"
             " interpretations, poor model performance and unreliable predictions."
             " Consider transforming this data using logarithmic, square root,"
             " or box-cox transformations")
-        helper_funcs ["6. help-distribution ~ skewness" ]= ( 
-            "Use: `scipy.stats.boxcox`, `sklearn.preprocessing.PowerTransformer`"
-            " `gofast.dataops.handle_skew`, `gofast.dataops.assess_outlier_impact`"
-            " `pandas.DataFrame.go_skew`, `gofast.stats.descriptive.skew` and more ..."
+        helper_funcs ["6. Distribution ~ skewness" ]= ( 
+            "Use: scipy.stats.boxcox, sklearn.preprocessing.PowerTransformer"
+            " ~.dataops.handle_skew, ~.dataops.assess_outlier_impact"
+            " pandas.DataFrame.go_skew, ~.stats.descriptive.skew and more ..."
             )
     # Duplicate rows
     texts["7. Duplicate analysis"]="Passed"
     if data.duplicated().sum() > 0:
-        texts["   #  Found duplicate rows in the dataset?"]="yes"
+        texts["7. Duplicate analysis"]="Failed"
+        texts["   #  Found duplicate rows in the dataset?"]="Yes"
         texts["   #  Duplicated indices"]=smart_format(
             handle_duplicates(data, return_indices=True )
             ) 
-        recommendations["7. rec-duplicate analysis"]=(
+        recommendations["7. Duplicate analysis"]=(
             "Duplicate entries can skew statistical calculations such as means,"
             " variances, and correlations, leading to biased or incorrect estimates"
             " Duplicate rows can lead to overfitting, particularly if the"
@@ -1355,9 +1364,9 @@ def data_assistant(data: DataFrame, view: bool=False):
             " patterns, performing well on training data but poorly on new,"
             " unseen data. Consider reviewing and possibly removing duplicates."
             )
-        helper_funcs ["7. help-duplicate analysis"]=(
-            "Use: `pandas.DataFrame.drop_duplicates()`,"
-            " `gofast.tools.handle_duplicates` and more ...")
+        helper_funcs ["7. Duplicate analysis"]=(
+            "Use: pandas.DataFrame.drop_duplicates(),"
+            " ~.tools.handle_duplicates and more ...")
         
     # Unique value check
     texts["8. Unique value check"]="Passed"
@@ -1369,12 +1378,13 @@ def data_assistant(data: DataFrame, view: bool=False):
     
     if unique_cols: 
         #print(unique_cols)
-        texts["   #  Found unique value column?"]="yes"
+        texts["8. Unique value check"]="Failed"
+        texts["   #  Found unique value column?"]="Yes"
         texts["   #  Duplicated indices"]=', '.join(
             [ f"{col}-{str(val) if len(val)<=3 else format_iterable(val)}" 
              for col, val in unique_cols ]
             ) 
-        recommendations ["8. rec-Unique identifiers"]= ( 
+        recommendations ["8. Unique identifiers"]= ( 
             "Unique identifiers typically do not possess any intrinsic"
             " predictive power because they are unique to each record."
             " Including these in predictive modeling can be misleading"
@@ -1382,35 +1392,51 @@ def data_assistant(data: DataFrame, view: bool=False):
             " gaining any generalizable insights. Check if these columns"
             " should be treated as a categorical variables"
             )
-        helper_funcs["8. help-unique identifiers"]= ( 
-            "Use: `gofast.dataops.handle_unique_identifiers`,"
-            " `gofast.transformers.BaseCategoricalEncoder`,"
-            " `gofast.transformer.CategoricalEncoder`, and more ..."
+        helper_funcs["8. Unique identifiers"]= ( 
+            "Use: ~.dataops.handle_unique_identifiers,"
+            " ~.transformers.BaseCategoricalEncoder,"
+            " ~.transformers.CategoricalEncoder, and more ..."
             )
     
-    report_txt= {**texts}#
- 
+    report_txt= {**texts}
+
+    # Get the Note line from TW terminal width
+    note_line = TW - (max(len(key) for key in report_txt.keys()) + 3)
+    
     # In case both sections are empty, append a general note
     if len(recommendations) == 0 and len(helper_funcs) == 0:
         # Adding a general keynote to the report to address the absence
         # of recommendations and helper functions
-        report_txt["KEYNOTE"] = "-" * 12
+        report_txt["KEYNOTE"] = "-" * note_line
+        
+        # Add a "TO DO" section with a general review note
         report_txt["TO DO"] = (
-            "Review the provided insights. No further immediate actions"
-            " or recommendations are required at this stage. For a more"
-            " in-depth inspection or specific queries, consider using"
-            " detailed analysis tools such as `gofast.tools.inspect_data`."
+            "Review the provided insights. No further immediate actions or "
+            "recommendations are required at this stage. For a more in-depth "
+            "inspection or specific queries, consider using detailed analysis "
+            "tools such as `gofast.dataops.inspect_data`. These tools offer "
+            "advanced capabilities for attribute queries and can help you gain "
+            "deeper insights into your data. Additionally, exploring tools like "
+            " `gofast.dataops.verify_data_integrity`, `gofast.dataops.correlation_ops`"
+            " and `gofast.dataops.handle_categorical_features` can further"
+            " enhance your data analysis and preprocessing workflows."
         )
     else:
-        # Provide actionable steps when there are recommendations
-        # and/or helper functions
-        report_txt["NOTE"] = "-" * 12
+        # Provide actionable steps when there are recommendations and/or helper functions
+        report_txt["NOTE"] = "-" * note_line
+        
+        # Add a "TO DO" section with specific guidance
         report_txt["TO DO"] = (
-            "Review the insights and recommendations provided to effectively"
-            " prepare your data for modeling. For more in-depth analysis,"
-            " utilize tools such as `gofast.tools.inspect_data`."
+            "Please review the insights and recommendations provided to"
+            " effectively prepare your data for modeling. For a more"
+            " comprehensive analysis, make use of the tools available in the"
+            " `gofast.dataops` module. Consider utilizing `gofast.datops.verify_data_integrity`"
+            " to ensure accuracy and consistency, and `gofast.dataops.audit_data`"
+            " for auditing your data. Additionally, you can explore further"
+            " capabilities by using `gofast.explore('dataops.<module>')`."
+            " Make sure to set `gofast.config.PUBLIC=True` first."
         )
-    
+
     assistance_reports =[]
     assistance_reports.append( ReportFactory(
         "Data Assistant Report").add_mixed_types(
@@ -1421,12 +1447,146 @@ def data_assistant(data: DataFrame, view: bool=False):
             recommendations, table_width= TW  )
         assistance_reports.append(recommendations_report)
     if len(helper_funcs) > 1:
-        helper_tools_report = ReportFactory("Helper tools").add_mixed_types(
+        helper_tools_report = ReportFactory("Helper tools [~:gofast]").add_mixed_types(
             helper_funcs, table_width= TW  )
         assistance_reports.append(helper_tools_report)
 
     assemble_reports( *assistance_reports, display=True)
  
+    
+@Dataify(auto_columns= True, ignore_mismatch=True, prefix="feature_")   
+def check_correlated_features(
+    data, /, threshold: float=0.8, 
+    method: str | callable ='pearson',
+    return_correlated_pairs: bool=False,
+    min_periods: int=1,
+    view: bool=False, 
+    annot: bool=True, 
+    cmap: str="viridis", 
+    fig_size: tuple =(12, 10)
+    ):
+    """
+    Check for correlated features in a DataFrame.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame containing the features to check for correlation.
+    threshold : float, optional, default=0.8
+        The correlation coefficient threshold above which features 
+        are considered correlated. Values range between -1 and 1.
+    method : str or callable, optional, default='pearson'
+        The correlation method to use. One of {'pearson', 'spearman', 
+        'kendall'} or a callable. This determines the type of 
+        correlation calculation to use.
+    return_correlated_pairs : bool, optional, default=False
+        If True, returns a list of correlated pairs of features.
+    min_periods : int, optional, default=1
+        Minimum number of observations required per pair of columns to 
+        have a valid result. Only used if the method is 'pearson' or 
+        'spearman'.
+    view : bool, optional, default=False
+        If True, plots a heatmap of the correlation matrix.
+    annot : bool, optional, default=True
+        If True, annotates the heatmap with the correlation coefficients.
+    cmap : str, optional, default='viridis'
+        Colormap to use for the heatmap.
+    fig_size : tuple, optional, default=(12, 10)
+        Size of the figure for the heatmap.
+
+    Returns
+    -------
+    correlated_pairs : list of tuple, optional
+        A list of tuples containing pairs of correlated features and 
+        their correlation coefficient. Returned only if 
+        `return_correlated_pairs` is ``True``.
+
+    Raises
+    ------
+    ValueError
+        If the input data is not a pandas DataFrame.
+
+    Notes
+    -----
+    The correlation coefficient, :math:`r`, measures the strength and 
+    direction of a linear relationship between two features. It is 
+    defined as:
+
+    .. math::
+        r = \\frac{\\sum_{i=1}^{n} (x_i - \\bar{x})(y_i - \\bar{y})}
+        {\\sqrt{\\sum_{i=1}^{n} (x_i - \\bar{x})^2}
+        \\sqrt{\\sum_{i=1}^{n} (y_i - \\bar{y})^2}}
+
+    where :math:`x_i` and :math:`y_i` are individual sample points, and 
+    :math:`\\bar{x}` and :math:`\\bar{y}` are the mean values of the 
+    samples.
+
+    Highly correlated features (with an absolute correlation coefficient 
+    greater than the specified `threshold`) can introduce multicollinearity 
+    into machine learning models, leading to unreliable model coefficients.
+
+    Examples
+    --------
+    Generate example data and check for correlated features:
+
+    >>> from gofast.dataops.quality import check_correlated_features
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> data = pd.DataFrame(np.random.rand(100, 5), 
+    ...                     columns=['A', 'B', 'C', 'D', 'E'])
+    >>> correlated_features = check_correlated_features(data, 
+    ...                                                 threshold=0.75, 
+    ...                                                 view=True)
+    >>> print("Correlated Features:", correlated_features)
+
+    See Also
+    --------
+    gofast.dataops.analyze_data_corr :
+        Computes the correlation matrix for specified columns in a pandas 
+        DataFrame and optionally visualizes it using a heatmap.
+    gofast.dataops.correlation_ops :
+        Performs correlation analysis on a given DataFrame and classifies 
+        the correlations into specified categories.
+    gofast.dataops.drop_correlated_features :
+        Analyzes and removes highly correlated features from a DataFrame 
+        to reduce multicollinearity, improving the reliability and performance 
+        of subsequent statistical models.
+
+    References
+    ----------
+    .. [1] Pearson, K. (1895). "Note on Regression and Inheritance in the 
+           Case of Two Parents". Proceedings of the Royal Society of London. 
+           58: 240–242.
+    .. [2] Spearman, C. (1904). "The Proof and Measurement of Association 
+           between Two Things". American Journal of Psychology. 15 (1): 72–101.
+    .. [3] Kendall, M. G. (1938). "A New Measure of Rank Correlation". 
+           Biometrika. 30 (1/2): 81–89.
+    """
+    # Calculate the correlation matrix
+    corr_matrix = data.corr(method=method, min_periods=min_periods)
+
+    # Find pairs of correlated features
+    correlated_pairs = []
+    for i in range(len(corr_matrix.columns)):
+        for j in range(i):
+            if abs(corr_matrix.iloc[i, j]) > threshold:
+                pair = (corr_matrix.columns[i], corr_matrix.columns[j],
+                        round(corr_matrix.iloc[i, j], 6))
+                correlated_pairs.append(pair)
+
+    if view:
+        # Plot a heatmap of the correlation matrix
+        plt.figure(figsize=fig_size)
+        sns.heatmap(corr_matrix, annot=annot, fmt=".2f", cmap=cmap, 
+                    vmin=-1, vmax=1)
+        plt.title(f'Correlation Matrix ({method} method)')
+        plt.show()
+
+    if return_correlated_pairs:
+        return correlated_pairs
+    
+    return bool(correlated_pairs)
+
 @Dataify(auto_columns= True , ignore_mismatch=True, prefix="var_")
 def analyze_data_corr(
     data: DataFrame, 

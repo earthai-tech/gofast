@@ -1958,7 +1958,7 @@ def array2hdf5 (
     as_frame: bool =..., 
     columns: List[str]=None, 
 )-> NDArray | DataFrame: 
-    """ Load or write array to hdf5
+    """ Load or write array to hdf5.
     
     Parameters 
     -----------

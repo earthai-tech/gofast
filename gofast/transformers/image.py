@@ -116,7 +116,6 @@ class ImageResizer(BaseEstimator, TransformerMixin):
         from skimage.transform import resize
         return resize(X, self.output_size, anti_aliasing=True)
 
-
 class ImageNormalizer(BaseEstimator, TransformerMixin):
     """
     Normalize images by scaling pixel values to the range [0, 1].
@@ -184,7 +183,6 @@ class ImageNormalizer(BaseEstimator, TransformerMixin):
 
         """
         return X / 255.0
-
 
 
 class ImageToGrayscale(BaseEstimator, TransformerMixin):

@@ -738,7 +738,7 @@ def optimize_hyperparams(
 
     Examples
     --------
-    >>> from gofast.estimators._base import optimize_hyperparams
+    >>> from gofast.estimators.util import optimize_hyperparams
     >>> from sklearn.ensemble import RandomForestRegressor
     >>> X = np.random.rand(100, 10)
     >>> y = np.random.rand(100)
@@ -774,11 +774,11 @@ def optimize_hyperparams(
     .. [2] Bergstra, J., and Bengio, Y. (2012). Random Search for Hyper-Parameter 
            Optimization. Journal of Machine Learning Research, 13(Feb), 281-305.
     """
-    from ..models.utils import get_optimizer_method
+    from ..models.utils import get_strategy_method
     
     param_grid = param_grid or {}
     # Validate and retrieve the optimizer method
-    optimizer = get_optimizer_method(optimizer)
+    optimizer = get_strategy_method(optimizer)
     
     # Initialize the search object (RandomizedSearchCV or GridSearchCV)
     search = optimizer(estimator, param_grid, cv=cv) if optimizer else estimator

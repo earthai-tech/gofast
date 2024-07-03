@@ -4,9 +4,33 @@
 from setuptools import setup, Extension, find_packages
 from setuptools.command.build_ext import build_ext
 import builtins
-import numpy
-import os
+import os # noqa
 import sys
+import subprocess
+
+# This is mostly used for running the tests
+#  with 'pip install -e' in the repository
+def install_numpy_if_needed():
+    """
+    Check if Numpy is installed and install it if not.
+    """
+    try:
+        # Try to import Numpy
+        import numpy  # noqa
+        print("Numpy is already installed.")
+    except ImportError:
+        # If Numpy is not installed, install it using pip
+        print("Numpy is not installed. Installing now...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "numpy"])
+        # Import Numpy again after installation to confirm it was successful
+        import numpy  # noqa
+        print("Numpy has been installed successfully.")
+
+# Call the function to ensure Numpy is installed before proceeding
+install_numpy_if_needed()
+
+# Now that Numpy is installed, you can safely import it
+import numpy
 
 # Compatibility layer for Python 2 and 3
 try:
@@ -23,6 +47,7 @@ try:
     VERSION = gofast.__version__
 except ImportError:
     VERSION = '0.1.0'
+
 
 # Package metadata
 DISTNAME = "gofast"
@@ -60,13 +85,66 @@ PACKAGE_DATA = {
     ]
 }
 
-# Cython extension modules
+def collect_pyx_modules(package_path):
+    """
+    Collect all Python (.py) files in the given package path and prepare them for Cython build.
+    Exclude files that start with an underscore ('_') and 'setup.py'.
+    """
+    pyx_modules = []
+    for root, _, files in os.walk(package_path):
+        for file in files:
+            if file.endswith('.py') and not file.startswith('_') and file != 'setup.py':
+                module_path = os.path.join(root, file)
+                pyx_module = module_path.replace('.py', '.pyx')
+                os.rename(module_path, pyx_module)
+                pyx_modules.append(pyx_module)
+    return pyx_modules
+
+def collect_all_pyx_modules(base_package_paths):
+    """
+    Collect .py files from all specified base package paths and convert them to .pyx.
+    Also, collect .py files from the current directory (top-level modules).
+    """
+    all_pyx_modules = []
+    for package_path in base_package_paths:
+        all_pyx_modules.extend(collect_pyx_modules(package_path))
+    # Collect .py files from the current directory (top-level modules)
+    all_pyx_modules.extend(collect_pyx_modules('.'))
+    return all_pyx_modules
+
+# Define the base package paths to be processed
+base_package_paths = [
+    'gofast/dataops',
+    'gofast/estimators', 
+    'gofast/tools', 
+    'gofast/transformers', 
+    'gofast/stats', 
+    'gofast/models', 
+    'gofast/plots', 
+    'gofast/api', 
+    'gofast/backends', 
+    'gofast/datasets', 
+    'gofast/compat', 
+    'gofast/nn', 
+    'gofast/analysis',
+    'gofast/cli',
+    
+]
+
+# Collect all .py files and rename them to .pyx in the specified base package paths
+pyx_modules = collect_all_pyx_modules(base_package_paths)
+
+# Define Cython extension modules
 ext_modules = [
-    Extension("gofast.pyx.example", ["gofast/pyx/example.pyx"], include_dirs=[numpy.get_include()]),
-    # Add other Cython modules here
+    Extension(pyx_module.replace('/', '.').replace('.pyx', ''),
+              [pyx_module], include_dirs=[numpy.get_include()])
+    for pyx_module in pyx_modules
 ]
 
 class BuildExt(build_ext):
+    """
+    Custom build_ext command to include numpy's headers.
+    """
     def build_extensions(self):
         numpy_includes = numpy.get_include()
         for ext in self.extensions:
@@ -98,7 +176,7 @@ setup_kwargs = {
         "numpy <2.0", # >=1.23.0 # > # use version 1>=1.23.0
         "scipy>=1.9.0",
         "h5py>=3.2.0",
-        # "pytest",
+        "pytest",
     ],
     'extras_require': {
         "dev": [
