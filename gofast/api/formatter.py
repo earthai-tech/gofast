@@ -218,6 +218,7 @@ class MultiFrameFormatter (metaclass=MetaLen):
         str
             A string representation of the constructed table.
         """
+        #XXXTODO
         if is_any_long_dataframe(*self.dfs, max_rows=self.max_rows,
                                  max_cols=self.max_cols): 
             return construct_long_dataframes_with_same_columns(
@@ -227,7 +228,6 @@ class MultiFrameFormatter (metaclass=MetaLen):
                 max_rows= self._MAXROWS,
                 style = self.style, 
                 )
-        
         return construct_tables_for_same_columns(self.dfs, self.titles)
     
     def _dataframe_with_different_columns(self):
@@ -755,6 +755,7 @@ class DataFrameFormatter(metaclass=MetaLen):
         str
             The formatted dataframe as a string.
         """
+        #XXXX TODO
         # Handle a single dataframe
         if is_dataframe_long(self.df, max_rows= "auto", max_cols = "auto" ):
             return flex_df_formatter(
@@ -1519,7 +1520,7 @@ def check_indexes(dataframes):
     # include index if 
     return any(df.index.dtype.kind in 'O' for df in dataframes)
 
-def max_widths_across_dfs(dataframes, include_index):
+def max_widths_across_dfs(dataframes, include_index, buffer_space =2 ):
     """
     Calculates the maximum widths for columns across all provided dataframes,
     optionally including the index width if specified.
@@ -1530,7 +1531,8 @@ def max_widths_across_dfs(dataframes, include_index):
         The DataFrames for which to calculate maximum column widths.
     include_index : bool
         Determines whether to include the index width in the calculations.
-
+    buffer_space: int, default=2 
+       Space between the index and the first column of the dataframe. 
     Returns
     -------
     dict
@@ -1556,13 +1558,7 @@ def max_widths_across_dfs(dataframes, include_index):
     index_width = 0
     if include_index:
         index_width = max(max(len(str(index)) for index in df.index)
-                          for df in dataframes) + 2 
-    # for df in dataframes:
-    #     for col in df.columns:
-    #         formatted_values = [len(format_value(val)) 
-    #                             for val in df[col].append(pd.Series(col))]
-    #         max_width = max(formatted_values)
-    #         column_widths[col] = max(column_widths.get(col, 0), max_width)
+                          for df in dataframes) + buffer_space 
     for df in dataframes:
         for col in df.columns:
             # Combine the column data and the column name into a single Series
@@ -1858,7 +1854,8 @@ def construct_long_dataframes_with_same_columns(
             df, title=title, 
             max_rows=max_rows, 
             max_cols=max_cols, 
-            index= include_index, style= style, 
+            index= include_index,
+            style= style, 
             column_widths= column_widths, 
             max_index_length= max_index_length, 
             **kwargs
@@ -1963,7 +1960,8 @@ def make_fake_dfs(dataframes, max_rows=11, max_cols=7):
         extracted_dfs, dataframes)]
     return dfs
 
-def construct_table_for_different_columns(dataframes, titles):
+def construct_table_for_different_columns(
+        dataframes, titles, buffer_space =2 ):
     """
     Constructs and returns a formatted string representation of tables
     for a list of pandas DataFrames with differing column names. Each
@@ -1985,7 +1983,9 @@ def construct_table_for_different_columns(dataframes, titles):
         above their respective tables. The number of titles should match the
         number of DataFrames; if there are fewer titles than DataFrames, the
         remaining tables will be displayed without titles.
-
+        
+    buffer_space: 
+        
     Returns
     -------
     str
@@ -2026,27 +2026,16 @@ def construct_table_for_different_columns(dataframes, titles):
     global_max_width = 0  # Track the maximum table width for alignment
     # Calculate individual table widths and adjust global_max_width
     # column widths and accounting for spacing between columns.
-    # for df in dataframes:
-    #     # Calculate the total width of the table by summing the individual
-    #     # column widths and accounting for spacing between columns.
-    #     column_widths, _ = max_widths_across_dfs([df], include_index)
-    #     # *3 = Space between columns
-    #     table_width = sum(column_widths.values()) + (len(column_widths) - 1)  * 2 
-    #     if include_index:
-    #         table_width += global_index_width  + 2  # Space for index column and padding
-    #     global_max_width = max(global_max_width, table_width) 
 
     index_width, column_widths =distribute_column_widths(*dataframes)
     # global_max_width = 0  # Track the maximum table width for alignment
     for df in dataframes:
         # Calculate the total width of the table by summing the individual
         # column widths and accounting for spacing between columns.
-        # column_widths, _ = max_widths_across_dfs([df], include_index)
-        # *3 = Space between columns
         table_width = sum ( column_widths[col] for col in df.columns) + (
-            len(df.columns) - 1)  * 2 
+            len(df.columns) - 1)  * buffer_space 
         if include_index:
-            table_width += index_width  + 2  # Space for index column and padding
+            table_width += index_width  + buffer_space  # Space for index column and padding
         global_max_width = max(global_max_width, table_width) 
         
     for i, df in enumerate(dataframes):
@@ -2096,7 +2085,7 @@ def construct_table_for_different_columns(dataframes, titles):
         tables_str += "\n".join(table_content) + "\n"
     
     ## Return the final output string, trimming any trailing newline characters.
-    
+
     return tables_str.rstrip()
 
 

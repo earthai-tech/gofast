@@ -358,7 +358,10 @@ def distribute_column_widths(*dfs,  **kws):
         return index_width, column_widths  
 
     max_widths = _compute_maximum_widths(block_columns, column_widths)
+    print(max_widths)
     adjusted_widths = _apply_maximum_widths(max_widths, block_columns)
+    print(adjusted_widths)
+    print(index_width)
     if '...' in column_widths.keys(): 
         # then reinsert ellipsis 
         adjusted_widths["..."] = 3 
@@ -1156,8 +1159,7 @@ def flex_df_formatter(
         below the header (column names).
     table_width : int, str, optional
         The overall width of the table. If set to 'auto', it will adjust
-        based on the content
-        and the terminal width.
+        based on the content and the terminal width.
     output_format : str, optional
         The format of the output. Supports 'string' for plain text output or 
         'html' for HTML formatted output.
@@ -1241,7 +1243,10 @@ def flex_df_formatter(
         df= make_format_df(df, GOFAST_ESCAPE, apply_to_column= True)
         # Convert DataFrame to string with the specified format options
         formatted_df = df.to_string(
-            index=index, header=header, max_rows=max_rows, max_cols=max_cols, 
+            index=index, 
+            header=header, 
+            max_rows=max_rows, 
+            max_cols=max_cols, 
             float_format=lambda x: float_format.format(x) if isinstance(
                 x, (float, np.float64)) else x
             )
@@ -1628,7 +1633,6 @@ def df_base_style(
     # Determine the maximum width of any line 
     # in the string representation of the DataFrame
     max_line_width = max(len(line) for line in formatted_df.split('\n'))
-    
     # Check if table width is set to 'auto' which indicates 
     # that the width should adapt to the content
     if table_width == 'auto':
@@ -1640,8 +1644,9 @@ def df_base_style(
             # Use the maximum line width if it is less than the terminal width
             table_width = max_line_width  
         else:
+            #XXXTODO: change max to min 
             # Otherwise, use the larger of terminal width or line width
-            table_width = max(terminal_width, max_line_width)  
+            table_width = min(terminal_width, max_line_width)  
     
     # Format the title and create separators based 
     # on the calculated or specified table width
@@ -1674,7 +1679,8 @@ def _robust_df_display(
     sub_line='-', 
     header_line="=", 
     title=None, 
-    df=None
+    df=None, 
+    buffer_space=2
     ):
     """
     Formats and displays a DataFrame as a neatly aligned string based on
@@ -1712,23 +1718,23 @@ def _robust_df_display(
 
     Examples
     --------
+    >>> from gofast.api.util import _robust_df_display
     >>> df = pd.DataFrame({
             "A": range(5),
             "B": ['one', 'two', 'three', 'four', 'five']
         })
     >>> formatted_str = df.to_string()
-    >>> print(_df_display(
+    >>> print(_robust_df_display(
             formatted_str, header=True, index=True, title="Sample DataFrame"))
-    |                         Sample DataFrame                          |
-    ===================================================================
-     A    B
-    ----------------------------------------
-     0  one
-     1  two
-     2  three
-     3  four
-     4  five
-    ===================================================================
+    Sample DataFrame
+    ============
+        A      B
+    ------------
+    1   1    two
+    2   2  three
+    3   3   four
+    4   4   five
+    ============
     """
     
     # Split the input string (formatted DataFrame) into separate lines
@@ -1738,7 +1744,10 @@ def _robust_df_display(
     # Calculate widths for index and columns with a limit 
     # of 50 characters for each text element
     auto_max_index_length, *auto_column_widths = calculate_column_widths(
-        lines, include_index=True, include_column_width=True, df=df,
+        lines, 
+        include_index=True,
+        include_column_width=True,
+        df=df,
         max_text_length=50
     )
   
@@ -1754,11 +1763,10 @@ def _robust_df_display(
     if column_widths is None:
         column_widths = auto_column_widths
     
-    
     # Use the automatically determined index length if not specified
     if max_index_length is None:
         max_index_length = auto_max_index_length
-    max_index_length += 3  # Add extra spaces for alignment
+    max_index_length += buffer_space  # Add extra spaces for alignment
  
     # Format the header line with adjusted widths
     header_parts = lines[0].split()
@@ -1815,37 +1823,43 @@ def _robust_df_display(
     
     return formatted_output
 
-def make_format_df(subset_df, whitespace_sub="%g%o#f#", apply_to_column=False):
+def make_format_df(
+        subset_df, whitespace_sub="%g%o#f#", apply_to_column=False, 
+        max_text_length=50):
     """
     Creates a new DataFrame where each string value of each column that 
     contains a whitespace is replaced by '%g%o#f#'. This is useful to fix the 
-    issue with multiple whitespaces in all string values of the DataFrame. Optionally,
-    replaces whitespaces in column names as well.
+    issue with multiple whitespaces in all string values of the DataFrame. 
+    Optionally, replaces whitespaces in column names as well.
 
     Parameters:
         subset_df (pd.DataFrame): The input DataFrame to be formatted.
         whitespace_sub (str): The substitution string for whitespaces.
         apply_to_column (bool): If True, also replace whitespaces in column names.
+        max_text_length (int): The maximum allowed length of the string before truncation.
 
     Returns:
         pd.DataFrame: A new DataFrame with formatted string values.
     """
     # Create a copy of the DataFrame to avoid modifying the original one
     formatted_df = subset_df.copy()
-    
+
     # Optionally replace whitespaces in column names
     if apply_to_column:
-        formatted_df.columns = [col.replace(' ', whitespace_sub) 
-                                for col in formatted_df.columns]
+        formatted_df.columns = [
+            col.replace(' ', whitespace_sub) for col in formatted_df.columns]
 
     # Loop through each column in the DataFrame
     for col in formatted_df.columns:
         # Check if the column type is object (typically used for strings)
-        if formatted_df[col].dtype == object: 
-            # Replace whitespaces in string values with '%g%o#f#'
+        if formatted_df[col].dtype == object:
+            # Apply format_cell to each cell in the column
+            formatted_df[col] = formatted_df[col].apply(
+                lambda x: format_cell(x, max_text_length))
+            # Replace whitespaces in string values with the specified substitution string
             formatted_df[col] = formatted_df[col].replace(
                 r'\s+', whitespace_sub, regex=True)
-    
+
     return formatted_df
 
 def df_advanced_style(
@@ -2785,7 +2799,7 @@ def calculate_widths(df, max_text_length=50):
     """
 
     formatted_cells = df.applymap(lambda x: str(format_value(x))
-                                  [:max_text_length] + '...' if len(
+                                  [:max_text_length -3] + '...' if len(
         str(x)) > max_text_length else str(format_value(x)))
     max_col_widths = {col: max(len(col), max(len(x) for x in formatted_cells[col]))
                       for col in df.columns}
