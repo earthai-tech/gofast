@@ -203,7 +203,8 @@ class MultiFrameFormatter (metaclass=MetaLen):
         self._process_keyword_attribute()
         self._populate_df_column_attributes()
         
-        self._MAXROWS, self._MAXCOLS = get_display_limits(*self.dfs)
+        self._MAXROWS, self._MAXCOLS = get_display_limits(
+            *self.dfs, minimize_cols= True)
         
         return self
     
@@ -528,8 +529,8 @@ class DataFrameFormatter(metaclass=MetaLen):
         self._process_keyword_attribute()
         
         self.max_rows, self.max_cols = get_display_limits(
-            *[self.df], max_rows = self.max_rows, max_cols= self.max_cols
-            )
+            *[self.df], max_rows = self.max_rows, max_cols= self.max_cols,
+                minimize_cols= True)
             
         return self
 

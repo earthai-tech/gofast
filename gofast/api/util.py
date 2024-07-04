@@ -941,7 +941,7 @@ def select_optimal_display_dimensions(
     df = validate_data(df)
     
     # Propose optimal layout based on the DataFrame and additional layout settings
-    auto_nrows, auto_ncols = propose_layout(df, **layout_kws)
+    auto_nrows, auto_ncols = propose_layouts(*[df], **layout_kws)
     
     # Determine the maximum number of columns to display
     if max_cols == "auto":
@@ -1226,10 +1226,13 @@ def flex_df_formatter(
     df = validate_data(df )
     max_rows, max_cols = resolve_auto_settings( max_rows, max_cols )
     
-    if max_rows =="auto" or max_cols =="auto": 
-        max_rows, max_cols = find_best_display_params2(
-            *[df],index =index, header=header)(
-                max_rows=max_rows, max_cols=max_cols, )
+    if max_rows =="auto" or max_cols =="auto":
+        #XXX TODO: propose layout... 
+        max_rows , max_cols = propose_layouts(
+            *[df], include_index= index, minimize_cols =True )
+        # max_rows, max_cols = find_best_display_params2(
+        #     *[df],index =index, header=header)(
+        #         max_rows=max_rows, max_cols=max_cols, )
     # Apply float formatting to the DataFrame
     if output_format == 'html': 
         # Use render for HTML output
@@ -1243,7 +1246,9 @@ def flex_df_formatter(
                 x, (float, np.float64)) else x
             )
     # update max_cols with the auto maximum width layout calculation 
-    _, auto_max_cols = propose_layout(df, include_index= index, )
+    _, auto_max_cols = propose_layouts(
+        *[df], include_index= index, minimize_cols= True )
+    
     if max_cols > auto_max_cols : 
         max_cols = auto_max_cols 
  
@@ -1460,7 +1465,8 @@ def is_dataframe_long(
     return rows > max_rows or columns > max_cols
 
 def propose_layouts(
-    *dfs, include_index=True, max_text_char=50, buffer_space=2
+    *dfs, include_index=True, max_text_char=50, buffer_space=2, 
+    minimize_cols=False, 
 ):
     """
     Proposes the optimal number of rows and columns for displaying DataFrames
@@ -1480,6 +1486,10 @@ def propose_layouts(
         
     buffer_space : int, default=2
         The buffer space between columns in the layout calculation.
+        
+    minimize_cols : bool, default=False
+        If True, reduce the number of columns by one to minimize the chance 
+        of column overlap, ensuring better fitting within the terminal width.
 
     Returns
     -------
@@ -1531,8 +1541,11 @@ def propose_layouts(
     
     layout_params = [get_layout_params(df) for df in dfs]
     nrows, ncols = zip(*layout_params)
-
-    return min(nrows), min(ncols)
+    
+    ncols = min(ncols)
+    if minimize_cols: 
+        ncols = ncols -1 if ncols > 1 else ncols 
+    return min(nrows), ncols 
 
 def df_base_style(
     formatted_df, 
@@ -2786,6 +2799,7 @@ def format_df(
     max_text_length=50, 
     title=None, 
     autofit=True, 
+    minimize_cols=False, 
     ):
     """
     Formats a pandas DataFrame for pretty-printing in a console or
@@ -2811,6 +2825,10 @@ def format_df(
         If True, adjusts the column widths and the number of visible rows
         based on the DataFrame's content and available display size. Default
         is False.
+        
+    minimize_cols : bool, default=False
+        If True, reduce the number of columns by one to minimize the chance 
+        of column overlap, ensuring better fitting within the terminal width.
 
     Returns
     -------
@@ -2865,7 +2883,7 @@ def format_df(
     if autofit: 
         # If autofit is True, use custom logic to adjust DataFrame display settings
         # dynamically based on content and available space.
-        df = autofit_display(df )
+        df = autofit_display(df, minimize_cols = minimize_cols )
     # Use helper functions to format cells and calculate widths
     max_col_widths, max_index_width = calculate_widths(df, max_text_length)
 
@@ -2916,7 +2934,7 @@ def is_autofit_needed(
         Whether to include the index in the layout proposal. If 'auto', the index is 
         included if it contains string values. Default is 'auto'.
     **layout_kws : dict, optional
-        Additional keyword arguments passed to `propose_layout` for customizing layout.
+        Additional keyword arguments passed to `propose_layouts` for customizing layout.
     
     Returns
     -------
@@ -2944,7 +2962,8 @@ def is_autofit_needed(
     >>> print(f"Is autofit needed? {autofit_required}")
     """
     # Propose optimal layout based on the DataFrame and additional layout settings
-    nrows, ncols = propose_layout(df, include_index=include_index, **layout_kws)
+    nrows, ncols = propose_layouts(
+        *[df], include_index=include_index, **layout_kws)
     
     # Determine if autofit is needed
     if not check_rows:
@@ -2958,7 +2977,8 @@ def autofit_display(
     max_cols='auto', 
     include_index='auto',
     max_text_char=50,
-    buffer_space=2
+    buffer_space=2, 
+    **layout_kws
 ):
     """
     Automatically adjusts the DataFrame to fit within the terminal layout.
@@ -2983,7 +3003,9 @@ def autofit_display(
     buffer_space : int, optional
         The number of spaces between columns. This space is also applied between 
         the index and the first column if the index is included. Default is 2.
-
+    **layout_kws : dict, optional
+        Additional keyword arguments passed to `propose_layouts` for 
+        customizing layout.
     Returns
     -------
     pandas.DataFrame
@@ -3037,7 +3059,7 @@ def autofit_display(
     # # Find the best display parameters based on given or auto values.
     # # Ensure ncols does not exceed the auto-determined number of columns.
     nrows , ncols = select_optimal_display_dimensions ( 
-        df, max_rows= max_rows, max_cols = max_cols, )
+        df, max_rows= max_rows, max_cols = max_cols, **layout_kws)
     
     # Extract and truncate the DataFrame to fit within the determined rows and columns.
     df_escaped = extract_truncate_df(df, max_rows=nrows, max_cols=ncols)
@@ -3299,15 +3321,16 @@ def format_correlations(
             return f"{value:.4f}"
     
     if autofit =='auto': 
-        autofit = is_autofit_needed(corr_matrix)
+        autofit = is_autofit_needed(corr_matrix, minimize_cols =True )
         
     if autofit: 
         # remove ... to avoid confusion with no correlated symbol 
         no_corr_placeholder='' 
     formatted_corr = corr_matrix.applymap(format_value)
-    
-    formatted_df = format_df(formatted_corr, autofit= autofit)
+    formatted_df = format_df(formatted_corr, autofit= autofit,
+                             minimize_cols=True )
     max_width = get_table_width_from(formatted_df)
+ 
     # max_width = find_maximum_table_width(formatted_df)
     legend = ""
     if use_symbols:
