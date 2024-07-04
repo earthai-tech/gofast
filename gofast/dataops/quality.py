@@ -24,7 +24,7 @@ from ..decorators import isdf, Dataify
 from ..decorators import Extract1dArrayOrSeries 
 from ..tools.baseutils import reshape_to_dataframe
 from ..tools.coreutils import ellipsis2false, smart_format
-from ..tools.coreutils import assert_ratio
+from ..tools.coreutils import assert_ratio, validate_ratio 
 from ..tools.validator import is_frame, parameter_validator, validate_numeric  
 from ..tools.validator import _is_numeric_dtype, filter_valid_kwargs
 
@@ -1949,7 +1949,7 @@ def analyze_data_corr(
     summary = Summary(corr_matrix=correlation_matrix, descriptor="CorrSummary" )
     summary.add_data_corr(
         correlation_matrix, 
-        min_corr=assert_ratio( min_corr, bounds=(0, 1)),
+        min_corr=assert_ratio( min_corr or .5 , bounds=(0, 1)),
         high_corr=assert_ratio(high_corr, bounds=(0, 1)), 
         use_symbols= interpret, 
         hide_diag= hide_diag,
@@ -2114,7 +2114,9 @@ def drop_correlated_features(
     threshold: float = 0.8, 
     display_corrtable: bool = False, 
     strategy: Optional[str] = None, 
-    corr_type: str ='all', 
+    corr_type: str = 'all', 
+    min_corr: Optional[float] = None, 
+    use_default: bool = False, 
     **corr_kws
     ):
     """
@@ -2152,7 +2154,31 @@ def drop_correlated_features(
         only negatively correlated features, 'positive' drops only positively 
         correlated features, and 'both' drops features with absolute correlation 
         values above the threshold regardless of sign. Default is 'both'.
-        
+    min_corr : float, optional
+        The minimum correlation value for identifying moderate correlations. 
+        This parameter is used when `corr_type` is set to 'moderate'. It 
+        specifies the lower bound of the correlation range considered 
+        "moderate". The value must be between 0 and 1.
+
+        .. math::
+            \text{min_corr} \in [0, 1]
+
+    use_default : bool, default=False
+        If True, the function uses default values for defining moderate 
+        correlations. The default range is from 0.5 to the specified `threshold`.
+
+        When this parameter is set to True:
+    
+        .. math::
+            \text{min_corr} = 0.5
+    
+        .. math::
+            \text{max_corr} = \text{threshold}
+    
+        This means moderate correlations are considered to be within the range 
+        of 0.5 to the provided `threshold` value. If `use_default` is False, 
+        both `min_corr` and `max_corr` (through `threshold`) must be provided 
+        and validated to ensure they lie within the range of [0, 1].
     **corr_kws : dict
         Additional keyword arguments to be passed to the 
         :func:`analyze_data_corr` correlation function.
@@ -2176,6 +2202,17 @@ def drop_correlated_features(
     >>> reduced_data = drop_correlated_features(
     ...     data, threshold=0.8, strategy='first')
     >>> print(reduced_data)
+    
+    If you want to use custom moderate correlation values, you can specify 
+    both `min_corr` and `threshold`:
+
+    >>> drop_correlated_features(data, corr_type='moderate', min_corr=0.3,
+    ...                          threshold=0.7)
+
+    If you prefer to use default moderate correlation values, set 
+    `use_default` to True:
+
+    >>> drop_correlated_features(data, corr_type='moderate', use_default=True)
 
     Notes
     -----
@@ -2202,14 +2239,14 @@ def drop_correlated_features(
         "strategy", target_strs={"both", "first", "last"})(strategy)
     corr_type = parameter_validator(
         "correlation_type `corr_type`",
-        target_strs={"negative", "positive", "all"})(corr_type)
+        target_strs={"negative", "positive", "moderate", "all"})(corr_type)
   
     # Compute the correlation matrix using a predefined analysis function
     corr_kws = filter_valid_kwargs(analyze_data_corr, corr_kws)
     corr_summary = analyze_data_corr(
-        data, method=method, high_corr=threshold, **corr_kws
+        data, method=method, high_corr=threshold, 
+        min_corr=min_corr, **corr_kws
     )
-    
     if display_corrtable:
         print(corr_summary)
         
@@ -2218,6 +2255,12 @@ def drop_correlated_features(
         corr_matrix = corr_summary.corr_matrix.where(corr_summary.corr_matrix < 0)
     elif corr_type == 'positive':
         corr_matrix = corr_summary.corr_matrix.where(corr_summary.corr_matrix > 0)
+    elif corr_type == 'moderate': 
+        min_corr, threshold = _check_moderate_correlation(
+            min_corr=min_corr, max_corr=threshold, use_default=use_default)
+        corr_matrix = corr_summary.corr_matrix.where(
+            (corr_summary.corr_matrix >= min_corr) & (corr_summary.corr_matrix <= threshold)
+        )
     else:  # 'both'
         corr_matrix = corr_summary.corr_matrix
 
@@ -2246,6 +2289,72 @@ def drop_correlated_features(
         print(info)
 
     return df_reduced
+
+
+def _check_moderate_correlation(
+    min_corr=None, max_corr=None, use_default=False
+):
+    """
+    Checks and returns the correlation range for moderate correlations.
+
+    Parameters
+    ----------
+    min_corr : float, optional
+        The minimum correlation value. Must be between 0 and 1.
+        
+    max_corr : float, optional
+        The maximum correlation value (threshold). Must be between 0 and 1.
+        
+    use_default : bool, default=False
+        If True, returns the default moderate correlation range (0.5, 0.8).
+
+    Returns
+    -------
+    tuple
+        A tuple containing:
+        - float: The minimum correlation value.
+        - float: The maximum correlation value.
+
+    Raises
+    ------
+    ValueError
+        If `min_corr` or `max_corr` are not provided when `use_default` is False.
+        If `min_corr` or `max_corr` are out of bounds.
+        If `min_corr` is not less than `max_corr`.
+
+    Examples
+    --------
+    >>> check_moderate_correlation(use_default=True)
+    (0.5, 0.8)
+    >>> check_moderate_correlation(min_corr=0.3, max_corr=0.7)
+    (0.3, 0.7)
+    >>> check_moderate_correlation(min_corr=0.9, max_corr=0.8)
+    Traceback (most recent call last):
+        ...
+    ValueError: min_corr must be less than max_corr.
+    """
+
+    if use_default:
+        return 0.5, 0.8
+
+    if min_corr is None or max_corr is None:
+        raise ValueError(
+            "When 'use_default' is False, both 'min_corr' and 'max_corr'"
+            " (through `threshold`) must be provided."
+        )
+
+    # Validate min_corr and max_corr are within the range [0, 1]
+    min_corr = validate_ratio(min_corr, bounds=(0, 1), param_name="min_corr")
+    max_corr = validate_ratio(max_corr, bounds=(0, 1), 
+                              param_name="max_corr (threshold)")
+
+    # Ensure min_corr is less than max_corr
+    if min_corr >= max_corr:
+        raise ValueError(f"min_corr {min_corr} must be less than"
+                         f" max_corr (threshold){max_corr}.")
+
+    return min_corr, max_corr
+
 
 def _rearrange_corr_features(
         corr_matrix: pd.DataFrame, col: str, threshold: float) -> tuple:

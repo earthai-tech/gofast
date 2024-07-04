@@ -697,7 +697,7 @@ def get_display_dimensions(
     def get_single_df_metrics(df):
         # Use external functions to get recommended dimensions
         # XXX CHECK: Use propose layout currently for a test purpose. 
-        # checking stability of `propose layout`. 
+        # checking stability of `propose layout` later. 
         
         # auto_rows, auto_cols = auto_adjust_dataframe_display(
         #     df, index=index, header=header)
@@ -858,7 +858,7 @@ def extract_truncate_df(
     columns = truncated_df.columns.tolist() 
     
     # XXX CHECK: Use propose layout currently for a test purpose. 
-    # checking stability of `propose layout`. 
+    # checking stability of `propose layout` later. 
     max_rows , max_cols = select_optimal_display_dimensions ( 
         df, max_rows= max_rows, max_cols = max_cols, )
   
@@ -1230,7 +1230,6 @@ def flex_df_formatter(
         max_rows, max_cols = find_best_display_params2(
             *[df],index =index, header=header)(
                 max_rows=max_rows, max_cols=max_cols, )
-
     # Apply float formatting to the DataFrame
     if output_format == 'html': 
         # Use render for HTML output
@@ -1247,7 +1246,7 @@ def flex_df_formatter(
     _, auto_max_cols = propose_layout(df, include_index= index, )
     if max_cols > auto_max_cols : 
         max_cols = auto_max_cols 
-        
+ 
     style= select_df_styles(style, df )
     if style =='advanced': 
         formatted_output = df_advanced_style(
@@ -1383,7 +1382,7 @@ def select_df_styles(style, df, **kwargs):
     return style
 
 def is_dataframe_long(
-        df, max_rows=100, max_cols=7, 
+        df, max_rows="auto", max_cols="auto", 
         return_rows_cols_size=False, 
         ):
     """
@@ -1439,11 +1438,11 @@ def is_dataframe_long(
     or data aggregations, should be applied.
     """
     df = validate_data(df )
+    auto_rows, auto_cols = propose_layout(df)
     rows, columns = df.shape  
-    
     # Get terminal size
-    _, auto_rows = get_terminal_size()
-    auto_cols= get_displayable_columns(df, min_col_width="auto")
+    # _, auto_rows = get_terminal_size()
+    # auto_cols= get_displayable_columns(df, min_col_width="auto")
     if max_rows == "auto": 
         max_rows = auto_rows 
         # to terminal row sizes 
@@ -1459,6 +1458,81 @@ def is_dataframe_long(
         return max_rows, max_cols 
     # Check if the DataFrame exceeds the specified row or column limits
     return rows > max_rows or columns > max_cols
+
+def propose_layouts(
+    *dfs, include_index=True, max_text_char=50, buffer_space=2
+):
+    """
+    Proposes the optimal number of rows and columns for displaying DataFrames
+    based on terminal width.
+
+    Parameters
+    ----------
+    *dfs : pandas.DataFrame
+        One or more DataFrames for which to propose the layout.
+        
+    include_index : bool, default=True
+        Whether to include the index in the layout calculation.
+        
+    max_text_char : int, default=50
+        The maximum number of characters to consider per column for text
+        representation.
+        
+    buffer_space : int, default=2
+        The buffer space between columns in the layout calculation.
+
+    Returns
+    -------
+    tuple
+        A tuple containing:
+        - int: The optimal number of rows.
+        - int: The optimal number of columns.
+
+    Notes
+    -----
+    This function calculates the optimal layout for displaying multiple
+    DataFrames based on the terminal width. The layout is proposed by
+    determining the minimum number of rows and columns required to fit
+    the DataFrames side by side without exceeding the terminal width.
+
+    The layout calculation considers the maximum number of characters
+    per column, the buffer space between columns, and whether to include
+    the index in the layout. 
+
+    Examples
+    --------
+    >>> from gofast.api.util import propose_layouts
+    >>> import pandas as pd
+    >>> df1 = pd.DataFrame({'A': [1, 2, 3], 'B': ['x', 'y', 'z']})
+    >>> df2 = pd.DataFrame({'C': [4, 5, 6], 'D': ['a', 'b', 'c']})
+    >>> rows, cols = propose_layouts(df1, df2)
+    >>> print(f"Optimal layout: {rows} rows, {cols} columns")
+    Optimal layout: 28 rows, 2 columns
+
+    See Also
+    --------
+    pandas.DataFrame : Two-dimensional, size-mutable, potentially 
+        heterogeneous tabular data.
+    
+    References
+    ----------
+    .. [1] McKinney, W. (2010). Data Structures for Statistical Computing in Python. 
+           Proceedings of the 9th Python in Science Conference, 51-56.
+    .. [2] Harris, C. R., Millman, K. J., van der Walt, S. J., et al. (2020). 
+           Array programming with NumPy. Nature, 585(7825), 357-362.
+    """
+    def get_layout_params(df):
+        return propose_layout(
+            df, 
+            include_index=include_index, 
+            max_text_char=max_text_char, 
+            buffer_space=buffer_space
+        )
+    
+    layout_params = [get_layout_params(df) for df in dfs]
+    nrows, ncols = zip(*layout_params)
+
+    return min(nrows), min(ncols)
 
 def df_base_style(
     formatted_df, 

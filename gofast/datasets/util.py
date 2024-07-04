@@ -1723,18 +1723,18 @@ def manage_data(
         y = data [target_names].squeeze ()  
         data.drop( columns = target_names, inplace =True )
         
-    # Apply noises: Noises only in the data not in target
-    add_gaussian_noise=False 
-    noise = validate_noise(noise )
+    # # Apply noises: Noises only in the data not in target
+    # add_gaussian_noise=False 
+    # noise = validate_noise(noise )
     
-    if noise=='gaussian': 
-        add_gaussian_noise=True 
-        #Small value of noise. Do nothing when gaussian noises 
-        # is applied, just to skip value error. 
-        noise =.1 
+    # if noise=='gaussian': 
+    #     add_gaussian_noise=True 
+    #     #Small value of noise. Do nothing when gaussian noises 
+    #     # is applied, just to skip value error. 
+    #     noise =.1 
         
     data = add_noises_to(
-        data, noise=noise, seed=seed, gaussian_noise= add_gaussian_noise)
+        data, noise=noise, seed=seed)
 
     if not as_frame:
         data = np.asarray(data)
@@ -1750,7 +1750,6 @@ def manage_data(
         frame[feature_names], 
         noise=noise,
         seed=seed, 
-        gaussian_noise= add_gaussian_noise
         )
 
     if as_frame:

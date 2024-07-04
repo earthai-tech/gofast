@@ -23,7 +23,6 @@ def install_numpy_if_needed():
         print("Numpy is not installed. Installing now...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "numpy"])
         # Import Numpy again after installation to confirm it was successful
-        import numpy  # noqa
         print("Numpy has been installed successfully.")
 
 # Call the function to ensure Numpy is installed before proceeding

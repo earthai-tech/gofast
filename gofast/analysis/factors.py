@@ -608,7 +608,7 @@ def rotated_factor(
     ):
     """
     Perform a simple rotated factor analysis on the dataset using an initial
-    factor extraction method (e.g., PCA) followed by a rotation such as Varimax
+    factor extraction method (eg, PCA) followed by a rotation such as Varimax
     or Oblimin.
 
     Parameters

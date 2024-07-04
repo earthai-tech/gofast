@@ -20,7 +20,8 @@ from .util import flex_df_formatter, is_dataframe_long, get_display_dimensions
 from .util import insert_ellipsis_to_df , extract_truncate_df
 from .util import get_column_widths_in, distribute_column_widths  
 from .util import GOFAST_ESCAPE, select_df_styles, series_to_dataframe
-from .util import to_camel_case, format_iterable, get_table_size 
+from .util import to_camel_case, format_iterable, get_table_size
+from .util import propose_layouts
 
 __all__=[
      'BoxFormatter',
@@ -145,6 +146,7 @@ class MultiFrameFormatter (metaclass=MetaLen):
         self.dfs = []
         self.style= style or "base"
         self.max_rows = max_rows or 11 
+        
         self.max_cols =max_cols or "auto"
         self.descriptor = descriptor
         
@@ -201,6 +203,8 @@ class MultiFrameFormatter (metaclass=MetaLen):
         self._process_keyword_attribute()
         self._populate_df_column_attributes()
         
+        self._MAXROWS, self._MAXCOLS = get_display_limits(*self.dfs)
+        
         return self
     
     def _dataframe_with_same_columns(self):
@@ -218,10 +222,11 @@ class MultiFrameFormatter (metaclass=MetaLen):
             return construct_long_dataframes_with_same_columns(
                 self.dfs, 
                 titles = self.titles,
-                max_cols =5, 
-                max_rows= self.max_rows,
+                max_cols =self._MAXCOLS, 
+                max_rows= self._MAXROWS,
                 style = self.style, 
                 )
+        
         return construct_tables_for_same_columns(self.dfs, self.titles)
     
     def _dataframe_with_different_columns(self):
@@ -235,14 +240,15 @@ class MultiFrameFormatter (metaclass=MetaLen):
             A string representation of the constructed tables.
         """
         dfs = self.dfs 
-        if is_any_long_dataframe(*self.dfs, max_cols= self.max_cols ): 
+        if is_any_long_dataframe(*self.dfs, max_rows= self.max_rows,
+                max_cols= self.max_cols
+                ): 
             # construct fake dfs for better aligment. 
             dfs = make_fake_dfs(
-                self.dfs, max_rows= self.max_rows, max_cols= 5)
-            # return construct_long_dataframes_with_different_columns(
-            #     self.dfs, titles = self.titles,
-            #     max_cols = 7, max_rows= 11, style = self.style, 
-            #     )
+                self.dfs, 
+                max_rows= self._MAXROWS, 
+                max_cols= self._MAXCOLS
+                )
         return construct_table_for_different_columns(dfs, self.titles)
 
     def __str__(self):
@@ -259,6 +265,7 @@ class MultiFrameFormatter (metaclass=MetaLen):
         """
         if not self.dfs:
             return "<Empty Frame>"
+        
         if len(self.dfs) == 1:
             return DataFrameFormatter(self.titles[0], self.keywords[0]).add_df(
                 self.dfs[0]).__str__()
@@ -377,6 +384,15 @@ class DataFrameFormatter(metaclass=MetaLen):
        Is the name the series when series is passed rather than dataframe. 
        If given, the `series_name` whould replace the dataframe default integer 
        columns. 
+       
+    max_rows : int, optional
+        The maximum number of rows for each DataFrame to display when printed.
+        Defaults to 'auto'.
+    max_cols : int or str, optional
+        The maximum number of columns for each DataFrame to display when printed.
+        Can be an integer or 'auto' for automatic adjustment based on the 
+        DataFrame size.
+        Defaults to 'auto'.
         
     Attributes
     ----------
@@ -458,13 +474,23 @@ class DataFrameFormatter(metaclass=MetaLen):
     snake_case conversion of column names.
     """
 
-    def __init__(self, title=None, keyword=None, style=None, descriptor=None, 
-                 series_name=None):
+    def __init__(
+        self, 
+        title=None, 
+        keyword=None, 
+        style=None, 
+        descriptor=None, 
+        series_name=None, 
+        max_cols=None, 
+        max_rows =None
+        ):
         self.title = title
         self.keyword = keyword
         self.style=style
         self.descriptor=descriptor
         self.series_name=series_name 
+        self.max_cols =max_cols 
+        self.max_rows =max_rows 
         self.df = None
         self._column_name_mapping = {}
         
@@ -500,6 +526,11 @@ class DataFrameFormatter(metaclass=MetaLen):
         self._populate_df_column_attributes()
     
         self._process_keyword_attribute()
+        
+        self.max_rows, self.max_cols = get_display_limits(
+            *[self.df], max_rows = self.max_rows, max_cols= self.max_cols
+            )
+            
         return self
 
     def _process_keyword_attribute(self):
@@ -724,11 +755,13 @@ class DataFrameFormatter(metaclass=MetaLen):
             The formatted dataframe as a string.
         """
         # Handle a single dataframe
-        rows, cols = self.df.shape 
-        if is_dataframe_long(self.df, max_rows= "auto", max_cols = "auto" ) : 
+        if is_dataframe_long(self.df, max_rows= "auto", max_cols = "auto" ):
             return flex_df_formatter(
-                self.df, title = self.title, max_rows= 11 , max_cols ="auto" , 
-                table_width= "auto", style=self.style
+                self.df, title = self.title, 
+                max_rows= self.max_rows, 
+                max_cols =self.max_cols, 
+                table_width= "auto", 
+                style=self.style
             )
         return self._formatted_dataframe()
 
@@ -1679,7 +1712,7 @@ def construct_tables_for_same_columns(dataframes, titles=None):
     # Trim trailing spaces or lines and return the final table string
     return tables_str.rstrip()
 
-def is_any_long_dataframe(*dfs, max_rows=50, max_cols=11):
+def is_any_long_dataframe(*dfs, max_rows="auto", max_cols="auto"):
     """
     Determines whether any of the provided DataFrames is considered 'long' based
     on specified criteria for maximum rows and columns.
@@ -1723,7 +1756,6 @@ def is_any_long_dataframe(*dfs, max_rows=50, max_cols=11):
     This function is useful for batch checking multiple DataFrames in scenarios where
     processing or visualization methods may vary depending on the size of the data.
     """
-
     if any(is_dataframe_long(
             df, max_rows=max_rows, max_cols=max_cols, return_rows_cols_size=False)
             for df in dfs
@@ -1731,8 +1763,9 @@ def is_any_long_dataframe(*dfs, max_rows=50, max_cols=11):
         return True
     return False
 
+
 def construct_long_dataframes_with_same_columns(
-    dataframes, titles=None, max_cols=7, max_rows=100, 
+    dataframes, titles=None, max_cols=5, max_rows=50, 
     style="base", **kwargs):
     """
     Constructs a string representation of multiple dataframes that are ensured to
@@ -2066,6 +2099,59 @@ def construct_table_for_different_columns(dataframes, titles):
     return tables_str.rstrip()
 
 
+def get_display_limits(
+        *dfs, max_rows='auto', max_cols='auto', **layout_kws):
+    """
+    Determines the optimal number of rows and columns for displaying DataFrames
+    based on the specified or auto-calculated layout.
+
+    Parameters
+    ----------
+    *dfs : pandas.DataFrame
+        One or more DataFrames for which to determine display limits.
+        
+    max_rows : int or str, default='auto'
+        The maximum number of rows to display. If 'auto', 
+        calculates the optimal number.
+        
+    max_cols : int or str, default='auto'
+        The maximum number of columns to display. If 'auto', 
+        calculates the optimal number.
+        
+    **layout_kws : dict, optional
+        Additional keyword arguments to pass to the layout calculation function.
+
+    Returns
+    -------
+    tuple
+        A tuple containing:
+        - int: The maximum number of rows.
+        - int: The maximum number of columns.
+    
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.api.util import get_display_limits
+    >>> df1 = pd.DataFrame({'A': [1, 2, 3], 'B': ['x', 'y', 'z']})
+    >>> df2 = pd.DataFrame({'C': [4, 5, 6], 'D': ['a', 'b', 'c']})
+    >>> max_rows, max_cols = get_display_limits(df1, df2)
+    >>> print(f"Max rows: {max_rows}, Max cols: {max_cols}")
+    """
+    # Calculate the optimal number of rows and columns for display
+    optimal_rows, optimal_cols = propose_layouts(*dfs, **layout_kws)
+
+    # Determine the maximum number of rows
+    if str(max_rows).lower() in ['none',  'auto']:
+        max_rows = optimal_rows
+
+    # Determine the maximum number of columns
+    if str(max_cols).lower() in ['none',  'auto']:
+        max_cols = optimal_cols
+
+    return max_rows, max_cols
+
+
+    
 def get_formatter_classes():
     """
     Retrieves all the formatter classes defined within the same module as this function.

@@ -105,7 +105,7 @@ def summary(
         titles.extend(["Correlation Matrix"])
         dfs.append(df_corr)
         
-    dfs = [ escape_dataframe_elements(df) for df in dfs]
+    dfs = [escape_dataframe_elements(df) for df in dfs]
     summary = MultiFrameFormatter(
         titles=titles, max_rows ="auto", max_cols ="auto")
     summary.add_dfs(*dfs)

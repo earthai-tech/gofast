@@ -2119,7 +2119,7 @@ def save_job(
     buffer_callback = None,   
     **job_kws
     ): 
-    """ Quick save your job using 'joblib' or persistent Python pickle module
+    """ Quick save your job using 'joblib' or persistent Python pickle module.
     
     Parameters 
     -----------
@@ -3482,7 +3482,7 @@ def print_cmsg(cfile:str, todo:str='load', config:str='YAML') -> str:
 
 
 def random_state_validator(seed):
-    """Turn seed into a np.random.RandomState instance.
+    """Turn seed into a Numpy-Random-RandomState instance.
     
     Parameters
     ----------
@@ -3618,7 +3618,8 @@ def sanitize_frame_cols(
         d, /, func:_F = None , regex=None, pattern:str = None, 
         fill_pattern:str =None, inplace:bool =False 
         ):
-    """ Remove an indesirable characters and returns new columns 
+    """ Remove an indesirable characters to the dataframe and returns 
+    new columns. 
     
     Use regular expression for columns sanitizing 
     
@@ -4625,7 +4626,8 @@ def get_confidence_ratio (
 def assert_ratio(
     v, /, bounds: List[float] = None , 
     exclude_value:float= None, 
-    in_percent:bool =False , name:str ='rate' 
+    in_percent:bool =False , 
+    name:str ='rate' 
     ): 
     """ Assert rate value between a specific range. 
     
@@ -4774,19 +4776,20 @@ def validate_ratio(
 
     if bounds:
         if not (bounds[0] <= value <= bounds[1]):
-            raise ValueError(
-                f"{param_name} must be between {bounds[0]} and {bounds[1]}, got: {value}")
+            raise ValueError(f"{param_name} must be between {bounds[0]}"
+                             f" and {bounds[1]}, got: {value}")
     
     if exclude is not None and value == exclude:
         raise ValueError(f"{param_name} cannot be {exclude}")
 
     if to_percent and value > 1:
-        raise ValueError(f"{param_name} converted to percent must not exceed 1, got: {value}")
+        raise ValueError(f"{param_name} converted to percent must"
+                         f" not exceed 1, got: {value}")
 
     return value
 
 def exist_features (df, features, error='raise', name="Feature"): 
-    """Control whether the features exist or not  
+    """Control whether the features exist or not.  
     
     :param df: a dataframe for features selections 
     :param features: list of features to select. Lits of features must be in the 
@@ -5135,7 +5138,7 @@ def rename_files (
             
 def get_xy_coordinates (d, / , as_frame = False, drop_xy = False, 
                         raise_exception = True, verbose=0 ): 
-    """Check whether the coordinate values exist in the data
+    """Check whether the coordinate values x, y exist in the data.
     
     Parameters 
     ------------
@@ -6633,6 +6636,7 @@ def add_noises_to(
            (2020). Array programming with NumPy. Nature, 585(7825), 
            357-362.
     """
+    
     is_frame = isinstance (data, pd.DataFrame ) 
     if not is_frame: 
         data = pd.DataFrame(data ) 
@@ -6640,9 +6644,8 @@ def add_noises_to(
     np.random.seed(seed)
     if noise is None: 
         return data 
-    
-    noise = assert_ratio(noise)
-    
+    noise, gaussian_noise  = _parse_gaussian_noise (noise )
+
     if gaussian_noise:
         # Add Gaussian noise to numerical columns only
         def add_gaussian_noise(column):
@@ -6671,6 +6674,78 @@ def add_noises_to(
             df_with_nan = df_with_nan.values 
             
         return df_with_nan
+
+def _parse_gaussian_noise(noise):
+    """
+    Parses the noise parameter to determine if Gaussian noise should be used
+    and extracts the noise level if specified.
+
+    Parameters
+    ----------
+    noise : str, float, or None
+        The noise parameter to be parsed. Can be a string specifying Gaussian
+        noise with an optional noise level, a float, or None.
+
+    Returns
+    -------
+    tuple
+        A tuple containing:
+        - float: The noise level.
+        - bool: Whether Gaussian noise should be used.
+
+    Examples
+    --------
+    >>> from gofast.tools.coreutils import _parse_gaussian_noise
+    >>> _parse_gaussian_noise('0.1gaussian')
+    (0.1, True)
+    >>> _parse_gaussian_noise('gaussian0.1')
+    (0.1, True)
+    >>> _parse_gaussian_noise('gaussian_0.1')
+    (0.1, True)
+    >>> _parse_gaussian_noise('gaussian10%')
+    (0.1, True)
+    >>> _parse_gaussian_noise('gaussian 10 %')
+    (0.1, True)
+    >>> _parse_gaussian_noise(0.05)
+    (0.05, False)
+    >>> _parse_gaussian_noise(None)
+    (0.1, False)
+    >>> _parse_gaussian_noise('invalid')
+    Traceback (most recent call last):
+        ...
+    ValueError: Invalid noise value: invalid
+    """
+    gaussian_noise = False
+    default_noise = 0.1
+
+    if isinstance(noise, str):
+        orig_noise = noise 
+        noise = noise.lower()
+        gaussian_keywords = ["gaussian", "gauss"]
+
+        if any(keyword in noise for keyword in gaussian_keywords):
+            gaussian_noise = True
+            noise = re.sub(r'[^\d.%]', '', noise)  # Remove non-numeric and non-'%' characters
+            noise = re.sub(r'%', '', noise)  # Remove '%' if present
+
+            try:
+                noise_level = float(noise) / 100 if '%' in orig_noise else float(noise)
+                noise = noise_level if noise_level else default_noise
+            except ValueError:
+                noise = default_noise
+
+        else:
+            try:
+                noise = float(noise)
+            except ValueError:
+                raise ValueError(f"Invalid noise value: {noise}")
+    elif noise is None:
+        noise = default_noise
+    
+    noise = validate_noise (noise ) 
+    
+    return noise, gaussian_noise
+
 
 def nan_to_na(
     data, /, 
@@ -6811,11 +6886,10 @@ def validate_noise(noise):
                 raise ValueError("The `noise` parameter accepts the string"
                                  " 'gaussian' or a float value.")
     elif noise is not None:
-        try:
-            noise = float(noise)
-        except ValueError:
-            raise ValueError("The `noise` parameter must be convertible to a float.")
-    
+        noise = validate_ratio(noise, bounds=(0, 1), param_name='noise' )
+        # try:
+        # except ValueError:
+        #     raise ValueError("The `noise` parameter must be convertible to a float.")
     return noise
 
 def fancier_repr_formatter(obj, max_attrs=7):
@@ -6971,7 +7045,7 @@ def validate_url(url: str) -> bool:
 
 def validate_url_by_validators(url: str):
     """
-    Check if the provided string is a valid URL using `validators` packages
+    Check if the provided string is a valid URL using `validators` packages.
 
     Parameters
     ----------
