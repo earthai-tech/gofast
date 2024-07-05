@@ -107,6 +107,6 @@ def summary(
         
     dfs = [escape_dataframe_elements(df) for df in dfs]
     summary = MultiFrameFormatter(
-        titles=titles, max_rows ="auto", max_cols ="auto")
+        titles=titles, max_rows =11, max_cols ="auto")
     summary.add_dfs(*dfs)
     print(summary)

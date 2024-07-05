@@ -4,28 +4,22 @@
 from setuptools import setup, Extension, find_packages
 from setuptools.command.build_ext import build_ext
 import builtins
-import os # noqa
+import os  # noqa
 import sys
 import subprocess
 
-# This is mostly used for running the tests
-#  with 'pip install -e' in the repository
+# Function to ensure Numpy is installed before proceeding
 def install_numpy_if_needed():
-    """
-    Check if Numpy is installed and install it if not.
-    """
     try:
-        # Try to import Numpy
         import numpy  # noqa
         print("Numpy is already installed.")
     except ImportError:
-        # If Numpy is not installed, install it using pip
         print("Numpy is not installed. Installing now...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "numpy"])
-        # Import Numpy again after installation to confirm it was successful
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "numpy<2.0"])
+        import numpy  # noqa
         print("Numpy has been installed successfully.")
 
-# Call the function to ensure Numpy is installed before proceeding
+# Ensure Numpy is installed before proceeding
 install_numpy_if_needed()
 
 # Now that Numpy is installed, you can safely import it
@@ -33,7 +27,7 @@ import numpy
 
 # Compatibility layer for Python 2 and 3
 try:
-    import builtins # noqa 
+    import builtins  # noqa
 except ImportError:
     import __builtin__ as builtins  # Python 2 compatibility
 
@@ -46,7 +40,6 @@ try:
     VERSION = gofast.__version__
 except ImportError:
     VERSION = '0.1.0'
-
 
 # Package metadata
 DISTNAME = "gofast"
@@ -85,10 +78,6 @@ PACKAGE_DATA = {
 }
 
 def collect_pyx_modules(package_path):
-    """
-    Collect all Python (.py) files in the given package path and prepare them for Cython build.
-    Exclude files that start with an underscore ('_') and 'setup.py'.
-    """
     pyx_modules = []
     for root, _, files in os.walk(package_path):
         for file in files:
@@ -100,40 +89,31 @@ def collect_pyx_modules(package_path):
     return pyx_modules
 
 def collect_all_pyx_modules(base_package_paths):
-    """
-    Collect .py files from all specified base package paths and convert them to .pyx.
-    Also, collect .py files from the current directory (top-level modules).
-    """
     all_pyx_modules = []
     for package_path in base_package_paths:
         all_pyx_modules.extend(collect_pyx_modules(package_path))
-    # Collect .py files from the current directory (top-level modules)
     all_pyx_modules.extend(collect_pyx_modules('.'))
     return all_pyx_modules
 
-# Define the base package paths to be processed
 base_package_paths = [
     'gofast/dataops',
-    'gofast/estimators', 
-    'gofast/tools', 
-    'gofast/transformers', 
-    'gofast/stats', 
-    'gofast/models', 
-    'gofast/plots', 
-    'gofast/api', 
-    'gofast/backends', 
-    'gofast/datasets', 
-    'gofast/compat', 
-    'gofast/nn', 
+    'gofast/estimators',
+    'gofast/tools',
+    'gofast/transformers',
+    'gofast/stats',
+    'gofast/models',
+    'gofast/plots',
+    'gofast/api',
+    'gofast/backends',
+    'gofast/datasets',
+    'gofast/compat',
+    'gofast/nn',
     'gofast/analysis',
     'gofast/cli',
-    
 ]
 
-# Collect all .py files and rename them to .pyx in the specified base package paths
 pyx_modules = collect_all_pyx_modules(base_package_paths)
 
-# Define Cython extension modules
 ext_modules = [
     Extension(pyx_module.replace('/', '.').replace('.pyx', ''),
               [pyx_module], include_dirs=[numpy.get_include()])
@@ -141,16 +121,12 @@ ext_modules = [
 ]
 
 class BuildExt(build_ext):
-    """
-    Custom build_ext command to include numpy's headers.
-    """
     def build_extensions(self):
         numpy_includes = numpy.get_include()
         for ext in self.extensions:
             ext.include_dirs.append(numpy_includes)
         build_ext.build_extensions(self)
 
-# Entry points and other dynamic settings
 setup_kwargs = {
     'entry_points': {
         'console_scripts': [
@@ -163,16 +139,16 @@ setup_kwargs = {
     'cmdclass': {'build_ext': BuildExt},
     'install_requires': [
         "cython>=0.29.33",
-        "scikit-learn >=1.1.2",
+        "scikit-learn>=1.1.2",
         "seaborn>=0.12.0",
-        "pandas < 2.0.3", # >=1.4.0 # use version 1 >=1.4.0
+        "pandas<2.0.3",
         "pyyaml>=5.0.0",
         "tqdm>=4.64.1",
         "joblib>=1.2.0",
         "threadpoolctl>=3.1.0",
         "matplotlib>=3.5.3",
         "statsmodels>=0.13.1",
-        "numpy <2.0", # >=1.23.0 # > # use version 1>=1.23.0
+        "numpy<2.0",
         "scipy>=1.9.0",
         "h5py>=3.2.0",
         "pytest",
@@ -182,7 +158,7 @@ setup_kwargs = {
             "click",
             "pyproj>=3.3.0",
             "openpyxl>=3.0.3",
-            "tensorflow >=2.15.0"
+            "tensorflow>=2.15.0"
         ]
     },
     'python_requires': '>=3.9'

@@ -135,6 +135,7 @@ class KerasDependencies:
             'square': ('math', 'square'), 
             'clone_model': ('models', 'clone_model'), 
             'Dataset': ('data', 'Dataset'),
+            'load_model': ('models', 'load_model')
             
         }
 
