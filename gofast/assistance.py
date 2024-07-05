@@ -17,7 +17,7 @@ __all__=["assist_me", "gofast_explorer"]
 TASK_MAPPING = {
     'data_preprocessing': [
         'cleaner', 
-        'denormalize', 
+        'denormalizer', 
         'normalizer', 
         'binning_statistic', 
         'category_count', 
@@ -47,9 +47,10 @@ TASK_MAPPING = {
         'store_or_retrieve_data',
         'store_or_write_hdf5',
         'handle_datasets_with_hdfstore',
+        'handle_unique_identifiers',
         'save_or_load', 
         'fetch_remote_data',
-        'read_data'
+        'read_data', 
     ],
     'feature_engineering': [
         'select_features',
@@ -84,7 +85,8 @@ TASK_MAPPING = {
         'inspect_data', 
         'quality_control',
         'verify_data_integrity',
-        'correlation_ops'
+        'correlation_ops', 
+        'drop_correlated_features',
     ],
     'statistics_and_math': [
         'adaptive_moving_average',
@@ -101,8 +103,7 @@ TASK_MAPPING = {
         'cubic_regression', 
         'logarithmic_regression',
         'exponential_regression',
-        'interpolate1d', 
-        'interpolate2d', 
+        'interpolate_data', 
         'rank_data',
         'optimized_spearmanr', 
     ],
@@ -176,11 +177,11 @@ def assist_me(*tasks: str, on_error='warn'):
             module_dict[f'gofast.{module}.{tool}'] = remove_extra_spaces( 
                 value.__doc__.split(".")[0].strip().replace("\n", '')
                 )
-        task_tool_mapping[task] = module_dict
+        task_tool_mapping[task] = dict(sorted ( module_dict.items()))
 
     if not task_tool_mapping:
         return "Task not found. Please provide a more specific task description."
-
+    
     tables = []
     for category, tools in task_tool_mapping.items():
         tool_table = ReportFactory(title=category.replace('_', ' ').title())

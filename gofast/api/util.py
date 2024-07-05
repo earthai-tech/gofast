@@ -944,7 +944,7 @@ def select_optimal_display_dimensions(
     df = validate_data(df)
     
     # Propose optimal layout based on the DataFrame and additional layout settings
-    auto_nrows, auto_ncols = propose_layouts(*[df], **layout_kws)
+    auto_nrows, auto_ncols = propose_layouts(df, **layout_kws)
     
     # Determine the maximum number of columns to display
     if max_cols == "auto":
@@ -1394,6 +1394,7 @@ def select_df_styles(style, df, **kwargs):
 def is_dataframe_long(
         df, max_rows="auto", max_cols="auto", 
         return_rows_cols_size=False, 
+        minimize_cols = False
         ):
     """
     Determines whether a DataFrame is considered 'long' based on the 
@@ -1414,7 +1415,10 @@ def is_dataframe_long(
     return_expected_rows_cols : bool, optional
         If True, returns the calculated maximum rows and columns based on 
         internal adjustments or external utilities.
-
+    minimize_cols : bool, default=False
+        If True, reduce the number of columns by one to minimize the chance 
+        of column overlap, ensuring better fitting within the terminal width.
+        
     Returns
     -------
     bool
@@ -1448,7 +1452,7 @@ def is_dataframe_long(
     or data aggregations, should be applied.
     """
     df = validate_data(df )
-    auto_rows, auto_cols = propose_layout(df)
+    auto_rows, auto_cols = propose_layouts(df, minimize_cols = minimize_cols )
     rows, columns = df.shape  
     # Get terminal size
     # _, auto_rows = get_terminal_size()
@@ -2977,7 +2981,7 @@ def is_autofit_needed(
     """
     # Propose optimal layout based on the DataFrame and additional layout settings
     nrows, ncols = propose_layouts(
-        *[df], include_index=include_index, **layout_kws)
+        df, include_index=include_index, **layout_kws)
     
     # Determine if autofit is needed
     if not check_rows:

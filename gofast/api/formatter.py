@@ -218,9 +218,10 @@ class MultiFrameFormatter (metaclass=MetaLen):
         str
             A string representation of the constructed table.
         """
-        #XXXTODO
+ 
         if is_any_long_dataframe(*self.dfs, max_rows=self.max_rows,
-                                 max_cols=self.max_cols): 
+                                 max_cols=self.max_cols, 
+                                 minimize_cols= True): 
             return construct_long_dataframes_with_same_columns(
                 self.dfs, 
                 titles = self.titles,
@@ -529,7 +530,7 @@ class DataFrameFormatter(metaclass=MetaLen):
         self._process_keyword_attribute()
         
         self.max_rows, self.max_cols = get_display_limits(
-            *[self.df], max_rows = self.max_rows, max_cols= self.max_cols,
+            self.df, max_rows = self.max_rows, max_cols= self.max_cols,
                 minimize_cols= True)
             
         return self
@@ -757,7 +758,8 @@ class DataFrameFormatter(metaclass=MetaLen):
         """
         #XXXX TODO
         # Handle a single dataframe
-        if is_dataframe_long(self.df, max_rows= "auto", max_cols = "auto" ):
+        if is_dataframe_long(self.df, max_rows= "auto", max_cols = "auto" , 
+                minimize_cols= True ):
             return flex_df_formatter(
                 self.df, title = self.title, 
                 max_rows= self.max_rows, 
@@ -1709,7 +1711,8 @@ def construct_tables_for_same_columns(dataframes, titles=None):
     # Trim trailing spaces or lines and return the final table string
     return tables_str.rstrip()
 
-def is_any_long_dataframe(*dfs, max_rows="auto", max_cols="auto"):
+def is_any_long_dataframe(
+        *dfs, max_rows="auto", max_cols="auto", minimize_cols=False):
     """
     Determines whether any of the provided DataFrames is considered 'long' based
     on specified criteria for maximum rows and columns.
@@ -1727,7 +1730,10 @@ def is_any_long_dataframe(*dfs, max_rows="auto", max_cols="auto"):
         considered 'long'.
         If set to 'auto', the maximum columns will be dynamically determined 
         based on context or configuration. Default is 'auto'.
-
+    minimize_cols : bool, default=False
+        If True, reduce the number of columns by one to minimize the chance 
+        of column overlap, ensuring better fitting within the terminal width.
+        
     Returns
     -------
     bool
@@ -1754,7 +1760,11 @@ def is_any_long_dataframe(*dfs, max_rows="auto", max_cols="auto"):
     processing or visualization methods may vary depending on the size of the data.
     """
     if any(is_dataframe_long(
-            df, max_rows=max_rows, max_cols=max_cols, return_rows_cols_size=False)
+            df, max_rows=max_rows, 
+            max_cols=max_cols, 
+            return_rows_cols_size=False, 
+            minimize_cols= minimize_cols 
+            )
             for df in dfs
             ):
         return True
