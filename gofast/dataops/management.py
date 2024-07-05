@@ -470,7 +470,7 @@ def request_data(
         response.json () if as_json else response )
 
 
-@EnsureFileExists ('remote_file')
+@EnsureFileExists
 @Deprecated("Deprecated function. Should be removed next release. "
             "Use `gofast.tools.fetch_remote_data` instead.")
 def get_remote_data(
@@ -1007,7 +1007,7 @@ def fetch_remote_data(
         return False
 
 
-@EnsureFileExists ('url')
+@EnsureFileExists
 @ensure_pkg("bs4", " Needs `BeautifulSoup` from `bs4` package" )
 @ensure_pkg("requests")
 def scrape_web_data(
