@@ -21,7 +21,7 @@ from .util import insert_ellipsis_to_df , extract_truncate_df
 from .util import get_column_widths_in, distribute_column_widths  
 from .util import GOFAST_ESCAPE, select_df_styles, series_to_dataframe
 from .util import to_camel_case, format_iterable, get_table_size
-from .util import propose_layouts
+from .util import propose_layouts, validate_precision, apply_precision
 
 __all__=[
      'BoxFormatter',
@@ -71,6 +71,11 @@ class MultiFrameFormatter (metaclass=MetaLen):
     style : str, optional
         The styling preferences applied to the output of the DataFrames. 
         Defaults to 'base'.
+        
+    precision : int, optional
+        The number of decimal places to round numerical values to. 
+        Default is 4.
+        
     descriptor : str, optional
         A dynamic label or descriptor that defines the identity of the output
         when the object is represented as a string. This label is used in the 
@@ -139,6 +144,7 @@ class MultiFrameFormatter (metaclass=MetaLen):
         max_rows=None, 
         max_cols=None, 
         style=None, 
+        precision=4, 
         descriptor=None, 
         ):
         self.titles = titles if titles is not None else []
@@ -146,6 +152,7 @@ class MultiFrameFormatter (metaclass=MetaLen):
         self.dfs = []
         self.style= style or "base"
         self.max_rows = max_rows or 11 
+        self.precision=precision 
         
         self.max_cols =max_cols or "auto"
         self.descriptor = descriptor
@@ -180,8 +187,9 @@ class MultiFrameFormatter (metaclass=MetaLen):
             # Handling the scenario where checked_dfs is empty after processing
             raise ValueError("No valid pandas DataFrame or convertible Series"
                              " were provided to FrameFactory.")
-
-        self.dfs = checked_dfs
+            
+        self.precision = validate_precision( self.precision)
+        self.dfs = [df.round(self.precision) for df in checked_dfs]
 
     def add_dfs(self, *dfs):
         """
@@ -204,7 +212,9 @@ class MultiFrameFormatter (metaclass=MetaLen):
         self._populate_df_column_attributes()
         
         self._MAXROWS, self._MAXCOLS = get_display_limits(
-            *self.dfs, minimize_cols= True)
+            *self.dfs, max_rows = self.max_rows, 
+            minimize_cols= True, precision= self.precision
+            )
         
         return self
     
@@ -396,6 +406,10 @@ class DataFrameFormatter(metaclass=MetaLen):
         DataFrame size.
         Defaults to 'auto'.
         
+    precision : int, optional
+        The number of decimal places to round numerical values to. 
+        Default is 4
+        
     Attributes
     ----------
     df : pandas.DataFrame or None
@@ -484,7 +498,8 @@ class DataFrameFormatter(metaclass=MetaLen):
         descriptor=None, 
         series_name=None, 
         max_cols=None, 
-        max_rows =None
+        max_rows =None,
+        precision=4, 
         ):
         self.title = title
         self.keyword = keyword
@@ -493,6 +508,7 @@ class DataFrameFormatter(metaclass=MetaLen):
         self.series_name=series_name 
         self.max_cols =max_cols 
         self.max_rows =max_rows 
+        self.precision=precision 
         self.df = None
         self._column_name_mapping = {}
         
@@ -529,9 +545,12 @@ class DataFrameFormatter(metaclass=MetaLen):
     
         self._process_keyword_attribute()
         
+        self.precision = validate_precision( self.precision)
+        
+        self.df = df.round(self.precision)
         self.max_rows, self.max_cols = get_display_limits(
             self.df, max_rows = self.max_rows, max_cols= self.max_cols,
-                minimize_cols= True)
+                minimize_cols= True, precision=self.precision )
             
         return self
 
@@ -581,12 +600,17 @@ class DataFrameFormatter(metaclass=MetaLen):
         truncated if exceeding column width.
         """
         col_width = col_widths[col_name]
-    
+        
         if isinstance(val, (np.integer, np.floating)):
-            formatted_val = f"{float(val):.4f}" if isinstance(
+            formatted_val = apply_precision(val, self.precision) if isinstance(
                 val, np.floating) else f"{int(val)}"
+            # formatted_val = f"{float(val):.{self.precision}f}" if isinstance(
+            #     val, np.floating) else f"{int(val)}"
         elif isinstance(val, (float, int)):
-            formatted_val = f"{val:.4f}" if isinstance(val, float) else f"{val}"
+            formatted_val = apply_precision(val, self.precision) if isinstance (
+                val, float) else f"{val}"
+            # formatted_val = f"{val:.{self.precision}f}" if isinstance(
+            #     val, float) else f"{val}"
    
         elif isinstance(val, str):
             formatted_val = ( 

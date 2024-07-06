@@ -822,8 +822,11 @@ class Summary(FlexDict):
         return self
     
     def add_data_corr(
-            self, df, min_corr=0.5, high_corr=0.8, use_symbols=False, 
-            hide_diag=True, **kwargs):
+            self, df, min_corr=0.5,
+            high_corr=0.8,
+            use_symbols=False, 
+            hide_diag=True, 
+            **kwargs):
         """
         Computes and stores a formatted correlation matrix for a DataFrame's numeric
         columns within the class instance. This method leverages formatting options

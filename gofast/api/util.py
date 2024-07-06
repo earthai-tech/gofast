@@ -66,6 +66,7 @@ __all__=[
      'parse_component_kind',
      'propose_layout',
      'rearrange',
+     'refine_df', 
      'remove_extra_spaces',
      'resolve_auto_settings',
      'select_df_styles',
@@ -1077,6 +1078,102 @@ def insert_ellipsis_to_df(sub_df, full_df=None, include_index=True):
 
     return modified_df
 
+def validate_precision(precision, /):
+    """
+    Validates and converts the precision parameter to ensure it is a 
+    non-negative integer.
+
+    Parameters
+    ----------
+    precision : int, float, np.integer, np.floating
+        The precision value to be validated.
+
+    Returns
+    -------
+    int
+        The validated and converted precision value.
+
+    Raises
+    ------
+    ValueError
+        If the precision is not a non-negative number or cannot be 
+        converted to a non-negative integer.
+
+    Examples
+    --------
+    >>> validate_precision(3)
+    3
+    >>> validate_precision(3.0)
+    3
+    >>> validate_precision(np.int32(2))
+    2
+    >>> validate_precision(np.float64(2.0))
+    2
+    >>> validate_precision(-1)
+    Traceback (most recent call last):
+        ...
+    ValueError: Precision must be a non-negative integer.
+    >>> validate_precision('three')
+    Traceback (most recent call last):
+        ...
+    ValueError: Precision must be a non-negative integer.
+    """
+    precision = precision or 4
+    try:
+        precision = int(precision)
+        if precision < 0:
+            raise ValueError
+    except (ValueError, TypeError):
+        raise ValueError("Precision must be a non-negative integer.")
+    return precision
+
+def apply_precision(value, precision=4):
+    """
+    Applies precision to a numerical value only if the decimal part is 
+    larger than the specified precision. Otherwise, returns the value 
+    as is.
+
+    Parameters
+    ----------
+    value : int, float, np.integer, np.floating
+        The numerical value to be formatted.
+    precision : int, optional
+        The number of decimal places to format floating-point numbers. 
+        Default is 4.
+
+    Returns
+    -------
+    int, float
+        The formatted value if the decimal part is larger than the 
+        specified precision; otherwise, the value as is.
+
+    Examples
+    --------
+    >>> from gofast.api.util import apply_precision
+    >>> apply_precision(123.456789, 2)
+    123.46
+    >>> apply_precision(123.4, 2)
+    123.4
+    >>> apply_precision(np.int32(456), 2)
+    456
+    >>> apply_precision(np.float64(456.78), 2)
+    456.78
+    >>> apply_precision(123, 2)
+    123
+    >>> apply_precision(123.00, 2)
+    123.0
+    """
+    precision = validate_precision(precision)
+    if isinstance(value, (int, np.integer)):
+        return int(value)
+    elif isinstance(value, (float, np.floating)):
+        rounded_value = round(value, precision)
+        if value == rounded_value:
+            return value
+        return rounded_value
+    return value
+
+
 def get_dataframe_subset(df, indices=None, columns=None):
     """
     Extracts a subset of a DataFrame based on specified indices and columns.
@@ -1117,6 +1214,7 @@ def flex_df_formatter(
     style="auto", 
     column_widths=None,
     max_index_length=None,
+    precision=4
     ):
     """
     Formats and prints a DataFrame with dynamic sizing options, custom number 
@@ -1176,6 +1274,8 @@ def flex_df_formatter(
         properly aligned with the data columns. This automatic calculation is 
         designed to adapt to the varying lengths of index entries, providing a 
         dynamically adjusted display that optimally uses available space.
+    precision:int, optional, default=4
+        The number of decimal places to round numerical values to.
         
     Returns
     -------
@@ -1226,6 +1326,7 @@ def flex_df_formatter(
     df = validate_data(df )
     max_rows, max_cols = resolve_auto_settings( max_rows, max_cols )
     
+    df = refine_df(df, precision = precision )
     if max_rows =="auto" or max_cols =="auto":
         #XXX TODO: propose layout... 
         max_rows , max_cols = propose_layouts(
@@ -1254,7 +1355,7 @@ def flex_df_formatter(
     
     if max_cols > auto_max_cols : 
         max_cols = auto_max_cols 
- 
+    
     style= select_df_styles(style, df )
     if style =='advanced': 
         formatted_output = df_advanced_style(
@@ -1472,8 +1573,13 @@ def is_dataframe_long(
     return rows > max_rows or columns > max_cols
 
 def propose_layouts(
-    *dfs, include_index=True, max_text_char=50, buffer_space=2, 
+    *dfs, include_index=True, 
+    max_text_char=50, 
+    buffer_space=2, 
     minimize_cols=False, 
+    adjust_dfs =True, 
+    precision= 4, 
+    is_numeric_datetime='ignore', 
 ):
     """
     Proposes the optimal number of rows and columns for displaying DataFrames
@@ -1489,7 +1595,8 @@ def propose_layouts(
         
     max_text_char : int, default=50
         The maximum number of characters to consider per column for text
-        representation.
+        representation. Strings longer than this will be truncated and 
+        appended with '...' if `adjust_dfs` is set too ``True``.
         
     buffer_space : int, default=2
         The buffer space between columns in the layout calculation.
@@ -1497,6 +1604,23 @@ def propose_layouts(
     minimize_cols : bool, default=False
         If True, reduce the number of columns by one to minimize the chance 
         of column overlap, ensuring better fitting within the terminal width.
+        
+    adjust_dfs: bool, default =True, 
+       For layout display, dataframe values are formatted according to 
+       numeric (round values ) and categorical ( string object). 
+       If the maximum number of characters for string values are
+       longer than `max_text_char`, strings will be truncated and appended 
+       with '...'. To consider formatting the datetime, set `is_numeric_datetime` 
+       either to ``True`` or ``False`` for formating as string datetime format. 
+       
+    precision : int, , Default is 4.
+        The number of decimal places to round numerical values to. Apply only 
+        if `adjusts_dfs` is ``True``. 
+        
+    is_numeric_datetime : str or bool, optional
+        If `True`, consider datetime columns as numeric. If `False`, format 
+        datetime columns as strings. If ``'ignore'``, do not process datetime 
+        columns. Default is ``'ignore'``. Enable only if `adjust_df=True`. 
 
     Returns
     -------
@@ -1543,9 +1667,12 @@ def propose_layouts(
             df, 
             include_index=include_index, 
             max_text_char=max_text_char, 
-            buffer_space=buffer_space
+            buffer_space=buffer_space, 
+            adjust_df=adjust_dfs, 
+            precision =precision, 
+            is_numeric_datetime=is_numeric_datetime
         )
-    
+
     layout_params = [get_layout_params(df) for df in dfs]
     nrows, ncols = zip(*layout_params)
     
@@ -2645,7 +2772,7 @@ def format_text(
 
     return formatted_text
 
-def format_value(value):
+def format_value(value, precision=4):
     """
     Format a numeric value to a string, rounding floats to four decimal
     places and converting integers directly to strings.
@@ -2669,9 +2796,11 @@ def format_value(value):
     '123.4568'
     """
     value_str =str(value)
+    precision = validate_precision( precision)
     if isinstance(value, (int, float, np.integer, np.floating)): 
-        value_str = f"{value}" if isinstance ( 
-            value, int) else  f"{float(value):.4f}" 
+        value = apply_precision(value, precision )
+        value_str = f"{value}" # if isinstance ( 
+        #     value, int) else  f"{float(value):.{precision}f}" 
     return value_str 
 
 def get_frame_chars(frame_char):
@@ -2989,7 +3118,7 @@ def is_autofit_needed(
 
 def autofit_display(
     df, 
-    max_rows='auto', 
+    max_rows=11, 
     max_cols='auto', 
     include_index='auto',
     max_text_char=50,
@@ -3335,7 +3464,8 @@ def format_correlations(
                 return '-+'.ljust(4)
         else:
             return f"{value:.4f}"
-    
+        
+    corr_matrix= refine_df(corr_matrix)
     if autofit =='auto': 
         autofit = is_autofit_needed(corr_matrix, minimize_cols =True )
         
@@ -3343,8 +3473,7 @@ def format_correlations(
         # remove ... to avoid confusion with no correlated symbol 
         no_corr_placeholder='' 
     formatted_corr = corr_matrix.applymap(format_value)
-    formatted_df = format_df(formatted_corr, autofit= autofit,
-                             minimize_cols=True )
+    formatted_df = format_df(formatted_corr, autofit= autofit,minimize_cols=True )
     max_width = get_table_width_from(formatted_df)
  
     # max_width = find_maximum_table_width(formatted_df)
@@ -4506,7 +4635,15 @@ def rearrange(obj):
     else:
         raise TypeError("Input must be a dictionary, DataFrame, or list.")
 
-def propose_layout(data, include_index=True, max_text_char=50, buffer_space=2):
+def propose_layout(
+    data, 
+    include_index=True, 
+    max_text_char=50,
+    buffer_space=2, 
+    adjust_df=True, 
+    precision = 4, 
+    is_numeric_datetime='ignore',
+    ):
     """
     Propose the number of columns and rows to display based on the terminal 
     size.
@@ -4529,7 +4666,24 @@ def propose_layout(data, include_index=True, max_text_char=50, buffer_space=2):
     buffer_space : `int`, optional
         The space in characters between columns to ensure readability. Default 
         is 2.
-
+        
+    adjust_df: bool, default =True, 
+       For layout display, dataframe values are formatted according to 
+       numeric (round values ) and categorical ( string object). 
+       If the maximum number of characters for string values are
+       longer than `max_text_char`, strings will be truncated and appended 
+       with '...'. To consider formatting the datetime, set `is_numeric_datetime` 
+       either to ``True`` or ``False`` for formating as string datetime format. 
+       
+    precision : int, , Default is 4.
+        The number of decimal places to round numerical values to. Apply only 
+        if `adjust_df` is ``True``. 
+        
+    is_numeric_datetime : str or bool, optional
+        If `True`, consider datetime columns as numeric. If `False`, format 
+        datetime columns as strings. If ``'ignore'``, do not process datetime 
+        columns. Default is ``'ignore'``.  Enabled only if `adjust_df` is ``True``. 
+        
     Returns
     -------
     tuple
@@ -4585,35 +4739,41 @@ def propose_layout(data, include_index=True, max_text_char=50, buffer_space=2):
        2012.
     """
     data = validate_data(data )
-    terminal_width, terminal_height = get_terminal_size()
     
+    if adjust_df: 
+        data = refine_df(
+            data, precision= precision, 
+            max_text_char= max_text_char, 
+            is_numeric_datetime= is_numeric_datetime 
+            )
+        
+    terminal_width, terminal_height = get_table_size(return_height= True )
+    # terminal_width, terminal_height = get_terminal_size()
     col_lengths, index_length = max_column_lengths(
         data, include_index=include_index, max_text_char=max_text_char)
-    
+
     # Calculate total width needed for the columns
     total_col_width = sum(col_lengths.values())
     
     # Add buffer space between columns and include index width if necessary
     # -1 for number of interval NI = Number of Columns -1 
-    total_width = total_col_width + (buffer_space * (len(col_lengths) - 1) )
+    total_width = total_col_width + (buffer_space * (len(col_lengths) - 1))
+    # total_width = total_col_width + (buffer_space * len(col_lengths) ) 
     if include_index:
         total_width += index_length + buffer_space 
-    
     # Determine the number of columns that can fit in the terminal width
     if total_width <= terminal_width:
         num_columns = len(col_lengths)
     else:
-        get_columns =[]
-        cumulative_width =0
+        cumulative_width =(index_length + buffer_space) if include_index else 0 
         num_columns = 0
         col_lengths = rearrange(col_lengths)
         for col, length in col_lengths.items():
-            cumulative_width += length + buffer_space
+            # Maximize col by adding buffer_space 
+            cumulative_width += (length + buffer_space)
             if cumulative_width > terminal_width:
                 break
-            get_columns.append (col)
             num_columns += 1
-
     # Determine the number of rows that can fit in the terminal height
     num_rows = terminal_height - 2  # Subtracting 2 for header row and padding
     
@@ -4622,6 +4782,137 @@ def propose_layout(data, include_index=True, max_text_char=50, buffer_space=2):
     num_rows = max(1, num_rows)
 
     return num_rows, num_columns
+
+
+def refine_df(
+    data, /, 
+    precision=4,
+    max_text_char=50, 
+    is_numeric_datetime='ignore'
+    ):
+    """
+    Refines a DataFrame by setting precision for numerical values and truncating
+    long strings.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The input DataFrame.
+    precision : int, optional
+        The number of decimal places to round numerical values to.
+        Default is 4.
+    max_text_char : int, optional
+        The maximum number of characters for string values. Strings
+        longer than this will be truncated and appended with '...'.
+        Default is 50.
+    is_numeric_datetime : str or bool, optional
+        If `True`, consider datetime columns as numeric. If `False`, format 
+        datetime columns as strings. If ``'ignore'``, do not process datetime 
+        columns. Default is ``'ignore'``.
+
+    Returns
+    -------
+    pd.DataFrame
+        The refined DataFrame.
+
+    Notes
+    -----
+    This function processes a DataFrame to format numerical values to
+    a specified precision and truncates string values that exceed a
+    given length. For numerical values, the function applies rounding
+    to the specified number of decimal places. For string values, if
+    the length of the string exceeds `max_text_char`, the string is
+    truncated to `max_text_char - 3` characters, and '...' is appended
+    to indicate truncation.
+
+    Mathematically, the rounding of numerical values can be expressed as:
+
+    .. math::
+        x_{\text{rounded}} = \text{round}(x, \text{precision})
+
+    The truncation of string values can be expressed as:
+
+    .. math::
+        s_{\text{truncated}} =
+        \begin{cases}
+        s & \text{if } \text{len}(s) \leq \text{max\_text\_char} \\
+        s[:\text{max\_text\_char}-3] + '...' & \text{if } \text{len}(s) > \text{max\_text\_char}
+        \end{cases}
+
+    Examples
+    --------
+    >>> from gofast.api.util import refine_df
+    >>> from gofast.api.util import refine_df
+    >>> df = pd.DataFrame({'A': [1.123456, 2.345678, 3.987654], 
+    ...                    'B': ['short', 
+    ...                          'a very long string that exceeds the maximum character length', 
+    ...                          'new lines test'], 
+                             'C': [1.0, 2.1, 3.6]})
+    >>> formatted_df = refine_df(df, precision=8, max_text_char=10)
+    >>> print(formatted_df)
+    >>> df = pd.DataFrame({'A': [1.123456, 2.345678, 3.987654], 
+    ...                    'B': ['short', 
+    ...                          'a very long string that exceeds the maximum character length'],
+    ...                    'C': [pd.Timestamp('2023-01-01'), 
+    ...                          pd.Timestamp('2023-01-02'), 
+    ...                          pd.Timestamp('2023-01-03')]})
+    >>> refined_df = refine_df(df, precision=2, max_text_char=10, is_numeric_datetime=False)
+    >>> print(refined_df)
+         A           B                   C
+    0  1.12       short  2023-01-01 00:00:00
+    1  2.35  a very lo...  2023-01-02 00:00:00
+    2  3.99  a very lo...  2023-01-03 00:00:00
+
+    See Also
+    --------
+    pandas.DataFrame.round : Round a DataFrame to a variable number
+        of decimal places.
+    pandas.Series.str.slice : Slice substrings from each element in
+        the Series/Index.
+
+    References
+    ----------
+    .. [1] McKinney, Wes. "pandas: a foundational Python library for
+       data analysis and statistics." Python for High Performance
+       and Scientific Computing (2011): 1-9.
+    """
+    
+    data = validate_data(data )
+    def format_numeric(x, precision):
+        precision= validate_precision (precision )
+        return round(x, precision)
+
+    def format_string(x, max_text_char):
+        if len(x) > max_text_char:
+            return x[:max_text_char-3] + '...'
+        return x
+
+    refined_data = data.copy()
+    # Format numerical values
+    refined_data = refined_data.round(precision)
+    
+    # for col in refined_data.select_dtypes(include=[float, int]).columns:
+    #     refined_data[col] = refined_data[col].apply(
+    #         lambda x: format_numeric(x, precision))
+    
+    if is_numeric_datetime != 'ignore':
+        # Include datetime columns as numeric if specified
+        if is_numeric_datetime:
+            for col in refined_data.select_dtypes(include=['datetime']).columns:
+                refined_data[col] = refined_data[col].apply(
+                    lambda x: format_numeric(x.timestamp(), precision) if pd.notnull(x) else x)
+        else:
+            for col in refined_data.select_dtypes(include=['datetime']).columns:
+                refined_data[col] = refined_data[col].apply(
+                    lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(x) else x)
+    
+    # Truncate string values
+    for col in refined_data.select_dtypes(include=[object]).columns:
+        refined_data[col] = refined_data[col].apply(
+            lambda x: format_string(x, max_text_char) if isinstance(x, str) else x)
+    
+    return refined_data
+
 
 def count_functions(
     module_name, 
