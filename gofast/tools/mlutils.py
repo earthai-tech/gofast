@@ -92,7 +92,8 @@ __all__=[
     "stats_from_prediction", 
     "one_click_prep", 
     "soft_encoder", 
-    "display_feature_contributions"
+    "display_feature_contributions", 
+    "process_df", 
     ]
 
 def one_click_prep (
@@ -662,6 +663,7 @@ def bin_counting(
     odds="N+", 
     return_counts: bool=...,
     tolog: bool=..., 
+    encode_categorical: bool=..., 
     ): 
     """ Bin counting categorical variable and turn it into probabilistic 
     ratio.
@@ -689,8 +691,9 @@ def bin_counting(
     data: dataframe 
        Data containing the categorical values. 
        
-    bin_columns: str or list 
-       The columns to applied the bin_countings 
+    bin_columns: str or list , 
+       The columns to apply the bin_counting. If 'auto', the columns are 
+       extracted and categorized before applying the `bin_counting`. 
        
     tname: str, pd.Series
       The target name for which the counting is operated. If series, it 
@@ -712,6 +715,9 @@ def bin_counting(
       much more frequently than not.) The log transform again comes to our  
       rescue. Another useful property of the logarithm is that it turns a 
       division 
+      
+    encode_categorical : bool, optional
+        If `True`, encode categorical variables. Default is `False`.
 
     Returns 
     --------
@@ -781,10 +787,22 @@ def bin_counting(
            Targeting. Proceedings of the 15th ACM SIGKDD International 
            Conference on Knowledge Discovery and Data Mining (2009): 209–218     
     """
+    return_counts, tolog, encode_categorical= ellipsis2false(
+        return_counts, tolog, encode_categorical)   
     # assert everything
     if not is_frame (data, df_only =True ):
         raise TypeError(f"Expect dataframe. Got {type(data).__name__!r}")
-    
+        
+    if isinstance (bin_columns, str) and bin_columns=='auto': 
+        ttname = tname if isinstance (tname, str) else None # pass 
+        _, bin_columns = process_df(
+            data, target_name= ttname,
+            exclude_target=True if ttname else False 
+        )
+        
+    if encode_categorical: 
+        data = soft_encoder(data) 
+        
     if not _is_numeric_dtype(data, to_array= True): 
         raise TypeError ("Expect data with encoded categorical variables."
                          " Please check your data.")
@@ -799,11 +817,9 @@ def bin_counting(
         # concatenate target 
         data= pd.concat ( [ data, tname], axis = 1 )
         tname = tname.name  # take the name 
-        
-    return_counts, tolog = ellipsis2false(return_counts, tolog)    
-    bin_columns= is_iterable( bin_columns, exclude_string= True, 
-                                 transform =True )
-    tname = str(tname) ; #bin_column = str(bin_column)
+    
+    bin_columns= is_iterable(bin_columns, exclude_string= True, transform =True )
+    tname = str(tname) ; 
     target_all_counts =[]
     
     validate_feature(data, features =bin_columns + [tname] )
@@ -1547,7 +1563,7 @@ def fetch_tgz(
     show_progress: bool = False
 ) -> None:
     """
-    Fetches and extracts a .tgz file from a specified URL, optionally into 
+    Fetches and extracts a 'tgz' file from a specified URL, optionally into 
     a target directory.
 
     If `data_path` is provided and does not exist, it is created. If `data_path`
@@ -1617,6 +1633,182 @@ def fetch_tgz(
     
     if show_progress:
         print("Download and extraction complete.")
+
+def process_df(
+    data, /, 
+    target_name=None, 
+    exclude_target=False, 
+    return_frame=False, 
+    include_datetime=True,
+    is_numeric_datetime=True, 
+    return_target=False, 
+    encode_cat_columns=False, 
+    error='warn', 
+    ):
+    """
+    Processes a DataFrame to separate numeric and categorical data.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The input DataFrame.
+    target_name : str or list of str, optional
+        The name(s) of the target column(s) to exclude. If a single 
+        target column is provided, it can be given as a string. 
+        If multiple target columns are provided, they should be given 
+        as a list of strings.
+    exclude_target : bool, optional
+        If `True`, exclude the target column(s) from the returned 
+        numeric and categorical data. Default is `False`.
+    return_frame : bool, optional
+        If `True`, return DataFrames for numeric and categorical data. 
+        If `False`, return lists of column names. Default is `False`.
+    include_datetime : bool, optional
+        If `True`, include datetime columns in the processing. 
+        Default is `True`.
+    is_numeric_datetime : bool, optional
+        If `True`, consider datetime columns as numeric. Default is `True`.
+    return_target : bool, optional
+        If `True`, return the target data along with numeric and 
+        categorical data. Default is `False`.
+    encode_cat_columns : bool, optional
+        If `True`, encode categorical variables. Default is `False`.
+    error : str, optional
+        How to handle errors when target columns are not found. Options 
+        are ``'warn'``, ``'raise'``, ``'ignore'``. Default is ``'warn'``.
+
+    Returns
+    -------
+    tuple
+        If `return_frame` is `True`, returns a tuple of DataFrames 
+        (`numeric_df`, `categorical_df`, `target_df`). 
+        If `return_frame` is `False`, returns a tuple of lists 
+        (`numeric_columns`, `categorical_columns`, `target_columns`).
+
+    Raises
+    ------
+    ValueError
+        If `exclude_target` is `True` and `target_name` is not provided.
+        If specified target columns do not exist in the DataFrame 
+        and ``error`` is set to ``'raise'``.
+
+    Notes
+    -----
+    The function processes a DataFrame to separate numeric and 
+    categorical data, with optional inclusion of datetime columns. 
+    If `target_name` is provided, it can be excluded from the data 
+    or returned separately. The function handles missing target 
+    columns based on the ``error`` parameter.
+
+    Mathematically, the separation of numeric and categorical columns 
+    can be represented as:
+
+    .. math:: 
+        X_{\text{numeric}} = \{ x_i \mid x_i \in \mathbb{R}, \forall i \}
+    
+    .. math:: 
+        X_{\text{categorical}} = \{ x_i \mid x_i \notin \mathbb{R}, \forall i \}
+
+    where :math:`X` is the set of all columns in the DataFrame, 
+    :math:`X_{\text{numeric}}` is the set of numeric columns, and 
+    :math:`X_{\text{categorical}}` is the set of categorical columns.
+
+    Examples
+    --------
+    >>> from gofast.tools.mlutils import process_df
+    >>> df = pd.DataFrame({'A': [1, 2, 3], 
+    ...                    'B': ['a', 'b', 'c'], 
+    ...                    'C': pd.to_datetime(['2020-01-01', '2020-01-02', '2020-01-03'])})
+    >>> numeric_columns, categorical_columns = process_df(df)
+    >>> numeric_columns
+    ['A']
+    >>> categorical_columns
+    ['B']
+
+    >>> numeric_df, categorical_df = process_df(df, return_frame=True)
+    >>> numeric_df
+       A
+    0  1
+    1  2
+    2  3
+    >>> categorical_df
+       B
+    0  a
+    1  b
+    2  c
+
+    >>> numeric_columns, categorical_columns, target_columns = process_df(
+    ...     df, target_name='A', exclude_target=True, return_target=True)
+    >>> numeric_columns
+    []
+    >>> categorical_columns
+    ['B']
+    >>> target_columns
+    ['A']
+
+    See Also
+    --------
+    pandas.DataFrame.select_dtypes : Select columns by data type.
+    pandas.concat : Concatenate pandas objects along a particular axis.
+
+    References
+    ----------
+    .. [1] McKinney, Wes. "pandas: a foundational Python library for data 
+       analysis and statistics." Python for High Performance and Scientific 
+       Computing (2011): 1-9.
+    """
+
+    is_frame(data, df_only =True, raise_exception=True, objname='data')
+    if exclude_target and not target_name:
+        raise ValueError("If exclude_target is True, target_name must be provided.")
+    
+    if isinstance(target_name, str):
+        target_name = [target_name]
+    
+    if target_name:
+        missing_targets = [target for target in target_name if target not in data.columns]
+        if missing_targets:
+            if error == 'warn':
+                warnings.warn(f"Target columns {missing_targets} not found in DataFrame.")
+            elif error == 'raise':
+                raise ValueError(f"Target columns {missing_targets} not found in DataFrame.")
+            # Filter out missing targets
+            target_name = [target for target in target_name if target in data.columns]
+    
+    numeric_df = data.select_dtypes(include=[np.number])
+    categorical_df = data.select_dtypes(exclude=[np.number])
+    
+    if include_datetime:
+        datetime_df = data.select_dtypes(include=['datetime'])
+        if is_numeric_datetime:
+            numeric_df = pd.concat([numeric_df, datetime_df], axis=1)
+        else:
+            categorical_df = pd.concat([categorical_df, datetime_df], axis=1)
+    
+    target_df = pd.DataFrame()
+    if target_name:
+        target_df = data[target_name]
+    
+    if exclude_target and target_name:
+        numeric_df = numeric_df.drop(columns=target_name, errors='ignore')
+        categorical_df = categorical_df.drop(columns=target_name, errors='ignore')
+    
+    if encode_cat_columns and not categorical_df.empty: 
+        categorical_df = soft_encoder ( categorical_df )
+        
+    if return_frame:
+        if return_target:
+            return numeric_df, categorical_df, target_df
+        else:
+            return numeric_df, categorical_df
+    else:
+        if return_target:
+            return ( 
+                numeric_df.columns.tolist(), categorical_df.columns.tolist(),
+                target_df.columns.tolist()
+                )
+        else:
+            return numeric_df.columns.tolist(), categorical_df.columns.tolist()
 
 def base_url_tgz_fetch(
     data_url: str, tgz_filename: str,  
