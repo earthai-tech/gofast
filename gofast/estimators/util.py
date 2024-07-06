@@ -29,7 +29,7 @@ from ..tools.validator import validate_fit_weights, get_estimator_name
 from ..tools.validator import validate_positive_integer 
 
 __all__=[
-     'activator','apply_scaling','detect_problem_type',
+     'activator','apply_scaling','build_named_estimators', 'detect_problem_type',
      'determine_weights','estimate_memory_depth','fit_with_estimator',
      'get_default_meta_estimator','normalize_sum','optimize_hyperparams',
      'select_best_classification_model','select_best_model',
@@ -1511,21 +1511,110 @@ def select_best_model(
 
     return best_estimator
 
+def validate_estimators(estimators):
+    # Ensure each estimator has a fit method and is a scikit-learn estimator
+    for name, estimator in estimators:
+        if not hasattr(estimator, "fit"):
+            raise ValueError(f"Estimator {name} does not implement a 'fit' method.")
+        if not isinstance(estimator, BaseEstimator):
+            raise ValueError(f"Estimator {name} does not follow the scikit-learn"
+                             " API estimator structure.")
 
-# Example usage
-if __name__ == "__main__":
-    regressor = get_default_meta_estimator(problem='regression')
-    print(f"Selected meta regressor: {regressor}")
+def build_named_estimators(
+        estimators, perform_deep_check=False, error='raise'):
+    """
+    Build a list of named estimators.
 
-    classifier = get_default_meta_estimator(problem='classification')
-    print(f"Selected meta classifier: {classifier}")
+    Parameters
+    ----------
+    estimators : list of estimators or list of (str, estimator) tuples
+        List of estimators which can either be a list of scikit-learn 
+        estimator instances or a list of (name, estimator) tuples.
+
+    perform_deep_check : bool, optional, default=False
+        If True, performs a deep check to validate that each estimator 
+        implements a `fit` method and is a scikit-learn estimator.
+
+    error : {'raise', 'warn'}, optional, default='raise'
+        Specifies how to handle errors if the input format is incorrect.
+        - 'raise': Raise a ValueError with an appropriate error message.
+        - 'warn': Issue a warning with an appropriate error message.
+
+    Returns
+    -------
+    list of (str, estimator) tuples
+        List of tuples where each tuple contains a string (the name of 
+        the estimator) and the estimator instance.
+
+    Examples
+    --------
+    >>> from gofast.estimators.util import build_named_estimators
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from sklearn.svm import SVC
+    >>> estimators = [RandomForestClassifier(), SVC()]
+    >>> named_estimators = build_named_estimators(estimators)
+    >>> print(named_estimators)
+    [('RandomForestClassifier', RandomForestClassifier()), ('SVC', SVC())]
+
+    Notes
+    -----
+    The function converts a list of estimators into a list of named 
+    tuples. Each named tuple contains the class name of the estimator 
+    and the estimator instance. This is particularly useful for 
+    ensemble methods that require a list of named estimators.
+
+    For a single estimator, it will be converted to a list with one 
+    tuple. For a single tuple, it will be converted to a list with one 
+    tuple.
+
+    If `perform_deep_check` is set to True, the function will validate 
+    that each estimator implements a `fit` method and is a scikit-learn 
+    estimator.
+
+    The function uses the `error_handling` parameter to determine 
+    whether to raise an error or issue a warning if the input format is 
+    incorrect.
+
+    References
+    ----------
+    .. [1] Pedregosa et al., "Scikit-learn: Machine Learning in Python", 
+           Journal of Machine Learning Research, 12, pp. 2825-2830, 2011.
+    """
+
+    def convert_to_named_estimators(estimators):
+        transformed = []
+        for estimator in estimators:
+            name = estimator.__class__.__name__
+            transformed.append((name, estimator))
+        return transformed
+
+    # Convert single estimator to list
+    if isinstance(estimators, BaseEstimator):
+        estimators = [(estimators.__class__.__name__, estimators)]
+
+    # Convert single tuple to list of tuples
+    if isinstance(estimators, tuple) and len(estimators) == 2:
+        estimators = [estimators]
+
+    # Check if estimators are in the correct format
+    if all(isinstance(item, tuple) and len(item) == 2 for item in estimators):
+        if perform_deep_check:
+            validate_estimators(estimators)
+        return estimators
+
+    # Convert list of estimators to list of named tuples
+    if all(isinstance(item, BaseEstimator) for item in estimators):
+        named_estimators = convert_to_named_estimators(estimators)
+        if perform_deep_check:
+            validate_estimators(named_estimators)
+        return named_estimators
+
+    # Handle incorrect format
+    error_message = ("Estimators list format is incorrect. Expected structure:"
+                     " [(name, estimator), ...] or [estimator, ...].")
     
-    from sklearn.datasets import make_classification
-
-    # Create a synthetic dataset
-    X, y = make_classification(n_samples=1000, n_features=20, n_classes=2, random_state=42)
-
-    # Get the best classification model
-    best_model, best_model_name, best_accuracy_score = select_best_classification_model(X, y)
-    print(f"Best Model: {best_model_name}")
-    print(f"Best Accuracy Score: {best_accuracy_score}")
+    if error == 'raise':
+        raise ValueError(error_message)
+    elif error == 'warn':
+        warnings.warn(error_message)
+    return []

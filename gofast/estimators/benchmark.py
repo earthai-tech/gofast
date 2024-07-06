@@ -16,7 +16,7 @@ from tqdm import tqdm
 from .._gofastlog import  gofastlog
 from ..tools.validator import check_X_y
 from ..tools.validator import check_is_fitted, check_array
-from .util import get_default_meta_estimator 
+from .util import get_default_meta_estimator, build_named_estimators
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -228,7 +228,8 @@ class BenchmarkRegressor(BaseEstimator, RegressorMixin):
         
         if self.verbose:
             print("Starting fit of Benchmark Regressor")
-    
+        
+        self.base_estimators = build_named_estimators(self.base_estimators)
         # Optimize hyperparameters of base regressors if enabled
         if self.optimize_hyperparams:
             if self.verbose:
@@ -654,6 +655,7 @@ class BenchmarkClassifier(BaseEstimator, ClassifierMixin):
         if self.verbose:
             print("Starting fit of Benchmark Classifier")
     
+        self.base_classifiers = build_named_estimators(self.base_classifiers)
         # Optimize hyperparameters of base classifiers if enabled
         if self.optimize_hyperparams:
             if self.verbose:

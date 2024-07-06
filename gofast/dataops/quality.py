@@ -17,7 +17,7 @@ from ..api.extension import isinstance_
 from ..api.formatter import MultiFrameFormatter, format_iterable
 from ..api.summary import ReportFactory, Summary
 from ..api.summary import ResultSummary, assemble_reports
-from ..api.types import Any,  List,  DataFrame, Optional, Series
+from ..api.types import Any, List, DataFrame, Optional, Series
 from ..api.types import Dict, Union, Tuple, ArrayLike, Callable
 from ..api.util import get_table_size 
 from ..decorators import isdf, Dataify
@@ -30,24 +30,26 @@ from ..tools.validator import _is_numeric_dtype, filter_valid_kwargs
 
 TW = get_table_size() 
 
-__all__= [ 
-    "analyze_data_corr",
-    "assess_outlier_impact",
-    "audit_data",
-    "check_correlated_features", 
-    "check_missing_data",
-    "check_unique_values", 
-    "correlation_ops",
-    "drop_correlated_features",
-    "handle_duplicates",
-    "handle_missing_data",
-    "handle_outliers_in",
-    "handle_skew",
-    "quality_control",
-    "convert_date_features", 
-    "handle_categorical_features", 
-    "scale_data", 
-    ]
+__all__= [
+     'analyze_data_corr',
+     'assess_outlier_impact',
+     'audit_data',
+     'check_correlated_features',
+     'check_missing_data',
+     'check_unique_values',
+     'convert_date_features',
+     'correlation_ops',
+     'data_assistant',
+     'drop_correlated_features',
+     'handle_categorical_features',
+     'handle_duplicates',
+     'handle_missing_data',
+     'handle_outliers_in',
+     'handle_skew',
+     'merge_frames_on_index',
+     'quality_control',
+     'scale_data',
+ ]
 
 def audit_data(
     data: DataFrame,/,  

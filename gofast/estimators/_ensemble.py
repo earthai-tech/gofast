@@ -413,9 +413,12 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
             X, y, reset =True, 
             validate_separately= (check_X_params, check_y_params)
         )
-        if self.estimator is None:
-            self.estimator = self.default_estimator(max_depth=self.max_depth)
-
+        
+        self.estimator_ = self.estimator 
+        
+        if self.estimator_ is None:
+            self.estimator_ = self.default_estimator(max_depth=self.max_depth)
+        
         self.strategy = str(self.strategy).lower()
         if self.strategy == 'bagging':
             self._fit_bagging(X, y, sample_weight, self.is_classifier)
@@ -712,7 +715,7 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
         """
         if is_classifier:
             self.model_ = BaggingClassifier(
-                estimator=self.estimator,
+                estimator=self.estimator_ ,
                 n_estimators=self.n_estimators,
                 random_state=self.random_state,
                 max_samples=self.max_samples,
@@ -724,9 +727,10 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
                 n_jobs=self.n_jobs,
                 verbose=self.verbose,
             )
+            
         else:
             self.model_ = BaggingRegressor(
-                estimator=self.estimator,
+                estimator=self.estimator_ ,
                 n_estimators=self.n_estimators,
                 random_state=self.random_state,
                 max_samples=self.max_samples,

@@ -58,43 +58,47 @@ from .validator import check_mixed_data_types, validate_data_types
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
-__all__=[ 
-    "fetch_tgz", 
-    "fetch_model", 
-    "evaluate_model",
-    "get_global_score", 
-    "get_correlated_features", 
-    "resampling", 
-    "bin_counting", 
-    "soft_imputer", 
-    "soft_scaler", 
-    "select_feature_importances", 
-    "load_model", 
-    "load_csv", 
-    "make_pipe",
-    "build_data_preprocessor", 
-    "bi_selector", 
-    "stats_from_prediction", 
-    "fetch_tgz", 
-    "fetch_model", 
-    "load_csv", 
-    "discretize_categories", 
-    "stratify_categories", 
-    "serialize_data", 
-    "deserialize_data", 
-    "soft_data_split",
-    "laplace_smoothing", 
-    "laplace_smoothing_categorical", 
-    "laplace_smoothing_word", 
-    "handle_imbalance", 
-    "smart_split",
-    "save_dataframes", 
-    "stats_from_prediction", 
-    "one_click_prep", 
-    "soft_encoder", 
-    "display_feature_contributions", 
-    "process_df", 
-    ]
+
+__all__=[
+     'base_local_tgz_fetch',
+     'base_url_tgz_fetch',
+     'bi_selector',
+     'bin_counting',
+     'build_data_preprocessor',
+     'deserialize_data',
+     'discretize_categories',
+     'display_feature_contributions',
+     'evaluate_model',
+     'fetch_model',
+     'fetch_tgz',
+     'fetch_tgz_from_url',
+     'fetch_tgz_locally',
+     'format_model_score',
+     'get_correlated_features',
+     'get_feature_contributions',
+     'get_global_score',
+     'handle_imbalance',
+     'laplace_smoothing',
+     'laplace_smoothing_categorical',
+     'laplace_smoothing_word',
+     'load_csv',
+     'load_model',
+     'make_pipe',
+     'one_click_prep',
+     'process_df',
+     'resampling',
+     'save_dataframes',
+     'select_feature_importances',
+     'serialize_data',
+     'smart_split',
+     'soft_data_split',
+     'soft_encoder',
+     'soft_imputer',
+     'soft_scaler',
+     'stats_from_prediction',
+     'stratify_categories',
+ ]
+
 
 def one_click_prep (
     data: DataFrame, 
@@ -1817,7 +1821,7 @@ def base_url_tgz_fetch(
     **kwargs
     ) -> Union[str, None]:
     """
-    Fetches a .tgz file from a given URL, saves it to a specified directory, 
+    Fetches a tgz file from a given URL, saves it to a specified directory, 
     and optionally extracts a specific file from it.
 
     This function downloads a .tgz file from the specified URL and saves it to 
@@ -1899,7 +1903,7 @@ def fetch_tgz_from_url(
     **kwargs
     ) -> Optional[Path]:
     """
-    Fetches a .tgz file from a given URL, saves it to a specified directory, 
+    Fetches a tgz file from a given URL, saves it to a specified directory, 
     and optionally extracts a specific file from it.
 
     This function downloads a .tgz file from the specified URL and saves it to 
@@ -2001,7 +2005,8 @@ def fetch_tgz_locally(
     rename_outfile: Optional[str] = None
     ) -> str:
     """
-    Fetches and optionally renames a file from a tar archive with progress reporting.
+    Fetches and optionally renames a file from a tar archive with progress
+    reporting.
     
     Parameters
     ----------
