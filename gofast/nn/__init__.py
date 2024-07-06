@@ -14,12 +14,20 @@ TensorFlow.
 import warnings
 from .generate import create_sequences, data_generator
 from ..compat.tf import import_keras_dependencies, check_keras_backend
+from ._config import configure_dependencies, Config as config
+
+# Set default configuration
+config.INSTALL_DEPS = False
+config.WARN_STATUS = 'warn'
 
 # Custom message for missing dependencies
 EXTRA_MSG = ( 
     "`nn` sub-package expects the `tensorflow` or"
     " `keras` library to be installed."
     )
+
+# Configure and install dependencies if needed
+configure_dependencies(install_dependencies=config.INSTALL_DEPS)
 
 # Lazy-load Keras dependencies
 KERAS_DEPS={}

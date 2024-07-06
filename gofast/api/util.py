@@ -358,10 +358,8 @@ def distribute_column_widths(*dfs,  **kws):
         return index_width, column_widths  
 
     max_widths = _compute_maximum_widths(block_columns, column_widths)
-    print(max_widths)
+
     adjusted_widths = _apply_maximum_widths(max_widths, block_columns)
-    print(adjusted_widths)
-    print(index_width)
     if '...' in column_widths.keys(): 
         # then reinsert ellipsis 
         adjusted_widths["..."] = 3 
@@ -863,7 +861,8 @@ def extract_truncate_df(
     # XXX CHECK: Use propose layout currently for a test purpose. 
     # checking stability of `propose layout` later. 
     max_rows , max_cols = select_optimal_display_dimensions ( 
-        df, max_rows= max_rows, max_cols = max_cols, )
+        df, max_rows= max_rows, max_cols = max_cols, 
+        minimize_cols = True )
   
     df_string= truncated_df.to_string(
         index =True, header=True, max_rows=max_rows, max_cols=max_cols )
@@ -1027,8 +1026,7 @@ def insert_ellipsis_to_df(sub_df, full_df=None, include_index=True):
         The DataFrame into which ellipsis will be inserted.
     full_df : pd.DataFrame, optional
         The full DataFrame from which sub_df is derived. If provided, used to 
-        determine
-        whether ellipsis are needed for rows or columns.
+        determine whether ellipsis are needed for rows or columns.
     include_index : bool, default True
         Whether to include ellipsis in the index if rows are truncated.
 
