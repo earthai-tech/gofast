@@ -223,7 +223,7 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
         "estimator": [HasMethods(["fit", "predict"]), None],
         "n_estimators": [Interval(Integral, 1, None, closed="left")],
         "eta0": [Interval(Real, 0, None, closed="left")],
-        "max_depth": [Interval(Integral, 1, None, closed="left")],
+        "max_depth": [Interval(Integral, 1, None, closed="left"), None],
         "strategy": [StrOptions({"hybrid", "bagging", "boosting"})],
         "random_state": ["random_state"],
         "max_samples": [Interval(Integral, 1, None, closed="left"), 

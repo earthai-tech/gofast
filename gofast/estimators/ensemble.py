@@ -1834,7 +1834,7 @@ class EnsembleClassifier(ClassifierMixin, BaseEnsemble):
         classification models.
     """
     is_classifier = True
-    default_base_estimator = DecisionTreeClassifier 
+    default_estimator = DecisionTreeClassifier 
 
     def __init__(
         self, 
@@ -2179,7 +2179,7 @@ class EnsembleRegressor(RegressorMixin, BaseEnsemble):
         regression models.
     """
     is_classifier = False
-    default_base_estimator = DecisionTreeRegressor 
+    default_estimator = DecisionTreeRegressor 
     
     def __init__(
         self,
