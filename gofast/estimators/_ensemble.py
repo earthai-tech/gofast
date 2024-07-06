@@ -1022,7 +1022,7 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
     
         if is_classifier:
             self.model_ = BaggingClassifier(
-                estimator=estimator,
+                estimator,
                 n_estimators=2,  # number of boosting models in the bagging
                 random_state=self.random_state,
                 max_samples=self.max_samples,
@@ -1036,7 +1036,7 @@ class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
             )
         else:
             self.model_ = BaggingRegressor(
-                estimator=estimator,
+                estimator,
                 n_estimators=2,  # number of boosting models in the bagging
                 random_state=self.random_state,
                 max_samples=self.max_samples,
