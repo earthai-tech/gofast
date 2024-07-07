@@ -3,20 +3,21 @@
 # Standard library imports
 from setuptools import setup, Extension, find_packages
 from setuptools.command.build_ext import build_ext
+from Cython.Build import cythonize
 import builtins
-import os  # noqa
+import os
 import sys
 import subprocess
 
 # Function to ensure Numpy is installed before proceeding
 def install_numpy_if_needed():
     try:
-        import numpy  # noqa
+        import numpy
         print("Numpy is already installed.")
     except ImportError:
         print("Numpy is not installed. Installing now...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "numpy<2.0"])
-        import numpy  # noqa
+        import numpy # noqa
         print("Numpy has been installed successfully.")
 
 # Ensure Numpy is installed before proceeding
@@ -27,7 +28,7 @@ import numpy
 
 # Compatibility layer for Python 2 and 3
 try:
-    import builtins  # noqa
+    import builtins # noqa
 except ImportError:
     import __builtin__ as builtins  # Python 2 compatibility
 
@@ -99,27 +100,31 @@ def collect_all_pyx_modules(base_package_paths):
     all_pyx_modules = []
     for package_path in base_package_paths:
         all_pyx_modules.extend(collect_pyx_modules(package_path))
-    all_pyx_modules.extend(collect_pyx_modules('.'))
+    #all_pyx_modules.extend(collect_pyx_modules('.'))
     return all_pyx_modules
 
 base_package_paths = [
-    'gofast/dataops',
-    'gofast/estimators',
+    # 'gofast/dataops',
+    # 'gofast/estimators',
     'gofast/tools',
-    'gofast/transformers',
-    'gofast/stats',
-    'gofast/models',
-    'gofast/plots',
-    'gofast/api',
-    'gofast/backends',
+    # 'gofast/transformers',
+    # 'gofast/stats',
+    # 'gofast/models',
+    # 'gofast/plots',
+    # 'gofast/api',
+    # 'gofast/backends',
     'gofast/datasets',
-    'gofast/compat',
-    'gofast/nn',
-    'gofast/analysis',
-    'gofast/cli',
+    # 'gofast/compat',
+    # 'gofast/nn',
+    # 'gofast/analysis',
+    # 'gofast/cli',
 ]
 
 pyx_modules = collect_all_pyx_modules(base_package_paths)
+if not pyx_modules:
+    print("No .pyx files found to compile.")
+else:
+    print("Found .pyx files:", pyx_modules)
 
 ext_modules = [
     Extension(pyx_module.replace('/', '.').replace('.pyx', ''),
@@ -142,7 +147,8 @@ setup_kwargs = {
         ]
     },
     'packages': find_packages(),
-    'ext_modules': ext_modules,
+    'ext_modules': cythonize(
+        ext_modules, compiler_directives={'linetrace': True,'language_level': "3"}),
     'cmdclass': {'build_ext': BuildExt},
     'install_requires': [
         "cython>=0.29.33",

@@ -21,12 +21,19 @@ jobs:
       run: |
         echo "Setting PYTHONPATH"
         echo "PYTHONPATH=$PYTHONPATH:$(pwd)/gofast" >> $GITHUB_ENV
-    
+
+    - name: Install dependencies
+      run: |
+        python -m pip install "numpy<2" cython
+
+    - name: Compile Cython modules
+      run: |
+        find . -name "*.pyx" -exec cythonize -i {} \;
+
     - name: Install gofast package
       run: |
-        python -m pip install "numpy<2"
         python -m pip install .
-        
+
     - name: Configure Conda 
       run: |
         echo "Configuring conda..."
