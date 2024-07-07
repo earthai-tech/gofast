@@ -19,7 +19,7 @@ from ..api.summary import ReportFactory, Summary
 from ..api.summary import ResultSummary, assemble_reports
 from ..api.types import Any, List, DataFrame, Optional, Series
 from ..api.types import Dict, Union, Tuple, ArrayLike, Callable
-from ..api.util import get_table_size 
+from ..api.util import get_table_size , to_snake_case
 from ..decorators import isdf, Dataify
 from ..decorators import Extract1dArrayOrSeries 
 from ..tools.baseutils import reshape_to_dataframe
@@ -2093,12 +2093,17 @@ def correlation_ops(
 
     # Formatting the output with MultiFrameFormatter if needed
     if dfs:
+        new_dfs = {to_snake_case (k): v for k, v in dfs.items()} 
         formatted_report = MultiFrameFormatter(
             list(dfs.keys()), 
             descriptor="CorrelationOps", 
-            max_cols=5, 
-            max_rows ='auto').add_dfs(*dfs.values())
-        setattr(formatted_report, "correlated_pairs", dfs)
+            max_cols=5, max_rows ='auto', 
+            ).add_dfs(*new_dfs.values())
+        formatted_report.correlation_types = list(new_dfs.keys()) 
+        formatted_report.corrlated_pairs = _make_correlation_pairs(new_dfs)
+        for key, value in new_dfs.items(): 
+            setattr (formatted_report, key, value)
+        
         return formatted_report
     else:
         insights=ReportFactory(title=f"Correlation Type: {corr_type}",
@@ -2113,6 +2118,56 @@ def correlation_ops(
             )
         return insights
     
+def _make_correlation_pairs(dict_of_dfs):
+    """
+    Converts a dictionary of dataframes containing correlation data into
+    a dictionary of tuples.
+    
+    Parameters
+    ----------
+    dict_of_dfs : dict
+        A dictionary where keys are categories (e.g., 'strong_positives') and values are 
+        pandas DataFrames with columns ['Feature 1', 'Feature 2', 'Correlation'].
+    
+    Returns
+    -------
+    dict
+        A dictionary where keys are the same as input dictionary and values 
+        are lists of tuples (feature1, feature2, correlation_value).
+    
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.dataops.quality import _make_correlation_pairs
+    >>> dict_of_dfs = {
+    ...     'strong_positives': pd.DataFrame({
+    ...         'Feature 1': ['A'],
+    ...         'Feature 2': ['B'],
+    ...         'Correlation': [0.948683]
+    ...     }),
+    ...     'strong_negatives': pd.DataFrame({
+    ...         'Feature 1': ['A', 'B'],
+    ...         'Feature 2': ['C', 'C'],
+    ...         'Correlation': [-0.944911, -0.896421]
+    ...     })
+    ... }
+    >>> result = _make_correlation_pairs(dict_of_dfs)
+    >>> print(result)
+    {'strong_positives': [('A', 'B', 0.948683)], 
+     'strong_negatives': [('A', 'C', -0.944911), ('B', 'C', -0.896421)]}
+    """
+    result = {}
+    
+    for key, df in dict_of_dfs.items():
+        # Convert dataframe to dictionary with 'tight' format
+        df_dict = df.to_dict('tight')
+        # Create list of tuples from the 'data' key of the tight dictionary
+        correlation_pairs = [(row[0], row[1], row[2]) for row in df_dict['data']]
+        
+        result[key] = correlation_pairs
+    
+    return result
+
 @Dataify (auto_columns=True)  
 def drop_correlated_features(
     data: DataFrame, 
