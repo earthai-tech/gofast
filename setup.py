@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-# Standard library imports
 from setuptools import setup, Extension, find_packages
 from setuptools.command.build_ext import build_ext
 from Cython.Build import cythonize
@@ -17,18 +16,16 @@ def install_numpy_if_needed():
     except ImportError:
         print("Numpy is not installed. Installing now...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "numpy<2.0"])
-        import numpy # noqa
+        import numpy  # noqa
         print("Numpy has been installed successfully.")
 
 # Ensure Numpy is installed before proceeding
 install_numpy_if_needed()
-
-# Now that Numpy is installed, you can safely import it
 import numpy
 
 # Compatibility layer for Python 2 and 3
 try:
-    import builtins # noqa
+    import builtins  # noqa
 except ImportError:
     import __builtin__ as builtins  # Python 2 compatibility
 
@@ -80,23 +77,22 @@ PACKAGE_DATA = {
 
 # List of specific files to compile
 pyx_files_to_build = [
-    'coreutils.py', 
-    'validator.py', 
-    'mlutils.py', 
-    'descriptive.py', 
-    'mathex.py', 
-    'optimize.py', 
-    'cluster_based.py',  
-    '_cluster_based.py',  
-    'funcutils.py', 
-    'baseutils.py',  
-    'feature_engineering.py' 
+    'coreutils.py',
+    'validator.py',
+    'mlutils.py',
+    'descriptive.py',
+    'mathex.py',
+    'optimize.py',
+    'cluster_based.py',
+    '_cluster_based.py',
+    'funcutils.py',
+    'baseutils.py',
+    'feature_engineering.py'
 ]
 
 # Helper function to convert .py files to .pyx files if needed
 def convert_py_to_pyx(file_path, rename=False):
     pyx_path = file_path.replace('.py', '.pyx')
-    # os.rename(module_path, pyx_module)
     with open(file_path, 'r', encoding="utf8") as f_py:
         content = f_py.read()
     with open(pyx_path, 'w', encoding="utf8") as f_pyx:
@@ -113,11 +109,11 @@ def collect_pyx_modules(package_path, specific_files=None, rename=False):
             continue
         for file in files:
             if specific_files and file not in specific_files:
-                continue 
-            if ( 
-                file.endswith('.py') and not file.startswith('_') 
+                continue
+            if (
+                file.endswith('.py') and not file.startswith('_')
                 and file != 'setup.py' and not file.startswith('test')
-                ):
+            ):
                 module_path = os.path.join(root, file)
                 pyx_path = convert_py_to_pyx(module_path, rename=rename)
                 pyx_modules.append(pyx_path)
@@ -127,8 +123,7 @@ def collect_pyx_modules(package_path, specific_files=None, rename=False):
 def collect_all_pyx_modules(base_package_paths, specific_files=None, rename=False):
     all_pyx_modules = []
     for package_path in base_package_paths:
-        all_pyx_modules.extend(collect_pyx_modules(
-            package_path, specific_files, rename=rename))
+        all_pyx_modules.extend(collect_pyx_modules(package_path, specific_files, rename=rename))
     return all_pyx_modules
 
 base_package_paths = [
@@ -137,16 +132,6 @@ base_package_paths = [
     'gofast/stats',
     'gofast/transformers',
     'gofast/models',
-    # 'gofast/dataops',
-    # 'gofast/plots',
-    # 'gofast/api',
-    # 'gofast/backends',
-    # 'gofast/datasets',
-    # 'gofast/compat',
-    # 'gofast/nn',
-    # 'gofast/analysis',
-    # 'gofast/cli',
-    # '.'
 ]
 
 # Collect .pyx modules based on the specific files to build or all files
@@ -180,7 +165,7 @@ setup_kwargs = {
     },
     'packages': find_packages(),
     'ext_modules': cythonize(
-        ext_modules, compiler_directives={'linetrace': True,'language_level': "3"}),
+        ext_modules, compiler_directives={'linetrace': True, 'language_level': "3"}),
     'include_dirs': [numpy.get_include()],
     'cmdclass': {'build_ext': BuildExt},
     'install_requires': [
