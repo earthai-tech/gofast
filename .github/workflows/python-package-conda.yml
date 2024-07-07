@@ -16,6 +16,11 @@ jobs:
         environment-file: environment.yml
         python-version: '3.10'
         auto-activate-base: false
+        
+    - name: Set PYTHONPATH
+      run: |
+        echo "Setting PYTHONPATH"
+        echo "PYTHONPATH=$PYTHONPATH:$(pwd)/gofast" >> $GITHUB_ENV
     
     - name: Install gofast package
       run: |
