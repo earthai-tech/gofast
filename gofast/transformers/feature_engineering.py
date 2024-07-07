@@ -6,7 +6,7 @@
 including feature selection, transformation, scaling, and encoding to enhance 
 machine learning model inputs."""
 
-from __future__ import division, annotations  
+from __future__ import division
 
 import itertools 
 import warnings 
@@ -30,7 +30,7 @@ from sklearn.metrics import accuracy_score,  roc_auc_score
 from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
 
 from .._gofastlog import gofastlog 
-from ..api.types import _F 
+from ..api.types import _F, Union, Optional
 from ..exceptions import EstimatorError, NotFittedError 
 from ..tools.coreutils import  parse_attrs, assert_ratio, validate_feature
 from ..tools.coreutils import  ellipsis2false, to_numeric_dtypes, is_iterable
@@ -1366,7 +1366,7 @@ class CategoricalEncoder2(BaseEstimator, TransformerMixin):
         return self
 
     def _fit_dataframe(self, X, y=None):
-        for col in X.select_dtypes(include=['object', 'category']).columns:
+        for col in X.select_dtypes(['object', 'category']).columns:
             le = LabelEncoder()
             le.fit(X[col])
             self.label_encoders_[col] = le
@@ -2917,9 +2917,9 @@ class FrameUnion(BaseEstimator, TransformerMixin):
 
     def _validate_attributes(self, X):
         if self.num_attributes is None:
-            self.num_attributes = X.select_dtypes(include=np.number).columns.tolist()
+            self.num_attributes = X.select_dtypes([np.number]).columns.tolist()
         if self.cat_attributes is None:
-            self.cat_attributes = X.select_dtypes(exclude=np.number).columns.tolist()
+            self.cat_attributes = X.select_dtypes(None, [np.number]).columns.tolist()
 
         # Validate that the provided attributes are in the DataFrame
         missing_num_attrs = set(self.num_attributes) - set(X.columns)
@@ -3066,10 +3066,10 @@ class FeaturizeX(BaseEstimator, TransformerMixin ):
     def __init__(self, 
         n_clusters:int=7, 
         target_scale:float= 5 ,
-        random_state:_F|int=None, 
+        random_state:Union [_F, int]=None, 
         n_components: int=None,  
         model: _F =None, 
-        test_ratio:float|str= .2 , 
+        test_ratio:Union [float, str]= .2 , 
         shuffle:bool=True, 
         to_sparse: bool=..., 
         sparsity:str ='coo'  
@@ -3153,11 +3153,11 @@ def _featurize_X (
     y =None, *, 
     n_clusters:int=7, 
     target_scale:float= 5 ,
-    random_state:_F|int=None, 
+    random_state:Optional [Union[ _F, int]]=None, 
     n_components: int=None,  
     model: _F =None, 
     split_X_y:bool = False,
-    test_ratio:float|str= .2 , 
+    test_ratio:Union[float,str]= .2 , 
     shuffle:bool=True, 
     return_model:bool=...,
     to_sparse: bool=..., 

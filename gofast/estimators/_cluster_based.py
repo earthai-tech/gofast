@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import annotations
 from numbers import Integral, Real
 from abc import ABCMeta
 from abc import abstractmethod

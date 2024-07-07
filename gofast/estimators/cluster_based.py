@@ -6,7 +6,6 @@
 leveraging clustering techniques to enhance predictive performance.
 """
 
-from __future__ import annotations 
 from sklearn.base import ClassifierMixin, RegressorMixin
 from sklearn.metrics import r2_score
 

@@ -80,7 +80,7 @@ def summary(
     dfs = [] 
     titles = ["Infos"]
     if numeric_only:
-        df = df.select_dtypes(include=[np.number])
+        df = df.select_dtypes([np.number])
     
     infos = {#π' is used for frame formatter
         "Data Types": df.dtypes.to_dict(), 
@@ -93,7 +93,7 @@ def summary(
     dfs.append(df_infos)
 
     titles.append("Basic Statistics")
-    df_descr = df.describe(include='all' if not numeric_only else None,
+    df_descr = df.describe(None, 'all' if not numeric_only else None,
                            datetime_is_numeric=True )
     dfs.append(df_descr)
 

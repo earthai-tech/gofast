@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # BSD-3-Clause License
+#   Author: LKouadio <etanoyau@gmail.com>
 # Copyright (c) 2024 gofast developers.
 # All rights reserved.
 """
@@ -307,7 +308,7 @@ def _is_probability_distribution(y, mode='strict'):
         raise ValueError(f"Invalid validation mode: '{mode}'. Valid modes"
                          " are 'strict', 'soft', or 'passthrough'.")
 
-def validate_square_matrix(data, /, align=False, align_mode="auto", message=''):
+def validate_square_matrix(data, align=False, align_mode="auto", message=''):
     """
     Validate that the input data forms a square matrix and optionally aligns its 
     indices and columns if specified.
@@ -921,7 +922,7 @@ def handle_zero_division(
 
     return y_true_processed
 
-def validate_comparison_data(df, /,  alignment="auto"):
+def validate_comparison_data(df,  alignment="auto"):
     """
     Validates a DataFrame to ensure it is a square matrix and that the index 
     and column names match. Optionally aligns the index names to the column 
@@ -1696,7 +1697,7 @@ def validate_fit_weights(y, sample_weight=None, weighted_y=False):
     
     return sample_weight
 
-def is_valid_policies(nan_policy, /, allowed_policies=None):
+def is_valid_policies(nan_policy, allowed_policies=None):
     """
     Validates the `nan_policy` or any policy argument to ensure it is one
     of the acceptable options (`allowed_policies`). 
@@ -2272,7 +2273,7 @@ def validate_yy(
 
     return y_true, y_pred
 
-def check_mixed_data_types(data, /) -> bool:
+def check_mixed_data_types(data ) -> bool:
     """
     Checks if the given data (DataFrame or numpy array) contains both numerical 
     and categorical columns.
@@ -2783,7 +2784,7 @@ def is_installed(module: str ) -> bool:
     module_spec = importlib.util.find_spec(module)
     return module_spec is not None
 
-def is_time_series(data, /, time_col, check_time_interval=False ):
+def is_time_series(data, time_col, check_time_interval=False ):
     """
     Check if the provided DataFrame is time series data.
 
@@ -3189,7 +3190,7 @@ def _validate_input(ignore: str, x, y, _is_arraylike_1d):
             raise ValueError("Expected both 'x' and 'y' to be one-dimensional "
                              "array-like structures.")
 
-def _is_numeric_dtype (o, / , to_array =False ): 
+def _is_numeric_dtype (o, to_array =False ): 
     """ Determine whether the argument has a numeric datatype, when
     converted to a NumPy array.
 
@@ -3218,7 +3219,7 @@ def _is_numeric_dtype (o, / , to_array =False ):
             if ( hasattr(o, 'columns') or hasattr (o, 'name'))
             else o.dtype.kind ) in _NUMERIC_KINDS 
         
-def _check_consistency_size (ar1, ar2 , /  , error ='raise') :
+def _check_consistency_size (ar1, ar2 ,  error ='raise') :
     """ Check consistency of two arrays and raises error if both sizes 
     are differents. 
     Returns 'False' if sizes are not consistent and error is set to 'ignore'.
@@ -3239,7 +3240,7 @@ def check_consistency_size ( *arrays ):
             % [int(l) for l in lengths]
         )
         
-def _is_buildin (o, /, mode ='soft'): 
+def _is_buildin (o,  mode ='soft'): 
     """ Returns 'True' wether the module is a Python buidling function. 
     
     If  `mode` is ``strict`` only assert the specific predifined-functions 
@@ -3260,7 +3261,7 @@ def _is_buildin (o, /, mode ='soft'):
              ) if mode=='strict' else type (o).__module__== 'builtins' 
 
 
-def get_estimator_name (estimator , /): 
+def get_estimator_name (estimator ): 
     """ Get the estimator name whatever it is an instanciated object or not  
     
     :param estimator: callable or instanciated object,
@@ -3294,7 +3295,7 @@ def _is_cross_validated (estimator ):
         estimator , 'best_params_')
 
 
-def _check_array_in(obj, /, arr_name):
+def _check_array_in(obj,  arr_name):
     """Returns the array from the array name attribute. Note that the singleton 
     array is not admitted. 
     
@@ -3395,7 +3396,7 @@ def _deprecate_positional_args(func=None, *, version="1.3"):
 
     return _inner_deprecate_positional_args
 
-def to_dtype_str (arr, /, return_values = False ): 
+def to_dtype_str (arr, return_values = False ): 
     """ Convert numeric or object dtype to string dtype. 
     
     This will avoid a particular TypeError when an array is filled by np.nan 
@@ -4153,7 +4154,7 @@ def convert_array_to_pandas(X, *, to_frame=False, columns=None, input_name='X'):
 
     return X, columns
  
-def is_frame (arr, /, df_only =False, raise_exception: bool=False,
+def is_frame (arr, df_only =False, raise_exception: bool=False,
               objname=None  ): 
     """ Return bool wether array is a frame ( pd.Series or pd.DataFrame )
     
@@ -4817,14 +4818,14 @@ def build_data_if(
             )
     return data  # Return original data if conditions are not met
 
-def build_data_if2 (
-    data: dict|np.ndarray| pd.DataFrame, /, 
-    columns =None,  
+def build_data_if2(
+    data: Union[dict, np.ndarray, pd.DataFrame], 
+    columns=None,  
     to_frame=True,  
-    input_name ='data', 
+    input_name='data', 
     force=False, 
     **kws
-    ): 
+    ):
     """ Contruct data from dict or array if necessary informations are given.
     
     Paramaters 

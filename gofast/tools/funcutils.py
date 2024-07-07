@@ -1483,9 +1483,9 @@ def _preprocess_data(
             print("Specified columns do not match, ignoring columns.")
 
     if expected_type == 'numeric':
-        data = data.select_dtypes(include=[np.number])
+        data = data.select_dtypes([np.number])
     elif expected_type == 'categorical':
-        data = data.select_dtypes(exclude=[np.number])
+        data = data.select_dtypes(None, [np.number])
 
     if drop_na:
         if na_meth == 'drop_rows':
@@ -2542,7 +2542,7 @@ def convert_and_format_data(
     return data
 
 def cast_numeric(
-    value, /, error='ignore',
+    value, error='ignore',
     on_success=None, 
     on_failure=None
     ):

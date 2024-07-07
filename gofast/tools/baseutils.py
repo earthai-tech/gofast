@@ -7,8 +7,6 @@
 including functions for normalization, interpolation, feature selection, 
 outlier removal, and various data manipulation tasks.
 """
-
-from __future__ import annotations 
 import os 
 import copy 
 import time
@@ -76,14 +74,14 @@ __all__= [
     ]
 
 def remove_outliers(
-    ar: ArrayLike|DataFrame, /, 
+    ar: Union[ArrayLike,DataFrame],  
     method: str = 'IQR',
     threshold: float = 3.0,
     fill_value: Optional[float] = None,
     axis: int = 1,
     interpolate: bool = False,
     kind: str = 'linear'
-) -> ArrayLike|DataFrame:
+) -> Union[ArrayLike, DataFrame]:
     """
     Efficient strategy to remove outliers in the data. 
     
@@ -237,7 +235,7 @@ def _remove_outliers(data, n_std=3):
     return df
 
 def interpolate_grid (
-    arr, / , 
+    arr,
     method ='cubic', 
     fill_value='auto', 
     view = False,
@@ -343,7 +341,7 @@ def interpolate_grid (
     return arri 
 
 def fillNaN(
-    arr: Union[ArrayLike, Series, DataFrame], /, 
+    arr: Union[ArrayLike, Series, DataFrame], 
     method: str = 'ff'
     ) -> Union[ArrayLike, Series, DataFrame]:
     """
@@ -1315,8 +1313,8 @@ def smart_rotation(ax):
 def select_features(
     data: DataFrame,
     features: Optional[List[str]] = None,
-    include: Optional[Union[str, List[str]]] = None,
-    exclude: Optional[Union[str, List[str]]] = None,
+    dtypes_include: Optional[Union[str, List[str]]] = None,
+    dtypes_exclude: Optional[Union[str, List[str]]] = None,
     coerce: bool = False,
     columns: Optional[List[str]] = None,
     verify_integrity: bool = False,
@@ -1334,10 +1332,10 @@ def select_features(
     features : List[str], optional
         Specific feature names to select. An error is raised if any
         feature is not present in `data`.
-    include : str or List[str], optional
+    dtypes_include : str or List[str], optional
         The data type(s) to include in the selection. Possible values
         are the same as for the pandas `include` parameter in `select_dtypes`.
-    exclude : str or List[str], optional
+    dtypes_exclude : str or List[str], optional
         The data type(s) to exclude from the selection. Possible values
         are the same as for the pandas `exclude` parameter in `select_dtypes`.
     coerce : bool, default False
@@ -1412,10 +1410,10 @@ def select_features(
         return data [features] 
     # raise ValueError: at least one of include or exclude must be nonempty
     # use coerce to no raise error and return data frame instead.
-    return data if coerce else data.select_dtypes (include, exclude) 
+    return data if coerce else data.select_dtypes (dtypes_include, dtypes_exclude) 
 
 def speed_rowwise_process(
-    data, /, 
+    data, 
     func, 
     n_jobs=-1
     ):
@@ -1829,7 +1827,7 @@ def lowertify(
 
 
 def save_or_load(
-    fname:str, /,
+    fname:str, 
     arr: NDArray=None,  
     task: str='save', 
     format: str='.txt', 
@@ -1951,13 +1949,13 @@ def save_or_load(
     return arr if task=='load' else None 
 
 def array2hdf5 (
-    filename: str, /, 
+    filename: str, 
     arr: NDArray=None , 
     dataname: str='data',  
     task: str='store', 
     as_frame: bool =..., 
     columns: List[str]=None, 
-)-> NDArray | DataFrame: 
+)-> Union [NDArray , DataFrame]: 
     """ Load or write array to hdf5.
     
     Parameters 
@@ -2020,7 +2018,7 @@ def array2hdf5 (
             
     return data if task=='load' else None 
 
-def remove_target_from_array(arr,/,  target_indices):
+def remove_target_from_array(arr,  target_indices):
     """
     Remove specified columns from a 2D array based on target indices.
 
@@ -2266,7 +2264,7 @@ def _extract_target(
     return X, y, target_names
 
 def categorize_target(
-    arr : Union [ArrayLike , Series] , /, 
+    arr : Union [ArrayLike , Series] ,  
     func: _F = None,  
     labels: Union [int, List[int]] = None, 
     rename_labels: Optional[str] = None, 
@@ -3046,7 +3044,7 @@ def binning_statistic(
     return result
 
 @Dataify(auto_columns=True)
-def category_count(data, /, *categorical_columns, error='raise'):
+def category_count(data,  *categorical_columns, error='raise'):
     """
     Count occurrences of each category in one or more categorical columns 
     of a dataset.
@@ -3128,7 +3126,7 @@ def category_count(data, /, *categorical_columns, error='raise'):
 
 @Dataify(auto_columns=True) 
 def soft_bin_stat(
-    data, /, categorical_column, 
+    data,  categorical_column, 
     target_column, 
     statistic='mean', 
     update=False, 
@@ -3360,10 +3358,10 @@ def _handle_non_numeric(data, action='normalize'):
             # Convert Series to DataFrame to use select_dtypes
             data = data.to_frame()
             # Convert back to Series if needed
-            numeric_data = data.select_dtypes(include=[np.number]).squeeze()  
+            numeric_data = data.select_dtypes([np.number]).squeeze()  
         elif isinstance(data, pd.DataFrame):
             # For DataFrame, use select_dtypes to filter numeric data.
-            numeric_data = data.select_dtypes(include=[np.number])
+            numeric_data = data.select_dtypes([np.number])
         # For pandas data structures, select only numeric data types.
         if numeric_data.empty:
             raise ValueError(f"No numeric data to {action}.")
@@ -3558,7 +3556,7 @@ def normalizer(
     return normalized_arrays[0] if len(normalized_arrays) == 1 else normalized_arrays
 
 def smooth1d(
-    ar, /, 
+    ar,
     drop_outliers:bool=True, 
     ma:bool=True, 
     absolute:bool=False,
@@ -3687,7 +3685,7 @@ def smooth1d(
     return arr 
 
 def smoothing (
-    ar, /, 
+    ar,  
     drop_outliers = True ,
     ma=True,
     absolute =False,

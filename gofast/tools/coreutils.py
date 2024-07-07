@@ -6,7 +6,7 @@
 data manipulation, validation, formatting, and processing. 
 """
 
-from __future__ import annotations, print_function 
+from __future__ import print_function 
 import os 
 import re 
 import sys
@@ -432,7 +432,7 @@ def is_classification_task(
 
     return True
 
-def fancy_printer(result, /, report_name='Data Quality Check Report'):
+def fancy_printer(result, report_name='Data Quality Check Report'):
     """ 
     This _fancy_print function within the check_data_quality function 
     iterates over the results dictionary and prints each category 
@@ -664,7 +664,7 @@ def to_numeric_dtypes(
     return (df, nf, cf) if return_feature_types else df 
 
 def listing_items_format ( 
-        lst, /, begintext ='', endtext='' , bullet='-', 
+        lst,  begintext ='', endtext='' , bullet='-', 
         enum =True , lstyle=None , space =3 , inline =False, verbose=True
         ): 
     """ Format list by enumerate them successively with carriage return
@@ -732,7 +732,7 @@ def listing_items_format (
     
     return None if verbose else out 
     
-def parse_attrs (attr, /, regex=None ): 
+def parse_attrs (attr,  regex=None ): 
     """ Parse attributes using the regular expression.
     
     Remove all string non-alphanumeric and some operator indicators,  and 
@@ -848,12 +848,12 @@ def url_checker (url: str , install:bool = False,
         
     return isr 
 
-def shrunkformat (
-    text: str | Iterable[Any], 
-    chunksize: int =7 ,
-    insert_at: str = None, 
-    sep =None, 
-    ) : 
+def shrunkformat(
+    text: Union[str, Iterable[Any]], 
+    chunksize: int = 7,
+    insert_at: Optional[str] = None, 
+    sep: Optional[str] = None, 
+) -> None:
     """ Format class and add ellipsis when classes are greater than maxview 
     
     :param text: str - a text to shrunk and format. Can also be an iterable
@@ -1036,8 +1036,8 @@ def is_installing (
 
 def smart_strobj_recognition(
         name: str  ,
-        container: List | Tuple | Dict[Any, Any ],
-        stripitems: str | List | Tuple = '_', 
+        container: Union [List , Tuple , Dict[Any, Any ]],
+        stripitems: Union [str , List , Tuple] = '_', 
         deep: bool = False,  
 ) -> str : 
     """ Find the likelihood word in the whole containers and 
@@ -1201,7 +1201,7 @@ def repr_callable_obj(obj: _F  , skip = None ):
 def accept_types (
         *objtypes: list , 
         format: bool = False
-        ) -> List[str] | str : 
+        ) -> Union [List[str] , str] : 
     """ List the type format that can be accepted by a function. 
     
     :param objtypes: List of object types.
@@ -1482,14 +1482,14 @@ def interpol_scipy(
         _logger.error(f"An unexpected error occurred during interpolation: {e}")
         return None
     
-def _remove_str_word (char, word_to_remove, deep_remove=False):
+def _remove_str_word (ch, word_to_remove, deep_remove=False):
     """
     Small funnction to remove a word present on  astring character 
     whatever the number of times it will repeated.
     
     Parameters
     ----------
-        * char : str
+        * ch : str
                 may the the str phrases or sentences . main items.
         * word_to_remove : str
                 specific word to remove.
@@ -1511,7 +1511,7 @@ def _remove_str_word (char, word_to_remove, deep_remove=False):
     >>> print(ss)
     
     """
-    if type(char) is not str : char =str(char)
+    if type(ch) is not str : char =str(ch)
     if type(word_to_remove) is not str : word_to_remove=str(word_to_remove)
     
     if deep_remove == True :
@@ -1831,8 +1831,8 @@ def read_main (csv_fn , pf , delimiter =':',
     
 
 def _isin (
-        arr: ArrayLike | List [float] ,
-        subarr: _Sub [ArrayLike] |_Sub[List[float]] | float, 
+        arr: Union [ArrayLike, List [float]] ,
+        subarr:Union[ _Sub [ArrayLike] , _Sub[List[float]] ,float], 
         return_mask:bool=False, 
 ) -> bool : 
     """ Check whether the subset array `subcz` is in  `cz` array. 
@@ -3508,8 +3508,8 @@ def random_state_validator(seed):
     )
 
 def is_iterable (
-        y, /, exclude_string= False, transform = False , parse_string =False, 
-)->bool | list: 
+        y, exclude_string= False, transform = False , parse_string =False, 
+)->Union [bool , list]: 
     """ Asserts iterable object and returns boolean or transform object into
      an iterable.
     
@@ -3564,7 +3564,7 @@ def is_iterable (
     return ( y if isiter else [ y ] )  if transform else isiter 
 
     
-def str2columns (text, /, regex=None , pattern = None): 
+def str2columns (text,  regex=None , pattern = None): 
     """Split text from the non-alphanumeric markers using regular expression. 
     
     Remove all string non-alphanumeric and some operator indicators,  and 
@@ -3615,7 +3615,7 @@ def str2columns (text, /, regex=None , pattern = None):
     return text 
        
 def sanitize_frame_cols(
-        d, /, func:_F = None , regex=None, pattern:str = None, 
+        d,  func:_F = None , regex=None, pattern:str = None, 
         fill_pattern:str =None, inplace:bool =False 
         ):
     """ Remove an indesirable characters to the dataframe and returns 
@@ -3705,7 +3705,7 @@ def sanitize_frame_cols(
 
     return d 
 
-def to_hdf5(d, /, fn, objname =None, close =True,  **hdf5_kws): 
+def to_hdf5(d, fn, objname =None, close =True,  **hdf5_kws): 
     """
     Store a frame data in hierachical data format 5 (HDF5) 
     
@@ -3805,7 +3805,7 @@ def to_hdf5(d, /, fn, objname =None, close =True,  **hdf5_kws):
     return store 
     
 
-def find_by_regex (o , /, pattern,  func = re.match, **kws ):
+def find_by_regex (o , pattern,  func = re.match, **kws ):
     """ Find pattern in object whatever an "iterable" or not. 
     
     when we talk about iterable, a string value is not included.
@@ -3882,7 +3882,7 @@ def find_by_regex (o , /, pattern,  func = re.match, **kws ):
         om = None 
     return  om 
     
-def is_in_if (o: iter, /, items: str | iter, error = 'raise', 
+def is_in_if (o: iter,  items: Union [str , iter], error = 'raise', 
                return_diff =False, return_intersect = False): 
     """ Raise error if item is not  found in the iterable object 'o' 
     
@@ -4166,7 +4166,8 @@ def is_depth_in (X, name, columns = None, error= 'ignore'):
     return  X , depth     
     
 def smart_label_classifier (
-        arr: ArrayLike, /, values: float | List[float]= None , labels =None, 
+        arr: ArrayLike,  values: Union [float, List[float]]= None ,
+        labels: Union [int, str, List[str]] =None, 
         order ='soft', func: _F=None, raise_warn=True): 
     """ map smartly the numeric array into a class labels from a map function 
     or a given fixed values. 
@@ -4344,7 +4345,7 @@ def _assert_labels_from_values (ar, values , labels , d={},
     
     return labels, d 
 
-def _smart_mapper (k, /,  kr , return_dict_map =False ) :
+def _smart_mapper (k,   kr , return_dict_map =False ) :
     """ Default  mapping using dict to validate the continue  value 'k' 
     :param k: float, 
         continue value to be framed between `kr`
@@ -4381,7 +4382,7 @@ def _smart_mapper (k, /,  kr , return_dict_map =False ) :
     for v, value in d.items () :
         if value: return v if not math.isnan (v) else np.nan 
         
-def hex_to_rgb (c, /): 
+def hex_to_rgb (c): 
     """ Convert colors Hexadecimal to RGB """
     c=c.lstrip('#')
     return tuple(int(c[i:i+2], 16) for i in (0, 2, 4)) 
@@ -4482,7 +4483,7 @@ def zip_extractor(
     return objnames 
 
 
-def _validate_name_in (name, /, defaults = '', expect_name= None, 
+def _validate_name_in (name, defaults = '', expect_name= None, 
                          exception = None , deep=False ): 
     """ Assert name in multiples given default names. 
     
@@ -4539,7 +4540,7 @@ def _validate_name_in (name, /, defaults = '', expect_name= None,
     return name 
 
 def get_confidence_ratio (
-        ar, /,
+        ar, 
         axis = 0, 
         invalid = 'NaN',
         mean=False, 
@@ -4624,7 +4625,7 @@ def get_confidence_ratio (
     return ratio 
     
 def assert_ratio(
-    v, /, bounds: List[float] = None , 
+    v,  bounds: List[float] = None , 
     exclude_value:float= None, 
     in_percent:bool =False , 
     name:str ='rate' 
@@ -4833,7 +4834,7 @@ def exist_features (df, features, error='raise', name="Feature"):
 
 
 def random_selector (
-        arr:ArrayLike, / , value: float | ArrayLike, 
+        arr:ArrayLike, value: Union [float, ArrayLike], 
         seed: int = None, shuffle =False ): 
     """Randomly select the number of values in array. 
     
@@ -4919,16 +4920,15 @@ def random_selector (
 
     return arr
 
-def cleaner (
-    data: DataFrame|NDArray,
-    / , 
-    columns:List[str]= None,
-    inplace:bool = False, 
-    labels: List[int|str] =None, 
-    func : _F= None, 
-    mode:str ='clean', 
+def cleaner(
+    data: Union[DataFrame, NDArray],
+    columns: List[str] = None,
+    inplace: bool = False,
+    labels: List[Union[int, str]] = None,
+    func: _F = None,
+    mode: str = 'clean',
     **kws
-    )->DataFrame | NDArray | None : 
+) -> Union[DataFrame, NDArray, None]:
     """ Sanitize data or columns by dropping specified labels 
     from rows or columns. 
     
@@ -5009,18 +5009,18 @@ def cleaner (
     data = to_numeric_dtypes(data )
     return np.array ( data ) if objtype =='ar' else data 
  
-def rename_files (
-    src_files:str | List[str], /, 
-    dst_files:str | List[str], 
-    basename:Optional[str]=None, 
-    extension:Optional[str] =None , 
-    how:str ='py', 
-    prefix:bool =True, 
-    keep_copy:bool=True, 
-    trailer:str='_', 
-    sortby: re |_F=None, 
-    **kws 
-    ): 
+def rename_files(
+    src_files: Union[str, List[str]], 
+    dst_files: Union[str, List[str]], 
+    basename: Optional[str] = None, 
+    extension: Optional[str] = None, 
+    how: str = 'py', 
+    prefix: bool = True, 
+    keep_copy: bool = True, 
+    trailer: str = '_', 
+    sortby: Union[re.Pattern, _F] = None, 
+    **kws
+) -> None:
     """Rename files in directory.
 
     Parameters 
@@ -5136,7 +5136,7 @@ def rename_files (
             else : os.rename (f, nf , **kws )
             
             
-def get_xy_coordinates (d, / , as_frame = False, drop_xy = False, 
+def get_xy_coordinates (d, as_frame = False, drop_xy = False, 
                         raise_exception = True, verbose=0 ): 
     """Check whether the coordinate values x, y exist in the data.
     
@@ -5211,7 +5211,7 @@ def get_xy_coordinates (d, / , as_frame = False, drop_xy = False,
 
     """   
     
-    def get_value_in ( val, /, col , default): 
+    def get_value_in ( val,  col , default): 
         """ Get the value in the frame columns if `val` exists in """
         x = list( filter ( lambda x: x.find (val)>=0 , col)
                    )
@@ -5272,15 +5272,15 @@ def get_xy_coordinates (d, / , as_frame = False, drop_xy = False,
        
 
 def pair_data(
-    *d: List[DataFrame, ...],  
-    on:str | List[str] = None, 
-    parse_on:bool=False, 
-    mode: str='strict', 
-    coerce:bool = False, 
-    force:bool =False, 
+    *d: Union[DataFrame, List[DataFrame]],  
+    on: Union[str, List[str]] = None, 
+    parse_on: bool = False, 
+    mode: str = 'strict', 
+    coerce: bool = False, 
+    force: bool = False, 
     decimals: int = 7, 
-    raise_warn:bool =True 
-)-> DataFrame : 
+    raise_warn: bool = True 
+) -> DataFrame:
     """ Find indentical object in all data and concatenate them using merge 
      intersection (`cross`) strategy.
     
@@ -5540,8 +5540,8 @@ def read_worksheets(*data):
     return data, sheet_names      
  
 def key_checker (
-    keys: str , /,  
-    valid_keys:List[str, ...], 
+    keys: str ,   
+    valid_keys:List[str], 
     regex:re = None, 
     pattern:str = None , 
     deep_search:bool =...
@@ -5637,7 +5637,7 @@ def key_checker (
     return keys 
 
 def random_sampling (
-    d, / , 
+    d,  
     samples:int = None  , 
     replace:bool = False , 
     random_state:int = None, 
@@ -5812,15 +5812,15 @@ def make_obj_consistent_if (
     return item
     
 def replace_data(
-    X:ArrayLike| DataFrame, 
-    y: Optional[ArrayLike | Series] = None, 
+    X:Union [ArrayLike, DataFrame], 
+    y: Union [ArrayLike, Series] = None, 
     n: int = 1, 
     axis: int = 0, 
     reset_index: bool = False,
     include_original: bool = False,
     random_sample: bool = False,
     shuffle: bool = False
-) -> ArrayLike| DataFrame | Tuple[ArrayLike | DataFrame, ArrayLike| Series]:
+) -> Union [ ArrayLike, DataFrame , Tuple[ArrayLike , DataFrame, ArrayLike, Series]]:
     """
     Duplicates the data `n` times along a specified axis and applies various 
     optional transformations to augment the data suitability for further 
@@ -5917,7 +5917,7 @@ def replace_data(
         return concat_data(X), concat_data(y)
     return concat_data(X)
 
-def convert_value_in (v, /, unit ='m'): 
+def convert_value_in (v, unit ='m'): 
     """Convert value based on the reference unit.
     
     Parameters 
@@ -5972,7 +5972,7 @@ def convert_value_in (v, /, unit ='m'):
     
     return float ( v) * (c.get(unit) or 1e0) 
 
-def split_list(lst:List[Any, ...],/,  val:int, fill_value:Any=None ):
+def split_list(lst:List[Any],  val:int, fill_value:Any=None ):
     """Module to extract a slice of elements from the list 
     
     Parameters 
@@ -6008,8 +6008,8 @@ def split_list(lst:List[Any, ...],/,  val:int, fill_value:Any=None ):
     return sl 
 
 def key_search (
-    keys: str, /, 
-    default_keys: Text | List[str], 
+    keys: str,  
+    default_keys: Union [Text , List[str]], 
     parse_keys: bool=True, 
     regex :re=None, 
     pattern :str=None, 
@@ -6123,7 +6123,7 @@ def key_search (
                        f" Expect {smart_format(dk_init, 'or')}")
     return None if len(valid_keys)==0 else valid_keys 
 
-def repeat_item_insertion(text, /, pos, item ='', fill_value=''): 
+def repeat_item_insertion(text,  pos, item ='', fill_value=''): 
     """ Insert character in  text according from it position. 
     
     Parameters
@@ -6170,7 +6170,7 @@ def repeat_item_insertion(text, /, pos, item ='', fill_value=''):
     return f'{str(item)}'.join(join_lst) +''.join(dec_part)
         
 def numstr2dms (
-    sdigit: str, /, 
+    sdigit: str,  
     sanitize: bool=True, 
     func: _F=None, 
     args: tuple=(),  
@@ -6271,7 +6271,7 @@ def numstr2dms (
         else ':'.join([deg, mm, sec]) 
 
 def store_or_write_hdf5 (
-    d, /, 
+    d,  
     key:str= None, 
     mode:str='a',  
     kind: str=None, 
@@ -6279,13 +6279,13 @@ def store_or_write_hdf5 (
     encoding:str="utf8", 
     csv_sep: str=",",
     index: bool=..., 
-    columns: str |List[Any, ...]=None, 
+    columns:Union [str, List[Any]]=None, 
     sanitize_columns:bool=...,  
     func: _F= None, 
     args: tuple=(), 
-    applyto: str|List[Any, ...]=None, 
+    applyto: Union [str, List[Any]]=None, 
     **func_kwds, 
-    )->None|DataFrame: 
+    )->Union [None, DataFrame]: 
     """ Store data to hdf5 or write data to csv file. 
     
     Note that by default, the data is not store nor write and 
@@ -6548,7 +6548,7 @@ def type_of_target(y):
 
 
 def add_noises_to(
-    data, /, 
+    data,  
     noise=0.1, 
     seed=None, 
     gaussian_noise=False,
@@ -6748,7 +6748,7 @@ def _parse_gaussian_noise(noise):
 
 
 def nan_to_na(
-    data, /, 
+    data, 
     cat_missing_value=pd.NA, 
     nan_spec=np.nan
     ):
@@ -7417,7 +7417,7 @@ def format_and_print_dict(data_dict, front_space=4):
 
 
 def fill_nan_in(
-        data: DataFrame, /, method: str = 'constant', 
+        data: DataFrame,  method: str = 'constant', 
         value: Optional[Union[int, float, str]] = 0) -> DataFrame:
     """
     Fills NaN values in a Pandas DataFrame using various methods.
@@ -7917,7 +7917,7 @@ def _process_dataset(dataset, columns):
     else:
         raise ValueError("Dataset must be a pandas.DataFrame or numpy.ndarray.")
 
-def validate_feature(data: Union[DataFrame, Series], /, features: List[str],
+def validate_feature(data: Union[DataFrame, Series],  features: List[str],
                      verbose: str = 'raise') -> bool:
     """
     Validate the existence of specified features in a DataFrame or Series.
@@ -8007,7 +8007,7 @@ def find_features_in(
     features: List[str] = None,
     parse_features: bool = False,
     return_frames: bool = False,
-) -> Tuple[List[str] | DataFrame, List[str] | DataFrame]:
+) -> Tuple[Union[List[str], DataFrame], Union[List[str], DataFrame]]:
     """
     Retrieve the categorical or numerical features from the dataset.
 
@@ -8226,7 +8226,7 @@ def split_train_test_by_id(
     return train_set, test_set
 
 def parallelize_jobs(
-    function: _F[..., Any],
+    function: _F,
     tasks: Sequence[Dict[str, Any]] = (),
     n_jobs: Optional[int] = None,
     executor_type: str = 'process') -> list:
@@ -9478,7 +9478,7 @@ def check_uniform_type(
     allow_mismatch: bool = True,
     infer_types: bool = False,
     comparison_method: str = 'intersection',
-    custom_conversion_func: _F[[Any], Any] = None,
+    custom_conversion_func: _F[Any] = None,
     return_func: bool = False
 ) -> Union[bool, List[type], Tuple[Iterable[Any], List[type]], _F]:
     """
@@ -9534,7 +9534,7 @@ def check_uniform_type(
         - A tuple containing the converted values and their types if `convert_values`
           and `return_types` are both True.
         - a callable encapsulating the specified logic for deferred execution.
-
+        
     Examples
     --------
     >>> from gofast.tools.coreutils import check_uniform_type

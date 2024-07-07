@@ -5,7 +5,6 @@
 """Provides a set of functions for calculating descriptive statistics, including
  measures of central tendency, dispersion, and shape."""
 
-from __future__ import annotations 
 import numpy as np
 from scipy import stats
 import pandas as pd
@@ -520,7 +519,7 @@ def wmedian(
     view: bool = False,
     cmap: str = 'viridis',
     fig_size: Tuple[int, int] = (6, 4)
-) -> float | Series:
+) -> Union [float,Series]:
     """
     Compute the weighted median of a dataset, optionally visualizing the 
     distribution of data points and their weights.
@@ -1316,6 +1315,9 @@ def quantile(
     """
     axis = axis or 0
     data_selected = data.copy() 
+    # Ensure q is properly initialized
+    if isinstance(q, float):
+        q = [q]
     # Compute the quantile or quantiles
     quantiles_result = data_selected.quantile(q, axis=axis, **kws)
   
@@ -1326,7 +1328,7 @@ def quantile(
             fig_size=fig_size, axis= axis
         )
     # update data frame indexes with string quantiles
-    new_indexes= [f'{int(q*100)}%' for q in np.atleast_1d(q)]
+    new_indexes= [f'{int(q_*100)}%' for q_ in np.atleast_1d(q)]
 
     quantiles_result=update_index( 
         quantiles_result, 
@@ -1992,7 +1994,7 @@ def hmean(
     gofast.stats.mean : Arithmetic mean function.
     """
     #select only numeric features 
-    data = data.select_dtypes (include = [np.number])
+    data = data.select_dtypes ([np.number])
     if np.any(data <= 0):
         raise ValueError("Data points must be greater than 0 for harmonic"
                          " mean calculation.")
@@ -2219,8 +2221,8 @@ def _visualize_range(data, range_values, columns=None,
 def describe(
     data: DataFrame,
     columns: Optional[List[str]] = None,
-    include: Union[str, List[str]] = 'all',
-    exclude: Union[str, List[str]] = None,
+    dtypes_include: Union[str, List[str]] = 'all',
+    dtypes_exclude: Union[str, List[str]] = None,
     as_frame: bool = True,
     view: bool = False, 
     orient: Optional[str]=None,
@@ -2247,14 +2249,14 @@ def describe(
     columns : List[str], optional
         Specific columns to include in the analysis if `data` is a DataFrame.
         If None, all columns are included. Default is None.
-    include : 'all', list-like of dtypes or None (default='all'), optional
+    dtypes_include : 'all', list-like of dtypes or None (default='all'), optional
         A white list of data types to include in the result. 
         Ignored for ArrayLike input.
         - 'all' : All columns of the input will be included in the output.
         - A list-like of dtypes : Limits the data to the provided data types.
           For example, [np.number, 'datetime'] will include only numeric and 
           datetime data.
-    exclude : list-like of dtypes or None (default=None), optional
+    dtypes_exclude : list-like of dtypes or None (default=None), optional
         A black list of data types to exclude from the result. 
         Ignored for ArrayLike input.
     as_frame : bool, default=True
@@ -2309,9 +2311,8 @@ def describe(
     making it a versatile tool for initial data exploration.
     """
     # Convert array-like input to DataFrame if necessary
-    stats_result = data.describe(
-        include=include, exclude=exclude, **kwargs)
-    
+    # stats_result = data.describe(dtypes_include, dtypes_exclude, **kwargs)
+    stats_result = _safe_describe(data, dtypes_exclude=dtypes_exclude, **kwargs)
     # Visualization
     if view:
         plot_type= validate_stats_plot_type(
@@ -2340,6 +2341,12 @@ def describe(
         condense=True,
         condition=series_naming ("descriptive_stats"), 
         )
+    return stats_result
+
+def _safe_describe(data, dtypes_include=None, dtypes_exclude=None, **kwargs):
+    if dtypes_exclude == 'all':
+        dtypes_exclude = data.dtypes.unique().tolist()
+    stats_result = data.describe(dtypes_include, dtypes_exclude, **kwargs)
     return stats_result
 
 @make_data_dynamic(capture_columns=True)

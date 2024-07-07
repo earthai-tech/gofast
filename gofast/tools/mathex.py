@@ -4,7 +4,6 @@
 """
 Utilities to process and compute parameters. Module for Algebra calculus.
 """
-from __future__ import annotations 
 import copy 
 import inspect 
 import warnings 
@@ -215,7 +214,7 @@ def compute_p_values(
     }
      
     # Select only numeric columns
-    data = data.select_dtypes(include=[np.number])
+    data = data.select_dtypes([np.number])
     if data.empty:
         raise ValueError("P-value calculations expect numeric data, but"
                          " the DataFrame contains no numeric data.")
@@ -1216,7 +1215,7 @@ def _compute_ovo_sens_spec(y_true, y_pred, labels, return_array=True):
     return sensitivity, specificity
 
 def calculate_histogram_bins(
-        data, /,  bins='auto', range=None, normalize=False):
+        data,  bins='auto', range=None, normalize=False):
     """
     Calculates histogram bin edges from data with optional normalization.
 
@@ -2270,7 +2269,7 @@ def calculate_residuals(
 
     return residuals
 
-def infer_sankey_columns(data: DataFrame, /, 
+def infer_sankey_columns(data: DataFrame,
   ) -> Tuple[List[str], List[str], List[int]]:
     """
     Infers source, target, and value columns for a Sankey diagram 
@@ -2312,7 +2311,7 @@ def infer_sankey_columns(data: DataFrame, /,
 
     # Heuristic: The source is often the first column, the target is the second,
     # and the value is the third or the one with numeric data
-    numeric_cols = data.select_dtypes(include=[float, int]).columns
+    numeric_cols = data.select_dtypes([float, int]).columns
 
     if len(numeric_cols) == 0:
         raise ValueError(
@@ -2347,7 +2346,7 @@ def infer_sankey_columns(data: DataFrame, /,
     return sources, targets, values
 
 def compute_sunburst_data(
-    data: DataFrame, /, 
+    data: DataFrame, 
     hierarchy: Optional[List[str]] = None, 
     value_column: Optional[str] = None
   ) -> List[Dict[str, str]]:
@@ -2439,7 +2438,7 @@ def compute_sunburst_data(
         tuple(x.items()) in seen or seen.add(tuple(x.items())))]
 
 def compute_effort_yield(
-        d: ArrayLike, /, reverse: bool = True
+        d: ArrayLike,  reverse: bool = True
         ) -> Tuple[ArrayLike, np.ndarray]:
     """
     Compute effort and yield values from importance data for use in 
@@ -3170,7 +3169,7 @@ def moving_average (
             
     return ya 
 
-def count_local_minima(arr, /, method='robust', order=1):
+def count_local_minima(arr,  method='robust', order=1):
     """
     Count the number of local minima in a 1D array.
     
@@ -3229,8 +3228,8 @@ def count_local_minima(arr, /, method='robust', order=1):
         return len(local_minima_indices)
     
 def get_azimuth (
-    xlon: str | ArrayLike, 
-    ylat: str| ArrayLike, 
+    xlon: Union [str, ArrayLike], 
+    ylat:Union[ str, ArrayLike], 
     *, 
     data: DataFrame =None, 
     utm_zone:str=None, 
@@ -3597,12 +3596,12 @@ def linkage_matrix(
 
 @AppendDocReferences(refglossary.__doc__)
 def scalePosition(
-        ydata: ArrayLike | _SP | Series | DataFrame ,
-        xdata: ArrayLike| Series = None, 
-        func : Optional [_F] = None ,
-        c_order: Optional[int|str] = 0,
-        show: bool =False, 
-        **kws): 
+        ydata: Union[ArrayLike, _SP, Series, DataFrame],
+        xdata: Union[ArrayLike, Series] = None, 
+        func: Optional[_F] = None,
+        c_order: Optional[Union[int, str]] = 0,
+        show: bool = False, 
+        **kws):
     """ Correct data location or position and return new corrected location 
     
     Parameters 
@@ -3898,23 +3897,47 @@ def plot_ (
                   figsize = (7, 7) ,**KWS )
     
     """
+    def remove_keys(kws, keys):
+        result = {}
+        for key in keys:
+            if key in kws:
+                result[key] = kws.pop(key)
+        return result
 
-    plt.style.use(style)
+
     # retrieve all the aggregated data from keywords arguments
-    if (rlabel := kws.get('rlabel')) is not None : 
-        del kws['rlabel']
-    if (xlabel := kws.get('xlabel')) is not None : 
-        del kws['xlabel']
-    if (ylabel := kws.get('ylabel')) is not None : 
-        del kws['ylabel']
-    if (rotate:= kws.get ('rotate')) is not None: 
-        del kws ['rotate']
-    if (leg:= kws.get ('leg')) is not None: 
-        del kws ['leg']
-    if (show_grid:= kws.get ('show_grid')) is not None: 
-        del kws ['show_grid']
-    if (title:= kws.get ('title')) is not None: 
-        del kws ['title']
+    # if (rlabel := kws.get('rlabel')) is not None : 
+    #     del kws['rlabel']
+    # if (xlabel := kws.get('xlabel')) is not None : 
+    #     del kws['xlabel']
+    # if (ylabel := kws.get('ylabel')) is not None : 
+    #     del kws['ylabel']
+    # if (rotate:= kws.get ('rotate')) is not None: 
+    #     del kws ['rotate']
+    # if (leg:= kws.get ('leg')) is not None: 
+    #     del kws ['leg']
+    # if (show_grid:= kws.get ('show_grid')) is not None: 
+    #     del kws ['show_grid']
+    # if (title:= kws.get ('title')) is not None: 
+    #     del kws ['title']
+    
+    # Usage
+    plt.style.use(style)
+    # List of keys to retrieve and remove from kws
+    keys_to_remove = [
+        'rlabel', 'xlabel', 'ylabel', 'rotate', 'leg', 'show_grid', 'title']
+    # Retrieve and remove keys from kws
+    removed_keys = remove_keys(kws, keys_to_remove)
+    
+    # Access the retrieved values
+    rlabel = removed_keys.get('rlabel')
+    xlabel = removed_keys.get('xlabel')
+    ylabel = removed_keys.get('ylabel')
+    rotate = removed_keys.get('rotate')
+    leg = removed_keys.get('leg')
+    show_grid = removed_keys.get('show_grid')
+    title = removed_keys.get('title')
+
     x , y, *args = args 
     
     if ( fig is None 
@@ -4466,7 +4489,7 @@ def savgol_filter(x, window_length, polyorder, deriv=0, delta=1.0,
     return y        
 
 def compute_errors (
-    arr, /, 
+    arr,  
     error ='std', 
     axis = 0, 
     return_confidence=False 
@@ -4589,7 +4612,6 @@ def compute_errors (
 
 def quality_control2(
     ar, 
-     /, 
     tol: float= .5 , 
     return_data=False,
     to_log10: bool =False, 
@@ -4950,7 +4972,7 @@ def get_bearing (latlon1, latlon2,  to_deg = True ):
         
     return b 
 
-def find_closest( arr, /, values ): 
+def find_closest( arr, values ): 
     """Get the closest value in array  from given values.
     
     Parameters 
@@ -5126,7 +5148,7 @@ def _kind_of_model(degree, x, y) :
     w= init_weights(x=x, y=y)
     return x, w  # Return the matrix x and the weights vector w 
     
-def adaptive_moving_average(data, /, window_size_factor=0.1):
+def adaptive_moving_average(data,  window_size_factor=0.1):
     """ Adaptative moving average as  smoothing technique. 
  
     Parameters 
@@ -5177,7 +5199,7 @@ def adaptive_moving_average(data, /, window_size_factor=0.1):
     return result
 
 def torres_verdin_filter(
-    arr, /,  
+    arr,  
     weight_factor: float=.1, 
     beta:bool=1., 
     logify:bool=False, 

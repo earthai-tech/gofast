@@ -4,7 +4,7 @@
 """
 Learning utilities for data transformation, model learning and inspections. 
 """
-from __future__ import annotations 
+
 import os
 import re 
 import copy 
@@ -221,8 +221,8 @@ def one_click_prep (
             target_columns, str) else target_columns
 
     # Identify numeric and categorical features based on their data type.
-    numeric_features = data.select_dtypes(include=['int64', 'float64']).columns.tolist()
-    categorical_features = data.select_dtypes(include=['object']).columns.tolist()
+    numeric_features = data.select_dtypes(['int64', 'float64']).columns.tolist()
+    categorical_features = data.select_dtypes(['object']).columns.tolist()
     
     # Exclude target columns from the numeric features list if specified.
     if target_columns is not None:
@@ -296,15 +296,15 @@ def one_click_prep (
     # Return the preprocessed DataFrame.
     return data_processed
 
-def soft_encoder (
-    data:DataFrame | ArrayLike, /, 
-    columns: List[str] =None, 
-    func: _F=None, 
-    categories: dict=None, 
-    get_dummies:bool=..., 
-    parse_cols:bool =..., 
-    return_cat_codes:bool=..., 
-    ) -> DataFrame: 
+def soft_encoder(
+    data: Union[DataFrame, ArrayLike], 
+    columns: List[str] = None, 
+    func: _F = None, 
+    categories: Dict[str, List] = None, 
+    get_dummies: bool = ..., 
+    parse_cols: bool = ..., 
+    return_cat_codes: bool = ..., 
+) -> DataFrame:
     """
     Encode multiple categorical variables in a dataset.
 
@@ -662,13 +662,13 @@ def resampling(
 
 def bin_counting(
     data: DataFrame, 
-    bin_columns: str|List[str, ...], 
-    tname:str|Series[int], 
-    odds="N+", 
-    return_counts: bool=...,
-    tolog: bool=..., 
-    encode_categorical: bool=..., 
-    ): 
+    bin_columns: Union[str, List[str]], 
+    tname: Union[str, Series[int]], 
+    odds: str = "N+", 
+    return_counts: bool = ..., 
+    tolog: bool = ..., 
+    encode_categorical: bool = ..., 
+) -> None:
     """ Bin counting categorical variable and turn it into probabilistic 
     ratio.
     
@@ -850,7 +850,7 @@ def bin_counting(
     return d
 
 def _single_counts ( 
-        d,/,  bin_column, tname, odds = "N+",
+        d,  bin_column, tname, odds = "N+",
         tolog= False, return_counts = False ): 
     """ An isolated part of bin counting. 
     Compute single bin_counting. """
@@ -895,7 +895,7 @@ def _single_counts (
     
     return d, target_all
 
-def _target_counting(d, / ,  bin_column, tname ):
+def _target_counting(d, bin_column, tname ):
     """ An isolated part of counting the target. 
     
     :param d: DataFrame 
@@ -942,7 +942,7 @@ def _bin_counting (counts, tname, odds="N+" ):
 
     return counts, bin_counts  
  
-def laplace_smoothing_word(word, class_, /, word_counts, class_counts, V):
+def laplace_smoothing_word(word, class_,  word_counts, class_counts, V):
     """
     Apply Laplace smoothing to estimate the conditional probability of a 
     word given a class.
@@ -1009,7 +1009,7 @@ def laplace_smoothing_word(word, class_, /, word_counts, class_counts, V):
     return probability
 
 def laplace_smoothing_categorical(
-        data, /, feature_col, class_col, V=None):
+        data, feature_col, class_col, V=None):
     """
     Apply Laplace smoothing to estimate conditional probabilities of 
     categorical features given a class in a dataset.
@@ -1322,7 +1322,7 @@ def get_correlated_features(
             f"Expect ['pearson'|'spearman'|'covariance'], got{corr!r} ")
     # collect numerical values and exclude cat values
     
-    df = select_features(data, include ='number')
+    df = select_features(data, None, 'number')
         
     # use pipe to chain different func applied to df 
     c_df = ( 
@@ -1639,7 +1639,7 @@ def fetch_tgz(
         print("Download and extraction complete.")
 
 def process_df(
-    data, /, 
+    data,
     target_name=None, 
     exclude_target=False, 
     return_frame=False, 
@@ -1779,11 +1779,11 @@ def process_df(
             # Filter out missing targets
             target_name = [target for target in target_name if target in data.columns]
     
-    numeric_df = data.select_dtypes(include=[np.number])
-    categorical_df = data.select_dtypes(exclude=[np.number])
+    numeric_df = data.select_dtypes([np.number])
+    categorical_df = data.select_dtypes(None, [np.number])
     
     if include_datetime:
-        datetime_df = data.select_dtypes(include=['datetime'])
+        datetime_df = data.select_dtypes(['datetime'])
         if is_numeric_datetime:
             numeric_df = pd.concat([numeric_df, datetime_df], axis=1)
         else:
@@ -3132,7 +3132,7 @@ def load_model(
 
     return loaded_data
      
-def bi_selector (d, /,  features =None, return_frames = False,
+def bi_selector (d,  features =None, return_frames = False,
                  parse_features:bool=... ):
     """ Auto-differentiates the numerical from categorical attributes.
     
@@ -3628,7 +3628,7 @@ def _execute_transformation(
     
     return pipeline
 
-def _transform_target(y, label_encoding:BaseEstimator|TransformerMixin ):
+def _transform_target(y, label_encoding:Union [BaseEstimator, TransformerMixin] ):
     if label_encoding == 'LabelEncoder':
         encoder = LabelEncoder()
         return encoder.fit_transform(y)
@@ -4134,7 +4134,7 @@ def soft_scaler(
         feature_range=feature_range, clip=clip, **kwargs)
 
     if input_is_dataframe:
-        num_features = X.select_dtypes(include=['number']).columns
+        num_features = X.select_dtypes(['number']).columns
         X_scaled_numeric = _scale_numeric_features(X, scaler, num_features)
         X_scaled = _concat_scaled_numeric_with_categorical(
             X_scaled_numeric, X, cat_features)
@@ -4171,7 +4171,7 @@ def _concat_scaled_numeric_with_categorical(X_scaled_numeric, X, cat_features):
     Concatenates scaled numerical features with original categorical features.
     """
     X_scaled = pd.concat([pd.DataFrame(X_scaled_numeric, index=X.index, 
-                        columns=X.select_dtypes(include=['number']).columns),
+                        columns=X.select_dtypes(['number']).columns),
                           X[cat_features]], axis=1)
     return X_scaled[X.columns]  # Maintain original column order
 

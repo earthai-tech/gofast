@@ -78,38 +78,66 @@ PACKAGE_DATA = {
     ]
 }
 
-def collect_pyx_modules(package_path):
+# List of specific files to compile
+pyx_files_to_build = [
+    'coreutils.py', 
+    'validator.py', 
+    'mlutils.py', 
+    'descriptive.py', 
+    'mathex.py', 
+    'optimize.py', 
+    'cluster_based.py',  
+    '_cluster_based.py',  
+    'funcutils.py', 
+    'baseutils.py',  
+    'feature_engineering.py' 
+]
+
+# Helper function to convert .py files to .pyx files if needed
+def convert_py_to_pyx(file_path, rename=False):
+    pyx_path = file_path.replace('.py', '.pyx')
+    # os.rename(module_path, pyx_module)
+    with open(file_path, 'r', encoding="utf8") as f_py:
+        content = f_py.read()
+    with open(pyx_path, 'w', encoding="utf8") as f_pyx:
+        f_pyx.write(content)
+    if rename:
+        os.remove(file_path)
+    return pyx_path
+
+# Function to collect .pyx modules
+def collect_pyx_modules(package_path, specific_files=None, rename=False):
     pyx_modules = []
     for root, dirs, files in os.walk(package_path):
-        # Skip the 'tests' folder
         if 'tests' in root.split(os.sep):
             continue
-        
         for file in files:
-            if (
+            if specific_files and file not in specific_files:
+                continue 
+            if ( 
                 file.endswith('.py') and not file.startswith('_') 
                 and file != 'setup.py' and not file.startswith('test')
-            ):
+                ):
                 module_path = os.path.join(root, file)
-                pyx_module = module_path.replace('.py', '.pyx')
-                os.rename(module_path, pyx_module)
-                pyx_modules.append(pyx_module)
+                pyx_path = convert_py_to_pyx(module_path, rename=rename)
+                pyx_modules.append(pyx_path)
     return pyx_modules
 
-def collect_all_pyx_modules(base_package_paths):
+# Function to collect all .pyx modules from given package paths
+def collect_all_pyx_modules(base_package_paths, specific_files=None, rename=False):
     all_pyx_modules = []
     for package_path in base_package_paths:
-        all_pyx_modules.extend(collect_pyx_modules(package_path))
-    #all_pyx_modules.extend(collect_pyx_modules('.'))
+        all_pyx_modules.extend(collect_pyx_modules(
+            package_path, specific_files, rename=rename))
     return all_pyx_modules
 
 base_package_paths = [
-    # 'gofast/dataops',
-    # 'gofast/estimators',
+    'gofast/estimators',
     'gofast/tools',
-    # 'gofast/transformers',
-    # 'gofast/stats',
-    # 'gofast/models',
+    'gofast/stats',
+    'gofast/transformers',
+    'gofast/models',
+    # 'gofast/dataops',
     # 'gofast/plots',
     # 'gofast/api',
     # 'gofast/backends',
@@ -118,16 +146,20 @@ base_package_paths = [
     # 'gofast/nn',
     # 'gofast/analysis',
     # 'gofast/cli',
+    # '.'
 ]
 
-pyx_modules = collect_all_pyx_modules(base_package_paths)
+# Collect .pyx modules based on the specific files to build or all files
+pyx_modules = collect_all_pyx_modules(base_package_paths, specific_files=pyx_files_to_build)
+
 if not pyx_modules:
     print("No .pyx files found to compile.")
 else:
     print("Found .pyx files:", pyx_modules)
 
+# Define extensions for setup
 ext_modules = [
-    Extension(pyx_module.replace('/', '.').replace('.pyx', ''),
+    Extension(pyx_module.replace(os.sep, '.').replace('.pyx', ''),
               [pyx_module], include_dirs=[numpy.get_include()])
     for pyx_module in pyx_modules
 ]
@@ -149,6 +181,7 @@ setup_kwargs = {
     'packages': find_packages(),
     'ext_modules': cythonize(
         ext_modules, compiler_directives={'linetrace': True,'language_level': "3"}),
+    'include_dirs': [numpy.get_include()],
     'cmdclass': {'build_ext': BuildExt},
     'install_requires': [
         "cython>=0.29.33",
