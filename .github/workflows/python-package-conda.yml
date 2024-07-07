@@ -12,17 +12,14 @@ jobs:
     - name: Set up Conda
       uses: conda-incubator/setup-miniconda@v2
       with:
-        activate-environment: base
+        activate-environment: gofast-0.1.0
         environment-file: environment.yml
         python-version: '3.10'
-        auto-activate-base: true
+        auto-activate-base: false
     
-    - name: Install dependencies
-      run: |
-        conda install -c conda-forge numpy<2
-        
     - name: Install gofast package
       run: |
+        python -m pip install "numpy<2"
         python -m pip install .
         
     - name: Configure Conda 
@@ -49,4 +46,3 @@ jobs:
         echo "PATH=$PATH"
         conda info
         conda list
-
