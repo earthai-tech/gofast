@@ -113,7 +113,7 @@ base_package_paths = [
     # 'gofast/plots',
     # 'gofast/api',
     # 'gofast/backends',
-    'gofast/datasets',
+    # 'gofast/datasets',
     # 'gofast/compat',
     # 'gofast/nn',
     # 'gofast/analysis',
