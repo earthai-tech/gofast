@@ -79,9 +79,16 @@ PACKAGE_DATA = {
 
 def collect_pyx_modules(package_path):
     pyx_modules = []
-    for root, _, files in os.walk(package_path):
+    for root, dirs, files in os.walk(package_path):
+        # Skip the 'tests' folder
+        if 'tests' in root.split(os.sep):
+            continue
+        
         for file in files:
-            if file.endswith('.py') and not file.startswith('_') and file != 'setup.py':
+            if (
+                file.endswith('.py') and not file.startswith('_') 
+                and file != 'setup.py' and not file.startswith('test')
+            ):
                 module_path = os.path.join(root, file)
                 pyx_module = module_path.replace('.py', '.pyx')
                 os.rename(module_path, pyx_module)
