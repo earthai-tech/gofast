@@ -2079,6 +2079,7 @@ def correlation_ops(
                                   corr_value))
 
     # Prepare DataFrames for each category
+    
     dfs = {}
     if strong_positives:
         dfs['Strong Positives'] = pd.DataFrame(
@@ -2093,7 +2094,10 @@ def correlation_ops(
     # Formatting the output with MultiFrameFormatter if needed
     if dfs:
         formatted_report = MultiFrameFormatter(
-            list(dfs.keys()), descriptor="CorrelationOps").add_dfs(*dfs.values())
+            list(dfs.keys()), 
+            descriptor="CorrelationOps", 
+            max_cols=5, 
+            max_rows ='auto').add_dfs(*dfs.values())
         setattr(formatted_report, "correlated_pairs", dfs)
         return formatted_report
     else:
