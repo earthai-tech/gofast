@@ -3829,7 +3829,7 @@ def _count_local_minima(arr: ArrayLike, method: str = 'robust') -> int:
 def scale_y(
     y: ArrayLike, 
     x: ArrayLike = None, 
-    deg: int = "auto", 
+    deg: Union [int, str] = "auto", 
     func: _F = None, 
     return_xf: bool = False, 
     view: bool = False
