@@ -424,7 +424,6 @@ def _assist_me(help_task):
     None
         This function prints the assistance directly.
     """
-    TW = 80  # Assume terminal width is set here, adjust as needed
     border = '=' * TW
     sub_border ='-' * TW 
     print(border)
@@ -449,7 +448,7 @@ def _assist_me(help_task):
     print()
     # Assuming ReportFactory and TASK_DESCRIPTIONS are defined and properly set up elsewhere
     description_report = ReportFactory(title="Available Tasks - Detailed Descriptions")
-    description_report.add_mixed_types(TASK_DESCRIPTIONS, table_width=TW)
+    description_report.add_mixed_types(dict(sorted(TASK_DESCRIPTIONS.items())), table_width=TW)
     print(description_report)
     
     print()
