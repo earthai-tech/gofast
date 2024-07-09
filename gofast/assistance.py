@@ -4,6 +4,7 @@
  of the `gofast` library, including direct support and exploration functions."""
 
 import importlib
+import textwrap
 import pkgutil
 import warnings
 import gofast.tools 
@@ -117,6 +118,41 @@ TASK_MAPPING = {
     ]
 }
 
+TASK_DESCRIPTIONS = {
+    'data_preprocessing': (
+        "Tasks related to preparing and cleaning data before analysis or "
+        "modeling..."
+    ),
+    'data_transformation': (
+        "Tasks involving the transformation of data to make it suitable for "
+        "analysis or modeling..."
+    ),
+    'data_management': (
+        "Tasks for managing data storage, retrieval, and handling datasets "
+        "efficiently..."
+    ),
+    'feature_engineering': (
+        "Tasks for creating, selecting, and transforming features to improve "
+        "model performance..."
+    ),
+    'model_preparation': (
+        "Tasks related to preparing data for model training and evaluation, "
+        "including building data preprocessors, and handling data imbalances..."
+    ),
+    'data_analysis': (
+        "Tasks for analyzing data to understand patterns, quality, and "
+        "integrity including performing data, audits, and verifying data integrity..."
+    ),
+    'statistics_and_math': (
+        "Tasks involving statistical and mathematical operations for data "
+        "analysis and modeling..."
+    ),
+    'model_evaluation_and_analysis': (
+        "Tasks for evaluating and analyzing model performance and feature "
+        "contributions..."
+    )
+}
+
 def assist_me(*tasks: str, on_error='warn'):
     """
     Provides some tool recommendations for specified tasks using the 
@@ -153,6 +189,10 @@ def assist_me(*tasks: str, on_error='warn'):
     Warning: Invalid task(s) provided: invalid_task. Please select from:\
         data_preprocessing, model_evaluation_and_analysis.
     """
+    if tasks and ( str(tasks[0]).lower() =='help' or tasks[0]==help): 
+        return _assist_me(tasks[0])
+  
+    tasks = _manage_task(tasks)
     valid_tasks = list(TASK_MAPPING.keys())
     invalid_tasks = [task for task in tasks if task not in valid_tasks]
     if invalid_tasks:
@@ -189,7 +229,16 @@ def assist_me(*tasks: str, on_error='warn'):
         tables.append(tool_table)
 
     assemble_reports(*tables, display=True)
-
+    
+def _manage_task (tasks): 
+    import random 
+    if str(tasks[0]).lower() in ("*", "all") or tasks[0]==all :
+        return sorted (TASK_MAPPING.keys()) 
+    elif str(tasks[0]).lower() =='any' or tasks[0] ==any: 
+        # random select one task 
+        return [random.choice(sorted (TASK_MAPPING.keys()))]
+    return tasks 
+        
 def gofast_explorer(package_path, /,  exclude_names=None):
     """
     Provides a guided exploration of the 'gofast' package, returning descriptions
@@ -358,4 +407,53 @@ def _get_gofast_package_descriptions(include_private=False):
     description_report.add_mixed_types(descriptions, table_width=TW)
     print(description_report)
 
+def _assist_me(help_task):
+    """
+    This function provides a detailed description and assistance for various data 
+    processing and analysis tasks. When called with 'help' or a specific task name,
+    it generates a detailed guidance report on what each task entails and how to
+    perform it using the gofast toolkit.
+
+    Parameters
+    ----------
+    help_task : str
+        The help keyword or task name.
+
+    Returns
+    -------
+    None
+        This function prints the assistance directly.
+    """
+    TW = 80  # Assume terminal width is set here, adjust as needed
+    border = '=' * TW
+    sub_border ='-' * TW 
+    print(border)
+    print("GOFast Assistance - How can I help?".center(TW))
+    print(sub_border)
+    
+    message = (
+        "I'm designed to give you a foundational understanding of data processing tools.\n"
+        "To call me, use:\n\n"
+        "    >>> assist_me('my_task').\n\n"
+        "I provide basic tools. For a deeper dive, use the explorer tools with the "
+        "following commands:\n\n"
+        "    >>> import gofast as gf\n"
+        "    >>> gf.config.PUBLIC= True  # make sure to set as True\n"
+        "    >>> gf.explore('gofast.package.module_name')\n\n"
+        "See the table below for tasks I can quickly perform or help you handle with your data."
+    )
+    
+    # Applying textwrap to ensure each paragraph is formatted correctly within TW
+    wrapped_message = "\n".join([textwrap.fill(paragraph, TW) for paragraph in message.split("\n")])
+    print(wrapped_message)
+    print()
+    # Assuming ReportFactory and TASK_DESCRIPTIONS are defined and properly set up elsewhere
+    description_report = ReportFactory(title="Available Tasks - Detailed Descriptions")
+    description_report.add_mixed_types(TASK_DESCRIPTIONS, table_width=TW)
+    print(description_report)
+    
+    print()
+    print("How can I assist you further?".center(TW))
+    print()
+    print()
 
