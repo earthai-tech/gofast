@@ -42,7 +42,7 @@ import matplotlib.colors as mcolors
 
 from .._gofastlog import gofastlog
 from ..api.types import Union, Series,Tuple,Dict,Optional,Iterable, Any, Set
-from ..api.types import _T,_Sub, _F, ArrayLike,List, DataFrame, NDArray, Text  
+from ..api.types import _T,_Sub, _F, ArrayLike,List, DataFrame, NDArray, Text 
 from ._dependency import import_optional_dependency
 from ..compat.scipy import ensure_scipy_compatibility 
 from ..compat.scipy import check_scipy_interpolate, optimize_minimize
@@ -112,7 +112,7 @@ __all__=[
      'read_main',
      'read_worksheets',
      'rename_files',
-     'repeat_item_insertion',
+#     'repeat_item_insertion',
      'replace_data',
      'resample_data',
      'reshape',
@@ -731,6 +731,7 @@ def listing_items_format (
     out +=en 
     
     return None if verbose else out 
+    
     
 def parse_attrs (attr,  regex=None ): 
     """ Parse attributes using the regular expression.
@@ -5972,7 +5973,7 @@ def convert_value_in (v, unit ='m'):
     
     return float ( v) * (c.get(unit) or 1e0) 
 
-def split_list(lst:List[Any],  val:int, fill_value:Any=None ):
+def split_list(lst:List[Any],  val:int, fill_value:Optional[Any]=None ):
     """Module to extract a slice of elements from the list 
     
     Parameters 
@@ -6123,68 +6124,70 @@ def key_search (
                        f" Expect {smart_format(dk_init, 'or')}")
     return None if len(valid_keys)==0 else valid_keys 
 
-def repeat_item_insertion(text,  pos, item ='', fill_value=''): 
-    """ Insert character in  text according from it position. 
-    
-    Parameters
-    -----------
-    v: text
-       Text 
-    pos: int 
-      position where the item must be insert. 
-    item: str, 
-      Item to insert at each position. 
-    fill_value: str, 
-      Does nothing special; fill the the last position. 
-    Returns
-    --------
-    text: str, 
-      New construct object. 
-      
-    Examples
-    ----------
-    >>> from gofast.tools.coreutils import repeat_item_insertion
-    >>> repeat_item_insertion ( '0125356.45', pos=2, item=':' ) 
-    Out[65]: '01:25:35:6.45'
-    >>> repeat_item_insertion ( 'Function inserts car in text.', pos=10, item='TK' )
-    Out[69]: 'Function iTKnserts carTK in text.'
-    """
-    pos= _assert_all_types(pos, int, float, 
-                           objname=f'Position for {item} insertion')
-    # for consistency
-    lst = list( str(text)) 
-    # checher whether there is a decimal then remove it 
-    dec_part=[]
-    ent_part= lst
-    for i, it in enumerate ( lst)  :
-        if it =='.': 
-            ent_part, dec_part  = lst [:i],  lst[i:]
-            break 
-    # now split list
-    value = split_list(ent_part, val= pos , fill_value=fill_value) 
-    #value = split_list ( ent_part, 2)
-    #[[1, 2, 3], [4, 5, 6], [7, 8]]
-    join_lst= list (map ( lambda s : ''.join( s), value))
-    #[123, 456, 78]
-    #join with mark 
-    return f'{str(item)}'.join(join_lst) +''.join(dec_part)
-        
-def numstr2dms (
+# def repeat_item_insertion(text: str, pos: Union[int, float], item: Optional[str] = None,  fill_value: Optional[Any] = None) -> str: 
+#     """ Insert character in text according to its position. 
+#     
+#     Parameters
+#     ----------
+#     text: str
+#        Text 
+#     pos: Union[int, float]
+#       Position where the item must be inserted. 
+#     item: Optional[str], default None
+#       Item to insert at each position. 
+#    fill_value: Optional[Any], default None
+#       Does nothing special; fill the last position. 
+#     Returns
+#     --------
+#     text: str
+#       New construct object. 
+#       
+#     Examples
+#     ----------
+#     >>> repeat_item_insertion('0125356.45', pos=2, item=':')
+#     '01:25:35:6.45'
+#     >>> repeat_item_insertion('Function inserts car in text.', pos=10, item='TK')
+#     'Function iTKnserts carTK in text.'
+#     """
+#     if item is None:
+#         item = ''
+#    # For consistency
+#    lst = list(str(text))
+#    # Check whether there is a decimal then remove it 
+#    dec_part = []
+#    ent_part = lst
+#    for i, it in enumerate(lst):
+#        if it == '.': 
+#            ent_part, dec_part = lst[:i], lst[i:]
+#            break
+#    # Now split list
+#    if fill_value is None:
+#        fill_value = ''
+#    
+#    value = split_list(ent_part, val=pos, fill_value=fill_value)
+#    # Join with mark
+#    join_lst = [''.join(s) for s in value]
+#    # Use empty string instead of None in the join operation
+#    result = str(item).join(join_lst) + ''.join(dec_part)
+#    return result
+
+
+def numstr2dms(
     sdigit: str,  
-    sanitize: bool=True, 
-    func: _F=None, 
-    args: tuple=(),  
-    regex: re=None,   
-    pattern: str=None, 
-    return_values: bool=..., 
+    sanitize: bool = True, 
+    func: callable = lambda x, *args, **kws: x, 
+    args: tuple = (),  
+    regex: re.Pattern = re.compile(r'[_#&@!+,;:"\'\s-]\s*', flags=re.IGNORECASE),   
+    pattern: str = '[_#&@!+,;:"\'\s-]\s*', 
+    return_values: bool = False, 
     **kws
-    ): 
+) -> Union[str, Tuple[float, float, float]]: 
     """ Convert numerical digit string to DD:MM:SS
     
-    Note that the any string digit for Minutes and seconds must be composed
-    of two values i.e the function accepts at least six digits, otherwise an 
-    error occurs. For instance the value between [0-9] must be prefixed by 0 
-    beforehand. Here is an example for designating 1degree-1min-1seconds::
+    Note that any string digit for Minutes and seconds must be composed
+    of two values i.e., the function accepts at least six digits, otherwise an 
+    error occurs. For instance, the value between [0-9] must be prefixed by 0 
+    beforehand. Here is an example for designating 1 degree-1 min-1 seconds::
         
         sdigit= 1'1'1" --> 01'01'01 or 010101
         
@@ -6195,80 +6198,78 @@ def numstr2dms (
     sdigit: str, 
       Digit string composing of unique values. 
     func: Callable, 
-      Function uses to parse digit. Function must return a string values. 
-      Any other values should be convert to str 
+      Function uses to parse digit. Function must return string values. 
+      Any other values should be converted to str.
       
     args: tuple
       Function `func` positional arguments 
       
     regex: `re` object,  
-        Regular expresion object. Regex is important to specify the kind
-        of data to parse. the default is:: 
+        Regular expression object. Regex is important to specify the kind
+        of data to parse. The default is:: 
             
             >>> import re 
-            >>> re.compile (r'[_#&@!+,;:"\'\s-]\s*', flags=re.IGNORECASE) 
+            >>> re.compile(r'[_#&@!+,;:"\'\s-]\s*', flags=re.IGNORECASE) 
             
     pattern: str, default = '[_#&@!+,;:"\'\s-]\s*'
-      Specific pattern for sanitizing sdigit. For instance remove undesirable 
+      Specific pattern for sanitizing sdigit. For instance, remove undesirable 
       non-character. 
       
-    sanitize:bool=default=True 
-       Remove undesirable character using the default argument of `pattern`
+    sanitize: bool, default=True 
+       Remove undesirable characters using the default argument of `pattern`
        parameter. 
        
     return_values: bool, default=False, 
-       return the DD:MM:SS into a tuple of (DD,MM,SS)
+       Return the DD:MM:SS into a tuple of (DD, MM, SS).
     
     Returns 
     -------
     sdigit/tuple: str, tuple 
-      DD:MM:SS or tuple of ( DD, MM, SS) 
+      DD:MM:SS or tuple of (DD, MM, SS)
       
     Examples
     --------
-    >>> from gofast.tools.coreutils import numstr2dms
-    >>> numstr2dms ("1134132.08")
-    Out[17]: '113:41:32.08
-    >>> numstr2dms ("13'41'32.08")
-    Out[18]: '13:41:32.08'
-    >>> numstr2dms ("11:34:13:2.08", return_values=True)
-    Out[19]: (113.0, 41.0, 32.08)
-            
+    >>> numstr2dms("1134132.08")
+    '113:41:32.08'
+    >>> numstr2dms("13'41'32.08")
+    '13:41:32.08'
+    >>> numstr2dms("11:34:13:2.08", return_values=True)
+    (113.0, 41.0, 32.08)
     """
-    # remove any character from the string digit
-    if return_values is ...:return_values=False 
-    sdigit= str(sdigit)
+    # Remove any character from the string digit
+    sdigit = str(sdigit)
     
     if sanitize: 
-        pattern = pattern or '[_#&@!+,;:"\'\s-]\s*'
-        sdigit = re.sub(pattern , "", str(sdigit), flags=re.IGNORECASE)
+        sdigit = re.sub(pattern, "", sdigit, flags=re.IGNORECASE)
         
-    try : float (sdigit)
-    except: raise ValueError ("Wrong value. Expects a string-digit or digit."
-                              f" Got {sdigit!r}")
-    if callable (func): 
-        sdigit= func (sdigit, *args, **kws )
+    try:
+        float(sdigit)
+    except ValueError:
+        raise ValueError(f"Wrong value. Expects a string-digit or digit. Got {sdigit!r}")
+
+    if callable(func): 
+        sdigit = func(sdigit, *args, **kws)
         
     # In the case there is'
-    decimal ='0'
-    # remove decimal
-    sdigit_list  = str(sdigit).split(".")
+    decimal = '0'
+    # Remove decimal
+    sdigit_list = sdigit.split(".")
     
-    if len(sdigit_list)==2: 
-        sdigit, decimal =sdigit_list
+    if len(sdigit_list) == 2: 
+        sdigit, decimal = sdigit_list
         
     if len(sdigit) < 6: 
-        raise ValueError(f"DMS expects at list six digits(DD:MM:SS)."
-                         f" Got {sdigit!r}")
+        raise ValueError(f"DMS expects at least six digits (DD:MM:SS). Got {sdigit!r}")
         
-    sec , sdigit = sdigit[-2:] , sdigit [:-2]
-    mm , sdigit = sdigit[-2:], sdigit [:-2]
-    deg = sdigit # the remain part 
-    # conca second ecimal 
-    sec +=f".{decimal}" 
+    sec, sdigit = sdigit[-2:], sdigit[:-2]
+    mm, sdigit = sdigit[-2:], sdigit[:-2]
+    deg = sdigit  # The remaining part
+    # Concatenate second decimal 
+    sec += f".{decimal}" 
     
-    return tuple (map ( float, [deg, mm, sec]) ) if return_values \
-        else ':'.join([deg, mm, sec]) 
+    return tuple(map(float, [deg, mm, sec])) if return_values \
+        else ':'.join([deg, mm, sec])
+
 
 def store_or_write_hdf5 (
     d,  

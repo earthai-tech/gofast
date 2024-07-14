@@ -51,6 +51,6 @@ ext_modules = [
 
 setup(
     name="gofast_tools",
-    ext_modules=cythonize(ext_modules, compiler_directives={'language_level': "3"}),
+    ext_modules=cythonize(ext_modules, compiler_directives={'language_level': "3", 'binding': True}, annotate=True),
     include_dirs=[np.get_include()],
 )
