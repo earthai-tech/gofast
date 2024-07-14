@@ -166,7 +166,7 @@ setup_kwargs = {
     'packages': find_packages(),
     'ext_modules': cythonize(
         ext_modules, compiler_directives={'linetrace': True, 'language_level': "3"}),
-    'include_dirs': [numpy.get_include()],
+    #'include_dirs': [numpy.get_include()],
     'cmdclass': {'build_ext': BuildExt},
     'install_requires': [
         "cython>=0.29.33",
