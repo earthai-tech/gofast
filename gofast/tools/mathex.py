@@ -1314,6 +1314,14 @@ def rank_data(data, method='average'):
     scipy.stats.rankdata : Rank the data in an array.
     numpy.argsort : Returns the indices that would sort an array.
     """
+    if isinstance (data, pd.DataFrame): 
+        # check whether there is numerical values 
+        data = data.select_dtypes ( [np.number]) 
+        if data.empty: 
+            raise ValueError(
+            "Ranking calculus expects numeric data. Got empty"
+            " DataFrame after checking for numeric"
+            ) 
     sorter = np.argsort(data)
     inv = np.empty_like(sorter)
     inv[sorter] = np.arange(len(data))

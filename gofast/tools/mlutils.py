@@ -1155,13 +1155,13 @@ def laplace_smoothing(
         return np.column_stack(smoothed_probs_list)
 
 def evaluate_model(
-    model: Optional[_F[[NDArray, NDArray], NDArray]] = None,
+    model: Optional[_F] = None,
     X: Optional[Union[NDArray, DataFrame]] = None,
     Xt: Optional[Union[NDArray, DataFrame]] = None,
     y: Optional[Union[NDArray, Series]] = None, 
     yt: Optional[Union[NDArray, Series]] = None,
     y_pred: Optional[Union[NDArray, Series]] = None,
-    scorer: Union[str, _F[[NDArray, NDArray], float]] = 'accuracy_score',
+    scorer: Union[str, _F] = 'accuracy_score',
     eval: bool = False,
     **kws: Any
 ) -> Union[Tuple[Optional[Union[NDArray, Series]], Optional[float]],
@@ -1898,7 +1898,7 @@ def base_url_tgz_fetch(
 
 def fetch_tgz_from_url(
     data_url: str, tgz_filename: str, 
-    data_path: Optional[str, Path]=None, 
+    data_path: Optional[Union [str, Path]]=None, 
     file_to_retrieve: Optional[str] = None, 
     **kwargs
     ) -> Optional[Path]:
@@ -3457,7 +3457,7 @@ def build_data_preprocessor(
     custom_transformers: Optional[List[Tuple[str, TransformerMixin]]] = None,
     label_encoding: Union[str, TransformerMixin] = 'LabelEncoder', 
     scaler: Union[str, TransformerMixin] = 'StandardScaler', 
-    missing_values: Union[int, float, str, np.nan, None] = np.nan, 
+    missing_values: Union[int, float, str, None] = np.nan, 
     impute_strategy: str = 'median', 
     feature_interaction: bool = False,
     dimension_reduction: Optional[Union[str, TransformerMixin]] = None,
