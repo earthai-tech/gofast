@@ -2100,7 +2100,7 @@ def correlation_ops(
             max_cols=5, max_rows ='auto', 
             ).add_dfs(*new_dfs.values())
         formatted_report.correlation_types = list(new_dfs.keys()) 
-        formatted_report.corrlated_pairs = _make_correlation_pairs(new_dfs)
+        formatted_report.correlated_pairs = _make_correlation_pairs(new_dfs)
         for key, value in new_dfs.items(): 
             setattr (formatted_report, key, value)
         
