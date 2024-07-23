@@ -2602,7 +2602,6 @@ def process_performance_data(df, mode='average', on='@data'):
 
     raise ValueError("Invalid parameters for 'mode' or 'on'")
     
-
 def update_if_higher(
     results_dict, 
     estimator_name, 
@@ -2670,4 +2669,146 @@ def update_if_higher(
         
     return results_dict, best_params_dict
 
+def prepare_estimators_and_param_grids(
+        estimators, param_grids, alignment_mode='soft'):
+    """
+    Prepare and associate estimators and their corresponding parameter grids.
+
+    This function takes in estimators and parameter grids in various formats and
+    ensures they are correctly associated and aligned. It supports both dictionary
+    and list inputs for flexibility and versatility.
+
+    Parameters
+    ----------
+    estimators : dict or list
+        Estimators can be provided in two formats:
+        - As a dictionary where keys are estimator names and values are estimator
+          objects.
+          Example: ``{'rf': RandomForestClassifier(), 'svc': SVC()}``
+        - As a list of estimator objects. The function will use the class names 
+          as keys.
+          Example: ``[RandomForestClassifier(), SVC()]``
+
+    param_grids : dict or list
+        Parameter grids can be provided in two formats:
+        - As a dictionary where keys match the estimator names and values 
+        are parameter grids.
+          Example: ``{'rf': {'n_estimators': [10, 100], 'max_depth': [None, 10]},
+                      'svc': {'C': [1, 10], 'kernel': ['linear', 'rbf']}}``
+        - As a list of parameter grids. The function will align them with 
+          estimators by order if alignment_mode is 'soft'.
+          Example: ``[{'n_estimators': [10, 100], 'max_depth': [None, 10]}, 
+                      {'C': [1, 10], 'kernel': ['linear', 'rbf']}]``
+
+    alignment_mode : str, optional
+        Specifies the alignment mode for associating parameter grids with 
+        estimators when provided as lists.
+        - 'soft': Align parameter grids with estimators by order.
+        - 'strict': Raise an error if parameter grids are provided as lists.
+        Default is 'soft'.
+
+    Returns
+    -------
+    est_dict : dict
+        A dictionary where keys are estimator names and values are estimator 
+        objects.
+
+    param_dict : dict
+        A dictionary where keys are estimator names and values are parameter 
+        grids.
+
+    Raises
+    ------
+    ValueError
+        If the length of estimators and parameter grids do not match, or if 
+        the keys of the dictionaries do not match, or if the alignment mode is invalid.
+
+    Notes
+    -----
+    This function ensures that the estimators and parameter grids are correctly
+    aligned and associated.
+    If both estimators and parameter grids are provided as dictionaries, their 
+    keys must match.
+    If they are provided as lists, the function uses the order to align them in 
+    'soft' mode,and raises an error in 'strict' mode.
+
+    Examples
+    --------
+    >>> from gofast.models.utils import prepare_estimators_and_param_grids
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from sklearn.svm import SVC
+    >>> estimators = {'rf': RandomForestClassifier(), 'svc': SVC()}
+    >>> param_grids = {'rf': {'n_estimators': [10, 100], 'max_depth': [None, 10]},
+    ...                'svc': {'C': [1, 10], 'kernel': ['linear', 'rbf']}}
+    >>> est_dict, param_dict = prepare_estimators_and_param_grids(estimators, param_grids)
+    >>> print(est_dict)
+    {'rf': RandomForestClassifier(), 'svc': SVC()}
+    >>> print(param_dict)
+    {'rf': {'n_estimators': [10, 100], 'max_depth': [None, 10]}, 
+    'svc': {'C': [1, 10], 'kernel': ['linear', 'rbf']}}
+
+    See Also
+    --------
+    sklearn.ensemble.RandomForestClassifier : A random forest classifier.
+    sklearn.svm.SVC : A support vector classifier.
+
+    References
+    ----------
+    .. [1] Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., Grisel, O., 
+       Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V., Vanderplas, J.,
+       Passos, A., Cournapeau, D., Brucher, M., Perrot, M., and Duchesnay, E. (2011). 
+       Scikit-learn: Machine Learning in Python. Journal of Machine Learning 
+       Research, 12, 2825-2830.
+    """
+    if isinstance(estimators, dict):
+        est_dict = estimators
+    elif isinstance(estimators, list):
+        est_dict = {get_estimator_name(est): est for est in estimators}
+    else:
+        raise ValueError("Estimators should be a dictionary or a list.")
+
+    if isinstance(param_grids, dict):
+        param_dict = param_grids
+    elif isinstance(param_grids, list):
+        if alignment_mode == 'soft':
+            if len(param_grids) != len(est_dict):
+                raise ValueError(
+                    "Length of parameter grids does not match the length of estimators.")
+            param_dict = {name: param_grids[i] for i, name in enumerate(est_dict.keys())}
+        elif alignment_mode == 'strict':
+            raise ValueError("In strict mode, param_grids should be a dictionary"
+                             " with matching keys to estimators.")
+        else:
+            raise ValueError("Invalid alignment_mode. Use 'soft' or 'strict'.")
+    else:
+        raise ValueError("param_grids should be a dictionary or a list.")
+
+    if est_dict.keys() != param_dict.keys():
+        raise ValueError("Keys of estimators and param_grids must match.")
+
+    return est_dict, param_dict
+
+if __name__=='__main__': 
+    from sklearn.ensemble import RandomForestClassifier
+    # from gofast.models.utils import prepare_estimators_and_param_grids
+
+    # Example usage:
+    estimators = {'rf': RandomForestClassifier(), 'svc': SVC()}
+    param_grids = {'rf': {'n_estimators': [10, 100], 'max_depth': [None, 10]},
+                    'svc': {'C': [1, 10], 'kernel': ['linear', 'rbf']}}
+    
+    estimators_list, param_grids_list = [
+        RandomForestClassifier(), SVC()], [{'n_estimators': [10, 100], 
+                                            'max_depth': [None, 10]}, 
+                                            {'C': [1, 10], 'kernel': ['linear', 'rbf']}]
+    
+    # Testing the function
+    est_dict, param_dict = prepare_estimators_and_param_grids(estimators, param_grids)
+    print(est_dict)
+    print(param_dict)
+    
+    est_dict, param_dict = prepare_estimators_and_param_grids(
+        estimators_list, param_grids_list)
+    print(est_dict)
+    print(param_dict)
 
