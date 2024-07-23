@@ -211,7 +211,7 @@ def perform_friedman_test(
                 "Posthoc test should return a pandas DataFrame or"
                 " `DataFrameFormatter` for effective pandas dataframe."
                 )
-    print(results)
+
     formatted_result= MultiFrameFormatter( titles=titles,
        keywords=['friedman_result', 'post_hoc_result'], 
        descriptor="FriedmanTest", 
