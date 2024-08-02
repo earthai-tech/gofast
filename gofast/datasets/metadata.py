@@ -2157,7 +2157,353 @@ DESCR_METADATA={
             "and understanding the thermal properties of the subsurface environment."
         )
     }
+  }, 
+   
+   "simulate_stock_prices": {
+    "overview": (
+        "This dataset simulates daily stock price data for multiple companies"
+        " over a specified time period. Each record represents a day's data for"
+        " a specific company, including stock prices influenced by market trends,"
+        " economic factors, and company performance. The dataset provides a"
+        " realistic representation of stock market dynamics, making it ideal for"
+        " tasks such as predicting stock prices, analyzing market trends, and"
+        " developing trading algorithms. Designed for educational purposes and as"
+        " a testbed for financial models, this dataset captures the volatility and"
+        " complexity of the stock market, offering valuable insights for researchers,"
+        " analysts, and investors."
+    ),
+    "features": {
+        "company_id": (
+            "A unique identifier for each company, enabling precise tracking"
+            " and analysis of stock price data specific to each company."
+        ),
+        "date": (
+            "The date of the record, essential for temporal analysis and"
+            " understanding trends in stock prices over time."
+        ),
+        "price": (
+            "The stock price of the company on the given date, reflecting the"
+            " market value of the company's shares."
+        )
+    }
+   },
+   
+   "simulate_climate_data": {
+    "overview": (
+        "This dataset simulates yearly climate data for multiple locations over"
+        " a specified number of years. Each record represents a year's data for"
+        " a specific location, including various climate metrics influenced by"
+        " natural factors and environmental changes. The dataset provides a"
+        " realistic representation of long-term climate trends, making it ideal for"
+        " tasks such as predicting climate patterns, analyzing environmental impact,"
+        " and developing climate models. Designed for educational purposes and as"
+        " a testbed for environmental studies, this dataset captures the complexities"
+        " and variability of climate data, offering valuable insights for researchers,"
+        " environmental scientists, and policymakers."
+    ),
+    "features": {
+        "location_id": (
+            "A unique identifier for each location, enabling precise tracking"
+            " and analysis of climate data specific to each geographical area."
+        ),
+        "year": (
+            "The year of the record, essential for temporal analysis and"
+            " understanding trends in climate data over time."
+        ),
+        "avg_temp": (
+            "The average temperature for the location in the given year, providing"
+            " an overall measure of the climate's warmth."
+        ),
+        "min_temp": (
+            "The minimum temperature recorded for the location in the given year,"
+            " reflecting the lowest point of temperature during the year."
+        ),
+        "max_temp": (
+            "The maximum temperature recorded for the location in the given year,"
+            " indicating the highest point of temperature during the year."
+        ),
+        "precipitation": (
+            "The total precipitation for the location in the given year, measured"
+            " in millimeters, which includes rain, snow, and other forms of precipitation."
+        ),
+        "humidity": (
+            "The average relative humidity for the location in the given year, providing"
+            " an indication of the moisture level in the air."
+        ),
+        "wind_speed": (
+            "The average wind speed for the location in the given year, measured"
+            " in meters per second, indicating the general wind conditions."
+        ),
+        "wind_direction": (
+            "The predominant wind direction for the location in the given year, measured"
+            " in degrees, indicating the common direction from which the wind blows."
+        ),
+        "cloud_cover": (
+            "The average cloud cover for the location in the given year, measured"
+            " as a percentage, indicating the extent of cloudiness throughout the year."
+        ),
+        "pressure": (
+            "The average atmospheric pressure for the location in the given year, measured"
+            " in hPa (hectopascals), reflecting the atmospheric conditions."
+        )
+    }
+  }, 
+   "simulate_weather_data": {
+    "overview": (
+        "This dataset simulates daily weather data for multiple locations over"
+        " a specified time period. Each record represents a day's data for"
+        " a specific location, including various weather metrics influenced by"
+        " natural factors and environmental changes. The dataset provides a"
+        " realistic representation of daily weather patterns, making it ideal for"
+        " tasks such as predicting weather conditions, analyzing environmental impact,"
+        " and developing weather models. Designed for educational purposes and as"
+        " a testbed for environmental studies, this dataset captures the complexities"
+        " and variability of weather data, offering valuable insights for researchers,"
+        " meteorologists, and data scientists."
+    ),
+    "features": {
+        "location_id": (
+            "A unique identifier for each location, enabling precise tracking"
+            " and analysis of weather data specific to each geographical area."
+        ),
+        "date": (
+            "The date of the record, essential for temporal analysis and"
+            " understanding trends in weather data over time."
+        ),
+        "temperature": (
+            "The temperature for the location on the given date, providing"
+            " a measure of the warmth or coldness of the environment."
+        ),
+        "humidity": (
+            "The relative humidity for the location on the given date, providing"
+            " an indication of the moisture level in the air."
+        ),
+        "precipitation": (
+            "The total precipitation for the location on the given date, measured"
+            " in millimeters, which includes rain, snow, and other forms of precipitation."
+        ),
+        "wind_speed": (
+            "The wind speed for the location on the given date, measured"
+            " in meters per second, indicating the strength of the wind."
+        ),
+        "wind_direction": (
+            "The wind direction for the location on the given date, measured"
+            " in degrees, indicating the direction from which the wind is blowing."
+        ),
+        "cloud_cover": (
+            "The cloud cover for the location on the given date, measured"
+            " as a percentage, indicating the extent of cloudiness."
+        ),
+        "pressure": (
+            "The atmospheric pressure for the location on the given date, measured"
+            " in hPa (hectopascals), reflecting the atmospheric conditions."
+        ),
+        "visibility": (
+            "The visibility for the location on the given date, measured"
+            " in kilometers, indicating the distance one can clearly see."
+        ),
+        "dew_point": (
+            "The dew point for the location on the given date, indicating the"
+            " temperature at which air becomes saturated with moisture and dew forms."
+        ),
+        "uv_index": (
+            "The UV index for the location on the given date, providing a measure"
+            " of the strength of ultraviolet radiation from the sun."
+        )
+    }
+}, 
+   "simulate_clinical_trials": {
+    "overview": (
+        "This dataset simulates clinical trial data for multiple patients over"
+        " a specified time period. Each record represents a day's data for"
+        " a specific patient, including various health metrics, treatment details,"
+        " and outcomes influenced by medical interventions and patient characteristics."
+        " The dataset provides a realistic representation of clinical trial scenarios,"
+        " making it ideal for tasks such as predicting treatment effectiveness,"
+        " analyzing patient responses, and developing medical models. Designed for"
+        " educational purposes and as a testbed for clinical studies, this dataset"
+        " captures the complexities and variability of patient data, offering valuable"
+        " insights for researchers, clinicians, and data scientists."
+    ),
+    "features": {
+        "patient_id": (
+            "A unique identifier for each patient, enabling precise tracking"
+            " and analysis of clinical trial data specific to each individual."
+        ),
+        "date": (
+            "The date of the record, essential for temporal analysis and"
+            " understanding trends in patient data over time."
+        ),
+        "age": (
+            "The age of the patient, providing important demographic information"
+            " that can influence treatment outcomes and health metrics."
+        ),
+        "gender": (
+            "The gender of the patient, providing essential demographic information"
+            " that can impact medical research and treatment responses."
+        ),
+        "height": (
+            "The height of the patient in centimeters, used to calculate the BMI"
+            " and assess physical health."
+        ),
+        "weight": (
+            "The weight of the patient in kilograms, used to calculate the BMI"
+            " and monitor changes in physical health."
+        ),
+        "smoking_status": (
+            "The smoking status of the patient, categorized as 'never', 'former',"
+            " or 'current', providing insight into lifestyle factors affecting health."
+        ),
+        "medication": (
+            "The type of medication given to the patient, which could be 'placebo',"
+            " 'drug_a', or 'drug_b', indicating the treatment being tested."
+        ),
+        "ethnicity": (
+            "The ethnicity of the patient, providing important demographic information"
+            " for analyzing treatment responses across different population groups."
+        ),
+        "pre_existing_conditions": (
+            "Any pre-existing conditions the patient has, such as 'none', 'diabetes',"
+            " 'hypertension', 'heart disease', or 'asthma', which can affect treatment outcomes."
+        ),
+        "blood_pressure": (
+            "The blood pressure of the patient, an important health metric monitored"
+            " during the clinical trial."
+        ),
+        "cholesterol": (
+            "The cholesterol level of the patient, providing information on cardiovascular health."
+        ),
+        "bmi": (
+            "The Body Mass Index of the patient, calculated from height and weight,"
+            " used to assess overall health."
+        ),
+        "heart_rate": (
+            "The heart rate of the patient, measured in beats per minute, indicating"
+            " cardiovascular health."
+        ),
+        "blood_sugar": (
+            "The blood sugar level of the patient, an important metric for patients"
+            " with diabetes or those at risk."
+        ),
+        "adverse_events": (
+            "Any adverse events experienced by the patient, categorized as 'none',"
+            " 'mild', 'moderate', or 'severe', indicating side effects of the treatment."
+        ),
+        "treatment_effectiveness": (
+            "The effectiveness of the treatment, measured on a scale and indicating"
+            " how well the patient responds to the medication."
+        ),
+        "quality_of_life": (
+            "A measure of the patient's quality of life, indicating overall well-being"
+            " and satisfaction with life during the clinical trial."
+        ),
+        "survival_rate": (
+            "The survival rate of the patient, indicating the likelihood of survival"
+            " during the clinical trial period."
+        )
+    }
+}, 
+   "simulate_patient_data": {
+    "overview": (
+        "This dataset simulates daily health data for multiple patients over"
+        " a specified time period. Each record represents a day's data for"
+        " a specific patient, including various health metrics influenced by"
+        " lifestyle factors and medical conditions. The dataset provides a"
+        " realistic representation of patient health trends, making it ideal for"
+        " tasks such as predicting health outcomes, analyzing patient data,"
+        " and developing medical models. Designed for educational purposes and"
+        " as a testbed for healthcare studies, this dataset captures the complexities"
+        " and variability of patient data, offering valuable insights for researchers,"
+        " healthcare providers, and data scientists."
+    ),
+    "features": {
+        "patient_id": (
+            "A unique identifier for each patient, enabling precise tracking"
+            " and analysis of health data specific to each individual."
+        ),
+        "date": (
+            "The date of the record, essential for temporal analysis and"
+            " understanding trends in patient data over time."
+        ),
+        "age": (
+            "The age of the patient, providing important demographic information"
+            " that can influence health metrics and outcomes."
+        ),
+        "gender": (
+            "The gender of the patient, providing essential demographic information"
+            " that can impact medical research and health metrics."
+        ),
+        "height": (
+            "The height of the patient in centimeters, used to calculate the BMI"
+            " and assess physical health."
+        ),
+        "weight": (
+            "The weight of the patient in kilograms, used to calculate the BMI"
+            " and monitor changes in physical health."
+        ),
+        "smoking_status": (
+            "The smoking status of the patient, categorized as 'never', 'former',"
+            " or 'current', providing insight into lifestyle factors affecting health."
+        ),
+        "blood_pressure": (
+            "The blood pressure of the patient, an important health metric monitored"
+            " regularly."
+        ),
+        "cholesterol": (
+            "The cholesterol level of the patient, providing information on cardiovascular health."
+        ),
+        "bmi": (
+            "The Body Mass Index of the patient, calculated from height and weight,"
+            " used to assess overall health."
+        ),
+        "heart_rate": (
+            "The heart rate of the patient, measured in beats per minute, indicating"
+            " cardiovascular health."
+        ),
+        "blood_sugar": (
+            "The blood sugar level of the patient, an important metric for patients"
+            " with diabetes or those at risk."
+        )
+    }
+  }, 
+   
+   "simulate_transactions": {
+    "overview": (
+        "This dataset simulates financial transaction data for multiple accounts over"
+        " a specified time period. Each record represents a day's transactions for"
+        " a specific account, including various financial metrics influenced by"
+        " account activities and economic factors. The dataset provides a"
+        " realistic representation of financial transaction patterns, making it ideal for"
+        " tasks such as predicting account balances, analyzing transaction trends,"
+        " and developing financial models. Designed for educational purposes and"
+        " as a testbed for financial studies, this dataset captures the complexities"
+        " and variability of transaction data, offering valuable insights for researchers,"
+        " financial analysts, and data scientists."
+    ),
+    "features": {
+        "account_id": (
+            "A unique identifier for each account, enabling precise tracking"
+            " and analysis of transaction data specific to each account."
+        ),
+        "date": (
+            "The date of the transaction, essential for temporal analysis and"
+            " understanding trends in transaction data over time."
+        ),
+        "transaction_type": (
+            "The type of transaction, categorized as 'debit' or 'credit', indicating"
+            " whether the transaction was a withdrawal or a deposit."
+        ),
+        "amount": (
+            "The amount of the transaction, measured in the account's currency, reflecting"
+            " the value of the transaction."
+        ),
+        "balance": (
+            "The account balance after the transaction, indicating the total amount of money"
+            " available in the account."
+        )
+    }
   }
+
 
 }
 

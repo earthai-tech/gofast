@@ -29,7 +29,8 @@ from ..tools.funcutils import ensure_pkg
 from ..tools.validator import _is_arraylike_1d, validate_comparison_data
 from ..tools.validator import parameter_validator 
 
-_MAXROWS = 50  ; _MAXCOLS= 5 
+_MAXROWS=50  
+_MAXCOLS=5 
 
 __all__=[
     "perform_friedman_test", 

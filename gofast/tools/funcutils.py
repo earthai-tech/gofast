@@ -911,7 +911,7 @@ def ensure_pkg(
     name: str, 
     extra: str = "",
     errors: str = "raise",
-    min_version: str | None = None,
+    min_version: Optional[str] = None,
     exception: Exception = None, 
     dist_name: Optional[str]=None, 
     infer_dist_name: bool=False, 
@@ -1892,7 +1892,7 @@ def update_series_index(
     return_series: bool = False, 
     on_error: str = 'ignore', 
     transform: Optional[Callable] = None, 
-    condition: Optional[LambdaType|Callable[[Series], bool]] = None
+    condition: Optional[Union[LambdaType,Callable[[Series], bool]]] = None
 ):
     """
     Updates the index of a pandas Series with new values under certain conditions.
@@ -2008,14 +2008,14 @@ def update_series_index(
     return series if return_series else new_indexes
 
 def update_dataframe_index(
-    df: pd.DataFrame, 
+    df: DataFrame, 
     new_indexes: Optional[Union[list, str]] = None, 
     axis: int = 0,
     allow_replace: bool = False, 
     return_df: bool = False, 
     on_error: str = 'ignore', 
     transform: Optional[Callable] = None, 
-    condition: Optional[LambdaType|Callable[[DataFrame], bool]] = None
+    condition: Optional[Union [LambdaType,Callable[[DataFrame], bool]]] = None
 ):
     """
     Updates the index (axis=0) or columns (axis=1) of a pandas DataFrame with 
@@ -2121,10 +2121,10 @@ def update_dataframe_index(
     return df if return_df else new_indexes
 
 def convert_to_pandas(
-        data: ArrayLike | List, 
-        error: str='raise', 
-        custom_convert: Callable=None
-        ):
+    data: Union [ArrayLike, List], 
+    error: str='raise', 
+    custom_convert: Callable=None
+    ):
     """
     Automatically converts input data to a pandas DataFrame or Series 
     based on its structure. 
@@ -2213,7 +2213,7 @@ def update_index(
     return_data: bool = False, 
     on_error: str = 'ignore', 
     transform: Optional[Callable] = None, 
-    condition: Optional[LambdaType|Callable[[Union[Series, DataFrame]], bool]] = None,
+    condition: Optional[Union [LambdaType,Callable[[Union[Series, DataFrame]], bool]]] = None,
     convert_to: Optional[str] = None
 ):
     """
@@ -2348,7 +2348,7 @@ def convert_and_format_data(
     force_array_output: bool = False,
     condense: bool = False,
     custom_conversion: Optional[Callable[[Any], Union[DataFrame, Series]]] = None,
-    condition: Optional[LambdaType | Callable[[Any], dict]] = None, 
+    condition: Optional[Union[LambdaType , Callable[[Any], dict]]] = None, 
     where: str = 'before'
 ):
     """

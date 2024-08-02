@@ -2605,8 +2605,6 @@ def validate_dates(
     return start_date.year, end_date.year
 
 
-
-
 def validate_positive_integer(value, variable_name, include_zero=False, round_float=None):
     """
     Validates whether the given value is a positive integer or zero based 
@@ -2640,10 +2638,18 @@ def validate_positive_integer(value, variable_name, include_zero=False, round_fl
     # Determine the minimum acceptable value
     min_value = 0 if include_zero else 1
 
+    if isinstance(value, str):
+         # Try to convert it if possible
+         try:
+             value = int(value)
+         except ValueError:
+             # Raise a nice informative error message
+             raise ValueError(f"Value {value} is not convertible to an integer.")
+
     # Check for proper type and round if necessary
     if not isinstance(value, (int, float, np.integer, np.floating)):
         raise ValueError(f"{variable_name} must be an integer or float.")
-
+        
     if isinstance(value, float):
         if round_float == "ceil":
             value = math.ceil(value)
