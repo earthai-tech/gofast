@@ -2402,7 +2402,7 @@ DESCR_METADATA={
             " during the clinical trial period."
         )
     }
-}, 
+ }, 
    "simulate_patient_data": {
     "overview": (
         "This dataset simulates daily health data for multiple patients over"

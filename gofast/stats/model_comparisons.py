@@ -27,7 +27,7 @@ from ..decorators import isdf
 from ..tools.coreutils import validate_ratio 
 from ..tools.funcutils import ensure_pkg 
 from ..tools.validator import _is_arraylike_1d, validate_comparison_data
-from ..tools.validator import parameter_validator 
+from ..tools.validator import parameter_validator, validate_performance_data 
 
 _MAXROWS=50  
 _MAXCOLS=5 
@@ -445,6 +445,8 @@ def plot_nemenyi_cd_diagram(
     """
     score_preference = normalize_preference(score_preference)
     
+    model_performance_data = validate_performance_data(model_performance_data)
+    
     if model_performance_data is not None:
         if not isinstance(model_performance_data, pd.DataFrame):
             raise TypeError("model_performance_data must be a pandas DataFrame.")
@@ -570,6 +572,8 @@ def perform_wilcoxon_test(
     for each pair of models. A p-value less than 0.05 would indicate a statistically
     significant difference in performance between the two models.
     """
+    model_performance_data = validate_performance_data(model_performance_data)
+    
     n_models = model_performance_data.shape[1]
     p_values_matrix = np.full((n_models, n_models), np.nan)
     alpha = validate_ratio( alpha, bounds=(0, 1), exclude=0 )
@@ -667,6 +671,8 @@ def perform_friedman_test2(
     difference in model performance across the datasets.
     """
     # Check if model_performance_data is indeed a DataFrame
+    model_performance_data = validate_performance_data(model_performance_data)
+    
     if not isinstance(model_performance_data, pd.DataFrame):
         model_performance_data = pd.DataFrame(model_performance_data)
 
@@ -729,6 +735,7 @@ def perform_nemenyi_posthoc_test2(
     """
     import scikit_posthocs as sp
     # Ensure the input is a DataFrame
+    model_performance_data = validate_performance_data(model_performance_data)
     if not isinstance(model_performance_data, pd.DataFrame):
         raise ValueError("model_performance_data must be a pandas DataFrame.")
     
@@ -771,24 +778,25 @@ def compute_model_ranks(
     if not isinstance(model_performance_data, pd.DataFrame):
         raise ValueError("model_performance_data must be a pandas DataFrame.")
     
+    model_performance_data = validate_performance_data(model_performance_data)
+    
     # Rank the models based on their performance
     ranks = model_performance_data.rank(axis=1, ascending=False)
     ranks= DataFrameFormatter(
         "Ranks Results", descriptor="ModelRanks").add_df (ranks)
     return ranks
 
-@isdf
 @ensure_pkg("scikit_posthocs", extra= ( 
     " nemenyi_tests needs 'scikit-posthocs' package to be installed." 
     )     
   )
 def perform_nemenyi_test2(
-     model_performance_data: Union[Dict[str, List[float]], DataFrame], 
+     # model_performance_data: Union[Dict[str, List[float]], DataFrame], 
      ranks:Union[Series,Array1D ] 
      ):
     """
     Performs the Nemenyi post-hoc test using ranks of model performance.
-
+    
     Parameters:
     -----------
     ranks : pd.DataFrame
@@ -878,6 +886,8 @@ def perform_wilcoxon_test2(
     The resulting DataFrame will contain NaNs on the diagonal and p-values
     below the diagonal, reflecting the symmetric nature of the test.
     """
+    model_performance_data = validate_performance_data(model_performance_data)
+    
     columns = model_performance_data.columns
     n = len(columns)
     results = pd.DataFrame(index=columns, columns=columns)
@@ -1676,7 +1686,7 @@ def get_p_adj_for_groups(df, group1, group2):
 
 
 @isdf
-def transform_comparison_data(data, /):
+def transform_comparison_data(data, ):
     """
     Transforms a square DataFrame of pairwise comparisons into a long format DataFrame
     listing unique pairings and their associated values.
@@ -1850,6 +1860,8 @@ def perform_posthoc_test2(
         If an unsupported `test_method` is specified.
     """
     test_method = str(test_method)
+    model_performance_data = validate_performance_data(model_performance_data)
+    
     if test_method.lower() == 'tukey':
         from statsmodels.stats.multicomp import pairwise_tukeyhsd
         # Flatten the DataFrame for Tukey's HSD test
@@ -2261,6 +2273,8 @@ def compute_model_summary(
     >>> summary = compute_model_summary(model_performance_data)
     >>> print(summary)
     """
+    model_performance_data = validate_performance_data(model_performance_data)
+    
     if higher_is_better:
         # For metrics where higher is better, we negate the variance because we want
         # to subtract it from the mean, as higher variance is undesirable.
