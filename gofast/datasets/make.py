@@ -1161,6 +1161,7 @@ def make_agronomy_feedback(*,
     
     # Random seed for reproducibility
     np.random.seed(seed)
+    samples = validate_positive_integer(samples, "samples")
     n_specimens = int(_assert_all_types(n_specimens, int, float,
                 objname='The number of specimens (crop and pesticides)')
         )
@@ -1394,6 +1395,7 @@ def make_mining_ops(
     
     # Random seed for reproducibility
     np.random.seed(seed)
+    samples = validate_positive_integer(samples, "samples")
     
     # Geospatial data for drilling locations
     eastings = np.random.uniform(0, 1000, samples)  # in meters
@@ -1579,6 +1581,7 @@ def make_sounding(
     
     # Random seed for reproducibility
     np.random.seed(seed)
+    samples = validate_positive_integer(samples, "samples")
     
     # Initializing lists to hold data
     survey_point_ids = []
@@ -1740,6 +1743,7 @@ def make_medical_diagnosis(
     
     # Random seed for reproducibility
     np.random.seed(seed)
+    samples = validate_positive_integer(samples, "samples")
     
     # Demographic information
     ages = np.random.randint(0, 100, samples)
@@ -2149,6 +2153,7 @@ def make_ert(
     dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
     # Random seed for reproducibility
     np.random.seed(seed)
+    samples = validate_positive_integer(samples, "samples")
     
     if equipment_type not in ['SuperSting R8', 'Ministing or Sting R1', 
                               'OhmMapper']:
@@ -2319,7 +2324,7 @@ def make_tem(
     
     # Random seed for reproducibility
     np.random.seed(seed)
-    
+
     # Equipment types
     equipment_types = [
         'Stratagem EH5-Geometric', 'IRIS Remote Field Probes',
@@ -2494,6 +2499,7 @@ def make_erp(*,
 
     # Random seed for reproducibility
     np.random.seed(seed)
+    samples = validate_positive_integer(samples, "samples")
     
     # Generate random geospatial data
     samples = validate_positive_integer(samples, "samples")
