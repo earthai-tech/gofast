@@ -11,7 +11,7 @@ ensuring proper data types, and handling various validation scenarios.
 """
 
 from functools import wraps
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional, Union, Dict, List
 import re
 import inspect 
 import types 
@@ -88,6 +88,7 @@ __all__=[
      'validate_multioutput',
      'validate_nan_policy',
      'validate_numeric', 
+     'validate_performance_data',
      'validate_positive_integer',
      'validate_sample_weights',
      'validate_scores',
@@ -155,6 +156,130 @@ def filter_valid_kwargs(callable_obj, kwargs):
     valid_kwargs = {k: v for k, v in kwargs.items() if k in valid_params}
 
     return valid_kwargs
+
+def validate_sets(
+    data,  
+    mode: str = 'base', 
+    allow_empty: bool = True, 
+    element_type: type = None,
+    key_type: type = str
+    ) :
+
+    """
+    Validates whether the input data is a set in 'base' mode or a dictionary 
+    of sets in 'deep' mode. Provides additional parameters for flexibility 
+    and versatility. Returns the data if it passes validation.
+
+    Parameters
+    ----------
+    data : Union[set, Dict[str, set]]
+        The input data to validate. It can be either a single set or a dictionary 
+        where keys are set names and values are sets.
+
+        - `base mode` : A single set.
+        - `deep mode` : A dictionary of sets.
+
+    mode : str, optional
+        The mode in which to validate the data. Options are 'base' for a single 
+        set and 'deep' for a dictionary of sets. Default is 'base'.
+
+    allow_empty : bool, optional
+        Whether to allow empty sets or dictionaries. Default is True.
+
+    element_type : type, optional
+        The expected type of elements in the set(s). If provided, the function 
+        checks whether all elements are of this type. Default is None (no type 
+        check).
+
+    key_type : type, optional
+        The expected type of keys in the dictionary when in 'deep' mode. Default 
+        is `str`.
+
+    Returns
+    -------
+    Union[set, Dict[str, set]]
+        The original data if it matches the specified mode and additional 
+        criteria. Raises ValueError if validation fails.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import validate_sets 
+    >>> validate_sets({1, 2, 3}, mode='base')
+    {1, 2, 3}
+
+    >>> validate_sets({"Set1": {1, 2, 3}, "Set2": {3, 4, 5}}, mode='deep')
+    {"Set1": {1, 2, 3}, "Set2": {3, 4, 5}}
+
+    >>> validate_sets({"Set1": {1, 2, 3}, "Set2": [3, 4, 5]}, mode='deep')
+    Traceback (most recent call last):
+        ...
+    ValueError: Data validation failed: expected all values to be sets
+
+    >>> validate_sets(set(), mode='base', allow_empty=False)
+    Traceback (most recent call last):
+        ...
+    ValueError: Data validation failed: empty set is not allowed
+
+    >>> validate_sets({"Set1": set()}, mode='deep', allow_empty=False)
+    Traceback (most recent call last):
+        ...
+    ValueError: Data validation failed: empty dictionary is not allowed
+
+    >>> validate_sets({"Set1": {1, 2, 3}}, mode='deep', element_type=int)
+    {"Set1": {1, 2, 3}}
+
+    Notes
+    -----
+    This function checks the type of the input data based on the specified mode. 
+    In 'base' mode, it ensures the data is a set. In 'deep' mode, it ensures the 
+    data is a dictionary where all values are sets. Additional parameters allow 
+    for checking if sets are empty, if elements are of a specific type, and if 
+    dictionary keys are of a specific type.
+
+    See Also
+    --------
+    isinstance : Python built-in function to check an object's type.
+
+    References
+    ----------
+    .. [1] Python Software Foundation. (n.d.). isinstance. Retrieved from 
+       https://docs.python.org/3/library/functions.html#isinstance
+
+    """
+    if mode == 'base':
+        if not isinstance(data, set):
+            raise ValueError(
+                f"Data validation failed: expected a set, got {type(data).__name__!r}")
+        if not allow_empty and not data:
+            raise ValueError("Data validation failed: empty set is not allowed")
+        if element_type is not None and any(
+                not isinstance(el, element_type) for el in data):
+            raise ValueError("Data validation failed: all elements must"
+                             f" be of type {element_type.__name__!r}")
+    elif mode == 'deep':
+        if not isinstance(data, dict):
+            raise ValueError(
+                "Data validation failed: expected a dictionary,"
+                f" got {type(data).__name__!r}")
+        if not allow_empty and not data:
+            raise ValueError(
+                "Data validation failed: empty dictionary is not allowed")
+        if any(not isinstance(k, key_type) for k in data.keys()):
+            raise ValueError(
+                f"Data validation failed: all keys must be of type {key_type.__name__!r}")
+        if any(not isinstance(v, set) for v in data.values()):
+            raise ValueError("Data validation failed: expected all values to be sets")
+        if element_type is not None and any(
+                not isinstance(el, element_type) 
+                for v in data.values() for el in v):
+            raise ValueError("Data validation failed: all elements must"
+                             f" be of type {element_type.__name__!r}")
+     
+    else:
+        raise ValueError("Mode must be either 'base' or 'deep'.")
+        
+    return data
+
 
 def validate_scores(
     scores, true_labels=None, 
@@ -921,6 +1046,181 @@ def handle_zero_division(
             pass  # Do nothing, let the calling function handle zeros natively.
 
     return y_true_processed
+
+def convert_to_numeric(value, preserve_integers=True, context_description='Data'):
+    """
+    Helper function to convert values to float. It ensures that integers are
+    converted to floats (unless preserve_integers is True) and raises a detailed
+    error for non-numeric values.
+    
+    Parameters
+    ----------
+    value : Any
+        The value to be converted to float. Integer values are converted, while
+        floats are returned as-is. Non-numeric types raise a ValueError.
+    
+    preserve_integers : bool, optional, default True
+        If True, integer values are preserved as integers and not converted to floats
+        and False otherwise.
+    
+    context_description : str, optional, default 'Data'
+        A description of the type of data being processed, used in error messages 
+        to provide context (e.g., 'Performance data', 'Input data').
+    
+    Returns
+    -------
+    float or int
+        The converted numeric value (float by default, or int if preserve_integers is True).
+    
+    Raises
+    ------
+    ValueError
+        If the value cannot be converted to a numeric type
+        (e.g., strings that do not represent numbers).
+    
+    Examples
+    --------
+    >>> from gofast.tools.validator import convert_to_numeric
+    >>> convert_to_numeric(5)
+    5.0
+    >>> convert_to_numeric(5, preserve_integers=True)
+    5
+    >>> convert_to_numeric(3.14)
+    3.14
+    >>> convert_to_numeric('0.85')
+    0.85
+    >>> convert_to_numeric('abc')
+    ValueError: Data expected numeric values, but got str: 'abc'
+    """
+    try:
+        # Check if the value is an integer
+        if isinstance(value, int):
+            if preserve_integers:
+                return value  # Keep the integer as is
+            else:
+                return float(value)  # Convert to float
+        # If the value is already a float, return it
+        elif isinstance(value, float):
+            return value
+        # Attempt to convert any other type (like strings) to float
+        else:
+            return float(value)  # Handle strings that represent numbers
+    except (ValueError, TypeError) as e:
+        # Raise a clear error with context-specific description
+        raise ValueError(f"{context_description} expected numeric values,"
+                         f" but got {type(value).__name__}: '{value}'") from e
+
+def validate_performance_data(
+    model_performance_data: Union[Dict[str, List[float]], pd.DataFrame],
+    nan_policy: str = 'raise',  
+    convert_integers: bool = True, 
+    check_performance_range: bool = True,  
+    verbose: bool = False  
+) -> pd.DataFrame:
+    """
+    Validates and processes the model performance data.
+    
+    Parameters
+    ----------
+    model_performance_data : Union[Dict[str, List[float]], pd.DataFrame]
+        A dictionary or DataFrame with model names as keys (columns) and lists
+        of performance metrics as values.
+    
+    nan_policy : str, default 'raise'
+        Specifies how to handle NaN values in the data.
+        'raise' will throw an error if NaNs are found, 'omit' will drop them,
+        and 'propagate' will ignore NaNs when checking performance range.
+        
+    convert_integers : bool, default True
+        Whether to convert integer values to floats.
+        
+    check_performance_range : bool, default True
+        Whether to ensure that performance values are within the [0, 1] range.
+        
+    verbose : bool, default False
+        If True, prints the steps of the validation and conversion process.
+    
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame with float values.
+    
+    Raises
+    ------
+    ValueError
+        If the input data cannot be converted to a valid DataFrame, 
+        if NaN values are found and `nan_policy` is 'raise', or if performance 
+        values are outside the range [0, 1].
+    
+    Examples
+    --------
+    >>> from gofast.tools.validator import validate_performance_data
+    
+    Example 1: Dictionary input with NaN check and integer to float conversion.
+    
+    >>> data = {'model1': [0.85, 0.90, 0.92], 'model2': [0.80, 0.87, 0.88]}
+    >>> validate_performance_data(data, nan_policy='raise')
+    
+    Example 2: DataFrame input with performance range check disabled.
+    
+    >>> df = pd.DataFrame({'model1': [0.85, 0.90, 0.92], 'model2': [0.80, 0.87, 0.88]})
+    >>> validate_performance_data(df, check_performance_range=False)
+    
+    Example 3: Handling NaN values with 'omit' policy.
+    
+    >>> df = pd.DataFrame({'model1': [0.85, None, 0.92], 'model2': [0.80, 0.87, None]})
+    >>> validate_performance_data(df, nan_policy='omit')
+    
+    """
+
+    # Convert to DataFrame if input is a dictionary
+    if isinstance(model_performance_data, dict):
+        if verbose:
+            print("Converting dictionary to DataFrame...")
+        df = pd.DataFrame(model_performance_data)
+    elif isinstance(model_performance_data, pd.DataFrame):
+        df = model_performance_data.copy()
+    else:
+        raise ValueError("Input data must be either a dictionary or a DataFrame.")
+    
+    # Ensure all values are float, convert integers to floats if needed
+    if convert_integers:
+        if verbose:
+            print("Converting integer values to floats where necessary...")
+        df = df.applymap(convert_to_numeric, preserve_integers=False, 
+                         context_description='Performance data')
+    
+    # Handle NaN values according to nan_policy
+    is_valid_policies(nan_policy, allowed_policies=['raise', 'omit', 'propagate'])
+    
+    if df.isna().any().any():  # Check for NaN values
+        if nan_policy == 'raise':
+            raise ValueError("NaN values detected in the data. Set `nan_policy='omit'` to drop them.")
+        elif nan_policy == 'omit':
+            if verbose:
+                print("Dropping rows with NaN values...")
+            df = df.dropna()
+    
+    # Ensure all values are float type
+    df = df.astype(float)
+    
+    # Check if performance values are within the valid range [0, 1], considering nan_policy 'propagate'
+    if check_performance_range:
+        if nan_policy == 'propagate':
+            if (df.dropna() < 0).any().any():
+                raise ValueError("Performance values cannot be negative.")
+            if (df.dropna() > 1).any().any():
+                raise ValueError("Performance values must be in the range [0, 1].")
+        else:
+            if (df < 0).any().any():
+                raise ValueError("Performance values cannot be negative.")
+            if (df > 1).any().any():
+                raise ValueError("Performance values must be in the range [0, 1].")
+    
+    if verbose:
+        print("Validation and conversion complete. Data is ready for further processing.")
+    
+    return df
 
 def validate_comparison_data(df,  alignment="auto"):
     """
@@ -2481,8 +2781,6 @@ def validate_dates(
     return start_date.year, end_date.year
 
 
-
-
 def validate_positive_integer(value, variable_name, include_zero=False, round_float=None):
     """
     Validates whether the given value is a positive integer or zero based 
@@ -2516,10 +2814,18 @@ def validate_positive_integer(value, variable_name, include_zero=False, round_fl
     # Determine the minimum acceptable value
     min_value = 0 if include_zero else 1
 
+    if isinstance(value, str):
+         # Try to convert it if possible
+         try:
+             value = int(value)
+         except ValueError:
+             # Raise a nice informative error message
+             raise ValueError(f"Value {value} is not convertible to an integer.")
+
     # Check for proper type and round if necessary
     if not isinstance(value, (int, float, np.integer, np.floating)):
         raise ValueError(f"{variable_name} must be an integer or float.")
-
+        
     if isinstance(value, float):
         if round_float == "ceil":
             value = math.ceil(value)

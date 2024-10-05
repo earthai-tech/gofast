@@ -27,7 +27,10 @@ from ..decorators import isdf
 from ..tools.coreutils import validate_ratio 
 from ..tools.funcutils import ensure_pkg 
 from ..tools.validator import _is_arraylike_1d, validate_comparison_data
-from ..tools.validator import parameter_validator 
+from ..tools.validator import parameter_validator, validate_performance_data 
+
+_MAXROWS=50  
+_MAXCOLS=5 
 
 __all__=[
     "perform_friedman_test", 
@@ -212,7 +215,10 @@ def perform_friedman_test(
 
     formatted_result= MultiFrameFormatter( titles=titles,
        keywords=['friedman_result', 'post_hoc_result'], 
-       descriptor="FriedmanTest").add_dfs(*results)
+       descriptor="FriedmanTest", 
+       max_rows = _MAXROWS,
+       max_cols = _MAXCOLS
+       ).add_dfs(*results)
     
     return formatted_result
  
@@ -340,7 +346,10 @@ def perform_nemenyi_posthoc_test(
         ] 
     keywords = ['p_values', 'significant_differences', 'average_ranks']
     results= MultiFrameFormatter(titles = titles, keywords= keywords, 
-                                 descriptor="NemenyiPosthocTest").add_dfs(
+                                 descriptor="NemenyiPosthocTest", 
+                                 max_rows = _MAXROWS,
+                                 max_cols = _MAXCOLS
+                                 ).add_dfs(
         pairwise_p_values, significant_diffs,  avg_ranks
     )
     
@@ -435,6 +444,8 @@ def plot_nemenyi_cd_diagram(
       for integration of the plot within larger figure layouts or subplots.
     """
     score_preference = normalize_preference(score_preference)
+    
+    model_performance_data = validate_performance_data(model_performance_data)
     
     if model_performance_data is not None:
         if not isinstance(model_performance_data, pd.DataFrame):
@@ -561,6 +572,8 @@ def perform_wilcoxon_test(
     for each pair of models. A p-value less than 0.05 would indicate a statistically
     significant difference in performance between the two models.
     """
+    model_performance_data = validate_performance_data(model_performance_data)
+    
     n_models = model_performance_data.shape[1]
     p_values_matrix = np.full((n_models, n_models), np.nan)
     alpha = validate_ratio( alpha, bounds=(0, 1), exclude=0 )
@@ -588,7 +601,10 @@ def perform_wilcoxon_test(
         p_values_df[~significant_diffs] = np.nan
         
     p_values_df= DataFrameFormatter(
-        "Wilcoxon Test Results", descriptor="WilcoxonTest").add_df (p_values_df)
+        "Wilcoxon Test Results", descriptor="WilcoxonTest", 
+        max_rows = _MAXROWS,
+        max_cols = _MAXCOLS
+        ).add_df (p_values_df)
     return p_values_df
 
 @isdf 
@@ -655,6 +671,8 @@ def perform_friedman_test2(
     difference in model performance across the datasets.
     """
     # Check if model_performance_data is indeed a DataFrame
+    model_performance_data = validate_performance_data(model_performance_data)
+    
     if not isinstance(model_performance_data, pd.DataFrame):
         model_performance_data = pd.DataFrame(model_performance_data)
 
@@ -673,7 +691,10 @@ def perform_friedman_test2(
 
     # Formatting the result DataFrame for presentation
     formatted_result = DataFrameFormatter(
-        title="Friedman Test Results", descriptor="FriedmanTest").add_df(result)
+        title="Friedman Test Results", descriptor="FriedmanTest", 
+        max_rows = _MAXROWS,
+        max_cols = _MAXCOLS
+        ).add_df(result)
 
     return formatted_result
 
@@ -714,6 +735,7 @@ def perform_nemenyi_posthoc_test2(
     """
     import scikit_posthocs as sp
     # Ensure the input is a DataFrame
+    model_performance_data = validate_performance_data(model_performance_data)
     if not isinstance(model_performance_data, pd.DataFrame):
         raise ValueError("model_performance_data must be a pandas DataFrame.")
     
@@ -725,7 +747,10 @@ def perform_nemenyi_posthoc_test2(
     pairwise_comparisons.columns = model_performance_data.columns
     
     pairwise_comparisons= DataFrameFormatter(
-        "PairWise Results", descriptor="NemenyiTest").add_df (
+        "PairWise Results", descriptor="NemenyiTest", 
+        max_rows = _MAXROWS,
+        max_cols = _MAXCOLS
+        ).add_df (
         pairwise_comparisons)
     
     return pairwise_comparisons
@@ -753,24 +778,25 @@ def compute_model_ranks(
     if not isinstance(model_performance_data, pd.DataFrame):
         raise ValueError("model_performance_data must be a pandas DataFrame.")
     
+    model_performance_data = validate_performance_data(model_performance_data)
+    
     # Rank the models based on their performance
     ranks = model_performance_data.rank(axis=1, ascending=False)
     ranks= DataFrameFormatter(
         "Ranks Results", descriptor="ModelRanks").add_df (ranks)
     return ranks
 
-@isdf
 @ensure_pkg("scikit_posthocs", extra= ( 
     " nemenyi_tests needs 'scikit-posthocs' package to be installed." 
     )     
   )
 def perform_nemenyi_test2(
-     model_performance_data: Union[Dict[str, List[float]], DataFrame], 
+     # model_performance_data: Union[Dict[str, List[float]], DataFrame], 
      ranks:Union[Series,Array1D ] 
      ):
     """
     Performs the Nemenyi post-hoc test using ranks of model performance.
-
+    
     Parameters:
     -----------
     ranks : pd.DataFrame
@@ -798,7 +824,10 @@ def perform_nemenyi_test2(
     pairwise_comparisons.columns = ranks.columns
     pairwise_comparisons= DataFrameFormatter(
         "Nemenyi Results", descriptor="NemenyiTest", 
-        keyword='result').add_df (
+        keyword='result', 
+        max_rows = _MAXROWS,
+        max_cols = _MAXCOLS
+        ).add_df (
         pairwise_comparisons)
     return pairwise_comparisons
 
@@ -857,6 +886,8 @@ def perform_wilcoxon_test2(
     The resulting DataFrame will contain NaNs on the diagonal and p-values
     below the diagonal, reflecting the symmetric nature of the test.
     """
+    model_performance_data = validate_performance_data(model_performance_data)
+    
     columns = model_performance_data.columns
     n = len(columns)
     results = pd.DataFrame(index=columns, columns=columns)
@@ -876,7 +907,10 @@ def perform_wilcoxon_test2(
     np.fill_diagonal(results.values, pd.NA)
     results= DataFrameFormatter(
         "Wilcoxon Results", descriptor="WilcoxonTest", 
-        keyword='result').add_df (results)
+        keyword='result', 
+        max_rows = _MAXROWS,
+        max_cols = _MAXCOLS
+        ).add_df (results)
     return results
 
 def plot_cd_diagram(
@@ -1267,7 +1301,10 @@ def perform_posthoc_test(
         index=model_performance_data.columns 
         ) 
     posthoc_result= DataFrameFormatter(
-        f"Posthoc {test_method} Results", descriptor="NemenyiTest").add_df (
+        f"Posthoc {test_method} Results", descriptor="NemenyiTest", 
+        max_rows = _MAXROWS,
+        max_cols = _MAXCOLS
+        ).add_df (
         posthoc_result)
     
     return posthoc_result
@@ -1590,7 +1627,10 @@ def perform_posthoc_analysis(
     title = f"Multiple Comparison of Means - {test_method.title()}, FWER={significance_level}"
     analysis_result= DataFrameFormatter(
         title=title, descriptor=f"{test_method}Test", 
-        keyword ='result').add_df (
+        keyword ='result', 
+        max_rows = _MAXROWS,
+        max_cols = _MAXCOLS
+        ).add_df (
         pd.DataFrame(records))
     
     return analysis_result
@@ -1646,7 +1686,7 @@ def get_p_adj_for_groups(df, group1, group2):
 
 
 @isdf
-def transform_comparison_data(data, /):
+def transform_comparison_data(data, ):
     """
     Transforms a square DataFrame of pairwise comparisons into a long format DataFrame
     listing unique pairings and their associated values.
@@ -1751,7 +1791,10 @@ def compute_stats_comparisons(data_or_result, test_type='wilcoxon'):
 
     comparison_results = DataFrameFormatter( 
         title =f"{test_type} Results", keyword='result', 
-        descriptor=f"{test_type}Test").add_df (result_df)
+        descriptor=f"{test_type}Test", 
+        max_rows = _MAXROWS,
+        max_cols = _MAXCOLS
+        ).add_df (result_df)
     
     return comparison_results
 
@@ -1817,6 +1860,8 @@ def perform_posthoc_test2(
         If an unsupported `test_method` is specified.
     """
     test_method = str(test_method)
+    model_performance_data = validate_performance_data(model_performance_data)
+    
     if test_method.lower() == 'tukey':
         from statsmodels.stats.multicomp import pairwise_tukeyhsd
         # Flatten the DataFrame for Tukey's HSD test
@@ -1835,7 +1880,10 @@ def perform_posthoc_test2(
     else:
         raise ValueError(f"Unsupported test method '{test_method}'."
                          " Choose 'tukey' or 'nemenyi'.")
-    posthoc_result= DataFrameFormatter(f"Posthoc {test_method} Results").add_df (
+    posthoc_result= DataFrameFormatter(f"Posthoc {test_method} Results", 
+                                       max_rows = _MAXROWS,
+                                       max_cols = _MAXCOLS
+                                       ).add_df (
         posthoc_result)
     return posthoc_result
 
@@ -2095,7 +2143,10 @@ def visualize_wilcoxon_test(
     
     if return_result : 
         return DataFrameFormatter(
-            "wilcoxon Results", descriptor="WilcoxonTest").add_df (results_df)
+            "wilcoxon Results", descriptor="WilcoxonTest", 
+            max_rows = _MAXROWS,
+            max_cols = _MAXCOLS
+            ).add_df (results_df)
 
 @isdf 
 def generate_model_pairs(
@@ -2222,6 +2273,8 @@ def compute_model_summary(
     >>> summary = compute_model_summary(model_performance_data)
     >>> print(summary)
     """
+    model_performance_data = validate_performance_data(model_performance_data)
+    
     if higher_is_better:
         # For metrics where higher is better, we negate the variance because we want
         # to subtract it from the mean, as higher variance is undesirable.
@@ -2235,7 +2288,10 @@ def compute_model_summary(
     summary= summary.sort_values(ascending= not higher_is_better)
     formatted_summary = DataFrameFormatter('Summary Statistics', 
         descriptor="ModelSummary", keyword='summary', 
-        series_name = "average_score").add_df (summary) 
+        series_name = "average_score", 
+        max_rows = _MAXROWS,
+        max_cols = _MAXCOLS
+        ).add_df (summary) 
     
     return formatted_summary # Bunch object and print to see content 
 
