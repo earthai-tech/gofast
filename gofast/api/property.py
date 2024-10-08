@@ -7,7 +7,7 @@
 by methods implemented throughout the package. It also inferred properties to 
 data objects. 
 
-.. _GoFast: https://github.com/WEgeophysics/gofast/ 
+.. _GoFast: https://github.com/earthai-tech/gofast/ 
 .. _interpol_imshow: https://matplotlib.org/stable/gallery/images_contours_and_fields/interpolation_methods.html
 
 """   
@@ -15,23 +15,15 @@ data objects.
 # import warnings 
 from __future__ import annotations 
 # import os 
-from abc import ( 
-    ABC, 
-    abstractmethod, 
-    )
+from abc import ABC, abstractmethod 
 import numpy as np
 import pandas as pd 
 from typing import Any, Dict, Iterable, List, Tuple
 import inspect
 
 __all__ = [ 
-    "BasePlot", 
-    "Config", 
-    "UTM_DESIGNATOR",  
-    "Software", 
-    "Copyright", 
-    "References", 
-    "Person", 
+    "BasePlot", "Config", "GofastConfig", "UTM_DESIGNATOR",  "Software", 
+    "Copyright", "References", "Person", "BaseClass", "PipelineBaseClass"
 ]
 
 
@@ -102,7 +94,6 @@ class GofastConfig:
         raise AttributeError(
             "Modification of WHITESPACE_ESCAPE is not allowed as"
             " it may affect the Gofast API frame formatter across all modules.")
-
 
 class PipelineBaseClass:
     """
@@ -199,7 +190,6 @@ class PipelineBaseClass:
             f")"
         )
         return repr_str
-
 
 class BaseClass:
     """
@@ -587,9 +577,7 @@ class BasePlot(ABC):
                          for pname, pvalues in self.__dict__.items() 
                          if pname.startswith('cb_')
                          }
-       
-         
-    
+
 class Config: 
     
     """ Container of property elements. 

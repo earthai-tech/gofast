@@ -1195,7 +1195,8 @@ def validate_performance_data(
     
     if df.isna().any().any():  # Check for NaN values
         if nan_policy == 'raise':
-            raise ValueError("NaN values detected in the data. Set `nan_policy='omit'` to drop them.")
+            raise ValueError("NaN values detected in the data. Set"
+                             " `nan_policy='omit'` to drop them.")
         elif nan_policy == 'omit':
             if verbose:
                 print("Dropping rows with NaN values...")
@@ -1204,7 +1205,8 @@ def validate_performance_data(
     # Ensure all values are float type
     df = df.astype(float)
     
-    # Check if performance values are within the valid range [0, 1], considering nan_policy 'propagate'
+    # Check if performance values are within the valid range [0, 1],
+    # considering nan_policy 'propagate'
     if check_performance_range:
         if nan_policy == 'propagate':
             if (df.dropna() < 0).any().any():
