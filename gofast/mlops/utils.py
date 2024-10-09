@@ -26,6 +26,8 @@ import numpy as np
 
 from ..decorators import EnsureFileExists 
 from .._gofastlog import gofastlog 
+from ..tools.validator import parameter_validator 
+
 logger=gofastlog.get_gofast_logger(__name__)
 
 
@@ -81,14 +83,19 @@ class ConfigManager:
     >>> config_manager.save_config()
 
     """
-
+    
+    @EnsureFileExists
     def __init__(self, config_file: str, config_format: str = 'json'):
-        if config_format not in ['json', 'yaml']:
-            raise ValueError("config_format must be 'json' or 'yaml'")
-        self.config_file = config_file
+
         self.config_format = config_format
         self.config: Dict[str, Any] = {}
-
+        
+        self.config_file =parameter_validator(
+            config_format, target_strs=['json', 'yaml', 'yml'],  
+            return_target_str=True, error_msg=(
+                "config_format must be 'json' or 'yaml'")
+            )
+        
     def load_config(self) -> Dict[str, Any]:
         """
         Loads the configuration from the file.
@@ -217,7 +224,7 @@ class ExperimentTracker:
             json.dump(metrics, f, indent=4)
         logger.info("Metrics logged.")
 
-    @EnsureFileExists(file_param="artifact_path")
+    @EnsureFileExists(file_param="artifact_path", action="ignore")
     def save_artifact(self, artifact_path: str, artifact_name: Optional[str] = None):
         """
         Saves an artifact file to the experiment directory.

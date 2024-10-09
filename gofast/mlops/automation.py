@@ -15,11 +15,10 @@ from typing import Callable, Dict, Any, List, Tuple
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor 
 
-from sklearn.utils._param_validation import validate_params
-
 from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
 from .._gofastlog import gofastlog 
 from ..api.property import BaseClass
+from ..compat.sklearn import validate_params 
 from ..tools.funcutils import ensure_pkg 
 
 logger=gofastlog.get_gofast_logger(__name__)
@@ -27,15 +26,15 @@ logger=gofastlog.get_gofast_logger(__name__)
 
 __all__ = [
     "AutomationManager",
-    "AirflowAutomationManager",
-    "KubeflowAutomationManager",
-    "KafkaAutomationManager",
-    "RabbitMQAutomationManager",
+    "AirflowAutomation",
+    "KubeflowAutomation",
+    "KafkaAutomation",
+    "RabbitMQAutomation",
     "RetrainingScheduler",
-    "SimpleAutomationManager",
+    "SimpleAutomation",
 ]
 
-class SimpleAutomationManager(BaseClass):
+class SimpleAutomation(BaseClass):
     """
     Manages the automation of repetitive tasks such as scheduled model
     training and data ingestion. It supports adding tasks, scheduling
@@ -61,7 +60,7 @@ class SimpleAutomationManager(BaseClass):
 
     Notes
     -----
-    The `SimpleAutomationManager` allows for the automation of tasks by
+    The `SimpleAutomation` allows for the automation of tasks by
     scheduling them to run at specified intervals. Tasks are executed in
     separate threads, allowing for concurrent execution.
 
@@ -76,10 +75,10 @@ class SimpleAutomationManager(BaseClass):
 
     Examples
     --------
-    >>> from gofast.mlops.automation import SimpleAutomationManager
+    >>> from gofast.mlops.automation import SimpleAutomation
     >>> def my_task():
     ...     print("Task executed")
-    >>> manager = SimpleAutomationManager()
+    >>> manager = SimpleAutomation()
     >>> manager.add_task('print_task', my_task, interval=5)
     >>> manager.schedule_task('print_task')
     >>> # Task will execute every 5 seconds
@@ -99,12 +98,12 @@ class SimpleAutomationManager(BaseClass):
 
     def __init__(self):
         """
-        Initializes the `SimpleAutomationManager` with an empty task
+        Initializes the `SimpleAutomation` with an empty task
         dictionary.
 
         Examples
         --------
-        >>> manager = SimpleAutomationManager()
+        >>> manager = SimpleAutomation()
         """
         self._include_all_attributes=True
         
@@ -314,7 +313,7 @@ class SimpleAutomationManager(BaseClass):
         for task_name in self.tasks.keys():
             self.schedule_task(task_name)
             
-class SimpleRetrainingScheduler(SimpleAutomationManager):
+class SimpleRetrainingScheduler(SimpleAutomation):
     """
     Manages the automation of model retraining workflows based on model
     performance decay. This class schedules regular model retraining and
@@ -340,7 +339,7 @@ class SimpleRetrainingScheduler(SimpleAutomationManager):
 
     Notes
     -----
-    The `SimpleRetrainingScheduler` extends `SimpleAutomationManager` to
+    The `SimpleRetrainingScheduler` extends `SimpleAutomation` to
     provide functionality specific to model retraining workflows.
 
     Examples
@@ -354,7 +353,7 @@ class SimpleRetrainingScheduler(SimpleAutomationManager):
 
     See Also
     --------
-    SimpleAutomationManager : Manages the automation of repetitive tasks.
+    SimpleAutomation : Manages the automation of repetitive tasks.
 
     References
     ----------
@@ -366,7 +365,7 @@ class SimpleRetrainingScheduler(SimpleAutomationManager):
     def __init__(self):
         """
         Initializes the `SimpleRetrainingScheduler` by calling the
-        constructor of the parent `SimpleAutomationManager`.
+        constructor of the parent `SimpleAutomation`.
 
         Examples
         --------
@@ -690,7 +689,7 @@ class AutomationManager(BaseClass):
 
     See Also
     --------
-    SimpleAutomationManager : A simpler version of the automation manager.
+    SimpleAutomation : A simpler version of the automation manager.
 
     References
     ----------
@@ -1308,7 +1307,7 @@ class RetrainingScheduler(AutomationManager):
         self.schedule_task(task_name)
 
 
-class AirflowAutomationManager(AutomationManager):
+class AirflowAutomation(AutomationManager):
     """
     Integrates the AutomationManager with Apache Airflow to schedule and
     manage tasks using Directed Acyclic Graphs (DAGs).
@@ -1343,15 +1342,15 @@ class AirflowAutomationManager(AutomationManager):
     
     Notes
     -----
-    The ``AirflowAutomationManager`` class allows integration with Apache
+    The ``AirflowAutomation`` class allows integration with Apache
     Airflow, enabling the scheduling and management of tasks using Airflow
     DAGs.
     
     Examples
     --------
-    >>> from gofast.mlops.automation import AirflowAutomationManager
+    >>> from gofast.mlops.automation import AirflowAutomation
     >>> from datetime import datetime
-    >>> manager = AirflowAutomationManager(
+    >>> manager = AirflowAutomation(
     ...     dag_id='automation_dag',
     ...     start_date=datetime(2023, 1, 1),
     ...     schedule_interval='@daily'
@@ -1510,7 +1509,7 @@ class AirflowAutomationManager(AutomationManager):
             logger.error(f"Task '{task_name}' not found in DAG '{self.dag_id}'.")
 
 
-class KubeflowAutomationManager(AutomationManager):
+class KubeflowAutomation(AutomationManager):
     """
     Integrates the AutomationManager with Kubeflow Pipelines to manage tasks
     in Kubernetes.
@@ -1532,13 +1531,13 @@ class KubeflowAutomationManager(AutomationManager):
     
     Notes
     -----
-    The ``KubeflowAutomationManager`` allows integration with Kubeflow Pipelines,
+    The ``KubeflowAutomation`` allows integration with Kubeflow Pipelines,
     enabling the scheduling and management of tasks in a Kubernetes cluster.
     
     Examples
     --------
-    >>> from gofast.mlops.automation import KubeflowAutomationManager
-    >>> manager = KubeflowAutomationManager(host='http://localhost:8080')
+    >>> from gofast.mlops.automation import KubeflowAutomation
+    >>> manager = KubeflowAutomation(host='http://localhost:8080')
     >>> def my_task():
     ...     print("Task executed")
     >>> manager.create_kubeflow_pipeline('my_pipeline', 'my_task', my_task)
@@ -1647,7 +1646,7 @@ class KubeflowAutomationManager(AutomationManager):
         return pipeline_run_id
 
 
-class KafkaAutomationManager(AutomationManager):
+class KafkaAutomation(AutomationManager):
     """
     Handles real-time data pipeline automation using Kafka. Consumes Kafka
     topics and triggers tasks based on incoming data.
@@ -1671,7 +1670,7 @@ class KafkaAutomationManager(AutomationManager):
 
     Notes
     -----
-    The ``KafkaAutomationManager`` class integrates Kafka message consumption
+    The ``KafkaAutomation`` class integrates Kafka message consumption
     into the automation framework, allowing tasks to be triggered based on
     real-time data streams.
 
@@ -1686,10 +1685,10 @@ class KafkaAutomationManager(AutomationManager):
 
     Examples
     --------
-    >>> from gofast.mlops.automation import KafkaAutomationManager
+    >>> from gofast.mlops.automation import KafkaAutomation
     >>> def process_data(data):
     ...     print(f"Processing data: {data}")
-    >>> manager = KafkaAutomationManager(
+    >>> manager = KafkaAutomation(
     ...     kafka_servers=['localhost:9092'],
     ...     topic='my_topic'
     ... )
@@ -1725,7 +1724,7 @@ class KafkaAutomationManager(AutomationManager):
         topic: str
     ):
         """
-        Initializes the ``KafkaAutomationManager``.
+        Initializes the ``KafkaAutomation``.
 
         Parameters
         ----------
@@ -1736,7 +1735,7 @@ class KafkaAutomationManager(AutomationManager):
 
         Examples
         --------
-        >>> manager = KafkaAutomationManager(
+        >>> manager = KafkaAutomation(
         ...     kafka_servers=['localhost:9092'],
         ...     topic='my_topic'
         ... )
@@ -1784,7 +1783,7 @@ class KafkaAutomationManager(AutomationManager):
             func(data)
 
 
-class RabbitMQAutomationManager(AutomationManager):
+class RabbitMQAutomation(AutomationManager):
     """
     Handles real-time data pipeline automation using RabbitMQ. Consumes
     messages from a RabbitMQ queue and triggers tasks.
@@ -1812,7 +1811,7 @@ class RabbitMQAutomationManager(AutomationManager):
 
     Notes
     -----
-    The ``RabbitMQAutomationManager`` class integrates RabbitMQ message
+    The ``RabbitMQAutomation`` class integrates RabbitMQ message
     consumption into the automation framework, allowing tasks to be triggered
     based on real-time data streams.
 
@@ -1827,10 +1826,10 @@ class RabbitMQAutomationManager(AutomationManager):
 
     Examples
     --------
-    >>> from gofast.mlops.automation import RabbitMQAutomationManager
+    >>> from gofast.mlops.automation import RabbitMQAutomation
     >>> def process_data(data):
     ...     print(f"Processing data: {data}")
-    >>> manager = RabbitMQAutomationManager(
+    >>> manager = RabbitMQAutomation(
     ...     host='localhost',
     ...     queue='my_queue'
     ... )
@@ -1864,7 +1863,7 @@ class RabbitMQAutomationManager(AutomationManager):
         queue: str
     ):
         """
-        Initializes the ``RabbitMQAutomationManager``.
+        Initializes the ``RabbitMQAutomation``.
 
         Parameters
         ----------
@@ -1875,7 +1874,7 @@ class RabbitMQAutomationManager(AutomationManager):
 
         Examples
         --------
-        >>> manager = RabbitMQAutomationManager(
+        >>> manager = RabbitMQAutomation(
         ...     host='localhost',
         ...     queue='my_queue'
         ... )
