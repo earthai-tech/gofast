@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-4. mlops.versioning
-Purpose: To track and manage different versions of models, datasets, 
+Track and manage different versions of models, datasets, 
 and pipelines in an organized manner.
 
 Key Features:

@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """
-2. mlops.monitoring
 Monitor model performance in production, track key metrics, and set alerts 
 for performance degradation.
 

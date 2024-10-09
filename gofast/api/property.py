@@ -7,7 +7,7 @@
 by methods implemented throughout the package. It also inferred properties to 
 data objects. 
 
-.. _GoFast: https://github.com/WEgeophysics/gofast/ 
+.. _GoFast: https://github.com/earthai-tech/gofast/ 
 .. _interpol_imshow: https://matplotlib.org/stable/gallery/images_contours_and_fields/interpolation_methods.html
 
 """   
@@ -15,23 +15,15 @@ data objects.
 # import warnings 
 from __future__ import annotations 
 # import os 
-from abc import ( 
-    ABC, 
-    abstractmethod, 
-    )
+from abc import ABC, abstractmethod 
 import numpy as np
 import pandas as pd 
-from typing import Any, Dict, Iterable
-
+from typing import Any, Dict, Iterable, List, Tuple
+import inspect
 
 __all__ = [ 
-    "BasePlot", 
-    "Config", 
-    "UTM_DESIGNATOR",  
-    "Software", 
-    "Copyright", 
-    "References", 
-    "Person", 
+    "BasePlot", "Config", "GofastConfig", "UTM_DESIGNATOR",  "Software", 
+    "Copyright", "References", "Person", "BaseClass", "PipelineBaseClass"
 ]
 
 
@@ -103,6 +95,102 @@ class GofastConfig:
             "Modification of WHITESPACE_ESCAPE is not allowed as"
             " it may affect the Gofast API frame formatter across all modules.")
 
+class PipelineBaseClass:
+    """
+    Base class for pipelines, providing common functionality such as
+    a formatted representation of the pipeline steps.
+
+    Attributes
+    ----------
+    steps : list of tuple
+        List of tuples containing step names and step objects.
+
+    Methods
+    -------
+    __repr__()
+        Returns a string representation of the pipeline, showing the steps
+        formatted in a readable manner.
+
+    Notes
+    -----
+    This base class is intended to be inherited by specific pipeline
+    implementations, providing a consistent interface and behavior.
+
+    The representation of the pipeline is formatted similarly to scikit-learn's
+    pipeline, displaying the steps in the order they are executed, with each
+    step on a new line for better readability.
+
+    Examples
+    --------
+    >>> from gofast.mlops.pipeline import PipelineBaseClass
+    >>> class SomeStep:
+    ...     def __repr__(self):
+    ...         return 'SomeStep()'
+    >>> class AnotherStep:
+    ...     def __repr__(self):
+    ...         return 'AnotherStep()'
+    >>> pipeline = PipelineBaseClass()
+    >>> pipeline.steps = [('step1', SomeStep()), ('step2', AnotherStep())]
+    >>> print(pipeline)
+    PipelineBaseClass(
+        steps=[
+            ('step1', SomeStep()),
+            ('step2', AnotherStep())
+        ]
+    )
+
+    See Also
+    --------
+    Pipeline : Represents a machine learning pipeline.
+
+    References
+    ----------
+    .. [1] Pedregosa, F., Varoquaux, G., Gramfort, A., et al. (2011).
+       "Scikit-learn: Machine Learning in Python." *Journal of Machine Learning
+       Research*, 12, 2825-2830.
+
+    """
+
+    def __init__(self):
+        self.steps: List[Tuple[str, object]] = []
+
+    def __repr__(self):
+        """
+        Returns a string representation of the pipeline, showing the steps
+        formatted in a readable manner.
+
+        Returns
+        -------
+        repr_str : str
+            A string representing the pipeline and its steps.
+
+        Examples
+        --------
+        >>> pipeline = PipelineBaseClass()
+        >>> pipeline.steps = [('step1', SomeStep()), ('step2', AnotherStep())]
+        >>> print(pipeline)
+        PipelineBaseClass(
+            steps=[
+                ('step1', SomeStep()),
+                ('step2', AnotherStep())
+            ]
+        )
+        """
+        if not self.steps:
+            return f"{self.__class__.__name__}(steps=[])"
+        step_strs = []
+        for step in self.steps:
+            step_strs.append(f"    ('{step.name}', {repr(step)}),")
+        steps_repr = "\n".join(step_strs).rstrip(',')  # Remove trailing comma from last step
+        repr_str = (
+            f"{self.__class__.__name__}(\n"
+            f"    steps=[\n"
+            f"{steps_repr}\n"
+            f"    ]\n"
+            f")"
+        )
+        return repr_str
+
 class BaseClass:
     """
     A base class that provides a nicely formatted string representation
@@ -114,11 +202,14 @@ class BaseClass:
     MAX_DISPLAY_ITEMS : int
         The maximum number of items to display when summarizing
         collections. Default is 5.
-
+    _include_all_attributes : bool
+        If True, includes all attributes in the string representation.
+        If False, includes only the attributes defined in the __init__ method.
+    
     Methods
     -------
     __repr__() -> str
-        Returns a formatted representation representation of the instance.
+        Returns a formatted string representation of the instance.
     _format_attr(key: str, value: Any) -> str
         Formats an individual attribute for the string representation.
     _summarize_iterable(iterable: Iterable) -> str
@@ -140,6 +231,10 @@ class BaseClass:
     ...         self.parameters = [1, 2, 3, 4, 5, 6, 7]
     >>> optimizer = Optimizer("SGD", 100)
     >>> print(optimizer)
+    Optimizer(name=SGD, iterations=100)
+
+    >>> optimizer._include_all_attributes=True
+    >>> print(optimizer)
     Optimizer(name=SGD, iterations=100, parameters=[1, 2, 3, 4, 5, ...])
 
     Notes
@@ -151,12 +246,22 @@ class BaseClass:
     be adjusted by modifying the class attribute MAX_DISPLAY_ITEMS.
     """
     MAX_DISPLAY_ITEMS = 5
+    _include_all_attributes = False  
 
     def __repr__(self) -> str:
-        attributes = [self._format_attr(key, value) 
-                      for key, value in self.__dict__.items() 
-                      if not key.startswith('_') and not key.endswith('_')
-                      ]
+        if self._include_all_attributes:
+            attributes = [self._format_attr(key, value) 
+                          for key, value in self.__dict__.items() 
+                          if not key.startswith('_') and not key.endswith('_')]
+        else:
+            # Get parameters from the __init__ method of the derived class
+            signature = inspect.signature(self.__init__)
+            params = [p for p in signature.parameters if p != 'self']
+            attributes = []
+            for key in params:
+                if hasattr(self, key):
+                    value = getattr(self, key)
+                    attributes.append(self._format_attr(key, value))
         return f"{self.__class__.__name__}({', '.join(attributes)})"
 
     def _format_attr(self, key: str, value: Any) -> str:
@@ -219,6 +324,7 @@ class BaseClass:
             return f"Series([{limited_items}, ...])"
         else:
             return f"Series: {series.to_string(index=False)}"
+
 
 class BasePlot(ABC): 
     r""" Base class  deals with Machine learning and conventional Plots. 
@@ -471,9 +577,7 @@ class BasePlot(ABC):
                          for pname, pvalues in self.__dict__.items() 
                          if pname.startswith('cb_')
                          }
-       
-         
-    
+
 class Config: 
     
     """ Container of property elements. 

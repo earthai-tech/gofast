@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-8. mlops.metadata
-
-Purpose: To manage metadata related to models, experiments, datasets, and 
+Manage metadata related to models, experiments, datasets, and 
 training runs.
 
 Key Features:
