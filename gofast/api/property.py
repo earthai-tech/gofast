@@ -179,8 +179,8 @@ class PipelineBaseClass:
         if not self.steps:
             return f"{self.__class__.__name__}(steps=[])"
         step_strs = []
-        for name, step in self.steps:
-            step_strs.append(f"    ('{name}', {repr(step)}),")
+        for step in self.steps:
+            step_strs.append(f"    ('{step.name}', {repr(step)}),")
         steps_repr = "\n".join(step_strs).rstrip(',')  # Remove trailing comma from last step
         repr_str = (
             f"{self.__class__.__name__}(\n"

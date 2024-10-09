@@ -9,7 +9,7 @@ from gofast.mlops.automation import (
 )
 from datetime import datetime
 
-from .._config import INSTALL_DEPENDENCIES 
+from gofast.mlops._config import INSTALL_DEPENDENCIES 
 
 INSTALL_DEPENDENCIES =True # noqa # install dependencies during the test
 

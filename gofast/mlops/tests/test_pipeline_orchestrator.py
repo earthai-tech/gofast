@@ -67,7 +67,7 @@ def test_airflow_orchestrator_monitor_pipeline(airflow_orchestrator):
 # PrefectOrchestrator Tests
 @pytest.fixture
 def prefect_orchestrator(pipeline_manager):
-    return PrefectOrchestrator(pipeline_manager)
+    return (pipeline_manager)
 
 @patch("gofast.mlops.pipeline.prefect.Flow")
 @patch("gofast.mlops.pipeline.prefect.task")

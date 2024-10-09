@@ -107,7 +107,7 @@ def test_pipeline_optimizer_hyperparameter_tuning(optimizer):
     param_grid = {
         "epochs": [5, 10],
     }
-    best_params = optimizer.tune_hyperparameters("TrainModel", param_grid, n_trials=2)
+    best_params = optimizer.tune_hyperparameters("TrainModel", param_grid, n_trials=2,)
     assert "epochs" in best_params, "Hyperparameter tuning failed."
 
 def test_pipeline_optimizer_resource_allocation(optimizer):
@@ -138,6 +138,7 @@ def test_resource_manager_allocation():
 # Tests for create_pipeline
 def test_create_pipeline(pipeline_steps):
     pipeline = create_pipeline(steps=pipeline_steps, parallel=False)
+
     assert isinstance(pipeline, Pipeline), "Pipeline creation failed."
 
 # Tests for reconfigure_pipeline_on_the_fly

@@ -35,7 +35,7 @@ __all__ = [
     "SimpleAutomationManager",
 ]
 
-class SimpleAutomationManager (BaseClass):
+class SimpleAutomationManager(BaseClass):
     """
     Manages the automation of repetitive tasks such as scheduled model
     training and data ingestion. It supports adding tasks, scheduling
@@ -98,8 +98,6 @@ class SimpleAutomationManager (BaseClass):
     """
 
     def __init__(self):
-        super()._include_all_attributes=True
-        self.tasks: Dict[str, Dict[str, Any]] = {}
         """
         Initializes the `SimpleAutomationManager` with an empty task
         dictionary.
@@ -108,6 +106,9 @@ class SimpleAutomationManager (BaseClass):
         --------
         >>> manager = SimpleAutomationManager()
         """
+        self._include_all_attributes=True
+        
+        self.tasks: Dict[str, Dict[str, Any]] = {}
 
     @validate_params({
         'task_name': [str],

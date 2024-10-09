@@ -11,7 +11,7 @@ from gofast.mlops.deployment import (
     ABTesting
 )
 
-from .._config import INSTALL_DEPENDENCIES 
+from gofast.mlops._config import INSTALL_DEPENDENCIES 
 
 INSTALL_DEPENDENCIES =True # noqa # install dependencies during the test
 

@@ -8,6 +8,8 @@ pipelines for preprocessing, training, evaluation, and deployment.
 """
 
 import time
+import random
+from itertools import product
 from typing import Callable, List, Dict, Optional, Any
 
 from concurrent.futures import ThreadPoolExecutor
@@ -45,7 +47,7 @@ __all__ = [
     "smart_retry_with_backoff",
 ]
 
-class PipelineStep(PipelineBaseClass):
+class PipelineStep(BaseClass):
     """
     A sophisticated pipeline step that supports flexible configurations
     and dependencies. Each step can be defined with custom parameters,
@@ -449,6 +451,8 @@ class PipelineManager(PipelineBaseClass):
         Retrieves a step by name.
     execute(initial_data)
         Executes the pipeline in the correct order, respecting dependencies.
+    execute_step (step_name)
+        Executes a single step from the pipeline.
     retry_failed()
         Retries failed steps if the `retry_failed_steps` flag is set.
     get_metadata()
@@ -671,6 +675,64 @@ class PipelineManager(PipelineBaseClass):
 
         logger.info(f"Determined execution order: {execution_order}")
         return execution_order
+    
+    def execute_step(self, step_name: str):
+        """
+        Executes a single step from the pipeline.
+    
+        Parameters
+        ----------
+        step_name : str
+            The name of the step to execute.
+    
+        Raises
+        ------
+        ValueError
+            If the step with the given name does not exist in the pipeline.
+        Exception
+            If the step fails or cannot be executed due to unmet dependencies.
+    
+        Examples
+        --------
+        >>> from gofast.mlops.pipeline import PipelineManager, PipelineStep
+        >>> def increment(data):
+        ...     return data + 1
+        >>> def double(data):
+        ...     return data * 2
+        >>> step1 = PipelineStep(name='step1', func=increment)
+        >>> step2 = PipelineStep(name='step2', func=double, dependencies=['step1'])
+        >>> manager = PipelineManager()
+        >>> manager.add_step(step1)
+        >>> manager.add_step(step2)
+        >>> manager.execute_step('step1')  # Executes 'step1' only
+        >>> # Executes 'step2' after 'step1' because of the dependency
+        >>> manager.execute_step('step2')  
+        >>> print(manager.step_metadata)
+        {'step1': {'status': 'success', 'output': 1}, 'step2': {'status': 'success', 'output': 2}}
+        """
+        step = self.get_step(step_name)
+        if not step:
+            raise ValueError(f"Step {step_name} does not exist in the pipeline.")
+        
+        if self._can_execute(step):
+            try:
+                # Collect inputs from dependencies
+                if step.get_dependencies():
+                    input_data = [self.step_metadata[dep]["output"] 
+                                  for dep in step.get_dependencies()]
+                    input_data = input_data[-1]
+                else:
+                    input_data = None
+    
+                logger.info(f"Executing step {step_name} with input: {input_data}")
+                output = step.execute(input_data)
+                self._update_step_metadata(step_name, "success", output)
+            except Exception as e:
+                logger.error(f"Step {step_name} failed with error: {str(e)}")
+                self._update_step_metadata(step_name, "failed", None)
+                raise e
+        else:
+            logger.info(f"Cannot execute {step_name} due to unmet dependencies.")
 
     def _can_execute(self, step: 'PipelineStep') -> bool:
         """
@@ -869,7 +931,8 @@ class ResourceManager(BaseClass):
     """
 
     def __init__(self):
-        super()._include_all_attributes =True
+        self._include_all_attributes =True
+        
         self.available_cpu_cores = psutil.cpu_count(logical=False)
         self.available_memory = psutil.virtual_memory().total
 
@@ -1104,7 +1167,7 @@ class ResourceMonitor(BaseClass):
     """
 
     def __init__(self):
-        super()._include_all_attributes =True 
+        self._include_all_attributes =True 
         
         self.cpu_usage: List[float] = []
         self.memory_usage: List[int] = []
@@ -1217,6 +1280,10 @@ class PipelineOptimizer (BaseClass):
         Monitors resource usage for a given step over a specified duration.
     tune_resources_based_on_usage(step_name, threshold)
         Tunes resource allocation based on observed resource usage.
+    tune_hyperparameters(step_name, param_grid, n_trials= 10, 
+                         eval_metric= 'accuracy')
+        Tunes hyperparameters for a specific pipeline step using either
+        `optuna` (if available) or a fallback grid/random search.
 
     Notes
     -----
@@ -1503,6 +1570,276 @@ class PipelineOptimizer (BaseClass):
 
         return recommended_resources
 
+    @validate_params({
+        'step_name': [str],
+        'param_grid': [dict],
+        'n_trials': [int],
+        'eval_metric': [str]
+    })
+    def tune_hyperparameters(
+        self, step_name: str, param_grid: Dict[str, list],
+        n_trials: int = 10, eval_metric: str = 'accuracy'
+    ) -> Dict[str, Any]:
+        """
+        Tunes hyperparameters for a specific pipeline step using either
+        `optuna` (if available) or a fallback grid/random search.
+
+        Parameters
+        ----------
+        step_name : str
+            The name of the pipeline step to tune hyperparameters for.
+        param_grid : dict
+            A dictionary where keys are parameter names and values are lists
+            of possible values to try.
+        n_trials : int, optional
+            The number of trials to run during tuning. Defaults to 10.
+        eval_metric : str, optional
+            The evaluation metric to optimize. Defaults to 'accuracy'.
+
+        Returns
+        -------
+        best_params : dict
+            The best hyperparameters found during tuning.
+
+        Notes
+        -----
+        This method uses `optuna` for hyperparameter tuning if available.
+        If `optuna` is not installed, it falls back to a grid search or
+        randomized search based on the parameter grid size.
+
+        Examples
+        --------
+        >>> param_grid = {
+        ...     'learning_rate': [0.01, 0.1, 0.2],
+        ...     'n_estimators': [100, 200, 300]
+        ... }
+        >>> best_params = optimizer.tune_hyperparameters(
+        ...     'TrainModel', param_grid, n_trials=3, eval_metric='f1'
+        ... )
+        >>> print(best_params)
+        {'learning_rate': 0.1, 'n_estimators': 200}
+        """
+        logger.info(f"Tuning hyperparameters for step: {step_name} with {n_trials} trials.")
+        
+        step = self.pipeline_manager.get_step(step_name)
+        if not step:
+            raise ValueError(f"Step {step_name} does not exist in the pipeline.")
+            
+        try:
+            import optuna # noqa
+            HAS_OPTUNA = True
+        except ImportError:
+            logger.warning("Optuna is not installed. Falling back to grid search.")
+            HAS_OPTUNA = False
+            
+        if HAS_OPTUNA:
+            # Use Optuna if installed
+            return self._optuna_tuning(step, param_grid, n_trials, eval_metric)
+        else:
+            # Fallback to grid search or random search
+            return self._fallback_tuning(step, param_grid, n_trials, eval_metric)
+
+    def _optuna_tuning(
+        self, step: 'PipelineStep', param_grid: Dict[str, list],
+        n_trials: int, eval_metric: str
+    ) -> Dict[str, Any]:
+        """
+        Tunes hyperparameters using Optuna.
+
+        Parameters
+        ----------
+        step : PipelineStep
+            The pipeline step to tune.
+        param_grid : dict
+            Parameter grid for tuning.
+        n_trials : int
+            Number of trials for Optuna to run.
+        eval_metric : str
+            Metric to optimize.
+
+        Returns
+        -------
+        best_params : dict
+            Best hyperparameters found by Optuna.
+        """
+        import optuna
+        
+        def objective(trial):
+            params = {key: trial.suggest_categorical(key, values)
+                      for key, values in param_grid.items()}
+            logger.info(f"Trial params: {params}")
+
+            # Execute the step with the sampled parameters
+            try:
+                step.set_params(**params)
+                output = step.execute(None)  # Assuming no initial data needed
+                score = self._evaluate_step_output(output, eval_metric)
+                logger.info(f"Trial score: {score}")
+                return score
+            except Exception as e:
+                logger.error(f"Error during hyperparameter tuning: {str(e)}")
+                raise e
+
+        study = optuna.create_study(direction='maximize')
+        study.optimize(objective, n_trials=n_trials)
+
+        best_params = study.best_params
+        logger.info(f"Best parameters found by Optuna: {best_params}")
+        return best_params
+
+    def _fallback_tuning(
+        self, step: 'PipelineStep', param_grid: Dict[str, list],
+        n_trials: int, eval_metric: str
+    ) -> Dict[str, Any]:
+        """
+        Fallback method for hyperparameter tuning using grid search or
+        randomized search.
+
+        Parameters
+        ----------
+        step : PipelineStep
+            The pipeline step to tune.
+        param_grid : dict
+            Parameter grid for tuning.
+        n_trials : int
+            Number of trials for random search.
+        eval_metric : str
+            Metric to optimize.
+
+        Returns
+        -------
+        best_params : dict
+            Best hyperparameters found.
+        """
+        logger.info("Using fallback strategy for hyperparameter tuning.")
+        
+        # Determine whether to use grid search or randomized search
+        param_combinations = list(product(*param_grid.values()))
+        logger.info(f"Total parameter combinations: {len(param_combinations)}")
+        
+        if len(param_combinations) <= n_trials:
+            logger.info(f"Using Grid Search (combinations: {len(param_combinations)}).")
+            return self._grid_search(step, param_combinations, param_grid, eval_metric)
+        else:
+            logger.info(f"Using Randomized Search with {n_trials} trials.")
+            return self._random_search(step, param_combinations, param_grid, 
+                                       n_trials, eval_metric)
+
+    def _grid_search(self, step: 'PipelineStep', param_combinations: list, 
+                     param_grid: Dict[str, list], eval_metric: str
+                     ) -> Dict[str, Any]:
+        """
+        Performs grid search over all parameter combinations.
+    
+        Parameters
+        ----------
+        step : PipelineStep
+            The pipeline step to tune.
+        param_combinations : list
+            List of all parameter combinations.
+        param_grid : dict
+            The parameter grid to extract keys from.
+        eval_metric : str
+            Metric to optimize.
+    
+        Returns
+        -------
+        best_params : dict
+            Best hyperparameters found.
+        """
+        best_score = float('-inf')
+        best_params = None
+    
+        for params in param_combinations:
+            param_dict = dict(zip(param_grid.keys(), params))  # Use param_grid here
+            logger.info(f"Testing params: {param_dict}")
+            
+            try:
+                step.set_params(**param_dict)
+                output = step.execute(None)  # Assuming no initial data needed
+                score = self._evaluate_step_output(output, eval_metric)
+    
+                if score > best_score:
+                    best_score = score
+                    best_params = param_dict
+            except Exception as e:
+                logger.error(f"Error during grid search: {str(e)}")
+        
+        logger.info(f"Best params found via Grid Search: {best_params}")
+        return best_params
+    
+    def _random_search(self, step: 'PipelineStep', param_combinations: list, 
+                       param_grid: Dict[str, list], n_trials: int, 
+                       eval_metric: str) -> Dict[str, Any]:
+        """
+        Performs randomized search over a limited number of parameter combinations.
+    
+        Parameters
+        ----------
+        step : PipelineStep
+            The pipeline step to tune.
+        param_combinations : list
+            List of all parameter combinations.
+        param_grid : dict
+            The parameter grid to extract keys from.
+        n_trials : int
+            Number of trials to perform.
+        eval_metric : str
+            Metric to optimize.
+    
+        Returns
+        -------
+        best_params : dict
+            Best hyperparameters found.
+        """
+        best_score = float('-inf')
+        best_params = None
+    
+        sampled_combinations = random.sample(param_combinations, n_trials)
+        logger.info(f"Random search will evaluate {n_trials} combinations.")
+    
+        for params in sampled_combinations:
+            param_dict = dict(zip(param_grid.keys(), params))  # Use param_grid here
+            logger.info(f"Testing params: {param_dict}")
+            
+            try:
+                step.set_params(**param_dict)
+                output = step.execute(None)  # Assuming no initial data needed
+                score = self._evaluate_step_output(output, eval_metric)
+    
+                if score > best_score:
+                    best_score = score
+                    best_params = param_dict
+            except Exception as e:
+                logger.error(f"Error during random search: {str(e)}")
+        
+        logger.info(f"Best params found via Randomized Search: {best_params}")
+        return best_params
+
+    def _evaluate_step_output(self, output: Any, eval_metric: str) -> float:
+        """
+        Evaluates the step output based on the specified evaluation metric.
+
+        Parameters
+        ----------
+        output : Any
+            The output of the step to evaluate.
+        eval_metric : str
+            The evaluation metric to use (e.g., 'accuracy', 'f1').
+
+        Returns
+        -------
+        score : float
+            The calculated score based on the evaluation metric.
+        """
+        if eval_metric == 'accuracy':
+            # Assuming output contains a key for accuracy
+            return output.get('accuracy', 0)  
+        elif eval_metric == 'f1':
+            # Assuming output contains a key for f1-score
+            return output.get('f1', 0)  
+        else:
+            raise ValueError(f"Unsupported evaluation metric: {eval_metric}")
 
 class PipelineOrchestrator:
     """
@@ -2060,7 +2397,7 @@ def reconfigure_pipeline_on_the_fly(
 @validate_params({
     'pipeline_manager': [object],
     'step_name': [str],
-    'condition_func': [Callable],
+    'condition_func': [callable],
     'fallback_step': [str, None]
 })
 def execute_step_conditionally(
@@ -2133,6 +2470,7 @@ def execute_step_conditionally(
             pipeline_manager.execute_step(fallback_step)
         else:
             logger.info(f"No fallback step specified. Skipping step: '{step_name}'")
+
 
 @validate_params({
     'pipeline_manager': [object],
