@@ -615,12 +615,6 @@ class SimpleRetrainingScheduler(SimpleAutomationManager):
         self.schedule_task(task_name)
         
 
-@ensure_pkg(
-    "apscheduler",
-    extra="APScheduler is not installed. Please install 'apscheduler' to use this feature.",
-    auto_install=INSTALL_DEPENDENCIES,
-    use_conda=USE_CONDA
-)
 class AutomationManager(BaseClass):
     """
     Advanced class to manage the automation of repetitive tasks, with support
@@ -702,6 +696,14 @@ class AutomationManager(BaseClass):
     .. [1] Johnson, M. (2022). "Advanced Task Scheduling in Machine Learning Pipelines."
        *Journal of Automation and Computing*, 10(2), 200-215.
     """
+    
+    @ensure_pkg(
+        "apscheduler",
+        extra="APScheduler is not installed."
+        " Please install 'apscheduler' to use this feature.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA
+    )
 
     @validate_params({
         'max_workers': [int],
@@ -1304,15 +1306,7 @@ class RetrainingScheduler(AutomationManager):
         )
         self.schedule_task(task_name)
 
-@ensure_pkg(
-    "airflow",
-    extra="The 'airflow' package is required for this functionality. "
-          "Please install 'apache-airflow' to proceed.",
-    dist_name="apache-airflow",
-    infer_dist_name=True,
-    auto_install=INSTALL_DEPENDENCIES,
-    use_conda=USE_CONDA
-)
+
 class AirflowAutomationManager(AutomationManager):
     """
     Integrates the AutomationManager with Apache Airflow to schedule and
@@ -1375,6 +1369,16 @@ class AirflowAutomationManager(AutomationManager):
     .. [1] Apache Airflow Documentation. "Airflow Documentation."
        Retrieved from https://airflow.apache.org/docs/
     """
+    
+    @ensure_pkg(
+        "airflow",
+        extra="The 'airflow' package is required for this functionality. "
+              "Please install 'apache-airflow' to proceed.",
+        dist_name="apache-airflow",
+        infer_dist_name=True,
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA
+    )
     
     @validate_params({
         'dag_id': [str],
@@ -1505,13 +1509,6 @@ class AirflowAutomationManager(AutomationManager):
             logger.error(f"Task '{task_name}' not found in DAG '{self.dag_id}'.")
 
 
-@ensure_pkg(
-    "kfp",
-    extra="The 'kfp' package is required for this functionality. "
-          "Please install 'kfp' to proceed.",
-    auto_install=INSTALL_DEPENDENCIES,
-    use_conda=USE_CONDA
-)
 class KubeflowAutomationManager(AutomationManager):
     """
     Integrates the AutomationManager with Kubeflow Pipelines to manage tasks
@@ -1554,6 +1551,14 @@ class KubeflowAutomationManager(AutomationManager):
     .. [1] Kubeflow Pipelines Documentation. "Kubeflow Pipelines."
        Retrieved from https://www.kubeflow.org/docs/components/pipelines/
     """
+    
+    @ensure_pkg(
+        "kfp",
+        extra="The 'kfp' package is required for this functionality. "
+              "Please install 'kfp' to proceed.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA
+    )
     
     @validate_params({
         'host': [str]
@@ -1641,15 +1646,6 @@ class KubeflowAutomationManager(AutomationManager):
         return pipeline_run_id
 
 
-@ensure_pkg(
-    "kafka",
-    extra="The 'kafka-python' package is required for this functionality. "
-          "Please install 'kafka-python' to proceed.",
-    auto_install=INSTALL_DEPENDENCIES,
-    use_conda=USE_CONDA,
-    dist_name='kafka', 
-    infer_dist_name=True,
-)
 class KafkaAutomationManager(AutomationManager):
     """
     Handles real-time data pipeline automation using Kafka. Consumes Kafka
@@ -1708,6 +1704,16 @@ class KafkaAutomationManager(AutomationManager):
        Retrieved from https://kafka.apache.org/documentation/
     """
 
+    @ensure_pkg(
+        "kafka",
+        extra="The 'kafka-python' package is required for this functionality. "
+              "Please install 'kafka-python' to proceed.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA,
+        dist_name='kafka', 
+        infer_dist_name=True,
+    )
+    
     @validate_params({
         'kafka_servers': [list],
         'topic': [str]
@@ -1776,13 +1782,7 @@ class KafkaAutomationManager(AutomationManager):
             logger.info(f"Received message from Kafka: {data}")
             func(data)
 
-@ensure_pkg(
-    "pika",
-    extra="The 'pika' package is required for this functionality. "
-          "Please install 'pika' to proceed.",
-    auto_install=INSTALL_DEPENDENCIES,
-    use_conda=USE_CONDA
-)
+
 class RabbitMQAutomationManager(AutomationManager):
     """
     Handles real-time data pipeline automation using RabbitMQ. Consumes
@@ -1844,6 +1844,14 @@ class RabbitMQAutomationManager(AutomationManager):
     .. [1] RabbitMQ Documentation. "RabbitMQ."
        Retrieved from https://www.rabbitmq.com/documentation.html
     """
+    
+    @ensure_pkg(
+        "pika",
+        extra="The 'pika' package is required for this functionality. "
+              "Please install 'pika' to proceed.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA
+    )
 
     @validate_params({
         'host': [str],

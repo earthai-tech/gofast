@@ -15,6 +15,10 @@ import logging
 import random
 import time
 
+from .._config import INSTALL_DEPENDENCIES 
+
+INSTALL_DEPENDENCIES =True # noqa # install dependencies during the test
+
 # Configure logging for the tests
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

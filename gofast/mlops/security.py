@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-7. mlops.security
-
-Purpose: To incorporate security best practices into machine learning workflows, 
+Incorporate security best practices into machine learning workflows, 
 ensuring models and data are protected throughout their lifecycle.
 
 Key Features:

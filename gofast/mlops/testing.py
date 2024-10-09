@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-5. mlops.testing
-Purpose: To ensure the reliability of machine learning models and pipelines
- through robust testing.
+Ensure the reliability of machine learning models and pipelines
+through robust testing.
  
 Key Features:
 Unit and integration tests for pipelines

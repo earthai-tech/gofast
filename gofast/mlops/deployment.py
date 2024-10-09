@@ -1,50 +1,45 @@
 # -*- coding: utf-8 -*-
+#   License: BSD-3-Clause
+#   Author: LKouadio <etanoyau@gmail.com>
+
 """
-3. mlops.deployment
-Purpose: To assist with deploying models efficiently to various environments, 
+Assist with deploying models efficiently to various environments, 
 such as cloud platforms, edge devices, or on-premise servers.
-
 """
-
-# Key Features:
-# Model export and serialization (support for ONNX, TensorFlow Serving, TorchServe)
-# API deployment tools (Flask, FastAPI integration)
-# Cloud deployment options (AWS Sagemaker, GCP AI Platform, Azure ML)
-# A/B testing for models in production
-
 
 import os
-from typing import Union, Any, Optional, Dict
-
+import random 
 import time
-
-# try: 
-
-#     import torch
-#     import tensorflow as tf
-#     import torch.nn.utils.prune as prune
-# except : 
-#     pass 
-
-
+from numbers import Real 
 from typing import Any, Optional, Tuple, Dict
-from sklearn.utils._param_validation import validate_params, StrOptions
+from sklearn.utils._param_validation import validate_params
+from sklearn.utils._param_validation import Interval, StrOptions
 
 from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
 from .._gofastlog import gofastlog 
-from ..tools.funcutils import ensure_pkg
+from ..api.property import BaseClass 
+from ..tools.funcutils import ensure_pkgs
+from ..tools.validator import parameter_validator 
 
 logger=gofastlog.get_gofast_logger(__name__)
 
 
-@ensure_pkg(
-    "torch, tensorflow, onnx",
-    extra="The 'torch' package is required for this functionality. "
-          "Please install them to proceed.",
+__all__=[
+    "ModelExporter", "APIDeployment", "CloudDeployment", "ABTesting"
+    ]
+
+
+EXTRA_MSG= ( 
+    "The {pkg} is required for this functionality. Please install it to proceed."
+    )
+
+@ensure_pkgs(
+    "torch",
+    extra= EXTRA_MSG.format(pkg="torch"),
     auto_install=INSTALL_DEPENDENCIES,
     use_conda=USE_CONDA
 )
-class ModelExporter:
+class ModelExporter(BaseClass):
     """
     Manages model export and serialization to various formats such as
     ONNX, TensorFlow, and PyTorch. Supports compression techniques like
@@ -81,7 +76,7 @@ class ModelExporter:
     Examples
     --------
     >>> from gofast.mlops.deployment import ModelExporter
-    >>> model = ...  # Your PyTorch or TensorFlow model
+    >>> model = ...  #  PyTorch or TensorFlow model
     >>> exporter = ModelExporter(model, 'my_model')
     >>> exporter.export_to_onnx('path/to/model.onnx')
 
@@ -124,7 +119,7 @@ class ModelExporter:
         """
         self.model = model
         self.model_name = model_name
-        self.version = 1 if versioning else None  # Enable versioning if requested
+        self.version = 1 if versioning else None  
 
     @validate_params({
         'export_path': [str],
@@ -186,6 +181,13 @@ class ModelExporter:
             logger.error(f"Failed to export '{self.model_name}' to ONNX: {e}")
             raise
 
+
+    @ensure_pkgs(
+        "tensorflow",
+        extra="The 'tensorflow' package is required for this functionality.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA
+    )
     @validate_params({
         'export_path': [str],
         'model_type': [StrOptions({'SavedModel', 'HDF5'})]
@@ -238,9 +240,9 @@ class ModelExporter:
             )
             raise
 
-    @ensure_pkg(
+    @ensure_pkgs(
         "onnx",
-        extra="The 'onnx' package is required for include_onnx set to 'True'", 
+        extra="The 'onnx' package is required if 'include_onnx' is set to 'True'", 
         partial_check= True,
         condition= lambda *args, **kwargs: kwargs.get("include_onnx")==True,
         )
@@ -341,9 +343,9 @@ class ModelExporter:
             logger.error(f"Failed to compress model '{self.model_name}': {e}")
             raise
 
-    @ensure_pkg(
+    @ensure_pkgs(
         "tensorflow",
-        extra="The 'tensorflow' library is required for framework='tensorflow'", 
+        extra="The 'tensorflow' library is required if framework='tensorflow'", 
         partial_check= True,
         condition= lambda *args, **kwargs: kwargs.get("framework")=="tensorflow"
         )
@@ -642,26 +644,15 @@ class ModelExporter:
             logger.error(f"Failed to save model version {self.version}: {e}")
             raise
 
-# try: 
-    
-#     from fastapi import FastAPI, Request, Response, HTTPException
-#     from flask import Flask, request as flask_request, jsonify
-#     import uvicorn
-#     from pydantic import BaseModel
-#     import signal
-#     import threading
-# except: 
-#     pass 
 
-
-@ensure_pkg(
+@ensure_pkgs(
     "fastapi, flask, uvicorn, pydantic",
     extra="The 'fastapi', 'flask', 'uvicorn', and 'pydantic' packages are required "
           "for this functionality. Please install them to proceed.",
     auto_install=INSTALL_DEPENDENCIES,
     use_conda=USE_CONDA
 )
-class APIDeployment:
+class APIDeployment(BaseClass):
     """
     Manages deployment of models as APIs using FastAPI or Flask. Supports
     versioning, scaling, monitoring, rate limiting, and graceful shutdown.
@@ -811,7 +802,7 @@ class APIDeployment:
                 return {"result": result}
 
         elif self.api_type == "Flask":
-            from flask import request as flask_request, jsonify, Response
+            from flask import request as flask_request, jsonify # , Response
 
             @self.app.route("/predict", methods=["POST"])
             def predict_flask():
@@ -1059,14 +1050,7 @@ class APIDeployment:
         logger.info("Synchronous resource cleanup complete.")
 
 
-@ensure_pkg(
-    "boto3, google-cloud-aiplatform, azureml-core",
-    extra="The 'boto3', 'google-cloud-aiplatform', and 'azureml-core' packages are required "
-          "for this functionality. Please install them to proceed.",
-    auto_install=INSTALL_DEPENDENCIES,
-    use_conda=USE_CONDA
-)
-class CloudDeployment:
+class CloudDeployment(BaseClass):
     """
     Manages cloud deployment for models across AWS SageMaker, GCP AI Platform,
     and Azure Machine Learning. Supports multi-cloud deployment and continuous
@@ -1151,14 +1135,22 @@ class CloudDeployment:
 
         """
         self.model = model
-        self.platform = platform
         self.model_name = model_name
 
-        if platform not in ["aws", "gcp", "azure"]:
-            raise ValueError(
-                f"Unsupported platform: {platform}. Supported platforms are 'aws', 'gcp', and 'azure'."
+        self.platform = parameter_validator(
+            platform, target_strs= ["aws", "gcp", "azure"], 
+            error_msg= ( 
+                f"Unsupported platform: {platform}. Supported platforms"
+                " are 'aws', 'gcp', and 'azure'."), 
+            return_target_str= True
             )
-
+ 
+    @ensure_pkgs(
+        "boto3",
+        extra=EXTRA_MSG.format(pkg="boto3"),
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA
+    )
     @validate_params({
         'config': [dict],
     })
@@ -1249,6 +1241,14 @@ class CloudDeployment:
             logger.error(f"Failed to deploy '{self.model_name}' to AWS SageMaker: {e}")
             raise
 
+    @ensure_pkgs(
+        "google",
+        extra=EXTRA_MSG.format(pkg='google-cloud-aiplatform'), 
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA, 
+        dist_name="google-cloud-aiplatform", 
+        infer_dist_name=True
+    )
     @validate_params({
         'config': [dict],
     })
@@ -1328,6 +1328,14 @@ class CloudDeployment:
             logger.error(f"Failed to deploy '{self.model_name}' to GCP AI Platform: {e}")
             raise
 
+    @ensure_pkgs(
+        "azureml",
+        extra=EXTRA_MSG.format(pkg='azureml-core'), 
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA, 
+        dist_name="azureml-core", 
+        infer_dist_name=True
+    )
     @validate_params({
         'config': [dict],
     })
@@ -1342,8 +1350,11 @@ class CloudDeployment:
             - ``workspace_config`` (str): Path to Azure ML workspace config file.
             - ``model_path`` (str): Local path to the model file or directory.
             - ``aks_cluster_name`` (str): Name of the AKS cluster for deployment.
-            - ``inference_config`` (:class:`azureml.core.model.InferenceConfig`): Inference configuration.
-            - ``deployment_config`` (:class:`azureml.core.webservice.AksWebserviceDeploymentConfiguration`): Deployment config.
+            - ``inference_config`` (:class:`azureml.core.model.InferenceConfig`):
+                Inference configuration.
+            - ``deployment_config`` 
+            (:class:`azureml.core.webservice.AksWebserviceDeploymentConfiguration`): 
+                Deployment config.
 
         Notes
         -----
@@ -1380,8 +1391,8 @@ class CloudDeployment:
         # Ensure azureml.core is imported
         from azureml.core import Workspace, Model
         from azureml.core.compute import AksCompute
-        from azureml.core.model import InferenceConfig
-        from azureml.core.webservice import AksWebservice
+        from azureml.core.model import InferenceConfig # noqa
+        from azureml.core.webservice import AksWebservice # noqa
 
         try:
             workspace_config = config['workspace_config']
@@ -1478,7 +1489,7 @@ class CloudDeployment:
             logger.error(f"Failed to set up continuous deployment for '{self.model_name}': {e}")
             raise
 
-class ABTesting:
+class ABTesting(BaseClass):
     """
     Manages A/B testing for models in production, enabling traffic routing
     between different versions. Supports dynamic traffic split adjustments,
@@ -1576,11 +1587,11 @@ class ABTesting:
     @validate_params({
         'model_v1': [object],
         'model_v2': [object],
-        'split_ratio': [Interval(0.0, 1.0, closed='both')],
-        'min_split_ratio': [Interval(0.0, 1.0, closed='both')],
-        'max_split_ratio': [Interval(0.0, 1.0, closed='both')],
-        'performance_threshold': [Interval(0.0, 1.0, closed='both')],
-        'traffic_increment': [Interval(0.0, 1.0, closed='both')],
+        'split_ratio': [Interval(Real, 0.0, 1.0, closed='both')],
+        'min_split_ratio': [Interval(Real, 0.0, 1.0, closed='both')],
+        'max_split_ratio': [Interval(Real, 0.0, 1.0, closed='both')],
+        'performance_threshold': [Interval(Real, 0.0, 1.0, closed='both')],
+        'traffic_increment': [Interval(Real, 0.0, 1.0, closed='both')],
         'graceful_degradation': [bool]
     })
     def __init__(
@@ -1812,7 +1823,6 @@ class ABTesting:
 
 
 if __name__=='__main__': 
-    
     my_model= ...
     # AWS Deployment
     aws_config = {

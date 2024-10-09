@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-6. mlops.scaling
-
-Purpose: To enable easy scaling of machine learning workflows, allowing users
+Enable easy scaling of machine learning workflows, allowing users
 to handle larger datasets and model training in distributed systems.
  
 Key Features:

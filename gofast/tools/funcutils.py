@@ -40,6 +40,7 @@ __all__=[
     'curry',
     'drop_nan_if',
     'ensure_pkg',
+    'ensure_pkgs',
     'flatten_data_if',
     'flatten_list',
     'install_package',
@@ -1117,6 +1118,165 @@ def _should_check_condition(condition: Any, *args, **kwargs) -> bool:
         return all(eval_condition(cond) for cond in condition)
     else:
         return eval_condition(condition)
+
+def ensure_pkgs(
+    names: Union[str, List[str]], 
+    extra: str = "",
+    errors: str = "raise",
+    min_version: Optional[Union[str, List[Optional[str]]]] = None,
+    exception: Exception = None, 
+    dist_name: Optional[Union[str, List[Optional[str]]]] = None, 
+    infer_dist_name: bool = False, 
+    auto_install: bool = False,
+    use_conda: bool = False, 
+    partial_check: bool = False,
+    condition: Any = None, 
+    verbose: bool = False
+) -> Callable[[_T], _T]:
+    """
+    Decorator to ensure Python packages are installed before function execution.
+
+    If the specified packages are not installed, or if their installed versions
+    do not meet the minimum version requirements, this decorator can optionally
+    install or upgrade the packages automatically using either pip or conda.
+
+    Parameters
+    ----------
+    names : str or list of str
+        The name(s) of the package(s). Can be a single string with package names
+        separated by commas, or a list of package names.
+    extra : str, optional
+        Additional specification for the package(s), such as version or extras.
+    errors : {'raise', 'ignore', 'warn'}, optional
+        Error handling strategy if a package is missing: 'raise', 'ignore',
+        or 'warn'. Defaults to 'raise'.
+    min_version : str or list of str, optional
+        The minimum required version(s) of the package(s). If not met, triggers
+        installation. Can be a single version string applied to all packages
+        or a list matching the `names` list.
+    exception : Exception, optional
+        A custom exception to raise if a package is missing and `errors` is 'raise'.
+    dist_name : str or list of str, optional
+        The distribution name(s) of the package(s) as known by package managers (e.g., pip).
+        Useful when the distribution name differs from the importable module name.
+        Can be a single string or a list matching the `names` list.
+    infer_dist_name : bool, optional
+        If True, attempt to infer the distribution name for pip installation.
+        Defaults to False.
+    auto_install : bool, optional
+        Whether to automatically install missing packages. Defaults to False.
+    use_conda : bool, optional
+        Prefer conda over pip for automatic installation. Defaults to False.
+    partial_check : bool, optional
+        If True, checks the existence of the packages only if the `condition` is met.
+        Allows for conditional package checking based on the function's arguments or
+        other criteria. If False, the check is always performed. Defaults to False.
+    condition : Any, optional
+        A condition that determines whether to check for the packages' existence.
+        Can be a callable that takes the same arguments as the decorated function
+        and returns a boolean, a specific argument name to check for truthiness, or
+        any other value that will be evaluated as a boolean. If None, the package
+        check is performed unconditionally unless `partial_check` is False.
+    verbose : bool, optional
+        Enable verbose output during the installation process. Defaults to False.
+
+    Returns
+    -------
+    Callable
+        A decorator that wraps functions to ensure the specified packages
+        are installed.
+
+    Examples
+    --------
+    >>> from gofast.tools.funcutils import ensure_pkgs
+    >>> @ensure_pkgs("numpy, pandas", auto_install=True)
+    ... def use_numpy_pandas():
+    ...     import numpy as np
+    ...     import pandas as pd
+    ...     return np.array([1, 2, 3]), pd.DataFrame([[1, 2], [3, 4]])
+
+    >>> @ensure_pkgs(["matplotlib", "seaborn"], min_version=["3.0.0", "0.11.0"])
+    ... def plot_data(x, y):
+    ...     import matplotlib.pyplot as plt
+    ...     import seaborn as sns
+    ...     sns.scatterplot(x=x, y=y)
+    ...     plt.show()
+
+    >>> @ensure_pkgs("skimage", partial_check=True, condition=(
+    ...     lambda *args, **kwargs: 'method' in kwargs and kwargs['method'] == 'hog')
+    ... )
+    ... def process_image(data, method='hog', **kwargs):
+    ...     if method == 'hog':
+    ...         from skimage.feature import hog
+    ...         return hog(data, **kwargs)
+    ...     else:
+    ...         # Other processing
+    ...         pass
+    """
+    def decorator(func: _T) -> _T:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            # Determine if this is a method or a function based on the first argument
+            bound_method = hasattr(args[0], func.__name__) if args else False
+
+            # If partial_check is True, check condition before performing actions
+            if not partial_check or _should_check_condition(condition, *args, **kwargs):
+                # Parse names into a list
+                if isinstance(names, str):
+                    pkg_list = [pkg.strip() for pkg in names.split(',')]
+                else:
+                    pkg_list = names
+
+                # Ensure min_version and dist_name are lists matching pkg_list
+                if isinstance(min_version, (str, type(None))):
+                    min_version_list = [min_version] * len(pkg_list)
+                else:
+                    min_version_list = min_version
+
+                if isinstance(dist_name, (str, type(None))):
+                    dist_name_list = [dist_name] * len(pkg_list)
+                else:
+                    dist_name_list = dist_name
+
+                # Iterate over the packages
+                for idx, pkg_name in enumerate(pkg_list):
+                    pkg_min_version = min_version_list[idx] if min_version_list else None
+                    pkg_dist_name = dist_name_list[idx] if dist_name_list else None
+
+                    try:
+                        # Attempt to import the package
+                        import_optional_dependency(
+                            pkg_name,
+                            extra=extra,
+                            errors=errors,
+                            min_version=pkg_min_version,
+                            exception=exception
+                        )
+                    except (ModuleNotFoundError, ImportError):
+                        if auto_install:
+                            # Install the package if auto-install is enabled
+                            install_package(
+                                pkg_name,
+                                dist_name=pkg_dist_name,
+                                infer_dist_name=infer_dist_name,
+                                extra=extra,
+                                use_conda=use_conda,
+                                verbose=verbose
+                            )
+                        elif exception is not None:
+                            raise exception
+                        else:
+                            raise
+
+            # Call the original function
+            if bound_method:
+                return func(args[0], *args[1:], **kwargs)
+            else:
+                return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
 
 def drop_nan_if(thresh: float, meth: str = 'drop_cols'):
     """

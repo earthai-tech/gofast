@@ -9,6 +9,9 @@ from gofast.mlops.automation import (
 )
 from datetime import datetime
 
+from .._config import INSTALL_DEPENDENCIES 
+
+INSTALL_DEPENDENCIES =True # noqa # install dependencies during the test
 
 # Fixtures for mocking external integrations
 @pytest.fixture
