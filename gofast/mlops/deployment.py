@@ -12,12 +12,13 @@ import random
 import time
 from numbers import Real 
 from typing import Any, Optional, Tuple, Dict
-from sklearn.utils._param_validation import validate_params
+
 from sklearn.utils._param_validation import Interval, StrOptions
 
 from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
 from .._gofastlog import gofastlog 
 from ..api.property import BaseClass 
+from ..compat.sklearn import validate_params 
 from ..tools.funcutils import ensure_pkgs
 from ..tools.validator import parameter_validator 
 

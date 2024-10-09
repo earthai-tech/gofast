@@ -6,10 +6,10 @@ from unittest.mock import patch, MagicMock
 from gofast.mlops.automation import (
     AutomationManager,
     RetrainingScheduler,
-    AirflowAutomationManager,
-    KubeflowAutomationManager,
-    KafkaAutomationManager,
-    RabbitMQAutomationManager,
+    AirflowAutomation,
+    KubeflowAutomation,
+    KafkaAutomation,
+    RabbitMQAutomation,
 )
 import logging
 import random
@@ -148,24 +148,24 @@ def test_adjust_retraining_schedule(retraining_scheduler):
     assert retraining_scheduler.tasks[f"retrain_{model.__class__.__name__}"]["interval"] == 1
     retraining_scheduler.cancel_task(f"retrain_{model.__class__.__name__}")
 
-# Tests for AirflowAutomationManager
-@patch("gofast.mlops.automation.AirflowAutomationManager._create_dag")
+# Tests for AirflowAutomation
+@patch("gofast.mlops.automation.AirflowAutomation._create_dag")
 @patch("gofast.mlops.automation.PythonOperator")
 def test_airflow_automation_manager_create_workflow(mock_python_operator, mock_create_dag):
     mock_dag = MagicMock()
     mock_create_dag.return_value = mock_dag
-    airflow_manager = AirflowAutomationManager(dag_id="test_dag", start_date="2024-01-01")
+    airflow_manager = AirflowAutomation(dag_id="test_dag", start_date="2024-01-01")
     airflow_manager.create_workflow()
     mock_create_dag.assert_called_once()
     assert airflow_manager.dag == mock_dag
     assert mock_python_operator.call_count == len(airflow_manager.pipeline_manager.steps)
 
-@patch("gofast.mlops.automation.AirflowAutomationManager._create_dag")
+@patch("gofast.mlops.automation.AirflowAutomation._create_dag")
 @patch("gofast.mlops.automation.PythonOperator")
 def test_airflow_automation_manager_add_task(mock_python_operator, mock_create_dag):
     mock_dag = MagicMock()
     mock_create_dag.return_value = mock_dag
-    airflow_manager = AirflowAutomationManager(dag_id="test_dag", start_date="2024-01-01")
+    airflow_manager = AirflowAutomation(dag_id="test_dag", start_date="2024-01-01")
     airflow_manager.pipeline_manager.add_step(PipelineStep(name="AirflowTask", func=sample_task, params={"task_name": "AirflowTask"}))
     airflow_manager.create_workflow()
     mock_python_operator.assert_called_with(
@@ -176,19 +176,19 @@ def test_airflow_automation_manager_add_task(mock_python_operator, mock_create_d
     )
 
 def test_airflow_automation_manager_schedule_pipeline():
-    airflow_manager = AirflowAutomationManager(dag_id="test_dag", start_date="2024-01-01")
+    airflow_manager = AirflowAutomation(dag_id="test_dag", start_date="2024-01-01")
     airflow_manager.dag = MagicMock()
     airflow_manager.schedule_pipeline("@weekly")
     airflow_manager.dag.schedule_interval = "@weekly"
     assert airflow_manager.dag.schedule_interval == "@weekly"
 
 def test_airflow_automation_manager_monitor_pipeline():
-    airflow_manager = AirflowAutomationManager(dag_id="test_dag", start_date="2024-01-01")
+    airflow_manager = AirflowAutomation(dag_id="test_dag", start_date="2024-01-01")
     with patch("gofast.mlops.automation.logging") as mock_logging:
         airflow_manager.monitor_pipeline()
         mock_logging.getLogger().info.assert_called_with("Monitoring Airflow DAG execution through the Airflow web UI.")
 
-# Tests for KubeflowAutomationManager
+# Tests for KubeflowAutomation
 @patch("gofast.mlops.automation.kfp.Client")
 @patch("gofast.mlops.automation.dsl.pipeline")
 def test_kubeflow_automation_manager_create_kubeflow_pipeline(mock_pipeline, mock_client):
@@ -196,31 +196,31 @@ def test_kubeflow_automation_manager_create_kubeflow_pipeline(mock_pipeline, moc
     mock_pipeline.return_value = mock_flow
     mock_client_instance = MagicMock()
     mock_client.return_value = mock_client_instance
-    kubeflow_manager = KubeflowAutomationManager(host="http://localhost:8080")
+    kubeflow_manager = KubeflowAutomation(host="http://localhost:8080")
     kubeflow_manager.create_kubeflow_pipeline("test_pipeline", "test_task", "print('Hello Kubeflow')", arg1="value1")
     mock_pipeline.assert_called_once_with(name="test_pipeline", description='Automation Pipeline for Machine Learning')
     mock_client_instance.create_run_from_pipeline_func.assert_called_once()
 
-# Tests for KafkaAutomationManager
+# Tests for KafkaAutomation
 @patch("gofast.mlops.automation.KafkaConsumer")
 def test_kafka_automation_manager_process_kafka_message(mock_consumer):
     mock_consumer_instance = MagicMock()
     mock_consumer.return_value = mock_consumer_instance
-    kafka_manager = KafkaAutomationManager(kafka_servers=["localhost:9092"], topic="test_topic")
+    kafka_manager = KafkaAutomation(kafka_servers=["localhost:9092"], topic="test_topic")
     with patch.object(kafka_manager, 'process_kafka_message', wraps=kafka_manager.process_kafka_message) as mock_process:
         # Simulate receiving a message
         mock_consumer_instance.__iter__.return_value = [MagicMock(value=b"test_message")]
         kafka_manager.process_kafka_message(process_kafka_data)
         mock_process.assert_called_once_with(process_kafka_data)
 
-# Tests for RabbitMQAutomationManager
+# Tests for RabbitMQAutomation
 @patch("gofast.mlops.automation.pika.BlockingConnection")
 def test_rabbitmq_automation_manager_process_rabbitmq_message(mock_blocking_connection):
     mock_connection = MagicMock()
     mock_channel = MagicMock()
     mock_blocking_connection.return_value = mock_connection
     mock_connection.channel.return_value = mock_channel
-    rabbitmq_manager = RabbitMQAutomationManager(host="localhost", queue="test_queue")
+    rabbitmq_manager = RabbitMQAutomation(host="localhost", queue="test_queue")
     
     with patch.object(rabbitmq_manager, 'process_rabbitmq_message', wraps=rabbitmq_manager.process_rabbitmq_message) as mock_process:
         # Simulate receiving a message

@@ -16,12 +16,12 @@ from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
 from datetime import datetime, timedelta
 
-from sklearn.utils._param_validation import validate_params
 from sklearn.utils._param_validation  import StrOptions
 
 from .._gofastlog import gofastlog 
 from ..api.property import BaseClass, PipelineBaseClass
 from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
+from ..compat.sklearn import validate_params 
 from ..tools.funcutils import ensure_pkg 
 from ..tools.coreutils import validate_ratio
 try: 

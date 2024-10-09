@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+#   License: BSD-3-Clause
+#   Author: LKouadio <etanoyau@gmail.com>
 
 """
 Contains utility functions and classes for machine learning operations 
@@ -24,8 +26,11 @@ from contextlib import contextmanager
 
 import numpy as np
 
+from ..api.property import BaseClass
 from ..decorators import EnsureFileExists 
 from .._gofastlog import gofastlog 
+from ..tools.validator import parameter_validator 
+
 logger=gofastlog.get_gofast_logger(__name__)
 
 
@@ -52,7 +57,7 @@ __all__ = [
 ]
 
 
-class ConfigManager:
+class ConfigManager(BaseClass):
     """
     Manages configuration files in JSON or YAML format.
 
@@ -81,14 +86,19 @@ class ConfigManager:
     >>> config_manager.save_config()
 
     """
-
+    
+    @EnsureFileExists
     def __init__(self, config_file: str, config_format: str = 'json'):
-        if config_format not in ['json', 'yaml']:
-            raise ValueError("config_format must be 'json' or 'yaml'")
-        self.config_file = config_file
+
         self.config_format = config_format
         self.config: Dict[str, Any] = {}
-
+        
+        self.config_file =parameter_validator(
+            config_format, target_strs=['json', 'yaml', 'yml'],  
+            return_target_str=True, error_msg=(
+                "config_format must be 'json' or 'yaml'")
+            )
+        
     def load_config(self) -> Dict[str, Any]:
         """
         Loads the configuration from the file.
@@ -149,7 +159,7 @@ class ConfigManager:
         self.config.update(updates)
         logger.info("Configuration updated.")
 
-class ExperimentTracker:
+class ExperimentTracker(BaseClass):
     """
     Tracks experiments, logging hyperparameters, metrics, and artifacts.
 
@@ -217,7 +227,7 @@ class ExperimentTracker:
             json.dump(metrics, f, indent=4)
         logger.info("Metrics logged.")
 
-    @EnsureFileExists(file_param="artifact_path")
+    @EnsureFileExists(file_param="artifact_path", action="ignore")
     def save_artifact(self, artifact_path: str, artifact_name: Optional[str] = None):
         """
         Saves an artifact file to the experiment directory.
@@ -367,7 +377,7 @@ def set_random_seed(seed: int = 42):
     except ImportError:
         logger.warning("PyTorch not installed; skipping torch seed setting.")
 
-class EarlyStopping:
+class EarlyStopping(BaseClass):
     """
     Implements early stopping mechanism to halt training when performance degrades.
 
@@ -498,7 +508,7 @@ def calculate_metrics(
     return results
 
 
-class DataVersioning:
+class DataVersioning(BaseClass):
     """
     Manages data versioning for datasets using checksums and metadata.
 
@@ -606,7 +616,7 @@ class DataVersioning:
                 hash_md5.update(chunk)
         return hash_md5.hexdigest()
 
-class ParameterGrid:
+class ParameterGrid(BaseClass):
     """
     Generates a grid of parameter combinations for hyperparameter tuning.
 
@@ -653,7 +663,7 @@ class ParameterGrid:
         return self._grid[idx]
 
 
-class TrainTestSplitter:
+class TrainTestSplitter(BaseClass):
     """
     Utility class for splitting data into training and testing sets.
 
@@ -718,7 +728,7 @@ class TrainTestSplitter:
         logger.info("Data split into training and testing sets.")
         return X_train, X_test, y_train, y_test
 
-class CrossValidator:
+class CrossValidator(BaseClass):
     """
     Utility class for performing cross-validation.
 
@@ -775,7 +785,7 @@ class CrossValidator:
         logger.info("Cross-validation completed.")
         return results
 
-class PipelineBuilder:
+class PipelineBuilder(BaseClass):
     """
     Utility class for building machine learning pipelines.
 
@@ -822,7 +832,7 @@ class PipelineBuilder:
         logger.info("Pipeline constructed.")
         return pipeline
 
-class MetadataManager:
+class MetadataManager(BaseClass):
     """
     Manages model metadata, including parameters, hyperparameters, and metrics.
 
