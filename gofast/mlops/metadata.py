@@ -1,32 +1,31 @@
 # -*- coding: utf-8 -*-
+#   License: BSD-3-Clause
+#   Author: LKouadio <etanoyau@gmail.com>
+
 """
 Manage metadata related to models, experiments, datasets, and 
 training runs.
 """
-
 import os
 import platform
 import subprocess
-from numbers import Integral#, Real
 import random 
 import json
 import time
 import zlib
-from collections import deque  #noqa
+from collections import deque  # noqa
+from numbers import Integral
 from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Callable
 
 import numpy as np
-
-
-from typing import Any, Dict, List, Optional, Callable
 from sklearn.utils._param_validation import StrOptions, HasMethods
 
 from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
-from .._gofastlog import gofastlog 
 from ..api.property import BaseClass
 from ..compat.sklearn import validate_params, Interval 
 from ..tools.funcutils import ensure_pkg 
-
+from .._gofastlog import gofastlog 
 logger=gofastlog.get_gofast_logger(__name__)
 
 __all__ = [
