@@ -91,6 +91,7 @@ __all__=[
      'validate_performance_data',
      'validate_positive_integer',
      'validate_sample_weights',
+     'validate_sets', 
      'validate_scores',
      'validate_square_matrix',
      'validate_weights',
@@ -99,7 +100,8 @@ __all__=[
 
 def filter_valid_kwargs(callable_obj, kwargs):
     """
-    Filter and return only the valid keyword arguments for a given callable object.
+    Filter and return only the valid keyword arguments for a given 
+    callable object.
 
     This function checks if the arguments in `kwargs` are valid for the 
     provided callable object (function, lambda function, method, or class). 

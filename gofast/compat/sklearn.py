@@ -42,6 +42,7 @@ from packaging.version import Version, parse
 import sklearn
 import inspect
 from sklearn.utils._param_validation import validate_params as sklearn_validate_params
+from sklearn.utils._param_validation import Interval as sklearn_Interval 
 from sklearn.utils import resample
 from sklearn.utils.validation import check_is_fitted as sklearn_check_is_fitted
 from sklearn.metrics import get_scorer
@@ -55,6 +56,7 @@ SKLEARN_LT_0_23 = SKLEARN_VERSION < Version("0.23.0")
 SKLEARN_LT_0_24 = SKLEARN_VERSION < Version("0.24.0")
 
 __all__ = [
+    "Interval", 
     "resample",
     "train_test_split",
     "get_scorer",
@@ -68,6 +70,120 @@ __all__ = [
     "SKLEARN_LT_0_23", 
     "SKLEARN_LT_0_24"
 ]
+
+
+class Interval:
+    """
+    Compatibility wrapper for scikit-learn's `Interval` class to handle 
+    versions that do not include the `inclusive` argument.
+    
+    Parameters
+    ----------
+    *args : tuple
+        Positional arguments passed to the `Interval` class, typically 
+        the expected data types and the range boundaries for the validation 
+        interval.
+    
+    inclusive : bool, optional
+        Specifies whether the interval includes its bounds. Only supported 
+        in scikit-learn versions that accept the `inclusive` parameter. If 
+        `True`, the interval includes the bounds. Default is `None` for 
+        older versions where this argument is not available.
+    
+    closed : str, optional
+        Defines how the interval is closed. Can be "left", "right", "both", 
+        or "neither". This argument is accepted by both older and newer 
+        scikit-learn versions. Default is "left" (includes the left bound, 
+        but excludes the right bound).
+    
+    kwargs : dict
+        Additional keyword arguments passed to the `Interval` class for 
+        compatibility, including any additional arguments required by the 
+        current scikit-learn version.
+
+    Returns
+    -------
+    Interval
+        A compatible `Interval` object based on the scikit-learn version, 
+        with or without the `inclusive` argument.
+    
+    Raises
+    ------
+    ValueError
+        If an unsupported version of scikit-learn is used or the parameters 
+        are not valid for the given version.
+    
+    Notes
+    -----
+    This class provides a compatibility layer for creating `Interval` 
+    objects in different versions of scikit-learn. The `inclusive` argument 
+    was introduced in newer versions, so this class removes it if not 
+    supported in older versions. 
+    
+    If you are using scikit-learn versions that support the `inclusive` 
+    argument (e.g., version 1.2 or later), it will be included in the call 
+    to `Interval`. Otherwise, the argument will be excluded.
+    
+    Examples
+    --------
+    In newer scikit-learn versions (e.g., >=1.2), you can include the 
+    `inclusive` parameter:
+    
+    >>> from numbers import Integral
+    >>> from gofast.compat.sklearn import Interval
+    >>> interval = Interval(Integral, 1, 10, closed="left", inclusive=True)
+    >>> interval
+    
+    In older versions of scikit-learn that don't support `inclusive`, it 
+    will automatically be removed:
+    
+    >>> interval = Interval(Integral, 1, 10, closed="left")
+    >>> interval
+    
+    See Also
+    --------
+    sklearn.utils._param_validation.Interval : Original scikit-learn `Interval` 
+        class used for parameter validation.
+    
+    References
+    ----------
+    .. [1] Pedregosa, F. et al. (2011). "Scikit-learn: Machine Learning in 
+       Python." *Journal of Machine Learning Research*, 12, 2825-2830.
+    
+    .. [2] Buitinck, L., Louppe, G., Blondel, M., et al. (2013). "API design 
+       for machine learning software: experiences from the scikit-learn 
+       project." *arXiv preprint arXiv:1309.0238*.
+    """
+    
+    def __new__(cls, *args, **kwargs):
+        """
+        Creates a compatible `Interval` object based on the scikit-learn 
+        version.
+        
+        Parameters
+        ----------
+        *args : tuple
+            Positional arguments for the `Interval` class.
+        kwargs : dict
+            Keyword arguments, including `inclusive` if supported by the 
+            scikit-learn version.
+        
+        Returns
+        -------
+        sklearn.utils._param_validation.Interval
+            A compatible `Interval` object.
+        """
+        # Check if 'inclusive' is a parameter in the __init__ method of 
+        # sklearn_Interval
+        signature = inspect.signature(sklearn_Interval.__init__)
+        if 'inclusive' in signature.parameters:
+            # 'inclusive' is supported, use kwargs as is
+            return sklearn_Interval(*args, **kwargs)
+        else:
+            # 'inclusive' not supported, remove it from kwargs if present
+            kwargs.pop('inclusive', None)
+            return sklearn_Interval(*args, **kwargs)
+
 
 def validate_params(params, *args, prefer_skip_nested_validation=True, **kwargs):
     """
