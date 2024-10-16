@@ -73,6 +73,7 @@ __all__= [
     'speed_rowwise_process'
     ]
 
+
 def remove_outliers(
     ar: Union[ArrayLike,DataFrame],  
     method: str = 'IQR',
