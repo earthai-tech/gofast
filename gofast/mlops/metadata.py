@@ -14,7 +14,7 @@ import json
 import time
 import zlib
 from collections import deque  # noqa
-from numbers import Integral
+from numbers import Integral, Real
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Callable
 
@@ -2712,14 +2712,14 @@ class PerformanceTracker:
         'alert_method': [callable, None],
         'metrics_to_track': [list, None],
         'use_rolling_avg': [bool],
-        'window_size': [int],
+        'window_size': [Integral],
         'baseline_performance': [Dict[str, float], None],
         'upper_bound_performance': [Dict[str, float], None],
         'storage_backend': [str, None],
         'encryption_key': [str, None],
         'compression_enabled': [bool],
         'real_time_monitoring': [bool],
-        'real_time_interval': [int],
+        'real_time_interval': [Integral],
     }, 
         prefer_skip_nested_validation=False
         )
@@ -3309,7 +3309,7 @@ class PerformanceTracker:
     'metadata': [dict],
     'metadata_type': [str],
     'versioning_enabled': [bool],
-    'version': [int, None],
+    'version': [Integral, None],
     'storage_backend': [StrOptions({'local', 's3', 'database'})],
     'encryption_key': [str, None],
     'compression_enabled': [bool],
@@ -3753,7 +3753,7 @@ def _sync_with_cloud(
 
 @validate_params({
     'metadata_type': [str],
-    'version': [int, None],
+    'version': [Integral, None],
     'storage_backend': [StrOptions({'local', 's3', 'database'})],
     'decryption_key': [str, None],
     'decompression_enabled': [bool],
@@ -4086,7 +4086,7 @@ def _fetch_from_database(
     'keys_to_compare': [list, None],
     'ignore_keys': [list, None],
     'recursive': [bool],
-    'tolerance': [float, int],
+    'tolerance': [Real, Integral],
 })
 def compare(
     metadata_a: Dict[str, Any],
@@ -4314,7 +4314,7 @@ def _values_are_equal(value_a: Any, value_b: Any, tolerance: float) -> bool:
     'user': [str],
     'change_description': [str],
     'storage_backend': [StrOptions({'local', 's3', 'database'})],
-    'version': [int, None],
+    'version': [Integral, None],
     'bucket_name': [str, None],
     'mongo_db_uri': [str, None],
 })
@@ -4635,8 +4635,8 @@ def _save_to_database(
 @validate_params({
     'metadata': [dict],
     'cloud_provider': [StrOptions({'aws', 'gcp'})],
-    'retries': [int],
-    'batch_size': [int],
+    'retries': [Integral],
+    'batch_size': [Integral],
     'bucket_name': [str],
     'aws_credentials': [dict, None],
     'gcp_credentials': [dict, None],

@@ -46,6 +46,7 @@ __all__=[
      'check_consistency_size',
      'check_consistent_length',
      'check_epsilon',
+     'check_has_run_method',
      'check_is_fitted',
      'check_is_fitted2',
      'check_memory',
@@ -81,6 +82,7 @@ __all__=[
      'validate_dates',
      'validate_distribution',
      'validate_dtype_selector',
+     'validate_estimator_methods',
      'validate_fit_weights',
      'validate_keras_model',
      'validate_length_range',
@@ -97,6 +99,222 @@ __all__=[
      'validate_weights',
      'validate_yy'
  ]
+
+def check_has_run_method(estimator, msg=None, method_name="run"):
+    """
+    Check if the given estimator has a callable `run` method or any other 
+    specified method. This utility helps validate that an object can 
+    execute the expected method before further actions are taken.
+
+    Parameters
+    ----------
+    estimator : object
+        The object (instance or class) to check for the presence of the 
+        `run` method or another specified method.
+    
+    msg : str, optional
+        Custom error message to display if the method is missing. If None, 
+        a default message is generated based on the `method_name`.
+    
+    method_name : str, default="run"
+        The method name to check for. This defaults to `run`, but you can 
+        specify any method name. The method must be callable.
+    
+    Raises
+    ------
+    AttributeError
+        Raised if the `run` method (or any specified method) does not 
+        exist on the object or is not callable.
+    
+    Examples
+    --------
+    >>> from gofast.tools.validator import check_has_run_method
+    >>> class MyClass:
+    ...     def run(self):
+    ...         pass
+    >>> check_has_run_method(MyClass())  # No error
+
+    >>> class MyClassWithoutRun:
+    ...     pass
+    >>> check_has_run_method(MyClassWithoutRun())  # Raises AttributeError
+
+    Notes
+    -----
+    This function performs several checks:
+    
+    1. **Existence check**: It checks whether the `run` method (or any 
+       other specified method) exists in the `estimator` object.
+    2. **Callable check**: It ensures that the method is callable, which 
+       rules out attributes that might exist but aren't methods.
+    3. **Static/class method check**: The function accepts static or 
+       class methods as valid callable methods.
+    4. **Bound method check**: It verifies that instance methods are 
+       bound to an object when required, which ensures they can be called 
+       properly in the given context.
+
+    This function can be expressed as a validation function:
+
+    .. math:: 
+        \text{check\_has\_method}(estimator, method\_name) = 
+        \begin{cases} 
+        \text{valid}, & \text{if method exists and callable} \\
+        \text{invalid}, & \text{if method is missing or not callable}
+        \end{cases}
+
+    It determines whether the method is callable or raises an error 
+    otherwise.
+
+    See Also
+    --------
+    validate_estimator_methods : A helper function to validate multiple 
+                                 methods on an estimator.
+
+    References
+    ----------
+    .. [1] Python Software Foundation. Python 3.9 Documentation.
+           https://docs.python.org/3/
+    .. [2] Static Methods in Python. Real Python.
+           https://realpython.com/instance-class-and-static-methods-python/
+
+    """
+
+    # Step 1: Check if the method exists
+    if not hasattr(estimator, method_name):
+        if msg is None:
+            msg = f"'{estimator.__class__.__name__}' object has no attribute '{method_name}'"
+        raise AttributeError(msg)
+
+    method = getattr(estimator, method_name)
+
+    # Step 2: Ensure the method is callable
+    if not callable(method):
+        if msg is None:
+            msg = f"'{method_name}' attribute of '{estimator.__class__.__name__}' is not callable."
+        raise AttributeError(msg)
+
+    # Step 3: Check for static or class methods
+    if isinstance(getattr(estimator.__class__, method_name, None), (staticmethod, classmethod)):
+        return  # Valid if it's a static or class method
+    
+    # Step 4: If it's an instance method, ensure it's bound
+    if not isinstance(method, (staticmethod, classmethod)) and not hasattr(method, '__self__'):
+        raise AttributeError(f"'{method_name}' method of '{estimator.__class__.__name__}' is unbound.")
+
+    # If no errors were raised, the method exists and is callable
+    return
+
+def validate_estimator_methods(estimator, methods, msg=None):
+    """
+    Validate that the specified methods exist and are callable on the 
+    given estimator.
+
+    This utility function is designed to check whether an estimator (or 
+    any object) contains the required methods (such as `fit`, `run`, etc.) 
+    and ensures that those methods are callable. It helps prevent runtime 
+    errors by verifying the presence of expected methods.
+
+    Parameters
+    ----------
+    estimator : object
+        The object (instance or class) to check for the presence of the 
+        specified methods. The estimator can be an instance of a class or 
+        the class itself, and it should implement the required methods.
+
+    methods : list of str
+        List of method names (as strings) to validate. Each method name 
+        must exist on the estimator and be callable. Examples of methods 
+        might include `fit`, `run`, `predict`, etc.
+
+    msg : str, optional
+        Custom error message to display if any method is missing or not 
+        callable. If None, a default message is generated for each missing 
+        or invalid method based on the method name.
+
+    Raises
+    ------
+    AttributeError
+        If any method in `methods` is not present or not callable on the 
+        estimator, an AttributeError is raised.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import validate_estimator_methods
+    >>> class MyClass:
+    ...     def fit(self):
+    ...         pass
+    ...     def run(self):
+    ...         pass
+    >>> validate_estimator_methods(MyClass(), ['fit', 'run'])  # No error
+
+    >>> class IncompleteClass:
+    ...     def fit(self):
+    ...         pass
+    >>> validate_estimator_methods(IncompleteClass(), ['fit', 'run'])  
+    # Raises AttributeError for missing `run` method
+
+    Notes
+    -----
+    This function is useful when you want to ensure that an object, such 
+    as an estimator or a model, has the required methods before proceeding 
+    with operations. It validates the presence of multiple methods, 
+    ensuring each is callable, preventing runtime errors in cases where 
+    methods are expected to exist.
+
+    This function checks if all methods :math:`M_1, M_2, \dots, M_n` 
+    exist and are callable on the estimator. The condition can be 
+    expressed as:
+
+    .. math:: 
+        \forall M_i, \quad \text{if} \quad M_i \in \text{estimator} \quad 
+        \land \quad \text{callable}(M_i) \quad \text{then valid} 
+        \quad \text{else error}
+
+    If any method is missing or not callable, the function raises an 
+    `AttributeError`.
+
+    See Also
+    --------
+    check_has_run_method : Validate the presence of a single method (defaulting to `run`).
+
+    References
+    ----------
+    .. [1] Python Software Foundation. Python 3.9 Documentation.
+           https://docs.python.org/3/
+    .. [2] Callable Objects in Python. Real Python.
+           https://realpython.com/python-callable/
+
+    """
+    if isinstance (methods, str): 
+        methods = [methods]
+        
+    for method_name in methods:
+        # Step 1: Check if the method exists on the estimator
+        if not hasattr(estimator, method_name):
+            # If a custom message is provided, use it; otherwise, generate a default message
+            if msg is None:
+                msg = f"'{estimator.__class__.__name__}' object has no attribute '{method_name}'"
+            raise AttributeError(msg)
+        
+        method = getattr(estimator, method_name)
+
+        # Step 2: Ensure the method is callable
+        if not callable(method):
+            if msg is None:
+                msg = f"'{method_name}' attribute of '{estimator.__class__.__name__}' is not callable."
+            raise AttributeError(msg)
+
+        # Step 3: Check if it's a valid static or class method
+        if isinstance(getattr(estimator.__class__, method_name, None), (staticmethod, classmethod)):
+            continue  # Static or class methods are valid and callable
+        
+        # Step 4: Ensure instance methods are properly bound
+        if not isinstance(method, (staticmethod, classmethod)) and not hasattr(method, '__self__'):
+            raise AttributeError(
+                f"'{method_name}' method of '{estimator.__class__.__name__}' is unbound.")
+
+    # If all methods pass, the validation is successful
+    return
+
 
 def filter_valid_kwargs(callable_obj, kwargs):
     """

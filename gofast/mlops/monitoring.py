@@ -697,8 +697,8 @@ class ModelHealthChecker(BaseClass):
         'network_threshold': [Interval(Real, 0, None, closed='left')],
         'latency_threshold': [Interval(Real, 0, None, closed='left')],
         'alert_messages': [dict, None],
-        'health_retention_period': [Interval(int, 1, None, closed='left')],
-        'monitor_interval': [Interval(int, 1, None, closed='left')],
+        'health_retention_period': [Interval(Integral, 1, None, closed='left')],
+        'monitor_interval': [Interval(Integral, 1, None, closed='left')],
     })
     def __init__(
         self,
@@ -1136,7 +1136,7 @@ class DataDriftMonitor(BaseClass):
     @validate_params({
         'alert_callback': [callable, None],
         'drift_thresholds': [dict, None],
-        'drift_threshold': [Interval(float, 0, 1, closed='both')],
+        'drift_threshold': [Interval(Real, 0, 1, closed='both')],
         'baseline_data': [np.ndarray, None],
         'drift_detection_method': [StrOptions({'ks', 'chi2', 'jsd'})],
         'handle_missing': [StrOptions({'skip', 'impute'})],
@@ -1344,7 +1344,6 @@ class DataDriftMonitor(BaseClass):
         return self.drift_history_
 
 
-
 class LatencyTracker(BaseClass):
     """
     Tracks and monitors the latency of model inference operations,
@@ -1449,8 +1448,8 @@ class LatencyTracker(BaseClass):
     @validate_params({
         'alert_callback': [callable, None],
         'latency_thresholds': [dict, None],
-        'global_latency_threshold': [Interval(float, 0, None, closed='left')],
-        'retention_period': [Interval(int, 1, None, closed='left')],
+        'global_latency_threshold': [Interval(Real, 0, None, closed='left')],
+        'retention_period': [Interval(Integral, 1, None, closed='left')],
         'percentiles_to_track': [list, None],
         'alert_messages': [dict, None],
     })
@@ -1473,7 +1472,7 @@ class LatencyTracker(BaseClass):
 
     @validate_params({
         'operation': [str],
-        'latency': [Interval(float, 0, None, closed='left')],
+        'latency': [Interval(Real, 0, None, closed='left')],
     })
     def record_latency(self, operation: str, latency: float):
         """
@@ -1546,7 +1545,7 @@ class LatencyTracker(BaseClass):
 
     @validate_params({
         'operation': [str],
-        'percentile': [Interval(float, 0, 100, closed='both')],
+        'percentile': [Interval(Real, 0, 100, closed='both')],
     })
     def get_tail_latency(self, operation: str, percentile: float = 95.0) -> float:
         """
@@ -1615,7 +1614,7 @@ class LatencyTracker(BaseClass):
 
     @validate_params({
         'operation': [str],
-        'threshold': [Interval(float, 0, None, closed='left')],
+        'threshold': [Interval(Real, 0, None, closed='left')],
     })
     def set_latency_threshold(self, operation: str, threshold: float):
         """
@@ -1784,9 +1783,9 @@ class AlertManager(BaseClass):
         'webhook_urls': [list, None],
         'smtp_server': [str, None],
         'from_email': [str, None],
-        'retry_attempts': [Interval(int, 0, None, closed='left')],
+        'retry_attempts': [Interval(Integral, 0, None, closed='left')],
         'batch_alerts': [bool],
-        'batch_interval': [Interval(int, 1, None, closed='left')],
+        'batch_interval': [Interval(Integral, 1, None, closed='left')],
     })
     def __init__(
         self,
@@ -2118,9 +2117,9 @@ class ErrorRateMonitor(BaseClass):
     """
 
     @validate_params({
-        'error_threshold': [Interval(float, 0, 1, closed='both')],
+        'error_threshold': [Interval(Real, 0, 1, closed='both')],
         'alert_callback': [callable, None],
-        'retention_period': [Interval(int, 1, None, closed='left')],
+        'retention_period': [Interval(Integral, 1, None, closed='left')],
         'error_types': [list, None],
     })
     def __init__(
@@ -2322,7 +2321,7 @@ class CustomMetricsLogger(BaseClass):
     """
 
     @validate_params({
-        'retention_period': [Interval(int, 1, None, closed='left')],
+        'retention_period': [Interval(Integral, 1, None, closed='left')],
         'metric_thresholds': [dict, None],
         'alert_callback': [callable, None],
     })
@@ -2339,7 +2338,7 @@ class CustomMetricsLogger(BaseClass):
 
     @validate_params({
         'metric_name': [str],
-        'value': [float],
+        'value': [Real],
     })
     def log_metric(self, metric_name: str, value: float):
         """
@@ -2415,7 +2414,7 @@ class CustomMetricsLogger(BaseClass):
 
     @validate_params({
         'metric_name': [str],
-        'window': [Interval(int, 1, None, closed='left')],
+        'window': [Interval(Integral, 1, None, closed='left')],
     })
     def get_moving_average(self, metric_name: str, window: int) -> float:
         """

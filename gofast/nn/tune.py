@@ -25,8 +25,10 @@ from ..api.types import _Tensor, _Dataset, _Optimizer
 from ..api.types import  _Callback, _Model, _Sequential 
 from ..api.types import List, Union, Dict, Tuple, DataFrame, Series 
 from ..api.types import ArrayLike , Callable, Any
+from ..api.property import BaseClass
 from ..tools._dependency import import_optional_dependency 
 from ..tools.coreutils import is_iterable, type_of_target 
+from ..decorators import SmartFitRun
 from ..tools.funcutils import ensure_pkg 
 from ..tools.validator import check_consistent_length
 from ..tools.validator import validate_keras_model,  is_frame
@@ -61,8 +63,9 @@ __all__= [
 
 DEP_MSG=dependency_message('tune')
 
+@SmartFitRun 
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-class PBTTrainer:
+class PBTTrainer(BaseClass):
     """
     Implements Population Based Training (PBT), a hyperparameter optimization
     technique that adapts hyperparameters dynamically during training. 
@@ -371,8 +374,9 @@ class PBTTrainer:
             self.population[i] = (self.model_fn(), perturbed_hyperparams)  
             # Reinitialize model
 
+@SmartFitRun 
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-class Hyperband:
+class Hyperband(BaseClass):
     """
     Implements the Hyperband hyperparameter optimization algorithm, utilizing 
     a bandit-based approach combined with successive halving to efficiently

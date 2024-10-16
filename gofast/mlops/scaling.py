@@ -1390,7 +1390,7 @@ class ElasticScaler(BaseClass):
 
 @validate_params({
     'data_pipeline_fn': [callable],
-    'num_partitions': [Interval(int, 1, None, closed='left')],
+    'num_partitions': [Interval(Integral, 1, None, closed='left')],
     'partition_strategy': [StrOptions({'even', 'custom', 'random'})],
     'custom_partition_fn': [callable, None],
     'partition_metadata': [dict, None],
@@ -1695,11 +1695,11 @@ def get_system_workload(
     'scale_down_thresholds': [dict],
     'scale_up_callback': [callable],
     'scale_down_callback': [callable],
-    'min_scale_up_duration': [float],
-    'min_scale_down_duration': [float],
-    'scaling_sensitivity': [float],
+    'min_scale_up_duration': [Real],
+    'min_scale_down_duration': [Real],
+    'scaling_sensitivity': [Real],
     'workload_weighting': [dict, None],
-    'cooldown_period': [float],
+    'cooldown_period': [Real],
     'auto_scale_up': [bool],
     'auto_scale_down': [bool],
 })

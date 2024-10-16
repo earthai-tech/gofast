@@ -190,71 +190,102 @@ class PipelineBaseClass:
             f")"
         )
         return repr_str
-
+    
 class BaseClass:
     """
-    A base class that provides a nicely formatted string representation
-    of any derived class instances, summarizing their attributes and
-    handling collections intelligently.
+    A base class that provides a formatted string representation of any derived
+    class instances. It summarizes their attributes and handles collections 
+    intelligently.
     
+    This class offers flexibility in how attributes are represented using two 
+    key options:
+    `formatage` for formatting and `vertical_display` for controlling vertical
+    alignment.
+
     Attributes
     ----------
     MAX_DISPLAY_ITEMS : int
-        The maximum number of items to display when summarizing
-        collections. Default is 5.
+        The maximum number of items to display when summarizing collections. 
+        Default is 5.
     _include_all_attributes : bool
-        If True, includes all attributes in the string representation.
-        If False, includes only the attributes defined in the __init__ method.
-    
+        If True, all attributes in the instance are included in the string 
+        representation.
+        If False, only attributes defined in the `__init__` method are included.
+    _formatage : bool
+        Controls whether the attributes should be summarized or displayed as-is. 
+        If True, attributes are formatted (default is True).
+    _vertical_display : bool
+        Controls whether the attributes are displayed in vertical alignment 
+        or inline.
+        If True, attributes are displayed vertically (default is False).
+
     Methods
     -------
-    __repr__() -> str
-        Returns a formatted string representation of the instance.
-    _format_attr(key: str, value: Any) -> str
-        Formats an individual attribute for the string representation.
-    _summarize_iterable(iterable: Iterable) -> str
+    __repr__()
+        Returns a formatted string representation of the instance based on the 
+        configuration settings for formatting and vertical alignment.
+    _format_attr(key: str, value: Any)
+        Formats a single attribute for inclusion in the string representation.
+    _summarize_iterable(iterable: Iterable)
         Returns a summarized string representation of an iterable.
-    _summarize_dict(dictionary: Dict) -> str
+    _summarize_dict(dictionary: Dict)
         Returns a summarized string representation of a dictionary.
-    _summarize_array(array: np.ndarray) -> str
+    _summarize_array(array: np.ndarray)
         Summarizes a NumPy array to a concise representation.
-    _summarize_dataframe(df: pd.DataFrame) -> str
+    _summarize_dataframe(df: pd.DataFrame)
         Summarizes a pandas DataFrame to a concise representation.
-    _summarize_series(series: pd.Series) -> str
+    _summarize_series(series: pd.Series)
         Summarizes a pandas Series to a concise representation.
+
     Examples
     --------
+    >>> from gofast.api.property import BaseClass
     >>> class Optimizer(BaseClass):
     ...     def __init__(self, name, iterations):
     ...         self.name = name
     ...         self.iterations = iterations
-    ...         self.parameters = [1, 2, 3, 4, 5, 6, 7]
     >>> optimizer = Optimizer("SGD", 100)
     >>> print(optimizer)
     Optimizer(name=SGD, iterations=100)
 
-    >>> optimizer._include_all_attributes=True
+    >>> optimizer._include_all_attributes = True
     >>> print(optimizer)
     Optimizer(name=SGD, iterations=100, parameters=[1, 2, 3, 4, 5, ...])
 
     Notes
     -----
-    The base class is designed to be inherited by classes that wish to
-    have a robust and informative string representation for debugging
-    and logging purposes. It handles complex data types by summarizing
-    them if they exceed the MAX_DISPLAY_ITEMS limit. This behavior can
-    be adjusted by modifying the class attribute MAX_DISPLAY_ITEMS.
+    This class is intended to be used as a base class for any object that requires 
+    a readable and informative string representation. It is particularly useful in 
+    debugging or logging contexts, where object attributes need to be displayed in 
+    a human-readable format.
     """
+
     MAX_DISPLAY_ITEMS = 5
     _include_all_attributes = False  
+    _formatage = True 
+    _vertical_display = False 
 
     def __repr__(self) -> str:
+        """
+        Returns a formatted string representation of the instance based on 
+        the `_formatage` and `_vertical_display` attributes.
+
+        If `_formatage` is False, attributes are displayed without summarization.
+        If `_vertical_display` is True, attributes are displayed vertically. 
+        Otherwise, they are displayed inline.
+
+        Returns
+        -------
+        str
+            A formatted string representation of the instance.
+        """
+        # Collect attributes based on configuration
         if self._include_all_attributes:
             attributes = [self._format_attr(key, value) 
                           for key, value in self.__dict__.items() 
                           if not key.startswith('_') and not key.endswith('_')]
         else:
-            # Get parameters from the __init__ method of the derived class
+            # Get parameters from the __init__ method
             signature = inspect.signature(self.__init__)
             params = [p for p in signature.parameters if p != 'self']
             attributes = []
@@ -262,26 +293,63 @@ class BaseClass:
                 if hasattr(self, key):
                     value = getattr(self, key)
                     attributes.append(self._format_attr(key, value))
-        return f"{self.__class__.__name__}({', '.join(attributes)})"
+
+        # Return vertical or inline representation based on _vertical_display
+        if self._vertical_display:
+            return f"{self.__class__.__name__}(\n    " + ",\n    ".join(attributes) + "\n)"
+        else:
+            return f"{self.__class__.__name__}({', '.join(attributes)})"
 
     def _format_attr(self, key: str, value: Any) -> str:
-        """Formats a single attribute for inclusion in the string representation."""
-        if isinstance(value, (list, tuple, set)):
-            return f"{key}={self._summarize_iterable(value)}"
-        elif isinstance(value, dict):
-            return f"{key}={self._summarize_dict(value)}"
-        elif isinstance(value, np.ndarray):
-            return f"{key}={self._summarize_array(value)}"
-        elif isinstance(value, pd.DataFrame):
-            return f"{key}={self._summarize_dataframe(value)}"
-        elif isinstance(value, pd.Series):
-            return f"{key}={self._summarize_series(value)}"
+        """
+        Formats an individual attribute for inclusion in the string 
+        representation.
+        
+        When `_formatage` is False, the value is displayed as is.
+
+        Parameters
+        ----------
+        key : str
+            The name of the attribute.
+        value : Any
+            The value of the attribute to be formatted.
+
+        Returns
+        -------
+        str
+            The formatted string representation of the attribute.
+        """
+        if self._formatage:
+            if isinstance(value, (list, tuple, set)):
+                return f"{key}={self._summarize_iterable(value)}"
+            elif isinstance(value, dict):
+                return f"{key}={self._summarize_dict(value)}"
+            elif isinstance(value, np.ndarray):
+                return f"{key}={self._summarize_array(value)}"
+            elif isinstance(value, pd.DataFrame):
+                return f"{key}={self._summarize_dataframe(value)}"
+            elif isinstance(value, pd.Series):
+                return f"{key}={self._summarize_series(value)}"
+            else:
+                return f"{key}={value}"
         else:
             return f"{key}={value}"
 
     def _summarize_iterable(self, iterable: Iterable) -> str:
-        """Summarizes an iterable object to a concise representation 
-        if it exceeds the display limit."""
+        """
+        Summarizes an iterable to a concise representation if it exceeds 
+        the display limit.
+
+        Parameters
+        ----------
+        iterable : Iterable
+            The iterable (list, tuple, set) to summarize.
+
+        Returns
+        -------
+        str
+            A summarized string representation of the iterable.
+        """
         if len(iterable) > self.MAX_DISPLAY_ITEMS:
             limited_items = ', '.join(map(str, list(iterable)[:self.MAX_DISPLAY_ITEMS]))
             return f"[{limited_items}, ...]"
@@ -289,8 +357,20 @@ class BaseClass:
             return f"[{', '.join(map(str, iterable))}]"
 
     def _summarize_dict(self, dictionary: Dict) -> str:
-        """Summarizes a dictionary object to a concise representation
-        if it exceeds the display limit."""
+        """
+        Summarizes a dictionary to a concise representation if it exceeds 
+        the display limit.
+
+        Parameters
+        ----------
+        dictionary : Dict
+            The dictionary to summarize.
+
+        Returns
+        -------
+        str
+            A summarized string representation of the dictionary.
+        """
         if len(dictionary) > self.MAX_DISPLAY_ITEMS:
             limited_items = ', '.join(f"{k}: {v}" for k, v in list(
                 dictionary.items())[:self.MAX_DISPLAY_ITEMS])
@@ -299,8 +379,20 @@ class BaseClass:
             return f"{{ {', '.join(f'{k}: {v}' for k, v in dictionary.items()) }}}"
 
     def _summarize_array(self, array: np.ndarray) -> str:
-        """Summarizes array object to a concise representation if 
-        it exceeds the display rows."""
+        """
+        Summarizes a NumPy array to a concise representation if it exceeds 
+        the display limit.
+
+        Parameters
+        ----------
+        array : np.ndarray
+            The NumPy array to summarize.
+
+        Returns
+        -------
+        str
+            A summarized string representation of the array.
+        """
         if array.size > self.MAX_DISPLAY_ITEMS:
             limited_items = ', '.join(map(str, array.flatten()[:self.MAX_DISPLAY_ITEMS]))
             return f"[{limited_items}, ...]"
@@ -308,23 +400,47 @@ class BaseClass:
             return f"[{', '.join(map(str, array.flatten()))}]"
 
     def _summarize_dataframe(self, df: pd.DataFrame) -> str:
-        """Summarizes a DataFrame object to a concise representation if it
-        exceeds the display limit."""
+        """
+        Summarizes a pandas DataFrame to a concise representation if it exceeds
+        the display limit.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            The DataFrame to summarize.
+
+        Returns
+        -------
+        str
+            A summarized string representation of the DataFrame.
+        """
         if len(df) > self.MAX_DISPLAY_ITEMS:
             return f"DataFrame({len(df)} rows, {len(df.columns)} columns)"
         else:
             return f"DataFrame: {df.to_string(index=False)}"
 
     def _summarize_series(self, series: pd.Series) -> str:
-        """Summarizes a series object to a concise representation if it
-        exceeds the display limit."""
+        """
+        Summarizes a pandas Series to a concise representation if it exceeds
+        the display limit.
+
+        Parameters
+        ----------
+        series : pd.Series
+            The Series to summarize.
+
+        Returns
+        -------
+        str
+            A summarized string representation of the Series.
+        """
         if len(series) > self.MAX_DISPLAY_ITEMS:
-            limited_items = ', '.join(f"{series.index[i]}: {series[i]}" for i in range(
-                self.MAX_DISPLAY_ITEMS))
+            limited_items = ', '.join(f"{series.index[i]}: {series[i]}" 
+                                      for i in range(self.MAX_DISPLAY_ITEMS))
             return f"Series([{limited_items}, ...])"
         else:
             return f"Series: {series.to_string(index=False)}"
-
+ 
 
 class BasePlot(ABC): 
     r""" Base class  deals with Machine learning and conventional Plots. 

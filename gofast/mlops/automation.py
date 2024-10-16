@@ -11,6 +11,7 @@ import os
 import time
 import pickle
 import threading
+from numbers import Real, Integral
 from typing import Callable, Dict, Any, List, Tuple
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor 
@@ -559,8 +560,8 @@ class SimpleRetrainingScheduler(SimpleAutomation):
     @validate_params({
         'model': [object],
         'metric_func': [Callable],
-        'decay_threshold': [float],
-        'check_interval': [int]
+        'decay_threshold': [Real],
+        'check_interval': [Integral]
     })
     def monitor_model(
         self,
@@ -748,7 +749,7 @@ class AutomationManager(BaseClass):
 
     @validate_params({
         'task_name': [str],
-        'func': [Callable],
+        'func': [callable],
         'interval': [int, float],
         'args': [tuple],
         'retries': [int]
