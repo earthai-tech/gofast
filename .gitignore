@@ -182,6 +182,7 @@ subsi_test.py
 subsidence_insar_data.csv
 test_gofast.ipynb
 xgbr_prediction.py
+logs/
 
 
  	
