@@ -49,6 +49,7 @@ __all__=[
      'check_has_run_method',
      'check_is_fitted',
      'check_is_fitted2',
+     'check_is_runned', 
      'check_memory',
      'check_mixed_data_types',
      'check_random_state',
@@ -99,6 +100,91 @@ __all__=[
      'validate_weights',
      'validate_yy'
  ]
+
+
+def check_is_runned(estimator, attributes=None, msg=None):
+    """
+    Check whether an object has been properly "runned" (executed) before 
+    allowing further methods to be called. This function validates if 
+    essential flags or attributes (like `_is_runned`, `_is_fitted`) are set.
+
+    Parameters
+    ----------
+    estimator : object
+        The object (instance) to check. This could be any class object 
+        where methods depend on the state of the object being "runned".
+    
+    attributes : list of str, optional
+        A list of attributes (e.g., ['_is_runned', '_is_fitted']) that should 
+        be checked. These attributes should be boolean-like, indicating if 
+        certain methods were successfully executed. If None, it defaults 
+        to checking the `_is_runned` attribute.
+    
+    msg : str, optional
+        The custom error message to display if the check fails. If not 
+        provided, a default message is generated based on the missing attributes.
+        
+    Raises
+    ------
+    RuntimeError
+        If the required attributes are not set to `True` or do not exist.
+    
+    Notes
+    -----
+    This validation function is designed to ensure that certain methods 
+    (like `run`, `fit`) have been executed before calling any other 
+    dependent method within the object.
+    
+    The validation process ensures that the object is in the correct 
+    operational state (i.e., the object has been "runned"), ensuring 
+    more robust error handling during method calls.
+    
+    Examples
+    --------
+    >>> class ExampleClass:
+    ...     def __init__(self):
+    ...         self._is_runned = False
+    ...
+    ...     def run(self):
+    ...         self._is_runned = True
+    ...         print("Run completed.")
+    ...
+    ...     def process_data(self):
+    ...         check_is_runned(self)
+    ...         print("Processing data...")
+    >>> model = ExampleClass()
+    >>> model.process_data()  # Raises RuntimeError
+    >>> model.run()
+    >>> model.process_data()  # Now it works
+
+    See Also
+    --------
+    validate_estimator_methods : 
+        Similar validation method for checking if methods exist in an estimator.
+
+    References
+    ----------
+    .. [1] Python official documentation on class attributes:
+       https://docs.python.org/3/tutorial/classes.html#class-and-instance-attributes
+    .. [2] Scikit-learn's `check_is_fitted` function:
+       https://scikit-learn.org/stable/modules/generated/sklearn.utils.validation.check_is_fitted.html
+    
+    """
+    # Default attribute to check
+    if attributes is None:
+        attributes = ['_is_runned']
+
+    # Identify which attributes are missing or not properly set
+    missing_attributes = [attr for attr in attributes if not getattr(estimator, attr, False)]
+
+    if missing_attributes:
+        if msg is None:
+            msg = (f"The instance of class `{type(estimator).__name__}` is missing the following "
+                   f"required attributes: {', '.join(missing_attributes)}. Ensure the "
+                   f"necessary methods (e.g., `run`) have been executed before using "
+                   f"this method.")
+        raise RuntimeError(msg)
+
 
 def check_has_run_method(estimator, msg=None, method_name="run"):
     """

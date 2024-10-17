@@ -238,7 +238,7 @@ class MultipleSearch(BaseClass):
         
     def fit(self, X, y):
         r"""
-        Run the parameter tuning for each estimator using each strategy in parallel 
+        Fit the parameter tuning for each estimator using each strategy in parallel 
         on the given data.
     
         Parameters

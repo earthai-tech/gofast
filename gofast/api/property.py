@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 #   Licence: BSD 3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
-# gofast.api.property.py
 
 """
 The :code:`gofast.api.property` module provides base classes and property objects 
