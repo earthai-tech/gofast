@@ -60,11 +60,12 @@ Optimizer(name=SGD, iterations=100)
 
 # import warnings 
 from __future__ import annotations 
-# import os 
+import warnings
 from abc import ABC, abstractmethod 
 import numpy as np
 import pandas as pd 
 from typing import Any, Dict, Iterable, List, Tuple
+from typing import Optional, Callable, Union
 import inspect
 
 __all__ = [ 
@@ -1101,8 +1102,158 @@ class Software:
         
         for key in kws:
             setattr(self, key, kws[key]) 
-            
-                
+
+def run_return(
+    self, 
+    attribute_name: Optional[str] = None, 
+    error_policy: str = 'warn',
+    default_value: Optional[Any] = None,
+    check_callable: bool = False,
+    return_type: str = 'attribute',
+    on_callable_error: str = 'warn',
+    allow_private: bool = False,
+    msg: Optional[str] = None, 
+    config_return_type: Optional[Union[str, bool]] = None
+) -> Any:
+    """
+    Return `self`, a specified attribute of `self`, or both, with error handling
+    policies. Optionally integrates with global configuration to customize behavior.
+
+    Parameters
+    ----------
+    attribute_name : str, optional
+        The name of the attribute to return. If `None`, returns `self`.
+    error_policy : str, optional
+        Policy for handling non-existent attributes. Options:
+        - `warn` : Warn the user and return `self` or a default value.
+        - `ignore` : Silently return `self` or the default value.
+        - `raise` : Raise an `AttributeError` if the attribute does not exist.
+    default_value : Any, optional
+        The default value to return if the attribute does not exist. If `None`,
+        and the attribute does not exist, returns `self` based on the error policy.
+    check_callable : bool, optional
+        If `True`, checks if the attribute is callable and executes it if so.
+    return_type : str, optional
+        Specifies the return type. Options:
+        - `self` : Always return `self`.
+        - `attribute` : Return the attribute if it exists.
+        - `both` : Return a tuple of (`self`, attribute).
+    on_callable_error : str, optional
+        How to handle errors when calling a callable attribute. Options:
+        - `warn` : Warn the user and return `self`.
+        - `ignore` : Silently return `self`.
+        - `raise` : Raise the original error.
+    allow_private : bool, optional
+        If `True`, allows access to private attributes (those starting with '_').
+    msg : str, optional
+        Custom message for warnings or errors. If `None`, a default message will be used.
+    config_return_type : str or bool, optional
+        Global configuration to override return behavior. If set to 'self', always
+        return `self`. If 'attribute', always return the attribute. If `None`, use
+        developer-defined behavior.
+
+    Returns
+    -------
+    Any
+        Returns `self`, the attribute value, or a tuple of both, depending on
+        the specified options and the availability of the attribute.
+
+    Raises
+    ------
+    AttributeError
+        If the attribute does not exist and `error_policy` is set to 'raise', or if the
+        callable check fails and `on_callable_error` is set to 'raise'.
+
+    Notes
+    -----
+    The `run_return` function is designed to offer flexibility in determining
+    what is returned from a method, allowing developers to either return `self` for
+    chaining, return an attribute of the class, or both. By using `global_config`,
+    package-wide behavior can be customized.
+
+    Examples
+    --------
+    >>> from gofast.api.property import run_return
+    >>> class MyModel:
+    ...     def __init__(self, name):
+    ...         self.name = name
+    ...
+    >>> model = MyModel(name="example")
+    >>> run_return(model, "name")
+    'example'
+
+    See Also
+    --------
+    logging : Python's logging module.
+    warnings.warn : Function to issue warning messages.
+
+    References
+    ----------
+    .. [1] "Python Logging Module," Python Software Foundation.
+           https://docs.python.org/3/library/logging.html
+    .. [2] "Python Warnings," Python Documentation.
+           https://docs.python.org/3/library/warnings.html
+    """
+
+    # If global config specifies return behavior, override the return type
+    if config_return_type == 'self':
+        return self
+    elif config_return_type == 'attribute':
+        return getattr(self, attribute_name, default_value
+                       ) if attribute_name else self
+
+    # If config is None or not available, use developer-defined logic
+    if attribute_name:
+        # Check for private attributes if allowed
+        if not allow_private and attribute_name.startswith('_'):
+            custom_msg = msg or ( 
+                f"Access to private attribute '{attribute_name}' is not allowed.")
+            raise AttributeError(custom_msg)
+
+        # Check if the attribute exists
+        if hasattr(self, attribute_name):
+            attr_value = getattr(self, attribute_name)
+
+            # If check_callable is True, try executing the attribute if it's callable
+            if check_callable and isinstance(attr_value, Callable):
+                try:
+                    attr_value = attr_value()
+                except Exception as e:
+                    custom_msg = msg or ( 
+                        f"Callable attribute '{attribute_name}'"
+                        f" raised an error: {e}."
+                        )
+                    if on_callable_error == 'raise':
+                        raise e
+                    elif on_callable_error == 'warn':
+                        warnings.warn(custom_msg)
+                        return self
+                    elif on_callable_error == 'ignore':
+                        return self
+
+            # Return based on the return_type provided
+            if return_type == 'self':
+                return self
+            elif return_type == 'both':
+                return self, attr_value
+            else:
+                return attr_value
+        else:
+            # Handle the case where the attribute does not exist based on the error_policy
+            custom_msg = msg or ( 
+                f"'{self.__class__.__name__}' object has"
+                f"  no attribute '{attribute_name}'."
+                )
+            if error_policy == 'raise':
+                raise AttributeError(custom_msg)
+            elif error_policy == 'warn':
+                warnings.warn(f"{custom_msg} Returning default value or self.")
+            # Return the default value if provided, otherwise return self
+            return default_value if default_value is not None else self
+    else:
+        # If no attribute is provided, return self
+        return self
+
 
     
     

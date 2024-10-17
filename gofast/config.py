@@ -94,7 +94,7 @@ from .backends.numpy import NumpyBackend
 from .backends.scipy import ScipyBackend 
 from .backends.dask import DaskBackend 
 from .backends.cupy import CuPyBackend 
-from .compat.sklearn import validate_params 
+from .compat.sklearn import validate_params, StrOptions
 
 from ._gofastlog import gofastlog
 logger = gofastlog.get_gofast_logger(__name__)
@@ -161,6 +161,11 @@ class Configure:
     env_file : str or None, optional
         Path to a file (e.g., .env or .ini) for loading environment variables
         to customize package behavior. Default is None.
+    run_report: str or None,optional 
+       Set the run return behavior if the `run_return` configuration is 
+       provided by the user. This ensures that the global behavior for 
+       returning values (either 'self', 'attribute', or None(both)) is applied 
+       based on the configuration.
 
     Notes
     -----
@@ -214,7 +219,8 @@ class Configure:
             'memory_limit': [Integral, None],  
             'custom_install_command': [str],  
             'install_on_import': [bool],
-            'env_file': [str, None]  
+            'env_file': [str, None], 
+            'run_report':[StrOptions({"self", "attribute"}), None]
         }
     )
     def __init__(
@@ -230,7 +236,8 @@ class Configure:
         memory_limit: Optional[int] = None,
         custom_install_command: str = "pip install",
         install_on_import: bool = False,
-        env_file: Optional[str] = None
+        env_file: Optional[str] = None,
+        run_return: Optional[str]=None
     ):
         self.auto_install_dependencies = auto_install_dependencies
         self.verbosity = verbosity
@@ -244,6 +251,7 @@ class Configure:
         self.custom_install_command = custom_install_command
         self.install_on_import = install_on_import
         self.env_file = env_file
+        self.run_return= run_return 
     
         # Set up logging
         self._setup_logging()
@@ -270,6 +278,12 @@ class Configure:
         # Set memory limit if provided
         if self.memory_limit is not None:
             self._set_memory_limit(self.memory_limit)
+            
+        # Set the run return behavior if the `run_return` configuration 
+        # is provided by the user.
+        # Apply the `run_return` configuration globally.
+        if self.run_return is not None:
+            self._set_run_return()  
 
     def toggle_auto_install(self, enable: bool):
         """
@@ -429,8 +443,54 @@ class Configure:
         self.random_seed = seed
         self._set_random_seed(seed)
         logger.info("Random seed set to %d", seed)
+        
+    def set_run_return(self, return_type: str = 'self'):
+        """
+        Set the global behavior for the `run_return` function, which controls 
+        whether methods return `self`, an attribute, or both.
+
+        Parameters
+        ----------
+        return_type : str
+            Specifies the return type. Options:
+            'self' : Always return self.
+            'attribute' : Return the attribute if it exists.
+            'both' : Return a tuple of (self, attribute).
+
+        Returns
+        -------
+        None
+        """
+        valid_options = ['self', 'attribute', None]
+        if return_type not in valid_options:
+            logger.error("Invalid run_return value '%s'. Expected one of %s",
+                         return_type, valid_options)
+            raise ValueError(f"Invalid return_type '{return_type}'."
+                             " Must be one of {valid_options}.")
+        
+        self.run_return = return_type 
+        logger.info("run_return behavior set to '%s'. This will control"
+                    " return behavior globally.", return_type)
 
     # Private methods
+    def _set_run_return(self): 
+        """
+        Configure run_return behavior based on the value of run_return.
+        
+        This private method ensures that the configured `run_return` behavior 
+        is valid and applies it globally if needed.
+        """
+        valid_options = ['self', 'attribute', None]
+        
+        if self.run_return not in valid_options:
+            logger.error("Invalid run_return setting: '%s'. Must be one of %s.", 
+                         self.run_return, valid_options)
+            raise ValueError(f"Invalid run_return '{self.run_return}'."
+                             " Must be one of {valid_options}.")
+    
+        # Apply configuration to global behavior
+        logger.info("run_return globally configured as '%s'.", self.run_return)
+
     def _setup_logging(self):
         """Configure logging based on verbosity level."""
         log_levels = {

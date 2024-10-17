@@ -52,7 +52,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt 
 
-from typing import Union, Optional, Callable
+from typing import Any, Union, Optional, Callable
 from ._gofastlog import gofastlog
 _logger = gofastlog.get_gofast_logger(__name__)
 
@@ -74,6 +74,7 @@ __all__= [
     'PlotFeatureImportance',
     'PlotPrediction',
     'RedirectToNew',
+    'RunReturn', 
     'SignalFutureChange',
     'SmartFitRun',
     'SmartProcessor',
@@ -86,6 +87,309 @@ __all__= [
     'EnsureFileExists',
   ]
 
+
+class RunReturn:
+    """
+    A class-based decorator that enhances a method's return behavior, allowing 
+    flexibility in returning `self`, an attribute, or both. If the decorated 
+    method returns `None`, the `run_return` logic is applied automatically.
+
+    Parameters
+    ----------
+    attribute_name : str, optional
+        The name of the attribute to return. If `None`, returns `self`. This 
+        attribute allows developers to control which internal property of the 
+        object should be accessed and returned.
+    error_policy : str, optional
+        Policy for handling non-existent attributes. Options:
+        - `'warn'` : Warn the user and return `self` or a default value.
+        - `'ignore'` : Silently return `self` or default value.
+        - `'raise'` : Raise an `AttributeError` if the attribute does not exist.
+    default_value : Any, optional
+        The default value to return if the attribute does not exist. If `None`,
+        and the attribute does not exist, returns `self` based on error policy.
+    check_callable : bool, optional
+        If `True`, checks if the attribute is callable and executes it if so.
+    return_type : str, optional
+        Specifies the return type. Options:
+        - `'self'` : Always return `self`.
+        - `'attribute'` : Return the attribute if it exists.
+        - `'both'` : Return a tuple of (`self`, attribute).
+    on_callable_error : str, optional
+        How to handle errors when calling a callable attribute. Options:
+        - `'warn'` : Warn the user and return `self`.
+        - `'ignore'` : Silently return `self`.
+        - `'raise'` : Raise the original error.
+    allow_private : bool, optional
+        If `True`, allows access to private attributes (those starting with `_`).
+        This is useful when you need to return internal/private attributes that 
+        are typically hidden from outside access.
+    msg : str, optional
+        Custom message for warnings or errors. If `None`, a default message 
+        is used for better user clarity.
+    config_return_type : str or bool, optional
+        Global configuration to override the return behavior. If `'self'`, 
+        always return `self`. If `'attribute'`, always return the attribute.
+        If `None`, the behavior defaults to the developer's settings.
+
+    Methods
+    -------
+    __call__(func)
+        Applies the decorator logic to the function.
+    run_return_logic(self_obj)
+        Contains the core logic for deciding whether to return `self`, the 
+        specified attribute, or both.
+
+    Notes
+    -----
+    The `RunReturn` decorator allows developers to easily control the return 
+    behavior of methods in a flexible manner. It can automatically apply the 
+    `run_return` logic when the method returns `None`, making it highly useful 
+    in cases where developers want to define "lazy" return behavior without 
+    explicitly returning values within their methods.
+
+    The core behavior of the :class:`RunReturn` can be expressed as:
+
+    If `None` is returned from a method, the `run_return` logic can be written 
+    as a conditional selection function:
+
+    .. math::
+
+        f(x) = \left\{
+            \begin{array}{ll}
+            \text{self} & \text{if } \text{config\_return\_type} = \text{'self'} \\
+            \text{attribute\_value} & \text{if } \text{config\_return\_type} = \text{'attribute'} \\
+            (\text{self}, \text{attribute\_value}) & \text{if } \text{return\_type} = \text{'both'}
+            \end{array}
+            \right.
+
+    Examples
+    --------
+    >>> from gofast.decorators import RunReturn
+    >>> class MyModel:
+    ...     def __init__(self, name):
+    ...         self.name = name
+    ...
+    >>> @RunReturn(attribute_name="name", return_type="attribute")
+    ... def process(self):
+    ...     pass  # Logic that doesn't explicitly return anything
+    ...
+    >>> model = MyModel(name="example")
+    >>> model.process()
+    'example'
+
+    This example shows how the `RunReturn` decorator can be used to dynamically 
+    modify the return behavior of the `process` method. By specifying 
+    `attribute_name="name"`, it automatically returns the `name` attribute if 
+    the function doesn't return anything.
+
+    See Also
+    --------
+    `functools.wraps` : Used for preserving function metadata in Python decorators.
+    `warnings.warn` : Python's built-in mechanism to issue warnings.
+
+    References
+    ----------
+    .. [1] "PEP 318 -- Decorators for Functions and Methods," Python Software Foundation.
+           https://peps.python.org/pep-0318/
+    """
+    def __init__(
+        self,
+        attribute_name: Optional[str] = None,
+        error_policy: str = 'warn',
+        default_value: Optional[Any] = None,
+        check_callable: bool = False,
+        return_type: str = 'attribute',
+        on_callable_error: str = 'warn',
+        allow_private: bool = False,
+        msg: Optional[str] = None,
+        config_return_type: Optional[Union[str, bool]] = None
+    ):
+        """
+        Initialize the `RunReturn` decorator with various options for handling 
+        method return behavior and error policies.
+        """
+        self.attribute_name = attribute_name
+        self.error_policy = error_policy
+        self.default_value = default_value
+        self.check_callable = check_callable
+        self.return_type = return_type
+        self.on_callable_error = on_callable_error
+        self.allow_private = allow_private
+        self.msg = msg
+        self.config_return_type = config_return_type
+
+    def __call__(self, func: Callable) -> Callable:
+        """
+        Make the class callable as a decorator, applying the enhanced return 
+        logic when the decorated function is executed.
+        """
+        
+        # Preserve the original function's metadata with functools.wraps
+        @functools.wraps(func)
+        def wrapper(self_obj, *args, **kwargs) -> Any:
+            # Call the original function and capture its return value
+            result = func(self_obj, *args, **kwargs)
+
+            # Subtlety: Apply `run_return` logic if the result is `None`
+            if result is None:
+                return self.run_return_logic(self_obj)
+            return result
+
+        return wrapper
+
+    def run_return_logic(self, self_obj) -> Any:
+        """
+        Apply the `run_return` logic based on the specified parameters, either 
+        returning `self`, an attribute, or both, with error handling.
+
+        Parameters
+        ----------
+        self_obj : object
+            The instance of the class for which the method is being decorated.
+
+        Returns
+        -------
+        Any
+            Returns `self`, the attribute value, or a tuple of both, depending 
+            on the specified options and availability of the attribute.
+
+        Raises
+        ------
+        AttributeError
+            If the attribute does not exist and `error_policy` is `'raise'`, 
+            or if the callable check fails and `on_callable_error` is `'raise'`.
+        """
+        # Global config return type override
+        if self.config_return_type == 'self':
+            return self_obj
+        elif self.config_return_type == 'attribute':
+            return getattr(self_obj, self.attribute_name, self.default_value
+                           ) if self.attribute_name else self_obj
+
+        # Developer-specified logic
+        if self.attribute_name:
+            # Handle private attribute access restriction
+            if not self.allow_private and self.attribute_name.startswith('_'):
+                custom_msg = self.msg or ( 
+                    "Access to private attribute"
+                    f" '{self.attribute_name}' is not allowed."
+                    )
+                raise AttributeError(custom_msg)
+
+            if hasattr(self_obj, self.attribute_name):
+                attr_value = getattr(self_obj, self.attribute_name)
+
+                # Check if the attribute is callable
+                if self.check_callable and isinstance(attr_value, Callable):
+                    try:
+                        attr_value = attr_value()
+                    except Exception as e:
+                        custom_msg = self.msg or ( 
+                            f"Callable attribute '{self.attribute_name}'"
+                            f" raised an error: {e}."
+                            )
+                        if self.on_callable_error == 'raise':
+                            raise e
+                        elif self.on_callable_error == 'warn':
+                            warnings.warn(custom_msg)
+                            return self_obj
+                        elif self.on_callable_error == 'ignore':
+                            return self_obj
+
+                # Determine the return type
+                if self.return_type == 'self':
+                    return self_obj
+                elif self.return_type == 'both':
+                    return self_obj, attr_value
+                else:
+                    return attr_value
+            else:
+                # Attribute does not exist, handle based on error policy
+                custom_msg = self.msg or ( 
+                    f"'{self_obj.__class__.__name__}' object has"
+                    f" no attribute '{self.attribute_name}'."
+                    )
+                if self.error_policy == 'raise':
+                    raise AttributeError(custom_msg)
+                elif self.error_policy == 'warn':
+                    warnings.warn(f"{custom_msg} Returning default value or self.")
+                return self.default_value if self.default_value is not None else self_obj
+        else:
+            return self_obj
+        
+    @classmethod
+    def initialize_decorator(cls, *args, **kwargs) -> Callable:
+        """
+        Initialize the `RunReturn` decorator, allowing it to be applied with or 
+        without parentheses.
+    
+        This method provides flexibility by determining whether the decorator 
+        is used directly without parentheses, or if it has been configured with 
+        specific options via parentheses. If no parentheses are provided, it 
+        defaults to the standard behavior.
+    
+        Parameters
+        ----------
+        *args : tuple
+            If the decorator is used without parentheses, the function itself 
+            is passed as the first positional argument.
+        **kwargs : dict
+            If the decorator is used with parentheses, this will contain the 
+            optional configuration parameters like `attribute_name`, 
+            `error_policy`, `default_value`, `return_type`, etc.
+    
+        Returns
+        -------
+        Callable
+            Returns the decorated function with enhanced return behavior. This 
+            callable can either apply the default behavior or use custom settings 
+            provided via `kwargs`.
+    
+        Examples
+        --------
+        Usage with parentheses:
+        
+        >>> from gofast.decorators import RunReturn
+        >>> class MyModel:
+        ...     def __init__(self, name):
+        ...         self.name = name
+        ...
+        >>> @RunReturn(attribute_name="name", return_type="attribute")
+        ... def process(self):
+        ...     pass
+        >>> model = MyModel(name="example")
+        >>> model.process()
+        'example'
+    
+        Usage without parentheses (default behavior):
+    
+        >>> from gofast.decorators import RunReturn
+        >>> class MyModel:
+        ...     def __init__(self, name):
+        ...         self.name = name
+        ...
+        >>> @RunReturn
+        ... def process(self):
+        ...     pass
+        >>> model = MyModel(name="example")
+        >>> model.process()
+        <MyModel object at 0x...>
+        
+        In this second case, the `RunReturn` decorator defaults to its standard 
+        behavior (returning `self`) since no specific configurations are provided.
+        """
+    
+        # Check if the decorator is being used without parentheses
+        if len(args) == 1 and callable(args[0]):
+            return cls()(args[0])
+    
+        # Otherwise, it was used with parentheses, so initialize as normal
+        return cls(*args, **kwargs)
+
+# Assign the classmethod to the decorator name,
+# allowing it to be used with or without parentheses
+RunReturn = RunReturn.initialize_decorator
 
 class SmartFitRun:
     """
