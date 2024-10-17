@@ -25,9 +25,9 @@ jobs:
     - name: Install dependencies
       run: |
         # conda install numpy<2 cython
-        source activate gofast-0.1.0  # Ensure Conda environment is activated
-        python -m pip install "numpy<2" cython
-        # python -m pip install --user "numpy<2" cython
+        # source activate gofast-0.1.0  # Ensure Conda environment is activated
+        # python -m pip install "numpy<2" cython
+        python -m pip install --user "numpy<2" cython
 
     - name: Compile Cython modules
       run: |
