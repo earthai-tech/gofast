@@ -40,7 +40,7 @@ from ..exceptions import SiteError
 from ._arraytools import axis_slice
 from .coreutils import _assert_all_types, _validate_name_in
 from .coreutils import concat_array_from_list
-from .coreutils import normalize_string # find_close_position 
+from .coreutils import normalize_string 
 from .coreutils import to_numeric_dtypes, ellipsis2false
 from .coreutils import smart_format, type_of_target, is_iterable 
 from .coreutils import reshape, assert_ratio

@@ -1,16 +1,63 @@
 # -*- coding: utf-8 -*-
-#   Licence:BSD 3-Clause
+#   Licence: BSD 3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
+# gofast.api.property.py
 
 """
-:code:`gofast` property objects. It is composed of base classes that are inherited 
-by methods implemented throughout the package. It also inferred properties to 
-data objects. 
+The :code:`gofast.api.property` module provides base classes and property objects 
+that are inherited by various components implemented throughout the `gofast` package. 
+These base classes serve as foundational building blocks for handling and 
+managing attributes across different models and methods, ensuring consistency and 
+code reusability.
 
-.. _GoFast: https://github.com/earthai-tech/gofast/ 
-.. _interpol_imshow: https://matplotlib.org/stable/gallery/images_contours_and_fields/interpolation_methods.html
+The property objects defined here enable the automatic inference of key attributes 
+related to data objects, offering enhanced flexibility and efficiency in 
+managing common data properties.
 
-"""   
+Features include:
+-----------------
+- **Base Classes**: Provides a robust and structured foundation for class inheritance, 
+  ensuring a standardized approach to string representations and attribute 
+  formatting.
+  
+- **Auto-detection of Properties**: The property objects automatically infer 
+  essential attributes such as date ranges, sample sizes, and intervals from 
+  the provided data. This simplifies the integration process and minimizes 
+  manual input for common data properties.
+  
+- **Support for Time Series Data**: Many of the property objects offer specific 
+  functionality for handling time series data, including date formatting, 
+  interval calculations, and automatic detection of start and end dates.
+  
+- **Customizable Configuration**: Users can modify configuration parameters 
+  (e.g., time intervals, formatting options) to tailor the behavior of these 
+  properties according to their specific needs.
+
+References
+----------
+- `GoFast <https://github.com/earthai-tech/gofast/>`_
+- `Interpolation Imshow <https://matplotlib.org/stable/gallery/images_contours_and_fields/interpolation_methods.html>`_
+
+Notes
+-----
+This module is a critical part of the :code:`gofast` package and is designed to 
+be extended by other classes within the package. Each class or function defined 
+here has a clearly defined role and is optimized for reusability across various 
+use cases.
+
+Examples
+--------
+>>> from gofast.api.property import BaseClass
+>>> class Optimizer(BaseClass):
+...     def __init__(self, name, iterations):
+...         self.name = name
+...         self.iterations = iterations
+>>> optimizer = Optimizer("SGD", 100)
+>>> print(optimizer)
+Optimizer(name=SGD, iterations=100)
+
+"""
+
 
 # import warnings 
 from __future__ import annotations 
@@ -94,6 +141,7 @@ class GofastConfig:
         raise AttributeError(
             "Modification of WHITESPACE_ESCAPE is not allowed as"
             " it may affect the Gofast API frame formatter across all modules.")
+
 
 class PipelineBaseClass:
     """
