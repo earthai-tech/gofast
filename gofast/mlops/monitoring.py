@@ -7,7 +7,6 @@ Monitor model performance in production, track key metrics, and set alerts
 for performance degradation.
 """
 import time
-import psutil
 import pickle 
 import threading
 import smtplib
@@ -731,7 +730,14 @@ class ModelHealthChecker(BaseClass):
             'gpu': [],
             'network': [],
         }
-
+        
+    @ensure_pkg(
+        "psutil",
+        extra="The 'psutil' package is required for system monitoring, "
+              "including CPU, memory, and process management.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA,
+    )
     def check_health(self):
         """
         Monitors the system's CPU, memory, disk, GPU, and network usage, and
@@ -754,6 +760,7 @@ class ModelHealthChecker(BaseClass):
         >>> health_checker.check_health()
 
         """
+        import psutil 
         # CPU usage
         cpu_usage = psutil.cpu_percent(interval=1)
         self._log_health_metric('cpu', cpu_usage)
@@ -859,6 +866,7 @@ class ModelHealthChecker(BaseClass):
         Uses the `psutil` library to get the system's memory usage.
 
         """
+        import psutil
 
         memory_info = psutil.virtual_memory()
         memory_usage = memory_info.percent
@@ -932,7 +940,7 @@ class ModelHealthChecker(BaseClass):
             \\text{Bandwidth (Mbps)} = \\frac{(\\Delta \\text{Bytes} \\times 8)}{1 \\times 10^6}
 
         """
-
+        import psutil 
         net_io_1 = psutil.net_io_counters()
         bytes_sent_1 = net_io_1.bytes_sent
         bytes_recv_1 = net_io_1.bytes_recv

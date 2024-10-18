@@ -8,7 +8,6 @@ to handle larger datasets and model training in distributed systems.
 
 import os
 import time
-import psutil
 import random 
 from numbers import Integral, Real 
 from multiprocessing import Pool
@@ -859,7 +858,13 @@ class DataPipelineScaler(BaseClass):
         logger.info("Detecting number of partitions based on system resources.")
         return os.cpu_count() or 1
 
-
+    @ensure_pkg(
+        "psutil",
+        extra="The 'psutil' package is required for system monitoring, "
+              "including CPU, memory, and process management.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA,
+    )
     def _detect_resources(self) -> Dict[str, int]:
         """
         Detects available system resources (e.g., CPU, memory).
@@ -876,7 +881,7 @@ class DataPipelineScaler(BaseClass):
         and `psutil.virtual_memory()` to detect total system memory in MB.
 
         """
-
+        import psutil 
         logger.info("Detecting system resources for scaling.")
         cpu_count = os.cpu_count() or 1
         mem = psutil.virtual_memory()
