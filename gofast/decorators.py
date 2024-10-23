@@ -76,7 +76,7 @@ __all__= [
     'RedirectToNew',
     'RunReturn', 
     'SignalFutureChange',
-    'SmartFitRun',
+    'smartFitRun',
     'SmartProcessor',
     'SuppressOutput',
     'Temp2D',
@@ -428,8 +428,9 @@ class SmartFitRun:
     Example
     -------
     >>> from gofast.decorators import SmartFitRun
-    >>> @SmartFitRun
+    >>> 
     >>> class ModelExampleFitOnly:
+    >>>     @SmartFitRun
     >>>     def fit(self, X, y=None, **fit_params):
     >>>         print(f"Fitting model with data {X} and target {y}")
 
@@ -480,7 +481,7 @@ class SmartFitRun:
         """
         # Wrap the __init__ method to set tracking flags
         original_init = self.cls.__init__
-
+    
         @functools.wraps(original_init)
         def new_init(instance, *args, **kwargs):
             """
@@ -491,6 +492,7 @@ class SmartFitRun:
             instance._has_run = hasattr(instance, "run")
             instance._has_fit = hasattr(instance, "fit")
             instance._is_fitted = False  # Track if `fit` has been called
+            
         self.cls.__init__ = new_init
 
         # Handle case where only `fit` is defined
@@ -516,6 +518,7 @@ class SmartFitRun:
                     FutureWarning
                 )
                 return instance.fit(*args, **kwargs)
+            
             self.cls.run = fallback_run  # Provide a fallback `run` method
 
         # Handle case where only `run` is defined
@@ -540,6 +543,7 @@ class SmartFitRun:
                     FutureWarning
                 )
                 return instance.run(*args, **kwargs)
+            
             self.cls.fit = fallback_fit  # Provide a fallback `fit` method
 
     def __call__(self, *args, **kwargs):
@@ -560,6 +564,124 @@ class SmartFitRun:
             applied.
         """
         return self.cls(*args, **kwargs)
+
+def smartFitRun(cls):
+    """
+    A class-based decorator that manages the `fit`/`run` method switching 
+    logic. If one method is called but the other is implemented, the correct 
+    method will be invoked automatically, with a warning issued to the user.
+
+    This is useful for ensuring that a class which only implements one of the 
+    `fit` or `run` methods can still function when the other is called 
+    incorrectly. The system will detect whether `fit` or `run` is available, 
+    issue a warning, and automatically call the available method.
+
+    Parameters
+    ----------
+    cls : class
+        The class being decorated, which should implement either `fit` or 
+        `run` (but not both). The decorator ensures that if the missing method 
+        is called, the available method is invoked instead.
+
+    Returns
+    -------
+    cls : class
+        The decorated class with method switching logic applied.
+    
+    Notes
+    -----
+    This decorator is designed for situations where either the `fit` method or 
+    the `run` method is implemented in a class, but not both. It ensures that 
+    calling the missing method does not result in an error but rather triggers 
+    the other method.
+
+    The method switching logic is as follows:
+
+    - If only ``fit`` is implemented and ``run`` is called, the decorator will
+      call the ``fit`` method instead, issuing a  warning.
+
+    - If only ``run`` is implemented and ``fit`` is called, the decorator will
+      call the ``run`` method instead, issuing a warning.
+
+    This behavior is particularly useful when ``fit`` requires a dataset 
+    (typically ``X``, ``y``), while ``run`` operates on pre-fitted models 
+    without needing the same input structure.
+    
+    Example
+    -------
+    >>> from gofast.decorators import smartFitRun
+    >>> @smartFitRun
+    >>> class ModelExampleFitOnly:
+    >>>     ''' Expects run while fit is called'''
+    >>>     def fit(self, X, y=None, **fit_params):
+    >>>         print(f"Fitting model with data {X} and target {y}")
+
+    >>> model = ModelExampleFitOnly()
+    >>> model.run(X=[1, 2, 3], y=[0, 1, 0])  # Will call `fit` instead and issue a warning.
+
+    >>> @smartFitRun
+    >>> class ModelExampleRunOnly:
+    >>>     ''' Expects fit while run is called'''
+    >>>     def run(self, **run_kwargs):
+    >>>         print(f"Running model with parameters {run_kwargs}")
+
+    >>> model = ModelExampleRunOnly()
+    >>> model.fit()  # Will call `run` instead and issue a warning.
+
+    See Also
+    --------
+    :class:`fit` : Fits a model to the provided data.
+    :class:`run` : Runs a model using parameters.
+
+    References
+    ----------
+    .. [1] Python Software Foundation. Python 3.9 Documentation.
+           https://docs.python.org/3/
+
+    .. [2] Decorators: Advanced Functions, Real Python.
+           https://realpython.com/primer-on-python-decorators/
+    """
+
+    original_fit = getattr(cls, 'fit', None)
+    original_run = getattr(cls, 'run', None)
+
+    if original_fit is not None and original_run is None:
+        # Only 'fit' is defined
+        @functools.wraps(original_fit)
+        def run(self, *args, **kwargs):
+            # Temporarily enable warnings if they were disabled
+            with warnings.catch_warnings():
+                warnings.simplefilter('once', FutureWarning)
+                warnings.warn(
+                    "`fit` method is required, but `run` was called. "
+                    "Automatically switching to `fit`. "
+                    "Note: Calling `run` without a `fit` implementation "
+                    "might be deprecated.",
+                    FutureWarning, 
+                )
+            return self.fit(*args, **kwargs)
+
+        setattr(cls, 'run', run)
+        
+    elif original_run is not None and original_fit is None:
+        # Only 'run' is defined
+        @functools.wraps(original_run)
+        def fit(self, *args, **kwargs):
+            with warnings.catch_warnings():
+               warnings.simplefilter('once', FutureWarning)
+               warnings.warn(
+                   "`run` method is required, but `fit` was called. "
+                   "Automatically switching to `run`. "
+                   "In future versions, calling `fit` without a `run` "
+                   "implementation might raise an error.",
+                   FutureWarning
+               )
+            return self.run(*args, **kwargs)
+
+        setattr(cls, 'fit', fit)
+        
+    return cls
+
 
 
 class SmartProcessor:

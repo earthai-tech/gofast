@@ -19,7 +19,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 
 from ..api.types import DataFrame
 from ..api.property import BaseClass 
-from ..decorators import RunReturn, SmartFitRun
+from ..decorators import RunReturn, smartFitRun
 from ..tools.validator import check_is_fitted, check_is_runned
 from ..tools.validator import check_X_y, check_array 
 
@@ -500,7 +500,7 @@ class BaseTest(BaseClass, metaclass=ABCMeta):
         """
         check_is_runned(self, attributes=["_is_runned"], msg=msg)
 
-@SmartFitRun
+@smartFitRun
 class PipelineTest(BaseTest):
     """
     PipelineTest is designed to test and evaluate scikit-learn pipelines 
@@ -760,7 +760,7 @@ class PipelineTest(BaseTest):
         
         return predictions
 
-@SmartFitRun
+@smartFitRun
 class ModelQuality(BaseTest):
     """
     ModelQuality is designed to evaluate the performance of machine learning 
@@ -1072,7 +1072,7 @@ class ModelQuality(BaseTest):
         if X is None or y is None:
             raise ValueError("X and y cannot be None. Both are required to fit the model.")
 
-@SmartFitRun
+@smartFitRun
 class OverfittingDetection(BaseTest):
     """
     OverfittingDetection class detects overfitting in a machine learning model 
@@ -1366,7 +1366,7 @@ class OverfittingDetection(BaseTest):
         
         self.log_event("report_saved", {"path": path})
 
-@SmartFitRun
+@smartFitRun
 class DataIntegrity(BaseTest):
     """
     DataIntegrity is designed to perform various checks on a dataset to 

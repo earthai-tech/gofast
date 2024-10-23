@@ -51,6 +51,7 @@ __all__= [
     'categorize_target',
     'category_count',
     'denormalizer',
+    'detect_categorical_columns', 
     'extract_target',
     'fancier_downloader',
     'fillNaN',
@@ -72,6 +73,143 @@ __all__= [
     'soft_bin_stat',
     'speed_rowwise_process'
     ]
+
+
+def detect_categorical_columns(
+    data,
+    detect_integer_as_categorical=True,
+    detect_float_ending_with_zero=True,
+    min_unique_values=None,
+    max_unique_values=None
+):
+    """
+    Detects categorical columns within a given dataset. Categorical columns can
+    include object types, integer columns (if flagged as such), and float 
+    columns where all values are effectively integers (i.e., ending in .0).
+
+    The function allows flexible detection of categorical columns based on 
+    user-defined rules, such as integer or float columns being treated as 
+    categorical if desired, and based on the number of unique values.
+
+    Parameters
+    ----------
+    data : array-like or pandas.DataFrame
+        The input data where columns are to be analyzed. If the data is not a 
+        DataFrame, it will be converted into one.
+        
+    detect_integer_as_categorical : bool, optional
+        If True, integer columns will be considered as categorical. By default,
+        this is set to True.
+        
+    detect_float_ending_with_zero : bool, optional
+        If True, float columns where all values are effectively integers 
+        (ending with .0) will be considered as categorical. By default, this is 
+        set to True.
+        
+    min_unique_values : int or None, optional
+        The minimum number of unique values a column must have to be considered 
+        categorical. If None, no minimum threshold is applied. Default is None.
+        
+    max_unique_values : int or None, optional
+        The maximum number of unique values a column can have to still be 
+        considered categorical. If None, no maximum threshold is applied. 
+        Default is None.
+
+    Returns
+    -------
+    categorical_columns : list
+        A list of column names from the input `data` that are identified as 
+        categorical based on the rules specified.
+
+    Notes
+    -----
+    The function uses flexible criteria for determining whether a column should
+    be treated as categorical, allowing for detection of columns with integer 
+    values or float values ending in `.0` as categorical columns. The method is
+    useful when preparing data for machine learning algorithms that expect 
+    categorical inputs, such as decision trees or classification models.
+    
+    This method uses the helper function `build_data_if` from 
+    `gofast.tools.validator` to ensure that the input `data` is a DataFrame. 
+    If the input is not a DataFrame, it creates one, giving column names that 
+    start with `input_name`.
+    
+    For detecting floats that are effectively integers, the method checks 
+    whether all float values in the column can be cast to integers:
+
+    .. math:: \forall x \in X, \, x = \text{int}(x)
+
+    where `X` is the column of float values.
+
+    Examples
+    --------
+    >>> from gofast.tools.baseutils import detect_categorical_columns
+    >>> data = pd.DataFrame({
+            'A': [1, 2, 3],
+            'B': [1.0, 2.0, 3.0],
+            'C': ['cat', 'dog', 'mouse']
+        })
+    >>> detect_categorical_columns(data)
+    ['A', 'B', 'C']
+    >>> detect_categorical_columns(data, detect_integer_as_categorical=False)
+    ['B', 'C']
+    >>> detect_categorical_columns(data, detect_float_ending_with_zero=False)
+    ['A', 'C']
+
+    In this example, column `A` is an integer and `B` is a float but contains 
+    values ending with `.0`, both of which are treated as categorical, and 
+    column `C` is an object (string).
+
+    See Also
+    --------
+    - pandas.DataFrame : A DataFrame object for handling tabular data.
+    - numpy.all : Evaluates whether all elements in a given array meet a 
+      condition.
+    
+    References
+    ----------
+    .. [1] Harris, C. R., et al. (2020). "Array programming with NumPy." Nature, 
+       585(7825), 357-362.
+    """
+    
+    # Ensure that the input data is a DataFrame. If it's not, convert it.
+    # `build_data_if` handles this conversion or returns the DataFrame as-is.
+    data = build_data_if(
+        data, 
+        to_frame=True, 
+        force=True, 
+        raise_exception=True, 
+        input_name='col'
+    )
+    data = to_numeric_dtypes(data) 
+    # Initialize an empty list to store detected categorical columns.
+    categorical_columns = []
+
+    # Iterate over each column in the DataFrame.
+    for col in data.columns:
+        # Calculate the number of unique values in the column.
+        unique_values = data[col].nunique()
+
+        # Always consider object (string) columns as categorical.
+        if pd.api.types.is_object_dtype(data[col]):
+            categorical_columns.append(col)
+        
+        # Consider integer columns as categorical based on the flag.
+        elif detect_integer_as_categorical and pd.api.types.is_integer_dtype(data[col]):
+            if (min_unique_values is None or unique_values >= min_unique_values) and \
+               (max_unique_values is None or unique_values <= max_unique_values):
+                categorical_columns.append(col)
+        
+        # Consider float columns as categorical if all values end with .0 and
+        # the `detect_float_ending_with_zero` flag is True.
+        elif detect_float_ending_with_zero and pd.api.types.is_float_dtype(data[col]):
+            # Check if all float values can be cast to integers.
+            if np.all(data[col] == data[col].astype(int)):
+                if (min_unique_values is None or unique_values >= min_unique_values) and \
+                   (max_unique_values is None or unique_values <= max_unique_values):
+                    categorical_columns.append(col)
+
+    return categorical_columns
 
 
 def remove_outliers(

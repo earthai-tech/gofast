@@ -13,7 +13,7 @@ from abc import ABCMeta, abstractmethod
 from typing import Optional, Dict, List
 
 from ..api.property import BaseClass 
-from ..decorators import RunReturn, SmartFitRun
+from ..decorators import RunReturn, smartFitRun
 from ..tools.validator import check_is_fitted, check_is_runned
 from ..tools.validator import check_X_y, check_array 
 
@@ -114,8 +114,8 @@ class BaseVersioning(BaseClass, metaclass=ABCMeta):
         Initializes the BaseVersioning class, sets up configuration, and performs 
         version checks. A logger is initialized to log key events.
         """
-        self.version= version
-        self.config= config or {}
+        self.version_= version
+        self.config_= config or {}
         self._is_initialized_ = False  # Internal flag to track initialization
         self.events_log_ = []  # Stores events for logging purposes
         self._initialize()
@@ -130,9 +130,9 @@ class BaseVersioning(BaseClass, metaclass=ABCMeta):
             self._perform_version_checks()
             self._setup_config()
             self._is_initialized_ = True
-            self.log_event('initialization_success', {'version': self.version})
+            self.log_event('initialization_success', {'version': self.version_})
         except Exception as e:
-            self.log_event('initialization_failed', {'version': self.version, 'error': str(e)})
+            self.log_event('initialization_failed', {'version': self.version_, 'error': str(e)})
             raise RuntimeError(f"Initialization failed: {e}")
 
     @abstractmethod
@@ -225,7 +225,7 @@ class BaseVersioning(BaseClass, metaclass=ABCMeta):
         """
         return self.events_log_
 
-@SmartFitRun 
+@smartFitRun 
 class ModelVersionControl(BaseVersioning):
     """
     Manages model version control by integrating with versioning systems 
@@ -266,16 +266,13 @@ class ModelVersionControl(BaseVersioning):
     version_ : str
         The version identifier of the current model instance.
     
-    repo_url_ : str
-        The repository URL where the model versions are stored.
-    
     branch_ : str
         The branch name for the version control actions.
     
     auto_commit_ : bool
         Indicates if automatic commits are enabled.
     
-    versioning_tool_ : str
+    versioning_tool : str
         Specifies whether 'git' or 'dvc' is used for version control.
     
     track_metrics_ : dict
@@ -333,27 +330,31 @@ class ModelVersionControl(BaseVersioning):
     ----------
     .. [1] "Version Control Systems for Machine Learning Models," J. Doe et al., 2022.
     """
-
-    def __init__(self, 
-                 version: str, 
-                 repo_url: Optional[str] = None, 
-                 branch: str = "main", 
-                 auto_commit: bool = True, 
-                 versioning_tool: str = 'git',
-                 track_metrics: Optional[Dict[str, callable]] = None, 
-                 **config_params):
-        super().__init__(version, config=config_params)
+    
+    def __init__(
+        self, 
+        version: str, 
+        repo_url: Optional[str] = None, 
+        branch: str = "main", 
+        auto_commit: bool = True, 
+        versioning_tool: str = 'git',
+        track_metrics: Optional[Dict[str, callable]] = None, 
+        **config_params
+        ):
         self.repo_url = repo_url
+        self.versioning_tool = versioning_tool.lower()  # 'git' or 'dvc'
         self.branch= branch
         self.auto_commit= auto_commit
         self.track_metrics= track_metrics or {}
         self.version_info_ = None  # Store version info after the run
-        self.versioning_tool_ = versioning_tool.lower()  # 'git' or 'dvc'
-
-        if self.versioning_tool_ not in ['git', 'dvc']:
-            raise ValueError(f"Unsupported versioning tool: {self.versioning_tool_}. "
-                             "Use 'git' or 'dvc'.")
-
+        
+        if self.versioning_tool not in ['git', 'dvc']:
+           raise ValueError(f"Unsupported versioning tool: {self.versioning_tool}. "
+                            "Use 'git' or 'dvc'.")
+        
+        super().__init__(version, config=config_params)
+        
+     
     @RunReturn(attribute_name="version_info_")
     def run(self, 
             commit_message: Optional[str] = None, 
@@ -379,7 +380,7 @@ class ModelVersionControl(BaseVersioning):
         **run_kwargs : dict
             Additional parameters for the versioning system.
         """
-        if self.repo_url_:
+        if self.repo_url:
             response = self._trigger_version_control_action(
                 commit_message=commit_message, 
                 tag=tag, 
@@ -457,7 +458,7 @@ class ModelVersionControl(BaseVersioning):
         check_is_runned(self, attributes=["version_info_"],
                         msg="The version control must be run before rolling back.")
         
-        if not self.repo_url_:
+        if not self.repo_url:
             raise ValueError("Repository URL is not set, cannot perform rollback.")
     
         # Simulate checking if the target version exists
@@ -476,7 +477,7 @@ class ModelVersionControl(BaseVersioning):
             self.log_event('rollback_success', {
                 'current_version': self.version,
                 'rolled_back_to': target_version,
-                'repo_url': self.repo_url_,
+                'repo_url': self.repo_url,
                 'checkout_result': result
             })
     
@@ -496,43 +497,43 @@ class ModelVersionControl(BaseVersioning):
         (e.g., Git or DVC) is correctly initialized, and the repository URL 
         is set. Raises an error if any versioning requirement is not met.
         """
-        if not self.repo_url_:
+        if not self.repo_url:
             raise ValueError("No repository URL provided for version control.")
         
-        if self.versioning_tool_ not in ['git', 'dvc']:
-            raise ValueError(f"Unsupported versioning tool: {self.versioning_tool_}. "
+        if self.versioning_tool not in ['git', 'dvc']:
+            raise ValueError(f"Unsupported versioning tool: {self.versioning_tool}. "
                              "Use 'git' or 'dvc'.")
     
         try:
-            if self.versioning_tool_ == 'git':
+            if self.versioning_tool == 'git':
                 result = subprocess.run(
-                    ['git', 'ls-remote', self.repo_url_],
+                    ['git', 'ls-remote', self.repo_url],
                     capture_output=True, text=True, check=True
                 )
                 if result.returncode != 0:
                     raise RuntimeError(
-                        f"Git repository at {self.repo_url_} is unreachable: {result.stderr}")
+                        f"Git repository at {self.repo_url} is unreachable: {result.stderr}")
     
-            elif self.versioning_tool_ == 'dvc':
+            elif self.versioning_tool == 'dvc':
                 result = subprocess.run(
-                    ['dvc', 'list', self.repo_url_],
+                    ['dvc', 'list', self.repo_url],
                     capture_output=True, text=True, check=True
                 )
                 if result.returncode != 0:
                     raise RuntimeError(
-                        f"DVC repository at {self.repo_url_} is unreachable: {result.stderr}")
+                        f"DVC repository at {self.repo_url} is unreachable: {result.stderr}")
     
             self.log_event('version_check_performed', {
                 'version': self.version_,
-                'versioning_tool': self.versioning_tool_,
-                'repo_url': self.repo_url_
+                'versioning_tool': self.versioning_tool,
+                'repo_url': self.repo_url
             })
     
         except subprocess.CalledProcessError as e:
             self.log_event('version_check_failed', {
                 'version': self.version_,
-                'versioning_tool': self.versioning_tool_,
-                'repo_url': self.repo_url_,
+                'versioning_tool': self.versioning_tool,
+                'repo_url': self.repo_url,
                 'error': str(e)
             })
             raise RuntimeError(f"Failed to perform version checks: {str(e)}")
@@ -549,19 +550,19 @@ class ModelVersionControl(BaseVersioning):
     
             self.log_event('version_exists', {
                 'version': self.version_,
-                'repo_url': self.repo_url_
+                'repo_url': self.repo_url
             })
             
         except Exception as e:
             self.log_event('version_does_not_exist', {
                 'version': self.version_,
-                'repo_url': self.repo_url_,
+                'repo_url': self.repo_url,
                 'error': str(e)
             })
             raise RuntimeError(f"Version validation failed: {e}")
     
         try:
-            if self.versioning_tool_ == 'git':
+            if self.versioning_tool == 'git':
                 result = subprocess.run(
                     ['git', 'show', f'{self.version_}:metadata.json'], 
                     capture_output=True, text=True, check=True
@@ -571,10 +572,10 @@ class ModelVersionControl(BaseVersioning):
                         f"Git: Metadata for version {self.version_} is missing"
                         " or inconsistent: {result.stderr}")
             
-            elif self.versioning_tool_ == 'dvc':
+            elif self.versioning_tool == 'dvc':
                 metadata_file = f'{self.version_}/metadata.json'
                 result = subprocess.run(
-                    ['dvc', 'get', self.repo_url_, metadata_file], 
+                    ['dvc', 'get', self.repo_url, metadata_file], 
                     capture_output=True, text=True, check=True
                 )
                 if result.returncode != 0 or not result.stdout:
@@ -584,13 +585,13 @@ class ModelVersionControl(BaseVersioning):
     
             self.log_event('metadata_validation_success', {
                 'version': self.version_,
-                'repo_url': self.repo_url_
+                'repo_url': self.repo_url
             })
     
         except Exception as e:
             self.log_event('metadata_validation_failed', {
                 'version': self.version_,
-                'repo_url': self.repo_url_,
+                'repo_url': self.repo_url,
                 'error': str(e)
             })
             raise RuntimeError(
@@ -598,7 +599,7 @@ class ModelVersionControl(BaseVersioning):
     
         self.log_event('version_validation_success', {
             'version': self.version_,
-            'repo_url': self.repo_url_
+            'repo_url': self.repo_url
         })
 
     def _version_exists_in_repo(self, target_version: str) -> bool:
@@ -623,7 +624,7 @@ class ModelVersionControl(BaseVersioning):
     
         Notes
         -----
-        This method uses either Git or DVC commands based on the `versioning_tool_` 
+        This method uses either Git or DVC commands based on the `versioning_tool` 
         attribute to check for the existence of a target version in the repository. 
         If the query fails, the method raises an exception.
         """
@@ -660,14 +661,14 @@ class ModelVersionControl(BaseVersioning):
         it uses the `dvc list --rev` command to retrieve the versions.
         """
         try:
-            if self.versioning_tool_ == 'git':
+            if self.versioning_tool == 'git':
                 result = subprocess.run(['git', 'tag', '--list'], 
                                         capture_output=True, text=True)
                 if result.returncode != 0:
                     raise RuntimeError("Failed to query Git tags.")
                 return result.stdout.strip().split('\n')
     
-            elif self.versioning_tool_ == 'dvc':
+            elif self.versioning_tool == 'dvc':
                 result = subprocess.run(['dvc', 'list', '--rev'], 
                                         capture_output=True, text=True)
                 if result.returncode != 0:
@@ -676,10 +677,10 @@ class ModelVersionControl(BaseVersioning):
     
         except Exception as e:
             self.log_event('query_repo_failed', {
-                'tool': self.versioning_tool_, 
+                'tool': self.versioning_tool, 
                 'error': str(e)
             })
-            raise RuntimeError(f"Error querying {self.versioning_tool_} versions: {e}")
+            raise RuntimeError(f"Error querying {self.versioning_tool} versions: {e}")
 
 
     def _checkout_version(self, target_version: str) -> dict:
@@ -719,7 +720,7 @@ class ModelVersionControl(BaseVersioning):
             
             self.log_event('version_checked_out', {
                 'target_version': target_version,
-                'repo_url': self.repo_url_
+                'repo_url': self.repo_url
             })
     
             return result
@@ -727,7 +728,7 @@ class ModelVersionControl(BaseVersioning):
         except Exception as e:
             self.log_event('checkout_failed', {
                 'target_version': target_version,
-                'repo_url': self.repo_url_,
+                'repo_url': self.repo_url,
                 'error': str(e)
             })
             raise RuntimeError(f"Failed to checkout version {target_version}: {e}")
@@ -761,13 +762,13 @@ class ModelVersionControl(BaseVersioning):
         message is returned, otherwise, an error is raised.
         """
         try:
-            if self.versioning_tool_ == 'git':
+            if self.versioning_tool == 'git':
                 result = subprocess.run(['git', 'checkout', target_version], 
                                         capture_output=True, text=True)
                 if result.returncode != 0:
                     raise RuntimeError(f"Git checkout failed: {result.stderr}")
             
-            elif self.versioning_tool_ == 'dvc':
+            elif self.versioning_tool == 'dvc':
                 result = subprocess.run(['dvc', 'checkout', target_version], 
                                         capture_output=True, text=True)
                 if result.returncode != 0:
@@ -776,7 +777,7 @@ class ModelVersionControl(BaseVersioning):
             return {
                 'status': 'success',
                 'checked_out_version': target_version,
-                'repo_url': self.repo_url_,
+                'repo_url': self.repo_url,
                 'message': f"Successfully checked out version {target_version}."
             }
     
@@ -831,7 +832,7 @@ class ModelVersionControl(BaseVersioning):
         commit_msg = commit_message or f"Auto-commit version {self.version_}"
         response = {
             'version': self.version_,
-            'repo_url': self.repo_url_,
+            'repo_url': self.repo_url,
             'branch': self.branch_,
             'commit_message': commit_msg,
             'tracked_files': track_files or [],
@@ -842,14 +843,14 @@ class ModelVersionControl(BaseVersioning):
         if self.auto_commit_:
             # Perform an actual auto-commit using Git or DVC
             try:
-                if self.versioning_tool_ == 'git':
+                if self.versioning_tool == 'git':
                     # Auto-commit using Git
                     subprocess.run(['git', 'add', '.'], check=True)
                     subprocess.run(['git', 'commit', '-m', commit_msg], check=True)
                     if tag:
                         subprocess.run(['git', 'tag', tag], check=True)
     
-                elif self.versioning_tool_ == 'dvc':
+                elif self.versioning_tool == 'dvc':
                     # Auto-commit using DVC
                     subprocess.run(['dvc', 'add'] + track_files, check=True)
                     subprocess.run(['git', 'add', '.'], check=True)
@@ -865,7 +866,7 @@ class ModelVersionControl(BaseVersioning):
         return response
 
 
-@SmartFitRun 
+@smartFitRun 
 class DatasetVersioning(BaseVersioning):
     """
     Manages dataset versioning, ensuring the ability to track and retrieve 
@@ -1149,7 +1150,7 @@ class DatasetVersioning(BaseVersioning):
         })
 
 
-@SmartFitRun 
+@smartFitRun 
 class PipelineVersioning(BaseVersioning):
     """
     Automatically tags versions during the execution of a machine learning pipeline.
@@ -1515,7 +1516,7 @@ class PipelineVersioning(BaseVersioning):
         })
 
 
-@SmartFitRun 
+@smartFitRun 
 class VersionComparison(BaseVersioning):
     """
     Compares different versions of models, datasets, or pipelines by comparing 
