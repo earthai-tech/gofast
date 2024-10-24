@@ -52,7 +52,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt 
 
-from typing import Union, Optional, Callable
+from typing import Any, Union, Optional, Callable
 from ._gofastlog import gofastlog
 _logger = gofastlog.get_gofast_logger(__name__)
 
@@ -74,7 +74,9 @@ __all__= [
     'PlotFeatureImportance',
     'PlotPrediction',
     'RedirectToNew',
+    'RunReturn', 
     'SignalFutureChange',
+    'smartFitRun',
     'SmartProcessor',
     'SuppressOutput',
     'Temp2D',
@@ -84,6 +86,603 @@ __all__= [
     'sanitize_docstring',
     'EnsureFileExists',
   ]
+
+
+class RunReturn:
+    """
+    A class-based decorator that enhances a method's return behavior, allowing 
+    flexibility in returning `self`, an attribute, or both. If the decorated 
+    method returns `None`, the `run_return` logic is applied automatically.
+
+    Parameters
+    ----------
+    attribute_name : str, optional
+        The name of the attribute to return. If `None`, returns `self`. This 
+        attribute allows developers to control which internal property of the 
+        object should be accessed and returned.
+    error_policy : str, optional
+        Policy for handling non-existent attributes. Options:
+        - `'warn'` : Warn the user and return `self` or a default value.
+        - `'ignore'` : Silently return `self` or default value.
+        - `'raise'` : Raise an `AttributeError` if the attribute does not exist.
+    default_value : Any, optional
+        The default value to return if the attribute does not exist. If `None`,
+        and the attribute does not exist, returns `self` based on error policy.
+    check_callable : bool, optional
+        If `True`, checks if the attribute is callable and executes it if so.
+    return_type : str, optional
+        Specifies the return type. Options:
+        - `'self'` : Always return `self`.
+        - `'attribute'` : Return the attribute if it exists.
+        - `'both'` : Return a tuple of (`self`, attribute).
+    on_callable_error : str, optional
+        How to handle errors when calling a callable attribute. Options:
+        - `'warn'` : Warn the user and return `self`.
+        - `'ignore'` : Silently return `self`.
+        - `'raise'` : Raise the original error.
+    allow_private : bool, optional
+        If `True`, allows access to private attributes (those starting with `_`).
+        This is useful when you need to return internal/private attributes that 
+        are typically hidden from outside access.
+    msg : str, optional
+        Custom message for warnings or errors. If `None`, a default message 
+        is used for better user clarity.
+    config_return_type : str or bool, optional
+        Global configuration to override the return behavior. If `'self'`, 
+        always return `self`. If `'attribute'`, always return the attribute.
+        If `None`, the behavior defaults to the developer's settings.
+
+    Methods
+    -------
+    __call__(func)
+        Applies the decorator logic to the function.
+    run_return_logic(self_obj)
+        Contains the core logic for deciding whether to return `self`, the 
+        specified attribute, or both.
+
+    Notes
+    -----
+    The `RunReturn` decorator allows developers to easily control the return 
+    behavior of methods in a flexible manner. It can automatically apply the 
+    `run_return` logic when the method returns `None`, making it highly useful 
+    in cases where developers want to define "lazy" return behavior without 
+    explicitly returning values within their methods.
+
+    The core behavior of the :class:`RunReturn` can be expressed as:
+
+    If `None` is returned from a method, the `run_return` logic can be written 
+    as a conditional selection function:
+
+    .. math::
+
+        f(x) = \left\{
+            \begin{array}{ll}
+            \text{self} & \text{if } \text{config\_return\_type} = \text{'self'} \\
+            \text{attribute\_value} & \text{if } \text{config\_return\_type} = \text{'attribute'} \\
+            (\text{self}, \text{attribute\_value}) & \text{if } \text{return\_type} = \text{'both'}
+            \end{array}
+            \right.
+
+    Examples
+    --------
+    >>> from gofast.decorators import RunReturn
+    >>> class MyModel:
+    ...     def __init__(self, name):
+    ...         self.name = name
+    ...
+    >>> @RunReturn(attribute_name="name", return_type="attribute")
+    ... def process(self):
+    ...     pass  # Logic that doesn't explicitly return anything
+    ...
+    >>> model = MyModel(name="example")
+    >>> model.process()
+    'example'
+
+    This example shows how the `RunReturn` decorator can be used to dynamically 
+    modify the return behavior of the `process` method. By specifying 
+    `attribute_name="name"`, it automatically returns the `name` attribute if 
+    the function doesn't return anything.
+
+    See Also
+    --------
+    `functools.wraps` : Used for preserving function metadata in Python decorators.
+    `warnings.warn` : Python's built-in mechanism to issue warnings.
+
+    References
+    ----------
+    .. [1] "PEP 318 -- Decorators for Functions and Methods," Python Software Foundation.
+           https://peps.python.org/pep-0318/
+    """
+    def __init__(
+        self,
+        attribute_name: Optional[str] = None,
+        error_policy: str = 'warn',
+        default_value: Optional[Any] = None,
+        check_callable: bool = False,
+        return_type: str = 'attribute',
+        on_callable_error: str = 'warn',
+        allow_private: bool = False,
+        msg: Optional[str] = None,
+        config_return_type: Optional[Union[str, bool]] = None
+    ):
+        """
+        Initialize the `RunReturn` decorator with various options for handling 
+        method return behavior and error policies.
+        """
+        self.attribute_name = attribute_name
+        self.error_policy = error_policy
+        self.default_value = default_value
+        self.check_callable = check_callable
+        self.return_type = return_type
+        self.on_callable_error = on_callable_error
+        self.allow_private = allow_private
+        self.msg = msg
+        self.config_return_type = config_return_type
+
+    def __call__(self, func: Callable) -> Callable:
+        """
+        Make the class callable as a decorator, applying the enhanced return 
+        logic when the decorated function is executed.
+        """
+        
+        # Preserve the original function's metadata with functools.wraps
+        @functools.wraps(func)
+        def wrapper(self_obj, *args, **kwargs) -> Any:
+            # Call the original function and capture its return value
+            result = func(self_obj, *args, **kwargs)
+
+            # Subtlety: Apply `run_return` logic if the result is `None`
+            if result is None:
+                return self.run_return_logic(self_obj)
+            return result
+
+        return wrapper
+
+    def run_return_logic(self, self_obj) -> Any:
+        """
+        Apply the `run_return` logic based on the specified parameters, either 
+        returning `self`, an attribute, or both, with error handling.
+
+        Parameters
+        ----------
+        self_obj : object
+            The instance of the class for which the method is being decorated.
+
+        Returns
+        -------
+        Any
+            Returns `self`, the attribute value, or a tuple of both, depending 
+            on the specified options and availability of the attribute.
+
+        Raises
+        ------
+        AttributeError
+            If the attribute does not exist and `error_policy` is `'raise'`, 
+            or if the callable check fails and `on_callable_error` is `'raise'`.
+        """
+        # Global config return type override
+        if self.config_return_type == 'self':
+            return self_obj
+        elif self.config_return_type == 'attribute':
+            return getattr(self_obj, self.attribute_name, self.default_value
+                           ) if self.attribute_name else self_obj
+
+        # Developer-specified logic
+        if self.attribute_name:
+            # Handle private attribute access restriction
+            if not self.allow_private and self.attribute_name.startswith('_'):
+                custom_msg = self.msg or ( 
+                    "Access to private attribute"
+                    f" '{self.attribute_name}' is not allowed."
+                    )
+                raise AttributeError(custom_msg)
+
+            if hasattr(self_obj, self.attribute_name):
+                attr_value = getattr(self_obj, self.attribute_name)
+
+                # Check if the attribute is callable
+                if self.check_callable and isinstance(attr_value, Callable):
+                    try:
+                        attr_value = attr_value()
+                    except Exception as e:
+                        custom_msg = self.msg or ( 
+                            f"Callable attribute '{self.attribute_name}'"
+                            f" raised an error: {e}."
+                            )
+                        if self.on_callable_error == 'raise':
+                            raise e
+                        elif self.on_callable_error == 'warn':
+                            warnings.warn(custom_msg)
+                            return self_obj
+                        elif self.on_callable_error == 'ignore':
+                            return self_obj
+
+                # Determine the return type
+                if self.return_type == 'self':
+                    return self_obj
+                elif self.return_type == 'both':
+                    return self_obj, attr_value
+                else:
+                    return attr_value
+            else:
+                # Attribute does not exist, handle based on error policy
+                custom_msg = self.msg or ( 
+                    f"'{self_obj.__class__.__name__}' object has"
+                    f" no attribute '{self.attribute_name}'."
+                    )
+                if self.error_policy == 'raise':
+                    raise AttributeError(custom_msg)
+                elif self.error_policy == 'warn':
+                    warnings.warn(f"{custom_msg} Returning default value or self.")
+                return self.default_value if self.default_value is not None else self_obj
+        else:
+            return self_obj
+        
+    @classmethod
+    def initialize_decorator(cls, *args, **kwargs) -> Callable:
+        """
+        Initialize the `RunReturn` decorator, allowing it to be applied with or 
+        without parentheses.
+    
+        This method provides flexibility by determining whether the decorator 
+        is used directly without parentheses, or if it has been configured with 
+        specific options via parentheses. If no parentheses are provided, it 
+        defaults to the standard behavior.
+    
+        Parameters
+        ----------
+        *args : tuple
+            If the decorator is used without parentheses, the function itself 
+            is passed as the first positional argument.
+        **kwargs : dict
+            If the decorator is used with parentheses, this will contain the 
+            optional configuration parameters like `attribute_name`, 
+            `error_policy`, `default_value`, `return_type`, etc.
+    
+        Returns
+        -------
+        Callable
+            Returns the decorated function with enhanced return behavior. This 
+            callable can either apply the default behavior or use custom settings 
+            provided via `kwargs`.
+    
+        Examples
+        --------
+        Usage with parentheses:
+        
+        >>> from gofast.decorators import RunReturn
+        >>> class MyModel:
+        ...     def __init__(self, name):
+        ...         self.name = name
+        ...
+        >>> @RunReturn(attribute_name="name", return_type="attribute")
+        ... def process(self):
+        ...     pass
+        >>> model = MyModel(name="example")
+        >>> model.process()
+        'example'
+    
+        Usage without parentheses (default behavior):
+    
+        >>> from gofast.decorators import RunReturn
+        >>> class MyModel:
+        ...     def __init__(self, name):
+        ...         self.name = name
+        ...
+        >>> @RunReturn
+        ... def process(self):
+        ...     pass
+        >>> model = MyModel(name="example")
+        >>> model.process()
+        <MyModel object at 0x...>
+        
+        In this second case, the `RunReturn` decorator defaults to its standard 
+        behavior (returning `self`) since no specific configurations are provided.
+        """
+    
+        # Check if the decorator is being used without parentheses
+        if len(args) == 1 and callable(args[0]):
+            return cls()(args[0])
+    
+        # Otherwise, it was used with parentheses, so initialize as normal
+        return cls(*args, **kwargs)
+
+# Assign the classmethod to the decorator name,
+# allowing it to be used with or without parentheses
+RunReturn = RunReturn.initialize_decorator
+
+class SmartFitRun:
+    """
+    A class-based decorator that manages the `fit`/`run` method switching 
+    logic. If one method is called but the other is implemented, the correct 
+    method will be invoked automatically, with a warning issued to the user.
+
+    This is useful for ensuring that a class which only implements one of the 
+    `fit` or `run` methods can still function when the other is called 
+    incorrectly. The system will detect whether `fit` or `run` is available, 
+    issue a warning, and automatically call the available method.
+
+    Parameters
+    ----------
+    cls : class
+        The class being decorated, which should implement either `fit` or 
+        `run` (but not both). The decorator ensures that if the missing method 
+        is called, the available method is invoked instead.
+
+    Methods
+    -------
+    __call__(*args, **kwargs)
+        Instantiate the decorated class and apply the method switching logic.
+    
+    Notes
+    -----
+    This decorator is designed for situations where either the `fit` method or 
+    the `run` method is implemented in a class, but not both. It ensures that 
+    calling the missing method does not result in an error but rather triggers 
+    the other method.
+
+    This behavior is particularly useful when `fit` requires a dataset 
+    (typically `X`, `y`), while `run` operates on pre-fitted models without 
+    needing the same input structure.
+
+    Example
+    -------
+    >>> from gofast.decorators import SmartFitRun
+    >>> 
+    >>> class ModelExampleFitOnly:
+    >>>     @SmartFitRun
+    >>>     def fit(self, X, y=None, **fit_params):
+    >>>         print(f"Fitting model with data {X} and target {y}")
+
+    >>> model = ModelExampleFitOnly()
+    >>> model.run(X=[1, 2, 3], y=[0, 1, 0])  # Will call `fit` instead and issue a warning.
+
+    >>> @SmartFitRun
+    >>> class ModelExampleRunOnly:
+    >>>     def run(self, **run_kwargs):
+    >>>         print(f"Running model with parameters {run_kwargs}")
+
+    >>> model = ModelExampleRunOnly()
+    >>> model.fit()  # Will call `run` instead and issue a warning.
+
+    See Also
+    --------
+    :class:`fit` : Fits a model to the provided data.
+    :class:`run` : Runs a model using parameters.
+
+    References
+    ----------
+    .. [1] Python Software Foundation. Python 3.9 Documentation.
+           https://docs.python.org/3/
+
+    .. [2] Decorators: Advanced Functions, Real Python.
+           https://realpython.com/primer-on-python-decorators/
+    """
+
+    def __init__(self, cls):
+        """
+        Initialize the `SmartFitRun` decorator with the target class and 
+        dynamically wrap its methods.
+
+        Parameters
+        ----------
+        cls : class
+            The class to be decorated. This class should implement either 
+            the `fit` method or the `run` method (but not both).
+        """
+        self.cls = cls
+        self._wrap_methods()
+
+    def _wrap_methods(self):
+        """
+        Internal method that wraps the `fit` and `run` methods in the 
+        decorated class. If one method is missing but called, the other 
+        will be invoked automatically with a warning to the user.
+        """
+        # Wrap the __init__ method to set tracking flags
+        original_init = self.cls.__init__
+    
+        @functools.wraps(original_init)
+        def new_init(instance, *args, **kwargs):
+            """
+            Initialize the decorated class and set flags to track whether 
+            `fit` or `run` is implemented.
+            """
+            original_init(instance, *args, **kwargs)
+            instance._has_run = hasattr(instance, "run")
+            instance._has_fit = hasattr(instance, "fit")
+            instance._is_fitted = False  # Track if `fit` has been called
+            
+        self.cls.__init__ = new_init
+
+        # Handle case where only `fit` is defined
+        if hasattr(self.cls, "fit") and not hasattr(self.cls, "run"):
+            original_fit = self.cls.fit
+
+            @functools.wraps(original_fit)
+            def wrapped_fit(instance, *args, **kwargs):
+                """
+                Call the `fit` method and set the instance as fitted.
+                """
+                instance._is_fitted = True
+                return original_fit(instance, *args, **kwargs)
+            self.cls.fit = wrapped_fit
+
+            # If `run` is called but only `fit` is defined
+            def fallback_run(instance, *args, **kwargs):
+                warnings.warn(
+                    "`fit` method is required, but `run` was called. "
+                    "Automatically switching to `fit`. "
+                    "Note: Calling `run` without a `fit` implementation "
+                    "might be deprecated.",
+                    FutureWarning
+                )
+                return instance.fit(*args, **kwargs)
+            
+            self.cls.run = fallback_run  # Provide a fallback `run` method
+
+        # Handle case where only `run` is defined
+        elif hasattr(self.cls, "run") and not hasattr(self.cls, "fit"):
+            original_run = self.cls.run
+
+            @functools.wraps(original_run)
+            def wrapped_run(instance, *args, **kwargs):
+                """
+                Call the `run` method.
+                """
+                return original_run(instance, *args, **kwargs)
+            self.cls.run = wrapped_run
+
+            # If `fit` is called but only `run` is defined
+            def fallback_fit(instance, *args, **kwargs):
+                warnings.warn(
+                    "`run` method is required, but `fit` was called. "
+                    "Automatically switching to `run`. "
+                    "Note: Calling `fit` without a `run` implementation "
+                    "might be deprecated.",
+                    FutureWarning
+                )
+                return instance.run(*args, **kwargs)
+            
+            self.cls.fit = fallback_fit  # Provide a fallback `fit` method
+
+    def __call__(self, *args, **kwargs):
+        """
+        Instantiate the decorated class with `fit`/`run` management applied.
+
+        Parameters
+        ----------
+        *args : tuple
+            Positional arguments to be passed to the class constructor.
+        **kwargs : dict
+            Keyword arguments to be passed to the class constructor.
+
+        Returns
+        -------
+        object
+            An instance of the decorated class with method switching logic 
+            applied.
+        """
+        return self.cls(*args, **kwargs)
+
+def smartFitRun(cls):
+    """
+    A class-based decorator that manages the `fit`/`run` method switching 
+    logic. If one method is called but the other is implemented, the correct 
+    method will be invoked automatically, with a warning issued to the user.
+
+    This is useful for ensuring that a class which only implements one of the 
+    `fit` or `run` methods can still function when the other is called 
+    incorrectly. The system will detect whether `fit` or `run` is available, 
+    issue a warning, and automatically call the available method.
+
+    Parameters
+    ----------
+    cls : class
+        The class being decorated, which should implement either `fit` or 
+        `run` (but not both). The decorator ensures that if the missing method 
+        is called, the available method is invoked instead.
+
+    Returns
+    -------
+    cls : class
+        The decorated class with method switching logic applied.
+    
+    Notes
+    -----
+    This decorator is designed for situations where either the `fit` method or 
+    the `run` method is implemented in a class, but not both. It ensures that 
+    calling the missing method does not result in an error but rather triggers 
+    the other method.
+
+    The method switching logic is as follows:
+
+    - If only ``fit`` is implemented and ``run`` is called, the decorator will
+      call the ``fit`` method instead, issuing a  warning.
+
+    - If only ``run`` is implemented and ``fit`` is called, the decorator will
+      call the ``run`` method instead, issuing a warning.
+
+    This behavior is particularly useful when ``fit`` requires a dataset 
+    (typically ``X``, ``y``), while ``run`` operates on pre-fitted models 
+    without needing the same input structure.
+    
+    Example
+    -------
+    >>> from gofast.decorators import smartFitRun
+    >>> @smartFitRun
+    >>> class ModelExampleFitOnly:
+    >>>     ''' Expects run while fit is called'''
+    >>>     def fit(self, X, y=None, **fit_params):
+    >>>         print(f"Fitting model with data {X} and target {y}")
+
+    >>> model = ModelExampleFitOnly()
+    >>> model.run(X=[1, 2, 3], y=[0, 1, 0])  # Will call `fit` instead and issue a warning.
+
+    >>> @smartFitRun
+    >>> class ModelExampleRunOnly:
+    >>>     ''' Expects fit while run is called'''
+    >>>     def run(self, **run_kwargs):
+    >>>         print(f"Running model with parameters {run_kwargs}")
+
+    >>> model = ModelExampleRunOnly()
+    >>> model.fit()  # Will call `run` instead and issue a warning.
+
+    See Also
+    --------
+    :class:`fit` : Fits a model to the provided data.
+    :class:`run` : Runs a model using parameters.
+
+    References
+    ----------
+    .. [1] Python Software Foundation. Python 3.9 Documentation.
+           https://docs.python.org/3/
+
+    .. [2] Decorators: Advanced Functions, Real Python.
+           https://realpython.com/primer-on-python-decorators/
+    """
+
+    original_fit = getattr(cls, 'fit', None)
+    original_run = getattr(cls, 'run', None)
+
+    if original_fit is not None and original_run is None:
+        # Only 'fit' is defined
+        @functools.wraps(original_fit)
+        def run(self, *args, **kwargs):
+            # Temporarily enable warnings if they were disabled
+            with warnings.catch_warnings():
+                warnings.simplefilter('once', FutureWarning)
+                warnings.warn(
+                    "`fit` method is required, but `run` was called. "
+                    "Automatically switching to `fit`. "
+                    "Note: Calling `run` without a `fit` implementation "
+                    "might be deprecated.",
+                    FutureWarning, 
+                )
+            return self.fit(*args, **kwargs)
+
+        setattr(cls, 'run', run)
+        
+    elif original_run is not None and original_fit is None:
+        # Only 'run' is defined
+        @functools.wraps(original_run)
+        def fit(self, *args, **kwargs):
+            with warnings.catch_warnings():
+               warnings.simplefilter('once', FutureWarning)
+               warnings.warn(
+                   "`run` method is required, but `fit` was called. "
+                   "Automatically switching to `run`. "
+                   "In future versions, calling `fit` without a `run` "
+                   "implementation might raise an error.",
+                   FutureWarning
+               )
+            return self.run(*args, **kwargs)
+
+        setattr(cls, 'fit', fit)
+        
+    return cls
+
+
 
 class SmartProcessor:
     """

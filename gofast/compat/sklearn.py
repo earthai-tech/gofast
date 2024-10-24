@@ -43,6 +43,7 @@ import sklearn
 import inspect
 from sklearn.utils._param_validation import validate_params as sklearn_validate_params
 from sklearn.utils._param_validation import Interval as sklearn_Interval 
+from sklearn.utils._param_validation import StrOptions
 from sklearn.utils import resample
 from sklearn.utils.validation import check_is_fitted as sklearn_check_is_fitted
 from sklearn.metrics import get_scorer
@@ -66,6 +67,7 @@ __all__ = [
     "check_is_fitted",
     "adjusted_mutual_info_score", 
     "validate_params", 
+    "StrOptions", 
     "SKLEARN_LT_0_22", 
     "SKLEARN_LT_0_23", 
     "SKLEARN_LT_0_24"

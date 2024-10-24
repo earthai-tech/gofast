@@ -1,24 +1,71 @@
 # -*- coding: utf-8 -*-
-#   Licence:BSD 3-Clause
+#   Licence: BSD 3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """
-:code:`gofast` property objects. It is composed of base classes that are inherited 
-by methods implemented throughout the package. It also inferred properties to 
-data objects. 
+The :code:`gofast.api.property` module provides base classes and property objects 
+that are inherited by various components implemented throughout the `gofast` package. 
+These base classes serve as foundational building blocks for handling and 
+managing attributes across different models and methods, ensuring consistency and 
+code reusability.
 
-.. _GoFast: https://github.com/earthai-tech/gofast/ 
-.. _interpol_imshow: https://matplotlib.org/stable/gallery/images_contours_and_fields/interpolation_methods.html
+The property objects defined here enable the automatic inference of key attributes 
+related to data objects, offering enhanced flexibility and efficiency in 
+managing common data properties.
 
-"""   
+Features include:
+-----------------
+- **Base Classes**: Provides a robust and structured foundation for class inheritance, 
+  ensuring a standardized approach to string representations and attribute 
+  formatting.
+  
+- **Auto-detection of Properties**: The property objects automatically infer 
+  essential attributes such as date ranges, sample sizes, and intervals from 
+  the provided data. This simplifies the integration process and minimizes 
+  manual input for common data properties.
+  
+- **Support for Time Series Data**: Many of the property objects offer specific 
+  functionality for handling time series data, including date formatting, 
+  interval calculations, and automatic detection of start and end dates.
+  
+- **Customizable Configuration**: Users can modify configuration parameters 
+  (e.g., time intervals, formatting options) to tailor the behavior of these 
+  properties according to their specific needs.
+
+References
+----------
+- `GoFast <https://github.com/earthai-tech/gofast/>`_
+- `Interpolation Imshow <https://matplotlib.org/stable/gallery/images_contours_and_fields/interpolation_methods.html>`_
+
+Notes
+-----
+This module is a critical part of the :code:`gofast` package and is designed to 
+be extended by other classes within the package. Each class or function defined 
+here has a clearly defined role and is optimized for reusability across various 
+use cases.
+
+Examples
+--------
+>>> from gofast.api.property import BaseClass
+>>> class Optimizer(BaseClass):
+...     def __init__(self, name, iterations):
+...         self.name = name
+...         self.iterations = iterations
+>>> optimizer = Optimizer("SGD", 100)
+>>> print(optimizer)
+Optimizer(name=SGD, iterations=100)
+
+"""
+
 
 # import warnings 
 from __future__ import annotations 
-# import os 
+import warnings
 from abc import ABC, abstractmethod 
 import numpy as np
 import pandas as pd 
 from typing import Any, Dict, Iterable, List, Tuple
+from typing import Optional, Callable, Union
 import inspect
 
 __all__ = [ 
@@ -94,6 +141,7 @@ class GofastConfig:
         raise AttributeError(
             "Modification of WHITESPACE_ESCAPE is not allowed as"
             " it may affect the Gofast API frame formatter across all modules.")
+
 
 class PipelineBaseClass:
     """
@@ -190,71 +238,102 @@ class PipelineBaseClass:
             f")"
         )
         return repr_str
-
+    
 class BaseClass:
     """
-    A base class that provides a nicely formatted string representation
-    of any derived class instances, summarizing their attributes and
-    handling collections intelligently.
+    A base class that provides a formatted string representation of any derived
+    class instances. It summarizes their attributes and handles collections 
+    intelligently.
     
+    This class offers flexibility in how attributes are represented using two 
+    key options:
+    `formatage` for formatting and `vertical_display` for controlling vertical
+    alignment.
+
     Attributes
     ----------
     MAX_DISPLAY_ITEMS : int
-        The maximum number of items to display when summarizing
-        collections. Default is 5.
+        The maximum number of items to display when summarizing collections. 
+        Default is 5.
     _include_all_attributes : bool
-        If True, includes all attributes in the string representation.
-        If False, includes only the attributes defined in the __init__ method.
-    
+        If True, all attributes in the instance are included in the string 
+        representation.
+        If False, only attributes defined in the `__init__` method are included.
+    _formatage : bool
+        Controls whether the attributes should be summarized or displayed as-is. 
+        If True, attributes are formatted (default is True).
+    _vertical_display : bool
+        Controls whether the attributes are displayed in vertical alignment 
+        or inline.
+        If True, attributes are displayed vertically (default is False).
+
     Methods
     -------
-    __repr__() -> str
-        Returns a formatted string representation of the instance.
-    _format_attr(key: str, value: Any) -> str
-        Formats an individual attribute for the string representation.
-    _summarize_iterable(iterable: Iterable) -> str
+    __repr__()
+        Returns a formatted string representation of the instance based on the 
+        configuration settings for formatting and vertical alignment.
+    _format_attr(key: str, value: Any)
+        Formats a single attribute for inclusion in the string representation.
+    _summarize_iterable(iterable: Iterable)
         Returns a summarized string representation of an iterable.
-    _summarize_dict(dictionary: Dict) -> str
+    _summarize_dict(dictionary: Dict)
         Returns a summarized string representation of a dictionary.
-    _summarize_array(array: np.ndarray) -> str
+    _summarize_array(array: np.ndarray)
         Summarizes a NumPy array to a concise representation.
-    _summarize_dataframe(df: pd.DataFrame) -> str
+    _summarize_dataframe(df: pd.DataFrame)
         Summarizes a pandas DataFrame to a concise representation.
-    _summarize_series(series: pd.Series) -> str
+    _summarize_series(series: pd.Series)
         Summarizes a pandas Series to a concise representation.
+
     Examples
     --------
+    >>> from gofast.api.property import BaseClass
     >>> class Optimizer(BaseClass):
     ...     def __init__(self, name, iterations):
     ...         self.name = name
     ...         self.iterations = iterations
-    ...         self.parameters = [1, 2, 3, 4, 5, 6, 7]
     >>> optimizer = Optimizer("SGD", 100)
     >>> print(optimizer)
     Optimizer(name=SGD, iterations=100)
 
-    >>> optimizer._include_all_attributes=True
+    >>> optimizer._include_all_attributes = True
     >>> print(optimizer)
     Optimizer(name=SGD, iterations=100, parameters=[1, 2, 3, 4, 5, ...])
 
     Notes
     -----
-    The base class is designed to be inherited by classes that wish to
-    have a robust and informative string representation for debugging
-    and logging purposes. It handles complex data types by summarizing
-    them if they exceed the MAX_DISPLAY_ITEMS limit. This behavior can
-    be adjusted by modifying the class attribute MAX_DISPLAY_ITEMS.
+    This class is intended to be used as a base class for any object that requires 
+    a readable and informative string representation. It is particularly useful in 
+    debugging or logging contexts, where object attributes need to be displayed in 
+    a human-readable format.
     """
+
     MAX_DISPLAY_ITEMS = 5
     _include_all_attributes = False  
+    _formatage = True 
+    _vertical_display = False 
 
     def __repr__(self) -> str:
+        """
+        Returns a formatted string representation of the instance based on 
+        the `_formatage` and `_vertical_display` attributes.
+
+        If `_formatage` is False, attributes are displayed without summarization.
+        If `_vertical_display` is True, attributes are displayed vertically. 
+        Otherwise, they are displayed inline.
+
+        Returns
+        -------
+        str
+            A formatted string representation of the instance.
+        """
+        # Collect attributes based on configuration
         if self._include_all_attributes:
             attributes = [self._format_attr(key, value) 
                           for key, value in self.__dict__.items() 
                           if not key.startswith('_') and not key.endswith('_')]
         else:
-            # Get parameters from the __init__ method of the derived class
+            # Get parameters from the __init__ method
             signature = inspect.signature(self.__init__)
             params = [p for p in signature.parameters if p != 'self']
             attributes = []
@@ -262,26 +341,63 @@ class BaseClass:
                 if hasattr(self, key):
                     value = getattr(self, key)
                     attributes.append(self._format_attr(key, value))
-        return f"{self.__class__.__name__}({', '.join(attributes)})"
+
+        # Return vertical or inline representation based on _vertical_display
+        if self._vertical_display:
+            return f"{self.__class__.__name__}(\n    " + ",\n    ".join(attributes) + "\n)"
+        else:
+            return f"{self.__class__.__name__}({', '.join(attributes)})"
 
     def _format_attr(self, key: str, value: Any) -> str:
-        """Formats a single attribute for inclusion in the string representation."""
-        if isinstance(value, (list, tuple, set)):
-            return f"{key}={self._summarize_iterable(value)}"
-        elif isinstance(value, dict):
-            return f"{key}={self._summarize_dict(value)}"
-        elif isinstance(value, np.ndarray):
-            return f"{key}={self._summarize_array(value)}"
-        elif isinstance(value, pd.DataFrame):
-            return f"{key}={self._summarize_dataframe(value)}"
-        elif isinstance(value, pd.Series):
-            return f"{key}={self._summarize_series(value)}"
+        """
+        Formats an individual attribute for inclusion in the string 
+        representation.
+        
+        When `_formatage` is False, the value is displayed as is.
+
+        Parameters
+        ----------
+        key : str
+            The name of the attribute.
+        value : Any
+            The value of the attribute to be formatted.
+
+        Returns
+        -------
+        str
+            The formatted string representation of the attribute.
+        """
+        if self._formatage:
+            if isinstance(value, (list, tuple, set)):
+                return f"{key}={self._summarize_iterable(value)}"
+            elif isinstance(value, dict):
+                return f"{key}={self._summarize_dict(value)}"
+            elif isinstance(value, np.ndarray):
+                return f"{key}={self._summarize_array(value)}"
+            elif isinstance(value, pd.DataFrame):
+                return f"{key}={self._summarize_dataframe(value)}"
+            elif isinstance(value, pd.Series):
+                return f"{key}={self._summarize_series(value)}"
+            else:
+                return f"{key}={value}"
         else:
             return f"{key}={value}"
 
     def _summarize_iterable(self, iterable: Iterable) -> str:
-        """Summarizes an iterable object to a concise representation 
-        if it exceeds the display limit."""
+        """
+        Summarizes an iterable to a concise representation if it exceeds 
+        the display limit.
+
+        Parameters
+        ----------
+        iterable : Iterable
+            The iterable (list, tuple, set) to summarize.
+
+        Returns
+        -------
+        str
+            A summarized string representation of the iterable.
+        """
         if len(iterable) > self.MAX_DISPLAY_ITEMS:
             limited_items = ', '.join(map(str, list(iterable)[:self.MAX_DISPLAY_ITEMS]))
             return f"[{limited_items}, ...]"
@@ -289,8 +405,20 @@ class BaseClass:
             return f"[{', '.join(map(str, iterable))}]"
 
     def _summarize_dict(self, dictionary: Dict) -> str:
-        """Summarizes a dictionary object to a concise representation
-        if it exceeds the display limit."""
+        """
+        Summarizes a dictionary to a concise representation if it exceeds 
+        the display limit.
+
+        Parameters
+        ----------
+        dictionary : Dict
+            The dictionary to summarize.
+
+        Returns
+        -------
+        str
+            A summarized string representation of the dictionary.
+        """
         if len(dictionary) > self.MAX_DISPLAY_ITEMS:
             limited_items = ', '.join(f"{k}: {v}" for k, v in list(
                 dictionary.items())[:self.MAX_DISPLAY_ITEMS])
@@ -299,8 +427,20 @@ class BaseClass:
             return f"{{ {', '.join(f'{k}: {v}' for k, v in dictionary.items()) }}}"
 
     def _summarize_array(self, array: np.ndarray) -> str:
-        """Summarizes array object to a concise representation if 
-        it exceeds the display rows."""
+        """
+        Summarizes a NumPy array to a concise representation if it exceeds 
+        the display limit.
+
+        Parameters
+        ----------
+        array : np.ndarray
+            The NumPy array to summarize.
+
+        Returns
+        -------
+        str
+            A summarized string representation of the array.
+        """
         if array.size > self.MAX_DISPLAY_ITEMS:
             limited_items = ', '.join(map(str, array.flatten()[:self.MAX_DISPLAY_ITEMS]))
             return f"[{limited_items}, ...]"
@@ -308,23 +448,47 @@ class BaseClass:
             return f"[{', '.join(map(str, array.flatten()))}]"
 
     def _summarize_dataframe(self, df: pd.DataFrame) -> str:
-        """Summarizes a DataFrame object to a concise representation if it
-        exceeds the display limit."""
+        """
+        Summarizes a pandas DataFrame to a concise representation if it exceeds
+        the display limit.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            The DataFrame to summarize.
+
+        Returns
+        -------
+        str
+            A summarized string representation of the DataFrame.
+        """
         if len(df) > self.MAX_DISPLAY_ITEMS:
             return f"DataFrame({len(df)} rows, {len(df.columns)} columns)"
         else:
             return f"DataFrame: {df.to_string(index=False)}"
 
     def _summarize_series(self, series: pd.Series) -> str:
-        """Summarizes a series object to a concise representation if it
-        exceeds the display limit."""
+        """
+        Summarizes a pandas Series to a concise representation if it exceeds
+        the display limit.
+
+        Parameters
+        ----------
+        series : pd.Series
+            The Series to summarize.
+
+        Returns
+        -------
+        str
+            A summarized string representation of the Series.
+        """
         if len(series) > self.MAX_DISPLAY_ITEMS:
-            limited_items = ', '.join(f"{series.index[i]}: {series[i]}" for i in range(
-                self.MAX_DISPLAY_ITEMS))
+            limited_items = ', '.join(f"{series.index[i]}: {series[i]}" 
+                                      for i in range(self.MAX_DISPLAY_ITEMS))
             return f"Series([{limited_items}, ...])"
         else:
             return f"Series: {series.to_string(index=False)}"
-
+ 
 
 class BasePlot(ABC): 
     r""" Base class  deals with Machine learning and conventional Plots. 
@@ -938,8 +1102,158 @@ class Software:
         
         for key in kws:
             setattr(self, key, kws[key]) 
-            
-                
+
+def run_return(
+    self, 
+    attribute_name: Optional[str] = None, 
+    error_policy: str = 'warn',
+    default_value: Optional[Any] = None,
+    check_callable: bool = False,
+    return_type: str = 'attribute',
+    on_callable_error: str = 'warn',
+    allow_private: bool = False,
+    msg: Optional[str] = None, 
+    config_return_type: Optional[Union[str, bool]] = None
+) -> Any:
+    """
+    Return `self`, a specified attribute of `self`, or both, with error handling
+    policies. Optionally integrates with global configuration to customize behavior.
+
+    Parameters
+    ----------
+    attribute_name : str, optional
+        The name of the attribute to return. If `None`, returns `self`.
+    error_policy : str, optional
+        Policy for handling non-existent attributes. Options:
+        - `warn` : Warn the user and return `self` or a default value.
+        - `ignore` : Silently return `self` or the default value.
+        - `raise` : Raise an `AttributeError` if the attribute does not exist.
+    default_value : Any, optional
+        The default value to return if the attribute does not exist. If `None`,
+        and the attribute does not exist, returns `self` based on the error policy.
+    check_callable : bool, optional
+        If `True`, checks if the attribute is callable and executes it if so.
+    return_type : str, optional
+        Specifies the return type. Options:
+        - `self` : Always return `self`.
+        - `attribute` : Return the attribute if it exists.
+        - `both` : Return a tuple of (`self`, attribute).
+    on_callable_error : str, optional
+        How to handle errors when calling a callable attribute. Options:
+        - `warn` : Warn the user and return `self`.
+        - `ignore` : Silently return `self`.
+        - `raise` : Raise the original error.
+    allow_private : bool, optional
+        If `True`, allows access to private attributes (those starting with '_').
+    msg : str, optional
+        Custom message for warnings or errors. If `None`, a default message will be used.
+    config_return_type : str or bool, optional
+        Global configuration to override return behavior. If set to 'self', always
+        return `self`. If 'attribute', always return the attribute. If `None`, use
+        developer-defined behavior.
+
+    Returns
+    -------
+    Any
+        Returns `self`, the attribute value, or a tuple of both, depending on
+        the specified options and the availability of the attribute.
+
+    Raises
+    ------
+    AttributeError
+        If the attribute does not exist and `error_policy` is set to 'raise', or if the
+        callable check fails and `on_callable_error` is set to 'raise'.
+
+    Notes
+    -----
+    The `run_return` function is designed to offer flexibility in determining
+    what is returned from a method, allowing developers to either return `self` for
+    chaining, return an attribute of the class, or both. By using `global_config`,
+    package-wide behavior can be customized.
+
+    Examples
+    --------
+    >>> from gofast.api.property import run_return
+    >>> class MyModel:
+    ...     def __init__(self, name):
+    ...         self.name = name
+    ...
+    >>> model = MyModel(name="example")
+    >>> run_return(model, "name")
+    'example'
+
+    See Also
+    --------
+    logging : Python's logging module.
+    warnings.warn : Function to issue warning messages.
+
+    References
+    ----------
+    .. [1] "Python Logging Module," Python Software Foundation.
+           https://docs.python.org/3/library/logging.html
+    .. [2] "Python Warnings," Python Documentation.
+           https://docs.python.org/3/library/warnings.html
+    """
+
+    # If global config specifies return behavior, override the return type
+    if config_return_type == 'self':
+        return self
+    elif config_return_type == 'attribute':
+        return getattr(self, attribute_name, default_value
+                       ) if attribute_name else self
+
+    # If config is None or not available, use developer-defined logic
+    if attribute_name:
+        # Check for private attributes if allowed
+        if not allow_private and attribute_name.startswith('_'):
+            custom_msg = msg or ( 
+                f"Access to private attribute '{attribute_name}' is not allowed.")
+            raise AttributeError(custom_msg)
+
+        # Check if the attribute exists
+        if hasattr(self, attribute_name):
+            attr_value = getattr(self, attribute_name)
+
+            # If check_callable is True, try executing the attribute if it's callable
+            if check_callable and isinstance(attr_value, Callable):
+                try:
+                    attr_value = attr_value()
+                except Exception as e:
+                    custom_msg = msg or ( 
+                        f"Callable attribute '{attribute_name}'"
+                        f" raised an error: {e}."
+                        )
+                    if on_callable_error == 'raise':
+                        raise e
+                    elif on_callable_error == 'warn':
+                        warnings.warn(custom_msg)
+                        return self
+                    elif on_callable_error == 'ignore':
+                        return self
+
+            # Return based on the return_type provided
+            if return_type == 'self':
+                return self
+            elif return_type == 'both':
+                return self, attr_value
+            else:
+                return attr_value
+        else:
+            # Handle the case where the attribute does not exist based on the error_policy
+            custom_msg = msg or ( 
+                f"'{self.__class__.__name__}' object has"
+                f"  no attribute '{attribute_name}'."
+                )
+            if error_policy == 'raise':
+                raise AttributeError(custom_msg)
+            elif error_policy == 'warn':
+                warnings.warn(f"{custom_msg} Returning default value or self.")
+            # Return the default value if provided, otherwise return self
+            return default_value if default_value is not None else self
+    else:
+        # If no attribute is provided, return self
+        return self
+
 
     
     

@@ -1139,12 +1139,10 @@ class CloudDeployment(BaseClass):
         self.model_name = model_name
 
         self.platform = parameter_validator(
-            platform, target_strs= ["aws", "gcp", "azure"], 
+            "platform", target_strs= ["aws", "gcp", "azure"], 
             error_msg= ( 
                 f"Unsupported platform: {platform}. Supported platforms"
-                " are 'aws', 'gcp', and 'azure'."), 
-            return_target_str= True
-            )
+                " are 'aws', 'gcp', and 'azure'."))(platform)
  
     @ensure_pkgs(
         "boto3",

@@ -8,7 +8,6 @@ to handle larger datasets and model training in distributed systems.
 
 import os
 import time
-import psutil
 import random 
 from numbers import Integral, Real 
 from multiprocessing import Pool
@@ -859,7 +858,13 @@ class DataPipelineScaler(BaseClass):
         logger.info("Detecting number of partitions based on system resources.")
         return os.cpu_count() or 1
 
-
+    @ensure_pkg(
+        "psutil",
+        extra="The 'psutil' package is required for system monitoring, "
+              "including CPU, memory, and process management.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA,
+    )
     def _detect_resources(self) -> Dict[str, int]:
         """
         Detects available system resources (e.g., CPU, memory).
@@ -876,7 +881,7 @@ class DataPipelineScaler(BaseClass):
         and `psutil.virtual_memory()` to detect total system memory in MB.
 
         """
-
+        import psutil 
         logger.info("Detecting system resources for scaling.")
         cpu_count = os.cpu_count() or 1
         mem = psutil.virtual_memory()
@@ -1390,7 +1395,7 @@ class ElasticScaler(BaseClass):
 
 @validate_params({
     'data_pipeline_fn': [callable],
-    'num_partitions': [Interval(int, 1, None, closed='left')],
+    'num_partitions': [Interval(Integral, 1, None, closed='left')],
     'partition_strategy': [StrOptions({'even', 'custom', 'random'})],
     'custom_partition_fn': [callable, None],
     'partition_metadata': [dict, None],
@@ -1695,11 +1700,11 @@ def get_system_workload(
     'scale_down_thresholds': [dict],
     'scale_up_callback': [callable],
     'scale_down_callback': [callable],
-    'min_scale_up_duration': [float],
-    'min_scale_down_duration': [float],
-    'scaling_sensitivity': [float],
+    'min_scale_up_duration': [Real],
+    'min_scale_down_duration': [Real],
+    'scaling_sensitivity': [Real],
     'workload_weighting': [dict, None],
-    'cooldown_period': [float],
+    'cooldown_period': [Real],
     'auto_scale_up': [bool],
     'auto_scale_down': [bool],
 })

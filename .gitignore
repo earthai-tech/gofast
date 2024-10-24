@@ -182,6 +182,10 @@ subsi_test.py
 subsidence_insar_data.csv
 test_gofast.ipynb
 xgbr_prediction.py
+logs/
+tft_tuning_logs/
+final_tft_model.keras
+best_tft_model.h5
 
 
  	

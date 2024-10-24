@@ -40,7 +40,7 @@ from ..exceptions import SiteError
 from ._arraytools import axis_slice
 from .coreutils import _assert_all_types, _validate_name_in
 from .coreutils import concat_array_from_list
-from .coreutils import normalize_string # find_close_position 
+from .coreutils import normalize_string 
 from .coreutils import to_numeric_dtypes, ellipsis2false
 from .coreutils import smart_format, type_of_target, is_iterable 
 from .coreutils import reshape, assert_ratio
@@ -75,6 +75,7 @@ __all__=[
     'exponential_regression', 
     'get_bearing', 
     'get_distance',
+    'get_time_steps', 
     'infer_sankey_columns', 
     'label_importance',
     'linear_regression',
@@ -93,6 +94,176 @@ __all__=[
     'weighted_spearman_rank', 
     'compute_p_values'
     ]
+
+
+def get_time_steps(
+    start_date: Optional[Union[str, pd.Timestamp]] = None, 
+    end_date: Optional[Union[str, pd.Timestamp]] = None, 
+    n_samples: Optional[int] = None, 
+    interval_units: str = 'days', 
+    sequence_length: int = 365, 
+    data: Optional[pd.DataFrame] = None, 
+    date_column: str = 'date', 
+    interval: Optional[int] = None
+) -> int:
+    """
+    Calculate time steps, intervals, and reshape data for time series modeling. 
+    This function is designed to handle time units such as 'days', 'months', and 
+    'years'. It can either accept specific start and end dates or infer them 
+    automatically from a pandas DataFrame.
+
+    Parameters
+    ----------
+    start_date : str or pd.Timestamp, optional
+        Start date of the dataset (e.g., '2013-01-01'). If not provided, it 
+        will be auto-detected from the `data` if the DataFrame is passed.
+    end_date : str or pd.Timestamp, optional
+        End date of the dataset (e.g., '2023-12-11'). If not provided, it 
+        will be auto-detected from the `data` if the DataFrame is passed.
+    n_samples : int, optional
+        The number of samples in the dataset. If `data` is provided, the 
+        function calculates this value as the length of the DataFrame.
+    interval_units : str, optional
+        The time unit for the intervals between samples. Acceptable values are 
+        'days', 'months', and 'years'. Default is 'days'.
+    sequence_length : int, optional
+        The desired time step length in the given interval units (e.g., 365 days 
+        for yearly sequences). Default is 365.
+    data : pd.DataFrame, optional
+        A pandas DataFrame containing the time series data. If provided, the 
+        function will automatically infer `start_date` and `end_date` from the 
+        DataFrame. The DataFrame must contain a date column.
+    date_column : str, optional
+        The name of the date column in the `data`. Default is 'date'.
+    interval : int, optional
+        The number of intervals (e.g., number of days/months/years) between 
+        each sample. If not provided, it is calculated from `n_samples`.
+
+    Returns
+    -------
+    int
+        The number of time steps per sequence for the time series model.
+    
+    Raises
+    ------
+    ValueError
+        - If `data` is provided but the `date_column` is not present in the DataFrame.
+        - If both `n_samples` and `interval` are not provided when required.
+        - If `interval_units` is not one of 'days', 'months', or 'years'.
+    
+    Notes
+    -----
+    If the `data` parameter is used, it must have a valid date column, and this column 
+    will be used to automatically detect the start and end dates. If the dates are 
+    already provided (`start_date` and `end_date`), they will take precedence over 
+    the auto-detected dates.
+
+    .. math::
+        \text{time\_steps\_per\_sequence} = 
+        \frac{\text{sequence\_length}}{\text{interval}}
+    
+    The formula above calculates the time steps per sequence, where 
+    `sequence_length` is in the specified interval units (days, months, or years), 
+    and `interval` is the number of intervals between samples.
+
+    Examples
+    --------
+    >>> from gofast.tools.mathex import get_time_steps
+    >>> # Example with direct date input
+    >>> get_time_steps(
+    ...     start_date='2020-01-01', 
+    ...     end_date='2021-12-31', 
+    ...     n_samples=730, 
+    ...     interval_units='days', 
+    ...     sequence_length=365
+    ... )
+    Start date: 2020-01-01 00:00:00
+    End date: 2021-12-31 00:00:00
+    Total intervals: 730 days
+    Interval between samples: 1 days
+    Time steps per sequence: 365
+
+    >>> # Example with a pandas DataFrame
+    >>> df = pd.DataFrame({
+    ...     'date': pd.date_range(start='2020-01-01', periods=500, freq='D'),
+    ...     'value': np.random.randn(500)
+    ... })
+    >>> get_time_steps(data=df, interval_units='days', sequence_length=365)
+    Start date: 2020-01-01 00:00:00
+    End date: 2021-05-15 00:00:00
+    Total intervals: 500 days
+    Interval between samples: 1 days
+    Time steps per sequence: 365
+
+    See Also
+    --------
+    pd.to_datetime : Convert argument to datetime.
+    pd.date_range : Generate fixed frequency datetime index.
+
+    References
+    ----------
+    .. [1] McKinney, W., "pandas: a Foundational Python Library for Data Analysis," 
+       http://pandas.pydata.org/.
+    """
+    
+    # Handle the case where a DataFrame is passed
+    if data is not None:
+        if date_column not in data.columns:
+            raise ValueError(
+                f"Date column '{date_column}' not found in the data.")
+        
+        # Ensure the date column is in pandas datetime format
+        data[date_column] = pd.to_datetime(data[date_column])
+
+        # Auto-detect start_date and end_date if not provided
+        if start_date is None:
+            start_date = data[date_column].min()
+        if end_date is None:
+            end_date = data[date_column].max()
+        
+        # Use length of data as n_samples if not provided
+        if n_samples is None:
+            n_samples = len(data)
+    else:
+        # Ensure start_date and end_date are converted to datetime
+        if start_date is None or end_date is None:
+            raise ValueError("Either 'data' must be provided or both"
+                             " 'start_date' and 'end_date' must be specified.")
+        start_date = pd.to_datetime(start_date)
+        end_date = pd.to_datetime(end_date)
+
+    # Calculate the total number of intervals between 
+    # start_date and end_date based on the time unit
+    interval_units = parameter_validator( "interval_units", target_strs= {
+        "days", "months", "years"}, error_msg=(
+            f"Unsupported interval_units: {interval_units}."
+            " Use 'days', 'months', or 'years'.")) (interval_units)
+        
+    if interval_units == 'days':
+        total_intervals = (end_date - start_date).days
+    elif interval_units == 'months':
+        total_intervals = (end_date.year - start_date.year) * 12 + (
+            end_date.month - start_date.month)
+    elif interval_units == 'years':
+        total_intervals = end_date.year - start_date.year
+
+    # If `n_samples` is provided but `interval` is not, calculate `interval`
+    if interval is None and n_samples is not None:
+        interval = total_intervals // n_samples
+
+    if interval is None:
+        raise ValueError("`interval` must be provided if `n_samples` is not.")
+
+    # Calculate the number of time steps in the desired sequence length
+    time_steps_per_sequence = sequence_length // interval
+
+    print(f"Start date: {start_date}")
+    print(f"End date: {end_date}")
+    print(f"Total intervals: {total_intervals} {interval_units}")
+    print(f"Interval between samples: {interval} {interval_units}")
+    print(f"Time steps per sequence: {time_steps_per_sequence}")
+
+    return time_steps_per_sequence
 
 def compute_p_values(
     data, depvar,

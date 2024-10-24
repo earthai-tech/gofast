@@ -74,6 +74,7 @@ MODULE_MAPPING = {
         'exponential_regression', 
         'get_bearing', 
         'get_distance',
+        'get_time_steps', 
         'infer_sankey_columns', 
         'label_importance',
         'linear_regression',
