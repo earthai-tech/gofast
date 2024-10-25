@@ -172,7 +172,7 @@ def check_is_runned(estimator, attributes=None, msg=None):
     """
     # Default attribute to check
     if attributes is None:
-        attributes = ['_is_runned']
+        attributes = ['is_runned_']
 
     # Identify which attributes are missing or not properly set
     missing_attributes = [attr for attr in attributes if not getattr(estimator, attr, False)]

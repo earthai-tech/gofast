@@ -95,7 +95,7 @@ def check_public_api():
         # print("Public API has been enabled.")
         warnings.warn("Public API has been enabled.", UserWarning)
 
-# Property to automatically check public API when __set_public__ changes
+# Property to automatically check public API when _set_public changes
 class GoFastConfig:
     def __init__(self):
         self._set_public = False

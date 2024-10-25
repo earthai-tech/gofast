@@ -28,7 +28,7 @@ from ..api.types import ArrayLike , Callable, Any
 from ..api.property import BaseClass
 from ..tools._dependency import import_optional_dependency 
 from ..tools.coreutils import is_iterable, type_of_target 
-from ..decorators import SmartFitRun
+from ..decorators import smartFitRun
 from ..tools.funcutils import ensure_pkg 
 from ..tools.validator import check_consistent_length
 from ..tools.validator import validate_keras_model,  is_frame
@@ -63,7 +63,7 @@ __all__= [
 
 DEP_MSG=dependency_message('tune')
 
-@SmartFitRun 
+@smartFitRun 
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 class PBTTrainer(BaseClass):
     """
@@ -374,7 +374,7 @@ class PBTTrainer(BaseClass):
             self.population[i] = (self.model_fn(), perturbed_hyperparams)  
             # Reinitialize model
 
-@SmartFitRun 
+@smartFitRun 
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 class Hyperband(BaseClass):
     """
