@@ -12,7 +12,11 @@ import json
 import threading
 from numbers import Integral 
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Callable
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
+import zlib
+
 
 from sklearn.utils._param_validation import StrOptions
 
@@ -527,11 +531,6 @@ class BaseSecurity(BaseClass):
             dst.write(src.read())
         logger.info(f"Backed up logs to {backup_path}")
 
-
-
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.backends import default_backend
-import zlib
 
 
 class DataEncryption(BaseSecurity):
@@ -1064,11 +1063,6 @@ class ModelProtection(BaseSecurity):
         self.log_event('model_restore', {'backup_path': backup_path})
         return decrypted_model
 
-
-import jwt
-from typing import Optional, List, Dict, Callable
-from sklearn.utils._param_validation import validate_params, StrOptions
-from gofast.tools.funcutils import ensure_pkg
 
 class SecureDeployment(BaseSecurity):
     """
