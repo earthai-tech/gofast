@@ -1571,7 +1571,7 @@ class PipelineVersioning(BaseVersioning):
 class VersionComparison(BaseVersioning):
     """
     Compares different versions of models, datasets, or pipelines by
-    evaluating their performance metrics (e.g., accuracy, precision,
+    evaluating their performance metrics (eg, accuracy, precision,
     recall). Provides insights into the changes between versions.
 
     Parameters
