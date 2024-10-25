@@ -21,7 +21,11 @@ from sklearn.utils._param_validation import StrOptions
 from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
 from ..api.property import BaseClass
 from ..compat.sklearn import validate_params, Interval 
-from ..decorators import smartFitRun, RunReturn 
+from ..decorators import ( 
+    smartFitRun, 
+    RunReturn, 
+    EnsureFileExists
+   )
 from ..tools.funcutils import ensure_pkg 
 from ..tools.validator import check_is_runned
 
@@ -551,6 +555,7 @@ class BaseSecurity(BaseClass):
             f.writelines(pruned_logs)
         logger.info(f"Pruned logs older than {self.log_retention_days} days.")
 
+    @validate_params({"backup_path": [str]})
     def backup_logs(self, backup_path: str):
         """
         Backs up the log file to a specified path.
@@ -907,7 +912,9 @@ class DataEncryption(BaseSecurity):
             'file_encryption',
             {'file': file_path, 'output': output_path}
         )
-
+ 
+    @validate_params({"output_path": [str]})
+    @EnsureFileExists
     def decrypt_file(self, encrypted_file_path: str, output_path: str):
         """
         Decrypts an encrypted file and saves the decrypted content to a new file.
@@ -2181,8 +2188,8 @@ class AuditTrail(BaseSecurity):
         'logging_level': [StrOptions({'INFO', 'WARNING', 'ERROR'})],
         'external_logger': [callable,  None],
         'batch_logging': [bool],
-        'batch_size': [Interval(int, 1, None, closed='left')],
-        'flush_interval': [Interval(int, 1, None, closed='left')],
+        'batch_size': [Interval(Integral, 1, None, closed='left')],
+        'flush_interval': [Interval(Integral, 1, None, closed='left')],
         'include_metadata': [bool]
     })
     def __init__(
@@ -2253,6 +2260,14 @@ class AuditTrail(BaseSecurity):
         self.last_flush_time_ = datetime.datetime.now()
         self.is_runned_ = True
 
+    @validate_params({
+        'event_type':[str],
+        'details': [dict],
+        'user_id': [str, None],
+        'ip_address': [str, None],
+        'user_agent': [str, None],
+        'metadata': [dict, None]
+    })
     def log_event(
         self,
         event_type: str,

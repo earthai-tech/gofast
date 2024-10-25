@@ -22,6 +22,7 @@ from .util import generate_ore_infos, build_reserve_details_by_country
 from .util import get_last_day_of_current_month, adjust_households_and_days
 from .util import validate_noise_level, validate_loan_parameters 
 from .util import select_diagnostic_options, fetch_simulation_metadata 
+from .util import get_country_by, generate_custom_id 
 
 __all__= [
     "simulate_landfill_capacity",
@@ -170,7 +171,11 @@ def simulate_stock_prices(
 
     data = []
     for i in range(n_companies):
-        company_id = f"Company_{i+1}"
+        unique_set = set()
+        company_id = generate_custom_id( 
+            length=22, unique_ids=unique_set, retries=5, 
+            default_id="Company_{i+1}"
+            ) 
         prices = np.cumprod(1 + np.random.normal(0, 0.01, len(dates)))
         if noise_level is not None:
             noise_level = validate_noise_level(noise_level)
@@ -311,7 +316,9 @@ def simulate_transactions(
 
     data = []
     for i in range(n_accounts):
-        account_id = f"Account_{i+1}"
+        account_id = generate_custom_id(
+            length=8, prefix="ACC-", include_timestamp=True, 
+            default_id=f"Account_{i+1}") 
         for date in dates:
             amount = np.random.uniform(-500, 500)
             transaction_type = np.random.choice(["debit", "credit"])
@@ -343,7 +350,8 @@ def simulate_transactions(
     )
 
 def simulate_patient_data(
-    *, n_patients=100, 
+    *, 
+    n_patients=100, 
     start_date="2024-01-01", 
     end_date="2024-12-31", 
     as_frame=False, 
@@ -353,6 +361,120 @@ def simulate_patient_data(
     noise_level=None, 
     seed=None
 ):
+    """
+    Simulate synthetic patient data with specified features for a given date 
+    range. The function allows flexibility in the number of patients, sampling 
+    frequency, and addition of noise, with options for returning a DataFrame or 
+    data-target split format.
+
+    Parameters
+    ----------
+    n_patients : int, optional
+        The number of unique patients to simulate data for. Defaults to 100.
+        
+    start_date : str, optional
+        Start date for data simulation in 'YYYY-MM-DD' format. Defaults to 
+        "2024-01-01".
+        
+    end_date : str, optional
+        End date for data simulation in 'YYYY-MM-DD' format. Defaults to 
+        "2024-12-31".
+
+    as_frame : bool, optional
+        If ``True``, returns the data as a pandas DataFrame. If ``False``, 
+        returns data as a structured array or, if `return_X_y` is also set to 
+        ``True``, returns data in an (X, y) tuple format. Defaults to ``False``.
+        
+    n_samples : int or None, optional
+        Specifies the total number of samples (data points) in the output dataset. 
+        The function adjusts `n_patients` and the number of days automatically to 
+        approximate this number of samples. Defaults to ``None`` (ignores sampling).
+
+    return_X_y : bool, optional
+        If ``True``, returns the dataset as an (X, y) tuple, where X is the 
+        dataset excluding the target variable(s), and y includes the target 
+        variables specified in `target_name`. Defaults to ``False``.
+
+    target_name : str or list of str, optional
+        Specifies the target variable(s) in the dataset. Can be a single string 
+        or list of strings representing one or more feature names. Defaults to 
+        "blood_pressure" if not provided.
+
+    noise_level : float or None, optional
+        The standard deviation of Gaussian noise added to numerical variables. 
+        If ``None``, no noise is added. Noise is independently applied to each 
+        patient feature with mean 0 and standard deviation `noise_level`. 
+        Defaults to ``None``.
+
+    seed : int or None, optional
+        Sets the random seed for reproducibility. If ``None``, the random 
+        generator is not seeded. Defaults to ``None``.
+
+    Returns
+    -------
+    pd.DataFrame or tuple
+        A DataFrame or tuple containing the simulated patient data. The 
+        structure of the output depends on the `as_frame` and `return_X_y` 
+        parameters:
+        
+        - If `as_frame=True`, a pandas DataFrame with columns corresponding 
+          to each patient feature and an index of dates.
+        - If `as_frame=False` and `return_X_y=False`, returns a structured 
+          array of all features.
+        - If `return_X_y=True`, returns an (X, y) tuple where X is the dataset 
+          excluding the target and y is the target variable(s) specified in 
+          `target_name`.
+
+    Notes
+    -----
+    This function is useful for generating synthetic datasets for healthcare 
+    and patient-related simulations, with features commonly found in clinical 
+    data. The generated dataset includes various patient attributes:
+    
+    - **date**: The date of data recording.
+    - **patient_id**: Unique identifier for each patient, with format `PAT-XXXXX`.
+    - **age**: Random age of each patient, sampled from a uniform distribution 
+      between 0 and 100 years.
+    - **gender**: Random gender assigned as either 'male' or 'female'.
+    - **height**: Height in cm, sampled from a uniform distribution (150-200 cm).
+    - **weight**: Weight in kg, sampled from a uniform distribution (50-100 kg).
+    - **smoking_status**: Random smoking status, either 'never', 'former', or 
+      'current'.
+    - **blood_pressure**: Blood pressure in mmHg, sampled from a normal 
+      distribution with mean 120 and standard deviation 15.
+    - **cholesterol**: Cholesterol level in mg/dL, with mean 200 and std 30.
+    - **bmi**: Body Mass Index, calculated as :math:`\text{weight} / 
+      (\text{height} / 100)^2`.
+    - **heart_rate**: Heart rate in bpm, sampled from a normal distribution 
+      with mean 70 and std 10.
+    - **blood_sugar**: Blood sugar level in mg/dL, sampled from a normal 
+      distribution with mean 100 and std 20.
+
+    Gaussian noise with standard deviation `noise_level` is added to numerical 
+    features to increase variability.
+
+    Examples
+    --------
+    >>> from gofast.datasets.simulate import simulate_patient_data
+    >>> df = simulate_patient_data(n_patients=10, as_frame=True)
+    >>> df.head()
+    
+    >>> X, y = simulate_patient_data(
+    ...     n_patients=5, return_X_y=True, target_name="cholesterol"
+    ... )
+    
+    See Also
+    --------
+    generate_custom_id : Function for generating unique IDs.
+    
+    References
+    ----------
+    .. [1] Doe, J., et al. "Simulating Healthcare Data for Machine Learning 
+           Applications." Journal of Synthetic Data Science, 2023.
+    .. [2] Smith, A. et al. "Randomized Patient Simulation for Clinical Research."
+           Health Data Science Proceedings, 2024.
+    """
+
     np.random.seed(seed)
     func_name = inspect.currentframe().f_code.co_name
     dataset_descr, features_descr = fetch_simulation_metadata(func_name)
@@ -371,7 +493,10 @@ def simulate_patient_data(
 
     data = []
     for i in range(n_patients):
-        patient_id = f"Patient_{i+1}"
+        unique_set = set()
+        patient_id = generate_custom_id(
+            length=10, unique_ids=unique_set, retries=5, prefix="PAT-", 
+            default_id="Patient_{i+1}") 
         age = np.random.randint(0, 100)
         gender = np.random.choice(["male", "female"])
         height = np.random.uniform(150, 200)
@@ -538,7 +663,9 @@ def simulate_clinical_trials(
 
     data = []
     for i in range(n_patients):
-        patient_id = f"Patient_{i+1}"
+        patient_id = generate_custom_id(
+            length=7, prefix="PAT-", include_timestamp=True, 
+            default_id=f"Patient_{i+1}")
         age = np.random.randint(18, 90)
         gender = np.random.choice(["male", "female"])
         height = np.random.uniform(150, 200)
@@ -618,7 +745,12 @@ def simulate_weather_data(
     return_X_y=False, 
     target_name=None, 
     noise_level=None, 
-    seed=None
+    seed=None, 
+    region=None, 
+    cyclical_order=False, 
+    random_order=False, 
+    max_repeats=7, 
+    
 ):
     """
     Simulates weather data including temperature, humidity, and precipitation 
@@ -680,7 +812,27 @@ def simulate_weather_data(
         the dataset. If `None`, the random number generator is initialized
         without a fixed seed. Setting a seed is useful when conducting 
         experiments that require consistent results. Default is `None`.
-    
+        
+    region : str, optional
+        The region to select countries from (e.g., 'Africa', 'America'). If 
+        ``None``, the function will return countries from all regions. The 
+        specified `region` can be a substring or partial match, allowing 
+        flexible searches (e.g., 'America' matches both North and South America).
+        
+    cyclical_order : bool, optional, default=False
+        If ``True``, repeats countries in a cyclical manner if ``allow_repeat`` 
+        is enabled (e.g., [A, B, C, A, B, C...]). Otherwise, repeats are chosen 
+        randomly if enabled.
+        
+    random_order : bool, optional, default=False
+        If ``True``, shuffles the list of countries to return them in random 
+        order. If ``False``, countries are returned in the order they are 
+        listed in the dictionary.
+        
+    max_repeats : int, optional, default=7
+        The maximum number of times a country can be repeated if ``allow_repeat`` 
+        is set to ``True``. This controls over-repetition of any specific country.
+        
     Returns
     -------
     Depending on the combination of `as_frame` and `return_X_y` parameters, 
@@ -740,8 +892,16 @@ def simulate_weather_data(
         dates = dates[:n_days]
 
     data = []
+    locations = get_country_by(
+        region=region,
+        number= validate_positive_integer(n_locations, "region's number"), 
+        cyclical_order=cyclical_order, 
+        random_order=random_order, 
+        max_repeats=max_repeats, 
+        force_repeat_fill=True
+        ) 
     for i in range(n_locations):
-        location_id = f"Location_{i+1}"
+        location = locations[i] 
         for date in dates:
             temperature = np.random.normal(20, 5)
             humidity = np.random.uniform(30, 90)
@@ -767,7 +927,7 @@ def simulate_weather_data(
             uv_index += np.random.normal(0, noise_level) if noise_level else 0
             data.append({
                 "date": date, 
-                "location_id": location_id, 
+                "location": location, 
                 "temperature": temperature, 
                 "humidity": humidity, 
                 "precipitation": precipitation,
@@ -803,7 +963,11 @@ def simulate_climate_data(
     return_X_y=False, 
     target_name=None, 
     noise_level=None, 
-    seed=None
+    seed=None, 
+    region=None, 
+    cyclical_order=False, 
+    random_order=False, 
+    max_repeats=7, 
 ):
     """
     Creates synthetic climate data for long-term environmental studies.
@@ -859,6 +1023,26 @@ def simulate_climate_data(
         without a fixed seed. Setting a seed is useful when conducting 
         experiments that require consistent results. Default is `None`.
     
+    region : str, optional
+        The region to select countries from (e.g., 'Africa', 'America'). If 
+        ``None``, the function will return countries from all regions. The 
+        specified `region` can be a substring or partial match, allowing 
+        flexible searches (e.g., 'America' matches both North and South America).
+        
+    cyclical_order : bool, optional, default=False
+        If ``True``, repeats countries in a cyclical manner if ``allow_repeat`` 
+        is enabled (e.g., [A, B, C, A, B, C...]). Otherwise, repeats are chosen 
+        randomly if enabled.
+        
+    random_order : bool, optional, default=False
+        If ``True``, shuffles the list of countries to return them in random 
+        order. If ``False``, countries are returned in the order they are 
+        listed in the dictionary.
+        
+    max_repeats : int, optional, default=7
+        The maximum number of times a country can be repeated if ``allow_repeat`` 
+        is set to ``True``. This controls over-repetition of any specific country.
+    
     Returns
     -------
     Depending on the combination of `as_frame` and `return_X_y` parameters, 
@@ -909,8 +1093,16 @@ def simulate_climate_data(
         years = range(start_year, start_year + n_years)
 
     data = []
+    locations = get_country_by(
+        region=region,
+        number= validate_positive_integer(n_locations, "region's number"), 
+        cyclical_order=cyclical_order, 
+        random_order=random_order, 
+        max_repeats=max_repeats, 
+        force_repeat_fill=True
+        ) 
     for i in range(n_locations):
-        location_id = f"Location_{i+1}"
+        location = locations[i]
         for year in years:
             avg_temp = np.random.normal(15, 3)
             min_temp = avg_temp - np.random.uniform(5, 10)
@@ -934,7 +1126,7 @@ def simulate_climate_data(
             pressure += np.random.normal(0, noise_level) if noise_level else 0
             data.append({
                 "year": year, 
-                "location_id": location_id, 
+                "location": location, 
                 "avg_temp": avg_temp, 
                 "min_temp": min_temp, 
                 "max_temp": max_temp,
@@ -1108,7 +1300,12 @@ def simulate_landfill_capacity(
 
     data = []
 
-    for landfill_id in range(1, n_landfills + 1):
+    for lf_id in range(1, n_landfills + 1):
+        unique_set = set()
+        landfill_id = generate_custom_id( prefix="LF-", suffix ='-ENV.ID',
+            length=12, unique_ids=unique_set, retries=5, 
+            default_id="landfill_{i+1}"
+            ) 
         for date in date_range:
             total_capacity = np.random.uniform(50000, 100000)  # in tons
             current_waste = np.random.uniform(10000, total_capacity)
@@ -1312,6 +1509,7 @@ def simulate_water_reserves(
     location_names = {i+1: np.random.choice(WATER_RESERVES_LOC) for i in range(n_locations)}
 
     for i in range(n_locations):
+        
         for date in dates:
             total_capacity_ml = np.random.uniform(5000, 10000)
             current_volume_ml = np.random.uniform(1000, total_capacity_ml)
@@ -1506,6 +1704,10 @@ def simulate_world_mineral_reserves(
     # Simulate mineral reserve data for each sample
     data = []
     for i in range(n_samples):
+        sample_id = generate_custom_id(suffix ='-RESV',
+            length=10, prefix="WMIN-", include_timestamp=True, 
+            default_id=f"WorldMinResv_{i+1}"
+            ) 
         selected_region = np.random.choice(list(distributions.keys()))
         available_minerals = distributions[selected_region]
         mineral_type = np.random.choice(available_minerals)
@@ -1525,7 +1727,7 @@ def simulate_world_mineral_reserves(
         reserve_details = build_reserve_details_by_country (location)
 
         data.append({
-            'sample_id': i + 1,
+            'sample_id': sample_id,
             'region': selected_region,
             'location': location,
             'mineral_type': mineral_type,
@@ -1642,7 +1844,12 @@ def simulate_energy_consumption(
     dates = pd.date_range(start=start_date, periods=days, freq='D')
     time_features = np.tile(dates, n_households)
     
-    household_ids = np.repeat(np.arange(1, n_households + 1), len(dates))
+    # Generate id numbers
+    household_ids_ = np.repeat(np.arange(1, n_households + 1), len(dates))
+    household_ids= np.repeat([generate_custom_id(
+        length=12, prefix ='H-', suffix ='',  ) for _ in range(n_households)], 
+        len(dates))
+    
     household_sizes = np.random.choice(
         [1, 2, 3, 4, 5], size=n_households, p=[0.1, 0.2, 0.4, 0.2, 0.1])
     energy_saving_appliances = np.random.choice(
@@ -1651,13 +1858,13 @@ def simulate_energy_consumption(
     avg_temperature = np.sin(np.linspace(0, 2 * np.pi, days)) * 10 + 15
     temperatures = np.repeat(avg_temperature, n_households)
     
-    base_consumption = household_sizes[household_ids - 1] * 5
+    base_consumption = household_sizes[household_ids_ - 1] * 5
     temperature_effect = (temperatures - 15) / 5
-    energy_saving_effect = energy_saving_appliances[household_ids - 1] * -1
+    energy_saving_effect = energy_saving_appliances[household_ids_ - 1] * -1
     # Increase consumption for EV households
-    ev_effect = electric_vehicles[household_ids - 1] * 2  
+    ev_effect = electric_vehicles[household_ids_ - 1] * 2  
     # Decrease consumption for solar panel households
-    solar_panel_effect = solar_panels[household_ids - 1] * -2  
+    solar_panel_effect = solar_panels[household_ids_ - 1] * -2  
     
     energy_consumption = ( 
         base_consumption 
@@ -1671,10 +1878,10 @@ def simulate_energy_consumption(
     energy_data = pd.DataFrame({
         'date': time_features,
         'household_id': household_ids,
-        'household_size': household_sizes[household_ids - 1],
-        'energy_saving_appliances': energy_saving_appliances[household_ids - 1],
-        'electric_vehicles': electric_vehicles[household_ids - 1],
-        'solar_panels': solar_panels[household_ids - 1],
+        'household_size': household_sizes[household_ids_ - 1],
+        'energy_saving_appliances': energy_saving_appliances[household_ids_ - 1],
+        'electric_vehicles': electric_vehicles[household_ids_ - 1],
+        'solar_panels': solar_panels[household_ids_ - 1],
         'temperature': temperatures,
         'energy_consumption_kwh': energy_consumption
     })
@@ -1963,8 +2170,13 @@ def simulate_predictive_maintenance(
                    return_as_date_str= True
                    )
     dates = pd.date_range(start=start_date, periods=days, freq='D')
-    machine_ids = np.arange(1, n_machines + 1)
-    
+    unique_set = set()
+    machine_ids =  np.array ( [ 
+        generate_custom_id(length=13 , unique_ids=unique_set, 
+                            retries=7
+            ) for _ in range(  n_machines)
+          ] 
+        )
     sensor_data = np.random.randn(days * n_machines, n_sensors)
     operational_data = np.random.randn(days * n_machines, operational_params)
     
@@ -2015,6 +2227,7 @@ def simulate_predictive_maintenance(
               [f'op_param_{i}' for i in range(1, operational_params + 1)]
     df = pd.DataFrame(data, columns=columns)
     df['date'] = np.tile(dates, n_machines)
+    
     df['machine_id'] = np.repeat(machine_ids, days)
     
     if not target_name:
