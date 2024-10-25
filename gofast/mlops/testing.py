@@ -1206,7 +1206,7 @@ class OverfittingDetection(BaseTest):
         self.cv_folds = cv_folds
         self.evaluation_split = evaluation_split
 
-    def fit(self, X, y, X_test=None, y_test=None, **fit_params):
+    def fit(self, X, y,  **fit_params):
         """
         Fits the model and detects overfitting by comparing the training 
         and test scores.
@@ -1240,6 +1240,9 @@ class OverfittingDetection(BaseTest):
         internally using `evaluation_split`. After fitting, the method will 
         compare training and test scores to detect overfitting.
         """
+        X_test = fit_params.pop("X_test", None )
+        y_test = fit_params.pop("y_test", None ) 
+        
         if X_test is not None and y_test is None:
             raise ValueError("y_test must be provided if X_test is supplied.")
         if y_test is not None and X_test is None:

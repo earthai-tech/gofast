@@ -3,7 +3,7 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """
-`explore` is a set of base plots for visualization, data exploratory and 
+Set of base plots for visualization, data exploratory and 
 analyses. E-E-Q Plots encompass the Exploratory plots
 ( :class:`~gofast.plot.QuestPlotter`) and Quick analyses 
 (:class:`~gofast.plot.EasyPlotter`) visualization. 
@@ -47,6 +47,8 @@ except: pass
 
  
 _logger=gofastlog.get_gofast_logger(__name__)
+
+__all__=["QuestPlotter", "EasyPlotter" ]
 
 #+++++++++++++++++++++++ add seaborn docs +++++++++++++++++++++++++++++++++++++ 
 _sns_params = dict( 

@@ -1135,7 +1135,8 @@ class KMeansFeaturizer(BaseEstimator, TransformerMixin):
     
         See Also
         --------
-        sklearn.cluster.KMeans : The underlying KMeans implementation used by this transformer.
+        sklearn.cluster.KMeans : 
+            The underlying KMeans implementation used by this transformer.
 
         """
         # Check if the model is fitted
@@ -4629,78 +4630,6 @@ class CategoryFrequencyEncoder(BaseEstimator, TransformerMixin):
             X_transformed[feature] = X[feature].map(self.frequency_maps_[feature])
         return X_transformed
 
-    
-#XXX 
-class SmartCategoricalTransformer(BaseEstimator, TransformerMixin):
-    def __init__(self, detect_integer_as_categorical=True, 
-                 detect_floats_as_categorical=True,
-                 encoding='onehot'):
-        """
-        Initializes the transformer with options to detect categorical features 
-        and apply encoding. The encoding option can be 'onehot' or any 
-        other type of transformation.
-        """
-        self.detect_integer_as_categorical = detect_integer_as_categorical
-        self.detect_floats_as_categorical = detect_floats_as_categorical
-        self.encoding = encoding
-        self.encoders = {}
-        self.categorical_columns = []
-
-    def fit(self, X, y=None):
-        """
-        Fits the transformer by detecting categorical columns and creating
-        encoders for them.
-        """
-        X = pd.DataFrame(X)  # Ensuring that X is a DataFrame
-        self.categorical_columns = self._detect_categorical_columns(X)
-
-        # Create an encoder for each categorical column
-        for col in self.categorical_columns:
-            if self.encoding == 'onehot':
-                self.encoders[col] = OneHotEncoder(sparse=False, handle_unknown='ignore')
-                self.encoders[col].fit(X[[col]])
-
-        return self
-
-    def transform(self, X):
-        """
-        Transforms the categorical features detected during fit.
-        """
-        X = pd.DataFrame(X)  # Ensure input is a DataFrame
-        X_transformed = X.copy()
-
-        # Apply transformations to each categorical column
-        for col in self.categorical_columns:
-            if self.encoding == 'onehot':
-                transformed_col = self.encoders[col].transform(X_transformed[[col]])
-                col_names = [f"{col}_{category}" for category in self.encoders[col].categories_[0]]
-                transformed_df = pd.DataFrame(transformed_col, columns=col_names, index=X_transformed.index)
-                X_transformed = X_transformed.drop(col, axis=1)
-                X_transformed = pd.concat([X_transformed, transformed_df], axis=1)
-
-        return X_transformed
-
-    def _detect_categorical_columns(self, X):
-        """
-        Detects which columns should be treated as categorical.
-        This includes object types, integers, and floats that end with .0 if specified.
-        """
-        categorical_columns = []
-        for col in X.columns:
-            if X[col].dtype == 'object':
-                categorical_columns.append(col)
-            elif self.detect_integer_as_categorical and pd.api.types.is_integer_dtype(X[col]):
-                categorical_columns.append(col)
-            elif self.detect_floats_as_categorical and pd.api.types.is_float_dtype(X[col]):
-                # Detect floats that end with .0 by checking the fractional part
-                if np.all(X[col] == X[col].astype(int)):
-                    categorical_columns.append(col)
-        return categorical_columns
- 
-    
-    
-    
-    
     
     
     
