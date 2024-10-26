@@ -3,7 +3,7 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """
-:mod:`gofast.base` module offers core classes and utilities for data handling 
+Offers core classes and utilities for data handling 
 and preprocessing. It includes functionality for managing missing data, 
 merging data frames and series, and processing features and targets for 
 machine learning tasks.
