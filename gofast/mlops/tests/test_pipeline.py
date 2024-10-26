@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 import pytest
 import logging
-import random
-from unittest.mock import patch, MagicMock
+import time
+from datetime import datetime
+
 from gofast.mlops.pipeline import (
     PipelineStep,
     PipelineManager,
     PipelineOptimizer,
     ResourceMonitor,
     ResourceManager,
+    PrefectOrchestrator, 
     create_pipeline,
     reconfigure_pipeline_on_the_fly,
     execute_step_conditionally,
@@ -16,8 +18,203 @@ from gofast.mlops.pipeline import (
     split_data_for_multitask_pipeline,
     rollback_to_previous_state,
     smart_retry_with_backoff,
-    Pipeline
+    AirflowOrchestrator,
+    Pipeline, 
 )
+
+def test_pipeline_manager():
+    """
+    Test the PipelineManager class.
+    """
+
+    # Define simple functions for pipeline steps
+    def increment(data):
+        return data + 1
+
+    def double(data):
+        return data * 2
+
+    # Create pipeline steps
+    step1 = PipelineStep(name='increment', func=increment)
+    step2 = PipelineStep(name='double', func=double, dependencies=['increment'])
+
+    # Initialize PipelineManager and add steps
+    manager = PipelineManager()
+    manager.add_step(step1)
+    manager.add_step(step2)
+
+    # Run the pipeline
+    result = manager.run(initial_data=1)
+
+    # Assert the final result
+    assert result == 4  # (1 + 1) * 2 = 4
+
+    # Get and check metadata
+    metadata = manager.get_metadata()
+    assert metadata['increment']['status'] == 'success'
+    assert metadata['double']['status'] == 'success'
+    assert metadata['increment']['output'] == 2
+    assert metadata['double']['output'] == 4
+
+def test_resource_manager():
+    """
+    Test the ResourceManager class.
+    """
+
+    # Initialize ResourceManager and run
+    manager = ResourceManager()
+    manager.run()
+
+    # Get initial system resources
+    resources = manager.get_system_resources()
+    initial_cpu = resources['available_cpu_cores']
+    initial_memory = resources['available_memory_gb']
+
+    # Allocate resources
+    cpu_allocated = manager.allocate_cpu(1)
+    memory_allocated = manager.allocate_memory(1024 * 1024 * 1024)  # 1 GB
+
+    # Assert allocations were successful
+    assert cpu_allocated is True
+    assert memory_allocated is True
+
+    # Get resources after allocation
+    resources_after = manager.get_system_resources()
+    assert resources_after['available_cpu_cores'] == initial_cpu - 1
+    assert resources_after['available_memory_gb'] <= initial_memory - 0.9  # Allow some margin
+
+    # Release resources
+    manager.release_resources(cpu_cores=1, memory=1024 * 1024 * 1024)
+
+    # Get resources after release
+    resources_final = manager.get_system_resources()
+    assert resources_final['available_cpu_cores'] == initial_cpu
+    assert resources_final['available_memory_gb'] >= initial_memory - 0.1  # Allow some margin
+
+def test_resource_monitor():
+    """
+    Test the ResourceMonitor class.
+    """
+
+    # Initialize ResourceMonitor and run
+    monitor = ResourceMonitor()
+    monitor.run()
+
+    # Start monitoring
+    monitor.start_monitoring()
+
+    # Simulate workload and record usage
+    for _ in range(3):
+        monitor.record_usage()
+        time.sleep(1)
+
+    # Stop monitoring
+    monitor.stop_monitoring()
+
+    # Assert that usage data was recorded
+    assert len(monitor.cpu_usage_) >= 3
+    assert len(monitor.memory_usage_) >= 3
+
+def test_pipeline_optimizer():
+    """
+    Test the PipelineOptimizer class.
+    """
+    # Define a dummy step function
+    def train_model(**kwargs):
+        learning_rate = kwargs.get('learning_rate', 0.1)
+        n_estimators = kwargs.get('n_estimators', 100)
+        accuracy = 0.5 + 0.1 * learning_rate + 0.001 * n_estimators
+        return {'accuracy': accuracy}
+
+    # Create PipelineManager and add the training step
+    manager = PipelineManager()
+    step = PipelineStep(name='TrainModel', func=train_model)
+    manager.add_step(step)
+
+    # Initialize PipelineOptimizer and run
+    optimizer = PipelineOptimizer(manager)
+    optimizer.run()
+
+    # Define parameter grid for hyperparameter tuning
+    param_grid = {
+        'learning_rate': [0.01, 0.1, 0.2],
+        'n_estimators': [100, 200, 300]
+    }
+
+    # Tune hyperparameters
+    best_params = optimizer.tune_hyperparameters(
+        'TrainModel', param_grid, n_trials=3, eval_metric='accuracy'
+    )
+
+    # Assert that best parameters were found
+    assert 'learning_rate' in best_params
+    assert 'n_estimators' in best_params
+
+def test_prefect_orchestrator():
+    """
+    Test the PrefectOrchestrator class.
+    """
+    try:
+        import prefect  # noqa
+    except ImportError:
+        pytest.skip("Prefect is not installed")
+
+    # Define a simple pipeline function
+    def increment(data):
+        return data + 1
+
+    # Create PipelineManager and add a step
+    manager = PipelineManager()
+    step = PipelineStep(name='increment', func=increment)
+    manager.add_step(step)
+
+    # Initialize PrefectOrchestrator and run
+    orchestrator = PrefectOrchestrator(manager)
+    orchestrator.run(flow_name='test_flow')
+
+    # Assert that the flow was created
+    assert orchestrator.flow_ is not None
+
+    # Schedule the pipeline
+    orchestrator.schedule_pipeline('0 0 * * *')  # Daily at midnight
+
+    # Monitor the pipeline (logs message)
+    orchestrator.monitor_pipeline()
+
+def test_airflow_orchestrator():
+    """
+    Test the AirflowOrchestrator class.
+    """
+    try:
+        import airflow  # noqa
+    except ImportError:
+        pytest.skip("Airflow is not installed")
+
+    # Define a simple pipeline function
+    def increment(data):
+        return data + 1
+
+    # Create PipelineManager and add a step
+    manager = PipelineManager()
+    step = PipelineStep(name='increment', func=increment)
+    manager.add_step(step)
+
+    # Initialize AirflowOrchestrator and run
+    orchestrator = AirflowOrchestrator(manager)
+    orchestrator.run(
+        dag_id='test_dag',
+        start_date=datetime(2023, 1, 1),
+        schedule_interval='@daily'
+    )
+
+    # Assert that the DAG was created
+    assert orchestrator.dag_ is not None
+
+    # Schedule the pipeline
+    orchestrator.schedule_pipeline('@hourly')
+
+    # Monitor the pipeline (logs message)
+    orchestrator.monitor_pipeline()
 
 # Configure logging for the tests
 logging.basicConfig(level=logging.INFO)
@@ -32,90 +229,9 @@ def sample_process_data(data):
     logger.info("Processing data...")
     return [x * 2 for x in data]
 
-def sample_train_model(data, epochs=5):
-    logger.info(f"Training model for {epochs} epochs...")
-    return f"Model trained with {epochs} epochs."
-
-def sample_validate_model(model_output):
-    logger.info("Validating model...")
-    return "Validation accuracy: 95%"
-
-def sample_evaluate_condition(data):
-    return sum(data) > 10
-
 def sample_fallback_step(data):
     logger.info("Executing fallback step...")
     return "Fallback executed."
-
-# Fixtures for reusable test components
-@pytest.fixture
-def pipeline_steps():
-    load_step = PipelineStep(name="LoadData", func=sample_load_data)
-    process_step = PipelineStep(name="ProcessData", func=sample_process_data, dependencies=["LoadData"])
-    train_step = PipelineStep(name="TrainModel", func=sample_train_model, dependencies=["ProcessData"])
-    validate_step = PipelineStep(name="ValidateModel", func=sample_validate_model, dependencies=["TrainModel"])
-    return [load_step, process_step, train_step, validate_step]
-
-@pytest.fixture
-def pipeline_manager(pipeline_steps):
-    manager = PipelineManager()
-    for step in pipeline_steps:
-        manager.add_step(step)
-    return manager
-
-@pytest.fixture
-def optimizer(pipeline_manager):
-    return PipelineOptimizer(pipeline_manager)
-
-# Tests for PipelineStep
-def test_pipeline_step_execution():
-    step = PipelineStep(name="TestStep", func=sample_process_data)
-    output = step.execute([1, 2, 3])
-    assert output == [2, 4, 6], "PipelineStep execution failed."
-
-# Tests for PipelineManager
-def test_pipeline_manager_execution(pipeline_manager):
-    final_output = pipeline_manager.execute(initial_data=None)
-    assert final_output == "Validation accuracy: 95%"
-
-def test_pipeline_manager_dependency_handling():
-    manager = PipelineManager()
-    step_a = PipelineStep(name="StepA", func=sample_load_data)
-    step_b = PipelineStep(name="StepB", func=sample_process_data, dependencies=["StepA"])
-    manager.add_step(step_b)
-    manager.add_step(step_a)
-    execution_order = manager._determine_execution_order()
-    assert execution_order == ["StepA", "StepB"]
-
-# Tests for PipelineOptimizer
-def test_pipeline_optimizer_hyperparameter_tuning(optimizer):
-    param_grid = {"epochs": [5, 10]}
-    best_params = optimizer.tune_hyperparameters("TrainModel", param_grid, n_trials=2)
-    assert "epochs" in best_params
-
-def test_pipeline_optimizer_resource_allocation(optimizer):
-    optimizer.allocate_resources("TrainModel", {"CPU": 2, "Memory": 2 * 1024 ** 3})
-    resources = optimizer.resource_manager.get_system_resources()
-    assert resources["available_cpu_cores"] >= 0
-
-# Tests for ResourceMonitor
-def test_resource_monitor():
-    monitor = ResourceMonitor()
-    monitor.start_monitoring()
-    monitor.record_usage()
-    monitor.stop_monitoring()
-    assert len(monitor.cpu_usage) > 0
-
-# Tests for ResourceManager
-def test_resource_manager_allocation():
-    manager = ResourceManager()
-    initial_cpu = manager.available_cpu_cores
-    initial_memory = manager.available_memory
-    assert manager.allocate_cpu(1)
-    assert manager.allocate_memory(1 * 1024 ** 3)
-    manager.release_resources(1, 1 * 1024 ** 3)
-    assert manager.available_cpu_cores == initial_cpu
-    assert manager.available_memory == initial_memory
 
 # Tests for create_pipeline
 def test_create_pipeline(pipeline_steps):
@@ -177,6 +293,10 @@ def test_smart_retry_with_backoff(pipeline_manager):
     pipeline_manager.add_step(error_step)
     with pytest.raises(ValueError):
         smart_retry_with_backoff(pipeline_manager, "ErrorStep", max_retries=2)
+
+# Sample function for pipeline steps
+def sample_task_func(data):
+    return f"Processed {data}"
 
 # Run the test suite
 if __name__ == "__main__":

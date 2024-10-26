@@ -16,11 +16,13 @@ from typing import Any, Callable, Dict, List, Optional
 
 from sklearn.utils._param_validation import StrOptions
 
-from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
+from .._gofastlog import gofastlog 
+from ..decorators import RunReturn, smartFitRun 
 from ..api.property import BaseClass
 from ..compat.sklearn import validate_params, Interval 
 from ..tools.funcutils import ensure_pkg 
-from .._gofastlog import gofastlog 
+
+from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
 
 logger=gofastlog.get_gofast_logger(__name__)
 
@@ -29,17 +31,19 @@ __all__= [
     "partition_data_pipeline", "get_system_workload", "elastic_scale_logic"
     ]
 
+
+@smartFitRun
 class ScalingManager(BaseClass):
     """
-    Manages the scaling of machine learning workflows, focusing on
-    distributed training, horizontal scaling of data pipelines, and
-    elastic scaling based on system workload.
+    Manages the scaling of machine learning workflows, focusing on distributed
+    training, horizontal scaling of data pipelines, and elastic scaling based
+    on system workload.
 
-    The `ScalingManager` class provides methods to facilitate the
-    scaling of machine learning models and data pipelines across
-    multiple devices or nodes. It supports distributed training for
-    frameworks like PyTorch and TensorFlow, horizontal scaling of
-    data processing, and elastic scaling based on system workload.
+    The `ScalingManager` class provides methods to facilitate the scaling of 
+    machine learning models and data pipelines across multiple devices or 
+    nodes. It supports distributed training for frameworks like PyTorch and 
+    TensorFlow, horizontal scaling of data processing, and elastic scaling 
+    based on system workload.
 
     Parameters
     ----------
@@ -51,9 +55,10 @@ class ScalingManager(BaseClass):
         List of device identifiers to use for scaling. If `None`,
         devices are automatically detected based on the framework.
 
-    scaling_method : str, default='distributed_training'
-        The scaling method to use. Options include
-        `'distributed_training'`, `'horizontal_data_scaling'`, etc.
+    scaling_method : {'distributed_training', 'horizontal_data_scaling',\
+                      'elastic_scaling'}, default='distributed_training'
+        The scaling method to use. Options include `'distributed_training'`,
+        `'horizontal_data_scaling'`, and `'elastic_scaling'`.
 
     resource_constraints : dict of str to int or None, default=None
         Resource constraints for scaling, such as CPU cores, memory in
@@ -87,21 +92,14 @@ class ScalingManager(BaseClass):
     resource_constraints_ : dict of str to int
         Effective resource constraints after initialization.
 
+    _is_runned : bool
+        Indicator that the `run` method has been executed.
+
     Methods
     -------
-    initialize_cluster()
-        Initializes a distributed cluster for scaling workloads.
-
-    scale_training(model, data, *args, **kwargs)
-        Scales the training of a model across multiple devices or nodes.
-
-    horizontal_scale_data_pipeline(data_pipeline_fn)
-        Scales the data pipeline horizontally by partitioning data and
-        processing in parallel.
-
-    monitor_workload_and_scale()
-        Continuously monitors system workload and triggers elastic
-        scaling when necessary.
+    run(*args, **run_kwargs)
+        Executes the scaling operations based on the specified scaling
+        method.
 
     Notes
     -----
@@ -114,8 +112,7 @@ class ScalingManager(BaseClass):
     --------
     >>> from gofast.mlops.scaling import ScalingManager
     >>> scaling_manager = ScalingManager(framework='pytorch')
-    >>> scaling_manager.initialize_cluster()
-    >>> scaling_manager.scale_training(model, data)
+    >>> scaling_manager.run(model, data)
 
     See Also
     --------
@@ -132,11 +129,12 @@ class ScalingManager(BaseClass):
     @validate_params({
         'framework': [StrOptions({'pytorch', 'tensorflow'})],
         'devices': [list, None],
-        'scaling_method': [str],
+        'scaling_method': [StrOptions(
+            {'distributed_training','horizontal_data_scaling','elastic_scaling'})],
         'resource_constraints': [dict, None],
         'workload_monitor': [callable, None],
         'cluster_config': [dict, None],
-        'data_partitioning_strategy': [StrOptions({'equal', 'random', 'custom'})],
+        'data_partitioning_strategy': [StrOptions({'equal', 'random','custom'})],
         'process_pool_type': [StrOptions({'cpu', 'gpu'})],
     })
     def __init__(
@@ -165,8 +163,58 @@ class ScalingManager(BaseClass):
         self.model_ = None
         self.devices_ = self.devices
         self.resource_constraints_ = self.resource_constraints
+        self._is_runned = False
 
-    def initialize_cluster(self):
+    @RunReturn
+    def run(self, model: Any = None, data: Any = None, *args, **run_kwargs):
+        """
+        Executes the scaling operations based on the specified scaling
+        method.
+
+        Parameters
+        ----------
+        model : object, default=None
+            The machine learning model to be trained or scaled.
+
+        data : object, default=None
+            The data to be used in training or data pipeline scaling.
+
+        *args : tuple
+            Additional positional arguments.
+
+        **run_kwargs : dict
+            Additional keyword arguments.
+
+        Returns
+        -------
+        self : ScalingManager
+            Returns self for method chaining.
+
+        Notes
+        -----
+        The `run` method orchestrates the scaling operations based on the
+        `scaling_method` specified during initialization. It must be called
+        before any other methods are used.
+
+        Examples
+        --------
+        >>> scaling_manager = ScalingManager(framework='pytorch')
+        >>> scaling_manager.run(model, data)
+
+        """
+        if self.scaling_method == 'distributed_training':
+            self._initialize_cluster()
+            self._scale_training(model, data, *args, **run_kwargs)
+        elif self.scaling_method == 'horizontal_data_scaling':
+            self._horizontal_scale_data_pipeline(*args, **run_kwargs)
+        elif self.scaling_method == 'elastic_scaling':
+            self._monitor_workload_and_scale()
+        else:
+            raise ValueError(f"Unknown scaling method: {self.scaling_method}")
+        self._is_runned = True
+     
+
+    def _initialize_cluster(self):
         """
         Initializes a distributed cluster for scaling workloads.
 
@@ -177,84 +225,78 @@ class ScalingManager(BaseClass):
         distributed training backends like Horovod or NCCL. If no
         configuration is provided, local resources are used.
 
-        Examples
-        --------
-        >>> scaling_manager.initialize_cluster()
-
         """
-        @ensure_pkg(
-            'torch',
-            extra="The 'torch' package is required for PyTorch "
-                  "distributed operations.",
-            auto_install=INSTALL_DEPENDENCIES,
-            use_conda=USE_CONDA,
-        )
-        def init_pytorch_cluster():
-            import torch # noqa
-            import torch.distributed as dist
-            backend = self.cluster_config.get('backend', 'nccl')
-            init_method = self.cluster_config.get('init_method', 'env://')
-            world_size = self.cluster_config.get('world_size', num_nodes)
-            rank = self.cluster_config.get('rank', 0)
-            dist.init_process_group(
-                backend=backend,
-                init_method=init_method,
-                world_size=world_size,
-                rank=rank
-            )
-            logger.info(
-                f"PyTorch distributed backend initialized with backend "
-                f"'{backend}', init_method '{init_method}', world_size "
-                f"{world_size}, rank {rank}."
-            )
-            
-        @ensure_pkg(
-            'tensorflow',
-            extra="The 'tensorflow' package is required for TensorFlow "
-                  "distributed operations.",
-            auto_install=INSTALL_DEPENDENCIES,
-            use_conda=USE_CONDA,
-        )
-        def init_tensorflow_cluster():
-            import tensorflow as tf
-            cluster_spec = self.cluster_config.get('cluster_spec')
-            task_type = self.cluster_config.get('task_type')
-            task_id = self.cluster_config.get('task_id')
-            if cluster_spec and task_type is not None and task_id is not None:
-                cluster_resolver = tf.distribute.cluster_resolver.SimpleClusterResolver(
-                    cluster_spec=tf.train.ClusterSpec(cluster_spec),
-                    task_type=task_type,
-                    task_id=task_id
-                )
-                strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy(
-                    cluster_resolver=cluster_resolver
-                )
-                self.strategy_ = strategy
-                logger.info(
-                    "TensorFlow MultiWorkerMirroredStrategy initialized."
-                )
-            else:
-                logger.warning(
-                    "Incomplete cluster configuration for TensorFlow."
-                )
-        # ----------------- end local functions ------------------
-        
         if self.cluster_config:
             num_nodes = self.cluster_config.get('num_nodes', 1)
             logger.info(f"Initializing cluster with {num_nodes} nodes.")
             if self.framework == 'pytorch':
                 logger.info("Initializing PyTorch distributed backend.")
-                init_pytorch_cluster()
+                self._init_pytorch_cluster(num_nodes)
             elif self.framework == 'tensorflow':
                 logger.info("Initializing TensorFlow distributed strategy.")
-                
-                init_tensorflow_cluster()
+                self._init_tensorflow_cluster()
             else:
                 logger.error(f"Unsupported framework '{self.framework}'.")
         else:
             logger.info("No cluster configuration provided. Using local resources.")
 
-    def scale_training(self, model: Any, data: Any, *args, **kwargs):
+    @ensure_pkg(
+        'torch',
+        extra="The 'torch' package is required for PyTorch "
+              "distributed operations.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA,
+    )
+    def _init_pytorch_cluster(self, num_nodes):
+        import torch  # noqa
+        import torch.distributed as dist
+        backend = self.cluster_config.get('backend', 'nccl')
+        init_method = self.cluster_config.get('init_method', 'env://')
+        world_size = self.cluster_config.get('world_size', num_nodes)
+        rank = self.cluster_config.get('rank', 0)
+        dist.init_process_group(
+            backend=backend,
+            init_method=init_method,
+            world_size=world_size,
+            rank=rank
+        )
+        logger.info(
+            f"PyTorch distributed backend initialized with backend "
+            f"'{backend}', init_method '{init_method}', world_size "
+            f"{world_size}, rank {rank}."
+        )
+
+    @ensure_pkg(
+        'tensorflow',
+        extra="The 'tensorflow' package is required for TensorFlow "
+              "distributed operations.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA,
+    )
+    def _init_tensorflow_cluster(self):
+        import tensorflow as tf
+        cluster_spec = self.cluster_config.get('cluster_spec')
+        task_type = self.cluster_config.get('task_type')
+        task_id = self.cluster_config.get('task_id')
+        if cluster_spec and task_type is not None and task_id is not None:
+            cluster_resolver = tf.distribute.cluster_resolver.SimpleClusterResolver(
+                cluster_spec=tf.train.ClusterSpec(cluster_spec),
+                task_type=task_type,
+                task_id=task_id
+            )
+            strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy(
+                cluster_resolver=cluster_resolver
+            )
+            self.strategy_ = strategy
+            logger.info(
+                "TensorFlow MultiWorkerMirroredStrategy initialized."
+            )
+        else:
+            logger.warning(
+                "Incomplete cluster configuration for TensorFlow."
+            )
+
+    def _scale_training(self, model: Any, data: Any, *args, **kwargs):
         """
         Scales the training of a model across multiple devices or nodes.
 
@@ -280,115 +322,110 @@ class ScalingManager(BaseClass):
         strategies based on the framework and devices. It then initiates
         the training process using the provided data.
 
-        Examples
-        --------
-        >>> scaling_manager.scale_training(model, data, epochs=10)
-
         """
-        @ensure_pkg(
-            'torch',
-            extra="The 'torch' package is required for PyTorch operations.",
-            auto_install=INSTALL_DEPENDENCIES,
-            use_conda=USE_CONDA,
-        )
-        def train_pytorch_model(model, data, *args, **kwargs):
-            import torch
-            # Detect devices and move model to device
-            if torch.cuda.is_available() and any(
-                    'cuda' in dev for dev in self.devices_):
-                device_ids = [int(dev.split(':')[1]) 
-                              for dev in self.devices_ if 'cuda' in dev]
-                device = torch.device(f'cuda:{device_ids[0]}')
-                model.to(device)
-                model = torch.nn.DataParallel(model, device_ids=device_ids)
-            else:
-                device = torch.device('cpu')
-                model.to(device)
-            model.train()
-            optimizer = kwargs.get('optimizer', torch.optim.Adam(model.parameters()))
-            criterion = kwargs.get('criterion', torch.nn.CrossEntropyLoss())
-            epochs = kwargs.get('epochs', 1)
-            for epoch in range(epochs):
-                for batch_idx, (inputs, labels) in enumerate(data):
-                    inputs, labels = inputs.to(device), labels.to(device)
-                    optimizer.zero_grad()
-                    outputs = model(inputs)
-                    loss = criterion(outputs, labels)
-                    loss.backward()
-                    optimizer.step()
-                    if batch_idx % 10 == 0:
-                        logger.info(
-                            f'Epoch [{epoch+1}/{epochs}], Step [{batch_idx}], '
-                            f'Loss: {loss.item():.4f}'
-                        )
-            return model
-        
-        @ensure_pkg(
-            'tensorflow',
-            extra="The 'tensorflow' package is required for TensorFlow "
-                  "operations.",
-            auto_install=INSTALL_DEPENDENCIES,
-            use_conda=USE_CONDA,
-        )
-        def train_tensorflow_model(model, data, *args, **kwargs):
-            import tensorflow as tf
-            strategy = tf.distribute.MirroredStrategy(devices=self.devices_)
-            with strategy.scope():
-                model.compile(
-                    optimizer=kwargs.get('optimizer', 'adam'),
-                    loss=kwargs.get('loss', 'sparse_categorical_crossentropy'),
-                    metrics=kwargs.get('metrics', ['accuracy'])
-                )
-                model.fit(data, *args, **kwargs)
-            return model
-        
-        # --------- end local functions --------------
-        
         logger.info(
             f"Scaling model training using {self.framework} across devices: "
             f"{self.devices_}"
         )
 
         if self.framework == 'pytorch':
-            self.model_ = train_pytorch_model(model, data, *args, **kwargs)
+            self.model_ = self._train_pytorch_model(model, data, *args, **kwargs)
         elif self.framework == 'tensorflow':
-            self.model_ = train_tensorflow_model(model, data, *args, **kwargs)
+            self.model_ = self._train_tensorflow_model(model, data, *args, **kwargs)
         else:
             logger.error(f"Unsupported framework '{self.framework}'.")
 
- 
+    @ensure_pkg(
+        'torch',
+        extra="The 'torch' package is required for PyTorch operations.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA,
+    )
+    def _train_pytorch_model(self, model, data, *args, **kwargs):
+        import torch
+        # Detect devices and move model to device
+        if torch.cuda.is_available() and any(
+                'cuda' in dev for dev in self.devices_):
+            device_ids = [int(dev.split(':')[1])
+                          for dev in self.devices_ if 'cuda' in dev]
+            device = torch.device(f'cuda:{device_ids[0]}')
+            model.to(device)
+            model = torch.nn.DataParallel(model, device_ids=device_ids)
+        else:
+            device = torch.device('cpu')
+            model.to(device)
+        model.train()
+        optimizer = kwargs.get('optimizer', torch.optim.Adam(model.parameters()))
+        criterion = kwargs.get('criterion', torch.nn.CrossEntropyLoss())
+        epochs = kwargs.get('epochs', 1)
+        for epoch in range(epochs):
+            for batch_idx, (inputs, labels) in enumerate(data):
+                inputs, labels = inputs.to(device), labels.to(device)
+                optimizer.zero_grad()
+                outputs = model(inputs)
+                loss = criterion(outputs, labels)
+                loss.backward()
+                optimizer.step()
+                if batch_idx % 10 == 0:
+                    logger.info(
+                        f'Epoch [{epoch+1}/{epochs}], Step [{batch_idx}], '
+                        f'Loss: {loss.item():.4f}'
+                    )
+        return model
+
+    @ensure_pkg(
+        'tensorflow',
+        extra="The 'tensorflow' package is required for TensorFlow "
+              "operations.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA,
+    )
+    def _train_tensorflow_model(self, model, data, *args, **kwargs):
+        import tensorflow as tf
+        strategy = tf.distribute.MirroredStrategy(devices=self.devices_)
+        with strategy.scope():
+            model.compile(
+                optimizer=kwargs.get('optimizer', 'adam'),
+                loss=kwargs.get('loss', 'sparse_categorical_crossentropy'),
+                metrics=kwargs.get('metrics', ['accuracy'])
+            )
+            model.fit(data, *args, **kwargs)
+        return model
+
     def _detect_devices(self) -> List[str]:
         """Detects available devices for distributed training."""
         if self.framework == 'pytorch':
-            @ensure_pkg(
-                'torch',
-                extra="The 'torch' package is required for PyTorch operations.",
-                auto_install=INSTALL_DEPENDENCIES,
-                use_conda=USE_CONDA,
-            )
-            def get_pytorch_devices():
-                import torch
-                if torch.cuda.is_available():
-                    return [f'cuda:{i}' for i in range(torch.cuda.device_count())]
-                else:
-                    return ['cpu']
-            return get_pytorch_devices()
+            return self._get_pytorch_devices()
         elif self.framework == 'tensorflow':
-            @ensure_pkg(
-                'tensorflow',
-                extra="The 'tensorflow' package is required for TensorFlow operations.",
-                auto_install=INSTALL_DEPENDENCIES,
-                use_conda=USE_CONDA,
-            )
-            def get_tensorflow_devices():
-                import tensorflow as tf
-                gpus = tf.config.list_physical_devices('GPU')
-                return [gpu.name for gpu in gpus] if gpus else ['CPU']
-            return get_tensorflow_devices()
+            return self._get_tensorflow_devices()
         else:
             return ['cpu']
 
-    def horizontal_scale_data_pipeline(self, data_pipeline_fn: Callable):
+    @ensure_pkg(
+        'torch',
+        extra="The 'torch' package is required for PyTorch operations.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA,
+    )
+    def _get_pytorch_devices(self):
+        import torch
+        if torch.cuda.is_available():
+            return [f'cuda:{i}' for i in range(torch.cuda.device_count())]
+        else:
+            return ['cpu']
+
+    @ensure_pkg(
+        'tensorflow',
+        extra="The 'tensorflow' package is required for TensorFlow operations.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA,
+    )
+    def _get_tensorflow_devices(self):
+        import tensorflow as tf
+        gpus = tf.config.list_physical_devices('GPU')
+        return [gpu.name for gpu in gpus] if gpus else ['CPU']
+
+    def _horizontal_scale_data_pipeline(self, data_pipeline_fn: Callable):
         """
         Scales the data pipeline horizontally by partitioning data and
         processing in parallel.
@@ -405,19 +442,12 @@ class ScalingManager(BaseClass):
         and processes each partition in parallel using multiprocessing or
         threading.
 
-        Examples
-        --------
-        >>> def data_pipeline(index):
-        ...     # Process data partition
-        ...     pass
-        >>> scaling_manager.horizontal_scale_data_pipeline(data_pipeline_fn=data_pipeline)
-
         """
         logger.info("Scaling data pipeline horizontally.")
         partitioned_data = self._partition_data_pipeline(data_pipeline_fn)
         self._process_data_in_parallel(partitioned_data)
 
-    def monitor_workload_and_scale(self):
+    def _monitor_workload_and_scale(self):
         """
         Continuously monitors system workload and triggers elastic scaling
         when necessary.
@@ -427,10 +457,6 @@ class ScalingManager(BaseClass):
         This method runs an infinite loop that periodically checks system
         workload metrics. If the `workload_monitor` function returns `True`,
         elastic scaling is performed to adjust resources.
-
-        Examples
-        --------
-        >>> scaling_manager.monitor_workload_and_scale()
 
         """
         if not self.workload_monitor:
@@ -442,7 +468,6 @@ class ScalingManager(BaseClass):
                 logger.info("Workload requires scaling. Initiating elastic scaling.")
                 self._elastic_scale()
             time.sleep(5)  # Monitoring interval
-
 
     def _partition_data_pipeline(self, data_pipeline_fn: Callable) -> List:
         """Partitions the data pipeline for horizontal scaling."""
@@ -456,7 +481,6 @@ class ScalingManager(BaseClass):
             for i in range(num_partitions):
                 partitions.append(data_pipeline_fn(i))
         elif self.data_partitioning_strategy == 'random':
-            import random
             indices = list(range(num_partitions))
             random.shuffle(indices)
             for i in indices:
@@ -488,26 +512,26 @@ class ScalingManager(BaseClass):
             with Pool(processes=self.resource_constraints_.get('cpu', 1)) as pool:
                 pool.map(self._process_single_partition, partitioned_data)
         elif self.process_pool_type == 'gpu':
-            def process_with_gpu():
-
-                
-                max_workers = self.resource_constraints_.get('gpu', 1)
-                devices = [f'cuda:{i}' for i in range(max_workers)]
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    futures = []
-                    for data_chunk, device in zip(partitioned_data, devices):
-                        futures.append(
-                            executor.submit(
-                                self._process_single_partition_gpu, data_chunk, device
-                            )
-                        )
-                    for future in futures:
-                        future.result()
-            process_with_gpu()
+            self._process_with_gpu(partitioned_data)
         else:
             raise ValueError(
                 f"Unknown process pool type: {self.process_pool_type}"
             )
+
+    def _process_with_gpu(self, partitioned_data):
+        """Processes data partitions using GPU resources."""
+        max_workers = self.resource_constraints_.get('gpu', 1)
+        devices = [f'cuda:{i}' for i in range(max_workers)]
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for data_chunk, device in zip(partitioned_data, devices):
+                futures.append(
+                    executor.submit(
+                        self._process_single_partition_gpu, data_chunk, device
+                    )
+                )
+            for future in futures:
+                future.result()
 
     def _process_single_partition(self, data_chunk):
         """
@@ -523,21 +547,11 @@ class ScalingManager(BaseClass):
         processed_data : Any
             The result of processing the data chunk.
 
-        Notes
-        -----
-        This method processes the data partition using CPU resources.
-        The processing logic should be customized based on the specific
-        data and requirements. In this implementation, we assume that
-        `data_chunk` is an iterable of data items, and we apply a sample
-        processing function to each item.
-
         """
         logger.info(f"Processing partition on CPU: {data_chunk}")
-        #XXX TODO: GO TROUGH LATER
-        # Implement the processing logic here
+        # XXX To robustly implement
         processed_data = []
         for item in data_chunk:
-            # Sample processing logic (e.g., doubling the item)
             processed_item = self._sample_processing_function(item)
             processed_data.append(processed_item)
             logger.debug(f"Processed item: {processed_item}")
@@ -558,17 +572,10 @@ class ScalingManager(BaseClass):
         processed_item : Any
             The processed data item.
 
-        Notes
-        -----
-        This function can be replaced with custom logic as needed.
-        In this sample implementation, we simply double the input
-        if it's a numeric value.
-
         """
         try:
             processed_item = item * 2
         except TypeError:
-            # If item is not a number, return it as is
             processed_item = item
         return processed_item
 
@@ -589,43 +596,34 @@ class ScalingManager(BaseClass):
         processed_data : Any
             The result of processing the data chunk.
 
-        Notes
-        -----
-        This method processes the data partition using GPU resources.
-        It moves data to the specified GPU device, applies the processing
-        logic, and retrieves the results back to the CPU if necessary.
-
         """
         logger.info(f"Processing partition on {device}: {data_chunk}")
+        processed_data = self._process_on_gpu(data_chunk, device)
+        return processed_data
 
-        @ensure_pkg(
-            'torch',
-            extra="The 'torch' package is required for GPU processing.",
-            auto_install=INSTALL_DEPENDENCIES,
-            use_conda=USE_CONDA,
-        )
-        def process_on_gpu():
-            import torch
+    @ensure_pkg(
+        'torch',
+        extra="The 'torch' package is required for GPU processing.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA,
+    )
+    def _process_on_gpu(self, data_chunk, device):
+        import torch
 
-            # Set the device
-            torch_device = torch.device(device)
-            #XXX TODO: GO TROUGH LATER
-            # Implement the processing logic here
-            processed_data = []
-            for item in data_chunk:
-                # Convert item to a tensor and move to GPU
-                tensor_item = torch.tensor(item).to(torch_device)
-                # Sample processing logic (e.g., squaring the tensor)
-                processed_tensor = self._sample_processing_function_gpu(tensor_item)
-                # Move processed tensor back to CPU
-                processed_item = processed_tensor.cpu().numpy()
-                processed_data.append(processed_item)
-                logger.debug(f"Processed item on GPU: {processed_item}")
+        # Set the device
+        torch_device = torch.device(device)
+        # XXX To robustly implement
+        processed_data = []
+        for item in data_chunk:
+            # Convert item to a tensor and move to GPU
+            tensor_item = torch.tensor(item).to(torch_device)
+            # Sample processing logic (e.g., squaring the tensor)
+            processed_tensor = self._sample_processing_function_gpu(tensor_item)
+            # Move processed tensor back to CPU
+            processed_item = processed_tensor.cpu().numpy()
+            processed_data.append(processed_item)
+            logger.debug(f"Processed item on GPU: {processed_item}")
 
-            return processed_data
-
-        # Execute the GPU processing function
-        processed_data = process_on_gpu()
         return processed_data
 
     def _sample_processing_function_gpu(self, tensor_item):
@@ -642,64 +640,19 @@ class ScalingManager(BaseClass):
         processed_tensor : torch.Tensor
             The processed data tensor on the GPU.
 
-        Notes
-        -----
-        This function can be replaced with custom GPU-accelerated logic.
-        In this sample implementation, we square the input tensor.
-
         """
-        #XXX TODO: GO THROUGH LATER
-        # Sample processing logic (e.g., squaring the tensor)
         processed_tensor = tensor_item ** 2
         return processed_tensor
 
-
     def _get_system_workload(self) -> Dict[str, Any]:
         """Retrieves system workload metrics."""
-        def get_psutil_metrics():
-            import psutil
-            cpu_usage = psutil.cpu_percent(interval=1)
-            memory_usage = psutil.virtual_memory().percent
-            return cpu_usage, memory_usage
-
-        cpu_usage, memory_usage = get_psutil_metrics()
+        cpu_usage, memory_usage = self._get_psutil_metrics()
 
         gpu_usage = 0
         if self.framework == 'pytorch':
-            @ensure_pkg(
-                'torch',
-                extra="The 'torch' package is required"
-                " for GPU monitoring in PyTorch.",
-                auto_install=INSTALL_DEPENDENCIES,
-                use_conda=USE_CONDA,
-            )
-            def get_gpu_usage():
-                import torch
-                if torch.cuda.is_available():
-                    gpu_utilization = (
-                        torch.cuda.memory_allocated(0) /
-                        torch.cuda.get_device_properties(0).total_memory * 100
-                    )
-                    return gpu_utilization
-                else:
-                    return 0
-            gpu_usage = get_gpu_usage()
+            gpu_usage = self._get_gpu_usage_pytorch()
         elif self.framework == 'tensorflow':
-            @ensure_pkg(
-                'tensorflow',
-                extra="The 'tensorflow' package is required"
-                " for GPU monitoring in TensorFlow.",
-                auto_install=INSTALL_DEPENDENCIES,
-                use_conda=USE_CONDA,
-            )
-            def get_gpu_usage_tf():
-                import tensorflow as tf
-                gpus = tf.config.list_physical_devices('GPU')
-                if gpus:
-                    return 50.0  # Placeholder value
-                else:
-                    return 0
-            gpu_usage = get_gpu_usage_tf()
+            gpu_usage = self._get_gpu_usage_tensorflow()
 
         logger.info(
             f"System workload - CPU: {cpu_usage}%, Memory: {memory_usage}%, "
@@ -710,6 +663,45 @@ class ScalingManager(BaseClass):
             'memory_usage': memory_usage,
             'gpu_usage': gpu_usage
         }
+
+    def _get_psutil_metrics(self):
+        import psutil
+        cpu_usage = psutil.cpu_percent(interval=1)
+        memory_usage = psutil.virtual_memory().percent
+        return cpu_usage, memory_usage
+
+    @ensure_pkg(
+        'torch',
+        extra="The 'torch' package is required"
+        " for GPU monitoring in PyTorch.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA,
+    )
+    def _get_gpu_usage_pytorch(self):
+        import torch
+        if torch.cuda.is_available():
+            gpu_utilization = (
+                torch.cuda.memory_allocated(0) /
+                torch.cuda.get_device_properties(0).total_memory * 100
+            )
+            return gpu_utilization
+        else:
+            return 0
+
+    @ensure_pkg(
+        'tensorflow',
+        extra="The 'tensorflow' package is required"
+        " for GPU monitoring in TensorFlow.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA,
+    )
+    def _get_gpu_usage_tensorflow(self):
+        import tensorflow as tf
+        gpus = tf.config.list_physical_devices('GPU')
+        if gpus:
+            return 50.0  # XXX To robustly implement
+        else:
+            return 0
 
     def _elastic_scale(self):
         """Implements elastic scaling based on system workload."""
@@ -733,12 +725,13 @@ class ScalingManager(BaseClass):
             logger.info("No scaling action required at this time.")
 
 
+@smartFitRun
 class DataPipelineScaler(BaseClass):
     """
-    Scales the data pipeline horizontally by partitioning the data
-    and processing it in parallel, either locally (multiprocessing)
-    or on distributed systems (e.g., Dask). Provides flexible scaling
-    based on the size of the data and resource availability.
+    Scales the data pipeline horizontally by partitioning the data and
+    processing it in parallel, either locally (multiprocessing) or on
+    distributed systems (e.g., Dask). Provides flexible scaling based on
+    the size of the data and resource availability.
 
     Parameters
     ----------
@@ -774,18 +767,21 @@ class DataPipelineScaler(BaseClass):
     resources_ : dict of str to int
         Effective resource constraints after initialization.
 
+    _is_runned : bool
+        Indicator that the `run` method has been executed.
+
     Methods
     -------
-    scale_pipeline(data_pipeline_fn, data)
-        Scales the data pipeline horizontally by partitioning and
-        parallel processing.
+    run(data_pipeline_fn, data)
+        Scales the data pipeline horizontally by partitioning and parallel
+        processing.
 
     Notes
     -----
-    The `DataPipelineScaler` class provides a flexible way to scale
-    data processing pipelines horizontally. By partitioning the data
-    and processing partitions in parallel, it can significantly
-    reduce processing time for large datasets.
+    The `DataPipelineScaler` class provides a flexible way to scale data
+    processing pipelines horizontally. By partitioning the data and
+    processing partitions in parallel, it can significantly reduce
+    processing time for large datasets.
 
     Examples
     --------
@@ -795,7 +791,7 @@ class DataPipelineScaler(BaseClass):
     ...     return [x * 2 for x in partition]
     >>> data = list(range(1000))
     >>> scaler = DataPipelineScaler(num_partitions=4)
-    >>> results = scaler.scale_pipeline(data_pipeline, data)
+    >>> results = scaler.run(data_pipeline, data)
     >>> print(results)
 
     See Also
@@ -830,13 +826,67 @@ class DataPipelineScaler(BaseClass):
     ):
         self.num_partitions = num_partitions or self._detect_num_partitions()
         self.parallel_backend = parallel_backend
+        self.resources = resources or self._detect_resources()
         self.dask_scheduler = dask_scheduler
         self.partition_strategy = partition_strategy
         self.custom_partition_fn = custom_partition_fn
 
-        self.resources = resources or self._detect_resources()
         self.num_partitions_ = self.num_partitions
         self.resources_ = self.resources
+        self._is_runned = False
+
+    @RunReturn(attribute_name='results_')
+    def run(self, data_pipeline_fn: Callable[[Any], Any], data: Any):
+        """
+        Scales the data pipeline horizontally by partitioning the input
+        data and processing it in parallel.
+
+        Parameters
+        ----------
+        data_pipeline_fn : callable
+            The data pipeline function to apply to each partition. Must
+            accept a single partition of data and return the processed
+            result.
+
+        data : sequence
+            The input data to be partitioned and processed.
+
+        Returns
+        -------
+        results : list of Any
+            A list of processed results for each partition.
+
+        Notes
+        -----
+        Depending on the `parallel_backend`, the data partitions are
+        processed using multiprocessing or Dask.
+
+        Examples
+        --------
+        >>> from gofast.mlops.scaling import DataPipelineScaler
+        >>> def data_pipeline(partition):
+        ...     # Process the data partition
+        ...     return [x * 2 for x in partition]
+        >>> data = list(range(1000))
+        >>> scaler = DataPipelineScaler(num_partitions=4)
+        >>> results = scaler.run(data_pipeline, data)
+        >>> print(results)
+
+        """
+        partitions = self._partition_data(data)
+
+        if self.parallel_backend == 'multiprocessing':
+            self.results_ = self._process_data_in_multiprocessing(
+                partitions, data_pipeline_fn)
+
+        elif self.parallel_backend == 'dask':
+            self.results_ = self._process_data_in_dask(partitions, data_pipeline_fn)
+
+        else:
+            raise ValueError(f"Unsupported parallel backend: {self.parallel_backend}")
+
+        self._is_runned = True
+        return self.results_
 
     def _detect_num_partitions(self) -> int:
         """
@@ -881,7 +931,7 @@ class DataPipelineScaler(BaseClass):
         and `psutil.virtual_memory()` to detect total system memory in MB.
 
         """
-        import psutil 
+        import psutil  
         logger.info("Detecting system resources for scaling.")
         cpu_count = os.cpu_count() or 1
         mem = psutil.virtual_memory()
@@ -922,7 +972,8 @@ class DataPipelineScaler(BaseClass):
             return partitions
 
         elif self.partition_strategy == 'custom' and self.custom_partition_fn:
-            return self.custom_partition_fn(data)
+            partitions = self.custom_partition_fn(data)
+            return partitions
 
         else:
             raise ValueError(f"Unsupported partition strategy: {self.partition_strategy}")
@@ -1002,105 +1053,55 @@ class DataPipelineScaler(BaseClass):
         client.close()
         return results
 
-    def scale_pipeline(
-            self, data_pipeline_fn: Callable[[Any], Any], data: Any) -> List[Any]:
-        """
-        Scales the data pipeline horizontally by partitioning the input
-        data and processing it in parallel.
-
-        Parameters
-        ----------
-        data_pipeline_fn : callable
-            The data pipeline function to apply to each partition. Must
-            accept a single partition of data and return the processed
-            result.
-
-        data : sequence
-            The input data to be partitioned and processed.
-
-        Returns
-        -------
-        results : list of Any
-            A list of processed results for each partition.
-
-        Notes
-        -----
-        Depending on the `parallel_backend`, the data partitions are
-        processed using multiprocessing or Dask.
-
-        Examples
-        --------
-        >>> from gofast.mlops.scaling import DataPipelineScaler
-        >>> def data_pipeline(partition):
-        ...     # Process the data partition
-        ...     return [x * 2 for x in partition]
-        >>> data = list(range(1000))
-        >>> scaler = DataPipelineScaler(num_partitions=4)
-        >>> results = scaler.scale_pipeline(data_pipeline, data)
-        >>> print(results)
-
-        """
-        partitions = self._partition_data(data)
-
-        if self.parallel_backend == 'multiprocessing':
-            return self._process_data_in_multiprocessing(partitions, data_pipeline_fn)
-
-        elif self.parallel_backend == 'dask':
-            return self._process_data_in_dask(partitions, data_pipeline_fn)
-
-        else:
-            raise ValueError(f"Unsupported parallel backend: {self.parallel_backend}")
-
-
+@smartFitRun 
 class ElasticScaler(BaseClass):
     """
-    Monitors system resources and automatically triggers elastic
-    scaling when specified thresholds are exceeded. This class allows
-    scaling up or down based on real-time workload metrics (CPU,
-    memory, GPU utilization) and supports both local and distributed
-    systems.
+    Monitors system resources and automatically triggers elastic scaling
+    when specified thresholds are exceeded. This class allows scaling up
+    or down based on real-time workload metrics (CPU, memory, GPU
+    utilization) and supports both local and distributed systems.
 
     Parameters
     ----------
     scale_up_callback : callable
         Function to call when scaling up is triggered. Should handle
-        scaling logic (e.g., adding more workers, increasing
-        resources). Must accept a dictionary of system metrics.
+        scaling logic (e.g., adding more workers, increasing resources).
+        Must accept a dictionary of system metrics.
 
     scale_down_callback : callable
         Function to call when scaling down is triggered. Should handle
         reducing resources. Must accept a dictionary of system metrics.
 
     cpu_threshold : float, default=80.0
-        CPU usage percentage threshold for scaling up. Must be between
-        0 and 100 inclusive.
+        CPU usage percentage threshold for scaling up. Must be between 0
+        and 100 inclusive.
 
     memory_threshold : float, default=80.0
-        Memory usage percentage threshold for scaling up. Must be
-        between 0 and 100 inclusive.
+        Memory usage percentage threshold for scaling up. Must be between
+        0 and 100 inclusive.
 
     gpu_threshold : float, default=80.0
-        GPU usage percentage threshold for scaling up. Must be between
-        0 and 100 inclusive.
+        GPU usage percentage threshold for scaling up. Must be between 0
+        and 100 inclusive.
 
     scale_down_thresholds : dict of str to float, default=None
         Thresholds for scaling down. If `None`, defaults to
-        ``{'cpu': 30.0, 'memory': 30.0, 'gpu': 30.0}``. Each value
-        must be between 0 and 100 inclusive.
+        ``{'cpu': 30.0, 'memory': 30.0, 'gpu': 30.0}``. Each value must
+        be between 0 and 100 inclusive.
 
     monitoring_interval : float, default=5.0
-        The interval (in seconds) between system resource checks.
-        Must be a positive number.
+        The interval (in seconds) between system resource checks. Must
+        be a positive number.
 
     min_scale_up_duration : float, default=10.0
-        Minimum time (in seconds) that high resource utilization must
-        be sustained before triggering a scale up. Must be a positive
+        Minimum time (in seconds) that high resource utilization must be
+        sustained before triggering a scale up. Must be a positive
         number.
 
     min_scale_down_duration : float, default=30.0
-        Minimum time (in seconds) that low resource utilization must
-        be sustained before triggering a scale down. Must be a
-        positive number.
+        Minimum time (in seconds) that low resource utilization must be
+        sustained before triggering a scale down. Must be a positive
+        number.
 
     monitor_gpus : bool, default=True
         Whether to monitor GPU utilization. Defaults to `True` if GPUs
@@ -1111,9 +1112,12 @@ class ElasticScaler(BaseClass):
     is_monitoring_ : bool
         Indicates whether the monitoring is currently active.
 
+    _is_runned : bool
+        Indicator that the `run` method has been executed.
+
     Methods
     -------
-    start_monitoring()
+    run()
         Starts monitoring the system workload and triggers scaling
         actions based on thresholds.
 
@@ -1122,10 +1126,10 @@ class ElasticScaler(BaseClass):
 
     Notes
     -----
-    The `ElasticScaler` class provides a mechanism for automatic
-    scaling of resources based on system workload. It monitors CPU,
-    memory, and GPU utilization, and triggers the provided callback
-    functions when scaling conditions are met.
+    The `ElasticScaler` class provides a mechanism for automatic scaling
+    of resources based on system workload. It monitors CPU, memory, and
+    GPU utilization, and triggers the provided callback functions when
+    scaling conditions are met.
 
     Examples
     --------
@@ -1138,7 +1142,7 @@ class ElasticScaler(BaseClass):
     ...     scale_up_callback=scale_up,
     ...     scale_down_callback=scale_down
     ... )
-    >>> scaler.start_monitoring()
+    >>> scaler.run()
     >>> # To stop monitoring
     >>> scaler.stop_monitoring()
 
@@ -1194,6 +1198,7 @@ class ElasticScaler(BaseClass):
 
         # Internal attributes
         self.is_monitoring_ = False
+        self._is_runned = False
         self._scale_up_time = 0.0
         self._scale_down_time = 0.0
 
@@ -1203,10 +1208,16 @@ class ElasticScaler(BaseClass):
         else:
             self._gpu_available = False
 
-    def start_monitoring(self):
+    @RunReturn
+    def run(self):
         """
         Starts monitoring system metrics (CPU, memory, GPU) and
         triggers scaling actions based on thresholds.
+
+        Returns
+        -------
+        self : ElasticScaler
+            Returns self for method chaining.
 
         Notes
         -----
@@ -1216,11 +1227,12 @@ class ElasticScaler(BaseClass):
 
         Examples
         --------
-        >>> scaler.start_monitoring()
+        >>> scaler.run()
 
         """
         logger.info("Starting elastic scaling monitor.")
         self.is_monitoring_ = True
+        self._is_runned = True
 
         while self.is_monitoring_:
             metrics = self._check_system_metrics()
@@ -1235,6 +1247,8 @@ class ElasticScaler(BaseClass):
 
             time.sleep(self.monitoring_interval)
 
+        return self
+
     def stop_monitoring(self):
         """
         Stops the monitoring process.
@@ -1242,7 +1256,7 @@ class ElasticScaler(BaseClass):
         Notes
         -----
         Sets the `is_monitoring_` flag to `False`, which stops the
-        monitoring loop in `start_monitoring`.
+        monitoring loop in `run`.
 
         Examples
         --------
@@ -1261,11 +1275,18 @@ class ElasticScaler(BaseClass):
         gpu_available : bool
             `True` if GPUs are available, `False` otherwise.
 
+        Notes
+        -----
+        This method attempts to import `torch` and checks if CUDA is
+        available. If `torch` is not installed or CUDA is unavailable,
+        returns `False`.
+
         """
         try:
             import torch
             return torch.cuda.is_available()
         except ImportError:
+            logger.warning("PyTorch not installed; GPU monitoring disabled.")
             return False
 
     @ensure_pkg(
@@ -1284,6 +1305,11 @@ class ElasticScaler(BaseClass):
         metrics : dict of str to Any
             A dictionary containing the current CPU, memory, and GPU
             utilization.
+
+        Notes
+        -----
+        Uses `psutil` to get CPU and memory usage. If GPU monitoring is
+        enabled and GPUs are available, retrieves GPU usage as well.
 
         """
         import psutil
@@ -1311,21 +1337,49 @@ class ElasticScaler(BaseClass):
             GPU utilization percentage. Returns 0.0 if GPUs are not
             available.
 
+        Notes
+        -----
+        Attempts to use PyTorch to get GPU utilization. If PyTorch is
+        not available or fails, uses `GPUtil` as a fallback.
+
         """
         try:
             import torch
             gpu_usage = torch.cuda.utilization(0)
             return gpu_usage
-        except ImportError:
+        except (ImportError, AttributeError):
+            logger.warning(
+                "Failed to get GPU usage with PyTorch; attempting GPUtil."
+            )
+            return self._get_gpu_usage_with_gputil()
+
+    @ensure_pkg(
+        'GPUtil',
+        extra="The 'GPUtil' package is required for GPU monitoring.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA,
+    )
+    def _get_gpu_usage_with_gputil(self) -> float:
+        """
+        Retrieves GPU utilization using the GPUtil package.
+
+        Returns
+        -------
+        gpu_usage : float
+            GPU utilization percentage.
+
+        Notes
+        -----
+        Uses `GPUtil` to get the maximum GPU load across all GPUs.
+
+        """
+        import GPUtil
+        gpus = GPUtil.getGPUs()
+        if gpus:
+            gpu_usage = max([gpu.load * 100 for gpu in gpus])
+            return gpu_usage
+        else:
             return 0.0
-        except AttributeError:
-            # Fallback if torch.cuda.utilization is not available
-            import GPUtil
-            gpus = GPUtil.getGPUs()
-            if gpus:
-                return max([gpu.load * 100 for gpu in gpus])
-            else:
-                return 0.0
 
     def _should_scale_up(self, metrics: Dict[str, Any]) -> bool:
         """
@@ -1342,6 +1396,12 @@ class ElasticScaler(BaseClass):
         -------
         should_scale_up : bool
             Whether scaling up should be triggered.
+
+        Notes
+        -----
+        Checks if any of the monitored metrics exceed their respective
+        thresholds for scaling up. If the condition persists for at
+        least `min_scale_up_duration`, returns `True`.
 
         """
         cpu_high = metrics['cpu_usage'] > self.cpu_threshold
@@ -1373,6 +1433,12 @@ class ElasticScaler(BaseClass):
         -------
         should_scale_down : bool
             Whether scaling down should be triggered.
+
+        Notes
+        -----
+        Checks if all monitored metrics are below their respective
+        thresholds for scaling down. If the condition persists for at
+        least `min_scale_down_duration`, returns `True`.
 
         """
         cpu_low = metrics['cpu_usage'] < self.scale_down_thresholds.get(
@@ -1538,7 +1604,7 @@ def partition_data_pipeline(
 
 @validate_params({
     'include_gpu': [bool],
-    'monitor_latency_fn': [callable],
+    'monitor_latency_fn': [callable, None],
     'queue_length_fn': [callable, None],
     'custom_metrics_fn': [callable, None],
     'additional_metrics': [bool],
@@ -1692,7 +1758,6 @@ def get_system_workload(
 
     logger.info(f"System workload: {workload}")
     return workload
-
 
 @validate_params({
     'workload_data': [dict],
@@ -1858,9 +1923,9 @@ def elastic_scale_logic(
             break  # Exit loop if any resource exceeds threshold
 
     # Check if scaling up should be initiated based on sustained usage
-    if ( 
-            scale_up_needed 
-            and state['scale_up_time'] >= min_scale_up_duration 
+    if (
+            scale_up_needed
+            and state['scale_up_time'] >= min_scale_up_duration
             and auto_scale_up
         ):
         logger.info("Scaling up resources.")
@@ -1888,8 +1953,8 @@ def elastic_scale_logic(
 
     # Check if scaling down should be initiated based on sustained low usage
     if (
-            scale_down_needed 
-            and state['scale_down_time'] >= min_scale_down_duration 
+            scale_down_needed
+            and state['scale_down_time'] >= min_scale_down_duration
             and auto_scale_down
         ):
         logger.info("Scaling down resources.")
@@ -1903,4 +1968,3 @@ def elastic_scale_logic(
             f"{min_scale_down_duration} seconds.")
     else:
         state['scale_down_time'] = 0.0  # Reset if condition not met
-

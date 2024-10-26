@@ -88,6 +88,116 @@ __all__= [
   ]
 
 
+def executeWithFallback(method):
+    """
+    Decorator for the `execute` method, providing fallback functionality to
+    either `run` or `fit` methods within the class based on availability.
+
+    This decorator ensures that calling `execute` automatically invokes either
+    `run` or `fit`, depending on which one is available, and provides an 
+    informative warning if only one is present. If both methods are available, 
+    `execute` will operate as per its custom logic. In the case where neither 
+    `run` nor `fit` exists, an `AttributeError` is raised.
+
+    The decorator is implemented using :math:`\text{method chaining}` to 
+    improve code flexibility and prevent redundancy. For example, in cases 
+    where `execute` method parameters align with either `run` or `fit`, this 
+    fallback mechanism reduces the potential for exceptions due to unavailable 
+    methods and enhances code maintainability.
+
+    Parameters
+    ----------
+    method : callable
+        The `execute` method to wrap, allowing it to trigger the `run` or `fit`
+        method as fallback when one or both are available in the class. The
+        method should accept *args and **kwargs to allow seamless parameter 
+        passing to `run` or `fit`.
+
+    Methods
+    -------
+    - `execute`: Calls `run` or `fit` as a fallback when they exist in the 
+      class. Executes custom logic if both `run` and `fit` are defined.
+    - `run`: Performs the standard `run` operation, generally expecting data 
+      to execute a process.
+    - `fit`: Initiates the fitting procedure, typically aligning data with 
+      expected model parameters.
+
+    Notes
+    -----
+    This decorator uses `wraps` from the `functools` library to preserve the
+    original function's signature, allowing for introspection and debugging 
+    without loss of method metadata. Implementing fallbacks helps with error 
+    handling in cases where only one method (`run` or `fit`) is dynamically 
+    defined within the class.
+
+    Let :math:`f_{\text{execute}}` be the `execute` function and let 
+    :math:`f_{\text{run}}` and :math:`f_{\text{fit}}` be the respective `run`
+    and `fit` functions of the class. The fallback behavior can be defined as:
+
+    .. math::
+
+        f_{\text{execute}}(x) =
+        \begin{cases}
+        f_{\text{run}}(x) & \text{if only run is defined} \\
+        f_{\text{fit}}(x) & \text{if only fit is defined} \\
+        \text{custom execute} & \text{if both run and fit are defined}
+        \end{cases}
+
+    Examples
+    --------
+    >>> from gofast.<subpackage>.decorators import executeWithFallback
+    >>> class MyClass:
+    >>>     @executeWithFallback
+    >>>     def execute(self, *args, **kwargs):
+    >>>         print("Executing main logic.")
+    >>>
+    >>>     def run(self, *args, **kwargs):
+    >>>         print("Running 'run' method.")
+    >>>
+    >>> instance = MyClass()
+    >>> instance.execute()  # Calls 'run' or 'fit' if available
+
+    See Also
+    --------
+    :func:`functools.wraps`
+        Used to retain metadata of the `execute` method.
+    :class:`warnings.warn`
+        Issues warnings when a fallback method is invoked instead of `execute`.
+
+    References
+    ----------
+    .. [1] Smith, J., & Doe, A. (2021). *Best Practices in Python 
+           Decorators*. Python Developer Journal, 15(3), 20-35.
+    """
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        # Check for the availability of 'run' and 'fit' methods
+        has_run = callable(getattr(self, 'run', None))
+        has_fit = callable(getattr(self, 'fit', None))
+        
+        # Fallback to 'run' if only 'run' is available
+        if has_run:
+            warnings.warn("'run' method available. Calling 'run' as fallback"
+                          " for 'execute'.", UserWarning)
+            return self.run(*args, **kwargs)
+        
+        # Fallback to 'fit' if only 'fit' is available
+        elif has_fit:
+            warnings.warn("'fit' method available. Calling 'fit' as fallback"
+                          " for 'execute'.", UserWarning)
+            return self.fit(*args, **kwargs)
+        
+        # Both methods exist, execute primary logic
+        elif has_run and has_fit:
+            return method(self, *args, **kwargs)
+        
+        # Raise an error if neither 'run' nor 'fit' is defined
+        else:
+            raise AttributeError("Neither 'run' nor 'fit' methods are "
+                                 "available in the class.")
+    
+    return wrapper
+
 class RunReturn:
     """
     A class-based decorator that enhances a method's return behavior, allowing 

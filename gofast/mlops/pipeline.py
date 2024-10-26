@@ -3,7 +3,7 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """
-Handle the automation of end-to-end workflows. Users can build modular 
+Handle the automation of end-to-end workflows. Users can build modular
 pipelines for preprocessing, training, evaluation, and deployment.
 """
 
@@ -11,42 +11,51 @@ import time
 import random
 from itertools import product
 from typing import Callable, List, Dict, Optional, Any
-
 from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
 from datetime import datetime, timedelta
 
-from sklearn.utils._param_validation  import StrOptions
+from sklearn.utils._param_validation import StrOptions
 
-from .._gofastlog import gofastlog 
-from ..api.property import BaseClass, PipelineBaseClass
-from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
-from ..compat.sklearn import validate_params 
-from ..tools.funcutils import ensure_pkg 
-from ..tools.coreutils import validate_ratio
-try: 
+try:
     import psutil
-except: pass 
+except ImportError:
+    pass
 
-# Configure logging
-logger=gofastlog.get_gofast_logger(__name__)
+from .._gofastlog import gofastlog
+from ..api.property import BaseClass, PipelineBaseClass
+from ..decorators import ( 
+    RunReturn, smartFitRun, executeWithFallback 
+)
+from ..compat.sklearn import validate_params
+from ..tools.funcutils import ensure_pkg
+from ..tools.coreutils import validate_ratio
+from ..tools.validator import check_is_runned
+
+from ._base import PipelineOrchestrator
+from ._config import INSTALL_DEPENDENCIES, USE_CONDA
+
+
+logger = gofastlog.get_gofast_logger(__name__)
 
 __all__ = [
     "Pipeline",
-    "PipelineStep", 
-    "PipelineManager", 
-    "PipelineOptimizer", 
-    "ResourceMonitor", 
+    "PipelineStep",
+    "PipelineManager",
+    "PipelineOptimizer",
+    "ResourceMonitor",
     "ResourceManager",
-    "create_pipeline", 
-    "reconfigure_pipeline_on_the_fly", 
-    "execute_step_conditionally", 
-    "run_parallel_subpipelines", 
-    "split_data_for_multitask_pipeline", 
-    "rollback_to_previous_state", 
+    "create_pipeline",
+    "reconfigure_pipeline_on_the_fly",
+    "execute_step_conditionally",
+    "run_parallel_subpipelines",
+    "split_data_for_multitask_pipeline",
+    "rollback_to_previous_state",
     "smart_retry_with_backoff",
 ]
 
+
+@smartFitRun
 class PipelineStep(BaseClass):
     """
     A sophisticated pipeline step that supports flexible configurations
@@ -90,13 +99,13 @@ class PipelineStep(BaseClass):
     dependencies : list of str
         List of names of other pipeline steps that this step depends on.
 
-    outputs : Any
+    outputs_ : Any
         The output produced by the pipeline step after execution.
 
     Methods
     -------
-    execute(data)
-        Executes the pipeline step with the given input data and returns
+    run(data)
+        Runs the pipeline step with the given input data and returns
         the output.
 
     get_dependencies()
@@ -113,7 +122,7 @@ class PipelineStep(BaseClass):
 
     .. math::
 
-        \text{outputs} = \text{func}(\text{data},\ **\text{params})
+        \\text{outputs} = \\text{func}(\\text{data},\\ **\\text{params})
 
     This allows for complex operations to be encapsulated within a single
     step, and for steps to be chained together based on their dependencies.
@@ -130,7 +139,7 @@ class PipelineStep(BaseClass):
     ...     dependencies=[]
     ... )
     >>> data = [1, 2, 3]
-    >>> output = step.execute(data)
+    >>> output = step.run(data)
     >>> print(output)
     [2, 4, 6]
 
@@ -142,7 +151,6 @@ class PipelineStep(BaseClass):
     ----------
     .. [1] Doe, J. (2021). "Building Robust Data Pipelines."
        *Data Engineering Journal*, 10(2), 100-110.
-
     """
 
     @validate_params({
@@ -162,11 +170,13 @@ class PipelineStep(BaseClass):
         self.func = func
         self.params = params or {}
         self.dependencies = dependencies or []
-        self.outputs = None
+        self.outputs_ = None
+        self._is_runned = False
 
-    def execute(self, data: Any) -> Any:
+    @RunReturn(attribute_name="outputs_")
+    def run(self, data: Any) -> Any:
         """
-        Executes the pipeline step and returns the output.
+        Runs the pipeline step and returns the output.
 
         Parameters
         ----------
@@ -182,7 +192,8 @@ class PipelineStep(BaseClass):
         Notes
         -----
         Before execution, the method logs the name of the step being executed.
-        After execution, the output is stored in the attribute ``outputs``.
+        After execution, the output is stored in the attribute ``outputs_``.
+        The method sets the ``_is_runned`` attribute to True.
 
         Examples
         --------
@@ -190,13 +201,14 @@ class PipelineStep(BaseClass):
         >>> def add_one(data):
         ...     return [x + 1 for x in data]
         >>> step = PipelineStep(name='AddOne', func=add_one)
-        >>> result = step.execute([1, 2, 3])
+        >>> result = step.run([1, 2, 3])
         >>> print(result)
         [2, 3, 4]
         """
-        logger.info(f"Executing step: {self.name}")
-        self.outputs = self.func(data, **self.params)
-        return self.outputs
+        logger.info(f"Running step: {self.name}")
+        self.outputs_ = self.func(data, **self.params)
+        self._is_runned = True
+        return self.outputs_
 
     def get_dependencies(self) -> List[str]:
         """
@@ -218,7 +230,31 @@ class PipelineStep(BaseClass):
         ['PreviousStep']
         """
         return self.dependencies
+    
+    @executeWithFallback
+    def execute(self, *args, **kwargs):
+        """
+        Execute method which will call `run` or `fit` based on their
+        availability in the class. Executes custom logic when both are 
+        present.
+        
+        Parameters
+        ----------
+        *args : tuple
+            Positional arguments to be passed to `run` or `fit`.
+        **kwargs : dict
+            Keyword arguments to be passed to `run` or `fit`.
+        
+        Returns
+        -------
+        None
+        """
+        print("Executing main execute logic.")
+        
+        return None
+    
 
+@smartFitRun
 class Pipeline(PipelineBaseClass):
     """
     Represents a machine learning pipeline. This allows chaining of
@@ -243,13 +279,16 @@ class Pipeline(PipelineBaseClass):
     parallel : bool
         Indicates whether the pipeline executes steps in parallel.
 
+    outputs_ : Any
+        The final output after running the pipeline.
+
     Methods
     -------
     add_step(step)
         Adds a new step to the pipeline.
 
-    execute(initial_data)
-        Executes the pipeline from start to finish.
+    run(initial_data)
+        Runs the pipeline from start to finish.
 
     Notes
     -----
@@ -268,20 +307,20 @@ class Pipeline(PipelineBaseClass):
 
       .. math::
 
-          \text{data}_{i} = \text{step}_{i}.\text{execute}(\text{data}_{i-1})
+          \\text{data}_{i} = \\text{step}_{i}.\\text{run}(\\text{data}_{i-1})
 
-          \text{for } i = 1 \text{ to } N
+          \\text{for } i = 1 \\text{ to } N
 
-      where :math:`\text{data}_{0}` is the initial input data, and
+      where :math:`\\text{data}_{0}` is the initial input data, and
       :math:`N` is the number of steps.
 
     - Parallel Execution:
 
       .. math::
 
-          \text{outputs}_{i} = \text{step}_{i}.\text{execute}(\text{data}_{0})
+          \\text{outputs}_{i} = \\text{step}_{i}.\\text{run}(\\text{data}_{0})
 
-          \text{for } i = 1 \text{ to } N
+          \\text{for } i = 1 \\text{ to } N
 
     Examples
     --------
@@ -293,7 +332,7 @@ class Pipeline(PipelineBaseClass):
     >>> step1 = PipelineStep(name='Preprocess', func=preprocess)
     >>> step2 = PipelineStep(name='TrainModel', func=model_train)
     >>> pipeline = Pipeline(steps=[step1, step2])
-    >>> result = pipeline.execute([1, 2, 3, 4])
+    >>> result = pipeline.run([1, 2, 3, 4])
     >>> print(result)
     5.0
 
@@ -305,21 +344,23 @@ class Pipeline(PipelineBaseClass):
     ----------
     .. [1] Smith, A. (2020). "Efficient Pipeline Design in Machine
        Learning." *Journal of Data Science*, 15(4), 200-215.
-
     """
-    
+
     @validate_params({
         'steps': [list, None],
         'parallel': [bool]
     })
     def __init__(
-            self, steps: Optional[List['PipelineStep']] = None, 
-            parallel: bool = False
-            ):
+        self,
+        steps: Optional[List[PipelineStep]] = None,
+        parallel: bool = False
+    ):
         self.steps = steps or []
         self.parallel = parallel
+        self.outputs_ = None
+        self._is_runned = False
 
-    def add_step(self, step: 'PipelineStep'):
+    def add_step(self, step: PipelineStep):
         """
         Adds a new step to the pipeline.
 
@@ -331,7 +372,7 @@ class Pipeline(PipelineBaseClass):
         Notes
         -----
         The step is appended to the pipeline's steps list. The order in
-        which steps are added matters when executing sequentially.
+        which steps are added matters when running sequentially.
 
         Examples
         --------
@@ -341,14 +382,14 @@ class Pipeline(PipelineBaseClass):
         >>> pipeline.add_step(step)
         >>> print(len(pipeline.steps))
         1
-
         """
         logger.info(f"Adding step: {step.name}")
         self.steps.append(step)
 
-    def execute(self, initial_data: Any) -> Any:
+    @RunReturn(attribute_name="outputs_")
+    def run(self, initial_data: Any) -> Any:
         """
-        Executes the pipeline from start to finish.
+        Runs the pipeline from start to finish.
 
         Parameters
         ----------
@@ -375,6 +416,8 @@ class Pipeline(PipelineBaseClass):
           each receiving the same initial data. This mode assumes that
           steps are independent of each other.
 
+        The method sets the ``_is_runned`` attribute to True.
+
         Examples
         --------
         >>> from gofast.mlops.pipeline import Pipeline, PipelineStep
@@ -385,17 +428,17 @@ class Pipeline(PipelineBaseClass):
         >>> step1 = PipelineStep(name='Step1', func=step1_func)
         >>> step2 = PipelineStep(name='Step2', func=step2_func)
         >>> pipeline = Pipeline(steps=[step1, step2])
-        >>> result = pipeline.execute([1, 2, 3])
+        >>> result = pipeline.run([1, 2, 3])
         >>> print(result)
         [2, 4, 6, 10]
-
         """
         data = initial_data
         if self.parallel:
             # Parallel execution
             with ThreadPoolExecutor() as executor:
-                future_to_step = {executor.submit(step.execute, data): step 
-                                  for step in self.steps}
+                future_to_step = {
+                    executor.submit(step.run, data): step for step in self.steps
+                }
                 results = []
                 for future in future_to_step:
                     step = future_to_step[future]
@@ -406,18 +449,45 @@ class Pipeline(PipelineBaseClass):
                     except Exception as e:
                         logger.error(f"Step {step.name} failed with error: {str(e)}")
                         raise e
-            return results
+            self.outputs_ = results
+            self._is_runned = True
+            return self.outputs_
         else:
             # Sequential execution
             for step in self.steps:
                 try:
-                    data = step.execute(data)
+                    data = step.run(data)
                     logger.info(f"Step {step.name} completed.")
                 except Exception as e:
                     logger.error(f"Pipeline step {step.name} failed: {str(e)}")
                     raise e
-            return data
+            self.outputs_ = data
+            self._is_runned = True
+            return self.outputs_
         
+    @executeWithFallback
+    def execute(self, *args, **kwargs):
+        """
+        Execute method which will call `run` or `fit` based on their
+        availability in the class. Executes custom logic when both are 
+        present.
+        
+        Parameters
+        ----------
+        *args : tuple
+            Positional arguments to be passed to `run` or `fit`.
+        **kwargs : dict
+            Keyword arguments to be passed to `run` or `fit`.
+        
+        Returns
+        -------
+        None
+        """
+        print("Executing main execute logic. Does nothing")
+        
+        return None
+    
+@smartFitRun
 class PipelineManager(PipelineBaseClass):
     """
     Manages the creation, execution, and tracking of pipelines.
@@ -427,40 +497,51 @@ class PipelineManager(PipelineBaseClass):
     Parameters
     ----------
     retry_failed_steps : bool, optional
-        If `True`, the manager will retry failed steps during execution.
-        Defaults to `False`.
+        If ``True``, the manager will retry failed steps during execution.
+        Defaults to ``False``.
 
     Attributes
     ----------
-    steps : OrderedDict[str, PipelineStep]
-        An ordered dictionary mapping step names to `PipelineStep`
+    steps : OrderedDict of str to PipelineStep
+        An ordered dictionary mapping step names to :class:`PipelineStep`
         instances, maintaining the execution sequence.
-    step_metadata : dict of str to dict
-        A dictionary holding metadata for each step, including status
-        and output.
+
     retry_failed_steps : bool
         Indicates whether failed steps should be retried.
-    failed_steps : list of str
+
+    step_metadata_ : dict of str to dict
+        A dictionary holding metadata for each step, including status
+        and output.
+
+    failed_steps_ : list of str
         List of names of steps that have failed during execution.
+
+    outputs_ : Any
+        The final output after running the pipeline.
 
     Methods
     -------
     add_step(step)
         Adds a step to the pipeline with metadata tracking.
+
     get_step(name)
         Retrieves a step by name.
-    execute(initial_data)
-        Executes the pipeline in the correct order, respecting dependencies.
-    execute_step (step_name)
-        Executes a single step from the pipeline.
+
+    run(initial_data)
+        Runs the pipeline in the correct order, respecting dependencies.
+
+    run_step(step_name)
+        Runs a single step from the pipeline.
+
     retry_failed()
-        Retries failed steps if the `retry_failed_steps` flag is set.
+        Retries failed steps if the ``retry_failed_steps`` flag is set.
+
     get_metadata()
         Returns metadata for the pipeline, including step statuses and outputs.
 
     Notes
     -----
-    The `PipelineManager` class orchestrates the execution of pipeline
+    The :class:`PipelineManager` class orchestrates the execution of pipeline
     steps, respecting dependencies between steps. It performs a dependency
     resolution to determine the execution order. Each step's execution is
     monitored, and metadata is collected.
@@ -475,7 +556,7 @@ class PipelineManager(PipelineBaseClass):
 
     .. math::
 
-        \\text{Execute } s_i \\text{ if } \\forall d \\in D_i, \\text{status}(d) = \\text{success}
+        \\text{Run } s_i \\text{ if } \\forall d \\in D_i, \\text{status}(d) = \\text{success}
 
     where :math:`D_i` is the set of dependencies for step :math:`s_i`.
 
@@ -489,7 +570,7 @@ class PipelineManager(PipelineBaseClass):
     >>> manager = PipelineManager()
     >>> manager.add_step(step1)
     >>> manager.add_step(step2)
-    >>> result = manager.execute(initial_data=0)
+    >>> result = manager.run(initial_data=0)
     >>> print(result)
     2
 
@@ -503,14 +584,17 @@ class PipelineManager(PipelineBaseClass):
        *Machine Learning Journal*, 12(3), 150-165.
     """
 
+
     @validate_params({
         'retry_failed_steps': [bool]
     })
     def __init__(self, retry_failed_steps: bool = False):
         self.steps: 'OrderedDict[str, PipelineStep]' = OrderedDict()
-        self.step_metadata: Dict[str, Any] = {}
         self.retry_failed_steps = retry_failed_steps
-        self.failed_steps: List[str] = []
+        self.step_metadata_: Dict[str, Any] = {}
+        self.failed_steps_: List[str] = []
+        self.outputs_: Any = None
+        self._is_runned = False
 
     def add_step(self, step: 'PipelineStep'):
         """
@@ -519,7 +603,7 @@ class PipelineManager(PipelineBaseClass):
         Parameters
         ----------
         step : PipelineStep
-            The `PipelineStep` instance to add to the pipeline.
+            The :class:`PipelineStep` instance to add to the pipeline.
 
         Raises
         ------
@@ -545,7 +629,7 @@ class PipelineManager(PipelineBaseClass):
             raise ValueError(f"Step with name {step.name} already exists.")
         logger.info(f"Adding step: {step.name} with dependencies: {step.dependencies}")
         self.steps[step.name] = step
-        self.step_metadata[step.name] = {"status": "pending", "output": None}
+        self.step_metadata_[step.name] = {"status": "pending", "output": None}
 
     def get_step(self, name: str) -> Optional['PipelineStep']:
         """
@@ -559,7 +643,7 @@ class PipelineManager(PipelineBaseClass):
         Returns
         -------
         PipelineStep or None
-            The `PipelineStep` instance if found, else `None`.
+            The :class:`PipelineStep` instance if found, else ``None``.
 
         Examples
         --------
@@ -569,9 +653,10 @@ class PipelineManager(PipelineBaseClass):
         """
         return self.steps.get(name, None)
 
-    def execute(self, initial_data: Any) -> Any:
+    @RunReturn(attribute_name="outputs_")
+    def run(self, initial_data: Any) -> Any:
         """
-        Executes the pipeline in the correct order, respecting dependencies.
+        Runs the pipeline in the correct order, respecting dependencies.
         Allows retrying failed steps if enabled.
 
         Parameters
@@ -582,23 +667,25 @@ class PipelineManager(PipelineBaseClass):
         Returns
         -------
         Any
-            The final output after executing the pipeline.
+            The final output after running the pipeline.
 
         Raises
         ------
         Exception
-            Propagates exceptions from steps if `retry_failed_steps` is `False`.
+            Propagates exceptions from steps if ``retry_failed_steps`` is ``False``.
 
         Notes
         -----
         The execution order is determined by resolving dependencies among
-        steps. If a step fails and `retry_failed_steps` is `False`, the
-        execution halts. If `retry_failed_steps` is `True`, the manager
+        steps. If a step fails and ``retry_failed_steps`` is ``False``, the
+        execution halts. If ``retry_failed_steps`` is ``True``, the manager
         will attempt to retry failed steps.
+
+        The method sets the ``_is_runned`` attribute to True.
 
         Examples
         --------
-        >>> result = manager.execute(initial_data=1)
+        >>> result = manager.run(initial_data=1)
         >>> print(result)
         4
         """
@@ -606,20 +693,20 @@ class PipelineManager(PipelineBaseClass):
 
         for step_name in execution_sequence:
             step = self.steps[step_name]
-            # Execute the step only if all dependencies have successfully executed
-            if self._can_execute(step):
+            # Run the step only if all dependencies have successfully executed
+            if self._can_run(step):
                 try:
                     # Collect inputs from dependencies
                     if step.get_dependencies():
-                        input_data = [self.step_metadata[dep]["output"] 
+                        input_data = [self.step_metadata_[dep]["output"]
                                       for dep in step.get_dependencies()]
                         # For simplicity, use the last dependency's output
                         input_data = input_data[-1]
                     else:
                         input_data = initial_data
 
-                    logger.info(f"Executing {step_name} with input: {input_data}")
-                    output = step.execute(input_data)
+                    logger.info(f"Running {step_name} with input: {input_data}")
+                    output = step.run(input_data)
                     self._update_step_metadata(step_name, "success", output)
                 except Exception as e:
                     logger.error(f"Step {step_name} failed with error: {str(e)}")
@@ -628,28 +715,30 @@ class PipelineManager(PipelineBaseClass):
                         raise e
                     else:
                         logger.info(f"Retrying step {step_name} as retry is enabled.")
-                        self.failed_steps.append(step_name)
+                        self.failed_steps_.append(step_name)
             else:
                 logger.info(f"Skipping {step_name} due to unmet dependencies.")
         # Return the output of the last step
-        final_output = self.step_metadata[execution_sequence[-1]]["output"]
+        final_output = self.step_metadata_[execution_sequence[-1]]["output"]
+        self.outputs_ = final_output
+        self._is_runned = True
         return final_output
 
     def _determine_execution_order(self) -> List[str]:
         """
-        Determines the order in which the steps should be executed,
+        Determines the order in which the steps should be run,
         based on the dependencies defined for each step.
 
         Returns
         -------
         execution_order : list of str
-            The list of step names in the order they should be executed.
+            The list of step names in the order they should be run.
 
         Notes
         -----
         This method performs a topological sort to resolve dependencies.
         For complex dependency graphs, it ensures that all dependencies are
-        executed before a step.
+        run before a step.
 
         Examples
         --------
@@ -675,23 +764,23 @@ class PipelineManager(PipelineBaseClass):
 
         logger.info(f"Determined execution order: {execution_order}")
         return execution_order
-    
-    def execute_step(self, step_name: str):
+
+    def run_step(self, step_name: str):
         """
-        Executes a single step from the pipeline.
-    
+        Runs a single step from the pipeline.
+
         Parameters
         ----------
         step_name : str
-            The name of the step to execute.
-    
+            The name of the step to run.
+
         Raises
         ------
         ValueError
             If the step with the given name does not exist in the pipeline.
         Exception
-            If the step fails or cannot be executed due to unmet dependencies.
-    
+            If the step fails or cannot be run due to unmet dependencies.
+
         Examples
         --------
         >>> from gofast.mlops.pipeline import PipelineManager, PipelineStep
@@ -704,59 +793,59 @@ class PipelineManager(PipelineBaseClass):
         >>> manager = PipelineManager()
         >>> manager.add_step(step1)
         >>> manager.add_step(step2)
-        >>> manager.execute_step('step1')  # Executes 'step1' only
-        >>> # Executes 'step2' after 'step1' because of the dependency
-        >>> manager.execute_step('step2')  
-        >>> print(manager.step_metadata)
+        >>> manager.run_step('step1')  # Runs 'step1' only
+        >>> # Runs 'step2' after 'step1' because of the dependency
+        >>> manager.run_step('step2')
+        >>> print(manager.get_metadata())
         {'step1': {'status': 'success', 'output': 1}, 'step2': {'status': 'success', 'output': 2}}
         """
         step = self.get_step(step_name)
         if not step:
             raise ValueError(f"Step {step_name} does not exist in the pipeline.")
-        
-        if self._can_execute(step):
+
+        if self._can_run(step):
             try:
                 # Collect inputs from dependencies
                 if step.get_dependencies():
-                    input_data = [self.step_metadata[dep]["output"] 
+                    input_data = [self.step_metadata_[dep]["output"]
                                   for dep in step.get_dependencies()]
                     input_data = input_data[-1]
                 else:
                     input_data = None
-    
-                logger.info(f"Executing step {step_name} with input: {input_data}")
-                output = step.execute(input_data)
+
+                logger.info(f"Running step {step_name} with input: {input_data}")
+                output = step.run(input_data)
                 self._update_step_metadata(step_name, "success", output)
             except Exception as e:
                 logger.error(f"Step {step_name} failed with error: {str(e)}")
                 self._update_step_metadata(step_name, "failed", None)
                 raise e
         else:
-            logger.info(f"Cannot execute {step_name} due to unmet dependencies.")
+            logger.info(f"Cannot run {step_name} due to unmet dependencies.")
 
-    def _can_execute(self, step: 'PipelineStep') -> bool:
+    def _can_run(self, step: 'PipelineStep') -> bool:
         """
-        Checks if a pipeline step can be executed by verifying that all
+        Checks if a pipeline step can be run by verifying that all
         dependencies have succeeded.
 
         Parameters
         ----------
         step : PipelineStep
-            The `PipelineStep` to check.
+            The :class:`PipelineStep` to check.
 
         Returns
         -------
         bool
-            `True` if the step can be executed, `False` otherwise.
+            ``True`` if the step can be run, ``False`` otherwise.
 
         Examples
         --------
-        >>> can_execute = manager._can_execute(step2)
-        >>> print(can_execute)
+        >>> can_run = manager._can_run(step2)
+        >>> print(can_run)
         True
         """
         for dep in step.get_dependencies():
-            if self.step_metadata.get(dep, {}).get("status") != "success":
+            if self.step_metadata_.get(dep, {}).get("status") != "success":
                 return False
         return True
 
@@ -775,44 +864,44 @@ class PipelineManager(PipelineBaseClass):
 
         Notes
         -----
-        This method updates the `step_metadata` dictionary for the given
+        This method updates the ``step_metadata_`` dictionary for the given
         step.
 
         Examples
         --------
         >>> manager._update_step_metadata('step1', 'success', output)
         """
-        self.step_metadata[step_name]["status"] = status
-        self.step_metadata[step_name]["output"] = output
+        self.step_metadata_[step_name]["status"] = status
+        self.step_metadata_[step_name]["output"] = output
 
     def retry_failed(self):
         """
-        Retries failed steps if the `retry_failed_steps` flag is set.
+        Retries failed steps if the ``retry_failed_steps`` flag is set.
 
         Notes
         -----
-        This method re-executes any steps that failed during the initial
+        This method re-runs any steps that failed during the initial
         execution, using the outputs of their dependencies.
 
         Examples
         --------
         >>> manager.retry_failed()
         """
-        if not self.failed_steps:
+        if not self.failed_steps_:
             logger.info("No failed steps to retry.")
             return
 
         logger.info("Retrying failed steps...")
-        for step_name in self.failed_steps:
+        for step_name in self.failed_steps_:
             step = self.steps[step_name]
             try:
                 dependencies = step.get_dependencies()
                 if dependencies:
-                    input_data = [self.step_metadata[dep]["output"] for dep in dependencies]
+                    input_data = [self.step_metadata_[dep]["output"] for dep in dependencies]
                     input_data = input_data[-1]
                 else:
                     input_data = None
-                output = step.execute(input_data)
+                output = step.run(input_data)
                 self._update_step_metadata(step_name, "success", output)
                 logger.info(f"Retry of step {step_name} succeeded.")
             except Exception as e:
@@ -833,14 +922,38 @@ class PipelineManager(PipelineBaseClass):
         >>> print(metadata)
         {'step1': {'status': 'success', 'output': 1}, 'step2': {'status': 'success', 'output': 2}}
         """
-        return self.step_metadata
+        check_is_runned(self, attributes=['_is_runned'])
+        return self.step_metadata_
+
+    @executeWithFallback
+    def execute(self, *args, **kwargs):
+        """
+        Execute method which will call `run` or `fit` based on their
+        availability in the class. Executes custom logic when both are 
+        present.
+        
+        Parameters
+        ----------
+        *args : tuple
+            Positional arguments to be passed to `run` or `fit`.
+        **kwargs : dict
+            Keyword arguments to be passed to `run` or `fit`.
+        
+        Returns
+        -------
+        None
+        """
+        print("Executing main execute logic. Does nothing")
+        
+        return None
     
+@smartFitRun
 @ensure_pkg(
-    "psutil", 
+    "psutil",
     extra="The 'psutil' package is required for this functionality.",
-    auto_install=INSTALL_DEPENDENCIES, 
+    auto_install=INSTALL_DEPENDENCIES,
     use_conda=USE_CONDA
-    )
+)
 class ResourceManager(BaseClass):
     """
     Manages the allocation of system resources for pipeline steps.
@@ -849,25 +962,32 @@ class ResourceManager(BaseClass):
 
     Attributes
     ----------
-    available_cpu_cores : int
+    available_cpu_cores_ : int
         The number of physical CPU cores available for allocation.
-    available_memory : int
+
+    available_memory_ : int
         The total system memory available for allocation, in bytes.
 
     Methods
     -------
+    run()
+        Initializes the resource manager by detecting available resources.
+
     allocate_cpu(requested_cores)
         Allocates CPU cores to a step.
+
     allocate_memory(requested_memory)
         Allocates memory to a step.
+
     release_resources(cpu_cores, memory)
         Releases resources after a pipeline step has been executed.
+
     get_system_resources()
         Returns a dictionary of the current available system resources.
 
     Notes
     -----
-    The `ResourceManager` class is responsible for managing system
+    The :class:`ResourceManager` is responsible for managing system
     resources such as CPU cores and memory. It provides methods to
     allocate and release resources, ensuring that pipeline steps
     have the necessary resources to execute efficiently.
@@ -879,30 +999,31 @@ class ResourceManager(BaseClass):
 
       .. math::
 
-          \text{available\_cpu\_cores} = \text{available\_cpu\_cores}
-          - \text{requested\_cores}
+          \\text{available\\_cpu\\_cores} = \\text{available\\_cpu\\_cores}
+          - \\text{requested\\_cores}
 
     - Memory Allocation:
 
       .. math::
 
-          \text{available\_memory} = \text{available\_memory}
-          - \text{requested\_memory}
+          \\text{available\\_memory} = \\text{available\\_memory}
+          - \\text{requested\\_memory}
 
     - Resource Release:
 
       .. math::
 
-          \text{available\_cpu\_cores} = \text{available\_cpu\_cores}
-          + \text{cpu\_cores}
+          \\text{available\\_cpu\\_cores} = \\text{available\\_cpu\\_cores}
+          + \\text{cpu\\_cores}
 
-          \text{available\_memory} = \text{available\_memory}
-          + \text{memory}
+          \\text{available\\_memory} = \\text{available\\_memory}
+          + \\text{memory}
 
     Examples
     --------
     >>> from gofast.mlops.pipeline import ResourceManager
     >>> manager = ResourceManager()
+    >>> manager.run()
     >>> success = manager.allocate_cpu(2)
     >>> if success:
     ...     print("Allocated CPU cores.")
@@ -927,14 +1048,34 @@ class ResourceManager(BaseClass):
     ----------
     .. [1] Smith, J. (2020). "Efficient Resource Management in Pipeline Systems."
        *Journal of Systems Engineering*, 15(3), 200-215.
-
     """
 
     def __init__(self):
-        self._include_all_attributes =True
-        
-        self.available_cpu_cores = psutil.cpu_count(logical=False)
-        self.available_memory = psutil.virtual_memory().total
+        self.available_cpu_cores_ = None
+        self.available_memory_ = None
+        self._is_runned = False
+
+    @RunReturn
+    def run(self):
+        """
+        Initializes the resource manager by detecting available resources.
+
+        Notes
+        -----
+        This method detects the available physical CPU cores and total system
+        memory, and initializes the corresponding attributes.
+
+        Examples
+        --------
+        >>> manager.run()
+        """
+        self.available_cpu_cores_ = psutil.cpu_count(logical=False)
+        self.available_memory_ = psutil.virtual_memory().total
+        self._is_runned = True
+        logger.info(
+            f"ResourceManager initialized with {self.available_cpu_cores_} "
+            f"CPU cores and {self.available_memory_ / (1024 ** 3):.2f} GB memory."
+        )
 
     @validate_params({'requested_cores': [int]})
     def allocate_cpu(self, requested_cores: int) -> bool:
@@ -949,21 +1090,21 @@ class ResourceManager(BaseClass):
         Returns
         -------
         bool
-            Returns `True` if the requested CPU cores are successfully
-            allocated; otherwise, returns `False`.
+            Returns ``True`` if the requested CPU cores are successfully
+            allocated; otherwise, returns ``False``.
 
         Notes
         -----
         If the requested number of CPU cores is less than or equal to
         the available CPU cores, the method allocates them and updates
-        the `available_cpu_cores` attribute.
+        the ``available_cpu_cores_`` attribute.
 
         Mathematically:
 
         .. math::
 
-            \text{available\_cpu\_cores} = \text{available\_cpu\_cores}
-            - \text{requested\_cores}
+            \\text{available\\_cpu\\_cores} = \\text{available\\_cpu\\_cores}
+            - \\text{requested\\_cores}
 
         Examples
         --------
@@ -971,14 +1112,15 @@ class ResourceManager(BaseClass):
         >>> print(success)
         True
         """
-        if requested_cores <= self.available_cpu_cores:
+        check_is_runned(self, attributes=['_is_runned'])
+        if requested_cores <= self.available_cpu_cores_:
             logger.info(f"Allocated {requested_cores} CPU cores.")
-            self.available_cpu_cores -= requested_cores
+            self.available_cpu_cores_ -= requested_cores
             return True
         else:
             logger.warning(
                 f"Not enough CPU cores. Requested: {requested_cores}, "
-                f"Available: {self.available_cpu_cores}"
+                f"Available: {self.available_cpu_cores_}"
             )
             return False
 
@@ -995,21 +1137,21 @@ class ResourceManager(BaseClass):
         Returns
         -------
         bool
-            Returns `True` if the requested memory is successfully allocated;
-            otherwise, returns `False`.
+            Returns ``True`` if the requested memory is successfully allocated;
+            otherwise, returns ``False``.
 
         Notes
         -----
         If the requested memory is less than or equal to the available
-        memory, the method allocates it and updates the `available_memory`
+        memory, the method allocates it and updates the ``available_memory_``
         attribute.
 
         Mathematically:
 
         .. math::
 
-            \text{available\_memory} = \text{available\_memory}
-            - \text{requested\_memory}
+            \\text{available\\_memory} = \\text{available\\_memory}
+            - \\text{requested\\_memory}
 
         Examples
         --------
@@ -1017,13 +1159,14 @@ class ResourceManager(BaseClass):
         >>> print(success)
         True
         """
-        if requested_memory <= self.available_memory:
+        check_is_runned(self, attributes=['_is_runned'])
+        if requested_memory <= self.available_memory_:
             allocated_gb = requested_memory / (1024 ** 3)
             logger.info(f"Allocated {allocated_gb:.2f} GB memory.")
-            self.available_memory -= requested_memory
+            self.available_memory_ -= requested_memory
             return True
         else:
-            available_gb = self.available_memory / (1024 ** 3)
+            available_gb = self.available_memory_ / (1024 ** 3)
             requested_gb = requested_memory / (1024 ** 3)
             logger.warning(
                 f"Not enough memory. Requested: {requested_gb:.2f} GB, "
@@ -1040,30 +1183,32 @@ class ResourceManager(BaseClass):
         ----------
         cpu_cores : int
             The number of CPU cores to release.
+
         memory : int
             The amount of memory to release, in bytes.
 
         Notes
         -----
-        This method increases the `available_cpu_cores` and
-        `available_memory` attributes by the specified amounts.
+        This method increases the ``available_cpu_cores_`` and
+        ``available_memory_`` attributes by the specified amounts.
 
         Mathematically:
 
         .. math::
 
-            \text{available\_cpu\_cores} = \text{available\_cpu\_cores}
-            + \text{cpu\_cores}
+            \\text{available\\_cpu\\_cores} = \\text{available\\_cpu\\_cores}
+            + \\text{cpu\\_cores}
 
-            \text{available\_memory} = \text{available\_memory}
-            + \text{memory}
+            \\text{available\\_memory} = \\text{available\\_memory}
+            + \\text{memory}
 
         Examples
         --------
         >>> manager.release_resources(cpu_cores=2, memory=1024 * 1024 * 1024)
         """
-        self.available_cpu_cores += cpu_cores
-        self.available_memory += memory
+        check_is_runned(self, attributes=['_is_runned'])
+        self.available_cpu_cores_ += cpu_cores
+        self.available_memory_ += memory
         released_gb = memory / (1024 ** 3)
         logger.info(
             f"Released {cpu_cores} CPU cores and {released_gb:.2f} GB memory."
@@ -1079,17 +1224,23 @@ class ResourceManager(BaseClass):
             A dictionary containing the available CPU cores and memory
             in gigabytes.
 
+        Notes
+        -----
+        This method can be used to check the current available resources.
+
         Examples
         --------
         >>> resources = manager.get_system_resources()
         >>> print(resources)
         {'available_cpu_cores': ..., 'available_memory_gb': ...}
         """
+        check_is_runned(self, attributes=['_is_runned'])
         return {
-            "available_cpu_cores": self.available_cpu_cores,
-            "available_memory_gb": self.available_memory / (1024 ** 3),
+            "available_cpu_cores": self.available_cpu_cores_,
+            "available_memory_gb": self.available_memory_ / (1024 ** 3),
         }
-    
+
+
 @ensure_pkg(
     "psutil",
     extra="The 'psutil' package is required for this functionality.",
@@ -1104,23 +1255,26 @@ class ResourceMonitor(BaseClass):
 
     Attributes
     ----------
-    cpu_usage : list of float
+    cpu_usage_ : list of float
         A list containing recorded CPU usage percentages.
-    memory_usage : list of int
+
+    memory_usage_ : list of int
         A list containing recorded memory usage amounts, in bytes.
 
     Methods
     -------
-    start_monitoring()
+    run()
         Starts monitoring system resources.
+
     stop_monitoring()
         Stops monitoring and logs the final resource usage statistics.
+
     record_usage()
         Records current CPU and memory usage.
 
     Notes
     -----
-    The `ResourceMonitor` class provides functionality to monitor and
+    The :class:`ResourceMonitor` provides functionality to monitor and
     log system resource usage, which can be useful for performance
     analysis and optimization.
 
@@ -1130,25 +1284,25 @@ class ResourceMonitor(BaseClass):
 
       .. math::
 
-          \text{Average CPU Usage} = \frac{1}{N} \sum_{i=1}^{N}
-          \text{CPU}_i
+          \\text{Average CPU Usage} = \\frac{1}{N} \\sum_{i=1}^{N}
+          \\text{CPU}_i
 
     - Average Memory Usage:
 
       .. math::
 
-          \text{Average Memory Usage} = \frac{1}{N} \sum_{i=1}^{N}
-          \text{Memory}_i
+          \\text{Average Memory Usage} = \\frac{1}{N} \\sum_{i=1}^{N}
+          \\text{Memory}_i
 
     where :math:`N` is the number of recorded intervals,
-    :math:`\text{CPU}_i` is the CPU usage at interval :math:`i`, and
-    :math:`\text{Memory}_i` is the memory usage at interval :math:`i`.
+    :math:`\\text{CPU}_i` is the CPU usage at interval :math:`i`, and
+    :math:`\\text{Memory}_i` is the memory usage at interval :math:`i`.
 
     Examples
     --------
     >>> from gofast.mlops.pipeline import ResourceMonitor
     >>> monitor = ResourceMonitor()
-    >>> monitor.start_monitoring()
+    >>> monitor.run()
     >>> # Simulate workload
     >>> for _ in range(5):
     ...     monitor.record_usage()
@@ -1163,31 +1317,31 @@ class ResourceMonitor(BaseClass):
     ----------
     .. [1] Lee, K. (2019). "Monitoring System Resources in Data Pipelines."
        *International Journal of Data Engineering*, 8(2), 120-135.
-
     """
 
     def __init__(self):
-        self._include_all_attributes =True 
-        
-        self.cpu_usage: List[float] = []
-        self.memory_usage: List[int] = []
+        self.cpu_usage_: List[float] = []
+        self.memory_usage_: List[int] = []
+        self._is_runned = False
 
-    def start_monitoring(self):
+    @RunReturn()
+    def run(self):
         """
         Starts monitoring system resources.
 
         Notes
         -----
         This method initializes or clears the lists that store CPU and
-        memory usage data.
+        memory usage data, and sets the monitoring flag.
 
         Examples
         --------
-        >>> monitor.start_monitoring()
+        >>> monitor.run()
         """
         logger.info("Starting resource monitoring...")
-        self.cpu_usage.clear()
-        self.memory_usage.clear()
+        self.cpu_usage_.clear()
+        self.memory_usage_.clear()
+        self._is_runned = True
 
     def stop_monitoring(self):
         """
@@ -1202,26 +1356,27 @@ class ResourceMonitor(BaseClass):
 
         .. math::
 
-            \text{Average CPU Usage} = \frac{1}{N} \sum_{i=1}^{N}
-            \text{CPU}_i
+            \\text{Average CPU Usage} = \\frac{1}{N} \\sum_{i=1}^{N}
+            \\text{CPU}_i
 
         The average memory usage is calculated as:
 
         .. math::
 
-            \text{Average Memory Usage} = \frac{1}{N} \sum_{i=1}^{N}
-            \text{Memory}_i
+            \\text{Average Memory Usage} = \\frac{1}{N} \\sum_{i=1}^{N}
+            \\text{Memory}_i
 
         Examples
         --------
         >>> monitor.stop_monitoring()
         """
-        if self.cpu_usage:
-            avg_cpu = sum(self.cpu_usage) / len(self.cpu_usage)
+        check_is_runned(self, attributes=['_is_runned'])
+        if self.cpu_usage_:
+            avg_cpu = sum(self.cpu_usage_) / len(self.cpu_usage_)
         else:
             avg_cpu = 0
-        if self.memory_usage:
-            avg_memory = sum(self.memory_usage) / len(self.memory_usage)
+        if self.memory_usage_:
+            avg_memory = sum(self.memory_usage_) / len(self.memory_usage_)
         else:
             avg_memory = 0
         avg_memory_gb = avg_memory / (1024 ** 3)
@@ -1241,53 +1396,66 @@ class ResourceMonitor(BaseClass):
         --------
         >>> monitor.record_usage()
         """
+        check_is_runned(self, attributes=['_is_runned'])
         cpu = psutil.cpu_percent(interval=1)
         memory = psutil.virtual_memory().used
-        self.cpu_usage.append(cpu)
-        self.memory_usage.append(memory)
+        self.cpu_usage_.append(cpu)
+        self.memory_usage_.append(memory)
         memory_gb = memory / (1024 ** 3)
         logger.info(
             f"Current CPU Usage: {cpu:.2f}%, Memory Usage: {memory_gb:.2f} GB"
         )
-        
-class PipelineOptimizer (BaseClass):
+
+
+@smartFitRun
+class PipelineOptimizer(BaseClass):
     """
     Optimizes resource allocation and usage for pipeline steps,
-    integrating with `PipelineManager`, `ResourceManager`, and
-    `ResourceMonitor` to allocate, release, monitor, and tune resources.
+    integrating with :class:`PipelineManager`, :class:`ResourceManager`, and
+    :class:`ResourceMonitor` to allocate, release, monitor, and tune resources.
 
     Parameters
     ----------
     pipeline_manager : PipelineManager
-        An instance of `PipelineManager` that manages the pipeline steps.
+        An instance of :class:`PipelineManager` that manages the pipeline steps.
 
     Attributes
     ----------
     pipeline_manager : PipelineManager
         The pipeline manager associated with this optimizer.
-    resource_manager : ResourceManager
+
+    resource_manager_ : ResourceManager
         Manages resource allocation and release.
-    resource_monitor : ResourceMonitor
+
+    resource_monitor_ : ResourceMonitor
         Monitors resource usage during pipeline execution.
+
+    _is_runned : bool
+        Indicates whether the optimizer has been run.
 
     Methods
     -------
+    run()
+        Initializes the optimizer by setting up resource manager and monitor.
+
     allocate_resources(step_name, resources)
         Allocates resources to a specific pipeline step.
+
     release_resources_after_step(step_name, resources)
         Releases allocated resources after a pipeline step is completed.
+
     monitor_resources_for_step(step_name, duration=5)
         Monitors resource usage for a given step over a specified duration.
+
     tune_resources_based_on_usage(step_name, threshold)
         Tunes resource allocation based on observed resource usage.
-    tune_hyperparameters(step_name, param_grid, n_trials= 10, 
-                         eval_metric= 'accuracy')
-        Tunes hyperparameters for a specific pipeline step using either
-        `optuna` (if available) or a fallback grid/random search.
+
+    tune_hyperparameters(step_name, param_grid, n_trials=10, eval_metric='accuracy')
+        Tunes hyperparameters for a specific pipeline step.
 
     Notes
     -----
-    The `PipelineOptimizer` class is designed to improve the efficiency
+    The :class:`PipelineOptimizer` class is designed to improve the efficiency
     of pipeline execution by managing resource allocation and usage.
     It leverages resource monitoring data to adjust allocations,
     ensuring optimal performance.
@@ -1297,6 +1465,7 @@ class PipelineOptimizer (BaseClass):
     >>> from gofast.mlops.pipeline import PipelineOptimizer, PipelineManager
     >>> pipeline_manager = PipelineManager()
     >>> optimizer = PipelineOptimizer(pipeline_manager)
+    >>> optimizer.run()
     >>> optimizer.allocate_resources('step1', {'CPU': 2, 'Memory': 2 * 1024 ** 3})
     >>> optimizer.monitor_resources_for_step('step1', duration=5)
     >>> recommended_resources = optimizer.tune_resources_based_on_usage(
@@ -1315,25 +1484,44 @@ class PipelineOptimizer (BaseClass):
     .. [1] Smith, A. (2021). "Dynamic Resource Allocation in Machine
        Learning Pipelines." *Journal of Computational Efficiency*, 10(2),
        100-115.
-
     """
 
     @validate_params({
-        'pipeline_manager': [object]
+        'pipeline_manager': [object],
     })
     def __init__(self, pipeline_manager: 'PipelineManager'):
         self.pipeline_manager = pipeline_manager
-        self.resource_manager = ResourceManager()
-        self.resource_monitor = ResourceMonitor()
+        self.resource_manager_ = None
+        self.resource_monitor_ = None
+        self._is_runned = False
+
+    @RunReturn()
+    def run(self):
+        """
+        Initializes the optimizer by setting up resource manager and monitor.
+
+        Notes
+        -----
+        This method initializes the resource manager and resource monitor,
+        preparing the optimizer for resource allocation and monitoring tasks.
+        It sets the `_is_runned` attribute to True.
+
+        Examples
+        --------
+        >>> optimizer.run()
+        """
+        self.resource_manager_ = ResourceManager()
+        self.resource_manager_.run()
+        self.resource_monitor_ = ResourceMonitor()
+        self.resource_monitor_.run()
+        self._is_runned = True
+        logger.info("PipelineOptimizer has been initialized.")
 
     @validate_params({
         'step_name': [str],
         'resources': [dict]
     })
-    def allocate_resources(
-        self, step_name: str, 
-        resources: Dict[str, Any]
-        ) -> None:
+    def allocate_resources(self, step_name: str, resources: Dict[str, Any]) -> None:
         """
         Allocates resources (e.g., CPU cores, memory) to a specific
         pipeline step.
@@ -1342,6 +1530,7 @@ class PipelineOptimizer (BaseClass):
         ----------
         step_name : str
             The name of the pipeline step to allocate resources for.
+
         resources : dict
             A dictionary specifying the resources to allocate.
             Keys can include `'CPU'` and `'Memory'`.
@@ -1352,36 +1541,39 @@ class PipelineOptimizer (BaseClass):
         Notes
         -----
         This method attempts to allocate the requested resources using
-        the `ResourceManager`. If allocation fails, an error is logged.
+        the :class:`ResourceManager`. If allocation fails, an error is logged.
 
         Mathematically, the allocation can be represented as:
 
         .. math::
 
-            \text{available\_cpu\_cores} = \text{available\_cpu\_cores}
-            - \text{requested\_cores}
+            \\text{available\\_cpu\\_cores} = \\text{available\\_cpu\\_cores}
+            - \\text{requested\\_cores}
 
-            \text{available\_memory} = \text{available\_memory}
-            - \text{requested\_memory}
+            \\text{available\\_memory} = \\text{available\\_memory}
+            - \\text{requested\\_memory}
 
         Examples
         --------
         >>> optimizer.allocate_resources('step1', {'CPU': 2, 'Memory': 2 * 1024 ** 3})
         """
+        check_is_runned(self, attributes=['_is_runned'])
         logger.info(f"Allocating resources for step: {step_name} -> {resources}")
-        
-        step = self.pipeline_manager.get_step(step_name) # noqa
+
+        step = self.pipeline_manager.get_step(step_name)
+        if not step:
+            raise ValueError(f"Step {step_name} does not exist in the pipeline.")
 
         cpu_allocated = True
         memory_allocated = True
 
         if "CPU" in resources:
             requested_cores = resources["CPU"]
-            cpu_allocated = self.resource_manager.allocate_cpu(requested_cores)
+            cpu_allocated = self.resource_manager_.allocate_cpu(requested_cores)
 
         if "Memory" in resources:
             requested_memory = resources["Memory"]
-            memory_allocated = self.resource_manager.allocate_memory(requested_memory)
+            memory_allocated = self.resource_manager_.allocate_memory(requested_memory)
 
         if cpu_allocated and memory_allocated:
             logger.info(f"Resources allocated successfully for step: {step_name}.")
@@ -1396,8 +1588,7 @@ class PipelineOptimizer (BaseClass):
         'resources': [dict]
     })
     def release_resources_after_step(
-            self, step_name: str, 
-            resources: Dict[str, Any]) -> None:
+            self, step_name: str, resources: Dict[str, Any]) -> None:
         """
         Releases allocated resources after a pipeline step has completed.
 
@@ -1405,6 +1596,7 @@ class PipelineOptimizer (BaseClass):
         ----------
         step_name : str
             The name of the pipeline step that has completed.
+
         resources : dict
             A dictionary specifying the resources to release.
             Keys can include `'CPU'` and `'Memory'`.
@@ -1414,38 +1606,37 @@ class PipelineOptimizer (BaseClass):
 
         Notes
         -----
-        This method releases resources using the `ResourceManager`.
+        This method releases resources using the :class:`ResourceManager`.
         It ensures that resources are made available for other steps.
 
         Mathematically, the release can be represented as:
 
         .. math::
 
-            \text{available\_cpu\_cores} = \text{available\_cpu\_cores}
-            + \text{cpu\_cores}
+            \\text{available\\_cpu\\_cores} = \\text{available\\_cpu\\_cores}
+            + \\text{cpu\\_cores}
 
-            \text{available\_memory} = \text{available\_memory}
-            + \text{memory}
+            \\text{available\\_memory} = \\text{available\\_memory}
+            + \\text{memory}
 
         Examples
         --------
         >>> optimizer.release_resources_after_step(
         ...   'step1', {'CPU': 2, 'Memory': 2 * 1024 ** 3})
         """
+        check_is_runned(self, attributes=['_is_runned'])
         logger.info(f"Releasing resources for step: {step_name} -> {resources}")
 
         cpu_cores = resources.get("CPU", 0)
         memory = resources.get("Memory", 0)
 
-        self.resource_manager.release_resources(cpu_cores, memory)
+        self.resource_manager_.release_resources(cpu_cores, memory)
 
     @validate_params({
         'step_name': [str],
         'duration': [int]
     })
-    def monitor_resources_for_step(
-        self, step_name: str, duration: int = 5
-        ) -> None:
+    def monitor_resources_for_step(self, step_name: str, duration: int = 5) -> None:
         """
         Monitors resource usage (CPU and Memory) for a given step over
         a specified duration.
@@ -1454,37 +1645,38 @@ class PipelineOptimizer (BaseClass):
         ----------
         step_name : str
             The name of the step to monitor.
+
         duration : int, optional
             The duration to monitor resources in seconds. Defaults to
             5 seconds.
 
         Notes
         -----
-        This method uses the `ResourceMonitor` to record resource usage
+        This method uses the :class:`ResourceMonitor` to record resource usage
         at one-second intervals for the specified duration.
 
         Examples
         --------
         >>> optimizer.monitor_resources_for_step('step1', duration=10)
         """
+        check_is_runned(self, attributes=['_is_runned'])
         logger.info(
             f"Monitoring resources for step: {step_name} for {duration} seconds."
         )
-        self.resource_monitor.start_monitoring()
+        self.resource_monitor_.run()
 
         for _ in range(duration):
-            self.resource_monitor.record_usage()
+            self.resource_monitor_.record_usage()
             time.sleep(1)
 
-        self.resource_monitor.stop_monitoring()
+        self.resource_monitor_.stop_monitoring()
 
     @validate_params({
         'step_name': [str],
         'threshold': [dict]
     })
     def tune_resources_based_on_usage(
-        self, step_name: str, threshold: Dict[str, Any]
-    ) -> Dict[str, Any]:
+            self, step_name: str, threshold: Dict[str, Any]) -> Dict[str, Any]:
         """
         Tunes resource allocation for a specific step based on observed
         resource usage.
@@ -1493,6 +1685,7 @@ class PipelineOptimizer (BaseClass):
         ----------
         step_name : str
             The name of the step to tune.
+
         threshold : dict
             Threshold values for resource usage.
             Keys can include `'CPU'` and `'Memory'`.
@@ -1509,18 +1702,18 @@ class PipelineOptimizer (BaseClass):
         Notes
         -----
         This method analyzes the average resource usage recorded by
-        `ResourceMonitor` and adjusts the resource allocation if the
+        :class:`ResourceMonitor` and adjusts the resource allocation if the
         usage exceeds the specified thresholds.
 
         Mathematically, if the average usage exceeds the threshold:
 
         .. math::
 
-            \text{recommended\_resource} = \min(
-            \text{available\_resource} + \delta, \text{total\_resource}
+            \\text{recommended\\_resource} = \\min(
+            \\text{available\\_resource} + \\delta, \\text{total\\_resource}
             )
 
-        where :math:`\delta` is the increment step.
+        where :math:`\\delta` is the increment step.
 
         Examples
         --------
@@ -1529,21 +1722,22 @@ class PipelineOptimizer (BaseClass):
         >>> print(recommended_resources)
         {'CPU': 4, 'Memory': 5368709120}
         """
+        check_is_runned(self, attributes=['_is_runned'])
         logger.info(f"Tuning resources for step: {step_name} based on usage.")
 
-        avg_cpu = sum(self.resource_monitor.cpu_usage
-                      ) / len(self.resource_monitor.cpu_usage)
-        avg_memory = sum(self.resource_monitor.memory_usage
-                         ) / len(self.resource_monitor.memory_usage)
+        avg_cpu = sum(self.resource_monitor_.cpu_usage_) / len(
+            self.resource_monitor_.cpu_usage_)
+        avg_memory = sum(self.resource_monitor_.memory_usage_) / len(
+            self.resource_monitor_.memory_usage_)
 
         recommended_resources = {}
 
         # Adjust CPU allocation if average usage exceeds threshold
         cpu_threshold = threshold.get("CPU", 100)
         if avg_cpu > cpu_threshold:
-            max_cores = psutil.cpu_count(logical=False)
+            max_cores = self.resource_manager_.available_cpu_cores_
             recommended_cores = min(
-                self.resource_manager.available_cpu_cores + 1, max_cores
+                self.resource_manager_.available_cpu_cores_ + 1, max_cores
             )
             logger.info(f"Increasing CPU allocation to {recommended_cores} cores.")
             recommended_resources["CPU"] = recommended_cores
@@ -1551,13 +1745,12 @@ class PipelineOptimizer (BaseClass):
             recommended_resources["CPU"] = threshold.get("CPU", 1)
 
         # Adjust memory allocation if average usage exceeds threshold
-        memory_threshold = threshold.get(
-            "Memory", self.resource_manager.available_memory)
+        memory_threshold = threshold.get("Memory", self.resource_manager_.available_memory_)
         if avg_memory > memory_threshold:
-            total_memory = psutil.virtual_memory().total
+            total_memory = self.resource_manager_.available_memory_
             additional_memory = 1 * 1024 ** 3  # Increase by 1 GB
             recommended_memory = min(
-                self.resource_manager.available_memory + additional_memory,
+                self.resource_manager_.available_memory_ + additional_memory,
                 total_memory
             )
             logger.info(
@@ -1577,8 +1770,11 @@ class PipelineOptimizer (BaseClass):
         'eval_metric': [str]
     })
     def tune_hyperparameters(
-        self, step_name: str, param_grid: Dict[str, list],
-        n_trials: int = 10, eval_metric: str = 'accuracy'
+        self,
+        step_name: str,
+        param_grid: Dict[str, List[Any]],
+        n_trials: int = 10,
+        eval_metric: str = 'accuracy'
     ) -> Dict[str, Any]:
         """
         Tunes hyperparameters for a specific pipeline step using either
@@ -1588,11 +1784,14 @@ class PipelineOptimizer (BaseClass):
         ----------
         step_name : str
             The name of the pipeline step to tune hyperparameters for.
+
         param_grid : dict
             A dictionary where keys are parameter names and values are lists
             of possible values to try.
+
         n_trials : int, optional
             The number of trials to run during tuning. Defaults to 10.
+
         eval_metric : str, optional
             The evaluation metric to optimize. Defaults to 'accuracy'.
 
@@ -1619,19 +1818,20 @@ class PipelineOptimizer (BaseClass):
         >>> print(best_params)
         {'learning_rate': 0.1, 'n_estimators': 200}
         """
+        check_is_runned(self, attributes=['_is_runned'])
         logger.info(f"Tuning hyperparameters for step: {step_name} with {n_trials} trials.")
-        
+
         step = self.pipeline_manager.get_step(step_name)
         if not step:
             raise ValueError(f"Step {step_name} does not exist in the pipeline.")
-            
+
         try:
-            import optuna # noqa
+            import optuna  # noqa
             HAS_OPTUNA = True
         except ImportError:
             logger.warning("Optuna is not installed. Falling back to grid search.")
             HAS_OPTUNA = False
-            
+
         if HAS_OPTUNA:
             # Use Optuna if installed
             return self._optuna_tuning(step, param_grid, n_trials, eval_metric)
@@ -1639,9 +1839,18 @@ class PipelineOptimizer (BaseClass):
             # Fallback to grid search or random search
             return self._fallback_tuning(step, param_grid, n_trials, eval_metric)
 
+    @ensure_pkg(
+        "optuna",
+        extra="Optuna is required for hyperparameter tuning.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA
+    )
     def _optuna_tuning(
-        self, step: 'PipelineStep', param_grid: Dict[str, list],
-        n_trials: int, eval_metric: str
+        self,
+        step: 'PipelineStep',
+        param_grid: Dict[str, List[Any]],
+        n_trials: int,
+        eval_metric: str
     ) -> Dict[str, Any]:
         """
         Tunes hyperparameters using Optuna.
@@ -1650,10 +1859,13 @@ class PipelineOptimizer (BaseClass):
         ----------
         step : PipelineStep
             The pipeline step to tune.
+
         param_grid : dict
             Parameter grid for tuning.
+
         n_trials : int
             Number of trials for Optuna to run.
+
         eval_metric : str
             Metric to optimize.
 
@@ -1663,7 +1875,7 @@ class PipelineOptimizer (BaseClass):
             Best hyperparameters found by Optuna.
         """
         import optuna
-        
+
         def objective(trial):
             params = {key: trial.suggest_categorical(key, values)
                       for key, values in param_grid.items()}
@@ -1671,8 +1883,8 @@ class PipelineOptimizer (BaseClass):
 
             # Execute the step with the sampled parameters
             try:
-                step.set_params(**params)
-                output = step.execute(None)  # Assuming no initial data needed
+                step.params.update(params)
+                output = step.run(None)
                 score = self._evaluate_step_output(output, eval_metric)
                 logger.info(f"Trial score: {score}")
                 return score
@@ -1688,8 +1900,11 @@ class PipelineOptimizer (BaseClass):
         return best_params
 
     def _fallback_tuning(
-        self, step: 'PipelineStep', param_grid: Dict[str, list],
-        n_trials: int, eval_metric: str
+        self,
+        step: 'PipelineStep',
+        param_grid: Dict[str, List[Any]],
+        n_trials: int,
+        eval_metric: str
     ) -> Dict[str, Any]:
         """
         Fallback method for hyperparameter tuning using grid search or
@@ -1699,10 +1914,13 @@ class PipelineOptimizer (BaseClass):
         ----------
         step : PipelineStep
             The pipeline step to tune.
+
         param_grid : dict
             Parameter grid for tuning.
+
         n_trials : int
-            Number of trials for random search.
+            Number of trials to perform.
+
         eval_metric : str
             Metric to optimize.
 
@@ -1712,36 +1930,43 @@ class PipelineOptimizer (BaseClass):
             Best hyperparameters found.
         """
         logger.info("Using fallback strategy for hyperparameter tuning.")
-        
+
         # Determine whether to use grid search or randomized search
         param_combinations = list(product(*param_grid.values()))
         logger.info(f"Total parameter combinations: {len(param_combinations)}")
-        
+
         if len(param_combinations) <= n_trials:
             logger.info(f"Using Grid Search (combinations: {len(param_combinations)}).")
             return self._grid_search(step, param_combinations, param_grid, eval_metric)
         else:
             logger.info(f"Using Randomized Search with {n_trials} trials.")
-            return self._random_search(step, param_combinations, param_grid, 
+            return self._random_search(step, param_combinations, param_grid,
                                        n_trials, eval_metric)
 
-    def _grid_search(self, step: 'PipelineStep', param_combinations: list, 
-                     param_grid: Dict[str, list], eval_metric: str
-                     ) -> Dict[str, Any]:
+    def _grid_search(
+        self,
+        step: 'PipelineStep',
+        param_combinations: List[tuple],
+        param_grid: Dict[str, List[Any]],
+        eval_metric: str
+    ) -> Dict[str, Any]:
         """
         Performs grid search over all parameter combinations.
-    
+
         Parameters
         ----------
         step : PipelineStep
             The pipeline step to tune.
+
         param_combinations : list
             List of all parameter combinations.
+
         param_grid : dict
             The parameter grid to extract keys from.
+
         eval_metric : str
             Metric to optimize.
-    
+
         Returns
         -------
         best_params : dict
@@ -1749,44 +1974,53 @@ class PipelineOptimizer (BaseClass):
         """
         best_score = float('-inf')
         best_params = None
-    
+
         for params in param_combinations:
-            param_dict = dict(zip(param_grid.keys(), params))  # Use param_grid here
+            param_dict = dict(zip(param_grid.keys(), params))
             logger.info(f"Testing params: {param_dict}")
-            
+
             try:
-                step.set_params(**param_dict)
-                output = step.execute(None)  # Assuming no initial data needed
+                step.params.update(param_dict)
+                output = step.run(None)
                 score = self._evaluate_step_output(output, eval_metric)
-    
+
                 if score > best_score:
                     best_score = score
                     best_params = param_dict
             except Exception as e:
                 logger.error(f"Error during grid search: {str(e)}")
-        
+
         logger.info(f"Best params found via Grid Search: {best_params}")
         return best_params
-    
-    def _random_search(self, step: 'PipelineStep', param_combinations: list, 
-                       param_grid: Dict[str, list], n_trials: int, 
-                       eval_metric: str) -> Dict[str, Any]:
+
+    def _random_search(
+        self,
+        step: 'PipelineStep',
+        param_combinations: List[tuple],
+        param_grid: Dict[str, List[Any]],
+        n_trials: int,
+        eval_metric: str
+    ) -> Dict[str, Any]:
         """
         Performs randomized search over a limited number of parameter combinations.
-    
+
         Parameters
         ----------
         step : PipelineStep
             The pipeline step to tune.
+
         param_combinations : list
             List of all parameter combinations.
+
         param_grid : dict
             The parameter grid to extract keys from.
+
         n_trials : int
             Number of trials to perform.
+
         eval_metric : str
             Metric to optimize.
-    
+
         Returns
         -------
         best_params : dict
@@ -1794,25 +2028,25 @@ class PipelineOptimizer (BaseClass):
         """
         best_score = float('-inf')
         best_params = None
-    
+
         sampled_combinations = random.sample(param_combinations, n_trials)
         logger.info(f"Random search will evaluate {n_trials} combinations.")
-    
+
         for params in sampled_combinations:
-            param_dict = dict(zip(param_grid.keys(), params))  # Use param_grid here
+            param_dict = dict(zip(param_grid.keys(), params))
             logger.info(f"Testing params: {param_dict}")
-            
+
             try:
-                step.set_params(**param_dict)
-                output = step.execute(None)  # Assuming no initial data needed
+                step.params.update(param_dict)
+                output = step.run(None)
                 score = self._evaluate_step_output(output, eval_metric)
-    
+
                 if score > best_score:
                     best_score = score
                     best_params = param_dict
             except Exception as e:
                 logger.error(f"Error during random search: {str(e)}")
-        
+
         logger.info(f"Best params found via Randomized Search: {best_params}")
         return best_params
 
@@ -1824,6 +2058,7 @@ class PipelineOptimizer (BaseClass):
         ----------
         output : Any
             The output of the step to evaluate.
+
         eval_metric : str
             The evaluation metric to use (e.g., 'accuracy', 'f1').
 
@@ -1831,148 +2066,24 @@ class PipelineOptimizer (BaseClass):
         -------
         score : float
             The calculated score based on the evaluation metric.
+
+        Raises
+        ------
+        ValueError
+            If the evaluation metric is unsupported.
         """
         if eval_metric == 'accuracy':
             # Assuming output contains a key for accuracy
-            return output.get('accuracy', 0)  
+            return output.get('accuracy', 0)
         elif eval_metric == 'f1':
             # Assuming output contains a key for f1-score
-            return output.get('f1', 0)  
+            return output.get('f1', 0)
         else:
             raise ValueError(f"Unsupported evaluation metric: {eval_metric}")
 
-class PipelineOrchestrator:
-    """
-    Base class for pipeline orchestration integration with tools like
-    Airflow and Prefect. This class defines the basic interface for
-    creating, scheduling, and monitoring pipelines.
-
-    Parameters
-    ----------
-    pipeline_manager : object
-        An instance of ``PipelineManager`` that manages pipeline steps.
-
-    Attributes
-    ----------
-    pipeline_manager : object
-        The pipeline manager associated with this orchestrator.
-
-    Methods
-    -------
-    create_workflow()
-        Abstract method to create a workflow (e.g., DAG for Airflow).
-    schedule_pipeline(schedule_interval)
-        Abstract method to schedule the pipeline.
-    monitor_pipeline()
-        Abstract method to monitor the status of pipeline execution.
-
-    Notes
-    -----
-    The ``PipelineOrchestrator`` class provides an abstraction layer for
-    integrating pipelines with orchestration tools. Subclasses must
-    implement the abstract methods to provide tool-specific
-    functionality.
-
-    Examples
-    --------
-    >>> from gofast.mlops.pipeline import PipelineOrchestrator
-    >>> class MyOrchestrator(PipelineOrchestrator):
-    ...     def create_workflow(self):
-    ...         pass
-    ...     def schedule_pipeline(self, schedule_interval):
-    ...         pass
-    ...     def monitor_pipeline(self):
-    ...         pass
-    >>> pipeline_manager = PipelineManager()
-    >>> orchestrator = MyOrchestrator(pipeline_manager)
-    >>> orchestrator.create_workflow()
-
-    See Also
-    --------
-    AirflowOrchestrator : Orchestrator using Apache Airflow.
-
-    References
-    ----------
-    .. [1] Smith, J. (2020). "Orchestrating Machine Learning Pipelines."
-       *Journal of Data Engineering*, 5(3), 150-165.
-    """
-
-    @validate_params({'pipeline_manager': [object]})
-    def __init__(self, pipeline_manager: 'PipelineManager'):
-        self.pipeline_manager = pipeline_manager
-
-    def create_workflow(self):
-        """
-        Abstract method to create a workflow (e.g., DAG for Airflow,
-        Flow for Prefect). Must be implemented by subclasses.
-
-        Raises
-        ------
-        NotImplementedError
-            If the method is not implemented by a subclass.
-
-        Notes
-        -----
-        Subclasses should implement this method to create the workflow
-        specific to the orchestration tool being used.
-
-        Examples
-        --------
-        >>> orchestrator.create_workflow()
-        """
-        raise NotImplementedError("Subclasses must implement this method.")
-
-    def schedule_pipeline(self, schedule_interval: str):
-        """
-        Abstract method to schedule a pipeline. Must be implemented by
-        subclasses.
-
-        Parameters
-        ----------
-        schedule_interval : str
-            The scheduling interval (e.g., cron expression).
-
-        Raises
-        ------
-        NotImplementedError
-            If the method is not implemented by a subclass.
-
-        Notes
-        -----
-        Subclasses should implement this method to schedule the pipeline
-        according to the scheduling capabilities of the orchestration
-        tool.
-
-        Examples
-        --------
-        >>> orchestrator.schedule_pipeline('@daily')
-        """
-        raise NotImplementedError("Subclasses must implement this method.")
-
-    def monitor_pipeline(self):
-        """
-        Abstract method to monitor the status of pipeline execution.
-        Must be implemented by subclasses.
-
-        Raises
-        ------
-        NotImplementedError
-            If the method is not implemented by a subclass.
-
-        Notes
-        -----
-        Subclasses should implement this method to provide monitoring
-        capabilities using the orchestration tool's features.
-
-        Examples
-        --------
-        >>> orchestrator.monitor_pipeline()
-        """
-        raise NotImplementedError("Subclasses must implement this method.")
-
 @ensure_pkg(
     "prefect",
-    extra="The 'prefect' package is required for this functionality.", 
+    extra="The 'prefect' package is required for this functionality.",
     auto_install=INSTALL_DEPENDENCIES,
     use_conda=USE_CONDA
 )
@@ -1984,27 +2095,33 @@ class PrefectOrchestrator(PipelineOrchestrator):
     Parameters
     ----------
     pipeline_manager : PipelineManager
-        An instance of ``PipelineManager`` that manages pipeline steps.
+        An instance of :class:`PipelineManager` that manages pipeline steps.
 
     Attributes
     ----------
     pipeline_manager : PipelineManager
         The pipeline manager associated with this orchestrator.
-    flow : prefect.Flow
+
+    flow_ : prefect.Flow
         The Prefect Flow representing the pipeline workflow.
+
+    _is_runned : bool
+        Indicates whether the orchestrator has been run.
 
     Methods
     -------
-    create_workflow(flow_name)
-        Creates a Prefect Flow that runs the pipeline.
+    run(flow_name)
+        Creates and runs a Prefect Flow that represents the pipeline.
+
     schedule_pipeline(schedule_interval)
         Schedules the pipeline using a cron-like schedule.
+
     monitor_pipeline()
         Monitors the pipeline execution via Prefect's monitoring UI.
 
     Notes
     -----
-    The ``PrefectOrchestrator`` class provides integration with Prefect,
+    The :class:`PrefectOrchestrator` class provides integration with Prefect,
     enabling pipelines to be executed as Prefect Flows. It allows for
     seamless scheduling and monitoring of pipeline executions.
 
@@ -2013,7 +2130,7 @@ class PrefectOrchestrator(PipelineOrchestrator):
     >>> from gofast.mlops.pipeline import PrefectOrchestrator, PipelineManager
     >>> pipeline_manager = PipelineManager()
     >>> orchestrator = PrefectOrchestrator(pipeline_manager)
-    >>> orchestrator.create_workflow(flow_name='my_pipeline')
+    >>> orchestrator.run(flow_name='my_pipeline')
     >>> orchestrator.schedule_pipeline('0 0 * * *')  # Daily at midnight
 
     See Also
@@ -2027,15 +2144,16 @@ class PrefectOrchestrator(PipelineOrchestrator):
        *Journal of Data Orchestration*, 9(2), 120-135.
     """
 
-    @validate_params({'pipeline_manager': [object]})
+    @validate_params({'pipeline_manager': ['PipelineManager']})
     def __init__(self, pipeline_manager: 'PipelineManager'):
         super().__init__(pipeline_manager)
-        self.flow = None
+        self.flow_ = None
 
+    @RunReturn
     @validate_params({'flow_name': [str]})
-    def create_workflow(self, flow_name: str):
+    def run(self, flow_name: str):
         """
-        Creates a Prefect Flow that runs the pipeline.
+        Creates and runs a Prefect Flow that represents the pipeline.
 
         Parameters
         ----------
@@ -2046,36 +2164,35 @@ class PrefectOrchestrator(PipelineOrchestrator):
         -----
         This method constructs a Prefect Flow by wrapping each pipeline
         step's function in a Prefect task. The flow is stored in the
-        attribute ``flow``.
+        attribute ``flow_``.
+
+        The method sets the ``_is_runned`` attribute to True.
 
         Examples
         --------
-        >>> orchestrator.create_workflow(flow_name='my_pipeline')
+        >>> orchestrator.run(flow_name='my_pipeline')
         """
-        try:
-            from prefect import Flow, task
-        except ImportError as e:
-            logger.error(
-                "Prefect is not installed. Please install Prefect to use this feature."
-            )
-            raise e
+        from prefect import Flow, task
 
         logger.info(f"Creating Prefect Flow with name: {flow_name}")
 
         # Create Prefect tasks for each pipeline step
-        def task_wrapper(func: Callable, **kwargs):
-            return func(**kwargs)
+        def task_wrapper(step_func: Any, **kwargs):
+            return step_func(**kwargs)
 
         with Flow(flow_name) as flow:
             previous_task = None
             for step_name, step in self.pipeline_manager.steps.items():
-                current_task = task(task_wrapper)(step.func, **step.params)
-                current_task.name = step_name
+                @task(name=step_name)
+                def current_task():
+                    return task_wrapper(step.func, **step.params)
+
                 if previous_task:
                     previous_task.set_downstream(current_task)
                 previous_task = current_task
 
-        self.flow = flow
+        self.flow_ = flow
+        self._is_runned = True
         logger.info(f"Prefect Flow '{flow_name}' created successfully.")
 
     @validate_params({'schedule_interval': [str]})
@@ -2093,32 +2210,22 @@ class PrefectOrchestrator(PipelineOrchestrator):
         Notes
         -----
         This method adds a schedule to the Prefect Flow using a CronClock
-        for cron-like schedules. The flow must be created prior to
-        scheduling.
+        for cron-like schedules. The flow must be run prior to scheduling.
 
         Examples
         --------
         >>> orchestrator.schedule_pipeline('0 0 * * *')  # Daily at midnight
         """
-        if self.flow is None:
-            logger.error("Flow is not created. Run create_workflow first.")
-            return
+        check_is_runned(self, attributes=['_is_runned'])
 
         logger.info(f"Scheduling Prefect Flow with interval: {schedule_interval}")
 
-        try:
-            from prefect.schedules import Schedule
-            from prefect.schedules.clocks import CronClock
-        except ImportError as e:
-            logger.error(
-                "Prefect schedules are not available. Please ensure you have"
-                " the correct version of Prefect installed."
-            )
-            raise e
+        from prefect.schedules import Schedule
+        from prefect.schedules.clocks import CronClock
 
         # Add a schedule to the flow (using CronClock for cron-like schedules)
         schedule = Schedule(clocks=[CronClock(schedule_interval)])
-        self.flow.schedule = schedule
+        self.flow_.schedule = schedule
 
     def monitor_pipeline(self):
         """
@@ -2134,9 +2241,17 @@ class PrefectOrchestrator(PipelineOrchestrator):
         --------
         >>> orchestrator.monitor_pipeline()
         """
+        check_is_runned(self, attributes=['_is_runned'])
+
         logger.info("Monitoring Prefect Flow execution through the Prefect UI.")
 
 
+@ensure_pkg(
+    "airflow",
+    extra="The 'airflow' package is required for this functionality.",
+    auto_install=INSTALL_DEPENDENCIES,
+    use_conda=USE_CONDA
+)
 class AirflowOrchestrator(PipelineOrchestrator):
     """
     Integrates the pipeline with Apache Airflow, allowing for DAG creation
@@ -2145,27 +2260,33 @@ class AirflowOrchestrator(PipelineOrchestrator):
     Parameters
     ----------
     pipeline_manager : PipelineManager
-        An instance of ``PipelineManager`` that manages pipeline steps.
+        An instance of :class:`PipelineManager` that manages pipeline steps.
 
     Attributes
     ----------
     pipeline_manager : PipelineManager
         The pipeline manager associated with this orchestrator.
-    dag : airflow.DAG
+
+    dag_ : airflow.DAG
         The Airflow DAG representing the pipeline workflow.
+
+    _is_runned : bool
+        Indicates whether the orchestrator has been run.
 
     Methods
     -------
-    create_workflow(dag_id, start_date, schedule_interval='@daily')
-        Creates an Airflow DAG that runs the pipeline.
+    run(dag_id, start_date, schedule_interval='@daily')
+        Creates and runs an Airflow DAG that represents the pipeline.
+
     schedule_pipeline(schedule_interval)
         Schedules the pipeline using a cron-like schedule.
+
     monitor_pipeline()
         Monitors the pipeline execution via Airflow's monitoring UI.
 
     Notes
     -----
-    The ``AirflowOrchestrator`` class provides integration with Apache
+    The :class:`AirflowOrchestrator` class provides integration with Apache
     Airflow, enabling pipelines to be executed as Airflow DAGs.
 
     Examples
@@ -2174,7 +2295,7 @@ class AirflowOrchestrator(PipelineOrchestrator):
     >>> from datetime import datetime
     >>> pipeline_manager = PipelineManager()
     >>> orchestrator = AirflowOrchestrator(pipeline_manager)
-    >>> orchestrator.create_workflow(
+    >>> orchestrator.run(
     ...     dag_id='my_pipeline',
     ...     start_date=datetime(2023, 1, 1),
     ...     schedule_interval='@daily'
@@ -2192,31 +2313,34 @@ class AirflowOrchestrator(PipelineOrchestrator):
        *Data Pipelines Journal*, 8(1), 100-110.
     """
 
-    @validate_params({'pipeline_manager': [object]})
+    @validate_params({'pipeline_manager': ['PipelineManager']})
     def __init__(self, pipeline_manager: 'PipelineManager'):
         super().__init__(pipeline_manager)
-        self.dag = None
+        self.dag_ = None
 
+    @RunReturn()
     @validate_params({
-        'dag_id': [StrOptions({"@daily", "cron expression" })],
+        'dag_id': [str],
         'start_date': [datetime],
         'schedule_interval': [str, None]
     })
-    def create_workflow(
+    def run(
         self,
         dag_id: str,
         start_date: datetime,
         schedule_interval: Optional[str] = "@daily"
     ):
         """
-        Creates an Airflow DAG that runs the pipeline.
+        Creates and runs an Airflow DAG that represents the pipeline.
 
         Parameters
         ----------
         dag_id : str
             The unique identifier for the DAG.
+
         start_date : datetime
             The start date of the DAG execution.
+
         schedule_interval : str, optional
             The scheduling interval for the DAG (e.g., cron expression).
             Defaults to ``'@daily'``.
@@ -2225,25 +2349,21 @@ class AirflowOrchestrator(PipelineOrchestrator):
         -----
         This method constructs an Airflow DAG by mapping the pipeline
         steps to Airflow tasks using ``PythonOperator``. The DAG is
-        stored in the attribute ``dag``.
+        stored in the attribute ``dag_``.
+
+        The method sets the ``_is_runned`` attribute to True.
 
         Examples
         --------
         >>> from datetime import datetime
-        >>> orchestrator.create_workflow(
+        >>> orchestrator.run(
         ...     dag_id='my_pipeline',
         ...     start_date=datetime(2023, 1, 1),
         ...     schedule_interval='@daily'
         ... )
         """
-        try:
-            from airflow import DAG
-            from airflow.operators.python import PythonOperator
-        except ImportError as e:
-            logger.error(
-                "Airflow is not installed. Please install Airflow to use this feature."
-            )
-            raise e
+        from airflow import DAG
+        from airflow.operators.python_operator import PythonOperator
 
         logger.info(f"Creating Airflow DAG with ID: {dag_id}")
 
@@ -2279,7 +2399,8 @@ class AirflowOrchestrator(PipelineOrchestrator):
                 previous_task >> task
             previous_task = task
 
-        self.dag = dag
+        self.dag_ = dag
+        self._is_runned = True
         logger.info(f"DAG '{dag_id}' created successfully.")
 
     @validate_params({'schedule_interval': [str]})
@@ -2296,18 +2417,16 @@ class AirflowOrchestrator(PipelineOrchestrator):
         Notes
         -----
         This method updates the DAG's schedule interval to the specified
-        value. The DAG must be created prior to scheduling.
+        value. The DAG must be run prior to scheduling.
 
         Examples
         --------
         >>> orchestrator.schedule_pipeline('@hourly')
         """
-        if self.dag is None:
-            logger.error("DAG is not created. Run create_workflow first.")
-            return
+        check_is_runned(self, attributes=['_is_runned'])
 
         logger.info(f"Scheduling DAG with interval: {schedule_interval}")
-        self.dag.schedule_interval = schedule_interval
+        self.dag_.schedule_interval = schedule_interval
 
     def monitor_pipeline(self):
         """
@@ -2322,10 +2441,12 @@ class AirflowOrchestrator(PipelineOrchestrator):
         --------
         >>> orchestrator.monitor_pipeline()
         """
-        logger.info("Monitoring Airflow DAG execution through the Airflow web UI.")
-    
-# Pipeline functions
+        check_is_runned(self, attributes=['_is_runned'])
 
+        logger.info("Monitoring Airflow DAG execution through the Airflow web UI.")
+
+
+# Pipeline functions
 def reconfigure_pipeline_on_the_fly(
     pipeline_manager: 'PipelineManager',
     step_name: str,
