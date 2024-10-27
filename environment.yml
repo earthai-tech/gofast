@@ -25,4 +25,5 @@ dependencies:
   - statsmodels
   - docutils>=0.18.1
   - tensorflow>=2.15.0
+  - psutil
   - pytest

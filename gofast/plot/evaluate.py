@@ -3,7 +3,7 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """
-`evaluate ` is a set of plot templates for visualising and inspecting
+Set of plot templates for visualising and inspecting
 the learning models.  It gives a quick depiction for users for 
 models visualization and evaluation with : :class:`~gofast.plot.EvalPlotter`.
 """
@@ -49,6 +49,10 @@ from ..tools.validator import assert_xy_in
 from .utils import _get_xticks_formatage,  make_mpl_properties
 
 _logger=gofastlog.get_gofast_logger(__name__)
+
+__all__ = ["MetricPlotter", "EvalPlotter", "plot_model_scores",
+           "plot_reg_scoring", "plot_model"]
+
 
 class MetricPlotter (BasePlot):
     def __init__(self, line_style='-',line_width=2, color_map='viridis',

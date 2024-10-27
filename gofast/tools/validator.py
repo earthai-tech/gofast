@@ -11,7 +11,7 @@ ensuring proper data types, and handling various validation scenarios.
 """
 
 from functools import wraps
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional, Union, Dict, List
 import re
 import inspect 
 import types 
@@ -46,8 +46,10 @@ __all__=[
      'check_consistency_size',
      'check_consistent_length',
      'check_epsilon',
+     'check_has_run_method',
      'check_is_fitted',
      'check_is_fitted2',
+     'check_is_runned', 
      'check_memory',
      'check_mixed_data_types',
      'check_random_state',
@@ -81,6 +83,7 @@ __all__=[
      'validate_dates',
      'validate_distribution',
      'validate_dtype_selector',
+     'validate_estimator_methods',
      'validate_fit_weights',
      'validate_keras_model',
      'validate_length_range',
@@ -88,17 +91,360 @@ __all__=[
      'validate_multioutput',
      'validate_nan_policy',
      'validate_numeric', 
+     'validate_performance_data',
      'validate_positive_integer',
      'validate_sample_weights',
+     'validate_sets', 
      'validate_scores',
      'validate_square_matrix',
      'validate_weights',
      'validate_yy'
  ]
 
+def check_is_runned(estimator, attributes=None, *, msg=None, all_or_any=all):
+    """
+    Validate if an estimator instance has been "runned" (executed) prior 
+    to invoking dependent methods. This check ensures that the estimator is in 
+    the appropriate operational state, allowing users to identify and address 
+    runtime issues effectively.
+
+    If an estimator does not set "runned" attributes (such as ``_is_runned``), 
+    it may define a ``__gofast_is_runned__`` method. This method should return 
+    a boolean indicating whether the estimator is "runned" or not. 
+
+    Parameters
+    ----------
+    estimator : object
+        The instance of the estimator or class being validated. This 
+        parameter represents the object in which dependent methods 
+        are validated to confirm that the "runned" state has been achieved.
+
+        To determine the "runned" status, the function checks for specific 
+        attributes or, if defined, the ``__gofast_is_runned__`` method.
+
+    attributes : str, list, or tuple of str, optional, default=None
+        Specifies the name(s) of attributes that indicate the "runned" status, 
+        such as ``['_is_runned']`` or ``['_is_fitted']``. If these attributes 
+        are present and set to `True`, the estimator is considered to have 
+        been runned.
+
+        If ``attributes`` is set to `None`, the function will default to 
+        checking for ``_is_runned``. This default provides flexibility for 
+        estimators that employ standard runned flags. 
+
+    msg : str, optional, default=None
+        Custom error message to be displayed if the validation fails. 
+        By default, this error message uses the class name of the 
+        `estimator` in the format:
+
+        "This %(name)s instance has not been 'runned' yet. Call 'run' with 
+        appropriate arguments before using this method."
+
+        To customize the message, include `%(name)s` as a placeholder for 
+        the estimator's class name.
+
+    all_or_any : callable, {all, any}, optional, default=all
+        Determines whether all or any of the specified `attributes` must be 
+        present and set to `True`. By default, the function expects all 
+        attributes to be set to `True`. Set to `any` for greater flexibility 
+        with multiple attributes.
+
+    Methods
+    -------
+    ``__gofast_is_runned__`` : optional, callable
+        If defined within the `estimator`, this method should return a 
+        boolean indicating the "runned" status of the estimator. This 
+        provides an alternative to using attributes.
+
+    Raises
+    ------
+    RuntimeError
+        If none of the specified attributes are set to `True` or if the 
+        `__gofast_is_runned__` method (if present) returns `False`.
+
+    Notes
+    -----
+    The `check_is_runned` function ensures that methods dependent on 
+    the "runned" status are only executed after the estimator has completed 
+    all required preliminary processes, like `fit` or `run`.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import check_is_runned
+    >>> class ExampleClass:
+    ...     def __init__(self):
+    ...         self._is_runned = False
+    ...
+    ...     def run(self):
+    ...         self._is_runned = True
+    ...         print("Run completed.")
+    ...
+    ...     def process_data(self):
+    ...         check_is_runned(self)
+    ...         print("Processing data...")
+    >>> model = ExampleClass()
+    >>> model.process_data()  # Raises RuntimeError
+    >>> model.run()
+    >>> model.process_data()  # Now it works
+
+    See Also
+    --------
+    check_is_fitted : Validates that an estimator has been "fitted" before 
+                      further use.
+    validate_estimator_methods : Validates essential estimator methods.
+
+    References
+    ----------
+    .. [1] Scikit-learn's `check_is_fitted` function: 
+           https://scikit-learn.org/stable/modules/generated/sklearn.utils.validation.check_is_fitted.html
+    .. [2] Python official documentation on class attributes:
+           https://docs.python.org/3/tutorial/classes.html#class-and-instance-attributes
+    """
+    from ..exceptions import NotRunnedError
+
+    # Default attribute if none is provided
+    if attributes is None:
+        attributes = ['_is_runned']
+    elif not isinstance(attributes, (list, tuple)):
+        attributes = [attributes]
+
+    # Define default error message if not provided
+    if msg is None:
+        msg = (
+            "This %(name)s instance has not been 'runned' yet. Call 'run' with "
+            "appropriate arguments before using this method."
+        )
+
+    # First check if a custom `__gofast_is_runned__` method is available
+    if hasattr(estimator, "__gofast_is_runned__"):
+        is_runned = estimator.__gofast_is_runned__()
+    else:
+        # Verify attributes are present and set to True if no custom method is provided
+        is_runned = all_or_any([getattr(estimator, attr, False) for attr in attributes])
+
+    if not is_runned:
+        raise NotRunnedError(msg % {"name": type(estimator).__name__})
+
+def check_has_run_method(estimator, msg=None, method_name="run"):
+    """
+    Check if the given estimator has a callable `run` method or any other 
+    specified method. This utility helps validate that an object can 
+    execute the expected method before further actions are taken.
+
+    Parameters
+    ----------
+    estimator : object
+        The object (instance or class) to check for the presence of the 
+        `run` method or another specified method.
+    
+    msg : str, optional
+        Custom error message to display if the method is missing. If None, 
+        a default message is generated based on the `method_name`.
+    
+    method_name : str, default="run"
+        The method name to check for. This defaults to `run`, but you can 
+        specify any method name. The method must be callable.
+    
+    Raises
+    ------
+    AttributeError
+        Raised if the `run` method (or any specified method) does not 
+        exist on the object or is not callable.
+    
+    Examples
+    --------
+    >>> from gofast.tools.validator import check_has_run_method
+    >>> class MyClass:
+    ...     def run(self):
+    ...         pass
+    >>> check_has_run_method(MyClass())  # No error
+
+    >>> class MyClassWithoutRun:
+    ...     pass
+    >>> check_has_run_method(MyClassWithoutRun())  # Raises AttributeError
+
+    Notes
+    -----
+    This function performs several checks:
+    
+    1. **Existence check**: It checks whether the `run` method (or any 
+       other specified method) exists in the `estimator` object.
+    2. **Callable check**: It ensures that the method is callable, which 
+       rules out attributes that might exist but aren't methods.
+    3. **Static/class method check**: The function accepts static or 
+       class methods as valid callable methods.
+    4. **Bound method check**: It verifies that instance methods are 
+       bound to an object when required, which ensures they can be called 
+       properly in the given context.
+
+    This function can be expressed as a validation function:
+
+    .. math:: 
+        \text{check\_has\_method}(estimator, method\_name) = 
+        \begin{cases} 
+        \text{valid}, & \text{if method exists and callable} \\
+        \text{invalid}, & \text{if method is missing or not callable}
+        \end{cases}
+
+    It determines whether the method is callable or raises an error 
+    otherwise.
+
+    See Also
+    --------
+    validate_estimator_methods : A helper function to validate multiple 
+                                 methods on an estimator.
+
+    References
+    ----------
+    .. [1] Python Software Foundation. Python 3.9 Documentation.
+           https://docs.python.org/3/
+    .. [2] Static Methods in Python. Real Python.
+           https://realpython.com/instance-class-and-static-methods-python/
+
+    """
+
+    # Step 1: Check if the method exists
+    if not hasattr(estimator, method_name):
+        if msg is None:
+            msg = f"'{estimator.__class__.__name__}' object has no attribute '{method_name}'"
+        raise AttributeError(msg)
+
+    method = getattr(estimator, method_name)
+
+    # Step 2: Ensure the method is callable
+    if not callable(method):
+        if msg is None:
+            msg = f"'{method_name}' attribute of '{estimator.__class__.__name__}' is not callable."
+        raise AttributeError(msg)
+
+    # Step 3: Check for static or class methods
+    if isinstance(getattr(estimator.__class__, method_name, None), (staticmethod, classmethod)):
+        return  # Valid if it's a static or class method
+    
+    # Step 4: If it's an instance method, ensure it's bound
+    if not isinstance(method, (staticmethod, classmethod)) and not hasattr(method, '__self__'):
+        raise AttributeError(f"'{method_name}' method of '{estimator.__class__.__name__}' is unbound.")
+
+    # If no errors were raised, the method exists and is callable
+    return
+
+def validate_estimator_methods(estimator, methods, msg=None):
+    """
+    Validate that the specified methods exist and are callable on the 
+    given estimator.
+
+    This utility function is designed to check whether an estimator (or 
+    any object) contains the required methods (such as `fit`, `run`, etc.) 
+    and ensures that those methods are callable. It helps prevent runtime 
+    errors by verifying the presence of expected methods.
+
+    Parameters
+    ----------
+    estimator : object
+        The object (instance or class) to check for the presence of the 
+        specified methods. The estimator can be an instance of a class or 
+        the class itself, and it should implement the required methods.
+
+    methods : list of str
+        List of method names (as strings) to validate. Each method name 
+        must exist on the estimator and be callable. Examples of methods 
+        might include `fit`, `run`, `predict`, etc.
+
+    msg : str, optional
+        Custom error message to display if any method is missing or not 
+        callable. If None, a default message is generated for each missing 
+        or invalid method based on the method name.
+
+    Raises
+    ------
+    AttributeError
+        If any method in `methods` is not present or not callable on the 
+        estimator, an AttributeError is raised.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import validate_estimator_methods
+    >>> class MyClass:
+    ...     def fit(self):
+    ...         pass
+    ...     def run(self):
+    ...         pass
+    >>> validate_estimator_methods(MyClass(), ['fit', 'run'])  # No error
+
+    >>> class IncompleteClass:
+    ...     def fit(self):
+    ...         pass
+    >>> validate_estimator_methods(IncompleteClass(), ['fit', 'run'])  
+    # Raises AttributeError for missing `run` method
+
+    Notes
+    -----
+    This function is useful when you want to ensure that an object, such 
+    as an estimator or a model, has the required methods before proceeding 
+    with operations. It validates the presence of multiple methods, 
+    ensuring each is callable, preventing runtime errors in cases where 
+    methods are expected to exist.
+
+    This function checks if all methods :math:`M_1, M_2, \dots, M_n` 
+    exist and are callable on the estimator. The condition can be 
+    expressed as:
+
+    .. math:: 
+        \forall M_i, \quad \text{if} \quad M_i \in \text{estimator} \quad 
+        \land \quad \text{callable}(M_i) \quad \text{then valid} 
+        \quad \text{else error}
+
+    If any method is missing or not callable, the function raises an 
+    `AttributeError`.
+
+    See Also
+    --------
+    check_has_run_method : Validate the presence of a single method (defaulting to `run`).
+
+    References
+    ----------
+    .. [1] Python Software Foundation. Python 3.9 Documentation.
+           https://docs.python.org/3/
+    .. [2] Callable Objects in Python. Real Python.
+           https://realpython.com/python-callable/
+
+    """
+    if isinstance (methods, str): 
+        methods = [methods]
+        
+    for method_name in methods:
+        # Step 1: Check if the method exists on the estimator
+        if not hasattr(estimator, method_name):
+            # If a custom message is provided, use it; otherwise, generate a default message
+            if msg is None:
+                msg = f"'{estimator.__class__.__name__}' object has no attribute '{method_name}'"
+            raise AttributeError(msg)
+        
+        method = getattr(estimator, method_name)
+
+        # Step 2: Ensure the method is callable
+        if not callable(method):
+            if msg is None:
+                msg = f"'{method_name}' attribute of '{estimator.__class__.__name__}' is not callable."
+            raise AttributeError(msg)
+
+        # Step 3: Check if it's a valid static or class method
+        if isinstance(getattr(estimator.__class__, method_name, None), (staticmethod, classmethod)):
+            continue  # Static or class methods are valid and callable
+        
+        # Step 4: Ensure instance methods are properly bound
+        if not isinstance(method, (staticmethod, classmethod)) and not hasattr(method, '__self__'):
+            raise AttributeError(
+                f"'{method_name}' method of '{estimator.__class__.__name__}' is unbound.")
+
+    # If all methods pass, the validation is successful
+    return
+
+
 def filter_valid_kwargs(callable_obj, kwargs):
     """
-    Filter and return only the valid keyword arguments for a given callable object.
+    Filter and return only the valid keyword arguments for a given 
+    callable object.
 
     This function checks if the arguments in `kwargs` are valid for the 
     provided callable object (function, lambda function, method, or class). 
@@ -1045,6 +1391,183 @@ def handle_zero_division(
             pass  # Do nothing, let the calling function handle zeros natively.
 
     return y_true_processed
+
+def convert_to_numeric(value, preserve_integers=True, context_description='Data'):
+    """
+    Helper function to convert values to float. It ensures that integers are
+    converted to floats (unless preserve_integers is True) and raises a detailed
+    error for non-numeric values.
+    
+    Parameters
+    ----------
+    value : Any
+        The value to be converted to float. Integer values are converted, while
+        floats are returned as-is. Non-numeric types raise a ValueError.
+    
+    preserve_integers : bool, optional, default True
+        If True, integer values are preserved as integers and not converted to floats
+        and False otherwise.
+    
+    context_description : str, optional, default 'Data'
+        A description of the type of data being processed, used in error messages 
+        to provide context (e.g., 'Performance data', 'Input data').
+    
+    Returns
+    -------
+    float or int
+        The converted numeric value (float by default, or int if preserve_integers is True).
+    
+    Raises
+    ------
+    ValueError
+        If the value cannot be converted to a numeric type
+        (e.g., strings that do not represent numbers).
+    
+    Examples
+    --------
+    >>> from gofast.tools.validator import convert_to_numeric
+    >>> convert_to_numeric(5)
+    5.0
+    >>> convert_to_numeric(5, preserve_integers=True)
+    5
+    >>> convert_to_numeric(3.14)
+    3.14
+    >>> convert_to_numeric('0.85')
+    0.85
+    >>> convert_to_numeric('abc')
+    ValueError: Data expected numeric values, but got str: 'abc'
+    """
+    try:
+        # Check if the value is an integer
+        if isinstance(value, int):
+            if preserve_integers:
+                return value  # Keep the integer as is
+            else:
+                return float(value)  # Convert to float
+        # If the value is already a float, return it
+        elif isinstance(value, float):
+            return value
+        # Attempt to convert any other type (like strings) to float
+        else:
+            return float(value)  # Handle strings that represent numbers
+    except (ValueError, TypeError) as e:
+        # Raise a clear error with context-specific description
+        raise ValueError(f"{context_description} expected numeric values,"
+                         f" but got {type(value).__name__}: '{value}'") from e
+
+def validate_performance_data(
+    model_performance_data: Union[Dict[str, List[float]], pd.DataFrame],
+    nan_policy: str = 'raise',  
+    convert_integers: bool = True, 
+    check_performance_range: bool = True,  
+    verbose: bool = False  
+) -> pd.DataFrame:
+    """
+    Validates and processes the model performance data.
+    
+    Parameters
+    ----------
+    model_performance_data : Union[Dict[str, List[float]], pd.DataFrame]
+        A dictionary or DataFrame with model names as keys (columns) and lists
+        of performance metrics as values.
+    
+    nan_policy : str, default 'raise'
+        Specifies how to handle NaN values in the data.
+        'raise' will throw an error if NaNs are found, 'omit' will drop them,
+        and 'propagate' will ignore NaNs when checking performance range.
+        
+    convert_integers : bool, default True
+        Whether to convert integer values to floats.
+        
+    check_performance_range : bool, default True
+        Whether to ensure that performance values are within the [0, 1] range.
+        
+    verbose : bool, default False
+        If True, prints the steps of the validation and conversion process.
+    
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame with float values.
+    
+    Raises
+    ------
+    ValueError
+        If the input data cannot be converted to a valid DataFrame, 
+        if NaN values are found and `nan_policy` is 'raise', or if performance 
+        values are outside the range [0, 1].
+    
+    Examples
+    --------
+    >>> from gofast.tools.validator import validate_performance_data
+    
+    Example 1: Dictionary input with NaN check and integer to float conversion.
+    
+    >>> data = {'model1': [0.85, 0.90, 0.92], 'model2': [0.80, 0.87, 0.88]}
+    >>> validate_performance_data(data, nan_policy='raise')
+    
+    Example 2: DataFrame input with performance range check disabled.
+    
+    >>> df = pd.DataFrame({'model1': [0.85, 0.90, 0.92], 'model2': [0.80, 0.87, 0.88]})
+    >>> validate_performance_data(df, check_performance_range=False)
+    
+    Example 3: Handling NaN values with 'omit' policy.
+    
+    >>> df = pd.DataFrame({'model1': [0.85, None, 0.92], 'model2': [0.80, 0.87, None]})
+    >>> validate_performance_data(df, nan_policy='omit')
+    
+    """
+
+    # Convert to DataFrame if input is a dictionary
+    if isinstance(model_performance_data, dict):
+        if verbose:
+            print("Converting dictionary to DataFrame...")
+        df = pd.DataFrame(model_performance_data)
+    elif isinstance(model_performance_data, pd.DataFrame):
+        df = model_performance_data.copy()
+    else:
+        raise ValueError("Input data must be either a dictionary or a DataFrame.")
+    
+    # Ensure all values are float, convert integers to floats if needed
+    if convert_integers:
+        if verbose:
+            print("Converting integer values to floats where necessary...")
+        df = df.applymap(convert_to_numeric, preserve_integers=False, 
+                         context_description='Performance data')
+    
+    # Handle NaN values according to nan_policy
+    is_valid_policies(nan_policy, allowed_policies=['raise', 'omit', 'propagate'])
+    
+    if df.isna().any().any():  # Check for NaN values
+        if nan_policy == 'raise':
+            raise ValueError("NaN values detected in the data. Set"
+                             " `nan_policy='omit'` to drop them.")
+        elif nan_policy == 'omit':
+            if verbose:
+                print("Dropping rows with NaN values...")
+            df = df.dropna()
+    
+    # Ensure all values are float type
+    df = df.astype(float)
+    
+    # Check if performance values are within the valid range [0, 1],
+    # considering nan_policy 'propagate'
+    if check_performance_range:
+        if nan_policy == 'propagate':
+            if (df.dropna() < 0).any().any():
+                raise ValueError("Performance values cannot be negative.")
+            if (df.dropna() > 1).any().any():
+                raise ValueError("Performance values must be in the range [0, 1].")
+        else:
+            if (df < 0).any().any():
+                raise ValueError("Performance values cannot be negative.")
+            if (df > 1).any().any():
+                raise ValueError("Performance values must be in the range [0, 1].")
+    
+    if verbose:
+        print("Validation and conversion complete. Data is ready for further processing.")
+    
+    return df
 
 def validate_comparison_data(df,  alignment="auto"):
     """
@@ -2605,8 +3128,6 @@ def validate_dates(
     return start_date.year, end_date.year
 
 
-
-
 def validate_positive_integer(value, variable_name, include_zero=False, round_float=None):
     """
     Validates whether the given value is a positive integer or zero based 
@@ -2640,10 +3161,18 @@ def validate_positive_integer(value, variable_name, include_zero=False, round_fl
     # Determine the minimum acceptable value
     min_value = 0 if include_zero else 1
 
+    if isinstance(value, str):
+         # Try to convert it if possible
+         try:
+             value = int(value)
+         except ValueError:
+             # Raise a nice informative error message
+             raise ValueError(f"Value {value} is not convertible to an integer.")
+
     # Check for proper type and round if necessary
     if not isinstance(value, (int, float, np.integer, np.floating)):
         raise ValueError(f"{variable_name} must be an integer or float.")
-
+        
     if isinstance(value, float):
         if round_float == "ceil":
             value = math.ceil(value)
@@ -3952,8 +4481,8 @@ def check_is_fitted(estimator, attributes=None, *, msg=None, all_or_any=all):
     raises a NotFittedError with the given message.
 
     If an estimator does not set any attributes with a trailing underscore, it
-    can define a ``__sklearn_is_fitted__`` method returning a boolean to specify if the
-    estimator is fitted or not.
+    can define a ``__sklearn_is_fitted__`` or ``__gofast_is_fitted__`` method
+    returning a boolean to specify if the estimator is fitted or not.
 
     Parameters
     ----------
@@ -4007,6 +4536,8 @@ def check_is_fitted(estimator, attributes=None, *, msg=None, all_or_any=all):
         fitted = all_or_any([hasattr(estimator, attr) for attr in attributes])
     elif hasattr(estimator, "__sklearn_is_fitted__"):
         fitted = estimator.__sklearn_is_fitted__()
+    elif hasattr(estimator, "__gofast_is_fitted__"):
+        fitted = estimator.__gofast_is_fitted__() 
     else:
         fitted = [
             v for v in vars(estimator) if v.endswith("_") and not v.startswith("__")

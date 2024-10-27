@@ -2270,11 +2270,11 @@ def formatter_validator(instance, obj=None, attributes=None, df_indices=None,
     >>> from gofast.api.formatter import formatter_validator 
     >>> from gofast.api.formatter import DataFrameFormatter, MultiFrameFormatter
     >>> df_0 = pd.DataFrame({
-        'age': [68, 75], 
+        'age': [75, 68], 
         'name': ['Kouadio Ernest', "Agaman Bla"]
         })
     >>> df_1= pd.DataFrame({
-        'village': ["Niable", 75], 
+        'village': ["Niable", "Yobouakro"], 
         'name': ['Kouadio Ernest', "Agaman Bla"]
         })
     >>> df_formatter= DataFrameFormatter()

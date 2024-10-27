@@ -593,6 +593,7 @@ To focus on specific targets 'pumping_level' and 'aquifer_thickness':
 >>> list(b.columns[-2:])
 ['pumping_level', 'aquifer_thickness']
 """
+
 def load_nansha (
     *,  return_X_y=False, 
     as_frame =False, 
