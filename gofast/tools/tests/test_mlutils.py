@@ -28,8 +28,10 @@ from sklearn.datasets import make_classification
 from sklearn.ensemble import RandomForestClassifier
 
 from gofast.datasets.load import load_bagoue, load_hlogs 
-from gofast.tools.coreutils import find_features_in, smart_label_classifier, cleaner 
-from gofast.tools.mlutils import fetch_tgz_from_url, evaluate_model  
+from gofast.tools.coreutils import find_features_in
+from gofast.tools.datautils import cleaner 
+from gofast.tools.ioutils import fetch_tgz_from_url
+from gofast.tools.mlutils import smart_label_classifier, evaluate_model  
 from gofast.tools.mlutils import get_global_score, get_correlated_features    
 from gofast.tools.mlutils import soft_encoder, resampling, bin_counting 
 from gofast.tools.mlutils import soft_imputer, soft_scaler, select_feature_importances 
