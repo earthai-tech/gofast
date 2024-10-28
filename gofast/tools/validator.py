@@ -101,46 +101,76 @@ __all__=[
      'validate_yy'
  ]
 
-
-def check_is_runned(estimator, attributes=None, msg=None):
+def check_is_runned(estimator, attributes=None, *, msg=None, all_or_any=all):
     """
-    Check whether an object has been properly "runned" (executed) before 
-    allowing further methods to be called. This function validates if 
-    essential flags or attributes (like `_is_runned`, `_is_fitted`) are set.
+    Validate if an estimator instance has been "runned" (executed) prior 
+    to invoking dependent methods. This check ensures that the estimator is in 
+    the appropriate operational state, allowing users to identify and address 
+    runtime issues effectively.
+
+    If an estimator does not set "runned" attributes (such as ``_is_runned``), 
+    it may define a ``__gofast_is_runned__`` method. This method should return 
+    a boolean indicating whether the estimator is "runned" or not. 
 
     Parameters
     ----------
     estimator : object
-        The object (instance) to check. This could be any class object 
-        where methods depend on the state of the object being "runned".
-    
-    attributes : list of str, optional
-        A list of attributes (e.g., ['_is_runned', '_is_fitted']) that should 
-        be checked. These attributes should be boolean-like, indicating if 
-        certain methods were successfully executed. If None, it defaults 
-        to checking the `_is_runned` attribute.
-    
-    msg : str, optional
-        The custom error message to display if the check fails. If not 
-        provided, a default message is generated based on the missing attributes.
-        
+        The instance of the estimator or class being validated. This 
+        parameter represents the object in which dependent methods 
+        are validated to confirm that the "runned" state has been achieved.
+
+        To determine the "runned" status, the function checks for specific 
+        attributes or, if defined, the ``__gofast_is_runned__`` method.
+
+    attributes : str, list, or tuple of str, optional, default=None
+        Specifies the name(s) of attributes that indicate the "runned" status, 
+        such as ``['_is_runned']`` or ``['_is_fitted']``. If these attributes 
+        are present and set to `True`, the estimator is considered to have 
+        been runned.
+
+        If ``attributes`` is set to `None`, the function will default to 
+        checking for ``_is_runned``. This default provides flexibility for 
+        estimators that employ standard runned flags. 
+
+    msg : str, optional, default=None
+        Custom error message to be displayed if the validation fails. 
+        By default, this error message uses the class name of the 
+        `estimator` in the format:
+
+        "This %(name)s instance has not been 'runned' yet. Call 'run' with 
+        appropriate arguments before using this method."
+
+        To customize the message, include `%(name)s` as a placeholder for 
+        the estimator's class name.
+
+    all_or_any : callable, {all, any}, optional, default=all
+        Determines whether all or any of the specified `attributes` must be 
+        present and set to `True`. By default, the function expects all 
+        attributes to be set to `True`. Set to `any` for greater flexibility 
+        with multiple attributes.
+
+    Methods
+    -------
+    ``__gofast_is_runned__`` : optional, callable
+        If defined within the `estimator`, this method should return a 
+        boolean indicating the "runned" status of the estimator. This 
+        provides an alternative to using attributes.
+
     Raises
     ------
     RuntimeError
-        If the required attributes are not set to `True` or do not exist.
-    
+        If none of the specified attributes are set to `True` or if the 
+        `__gofast_is_runned__` method (if present) returns `False`.
+
     Notes
     -----
-    This validation function is designed to ensure that certain methods 
-    (like `run`, `fit`) have been executed before calling any other 
-    dependent method within the object.
-    
-    The validation process ensures that the object is in the correct 
-    operational state (i.e., the object has been "runned"), ensuring 
-    more robust error handling during method calls.
-    
+    The `check_is_runned` function ensures that methods dependent on 
+    the "runned" status are only executed after the estimator has completed 
+    all required preliminary processes, like `fit` or `run`.
+
     Examples
     --------
+    >>> from gofast.tools.validator import check_is_runned
     >>> class ExampleClass:
     ...     def __init__(self):
     ...         self._is_runned = False
@@ -159,32 +189,41 @@ def check_is_runned(estimator, attributes=None, msg=None):
 
     See Also
     --------
-    validate_estimator_methods : 
-        Similar validation method for checking if methods exist in an estimator.
+    check_is_fitted : Validates that an estimator has been "fitted" before 
+                      further use.
+    validate_estimator_methods : Validates essential estimator methods.
 
     References
     ----------
-    .. [1] Python official documentation on class attributes:
-       https://docs.python.org/3/tutorial/classes.html#class-and-instance-attributes
-    .. [2] Scikit-learn's `check_is_fitted` function:
-       https://scikit-learn.org/stable/modules/generated/sklearn.utils.validation.check_is_fitted.html
-    
+    .. [1] Scikit-learn's `check_is_fitted` function: 
+           https://scikit-learn.org/stable/modules/generated/sklearn.utils.validation.check_is_fitted.html
+    .. [2] Python official documentation on class attributes:
+           https://docs.python.org/3/tutorial/classes.html#class-and-instance-attributes
     """
-    # Default attribute to check
+    from ..exceptions import NotRunnedError
+
+    # Default attribute if none is provided
     if attributes is None:
-        attributes = ['is_runned_']
+        attributes = ['_is_runned']
+    elif not isinstance(attributes, (list, tuple)):
+        attributes = [attributes]
 
-    # Identify which attributes are missing or not properly set
-    missing_attributes = [attr for attr in attributes if not getattr(estimator, attr, False)]
+    # Define default error message if not provided
+    if msg is None:
+        msg = (
+            "This %(name)s instance has not been 'runned' yet. Call 'run' with "
+            "appropriate arguments before using this method."
+        )
 
-    if missing_attributes:
-        if msg is None:
-            msg = (f"The instance of class `{type(estimator).__name__}` is missing the following "
-                   f"required attributes: {', '.join(missing_attributes)}. Ensure the "
-                   f"necessary methods (e.g., `run`) have been executed before using "
-                   f"this method.")
-        raise RuntimeError(msg)
+    # First check if a custom `__gofast_is_runned__` method is available
+    if hasattr(estimator, "__gofast_is_runned__"):
+        is_runned = estimator.__gofast_is_runned__()
+    else:
+        # Verify attributes are present and set to True if no custom method is provided
+        is_runned = all_or_any([getattr(estimator, attr, False) for attr in attributes])
 
+    if not is_runned:
+        raise NotRunnedError(msg % {"name": type(estimator).__name__})
 
 def check_has_run_method(estimator, msg=None, method_name="run"):
     """
@@ -4442,8 +4481,8 @@ def check_is_fitted(estimator, attributes=None, *, msg=None, all_or_any=all):
     raises a NotFittedError with the given message.
 
     If an estimator does not set any attributes with a trailing underscore, it
-    can define a ``__sklearn_is_fitted__`` method returning a boolean to specify if the
-    estimator is fitted or not.
+    can define a ``__sklearn_is_fitted__`` or ``__gofast_is_fitted__`` method
+    returning a boolean to specify if the estimator is fitted or not.
 
     Parameters
     ----------
@@ -4497,6 +4536,8 @@ def check_is_fitted(estimator, attributes=None, *, msg=None, all_or_any=all):
         fitted = all_or_any([hasattr(estimator, attr) for attr in attributes])
     elif hasattr(estimator, "__sklearn_is_fitted__"):
         fitted = estimator.__sklearn_is_fitted__()
+    elif hasattr(estimator, "__gofast_is_fitted__"):
+        fitted = estimator.__gofast_is_fitted__() 
     else:
         fitted = [
             v for v in vars(estimator) if v.endswith("_") and not v.startswith("__")
