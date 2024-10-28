@@ -58,10 +58,11 @@ Optimizer(name=SGD, iterations=100)
 """
 
 
-# import warnings 
 from __future__ import annotations 
-import warnings
 from abc import ABC, abstractmethod 
+from collections import defaultdict
+import pickle
+import warnings
 import numpy as np
 import pandas as pd 
 from typing import Any, Dict, Iterable, List, Tuple
@@ -488,8 +489,269 @@ class BaseClass:
             return f"Series([{limited_items}, ...])"
         else:
             return f"Series: {series.to_string(index=False)}"
- 
 
+
+class BaseEstimator:
+    """
+    Base class for all estimators in this framework. Designed to manage
+    parameter setting, retrieval, and representation dynamically.
+    """
+
+    @classmethod
+    def _get_param_names(cls):
+        """
+        Retrieve the names of the parameters defined in the constructor.
+        
+        Returns
+        -------
+        list
+            List of parameter names for the estimator.
+        """
+        init = getattr(cls.__init__, "deprecated_original", cls.__init__)
+        if init is object.__init__:
+            return []
+
+        init_signature = inspect.signature(init)
+        parameters = [
+            p
+            for p in init_signature.parameters.values()
+            if p.name != "self" and p.kind != p.VAR_KEYWORD
+        ]
+
+        for p in parameters:
+            if p.kind == p.VAR_POSITIONAL:
+                raise RuntimeError(
+                    f"{cls.__name__} should not have variable positional arguments in "
+                    f"the constructor (no *args)."
+                )
+
+        return sorted([p.name for p in parameters])
+
+    def get_params(self, deep=True):
+        """
+        Get the parameters for this estimator.
+
+        Parameters
+        ----------
+        deep : bool, default=True
+            If True, return parameters for this estimator and nested estimators.
+
+        Returns
+        -------
+        params : dict
+            Dictionary of parameter names mapped to their values.
+        """
+        out = dict()
+        for key in self._get_param_names():
+            value = getattr(self, key)
+            if deep and hasattr(value, "get_params") and not isinstance(value, type):
+                deep_items = value.get_params().items()
+                out.update((key + "__" + k, val) for k, val in deep_items)
+            out[key] = value
+        return out
+
+    def set_params(self, **params):
+        """
+        Set the parameters for this estimator.
+
+        Parameters
+        ----------
+        **params : dict
+            Parameters to set, including nested parameters.
+
+        Returns
+        -------
+        self : BaseEstimator
+            Returns self with updated parameters.
+        """
+        if not params:
+            return self
+
+        valid_params = self.get_params(deep=True)
+        nested_params = defaultdict(dict)
+        
+        for key, value in params.items():
+            key, delim, sub_key = key.partition("__")
+            if key not in valid_params:
+                raise ValueError(
+                    f"Invalid parameter '{key}' for estimator {self}. "
+                    f"Valid parameters are: {list(valid_params.keys())}."
+                )
+
+            if delim:
+                nested_params[key][sub_key] = value
+            else:
+                setattr(self, key, value)
+                valid_params[key] = value
+
+        for key, sub_params in nested_params.items():
+            valid_params[key].set_params(**sub_params)
+
+        return self
+
+    def __repr__(self, N_CHAR_MAX=700):
+        """
+        Return a string representation of the estimator, showing key parameters.
+        
+        Parameters
+        ----------
+        N_CHAR_MAX : int, default=700
+            Maximum number of characters in the representation.
+        
+        Returns
+        -------
+        str
+            String representation of the estimator with parameters.
+        """
+        params = self.get_params()
+        param_str = ", ".join(f"{key}={value!r}" for key, value in params.items())
+        
+        if len(param_str) > N_CHAR_MAX:
+            param_str = param_str[:N_CHAR_MAX] + "..."
+        
+        return f"{self.__class__.__name__}({param_str})"
+
+    def __getstate__(self):
+        """
+        Prepare the object for pickling by selectively saving the current state.
+        
+        Returns
+        -------
+        dict
+            State dictionary containing only necessary attributes and class 
+            versioning for compatibility.
+        """
+        state = {}
+        version = getattr(self, "_version", "1.0.0")  # Default version
+        
+        for key, value in self.__dict__.items():
+            # Exclude any attributes that are not serializable
+            if key.startswith("_") or callable(value):
+                continue
+            
+            try:
+                # Attempt to serialize the attribute to confirm its picklability
+                _ = pickle.dumps(value)
+                state[key] = value
+            except (pickle.PicklingError, TypeError):
+                print(f"Warning: Unable to pickle attribute '{key}'. It will be excluded.")
+    
+        # Add version information
+        state["_version"] = version
+        
+        return state
+ 
+    
+    def __setstate__(self, state):
+        """
+        Restore the object's state after unpickling, with version checks and 
+        fallback handling for missing attributes.
+        
+        Parameters
+        ----------
+        state : dict
+            State dictionary with class attributes.
+        """
+        import logging
+
+        # Set up logging
+        logger = logging.getLogger(__name__)
+        
+        expected_version = getattr(self, "_version", "1.0.0")
+    
+        # Check if the version in the state matches the expected version
+        version = state.get("_version", "unknown")
+        if version != expected_version:
+            logger.warning(
+                f"Version mismatch: loaded state version '{version}' does not match "
+                f"expected version '{expected_version}'. Compatibility issues may arise."
+            )
+    
+        # Update object's __dict__ only with valid state attributes
+        for key, value in state.items():
+            try:
+                setattr(self, key, value)
+            except Exception as e:
+                logger.error(f"Could not set attribute '{key}': {e}")
+    
+        # Handle any missing attributes based on expected version (optional)
+        if not hasattr(self, "_initialized"):
+            self._initialized = True  # Example fallback for a missing attribute
+
+    def reset_params(self):
+        """
+        Resets all parameters to their initial default values.
+        """
+        for param, value in self._default_params.items():
+            setattr(self, param, value)
+        print("Parameters have been reset to default values.")
+        return self
+    
+    def is_runned(self):
+        """
+        Checks if the estimator has been run.
+        
+        Returns
+        -------
+        bool
+            True if the estimator has been run, False otherwise.
+        """
+        # Check for attributes with a trailing underscore
+        trailing_attrs = [attr for attr in self.__dict__ if attr.endswith("_")]
+    
+        if trailing_attrs:
+            return True
+    
+        # Fallback to `__gofast_is_runned__` if no trailing attributes are set
+        if hasattr(self, "__gofast_is_runned__") and callable(
+                getattr(self, "__gofast_is_runned__")):
+            return self.__gofast_is_runned__()
+        
+        return False
+    
+    def clone(self):
+        """
+        Creates a clone of the estimator with the same parameters.
+        
+        Returns
+        -------
+        BaseEstimator
+            A new instance of the estimator with identical parameters.
+        """
+        clone = self.__class__(**self.get_params(deep=False))
+        return clone
+    
+    def summary(self):
+        """
+        Provides a summary of the estimator's parameters.
+        
+        Returns
+        -------
+        str
+            A formatted string of the estimator's parameters.
+        """
+        params = self.get_params(deep=False)
+        summary_str = "\n".join(f"{k}: {v}" for k, v in params.items())
+        return f"{self.__class__.__name__} Summary:\n{summary_str}"
+    
+    def execute(self, *args, **kwargs):
+        """
+        Executes `fit` or `run` method if either is implemented in the subclass.
+        Priority is given to `run` if both are present.
+        """
+        has_run = callable(getattr(self, 'run', None))
+        has_fit = callable(getattr(self, 'fit', None))
+    
+        if has_run:
+            return self.run(*args, **kwargs)
+        elif has_fit:
+            return self.fit(*args, **kwargs)
+        else:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} requires either `run` or `fit` method to be implemented."
+            )
+
+    
 class BasePlot(ABC): 
     r""" Base class  deals with Machine learning and conventional Plots. 
     
