@@ -64,10 +64,11 @@ if _missing_dependencies:
 # Suppress FutureWarnings if desired, but allow users to re-enable them
 _warnings_state = {"FutureWarning": "ignore"}
 def suppress_warnings(suppress=True):
-    """Function to suppress or re-enable future warnings."""
+    """Function to suppress or re-enable future/syntax warnings."""
     for warning, action in _warnings_state.items():
         if suppress:
             warnings.filterwarnings(action, category=FutureWarning)
+            warnings.filterwarnings(action, category=SyntaxWarning)
         else:
             warnings.filterwarnings("default", category=FutureWarning)
 

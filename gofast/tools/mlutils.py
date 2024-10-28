@@ -41,8 +41,7 @@ from ..api.types import List, Tuple, Any, Dict,  Optional,Union, Series
 from ..api.types import  _F, ArrayLike, NDArray,  DataFrame
 from ..api.formatter import MetricFormatter
 from ..api.summary import ReportFactory, ResultSummary  
-from ..compat.sklearn import get_feature_names
-from ..compat.sklearn import train_test_split 
+from ..compat.sklearn import get_feature_names,train_test_split 
 from ..decorators import SmartProcessor 
 from .baseutils import select_features 
 from .coreutils import _assert_all_types, is_in_if,  ellipsis2false

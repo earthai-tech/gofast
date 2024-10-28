@@ -16,7 +16,7 @@ import pandas as pd
 import matplotlib.pyplot as plt 
 from tqdm import tqdm
 
-from ..api.property import  Config
+from ..api.property import  PandasDataHandlers
 from ..api.types import Any,  List,  DataFrame, Optional, Dict, Union
 from ..api.types import BeautifulSoupTag , Tuple, ArrayLike, Callable
 from ..api.util import get_table_size 
@@ -344,7 +344,7 @@ def read_data(
             f = min_sanitizer (f)
         return  f 
     
-    cpObj= Config().parsers 
+    cpObj= PandasDataHandlers().parsers 
     f= _check_readable_file(f)
     _, ex = os.path.splitext(f) 
     if ex.lower() not in tuple (cpObj.keys()):

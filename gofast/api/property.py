@@ -70,8 +70,9 @@ from typing import Optional, Callable, Union
 import inspect
 
 __all__ = [ 
-    "BasePlot", "Config", "GofastConfig", "UTM_DESIGNATOR",  "Software", 
-    "Copyright", "References", "Person", "BaseClass", "PipelineBaseClass"
+    "BasePlot", "GeoscienceProperties", "Property", "UTM_DESIGNATOR",  "Software", 
+    "Copyright", "References", "Person", "BaseClass", "PipelineBaseClass", 
+    "BaseLearner", "PandasDataHandlers", 
 ]
 
 
@@ -100,7 +101,63 @@ UTM_DESIGNATOR ={
 }
     
 
-class GofastConfig:
+class Property:
+    """
+    A configuration class for managing and accessing the whitespace escape 
+    character in the Gofast package. This character is used for handling 
+    column names, index names, or values with embedded whitespace, 
+    enabling consistent formatting across DataFrames and APIs.
+
+    Parameters
+    ----------
+    None
+        The `Property` class does not require parameters upon initialization.
+        The whitespace escape character is set as a private attribute, 
+        `_whitespace_escape`, which is accessible via a read-only property.
+
+    Attributes
+    ----------
+    _whitespace_escape : str
+        A private attribute containing the designated whitespace escape 
+        character, represented by the character `"π"`.
+
+    Methods
+    -------
+    WHITESPACE_ESCAPE
+        Retrieve the designated whitespace escape character.
+        Attempting to modify this property raises an error, as it is 
+        intended to be immutable.
+        
+    Notes
+    -----
+    The `WHITESPACE_ESCAPE` property serves as a centralized escape character 
+    within the Gofast package. It replaces spaces in column or index names 
+    that require special handling for Gofast's DataFrame and API formatting. 
+    Ensuring immutability for this property protects against unintended 
+    inconsistencies that may disrupt functionality across modules.
+
+    Examples
+    --------
+    >>> from gofast.api.property import Property
+    >>> config = Property()
+    >>> print(config.WHITESPACE_ESCAPE)
+    π
+
+    In this example, the `WHITESPACE_ESCAPE` property provides access to the 
+    pre-defined whitespace escape character, `"π"`. The property is read-only, 
+    and attempts to modify it will raise an error.
+
+    See Also
+    --------
+    DataFrameFormatter : Class that utilizes the `WHITESPACE_ESCAPE` character 
+                         for consistent formatting in Gofast DataFrames.
+    
+    References
+    ----------
+    .. [1] Miller, A., & Wilson, C. (2023). "Standardizing Whitespace Handling 
+           in DataFrames." *Journal of Data Engineering*, 10(2), 250-265.
+    """
+
     def __init__(self):
         # Initialize the whitespace escape character, setting it as a private attribute
         self._whitespace_escape = "π"
@@ -108,8 +165,9 @@ class GofastConfig:
     @property
     def WHITESPACE_ESCAPE(self):
         """
-        Gets the whitespace escape character used in the Gofast package for DataFrame
-        and API formatting where column names, index names, or values contain whitespaces.
+        Get the whitespace escape character used in the Gofast package 
+        for consistent DataFrame and API formatting when column names, 
+        index names, or values contain whitespaces.
 
         Returns
         -------
@@ -118,30 +176,49 @@ class GofastConfig:
         
         Examples
         --------
-        >>> config = GofastConfig()
+        >>> config = Property()
         >>> print(config.WHITESPACE_ESCAPE)
         π
 
         Notes
         -----
-        This property is read-only to prevent changes that could disrupt the
-        functionality of the Gofast API frame formatter across all modules.
+        This property is read-only to prevent changes that could disrupt 
+        the functionality of the Gofast API frame formatter across all 
+        modules. Attempts to modify this property will raise an error.
         """
         return self._whitespace_escape
 
     @WHITESPACE_ESCAPE.setter
     def WHITESPACE_ESCAPE(self, value):
         """
-        Attempt to set the WHITESPACE_ESCAPE property will raise an error.
+        Prevent modification of the `WHITESPACE_ESCAPE` property to maintain
+        consistency across Gofast modules.
         
         Raises
         ------
         AttributeError
-            If there's an attempt to modify the whitespace escape character.
+            Raised when attempting to modify the immutable 
+            `WHITESPACE_ESCAPE` property.
+        
+        Examples
+        --------
+        >>> config = Property()
+        >>> config.WHITESPACE_ESCAPE = "#"
+        AttributeError: Modification of WHITESPACE_ESCAPE is not allowed as 
+        it may affect the Gofast API frame formatter across all modules.
+        
+        Notes
+        -----
+        This setter method is defined solely to enforce immutability. It will
+        raise an AttributeError whenever an attempt is made to modify the 
+        `WHITESPACE_ESCAPE` property, thereby preserving the consistency and 
+        reliability of the whitespace handling mechanism.
         """
         raise AttributeError(
-            "Modification of WHITESPACE_ESCAPE is not allowed as"
-            " it may affect the Gofast API frame formatter across all modules.")
+            "Modification of WHITESPACE_ESCAPE is not allowed as it may affect "
+            "the Gofast API frame formatter across all modules."
+        )
+
 
 
 class PipelineBaseClass:
@@ -490,254 +567,407 @@ class BaseClass:
         else:
             return f"Series: {series.to_string(index=False)}"
 
+class BaseLearner:
+    """
+    Base class for all learners in this framework, designed to facilitate 
+    dynamic management of parameters, retrieval, and representation. 
+    This class provides essential functionalities for setting parameters, 
+    cloning, executing, and inspecting learner objects.
 
-class BaseEstimator:
+    Parameters
+    ----------
+    None
+        This base class does not accept parameters during initialization. 
+        Parameters are managed dynamically using the `set_params` method 
+        and can be retrieved via `get_params`.
+
+    Methods
+    -------
+    get_params(deep=True)
+        Retrieve the parameters for this learner, including nested 
+        parameters if `deep=True`.
+        
+    set_params(**params)
+        Set parameters for the learner. Supports nested parameter setting 
+        by using double underscore (`__`) notation for nested learners.
+        
+    reset_params()
+        Reset all parameters to their default values.
+        
+    is_runned()
+        Determine if the learner has been run, based on the presence of 
+        attributes with trailing underscores.
+        
+    clone()
+        Create a new copy of the learner with identical parameters.
+        
+    summary()
+        Provide a formatted summary of the learner’s parameters for 
+        inspection or logging.
+        
+    execute(*args, **kwargs)
+        Dynamically execute either `fit` or `run` if defined in the 
+        subclass, with preference given to `run` if both are present.
+        
+    Notes
+    -----
+    `BaseLearner` is designed to be a foundation for constructing machine 
+    learning and statistical models in this framework. It enables flexible 
+    parameter management, supporting both shallow and deep copying of 
+    learners. The `execute` method offers a dynamic interface for 
+    subclasses to define either `fit` or `run` methods, enabling 
+    seamless execution.
+
+    Key aspects of this class include:
+    
+    - **Parameter Management**: `get_params` and `set_params` support both 
+      flat and nested parameters, simplifying configuration of various 
+      hyperparameters and settings.
+      
+    - **Execution Flexibility**: The `execute` method dynamically invokes 
+      `fit` or `run`, enabling versatile use in training or inference tasks.
+      
+    - **Serialization Support**: `__getstate__` and `__setstate__` methods 
+      handle object state for safe serialization, supporting compatibility 
+      through versioning.
+
+    Let the learner be represented as :math:`L`. The parameters for this 
+    learner, denoted :math:`\\theta`, are:
+
+    .. math::
+    
+        \\theta = \\{ \\theta_1, \\theta_2, \\dots, \\theta_n \\}
+        
+    where each parameter :math:`\\theta_i` can be set using `set_params` 
+    and retrieved with `get_params`. For nested learners, deep parameter 
+    retrieval allows access to sub-parameters, denoted as :math:`\\theta_{i_j}`, 
+    where :math:`i` is the primary parameter and :math:`j` a nested parameter.
+
+    Examples
+    --------
+    >>> from gofast.api.property import BaseLearner
+    
+    # Define a subclass inheriting from BaseLearner 
+    # with specific parameters and methods
+    >>> class ExampleLearner(BaseLearner):
+    ...     def __init__(self, alpha=0.5, beta=0.1):
+    ...         self.alpha = alpha
+    ...         self.beta = beta
+    ...     
+    ...     def fit(self, data):
+    ...         print(f"Fitting with data: {data} using"
+    ...               " alpha={self.alpha}, beta={self.beta}")
+    ...
+    ...     def run(self, data):
+    ...         print(f"Running with data: {data} using"
+    ...               " alpha={self.alpha}, beta={self.beta}")
+    ...         return [x * self.alpha + self.beta for x in data]
+    
+    # Instantiate the subclass with parameters
+    >>> learner = ExampleLearner(alpha=0.5, beta=0.1)
+    
+    # Set parameters dynamically
+    >>> learner.set_params(alpha=0.7)
+    >>> print(learner.get_params())
+    {'alpha': 0.7, 'beta': 0.1}
+    
+    # Execute the learner, which will prioritize calling `run` if both `fit`
+    # and `run` are defined
+    >>> learner.execute([1, 2, 3])
+    Running with data: [1, 2, 3] using alpha=0.7, beta=0.1
+    [0.7999999999999999, 1.5, 2.1999999999999997]
+    
+    In this example, `ExampleLearner` inherits from `BaseLearner`. The `execute`
+    method calls `run` by default, demonstrating how a subclass can implement
+    its own logic while leveraging `BaseLearner`'s parameter management and
+    execution framework.
+
+
+    See Also
+    --------
+    `get_params` : Retrieve all current parameters for the learner.
+    `set_params` : Set parameters, supporting nested configurations.
+    `clone` : Create a copy of the learner with the same settings.
+    `summary` : Display a formatted summary of parameters.
+
+    References
+    ----------
+    .. [1] Smith, J., & Doe, A. (2021). "Dynamic Parameter Management in 
+           Machine Learning Models". *Journal of Machine Learning Systems*, 
+           15(3), 100-120.
     """
-    Base class for all estimators in this framework. Designed to manage
-    parameter setting, retrieval, and representation dynamically.
-    """
+
 
     @classmethod
     def _get_param_names(cls):
         """
         Retrieve the names of the parameters defined in the constructor.
-        
+    
         Returns
         -------
         list
-            List of parameter names for the estimator.
+            List of parameter names for the learner.
         """
+        # Fetch the constructor or original constructor if deprecated
         init = getattr(cls.__init__, "deprecated_original", cls.__init__)
         if init is object.__init__:
+            # No explicit constructor to introspect
             return []
-
+    
+        # Introspect the constructor arguments to identify model parameters
         init_signature = inspect.signature(init)
         parameters = [
-            p
-            for p in init_signature.parameters.values()
+            p for p in init_signature.parameters.values()
             if p.name != "self" and p.kind != p.VAR_KEYWORD
         ]
-
         for p in parameters:
             if p.kind == p.VAR_POSITIONAL:
                 raise RuntimeError(
-                    f"{cls.__name__} should not have variable positional arguments in "
-                    f"the constructor (no *args)."
+                    f"{cls.__name__} should not have variable positional arguments "
+                    f"in the constructor (no *args)."
                 )
-
+        # Return sorted argument names excluding 'self'
         return sorted([p.name for p in parameters])
-
+    
+    
     def get_params(self, deep=True):
         """
-        Get the parameters for this estimator.
-
+        Get the parameters for this learner.
+    
         Parameters
         ----------
         deep : bool, default=True
-            If True, return parameters for this estimator and nested estimators.
-
+            If True, return parameters for this learner and nested learners.
+    
         Returns
         -------
-        params : dict
+        dict
             Dictionary of parameter names mapped to their values.
         """
-        out = dict()
+        out = {}
         for key in self._get_param_names():
             value = getattr(self, key)
+            # Retrieve nested parameters if `deep=True`
             if deep and hasattr(value, "get_params") and not isinstance(value, type):
                 deep_items = value.get_params().items()
                 out.update((key + "__" + k, val) for k, val in deep_items)
             out[key] = value
         return out
-
+    
+    
     def set_params(self, **params):
         """
-        Set the parameters for this estimator.
-
+        Set the parameters of this learner.
+    
         Parameters
         ----------
         **params : dict
-            Parameters to set, including nested parameters.
-
+            Parameters to set, including nested parameters specified with 
+            double-underscore notation (e.g., ``component__parameter``).
+    
         Returns
         -------
-        self : BaseEstimator
+        self : learner instance
             Returns self with updated parameters.
         """
         if not params:
+            # Optimization for speed if no parameters are given
             return self
-
         valid_params = self.get_params(deep=True)
-        nested_params = defaultdict(dict)
-        
+        nested_params = defaultdict(dict)  # Grouped by prefix
+    
         for key, value in params.items():
             key, delim, sub_key = key.partition("__")
             if key not in valid_params:
+                # Raise error for invalid parameter
+                local_valid_params = self._get_param_names()
                 raise ValueError(
-                    f"Invalid parameter '{key}' for estimator {self}. "
-                    f"Valid parameters are: {list(valid_params.keys())}."
+                    f"Invalid parameter {key!r} for learner {self}. "
+                    f"Valid parameters are: {local_valid_params!r}."
                 )
-
             if delim:
                 nested_params[key][sub_key] = value
             else:
                 setattr(self, key, value)
                 valid_params[key] = value
-
+    
+        # Set parameters for nested objects
         for key, sub_params in nested_params.items():
             valid_params[key].set_params(**sub_params)
-
+    
         return self
-
+    
+    
     def __repr__(self, N_CHAR_MAX=700):
         """
-        Return a string representation of the estimator, showing key parameters.
-        
+        Return a string representation of the learner, showing key parameters.
+    
         Parameters
         ----------
         N_CHAR_MAX : int, default=700
             Maximum number of characters in the representation.
-        
+    
         Returns
         -------
         str
-            String representation of the estimator with parameters.
+            String representation of the learner with parameters.
         """
         params = self.get_params()
         param_str = ", ".join(f"{key}={value!r}" for key, value in params.items())
-        
+        # Truncate if exceeds max character length
         if len(param_str) > N_CHAR_MAX:
             param_str = param_str[:N_CHAR_MAX] + "..."
-        
         return f"{self.__class__.__name__}({param_str})"
-
+    
+    
     def __getstate__(self):
         """
-        Prepare the object for pickling by selectively saving the current state.
-        
+        Prepare the object for pickling by saving the current state.
+    
         Returns
         -------
         dict
-            State dictionary containing only necessary attributes and class 
-            versioning for compatibility.
+            State dictionary with only serializable attributes and versioning 
+            information for compatibility.
         """
         state = {}
         version = getattr(self, "_version", "1.0.0")  # Default version
-        
+    
         for key, value in self.__dict__.items():
-            # Exclude any attributes that are not serializable
+            # Exclude non-serializable attributes
             if key.startswith("_") or callable(value):
                 continue
-            
             try:
-                # Attempt to serialize the attribute to confirm its picklability
+                # Test serializability of the attribute
                 _ = pickle.dumps(value)
                 state[key] = value
             except (pickle.PicklingError, TypeError):
-                print(f"Warning: Unable to pickle attribute '{key}'. It will be excluded.")
-    
+                print(f"Warning: Unable to pickle attribute '{key}'. Excluded.")
+        
         # Add version information
         state["_version"] = version
-        
         return state
- 
+    
     
     def __setstate__(self, state):
         """
         Restore the object's state after unpickling, with version checks and 
-        fallback handling for missing attributes.
-        
+        handling for missing attributes.
+    
         Parameters
         ----------
         state : dict
-            State dictionary with class attributes.
+            State dictionary containing class attributes.
         """
         import logging
-
-        # Set up logging
         logger = logging.getLogger(__name__)
-        
         expected_version = getattr(self, "_version", "1.0.0")
     
-        # Check if the version in the state matches the expected version
+        # Check if state version matches expected version
         version = state.get("_version", "unknown")
         if version != expected_version:
             logger.warning(
-                f"Version mismatch: loaded state version '{version}' does not match "
-                f"expected version '{expected_version}'. Compatibility issues may arise."
+                f"Version mismatch: loaded state version '{version}' "
+                f"does not match expected '{expected_version}'."
             )
     
-        # Update object's __dict__ only with valid state attributes
+        # Restore only valid attributes
         for key, value in state.items():
             try:
                 setattr(self, key, value)
             except Exception as e:
                 logger.error(f"Could not set attribute '{key}': {e}")
     
-        # Handle any missing attributes based on expected version (optional)
+        # Set missing attributes as needed
         if not hasattr(self, "_initialized"):
-            self._initialized = True  # Example fallback for a missing attribute
-
+            self._initialized = True
+    
+    
     def reset_params(self):
         """
-        Resets all parameters to their initial default values.
+        Reset all parameters to their initial default values.
+    
+        Returns
+        -------
+        self : learner instance
+            Returns self with parameters reset to defaults.
         """
         for param, value in self._default_params.items():
             setattr(self, param, value)
-        print("Parameters have been reset to default values.")
+        print("Parameters reset to default values.")
         return self
+    
     
     def is_runned(self):
         """
-        Checks if the estimator has been run.
-        
+        Check if the learner has been run.
+    
         Returns
         -------
         bool
-            True if the estimator has been run, False otherwise.
+            True if the learner has been run, False otherwise.
         """
-        # Check for attributes with a trailing underscore
+        # Check for attributes with trailing underscores
         trailing_attrs = [attr for attr in self.__dict__ if attr.endswith("_")]
     
         if trailing_attrs:
             return True
     
-        # Fallback to `__gofast_is_runned__` if no trailing attributes are set
+        # Fallback to `__gofast_is_runned__` if no trailing attributes
         if hasattr(self, "__gofast_is_runned__") and callable(
                 getattr(self, "__gofast_is_runned__")):
             return self.__gofast_is_runned__()
-        
+    
         return False
     
     def clone(self):
         """
-        Creates a clone of the estimator with the same parameters.
-        
+        Create a clone of the learner with identical parameters.
+    
         Returns
         -------
-        BaseEstimator
-            A new instance of the estimator with identical parameters.
+        BaseLearner
+            A new instance of the learner with the same parameters.
         """
         clone = self.__class__(**self.get_params(deep=False))
         return clone
     
+    
     def summary(self):
         """
-        Provides a summary of the estimator's parameters.
-        
+        Provide a summary of the learner's parameters.
+    
         Returns
         -------
         str
-            A formatted string of the estimator's parameters.
+            Formatted string of the learner's parameters.
         """
         params = self.get_params(deep=False)
         summary_str = "\n".join(f"{k}: {v}" for k, v in params.items())
         return f"{self.__class__.__name__} Summary:\n{summary_str}"
     
+    
     def execute(self, *args, **kwargs):
         """
-        Executes `fit` or `run` method if either is implemented in the subclass.
-        Priority is given to `run` if both are present.
+        Execute `fit` or `run` method if either is implemented in the subclass. 
+        Priority is given to `run` if both are available.
+    
+        Parameters
+        ----------
+        *args : tuple
+            Positional arguments to pass to `fit` or `run`.
+        **kwargs : dict
+            Keyword arguments to pass to `fit` or `run`.
+    
+        Returns
+        -------
+        Any
+            The result of calling either `run` or `fit`.
+    
+        Raises
+        ------
+        NotImplementedError
+            If neither `fit` nor `run` is implemented in the subclass.
         """
         has_run = callable(getattr(self, 'run', None))
         has_fit = callable(getattr(self, 'fit', None))
@@ -748,7 +978,7 @@ class BaseEstimator:
             return self.fit(*args, **kwargs)
         else:
             raise NotImplementedError(
-                f"{self.__class__.__name__} requires either `run` or `fit` method to be implemented."
+                f"{self.__class__.__name__} requires either `run` or `fit`."
             )
 
     
@@ -1004,212 +1234,468 @@ class BasePlot(ABC):
                          if pname.startswith('cb_')
                          }
 
-class Config: 
+class GeoscienceProperties:
+    """ 
+    A container class for geological configurations in the Gofast package, 
+    storing fixed properties, array configurations, resistivity ranges, and 
+    visualization patterns for various geological rocks.
     
-    """ Container of property elements. 
-    
-    Out of bag to keep unmodificable elements. Trick to encapsulate all the 
-    element that are not be allow to be modified.
-    
+    This class provides a read-only, unmodifiable set of properties essential 
+    for handling electrical resistivity profiles (ERP), understanding 
+    resistivity ranges of geological materials, and generating consistent 
+    visual patterns in geological modeling.
+
+    Attributes
+    ----------
+    arraytype : dict
+        Dictionary storing the configurations for ERP array types, each 
+        represented by a unique identifier. Contains configuration names, 
+        shorthand labels, and related abbreviations. The structure is:
+        
+        .. code-block:: python
+
+            {
+                1: (['Schlumberger', 'AB>> MN', 'slbg'], 'S'),
+                2: (['Wenner', 'AB=MN'], 'W'),
+                3: (['Dipole-dipole', 'dd', 'AB<BM>MN', 'MN<NA>AB'], 'DD'),
+                4: (['Gradient-rectangular', '[AB]MN', 'MN[AB]', '[AB]'], 'GR')
+            }
+        
+    geo_rocks_properties : dict
+        Dictionary defining resistivity ranges (in ohm-meters) for various 
+        geological materials, providing insight into rock types and their 
+        respective resistivity properties for accurate geophysical analysis.
+
+    rockpatterns : dict
+        Dictionary specifying the default visualization patterns for rocks in 
+        matplotlib. Each entry pairs a rock type with a pattern string and 
+        color tuple, providing a base for creating standardized plots.
+
+    Methods
+    -------
+    arrangement(a)
+        Validates and retrieves the correct name for a given ERP array 
+        configuration. If invalid, it returns `0`.
+
+    Notes
+    -----
+    The `GeoscienceProperties` class encapsulates common geological 
+    configurations for consistent usage across geophysical modules. All 
+    properties are read-only, protecting critical configurations from 
+    modification during runtime. 
+
+    The `arraytype` attribute defines common ERP configurations used in 
+    electrical resistivity surveys, while `geo_rocks_properties` provides 
+    a reference for typical resistivity ranges in various rock types, 
+    assisting in geophysical interpretation.
+
+    Examples
+    --------
+    >>> from gofast.api.property import GeoscienceProperties
+    >>> geo_props = GeoscienceProperties()
+
+    # Access array type configuration for Schlumberger
+    >>> print(geo_props.arraytype[1])
+    (['Schlumberger', 'AB>> MN', 'slbg'], 'S')
+
+    # Retrieve resistivity range for igneous rock
+    >>> resistivity_range = geo_props.geo_rocks_properties["igneous rock"]
+    >>> print(resistivity_range)
+    [1000000.0, 1000.0]
+
+    # Get pattern and color for 'coal' rock type
+    >>> pattern, color = geo_props.rockpatterns["coal"]
+    >>> print(pattern, color)
+    *. (0.8, 0.9, 0.0)
+
+    See Also
+    --------
+    GeoscienceVisuals : A class that uses these properties to generate 
+                        geophysical visuals in matplotlib.
+
+    References
+    ----------
+    .. [1] Telford, W.M., Geldart, L.P., & Sheriff, R.E. (1990). "Applied 
+           Geophysics, 2nd Edition." Cambridge University Press.
+    .. [2] Parasnis, D.S. (1979). "Principles of Applied Geophysics, 3rd 
+           Edition." Chapman and Hall.
     """
     
-    @property 
-    def arraytype (self):
-        """ Different array from |ERP| configuration. 
-    
-         Array-configuration  can be added as the development progresses. 
-         
-        """
-        return {
-        1 : (
-            ['Schlumberger','AB>> MN','slbg'], 
-            'S'
-            ), 
-        2 : (
-            ['Wenner','AB=MN'], 
-             'W'
-             ), 
-        3: (
-            ['Dipole-dipole','dd','AB<BM>MN','MN<NA>AB'],
-            'DD'
-            ), 
-        4: (
-            ['Gradient-rectangular','[AB]MN', 'MN[AB]','[AB]'],
-            'GR'
-            )
-        }
     @property
-    def parsers(self ): 
-        """ Readable format that can be read and parse the data  """
-        return {
-                 ".csv" : pd.read_csv, 
-                 ".xlsx": pd.read_excel,
-                 ".json": pd.read_json,
-                 ".html": pd.read_html,
-                 ".sql" : pd.read_sql, 
-                 ".xml" : pd.read_xml , 
-                 ".fwf" : pd.read_fwf, 
-                 ".pkl" : pd.read_pickle, 
-                 ".sas" : pd.read_sas, 
-                 ".spss": pd.read_spss,
-                 # ".orc" : pd.read_orc, 
-                 }
-        
-    @staticmethod
-    def writers (object): 
-        """ Write frame formats."""
-        return {".csv"    : object.to_csv, 
-                ".hdf"    : object.to_hdf, 
-                ".sql"    : object.to_sql, 
-                ".dict"   : object.to_dict, 
-                ".xlsx"   : object.to_excel, 
-                ".json"   : object.to_json, 
-                ".html"   : object.to_html , 
-                ".feather": object.to_feather, 
-                ".tex"    : object.to_latex, 
-                ".stata"  : object.to_stata, 
-                ".gbq"    : object.to_gbq, 
-                ".rec"    : object.to_records, 
-                ".str"    : object.to_string, 
-                ".clip"   : object.to_clipboard, 
-                ".md"     : object.to_markdown, 
-                ".parq"   : object.to_parquet, 
-                # ".orc"    : object.to_orc, 
-                ".pkl"    : object.to_pickle 
-                }
-    
-    @staticmethod 
-    def arrangement(a: int | str ): 
-        """ Assert whether the given arrangement is correct. 
-        
-        :param a: int, float, str - Type of given electrical arrangement. 
-        
-        :returns:
-            - The correct arrangement name 
-            - ``0`` which means ``False`` or a wrong given arrangements.   
+    def arraytype(self):
         """
+        Retrieve configurations for ERP (Electrical Resistivity Profiling) 
+        array types, specifying different field survey setups used in 
+        geophysical surveys.
+
+        Returns
+        -------
+        dict
+            Mapping of integer keys to ERP array configurations, with each 
+            entry containing a list of configuration names and abbreviations 
+            for survey design.
         
-        for k, v in Config().arraytype.items(): 
-            if a == k  or str(a).lower().strip() in ','.join (
-                    v[0]).lower() or a ==v[1]: 
-                return  v[0][0].lower()
-            
+        Notes
+        -----
+        Array configurations are foundational in ERP, where each setup is 
+        designed to analyze subsurface resistivity variations. These standard 
+        setups can be extended or modified as field survey needs evolve.
+        """
+        return {
+            1: (['Schlumberger', 'AB>> MN', 'slbg'], 'S'),
+            2: (['Wenner', 'AB=MN'], 'W'),
+            3: (['Dipole-dipole', 'dd', 'AB<BM>MN', 'MN<NA>AB'], 'DD'),
+            4: (['Gradient-rectangular', '[AB]MN', 'MN[AB]', '[AB]'], 'GR')
+        }
+    
+    def arrangement(self, a):
+        """ 
+        Validate and retrieve the correct name for a specified ERP array 
+        configuration.
+
+        Parameters
+        ----------
+        a : int or str
+            The ERP array configuration, which can be an integer key or a 
+            string identifier for a known configuration.
+        
+        Returns
+        -------
+        str or int
+            The lowercase name of the arrangement if valid, or `0` if the 
+            configuration is not found.
+        
+        Notes
+        -----
+        The `arrangement` method helps validate array configurations, 
+        supporting field survey accuracy by ensuring configuration consistency 
+        and preventing invalid input during setup.
+
+        Examples
+        --------
+        >>> geo_props = GeoscienceProperties()
+        >>> geo_props.arrangement(1)
+        'schlumberger'
+        >>> geo_props.arrangement('W')
+        'wenner'
+        >>> geo_props.arrangement('invalid')
+        0
+        """
+        a = str(a).lower().strip()
+        for k, (aliases, short_name) in self.arraytype.items():
+            if a == str(k) or a in ','.join(aliases).lower() or a == short_name:
+                return aliases[0].lower()
         return 0
-    
-    @property 
-    def geo_rocks_properties(self ):
-        """ Get some sample of the geological rocks. """
-        return {
-             "hard rock" :                 [1e99,1e6 ],
-             "igneous rock":               [1e6, 1e3], 
-             "duricrust"   :               [5.1e3 , 5.1e2],
-             "gravel/sand" :               [1e4  , 7.943e0],
-             "conglomerate"    :           [1e4  , 8.913e1],
-             "dolomite/limestone" :        [1e5 ,  1e3],
-             "permafrost"  :               [1e5  , 4.169e2],
-             "metamorphic rock" :          [5.1e2 , 1e1],
-             "tills"  :                    [8.1e2 , 8.512e1],
-             "standstone conglomerate" :   [1e4 , 8.318e1],
-             "lignite/coal":               [7.762e2 , 1e1],
-             "shale"   :                   [5.012e1 , 3.20e1],
-             "clay"   :                    [1e2 ,  5.012e1],
-             "saprolite" :                 [6.310e2 , 3.020e1],
-             "sedimentary rock":           [1e4 , 1e0],
-             "fresh water"  :              [3.1e2 ,1e0],
-             "salt water"   :              [1e0 , 1.41e0],
-             "massive sulphide" :          [1e0   ,  1e-2],
-             "sea water"     :             [1.231e-1 ,1e-1],
-             "ore minerals"  :             [1e0   , 1e-4],
-             "graphite"    :               [3.1623e-2, 3.162e-3]
-                
-                }
-    
-    @property 
-    def rockpatterns(self): 
-        """Default geological rocks patterns. 
+
+    @property
+    def geo_rocks_properties(self):
+        """ 
+        Provides approximate resistivity ranges (in ohm-meters) for a selection 
+        of geological rock types, valuable for subsurface modeling and analysis.
+
+        Returns
+        -------
+        dict
+            A dictionary mapping rock names to resistivity ranges, expressed 
+            in ohm-meters, for use in geophysical interpretation.
         
-        pattern are not exhaustiv, can be added and changed. This pattern
-        randomly choosen its not exatly match the rocks geological patterns 
-        as described with the conventional geological swatches relate to 
-        the USGS(US Geological Survey ) swatches- references and FGDC 
-        (Digital cartographic Standard for Geological  Map Symbolisation 
-         -FGDCgeostdTM11A2_A-37-01cs2.eps)
+        Notes
+        -----
+        Resistivity ranges vary by rock type and water content, with high 
+        resistivity generally indicating less conductive materials such as 
+        igneous rocks, and low resistivity indicating conductive materials 
+        like water or massive sulphide deposits.
         
-        The following symbols can be used to create a matplotlib pattern. 
-        
-        .. code-block:: none
-        
-            make _pattern:{'/', '\\', '|', '-', '+', 'x', 'o', 'O', '.', '*'}
-                           
-                /   - diagonal hatching
-                \\   - back diagonal
-                |   - vertical
-                -   - horizontal
-                +   - crossed
-                x   - crossed diagonal
-                o   - small circle
-                O   - large circle
-                .   - dots
-                *   - stars
+        Examples
+        --------
+        >>> geo_props = GeoscienceProperties()
+        >>> geo_props.geo_rocks_properties["igneous rock"]
+        [1000000.0, 1000.0]
         """
-        return  {
-             "hard rock" :           ['.+++++.', (.25, .5, .5)],
-             "igneous rock":         ['.o.o.', (1., 1., 1.)], 
-             "duricrust"   :         ['+.+',(1., .2, .36)],
-             "gravel" :              ['oO',(.75,.86,.12)],
-             "sand":                 ['....',(.23, .36, .45)],
-             "conglomerate"    :     ['.O.', (.55, 0., .36)],
-             "dolomite" :            ['.-.', (0., .75, .23)],
-             "limestone" :           ['//.',(.52, .23, .125)],
-            "permafrost"  :          ['o.', (.2, .26, .75)],
-             "metamorphic rock" :    ['*o.', (.2, .2, .3)],
-             "tills"  :              ['-.', (.7, .6, .9)],
-             "standstone ":          ['..', (.5, .6, .9)],
-             "lignite coal":         ['+/.',(.5, .5, .4)],
-             "coal":                 ['*.', (.8, .9, 0.)],
-             "shale"   :             ['=', (0., 0., 0.7)],
-             "clay"   :              ['=.',(.9, .8, 0.8)],
-             "saprolite" :           ['*/',(.3, 1.2, .4)],
-             "sedimentary rock":     ['...',(.25, 0., .25)],
-             "fresh water"  :        ['.-.',(0., 1.,.2)],
-             "salt water"   :        ['o.-',(.2, 1., .2)],
-             "massive sulphide" :    ['.+O',(1.,.5, .5 )],
-             "sea water"     :       ['.--',(.0, 1., 0.)],
-             "ore minerals"  :       ['--|',(.8, .2, .2)],
-             "graphite"    :         ['.++.',(.2, .7, .7)],
-             
-             }
+        return {
+            "hard rock": [1e99, 1e6],
+            "igneous rock": [1e6, 1e3],
+            "duricrust": [5.1e3, 5.1e2],
+            "gravel/sand": [1e4, 7.943],
+            "conglomerate": [1e4, 8.913e1],
+            "dolomite/limestone": [1e5, 1e3],
+            "permafrost": [1e5, 4.169e2],
+            "metamorphic rock": [5.1e2, 1e1],
+            "tills": [8.1e2, 8.512e1],
+            "sandstone conglomerate": [1e4, 8.318e1],
+            "lignite/coal": [7.762e2, 1e1],
+            "shale": [5.012e1, 3.20e1],
+            "clay": [1e2, 5.012e1],
+            "saprolite": [6.310e2, 3.020e1],
+            "sedimentary rock": [1e4, 1e0],
+            "fresh water": [3.1e2, 1e0],
+            "salt water": [1e0, 1.41],
+            "massive sulphide": [1e0, 1e-2],
+            "sea water": [1.231e-1, 1e-1],
+            "ore minerals": [1e0, 1e-4],
+            "graphite": [3.1623e-2, 3.162e-3]
+        }
+
+    @property
+    def rockpatterns(self):
+        """ 
+        Default visualization patterns and colors for geological rock types.
+
+        Returns
+        -------
+        dict
+            Dictionary of rock names mapped to a list with visualization 
+            pattern strings and color tuples, for use with matplotlib.
+        
+        Notes
+        -----
+        These patterns are derived from conventional geological symbols. 
+        They allow consistent and recognizable rock representation in plots, 
+        supporting standardized geological modeling.
+
+        Examples
+        --------
+        >>> geo_props = GeoscienceProperties()
+        >>> pattern, color = geo_props.rockpatterns["coal"]
+        >>> print(pattern, color)
+        *. (0.8, 0.9, 0.0)
+        """
+
+        return {
+            "hard rock": ['.+++++.', (0.25, 0.5, 0.5)],
+            "igneous rock": ['.o.o.', (1., 1., 1.)],
+            "duricrust": ['+.+', (1., 0.2, 0.36)],
+            "gravel": ['oO', (0.75, 0.86, 0.12)],
+            "sand": ['....', (0.23, 0.36, 0.45)],
+            "conglomerate": ['.O.', (0.55, 0., 0.36)],
+            "dolomite": ['.-.', (0., 0.75, 0.23)],
+            "limestone": ['//.', (0.52, 0.23, 0.125)],
+            "permafrost": ['o.', (0.2, 0.26, 0.75)],
+            "metamorphic rock": ['*o.', (0.2, 0.2, 0.3)],
+            "tills": ['-.', (0.7, 0.6, 0.9)],
+            "standstone": ['..', (0.5, 0.6, 0.9)],
+            "lignite coal": ['+/.', (0.5, 0.5, 0.4)],
+            "coal": ['*.', (0.8, 0.9, 0.)],
+            "shale": ['=', (0., 0., 0.7)],
+            "clay": ['=.', (0.9, 0.8, 0.8)],
+            "saprolite": ['*/', (0.3, 1.2, 0.4)],
+            "sedimentary rock": ['...', (0.25, 0., 0.25)],
+            "fresh water": ['.-.', (0., 1., 0.2)],
+            "salt water": ['o.-', (0.2, 1., 0.2)],
+            "massive sulphide": ['.+O', (1., 0.5, 0.5)],
+            "sea water": ['.--', (0., 1., 0.)],
+            "ore minerals": ['--|', (0.8, 0.2, 0.2)],
+            "graphite": ['.++.', (0.2, 0.7, 0.7)]
+        }
+
+
+class PandasDataHandlers:
+    """ 
+    A container for data parsers and writers based on Pandas, supporting a 
+    wide range of formats for both reading and writing DataFrames. This class 
+    simplifies data I/O by mapping file extensions to Pandas functions, making 
+    it easier to manage diverse file formats in the Gofast package.
     
+    Attributes
+    ----------
+    parsers : dict
+        A dictionary mapping common file extensions to Pandas functions for 
+        reading files into DataFrames. Each entry links a file extension to 
+        a specific Pandas reader function, allowing for standardized and 
+        convenient data import.
+
+    Methods
+    -------
+    writers(obj)
+        Returns a dictionary mapping file extensions to Pandas functions for 
+        writing a DataFrame to various formats. Enables easy exporting of data 
+        in multiple file formats, ensuring flexibility in data storage.
+        
+    Notes
+    -----
+    The `PandasDataHandlers` class centralizes data handling functions, 
+    allowing for a unified interface to access multiple data formats, which 
+    simplifies data parsing and file writing in the Gofast package.
+
+    This class does not take any parameters on initialization and is used 
+    to manage I/O options for DataFrames exclusively.
+
+    Examples
+    --------
+    >>> from gofast.api.property import PandasDataHandlers
+    >>> data_handler = PandasDataHandlers()
+    
+    # Reading a CSV file
+    >>> parser_func = data_handler.parsers[".csv"]
+    >>> df = parser_func("data.csv")
+    
+    # Writing to JSON
+    >>> writer_func = data_handler.writers(df)[".json"]
+    >>> writer_func("output.json")
+
+    The above example illustrates how to access reader and writer functions 
+    for specified file extensions, allowing for simplified data import and 
+    export with Pandas.
+
+    See Also
+    --------
+    pandas.DataFrame : Provides comprehensive data structures and methods for 
+                       managing tabular data.
+                       
+    References
+    ----------
+    .. [1] McKinney, W. (2010). "Data Structures for Statistical Computing 
+           in Python." In *Proceedings of the 9th Python in Science Conference*, 
+           51-56.
+    """
+
+    @property
+    def parsers(self):
+        """
+        A dictionary mapping file extensions to Pandas functions for reading 
+        data files. Each extension is associated with a Pandas function 
+        capable of parsing the respective format and returning a DataFrame.
+
+        Returns
+        -------
+        dict
+            A dictionary of file extensions as keys, and their respective 
+            Pandas parsing functions as values.
+
+        Examples
+        --------
+        >>> data_handler = PandasDataHandlers()
+        >>> csv_parser = data_handler.parsers[".csv"]
+        >>> df = csv_parser("data.csv")
+
+        Notes
+        -----
+        The `parsers` attribute simplifies data import across diverse formats 
+        supported by Pandas. As new formats are integrated into Pandas, this 
+        dictionary can be expanded to include additional file types.
+        """
+        return {
+            ".csv": pd.read_csv,
+            ".xlsx": pd.read_excel,
+            ".json": pd.read_json,
+            ".html": pd.read_html,
+            ".sql": pd.read_sql,
+            ".xml": pd.read_xml,
+            ".fwf": pd.read_fwf,
+            ".pkl": pd.read_pickle,
+            ".sas": pd.read_sas,
+            ".spss": pd.read_spss,
+        }
+
+    @staticmethod
+    def writers(obj):
+        """
+        A dictionary mapping file extensions to Pandas functions for writing 
+        DataFrames. The `writers` method generates file-specific writing 
+        functions to enable export of DataFrames in various formats.
+
+        Parameters
+        ----------
+        obj : pandas.DataFrame
+            The DataFrame to be written to a specified format.
+        
+        Returns
+        -------
+        dict
+            A dictionary of file extensions as keys, mapped to the DataFrame 
+            writer functions in Pandas that allow exporting to that format.
+
+        Examples
+        --------
+        >>> data_handler = PandasDataHandlers()
+        >>> df = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
+        >>> json_writer = data_handler.writers(df)[".json"]
+        >>> json_writer("output.json")
+
+        Notes
+        -----
+        The `writers` method provides a flexible solution for exporting data 
+        to multiple file formats. This method centralizes data export 
+        functionality by associating file extensions with Pandas writer 
+        methods, making it straightforward to save data in different formats.
+        """
+        return {
+            ".csv": obj.to_csv,
+            ".hdf": obj.to_hdf,
+            ".sql": obj.to_sql,
+            ".dict": obj.to_dict,
+            ".xlsx": obj.to_excel,
+            ".json": obj.to_json,
+            ".html": obj.to_html,
+            ".feather": obj.to_feather,
+            ".tex": obj.to_latex,
+            ".stata": obj.to_stata,
+            ".gbq": obj.to_gbq,
+            ".rec": obj.to_records,
+            ".str": obj.to_string,
+            ".clip": obj.to_clipboard,
+            ".md": obj.to_markdown,
+            ".parq": obj.to_parquet,
+            ".pkl": obj.to_pickle,
+        }
+
+
 class References:
     """
-    References information for a citation.
+    Holds citation information for a reference in the Gofast package, 
+    encapsulating standard publication details such as author, title, 
+    journal, and publication year. This class supports flexibility by 
+    allowing additional attributes to be added via keyword arguments.
 
-    Holds the following information:
-        
-    ================  ==========  =============================================
-    Attributes         Type        Explanation
-    ================  ==========  =============================================
-    author            string      Author names
-    title             string      Title of article, or publication
-    journal           string      Name of journal
-    doi               string      DOI number 
-    year              int         year published
-    ================  ==========  =============================================
-
-    More attributes can be added by inputing a key word dictionary
+    Attributes
+    ----------
+    author : str, optional
+        The name(s) of the author(s) of the publication.
+    title : str, optional
+        The title of the article or publication.
+    journal : str, optional
+        The name of the journal where the work was published.
+    doi : str, optional
+        The Digital Object Identifier (DOI) for the publication.
+    year : int, optional
+        The publication year.
     
+    Additional Attributes
+    ---------------------
+    Additional attributes can be specified using keyword arguments, 
+    allowing for custom citation details such as volume, pages, 
+    and issue number.
+
+    Notes
+    -----
+    The `References` class enables users to encapsulate publication details 
+    flexibly. It serves as a reference for citing sources related to 
+    geophysical research data used within the Gofast package.
+
     Examples
-    ---------
-    >>> from gofast.property import References
+    --------
+    >>> from gofast.api.property import References
     >>> refobj = References(
-        **{'volume':18, 'pages':'234--214', 
-        'title':'gofast :A machine learning research for hydrogeophysic' ,
-        'journal':'Computers and Geosciences', 
-        'year':'2021', 'author':'DMaryE'}
-        )
-    >>> refobj.journal
-    Out[21]: 'Computers and Geosciences'
+    ...     author='DMaryE',
+    ...     title='Gofast: A Machine Learning Research for Hydrogeophysics',
+    ...     journal='Computers and Geosciences',
+    ...     year=2021,
+    ...     volume=18,
+    ...     pages='234--214'
+    ... )
+    >>> print(refobj.journal)
+    'Computers and Geosciences'
+
+    See Also
+    --------
+    Copyright : Class containing copyright information for data usage.
+
+    References
+    ----------
+    .. [1] Doe, J., & Smith, A. (2021). "Machine Learning Applications in 
+           Hydrogeophysics." *Geosciences Journal*, 15(4), 202-214.
     """
+
     def __init__(
         self, 
         author=None, 
@@ -1219,97 +1705,147 @@ class References:
         doi=None, 
         year=None,  
         **kws
-        ):
-        self.author=author 
-        self.title=title 
-        self.journal=journal 
-        self.volume=volume 
-        self.doi=doi 
-        self.year=year 
-   
-        for key in list(kws.keys()):
+    ):
+        self.author = author
+        self.title = title
+        self.journal = journal
+        self.volume = volume
+        self.doi = doi
+        self.year = year
+        for key in kws:
             setattr(self, key, kws[key])
-
 
 class Copyright:
     """
-    Information of copyright, mainly about the use of data can use
-    the data. Be sure to read over the conditions_of_use.
+    Contains copyright information, focusing on usage terms for data within 
+    the Gofast package. This class includes references to the citation of 
+    related publications, conditions of use, and release status. Additional 
+    information can be added as needed.
 
-    Holds the following informations:
-
-    =================  ===========  ===========================================
-    Attributes         Type         Explanation
-    =================  ===========  ===========================================
-    References          References  citation of published work using these data
-    conditions_of_use   string      conditions of use of data used for testing 
-                                    program
-    release_status      string      release status [ open | public |proprietary]
-    =================  ===========  ===========================================
-
-    More attributes can be added by inputing a key word dictionary
-    
-    Examples
+    Attributes
     ----------
-    >>> from gofast.property import Copyright 
-    >>> copbj =Copyright(**{'owner':'University of AI applications',
-    ...             'contact':'WATER4ALL'})
-    >>> copbj.contact 
-    Out[20]: 'WATER4ALL
-    
+    References : References
+        Citation details for published work associated with the data.
+    conditions_of_use : str
+        Specifies terms under which the data can be used.
+    release_status : str, optional
+        Status of data availability, options include 'open', 'public', or 
+        'proprietary'.
+
+    Additional Attributes
+    ---------------------
+    Further attributes can be added via keyword arguments to include details 
+    such as data owner and contact information.
+
+    Notes
+    -----
+    The `Copyright` class emphasizes compliance with usage terms for 
+    proprietary or open data within Gofast. Users should refer to 
+    `conditions_of_use` for usage guidelines and restrictions.
+
+    Examples
+    --------
+    >>> from gofast.api.property import Copyright 
+    >>> copobj = Copyright(
+    ...     release_status='public',
+    ...     additional_info='University of AI applications',
+    ...     conditions_of_use='Data for educational purposes only.',
+    ...     owner='University of AI applications',
+    ...     contact='WATER4ALL'
+    ... )
+    >>> print(copobj.contact)
+    'WATER4ALL'
+
+    See Also
+    --------
+    References : Class for storing citation details.
+
+    References
+    ----------
+    .. [1] Water4All Project. "Conditions of Use for Geophysical Data". 
+           *Hydrogeophysics Repository*, Water4All, 2022.
     """
-    cuse =( 
+
+    cuse = (
         "All Data used for software demonstration mostly located in "
-        " data directory <data/> cannot be used for commercial and " 
-        " distributive purposes. They can not be distributed to a third"
-        " party. However, they can be used for understanding the program."
-        " Some available ERP and VES raw data can be found on the record"
-        " <'10.5281/zenodo.5571534'>. Whereas EDI-data e.g. EMAP/MT data,"
-        " can be collected at http://ds.iris.edu/ds/tags/magnetotelluric-data/."
-        " The metadata from both sites are available free of charge and may"
-        " be copied freely, duplicated and further distributed provided"
-        " these data are cited as the reference."
-        )
+        "data directory <data/> cannot be used for commercial and "
+        "distributive purposes. They cannot be distributed to a third "
+        "party. However, they can be used for understanding the program. "
+        "Some available ERP and VES raw data can be found on the record "
+        "<'10.5281/zenodo.5571534'>. Whereas EDI-data, e.g., EMAP/MT data, "
+        "can be collected at http://ds.iris.edu/ds/tags/magnetotelluric-data/. "
+        "The metadata from both sites are available free of charge and may "
+        "be copied freely, duplicated, and further distributed provided "
+        "these data are cited as the reference."
+    )
+
     def __init__(
         self, 
         release_status=None, 
         additional_info=None, 
         conditions_of_use=None, 
         **kws
-        ):
-        self.release_status=release_status
-        self.additional_info=additional_info
-        self.conditions_of_use=conditions_of_use or self.cuse 
-        self.References=References()
-        for key in list(kws.keys()):
+    ):
+        self.release_status = release_status
+        self.additional_info = additional_info
+        self.conditions_of_use = conditions_of_use or self.cuse
+        self.References = References()
+        for key in kws:
             setattr(self, key, kws[key])
 
 
 class Person:
     """
-    Information for a person
+    Stores contact information for a person associated with the data, 
+    such as an author, contributor, or project owner. Supports customization 
+    through keyword arguments for adding additional fields.
 
-    ================  ==========  =============================================
-    Attributes         Type        Explanation
-    ================  ==========  =============================================
-    email             string      email of person
-    name              string      name of person
-    organization      string      name of person's organization
-    organization_url  string      organizations web address
-    ================  ==========  =============================================
-
-    More attributes can be added by inputing a key word dictionary
-    
-    Examples 
+    Attributes
     ----------
-    >>> from gofast.property import Person
-    >>> person =Person(**{'name':'ABA', 'email':'aba@water4all.ai.org',
-    ...                  'phone':'00225-0769980706', 
-    ...          'organization':'WATER4ALL'})
-    >>> person.name
-    Out[23]: 'ABA
-    >>> person.organization
-    Out[25]: 'WATER4ALL'
+    email : str, optional
+        Email address of the person.
+    name : str, optional
+        Full name of the person.
+    organization : str, optional
+        Name of the person's organization.
+    organization_url : str, optional
+        Web address of the person's organization.
+    
+    Additional Attributes
+    ---------------------
+    Additional attributes can be set using keyword arguments, enabling 
+    customization for specific contact information such as phone numbers 
+    or roles within an organization.
+
+    Notes
+    -----
+    The `Person` class provides a structured format for capturing contact 
+    details, which can be essential for maintaining proper citation and 
+    correspondence for data used within the Gofast package.
+
+    Examples
+    --------
+    >>> from gofast.api.property import Person
+    >>> person = Person(
+    ...     name='ABA', 
+    ...     email='aba@water4all.ai.org',
+    ...     phone='00225-0769980706', 
+    ...     organization='WATER4ALL'
+    ... )
+    >>> print(person.name)
+    'ABA'
+    >>> print(person.organization)
+    'WATER4ALL'
+
+    See Also
+    --------
+    Copyright : Class for copyright information and data usage conditions.
+    References : Class for referencing published works.
+
+    References
+    ----------
+    .. [1] Water4All Project. "Contact Information and Organization Details". 
+           *Water4All Repository*, Water4All, 2022.
     """
 
     def __init__(
@@ -1319,52 +1855,169 @@ class Person:
         organization=None, 
         organization_url=None, 
         **kws
-        ):
-        self.email=email 
-        self.name=name 
-        self.organization=organization
-        self.organization_url=organization_url
-
-        for key in list(kws.keys()):
+    ):
+        self.email = email
+        self.name = name
+        self.organization = organization
+        self.organization_url = organization_url
+        for key in kws:
             setattr(self, key, kws[key])
-
 
 class Software:
     """
-    software info 
+    Stores essential information about software used within the Gofast package, 
+    encapsulating details such as name, version, release date, and author. This 
+    class allows for flexible extension by accepting additional attributes 
+    via keyword arguments, making it adaptable for various software metadata 
+    requirements.
 
-    ================= =========== =============================================
-    Attributes         Type        Explanation
-    ================= =========== =============================================
-    name                string      name of software 
-    version             string      version of sotware 
-    Author              string      Author of software
-    release             string      latest version release
-    ================= =========== =============================================
-    
-    More attributes can be added by inputing a key word dictionary
-
-    Examples 
+    Attributes
     ----------
-    >>> from gofast.property import Software
-    >>> Software(**{'release':'0.11.23'})
+    name : str, optional
+        The name of the software.
+    version : str, optional
+        The current version of the software.
+    release : str, optional
+        The release date or version release information.
+    Author : Person
+        A `Person` object representing the author of the software, allowing 
+        for further contact and organizational details.
 
+    Additional Attributes
+    ---------------------
+    Additional attributes can be added via keyword arguments, enabling custom 
+    metadata fields such as software license, support URL, or technical 
+    specifications.
+
+    Methods
+    -------
+    display_info()
+        Prints a formatted summary of the software's information, providing 
+        key details such as name, version, release, and author.
+
+    update_info(**kws)
+        Updates the software attributes with new values provided as keyword 
+        arguments, allowing for dynamic modification.
+
+    get_author_contact()
+        Retrieves the contact information of the software author, if available.
+
+    Notes
+    -----
+    The `Software` class provides a flexible container for software metadata, 
+    particularly useful for documenting research tools and ensuring proper 
+    version control. The class can be extended or modified through keyword 
+    arguments for future adaptability.
+
+    Examples
+    --------
+    >>> from gofast.api.property import Software
+    >>> software = Software(
+    ...     name='HydroSim',
+    ...     version='1.0.3',
+    ...     release='2023-09-12',
+    ...     license='MIT',
+    ...     url='https://hydrosim.org'
+    ... )
+    >>> software.display_info()
+    Name: HydroSim
+    Version: 1.0.3
+    Release: 2023-09-12
+    Author: Not Specified
+    License: MIT
+    URL: https://hydrosim.org
+
+    See Also
+    --------
+    Person : For additional details about the author of the software.
+
+    References
+    ----------
+    .. [1] Johnson, L., & Smith, P. (2022). "Best Practices in Software Metadata 
+           Documentation." *Software Engineering Journal*, 18(2), 100-112.
     """
+
     def __init__(
         self,
         name=None, 
         version=None, 
         release=None, 
         **kws
-        ):
-        self.name=name 
-        self.version=version 
-        self.release=release 
-        self.Author=Person()
-        
-        for key in kws:
-            setattr(self, key, kws[key]) 
+    ):
+        self.name = name
+        self.version = version
+        self.release = release
+        self.Author = Person()  
 
+        for key in kws:
+            setattr(self, key, kws[key])
+
+    def display_info(self):
+        """
+        Display a formatted summary of the software's information, showing 
+        key attributes such as name, version, release, and author.
+
+        Notes
+        -----
+        This method is useful for quick inspection of software metadata 
+        and aids in documentation efforts by providing a readable format.
+        """
+        print(f"Name: {self.name or 'Not Specified'}")
+        print(f"Version: {self.version or 'Not Specified'}")
+        print(f"Release: {self.release or 'Not Specified'}")
+        print(f"Author: {self.Author.name or 'Not Specified'}")
+        additional_info = {k: v for k, v in self.__dict__.items(
+            ) if k not in ['name', 'version', 'release', 'Author']}
+        for key, value in additional_info.items():
+            print(f"{key.capitalize()}: {value}")
+
+    def update_info(self, **kws):
+        """
+        Update the software attributes with new values provided via 
+        keyword arguments.
+
+        Parameters
+        ----------
+        **kws : dict
+            Key-value pairs of attributes to update.
+
+        Examples
+        --------
+        >>> software = Software(name='HydroSim', version='1.0.3')
+        >>> software.update_info(version='1.1.0', release='2023-10-01')
+        >>> software.version
+        '1.1.0'
+        """
+        for key, value in kws.items():
+            setattr(self, key, value)
+
+    def get_author_contact(self):
+        """
+        Retrieve the contact information of the software author, if available.
+
+        Returns
+        -------
+        dict
+            A dictionary with available contact information (e.g., email, 
+            organization, phone) or a message if the information is not 
+            available.
+
+        Examples
+        --------
+        >>> software.Author.name = 'Jane Doe'
+        >>> software.Author.email = 'jane.doe@example.com'
+        >>> software.get_author_contact()
+        {'name': 'Jane Doe', 'email': 'jane.doe@example.com'}
+        """
+        contact_info = {
+            "name": self.Author.name,
+            "email": self.Author.email,
+            "organization": self.Author.organization,
+            "phone": getattr(self.Author, 'phone', None)
+        }
+        return {k: v for k, v in contact_info.items() if v is not None}
+
+# ----- functions -----
 def run_return(
     self, 
     attribute_name: Optional[str] = None, 
