@@ -16,11 +16,12 @@ from typing import Callable, Dict, Any, List, Tuple
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor 
 
-from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
 from .._gofastlog import gofastlog 
-from ..api.property import BaseClass
+from ..api.property import BaseLearner
 from ..compat.sklearn import validate_params 
-from ..tools.funcutils import ensure_pkg 
+from ..tools.depsutils import ensure_pkg 
+
+from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
 
 logger=gofastlog.get_gofast_logger(__name__)
 
@@ -35,7 +36,7 @@ __all__ = [
     "SimpleAutomation",
 ]
 
-class SimpleAutomation(BaseClass):
+class SimpleAutomation(BaseLearner):
     """
     Manages the automation of repetitive tasks such as scheduled model
     training and data ingestion. It supports adding tasks, scheduling
@@ -616,7 +617,7 @@ class SimpleRetrainingScheduler(SimpleAutomation):
         self.schedule_task(task_name)
         
 
-class AutomationManager(BaseClass):
+class AutomationManager(BaseLearner):
     """
     Advanced class to manage the automation of repetitive tasks, with support
     for task scheduling, retries, parallel execution, fault tolerance, and

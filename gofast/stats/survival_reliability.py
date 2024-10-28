@@ -12,8 +12,9 @@ import matplotlib.pyplot as plt
 
 from ..api.types import Optional, List, Tuple
 from ..api.types import DataFrame, Array1D
-from ..tools.coreutils import to_series_if 
-from ..tools.funcutils import make_data_dynamic, ensure_pkg
+from ..tools.coreutils import to_series_if
+from ..tools.depsutils import ensure_pkg  
+from ..tools.funcutils import make_data_dynamic
 
 __all__= [ "kaplan_meier_analysis", "dca_analysis" ]
 

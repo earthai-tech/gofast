@@ -7,12 +7,14 @@ handle complex, time-dependent data by combining dynamic system theory with
 machine learning techniques.
 """
 from __future__ import annotations 
+
 import numpy as np
 from tqdm import tqdm 
 
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.utils import resample
 from sklearn.preprocessing import LabelBinarizer # noqa 
+
 from ..tools.validator import check_X_y, check_array 
 from ..tools.validator import check_is_fitted
 from ..tools.baseutils import normalizer 

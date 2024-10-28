@@ -3,58 +3,71 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """
-Set of plot templates for visualising and inspecting
-the learning models.  It gives a quick depiction for users for 
-models visualization and evaluation with : :class:`~gofast.plot.EvalPlotter`.
+A comprehensive suite of plotting utilities for visualizing and inspecting 
+machine learning models, designed to provide clear, insightful, and quick 
+depictions of model performance, structure, and evaluation metrics.
+
+The module includes various classes and functions for evaluating machine 
+learning model metrics and generating visualizations:
+    - :class:`~gofast.plot.EvalPlotter`: Primary interface for generating 
+      evaluation plots.
+    - Metric visualizations for regression, classification, and clustering 
+      models.
+    - Learning curves, ROC curves, confusion matrices, and silhouette plots.
+    - Customizable, scalable visual properties using matplotlib and seaborn 
+      for publication-quality visuals.
 """
-from __future__ import annotations 
+
+from __future__ import annotations
+from abc import ABCMeta
 import re
 import warnings
-import inspect 
-import copy 
-import numpy as np 
+import inspect
+import copy
+
+import numpy as np
 import pandas as pd
-import seaborn as sns 
-import matplotlib as mpl 
-import matplotlib.pyplot  as plt
+import seaborn as sns
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
-from abc import ABCMeta 
-from matplotlib import cm 
+from matplotlib import cm
 from matplotlib.colors import BoundaryNorm
 
-from sklearn.model_selection import learning_curve , train_test_split
-from sklearn.metrics import mean_squared_error, silhouette_samples
-from sklearn.metrics import  silhouette_score
-from sklearn.metrics import confusion_matrix, roc_curve, auc, precision_recall_curve
+from sklearn.model_selection import learning_curve, train_test_split
+from sklearn.metrics import (
+    mean_squared_error, silhouette_samples, silhouette_score,
+    confusion_matrix, roc_curve, auc, precision_recall_curve
+)
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, label_binarize
-
-from sklearn.impute import   SimpleImputer
+from sklearn.impute import SimpleImputer
 
 from .._gofastlog import gofastlog
-from ..analysis.dimensionality import nPCA
 from ..api.docstring import _core_docs, _baseplot_params, DocstringComponents
-from ..api.property import BasePlot 
-from ..api.types import  _F, Optional, List, ArrayLike, NDArray 
-from ..api.types import DataFrame,  Series 
+from ..api.property import BasePlot, BaseClass
+from ..api.types import _F, Optional, List, ArrayLike, NDArray, DataFrame, Series
 from ..exceptions import NotFittedError, EstimatorError
 from ..tools.baseutils import categorize_target, extract_target
-from ..tools.coreutils import to_numeric_dtypes, fancier_repr_formatter 
-from ..tools.coreutils import smart_strobj_recognition, reshape 
-from ..tools.coreutils import str2columns, make_ids, type_of_target, is_iterable 
-from ..tools.funcutils import ensure_pkg 
-from ..tools.validator import _check_consistency_size
-from ..tools.validator import build_data_if
-from ..tools.validator import _is_numeric_dtype , check_consistent_length
-from ..tools.validator import assert_xy_in 
-from .utils import _get_xticks_formatage,  make_mpl_properties
+from ..tools.coreutils import (
+    to_numeric_dtypes, reshape, str2columns, make_ids, type_of_target,
+    is_iterable
+)
+from ..tools.depsutils import ensure_pkg
+from ..tools.validator import (
+    _check_consistency_size, build_data_if, _is_numeric_dtype,
+    check_consistent_length, assert_xy_in
+)
+from .utils import _get_xticks_formatage, make_mpl_properties
 
-_logger=gofastlog.get_gofast_logger(__name__)
 
 __all__ = ["MetricPlotter", "EvalPlotter", "plot_model_scores",
            "plot_reg_scoring", "plot_model"]
 
+_logger = gofastlog.get_gofast_logger(__name__)
 
-class MetricPlotter (BasePlot):
+
+
+class MetricPlotter (BasePlot, BaseClass):
     def __init__(self, line_style='-',line_width=2, color_map='viridis',
                  **kws):
         """
@@ -676,70 +689,6 @@ class MetricPlotter (BasePlot):
             raise NotFittedError(msg.format(expobj=self))
         return 1
     
-    def __repr__(self):
-        """ Pretty format for programmer guidance following the API... """
-        return fancier_repr_formatter(self ) 
-       
-    def __getattr__(self, name):
-        """
-        Custom attribute accessor to provide informative error messages.
-
-        This method is called if the attribute accessed is not found in the
-        usual places (`__dict__` and the class tree). It checks for common 
-        attribute patterns and raises informative errors if the attribute is 
-        missing or if the object is not fitted yet.
-
-        Parameters
-        ----------
-        name : str
-            The name of the attribute being accessed.
-
-        Raises
-        ------
-        NotFittedError
-            If the attribute indicates a requirement for a prior fit method call.
-
-        AttributeError
-            If the attribute is not found, potentially suggesting a similar attribute.
-
-        Returns
-        -------
-        Any
-            The value of the attribute, if found through smart recognition.
-        """
-        if name.endswith('_'):
-            # Special handling for attributes that are typically set after fitting
-            if name not in self.__dict__:
-                if name in ('data_', 'X_'):
-                    raise NotFittedError(
-                        f"Attribute '{name}' not found.Please fit the"
-                        f" {self.__class__.__name__} object first.")
-
-        # Attempt to find a similar attribute name for a more informative error
-        similar_attr = self._find_similar_attribute(name)
-        suggestion = f". Did you mean '{similar_attr}'?" if similar_attr else ""
-
-        raise AttributeError(f"'{self.__class__.__name__}' object has "
-                             f"no attribute '{name}'{suggestion}")
-
-    def _find_similar_attribute(self, name):
-        """
-        Attempts to find a similar attribute name in the object's dictionary.
-
-        Parameters
-        ----------
-        name : str
-            The name of the attribute to find a similar match for.
-
-        Returns
-        -------
-        str or None
-            A similar attribute name if found, otherwise None.
-        """
-        # Implement the logic for finding a similar attribute name
-        # For example, using a string comparison or a fuzzy search
-        rv = smart_strobj_recognition(name, self.__dict__, deep =True)
-        return rv 
     
         
 MetricPlotter.__doc__="""\
@@ -814,7 +763,7 @@ Examples
 >>> plotter.plot_silhouette(X, cluster_labels, n_clusters=4)
 """
 
-class EvalPlotter(BasePlot): 
+class EvalPlotter(BasePlot, BaseClass): 
     def __init__(self, 
         target_name:str =None, 
         encode_labels: bool=False,
@@ -1561,6 +1510,7 @@ class EvalPlotter(BasePlot):
         
         """
         self.inspect 
+        from ..analysis.dimensionality import nPCA
         # Setup and perform PCA analysis and return pca object.
         pca = nPCA(self.X, n_components=n_components, return_X=False, **pca_kws)
         X_pca = pca.X # pca.fit_transform(X)
@@ -1861,6 +1811,8 @@ class EvalPlotter(BasePlot):
         color-coded based on the labels provided.
         """
         self.inspect 
+        from ..analysis.dimensionality import nPCA
+        
         # Standardizing the features
         if self.scale: 
             self.X  = StandardScaler().fit_transform(self.X)
@@ -2424,70 +2376,6 @@ class EvalPlotter(BasePlot):
 
         self.save(fig)
 
-    def __repr__(self):
-        """ Pretty format for programmer guidance following the API... """
-        return fancier_repr_formatter(self ) 
-       
-    def __getattr__(self, name):
-        """
-        Custom attribute accessor to provide informative error messages.
-
-        This method is called if the attribute accessed is not found in the
-        usual places (`__dict__` and the class tree). It checks for common 
-        attribute patterns and raises informative errors if the attribute is 
-        missing or if the object is not fitted yet.
-
-        Parameters
-        ----------
-        name : str
-            The name of the attribute being accessed.
-
-        Raises
-        ------
-        NotFittedError
-            If the attribute indicates a requirement for a prior fit method call.
-
-        AttributeError
-            If the attribute is not found, potentially suggesting a similar attribute.
-
-        Returns
-        -------
-        Any
-            The value of the attribute, if found through smart recognition.
-        """
-        if name.endswith('_'):
-            # Special handling for attributes that are typically set after fitting
-            if name not in self.__dict__:
-                if name in ('data_', 'X_'):
-                    raise NotFittedError(
-                        f"Attribute '{name}' not found.Please fit the"
-                        f" {self.__class__.__name__} object first.")
-
-        # Attempt to find a similar attribute name for a more informative error
-        similar_attr = self._find_similar_attribute(name)
-        suggestion = f". Did you mean '{similar_attr}'?" if similar_attr else ""
-
-        raise AttributeError(f"'{self.__class__.__name__}' object has "
-                             f"no attribute '{name}'{suggestion}")
-
-    def _find_similar_attribute(self, name):
-        """
-        Attempts to find a similar attribute name in the object's dictionary.
-
-        Parameters
-        ----------
-        name : str
-            The name of the attribute to find a similar match for.
-
-        Returns
-        -------
-        str or None
-            A similar attribute name if found, otherwise None.
-        """
-        # Implement the logic for finding a similar attribute name
-        # For example, using a string comparison or a fuzzy search
-        rv = smart_strobj_recognition(name, self.__dict__, deep =True)
-        return rv 
 
 #------------------------------------------------------------------------------
 # Add specific params to Evaldocs 

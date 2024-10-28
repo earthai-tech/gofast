@@ -14,13 +14,13 @@ import os
 import re
 import copy 
 import warnings 
-from typing import Any, List, Union, Dict, Optional, Set  
+from typing import Any, List, Union, Dict, Optional, Set, Tuple   
 
 import scipy 
 import numpy as np 
 import pandas as pd 
 
-from ..api.types import _F, ArrayLike, NDArray, DataFrame  
+from ..api.types import _F, ArrayLike, NDArray, DataFrame 
 from .coreutils import ( 
     smart_format, is_iterable, _assert_all_types, exist_features, 
     assert_ratio, _isin, _validate_name_in, sanitize_frame_cols, 
@@ -37,7 +37,8 @@ __all__= [
     'random_selector',
     'read_from_excelsheets',
     'read_worksheets',
-    'resample_data'
+    'resample_data', 
+    'replace_data'
     ]
 
 
@@ -1104,3 +1105,109 @@ def get_xy_coordinates (d, as_frame = False, drop_xy = False,
         
     return  xy , d , xynames 
        
+def replace_data(
+    X:Union [np.ndarray, pd.DataFrame], 
+    y: Union [np.ndarray, pd.Series] = None, 
+    n: int = 1, 
+    axis: int = 0, 
+    reset_index: bool = False,
+    include_original: bool = False,
+    random_sample: bool = False,
+    shuffle: bool = False
+) -> Union [ np.ndarray, pd.DataFrame , Tuple[
+    np.ndarray , pd.DataFrame, np.ndarray, pd.Series]]:
+    """
+    Duplicates the data `n` times along a specified axis and applies various 
+    optional transformations to augment the data suitability for further 
+    processing or analysis.
+
+    Parameters
+    ----------
+    X : Union[np.ndarray, pd.DataFrame]
+        The input data to process. Sparse matrices are not supported.
+    y : Optional[Union[np.ndarray, pd.Series]], optional
+        Additional target data to process alongside `X`. Default is None.
+    n : int, optional
+        The number of times to replicate the data. Default is 1.
+    axis : int, optional
+        The axis along which to concatenate the data. Default is 0.
+    reset_index : bool, optional
+        If True and `X` is a DataFrame, resets the index without adding
+        the old index as a column. Default is False.
+    include_original : bool, optional
+        If True, the original data is included in the output alongside
+        the replicated data. Default is False.
+    random_sample : bool, optional
+        If True, samples from `X` randomly with replacement. Default is False.
+    shuffle : bool, optional
+        If True, shuffles the concatenated data. Default is False.
+
+    Returns
+    -------
+    Union[np.ndarray, pd.DataFrame, Tuple[Union[np.ndarray, pd.DataFrame], 
+                                          Union[np.ndarray, pd.Series]]]
+        The augmented data, either as a single array or DataFrame, or as a tuple
+        of arrays/DataFrames if `y` is provided.
+
+    Notes
+    -----
+    The replacement is mathematically formulated as follows:
+    Let :math:`X` be a dataset with :math:`m` elements. The function replicates 
+    :math:`X` `n` times, resulting in a new dataset :math:`X'` of :math:`m * n` 
+    elements if `include_original` is False. If `include_original` is True,
+    :math:`X'` will have :math:`m * (n + 1)` elements.
+
+    Examples
+    --------
+    
+    >>> import numpy as np 
+    >>> from gofast.tools.coreutils import replace_data
+    >>> X, y = np.random.randn ( 7, 2 ), np.arange(7)
+    >>> X.shape, y.shape 
+    ((7, 2), (7,))
+    >>> X_new, y_new = replace_data (X, y, n=10 )
+    >>> X_new.shape , y_new.shape
+    ((70, 2), (70,))
+    >>> X = np.array([[1, 2], [3, 4]])
+    >>> replace_data(X, n=2, axis=0)
+    array([[1, 2],
+           [3, 4],
+           [1, 2],
+           [3, 4]])
+
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
+    >>> replace_data(df, n=1, include_original=True, reset_index=True)
+       A  B
+    0  1  3
+    1  2  4
+    2  1  3
+    3  2  4
+    """
+    def concat_data(ar) -> Union[np.ndarray, pd.DataFrame]:
+        repeated_data = [ar] * (n + 1) if include_original else [ar] * n
+        
+        if random_sample:
+            random_indices = np.random.choice(
+                ar.shape[0], size=ar.shape[0], replace=True)
+            repeated_data = [ar[random_indices] for _ in repeated_data]
+
+        concatenated = pd.concat(repeated_data, axis=axis) if isinstance(
+            ar, pd.DataFrame) else np.concatenate(repeated_data, axis=axis)
+        
+        if shuffle:
+            shuffled_indices = np.random.permutation(concatenated.shape[0])
+            concatenated = concatenated[shuffled_indices] if isinstance(
+                ar, pd.DataFrame) else concatenated.iloc[shuffled_indices]
+
+        if reset_index and isinstance(concatenated, pd.DataFrame):
+            concatenated.reset_index(drop=True, inplace=True)
+        
+        return concatenated
+
+    X = np.array(X) if not isinstance(X, (np.ndarray, pd.DataFrame)) else X
+    y = np.array(y) if y is not None and not isinstance(y, (np.ndarray, pd.Series)) else y
+
+    if y is not None:
+        return concat_data(X), concat_data(y)
+    return concat_data(X)

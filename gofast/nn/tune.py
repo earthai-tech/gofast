@@ -26,10 +26,9 @@ from ..api.types import  _Callback, _Model, _Sequential
 from ..api.types import List, Union, Dict, Tuple, DataFrame, Series 
 from ..api.types import ArrayLike , Callable, Any
 from ..api.property import BaseClass
-from ..tools._dependency import import_optional_dependency 
 from ..tools.coreutils import is_iterable, type_of_target 
 from ..decorators import smartFitRun
-from ..tools.funcutils import ensure_pkg 
+from ..tools.depsutils import ensure_pkg, import_optional_dependency
 from ..tools.validator import check_consistent_length
 from ..tools.validator import validate_keras_model,  is_frame
 

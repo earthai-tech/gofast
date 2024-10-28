@@ -3,27 +3,38 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """
-load different data as a function. 
-Inspired from the machine learning popular dataset loading 
+Provides functions for loading various datasets commonly used in machine 
+learning and data science. Datasets include utilities for handling structure, 
+validating data, and converting to dataframes. Inspired by popular dataset 
+loading functions in machine learning libraries.
 """
-import warnings
+
 import os
 import random
-import joblib
-from importlib import resources 
+import warnings
+from importlib import resources
 from importlib.resources import files
-import numpy as np
-import pandas as pd 
 
-from ..api.structures import Boxspace  
-from ..tools.baseutils import fancier_downloader, check_file_exists 
-from ..tools.coreutils import  to_numeric_dtypes, smart_format, get_valid_key
-from ..tools.coreutils import  random_sampling, assert_ratio, key_checker 
-from ..tools.coreutils import  format_to_datetime, is_in_if, validate_feature
-from ..tools.coreutils import convert_to_structured_format, resample_data
-from ..tools.coreutils import split_train_test_by_id
-from .io import csv_data_loader, _to_dataframe, DMODULE 
-from .io import description_loader, DESCR, RemoteDataURL  
+import joblib
+import numpy as np
+import pandas as pd
+
+from ..api.structures import Boxspace
+from ..tools.baseutils import check_file_exists, fancier_downloader
+from ..tools.coreutils import (
+    assert_ratio,
+    convert_to_structured_format,
+    format_to_datetime,
+    is_in_if,
+    smart_format,
+    split_train_test_by_id,
+    to_numeric_dtypes,
+    validate_feature
+)
+from ..tools.ioutils import get_valid_key, key_checker
+from .io import DMODULE, RemoteDataURL, _to_dataframe, csv_data_loader
+from .io import DESCR, description_loader
+
 
 __all__= [ "load_iris",  "load_hlogs",  "load_nansha", "load_forensic", 
           "load_jrs_bet", "load_statlog", "load_hydro_metrics", "load_mxs", 
@@ -609,7 +620,8 @@ def load_nansha (
     shuffle =False, 
     **kws
     ): 
-
+    from ..tools.datautils import random_sampling 
+    
     drop_display_rate = kws.pop("drop_display_rate", True)
     key = key or 'b0' 
     # assertion error if key does not exist. 
@@ -1184,7 +1196,8 @@ def load_mxs (
     >>> X_train, X_test, y_train, y_test = load_mxs_dataset(split_X_y=True, 
                                                             return_X_y=True)
     """
-  
+    from ..tools.datautils import resample_data 
+    
     drop_observations = kws.pop("drop_observations", False)
     target_map = {0: '1', 1: '11*', 2: '2', 3: '2*', 4: '3', 5: '33*'}
     
@@ -1280,6 +1293,8 @@ def _validate_key(key: str):
 def _prepare_common_dataset(data, drop_observations, target_names, samples, seed, shuffle):
     # Process the common dataset: handling dropping columns, sampling,
     # and converting to DataFrame
+    from ..tools.datautils import random_sampling 
+    
     if drop_observations:
         data = data.drop(columns="remark")
     feature_names = list(data.columns [:13] ) 

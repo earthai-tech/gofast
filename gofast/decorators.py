@@ -1932,7 +1932,7 @@ class ExportData:
             # Optionally move files to a designated output directory
             # Assuming move_cfile function exists and is imported correctly
             for fname in fnames:
-                from .tools.coreutils import move_cfile 
+                from .tools.ioutils import move_cfile 
                 move_cfile(fname, savepath, dpath='_out')
                 
             # Optionally return the filenames of the exported files
@@ -3342,13 +3342,13 @@ class NumpyDocstringFormatter:
         This method provides a conceptual approach and requires a Sphinx 
         environment to be properly implemented.
         """
-        from .tools._dependency import import_optional_dependency
+        from .tools.depsutils import import_optional_dependency
         
         try: 
             import_optional_dependency ("docutils")
         except: 
-            from .tools.coreutils import is_module_installed 
-            from .tools.funcutils import install_package
+            from .tools.depsutils import is_module_installed 
+            from .tools.depsutils import install_package
             if not is_module_installed("docutils"): 
                 install_package('docutils', infer_dist_name=True)
             

@@ -1,78 +1,65 @@
 # -*- coding: utf-8 -*-
-#   License: BSD-3-Clause
-#   Author: LKouadio <etanoyau@gmail.com>
+# License: BSD-3-Clause
+# Author: LKouadio <etanoyau@gmail.com>
 
 """
-`baseutils` module offers essential utilities for data processing and analysis,
-including functions for normalization, interpolation, feature selection, 
-outlier removal, and various data manipulation tasks.
+Essential utilities for data processing and analysis, offering functions for
+normalization, interpolation, feature selection, outlier removal, and various 
+data manipulation tasks.
 """
-import os 
-import copy 
+
+import os
+import copy
 import time
 import shutil
 import inspect
 import pathlib
 import warnings
-import functools 
-import threading 
-import subprocess 
-import numpy as np 
-import pandas as pd 
-from tqdm import tqdm
+import functools
+import threading
+import subprocess
 from datetime import datetime
-import matplotlib.pyplot as plt 
-from joblib import Parallel, delayed
-from scipy.signal import argrelextrema 
-from scipy.interpolate import interp1d, griddata
-from matplotlib.ticker import FixedLocator
-from sklearn.utils import all_estimators 
 from collections.abc import Iterable as IterableInstance
 
-from ..api.property import  Config
-from ..api.types import Union, List, Optional, Tuple, Iterable, Any, Set 
-from ..api.types import _T, _F, DataFrame, ArrayLike, Series, NDArray
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from joblib import Parallel, delayed
+from tqdm import tqdm
+from scipy.signal import argrelextrema
+from scipy.interpolate import interp1d, griddata
+from matplotlib.ticker import FixedLocator
+from sklearn.utils import all_estimators
+
+from ..api.property import PandasDataHandlers
+from ..api.types import (
+    Union, List, Optional, Tuple, Iterable, Any, Set, 
+    _T, _F, DataFrame, ArrayLike, Series, NDArray
+)
 from ..compat.scipy import check_scipy_interpolate
-from ..decorators import Dataify 
+from ..decorators import Dataify
 from ..exceptions import FileHandlingError
 from ._dependency import import_optional_dependency
-from .coreutils import is_iterable , ellipsis2false, smart_format  
-from .coreutils import to_numeric_dtypes, validate_feature
-from .coreutils import _assert_all_types, exist_features, reshape
-from .validator import check_consistent_length, get_estimator_name
-from .validator import _is_arraylike_1d, array_to_frame, build_data_if
-from .validator import _is_numeric_dtype, check_y, check_consistency_size 
-from .validator import is_categorical, is_valid_policies, contains_nested_objects 
-from .validator import parameter_validator, normalize_array
+from .coreutils import (
+    is_iterable, ellipsis2false, smart_format, to_numeric_dtypes, 
+    validate_feature, _assert_all_types, exist_features, reshape
+)
+from .validator import (
+    check_consistent_length, get_estimator_name, _is_arraylike_1d, 
+    array_to_frame, build_data_if, _is_numeric_dtype, check_y, 
+    check_consistency_size, is_categorical, is_valid_policies, 
+    contains_nested_objects, parameter_validator, normalize_array
+)
 
-__all__= [ 
-    'array2hdf5',
-    'binning_statistic',
-    'categorize_target',
-    'category_count',
-    'denormalizer',
-    'detect_categorical_columns', 
-    'extract_target',
-    'fancier_downloader',
-    'fillNaN',
-    'get_target',
-    'interpolate_grid',
-    'interpolate_data', 
-    'labels_validator',
-    'make_df', 
-    'normalizer',
-    'remove_outliers',
-    'remove_target_from_array',
-    'rename_labels_in',
-    'save_or_load',
-    'scale_y',
-    'select_features',
-    'select_features',
-    'smooth1d',
-    'smoothing',
-    'soft_bin_stat',
-    'speed_rowwise_process'
-    ]
+__all__ = [
+    'array2hdf5', 'binning_statistic', 'categorize_target', 
+    'category_count', 'denormalizer', 'detect_categorical_columns', 
+    'extract_target', 'fancier_downloader', 'fillNaN', 'get_target', 
+    'interpolate_grid', 'interpolate_data', 'labels_validator', 
+    'make_df', 'normalizer', 'remove_outliers', 'remove_target_from_array', 
+    'rename_labels_in', 'save_or_load', 'scale_y', 'select_features', 
+    'smooth1d', 'smoothing', 'soft_bin_stat', 'speed_rowwise_process'
+]
 
 
 def detect_categorical_columns(
@@ -1877,7 +1864,7 @@ def is_readable (
             )
         return f 
 
-    cpObj= Config().parsers 
+    cpObj= PandasDataHandlers().parsers 
     
     f= _check_readable_file(f)
     _, ex = os.path.splitext(f) 
@@ -2206,8 +2193,6 @@ def remove_target_from_array(arr,  target_indices):
     modified_arr = np.delete(arr, target_indices, axis=1)
     return modified_arr, target_arr
 
-# revise the code, elevate the style of programming, return only target if 
-# return_X_y is False 
 
 def extract_target(
     data: Union[ArrayLike, DataFrame], 

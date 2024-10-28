@@ -18,7 +18,8 @@ from ._dependency import import_optional_dependency
 _logger = gofastlog.get_gofast_logger(__name__)
 
 __all__ = ["ensure_pkg", "ensure_pkgs", "install_package","is_installing",
-           "get_installation_name", "is_module_installed"]
+           "get_installation_name", "is_module_installed", 
+           "import_optional_dependency"]
 
 
 def install_package(
@@ -786,3 +787,35 @@ def is_installing (
                       "and dependancies was successfully done!") 
         
     return success 
+
+def subprocess_module_installation (module, upgrade =True ): 
+    """ Install  module using subprocess.
+    :param module: str, module name 
+    :param upgrade:bool, install the lastest version.
+    """
+    import sys 
+    import subprocess 
+    #implement pip as subprocess 
+    # refer to https://pythongeeks.org/subprocess-in-python/
+    MOD_IMP=False 
+    print(f'---> Module {module!r} installation will take a while,'
+          ' please be patient...')
+    cmd = f'<pip install {module}> | <python -m pip install {module}>'
+    try: 
+
+        upgrade ='--upgrade' if upgrade else ''
+        subprocess.check_call([sys.executable, '-m', 'pip', 'install',
+        f'{module}', f'{upgrade}'])
+        reqs = subprocess.check_output([sys.executable,'-m', 'pip',
+                                        'freeze'])
+        [r.decode().split('==')[0] for r in reqs.split()]
+        _logger.info(f"Intallation of `{module}` and dependancies"
+                     "was successfully done!") 
+        MOD_IMP=True
+     
+    except: 
+        _logger.error(f"Fail to install the module =`{module}`.")
+        print(f'---> Module {module!r} installation failed, Please use'
+           f'  the following command {cmd} to manually install it.')
+    return MOD_IMP 
+        

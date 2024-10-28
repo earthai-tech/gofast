@@ -12,19 +12,22 @@ along with other miscellaneous system operations.
 """
 
 import re 
+import inspect 
 import itertools 
 from typing import Union, Tuple, Dict,Optional, List
 from typing import Sequence, Any
 import multiprocessing
 from concurrent.futures import as_completed 
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor 
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+
+import numpy as np 
 
 from ..api.types import _F 
 from .coreutils import is_iterable, _assert_all_types 
 from ._dependency import import_optional_dependency 
 
 __all__ = ["parallelize_jobs","generic_getattr", "smart_strobj_recognition", 
-           "find_by_regex"]
+           "find_by_regex", "repr_callable_obj"]
 
 def parallelize_jobs(
     function: _F,
@@ -340,3 +343,77 @@ def smart_strobj_recognition(
         else : rv= container[ix] 
 
     return  rv 
+
+def repr_callable_obj(obj: _F  , skip = None ): 
+    """ Represent callable objects. 
+    
+    Format class, function and instances objects. 
+    
+    :param obj: class, func or instances
+        object to format. 
+    :param skip: str , 
+        attribute name that is not end with '_' and whom it needs to be 
+        skipped. 
+        
+    :Raises: TypeError - If object is not a callable or instanciated. 
+    
+    :Examples: 
+        
+    >>> from gofast.tools.coreutils import repr_callable_obj
+    >>> from gofast.methods.electrical import  ResistivityProfiling
+    >>> repr_callable_obj(ResistivityProfiling)
+    ... 'ResistivityProfiling(station= None, dipole= 10.0, 
+            auto_station= False, kws= None)'
+    >>> robj= ResistivityProfiling (AB=200, MN=20, station ='S07')
+    >>> repr_callable_obj(robj)
+    ... 'ResistivityProfiling(AB= 200, MN= 20, arrangememt= schlumberger, ... ,
+        dipole= 10.0, station= S07, auto= False)'
+    >>> repr_callable_obj(robj.fit)
+    ... 'fit(data= None, kws= None)'
+    
+    """
+    regex = re.compile (r"[{'}]")
+    
+    # inspect.formatargspec(*inspect.getfullargspec(cls_or_func))
+    if not hasattr (obj, '__call__') and not hasattr(obj, '__dict__'): 
+        raise TypeError (
+            f'Format only callabe objects: Got {type (obj).__name__!r}')
+        
+    if hasattr (obj, '__call__'): 
+        cls_or_func_signature = inspect.signature(obj)
+        objname = obj.__name__
+        PARAMS_VALUES = {k: None if v.default is (inspect.Parameter.empty 
+                         or ...) else v.default 
+                    for k, v in cls_or_func_signature.parameters.items()
+                    # if v.default is not inspect.Parameter.empty
+                    }
+    elif hasattr(obj, '__dict__'): 
+        objname=obj.__class__.__name__
+        PARAMS_VALUES = {k:v  for k, v in obj.__dict__.items() 
+                         if not ((k.endswith('_') or k.startswith('_') 
+                                  # remove the dict objects
+                                  or k.endswith('_kws') or k.endswith('_props'))
+                                 )
+                         }
+    if skip is not None : 
+        # skip some inner params 
+        # remove them as the main function or class params 
+        if isinstance(skip, (tuple, list, np.ndarray)): 
+            skip = list(map(str, skip ))
+            exs = [key for key in PARAMS_VALUES.keys() if key in skip]
+        else:
+            skip =str(skip).strip() 
+            exs = [key for key in PARAMS_VALUES.keys() if key.find(skip)>=0]
+ 
+        for d in exs: 
+            PARAMS_VALUES.pop(d, None) 
+            
+    # use ellipsis as internal to stdout more than seven params items 
+    if len(PARAMS_VALUES) >= 7 : 
+        f = {k:PARAMS_VALUES.get(k) for k in list(PARAMS_VALUES.keys())[:3]}
+        e = {k:PARAMS_VALUES.get(k) for k in list(PARAMS_VALUES.keys())[-3:]}
+        
+        PARAMS_VALUES= str(f) + ' ... ' + str(e )
+
+    return str(objname) + '(' + regex.sub('', str (PARAMS_VALUES)
+                                          ).replace(':', '=') +')'

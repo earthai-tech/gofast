@@ -2,7 +2,7 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-Module for training and evaluating neural network models.
+Train and evaluate neural network models.
 
 Includes functions for calculating validation loss, cross-validating LSTM models, 
 evaluating models, making future predictions, plotting errors, training and 
@@ -25,7 +25,7 @@ from ..api.types import _History, _Callback, _Model
 from ..api.types import List, Optional, Union, Dict, Tuple
 from ..api.types import ArrayLike, Callable, Any, Generator
 from ..tools.coreutils import denormalize
-from ..tools.funcutils import ensure_pkg 
+from ..tools.depsutils import ensure_pkg 
 from ..tools.validator import check_X_y, check_consistent_length
 from ..tools.validator import validate_keras_model
 

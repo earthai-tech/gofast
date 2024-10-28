@@ -1,10 +1,7 @@
 # -*- coding: utf-8 -*-
 # @author: LKouadio~ @Daniel
 """
-SciPyBackend Usage Documentation
---------------------------------
-
-The SciPyBackend module enriches the gofast computational framework with SciPy's
+SciPyBackend module enriches the gofast computational framework with SciPy's
 scientific computing capabilities. This backend is particularly designed for tasks
 requiring advanced mathematical operations such as optimization, root finding,
 numerical integration, solving differential equations, and curve fitting.

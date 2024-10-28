@@ -1,103 +1,103 @@
 # -*- coding: utf-8 -*-
-#   License: BSD-3-Clause
-#   Author: LKouadio <etanoyau@gmail.com>
+# License: BSD-3-Clause
+# Author: LKouadio <etanoyau@gmail.com>
+
 """
-Learning utilities for data transformation, model learning and inspections. 
+Learning utilities for data transformation, model learning, and inspections.
+This module provides tools for data preprocessing, model evaluation, feature 
+engineering, and utilities for handling machine learning workflows efficiently.
 """
 
 import os
-import re 
-import copy 
-import tarfile 
-import pickle 
+import re
+import copy
+import tarfile
+import pickle
 import joblib
-import datetime 
-import warnings 
-import shutil 
-from six.moves import urllib 
-from collections import Counter 
+import warnings
+import shutil
+from six.moves import urllib
+from collections import Counter
 from pathlib import Path
 
-import numpy as np 
-import pandas as pd 
+import numpy as np
+import pandas as pd
 from scipy import sparse
 from tqdm import tqdm
-
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer, make_column_selector
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import SelectFromModel, SelectKBest
 from sklearn.impute import SimpleImputer
-from sklearn.model_selection import StratifiedShuffleSplit 
+from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.pipeline import Pipeline, FeatureUnion
-from sklearn.preprocessing import OneHotEncoder,RobustScaler ,OrdinalEncoder 
-from sklearn.preprocessing import StandardScaler,MinMaxScaler,  LabelBinarizer
-from sklearn.preprocessing import LabelEncoder,Normalizer, PolynomialFeatures 
+from sklearn.preprocessing import (
+    OneHotEncoder, RobustScaler, OrdinalEncoder, StandardScaler,
+    MinMaxScaler, LabelBinarizer, LabelEncoder, Normalizer, PolynomialFeatures
+)
 from sklearn.utils import resample
 
-from .._gofastlog import gofastlog
-from ..api.types import List, Tuple, Any, Dict,  Optional,Union, Series 
-from ..api.types import  _F, ArrayLike, NDArray,  DataFrame
-from ..api.formatter import MetricFormatter
-from ..api.summary import ReportFactory, ResultSummary  
-from ..compat.sklearn import get_feature_names,train_test_split 
-from ..decorators import SmartProcessor 
-from .baseutils import select_features 
-from .coreutils import _assert_all_types, is_in_if,  ellipsis2false
-from .coreutils import smart_format, is_iterable, get_valid_kwargs
-from .coreutils import is_classification_task, to_numeric_dtypes
-from .coreutils import validate_feature, download_progress_hook, exist_features
-from .coreutils import contains_delimiter, nan_to_na 
-from .funcutils import ensure_pkg
-from .validator import _is_numeric_dtype, _is_arraylike_1d 
-from .validator import get_estimator_name, check_array, check_consistent_length
-from .validator import is_frame, build_data_if, check_is_fitted
-from .validator import check_mixed_data_types, validate_data_types   
 
+from .._gofastlog import gofastlog
+from ..api.types import List, Tuple, Any, Dict, Optional, Union, Series
+from ..api.types import _F, ArrayLike, NDArray, DataFrame
+from ..api.formatter import MetricFormatter
+from ..api.summary import ReportFactory, ResultSummary
+from ..compat.sklearn import get_feature_names, train_test_split
+from ..decorators import SmartProcessor
+from .baseutils import select_features
+from .coreutils import (
+    _assert_all_types, is_in_if, ellipsis2false, smart_format, is_iterable,
+    get_valid_kwargs, is_classification_task, to_numeric_dtypes,
+    validate_feature, exist_features, contains_delimiter, 
+    str2columns 
+)
+from .datautils import nan_to_na 
+from .depsutils import ensure_pkg
+from .validator import (
+    _is_numeric_dtype, _is_arraylike_1d, get_estimator_name, check_array,
+    check_consistent_length, is_frame, build_data_if, check_is_fitted,
+    check_mixed_data_types, validate_data_types
+)
+
+# Logger Configuration
 _logger = gofastlog().get_gofast_logger(__name__)
 
-
-__all__=[
-     'base_local_tgz_fetch',
-     'base_url_tgz_fetch',
-     'bi_selector',
-     'bin_counting',
-     'build_data_preprocessor',
-     'deserialize_data',
-     'discretize_categories',
-     'display_feature_contributions',
-     'evaluate_model',
-     'fetch_model',
-     'fetch_tgz',
-     'fetch_tgz_from_url',
-     'fetch_tgz_locally',
-     'format_model_score',
-     'get_correlated_features',
-     'get_feature_contributions',
-     'get_global_score',
-     'handle_imbalance',
-     'laplace_smoothing',
-     'laplace_smoothing_categorical',
-     'laplace_smoothing_word',
-     'load_csv',
-     'load_model',
-     'make_pipe',
-     'one_click_prep',
-     'process_df',
-     'resampling',
-     'save_dataframes',
-     'select_feature_importances',
-     'serialize_data',
-     'smart_split',
-     'soft_data_split',
-     'soft_encoder',
-     'soft_imputer',
-     'soft_scaler',
-     'stats_from_prediction',
-     'stratify_categories',
- ]
-
+__all__ = [
+    'bi_selector',
+    'bin_counting',
+    'build_data_preprocessor',
+    'discretize_categories',
+    'display_feature_contributions',
+    'evaluate_model',
+    'fetch_model',
+    'fetch_tgz',
+    'fetch_tgz2',
+    'format_model_score',
+    'get_correlated_features',
+    'get_feature_contributions',
+    'get_global_score',
+    'handle_imbalance',
+    'laplace_smoothing',
+    'laplace_smoothing_categorical',
+    'laplace_smoothing_word',
+    'load_model',
+    'make_pipe',
+    'minimum_data_processor',
+    'one_click_prep',
+    'resampling',
+    'save_dataframes',
+    'select_feature_importances',
+    'smart_label_classifier', 
+    'smart_split',
+    'soft_data_split',
+    'soft_encoder',
+    'soft_imputer',
+    'soft_scaler',
+    'stats_from_prediction',
+    'stratify_categories'
+]
 
 def one_click_prep (
     data: DataFrame, 
@@ -798,7 +798,7 @@ def bin_counting(
         
     if isinstance (bin_columns, str) and bin_columns=='auto': 
         ttname = tname if isinstance (tname, str) else None # pass 
-        _, bin_columns = process_df(
+        _, bin_columns = minimum_data_processor(
             data, target_name= ttname,
             exclude_target=True if ttname else False 
         )
@@ -1637,7 +1637,7 @@ def fetch_tgz(
     if show_progress:
         print("Download and extraction complete.")
 
-def process_df(
+def minimum_data_processor(
     data,
     target_name=None, 
     exclude_target=False, 
@@ -1813,371 +1813,6 @@ def process_df(
         else:
             return numeric_df.columns.tolist(), categorical_df.columns.tolist()
 
-def base_url_tgz_fetch(
-    data_url: str, tgz_filename: str,  
-    data_path: Optional[str]=None, 
-    file_to_retrieve: Optional[str] = None, 
-    **kwargs
-    ) -> Union[str, None]:
-    """
-    Fetches a tgz file from a given URL, saves it to a specified directory, 
-    and optionally extracts a specific file from it.
-
-    This function downloads a .tgz file from the specified URL and saves it to 
-    the given directory. If a specific file  within the .tgz archive is 
-    specified, it attempts to extract this file. If no specific file is 
-    mentioned, it will extract all contents of the archive.
-
-    Parameters
-    ----------
-    data_url : str
-        The URL where the .tgz file is located.
-    data_path : str
-        The absolute path to the directory where the .tgz file will be saved.
-    tgz_filename : str
-        The name of the .tgz file to be downloaded.
-    file_to_retrieve : Optional[str], optional
-        The specific file within the .tgz archive to extract. If None, all 
-        contents of the archive are extracted, by default None.
-    **kwargs : dict
-        Additional keyword arguments to be passed to the extraction method.
-
-    Returns
-    -------
-    Union[str, None]
-        The path to the extracted file if a specific file is requested,
-        None otherwise.
-
-    Examples
-    --------
-    >>> from gofast.tools.mlutils import base_url_tgz_fetch
-    >>> data_url = 'https://example.com/data.tar.gz'
-    >>> data_path = '/path/to/save/data'
-    >>> tgz_filename = 'data.tar.gz'
-    >>> file_to_retrieve = 'data.csv'
-    >>> extracted_file_path = base_url_tgz_fetch(
-    ... data_url, tgz_filename, data_path,file_to_retrieve)
-    >>> print(extracted_file_path)
-
-    """
-    import urllib.request
-    # Use a default data directory if none is provided
-    data_path = data_path or os.path.join(os.getcwd(), 'tgz_data')
-    
-    if not os.path.isdir(data_path):
-        os.makedirs(data_path, exist_ok=True)
-        
-    tgz_path = os.path.join(data_path, tgz_filename)
-
-    # Attempt to download the .tgz file
-    try:
-        urllib.request.urlretrieve(data_url, tgz_path)
-    except Exception as e:
-        print(f"Failed to download {tgz_filename} from {data_url}. Error: {e}")
-        return None
-
-    # If a specific file to retrieve is not specified, extract all contents
-    if not file_to_retrieve:
-        try:
-            with tarfile.open(tgz_path, "r:gz") as tar:
-                tar.extractall(path=data_path)
-        except Exception as e:
-            print(f"Failed to extract {tgz_filename}. Error: {e}")
-            return None
-        return None
-
-    # If a specific file is specified, attempt to extract just that file
-    try:
-        with tarfile.open(tgz_path, "r:gz") as tar:
-            tar.extract(file_to_retrieve, path=data_path, **kwargs)
-            return os.path.join(data_path, file_to_retrieve)
-    except Exception as e:
-        print(f"Failed to extract {file_to_retrieve} from {tgz_filename}. Error: {e}")
-        return None
-
-def fetch_tgz_from_url(
-    data_url: str, tgz_filename: str, 
-    data_path: Optional[Union [str, Path]]=None, 
-    file_to_retrieve: Optional[str] = None, 
-    **kwargs
-    ) -> Optional[Path]:
-    """
-    Fetches a tgz file from a given URL, saves it to a specified directory, 
-    and optionally extracts a specific file from it.
-
-    This function downloads a .tgz file from the specified URL and saves it to 
-    the given directory. If a specific file  within the .tgz archive is 
-    specified, it attempts to extract this file. If no specific file is 
-    mentioned, it will extract all contents of the archive.
-
-    Parameters
-    ----------
-    data_url : str
-        The URL where the .tgz file is located.
-    data_path : str
-        The absolute path to the directory where the .tgz file will be saved.
-    tgz_filename : str
-        The name of the .tgz file to be downloaded.
-    file_to_retrieve : Optional[str], optional
-        The specific file within the .tgz archive to extract. If None, all 
-        contents of the archive are extracted, by default None.
-    **kwargs : dict
-        Additional keyword arguments to be passed to the extraction method.
-
-    Returns
-    -------
-    Union[str, None]
-        The path to the extracted file if a specific file is requested,
-        None otherwise.
-
-    Examples
-    --------
-    >>> from gofast.tools.mlutils import fetch_tgz_from_url
-    >>> data_url = 'https://example.com/data.tar.gz'
-    >>> data_path = '/path/to/save/data'
-    >>> tgz_filename = 'data.tar.gz'
-    >>> file_to_retrieve = 'data.csv'
-    >>> extracted_file_path = fetch_tgz_from_url(
-    ... data_url, tgz_filename, data_path,file_to_retrieve)
-    >>> print(extracted_file_path)
-
-    """
-    # Use a default data directory if none is provided
-    data_path = data_path or os.path.join(os.getcwd(), 'tgz_data')
-    
-    if not os.path.isdir(data_path):
-        os.makedirs(data_path, exist_ok=True)
-        
-    data_path = Path(data_path)
-    tgz_path = data_path / tgz_filename
-
-    # Setup tqdm progress bar for the download
-    with tqdm(unit='B', unit_scale=True, miniters=1, desc=tgz_filename, ncols=100) as t:
-        urllib.request.urlretrieve(data_url, tgz_path, reporthook=download_progress_hook(t))
-
-    # Extract specified file or entire archive
-    try:
-        with tarfile.open(tgz_path, "r:gz") as tar:
-            if file_to_retrieve:
-                tar.extract(file_to_retrieve, path=data_path, **kwargs)
-                return data_path / file_to_retrieve
-            else:
-                tar.extractall(path=data_path)
-    except (tarfile.TarError, KeyError) as e:
-        print(f"Error extracting {'file' if file_to_retrieve else 'archive'}: {e}")
-        return None
-
-    return None
-
-def _extract_with_progress(
-        tar: tarfile.TarFile, member: tarfile.TarInfo, path: Path):
-    """
-    Extracts a single member from a tarfile with progress reporting.
-
-    Parameters
-    ----------
-    tar : tarfile.TarFile
-        The tarfile object opened in read mode.
-    member : tarfile.TarInfo
-        The specific member within the tarfile to extract.
-    path : Path
-        The path to extract the member to.
-    """
-    # Initialize a progress bar for the extraction process
-    with tqdm(total=member.size, desc=f"Extracting {member.name}",
-              unit='B', unit_scale=True) as progress_bar:
-        # Extract member and update the progress bar accordingly
-        def custom_read(size):
-            progress_bar.update(size)
-            return member_file.read(size)
-        
-        # Open the member file for reading and wrap the read method for progress updates
-        with tar.extractfile(member) as member_file:
-            with open(path / member.name, 'wb') as out_file:
-                shutil.copyfileobj(member_file, out_file, length=1024*1024,
-                                   callback=lambda x: progress_bar.update(1024*1024))
-
-def fetch_tgz_locally(
-    tgz_file: str, 
-    filename: str, 
-    savefile: str = 'tgz', 
-    rename_outfile: Optional[str] = None
-    ) -> str:
-    """
-    Fetches and optionally renames a file from a tar archive with progress
-    reporting.
-    
-    Parameters
-    ----------
-    tgz_file : str or Path
-        The full path to the tar file.
-    filename : str
-        The target file to fetch from the tar archive.
-    savefile : str or Path, optional
-        The destination path to save the retrieved file.
-    rename_outfile : str or Path, optional
-        The new name for the fetched file, if desired.
-
-    Returns
-    -------
-    str
-        The path to the fetched and possibly renamed file.
-        
-    Example
-    -------
-    >>> from gofast.tools.mlutils import fetch_tgz_locally
-    >>> fetch_tgz_locally('data/__tar.tgz/fmain.bagciv.data.tar.gz',
-    ...                      'dataset.csv', 'extracted', 
-    ...                      rename_outfile='main.bagciv.data.csv')
-    >>> # This will extract 'dataset.csv' from the tar.gz, save it to 
-    >>> # 'extracted' directory, and rename it to 'main.bagciv.data.csv'.
-    
-    """
-    tgz_path = Path(tgz_file)
-    save_path = Path(savefile)
-    save_path.mkdir(parents=True, exist_ok=True)
-
-    if not tgz_path.is_file():
-        raise FileNotFoundError(f"Source {tgz_file!r} is not a valid file.")
-
-    with tarfile.open(tgz_path) as tar:
-        member = next((m for m in tar.getmembers() if m.name.endswith(filename)), None)
-        if member:
-            _extract_with_progress(tar, member, save_path)
-            extracted_file_path = save_path / member.name
-            final_file_path = save_path / (rename_outfile if rename_outfile else filename)
-            if extracted_file_path != final_file_path:
-                extracted_file_path.rename(final_file_path)
-                # Cleanup if the extracted file was within a subdirectory
-                if extracted_file_path.parent != save_path:
-                    shutil.rmtree(extracted_file_path.parent, ignore_errors=True)
-        else:
-            raise FileNotFoundError(f"File {filename} not found in {tgz_file}.")
-
-    print(f"--> '{final_file_path}' was successfully decompressed from"
-          f" '{tgz_path.name}' and saved to '{save_path}'.")
-    
-    return str(final_file_path)
-
-def base_local_tgz_fetch(
-    tgz_file: str, 
-    filename: str, 
-    savefile: str = 'tgz', 
-    rename_outfile: Optional[str] = None
-    ) -> str:
-    """
-    Fetches a single file from an archived tar file and optionally renames it.
-
-    Parameters
-    ----------
-    tgz_file : str or Path
-        The full path to the tar file.
-    filename : str
-        The target file to fetch from the tar archive.
-    savefile : str or Path, optional
-        The destination path to save the retrieved file. Defaults to 'tgz'.
-    rename_outfile : str or Path, optional
-        The new name for the fetched file. If not provided, the original name is used.
-
-    Returns
-    -------
-    str
-        The path to the fetched (and possibly renamed) file.
-
-    Example
-    -------
-    >>> fetch_tgz_locally('data/__tar.tgz/fmain.bagciv.data.tar.gz',
-    ...                      'dataset.csv', 'extracted', 
-    ...                      rename_outfile='main.bagciv.data.csv')
-    >>> # This will extract 'dataset.csv' from the tar.gz, save it to 
-    >>> # 'extracted' directory, and rename it to 'main.bagciv.data.csv'.
-    """
-    tgz_path = Path(tgz_file)
-    save_path = Path(savefile)
-    save_path.mkdir(parents=True, exist_ok=True)
-
-    def retrieve_target_member(tar_obj, target_extension):
-        """Retrieve the main member that matches the target filename extension."""
-        return next((m for m in tar_obj.getmembers() if Path
-                     (m.name).suffix == target_extension), None)
-
-    if not tgz_path.is_file():
-        raise FileNotFoundError(f"Source {tgz_file!r} is not a valid file.")
-
-    with tarfile.open(tgz_path) as tar:
-        target_extension = Path(filename).suffix
-        target_member = retrieve_target_member(tar, target_extension)
-        if target_member:
-            tar.extract(target_member, path=save_path)
-            extracted_file_path = save_path / target_member.name
-            final_file_path = save_path / (rename_outfile if rename_outfile else filename)
-            if extracted_file_path != final_file_path:
-                extracted_file_path.rename(final_file_path)
-                # Cleanup if the extracted file was within a subdirectory
-                if extracted_file_path.parent != save_path:
-                    shutil.rmtree(extracted_file_path.parent)
-        else:
-            raise FileNotFoundError(f"File {filename} not found in {tgz_file}.")
-
-    print(f"--> '{final_file_path}' was successfully decompressed from"
-          f" '{tgz_path.name}' and saved to '{save_path}'.")
-    
-    return str(final_file_path)
-
-
-def load_csv(data_path: str, delimiter: Optional[str] = ',', **kwargs
-             ) -> DataFrame:
-    """
-    Loads a CSV file into a pandas DataFrame.
-
-    Parameters
-    ----------
-    data_path : str
-        The file path to the CSV file to be loaded.
-    delimiter : str, optional
-        The delimiter character used in the CSV file. Defaults to ','.
-    **kwargs : dict
-        Additional keyword arguments passed to `pandas.read_csv`.
-
-    Returns
-    -------
-    DataFrame
-        A DataFrame containing the loaded data.
-
-    Raises
-    ------
-    FileNotFoundError
-        If the specified file does not exist.
-    ValueError
-        If the specified file is not a CSV file.
-
-    Examples
-    --------
-    Assuming you have a CSV file named 'example.csv' with the following content:
-    
-    ```
-    name,age
-    Alice,30
-    Bob,25
-    ```
-
-    You can load this file into a DataFrame like this:
-
-    >>> from gofast.tools.mlutils import load_csv
-    >>> df = load_csv('example.csv')
-    >>> print(df)
-       name  age
-    0  Alice   30
-    1    Bob   25
-    """
-    if not os.path.isfile(data_path):
-        raise FileNotFoundError(f"The file '{data_path}' does not exist.")
-    
-    if not data_path.lower().endswith('.csv'):
-        raise ValueError(
-            "The specified file is not a CSV file. Please provide a valid CSV file.")
-    
-    return pd.read_csv(data_path, delimiter=delimiter, **kwargs)
 
 def discretize_categories(
     data: Union[pd.DataFrame, pd.Series],
@@ -2407,175 +2042,68 @@ def fetch_model(
 
     return model_data
 
-def serialize_data(
-    data: Any,
-    filename: Optional[str] = None,
-    savepath: Optional[str] = None,
-    to: Optional[str] = None,
-    verbose: int = 0
+def fetch_tgz2(
+    tgz_file: str, 
+    filename: str, 
+    savefile: str = 'tgz', 
+    rename_outfile: Optional[str] = None
 ) -> str:
     """
-    Serialize and save data to a binary file using either joblib or pickle.
+    Extracts a specified file from a tar archive and saves it to a given directory.
 
     Parameters
     ----------
-    data : Any
-        The object to be serialized and saved.
-    filename : str, optional
-        The name of the file to save. If None, a name is generated automatically.
-    savepath : str, optional
-        The directory where the file should be saved. If it does not exist, 
-        it is created. If None, the current working directory is used.
-    to : str, optional
-        Specify the serialization method: 'joblib' or 'pickle'. 
-        If None, defaults to 'joblib'.
-    verbose : int, optional
-        Verbosity level. More messages are displayed for values greater than 0.
+    tgz_file : str
+        The full path to the tar file.
+    filename : str
+        The specific file to extract from the tar archive.
+    savefile : str, optional
+        Directory to save the extracted file, by default 'tgz'.
+    rename_outfile : str, optional
+        New name for the extracted file, if renaming is desired.
 
     Returns
     -------
     str
-        The path to the saved file.
+        The full path to the extracted (and possibly renamed) file.
 
     Raises
     ------
-    ValueError
-        If 'to' is not 'joblib', 'pickle', or None.
-    TypeError
-        If 'to' is not a string.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> data = (np.array([0, 1, 3]), np.array([0.2, 4]))
-    >>> filename = serialize_data(data, filename='__XTyT.pkl', to='pickle', 
-                                  savepath='gofast/datasets')
-    """
-    if filename is None:
-        timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        filename = f"__mydumpedfile_{timestamp}.pkl"
-
-    if to:
-        if not isinstance(to, str):
-            raise TypeError(f"Serialization method 'to' must be a string, not {type(to)}.")
-        to = to.lower()
-        if to not in ('joblib', 'pickle'):
-            raise ValueError("Unknown serialization method 'to'. Must be"
-                             " 'joblib' or 'pickle'.")
-
-    if not filename.endswith('.pkl'):
-        filename += '.pkl'
-    
-    full_path = os.path.join(savepath, filename) if savepath else filename
-    
-    if savepath and not os.path.exists(savepath):
-        os.makedirs(savepath)
-    
-    try:
-        if to == 'pickle' or to is None:
-            with open(full_path, 'wb') as file:
-                pickle.dump(data, file, protocol=pickle.HIGHEST_PROTOCOL)
-            if verbose:
-                print(f"Data serialized using pickle and saved to {full_path!r}.")
-        elif to == 'joblib':
-            joblib.dump(data, full_path)
-            if verbose:
-                print(f"Data serialized using joblib and saved to {full_path!r}.")
-    except Exception as e:
-        raise IOError(f"An error occurred during data serialization: {e}")
-    
-    return full_path
-
-def deserialize_data(filename: str, verbose: int = 0) -> Any:
-    """
-    Deserialize and load data from a serialized file using joblib or pickle.
-
-    Parameters
-    ----------
-    filename : str
-        The name or path of the file containing the serialized data.
-
-    verbose : int, optional
-        Verbosity level. More messages are displayed for values greater 
-        than 0.
-
-    Returns
-    -------
-    Any
-        The data loaded from the serialized file.
-
-    Raises
-    ------
-    TypeError
-        If 'filename' is not a string.
-
     FileNotFoundError
-        If the specified file does not exist.
+        If the specified `tgz_file` or `filename` within the tar archive does not exist.
 
     Examples
     --------
-    >>> data = deserialize_data('path/to/serialized_data.pkl')
+    >>> from gofast.tools.mlutils import fetch_tgz
+    >>> fetch_tgz('data/__tar.tgz/fmain.bagciv.data.tar.gz', 'dataset.csv',
+    ...           'extracted', rename_outfile='main.bagciv.data.csv')
     """
+    tgz_path = Path(tgz_file)
+    save_path = Path(savefile)
+    save_path.mkdir(parents=True, exist_ok=True)
 
-    if not isinstance(filename, str):
-        raise TypeError("Expected 'filename' to be a string,"
-                        f" got {type(filename)} instead.")
-    
-    if not os.path.isfile(filename):
-        raise FileNotFoundError(f"File {filename!r} does not exist.")
+    if not tgz_path.is_file():
+        raise FileNotFoundError(f"Source {tgz_file!r} is not a valid file.")
 
-    try:
-        data = joblib.load(filename)
-        if verbose:
-            print(f"Data loaded successfully from {filename!r} using joblib.")
-    except Exception as joblib_error:
-        try:
-            with open(filename, 'rb') as file:
-                data = pickle.load(file)
-            if verbose:
-                print(f"Data loaded successfully from {filename!r} using pickle.")
-        except Exception as pickle_error:
-            raise IOError(f"Failed to load data from {filename!r}. "
-                          f"Joblib error: {joblib_error}, Pickle error: {pickle_error}")
-    if data is None:
-        raise ValueError(f"Data in {filename!r} could not be deserialized."
-                         " The file may be corrupted.")
+    with tarfile.open(tgz_path) as tar:
+        member = next((m for m in tar.getmembers() if m.name.endswith(filename)), None)
+        if member:
+            tar.extract(member, path=save_path)
+            extracted_file_path = save_path / member.name
+            final_file_path = save_path / (rename_outfile if rename_outfile else filename)
+            if extracted_file_path != final_file_path:
+                extracted_file_path.rename(final_file_path)
+                if extracted_file_path.parent != save_path:
+                    shutil.rmtree(extracted_file_path.parent, ignore_errors=True)
+        else:
+            raise FileNotFoundError(f"File {filename} not found in {tgz_file}.")
 
-    return data
+    print(f"--> '{final_file_path}' was successfully extracted from '{tgz_path.name}' "
+          f"and saved to '{save_path}'.")
+    return str(final_file_path)
 
 
-def subprocess_module_installation (module, upgrade =True ): 
-    """ Install  module using subprocess.
-    :param module: str, module name 
-    :param upgrade:bool, install the lastest version.
-    """
-    import sys 
-    import subprocess 
-    #implement pip as subprocess 
-    # refer to https://pythongeeks.org/subprocess-in-python/
-    MOD_IMP=False 
-    print(f'---> Module {module!r} installation will take a while,'
-          ' please be patient...')
-    cmd = f'<pip install {module}> | <python -m pip install {module}>'
-    try: 
-
-        upgrade ='--upgrade' if upgrade else ''
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install',
-        f'{module}', f'{upgrade}'])
-        reqs = subprocess.check_output([sys.executable,'-m', 'pip',
-                                        'freeze'])
-        [r.decode().split('==')[0] for r in reqs.split()]
-        _logger.info(f"Intallation of `{module}` and dependancies"
-                     "was successfully done!") 
-        MOD_IMP=True
      
-    except: 
-        _logger.error(f"Fail to install the module =`{module}`.")
-        print(f'---> Module {module!r} installation failed, Please use'
-           f'  the following command {cmd} to manually install it.')
-    return MOD_IMP 
-        
-                
 def _assert_sl_target (target,  df=None, obj=None): 
     """ Check whether the target name into the dataframe for supervised 
     learning.
@@ -4329,7 +3857,222 @@ def get_feature_contributions(X, model=None, view=False):
 
     return shap_values
 
+def smart_label_classifier (
+        arr: ArrayLike,  values: Union [float, List[float]]= None ,
+        labels: Union [int, str, List[str]] =None, 
+        order ='soft', func: _F=None, raise_warn=True): 
+    """ map smartly the numeric array into a class labels from a map function 
+    or a given fixed values. 
+    
+    New classes created from the fixed values can be renamed if `labels` 
+    are supplied. 
+    
+    Parameters 
+    -------------
+    arr: Arraylike 1d, 
+        array-like whose items are expected to be categorized. 
         
+    values: float, list of float, 
+        The threshold item values from which the default categorization must 
+        be fixed. 
+    labels: int |str| or List of [str, int], 
+        The labels values that might be correspond to the fixed values. Note  
+        that the number of `fixed_labels` might be consistent with the fixed 
+        `values` plus one, otherwise a ValueError shall raise if `order` is 
+        set to ``strict``. 
+        
+    order: str, ['soft'|'strict'], default='soft', 
+        If order is ``strict``, the argument passed to `values` must be self 
+        contain as item in the `arr`, and raise warning otherwise. 
+        
+    func: callable, optional 
+        Function to map the given array. If given, values dont need to be  
+        supply. 
+        
+    raise_warn: bool, default='True'
+        Raise warning message if `order=soft` and the fixed `values` are not 
+        found in the `arr`. Also raise warnings, if `labels` arguments does 
+        not match the number of class from fixed `values`. 
+        
+    Returns 
+    ----------
+    arr: array-like 1d 
+        categorized array with the same length as the raw 
+        
+    Examples
+    ----------
+    >>> import numpy as np
+    >>> from gofast.tools.coreutils import smart_label_classifier
+    >>> sc = np.arange (0, 7, .5 ) 
+    >>> smart_label_classifier (sc, values = [1, 3.2 ]) 
+    array([0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2], dtype=int64)
+    >>> # rename labels <=1 : 'l1', ]1; 3.2]: 'l2' and >3.2 :'l3'
+    >>> smart_label_classifier (sc, values = [1, 3.2 ], labels =['l1', 'l2', 'l3'])
+    >>> array(['l1', 'l1', 'l1', 'l2', 'l2', 'l2', 'l2', 'l3', 'l3', 'l3', 'l3',
+           'l3', 'l3', 'l3'], dtype=object)
+    >>> def f (v): 
+            if v <=1: return 'l1'
+            elif 1< v<=3.2: return "l2" 
+            else : return "l3"
+    >>> smart_label_classifier (sc, func= f )
+    array(['l1', 'l1', 'l1', 'l2', 'l2', 'l2', 'l2', 'l3', 'l3', 'l3', 'l3',
+           'l3', 'l3', 'l3'], dtype=object)
+    >>> smart_label_classifier (sc, values = 1.)
+    array([0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], dtype=int64)
+    >>> smart_label_classifier (sc, values = 1., labels='l1')  
+    array(['l1', 'l1', 'l1', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], dtype=object)
+    
+    """
+    name =None 
+    from .validator import _is_arraylike_1d 
+    if hasattr(arr, "name") and isinstance (arr, pd.Series): 
+        name = arr.name 
+        
+    arr= np.array (arr)  
+    
+    if not _is_arraylike_1d(arr): 
+        raise TypeError ("Expects a one-dimensional array, got array with"
+                         f" shape {arr.shape }")
+    
+    if isinstance (values, str): 
+        values = str2columns(values )
+    if values is not None: 
+        values = is_iterable(values, parse_string =True, transform = True )
+    # if (values is not None 
+    #     and not is_iterable( values)): 
+    #     values =[values ]
+        
+    if values is not None:
+        approx_vs=list()
+        values_ =np.zeros ((len(values), ), dtype =float )
+        for i, v in enumerate (values ) : 
+            try : v= float (v)
+            except TypeError as type_error : 
+                raise TypeError (
+                    f"Value {v} must be a valid number." + str(type_error))
+            diff_v = np.abs (arr[~np.isnan(arr)] - v ) 
+            
+            ix_v = np.argmin (diff_v)
+            if order =='strict' and diff_v [ix_v]!=0. :
+                raise ValueError (
+                    f" Value {v} is missing the array. {v} must be an item"
+                    " existing in the array or turn order to 'soft' for"
+                    " approximate values selectors. ") 
+                
+            # skip NaN in the case array contains NaN values 
+            values_[i] = arr[~np.isnan(arr)][ix_v] 
+            
+            if diff_v [ix_v]!=0.: 
+                approx_vs.append ((v, arr[~np.isnan(arr)][ix_v]))
+          
+        if len(approx_vs) !=0 and raise_warn: 
+            vv, aa = zip (*approx_vs)
+            verb ="are" if len(vv)>1 else "is"
+            warnings.warn(f"Values {vv} are missing in the array. {aa} {verb}"
+                          f" approximatively used for substituting the {vv}.")
+    arr_ = arr.copy () 
+    
+    #### 
+    if (func is None and values is None ): 
+        raise TypeError ("'ufunc' cannot be None when the values are not given") 
+    
+    dfunc =None 
+
+    if values is not None: 
+        dfunc = lambda k : _smart_mapper (k, kr = values_ )
+    func = func or  dfunc 
+
+    # func_vectorized  =np.vectorize(func ) 
+    # arr_ = func_vectorized( arr ) 
+    arr_ = pd.Series (arr_, name ='temp').map (func).values 
+    
+    d={} 
+    if labels is not None: 
+        labels = is_iterable(labels, parse_string=True, transform =True )
+        # if isinstance (labels, str): 
+        #     labels = str2columns(labels )
+        labels, d = _assert_labels_from_values (
+            arr_, values_ , labels , d, raise_warn= raise_warn , order =order 
+            )
+
+    arr_ = arr_ if labels is None else ( 
+        pd.Series (arr_, name = name or 'tname').map(d))
+    
+    # if name is None: # for consisteny if labels is None 
+    arr_= (arr_.values if labels is not None else arr_
+           ) if name is None else pd.Series (arr_, name = name )
+
+    return arr_ 
+
+def _assert_labels_from_values (ar, values , labels , d={}, 
+                                raise_warn= True , order ='soft'): 
+    """ Isolated part of the :func:`~.smart_label_classifier`"""
+    from .validator import _check_consistency_size 
+
+    nlabels = list(np.unique (ar))
+    if not is_iterable(labels): 
+        labels =[labels]
+    if not _check_consistency_size(nlabels, labels, error ='ignore'): 
+        if order=='strict':
+            verb= "were" if len (labels) > 1 else "was"
+            raise TypeError (
+                "Expect {len(nlabels)} labels for the {len(values)} values"
+                f" renaming. {len(labels)} {verb} given.")
+ 
+        verb ="s are" if len(values)>1 else " is"
+        msg = (f"{len(values)} value{verb} passed. Labels for"
+                " renaming values expect to be composed of"
+                f" {len(values)+1} items i.e. 'number of values"
+                " + 1' for pure categorization.")
+        ur_classes = nlabels [len(labels):] 
+        labels = list(labels ) + ur_classes 
+        labels = labels [:len(nlabels)] 
+        msg += (f" Class{'es' if len(ur_classes)>1 else ''}"
+                f" {smart_format(ur_classes)} cannot be renamed." ) 
+        
+        if raise_warn: 
+            warnings.warn (msg )
+        
+    d = dict (zip (nlabels , labels ))
+    
+    return labels, d 
+
+def _smart_mapper (k,   kr , return_dict_map =False ) :
+    """ Default  mapping using dict to validate the continue  value 'k' 
+    :param k: float, 
+        continue value to be framed between `kr`
+    :param kr: Tuple, 
+        range of fixed values  to categorize  
+    :return: int - new categorical class 
+    
+    :Example: 
+    >>> from gofast.tools.coreutils import _smart_mapper 
+    >>> _smart_mapper (10000 , ( 500, 1500, 2000, 3500) )
+    Out[158]: 4
+    >>> _smart_mapper (10000 , ( 500, 1500, 2000, 3500) , return_dict_map=True)
+    Out[159]: {0: False, 1: False, 2: False, 3: False, 4: True}
+    
+    """
+    import math 
+    if len(kr )==1 : 
+        d = {0:  k <=kr[0], 1: k > kr[0]}
+    elif len(kr)==2: 
+        d = {0: k <=kr[0], 1: kr[0] < k <= kr[1],  2: k > kr[1]} 
+    else : 
+        d= dict()
+        for ii  in range (len(kr) + 1  ): 
+            if ii ==0: 
+                d[ii]= k <= kr[ii] 
+            elif ii == len(kr):
+                d[ii] = k > kr [-1] 
+            else : 
+                d[ii] = kr[ii-1] < k <= kr[ii]
+
+    if return_dict_map: 
+        return d 
+    
+    for v, value in d.items () :
+        if value: return v if not math.isnan (v) else np.nan        
         
         
         

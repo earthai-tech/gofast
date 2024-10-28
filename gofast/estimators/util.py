@@ -3,15 +3,16 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """
-`util` module provides utility functions for machine learning estimators. 
+Provides utility functions for machine learning estimators. 
 It includes tools for scaling, problem detection, weight determination, 
 memory depth estimation, hyperparameter optimization, model selection, and 
 estimator validation.
 """
 
 from __future__ import annotations
-import warnings 
 import re
+import warnings 
+
 from scipy.sparse import issparse
 import numpy as np 
 

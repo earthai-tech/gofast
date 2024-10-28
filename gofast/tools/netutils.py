@@ -219,3 +219,4 @@ def validate_url_by_validators(url: str):
     if not validators.url(url):
         raise ValueError("The provided string is not a valid URL.")
     return True
+

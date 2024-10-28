@@ -23,7 +23,7 @@ from .._gofastlog import gofastlog
 from ..api.property import BaseClass
 from ..compat.sklearn import validate_params, Interval, StrOptions
 from ..decorators import RunReturn, smartFitRun
-from ..tools.funcutils import ensure_pkg
+from ..tools.depsutils import ensure_pkg
 from ..tools.validator import check_is_runned 
 
 from ._base import BaseInference

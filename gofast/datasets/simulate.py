@@ -6,46 +6,63 @@ Provides functions for simulating synthetic datasets across various domains,
 including environment, energy, customer behavior, and more.
 """
 
-import inspect 
 import datetime
-import pandas as pd
+import inspect
+
 import numpy as np
+import pandas as pd
 
-from ..tools.coreutils import is_iterable, unpack_list_of_dicts  
-from ..tools.validator import validate_dates, validate_positive_integer 
-from ..tools.validator import validate_distribution, validate_length_range
-from .util import validate_region, adjust_parameters_to_fit_samples 
-from .util import find_mineral_distributions, find_countries_by_minerals
-from .util import extract_minerals_from_regions, build_distributions_from
-from .util import check_distributions, select_location_for_mineral, manage_data
-from .util import generate_ore_infos, build_reserve_details_by_country
-from .util import get_last_day_of_current_month, adjust_households_and_days
-from .util import validate_noise_level, validate_loan_parameters 
-from .util import select_diagnostic_options, fetch_simulation_metadata 
-from .util import get_country_by, generate_custom_id 
+from ..tools.coreutils import is_iterable, unpack_list_of_dicts
+from ..tools.validator import (
+    validate_dates,
+    validate_distribution,
+    validate_length_range,
+    validate_positive_integer
+)
+from .util import (
+    adjust_households_and_days,
+    adjust_parameters_to_fit_samples,
+    build_distributions_from,
+    build_reserve_details_by_country,
+    check_distributions,
+    extract_minerals_from_regions,
+    fetch_simulation_metadata,
+    find_countries_by_minerals,
+    find_mineral_distributions,
+    generate_custom_id,
+    generate_ore_infos,
+    get_country_by,
+    get_last_day_of_current_month,
+    manage_data,
+    select_diagnostic_options,
+    select_location_for_mineral,
+    validate_loan_parameters,
+    validate_noise_level,
+    validate_region
+)
 
-__all__= [
+__all__ = [
     "simulate_landfill_capacity",
-    "simulate_water_reserves", 
-    "simulate_world_mineral_reserves", 
+    "simulate_water_reserves",
+    "simulate_world_mineral_reserves",
     "simulate_energy_consumption",
-    "simulate_customer_churn", 
+    "simulate_customer_churn",
     "simulate_predictive_maintenance",
-    "simulate_real_estate_price", 
-    "simulate_sentiment_analysis", 
-    "simulate_weather_forecasting", 
+    "simulate_real_estate_price",
+    "simulate_sentiment_analysis",
+    "simulate_weather_forecasting",
     "simulate_default_loan",
     "simulate_traffic_flow",
     "simulate_medical_diagnosis",
     "simulate_retail_sales",
-    "simulate_transactions", 
+    "simulate_transactions",
     "simulate_stock_prices",
     "simulate_patient_data",
     "simulate_weather_data",
     "simulate_climate_data",
-    "simulate_clinical_trials", 
+    "simulate_clinical_trials",
+]
 
-    ]
 
 def simulate_stock_prices(
     *, n_companies=10, 

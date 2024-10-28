@@ -9,35 +9,39 @@ a group of metrics will typically be used to build a dashboard that
 management or analysts review on a regular basis to maintain performance
 assessments, opinions, and business strategies.
 """
-from __future__ import annotations 
-import itertools 
-import warnings  
-import numpy as np 
 
-from sklearn.metrics import precision_recall_curve, precision_score
-from sklearn.metrics import recall_score, f1_score, roc_curve, roc_auc_score
-from sklearn.metrics import accuracy_score, confusion_matrix, log_loss
-from sklearn.metrics import classification_report, mean_squared_error  
-from sklearn.metrics import mean_absolute_error, r2_score, jaccard_score
-from sklearn.utils.multiclass import unique_labels
-from sklearn.model_selection import cross_val_predict 
+from __future__ import annotations
+import itertools
+import warnings
+
+import numpy as np
+from sklearn.metrics import (
+    accuracy_score, classification_report, confusion_matrix, f1_score,
+    jaccard_score, log_loss,  mean_absolute_error, mean_squared_error,
+    precision_recall_curve, precision_score, recall_score, r2_score,
+    roc_auc_score, roc_curve
+)
+from sklearn.model_selection import cross_val_predict
 from sklearn.preprocessing import label_binarize
+from sklearn.utils.multiclass import unique_labels
 
-from ._gofastlog import gofastlog 
+from ._gofastlog import gofastlog
 from .api.formatter import MetricFormatter
-from .tools.baseutils import standardize_input, filter_nan_from 
-from .tools.baseutils import convert_array_dimensions
-from .tools.coreutils import normalize_string 
-from .tools.mathex import calculate_binary_iv, optimized_spearmanr 
-from .tools.mathex import compute_sensitivity_specificity 
-from .tools.mathex import calculate_multiclass_lr, calculate_multiclass_avg_lr
-from .tools.mathex import compute_balance_accuracy
-from .tools.validator import _is_numeric_dtype, _ensure_y_is_valid
-from .tools.validator import check_epsilon, check_is_fitted
-from .tools.validator import check_classification_targets, validate_nan_policy
-from .tools.validator import ensure_non_negative, validate_multioutput 
-from .tools.validator import parameter_validator, handle_zero_division
-from .tools.validator import validate_sample_weights, validate_positive_integer 
+from .tools.baseutils import (
+    convert_array_dimensions, filter_nan_from, standardize_input
+)
+from .tools.coreutils import normalize_string
+from .tools.mathext import (
+    calculate_binary_iv, calculate_multiclass_avg_lr, calculate_multiclass_lr,
+    compute_balance_accuracy, compute_sensitivity_specificity, 
+    optimized_spearmanr
+)
+from .tools.validator import (
+    _ensure_y_is_valid, _is_numeric_dtype, check_classification_targets,
+    check_epsilon, check_is_fitted, ensure_non_negative, handle_zero_division,
+    parameter_validator, validate_multioutput, validate_nan_policy,
+    validate_positive_integer, validate_sample_weights
+)
 
 _logger = gofastlog().get_gofast_logger(__name__)
 

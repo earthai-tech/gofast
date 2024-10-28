@@ -16,7 +16,7 @@ from sklearn.utils._param_validation import StrOptions
 from .._gofastlog import gofastlog
 from ..compat.sklearn import validate_params
 from ..decorators import RunReturn, smartFitRun
-from ..tools.funcutils import ensure_pkg
+from ..tools.depsutils import ensure_pkg
 from ..tools.validator import (
     check_is_fitted,
     check_is_runned,

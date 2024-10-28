@@ -21,13 +21,16 @@ from sklearn.preprocessing import LabelEncoder
 from ..api.types import Callable, LambdaType, DataFrame, Series, Array1D
 from ..api.types import Dict, List, Union, Optional, Any, Tuple 
 from ..api.extension import isinstance_  
-from ..api.formatter import DataFrameFormatter, MultiFrameFormatter
-from ..api.formatter import formatter_validator   
+from ..api.formatter import ( 
+    DataFrameFormatter, MultiFrameFormatter, formatter_validator
+)
 from ..decorators import isdf 
 from ..tools.coreutils import validate_ratio 
-from ..tools.funcutils import ensure_pkg 
-from ..tools.validator import _is_arraylike_1d, validate_comparison_data
-from ..tools.validator import parameter_validator, validate_performance_data 
+from ..tools.depsutils import ensure_pkg 
+from ..tools.validator import ( 
+    _is_arraylike_1d, validate_comparison_data, parameter_validator,
+    validate_performance_data 
+)
 
 _MAXROWS=50  
 _MAXCOLS=5 

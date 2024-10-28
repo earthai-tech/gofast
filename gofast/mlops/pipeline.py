@@ -23,13 +23,13 @@ except ImportError:
     pass
 
 from .._gofastlog import gofastlog
-from ..api.property import BaseClass, PipelineBaseClass
+from ..api.property import BaseLearner, PipelineBaseClass
 from ..decorators import ( 
     RunReturn, smartFitRun, executeWithFallback 
 )
 from ..compat.sklearn import validate_params
-from ..tools.funcutils import ensure_pkg
 from ..tools.coreutils import validate_ratio
+from ..tools.depsutils import ensure_pkg
 from ..tools.validator import check_is_runned
 
 from ._base import PipelineOrchestrator
@@ -56,7 +56,7 @@ __all__ = [
 
 
 @smartFitRun
-class PipelineStep(BaseClass):
+class PipelineStep(BaseLearner):
     """
     A sophisticated pipeline step that supports flexible configurations
     and dependencies. Each step can be defined with custom parameters,
@@ -954,7 +954,7 @@ class PipelineManager(PipelineBaseClass):
     auto_install=INSTALL_DEPENDENCIES,
     use_conda=USE_CONDA
 )
-class ResourceManager(BaseClass):
+class ResourceManager(BaseLearner):
     """
     Manages the allocation of system resources for pipeline steps.
     This includes checking available resources and assigning them
@@ -1247,7 +1247,7 @@ class ResourceManager(BaseClass):
     auto_install=INSTALL_DEPENDENCIES,
     use_conda=USE_CONDA
 )
-class ResourceMonitor(BaseClass):
+class ResourceMonitor(BaseLearner):
     """
     Monitors system resource usage during the execution of pipeline
     steps. It tracks CPU and memory usage over time, providing insights
@@ -1408,7 +1408,7 @@ class ResourceMonitor(BaseClass):
 
 
 @smartFitRun
-class PipelineOptimizer(BaseClass):
+class PipelineOptimizer(BaseLearner):
     """
     Optimizes resource allocation and usage for pipeline steps,
     integrating with :class:`PipelineManager`, :class:`ResourceManager`, and

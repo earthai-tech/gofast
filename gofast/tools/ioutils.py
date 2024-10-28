@@ -7,6 +7,11 @@ Input/Output utilities module for managing file paths, directories, and
 loading serialized data. These functions support automated creation of
 directories and error-checked deserialization of data, streamlining file
 management and data recovery processes.
+
+This module includes functions for fetching .tgz files from URLs or locally,
+and provides functionality to handle specific file extractions within the 
+archives.
+
 """
 import os 
 import re
@@ -20,32 +25,40 @@ import csv
 import json 
 import yaml
 import h5py 
-from zipfile import ZipFile
+import tarfile
 from pathlib import Path
-from six.moves import urllib  
-from typing import Any, Optional , Tuple , Union, List, Dict, Text 
+from typing import Optional, Union, Any, Tuple , List, Dict, Text 
+from tqdm import tqdm
 
+from six.moves import urllib 
+from zipfile import ZipFile
+ 
 import numpy as np 
 import pandas as pd 
 
 __all__ = [
     'cparser_manager',
     'cpath',
+    'deserialize_data', 
+    'extract_tar_with_progress', 
+    'fetch_tgz_from_url', 
+    'fetch_tgz_locally', 
     'dummy_csv_translator',
     'fetch_json_data_from_url',
     'get_config_fname_from_varname',
+    'get_valid_key', 
     'is_in_if',
     'key_checker',
     'key_search',
     'load_serialized_data',
+    'load_csv', 
     'move_cfile',
     'parse_csv',
     'parse_json',
-    'parse_md_data',
+    'parse_md',
     'parse_yaml',
     'print_cmsg',
     'rename_files',
-    'replace_data',
     'return_ctask',
     'sanitize_unicode_string',
     'save_job',
@@ -914,7 +927,7 @@ def key_search (
     return None if len(valid_keys)==0 else valid_keys 
 
 
-def serialize_data(
+def serialize_data2(
     data,
     filename: str = None,
     force: bool = True,
@@ -974,113 +987,6 @@ def serialize_data(
     return filepath
 
 
-def replace_data(
-    X:Union [np.ndarray, pd.DataFrame], 
-    y: Union [np.ndarray, pd.Series] = None, 
-    n: int = 1, 
-    axis: int = 0, 
-    reset_index: bool = False,
-    include_original: bool = False,
-    random_sample: bool = False,
-    shuffle: bool = False
-) -> Union [ np.ndarray, pd.DataFrame , Tuple[
-    np.ndarray , pd.DataFrame, np.ndarray, pd.Series]]:
-    """
-    Duplicates the data `n` times along a specified axis and applies various 
-    optional transformations to augment the data suitability for further 
-    processing or analysis.
-
-    Parameters
-    ----------
-    X : Union[np.ndarray, pd.DataFrame]
-        The input data to process. Sparse matrices are not supported.
-    y : Optional[Union[np.ndarray, pd.Series]], optional
-        Additional target data to process alongside `X`. Default is None.
-    n : int, optional
-        The number of times to replicate the data. Default is 1.
-    axis : int, optional
-        The axis along which to concatenate the data. Default is 0.
-    reset_index : bool, optional
-        If True and `X` is a DataFrame, resets the index without adding
-        the old index as a column. Default is False.
-    include_original : bool, optional
-        If True, the original data is included in the output alongside
-        the replicated data. Default is False.
-    random_sample : bool, optional
-        If True, samples from `X` randomly with replacement. Default is False.
-    shuffle : bool, optional
-        If True, shuffles the concatenated data. Default is False.
-
-    Returns
-    -------
-    Union[np.ndarray, pd.DataFrame, Tuple[Union[np.ndarray, pd.DataFrame], 
-                                          Union[np.ndarray, pd.Series]]]
-        The augmented data, either as a single array or DataFrame, or as a tuple
-        of arrays/DataFrames if `y` is provided.
-
-    Notes
-    -----
-    The replacement is mathematically formulated as follows:
-    Let :math:`X` be a dataset with :math:`m` elements. The function replicates 
-    :math:`X` `n` times, resulting in a new dataset :math:`X'` of :math:`m * n` 
-    elements if `include_original` is False. If `include_original` is True,
-    :math:`X'` will have :math:`m * (n + 1)` elements.
-
-    Examples
-    --------
-    
-    >>> import numpy as np 
-    >>> from gofast.tools.coreutils import replace_data
-    >>> X, y = np.random.randn ( 7, 2 ), np.arange(7)
-    >>> X.shape, y.shape 
-    ((7, 2), (7,))
-    >>> X_new, y_new = replace_data (X, y, n=10 )
-    >>> X_new.shape , y_new.shape
-    ((70, 2), (70,))
-    >>> X = np.array([[1, 2], [3, 4]])
-    >>> replace_data(X, n=2, axis=0)
-    array([[1, 2],
-           [3, 4],
-           [1, 2],
-           [3, 4]])
-
-    >>> import pandas as pd
-    >>> df = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
-    >>> replace_data(df, n=1, include_original=True, reset_index=True)
-       A  B
-    0  1  3
-    1  2  4
-    2  1  3
-    3  2  4
-    """
-    def concat_data(ar) -> Union[np.ndarray, pd.DataFrame]:
-        repeated_data = [ar] * (n + 1) if include_original else [ar] * n
-        
-        if random_sample:
-            random_indices = np.random.choice(
-                ar.shape[0], size=ar.shape[0], replace=True)
-            repeated_data = [ar[random_indices] for _ in repeated_data]
-
-        concatenated = pd.concat(repeated_data, axis=axis) if isinstance(
-            ar, pd.DataFrame) else np.concatenate(repeated_data, axis=axis)
-        
-        if shuffle:
-            shuffled_indices = np.random.permutation(concatenated.shape[0])
-            concatenated = concatenated[shuffled_indices] if isinstance(
-                ar, pd.DataFrame) else concatenated.iloc[shuffled_indices]
-
-        if reset_index and isinstance(concatenated, pd.DataFrame):
-            concatenated.reset_index(drop=True, inplace=True)
-        
-        return concatenated
-
-    X = np.array(X) if not isinstance(X, (np.ndarray, pd.DataFrame)) else X
-    y = np.array(y) if y is not None and not isinstance(y, (np.ndarray, pd.Series)) else y
-
-    if y is not None:
-        return concat_data(X), concat_data(y)
-    return concat_data(X)
-
 def save_path(nameOfPath: str) -> str:
     """
     Creates a directory if it does not exist.
@@ -1139,7 +1045,7 @@ def sanitize_unicode_string(str_: str) -> str:
     
     return str_
 
-def parse_md_data(pf: str, delimiter: str = ':'):
+def parse_md(pf: str, delimiter: str = ':'):
     """
     Parse a markdown-style file with key-value pairs separated by 
     a delimiter.
@@ -1228,7 +1134,7 @@ def dummy_csv_translator(
     >>> print(missing)
 
     """
-    parser_data = dict(parse_md_data(pf, delimiter))
+    parser_data = dict(parse_md(pf, delimiter))
     
     # Read CSV data
     with open(csv_fn, 'r', encoding='utf8') as csv_f:
@@ -2215,4 +2121,546 @@ def fetch_json_data_from_url(url: str, todo: str = 'load'):
 
     return todo, json_fn, data
 
-   
+def deserialize_data(filename: str, verbose: int = 0) -> Any:
+    """
+    Deserialize and load data from a serialized file using `joblib` or `pickle`.
+
+    The function attempts to load the serialized data from the provided file
+    `filename` using `joblib` first. If `joblib` fails, it tries to load the
+    data using `pickle`. An error is raised if both methods fail.
+
+    Parameters
+    ----------
+    filename : str
+        The name or path of the file containing the serialized data.
+        This file is expected to be in a compatible format with either
+        `joblib` or `pickle`.
+    
+    verbose : int, optional
+        Verbosity level. Messages indicating loading progress will be displayed
+        if `verbose` is greater than 0.
+
+    Returns
+    -------
+    Any
+        The data loaded from the serialized file, or `None` if loading fails.
+
+    Raises
+    ------
+    TypeError
+        If `filename` is not a string, as file paths must be provided as strings.
+    
+    FileNotFoundError
+        If the specified `filename` does not exist or cannot be located.
+    
+    IOError
+        If both `joblib` and `pickle` fail to deserialize the data from the file.
+    
+    ValueError
+        If the file was successfully read but yielded no data (i.e., `None`).
+
+    Examples
+    --------
+    >>> from gofast.tools.ioutils import deserialize_data
+    >>> data = deserialize_data('path/to/serialized_data.pkl', verbose=1)
+    Data loaded successfully from 'path/to/serialized_data.pkl' using joblib.
+
+    Notes
+    -----
+    The function first attempts deserialization with `joblib` to leverage 
+    efficient file handling for large datasets. If `joblib` encounters an error, 
+    it falls back to `pickle`, which provides broader compatibility with Python 
+    objects but may be less optimized for large datasets.
+    
+    See Also
+    --------
+    joblib.load : Joblib's load function for fast I/O operations on large data.
+    pickle.load : Pickle's load function for serializing and deserializing 
+                  Python objects.
+    
+    References
+    ----------
+    .. [1] Joblib Documentation - https://joblib.readthedocs.io
+    .. [2] Python Pickle Module - https://docs.python.org/3/library/pickle.html
+    """
+    # Check if filename is a valid string
+    if not isinstance(filename, str):
+        raise TypeError(
+            "Expected 'filename' to be a string,"
+            f" got {type(filename)} instead."
+        )
+    
+    # Confirm that the specified file exists
+    if not os.path.isfile(filename):
+        raise FileNotFoundError(f"File {filename!r} does not exist.")
+    
+    # Attempt to load data using joblib
+    try:
+        data = joblib.load(filename)
+        if verbose:
+            print(f"Data loaded successfully from {filename!r} using joblib.")
+    except Exception as joblib_error:
+        # Fallback to pickle if joblib fails
+        try:
+            with open(filename, 'rb') as file:
+                data = pickle.load(file)
+            if verbose:
+                print(f"Data loaded successfully from {filename!r} using pickle.")
+        except Exception as pickle_error:
+            raise IOError(
+                f"Failed to load data from {filename!r}. "
+                f"Joblib error: {joblib_error}, Pickle error: {pickle_error}"
+            )
+
+    # Verify that the data is not None after successful deserialization
+    if data is None:
+        raise ValueError(
+            f"Data in {filename!r} could not be deserialized. "
+            "The file may be corrupted or contain no data."
+        )
+
+    return data
+
+def serialize_data(
+    data: Any,
+    filename: Optional[str] = None,
+    savepath: Optional[str] = None,
+    to: Optional[str] = None,
+    verbose: int = 0
+) -> str:
+    """
+    Serialize and save data to a binary file using either `joblib` or `pickle`.
+
+    Parameters
+    ----------
+    data : Any
+        The object to be serialized and saved.
+    filename : str, optional
+        The filename for saving. If None, a timestamped name is generated.
+    savepath : str, optional
+        Directory for saving the file. Created if it does not exist.
+    to : str, optional
+        The serialization method: 'joblib' or 'pickle'. Default is 'joblib'.
+    verbose : int, optional
+        Verbosity level. Set higher for more detailed output.
+
+    Returns
+    -------
+    str
+        Full path to the saved serialized file.
+
+    Raises
+    ------
+    ValueError
+        If `to` is not 'joblib', 'pickle', or None.
+    TypeError
+        If `to` is not a string.
+
+    Examples
+    --------
+    >>> from gofast.tools.ioutils import serialize_data
+    >>> import numpy as np
+    >>> data = (np.array([0, 1, 3]), np.array([0.2, 4]))
+    >>> filename = serialize_data(data, filename='__XTyT.pkl', to='pickle',
+    ...                           savepath='gofast/datasets')
+    """
+    if filename is None:
+        timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        filename = f"__mydumpedfile_{timestamp}.pkl"
+
+    if to:
+        if not isinstance(to, str):
+            raise TypeError(f"Serialization method 'to' must be a string, not {type(to)}.")
+        to = to.lower()
+        if to not in ('joblib', 'pickle'):
+            raise ValueError("Unknown serialization method 'to'. Must be 'joblib' or 'pickle'.")
+
+    if not filename.endswith('.pkl'):
+        filename += '.pkl'
+    
+    full_path = os.path.join(savepath, filename) if savepath else filename
+    
+    if savepath and not os.path.exists(savepath):
+        os.makedirs(savepath)
+    
+    try:
+        if to == 'pickle' or to is None:
+            with open(full_path, 'wb') as file:
+                pickle.dump(data, file, protocol=pickle.HIGHEST_PROTOCOL)
+            if verbose:
+                print(f"Data serialized using pickle and saved to {full_path!r}.")
+        elif to == 'joblib':
+            joblib.dump(data, full_path)
+            if verbose:
+                print(f"Data serialized using joblib and saved to {full_path!r}.")
+    except Exception as e:
+        raise IOError(f"An error occurred during data serialization: {e}")
+    
+    return full_path
+
+
+def fetch_tgz_from_url(
+    data_url: str,
+    tgz_filename: str,
+    data_path: Optional[Union[str, Path]] = None,
+    file_to_retrieve: Optional[str] = None,
+    **kwargs
+) -> Optional[Path]:
+    """
+    Downloads a .tgz file from a specified URL, saves it to a directory,
+    and optionally extracts a specific file from the archive.
+
+    This function retrieves a .tgz file from the provided `data_url` and saves 
+    it to the specified `data_path` directory. If `file_to_retrieve` is specified, 
+    the function will extract only that file from the archive; otherwise, the 
+    entire archive will be extracted.
+
+    Parameters
+    ----------
+    data_url : str
+        The URL to download the .tgz file from.
+    tgz_filename : str
+        The name to assign to the downloaded .tgz file.
+    data_path : Union[str, Path], optional
+        Directory where the downloaded file will be saved. Defaults to a 'tgz_data' 
+        directory in the current working directory if not specified.
+    file_to_retrieve : str, optional
+        Specific filename to extract from the .tgz archive. If not provided,
+        the entire archive is extracted.
+    **kwargs : dict
+        Additional keyword arguments to pass to the extraction method.
+
+    Returns
+    -------
+    Optional[Path]
+        Path to the extracted file if a specific file was requested; otherwise, 
+        returns None.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the specified `file_to_retrieve` is not found in the archive.
+
+    Examples
+    --------
+    >>> from gofast.tools.ioutils import fetch_tgz_from_url
+    >>> data_url = 'https://example.com/data.tar.gz'
+    >>> extracted_file = fetch_tgz_from_url(
+    ...     data_url, 'data.tar.gz', data_path='data_dir', file_to_retrieve='file.csv')
+    >>> print(extracted_file)
+
+    Notes
+    -----
+    Uses the `tqdm` progress bar for tracking download progress.
+    """
+    import urllib.request
+    
+    data_path = Path(data_path or os.path.join(os.getcwd(), 'tgz_data'))
+    data_path.mkdir(parents=True, exist_ok=True)
+    tgz_path = data_path / tgz_filename
+
+    # Download with progress bar
+    with tqdm(unit='B', unit_scale=True, miniters=1, desc=tgz_filename, ncols=100) as t:
+        urllib.request.urlretrieve(data_url, tgz_path, reporthook=_download_progress_hook(t))
+
+    try:
+        with tarfile.open(tgz_path, "r:gz") as tar:
+            if file_to_retrieve:
+                tar.extract(file_to_retrieve, path=data_path, **kwargs)
+                return data_path / file_to_retrieve
+            tar.extractall(path=data_path)
+    except (tarfile.TarError, KeyError) as e:
+        print(f"Error extracting {file_to_retrieve or 'archive'}: {e}")
+        return None
+
+    return None
+
+
+def fetch_tgz_locally(
+    tgz_file: str,
+    filename: str,
+    savefile: str = 'tgz',
+    rename_outfile: Optional[str] = None
+) -> str:
+    """
+    Extracts a specific file from a local .tgz archive and optionally renames it.
+
+    This function fetches a specific file `filename` from a local tar archive 
+    located at `tgz_file`, and saves it to `savefile`. If `rename_outfile` is 
+    specified, the file is renamed after extraction.
+
+    Parameters
+    ----------
+    tgz_file : str
+        Full path to the tar file.
+    filename : str
+        Name of the target file to extract from the archive.
+    savefile : str, optional
+        Destination directory for the extracted file, defaulting to 'tgz'.
+    rename_outfile : str, optional
+        New name for the fetched file. If not provided, retains the original name.
+
+    Returns
+    -------
+    str
+        Full path to the fetched and possibly renamed file.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the `tgz_file` or the specified `filename` is not found.
+
+    Examples
+    --------
+    >>> from gofast.tools.ioutils import fetch_tgz_locally
+    >>> fetched_file = fetch_tgz_locally(
+    ...     'path/to/archive.tgz', 'file.csv', savefile='extracted', rename_outfile='renamed.csv')
+    >>> print(fetched_file)
+    """
+    tgz_path = Path(tgz_file)
+    save_path = Path(savefile)
+    save_path.mkdir(parents=True, exist_ok=True)
+
+    if not tgz_path.is_file():
+        raise FileNotFoundError(f"Source {tgz_file!r} is not a valid file.")
+
+    with tarfile.open(tgz_path) as tar:
+        member = next((m for m in tar.getmembers() if m.name.endswith(filename)), None)
+        if member:
+            tar.extract(member, path=save_path)
+            extracted_file_path = save_path / member.name
+            final_file_path = save_path / (rename_outfile if rename_outfile else filename)
+            if extracted_file_path != final_file_path:
+                extracted_file_path.rename(final_file_path)
+                if extracted_file_path.parent != save_path:
+                    shutil.rmtree(extracted_file_path.parent, ignore_errors=True)
+        else:
+            raise FileNotFoundError(f"File {filename} not found in {tgz_file}.")
+
+    print(f"--> '{final_file_path}' was successfully extracted from '{tgz_path.name}' "
+          f"and saved to '{save_path}'.")
+    return str(final_file_path)
+
+
+def extract_tar_with_progress(
+    tar: tarfile.TarFile,
+    member: tarfile.TarInfo,
+    path: Path
+):
+    """
+    Extracts a single file from a tar archive with a progress bar.
+
+    Parameters
+    ----------
+    tar : tarfile.TarFile
+        Opened tar file object.
+    member : tarfile.TarInfo
+        Tar member (file) to be extracted.
+    path : Path
+        Directory path where the file will be extracted.
+
+    Examples
+    --------
+    >>> from gofast.tools.ioutils import extract_tar_with_progress
+    >>> with tarfile.open('data.tar.gz', 'r:gz') as tar:
+    ...     member = tar.getmember('file.csv')
+    ...     extract_tar_with_progress(tar, member, Path('output_dir'))
+
+    Notes
+    -----
+    Uses `tqdm` for progress tracking of the file extraction process.
+    """
+    with tqdm(total=member.size, desc=f"Extracting {member.name}",
+              unit='B', unit_scale=True) as progress_bar:
+        with tar.extractfile(member) as member_file:
+            with open(path / member.name, 'wb') as out_file:
+                shutil.copyfileobj(member_file, out_file, length=1024 * 1024,
+                                   callback=lambda x: progress_bar.update(1024 * 1024))
+
+
+def _download_progress_hook(t):
+    """Progress hook for urlretrieve to update tqdm progress bar."""
+    last_block = [0]
+
+    def inner(block_count=1, block_size=1, total_size=None):
+        if total_size is not None:
+            t.total = total_size
+        t.update((block_count - last_block[0]) * block_size)
+        last_block[0] = block_count
+
+    return inner
+
+def load_csv(
+        data_path: str, delimiter: Optional[str] = ',', **kwargs
+        ) ->pd.DataFrame:
+    """
+    Loads a CSV file into a pandas DataFrame.
+
+    This function reads a comma-separated values (CSV) file into a `pandas`
+    DataFrame, with the ability to specify a custom delimiter. It provides
+    support for additional options passed to `pandas.read_csv` for more
+    granular control over the data loading process.
+
+    Parameters
+    ----------
+    data_path : str
+        The file path to the CSV file that is to be loaded. The file path must
+        lead to a `.csv` file. If the file does not exist at the specified path,
+        a `FileNotFoundError` is raised.
+    
+    delimiter : str, optional
+        The character used to separate values in the CSV file. The default is
+        `,` for standard CSVs. If a different delimiter is used in the file 
+        (e.g., `;`), it can be specified here.
+
+    **kwargs : dict
+        Additional keyword arguments that will be passed directly to 
+        `pandas.read_csv`. For instance, users can specify `header`, `index_col`,
+        `dtype`, and other options supported by `read_csv` for more customized 
+        data handling.
+
+    Returns
+    -------
+    DataFrame
+        A pandas DataFrame containing the loaded data, with the specified
+        options applied.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the specified file does not exist at the provided `data_path`.
+    
+    ValueError
+        If the file specified by `data_path` is not a CSV file (i.e., does not 
+        have a `.csv` extension), a `ValueError` is raised to ensure correct 
+        file type.
+
+    Notes
+    -----
+    This function simplifies the process of loading CSV data into a DataFrame,
+    with a straightforward parameter for delimiter customization and full access 
+    to `pandas.read_csv` options. It is ideal for basic CSV loading tasks, as well
+    as more complex ones requiring specific column handling, type casting, and 
+    missing value handling, which can be passed via `**kwargs`.
+
+    Examples
+    --------
+    Suppose you have a CSV file `example.csv` with the following content:
+    
+    ```
+    name,age,city
+    Alice,30,New York
+    Bob,25,Los Angeles
+    ```
+
+    To load this file into a DataFrame:
+
+    >>> from gofast.tools.ioutils import load_csv
+    >>> df = load_csv('example.csv')
+    >>> print(df)
+         name  age         city
+    0   Alice   30     New York
+    1     Bob   25  Los Angeles
+
+    If the file uses a semicolon (`;`) as the delimiter:
+
+    >>> df = load_csv('example.csv', delimiter=';')
+
+    Additionally, you can pass custom `read_csv` parameters through `**kwargs`,
+    such as specifying a column as the index:
+
+    >>> df = load_csv('example.csv', index_col='name')
+    >>> print(df)
+           age         city
+    name                   
+    Alice    30     New York
+    Bob      25  Los Angeles
+
+    See Also
+    --------
+    pandas.read_csv : Full documentation for loading CSV files into a DataFrame 
+                      with detailed parameter options.
+
+    References
+    ----------
+    .. [1] Wes McKinney, "Python for Data Analysis," 2nd Edition, O'Reilly Media, 2017.
+    """
+
+    if not os.path.isfile(data_path):
+        raise FileNotFoundError(f"The file '{data_path}' does not exist.")
+    
+    if not data_path.lower().endswith('.csv'):
+        raise ValueError(
+            "The specified file is not a CSV file. Please provide a valid CSV file.")
+
+    # Load the CSV data into a DataFrame with the specified delimiter and additional kwargs
+    return pd.read_csv(data_path, delimiter=delimiter, **kwargs)
+
+def get_valid_key(input_key, default_key, substitute_key_dict=None,
+                  regex_pattern = "[#&*@!,;\s]\s*", deep_search=True):
+    """
+    Validates an input key and substitutes it with a valid key if necessary,
+    based on a mapping of valid keys to their possible substitutes. If the input
+    key is not provided or is invalid, a default key is used.
+
+    Parameters
+    ----------
+    input_key : str
+        The key to validate and possibly substitute.
+    default_key : str
+        The default key to use if input_key is None, empty, or not found in 
+        the substitute mapping.
+    substitute_key_dict : dict, optional
+        A mapping of valid keys to lists of their possible substitutes. This
+        allows for flexible key substitution and validation.
+    regex_pattern: str, default = '[#&*@!,;\s-]\s*'
+        The base pattern to split the text into a columns
+    deep_search: bool, default=False 
+       If deep-search, the key finder is no sensistive to lower/upper case 
+       or whether a numeric data is included. 
+    Returns
+    -------
+    str
+        A valid key, which is either the original input_key if valid, a substituted
+        key if the original was found in the substitute mappings, or the default_key.
+
+    Notes
+    -----
+    This function also leverages an external validation through `key_checker` for
+    a deep search validation, ensuring the returned key is within the set of valid keys.
+    
+    Example
+    -------
+    >>> from gofast.tools.coreutils import get_valid_key
+    >>> substitute_key_dict = {'valid_key1': ['vk1', 'key1'], 'valid_key2': ['vk2', 'key2']}
+    >>> get_valid_key('vk1', 'default_key', substitute_key_dict)
+    'valid_key1'
+    >>> get_valid_key('unknown_key', 'default_key', substitute_key_dict)
+    'KeyError...'
+  
+    """
+    # Ensure substitute_mapping is a dictionary if not provided
+    substitute_key_dict = substitute_key_dict or {}
+
+    # Fallback to default_key if input_key is None or empty
+    input_key = input_key or default_key
+
+    # Attempt to find a valid substitute for the input_key
+    for valid_key, substitutes in substitute_key_dict.items():
+        # Case-insensitive comparison for substitutes
+        normalized_substitutes = [str(sub).lower() for sub in substitutes]
+        
+        if str(input_key).lower() in normalized_substitutes:
+            input_key = valid_key
+            break
+    
+    regex = re.compile (fr'{regex_pattern}', flags=re.IGNORECASE)
+    # use valid keys  only if substitute_key_dict not provided. 
+    valid_keys = substitute_key_dict.keys() if substitute_key_dict else to_iterable(
+            default_key, exclude_string=True, transform=True)
+    valid_keys = set (list(valid_keys) + [default_key])
+    # Further validate the (possibly substituted) input_key
+    input_key = key_checker(input_key, valid_keys=valid_keys,
+                            deep_search=deep_search,regex = regex  )
+    
+    return input_key

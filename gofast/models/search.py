@@ -1,53 +1,77 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
-
-"""Provides a set of classes for model selection and hyperparameter tuning, 
+"""
+Provides a set of classes for model selection and hyperparameter tuning, 
 including tools for cross-validation and automated search strategies to 
-optimize model performance."""
+optimize model performance.
+"""
 
-from __future__ import annotations 
-
+from __future__ import annotations
 import inspect
-import warnings  
-import joblib
-from pprint import pprint 
-import numpy as np 
-import pandas as pd 
-from tqdm import tqdm
+import warnings
+from pprint import pprint
 from concurrent.futures import ThreadPoolExecutor
 
+import joblib
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
 from sklearn.base import BaseEstimator, clone
-from sklearn.metrics import mean_squared_error, accuracy_score 
-from sklearn.model_selection import  KFold, LeaveOneOut
-from sklearn.model_selection import cross_val_score, StratifiedKFold
+from sklearn.metrics import accuracy_score, mean_squared_error
+from sklearn.model_selection import (
+    KFold,
+    LeaveOneOut,
+    StratifiedKFold,
+    cross_val_score
+)
 
 from .._gofastlog import gofastlog
+from ..api.docstring import DocstringComponents, _core_docs
+from ..api.property import BaseClass
 from ..api.structures import Boxspace
-from ..api.docstring import DocstringComponents, _core_docs 
-from ..api.property import BaseClass 
-from ..api.summary import ModelSummary, ResultSummary 
-from ..api.types import _F, List,ArrayLike, NDArray, Dict, Any, Optional, Union
+from ..api.summary import ModelSummary, ResultSummary
+from ..api.types import (
+    _F,
+    Any,
+    ArrayLike,
+    Dict,
+    List,
+    NDArray,
+    Optional,
+    Union
+)
 from ..exceptions import EstimatorError, NotFittedError
-from ..tools.coreutils import save_job, get_params 
-from ..tools.coreutils import listing_items_format, validate_ratio 
-from ..tools.validator import check_X_y, check_array, check_consistent_length 
-from ..tools.validator import get_estimator_name, filter_valid_kwargs 
+from ..tools.coreutils import get_params, listing_items_format, validate_ratio
+from ..tools.ioutils import save_job
+from ..tools.validator import (
+    check_X_y,
+    check_array,
+    check_consistent_length,
+    filter_valid_kwargs,
+    get_estimator_name
+)
+from .utils import (
+    _standardize_input,
+    align_estimators_with_params,
+    dummy_evaluation,
+    get_scorers,
+    get_strategy_method,
+    get_strategy_name,
+    process_performance_data,
+    update_if_higher
+)
 
-from .utils import get_scorers, dummy_evaluation, get_strategy_name
-from .utils import _standardize_input , get_strategy_method 
-from .utils import align_estimators_with_params, process_performance_data 
-from .utils import update_if_higher 
- 
-_logger = gofastlog().get_gofast_logger(__name__)
 
 __all__=["BaseEvaluation", "BaseSearch", "SearchMultiple",
          "CrossValidator", "MultipleSearch","PerformanceTuning"
     ]
 
+_logger = gofastlog().get_gofast_logger(__name__)
 _param_docs = DocstringComponents.from_nested_components(
     core=_core_docs["params"], 
     )
+
 class MultipleSearch(BaseClass):
     r"""
     A class for concurrently performing parameter tuning across multiple  

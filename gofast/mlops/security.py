@@ -19,14 +19,14 @@ from typing import Any, Dict, List, Optional, Callable
 from sklearn.utils._param_validation import StrOptions
 
 from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
-from ..api.property import BaseClass
+from ..api.property import BaseLearner
 from ..compat.sklearn import validate_params, Interval 
 from ..decorators import ( 
     smartFitRun, 
     RunReturn, 
     EnsureFileExists
    )
-from ..tools.funcutils import ensure_pkg 
+from ..tools.depsutils import ensure_pkg 
 from ..tools.validator import check_is_runned
 
 from .._gofastlog import gofastlog 
@@ -42,7 +42,7 @@ __all__ = [
 ]
 
 @smartFitRun
-class BaseSecurity(BaseClass):
+class BaseSecurity(BaseLearner):
     """
     Provides security functionalities such as data encryption,
     decryption, and secure logging. Supports key management,

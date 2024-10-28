@@ -7,29 +7,44 @@ such as demographics, agriculture, classification, sales, medical diagnostics,
 and more.
 """
 
+# Future Imports
 from __future__ import annotations 
-import inspect 
-import warnings 
+import inspect
 import random
+import warnings
 from datetime import timedelta
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 
-from ._globals import HYDRO_PARAMS, HYDRO_PARAM_UNITS 
-from ._globals import RELEVANT_HYDRO_PARAMS, HYDRO_PARAM_RANGES  
-
-from ..tools.baseutils import make_df, remove_target_from_array 
-from ..tools.coreutils import assert_ratio, is_iterable 
-from ..tools.coreutils import _assert_all_types
-from ..tools.coreutils import smart_format, random_sampling 
-from ..tools.funcutils import ensure_pkg
-from ..tools.validator import validate_and_adjust_ranges, validate_dates
-from ..tools.validator import parameter_validator, validate_positive_integer 
-
-from .util import manage_data, get_item_from, generate_synthetic_values
-from .util import generate_categorical_values, generate_regression_output
-from .util import apply_scaling, rename_data_columns 
-from .util import adjust_parameters_to_fit_samples, fetch_simulation_metadata  
+from ._globals import ( 
+    HYDRO_PARAMS, HYDRO_PARAM_RANGES, HYDRO_PARAM_UNITS, 
+    RELEVANT_HYDRO_PARAMS
+  )
+from .util import (
+    adjust_parameters_to_fit_samples,
+    apply_scaling,
+    fetch_simulation_metadata,
+    generate_categorical_values,
+    generate_regression_output,
+    generate_synthetic_values,
+    get_item_from,
+    manage_data,
+    rename_data_columns
+)
+from ..tools.coreutils import (
+    _assert_all_types,
+    assert_ratio,
+    is_iterable,
+    smart_format
+)
+from ..tools.depsutils import ensure_pkg
+from ..tools.validator import (
+    parameter_validator,
+    validate_and_adjust_ranges,
+    validate_dates,
+    validate_positive_integer
+)
 
 __all__=[
      'make_african_demo',
@@ -191,6 +206,8 @@ def make_data(
   
     from sklearn.datasets import make_classification, make_regression
     from sklearn.model_selection import train_test_split
+    from ..tools.baseutils import make_df
+    
     n_samples = validate_positive_integer(n_samples, "samples")
     valid_tasks = {"classification", "regression"}
     task = parameter_validator("task", target_strs=valid_tasks, 
@@ -667,6 +684,8 @@ def make_regression(
     various real-world scenarios. The scaling options help in preparing data 
     that mimics different data distributions.
     """
+    from ..tools.baseutils import remove_target_from_array 
+    
     np.random.seed(seed)  # Ensures reproducibility
     n_samples = validate_positive_integer(n_samples, "samples")
     X = np.random.randn(n_samples, n_features)
@@ -1156,6 +1175,8 @@ def make_agronomy_feedback(*,
 
     """
     from ._globals import COMMON_PESTICIDES, COMMON_CROPS 
+    from ..tools.datautils import random_sampling 
+    
     func_name = inspect.currentframe().f_code.co_name
     dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
     
@@ -1574,6 +1595,8 @@ def make_sounding(
     >>> print(sounding_data.head())
 
     """
+    from ..tools.datautils import random_sampling 
+    
     func_name = inspect.currentframe().f_code.co_name
     dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
     
