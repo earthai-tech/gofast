@@ -36,7 +36,7 @@ from gofast.tools.mlutils import get_global_score, get_correlated_features
 from gofast.tools.mlutils import soft_encoder, resampling, bin_counting 
 from gofast.tools.mlutils import soft_imputer, soft_scaler, select_feature_importances 
 from gofast.tools.mlutils import make_pipe, build_data_preprocessor 
-from gofast.tools.mlutils import  load_model, bi_selector
+from gofast.tools.mlutils import load_model, bi_selector
 from gofast.tools.mlutils import stats_from_prediction, fetch_model
 from gofast.tools.mlutils import discretize_categories, stratify_categories 
 
