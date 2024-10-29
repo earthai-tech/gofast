@@ -60,7 +60,6 @@ the gofast framework, highlighting its capabilities and ease of use for GPU-acce
 scientific computing.
 """
 
-# Import necessary modules
 try:
     import cupy as cp
 except ImportError:

@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# License: BSD-3-Clause
+# Author: LKouadio (a.k.a. @Daniel) <etanoyau@gmail.com>
 
 """
 NumpyBackend module within the gofast computational framework provides 
@@ -56,6 +58,8 @@ processing tasks.
 """
 
 from .base import BaseBackend 
+
+__all__=["NumpyBackend"]
 
 class NumpyBackend(BaseBackend):
     """
