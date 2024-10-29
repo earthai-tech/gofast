@@ -22,8 +22,9 @@ from ..tools.coreutils import (
     process_and_extract_data, to_series_if , get_colors_and_alphas,
     normalize_string, smart_format, check_uniform_type
 )
+from ..tools.depsutils import ensure_pkg
 from ..tools.funcutils import (
-    make_data_dynamic, ensure_pkg, convert_and_format_data
+    make_data_dynamic, convert_and_format_data
 )
 from .utils import validate_stats_plot_type, fix_rm_anova_dataset
 

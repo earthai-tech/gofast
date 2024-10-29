@@ -59,7 +59,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 
 from ..exceptions import NotFittedError
-from ..tools.funcutils import ensure_pkg
+from ..tools.depsutils import ensure_pkg
 
 __all__= ["GeoIntelligentSystem"]
 
