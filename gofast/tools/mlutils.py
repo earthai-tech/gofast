@@ -38,7 +38,6 @@ from sklearn.preprocessing import (
 )
 from sklearn.utils import resample
 
-
 from .._gofastlog import gofastlog
 from ..api.types import List, Tuple, Any, Dict, Optional, Union, Series
 from ..api.types import _F, ArrayLike, NDArray, DataFrame
