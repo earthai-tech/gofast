@@ -89,7 +89,7 @@ class BatchInference(BaseInference):
     >>> batch_inference = BatchInference(
     ...     model, batch_size=64, gpu_enabled=True
     ... )
-    >>> results = batch_inference.run_batch_inference(data)
+    >>> results = batch_inference.run(data)
     >>> print(results)
 
     See Also

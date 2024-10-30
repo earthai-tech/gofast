@@ -101,7 +101,7 @@ from __future__ import annotations
 import inspect 
 import pickle
 from functools import wraps
-from abc import ABC, abstractmethod 
+from abc import ABCMeta
 from collections import defaultdict
 
 from types import FunctionType, MethodType # noqa 
@@ -421,6 +421,14 @@ class HelpMeta(type):
         # Case 4: If method is not recognized, return it unchanged
         else:
             return method
+        
+class LearnerMeta(ABCMeta, HelpMeta):
+    """
+    A metaclass that combines functionality from ABCMeta and HelpMeta.
+    This allows classes using LearnerMeta to support abstract methods and 
+    to have enhanced introspection features from HelpMeta.
+    """
+    pass
 
 class Property(metaclass=HelpMeta):
     """
@@ -540,7 +548,7 @@ class Property(metaclass=HelpMeta):
             "the Gofast API frame formatter across all modules."
         )
 
-class PipelineBaseClass(metaclass=HelpMeta):
+class PipelineBaseClass(metaclass=LearnerMeta):
     """
     Base class for pipelines, providing common functionality such as
     a formatted representation of the pipeline steps.
@@ -896,7 +904,7 @@ class BaseClass(metaclass=HelpMeta):
         else:
             return f"Series: {series.to_string(index=False)}"
 
-class BaseLearner(metaclass=HelpMeta):
+class BaseLearner(metaclass=LearnerMeta):
     """
     Base class for all learners in this framework, designed to facilitate 
     dynamic management of parameters, retrieval, and representation. 
@@ -1310,7 +1318,7 @@ class BaseLearner(metaclass=HelpMeta):
                 f"{self.__class__.__name__} requires either `run` or `fit`."
             )
 
-class BasePlot(ABC): 
+class BasePlot(BaseClass): 
     r""" Base class  deals with Machine learning and conventional Plots. 
     
     The `BasePlot` can not be instanciated. It is build on the top of other 
@@ -1416,7 +1424,6 @@ class BasePlot(ABC):
     
     """
     
-    @abstractmethod 
     def __init__(
         self,
         savefig: str = None,

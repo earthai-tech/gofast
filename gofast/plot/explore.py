@@ -21,7 +21,7 @@ import seaborn as sns
 
 from .._gofastlog import gofastlog 
 from ..api.docstring import  DocstringComponents,_core_docs,_baseplot_params
-from ..api.property import BasePlot, BaseClass
+from ..api.property import BasePlot
 from ..api.types import _F, Any, List,Dict,Optional,ArrayLike, DataFrame, Series  
 from ..exceptions import PlotError, FeatureError, NotFittedError
 
@@ -122,7 +122,7 @@ _param_docs = DocstringComponents.from_nested_components(
     )
 #++++++++++++++++++++++++++++++++++ end +++++++++++++++++++++++++++++++++++++++
 
-class QuestPlotter (BasePlot): 
+class QuestPlotter(BasePlot): 
     """
     Exploratory plot for data analysis 
     
@@ -1227,7 +1227,7 @@ class QuestPlotter (BasePlot):
             self.__class__.__name__, self.xname_ , self.yname_ , self.target_name 
             )
               
-class EasyPlotter (BasePlot, BaseClass): 
+class EasyPlotter (BasePlot): 
     """
     Special class dealing with analysis modules for quick diagrams, 
     histograms and bar visualizations. 
