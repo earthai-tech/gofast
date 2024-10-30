@@ -1,48 +1,89 @@
 # -*- coding: utf-8 -*-
-#   Licence: BSD 3-Clause
-#   Author: LKouadio <etanoyau@gmail.com>
+# License: BSD 3-Clause
+# Author: LKouadio (a.k.a. @Daniel) <etanoyau@gmail.com>
 
 """
-The :code:`gofast.api.property` module provides base classes and property objects 
-that are inherited by various components implemented throughout the `gofast` package. 
-These base classes serve as foundational building blocks for handling and 
-managing attributes across different models and methods, ensuring consistency and 
-code reusability.
+The `gofast API property` module offers foundational classes and property
+objects that support consistent attribute handling, configuration, and 
+inheritance across the `gofast` package. These components are designed for
+efficient attribute management, auto-inference of properties, and enhanced
+modularity.
 
-The property objects defined here enable the automatic inference of key attributes 
-related to data objects, offering enhanced flexibility and efficiency in 
-managing common data properties.
+Classes and constants provided in this module include:
+------------------------------------------------------
 
-Features include:
------------------
-- **Base Classes**: Provides a robust and structured foundation for class inheritance, 
-  ensuring a standardized approach to string representations and attribute 
-  formatting.
-  
-- **Auto-detection of Properties**: The property objects automatically infer 
-  essential attributes such as date ranges, sample sizes, and intervals from 
-  the provided data. This simplifies the integration process and minimizes 
-  manual input for common data properties.
-  
-- **Support for Time Series Data**: Many of the property objects offer specific 
-  functionality for handling time series data, including date formatting, 
-  interval calculations, and automatic detection of start and end dates.
-  
-- **Customizable Configuration**: Users can modify configuration parameters 
-  (e.g., time intervals, formatting options) to tailor the behavior of these 
-  properties according to their specific needs.
+- **GeoscienceProperties**: A comprehensive set of properties specific
+  to geoscience applications, supporting data-driven decision-making
+  by automatically extracting relevant geospatial and geophysical
+  attributes.
+
+- **Property**: A core class for defining reusable properties,
+  streamlining the management of common attributes across various
+  models and data structures.
+
+- **UTM_DESIGNATOR**: A constant providing Universal Transverse
+  Mercator (UTM) zone designations, useful for coordinate system
+  conversions and geolocation.
+
+- **Software**: Represents software metadata, offering properties for
+  managing software-related attributes like version, license, and
+  author information.
+
+- **Copyright**: Provides tools for managing and displaying copyright
+  information, allowing for easy tracking of authorship and
+  intellectual property across `gofast`.
+
+- **References**: A flexible class for organizing and formatting
+  references, ideal for data documentation and scientific reporting.
+
+- **Person**: Represents an individual, used for managing personal
+  details like name, email, and organizational affiliation across
+  components.
+
+- **BaseClass**: A robust foundational class for standardizing
+  attribute management, string representations, and class structure,
+  supporting consistent inheritance practices across `gofast`.
+
+- **PipelineBaseClass**: A base class for defining pipeline
+  structures, enabling reusable and nice formatage.
+
+- **BaseLearner**: A foundational class for implementing machine
+  learning models, offering utilities for a minimum action in a structured way.
+
+- **PandasDataHandlers**: Provides utilities for managing and
+  manipulating pandas DataFrames, simplifying common tasks like data
+  validation, transformation, and aggregation.
+
+Key Features:
+-------------
+
+- **Standardized Inheritance and Attribute Management**: Base classes
+  and properties ensure a unified approach to attribute handling,
+  string formatting, and data representation.
+
+- **Property Auto-detection**: Many classes support automatic property
+  detection, making it easier to work with attributes like date
+  ranges, sample sizes, and intervals.
+
+- **Support for Time Series Data**: Property classes like
+  `GeoscienceProperties` offer specific functionality for handling
+  time series data, including interval calculations and start/end date
+  detection.
+
+- **Customizable Configuration**: Many classes allow configuration
+  options, enabling users to customize intervals, formats, and other
+  parameters to meet specific needs.
 
 References
 ----------
 - `GoFast <https://github.com/earthai-tech/gofast/>`_
-- `Interpolation Imshow <https://matplotlib.org/stable/gallery/images_contours_and_fields/interpolation_methods.html>`_
+- `Interpolation Methods in Matplotlib <https://matplotlib.org/stable/gallery/images_contours_and_fields/interpolation_methods.html>`_
 
 Notes
 -----
-This module is a critical part of the :code:`gofast` package and is designed to 
-be extended by other classes within the package. Each class or function defined 
-here has a clearly defined role and is optimized for reusability across various 
-use cases.
+This module is integral to the `gofast` package and is designed for
+modularity and reusability. Each class or function is optimized for
+use across diverse applications in geoscience and data science.
 
 Examples
 --------
@@ -54,22 +95,23 @@ Examples
 >>> optimizer = Optimizer("SGD", 100)
 >>> print(optimizer)
 Optimizer(name=SGD, iterations=100)
-
 """
 
-
-from __future__ import annotations 
+from __future__ import annotations
+import inspect 
+import pickle
+from functools import wraps
 from abc import ABC, abstractmethod 
 from collections import defaultdict
-import pickle
+
+from types import FunctionType, MethodType # noqa 
+from typing import Any, Dict, Iterable, List, Tuple
 
 import numpy as np
 import pandas as pd 
-from typing import Any, Dict, Iterable, List, Tuple
-import inspect
 
 __all__ = [ 
-    "BasePlot", "GeoscienceProperties", "Property", "UTM_DESIGNATOR",  "Software", 
+    "GeoscienceProperties", "Property", "UTM_DESIGNATOR", "Software", 
     "Copyright", "References", "Person", "BaseClass", "PipelineBaseClass", 
     "BaseLearner", "PandasDataHandlers", 
 ]
@@ -100,7 +142,287 @@ UTM_DESIGNATOR ={
 }
     
 
-class Property:
+class DisplayStr(str):
+    """
+    A string subclass that displays its content without quotes when evaluated.
+
+    This class is used to ensure that strings display their content directly
+    when printed or evaluated in an interactive shell, without enclosing quotes.
+    """
+
+    def __repr__(self):
+        return str(self)
+
+
+class NoOutput:
+    """
+    A class that suppresses output when returned in an interactive shell.
+
+    When an instance of this class is returned from a function, it ensures
+    that no output is displayed in the interactive shell (e.g., IPython, Jupyter).
+    """
+
+    def __repr__(self):
+        return ''
+
+    def __str__(self):
+        return ''
+
+
+class HelpMeta(type):
+    """
+    Metaclass that adds `my_params` and `help` attributes to classes and methods.
+
+    This metaclass enhances classes by automatically adding `my_params` and `help`
+    attributes to the class itself and its methods. The `my_params` attribute
+    provides a formatted string of the class or method parameters, excluding
+    common parameters like `self`, `cls`, `*args`, and `**kwargs`. The `help`
+    attribute provides a convenient way to display the documentation of the
+    class or method.
+
+    Parameters
+    ----------
+    name : str
+        The name of the class being created.
+
+    bases : tuple of type
+        The base classes of the class being created.
+
+    namespace : dict
+        A dictionary containing the class's namespace.
+
+    Class Attributes
+    ----------------
+    MAX_ITEMS_DISPLAY : int
+        Default maximum number of parameters to display inline before switching
+        to vertical formatting.
+
+    Methods
+    -------
+    __new__(mcs, name, bases, namespace)
+        Creates a new class with enhanced attributes.
+
+    Examples
+    --------
+    >>> from gofast.api.property import HelpMeta
+    >>> class Example(metaclass=HelpMeta):
+    ...     \"\"\"
+    ...     An example class to demonstrate HelpMeta functionality.
+    ...
+    ...     Parameters
+    ...     ----------
+    ...     a : int
+    ...         First parameter.
+    ...     b : int, optional
+    ...         Second parameter, default is 2.
+    ...     c : int, optional
+    ...         Third parameter, default is 3.
+    ...     \"\"\"
+    ...     def __init__(self, a, b=2, c=3, d=4, e=5, f=6):
+    ...         pass
+    ...     def my_method(self, x, y=10):
+    ...         \"\"\"A custom method.\"\"\"
+    ...         pass
+    ...     @staticmethod
+    ...     def my_static_method(p, q=20):
+    ...         \"\"\"A static method.\"\"\"
+    ...         pass
+    ...     @classmethod
+    ...     def my_class_method(cls, s, t=30):
+    ...         \"\"\"A class method.\"\"\"
+    ...         pass
+    ...
+    >>> Example.my_params
+    Example(
+        a,
+        b=2,
+        c=3,
+        d=4,
+        e=5,
+        f=6
+    )
+    >>> Example.help()
+    Help on class Example in module __main__:
+    <...help output...>
+    >>> Example.my_method.my_params
+    Example.my_method(x, y=10)
+    >>> Example.my_method.help()
+    Help on function my_method in module __main__:
+    <...help output...>
+    >>> Example.my_static_method.my_params
+    Example.my_static_method(p, q=20)
+    >>> Example.my_static_method.help()
+    Help on function my_static_method in module __main__:
+    <...help output...>
+    >>> Example.my_class_method.my_params
+    Example.my_class_method(s, t=30)
+    >>> Example.my_class_method.help()
+    Help on function my_class_method in module __main__:
+    <...help output...>
+
+    Notes
+    -----
+    The `HelpMeta` metaclass is designed to provide a user-friendly API by
+    making parameter information and documentation easily accessible. It is
+    particularly useful in interactive environments.
+
+    See Also
+    --------
+    inspect.signature : Get a signature object for the callable.
+
+    References
+    ----------
+    .. [1] Python documentation on metaclasses:
+           https://docs.python.org/3/reference/datamodel.html#metaclasses
+    """
+
+    MAX_ITEMS_DISPLAY = 5  # Default maximum items to display inline
+
+    def __new__(mcs, name, bases, namespace):
+
+        cls = super(HelpMeta, mcs).__new__(mcs, name, bases, namespace)
+
+        # Add 'my_params' attribute to the class
+        cls.my_params = mcs._get_my_params(cls.__init__)
+        cls.my_params = DisplayStr(cls.my_params)  # Ensure it displays nicely
+
+        # Add 'help' method to the class
+        cls.help = mcs._create_help(cls)
+
+        # Decorate all methods to have 'my_params' and 'help'
+        for attr_name, attr_value in namespace.items():
+            if isinstance(attr_value, (FunctionType, staticmethod, classmethod)):
+                decorated_method = mcs._decorate_method(attr_value)
+                setattr(cls, attr_name, decorated_method)
+
+        return cls
+
+    @classmethod
+    def _get_my_params(mcs, func):
+        """
+        Retrieves the parameters of the function and formats them.
+
+        Parameters are displayed inline if their number is less than or equal
+        to MAX_ITEMS_DISPLAY; otherwise, they are displayed vertically.
+
+        Excludes 'self', 'cls', '*args', and '**kwargs' from the parameter list.
+        """
+        sig = inspect.signature(func)
+        params = sig.parameters
+
+        param_strings = []
+        for name, param in params.items():
+            # Exclude 'self', 'cls', '*args', and '**kwargs'
+            if name in ('self', 'cls'):
+                continue
+            if param.kind in (
+                    inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+                continue
+            if param.default is inspect.Parameter.empty:
+                param_strings.append(f"{name}")
+            else:
+                param_strings.append(f"{name}={param.default!r}")
+
+        # Use the class name for '__init__', otherwise use the full function name
+        if func.__name__ == '__init__':
+            func_name = func.__qualname__.split('.')[0]
+        else:
+            func_name = func.__qualname__
+
+        if len(param_strings) <= mcs.MAX_ITEMS_DISPLAY:
+            # Inline display
+            params_formatted = ", ".join(param_strings)
+            return f"{func_name}({params_formatted})"
+        else:
+            # Vertical display
+            params_formatted = ",\n    ".join(param_strings)
+            return f"{func_name}(\n    {params_formatted}\n)"
+
+    @staticmethod
+    def _create_help(obj):
+        """
+        Creates a method that, when called, displays the help of the object.
+        """
+        def help_method(*args, **kwargs):
+            help(obj)
+            return NoOutput()  # Suppress 'None' output
+        return help_method
+    
+    @classmethod
+    def _decorate_method(mcs, method):
+        """
+        Decorator that adds 'my_params' and 'help' attributes to methods.
+    
+        This method decorates and wraps the original method to add `my_params` 
+        and `help` attributes, which provide additional introspection 
+        capabilities. It determines if the method is a `staticmethod`, 
+        `classmethod`, or a regular instance method and applies the appropriate 
+        decorator to preserve its behavior. The `my_params` attribute shows 
+        details of the method's parameters, while the `help` attribute provides 
+        a quick way to access the method's documentation.
+    
+        Parameters
+        ----------
+        method : function or method
+            The original method or function that needs to be decorated with 
+            `my_params` and `help` attributes.
+    
+        Returns
+        -------
+        decorated_method : function or method
+            The wrapped method, now with `my_params` and `help` attributes, 
+            either as a `staticmethod`, `classmethod`, or a regular method.
+        """
+        # Case 1: If method is a staticmethod
+        if isinstance(method, staticmethod):
+            # Retrieve the original function behind the staticmethod decorator
+            original_func = method.__func__
+    
+            # Define a wrapper for the original function
+            @wraps(original_func)
+            def wrapper(*args, **kwargs):
+                return original_func(*args, **kwargs)
+    
+            # Attach 'my_params' and 'help' to the wrapper
+            wrapper.my_params = mcs._get_my_params(original_func)
+            wrapper.my_params = DisplayStr(wrapper.my_params)
+            wrapper.help = mcs._create_help(original_func)
+            return staticmethod(wrapper)
+    
+        # Case 2: If method is a classmethod
+        elif isinstance(method, classmethod):
+            # Retrieve the original function behind the classmethod decorator
+            original_func = method.__func__
+    
+            # Define a wrapper for the original function
+            @wraps(original_func)
+            def wrapper(cls, *args, **kwargs):
+                return original_func(cls, *args, **kwargs)
+    
+            # Attach 'my_params' and 'help' to the wrapper
+            wrapper.my_params = mcs._get_my_params(original_func)
+            wrapper.my_params = DisplayStr(wrapper.my_params)
+            wrapper.help = mcs._create_help(original_func)
+            return classmethod(wrapper)
+    
+        # Case 3: If method is a regular instance method
+        elif isinstance(method, FunctionType):
+            # Define a wrapper for the regular function
+            @wraps(method)
+            def wrapper(self, *args, **kwargs):
+                return method(self, *args, **kwargs)
+    
+            # Attach 'my_params' and 'help' to the wrapper
+            wrapper.my_params = mcs._get_my_params(method)
+            wrapper.my_params = DisplayStr(wrapper.my_params)
+            wrapper.help = mcs._create_help(method)
+            return wrapper
+    
+        # Case 4: If method is not recognized, return it unchanged
+        else:
+            return method
+
+class Property(metaclass=HelpMeta):
     """
     A configuration class for managing and accessing the whitespace escape 
     character in the Gofast package. This character is used for handling 
@@ -218,9 +540,7 @@ class Property:
             "the Gofast API frame formatter across all modules."
         )
 
-
-
-class PipelineBaseClass:
+class PipelineBaseClass(metaclass=HelpMeta):
     """
     Base class for pipelines, providing common functionality such as
     a formatted representation of the pipeline steps.
@@ -247,7 +567,7 @@ class PipelineBaseClass:
 
     Examples
     --------
-    >>> from gofast.mlops.pipeline import PipelineBaseClass
+    >>> from gofast.api.property import PipelineBaseClass
     >>> class SomeStep:
     ...     def __repr__(self):
     ...         return 'SomeStep()'
@@ -304,8 +624,9 @@ class PipelineBaseClass:
         if not self.steps:
             return f"{self.__class__.__name__}(steps=[])"
         step_strs = []
-        for step in self.steps:
-            step_strs.append(f"    ('{step.name}', {repr(step)}),")
+
+        for name, step in self.steps:
+            step_strs.append(f"    ('{name}', {repr(step)}),")
         steps_repr = "\n".join(step_strs).rstrip(',')  # Remove trailing comma from last step
         repr_str = (
             f"{self.__class__.__name__}(\n"
@@ -316,7 +637,7 @@ class PipelineBaseClass:
         )
         return repr_str
     
-class BaseClass:
+class BaseClass(metaclass=HelpMeta):
     """
     A base class that provides a formatted string representation of any derived
     class instances. It summarizes their attributes and handles collections 
@@ -427,7 +748,7 @@ class BaseClass:
         if self._auto_display: 
             if len(attributes)> self.MAX_DISPLAY_ITEMS:
                 self._vertical_display =True 
-                
+
         # Return vertical or inline representation based on _vertical_display
         if self._vertical_display:
             return f"{self.__class__.__name__}(\n    " + ",\n    ".join(attributes) + "\n)"
@@ -575,7 +896,7 @@ class BaseClass:
         else:
             return f"Series: {series.to_string(index=False)}"
 
-class BaseLearner:
+class BaseLearner(metaclass=HelpMeta):
     """
     Base class for all learners in this framework, designed to facilitate 
     dynamic management of parameters, retrieval, and representation. 
@@ -1685,7 +2006,7 @@ class References(BaseClass):
     >>> from gofast.api.property import References
     >>> refobj = References(
     ...     author='DMaryE',
-    ...     title='Gofast: A Machine Learning Research for Hydrogeophysics',
+    ...     title='HydroLearn: A Machine Learning Research for Hydrogeophysics',
     ...     journal='Computers and Geosciences',
     ...     year=2021,
     ...     volume=18,
@@ -1928,12 +2249,20 @@ class Software(BaseClass):
     ...     url='https://hydrosim.org'
     ... )
     >>> software.display_info()
-    Name: HydroSim
-    Version: 1.0.3
-    Release: 2023-09-12
-    Author: Not Specified
-    License: MIT
-    URL: https://hydrosim.org
+    SoftwareInfo(
+      {
+
+           Name    : HydroSim
+           Version : 1.0.3
+           Release : 2023-09-12
+           Author  : Not Specified
+           License : MIT
+           Url     : https://hydrosim.org
+
+      }
+    )
+
+    [ 6 entries ]
 
     See Also
     --------
@@ -1970,14 +2299,24 @@ class Software(BaseClass):
         This method is useful for quick inspection of software metadata 
         and aids in documentation efforts by providing a readable format.
         """
-        print(f"Name: {self.name or 'Not Specified'}")
-        print(f"Version: {self.version or 'Not Specified'}")
-        print(f"Release: {self.release or 'Not Specified'}")
-        print(f"Author: {self.Author.name or 'Not Specified'}")
+        from .summary import ResultSummary, get_table_size 
+
+        TW= get_table_size()
+        software_infos = {}
+        software_infos["Name"]=f"{self.name or 'Not Specified'}"
+        software_infos["Version"]=f"{self.version or 'Not Specified'}"
+        software_infos["Release"]=f"{self.release or 'Not Specified'}"
+        software_infos["Author"]=f"{self.Author.name or 'Not Specified'}"
         additional_info = {k: v for k, v in self.__dict__.items(
             ) if k not in ['name', 'version', 'release', 'Author']}
         for key, value in additional_info.items():
-            print(f"{key.capitalize()}: {value}")
+            software_infos[f"{key.capitalize()}"]= f"{value}"
+        
+        summary= ResultSummary(
+            pad_keys="auto", max_char=TW).add_results(software_infos)
+        summary.name = "SoftwareInfo"
+        print(summary)  
+    
 
     def update_info(self, **kws):
         """
@@ -1998,33 +2337,111 @@ class Software(BaseClass):
         """
         for key, value in kws.items():
             setattr(self, key, value)
-
+            
     def get_author_contact(self):
         """
         Retrieve the contact information of the software author, if available.
-
+    
         Returns
         -------
         dict
-            A dictionary with available contact information (e.g., email, 
-            organization, phone) or a message if the information is not 
-            available.
-
+            A dictionary with available contact information (e.g., name, email, 
+            organization, phone) or a message if the information is not available.
+    
+        Notes
+        -----
+        This method gathers information from the `Author` attribute of the instance, 
+        including additional attributes if present, excluding private attributes 
+        (those starting with `_`) and attributes ending with `_`.
+    
         Examples
         --------
+        >>> from gofast.api.property import Person, Software
         >>> software.Author.name = 'Jane Doe'
         >>> software.Author.email = 'jane.doe@example.com'
         >>> software.get_author_contact()
-        {'name': 'Jane Doe', 'email': 'jane.doe@example.com'}
+        Jane Doe Contact(
+          {
+
+               name  : Jane Doe
+               email : jane.doe@example.com
+
+          }
+        )
+
+        [ 2 entries ]
+
+        >>> author= Person (
+        ...    email='etanoyau@gmail.com', 
+        ...    name='LKouadio', 
+        ...    nickname="a.k.a.@Daniel",  
+        ...    organization="International Association of Mathematical Geosciences",
+        ...    organization_url='https://iamg.org/', 
+        ...    affiliation="INPHB", 
+        ...    affiliation_url ="https://inphb.ci/", 
+        ...    country ="Cote d'Ivoire", 
+        ...    region ="West Africa", 
+        ...    phone="+2250707054290"
+        ...   )
+        >>> >>> from gofast.api.property import Software
+        >>> software = Software(
+        ...     name='Gofast',
+        ...     version='1.0.1',
+        ...     release='2025-09-12',
+        ...     license='BSD-3 Clause',
+        ...     url='https://gofast.org',
+                Author = author, 
+        ... )
+        >>> software.get_author_contact () 
+        LKouadio Contact(
+          {
+
+               name             : LKouadio
+               email            : etanoyau@gmail.com
+               organization     : International Association of Mathematical Geosciences
+               phone            : +2250707054290
+               organization_url : https://iamg.org/
+               nickname         : a.k.a.@Daniel
+               affiliation      : INPHB
+               affiliation_url  : https://inphb.ci/
+               country          : Cote d'Ivoire
+               region           : West Africa
+
+          }
+        )
+
+        [ 10 entries ]
         """
+        from .summary import ResultSummary, get_table_size, to_camel_case
+    
+        # Initialize contact information with primary fields
         contact_info = {
-            "name": self.Author.name,
-            "email": self.Author.email,
-            "organization": self.Author.organization,
+            "name": getattr(self.Author, 'name', None),
+            "email": getattr(self.Author, 'email', None),
+            "organization": getattr(self.Author, 'organization', None),
             "phone": getattr(self.Author, 'phone', None)
         }
-        return {k: v for k, v in contact_info.items() if v is not None}
-
+    
+        # Retrieve any additional public attributes in Author,
+        # excluding private and special attributes
+        extra_info = {
+            attr: value for attr, value in vars(self.Author).items()
+            if not attr.startswith('_') and not attr.endswith('_') and attr not in contact_info
+        }
+        contact_info.update(extra_info)
+    
+        # Filter out None values from the contact information
+        contact_info = {k: v for k, v in contact_info.items() if v is not None}
+    
+        # Display contact summary if information is available
+        if contact_info:
+            table_width = get_table_size()
+            summary = ResultSummary(
+                pad_keys="auto", max_char=table_width).add_results(contact_info)
+            summary.name = f"{to_camel_case(self.Author.name)} Contact"
+            print(summary)
+        else:
+            return {"message": "Author contact information is not available."}
 
     
     
