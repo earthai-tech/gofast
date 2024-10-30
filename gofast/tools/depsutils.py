@@ -221,7 +221,7 @@ def ensure_pkg(
 
     Examples
     --------
-    >>> from gofast.tools.funcutils import ensure_pkg
+    >>> from gofast.tools.depsutils import ensure_pkg
     >>> @ensure_pkg("numpy", auto_install=True)
     ... def use_numpy():
     ...     import numpy as np
@@ -430,7 +430,7 @@ def ensure_pkgs(
 
     Examples
     --------
-    >>> from gofast.tools.funcutils import ensure_pkgs
+    >>> from gofast.tools.depsutils import ensure_pkgs
     >>> @ensure_pkgs("numpy, pandas", auto_install=True)
     ... def use_numpy_pandas():
     ...     import numpy as np

@@ -1183,14 +1183,14 @@ def load_mxs (
      
     Examples
     --------
-    >>> from gofast.datasets.dload import load_mxs  
+    >>> from gofast.datasets.load import load_mxs  
     >>> load_mxs (return_X_y= True, key ='sparse', samples ='*')
     (<1038x21 sparse matrix of type '<class 'numpy.float64'>'
      	with 8298 stored elements in Compressed Sparse Row format>,
      array([1, 1, 1, ..., 5, 5, 5], dtype=int64))
     
     Load the entire dataset as a pandas DataFrame:
-    >>> df = load_mxs_dataset(as_frame=True)
+    >>> df = load_mxs(as_frame=True)
     
     Load the dataset, split into training and testing sets:
     >>> X_train, X_test, y_train, y_test = load_mxs_dataset(split_X_y=True, 
@@ -1205,7 +1205,6 @@ def load_mxs (
     key = key or 'data'
     key = 'pp' if key.lower() in ('pp', 'preprocessed') else key.lower()
     available_dict = _validate_key(key)
-
     data_file = 'mxs.joblib'
     with resources.path(DMODULE, data_file) as p:
         data_file = str(p)
@@ -1218,13 +1217,15 @@ def load_mxs (
         Xy = _get_mxs_X_y(available_dict[key], data_dict)
         if Xy:
             Xy = resample_data(*Xy, samples=samples, random_state=seed, shuffle=shuffle)
-            if split_X_y and key == 'pp':
+  
+            if (split_X_y and key == 'pp') or return_X_y:
                 return Xy
             elif split_X_y:
                 return _split_and_convert(Xy, test_ratio, seed, shuffle, as_frame)
+  
     elif split_X_y:
         return _split_X_y(frame, target_names, test_ratio, as_frame)
-    
+
     return (data, frame[target_names]) if return_X_y else frame if as_frame else\
         Boxspace(
             data=np.array(data),
@@ -1275,6 +1276,7 @@ def _get_mxs_X_y(key_Xy: tuple, data_dict: dict):
     if key_Xy is None: 
         return 
     Xy = list(data_dict.get(k) for k in key_Xy)
+
     return Xy
        
 def _validate_key(key: str):

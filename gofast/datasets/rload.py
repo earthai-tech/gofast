@@ -3,11 +3,13 @@
 #   Author: LKouadio <etanoyau@gmail.com> 
 
 """
-Fetch data online from zenodo record or repository.  
-Provides functions and classes for loading and managing datasets, including 
-remote loading, extracting from archives, and moving
+Provides tools for remotely loading and managing datasets, particularly 
+from Zenodo and GitHub repositories. It includes functions and classes for 
+retrieving data archives, extracting files, and organizing datasets for easy
+access and processing.
 
 """
+
 from __future__ import print_function , annotations 
 import os 
 import sys 
@@ -22,7 +24,8 @@ try:
 except ImportError:
     TQDM_AVAILABLE = False
 
-from ..tools._dependency import import_optional_dependency
+from ..api.property import BaseClass 
+from ..tools.depsutils import import_optional_dependency
 from .._gofastlog import  gofastlog
 
 _logger = gofastlog().get_gofast_logger(__name__)
@@ -39,9 +42,9 @@ _TGZ_DICT = dict (
  )
 
 _GIT_DICT = dict(
-    root  = 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/' , 
-    repo = 'https://github.com/WEgeophysics/gofast' , 
-    blob_root = 'https://github.com/WEgeophysics/gofast/blob/master/'
+    root  = 'https://raw.githubusercontent.com/earthai-tech/gofast/master/' , 
+    repo = 'https://github.com/earthai-tech/gofast' , 
+    blob_root = 'https://github.com/earthai-tech/gofast/blob/master/'
  )
 _GIT_DICT ['url_tgz'] = _GIT_DICT.get ('root') + _TGZ_DICT.get('tgz_f')
 
@@ -51,59 +54,20 @@ DEFAULT_DATA_CONFIG = {
     'zenodo_record': '10.5281/zenodo.5571534',
     'tgz_file': 'data/__tar.tgz/fmain.bagciv.data.tar.gz',
     'csv_file': '/__tar.tgz_files__/___fmain.bagciv.data.csv',
-    'git_root': 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/',
-    'repo_url': 'https://github.com/WEgeophysics/gofast',
-    'blob_root': 'https://github.com/WEgeophysics/gofast/blob/master/',
-    'url_tgz': 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/data/__tar.tgz/fmain.bagciv.data.tar.gz',
+    'git_root': 'https://raw.githubusercontent.com/earthai-tech/gofast/master/',
+    'repo_url': 'https://github.com/earthai-tech/gofast',
+    'blob_root': 'https://github.com/earthai-tech/gofast/blob/master/',
+    'url_tgz': 'https://raw.githubusercontent.com/earthai-tech/gofast/master/data/__tar.tgz/fmain.bagciv.data.tar.gz',
     'zip_or_rar_file': 'BagoueCIV__dataset__main.rar'
 }
 
-__all__=["load_dataset", "RemoteLoader","extract_and_move_archive_file", 
+__all__=["load_dataset", "GFRemoteLoader","extract_and_move_archive_file", 
          "move_data", "extract_from_rar", "extract_from_zip", 
          ]
 
-def load_dataset(data_config: dict=DEFAULT_DATA_CONFIG):
+class GFRemoteLoader(BaseClass):
     """
-    Load a dataset based on the provided configuration. Defaults to the Bagoue dataset.
-
-    Parameters
-    ----------
-    data_config : dict
-        Configuration dictionary for the dataset.
-
-    Example
-    -------
-    # Usage example with default Bagoue dataset
-    # load_dataset()
-    # Usage example with a different dataset (user needs to provide a configuration dictionary)
-    # custom_data_config = { ... }  # Custom configuration
-    # load_dataset(custom_data_config)
-    >>> from gofast.datasets.rload import load_dataset
-
-    >>> load_dataset()
-    ... dataset:   0%|                                          | 0/1 [00:00<?, ?B/s]
-    ... ### -> Wait while decompressing 'fmain.bagciv.data.tar.gz' file ...
-    ... --- -> Fail to decompress 'fmain.bagciv.data.tar.gz' file
-    ... --- -> 'main.bagciv.data.csv' not found in the local machine
-    ... ### -> Wait while fetching data from GitHub...
-    ... +++ -> Load data from GitHub successfully done!
-    ... dataset: 100%|##################################| 1/1 [00:03<00:00,  3.38s/B]
-    """
-    RemoteLoader(
-        zenodo_record=data_config['zenodo_record'],
-        content_url=data_config['git_root'],
-        repo_url=data_config['repo_url'],
-        tgz_file=data_config['url_tgz'],
-        blobcontent_url=data_config['blob_root'],
-        zip_or_rar_file=data_config['zip_or_rar_file'],
-        csv_file=data_config['csv_file'],
-        verbose=10
-    ).fit(data_config['data_path'])
-
-
-class RemoteLoader:
-    """
-    Load data from online sources like Zenodo, GitHub, or local files.
+    Load GoFast package data from online sources like Zenodo, GitHub, or local files.
 
     Parameters
     ----------
@@ -178,7 +142,7 @@ class RemoteLoader:
         """ assert the file exists"""
         self.f_ = file 
 
-    def fit(self, f: str = None) -> 'RemoteLoader':
+    def run(self, f: str = None) -> 'GFRemoteLoader':
         """
         Retrieve dataset from GitHub repository, Zenodo record, or local file.
 
@@ -579,6 +543,45 @@ class RemoteLoader:
                 _logger.error(f"Failed to decompress {self.tgz_file}: {e}")
 
         return False
+
+def load_dataset(data_config: dict=DEFAULT_DATA_CONFIG):
+    """
+    Load a dataset based on the provided configuration. Defaults to the Bagoue dataset.
+
+    Parameters
+    ----------
+    data_config : dict
+        Configuration dictionary for the dataset.
+
+    Example
+    -------
+    # Usage example with default Bagoue dataset
+    # load_dataset()
+    # Usage example with a different dataset (user needs to provide a configuration dictionary)
+    # custom_data_config = { ... }  # Custom configuration
+    # load_dataset(custom_data_config)
+    >>> from gofast.datasets.rload import load_dataset
+
+    >>> load_dataset()
+    ... dataset:   0%|                                          | 0/1 [00:00<?, ?B/s]
+    ... ### -> Wait while decompressing 'fmain.bagciv.data.tar.gz' file ...
+    ... --- -> Fail to decompress 'fmain.bagciv.data.tar.gz' file
+    ... --- -> 'main.bagciv.data.csv' not found in the local machine
+    ... ### -> Wait while fetching data from GitHub...
+    ... +++ -> Load data from GitHub successfully done!
+    ... dataset: 100%|##################################| 1/1 [00:03<00:00,  3.38s/B]
+    """
+    GFRemoteLoader(
+        zenodo_record=data_config['zenodo_record'],
+        content_url=data_config['git_root'],
+        repo_url=data_config['repo_url'],
+        tgz_file=data_config['url_tgz'],
+        blobcontent_url=data_config['blob_root'],
+        zip_or_rar_file=data_config['zip_or_rar_file'],
+        csv_file=data_config['csv_file'],
+        verbose=10
+    ).run(data_config['data_path'])
+
 
 def extract_and_move_archive_file(
         archive_file: str, target_file: str, destination_dir: str, 

@@ -13,6 +13,7 @@ machine learning and statistical pipelines.
 import os 
 import re
 import copy 
+import shutil
 import warnings 
 from typing import Any, List, Union, Dict, Optional, Set, Tuple   
 
@@ -20,16 +21,24 @@ import scipy
 import numpy as np 
 import pandas as pd 
 
+from .._gofastlog import gofastlog 
 from ..api.types import _F, ArrayLike, NDArray, DataFrame 
+from ..api.property import BaseClass
+from ..compat.sklearn import validate_params 
+from ..decorators import Deprecated, RunReturn
 from .coreutils import ( 
-    smart_format, is_iterable, _assert_all_types, exist_features, 
-    assert_ratio, _isin, _validate_name_in, sanitize_frame_cols, 
-    to_numeric_dtypes 
-    )
+    _assert_all_types, _isin, _validate_name_in, assert_ratio,
+    is_iterable, sanitize_frame_cols, to_numeric_dtypes 
+)
+from .validator import check_is_runned
+
+logger = gofastlog().get_gofast_logger(__name__) 
 
 __all__= [
+    'DataManager', 
     'cleaner',
-    'get_xy_coordinates',
+    'data_extractor', 
+    'extract_coordinates', 
     'nan_to_na',
     'pair_data',
     'process_and_extract_data',
@@ -41,6 +50,246 @@ __all__= [
     'replace_data'
     ]
 
+class DataManager(BaseClass):
+    """
+    A class for managing and organizing files in directories.
+
+    This class provides methods to organize files based on file types,
+    name patterns, and to rename files in bulk. All operations are
+    executed via the `run` method to ensure proper initialization.
+
+    Parameters
+    ----------
+    root_dir : str
+        The root directory containing the files to manage.
+
+    target_dir : str
+        The directory where the organized files will be placed.
+
+    file_types : list of str, optional
+        A list of file extensions to filter by (e.g., ``['.csv', '.json']``).
+        If ``None``, all file types are included. Default is ``None``.
+
+    name_patterns : list of str, optional
+        A list of name patterns to filter by (e.g., ``['2023', 'report']``).
+        If ``None``, all file names are included. Default is ``None``.
+
+    move : bool, optional
+        If ``True``, files are moved instead of copied. Default is ``False``.
+
+    overwrite : bool, optional
+        If ``True``, existing files at the target location will be overwritten.
+        If ``False``, existing files are skipped. Default is ``False``.
+
+    create_dirs : bool, optional
+        If ``True``, missing directories in the target path are created.
+        Default is ``False``.
+
+    Attributes
+    ----------
+    root_dir_ : str
+        The root directory containing the files to manage.
+
+    target_dir_ : str
+        The directory where the organized files will be placed.
+
+    Methods
+    -------
+    run(pattern=None, replacement=None)
+        Executes the data management operations.
+
+    Examples
+    --------
+    >>> from gofast.tools.datautils import DataManager
+    >>> manager = DataManager(
+    ...     root_dir='data/raw',
+    ...     target_dir='data/processed',
+    ...     file_types=['.csv', '.json'],
+    ...     name_patterns=['2023', 'report'],
+    ...     move=True,
+    ...     overwrite=True,
+    ...     create_dirs=True
+    ... )
+    >>> manager.run(pattern='old', replacement='new')
+
+    Notes
+    -----
+    The `run` method organizes files and performs renaming based on the
+    initialization parameters and arguments provided to `run`.
+
+    See Also
+    --------
+    shutil.move : Moves a file or directory to another location.
+    shutil.copy : Copies a file to another location.
+    """
+
+    @validate_params({
+        'root_dir': [str],
+        'target_dir': [str],
+        'file_types': [list, None],
+        'name_patterns': [list, None],
+        'move': [bool],
+        'overwrite': [bool],
+        'create_dirs': [bool]
+    })
+    def __init__(
+        self,
+        root_dir: str,
+        target_dir: str,
+        file_types: Optional[List[str]] = None,
+        name_patterns: Optional[List[str]] = None,
+        move: bool = False,
+        overwrite: bool = False,
+        create_dirs: bool = False
+    ):
+        self.root_dir = root_dir
+        self.target_dir = target_dir
+        self.file_types = file_types
+        self.name_patterns = name_patterns
+        self.move = move
+        self.overwrite = overwrite
+        self.create_dirs = create_dirs
+    
+        # Ensure root_dir exists
+        if not os.path.isdir(self.root_dir):
+            raise ValueError(f"Root directory '{self.root_dir}' does not exist.")
+
+        # Create target_dir if create_dirs is True
+        if self.create_dirs and not os.path.exists(self.target_dir):
+            os.makedirs(self.target_dir, exist_ok=True)
+
+        logger.debug(f"Initialized DataManager with root_dir: {self.root_dir}, "
+                     f"target_dir: {self.target_dir}")
+
+    @RunReturn
+    def run(self, pattern: Optional[str] = None, replacement: Optional[str] = None):
+        """
+        Executes the data management operations.
+
+        This method organizes files based on the specified filters and
+        optionally renames files by replacing a pattern with a replacement
+        string.
+
+        Parameters
+        ----------
+        pattern : str, optional
+            The pattern to search for in file names during renaming.
+            If ``None``, renaming is skipped. Default is ``None``.
+
+        replacement : str, optional
+            The string to replace the pattern with during renaming.
+            Required if `pattern` is provided.
+
+        Returns
+        -------
+        self : DataManager
+            Returns self.
+
+        Examples
+        --------
+        >>> manager = DataManager(...)
+        >>> manager.run(pattern='old', replacement='new')
+
+        Notes
+        -----
+        The `run` method must be called before invoking any other methods.
+        It sets up the necessary state for the object.
+        """
+        self._organize_files()
+        if pattern is not None:
+            if replacement is None:
+                raise ValueError(
+                    "Replacement string must be provided if pattern is specified.")
+            self._rename_files(pattern, replacement)
+        self._is_runned = True  # Mark as runned
+
+    def get_processed_files(self) -> List[str]:
+        """
+        Retrieves a list of files that have been processed.
+
+        Returns
+        -------
+        files : list of str
+            A list of file paths that have been processed.
+
+        Examples
+        --------
+        >>> manager = DataManager(...)
+        >>> manager.run()
+        >>> files = manager.get_processed_files()
+        """
+        check_is_runned(self, attributes=['_is_runned'])
+        
+        processed_files = []
+        for dirpath, _, filenames in os.walk(self.target_dir):
+            for filename in filenames:
+                processed_files.append(os.path.join(dirpath, filename))
+        return processed_files
+
+    def _organize_files(self):
+        """Private method to organize files based on specified filters."""
+        try:
+            files = self._get_filtered_files()
+            for file_path in files:
+                self._handle_file(file_path)
+        except Exception as e:
+            logger.error(f"Failed to organize files: {str(e)}")
+            raise RuntimeError(f"Organizing files failed: {str(e)}") from e
+
+    def _rename_files(self, pattern: str, replacement: str):
+        """Private method to rename files by replacing a pattern."""
+        try:
+            for dirpath, _, filenames in os.walk(self.target_dir):
+                for filename in filenames:
+                    if pattern in filename:
+                        old_path = os.path.join(dirpath, filename)
+                        new_filename = filename.replace(pattern, replacement)
+                        new_path = os.path.join(dirpath, new_filename)
+                        if os.path.exists(new_path) and not self.overwrite:
+                            logger.info(f"File {new_path} already exists; skipping.")
+                            continue
+                        os.rename(old_path, new_path)
+                        logger.debug(f"Renamed {old_path} to {new_path}")
+        except Exception as e:
+            logger.error(f"Failed to rename files: {str(e)}")
+            raise RuntimeError(f"Renaming files failed: {str(e)}") from e
+
+    def _get_filtered_files(self):
+        """Retrieves files from root_dir filtered by file_types and name_patterns."""
+        matched_files = []
+        for dirpath, _, filenames in os.walk(self.root_dir):
+            for filename in filenames:
+                if self.file_types and not any(
+                        filename.endswith(ext) for ext in self.file_types):
+                    continue
+                if self.name_patterns and not any(
+                        pat in filename for pat in self.name_patterns):
+                    continue
+                matched_files.append(os.path.join(dirpath, filename))
+        return matched_files
+
+    def _handle_file(self, file_path):
+        """Handles moving or copying of a single file."""
+        relative_path = os.path.relpath(file_path, self.root_dir)
+        target_path = os.path.join(self.target_dir, relative_path)
+
+        # Create target directories if needed
+        target_dir = os.path.dirname(target_path)
+        if not os.path.exists(target_dir):
+            os.makedirs(target_dir, exist_ok=True)
+
+        if os.path.exists(target_path) and not self.overwrite:
+            logger.info(f"File {target_path} already exists; skipping.")
+            return
+
+        if self.move:
+            shutil.move(file_path, target_path)
+            logger.debug(f"Moved {file_path} to {target_path}")
+        else:
+            shutil.copy2(file_path, target_path)
+            logger.debug(f"Copied {file_path} to {target_path}")
+          
+# --- function utilities -----
 
 def nan_to_na(
     data: DataFrame, 
@@ -88,7 +337,7 @@ def nan_to_na(
 
     Examples
     --------
-    >>> from gofast.tools.coreutils import nan_to_na
+    >>> from gofast.tools.datautils import nan_to_na
     >>> import pandas as pd
     >>> import numpy as np
     >>> df = pd.DataFrame({'A': [1.0, 2.0, np.nan], 'B': ['x', np.nan, 'z']})
@@ -137,59 +386,121 @@ def nan_to_na(
                     df_copy[column] = df_copy[column].replace({nan_spec: cat_missing_value})
         return df_copy
 
-def resample_data(*data: Any, samples: Union[int, float, str] = 1,
-                  replace: bool = False, random_state: int = None,
-                  shuffle: bool = True) -> List[Any]:
+
+def resample_data(
+    *data: Any,
+    samples: Union[int, float, str] = 1,
+    replace: bool = False,
+    random_state: int = None,
+    shuffle: bool = True
+) -> List[Any]:
     """
-    Resample multiple data structures (arrays, sparse matrices, Series, DataFrames)
-    based on specified sample size or ratio.
+    Resample multiple data structures (arrays, sparse matrices, Series, 
+    DataFrames) based on specified sample size or ratio.
 
     Parameters
     ----------
-    *data_structures : Any
-        Variable number of array-like, sparse matrix, pandas Series, or DataFrame
-        objects to be resampled.
-    samples : int, float, or str, optional
-        Number of items to sample or a ratio of items to sample (if < 1 or
-        expressed as a percentage string, e.g., "50%"). Defaults to 1, meaning
-        no resampling unless specified.
+    *data : Any
+        Variable number of array-like, sparse matrix, pandas Series, or 
+        DataFrame objects to be resampled.
+        
+    samples : Union[int, float, str], optional
+        Specifies the number of items to sample from each data structure.
+        
+        - If an integer greater than 1, it is treated as the exact number 
+          of items to sample.
+        - If a float between 0 and 1, it is treated as a ratio of the 
+          total number of rows to sample.
+        - If a string containing a percentage (e.g., "50%"), it calculates 
+          the sample size as a percentage of the total data length.
+        
+        The default is 1, meaning no resampling is performed unless a 
+        different value is specified.
+
     replace : bool, default=False
-        Whether sampling of the same row more than once is allowed.
+        Determines if sampling with replacement is allowed, enabling the 
+        same row to be sampled multiple times.
+
     random_state : int, optional
-        Seed for the random number generator for reproducibility.
+        Sets the seed for the random number generator to ensure 
+        reproducibility. If specified, repeated calls with the same 
+        parameters will yield identical results.
+
     shuffle : bool, default=True
-        Whether to shuffle data before sampling.
+        If True, shuffles the data before sampling. Otherwise, rows are 
+        selected sequentially without shuffling.
 
     Returns
     -------
     List[Any]
-        A list of resampled data structures, matching the input order. Each
-        structure is resampled according to the `samples` parameter.
+        A list of resampled data structures, each in the original format 
+        (e.g., numpy array, sparse matrix, pandas DataFrame) and with the 
+        specified sample size.
+
+    Methods
+    -------
+    - `_determine_sample_size`: Calculates the sample size based on the 
+      `samples` parameter.
+    - `_perform_sampling`: Conducts the sampling process based on the 
+      calculated sample size, `replace`, and `shuffle` parameters.
+
+    Notes
+    -----
+    - If `samples` is given as a percentage string (e.g., "25%"), the 
+      actual number of rows to sample, :math:`n`, is calculated as:
+      
+      .. math::
+          n = \left(\frac{\text{percentage}}{100}\right) \times N
+
+      where :math:`N` is the total number of rows in the data structure.
+
+    - Resampling supports both dense and sparse matrices. If the input 
+      contains sparse matrices stored within numpy objects, the function 
+      extracts and samples them directly.
 
     Examples
     --------
-    >>> from gofast.tools.coreutils import resample_data
-    >>> from sklearn.datasets import load_iris
-    >>> iris = load_iris(as_frame=True)
-    >>> data, target = iris.data, iris.target
-    >>> resampled_data, resampled_target = resample_data(data, target, samples=0.5,
-    ...                                                  random_state=42)
-    >>> print(resampled_data.shape, resampled_target.shape)
-    """
-    resampled_structures = []
+    >>> from gofast.tools.datautils import resample_data
+    >>> import numpy as np
+    >>> data = np.arange(100).reshape(20, 5)
+
+    # Resample 10 items from each data structure with replacement
+    >>> resampled_data = resample_data(data, samples=10, replace=True)
+    >>> print(resampled_data[0].shape)
+    (10, 5)
     
+    # Resample 50% of the rows from each data structure
+    >>> resampled_data = resample_data(data, samples=0.5, random_state=42)
+    >>> print(resampled_data[0].shape)
+    (10, 5)
+
+    # Resample data with a percentage-based sample size
+    >>> resampled_data = resample_data(data, samples="25%", random_state=42)
+    >>> print(resampled_data[0].shape)
+    (5, 5)
+
+    References
+    ----------
+    .. [1] Fisher, R.A., "The Use of Multiple Measurements in Taxonomic 
+           Problems", Annals of Eugenics, 1936.
+
+    See Also
+    --------
+    np.random.choice : Selects random samples from an array.
+    pandas.DataFrame.sample : Randomly samples rows from a DataFrame.
+    """
+
+    resampled_structures = []
+
     for d in data:
-        # Correct way to access the shape of the sparse matrix 
-        # encapsulated in a numpy array
-        try: 
-            if d.dtype == object and scipy.sparse.issparse(d.item()):
-                d = d.item()  # Access the sparse matrix
-            # Now you can safely access the number of rows
-        except:
-            # Fallback for regular numpy arrays/data or 
-            # directly accessible sparse matrices
-           pass 
+        # Handle sparse matrices encapsulated in numpy objects
+        if isinstance(d, np.ndarray) and d.dtype == object and scipy.sparse.issparse(d.item()):
+            d = d.item()  # Extract the sparse matrix from the numpy object
+
+        # Determine sample size based on `samples` parameter
         n_samples = _determine_sample_size(d, samples, is_percent="%" in str(samples))
+        
+        # Sample the data structure based on the computed sample size
         sampled_d = _perform_sampling(d, n_samples, replace, random_state, shuffle)
         resampled_structures.append(sampled_d)
 
@@ -235,320 +546,325 @@ def _perform_sampling(d: Any, n_samples: int, replace: bool,
                                    ) if shuffle else np.arange(n_samples)
         return d_array[indices] if d_array.ndim == 1 else d_array[indices, :]
     
+
 def pair_data(
-    *d: Union[pd.DataFrame, List[pd.DataFrame]],  
-    on: Union[str, List[str]] = None, 
-    parse_on: bool = False, 
-    mode: str = 'strict', 
-    coerce: bool = False, 
-    force: bool = False, 
-    decimals: int = 7, 
-    raise_warn: bool = True 
+    *d: Union[pd.DataFrame, List[pd.DataFrame]],
+    on: Union[str, List[str]] = None,
+    parse_on: bool = False,
+    mode: str = 'strict',
+    coerce: bool = False,
+    force: bool = False,
+    decimals: int = 7,
+    raise_warn: bool = True
 ) -> pd.DataFrame:
-    """ Find indentical object in all data and concatenate them using merge 
-     intersection (`cross`) strategy.
-    
-    Parameters 
-    ---------- 
-    d: List of DataFrames 
-       List of pandas DataFrames 
-    on: str, label or list 
-       Column or index level names to join on. These must be found in 
-       all DataFrames. If `on` is ``None`` and not merging on indexes then 
-       a concatenation along columns axis is performed in all DataFrames. 
-       Note that `on` works with `parse_on` if its argument is  a list of 
-       columns names passed into single litteral string. For instance:: 
-           
-        on ='longitude latitude' --[parse_on=True]-> ['longitude' , 'latitude'] 
-        
-    parse_on: bool, default=False 
-       Parse `on` arguments if given as string and return_iterable objects. 
-       
-    mode: str, default='strict' 
-      Mode to the data. Can be ['soft'|'strict']. In ``strict`` mode, all the 
-      data passed must be a DataFrame, otherwise an error raises. in ``soft``
-      mode, ignore the non-DataFrame. Note that any other values should be 
-      in ``strict`` mode. 
-      
-    coerce: bool, default=False 
-       Truncate all DataFrame size to much the shorter one before performing 
-       the ``merge``. 
-        
-    force: bool, default=False, 
-       Force `on` items to be in the all DataFrames, This could be possible 
-       at least, `on` items should be in one DataFrame. If missing in all 
-       data, an error occurs.  
- 
-    decimals: int, default=5 
-       Decimal is used for comparison between numeric labels in `on` columns 
-       items. If set, it rounds values of `on` items in all data before 
-       performing the merge. 
-       
-     raise_warn: bool, default=False 
-        Warn user to concatenate data along column axis if `on` is ``None``. 
-
-    Returns 
-    --------
-    data: DataFrames 
-      A DataFrame of the merged objects.
-      
-    Examples 
-    ----------
-    >>> import gofast as gf 
-    >>> from gofast.tools.coreutils import pair_data 
-    >>> data = gf.make_erp (seed =42 , n_stations =12, as_frame =True ) 
-    >>> table1 = gf.DCProfiling ().fit(data).summary()
-    >>> table1 
-           dipole   longitude  latitude  ...  shape  type       sfi
-    line1      10  110.486111  26.05174  ...      C    EC  1.141844
-    >>> data_no_xy = gf.make_ves ( seed=0 , as_frame =True) 
-    >>> data_no_xy.head(2) 
-        AB   MN  resistivity
-    0  1.0  0.4   448.860148
-    1  2.0  0.4   449.060335
-    >>> data_xy = gf.make_ves ( seed =0 , as_frame =True , add_xy =True ) 
-    >>> data_xy.head(2) 
-        AB   MN  resistivity   longitude  latitude
-    0  1.0  0.4   448.860148  109.332931  28.41193
-    1  2.0  0.4   449.060335  109.332931  28.41193
-    >>> table = gf.methods.VerticalSounding (
-        xycoords = (110.486111,   26.05174)).fit(data_no_xy).summary() 
-    >>> table.table_
-             AB    MN   arrangememt  ... nareas   longitude  latitude
-    area                             ...                             
-    None  200.0  20.0  schlumberger  ...      1  110.486111  26.05174
-    >>> pair_data (table1, table.table_,  ) 
-           dipole   longitude  latitude  ...  nareas   longitude  latitude
-    line1    10.0  110.486111  26.05174  ...     NaN         NaN       NaN
-    None      NaN         NaN       NaN  ...     1.0  110.486111  26.05174
-    >>> pair_data (table1, table.table_, on =['longitude', 'latitude'] ) 
-    Empty DataFrame 
-    >>> # comments: Empty dataframe appears because, decimal is too large 
-    >>> # then it considers values longitude and latitude differents 
-    >>> pair_data (table1, table.table_, on =['longitude', 'latitude'], decimals =5 ) 
-        dipole  longitude  latitude  ...  max_depth  ohmic_area  nareas
-    0      10  110.48611  26.05174  ...      109.0  690.063003       1
-    >>> # Now is able to find existing dataframe with identical closer coordinates. 
-    
     """
-    from .validator import _is_numeric_dtype  
+    Finds identical objects in multiple DataFrames and merges them 
+    using an intersection (`cross`) strategy.
 
-    if str(mode).lower()=='soft': 
-        d = [ o for  o in d if hasattr (o, '__array__') and hasattr (o, 'columns') ]
-    
-    is_same = set ( [ hasattr (o, '__array__') 
-                     and hasattr (o, 'columns') for o in d ] ) 
-    
-    if len(is_same)!=1 or not list (is_same) [0]: 
-        types = [ type(o).__name__ for o in d ]
-        raise TypeError (
-            f"Expect DataFrame. Got {smart_format(types)}")
-    
-    same_len = [len(o) for o in d] 
-    
-    if len( set(same_len)) !=1 or not list(set(same_len))[0]: 
-        if not coerce: 
-            raise ValueError(
-                f"Data must be a consistent size. Got {smart_format(same_len)}"
-                " respectively. Set ``coerce=True`` to truncate the data"
-                " to match the shorter data length.")
-        # get the shorthest len 
-        min_index = min (same_len) 
-        d = [ o.iloc [:min_index, :  ]  for o in d ] 
-
-    if on is None:
-        if raise_warn: 
-            warnings.warn("'twin_items' are missing in the data. A simple merge"
-                          " along the columns axis should be performed.") 
+    Parameters
+    ----------
+    d : List[Union[pd.DataFrame, List[pd.DataFrame]]]
+        A variable-length argument of pandas DataFrames for merging.
         
-        return pd.concat ( d, axis = 1 )
-    
-    # parse string 
-    on= is_iterable(on, exclude_string= True , 
-                    transform =True, parse_string= parse_on  
-                    )
-    
-    feature_exist = [
-        exist_features(o, on, error = 'ignore'
-                       ) for o in d ]  
+    on : Union[str, List[str]], optional
+        Column or index level names to join on. These must exist in 
+        all DataFrames. If None and `force` is False, concatenation 
+        along columns axis is performed.
+        
+    parse_on : bool, default=False
+        If True, parses `on` when provided as a string by splitting 
+        it into multiple column names.
+        
+    mode : str, default='strict'
+        Determines handling of non-DataFrame inputs. In 'strict' 
+        mode, raises an error for non-DataFrame objects. In 'soft' 
+        mode, ignores them.
+        
+    coerce : bool, default=False
+        If True, truncates all DataFrames to the length of the 
+        shortest DataFrame before merging.
+        
+    force : bool, default=False
+        If True, forces `on` columns to exist in all DataFrames, 
+        adding them from any DataFrame that contains them. Raises an 
+        error if `on` columns are missing in all provided DataFrames.
+        
+    decimals : int, default=7
+        Number of decimal places to round numeric `on` columns for 
+        comparison. Helps ensure similar values are treated as equal.
+        
+    raise_warn : bool, default=True
+        If True, warns user that data is concatenated along column 
+        axis when `on` is None.
 
-    if ( len( set (feature_exist) )!=1 
-        or not list(set(feature_exist)) [0]
-            ): 
-        if not force: 
-            raise ValueError(
-                f"Unable to fit the data. Items {smart_format(on)} are"
-                f" missing in the data columns. {smart_format(on)} must"
-                 " include in the data columns. Please check your data.")
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing the merged objects based on `on` 
+        columns, using cross intersection for matching.
 
-        # seek the value twin_items in the data and use if for all  
-        dtems =[] ;  repl_twd= None 
-        for o in d: 
-            # select one valid data that contain the 
-            # twin items
-            try : 
-                exist_features ( o, on ) 
-            except : 
-                pass 
-            else:
-                repl_twd = o [ on ]
-                break 
-            
-        if repl_twd is None: 
-            raise ValueError("To force data that have not consistent items,"
-                             f" at least {smart_format(on)} items must"
-                             " be included in one DataFrame.")
-        # make add twin_data if 
-        for o in d : 
-            try : exist_features(o, on) 
-            except : 
-                a = o.copy()  
-                a [ on ] = repl_twd 
-            else : a = o.copy () 
-            
-            dtems.append(a)
-        # reinitialize d
-        d = dtems  
+    Methods
+    -------
+    - `pd.concat`: Concatenates DataFrames along columns if `on` 
+      is None.
+    - `pd.merge`: Merges DataFrames based on `on` columns.
     
-    # check whether values to merge are numerics 
-    # if True, use decimals to round values to consider 
-    # that identic 
-    # round value if value before performed merges 
-    # test single data with on 
-    is_num = _is_numeric_dtype (d[0][on] ) 
-    if is_num: 
-        decimals = int (_assert_all_types(
-            decimals, int, float, objname ='Decimals'))
-        d_ = []
-        for o in d : 
-            a = o.copy()  
-            a[on ] = np.around (o[ on ].values, decimals ) 
-            d_.append (a )
-        # not a numerick values so stop     
-        d =d_
-
-    # select both two  
-    data = pd.merge (* d[:2], on= on ) 
-    
-    if len(d[2:]) !=0: 
-        for ii, o in enumerate ( d[2:]) : 
-            data = pd.merge ( *[data, o] , on = on, suffixes= (
-                f"_x{ii+1}", f"_y{ii+1}")) 
-            
-    return data 
-
-def random_sampling (
-    d,  
-    samples:int = None  , 
-    replace:bool = False , 
-    random_state:int = None, 
-    shuffle=True, 
-    ): 
-    """ Sampling data. 
-    
-    Parameters 
-    ----------
-    d: {array-like, sparse matrix} of shape (n_samples, n_features)
-      Data for sampling, where `n_samples` is the number of samples and
-      `n_features` is the number of features.
-    samples: int,optional 
-       Ratio or number of items from axis to return. 
-       Default = 1 if `samples` is ``None``.
-       
-    replace: bool, default=False
-       Allow or disallow sampling of the same row more than once. 
-       
-    random_state: int, array-like, BitGenerator, np.random.RandomState, \
-        np.random.Generator, optional
-       If int, array-like, or BitGenerator, seed for random number generator. 
-       If np.random.RandomState or np.random.Generator, use as given.
-       
-    shuffle:bool, default=True 
-       Shuffle the data before sampling 
+    Notes
+    -----
+    - This function performs pairwise merging of DataFrames based 
+      on column alignment specified in `on`.
       
-    Returns 
-    ----------
-    d: {array-like, sparse matrix} of shape (n_samples, n_features)
-    samples data based on the given samples. 
-    
+    - When `decimals` is set, values in `on` columns are rounded 
+      to the specified decimal places before merging to avoid 
+      floating-point discrepancies:
+      
+      .. math::
+          \text{round}(x, \text{decimals})
+
+    - The function requires that all provided data be DataFrames if 
+      `mode='strict'`. Non-DataFrame inputs in 'strict' mode raise 
+      a `TypeError`.
+
     Examples
-    ---------
-    >>> from gofast.tools.coreutils import random_sampling 
-    >>> from gofast.datasets import load_hlogs 
-    >>> data= load_hlogs().frame
-    >>> random_sampling( data, samples = 7 ).shape 
-    (7, 27)
+    --------
+    >>> import pandas as pd
+    >>> from gofast.tools.datautils import pair_data
+    >>> data1 = pd.DataFrame({
+    ...     'longitude': [110.486111],
+    ...     'latitude': [26.05174],
+    ...     'value': [10]
+    ... })
+    >>> data2 = pd.DataFrame({
+    ...     'longitude': [110.486111],
+    ...     'latitude': [26.05174],
+    ...     'measurement': [1]
+    ... })
+    
+    # Merge based on common columns 'longitude' and 'latitude'
+    >>> pair_data(data1, data2, on=['longitude', 'latitude'], decimals=5)
+       longitude  latitude  value  measurement
+    0  110.48611  26.05174     10           1
+
+    References
+    ----------
+    .. [1] Wes McKinney, "Data Structures for Statistical Computing 
+           in Python", Proceedings of the 9th Python in Science 
+           Conference, 2010.
+
+    See Also
+    --------
+    pd.concat : Concatenates pandas objects along a specified axis.
+    pd.merge : Merges DataFrames based on key columns.
     """
 
-    n= None ; is_percent = False
-    orig= copy.deepcopy(samples )
-    if not hasattr(d, "__iter__"): 
-        d = is_iterable(d, exclude_string= True, transform =True )
-    
-    if ( 
-            samples is None 
-            or str(samples) in ('1', '*')
-            ): 
-        samples =1. 
-        
-    if "%" in str(samples): 
-        samples = samples.replace ("%", '')
-        is_percent=True 
-    # assert value for consistency. 
-    try: 
-        samples = float( samples)
-    except: 
-        raise TypeError("Wrong value for 'samples'. Expect an integer."
-                        f" Got {type (orig).__name__!r}")
+    # Filter only DataFrames if `mode` is set to 'soft'
+    if str(mode).lower() == 'soft':
+        d = [df for df in d if isinstance(df, pd.DataFrame)]
 
-    if samples <=1 or is_percent: 
-        samples  = assert_ratio(
-            samples , bounds = (0, 1), exclude_value= 'use lower bound', 
-            in_percent= True )
+    # Ensure all provided data is DataFrame if `mode` is 'strict'
+    is_dataframe = all(isinstance(df, pd.DataFrame) for df in d)
+    if not is_dataframe:
+        types = [type(df).__name__ for df in d]
+        raise TypeError(f"Expected DataFrame. Got {', '.join(types)}")
+
+    # Coerce to shortest DataFrame length if `coerce=True`
+    if coerce:
+        min_len = min(len(df) for df in d)
+        d = [df.iloc[:min_len, :] for df in d]
+
+    # If `on` is None and `raise_warn` is True, warn and concatenate along columns
+    if on is None:
+        if raise_warn:
+            warnings.warn("`on` parameter is None. Performing"
+                          " concatenation along columns.")
+        return pd.concat(d, axis=1)
+
+    # Parse `on` if `parse_on=True`
+    if parse_on and isinstance(on, str):
+        on = on.split()
+
+    # Ensure `on` columns exist in all DataFrames if `force=True`
+    if force:
+        missing_cols = [col for col in on if not all(col in df.columns for df in d)]
+        if missing_cols:
+            d = [df.assign(**{col: d[0][col]}) for col in missing_cols 
+                 for df in d if col in d[0].columns]
+
+    # Round numeric columns in `on` columns to `decimals` if specified
+    for df in d:
+        for col in on:
+            if pd.api.types.is_numeric_dtype(df[col]):
+                df[col] = df[col].round(decimals)
+
+    # Perform pairwise merging based on `on` columns
+    data = d[0]
+    for df in d[1:]:
+        data = pd.merge(data, df, on=on, suffixes=('_x', '_y'))
+
+    return data
+
+def random_sampling(
+    d,
+    samples: int = None,
+    replace: bool = False,
+    random_state: int = None,
+    shuffle: bool = True,
+) -> Union[np.ndarray, 'pd.DataFrame', 'scipy.sparse.spmatrix']:
+    """
+    Randomly samples rows from the data, with options for shuffling, 
+    sampling with replacement, and fixed randomness for reproducibility.
+    
+    Parameters
+    ----------
+    d : {array-like, sparse matrix} of shape (n_samples, n_features)
+        The data to sample from. Supports any array-like structure, 
+        pandas DataFrame, or scipy sparse matrix with `n_samples` 
+        as rows and `n_features` as columns.
+
+    samples : int, optional
+        Number of items or ratio of items to return. If `samples` 
+        is None, it defaults to 1 (selects all items). If set as 
+        a float (e.g., "0.2"), it is interpreted as the percentage 
+        of data to sample.
         
-        n = int ( samples * ( d.shape[0] if scipy.sparse.issparse(d)
-                 else len(d))) 
-    else: 
-        # data frame 
-        n= int(samples)
+    replace : bool, default=False
+        If True, allows sampling the same row multiple times; 
+        if False, each row can only be sampled once.
         
-    # reset samples and use number of samples instead    
-    samples =None  
-    # get the total length of d
-    dlen = ( d.shape[0] if scipy.sparse.issparse(d) else len(d))
-    # if number is greater than the length 
-    # block to the length so to retrieve all 
-    # value no matter the arrangement. 
-    if n > dlen: 
+    random_state : int, array-like, BitGenerator, np.random.RandomState, \
+        np.random.Generator, optional
+        Controls randomness. If int or array-like, sets the seed 
+        for reproducibility. If a `RandomState` or `Generator`, it 
+        will be used as-is.
+        
+    shuffle : bool, default=True
+        If True, shuffles the data before sampling; otherwise, 
+        returns the top `n` samples without shuffling.
+
+    Returns
+    -------
+    Union[np.ndarray, pd.DataFrame, scipy.sparse.spmatrix]
+        Sampled data, in the same format as `d` (array-like, sparse 
+        matrix, or DataFrame) and in the shape (samples, n_features).
+
+    Methods
+    -------
+    - `np.random.choice`: Selects rows randomly based on `samples` 
+      and `replace` parameter.
+    - `d.sample()`: Used for DataFrames to sample with more control.
+    
+    Notes
+    -----
+    - If `samples` is a string containing "%", the number of samples 
+      is calculated as a percentage of the total rows:
+      
+      .. math::
+          \text{samples} = \frac{\text{percentage}}{100} \times 
+          \text{len(d)}
+
+    - To ensure consistent sampling, especially when `replace=True`, 
+      setting `random_state` is recommended for reproducibility.
+    
+    - The function supports various data types and automatically 
+      converts `d` to a compatible structure if necessary.
+
+    Examples
+    --------
+    >>> from gofast.tools.datautils import random_sampling
+    >>> import numpy as np
+    >>> data = np.arange(100).reshape(20, 5)
+    
+    # Sample 7 rows from data
+    >>> random_sampling(data, samples=7).shape
+    (7, 5)
+    
+    # Sample 10% of rows
+    >>> random_sampling(data, samples="10%", random_state=42).shape
+    (2, 5)
+
+    >>> # Sampling from a pandas DataFrame with replacement
+    >>> import pandas as pd
+    >>> df = pd.DataFrame(np.arange(100).reshape(20, 5))
+    >>> random_sampling(df, samples=5, replace=True).shape
+    (5, 5)
+    
+    References
+    ----------
+    .. [1] Fisher, R.A., "The Use of Multiple Measurements in Taxonomic 
+           Problems", Annals of Eugenics, 1936.
+
+    See Also
+    --------
+    np.random.choice : Selects random samples from an array.
+    pandas.DataFrame.sample : Randomly samples rows from a DataFrame.
+    """
+
+    # Initialize variables for calculation
+    n = None
+    is_percent = False
+    orig = copy.deepcopy(samples)
+
+    # Ensure data is iterable and convert if necessary
+    if not hasattr(d, "__iter__"):
+        d = np.array(d)
+
+    # Set default sample size to 1 if samples is None or wildcarded
+    if samples is None or str(samples) in ('1', '*'):
+        samples = 1.0
+
+    # Handle percentage-based sampling if specified as a string
+    if "%" in str(samples):
+        samples = str(samples).replace("%", "")
+        is_percent = True
+    
+    # Ensure samples is a valid numerical value
+    try:
+        samples = float(samples)
+    except ValueError:
+        raise TypeError("Invalid value for 'samples'. Expected an integer "
+                        f"or percentage, got {type(orig).__name__!r}")
+
+    # Calculate the sample size based on percentage if necessary
+    if samples <= 1 or is_percent:
+        samples = assert_ratio(
+            samples, bounds=(0, 1), exclude_value='use lower bound',
+            in_percent=True
+        )
+        n = int(samples * (d.shape[0] if scipy.sparse.issparse(d) else len(d)))
+    else:
+        # Use the integer value directly
+        n = int(samples)
+    
+    # Ensure sample size does not exceed data length
+    dlen = d.shape[0] if scipy.sparse.issparse(d) else len(d)
+    if n > dlen:
         n = dlen
-    if hasattr (d, 'columns') or hasattr (d, 'name'): 
-        # data frame 
-        return d.sample ( n= n , frac=samples , replace = replace ,
-                         random_state = random_state  
-                     ) if shuffle else d.iloc [ :n , ::] 
-        
-    np.random.seed ( random_state)
-    if scipy.sparse.issparse(d) : 
-        if scipy.sparse.isspmatrix_coo(d): 
-            warnings.warn("coo_matrix does not support indexing. Conversion"
-                          " should be performed in CSR matrix")
-            d = d.tocsr() 
-            
-        return d [ np.random.choice(
-            np.arange(d.shape[0]), n, replace=replace )] if shuffle else d [
-                [ i for i in range (n)]]
-                
-        #d = d[idx ]
-        
-    # manage the data 
-    if not hasattr(d, '__array__'): 
-        d = np.array (d ) 
-        
-    idx = np.random.randint( len(d), size = n ) if shuffle else [ i for i in range(n)]
-    if len(d.shape )==1: d =d[idx ]
-    else: d = d[idx , :]
-        
-    return d 
+
+    # Sampling for DataFrame
+    if hasattr(d, 'sample'):
+        return d.sample(n=n, replace=replace, random_state=random_state
+                        ) if shuffle else d.iloc[:n, :]
+
+    # Set random state for reproducibility
+    np.random.seed(random_state)
+
+    # Handle sparse matrix sampling
+    if scipy.sparse.issparse(d):
+        if scipy.sparse.isspmatrix_coo(d):
+            warnings.warn("`coo_matrix` does not support indexing. "
+                          "Converting to CSR matrix for indexing.")
+            d = d.tocsr()
+        indices = np.random.choice(np.arange(d.shape[0]), n, replace=replace
+                                   ) if shuffle else list(range(n))
+        return d[indices]
+
+    # Manage array-like data
+    d = np.array(d) if not hasattr(d, '__array__') else d
+    indices = np.random.choice(len(d), n, replace=replace) if shuffle else list(range(n))
+    d = d[indices] if d.ndim == 1 else d[indices, :]
+
+    return d
+
 
 def read_from_excelsheets(erp_file: str) -> List[pd.DataFrame]:
     """
@@ -581,71 +897,141 @@ def read_from_excelsheets(erp_file: str) -> List[pd.DataFrame]:
 
     return list_of_df
 
-def read_worksheets(*data): 
-    """ Read sheets and returns a list of DataFrames and sheet names. 
-    
-    Parameters 
-    -----------
-    data: list of str 
-      A collection of excel sheets files. Read only `.xlsx` files. Any other 
-      files raises an errors.  
-    
-    Return
-    ------
-    data, sheet_names: Tuple of DataFrames and sheet_names 
-       A collection of DataFrame and sheets names. 
-       
-    Examples 
-    -----------
-    >>> import os 
-    >>> from gofast.tools.coreutils import read_worksheets 
-    >>> sheet_file= r'_F:\repositories\gofast\data\erp\sheets\gbalo.xlsx'
-    >>> data, snames =  read_worksheets (sheet_file )
-    >>> snames 
-    ['l11', 'l10', 'l02'] 
-    >>> data, snames =  read_worksheets (os.path.dirname (sheet_file))
-    >>> snames 
-    ['l11', 'l10', 'l02', 'l12', 'l13']
-    
+
+def read_worksheets(
+        *data: str
+        ) -> Tuple[Optional[List[pd.DataFrame]], Optional[List[str]]]:
     """
+    Reads all `.xlsx` sheets from given file paths or directories and returns
+    the contents as DataFrames along with sheet names. 
+    This function processes each sheet in a workbook as a separate DataFrame
+    and collects all sheet names, replacing special characters in names with
+    underscores.
+
+    Parameters
+    ----------
+    data : str
+        Variable-length argument of file paths or directories. 
+        Each path should be a string pointing to an `.xlsx` file or a directory
+        containing `.xlsx` files. Only files with the `.xlsx` extension are 
+        read; other file types will raise an error.
+
+    Returns
+    -------
+    Tuple[Optional[List[pd.DataFrame]], Optional[List[str]]]
+        A tuple containing two elements:
+        
+        - A list of DataFrames, each representing a sheet from the specified
+        `.xlsx` files.
+        - A list of sheet names corresponding to the DataFrames. 
+          Special characters in sheet names are replaced with underscores 
+          for standardization.
+
+    Methods
+    -------
+    - `pd.read_excel(d, sheet_name=None)`: Reads Excel file and loads all 
+      sheets into a dictionary of DataFrames.
+    - `re.sub`: Replaces special characters in sheet names with 
+      underscores.
+
+    Notes
+    -----
+    - If a directory is provided, the function searches for all 
+      `.xlsx` files in that directory. Only Excel files with the 
+      `.xlsx` extension are supported.
+      
+    - If no `.xlsx` files are found in the provided paths, the 
+      function returns `(None, None)`.
+
+    - To maintain consistency in sheet names, special characters 
+      in sheet names are replaced with underscores using 
+      :class:`re.Regex`.
+
+    - Mathematically, if :math:`d` represents an Excel file in 
+      `data`, then:
+      
+      .. math::
+          \text{dataframes}_{d} = f(\text{Excel file})
+      
+      where :math:`f` denotes loading all sheets within an Excel 
+      file into separate DataFrames.
+
+    Examples
+    --------
+    >>> from gofast.tools.datautils import read_worksheets
+    >>> # Example 1: Reading a single Excel file
+    >>> file_path = r'F:/repositories/gofast/data/erp/sheets/gbalo.xlsx'
+    >>> data, sheet_names = read_worksheets(file_path)
+    >>> sheet_names
+    ['l11', 'l10', 'l02']
+    
+    >>> # Example 2: Reading all .xlsx files in a directory
+    >>> import os
+    >>> dir_path = os.path.dirname(file_path)
+    >>> data, sheet_names = read_worksheets(dir_path)
+    >>> sheet_names
+    ['l11', 'l10', 'l02', 'l12', 'l13']
+
+    References
+    ----------
+    .. [1] McKinney, Wes, *Data Structures for Statistical Computing 
+           in Python*, Proceedings of the 9th Python in Science 
+           Conference, 2010.
+
+    See Also
+    --------
+    pd.read_excel : Reads an Excel file and returns DataFrames 
+                    of all sheets.
+    os.path.isdir : Checks if the path is a directory.
+    os.path.isfile : Checks if the path is a file.
+    """
+
+    # Temporary list to store valid .xlsx files
     dtem = []
-    data = [o for o in data if isinstance ( o, str )]
-    
-    for o in data: 
-        if os.path.isdir (o): 
-            dlist = os.listdir (o)
-            # collect only the excell sheets 
-            p = [ os.path.join(o, f) for f in dlist if f.endswith ('.xlsx') ]
-            dtem .extend(p)
-        elif os.path.isfile (o):
-            _, ex = os.path.splitext( o)
-            if ex == '.xlsx': 
+    data = [o for o in data if isinstance(o, str)]
+
+    # Iterate over each path provided in data
+    for o in data:
+        if os.path.isdir(o):
+            # Get all files in the directory, filtering for .xlsx files
+            dlist = os.listdir(o)
+            p = [os.path.join(o, f) for f in dlist if f.endswith('.xlsx')]
+            dtem.extend(p)
+        elif os.path.isfile(o):
+            # Check if the file is an .xlsx file
+            _, ex = os.path.splitext(o)
+            if ex == '.xlsx':
                 dtem.append(o)
-            
+
+    # Deep copy of the collected .xlsx files
     data = copy.deepcopy(dtem)
-    # if no excel sheets is found return None 
-    if len(data) ==0: 
-        return None, None 
-    
-    # make d dict to collect data 
-    ddict = dict() 
-    regex = re.compile (r'[$& #@%^!]', flags=re.IGNORECASE)
-    
-    for d in data : 
-        try: 
-            ddict.update ( **pd.read_excel (d , sheet_name =None))
-        except : pass 
 
-    #collect stations names
-    if len(ddict)==0 : 
-        raise TypeError("Can'find the data to read.")
+    # Return None if no valid Excel files are found
+    if len(data) == 0:
+        return None, None
 
-    sheet_names = list(map(
-        lambda o: regex.sub('_', o).lower(), ddict.keys()))
+    # Dictionary to store DataFrames by sheet name
+    ddict = {}
+    regex = re.compile(r'[$& #@%^!]', flags=re.IGNORECASE)
 
-    data = list(ddict.values ()) 
+    # Read each Excel file and store sheets
+    for d in data:
+        try:
+            ddict.update(**pd.read_excel(d, sheet_name=None))
+        except Exception:
+            pass  # Continue if any file fails to read
 
-    return data, sheet_names  
+    # Raise error if no data could be read
+    if len(ddict) == 0:
+        raise TypeError("No readable data found in the provided paths.")
+
+    # Standardize sheet names and store them
+    sheet_names = list(map(lambda o: regex.sub('_', o).lower(), ddict.keys()))
+
+    # Collect the DataFrames
+    data = list(ddict.values())
+
+    return data, sheet_names
 
 def process_and_extract_data(
     *args: ArrayLike, 
@@ -701,7 +1087,7 @@ def process_and_extract_data(
     --------
     >>> import numpy as np 
     >>> import pandas as pd 
-    >>> from gofast.tools.coreutils import process_and_extract_data
+    >>> from gofast.tools.datautils import process_and_extract_data
     >>> data = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
     >>> process_and_extract_data(data, columns=['A'], to_array=True)
     [array([1, 2, 3])]
@@ -789,98 +1175,157 @@ def process_and_extract_data(
     if ensure_uniform_length and not all(len(x) == len(
             extracted_data[0]) for x in extracted_data):
         if on_error == 'raise':
-            raise ValueError("Extracted data arrays do not have uniform length.")
+            raise ValueError(
+                "Extracted data arrays do not have uniform length.")
         else:
             return []
 
     return extracted_data
 
-def random_selector (
-        arr:ArrayLike, value: Union [float, ArrayLike], 
-        seed: int = None, shuffle =False ): 
-    """Randomly select the number of values in array. 
-    
+
+def random_selector(
+    arr: ArrayLike,
+    value: Union[float, ArrayLike, str],
+    seed: int = None,
+    shuffle: bool = False
+) -> np.ndarray:
+    """
+    Randomly select specified values from an array, using a value 
+    count, percentage, or subset. Provides consistent selection if 
+    seeded, and can shuffle the result.
+
     Parameters
-    ------------
-    arr: ArrayLike 
-       Array of values 
-    value: float, arraylike 
-        If ``float`` value is passed, it indicates the number of values to 
-        select among the length of `arr`. If array (``value``) is passed, it
-        should be self contain in the given ``arr`. However if ``string`` is 
-        given and contain the ``%``, it calculates the ratio of 
-        number to randomly select. 
-    seed: int, Optional 
-       Allow retrieving the identical value randomly selected in the given 
-       array. 
-       
-    suffle: bool, False 
-       If  ``True`` , shuffle the selected values. 
-       
-    Returns 
-    --------
-    arr: Array containing the selected values 
-     
-    Examples 
     ----------
-    >>> import numpy as np 
-    >>> from gofast.tools.coreutils import random_selector 
-    >>> dat= np.arange (42 ) 
-    >>> random_selector (dat , 7, seed = 42 ) 
+    arr : ArrayLike
+        Input array of values from which selections are made. 
+        Accepts any array-like structure (e.g., list, ndarray) 
+        for processing.
+        
+    value : Union[float, ArrayLike, str]
+        Specifies the number or subset of values to select.
+        
+        - If `value` is a float, it is interpreted as the number 
+          of items to select from `arr`.
+        - If `value` is an array-like, it indicates the exact 
+          values to select, provided they exist within `arr`.
+        - If `value` is a string containing a percentage 
+          (e.g., `"50%"`), it calculates the proportion to select 
+          based on the length of `arr`, given by:
+          
+          .. math::
+              \text{value} = \left( \frac{\text{percentage}}{100} \right) \times \text{len(arr)}
+          
+    seed : int, optional
+        Seed for the random number generator, which ensures 
+        repeatable selections when set. Defaults to None.
+        
+    shuffle : bool, default=False
+        If True, shuffles the selected values after extraction.
+        
+    Returns
+    -------
+    np.ndarray
+        Array containing the randomly selected values from `arr`.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.tools.datautils import random_selector
+    >>> data = np.arange(42)
+    
+    # Select 7 elements deterministically using a seed
+    >>> random_selector(data, 7, seed=42)
     array([0, 1, 2, 3, 4, 5, 6])
-    >>> random_selector ( dat, ( 23, 13 , 7))
+    
+    # Select specific values present in the array
+    >>> random_selector(data, (23, 13, 7))
     array([ 7, 13, 23])
-    >>> random_selector ( dat , "7%", seed =42 )
+    
+    # Select a percentage of values
+    >>> random_selector(data, "7%", seed=42)
     array([0, 1])
-    >>> random_selector ( dat , "70%", seed =42 , shuffle =True )
+    
+    # Select 70% of values with shuffling enabled
+    >>> random_selector(data, "70%", seed=42, shuffle=True)
     array([ 0,  5, 20, 25, 13,  7, 22, 10, 12, 27, 23, 21, 16,  3,  1, 17,  8,
             6,  4,  2, 19, 11, 18, 24, 14, 15,  9, 28, 26])
+
+    Notes
+    -----
+    - The `value` parameter can be a float representing the count, 
+      a string containing a percentage, or an array of elements to 
+      select. For invalid types, the function raises a `TypeError`.
+      
+    - The `seed` parameter is essential for reproducibility. 
+      When set, repeated calls with the same parameters will yield 
+      identical results.
+      
+    - This function is helpful for sampling data subsets in 
+      machine learning and statistical analysis.
+      
+    References
+    ----------
+    .. [1] Fisher, Ronald A., "The Use of Multiple Measurements in 
+           Taxonomic Problems", Annals of Eugenics, 1936.
+
+    See Also
+    --------
+    numpy.random.permutation : Randomly permutes elements in an array.
+    numpy.random.shuffle : Shuffles array in place.
     """
     
-    msg = "Non-numerical is not allowed. Got {!r}."
+    # Error message for invalid input
+    msg = "Non-numerical value is not allowed. Got {!r}."
     
-    if seed: 
-        seed = _assert_all_types(seed , int, float, objname ='Seed')
-        np.random.seed (seed ) 
-       
-    v = copy.deepcopy(value )
+    # Set seed if provided for reproducibility
+    if seed is not None:
+        seed = _assert_all_types(seed, int, float, objname='Seed')
+        np.random.seed(seed)
     
-    if not is_iterable( value, exclude_string= True ):
+    # Deep copy of value for error reporting if necessary
+    v = copy.deepcopy(value)
+    
+    # If value is not iterable (excluding strings), convert to string
+    if not is_iterable(value, exclude_string=True):
+        value = str(value)
         
-        value = str(value )
-        
-        if '%' in  value: 
-            try: 
-               value = float( value.replace ('%', '')) /100 
-            except : 
+        # Handle percentage-based selection
+        if '%' in value:
+            try:
+                value = float(value.replace('%', '')) / 100
+            except:
                 raise TypeError(msg.format(v))
-            # get the number 
-            value *= len(arr )
-                
+            # Calculate number of items to select based on percentage
+            value *= len(arr)
         
-        try : 
-            value = int(value )
-            
-        except :
-            raise TypeError (msg.format(v))
+        try:
+            # Convert value to integer if possible
+            value = int(value)
+        except:
+            raise TypeError(msg.format(v))
     
-        if value > len(arr): 
-            raise ValueError(f"Number {value} is out of the range."
-                             f" Expect value less than {len(arr)}.")
-            
-        value = np.random.permutation(value ) 
+        # Ensure the selected count does not exceed array length
+        if value > len(arr):
+            raise ValueError(f"Number {value} is out of range. "
+                             f"Expected value less than {len(arr)}.")
         
-    arr = np.array ( 
-        is_iterable( arr, exclude_string=True, transform =True )) 
+        # Randomly select `value` items
+        value = np.random.permutation(value)
+        
+    # Ensure `arr` is array-like and flatten if multi-dimensional
+    arr = np.array(is_iterable(arr, exclude_string=True, transform=True))
+    arr = arr.ravel() if arr.ndim != 1 else arr
+        
+    # Select specified elements in `value`
+    mask = _isin(arr, value, return_mask=True)
+    arr = arr[mask]
     
-    arr = arr.ravel() if arr.ndim !=1 else arr 
-
-    mask = _isin (arr, value , return_mask= True )
-    arr = arr [mask ] 
+    # Shuffle the array if specified
+    if shuffle:
+        np.random.shuffle(arr)
     
-    if shuffle : np.random.shuffle (arr )
-
     return arr
+
 
 def cleaner(
     data: Union[DataFrame, NDArray],
@@ -891,88 +1336,500 @@ def cleaner(
     mode: str = 'clean',
     **kws
 ) -> Union[DataFrame, NDArray, None]:
-    """ Sanitize data or columns by dropping specified labels 
-    from rows or columns. 
-    
-    If data is not a pandas dataframe, should be converted to 
-    dataframe and uses index to drop the labels. 
-    
-    Parameters 
-    -----------
-    data: pd.Dataframe or arraylike2D. 
-       Dataframe pandas or Numpy two dimensional arrays. If 2D array is 
-       passed, it should prior be converted to a daframe by default and 
-       drop row index from index parameters 
-       
-    columns: single label or list-like
-        Alternative to specifying axis (
-            labels, axis=1 is equivalent to columns=labels).
-
-    labels: single label or list-like
-      Index or column labels to drop. A tuple will be used as a single 
-      label and not treated as a list-like.
-
-    func: _F, callable 
-        Universal function used to clean the columns. If performs only when 
-        `mode` is on ``clean`` option. 
-        
-    inplace: bool, default False
-        If False, return a copy. Otherwise, do operation 
-        inplace and return None.
-       
-    mode: str, default='clean' 
-       Options or mode of operation to do on the data. It could 
-       be ['clean'|'drop']. If ``drop``, it behaves like ``dataframe.drop`` 
-       of pandas. 
-       
-    Returns
-    --------
-    DataFrame, array2D  or None
-            DataFrame cleaned or without the removed index or column labels 
-            or None if inplace=True or array is data is passed as an array. 
-            
     """
-    mode = _validate_name_in(mode , defaults =("drop", 'remove' ), 
-                      expect_name ='drop')
-    if not mode: 
-        return sanitize_frame_cols(
-            data, 
-            inplace = inplace, 
-            func = func 
-            ) 
- 
-    objtype ='ar'
-    if not hasattr (data , '__array__'): 
-        data = np.array (data ) 
-        
-    if hasattr(data , "columns"): 
-        objtype = "pd" 
-    
-    if objtype =='ar': 
-        data = pd.DataFrame(data ) 
-        # block inplace to False and 
-        # return numpy ar 
-        inplace = False 
-    # if isinstance(columns , str): 
-    #     columns = str2columns(columns ) 
-    if columns is not None: 
-        columns = is_iterable(
-            columns, exclude_string=True ,
-            parse_string= True, 
-            transform =True )
-        
-    data = data.drop (labels = labels, 
-                      columns = columns, 
-                      inplace =inplace,  
-                       **kws 
-                       ) 
-    # re-verify integrity 
-    # for consistency
-    data = to_numeric_dtypes(data )
-    return np.array ( data ) if objtype =='ar' else data 
+    Sanitize data by dropping specified labels from rows or columns 
+    with optional column transformation. This function allows both 
+    structured data (e.g., pandas DataFrame) and unstructured 2D array 
+    formats, applying universal cleaning functions if provided. 
 
-def get_xy_coordinates (d, as_frame = False, drop_xy = False, 
-                        raise_exception = True, verbose=0 ): 
+    Parameters
+    ----------
+    data : Union[pd.DataFrame, NDArray]
+        Data structure to process, supporting either a 
+        :class:`pandas.DataFrame` or a 2D :class:`numpy.ndarray`.
+        If a numpy array is passed, it will be converted to a 
+        DataFrame internally to facilitate label-based operations. 
+        
+    columns : List[str], optional
+        List of column labels to operate on, by default None.
+        If specified, the columns matching these labels will be 
+        subject to any transformations or deletions specified by 
+        `mode`. This is useful when targeting specific columns 
+        without altering others.
+        
+    inplace : bool, default=False
+        If True, modifies `data` directly; if False, returns a 
+        new DataFrame or array with modifications. Note that when 
+        `data` is initially provided as an array, this parameter 
+        is overridden to False to ensure consistent return types.
+        
+    labels : List[Union[int, str]], optional
+        Index or column labels to drop. Can be a list of column 
+        names or index labels. If provided, only the specified 
+        labels will be targeted for removal or transformation.
+        
+    func : Callable, optional
+        Universal cleaning function to apply to the columns 
+        (e.g., string cleaning, handling missing values).
+        If `mode='clean'`, `func` will be applied to specified 
+        columns, allowing customized data preprocessing.
+        
+    mode : str, default='clean'
+        Operational mode controlling function behavior. Supported 
+        options are:
+            - 'clean': Applies the `func` callable to columns for 
+              preprocessing tasks.
+            - 'drop': Removes rows or columns based on `labels` or 
+              `columns`. Follows similar behavior to 
+              :func:`pandas.DataFrame.drop`.
+              
+    **kws : dict
+        Additional keyword arguments passed to :func:`pandas.DataFrame.drop`
+        when `mode='drop'`. Allows configuration of drop operation 
+        (e.g., `axis`, `errors`).
+        
+    Returns
+    -------
+    Union[pd.DataFrame, NDArray, None]
+        Returns the cleaned or transformed DataFrame or array, 
+        depending on the input type. If `inplace=True`, returns None. 
+        If the original data was an array, the output remains an array.
+        
+    Methods
+    -------
+    - `sanitize_frame_cols(data, inplace, func)`: Performs cleaning 
+      on columns based on a function.
+    - `to_numeric_dtypes(data)`: Ensures that all applicable data 
+      types are converted to numeric types, which can be essential 
+      for computational consistency.
+      
+    Notes
+    -----
+    - By default, when a 2D array is provided as `data`, it is 
+      converted to a DataFrame for processing purposes and then 
+      returned as an array after operations are complete. This 
+      ensures compatibility with label-based operations.
+      
+    - The primary operations in this function can be mathematically 
+      described as follows:
+      
+      .. math::
+          \text{DataFrame}_{\text{cleaned}} = 
+          f(\text{DataFrame}_{\text{original}})
+          
+      where :math:`f` is a transformation applied by `func` when 
+      `mode='clean'`, and a subset selection based on `labels` 
+      otherwise.
+
+    Examples
+    --------
+    >>> from gofast.tools.datautils import cleaner
+    >>> import pandas as pd
+    >>> data = pd.DataFrame({
+    ...     'A': [1, 2, 3],
+    ...     'B': [4, None, 6],
+    ...     'C': [7, 8, 9]
+    ... })
+    >>> # Example: Clean using a lambda function
+    >>> cleaner(data, columns=['B'], func=lambda x: x.fillna(0), mode='clean')
+    
+    >>> # Example: Drop rows with labels [0, 2]
+    >>> cleaner(data, labels=[0, 2], mode='drop', inplace=True)
+
+    References
+    ----------
+    .. [1] McKinney, Wes, *Data Structures for Statistical Computing in Python*, 
+           Proceedings of the 9th Python in Science Conference, 2010.
+
+    See Also
+    --------
+    pd.DataFrame.drop : Removes specified labels from rows or columns.
+    """
+    # Validate and set mode operation.
+    mode = _validate_name_in(
+        mode, defaults=("drop", 'clean'), expect_name='drop'
+    )
+    
+    if mode == 'clean':
+        # If mode is clean, apply column transformations.
+        return sanitize_frame_cols(data, inplace=inplace, func=func)
+    
+    objtype = 'array'
+    if not hasattr(data, '__array__'):
+        # Convert to numpy array if not array-like
+        data = np.array(data)
+    
+    # Determine object type for handling pandas data.
+    if hasattr(data, "columns"):
+        objtype = "pd"
+    
+    if objtype == 'array':
+        # Convert numpy array to DataFrame for label-based processing.
+        data = pd.DataFrame(data)
+        inplace = False  # Disable inplace for numpy output
+
+    # Process columns if specified
+    if columns is not None:
+        columns = is_iterable(
+            columns, exclude_string=True,
+            parse_string=True, transform=True
+        )
+    
+    # Perform drop operation on DataFrame
+    data = data.drop(labels=labels, columns=columns, inplace=inplace, **kws)
+    
+    # Convert all applicable types to numeric types for consistency
+    data = to_numeric_dtypes(data)
+    
+    # Return as numpy array if original input was array-like
+    return np.array(data) if objtype == 'array' else data
+
+
+def data_extractor(
+    data: pd.DataFrame,
+    columns: Union[str, List[str]] = None,
+    as_frame: bool = False,
+    drop_columns: bool = False,
+    default_columns: List[Tuple[str, str]] = None,
+    raise_exception: Union[bool, str] = True,
+    verbose: int = 0,
+    round_decimals: int = None,
+    fillna_value: Any = None,
+    unique: bool = False,
+    coerce_dtype: Any = None
+) -> Tuple[Union[Tuple[float, float], pd.DataFrame, None],
+           pd.DataFrame, Tuple[str, ...]]:
+    """
+    Extracts specified columns (e.g., coordinates) from a DataFrame, with options 
+    for formatting, dropping, rounding, and unique selection.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The DataFrame expected to contain specified columns, such as 
+        `longitude`/`latitude` or `easting`/`northing` for coordinates.
+
+    columns : Union[str, List[str]], optional
+        Column(s) to extract. If `None`, attempts to detect default columns 
+        based on `default_columns`.
+
+    as_frame : bool, default=False
+        If True, returns extracted columns as a DataFrame. If False, computes 
+        and returns the midpoint values for coordinates.
+
+    drop_columns : bool, default=False
+        If True, removes extracted columns from `data` after extraction.
+        
+    default_columns : List[Tuple[str, str]], optional
+        List of default column pairs to search for if `columns` is `None`. 
+
+    default_columns : List[Tuple[str, str]], optional
+        List of tuples specifying default column pairs to search for in `data` 
+        if `columns` is not provided. For example, 
+        `[('longitude', 'latitude'), ('easting', 'northing')]`. If no matches 
+        are found and `columns` is `None`, raises an error or warning based 
+        on `raise_exception`. If `None`, no default columns are assumed.
+
+    raise_exception : Union[bool, str], default=True
+        If True, raises an error if `data` is not a DataFrame or columns are 
+        missing. If False, converts errors to warnings. If set to `"mute"` or 
+        `"silence"`, suppresses warnings entirely.
+
+    verbose : int, default=0
+        If greater than 0, outputs messages about detected columns and 
+        transformations.
+
+    round_decimals : int, optional
+        If specified, rounds extracted column values to the given number of 
+        decimal places.
+
+    fillna_value : Any, optional
+        If specified, fills missing values in extracted columns with 
+        `fillna_value`.
+
+    unique : bool, default=False
+        If True, returns only unique values in extracted columns.
+
+    coerce_dtype : Any, optional
+        If specified, coerces extracted column(s) to the provided data type.
+
+    Returns
+    -------
+    Tuple[Union[Tuple[float, float], pd.DataFrame, None], pd.DataFrame, Tuple[str, ...]]
+        - The extracted data as either the midpoint tuple or DataFrame, 
+          depending on `as_frame`.
+        - The modified original DataFrame, with extracted columns optionally 
+          removed.
+        - A tuple of detected column names or an empty tuple if none are 
+          detected.
+
+    Notes
+    -----
+    - If `as_frame=False`, computes the midpoint of coordinates by averaging 
+      the values:
+      
+      .. math::
+          \text{midpoint} = \left(\frac{\sum \text{longitudes}}{n}, 
+          \frac{\sum \text{latitudes}}{n}\right)
+
+    - If `fillna_value` is specified, missing values in extracted columns 
+      are filled before further processing.
+
+    Examples
+    --------
+    >>> import gofast as gf
+    >>> from gofast.tools.datautils import data_extractor
+    >>> testdata = gf.datasets.make_erp(n_stations=7, seed=42).frame
+
+    # Extract longitude/latitude midpoint
+    >>> xy, modified_data, columns = data_extractor(testdata)
+    >>> xy, columns
+    ((110.48627946874444, 26.051952363176344), ('longitude', 'latitude'))
+
+    # Extract as DataFrame and round coordinates
+    >>> xy, modified_data, columns = data_extractor(testdata, as_frame=True, round_decimals=3)
+    >>> xy.head(2)
+       longitude  latitude
+    0    110.486    26.051
+    1    110.486    26.051
+
+    # Extract specific columns with unique values and drop from DataFrame
+    >>> xy, modified_data, columns = data_extractor(
+        testdata, columns=['station', 'resistivity'], unique=True, drop_columns=True)
+    >>> xy, modified_data.head(2)
+    (array([[0.0, 1.0], [20.0, 167.5]]), <DataFrame without 'station' and 'resistivity'>)
+
+    References
+    ----------
+    .. [1] Fotheringham, A. Stewart, *Geographically Weighted Regression: 
+           The Analysis of Spatially Varying Relationships*, Wiley, 2002.
+
+    See Also
+    --------
+    pd.DataFrame : Main pandas data structure for handling tabular data.
+    np.nanmean : Computes the mean along specified axis, ignoring NaNs.
+    """
+
+    def validate_columns(d: pd.DataFrame, cols: List[str]) -> List[str]:
+        """Check if columns exist in DataFrame, raising or warning if not."""
+        missing = [col for col in cols if col not in d.columns]
+        if missing:
+            msg = f"Columns {missing} not found in DataFrame."
+            if str(raise_exception).lower() == 'true':
+                raise KeyError(msg)
+            elif raise_exception not in ('mute', 'silence'):
+                warnings.warn(msg)
+        return [col for col in cols if col in d.columns]
+
+    # Validate input DataFrame
+    if not isinstance(data, pd.DataFrame):
+        emsg = f"Expected a DataFrame but got {type(data).__name__!r}."
+        if str(raise_exception).lower() == 'true':
+            raise TypeError(emsg)
+        elif raise_exception not in ('mute', 'silence'):
+            warnings.warn(emsg)
+        return None, data, ()
+
+    # Determine columns to extract based on user input or defaults
+    if columns is None:
+        if default_columns is not None:
+            for col_pair in default_columns:
+                if all(col in data.columns for col in col_pair):
+                    columns = list(col_pair)
+                    break
+        if columns is None:
+            if str(raise_exception).lower() == 'true':
+                raise ValueError("No default columns found in DataFrame.")
+            if raise_exception not in ('mute', 'silence'):
+                warnings.warn("No default columns found in DataFrame.")
+            return None, data, ()
+
+    # Validate extracted columns
+    columns = validate_columns(data, columns)
+
+    # Extract specified columns
+    extracted = data[columns].copy()
+    
+    # Apply optional transformations
+    if fillna_value is not None:
+        extracted.fillna(fillna_value, inplace=True)
+    if unique:
+        extracted = extracted.drop_duplicates()
+    if coerce_dtype:
+        extracted = extracted.astype(coerce_dtype)
+    if round_decimals is not None:
+        extracted = extracted.round(round_decimals)
+
+    # Compute midpoint if `as_frame=False`
+    extracted_data = extracted if as_frame else tuple(
+        np.nanmean(extracted.values, axis=0))
+
+    # Drop columns from original DataFrame if `drop_columns=True`
+    if drop_columns:
+        data.drop(columns=columns, inplace=True)
+
+    # Display verbose messages if enabled
+    if verbose > 0:
+        print("### Extracted columns:", columns)
+        if drop_columns:
+            print("### Dropped columns from DataFrame.")
+
+    return extracted_data, data, tuple(columns)
+
+def extract_coordinates(
+    d: pd.DataFrame,
+    as_frame: bool = False,
+    drop_xy: bool = False,
+    raise_exception: Union[bool, str] = True,
+    verbose: int = 0
+) -> Tuple[Union[Tuple[float, float], pd.DataFrame, None], pd.DataFrame, Tuple[str, str]]:
+    """
+    Identifies coordinate columns (longitude/latitude or easting/northing) 
+    in a DataFrame, returns the coordinates or their central values, and 
+    optionally removes the coordinate columns from the DataFrame.
+
+    Parameters
+    ----------
+    d : pd.DataFrame
+        The DataFrame expected to contain coordinates (`longitude` and 
+        `latitude` or `easting` and `northing`). If both types are present, 
+        `longitude` and `latitude` are prioritized.
+
+    as_frame : bool, default=False
+        If True, returns the coordinate columns as a DataFrame. If False, 
+        computes and returns the midpoint values.
+
+    drop_xy : bool, default=False
+        If True, removes coordinate columns (`longitude`/`latitude` or 
+        `easting`/`northing`) from the DataFrame after extracting them.
+
+    raise_exception : Union[bool, str], default=True
+        If True, raises an error if `d` is not a DataFrame. If set to False, 
+        converts errors to warnings. If set to "mute" or "silence", suppresses 
+        warnings.
+
+    verbose : int, default=0
+        If greater than 0, outputs messages about coordinate detection.
+
+    Returns
+    -------
+    Tuple[Union[Tuple[float, float], pd.DataFrame, None], pd.DataFrame, Tuple[str, str]]
+        - A tuple containing either the midpoint (longitude, latitude) or 
+          (easting, northing) if `as_frame=False` or the coordinate columns 
+          as a DataFrame if `as_frame=True`.
+        - The original DataFrame, optionally with coordinates removed if 
+          `drop_xy=True`.
+        - A tuple of detected coordinate column names, or an empty tuple if 
+          none are detected.
+
+    Notes
+    -----
+    - This function searches for either `longitude`/`latitude` or 
+      `easting`/`northing` columns and returns them as coordinates. If both 
+      are found, `longitude`/`latitude` is prioritized.
+      
+    - To calculate the midpoint of the coordinates, the function averages 
+      the values in the columns:
+
+      .. math::
+          \text{midpoint} = \left(\frac{\text{longitude}_{min} + \text{longitude}_{max}}{2}, 
+          \frac{\text{latitude}_{min} + \text{latitude}_{max}}{2}\right)
+
+    Examples
+    --------
+    >>> import gofast as gf
+    >>> from gofast.tools.datautils import extract_coordinates
+    >>> testdata = gf.datasets.make_erp(n_stations=7, seed=42).frame
+
+    # Extract midpoint coordinates
+    >>> xy, d, xynames = extract_coordinates(testdata)
+    >>> xy, xynames
+    ((110.48627946874444, 26.051952363176344), ('longitude', 'latitude'))
+
+    # Extract coordinates as a DataFrame without removing columns
+    >>> xy, d, xynames = extract_coordinates(testdata, as_frame=True)
+    >>> xy.head(2)
+       longitude   latitude
+    0  110.485833  26.051389
+    1  110.485982  26.051577
+
+    # Drop coordinate columns from the DataFrame
+    >>> xy, d, xynames = extract_coordinates(testdata, drop_xy=True)
+    >>> xy, xynames
+    ((110.48627946874444, 26.051952363176344), ('longitude', 'latitude'))
+    >>> d.head(2)
+       station  resistivity
+    0      0.0          1.0
+    1     20.0        167.5
+
+    References
+    ----------
+    .. [1] Fotheringham, A. Stewart, *Geographically Weighted Regression: 
+           The Analysis of Spatially Varying Relationships*, Wiley, 2002.
+
+    See Also
+    --------
+    pd.DataFrame : Main pandas data structure for handling tabular data.
+    np.nanmean : Computes the mean along specified axis, ignoring NaNs.
+    """
+    
+    def rename_if_exists(val: str, col: pd.Index, default: str) -> pd.DataFrame:
+        """Rename column in `d` if `val` is found in column names."""
+        match = list(filter(lambda x: val in x.lower(), col))
+        if match:
+            d.rename(columns={match[0]: default}, inplace=True)
+        return d
+
+    # Validate input is a DataFrame
+    if not (hasattr(d, 'columns') and hasattr(d, '__array__')):
+        emsg = ("Expected a DataFrame containing coordinates (`longitude`/"
+                "`latitude` or `easting`/`northing`). Got type: "
+                f"{type(d).__name__!r}")
+        
+        raise_exception = str(raise_exception).lower().strip()
+        if raise_exception == 'true':
+            raise TypeError(emsg)
+        if raise_exception not in ('mute', 'silence'):
+            warnings.warn(emsg)
+        return None, d, ()
+
+    # Rename columns to standardized names if they contain coordinate values
+    for name, std_name in zip(['lat', 'lon', 'east', 'north'], 
+                              ['latitude', 'longitude', 'easting', 'northing']):
+        d = rename_if_exists(name, d.columns, std_name)
+
+    # Check for and prioritize coordinate columns
+    coord_columns = []
+    for x, y in [('longitude', 'latitude'), ('easting', 'northing')]:
+        if x in d.columns and y in d.columns:
+            coord_columns = [x, y]
+            break
+
+    # Extract coordinates as DataFrame or midpoint
+    if coord_columns:
+        xy = d[coord_columns] if as_frame else tuple(
+            np.nanmean(d[coord_columns].values, axis=0))
+    else:
+        xy = None
+    
+    # Drop coordinates if `drop_xy=True`
+    if drop_xy and coord_columns:
+        d.drop(columns=coord_columns, inplace=True)
+
+    # Verbose messaging
+    if verbose > 0:
+        print("###", "No" if not coord_columns else coord_columns, "coordinates found.")
+    
+    return xy, d, tuple(coord_columns)
+
+@Deprecated(reason=( 
+    "This function is deprecated and will be removed in future versions. "
+    "Please use `extract_coordinates` instead, which provides enhanced "
+    "flexibility and robustness for coordinate extraction.")
+)
+def get_xy_coordinates(
+        d, as_frame=False, drop_xy=False, raise_exception=True, verbose=0
+    ):
     """Check whether the coordinate values x, y exist in the data.
     
     Parameters 
@@ -1007,7 +1864,7 @@ def get_xy_coordinates (d, as_frame = False, drop_xy = False,
     Examples 
     ----------
     >>> import gofast as gf 
-    >>> from gofast.tools.coreutils import get_xy_coordinates 
+    >>> from gofast.tools.datautils import get_xy_coordinates 
     >>> testdata = gf.make_erp ( n_stations =7, seed =42 ).frame 
     >>> xy, d, xynames = get_xy_coordinates ( testdata,  )
     >>> xy , xynames 
@@ -1161,7 +2018,7 @@ def replace_data(
     --------
     
     >>> import numpy as np 
-    >>> from gofast.tools.coreutils import replace_data
+    >>> from gofast.tools.datautils import replace_data
     >>> X, y = np.random.randn ( 7, 2 ), np.arange(7)
     >>> X.shape, y.shape 
     ((7, 2), (7,))

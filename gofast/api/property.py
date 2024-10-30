@@ -62,11 +62,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod 
 from collections import defaultdict
 import pickle
-import warnings
+
 import numpy as np
 import pandas as pd 
 from typing import Any, Dict, Iterable, List, Tuple
-from typing import Optional, Callable, Union
 import inspect
 
 __all__ = [ 
@@ -344,7 +343,10 @@ class BaseClass:
         Controls whether the attributes are displayed in vertical alignment 
         or inline.
         If True, attributes are displayed vertically (default is False).
-
+    _auto_display: bool 
+        Control whether the vertical display  is needed based on 
+        MAX_DISPLAY_ITEMS (default is True)
+        
     Methods
     -------
     __repr__()
@@ -390,6 +392,7 @@ class BaseClass:
     _include_all_attributes = False  
     _formatage = True 
     _vertical_display = False 
+    _auto_display=True 
 
     def __repr__(self) -> str:
         """
@@ -419,7 +422,12 @@ class BaseClass:
                 if hasattr(self, key):
                     value = getattr(self, key)
                     attributes.append(self._format_attr(key, value))
-
+                    
+        # Check auto-display 
+        if self._auto_display: 
+            if len(attributes)> self.MAX_DISPLAY_ITEMS:
+                self._vertical_display =True 
+                
         # Return vertical or inline representation based on _vertical_display
         if self._vertical_display:
             return f"{self.__class__.__name__}(\n    " + ",\n    ".join(attributes) + "\n)"
@@ -981,7 +989,6 @@ class BaseLearner:
                 f"{self.__class__.__name__} requires either `run` or `fit`."
             )
 
-    
 class BasePlot(ABC): 
     r""" Base class  deals with Machine learning and conventional Plots. 
     
@@ -1089,75 +1096,76 @@ class BasePlot(ABC):
     """
     
     @abstractmethod 
-    def __init__(self,
-                 savefig: str = None,
-                 fig_num: int =  1,
-                 fig_size: tuple =  (12, 8),
-                 fig_dpi:int = 300, 
-                 fig_legend: str =  None,
-                 fig_orientation: str ='landscape',
-                 fig_title:str = None,
-                 fig_aspect:str='auto',
-                 font_size: float =3.,
-                 font_style: str ='italic',
-                 font_weight: str = 'bold',
-                 fs: float = 5.,
-                 ms: float =3.,
-                 marker: str = 'o',
-                 markerfacecolor: str ='yellow',
-                 markeredgecolor: str = 'cyan',
-                 markeredgewidth: float =  3.,
-                 lc: str =  'k',
-                 ls: str = '-',
-                 lw: float = 1.,
-                 alpha: float =  .5,
-                 bins: int =  10,
-                 xlim: list = None, 
-                 ylim: list= None,
-                 xminorticks: int=1, 
-                 yminorticks: int =1,
-                 xlabel: str  =  None,
-                 ylabel: str = None,
-                 rotate_xlabel: int = None,
-                 rotate_ylabel: int =None ,
-                 leg_kws: dict = dict(),
-                 plt_kws: dict = dict(), 
-                 plt_style:str="pcolormesh",
-                 plt_shading: str="auto", 
-                 imshow_interp:str =None,
-                 s: float=  40.,
-                 cmap:str='jet_r',
-                 show_grid: bool = False,
-                 galpha: float = .5,
-                 gaxis: str = 'both',
-                 gc: str = 'k',
-                 gls: str = '--',
-                 glw: float = 2.,
-                 gwhich: str = 'major',               
-                 tp_axis: str = 'both',
-                 tp_labelsize: float = 3.,
-                 tp_bottom: bool =True,
-                 tp_top: bool = True,
-                 tp_labelbottom: bool = False,
-                 tp_labeltop: bool = True,               
-                 cb_orientation: str = 'vertical',
-                 cb_aspect: float = 20.,
-                 cb_shrink: float =  1.,
-                 cb_pad: float =.05,
-                 cb_anchor: tuple = (0., .5),
-                 cb_panchor: tuple=  (1., .5),              
-                 cb_label: str = None,
-                 cb_spacing: str = 'uniform' ,
-                 cb_drawedges: bool = False,
-                 cb_format: float = None ,   
-                 sns_orient: str ='v', 
-                 sns_style: str = None, 
-                 sns_palette: str= None, 
-                 sns_height: float=4. , 
-                 sns_aspect:float =.7, 
-                 sns_theme_kws: dict = None,
-                 verbose: int=0, 
-                 ): 
+    def __init__(
+        self,
+        savefig: str = None,
+        fig_num: int =  1,
+        fig_size: tuple =  (12, 8),
+        fig_dpi:int = 300, 
+        fig_legend: str =  None,
+        fig_orientation: str ='landscape',
+        fig_title:str = None,
+        fig_aspect:str='auto',
+        font_size: float =3.,
+        font_style: str ='italic',
+        font_weight: str = 'bold',
+        fs: float = 5.,
+        ms: float =3.,
+        marker: str = 'o',
+        markerfacecolor: str ='yellow',
+        markeredgecolor: str = 'cyan',
+        markeredgewidth: float =  3.,
+        lc: str =  'k',
+        ls: str = '-',
+        lw: float = 1.,
+        alpha: float =  .5,
+        bins: int =  10,
+        xlim: list = None, 
+        ylim: list= None,
+        xminorticks: int=1, 
+        yminorticks: int =1,
+        xlabel: str  =  None,
+        ylabel: str = None,
+        rotate_xlabel: int = None,
+        rotate_ylabel: int =None ,
+        leg_kws: dict = dict(),
+        plt_kws: dict = dict(), 
+        plt_style:str="pcolormesh",
+        plt_shading: str="auto", 
+        imshow_interp:str =None,
+        s: float=  40.,
+        cmap:str='jet_r',
+        show_grid: bool = False,
+        galpha: float = .5,
+        gaxis: str = 'both',
+        gc: str = 'k',
+        gls: str = '--',
+        glw: float = 2.,
+        gwhich: str = 'major',               
+        tp_axis: str = 'both',
+        tp_labelsize: float = 3.,
+        tp_bottom: bool =True,
+        tp_top: bool = True,
+        tp_labelbottom: bool = False,
+        tp_labeltop: bool = True,               
+        cb_orientation: str = 'vertical',
+        cb_aspect: float = 20.,
+        cb_shrink: float =  1.,
+        cb_pad: float =.05,
+        cb_anchor: tuple = (0., .5),
+        cb_panchor: tuple=  (1., .5),              
+        cb_label: str = None,
+        cb_spacing: str = 'uniform' ,
+        cb_drawedges: bool = False,
+        cb_format: float = None ,   
+        sns_orient: str ='v', 
+        sns_style: str = None, 
+        sns_palette: str= None, 
+        sns_height: float=4. , 
+        sns_aspect:float =.7, 
+        sns_theme_kws: dict = None,
+        verbose: int=0, 
+        ): 
         
         self.savefig=savefig
         self.fig_num=fig_num
@@ -1234,7 +1242,7 @@ class BasePlot(ABC):
                          if pname.startswith('cb_')
                          }
 
-class GeoscienceProperties:
+class GeoscienceProperties(BaseClass):
     """ 
     A container class for geological configurations in the Gofast package, 
     storing fixed properties, array configurations, resistivity ranges, and 
@@ -1489,7 +1497,7 @@ class GeoscienceProperties:
         }
 
 
-class PandasDataHandlers:
+class PandasDataHandlers(BaseClass):
     """ 
     A container for data parsers and writers based on Pandas, supporting a 
     wide range of formats for both reading and writing DataFrames. This class 
@@ -1640,7 +1648,7 @@ class PandasDataHandlers:
         }
 
 
-class References:
+class References(BaseClass):
     """
     Holds citation information for a reference in the Gofast package, 
     encapsulating standard publication details such as author, title, 
@@ -1715,7 +1723,7 @@ class References:
         for key in kws:
             setattr(self, key, kws[key])
 
-class Copyright:
+class Copyright(BaseClass):
     """
     Contains copyright information, focusing on usage terms for data within 
     the Gofast package. This class includes references to the citation of 
@@ -1794,7 +1802,7 @@ class Copyright:
             setattr(self, key, kws[key])
 
 
-class Person:
+class Person(BaseClass):
     """
     Stores contact information for a person associated with the data, 
     such as an author, contributor, or project owner. Supports customization 
@@ -1863,7 +1871,7 @@ class Person:
         for key in kws:
             setattr(self, key, kws[key])
 
-class Software:
+class Software(BaseClass):
     """
     Stores essential information about software used within the Gofast package, 
     encapsulating details such as name, version, release date, and author. This 
@@ -2016,158 +2024,6 @@ class Software:
             "phone": getattr(self.Author, 'phone', None)
         }
         return {k: v for k, v in contact_info.items() if v is not None}
-
-# ----- functions -----
-def run_return(
-    self, 
-    attribute_name: Optional[str] = None, 
-    error_policy: str = 'warn',
-    default_value: Optional[Any] = None,
-    check_callable: bool = False,
-    return_type: str = 'attribute',
-    on_callable_error: str = 'warn',
-    allow_private: bool = False,
-    msg: Optional[str] = None, 
-    config_return_type: Optional[Union[str, bool]] = None
-) -> Any:
-    """
-    Return `self`, a specified attribute of `self`, or both, with error handling
-    policies. Optionally integrates with global configuration to customize behavior.
-
-    Parameters
-    ----------
-    attribute_name : str, optional
-        The name of the attribute to return. If `None`, returns `self`.
-    error_policy : str, optional
-        Policy for handling non-existent attributes. Options:
-        - `warn` : Warn the user and return `self` or a default value.
-        - `ignore` : Silently return `self` or the default value.
-        - `raise` : Raise an `AttributeError` if the attribute does not exist.
-    default_value : Any, optional
-        The default value to return if the attribute does not exist. If `None`,
-        and the attribute does not exist, returns `self` based on the error policy.
-    check_callable : bool, optional
-        If `True`, checks if the attribute is callable and executes it if so.
-    return_type : str, optional
-        Specifies the return type. Options:
-        - `self` : Always return `self`.
-        - `attribute` : Return the attribute if it exists.
-        - `both` : Return a tuple of (`self`, attribute).
-    on_callable_error : str, optional
-        How to handle errors when calling a callable attribute. Options:
-        - `warn` : Warn the user and return `self`.
-        - `ignore` : Silently return `self`.
-        - `raise` : Raise the original error.
-    allow_private : bool, optional
-        If `True`, allows access to private attributes (those starting with '_').
-    msg : str, optional
-        Custom message for warnings or errors. If `None`, a default message will be used.
-    config_return_type : str or bool, optional
-        Global configuration to override return behavior. If set to 'self', always
-        return `self`. If 'attribute', always return the attribute. If `None`, use
-        developer-defined behavior.
-
-    Returns
-    -------
-    Any
-        Returns `self`, the attribute value, or a tuple of both, depending on
-        the specified options and the availability of the attribute.
-
-    Raises
-    ------
-    AttributeError
-        If the attribute does not exist and `error_policy` is set to 'raise', or if the
-        callable check fails and `on_callable_error` is set to 'raise'.
-
-    Notes
-    -----
-    The `run_return` function is designed to offer flexibility in determining
-    what is returned from a method, allowing developers to either return `self` for
-    chaining, return an attribute of the class, or both. By using `global_config`,
-    package-wide behavior can be customized.
-
-    Examples
-    --------
-    >>> from gofast.api.property import run_return
-    >>> class MyModel:
-    ...     def __init__(self, name):
-    ...         self.name = name
-    ...
-    >>> model = MyModel(name="example")
-    >>> run_return(model, "name")
-    'example'
-
-    See Also
-    --------
-    logging : Python's logging module.
-    warnings.warn : Function to issue warning messages.
-
-    References
-    ----------
-    .. [1] "Python Logging Module," Python Software Foundation.
-           https://docs.python.org/3/library/logging.html
-    .. [2] "Python Warnings," Python Documentation.
-           https://docs.python.org/3/library/warnings.html
-    """
-
-    # If global config specifies return behavior, override the return type
-    if config_return_type == 'self':
-        return self
-    elif config_return_type == 'attribute':
-        return getattr(self, attribute_name, default_value
-                       ) if attribute_name else self
-
-    # If config is None or not available, use developer-defined logic
-    if attribute_name:
-        # Check for private attributes if allowed
-        if not allow_private and attribute_name.startswith('_'):
-            custom_msg = msg or ( 
-                f"Access to private attribute '{attribute_name}' is not allowed.")
-            raise AttributeError(custom_msg)
-
-        # Check if the attribute exists
-        if hasattr(self, attribute_name):
-            attr_value = getattr(self, attribute_name)
-
-            # If check_callable is True, try executing the attribute if it's callable
-            if check_callable and isinstance(attr_value, Callable):
-                try:
-                    attr_value = attr_value()
-                except Exception as e:
-                    custom_msg = msg or ( 
-                        f"Callable attribute '{attribute_name}'"
-                        f" raised an error: {e}."
-                        )
-                    if on_callable_error == 'raise':
-                        raise e
-                    elif on_callable_error == 'warn':
-                        warnings.warn(custom_msg)
-                        return self
-                    elif on_callable_error == 'ignore':
-                        return self
-
-            # Return based on the return_type provided
-            if return_type == 'self':
-                return self
-            elif return_type == 'both':
-                return self, attr_value
-            else:
-                return attr_value
-        else:
-            # Handle the case where the attribute does not exist based on the error_policy
-            custom_msg = msg or ( 
-                f"'{self.__class__.__name__}' object has"
-                f"  no attribute '{attribute_name}'."
-                )
-            if error_policy == 'raise':
-                raise AttributeError(custom_msg)
-            elif error_policy == 'warn':
-                warnings.warn(f"{custom_msg} Returning default value or self.")
-            # Return the default value if provided, otherwise return self
-            return default_value if default_value is not None else self
-    else:
-        # If no attribute is provided, return self
-        return self
 
 
     
