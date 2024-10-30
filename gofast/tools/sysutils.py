@@ -1350,7 +1350,7 @@ def find_by_regex (o , pattern,  func = re.match, **kws ):
     when we talk about iterable, a string value is not included.
     
     Parameters 
-    -------------
+    -----------
     o: str or iterable,  
         text litteral or an iterable object containing or not the specific 
         object to match. 
@@ -1625,6 +1625,7 @@ def represent_callable(
         params = [f"{k}={repr(v)}" for k, v in displayed_attrs]
         representation = f"{obj_name}({', '.join(params)})"
     return representation
+
 
 def safe_getattr(obj: Any, name: str, default_value: Optional[Any] = None) -> Any:
     """

@@ -35,7 +35,8 @@ from .simulate import (
    simulate_predictive_maintenance, simulate_real_estate_price, 
    simulate_sentiment_analysis, simulate_weather_forecasting, 
    simulate_default_loan, simulate_traffic_flow, simulate_medical_diagnosis,
-   simulate_retail_sales, simulate_landfill_capacity
+   simulate_retail_sales, simulate_landfill_capacity, simulate_climate_data, 
+   simulate_patient_data, simulate_weather_data
 )
 
 __all__ = [
