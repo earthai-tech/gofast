@@ -1,9 +1,6 @@
 """
-Gofast Dataset Subpackage
-=========================
-
-This subpackage is designed to facilitate data fetching from the local machine
-for various datasets. It also includes utilities to generate synthetic datasets
+Designed to facilitate data fetching from the local machine for various 
+datasets. It also includes utilities to generate synthetic datasets
 for different use cases. For remote data loading capabilities, refer to
 :mod:`~gofast.datasets.rload`.
 
