@@ -56,6 +56,7 @@ Notes:
 References:
 -----------
 - `GoFast GitHub Repository <https://github.com/earthai-tech/gofast>`_
+- `WATex GitHub Repository <https://github.com/earthai-tech/watex>`_
 - `Zenodo <https://zenodo.org/>`_
 
 """
