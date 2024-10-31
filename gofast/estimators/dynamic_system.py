@@ -1216,8 +1216,8 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
             Computed loss value based on the specified loss function. The loss 
             is averaged across all samples.
     
-        Mathematical Concept
-        --------------------
+        Notes
+        -----
         - Cross-Entropy Loss:
           The cross-entropy loss measures the error between the true and 
           predicted probabilities. The formula is:
@@ -1241,8 +1241,7 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
     
           where :math:`w_i` are time weights calculated by `_compute_time_weights`.
     
-        Notes
-        -----
+
         - Cross-entropy is commonly used for binary classification problems.
         - Time-weighted cross-entropy can improve performance in time-sensitive 
           applications by focusing on recent prediction accuracy.
