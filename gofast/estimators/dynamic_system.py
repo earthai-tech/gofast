@@ -3,7 +3,7 @@
 # Author: LKouadio <etanoyau@gmail.com>
 
 """
-`dynamic_system` implements various dynamic system models for classification 
+Dynamic system implements various dynamic system models for classification 
 and regression tasks within the gofast library. These models are designed to 
 handle complex, time-dependent data by combining dynamic system theory with 
 machine learning techniques.
@@ -48,6 +48,8 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
     - :math:`f_{\\text{out}}` is the nonlinear output function.
     - :math:`y(t)` is the output at time :math:`t`.
 
+    See more in :ref:`User Guide`.
+    
     Parameters
     ----------
     nonlinear_input_estimator : estimator object or None, default=None
@@ -744,6 +746,8 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
     - :math:`f_{\\text{out}}` is the nonlinear output function.
     - :math:`y(t)` is the output at time :math:`t`.
 
+    See more in :ref:`User Guide`.
+    
     Parameters
     ----------
     nonlinear_input_estimator : estimator object or None, default=None
