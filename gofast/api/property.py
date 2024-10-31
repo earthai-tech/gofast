@@ -105,7 +105,7 @@ from abc import ABCMeta
 from collections import defaultdict
 
 from types import FunctionType, MethodType # noqa 
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Tuple, Union, Optional 
 
 import numpy as np
 import pandas as pd 
@@ -1234,29 +1234,146 @@ class BaseLearner(metaclass=LearnerMeta):
         print("Parameters reset to default values.")
         return self
     
-    
-    def is_runned(self):
+    def is_runned(
+        self,
+        attributes: Optional[Union[str, List[str]]] = None,
+        msg: Optional[str] = None,
+        check_status: str = "passthrough"
+    ) -> bool:
         """
-        Check if the learner has been run.
+        Check if the learner has been run by verifying the presence 
+        of specific attributes.
+    
+        Parameters
+        ----------
+        attributes : str or list of str, optional
+            Specific attribute name(s) to check for existence and non-None 
+            value. If provided, the method checks only these attributes.
+            If `None`, it checks for any attributes ending with an 
+            underscore ('_').
+    
+        msg : str, optional
+            Custom error message to display if the learner has not been run 
+            and `check_status` is not ``"passthrough"``. The placeholder 
+            `%(name)s` can be used to include the learner's class name
+            in the message.
+            Default message is:
+            "The %(name)s instance has not been 'runned' yet. Call 'run' with 
+            appropriate arguments before using this method."
+    
+        check_status : str, default="passthrough"
+            Determines the behavior of the method when the learner has not 
+            been run.
+            Options are:
+            - `"passthrough"`: Returns `True` or `False` indicating the run 
+              status.
+            - Any other value: Raises `NotRunnedError` if the learner has 
+              not been run.
     
         Returns
         -------
         bool
-            True if the learner has been run, False otherwise.
+            `True` if the learner has been run, `False` otherwise.
+    
+        Raises
+        ------
+        NotRunnedError
+            If `check_status` is not `"passthrough"` and the learner has
+            not been run.
+    
+        Examples
+        --------
+        >>> from gofast.api.property import BaseLearner
+        >>> class MyLearner(BaseLearner):
+        ...     def __init__(self):
+        ...         self.model_ = None  # Placeholder attribute after running
+        ...
+        >>> learner = MyLearner()
+        >>> learner.is_runned()
+        False
+        >>> learner.model_ = "TrainedModel"
+        >>> learner.is_runned()
+        True
+        >>> learner.is_runned(attributes='model_')
+        True
+        >>> learner.is_runned(attributes='non_existent_attr')
+        False
+        >>> # Using custom error message and check_status
+        >>> learner = MyLearner()
+        >>> learner.is_runned(msg="Custom error for %(name)s.", check_status="raise")
+        Traceback (most recent call last):
+        NotRunnedError: Custom error for MyLearner.
+    
+        Notes
+        -----
+        - This method checks if the learner has been run by verifying the presence
+          of specific attributes. If `attributes` is not provided, it checks for any
+          attributes ending with an underscore ('_'), which is a common convention
+          for indicating fitted attributes in scikit-learn estimators [1]_.
+        - The method can either return a boolean value or raise an error based on
+          the `check_status` parameter.
+    
+        See Also
+        --------
+        sklearn.utils.validation.check_is_fitted : Utility function for similar 
+        functionality in scikit-learn.
+    
+        References
+        ----------
+        .. [1] Scikit-learn development team, "Developing scikit-learn estimators",
+           https://scikit-learn.org/stable/developers/develop.html#estimated-attributes
+    
         """
-        # Check for attributes with trailing underscores
-        trailing_attrs = [attr for attr in self.__dict__ if attr.endswith("_")]
+        # Local exception class
+        class NotRunnedError(Exception):
+            """Exception raised when the learner has not been run."""
+            pass
     
-        if trailing_attrs:
-            return True
+        # Default message if none provided
+        if msg is None:
+            msg = (
+                "The %(name)s instance has not been 'runned' yet. "
+                "Call 'run' with appropriate arguments before using this method."
+            )
     
-        # Fallback to `__gofast_is_runned__` if no trailing attributes
-        if hasattr(self, "__gofast_is_runned__") and callable(
-                getattr(self, "__gofast_is_runned__")):
-            return self.__gofast_is_runned__()
+        # Initialize run status
+        is_runned = False
     
-        return False
+        # Check specific attributes if provided
+        if attributes is not None:
+            if isinstance(attributes, str):
+                attributes = [attributes]
+            # Verify each attribute exists and is not None or not False 
+            is_runned = all(
+                hasattr(self, attr) and getattr(self, attr) is not None
+                and getattr(self, attr) is not False
+                for attr in attributes
+            )
+        else:
+            # Check for any attributes with trailing underscores
+            trailing_attrs = [
+                attr for attr in self.__dict__ if attr.endswith("_")
+            ]
+            if trailing_attrs:
+                is_runned = True
+                # Fallback to `__gofast_is_runned__` if no trailing attributes
+            elif hasattr(self, "__gofast_is_runned__") and callable(
+                getattr(self, "__gofast_is_runned__")
+            ):
+                # Fallback to custom method if defined
+                is_runned = self.__gofast_is_runned__()
+            else:
+                is_runned = False
     
+        # Handle check_status behavior
+        if check_status == "passthrough":
+            return is_runned
+        else:
+            if not is_runned:
+                # Raise error with custom or default message
+                raise NotRunnedError(msg % {"name": type(self).__name__})
+            return is_runned
+
     def clone(self):
         """
         Create a clone of the learner with identical parameters.
