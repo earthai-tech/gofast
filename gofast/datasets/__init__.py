@@ -23,7 +23,7 @@ from .make import (
    make_tem, make_well_logging, make_sounding, make_african_demo,
    make_agronomy_feedback, make_social_media_comments, make_cc_factors,
    make_water_demand, make_regression, make_classification, 
-   make_data
+   make_data, make_financial_market_trends, make_control_system_dynamics
 )
 # Data simulation functions
 from .simulate import ( 
@@ -33,7 +33,7 @@ from .simulate import (
    simulate_sentiment_analysis, simulate_weather_forecasting, 
    simulate_default_loan, simulate_traffic_flow, simulate_medical_diagnosis,
    simulate_retail_sales, simulate_landfill_capacity, simulate_climate_data, 
-   simulate_patient_data, simulate_weather_data
+   simulate_patient_data, simulate_weather_data, simulate_telecom_data
 )
 
 __all__ = [
@@ -46,7 +46,7 @@ __all__ = [
     "make_well_logging", "make_sounding","make_african_demo", "make_cc_factors",
     "make_agronomy_feedback","make_social_media_comments", "make_water_demand", 
     "make_regression","make_classification", "make_drill_ops",
-    "make_data",
+    "make_data", "make_control_system_dynamics", "make_financial_market_trends",
     
     "simulate_water_reserves", "simulate_world_mineral_reserves", 
     "simulate_energy_consumption","simulate_customer_churn",  
@@ -55,6 +55,6 @@ __all__ = [
     "simulate_default_loan", "simulate_traffic_flow", "simulate_medical_diagnosis",
     "simulate_retail_sales", "simulate_landfill_capacity", "simulate_climate_data",
     "simulate_stock_prices", "simulate_transactions", "simulate_patient_data",
-    "simulate_weather_data", "simulate_clinical_trials"
+    "simulate_weather_data", "simulate_clinical_trials", "simulate_telecom_data"
     
 ]
