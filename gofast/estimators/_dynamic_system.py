@@ -131,6 +131,7 @@ class BaseHammersteinWiener(BaseEstimator, metaclass=ABCMeta):
         self.n_jobs = n_jobs
         self.verbose = verbose
 
+
     def _apply_nonlinear_input(self, X, y=None):
         """Apply the nonlinear input transformation."""
         if self.verbose > 0:
@@ -151,6 +152,7 @@ class BaseHammersteinWiener(BaseEstimator, metaclass=ABCMeta):
                 X_transformed = self.nonlinear_input_estimator.transform(X)
             elif hasattr(self.nonlinear_input_estimator, 'predict'):
                 X_transformed = self.nonlinear_input_estimator.predict(X)
+                # Ensure the output is 2D
                 if X_transformed.ndim == 1:
                     X_transformed = X_transformed.reshape(-1, 1)
             else:
@@ -159,6 +161,7 @@ class BaseHammersteinWiener(BaseEstimator, metaclass=ABCMeta):
                     "or 'predict' method."
                 )
         else:
+            # No nonlinear input estimator provided; use original X
             X_transformed = X
             if self.verbose > 0:
                 print("No nonlinear input estimator provided; using original X.")
@@ -183,6 +186,7 @@ class BaseHammersteinWiener(BaseEstimator, metaclass=ABCMeta):
         if self.verbose > 0:
             print(f"Lagged features shape: {X_lagged.shape}")
         return X_lagged
+
 
     def _apply_linear_dynamic_block(self, X_lagged):
         """Apply the linear dynamic block."""
@@ -213,22 +217,28 @@ class BaseHammersteinWiener(BaseEstimator, metaclass=ABCMeta):
             if hasattr(self.nonlinear_output_estimator, 'transform'):
                 y_pred = self.nonlinear_output_estimator.transform(
                     y_linear.reshape(-1, 1)
-                ).ravel()
+                )
             elif hasattr(self.nonlinear_output_estimator, 'predict'):
                 y_pred = self.nonlinear_output_estimator.predict(
                     y_linear.reshape(-1, 1)
-                ).ravel()
+                )
             else:
                 raise ValueError(
                     "The nonlinear_output_estimator must have either a 'transform' "
                     "or 'predict' method."
                 )
+            # Ensure the output is 2D
+            if y_pred.ndim == 1:
+                y_pred = y_pred.reshape(-1, 1)
         else:
+            # No nonlinear output estimator provided; use linear output
             y_pred = y_linear
+            if y_pred.ndim == 1:
+                y_pred = y_pred.reshape(-1, 1)
             if self.verbose > 0:
                 print("No nonlinear output estimator provided; using linear output.")
         return y_pred
-
+    
     @abstractmethod
     def fit(self, X, y):
         """

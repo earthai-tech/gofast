@@ -158,8 +158,44 @@ def test_hammerstein_wiener_regressor_error_handling():
     with pytest.raises(NotFittedError):
         regressor.predict(np.array([[0, 1, 2]]))
 
+def test_hammerstein_wiener_classification_multilabels(): 
+    from sklearn.datasets import make_classification
+    
+    from untitled1 import HammersteinWienerClassifier
+    X, y = make_classification(n_samples=200, n_features=7, n_classes=2,n_informative=2)
+    
+    model = HammersteinWienerClassifier(p=4, verbose=1)
+    model.fit(X, y)
+    y_pred = model.predict(X)
+    score = model.score (X, y )
+    acc = accuracy_score(y, y_pred)
+    assert acc > 0.8, f"Expected accuracy > 0.8, but got {acc}"
+    assert score < 500, f"Expected score < 0.5, but got {score}"
 
-def test_hammerstein_wiener_regressor_basic():
+def test_hammerstein_wiener_regressor_multilabels(): 
+
+    # Generate synthetic multi-output regression data
+    X, y = make_regression(n_samples=200, n_features=5,  noise=0.1, random_state=42)
+    
+    # Introduce some nonlinearity
+    y += 0.5 * np.sin(X[:, 0])  # Apply sin to the first feature for each target
+    
+    # Instantiate the regressor
+    model = HammersteinWienerRegressor(p=2, verbose=1)
+    
+    # Fit the model
+    model.fit(X, y)
+    
+    # Predict
+    y_pred = model.predict(X)
+    
+    # Evaluate
+    from sklearn.metrics import mean_squared_error
+    mse = mean_squared_error(y, y_pred)
+    print(f"Mean Squared Error: {mse:.2f}")
+    assert mse < 500, f"Expected MSE < 500, but got {mse}"
+    
+def test_hammerstein_wiener_regressor_basic2():
     # Generate synthetic regression data
     X, y = make_regression(n_samples=200, n_features=5, noise=0.1, random_state=42)
     y = y + 0.5 * np.sin(X[:, 0])  # Introduce nonlinearity
