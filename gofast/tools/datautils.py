@@ -503,8 +503,9 @@ def resample_data(
         # Sample the data structure based on the computed sample size
         sampled_d = _perform_sampling(d, n_samples, replace, random_state, shuffle)
         resampled_structures.append(sampled_d)
-
-    return resampled_structures
+ 
+    return resampled_structures[0] if len(
+        resampled_structures)==1 else resampled_structures
 
 def _determine_sample_size(d: Any, samples: Union[int, float, str], 
                            is_percent: bool) -> int:

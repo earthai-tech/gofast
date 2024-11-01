@@ -8,12 +8,12 @@ and regression tasks within the gofast library. These models are designed to
 handle complex, time-dependent data by combining dynamic system theory with 
 machine learning techniques.
 """
-from numbers import Real
+from numbers import Integral, Real
 import numpy as np
 
 from sklearn.base import ClassifierMixin, RegressorMixin
 from sklearn.utils._param_validation import StrOptions
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import SGDClassifier, SGDRegressor
 from sklearn.metrics import log_loss
 try:
     from sklearn.utils.multiclass import type_of_target
@@ -27,6 +27,740 @@ from .util import activator
 
 __all__= ["HammersteinWienerClassifier","HammersteinWienerRegressor" ]
 
+
+class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
+    """
+    Hammerstein-Wiener model for classification tasks.
+
+    The Hammerstein-Wiener model is a block-oriented model used to
+    represent nonlinear dynamic systems. It consists of a cascade of
+    a static nonlinear input block, a linear dynamic block, and a
+    static nonlinear output block. This model is suitable for capturing
+    systems with input and output nonlinearities surrounding a linear
+    dynamic system.
+
+    The general structure of the Hammerstein-Wiener model is as follows:
+
+    .. math::
+        y(t) = f_{\\text{out}}\\left( L\\left( f_{\\text{in}}\\left( x(t) \\right) \\right) \\right)
+
+    where:
+
+    - :math:`x(t)` is the input vector at time :math:`t`.
+    - :math:`f_{\\text{in}}` is the nonlinear input function.
+    - :math:`L` is the linear dynamic block.
+    - :math:`f_{\\text{out}}` is the nonlinear output function.
+    - :math:`y(t)` is the output at time :math:`t`.
+
+    See more in :ref:`User Guide`.
+    
+    Parameters
+    ----------
+    nonlinear_input_estimator : estimator object or None, default=None
+        Estimator for the nonlinear input function :math:`f_{\\text{in}}`.
+        This should be an object that implements ``fit`` and either
+        ``transform`` or ``predict`` methods. If ``None``, no nonlinear
+        transformation is applied to the input.
+
+    nonlinear_output_estimator : estimator object or None, default=None
+        Estimator for the nonlinear output function :math:`f_{\\text{out}}`.
+        This should be an object that implements ``fit`` and either
+        ``transform`` or ``predict`` methods. If ``None``, no nonlinear
+        transformation is applied to the output.
+
+    p : int, default=1
+        Order of the linear dynamic block. This specifies the number of
+        lagged inputs to include in the linear dynamic model.
+
+    loss : {'cross_entropy', 'time_weighted_cross_entropy'}, default='cross_entropy'
+        Loss function to use for evaluating the model performance.
+
+        - ``'cross_entropy'``: Standard cross-entropy loss.
+        - ``'time_weighted_cross_entropy'``: Time-weighted cross-entropy loss,
+          giving more importance to recent misclassifications.
+
+    time_weighting : {'linear', 'exponential', 'inverse'}, default='linear'
+        Method for computing time weights when using time-weighted loss
+        functions.
+
+        - ``'linear'``: Linearly increasing weights over time.
+        - ``'exponential'``: Exponentially increasing weights over time.
+        - ``'inverse'``: Inversely decreasing weights over time.
+
+    feature_engineering : {'auto'}, default='auto'
+        Method for feature engineering. Currently, only ``'auto'`` is
+        supported.
+
+    epsilon : float, default=1e-15
+        A small constant used to prevent division by zero or log of zero 
+        errors during calculations  in probability estimates. Clipping 
+        predictions within the range defined by `epsilon` ensures numerical
+        stability by constraining values to avoid extremes.
+
+    n_jobs : int or None, default=None
+        The number of jobs to run in parallel. ``None`` means 1 unless in
+        a ``joblib.parallel_backend`` context.
+        
+        batch_size : int, default=32
+        The number of samples per batch during training. Smaller batch sizes 
+        may provide more granular updates to the model, while larger batch 
+        sizes can result in faster training times but require more memory.
+        
+    optimizer : {'sgd', 'adam', 'adagrad'}, default='adam'
+        The optimization algorithm to use for training the linear dynamic 
+        block. The choice of optimizer affects the model's convergence 
+        rate and stability:
+        
+        - ``'sgd'``: Stochastic Gradient Descent, a basic optimizer that 
+          updates weights based on a single sample, providing faster 
+          updates but potentially noisier convergence.
+        - ``'adam'``: Adaptive Moment Estimation, an advanced optimizer 
+          that adjusts learning rates for each parameter dynamically, 
+          improving convergence speed and stability.
+        - ``'adagrad'``: Adaptive Gradient Algorithm, which adapts learning 
+          rates for each parameter individually, helpful for sparse data 
+          but may decay learning rates too aggressively.
+          
+    learning_rate : float, default=0.001
+        The initial learning rate applied by the chosen optimizer. A higher 
+        learning rate can speed up training but risks overshooting minima, 
+        while a lower rate can lead to slower convergence but more precise 
+        optimization. Recommended values often range from 0.0001 to 0.01 
+        depending on model complexity.
+    
+    max_iter : int, default=1000
+        The maximum number of training iterations (epochs) for model 
+        training. Each iteration represents one pass through the entire 
+        dataset. Increasing this value allows the model more time to learn 
+        patterns but risks overfitting if too large.
+        
+    verbose : int, default=0
+        The verbosity level. If greater than 0, prints messages during
+        fitting and prediction.
+
+    Attributes
+    ----------
+    linear_model_ : object
+        The linear model used in the linear dynamic block. This model 
+        captures the linear relationship between lagged features and 
+        the target classes and is fitted during the training process.
+    
+    initial_loss_ : float
+        Initial loss computed on the training data after fitting. This 
+        value indicates the model's performance on the training data 
+        immediately following training and serves as a baseline loss.
+    
+    Methods
+    -------
+    fit(X, y)
+        Fit the Hammerstein-Wiener classifier to the provided training 
+        data (`X`, `y`). Applies input transformations, creates lagged 
+        features, fits the linear dynamic block with a classification 
+        model, and optionally applies a nonlinear output transformation.
+    
+    predict_proba(X)
+        Predict class probabilities for the input samples (`X`) using 
+        the fitted Hammerstein-Wiener classifier. Outputs the probability 
+        for each class based on transformations and linear dynamics.
+    
+    predict(X)
+        Predict binary class labels for the input samples (`X`) using 
+        the fitted Hammerstein-Wiener classifier. Classifies samples 
+        based on the computed class probabilities.
+    
+
+    See Also
+    --------
+    HammersteinWienerRegressor : Hammerstein-Wiener model for regression tasks.
+
+    Notes
+    -----
+    The Hammerstein-Wiener model combines static nonlinear blocks with
+    a linear dynamic block to model complex systems that exhibit both
+    dynamic and nonlinear behaviors [1]_.
+
+    The classifier is especially suited for time-series classification, 
+    signal processing, and systems identification tasks where current outputs 
+    are significantly influenced by historical inputs. It finds extensive 
+    applications in fields like telecommunications, control systems, and 
+    financial modeling, where understanding dynamic behaviors is crucial.
+    
+    References
+    ----------
+    .. [1] Schoukens, J., & Ljung, L. (2019). Nonlinear System
+           Identification: A User-Oriented Roadmap. IEEE Control
+           Systems Magazine, 39(6), 28-99.
+
+    Examples
+    --------
+    >>> from gofast.estimators.dynamic_system import HammersteinWienerClassifier
+    >>> from sklearn.datasets import make_classification
+    >>> import numpy as np
+    >>> # Generate synthetic data
+    >>> X, y = make_classification(n_samples=200, n_features=5,
+    ...                            n_informative=3, n_redundant=1,
+    ...                            random_state=42)
+    >>> # Instantiate the classifier
+    >>> model = HammersteinWienerClassifier(p=2, verbose=1)
+    >>> # Fit the model
+    >>> model.fit(X, y)
+    Starting HammersteinWienerClassifier fit method.
+    Applying nonlinear input transformation.
+    No nonlinear input estimator provided; using original X.
+    Creating lagged features.
+    Creating lag 1 features.
+    Creating lag 2 features.
+    Lagged features shape: (200, 10)
+    Fitting linear model for classification.
+    Applying nonlinear output transformation.
+    No nonlinear output estimator provided; using linear output.
+    Computed loss: 0.35
+    Initial loss: 0.35
+    Fit method completed.
+    >>> # Predict
+    >>> y_pred = model.predict(X)
+    Starting predict method.
+    Starting predict_proba method.
+    Applying nonlinear input transformation.
+    No nonlinear input estimator provided; using original X.
+    Creating lagged features.
+    Creating lag 1 features.
+    Creating lag 2 features.
+    Lagged features shape: (200, 10)
+    predict_proba method completed.
+    Predict method completed.
+    >>> # Evaluate
+    >>> from sklearn.metrics import accuracy_score
+    >>> acc = accuracy_score(y, y_pred)
+    >>> print(f"Accuracy: {acc:.2f}")
+    Accuracy: 0.85
+    """
+    
+    _parameter_constraints: dict = {
+        **BaseHammersteinWiener._parameter_constraints,
+        "loss": [StrOptions({"cross_entropy", "time_weighted_cross_entropy"})],
+        "time_weighting": [StrOptions({"linear", "exponential", "inverse"})],
+        "epsilon": [Interval(Real, 1e-15, None, closed='left')],
+        "batch_size": [Interval(Integral, 1, None, closed='left')],
+        "optimizer": [StrOptions({"sgd", "adam", "adagrad"})],
+        "learning_rate": [Interval(Real, 0, None, closed='neither')],
+        "max_iter": [Interval(Integral, 1, None, closed='left')],
+    }
+
+    def __init__(
+        self,
+        nonlinear_input_estimator=None,
+        nonlinear_output_estimator=None,
+        p=1,
+        loss="cross_entropy",
+        time_weighting="linear",
+        feature_engineering='auto',
+        n_jobs=None,
+        epsilon=1e-15,
+        batch_size=32,
+        optimizer='adam',
+        learning_rate=0.001,
+        max_iter=1000,
+        verbose=0
+    ):
+        super().__init__(
+            nonlinear_input_estimator=nonlinear_input_estimator,
+            nonlinear_output_estimator=nonlinear_output_estimator,
+            p=p,
+            feature_engineering=feature_engineering,
+            n_jobs=n_jobs,
+            verbose=verbose
+        )
+        self.loss = loss
+        self.time_weighting = time_weighting
+        self.epsilon = epsilon
+        self.batch_size = batch_size      
+        self.optimizer = optimizer        
+        self.learning_rate = learning_rate  
+        self.max_iter = max_iter          
+
+    def fit(self, X, y):
+        """
+        Fit the Hammerstein-Wiener classifier to the training data.
+        
+        This method applies transformations to the input data, constructs 
+        lagged features for time-based dynamics, and fits a logistic 
+        regression model on these features to capture linear relationships 
+        for classification. If a nonlinear output transformation is provided, 
+        it is applied to the decision function output.
+    
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training input samples, where `n_samples` is the number of samples 
+            and `n_features` is the number of features.
+    
+        y : array-like of shape (n_samples,)
+            Target binary class labels for each sample. Class labels are 
+            typically 0 or 1, representing the two classes in binary 
+            classification.
+    
+        Returns
+        -------
+        self : object
+            Returns the fitted `HammersteinWienerClassifier` instance.
+        
+        Notes
+        -----
+        - Logistic Regression:
+          The linear model is fitted using logistic regression, which aims 
+          to maximize the likelihood of correctly predicting class labels. 
+          Given lagged features, the logistic model’s decision function 
+          output :math:`f(X_lagged)` is given by:
+    
+          .. math::
+              f(X_{lagged}) = X_{lagged} \\beta + b
+    
+          where :math:`X_{lagged}` are the lagged features, :math:`\\beta` 
+          represents the regression coefficients, and :math:`b` is the bias 
+          term.
+    
+        - Nonlinear Output Transformation:
+          If provided, a nonlinear transformation function :math:`g` is 
+          applied to the decision function output, resulting in:
+    
+          .. math::
+              y_{linear} = g(f(X_{lagged}))
+    
+
+        - This method uses logistic regression to fit the linear model.
+        - Nonlinear output transformations allow the model to capture more 
+          complex patterns beyond the linear decision boundary.
+    
+        Examples
+        --------
+        >>> from gofast.estimators.dynamic_system import HammersteinWienerClassifier
+        >>> model = HammersteinWienerClassifier()
+        >>> X = np.array([[0.1, 0.2], [0.2, 0.3], [0.3, 0.4]])
+        >>> y = np.array([0, 1, 0])
+        >>> model.fit(X, y)
+        >>> print("Initial loss:", model.initial_loss_)
+    
+        See Also
+        --------
+        predict_proba : Predict class probabilities for input data.
+        predict       : Predict binary class labels for input data.
+    
+        References
+        ----------
+        .. [1] Hastie, T., Tibshirani, R., & Friedman, J. (2009). The Elements 
+               of Statistical Learning. Springer.
+        """
+        if self.verbose > 0:
+            print("Starting HammersteinWienerClassifier fit method.")
+
+        # Validate parameter constraints
+        self._validate_params()
+
+        # Validate input and output data
+        X, y = check_X_y(X, y, multi_output=True)
+
+        # Determine the type of target (binary, multiclass, multilabel)
+        target_type = type_of_target(y)
+        if target_type in ('binary', 'multiclass'):
+            self.is_multilabel_ = False
+        elif target_type in ('multilabel-indicator', 'multiclass-multioutput'):
+            self.is_multilabel_ = True
+        else:
+            raise ValueError(f"Unsupported target type: {target_type}")
+
+        # Apply nonlinear input transformation
+        X_transformed = self._apply_nonlinear_input(X, y)
+
+        # Create lagged features for linear dynamic block
+        X_lagged = self._create_lagged_features(X_transformed)
+
+        if self.verbose > 0:
+            print("Fitting linear model for classification with batch training.")
+
+        # Use SGDClassifier for the linear dynamic block to support batch_size and optimizer
+        if self.optimizer == 'sgd':
+            learning_rate_type = 'optimal'
+        elif self.optimizer == 'adam':
+            learning_rate_type = 'adaptive'
+        elif self.optimizer == 'adagrad':
+            learning_rate_type = 'invscaling'
+        else:
+            raise ValueError(f"Unsupported optimizer: {self.optimizer}")
+
+        # Initialize the SGDClassifier with specified parameters
+        self.linear_model_ = SGDClassifier(
+            loss='log',                    # Logistic regression
+            learning_rate=learning_rate_type,
+            eta0=self.learning_rate,       # Initial learning rate
+            max_iter=self.max_iter,
+            tol=1e-3,
+            shuffle=True,
+            verbose=self.verbose,
+            n_iter_no_change=5,
+            n_jobs=self.n_jobs,
+            random_state=None
+        )
+
+        # Fit the model in batches
+        n_samples = X_lagged.shape[0]
+        n_batches = int(np.ceil(n_samples / self.batch_size))
+
+        for epoch in range(self.max_iter):
+            if self.verbose > 0:
+                print(f"Epoch {epoch + 1}/{self.max_iter}")
+
+            # Shuffle the data at the beginning of each epoch
+            indices = np.arange(n_samples)
+            np.random.shuffle(indices)
+            X_lagged_shuffled = X_lagged[indices]
+            y_shuffled = y[indices]
+
+            for batch_idx in range(n_batches):
+                start = batch_idx * self.batch_size
+                end = min(start + self.batch_size, n_samples)
+                X_batch = X_lagged_shuffled[start:end]
+                y_batch = y_shuffled[start:end]
+
+                # Partial fit on the batch
+                if epoch == 0 and batch_idx == 0:
+                    # Initialize the model
+                    self.linear_model_.partial_fit(
+                        X_batch, y_batch, classes=np.unique(y))
+                else:
+                    # Continue training
+                    self.linear_model_.partial_fit(X_batch, y_batch)
+
+        # Get the decision function output
+        y_linear = self.linear_model_.decision_function(X_lagged)
+
+        # Apply nonlinear output transformation
+        self._apply_nonlinear_output(y_linear, y)
+
+        # Compute initial loss for reporting
+        y_pred_proba_initial = self.predict_proba(X)
+        self.initial_loss_ = self._compute_loss(y, y_pred_proba_initial)
+
+        if self.verbose > 0:
+            print(f"Initial loss: {self.initial_loss_}")
+            print("Fit method completed.")
+
+        return self
+
+    def predict_proba(self, X):
+        """
+        Predict class probabilities for each input sample in `X`.
+    
+        This method generates class probabilities by applying the nonlinear 
+        input transformation, creating lagged features, and then using the 
+        logistic regression model’s decision function. A logistic sigmoid 
+        transformation is applied to the decision function output, yielding 
+        class probabilities.
+    
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Samples to predict probabilities for, where `n_samples` is the 
+            number of samples and `n_features` is the number of features.
+    
+        Returns
+        -------
+        y_proba : ndarray of shape (n_samples, n_classes)
+            The class probabilities of the input samples. The first column 
+            represents the probability of class 0, and the second column 
+            represents the probability of class 1.
+    
+        Concept
+        -------
+        - Sigmoid Transformation:
+          The logistic sigmoid function is applied to the decision function 
+          output to convert it into probabilities:
+    
+          .. math::
+              \\hat{p}(y = 1 | X) = \\sigma(f(X_{lagged})) = 
+                                    \\frac{1}{1 + e^{-f(X_{lagged})}}
+    
+          where :math:`\\sigma` is the sigmoid function, and :math:`f(X_{lagged})` 
+          is the output of the decision function.
+    
+        Notes
+        -----
+        - This method requires that the model is already fitted.
+        - Lagged features allow the model to incorporate historical dependencies 
+          in probability estimation.
+    
+        Examples
+        --------
+        >>> from gofast.estimators.dynamic_system import HammersteinWienerClassifier
+        >>> model = HammersteinWienerClassifier()
+        >>> model.fit(X, y)
+        >>> probabilities = model.predict_proba(X)
+        >>> print("Class probabilities:", probabilities)
+    
+        See Also
+        --------
+        predict : Predict binary class labels for input samples.
+        """
+        if self.verbose > 0:
+            print("Starting predict_proba method.")
+    
+        # Check if the model is fitted
+        check_is_fitted(self, 'linear_model_')
+    
+        # Validate input data
+        X = check_array(X)
+    
+        # Apply nonlinear input transformation
+        X_transformed = self._apply_nonlinear_input(X)
+    
+        # Create lagged features for linear dynamic block
+        X_lagged = self._create_lagged_features(X_transformed)
+    
+        # Get the decision function output
+        y_linear = self.linear_model_.decision_function(X_lagged)
+    
+        # Apply nonlinear output transformation
+        y_transformed = self._apply_nonlinear_output(y_linear)
+    
+        # Convert to probabilities
+        if self.is_multilabel_:
+            # For multilabel, apply sigmoid function
+            y_pred_proba = activator(y_transformed, activation="sigmoid")
+        else:
+            if len(self.linear_model_.classes_) == 2:
+                # Binary classification
+                y_pred_proba = activator(y_transformed, activation="sigmoid")
+                # Ensure the output has two columns
+                y_pred_proba = np.hstack([1 - y_pred_proba, y_pred_proba])
+            else:
+                # Multiclass classification, apply softmax
+                y_pred_proba = activator(y_transformed, activation="softmax")
+    
+        if self.verbose > 0:
+            print("predict_proba method completed.")
+    
+        return y_pred_proba
+
+    def predict(self, X):
+        """
+        Predict class labels for each input sample in `X`.
+    
+        This method generates class labels by first computing class 
+        probabilities and then applying a threshold of 0.5 to determine 
+        the predicted class. Samples with predicted probability greater 
+        than or equal to 0.5 are classified as class 1, while the rest 
+        are classified as class 0.
+    
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Samples to predict, where `n_samples` is the number of samples 
+            and `n_features` is the number of features.
+    
+        Returns
+        -------
+        y_pred : ndarray of shape (n_samples,)
+            Predicted binary class labels for each sample. The labels are 
+            either 0 or 1, representing the two classes in binary 
+            classification.
+    
+        Notes
+        -----
+        - Probability Thresholding:
+          This method applies a threshold to the predicted probabilities 
+          to determine class labels:
+    
+          .. math::
+              \\hat{y} = \\begin{cases} 
+                            1 & \\text{if } \\hat{p}(y = 1 | X) \\geq 0.5 \\\\
+                            0 & \\text{otherwise}
+                         \\end{cases}
+    
+          where :math:`\\hat{p}(y = 1 | X)` is the probability of class 1.
+    
+        Notes
+        -----
+        - This method requires `predict_proba` to be executed first.
+        - A threshold of 0.5 is commonly used for binary classification tasks, 
+          though this can be adjusted if needed.
+    
+        Examples
+        --------
+        >>> from gofast.estimators.dynamic_system import HammersteinWienerClassifier
+        >>> model = HammersteinWienerClassifier()
+        >>> model.fit(X, y)
+        >>> labels = model.predict(X)
+        >>> print("Predicted labels:", labels)
+    
+        See Also
+        --------
+        predict_proba : Predict class probabilities for input samples.
+        """
+        if self.verbose > 0:
+            print("Starting predict method.")
+
+        y_pred_proba = self.predict_proba(X)
+
+        if self.is_multilabel_:
+            # For multilabel, threshold probabilities at 0.5
+            y_pred = (y_pred_proba >= 0.5).astype(int)
+        else:
+            # For binary and multiclass, take argmax
+            y_pred = np.argmax(y_pred_proba, axis=1)
+
+        if self.verbose > 0:
+            print("Predict method completed.")
+
+        return y_pred
+
+    def _compute_loss(self, y_true, y_pred_proba):
+        """
+        Computes the classification loss based on the specified loss function.
+        This method calculates the average error between the true labels 
+        (`y_true`) and predicted probabilities (`y_pred_proba`) by applying 
+        either the cross-entropy or time-weighted cross-entropy loss function. 
+        The latter assigns greater penalty to recent errors, which can be 
+        essential in dynamic classification systems where recent predictions 
+        carry higher importance.
+    
+        Parameters
+        ----------
+        y_true : array-like of shape (n_samples,)
+            True binary labels for each sample, where values are either 0 or 1.
+            These labels are used as the ground truth for computing the loss.
+    
+        y_pred_proba : array-like of shape (n_samples,)
+            Predicted probabilities for each sample. These values range between 
+            0 and 1, representing the probability of the positive class. Values 
+            are clipped between a small epsilon (1e-15) and 1 - epsilon to 
+            prevent computational issues when taking the log of zero.
+    
+        Returns
+        -------
+        loss : float
+            Computed loss value based on the specified loss function. The loss 
+            is averaged across all samples.
+    
+        Notes
+        -----
+        - Cross-Entropy Loss:
+          The cross-entropy loss measures the error between the true and 
+          predicted probabilities. The formula is:
+    
+          .. math::
+              L_{CE} = - \\frac{1}{n} \\sum_{i=1}^{n} 
+                      \\left[ y_i \\log(\\hat{y}_i) 
+                      + (1 - y_i) \\log(1 - \\hat{y}_i) \\right]
+    
+          where :math:`y_i` is the true label, and :math:`\\hat{y}_i` is the 
+          predicted probability for sample :math:`i`.
+    
+        - Time-Weighted Cross-Entropy Loss:
+          In time-weighted loss, a weight vector is applied, emphasizing recent 
+          samples. The formula becomes:
+    
+          .. math::
+              L_{TWCE} = - \\frac{1}{n} \\sum_{i=1}^{n} 
+                         w_i \\left[ y_i \\log(\\hat{y}_i) 
+                         + (1 - y_i) \\log(1 - \\hat{y}_i) \\right]
+    
+          where :math:`w_i` are time weights calculated by `_compute_time_weights`.
+    
+
+        - Cross-entropy is commonly used for binary classification problems.
+        - Time-weighted cross-entropy can improve performance in time-sensitive 
+          applications by focusing on recent prediction accuracy.
+
+        """
+        if self.verbose > 0:
+            print(f"Computing loss using {self.loss} loss function.")
+
+        # Clip probabilities to prevent log of zero
+        y_pred_proba = np.clip(y_pred_proba, self.epsilon, 1 - self.epsilon)
+
+        # Compute loss using sklearn's log_loss
+        if self.loss == "cross_entropy":
+            loss = log_loss(y_true, y_pred_proba, eps=self.epsilon)
+        elif self.loss == "time_weighted_cross_entropy":
+            weights = self._compute_time_weights(len(y_true))
+            loss = log_loss(y_true, y_pred_proba, sample_weight=weights, eps=self.epsilon)
+        else:
+            raise ValueError("Unsupported loss function.")
+
+        if self.verbose > 0:
+            print(f"Computed loss: {loss}")
+
+        return loss
+
+    def _compute_time_weights(self, n):
+        """
+        Computes time-based weights to prioritize recent predictions. The 
+        weight scheme is based on the `time_weighting` parameter, which defines 
+        how the weights are distributed across samples. Supported options 
+        include `linear`, `exponential`, and `inverse` weighting [1]_.
+    
+        Parameters
+        ----------
+        n : int
+            The number of samples or time points for which weights are computed.
+    
+        Returns
+        -------
+        weights : array-like of shape (n,)
+            Computed time weights, normalized to sum to one for consistent 
+            scaling across different weighting schemes.
+    
+        Notes
+        -----
+        Time weights are calculated as follows, based on the `time_weighting` 
+        method:
+    
+        - Linear Weighting:
+          The weights increase linearly, giving a low weight to the first 
+          observation and the highest weight to the last.
+    
+          .. math::
+              w_i = \\frac{0.1 + \\frac{i}{n-1}}{1.0}
+    
+        - Exponential Weighting:
+          Weights follow an exponential increase, prioritizing recent samples 
+          more aggressively.
+    
+          .. math::
+              w_i = \\frac{e^{\\frac{i}{n}} - 1}{e^{1} - 1}
+    
+        - Inverse Weighting:
+          The weights decrease inversely with the time index, placing 
+          more importance on recent samples.
+    
+          .. math::
+              w_i = \\frac{1}{i}
+    
+        - Weights are normalized to sum to one across all samples.
+        - Different weighting schemes can be used to fine-tune the model's 
+          sensitivity to time-based dependencies.
+
+        """
+        if self.verbose > 0:
+            print(f"Computing time weights using {self.time_weighting} method.")
+
+        # Compute weights based on the selected method
+        if self.time_weighting == "linear":
+            weights = np.linspace(0.1, 1.0, n)
+        elif self.time_weighting == "exponential":
+            weights = np.exp(np.linspace(0, 1, n)) - 1
+            weights /= weights.max()  # Normalize to [0, 1]
+        elif self.time_weighting == "inverse":
+            weights = 1 / np.arange(1, n + 1)
+            weights /= weights.max()  # Normalize to [0, 1]
+        else:
+            # Default to equal weights if unrecognized weighting scheme
+            weights = np.ones(n)
+
+        if self.verbose > 0:
+            print(f"Time weights: {weights}")
+
+        return weights
 
 class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
     """
@@ -109,6 +843,40 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         numerical instabilities in calculations. It ensures stability by 
         limiting values that approach zero, allowing for more robust 
         computations.
+        
+    batch_size : int, default=32
+        The number of samples per batch during training. Smaller batch sizes 
+        may provide more granular updates to the model, while larger batch 
+        sizes can result in faster training times but require more memory.
+        
+    optimizer : {'sgd', 'adam', 'adagrad'}, default='adam'
+        The optimization algorithm to use for training the linear dynamic 
+        block. The choice of optimizer affects the model's convergence 
+        rate and stability:
+        
+        - ``'sgd'``: Stochastic Gradient Descent, a basic optimizer that 
+          updates weights based on a single sample, providing faster 
+          updates but potentially noisier convergence.
+        - ``'adam'``: Adaptive Moment Estimation, an advanced optimizer 
+          that adjusts learning rates for each parameter dynamically, 
+          improving convergence speed and stability.
+        - ``'adagrad'``: Adaptive Gradient Algorithm, which adapts learning 
+          rates for each parameter individually, helpful for sparse data 
+          but may decay learning rates too aggressively.
+          
+    learning_rate : float, default=0.001
+        The initial learning rate applied by the chosen optimizer. A higher 
+        learning rate can speed up training but risks overshooting minima, 
+        while a lower rate can lead to slower convergence but more precise 
+        optimization. Recommended values often range from 0.0001 to 0.01 
+        depending on model complexity.
+    
+    max_iter : int, default=1000
+        The maximum number of training iterations (epochs) for model 
+        training. Each iteration represents one pass through the entire 
+        dataset. Increasing this value allows the model more time to learn 
+        patterns but risks overfitting if too large.
+
 
     n_jobs : int or None, default=None
         The number of jobs to run in parallel. ``None`` means 1 unless in
@@ -229,6 +997,10 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         "time_weighting": [StrOptions({"linear", "exponential", "inverse"}), None],
         "delta": [Interval(Real, 0, None, closed='left')],
         "epsilon": [Interval(Real, 1e-15, None, closed='left')],
+        "batch_size": [Interval(Integral, 1, None, closed='left')],
+        "optimizer": [StrOptions({"sgd", "adam", "adagrad"})],
+        "learning_rate": [Interval(Real, 0, None, closed='neither')],
+        "max_iter": [Interval(Integral, 1, None, closed='left')],
     }
 
     def __init__(
@@ -240,9 +1012,13 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
             output_scale=None,
             time_weighting="linear",
             feature_engineering='auto',
-            n_jobs=None,
             delta=1.0,
             epsilon=1e-8,
+            batch_size=32,
+            optimizer='adam',
+            learning_rate=0.001,
+            max_iter=1000,
+            n_jobs=None,
             verbose=0
     ):
         super().__init__(
@@ -253,12 +1029,17 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
             n_jobs=n_jobs,
             verbose=verbose
         )
+        
         self.loss = loss
         self.output_scale = output_scale
         self.time_weighting = time_weighting
         self.delta = delta
         self.epsilon = epsilon
-        
+        self.batch_size = batch_size      
+        self.optimizer = optimizer        
+        self.learning_rate = learning_rate  
+        self.max_iter = max_iter          
+
     def fit(self, X, y):
         """
         Fit the Hammerstein-Wiener regressor to the training data.
@@ -342,6 +1123,7 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         .. [1] Ljung, L. (1999). System Identification: Theory for the User. 
                Prentice Hall.
         """
+
         if self.verbose > 0:
             print("Starting HammersteinWienerRegressor fit method.")
 
@@ -353,18 +1135,76 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         # Apply nonlinear input transformation to capture non-linear input effects
         X_transformed = self._apply_nonlinear_input(X, y)
 
-        # Create lagged features for the linear dynamic block to capture temporal dependencies
+        # Create lagged features for the linear dynamic block
         X_lagged = self._create_lagged_features(X_transformed)
 
         if self.verbose > 0:
-            print("Calculating linear coefficients.")
+            print("Fitting linear model with batch training.")
 
-        # Solve for linear coefficients using pseudo-inverse
-        # For multi-output y, linear_coefficients_ will be of shape (n_features_total, n_outputs)
-        self.linear_coefficients_ = np.linalg.pinv(X_lagged) @ y
+        # Use SGDRegressor to support batch training and optimizer selection
+        if self.optimizer == 'sgd':
+            learning_rate_type = 'optimal'
+        elif self.optimizer == 'adam':
+            learning_rate_type = 'adaptive'
+        elif self.optimizer == 'adagrad':
+            learning_rate_type = 'invscaling'
+        else:
+            raise ValueError(f"Unsupported optimizer: {self.optimizer}")
 
-        # Apply the linear dynamic block to get intermediate output
-        y_linear = self._apply_linear_dynamic_block(X_lagged)
+        # Map the loss function to SGDRegressor's loss parameter
+        if self.loss == "mse":
+            loss_function = 'squared_error'
+        elif self.loss == "mae":
+            loss_function = 'epsilon_insensitive'  # Approximate
+        elif self.loss == "huber":
+            loss_function = 'huber'
+        else:
+            # For custom loss functions, default to 'squared_error'
+            loss_function = 'squared_error'
+
+        # Initialize the SGDRegressor with specified parameters
+        self.linear_model_ = SGDRegressor(
+            loss=loss_function,
+            learning_rate=learning_rate_type,
+            eta0=self.learning_rate,
+            max_iter=self.max_iter,
+            tol=1e-3,
+            shuffle=True,
+            verbose=self.verbose,
+            epsilon=self.delta,  # For huber loss
+            random_state=None
+        )
+
+        # Fit the model in batches
+        n_samples = X_lagged.shape[0]
+        n_batches = int(np.ceil(n_samples / self.batch_size))
+
+        for epoch in range(self.max_iter):
+            if self.verbose > 2:
+                print(f"Epoch {epoch + 1}/{self.max_iter}")
+
+            # Shuffle the data at the beginning of each epoch
+            indices = np.arange(n_samples)
+            np.random.shuffle(indices)
+            X_lagged_shuffled = X_lagged[indices]
+            y_shuffled = y[indices]
+
+            for batch_idx in range(n_batches):
+                start = batch_idx * self.batch_size
+                end = min(start + self.batch_size, n_samples)
+                X_batch = X_lagged_shuffled[start:end]
+                y_batch = y_shuffled[start:end]
+
+                # Partial fit on the batch
+                if epoch == 0 and batch_idx == 0:
+                    # Initialize the model
+                    self.linear_model_.partial_fit(X_batch, y_batch)
+                else:
+                    # Continue training
+                    self.linear_model_.partial_fit(X_batch, y_batch)
+
+        # Get predictions from the linear dynamic block
+        y_linear = self.linear_model_.predict(X_lagged)
 
         # Fit nonlinear output estimator if specified
         self._apply_nonlinear_output(y_linear, y)
@@ -378,7 +1218,7 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
             print("Fit method completed.")
 
         return self
-    
+
     def predict(self, X):
         """
         Predict using the Hammerstein-Wiener regressor.
@@ -441,11 +1281,12 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         --------
         fit : Fit the Hammerstein-Wiener regressor to training data.
         """
+
         if self.verbose > 0:
             print("Starting HammersteinWienerRegressor predict method.")
 
         # Ensure the model is fitted before making predictions
-        check_is_fitted(self, 'linear_coefficients_')
+        check_is_fitted(self, 'linear_model_')
 
         # Validate input data
         X = check_array(X)
@@ -456,8 +1297,8 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         # Create lagged features for the linear dynamic block
         X_lagged = self._create_lagged_features(X_transformed)
 
-        # Apply the linear dynamic block to get intermediate output
-        y_linear = self._apply_linear_dynamic_block(X_lagged)
+        # Get predictions from the linear dynamic block
+        y_linear = self.linear_model_.predict(X_lagged)
 
         # Apply nonlinear output transformation to the intermediate predictions
         y_pred = self._apply_nonlinear_output(y_linear)
@@ -469,7 +1310,7 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
             print("Predict method completed.")
 
         return y_pred_scaled
-    
+
     def _compute_loss(self, y_true, y_pred):
         """
         Compute the specified loss function between true and predicted values.
@@ -537,20 +1378,8 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         - Huber loss is recommended when outliers are present in the data.
         - Time-weighted MSE is useful in dynamic systems where recent 
           predictions are more important.
-    
-        Examples
-        --------
-        >>> from gofast.estimators.dynamic_system import HammersteinWienerRegressor
-        >>> model = HammersteinWienerRegressor(loss="huber")
-        >>> y_true = np.array([1.0, 2.0, 1.5])
-        >>> y_pred = np.array([1.1, 1.9, 1.6])
-        >>> loss = model._compute_loss(y_true, y_pred)
-        >>> print(f"Computed loss: {loss:.4f}")
-    
-        See Also
-        --------
-        _compute_time_weights : Computes weights for time-weighted MSE loss.
         """
+
         if self.verbose > 0:
             print(f"Computing loss using {self.loss} loss function.")
 
@@ -574,7 +1403,8 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         elif self.loss == "time_weighted_mse":
             weights = self._compute_time_weights(len(y_true))
             # weights shape: (n_samples,)
-            # weights need to be expanded to (n_samples, n_outputs) if y_true is multi-output
+            # weights need to be expanded to (n_samples, n_outputs)
+            # if y_true is multi-output
             if y_true.ndim > 1:
                 weights = weights[:, np.newaxis]  # Shape (n_samples, 1)
             loss = np.mean(weights * (y_true - y_pred) ** 2)
@@ -628,24 +1458,13 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
           .. math::
               w_i = \\frac{1}{i}
     
-        Notes
-        -----
         - Weights are normalized to ensure they sum to 1, preserving a stable 
           loss scale across samples.
         - Different weighting methods allow control over the model's temporal 
           sensitivity.
-    
-        Examples
-        --------
-        >>> from gofast.estimators.dynamic_system import HammersteinWienerRegressor
-        >>> model = HammersteinWienerRegressor(time_weighting="linear")
-        >>> weights = model._compute_time_weights(5)
-        >>> print("Computed time weights:", weights)
-    
-        See Also
-        --------
-        _compute_loss : Uses time weights to compute time-weighted MSE loss.
+
         """
+
         if self.verbose > 0:
             print(f"Computing time weights using {self.time_weighting} method.")
 
@@ -670,7 +1489,7 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
             print(f"Time weights: {weights}")
 
         return weights
-   
+
     def _scale_output(self, y):
         """
         Scale output predictions to a specified range if defined.
@@ -705,16 +1524,8 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
           scaling range is set to None, meaning no scaling is applied.
         - This is especially useful in regression tasks where the output 
           must be within a certain range.
-    
-        Examples
-        --------
-        >>> from gofast.estimators.dynamic_system import HammersteinWienerRegressor
-        >>> model = HammersteinWienerRegressor(output_scale=(0, 10))
-        >>> predictions = np.array([0.2, 0.5, 0.9])
-        >>> scaled_output = model._scale_output(predictions)
-        >>> print("Scaled output predictions:", scaled_output)
-    
         """
+
         if self.output_scale is not None:
             if self.verbose > 0:
                 print("Scaling output predictions.")
@@ -739,682 +1550,6 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
                 print(f"Scaled output range: [{y_min}, {y_max}]")
 
             return y_scaled
+
         return y
-    
-class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
-    """
-    Hammerstein-Wiener model for classification tasks.
-
-    The Hammerstein-Wiener model is a block-oriented model used to
-    represent nonlinear dynamic systems. It consists of a cascade of
-    a static nonlinear input block, a linear dynamic block, and a
-    static nonlinear output block. This model is suitable for capturing
-    systems with input and output nonlinearities surrounding a linear
-    dynamic system.
-
-    The general structure of the Hammerstein-Wiener model is as follows:
-
-    .. math::
-        y(t) = f_{\\text{out}}\\left( L\\left( f_{\\text{in}}\\left( x(t) \\right) \\right) \\right)
-
-    where:
-
-    - :math:`x(t)` is the input vector at time :math:`t`.
-    - :math:`f_{\\text{in}}` is the nonlinear input function.
-    - :math:`L` is the linear dynamic block.
-    - :math:`f_{\\text{out}}` is the nonlinear output function.
-    - :math:`y(t)` is the output at time :math:`t`.
-
-    See more in :ref:`User Guide`.
-    
-    Parameters
-    ----------
-    nonlinear_input_estimator : estimator object or None, default=None
-        Estimator for the nonlinear input function :math:`f_{\\text{in}}`.
-        This should be an object that implements ``fit`` and either
-        ``transform`` or ``predict`` methods. If ``None``, no nonlinear
-        transformation is applied to the input.
-
-    nonlinear_output_estimator : estimator object or None, default=None
-        Estimator for the nonlinear output function :math:`f_{\\text{out}}`.
-        This should be an object that implements ``fit`` and either
-        ``transform`` or ``predict`` methods. If ``None``, no nonlinear
-        transformation is applied to the output.
-
-    p : int, default=1
-        Order of the linear dynamic block. This specifies the number of
-        lagged inputs to include in the linear dynamic model.
-
-    loss : {'cross_entropy', 'time_weighted_cross_entropy'}, default='cross_entropy'
-        Loss function to use for evaluating the model performance.
-
-        - ``'cross_entropy'``: Standard cross-entropy loss.
-        - ``'time_weighted_cross_entropy'``: Time-weighted cross-entropy loss,
-          giving more importance to recent misclassifications.
-
-    time_weighting : {'linear', 'exponential', 'inverse'}, default='linear'
-        Method for computing time weights when using time-weighted loss
-        functions.
-
-        - ``'linear'``: Linearly increasing weights over time.
-        - ``'exponential'``: Exponentially increasing weights over time.
-        - ``'inverse'``: Inversely decreasing weights over time.
-
-    feature_engineering : {'auto'}, default='auto'
-        Method for feature engineering. Currently, only ``'auto'`` is
-        supported.
-
-    epsilon : float, default=1e-15
-        A small constant used to prevent division by zero or log of zero 
-        errors during calculations  in probability estimates. Clipping 
-        predictions within the range defined by `epsilon` ensures numerical
-        stability by constraining values to avoid extremes.
-
-    n_jobs : int or None, default=None
-        The number of jobs to run in parallel. ``None`` means 1 unless in
-        a ``joblib.parallel_backend`` context.
-        
-        
-    verbose : int, default=0
-        The verbosity level. If greater than 0, prints messages during
-        fitting and prediction.
-
-    Attributes
-    ----------
-    linear_model_ : object
-        The linear model used in the linear dynamic block. This model 
-        captures the linear relationship between lagged features and 
-        the target classes and is fitted during the training process.
-    
-    initial_loss_ : float
-        Initial loss computed on the training data after fitting. This 
-        value indicates the model's performance on the training data 
-        immediately following training and serves as a baseline loss.
-    
-    Methods
-    -------
-    fit(X, y)
-        Fit the Hammerstein-Wiener classifier to the provided training 
-        data (`X`, `y`). Applies input transformations, creates lagged 
-        features, fits the linear dynamic block with a classification 
-        model, and optionally applies a nonlinear output transformation.
-    
-    predict_proba(X)
-        Predict class probabilities for the input samples (`X`) using 
-        the fitted Hammerstein-Wiener classifier. Outputs the probability 
-        for each class based on transformations and linear dynamics.
-    
-    predict(X)
-        Predict binary class labels for the input samples (`X`) using 
-        the fitted Hammerstein-Wiener classifier. Classifies samples 
-        based on the computed class probabilities.
-    
-
-    See Also
-    --------
-    HammersteinWienerRegressor : Hammerstein-Wiener model for regression tasks.
-
-    Notes
-    -----
-    The Hammerstein-Wiener model combines static nonlinear blocks with
-    a linear dynamic block to model complex systems that exhibit both
-    dynamic and nonlinear behaviors [1]_.
-
-    The classifier is especially suited for time-series classification, 
-    signal processing, and systems identification tasks where current outputs 
-    are significantly influenced by historical inputs. It finds extensive 
-    applications in fields like telecommunications, control systems, and 
-    financial modeling, where understanding dynamic behaviors is crucial.
-    
-    References
-    ----------
-    .. [1] Schoukens, J., & Ljung, L. (2019). Nonlinear System
-           Identification: A User-Oriented Roadmap. IEEE Control
-           Systems Magazine, 39(6), 28-99.
-
-    Examples
-    --------
-    >>> from gofast.estimators.dynamic_system import HammersteinWienerClassifier
-    >>> from sklearn.datasets import make_classification
-    >>> import numpy as np
-    >>> # Generate synthetic data
-    >>> X, y = make_classification(n_samples=200, n_features=5,
-    ...                            n_informative=3, n_redundant=1,
-    ...                            random_state=42)
-    >>> # Instantiate the classifier
-    >>> model = HammersteinWienerClassifier(p=2, verbose=1)
-    >>> # Fit the model
-    >>> model.fit(X, y)
-    Starting HammersteinWienerClassifier fit method.
-    Applying nonlinear input transformation.
-    No nonlinear input estimator provided; using original X.
-    Creating lagged features.
-    Creating lag 1 features.
-    Creating lag 2 features.
-    Lagged features shape: (200, 10)
-    Fitting linear model for classification.
-    Applying nonlinear output transformation.
-    No nonlinear output estimator provided; using linear output.
-    Computed loss: 0.35
-    Initial loss: 0.35
-    Fit method completed.
-    >>> # Predict
-    >>> y_pred = model.predict(X)
-    Starting predict method.
-    Starting predict_proba method.
-    Applying nonlinear input transformation.
-    No nonlinear input estimator provided; using original X.
-    Creating lagged features.
-    Creating lag 1 features.
-    Creating lag 2 features.
-    Lagged features shape: (200, 10)
-    predict_proba method completed.
-    Predict method completed.
-    >>> # Evaluate
-    >>> from sklearn.metrics import accuracy_score
-    >>> acc = accuracy_score(y, y_pred)
-    >>> print(f"Accuracy: {acc:.2f}")
-    Accuracy: 0.85
-    """
-
-    _parameter_constraints: dict = {
-        **BaseHammersteinWiener._parameter_constraints,
-        "loss": [StrOptions({"cross_entropy", "time_weighted_cross_entropy"})],
-        "time_weighting": [StrOptions({"linear", "exponential", "inverse"})],
-        "epsilon": [Interval(Real, 1e-15, None, closed='left')]
-    }
-
-    def __init__(
-            self,
-            nonlinear_input_estimator=None,
-            nonlinear_output_estimator=None,
-            p=1,
-            loss="cross_entropy",
-            time_weighting="linear",
-            feature_engineering='auto',
-            n_jobs=None,
-            epsilon=1e-15,
-            verbose=0
-    ):
-        super().__init__(
-            nonlinear_input_estimator=nonlinear_input_estimator,
-            nonlinear_output_estimator=nonlinear_output_estimator,
-            p=p,
-            feature_engineering=feature_engineering,
-            n_jobs=n_jobs,
-            verbose=verbose
-        )
-        self.loss = loss
-        self.time_weighting = time_weighting
-        self.epsilon = epsilon
-        
-    def fit(self, X, y):
-        """
-        Fit the Hammerstein-Wiener classifier to the training data.
-        
-        This method applies transformations to the input data, constructs 
-        lagged features for time-based dynamics, and fits a logistic 
-        regression model on these features to capture linear relationships 
-        for classification. If a nonlinear output transformation is provided, 
-        it is applied to the decision function output.
-    
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Training input samples, where `n_samples` is the number of samples 
-            and `n_features` is the number of features.
-    
-        y : array-like of shape (n_samples,)
-            Target binary class labels for each sample. Class labels are 
-            typically 0 or 1, representing the two classes in binary 
-            classification.
-    
-        Returns
-        -------
-        self : object
-            Returns the fitted `HammersteinWienerClassifier` instance.
-        
-        Notes
-        -----
-        - Logistic Regression:
-          The linear model is fitted using logistic regression, which aims 
-          to maximize the likelihood of correctly predicting class labels. 
-          Given lagged features, the logistic model’s decision function 
-          output :math:`f(X_lagged)` is given by:
-    
-          .. math::
-              f(X_{lagged}) = X_{lagged} \\beta + b
-    
-          where :math:`X_{lagged}` are the lagged features, :math:`\\beta` 
-          represents the regression coefficients, and :math:`b` is the bias 
-          term.
-    
-        - Nonlinear Output Transformation:
-          If provided, a nonlinear transformation function :math:`g` is 
-          applied to the decision function output, resulting in:
-    
-          .. math::
-              y_{linear} = g(f(X_{lagged}))
-    
-
-        - This method uses logistic regression to fit the linear model.
-        - Nonlinear output transformations allow the model to capture more 
-          complex patterns beyond the linear decision boundary.
-    
-        Examples
-        --------
-        >>> from gofast.estimators.dynamic_system import HammersteinWienerClassifier
-        >>> model = HammersteinWienerClassifier()
-        >>> X = np.array([[0.1, 0.2], [0.2, 0.3], [0.3, 0.4]])
-        >>> y = np.array([0, 1, 0])
-        >>> model.fit(X, y)
-        >>> print("Initial loss:", model.initial_loss_)
-    
-        See Also
-        --------
-        predict_proba : Predict class probabilities for input data.
-        predict       : Predict binary class labels for input data.
-    
-        References
-        ----------
-        .. [1] Hastie, T., Tibshirani, R., & Friedman, J. (2009). The Elements 
-               of Statistical Learning. Springer.
-        """
-        if self.verbose > 0:
-            print("Starting HammersteinWienerClassifier fit method.")
-
-        # Validate parameter constraints
-        self._validate_params()
-
-        # Validate input and output data
-        X, y = check_X_y(X, y, multi_output=True)
-
-        # Determine the type of target (binary, multiclass, multilabel)
-        target_type = type_of_target(y)
-        if target_type in ('binary', 'multiclass'):
-            self.is_multilabel_ = False
-        elif target_type in ('multilabel-indicator', 'multiclass-multioutput'):
-            self.is_multilabel_ = True
-        else:
-            raise ValueError(f"Unsupported target type: {target_type}")
-
-        # Apply nonlinear input transformation
-        X_transformed = self._apply_nonlinear_input(X, y)
-
-        # Create lagged features for linear dynamic block
-        X_lagged = self._create_lagged_features(X_transformed)
-
-        if self.verbose > 0:
-            print("Fitting linear model for classification.")
-
-        # Use logistic regression for the linear dynamic block
-        self.linear_model_ = LogisticRegression()
-        self.linear_model_.fit(X_lagged, y)
-
-        # Get the decision function output
-        y_linear = self.linear_model_.decision_function(X_lagged)
-
-        # Fit nonlinear output estimator if provided
-        self._apply_nonlinear_output(y_linear, y)
-
-        # Compute initial loss for reporting
-        y_pred_proba_initial = self.predict_proba(X)
-        self.initial_loss_ = self._compute_loss(y, y_pred_proba_initial)
-
-        if self.verbose > 0:
-            print(f"Initial loss: {self.initial_loss_}")
-            print("Fit method completed.")
-    
-    def predict_proba(self, X):
-        """
-        Predict class probabilities for each input sample in `X`.
-    
-        This method generates class probabilities by applying the nonlinear 
-        input transformation, creating lagged features, and then using the 
-        logistic regression model’s decision function. A logistic sigmoid 
-        transformation is applied to the decision function output, yielding 
-        class probabilities.
-    
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Samples to predict probabilities for, where `n_samples` is the 
-            number of samples and `n_features` is the number of features.
-    
-        Returns
-        -------
-        y_proba : ndarray of shape (n_samples, n_classes)
-            The class probabilities of the input samples. The first column 
-            represents the probability of class 0, and the second column 
-            represents the probability of class 1.
-    
-        Concept
-        -------
-        - Sigmoid Transformation:
-          The logistic sigmoid function is applied to the decision function 
-          output to convert it into probabilities:
-    
-          .. math::
-              \\hat{p}(y = 1 | X) = \\sigma(f(X_{lagged})) = 
-                                    \\frac{1}{1 + e^{-f(X_{lagged})}}
-    
-          where :math:`\\sigma` is the sigmoid function, and :math:`f(X_{lagged})` 
-          is the output of the decision function.
-    
-        Notes
-        -----
-        - This method requires that the model is already fitted.
-        - Lagged features allow the model to incorporate historical dependencies 
-          in probability estimation.
-    
-        Examples
-        --------
-        >>> from gofast.estimators.dynamic_system import HammersteinWienerClassifier
-        >>> model = HammersteinWienerClassifier()
-        >>> model.fit(X, y)
-        >>> probabilities = model.predict_proba(X)
-        >>> print("Class probabilities:", probabilities)
-    
-        See Also
-        --------
-        predict : Predict binary class labels for input samples.
-        """
-        if self.verbose > 0:
-            print("Starting predict_proba method.")
-
-        # Check if the model is fitted
-        check_is_fitted(self, 'linear_model_')
-
-        # Validate input data
-        X = check_array(X)
-
-        # Apply nonlinear input transformation
-        X_transformed = self._apply_nonlinear_input(X)
-
-        # Create lagged features for linear dynamic block
-        X_lagged = self._create_lagged_features(X_transformed)
-
-        # Get the decision function output
-        y_linear = self.linear_model_.decision_function(X_lagged)
-
-        # Apply nonlinear output transformation
-        y_transformed = self._apply_nonlinear_output(y_linear)
-
-        # Convert to probabilities
-        if self.is_multilabel_:
-            # For multilabel, apply sigmoid function
-            y_pred_proba= activator(y_transformed, activation="sigmoid")
-            # y_pred_proba = expit(y_transformed)
-        else:
-            if len(self.linear_model_.classes_) == 2:
-                # Binary classification
-                # y_pred_proba = expit(y_transformed)
-                y_pred_proba= activator(y_transformed, activation=self.activation)
-                # Ensure the output has two columns
-                y_pred_proba = np.hstack([1 - y_pred_proba, y_pred_proba])
-            else:
-                # Multiclass classification, apply softmax
-                y_pred_proba= activator(y_transformed, activation="softmax")
-                # y_pred_proba = softmax(y_transformed, axis=1)
-
-        if self.verbose > 0:
-            print("predict_proba method completed.")
-
-        return y_pred_proba
-
-    def predict(self, X):
-        """
-        Predict class labels for each input sample in `X`.
-    
-        This method generates class labels by first computing class 
-        probabilities and then applying a threshold of 0.5 to determine 
-        the predicted class. Samples with predicted probability greater 
-        than or equal to 0.5 are classified as class 1, while the rest 
-        are classified as class 0.
-    
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Samples to predict, where `n_samples` is the number of samples 
-            and `n_features` is the number of features.
-    
-        Returns
-        -------
-        y_pred : ndarray of shape (n_samples,)
-            Predicted binary class labels for each sample. The labels are 
-            either 0 or 1, representing the two classes in binary 
-            classification.
-    
-        Notes
-        -----
-        - Probability Thresholding:
-          This method applies a threshold to the predicted probabilities 
-          to determine class labels:
-    
-          .. math::
-              \\hat{y} = \\begin{cases} 
-                            1 & \\text{if } \\hat{p}(y = 1 | X) \\geq 0.5 \\\\
-                            0 & \\text{otherwise}
-                         \\end{cases}
-    
-          where :math:`\\hat{p}(y = 1 | X)` is the probability of class 1.
-    
-        Notes
-        -----
-        - This method requires `predict_proba` to be executed first.
-        - A threshold of 0.5 is commonly used for binary classification tasks, 
-          though this can be adjusted if needed.
-    
-        Examples
-        --------
-        >>> from gofast.estimators.dynamic_system import HammersteinWienerClassifier
-        >>> model = HammersteinWienerClassifier()
-        >>> model.fit(X, y)
-        >>> labels = model.predict(X)
-        >>> print("Predicted labels:", labels)
-    
-        See Also
-        --------
-        predict_proba : Predict class probabilities for input samples.
-        """
-        if self.verbose > 0:
-            print("Starting predict method.")
-
-        y_pred_proba = self.predict_proba(X)
-
-        if self.is_multilabel_:
-            # For multilabel, threshold probabilities at 0.5
-            y_pred = (y_pred_proba >= 0.5).astype(int)
-        else:
-            # For binary and multiclass, take argmax
-            y_pred = np.argmax(y_pred_proba, axis=1)
-
-        if self.verbose > 0:
-            print("Predict method completed.")
-
-        return y_pred
-    
-    def _compute_loss(self, y_true, y_pred_proba):
-        """
-        Computes the classification loss based on the specified loss function.
-        This method calculates the average error between the true labels 
-        (`y_true`) and predicted probabilities (`y_pred_proba`) by applying 
-        either the cross-entropy or time-weighted cross-entropy loss function. 
-        The latter assigns greater penalty to recent errors, which can be 
-        essential in dynamic classification systems where recent predictions 
-        carry higher importance.
-    
-        Parameters
-        ----------
-        y_true : array-like of shape (n_samples,)
-            True binary labels for each sample, where values are either 0 or 1.
-            These labels are used as the ground truth for computing the loss.
-    
-        y_pred_proba : array-like of shape (n_samples,)
-            Predicted probabilities for each sample. These values range between 
-            0 and 1, representing the probability of the positive class. Values 
-            are clipped between a small epsilon (1e-15) and 1 - epsilon to 
-            prevent computational issues when taking the log of zero.
-    
-        Returns
-        -------
-        loss : float
-            Computed loss value based on the specified loss function. The loss 
-            is averaged across all samples.
-    
-        Notes
-        -----
-        - Cross-Entropy Loss:
-          The cross-entropy loss measures the error between the true and 
-          predicted probabilities. The formula is:
-    
-          .. math::
-              L_{CE} = - \\frac{1}{n} \\sum_{i=1}^{n} 
-                      \\left[ y_i \\log(\\hat{y}_i) 
-                      + (1 - y_i) \\log(1 - \\hat{y}_i) \\right]
-    
-          where :math:`y_i` is the true label, and :math:`\\hat{y}_i` is the 
-          predicted probability for sample :math:`i`.
-    
-        - Time-Weighted Cross-Entropy Loss:
-          In time-weighted loss, a weight vector is applied, emphasizing recent 
-          samples. The formula becomes:
-    
-          .. math::
-              L_{TWCE} = - \\frac{1}{n} \\sum_{i=1}^{n} 
-                         w_i \\left[ y_i \\log(\\hat{y}_i) 
-                         + (1 - y_i) \\log(1 - \\hat{y}_i) \\right]
-    
-          where :math:`w_i` are time weights calculated by `_compute_time_weights`.
-    
-
-        - Cross-entropy is commonly used for binary classification problems.
-        - Time-weighted cross-entropy can improve performance in time-sensitive 
-          applications by focusing on recent prediction accuracy.
-    
-        Examples
-        --------
-        >>> from gofast.estimators.dynamic_system import HammersteinWienerClassifier
-        >>> model = HammersteinWienerClassifier(loss="time_weighted_cross_entropy")
-        >>> y_true = np.array([0, 1, 1, 0])
-        >>> y_pred_proba = np.array([0.1, 0.8, 0.6, 0.2])
-        >>> loss = model._compute_loss(y_true, y_pred_proba)
-        >>> print(f"Computed loss: {loss:.4f}")
-    
-        See Also
-        --------
-        _compute_time_weights : Computes weights based on temporal relevance.
-    
-        References
-        ----------
-        .. [1] Bishop, C. M. (2006). Pattern Recognition and Machine Learning.
-               Springer.
-        """
-        if self.verbose > 0:
-            print(f"Computing loss using {self.loss} loss function.")
-    
-        # Clip probabilities to prevent log of zero
-        y_pred_proba = np.clip(y_pred_proba, self.epsilon, 1 - self.epsilon)
-    
-        # Compute loss using sklearn's log_loss
-        if self.loss == "cross_entropy":
-            loss = log_loss(y_true, y_pred_proba, eps=self.epsilon)
-        elif self.loss == "time_weighted_cross_entropy":
-            weights = self._compute_time_weights(len(y_true))
-            loss = log_loss(y_true, y_pred_proba, sample_weight=weights, eps=self.epsilon)
-        else:
-            raise ValueError("Unsupported loss function.")
-    
-        if self.verbose > 0:
-            print(f"Computed loss: {loss}")
-    
-        return loss
-     
-
-    def _compute_time_weights(self, n):
-        """
-        Computes time-based weights to prioritize recent predictions. The 
-        weight scheme is based on the `time_weighting` parameter, which defines 
-        how the weights are distributed across samples. Supported options 
-        include `linear`, `exponential`, and `inverse` weighting [1]_.
-    
-        Parameters
-        ----------
-        n : int
-            The number of samples or time points for which weights are computed.
-    
-        Returns
-        -------
-        weights : array-like of shape (n,)
-            Computed time weights, normalized to sum to one for consistent 
-            scaling across different weighting schemes.
-    
-        Mathematical Concept
-        --------------------
-        Time weights are calculated as follows, based on the `time_weighting` 
-        method:
-    
-        - Linear Weighting:
-          The weights increase linearly, giving a low weight to the first 
-          observation and the highest weight to the last.
-    
-          .. math::
-              w_i = \\frac{0.1 + \\frac{i}{n-1}}{1.0}
-    
-        - Exponential Weighting:
-          Weights follow an exponential increase, prioritizing recent samples 
-          more aggressively.
-    
-          .. math::
-              w_i = \\frac{e^{\\frac{i}{n}} - 1}{e^{1} - 1}
-    
-        - Inverse Weighting:
-          The weights decrease inversely with the time index, placing 
-          more importance on recent samples.
-    
-          .. math::
-              w_i = \\frac{1}{i}
-    
-        Notes
-        -----
-        - Weights are normalized to sum to one across all samples.
-        - Different weighting schemes can be used to fine-tune the model's 
-          sensitivity to time-based dependencies.
-    
-        Examples
-        --------
-        >>> from gofast.estimators.dynamic_system import HammersteinWienerClassifier
-        >>> model = HammersteinWienerClassifier(time_weighting="exponential")
-        >>> weights = model._compute_time_weights(5)
-        >>> print("Time weights:", weights)
-    
-        See Also
-        --------
-        _compute_loss : Uses weights to compute time-weighted cross-entropy loss.
-    
-        References
-        ----------
-        .. [1] Sutton, R. S., & Barto, A. G. (2018). Reinforcement Learning: 
-               An Introduction. MIT Press.
-        """
-        if self.verbose > 0:
-            print(f"Computing time weights using {self.time_weighting} method.")
-
-        # Compute weights based on the selected method
-        if self.time_weighting == "linear":
-            weights = np.linspace(0.1, 1.0, n)
-        elif self.time_weighting == "exponential":
-            weights = np.exp(np.linspace(0, 1, n)) - 1
-            weights /= weights.max()  # Normalize to [0, 1]
-        elif self.time_weighting == "inverse":
-            weights = 1 / np.arange(1, n + 1)
-            weights /= weights.max()  # Normalize to [0, 1]
-        else:
-            # Default to equal weights if unrecognized weighting scheme
-            weights = np.ones(n)
-
-        if self.verbose > 0:
-            print(f"Time weights: {weights}")
-
-        return weights
-    
+ 

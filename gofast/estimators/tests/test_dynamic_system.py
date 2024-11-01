@@ -31,7 +31,9 @@ def test_hammerstein_wiener_regressor_with_nonlinear_estimators():
     assert mse < 10000, f"Expected MSE < 10000, but got {mse}"
 
 def test_hammerstein_wiener_classifier_with_nonlinear_estimators():
-    X, y = make_classification(n_samples=200, n_features=5, n_informative=3, n_redundant=1, random_state=42)
+    X, y = make_classification(
+        n_samples=200, n_features=5, n_informative=3, n_redundant=1, 
+        random_state=42)
 
     # Define nonlinear input estimator using FunctionTransformer
     nonlinear_input = FunctionTransformer(np.tanh)
@@ -159,9 +161,7 @@ def test_hammerstein_wiener_regressor_error_handling():
         regressor.predict(np.array([[0, 1, 2]]))
 
 def test_hammerstein_wiener_classification_multilabels(): 
-    from sklearn.datasets import make_classification
     
-    from untitled1 import HammersteinWienerClassifier
     X, y = make_classification(n_samples=200, n_features=7, n_classes=2,n_informative=2)
     
     model = HammersteinWienerClassifier(p=4, verbose=1)
@@ -190,7 +190,6 @@ def test_hammerstein_wiener_regressor_multilabels():
     y_pred = model.predict(X)
     
     # Evaluate
-    from sklearn.metrics import mean_squared_error
     mse = mean_squared_error(y, y_pred)
     print(f"Mean Squared Error: {mse:.2f}")
     assert mse < 500, f"Expected MSE < 500, but got {mse}"

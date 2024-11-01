@@ -8,8 +8,8 @@ import numpy as np
 
 from sklearn.base import BaseEstimator
 from sklearn.utils._param_validation import HasMethods, StrOptions
-from ..tools.validator import check_is_fitted
 
+from ..tools.validator import check_is_fitted
 from ..compat.sklearn import Interval 
 from ..exceptions import NotFittedError
 
@@ -213,6 +213,7 @@ class BaseHammersteinWiener(BaseEstimator, metaclass=ABCMeta):
                     self.nonlinear_output_estimator.fit(
                         y_linear.reshape(-1, 1), y_linear
                     )
+            
             # Use transform or predict based on estimator type
             if hasattr(self.nonlinear_output_estimator, 'transform'):
                 y_pred = self.nonlinear_output_estimator.transform(
