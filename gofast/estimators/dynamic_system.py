@@ -10,7 +10,6 @@ machine learning techniques.
 """
 from numbers import Real
 import numpy as np
-from scipy.special import expit, softmax
 
 from sklearn.base import ClassifierMixin, RegressorMixin
 from sklearn.utils._param_validation import StrOptions
@@ -21,11 +20,10 @@ try:
 except: 
     from ..tools.coreutils import type_of_target
     
-from ..exceptions import NotFittedError
 from ..compat.sklearn import Interval 
 from ..tools.validator import check_is_fitted, check_X_y, check_array
 from ._dynamic_system import BaseHammersteinWiener
-
+from .util import activator
 
 __all__= ["HammersteinWienerClassifier","HammersteinWienerRegressor" ]
 
@@ -1145,16 +1143,19 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
         # Convert to probabilities
         if self.is_multilabel_:
             # For multilabel, apply sigmoid function
-            y_pred_proba = expit(y_transformed)
+            y_pred_proba= activator(y_transformed, activation="sigmoid")
+            # y_pred_proba = expit(y_transformed)
         else:
             if len(self.linear_model_.classes_) == 2:
                 # Binary classification
-                y_pred_proba = expit(y_transformed)
+                # y_pred_proba = expit(y_transformed)
+                y_pred_proba= activator(y_transformed, activation=self.activation)
                 # Ensure the output has two columns
                 y_pred_proba = np.hstack([1 - y_pred_proba, y_pred_proba])
             else:
                 # Multiclass classification, apply softmax
-                y_pred_proba = softmax(y_transformed, axis=1)
+                y_pred_proba= activator(y_transformed, activation="softmax")
+                # y_pred_proba = softmax(y_transformed, axis=1)
 
         if self.verbose > 0:
             print("predict_proba method completed.")
