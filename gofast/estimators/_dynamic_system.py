@@ -111,7 +111,7 @@ class BaseHammersteinWiener(BaseEstimator, metaclass=ABCMeta):
         "p": [Interval(Integral, 1, None, closed='left')],
         "feature_engineering": [StrOptions({'auto'})],
         "n_jobs": [Integral, None],
-        "verbose": [Interval(Integral, 0, None, closed='left')],
+        "verbose": [Interval(Integral, 0, None, closed='left'), None],
     }
 
     @abstractmethod

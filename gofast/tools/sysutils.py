@@ -715,6 +715,7 @@ def is_path_accessible(path: str, permissions: str = "r") -> bool:
     auto_install=False,
     dist_name="fcntl",
     # `fcntl` is standard on Unix;let the user know if unavailable.
+    # so we set infer_dist_name to False
     infer_dist_name=False 
 )
 def manage_file_lock(
@@ -862,7 +863,6 @@ def get_system_info() -> Dict[str, str]:
     }
     return system_info
 
-
 def get_python_version() -> str:
     """
     Returns the version of Python being used in the current environment.
@@ -970,7 +970,6 @@ def run_command(command: str, capture_output: bool = True) -> Optional[str]:
     except subprocess.CalledProcessError as e:
         print(f"Error executing command '{command}': {e}")
         return None
-
 
 def create_temp_file(suffix: str = "", prefix: str = "tmp") -> str:
     """

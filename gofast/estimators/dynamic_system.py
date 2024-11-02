@@ -14,13 +14,16 @@ import numpy as np
 from sklearn.base import ClassifierMixin, RegressorMixin
 from sklearn.utils._param_validation import StrOptions
 from sklearn.linear_model import SGDClassifier, SGDRegressor
-from sklearn.metrics import log_loss
+from sklearn.metrics import log_loss, accuracy_score
+from sklearn.model_selection import train_test_split 
 try:
     from sklearn.utils.multiclass import type_of_target
 except: 
     from ..tools.coreutils import type_of_target
     
+from ..metrics import twa_score 
 from ..compat.sklearn import Interval 
+from ..tools.coreutils import training_progress_bar 
 from ..tools.validator import check_is_fitted, check_X_y, check_array
 from ._dynamic_system import BaseHammersteinWiener
 from .util import activator
@@ -245,8 +248,12 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
         "optimizer": [StrOptions({"sgd", "adam", "adagrad"})],
         "learning_rate": [Interval(Real, 0, None, closed='neither')],
         "max_iter": [Interval(Integral, 1, None, closed='left')],
+        "tol": [Interval(Real, 1e-5, None, closed='neither')],
+        "early_stopping": [bool],
+        "validation_fraction": [Interval(Real, 0, 1, closed='neither')],
+        "n_iter_no_change": [Interval(Integral, 1, None, closed='left')],
+        "verbose": [Interval(Integral, 0, None, closed='left'), None] # None for mute
     }
-
     def __init__(
         self,
         nonlinear_input_estimator=None,
@@ -261,6 +268,10 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
         optimizer='adam',
         learning_rate=0.001,
         max_iter=1000,
+        tol=1e-3,
+        early_stopping=False,
+        validation_fraction=0.1,
+        n_iter_no_change= 5, 
         verbose=0
     ):
         super().__init__(
@@ -277,8 +288,65 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
         self.batch_size = batch_size      
         self.optimizer = optimizer        
         self.learning_rate = learning_rate  
-        self.max_iter = max_iter          
+        self.max_iter = max_iter  
+        self.tol = tol
+        self.early_stopping = early_stopping
+        self.validation_fraction = validation_fraction
+        self.n_iter_no_change = n_iter_no_change
+        
+    
+    def _initialize_model(self):
+        """ Initialize SGDClassifier for the linear dynamic block """
+        learning_rate_type = 'optimal' if self.optimizer == 'sgd' else (
+            'adaptive' if self.optimizer == 'adam' else 'invscaling'
+        )
+        # Initialize the SGDClassifier with specified parameters
+        self.linear_model_ = SGDClassifier(
+            loss='log',                    # Logistic regression
+            learning_rate=learning_rate_type,
+            eta0=self.learning_rate,       # Initial learning rate
+            max_iter=self.max_iter,
+            tol=self.tol,
+            shuffle=True,
+            verbose=self.verbose,
+            n_jobs=self.n_jobs,
+            n_iter_no_change=self.n_iter_no_change,
+            random_state=None, 
+        )
+        
+    def _split_data(self, X, y, X_lagged):
+        """ Split data into training and validation sets based on validation_fraction """
+        if self.validation_fraction < 1.0:
+            X_train, X_val, y_train, y_val = train_test_split(
+                X_lagged, y, 
+                test_size=self.validation_fraction, 
+                random_state=42, 
+                stratify=y
+            )
+        else:
+            X_train, y_train = X_lagged, y
+            X_val, y_val = None, None
+            
+        return X_train, y_train, X_val, y_val
+    
+    def _update_metrics(self, y_batch, y_pred, y_pred_proba, metrics, batch_idx):
+        """ Update metrics for progress bar and accuracy calculation """
 
+        try:
+            batch_loss = log_loss(y_batch, y_pred_proba) # 
+            batch_accuracy = accuracy_score(y_batch, y_pred) # 
+            batch_twa_accuracy = twa_score(y_batch, y_pred) # 
+    
+            metrics['loss'] = (metrics['loss'] * batch_idx + batch_loss) / (batch_idx + 1)
+            metrics['accuracy'] = (metrics['accuracy'] * batch_idx + batch_accuracy) / (batch_idx + 1)
+            metrics['time-weighted-accuracy'] = (
+                metrics['time-weighted-accuracy'] * batch_idx + batch_twa_accuracy
+                ) / (batch_idx + 1)
+            
+        except ValueError:
+            pass
+    
+    
     def fit(self, X, y):
         """
         Fit the Hammerstein-Wiener classifier to the training data.
@@ -378,58 +446,147 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
         if self.verbose > 0:
             print("Fitting linear model for classification with batch training.")
 
-        # Use SGDClassifier for the linear dynamic block to support batch_size and optimizer
-        if self.optimizer == 'sgd':
-            learning_rate_type = 'optimal'
-        elif self.optimizer == 'adam':
-            learning_rate_type = 'adaptive'
-        elif self.optimizer == 'adagrad':
-            learning_rate_type = 'invscaling'
-        else:
-            raise ValueError(f"Unsupported optimizer: {self.optimizer}")
-
         # Initialize the SGDClassifier with specified parameters
-        self.linear_model_ = SGDClassifier(
-            loss='log',                    # Logistic regression
-            learning_rate=learning_rate_type,
-            eta0=self.learning_rate,       # Initial learning rate
-            max_iter=self.max_iter,
-            tol=1e-3,
-            shuffle=True,
-            verbose=self.verbose,
-            n_iter_no_change=5,
-            n_jobs=self.n_jobs,
-            random_state=None
-        )
+        self._initialize_model()
 
+        # Split data into training and validation sets based on validation_fraction
+        
+        X_train, y_train, X_val, y_val = self._split_data (X, y, X_lagged )
+        
+
+    
         # Fit the model in batches
-        n_samples = X_lagged.shape[0]
+        n_samples = X_train.shape[0]
         n_batches = int(np.ceil(n_samples / self.batch_size))
+        
+        # Set up initial metrics dictionary
+        metrics = {'loss': 1.0, 'accuracy': 0.5, 'time-weighted-accuracy': 0.5, 'val_loss': 1.0, 'val_accuracy': 0.5}
+        if self.early_stopping: 
+            self._no_improvement_count = 0
 
-        for epoch in range(self.max_iter):
-            if self.verbose > 0:
+        self._no_improvement_count = 0
+        if self.early_stopping:
+            self.validation_scores_ = []
+            self.best_validation_score_ = -np.inf
+            self.best_loss_ = None
+        else:
+            self.best_loss_ = np.inf
+            self.validation_scores_ = None
+            self.best_validation_score_ = None
+
+        best_val_loss = float('inf')
+        # Check for verbose and apply the progress bar if verbose == 0
+        if self.verbose == 0:
+            with training_progress_bar(
+                epochs=self.max_iter,
+                steps_per_epoch=n_batches,
+                metrics=metrics,
+                obj_name=self.__class__.__name__
+            ):
+                for epoch in range(self.max_iter):
+                    # Shuffle data at the beginning of each epoch
+                    indices = np.arange(n_samples)
+                    np.random.shuffle(indices)
+                    X_train_shuffled = X_train[indices]
+                    y_train_shuffled = y_train[indices]
+        
+                    epoch_loss, epoch_correct, epoch_twa_correct = 0, 0, 0
+        
+                    for batch_idx in range(n_batches):
+                        start = batch_idx * self.batch_size
+                        end = min(start + self.batch_size, n_samples)
+                        X_batch = X_train_shuffled[start:end]
+                        y_batch = y_train_shuffled[start:end]
+        
+                        # Partial fit on the batch
+                        if epoch == 0 and batch_idx == 0:
+                            self.linear_model_.partial_fit(X_batch, y_batch, classes=np.unique(y))
+                        else:
+                            self.linear_model_.partial_fit(X_batch, y_batch)
+        
+                        # Predict on the batch for accuracy
+                        y_pred = self.linear_model_.predict(X_batch)
+                        y_pred_proba = self.linear_model_.predict_proba(X_batch)
+        
+                        # Compute batch loss and accuracy and update metrics 
+                        self._update_metrics(y_batch, y_pred, y_pred_proba, metrics, batch_idx)
+             
+     
+                    if X_val is not None:
+                        y_val_pred_proba = self.linear_model_.predict_proba(X_val)
+                        y_val_pred = self.linear_model_.predict(X_val)
+                        val_loss = log_loss(y_val, y_val_pred_proba)
+                        val_accuracy = accuracy_score(y_val, y_val_pred)
+                        
+                        # Update validation metrics for the progress bar
+                        metrics['val_loss'] = val_loss
+                        metrics['val_accuracy'] = val_accuracy
+                        # Early stopping
+                        if val_loss < best_val_loss - self.tol:
+                            best_val_loss = val_loss
+                            self._no_improvement_count = 0
+                        else:
+                            self._no_improvement_count += 1
+        
+                    if self.early_stopping and self._no_improvement_count >= self.n_iter_no_change:
+                        print(f"Early stopping triggered after {epoch + 1} epochs.")
+                        break
+
+        else:
+            for epoch in range(self.max_iter):
                 print(f"Epoch {epoch + 1}/{self.max_iter}")
-
-            # Shuffle the data at the beginning of each epoch
-            indices = np.arange(n_samples)
-            np.random.shuffle(indices)
-            X_lagged_shuffled = X_lagged[indices]
-            y_shuffled = y[indices]
-
-            for batch_idx in range(n_batches):
-                start = batch_idx * self.batch_size
-                end = min(start + self.batch_size, n_samples)
-                X_batch = X_lagged_shuffled[start:end]
-                y_batch = y_shuffled[start:end]
-
-                # Partial fit on the batch
-                if epoch == 0 and batch_idx == 0:
-                    # Initialize the model
-                    self.linear_model_.partial_fit(
-                        X_batch, y_batch, classes=np.unique(y))
-                else:
-                    # Continue training
-                    self.linear_model_.partial_fit(X_batch, y_batch)
+                indices = np.arange(n_samples)
+                np.random.shuffle(indices)
+                X_train_shuffled = X_train[indices]
+                y_train_shuffled = y_train[indices]
+        
+                epoch_loss, epoch_correct, epoch_twa_correct = 0, 0, 0
+        
+                for batch_idx in range(n_batches):
+                    start = batch_idx * self.batch_size
+                    end = min(start + self.batch_size, n_samples)
+                    X_batch = X_train_shuffled[start:end]
+                    y_batch = y_train_shuffled[start:end]
+        
+                    if epoch == 0 and batch_idx == 0:
+                        self.linear_model_.partial_fit(X_batch, y_batch, classes=np.unique(y))
+                    else:
+                        self.linear_model_.partial_fit(X_batch, y_batch)
+        
+                    # Print metrics without progress bar
+                    if batch_idx == n_batches - 1:
+                        y_pred = self.linear_model_.predict(X_batch)
+                        y_pred_proba = self.linear_model_.predict_proba(X_batch)
+                        
+                        try:
+                            epoch_loss = log_loss(y_batch, y_pred_proba)
+                            epoch_accuracy = accuracy_score(y_batch, y_pred)
+                            epoch_twa_accuracy = twa_score(y_batch, y_pred)
+                            print(
+                                f"loss: {epoch_loss:.4f} - accuracy: {epoch_accuracy:.4f}"
+                                f" - TWA: {epoch_twa_accuracy:.4f}"
+                            )
+        
+                            # Validation step without progress bar
+                            if X_val is not None:
+                                y_val_pred_proba = self.linear_model_.predict_proba(X_val)
+                                y_val_pred = self.linear_model_.predict(X_val)
+                                val_loss = log_loss(y_val, y_val_pred_proba)
+                                val_accuracy = accuracy_score(y_val, y_val_pred)
+                                print(f"val_loss: {val_loss:.4f} - val_accuracy: {val_accuracy:.4f}")
+        
+                                # Early stopping
+                                if val_loss < best_val_loss - self.tol:
+                                    best_val_loss = val_loss
+                                    self._no_improvement_count = 0
+                                else:
+                                    self._no_improvement_count += 1
+        
+                                if self.early_stopping and self._no_improvement_count >= self.early_stopping:
+                                    print(f"Early stopping triggered after {epoch + 1} epochs.")
+                                    break
+                        except ValueError:
+                            pass
 
         # Get the decision function output
         y_linear = self.linear_model_.decision_function(X_lagged)
@@ -446,6 +603,37 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
             print("Fit method completed.")
 
         return self
+    
+    def _update_no_improvement_count(self, early_stopping, X_val, y_val):
+        if early_stopping:
+            # compute validation score, use that for stopping
+            self.validation_scores_.append(self._score(X_val, y_val))
+
+            if self.verbose:
+                print("Validation score: %f" % self.validation_scores_[-1])
+            # update best parameters
+            # use validation_scores_, not loss_curve_
+            # let's hope no-one overloads .score with mse
+            last_valid_score = self.validation_scores_[-1]
+
+            if last_valid_score < (self.best_validation_score_ + self.tol):
+                self._no_improvement_count += 1
+            else:
+                self._no_improvement_count = 0
+
+            if last_valid_score > self.best_validation_score_:
+                self.best_validation_score_ = last_valid_score
+                self._best_coefs = [c.copy() for c in self.coefs_]
+                self._best_intercepts = [i.copy() for i in self.intercepts_]
+        else:
+            if self.loss_curve_[-1] > self.best_loss_ - self.tol:
+                self._no_improvement_count += 1
+            else:
+                self._no_improvement_count = 0
+            if self.loss_curve_[-1] < self.best_loss_:
+                self.best_loss_ = self.loss_curve_[-1]
+                
+
 
     def predict_proba(self, X):
         """

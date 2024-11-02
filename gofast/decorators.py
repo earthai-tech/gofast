@@ -45,6 +45,7 @@ from __future__ import print_function
 import os
 import re
 import sys
+import time
 import inspect
 import warnings
 import functools
@@ -81,6 +82,7 @@ __all__= [
     'SmartProcessor',
     'SuppressOutput',
     'Temp2D',
+    'TrainingProgressBar', 
     'available_if',
     'example_function',
     'isdf',
@@ -3278,69 +3280,195 @@ def isdf(func):
 
     return wrapper
 
-def isdf0(func: Callable) -> Callable:
+class TrainingProgressBar:
     """
-    A decorator that ensures the first positional argument passed to the 
-    decorated function is a pandas DataFrame.
+    A context manager class to display a Keras-like training progress bar 
+    for each epoch, showing metrics dynamically during training.
     
-    If the argument is not a DataFrame, the decorator attempts to convert it 
-    into one using an optional 'columns' keyword argument.
+    This class provides an intuitive way to visualize training progress 
+    and track best-performing metrics across epochs, useful for deep 
+    learning and machine learning experiments. The progress bar is 
+    displayed in real-time, and best metrics are stored and shown after 
+    completion.
 
     Parameters
     ----------
-    func : Callable
-        The function to be decorated.
+    epochs : int
+        Total number of epochs to train the model.
+    steps_per_epoch : int
+        Total number of steps (batches) per epoch.
+    metrics : dict, optional
+        Dictionary of metric names and initial values, with keys as metric 
+        names (e.g., `'loss'`, `'accuracy'`) and values as initial values 
+        (e.g., `{'loss': 1.0, 'accuracy': 0.5}`). These are updated at each 
+        step and displayed in the progress bar.
+    bar_length : int, default=30
+        Length of the progress bar in characters. Adjust this value for a 
+        longer or shorter progress bar.
+    delay : float, default=0.01
+        Time delay between steps, in seconds, used to simulate processing 
+        time for each batch.
 
-    Returns
-    -------
-    Callable
-        The decorated function with data conversion logic.
-
-    Notes
-    -----
-    The decorated function must accept its first positional argument as data
-    and may optionally accept a 'columns' keyword argument to specify column names
-    for the DataFrame conversion.
+    Attributes
+    ----------
+    best_metrics_ : dict
+        Dictionary storing the best values observed for each metric during 
+        training. This is updated whenever a metric improves.
 
     Examples
     --------
-    >>> from gofast.decorators import isdf
-    >>> @isdf
-    ... def my_function(data, /, columns=None, **kwargs):
-    ...     print(data)
-    ...     print("Columns:", columns)
-    >>> import numpy as np
-    >>> my_function(np.array([[1, 2], [3, 4]]), columns=['A', 'B'])
-       A  B
-    0  1  2
-    1  3  4
-    Columns: ['A', 'B']
+    >>> from gofast.decorators import TrainingProgressBar
+    >>> metrics = {'loss': 1.0, 'accuracy': 0.5, 'val_loss': 1.0, 'val_accuracy': 0.5}
+    >>> epochs, steps_per_epoch = 10, 20
+    >>> with TrainingProgressBar(epochs, steps_per_epoch, metrics=metrics,
+                                 bar_length=40) as progress_bar:
+    ...     pass  # Simulation will display progress bar
+    # Parameters for the training simulation
+    >>> epochs = 5
+    >>> steps_per_epoch = 20
+    >>> metrics = {'loss': 1.0, 'accuracy': 0.5, 'val_loss': 1.0, 'val_accuracy': 0.5}
+    
+    # Use the TrainingProgressBar as a context manager
+    >>> with TrainingProgressBar(epochs, steps_per_epoch, metrics=metrics,
+    ...                            bar_length=40, delay=0.01) as progress_bar:
+    ...     # Simulate the training process
+    ...     for epoch in range(1, epochs + 1):
+    ...        for step in range(1, steps_per_epoch + 1):
+    ...            # Simulate metric updates during training
+    ...            metrics['loss'] *= 0.99  # Decaying loss
+    ...            # Increasing accuracy
+    ...            metrics['accuracy'] = min(1.0, metrics['accuracy'] + 0.001)  
+    ...            metrics['val_loss'] *= 0.995  # Validation loss
+    ...            # Validation accuracy
+    ...            metrics['val_accuracy'] = min(1.0, metrics['val_accuracy'] + 0.001) 
+    ...
+    ...            # Update metrics in progress bar display (automatically handled in __enter__)
+    ...            # This loop illustrates the for-loop structure over epochs and steps
+
+    Notes
+    -----
+    - This class is best used in a machine learning training loop where 
+      the progress bar provides visual feedback on metrics per epoch.
+    - Metrics will dynamically update, and the best metrics observed 
+      during training are shown after training completes.
+
+    See Also
+    --------
+    Other visualization tools for tracking progress in machine learning 
+    experiments, such as TensorBoard, which provides a web-based interface 
+    for metric monitoring.
+
+    References
+    ----------
+    .. [1] Chollet, François, et al. "Keras: The Python Deep Learning library." 
+       GitHub repository, 2015.
     """
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        data = args[0]
-        columns = kwargs.get('columns', None)
-        if isinstance ( columns, str): 
-            columns =[columns]
-        # Check if the first positional argument is not a DataFrame
-        if not isinstance(data, pd.DataFrame):
-            # Attempt to convert it into a DataFrame
-            try:
-                data = pd.DataFrame(data, columns=columns)
-                # If columns are provided but do not match data dimensions,
-                # ignore them
-                if columns and len(columns) != data.shape[1]:
-                    data = pd.DataFrame(data)
-            except Exception as e:
-                raise ValueError(f"Error converting data to DataFrame: {e}")
-            # Call the decorated function with the new DataFrame 
-            # as the first argument
-            return func(data, *args[1:], **kwargs)
-        else:
-            # If the first argument is already a DataFrame, 
-            # proceed as normal
-            return func(*args, **kwargs)
-    return wrapper
+    
+    def __init__(
+        self, epochs, 
+        steps_per_epoch, 
+        metrics=None, 
+        bar_length=30, 
+        delay=0.01, 
+        instance=None, 
+        ):
+        self.epochs = epochs
+        self.steps_per_epoch = steps_per_epoch
+        self.bar_length = bar_length
+        self.delay = delay
+        self.metrics = metrics if metrics is not None else {
+            'loss': 1.0, 'accuracy': 0.5, 'val_loss': 1.0, 'val_accuracy': 0.5}
+        self.best_metrics_ = {k: v for k, v in self.metrics.items()}
+        self.instance=instance 
+
+    def _update_best_metrics(self):
+        """
+        Update the best metrics based on current metrics. 
+        
+        This function checks each metric and updates `best_metrics_` if a 
+        better value is found (minimum for `loss` metrics and maximum 
+        otherwise).
+        """
+        for metric, value in self.metrics.items():
+            if "loss" in metric:
+                self.best_metrics_[metric] = min(self.best_metrics_[metric], value)
+            else:
+                self.best_metrics_[metric] = max(self.best_metrics_[metric], value)
+
+    def _display_progress(self, step, epoch):
+        """
+        Display the progress bar for the current step within the epoch.
+        
+        Parameters
+        ----------
+        step : int
+            Current step within the epoch.
+        epoch : int
+            Current epoch.
+        """
+        progress = step / self.steps_per_epoch
+        completed = int(progress * self.bar_length)
+        
+        # Construct the progress bar
+        progress_bar = '=' * completed
+        if completed < self.bar_length:
+            progress_bar += '>'
+        progress_bar = progress_bar.ljust(self.bar_length)
+        
+        # Display metrics dynamically
+        metric_display = " - ".join([f"{k}: {v:.4f}" for k, v in self.metrics.items()])
+        
+        # Print progress bar with metrics
+        sys.stdout.write(
+            f"\rEpoch {epoch}/{self.epochs} - {step}/{self.steps_per_epoch} "
+            f"[{progress_bar}] - {metric_display}"
+        )
+        sys.stdout.flush()
+
+    def __enter__(self):
+        """
+        Enter the context manager, automatically starting the training progress 
+        display by iterating through epochs and steps, updating metrics at each 
+        step and showing progress in real-time.
+        """
+        for epoch in range(1, self.epochs + 1):
+            print(f"\nEpoch {epoch}/{self.epochs}")
+            for step in range(1, self.steps_per_epoch + 1):
+                time.sleep(self.delay)  # Simulate processing time per step
+
+                # Simulate updating metrics; replace with actual metric updates
+                for metric in self.metrics:
+                    if "loss" in metric:
+                        self.metrics[metric] = max(0, self.metrics[metric] - 0.001 * step)
+                    else:
+                        self.metrics[metric] = min(1.0, self.metrics[metric] + 0.001 * step)
+
+                # Update best metrics and display progress
+                self._update_best_metrics()
+                self._display_progress(step, epoch)
+
+            print("\n")  # New line after each epoch
+
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        Exit the context manager, displaying the best metrics at the end of training.
+        
+        This method is called when leaving the `with` block, showing the best 
+        metrics observed during training in a single line.
+        """
+        # Display the best metrics on a single line at the end of training
+        best_metric_display = " - ".join([f"{k}: {v:.4f}" 
+                                          for k, v in self.best_metrics_.items()])
+        print("Training complete!")
+        if self.instance is not None: 
+            from .tools.validator import get_estimator_name 
+            # Add hyphen separator if obj_name is specified
+            obj = get_estimator_name(self.instance) + ' - ' 
+            print(f"{obj}Best Metrics: {best_metric_display}")
+        print(f"Best Metrics: {best_metric_display}")
+
 
 class NumpyDocstringFormatter:
     """

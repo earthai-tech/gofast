@@ -3923,6 +3923,9 @@ def get_estimator_name (estimator ):
     :return: str, 
         name of the estimator. 
     """
+    if isinstance (estimator, str): 
+        return estimator 
+    
     name =' '
     if hasattr (estimator, '__qualname__') and hasattr(
             estimator, '__name__'): 
