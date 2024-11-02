@@ -1,575 +1,927 @@
 # -*- coding: utf-8 -*-
+# License: BSD-3-Clause
+# Author: LKouadio <etanoyau@gmail.com>
 
 """
-`dynamic_system` implements various dynamic system models for classification 
+Dynamic system implements various dynamic system models for classification 
 and regression tasks within the gofast library. These models are designed to 
 handle complex, time-dependent data by combining dynamic system theory with 
 machine learning techniques.
 """
-from __future__ import annotations 
+from numbers import Integral, Real
 import numpy as np
-from tqdm import tqdm 
 
-from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
-from sklearn.utils import resample
-from sklearn.preprocessing import LabelBinarizer # noqa 
-from ..tools.validator import check_X_y, check_array 
-from ..tools.validator import check_is_fitted
-from ..tools.baseutils import normalizer 
-from .util import select_default_estimator, validate_memory_depth 
+from sklearn.base import ClassifierMixin, RegressorMixin
+from sklearn.utils._param_validation import StrOptions
+from sklearn.linear_model import SGDClassifier, SGDRegressor
+from sklearn.metrics import log_loss
+try:
+    from sklearn.utils.multiclass import type_of_target
+except: 
+    from ..tools.coreutils import type_of_target
+    
+from ..compat.sklearn import Interval 
+from ..tools.validator import check_is_fitted, check_X_y, check_array
+from ._dynamic_system import BaseHammersteinWiener
+from .util import activator
 
-__all__= [
-    "HammersteinWienerClassifier","HammersteinWienerRegressor",
-    "EnsembleHWClassifier", "EnsembleHWRegressor",
-    ]
+__all__= ["HammersteinWienerClassifier","HammersteinWienerRegressor" ]
 
-class HammersteinWienerClassifier(BaseEstimator, ClassifierMixin):
-    r"""
-    Hammerstein-Wiener Classifier for Dynamic Classification Tasks.
 
-    The Hammerstein-Wiener Classifier is designed for modeling and predicting 
-    outcomes in dynamic systems where the response depends on past inputs. It 
-    is particularly useful in scenarios where the system's behavior exhibits 
-    both linear and nonlinear characteristics. This model uniquely combines 
-    the properties of Hammerstein and Wiener systems to effectively capture 
-    complex input-output relationships.
+class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
+    """
+    Hammerstein-Wiener model for classification tasks.
 
-    The Hammerstein model component consists of a nonlinear input function 
-    followed by a linear dynamic block, whereas the Wiener model component 
-    features a linear dynamic block followed by a nonlinear output function. 
-    This configuration allows the classifier to capture both linear dynamics 
-    and nonlinear transformations inherent in the data.
+    The Hammerstein-Wiener model is a block-oriented model used to
+    represent nonlinear dynamic systems. It consists of a cascade of
+    a static nonlinear input block, a linear dynamic block, and a
+    static nonlinear output block. This model is suitable for capturing
+    systems with input and output nonlinearities surrounding a linear
+    dynamic system.
 
-    The Hammerstein-Wiener model for classification is mathematically 
-    expressed as:
+    The general structure of the Hammerstein-Wiener model is as follows:
 
     .. math::
-        y(t) = g_2\left( \text{{classifier}}\left( \sum_{i=1}^{n} g_1(X_{t-i}) \right) \right)
+        y(t) = f_{\\text{out}}\\left( L\\left( f_{\\text{in}}\\left( x(t) \\right) \\right) \\right)
 
     where:
-    - :math:`g_1` is the nonlinear function applied to inputs.
-    - :math:`g_2` is the nonlinear output function, typically a logistic 
-      function for classification.
-    - 'classifier' denotes a linear model, such as logistic regression, 
-      applied within the construct.
-    - :math:`X_{t-i}` represents the input features at time step :math:`t-i`, 
-      highlighting the memory effect essential for dynamic systems.
+
+    - :math:`x(t)` is the input vector at time :math:`t`.
+    - :math:`f_{\\text{in}}` is the nonlinear input function.
+    - :math:`L` is the linear dynamic block.
+    - :math:`f_{\\text{out}}` is the nonlinear output function.
+    - :math:`y(t)` is the output at time :math:`t`.
+
+    See more in :ref:`User Guide`.
+    
+    Parameters
+    ----------
+    nonlinear_input_estimator : estimator object or None, default=None
+        Estimator for the nonlinear input function :math:`f_{\\text{in}}`.
+        This should be an object that implements ``fit`` and either
+        ``transform`` or ``predict`` methods. If ``None``, no nonlinear
+        transformation is applied to the input.
+
+    nonlinear_output_estimator : estimator object or None, default=None
+        Estimator for the nonlinear output function :math:`f_{\\text{out}}`.
+        This should be an object that implements ``fit`` and either
+        ``transform`` or ``predict`` methods. If ``None``, no nonlinear
+        transformation is applied to the output.
+
+    p : int, default=1
+        Order of the linear dynamic block. This specifies the number of
+        lagged inputs to include in the linear dynamic model.
+
+    loss : {'cross_entropy', 'time_weighted_cross_entropy'}, default='cross_entropy'
+        Loss function to use for evaluating the model performance.
+
+        - ``'cross_entropy'``: Standard cross-entropy loss.
+        - ``'time_weighted_cross_entropy'``: Time-weighted cross-entropy loss,
+          giving more importance to recent misclassifications.
+
+    time_weighting : {'linear', 'exponential', 'inverse'}, default='linear'
+        Method for computing time weights when using time-weighted loss
+        functions.
+
+        - ``'linear'``: Linearly increasing weights over time.
+        - ``'exponential'``: Exponentially increasing weights over time.
+        - ``'inverse'``: Inversely decreasing weights over time.
+
+    feature_engineering : {'auto'}, default='auto'
+        Method for feature engineering. Currently, only ``'auto'`` is
+        supported.
+
+    epsilon : float, default=1e-15
+        A small constant used to prevent division by zero or log of zero 
+        errors during calculations  in probability estimates. Clipping 
+        predictions within the range defined by `epsilon` ensures numerical
+        stability by constraining values to avoid extremes.
+
+    n_jobs : int or None, default=None
+        The number of jobs to run in parallel. ``None`` means 1 unless in
+        a ``joblib.parallel_backend`` context.
+        
+        batch_size : int, default=32
+        The number of samples per batch during training. Smaller batch sizes 
+        may provide more granular updates to the model, while larger batch 
+        sizes can result in faster training times but require more memory.
+        
+    optimizer : {'sgd', 'adam', 'adagrad'}, default='adam'
+        The optimization algorithm to use for training the linear dynamic 
+        block. The choice of optimizer affects the model's convergence 
+        rate and stability:
+        
+        - ``'sgd'``: Stochastic Gradient Descent, a basic optimizer that 
+          updates weights based on a single sample, providing faster 
+          updates but potentially noisier convergence.
+        - ``'adam'``: Adaptive Moment Estimation, an advanced optimizer 
+          that adjusts learning rates for each parameter dynamically, 
+          improving convergence speed and stability.
+        - ``'adagrad'``: Adaptive Gradient Algorithm, which adapts learning 
+          rates for each parameter individually, helpful for sparse data 
+          but may decay learning rates too aggressively.
+          
+    learning_rate : float, default=0.001
+        The initial learning rate applied by the chosen optimizer. A higher 
+        learning rate can speed up training but risks overshooting minima, 
+        while a lower rate can lead to slower convergence but more precise 
+        optimization. Recommended values often range from 0.0001 to 0.01 
+        depending on model complexity.
+    
+    max_iter : int, default=1000
+        The maximum number of training iterations (epochs) for model 
+        training. Each iteration represents one pass through the entire 
+        dataset. Increasing this value allows the model more time to learn 
+        patterns but risks overfitting if too large.
+        
+    verbose : int, default=0
+        The verbosity level. If greater than 0, prints messages during
+        fitting and prediction.
+
+    Attributes
+    ----------
+    linear_model_ : object
+        The linear model used in the linear dynamic block. This model 
+        captures the linear relationship between lagged features and 
+        the target classes and is fitted during the training process.
+    
+    initial_loss_ : float
+        Initial loss computed on the training data after fitting. This 
+        value indicates the model's performance on the training data 
+        immediately following training and serves as a baseline loss.
+    
+    Methods
+    -------
+    fit(X, y)
+        Fit the Hammerstein-Wiener classifier to the provided training 
+        data (`X`, `y`). Applies input transformations, creates lagged 
+        features, fits the linear dynamic block with a classification 
+        model, and optionally applies a nonlinear output transformation.
+    
+    predict_proba(X)
+        Predict class probabilities for the input samples (`X`) using 
+        the fitted Hammerstein-Wiener classifier. Outputs the probability 
+        for each class based on transformations and linear dynamics.
+    
+    predict(X)
+        Predict binary class labels for the input samples (`X`) using 
+        the fitted Hammerstein-Wiener classifier. Classifies samples 
+        based on the computed class probabilities.
+    
+
+    See Also
+    --------
+    HammersteinWienerRegressor : Hammerstein-Wiener model for regression tasks.
+
+    Notes
+    -----
+    The Hammerstein-Wiener model combines static nonlinear blocks with
+    a linear dynamic block to model complex systems that exhibit both
+    dynamic and nonlinear behaviors [1]_.
 
     The classifier is especially suited for time-series classification, 
     signal processing, and systems identification tasks where current outputs 
     are significantly influenced by historical inputs. It finds extensive 
     applications in fields like telecommunications, control systems, and 
     financial modeling, where understanding dynamic behaviors is crucial.
-
-    Parameters
+    
+    References
     ----------
-    nonlinearity_in : str or callable, default='tanh'
-        Nonlinear function applied to inputs. This can be a string 
-        ('tanh', 'sigmoid', 'relu', 'leaky_relu') to select a predefined 
-        function or a callable for a custom function. It transforms the input 
-        data before feeding it into the linear dynamic block.
-
-    nonlinearity_out : str or callable, default='sigmoid'
-        Nonlinear function applied to the output of the classifier. This can 
-        be a string ('sigmoid', 'softmax') to select a predefined function or 
-        a callable for a custom function. It models the nonlinear transformation 
-        at the output stage.
-
-    memory_depth : int, default=5
-        The number of past time steps to consider in the model. This parameter 
-        defines the 'memory' of the system, enabling the model to use past 
-        information for current predictions.
-        
-    classifier : object, Optional, default=LogisticRegression()
-        Linear classifier model for the dynamic block. Should support fit 
-        and predict methods. For multi-class classification, it can be set to 
-        use softmax regression (e.g., 
-        LogisticRegression with multi_class='multinomial').
-
-    verbose : int, default=False
-        Controls the verbosity when fitting.
-        
-    Attributes
-    ----------
-    fitted_ : bool
-        Indicates whether the classifier has been fitted to the data.
+    .. [1] Schoukens, J., & Ljung, L. (2019). Nonlinear System
+           Identification: A User-Oriented Roadmap. IEEE Control
+           Systems Magazine, 39(6), 28-99.
 
     Examples
     --------
     >>> from gofast.estimators.dynamic_system import HammersteinWienerClassifier
-    >>> from sklearn.linear_model import LogisticRegression
+    >>> from sklearn.datasets import make_classification
     >>> import numpy as np
-    >>> hw = HammersteinWienerClassifier(
-    ...     classifier=LogisticRegression(),
-    ...     nonlinearity_in='tanh',
-    ...     nonlinearity_out='sigmoid',
-    ...     memory_depth=5
-    ... )
-    >>> X, y = np.random.rand(100, 1), np.random.randint(0, 3, 100)
-    >>> hw.fit(X, y)
-    >>> y_pred = hw.predict(X)
-
-    Notes
-    -----
-    The choice of nonlinear functions (:math:`g_1` and :math:`g_2`) and the 
-    memory depth are crucial in capturing the dynamics of the system accurately. 
-    They should be chosen based on the specific characteristics of the data and 
-    the underlying system behavior.
-
-    References
-    ----------
-    - Hammerstein, A. (1930). Nichtlineare Systeme und Regelkreise.
-    - Wiener, N. (1958). Nonlinear Problems in Random Theory.
-
-    See Also
-    --------
-    LogisticRegression : Standard logistic regression classifier from 
-       Scikit-Learn.
-    TimeSeriesSplit : Time series cross-validator for Scikit-Learn.
+    >>> # Generate synthetic data
+    >>> X, y = make_classification(n_samples=200, n_features=5,
+    ...                            n_informative=3, n_redundant=1,
+    ...                            random_state=42)
+    >>> # Instantiate the classifier
+    >>> model = HammersteinWienerClassifier(p=2, verbose=1)
+    >>> # Fit the model
+    >>> model.fit(X, y)
+    Starting HammersteinWienerClassifier fit method.
+    Applying nonlinear input transformation.
+    No nonlinear input estimator provided; using original X.
+    Creating lagged features.
+    Creating lag 1 features.
+    Creating lag 2 features.
+    Lagged features shape: (200, 10)
+    Fitting linear model for classification.
+    Applying nonlinear output transformation.
+    No nonlinear output estimator provided; using linear output.
+    Computed loss: 0.35
+    Initial loss: 0.35
+    Fit method completed.
+    >>> # Predict
+    >>> y_pred = model.predict(X)
+    Starting predict method.
+    Starting predict_proba method.
+    Applying nonlinear input transformation.
+    No nonlinear input estimator provided; using original X.
+    Creating lagged features.
+    Creating lag 1 features.
+    Creating lag 2 features.
+    Lagged features shape: (200, 10)
+    predict_proba method completed.
+    Predict method completed.
+    >>> # Evaluate
+    >>> from sklearn.metrics import accuracy_score
+    >>> acc = accuracy_score(y, y_pred)
+    >>> print(f"Accuracy: {acc:.2f}")
+    Accuracy: 0.85
     """
+    
+    _parameter_constraints: dict = {
+        **BaseHammersteinWiener._parameter_constraints,
+        "loss": [StrOptions({"cross_entropy", "time_weighted_cross_entropy"})],
+        "time_weighting": [StrOptions({"linear", "exponential", "inverse"})],
+        "epsilon": [Interval(Real, 1e-15, None, closed='left')],
+        "batch_size": [Interval(Integral, 1, None, closed='left')],
+        "optimizer": [StrOptions({"sgd", "adam", "adagrad"})],
+        "learning_rate": [Interval(Real, 0, None, closed='neither')],
+        "max_iter": [Interval(Integral, 1, None, closed='left')],
+    }
 
     def __init__(
-        self, 
-        nonlinearity_in='tanh', 
-        nonlinearity_out='sigmoid', 
-        memory_depth=5, 
-        classifier=None, 
-        verbose=False 
-        ):
-        self.classifier = classifier
-        self.nonlinearity_in = nonlinearity_in
-        self.nonlinearity_out = nonlinearity_out
-        self.memory_depth = memory_depth
-        self.verbose = verbose 
+        self,
+        nonlinear_input_estimator=None,
+        nonlinear_output_estimator=None,
+        p=1,
+        loss="cross_entropy",
+        time_weighting="linear",
+        feature_engineering='auto',
+        n_jobs=None,
+        epsilon=1e-15,
+        batch_size=32,
+        optimizer='adam',
+        learning_rate=0.001,
+        max_iter=1000,
+        verbose=0
+    ):
+        super().__init__(
+            nonlinear_input_estimator=nonlinear_input_estimator,
+            nonlinear_output_estimator=nonlinear_output_estimator,
+            p=p,
+            feature_engineering=feature_engineering,
+            n_jobs=n_jobs,
+            verbose=verbose
+        )
+        self.loss = loss
+        self.time_weighting = time_weighting
+        self.epsilon = epsilon
+        self.batch_size = batch_size      
+        self.optimizer = optimizer        
+        self.learning_rate = learning_rate  
+        self.max_iter = max_iter          
+
+    def fit(self, X, y):
+        """
+        Fit the Hammerstein-Wiener classifier to the training data.
         
-    def _validate_parameters(self):
-        """
-        Validate and initialize the parameters of the Hammerstein-Wiener Classifier.
-
-        This method ensures that the nonlinearities and classifier model are 
-        correctly specified and initializes them if necessary. It also validates 
-        the memory depth parameter.
-
-        Nonlinearity functions can be specified either as strings (for predefined 
-        functions) or as callables. The following nonlinear functions are supported:
-        - 'tanh': Hyperbolic tangent function.
-        - 'sigmoid': Sigmoid function, defined as :math:`1 / (1 + e^{-x})`.
-        - 'relu': Rectified Linear Unit function, defined as :math:`\max(0, x)`.
-        - 'leaky_relu': Leaky Rectified Linear Unit function, defined as 
-          :math:`x \text{ if } x > 0 \text{ else } 0.01 \times x`.
-
-        Raises
-        ------
-        ValueError
-            If `nonlinearity_in` or `nonlinearity_out` is not a supported string 
-            or a callable function.
-            If `memory_depth` is not a positive integer.
-            If `classifier` is neither "LogisticRegression" nor an estimator with 
-            `fit` and `predict` methods.
-
-        Notes
-        -----
-        This method is called during the initialization of the estimator to ensure 
-        that all parameters are set correctly before fitting the model to data.
-
-        Examples
-        --------
-        >>> from gofast.estimators.dynamic_system import HammersteinWienerClassifier
-        >>> hw = HammersteinWienerClassifier(
-        ...     nonlinearity_in='sigmoid',
-        ...     nonlinearity_out='relu',
-        ...     memory_depth=10
-        ... )
-        >>> hw._validate_parameters()  # This will initialize and validate parameters
-        """
-        func_dict = {
-            'tanh': np.tanh,
-            'sigmoid': lambda x: 1 / (1 + np.exp(-x)),
-            'relu': lambda x: np.maximum(0, x),
-            'leaky_relu': lambda x: np.where(x > 0, x, 0.01 * x)
-        }
-        if isinstance(self.nonlinearity_in, str):
-            if self.nonlinearity_in not in func_dict:
-                raise ValueError(f"nonlinearity_in '{self.nonlinearity_in}'"
-                                 f" is not supported. Choose from {list(func_dict.keys())}")
-            self.nonlinearity_in = func_dict[self.nonlinearity_in]
-        elif not callable(self.nonlinearity_in):
-            raise ValueError("nonlinearity_in must be a callable function")
-
-        if isinstance(self.nonlinearity_out, str):
-            if self.nonlinearity_out not in func_dict:
-                raise ValueError(f"nonlinearity_out '{self.nonlinearity_out}'"
-                                 f" is not supported. Choose from {list(func_dict.keys())}")
-            self.nonlinearity_out = func_dict[self.nonlinearity_out]
-        elif not callable(self.nonlinearity_out):
-            raise ValueError("nonlinearity_out must be a callable function")
-
-        self.classifier = select_default_estimator (
-            self.classifier or "logit", problem="classification")
-        
-    def fit(self, X, y, sample_weight=None):
-        """
-        Fit the Hammerstein-Wiener model to the data.
+        This method applies transformations to the input data, constructs 
+        lagged features for time-based dynamics, and fits a logistic 
+        regression model on these features to capture linear relationships 
+        for classification. If a nonlinear output transformation is provided, 
+        it is applied to the decision function output.
     
         Parameters
         ----------
         X : array-like of shape (n_samples, n_features)
-            Training data input.
+            Training input samples, where `n_samples` is the number of samples 
+            and `n_features` is the number of features.
+    
         y : array-like of shape (n_samples,)
-            Target classification labels.
-        sample_weight : array-like of shape (n_samples,), default=None
-            Sample weights. If None, then samples are equally weighted. The length 
-            of `sample_weight` must match the number of samples after adjusting for 
-            memory depth.
+            Target binary class labels for each sample. Class labels are 
+            typically 0 or 1, representing the two classes in binary 
+            classification.
     
         Returns
         -------
         self : object
-            Returns self.
-    
-        Raises
-        ------
-        ValueError
-            If the length of `sample_weight` does not match the length of the 
-            adjusted target array.
-    
+            Returns the fitted `HammersteinWienerClassifier` instance.
+        
         Notes
         -----
-        This method is responsible for training the Hammerstein-Wiener model. It 
-        ensures that the classifier model is fitted with the appropriately transformed 
-        input data, taking into account past time steps up to the specified memory 
-        depth.
+        - Logistic Regression:
+          The linear model is fitted using logistic regression, which aims 
+          to maximize the likelihood of correctly predicting class labels. 
+          Given lagged features, the logistic model’s decision function 
+          output :math:`f(X_lagged)` is given by:
+    
+          .. math::
+              f(X_{lagged}) = X_{lagged} \\beta + b
+    
+          where :math:`X_{lagged}` are the lagged features, :math:`\\beta` 
+          represents the regression coefficients, and :math:`b` is the bias 
+          term.
+    
+        - Nonlinear Output Transformation:
+          If provided, a nonlinear transformation function :math:`g` is 
+          applied to the decision function output, resulting in:
+    
+          .. math::
+              y_{linear} = g(f(X_{lagged}))
+    
+
+        - This method uses logistic regression to fit the linear model.
+        - Nonlinear output transformations allow the model to capture more 
+          complex patterns beyond the linear decision boundary.
     
         Examples
         --------
         >>> from gofast.estimators.dynamic_system import HammersteinWienerClassifier
-        >>> from sklearn.linear_model import LogisticRegression
-        >>> import numpy as np
-        >>> hw = HammersteinWienerClassifier(
-        ...     classifier=LogisticRegression(),
-        ...     nonlinearity_in='tanh',
-        ...     nonlinearity_out='sigmoid',
-        ...     memory_depth=5
-        ... )
-        >>> X, y = np.random.rand(100, 1), np.random.randint(0, 2, 100)
-        >>> hw.fit(X, y)
-        >>> print(hw.fitted_)
-        True
+        >>> model = HammersteinWienerClassifier()
+        >>> X = np.array([[0.1, 0.2], [0.2, 0.3], [0.3, 0.4]])
+        >>> y = np.array([0, 1, 0])
+        >>> model.fit(X, y)
+        >>> print("Initial loss:", model.initial_loss_)
     
         See Also
         --------
-        HammersteinWienerClassifier._preprocess_data : 
-            Preprocesses the input data by applying nonlinearity and 
-            incorporating memory depth.
-        """
-        X, y = check_X_y(X, y, estimator=self)
-        if self.verbose: 
-            print("Fitting Hammerstein Wiener Classifier....")
-        X_lagged = self._preprocess_data(X)
-        self.memory_depth = validate_memory_depth(
-            X, self.memory_depth,default_depth="auto" )
-        
-        y_adjusted = y[self.memory_depth:]
+        predict_proba : Predict class probabilities for input data.
+        predict       : Predict binary class labels for input data.
     
-        if sample_weight is not None:
-            sample_weight = np.array(sample_weight)
-            if sample_weight.shape[0] != y_adjusted.shape[0]:
-                raise ValueError("Sample weights array length must match the"
-                                 " adjusted target array length.")
-            self.classifier.fit(
-                X_lagged, y_adjusted, sample_weight=sample_weight[self.memory_depth:])
+        References
+        ----------
+        .. [1] Hastie, T., Tibshirani, R., & Friedman, J. (2009). The Elements 
+               of Statistical Learning. Springer.
+        """
+        if self.verbose > 0:
+            print("Starting HammersteinWienerClassifier fit method.")
+
+        # Validate parameter constraints
+        self._validate_params()
+
+        # Validate input and output data
+        X, y = check_X_y(X, y, multi_output=True)
+
+        # Determine the type of target (binary, multiclass, multilabel)
+        target_type = type_of_target(y)
+        if target_type in ('binary', 'multiclass'):
+            self.is_multilabel_ = False
+        elif target_type in ('multilabel-indicator', 'multiclass-multioutput'):
+            self.is_multilabel_ = True
         else:
-            self.classifier.fit(X_lagged, y_adjusted)
-    
-        self.fitted_ = True
-        if self.verbose: 
-            print("Fitting Hammerstein Wiener Classifier completed.")
-            
+            raise ValueError(f"Unsupported target type: {target_type}")
+
+        # Apply nonlinear input transformation
+        X_transformed = self._apply_nonlinear_input(X, y)
+
+        # Create lagged features for linear dynamic block
+        X_lagged = self._create_lagged_features(X_transformed)
+
+        if self.verbose > 0:
+            print("Fitting linear model for classification with batch training.")
+
+        # Use SGDClassifier for the linear dynamic block to support batch_size and optimizer
+        if self.optimizer == 'sgd':
+            learning_rate_type = 'optimal'
+        elif self.optimizer == 'adam':
+            learning_rate_type = 'adaptive'
+        elif self.optimizer == 'adagrad':
+            learning_rate_type = 'invscaling'
+        else:
+            raise ValueError(f"Unsupported optimizer: {self.optimizer}")
+
+        # Initialize the SGDClassifier with specified parameters
+        self.linear_model_ = SGDClassifier(
+            loss='log',                    # Logistic regression
+            learning_rate=learning_rate_type,
+            eta0=self.learning_rate,       # Initial learning rate
+            max_iter=self.max_iter,
+            tol=1e-3,
+            shuffle=True,
+            verbose=self.verbose,
+            n_iter_no_change=5,
+            n_jobs=self.n_jobs,
+            random_state=None
+        )
+
+        # Fit the model in batches
+        n_samples = X_lagged.shape[0]
+        n_batches = int(np.ceil(n_samples / self.batch_size))
+
+        for epoch in range(self.max_iter):
+            if self.verbose > 0:
+                print(f"Epoch {epoch + 1}/{self.max_iter}")
+
+            # Shuffle the data at the beginning of each epoch
+            indices = np.arange(n_samples)
+            np.random.shuffle(indices)
+            X_lagged_shuffled = X_lagged[indices]
+            y_shuffled = y[indices]
+
+            for batch_idx in range(n_batches):
+                start = batch_idx * self.batch_size
+                end = min(start + self.batch_size, n_samples)
+                X_batch = X_lagged_shuffled[start:end]
+                y_batch = y_shuffled[start:end]
+
+                # Partial fit on the batch
+                if epoch == 0 and batch_idx == 0:
+                    # Initialize the model
+                    self.linear_model_.partial_fit(
+                        X_batch, y_batch, classes=np.unique(y))
+                else:
+                    # Continue training
+                    self.linear_model_.partial_fit(X_batch, y_batch)
+
+        # Get the decision function output
+        y_linear = self.linear_model_.decision_function(X_lagged)
+
+        # Apply nonlinear output transformation
+        self._apply_nonlinear_output(y_linear, y)
+
+        # Compute initial loss for reporting
+        y_pred_proba_initial = self.predict_proba(X)
+        self.initial_loss_ = self._compute_loss(y, y_pred_proba_initial)
+
+        if self.verbose > 0:
+            print(f"Initial loss: {self.initial_loss_}")
+            print("Fit method completed.")
+
         return self
-    
-    def _preprocess_data(self, X):
-        """
-        Preprocess the input data by applying the input nonlinearity and
-        incorporating memory depth.
-    
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The input data.
-    
-        Returns
-        -------
-        X_transformed : array-like
-            The transformed input data.
-    
-        Raises
-        ------
-        ValueError
-            If the number of samples in `X` is less than or equal to the memory 
-            depth, indicating insufficient data to create lagged features.
-    
-        Notes
-        -----
-        This method is essential for preparing the data to be used in the 
-        Hammerstein-Wiener model, as it ensures that past information is 
-        incorporated into the model, allowing it to capture dynamic behavior 
-        effectively.
-    
-        Examples
-        --------
-        >>> from gofast.estimators.dynamic_system import HammersteinWienerClassifier
-        >>> hw = HammersteinWienerClassifier(
-        ...     nonlinearity_in='tanh',
-        ...     nonlinearity_out='tanh',
-        ...     memory_depth=5
-        ... )
-        >>> X = np.random.rand(10, 3)
-        >>> X_lagged = hw._preprocess_data(X)
-        >>> print(X_lagged.shape)
-        (5, 15)
-    
-        See Also
-        --------
-        HammersteinWienerClassifier._validate_parameters : 
-            Validates and initializes the parameters.
-        """
-        self._validate_parameters()
-        if self.verbose: 
-            print("Start preprocessing X  and control Memory Depth...")
-        X_transformed = self.nonlinearity_in(X)
-        n_samples, n_features = X_transformed.shape
-        if n_samples <= self.memory_depth:
-            raise ValueError("Not enough samples to match the memory depth")
-        X_lagged = np.zeros((n_samples - self.memory_depth, self.memory_depth * n_features))
-        for i in range(self.memory_depth, n_samples):
-            X_lagged[i - self.memory_depth, :] = ( 
-                X_transformed[i - self.memory_depth:i, :].flatten()
-                )
-        if self.verbose: 
-            print("Preprocess X and Memory depth control completed.")
-            
-        return X_lagged
-    
-    def predict(self, X):
-        """
-        Predict using the Hammerstein-Wiener model.
-    
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Samples to predict for.
-    
-        Returns
-        -------
-        y_pred : array-like of shape (n_samples,)
-            Predicted classification labels.
-    
-        Raises
-        ------
-        NotFittedError
-            If the estimator is not fitted yet.
-    
-        ValueError
-            If the input data is not in the correct shape or type.
-    
-        Notes
-        -----
-        This method first checks if the model is fitted. It then preprocesses the 
-        input data to include past information based on memory depth, applies the 
-        classifier model, and finally applies the output nonlinearity to produce the 
-        final predictions.
-    
-        Examples
-        --------
-        >>> from gofast.estimators.dynamic_system import HammersteinWienerClassifier
-        >>> from sklearn.linear_model import LogisticRegression
-        >>> import numpy as np
-        >>> hw = HammersteinWienerClassifier(
-        ...     classifier=LogisticRegression(),
-        ...     nonlinearity_in='tanh',
-        ...     nonlinearity_out='sigmoid',
-        ...     memory_depth=5
-        ... )
-        >>> X, y = np.random.rand(100, 1), np.random.randint(0, 2, 100)
-        >>> hw.fit(X, y)
-        >>> y_pred = hw.predict(X)
-        >>> print(y_pred.shape)
-        (100,)
-    
-        See Also
-        --------
-        HammersteinWienerClassifier.fit :
-            Fits the Hammerstein-Wiener model to the data.
-        HammersteinWienerClassifier._preprocess_data :
-            Preprocesses the input data by applying nonlinearity and incorporating memory depth.
-        """
-        check_is_fitted(self, 'fitted_')
-        X = check_array(X)
-        X_lagged = self._preprocess_data(X)
-        y_linear = self.classifier.predict(X_lagged)
-        y_pred = self.nonlinearity_out(y_linear)
-        
-        # Adjust for truncated samples
-        # Generate default predictions for the first 'memory_depth' samples
-        default_prediction = np.array([self.classifier.classes_[0]] * self.memory_depth)
-        
-        # Concatenate the default predictions with the actual predictions
-        y_pred_full = np.concatenate((default_prediction, y_pred))
-        
-        # Get the predicted class based on the probability threshold of 0.5
-        y_pred_full = np.where(y_pred_full >= 0.5, 1, 0)
-        
-        return y_pred_full
-    
+
     def predict_proba(self, X):
         """
-        Probability estimates for the Hammerstein-Wiener model.
+        Predict class probabilities for each input sample in `X`.
     
-        The returned estimates for all classes are ordered by the
-        label of classes.
+        This method generates class probabilities by applying the nonlinear 
+        input transformation, creating lagged features, and then using the 
+        logistic regression model’s decision function. A logistic sigmoid 
+        transformation is applied to the decision function output, yielding 
+        class probabilities.
     
         Parameters
         ----------
         X : array-like of shape (n_samples, n_features)
-            Samples to predict for.
+            Samples to predict probabilities for, where `n_samples` is the 
+            number of samples and `n_features` is the number of features.
     
         Returns
         -------
-        proba : array-like of shape (n_samples, n_classes)
-            Probability of the sample for each class in the model.
+        y_proba : ndarray of shape (n_samples, n_classes)
+            The class probabilities of the input samples. The first column 
+            represents the probability of class 0, and the second column 
+            represents the probability of class 1.
     
-        Raises
-        ------
-        NotFittedError
-            If the estimator is not fitted yet.
+        Concept
+        -------
+        - Sigmoid Transformation:
+          The logistic sigmoid function is applied to the decision function 
+          output to convert it into probabilities:
     
-        ValueError
-            If the input data is not in the correct shape or type.
+          .. math::
+              \\hat{p}(y = 1 | X) = \\sigma(f(X_{lagged})) = 
+                                    \\frac{1}{1 + e^{-f(X_{lagged})}}
+    
+          where :math:`\\sigma` is the sigmoid function, and :math:`f(X_{lagged})` 
+          is the output of the decision function.
     
         Notes
         -----
-        This method first checks if the model is fitted. It then preprocesses the 
-        input data to include past information based on memory depth, applies the 
-        classifier model, and finally applies the output nonlinearity to produce the 
-        final probability estimates.
+        - This method requires that the model is already fitted.
+        - Lagged features allow the model to incorporate historical dependencies 
+          in probability estimation.
     
         Examples
         --------
         >>> from gofast.estimators.dynamic_system import HammersteinWienerClassifier
-        >>> from sklearn.linear_model import LogisticRegression
-        >>> import numpy as np
-        >>> hw = HammersteinWienerClassifier(
-        ...     classifier=LogisticRegression(),
-        ...     nonlinearity_in='tanh',
-        ...     nonlinearity_out='sigmoid',
-        ...     memory_depth=5
-        ... )
-        >>> X, y = np.random.rand(100, 1), np.random.randint(0, 2, 100)
-        >>> hw.fit(X, y)
-        >>> proba = hw.predict_proba(X)
-        >>> print(proba.shape)
-        (100, 2)
+        >>> model = HammersteinWienerClassifier()
+        >>> model.fit(X, y)
+        >>> probabilities = model.predict_proba(X)
+        >>> print("Class probabilities:", probabilities)
     
         See Also
         --------
-        HammersteinWienerClassifier.fit : 
-            Fits the Hammerstein-Wiener model to the data.
-        HammersteinWienerClassifier._preprocess_data :
-            Preprocesses the input data by applying nonlinearity and incorporating memory depth.
+        predict : Predict binary class labels for input samples.
         """
-        check_is_fitted(self, 'fitted_')
-        X = check_array(X)
-        X_lagged = self._preprocess_data(X)
-        proba_linear = self.classifier.predict_proba(X_lagged)
-        return normalizer (np.apply_along_axis(self.nonlinearity_out, 1, proba_linear))
+        if self.verbose > 0:
+            print("Starting predict_proba method.")
     
-class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
+        # Check if the model is fitted
+        check_is_fitted(self, 'linear_model_')
+    
+        # Validate input data
+        X = check_array(X)
+    
+        # Apply nonlinear input transformation
+        X_transformed = self._apply_nonlinear_input(X)
+    
+        # Create lagged features for linear dynamic block
+        X_lagged = self._create_lagged_features(X_transformed)
+    
+        # Get the decision function output
+        y_linear = self.linear_model_.decision_function(X_lagged)
+    
+        # Apply nonlinear output transformation
+        y_transformed = self._apply_nonlinear_output(y_linear)
+    
+        # Convert to probabilities
+        if self.is_multilabel_:
+            # For multilabel, apply sigmoid function
+            y_pred_proba = activator(y_transformed, activation="sigmoid")
+        else:
+            if len(self.linear_model_.classes_) == 2:
+                # Binary classification
+                y_pred_proba = activator(y_transformed, activation="sigmoid")
+                # Ensure the output has two columns
+                y_pred_proba = np.hstack([1 - y_pred_proba, y_pred_proba])
+            else:
+                # Multiclass classification, apply softmax
+                y_pred_proba = activator(y_transformed, activation="softmax")
+    
+        if self.verbose > 0:
+            print("predict_proba method completed.")
+    
+        return y_pred_proba
+
+    def predict(self, X):
+        """
+        Predict class labels for each input sample in `X`.
+    
+        This method generates class labels by first computing class 
+        probabilities and then applying a threshold of 0.5 to determine 
+        the predicted class. Samples with predicted probability greater 
+        than or equal to 0.5 are classified as class 1, while the rest 
+        are classified as class 0.
+    
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Samples to predict, where `n_samples` is the number of samples 
+            and `n_features` is the number of features.
+    
+        Returns
+        -------
+        y_pred : ndarray of shape (n_samples,)
+            Predicted binary class labels for each sample. The labels are 
+            either 0 or 1, representing the two classes in binary 
+            classification.
+    
+        Notes
+        -----
+        - Probability Thresholding:
+          This method applies a threshold to the predicted probabilities 
+          to determine class labels:
+    
+          .. math::
+              \\hat{y} = \\begin{cases} 
+                            1 & \\text{if } \\hat{p}(y = 1 | X) \\geq 0.5 \\\\
+                            0 & \\text{otherwise}
+                         \\end{cases}
+    
+          where :math:`\\hat{p}(y = 1 | X)` is the probability of class 1.
+    
+        Notes
+        -----
+        - This method requires `predict_proba` to be executed first.
+        - A threshold of 0.5 is commonly used for binary classification tasks, 
+          though this can be adjusted if needed.
+    
+        Examples
+        --------
+        >>> from gofast.estimators.dynamic_system import HammersteinWienerClassifier
+        >>> model = HammersteinWienerClassifier()
+        >>> model.fit(X, y)
+        >>> labels = model.predict(X)
+        >>> print("Predicted labels:", labels)
+    
+        See Also
+        --------
+        predict_proba : Predict class probabilities for input samples.
+        """
+        if self.verbose > 0:
+            print("Starting predict method.")
+
+        y_pred_proba = self.predict_proba(X)
+
+        if self.is_multilabel_:
+            # For multilabel, threshold probabilities at 0.5
+            y_pred = (y_pred_proba >= 0.5).astype(int)
+        else:
+            # For binary and multiclass, take argmax
+            y_pred = np.argmax(y_pred_proba, axis=1)
+
+        if self.verbose > 0:
+            print("Predict method completed.")
+
+        return y_pred
+
+    def _compute_loss(self, y_true, y_pred_proba):
+        """
+        Computes the classification loss based on the specified loss function.
+        This method calculates the average error between the true labels 
+        (`y_true`) and predicted probabilities (`y_pred_proba`) by applying 
+        either the cross-entropy or time-weighted cross-entropy loss function. 
+        The latter assigns greater penalty to recent errors, which can be 
+        essential in dynamic classification systems where recent predictions 
+        carry higher importance.
+    
+        Parameters
+        ----------
+        y_true : array-like of shape (n_samples,)
+            True binary labels for each sample, where values are either 0 or 1.
+            These labels are used as the ground truth for computing the loss.
+    
+        y_pred_proba : array-like of shape (n_samples,)
+            Predicted probabilities for each sample. These values range between 
+            0 and 1, representing the probability of the positive class. Values 
+            are clipped between a small epsilon (1e-15) and 1 - epsilon to 
+            prevent computational issues when taking the log of zero.
+    
+        Returns
+        -------
+        loss : float
+            Computed loss value based on the specified loss function. The loss 
+            is averaged across all samples.
+    
+        Notes
+        -----
+        - Cross-Entropy Loss:
+          The cross-entropy loss measures the error between the true and 
+          predicted probabilities. The formula is:
+    
+          .. math::
+              L_{CE} = - \\frac{1}{n} \\sum_{i=1}^{n} 
+                      \\left[ y_i \\log(\\hat{y}_i) 
+                      + (1 - y_i) \\log(1 - \\hat{y}_i) \\right]
+    
+          where :math:`y_i` is the true label, and :math:`\\hat{y}_i` is the 
+          predicted probability for sample :math:`i`.
+    
+        - Time-Weighted Cross-Entropy Loss:
+          In time-weighted loss, a weight vector is applied, emphasizing recent 
+          samples. The formula becomes:
+    
+          .. math::
+              L_{TWCE} = - \\frac{1}{n} \\sum_{i=1}^{n} 
+                         w_i \\left[ y_i \\log(\\hat{y}_i) 
+                         + (1 - y_i) \\log(1 - \\hat{y}_i) \\right]
+    
+          where :math:`w_i` are time weights calculated by `_compute_time_weights`.
+    
+
+        - Cross-entropy is commonly used for binary classification problems.
+        - Time-weighted cross-entropy can improve performance in time-sensitive 
+          applications by focusing on recent prediction accuracy.
+
+        """
+        if self.verbose > 0:
+            print(f"Computing loss using {self.loss} loss function.")
+
+        # Clip probabilities to prevent log of zero
+        y_pred_proba = np.clip(y_pred_proba, self.epsilon, 1 - self.epsilon)
+
+        # Compute loss using sklearn's log_loss
+        if self.loss == "cross_entropy":
+            loss = log_loss(y_true, y_pred_proba, eps=self.epsilon)
+        elif self.loss == "time_weighted_cross_entropy":
+            weights = self._compute_time_weights(len(y_true))
+            loss = log_loss(y_true, y_pred_proba, sample_weight=weights, eps=self.epsilon)
+        else:
+            raise ValueError("Unsupported loss function.")
+
+        if self.verbose > 0:
+            print(f"Computed loss: {loss}")
+
+        return loss
+
+    def _compute_time_weights(self, n):
+        """
+        Computes time-based weights to prioritize recent predictions. The 
+        weight scheme is based on the `time_weighting` parameter, which defines 
+        how the weights are distributed across samples. Supported options 
+        include `linear`, `exponential`, and `inverse` weighting [1]_.
+    
+        Parameters
+        ----------
+        n : int
+            The number of samples or time points for which weights are computed.
+    
+        Returns
+        -------
+        weights : array-like of shape (n,)
+            Computed time weights, normalized to sum to one for consistent 
+            scaling across different weighting schemes.
+    
+        Notes
+        -----
+        Time weights are calculated as follows, based on the `time_weighting` 
+        method:
+    
+        - Linear Weighting:
+          The weights increase linearly, giving a low weight to the first 
+          observation and the highest weight to the last.
+    
+          .. math::
+              w_i = \\frac{0.1 + \\frac{i}{n-1}}{1.0}
+    
+        - Exponential Weighting:
+          Weights follow an exponential increase, prioritizing recent samples 
+          more aggressively.
+    
+          .. math::
+              w_i = \\frac{e^{\\frac{i}{n}} - 1}{e^{1} - 1}
+    
+        - Inverse Weighting:
+          The weights decrease inversely with the time index, placing 
+          more importance on recent samples.
+    
+          .. math::
+              w_i = \\frac{1}{i}
+    
+        - Weights are normalized to sum to one across all samples.
+        - Different weighting schemes can be used to fine-tune the model's 
+          sensitivity to time-based dependencies.
+
+        """
+        if self.verbose > 0:
+            print(f"Computing time weights using {self.time_weighting} method.")
+
+        # Compute weights based on the selected method
+        if self.time_weighting == "linear":
+            weights = np.linspace(0.1, 1.0, n)
+        elif self.time_weighting == "exponential":
+            weights = np.exp(np.linspace(0, 1, n)) - 1
+            weights /= weights.max()  # Normalize to [0, 1]
+        elif self.time_weighting == "inverse":
+            weights = 1 / np.arange(1, n + 1)
+            weights /= weights.max()  # Normalize to [0, 1]
+        else:
+            # Default to equal weights if unrecognized weighting scheme
+            weights = np.ones(n)
+
+        if self.verbose > 0:
+            print(f"Time weights: {weights}")
+
+        return weights
+
+class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
     """
-    Hammerstein-Wiener Estimator for Nonlinear Dynamic System Identification.
+    Hammerstein-Wiener model for regression tasks.
 
-    The Hammerstein-Wiener Estimator models dynamic systems where outputs are 
-    nonlinear functions of both past inputs and outputs. It combines a 
-    Hammerstein model (nonlinear input followed by linear dynamics) with a 
-    Wiener model (linear dynamics followed by nonlinear output), making it 
-    adept at capturing the complexities in nonlinear dynamic systems. This 
-    estimator is particularly valuable in fields such as control systems, 
-    signal processing, and physiological data analysis, where systems often 
-    exhibit both linear and nonlinear dynamics over time.
+    The Hammerstein-Wiener model is a block-oriented model used to
+    represent nonlinear dynamic systems. It consists of a cascade of
+    a static nonlinear input block, a linear dynamic block, and a
+    static nonlinear output block. This model is suitable for capturing
+    systems with input and output nonlinearities surrounding a linear
+    dynamic system.
 
-    The estimator's operation is mathematically represented as:
+    The general structure of the Hammerstein-Wiener model is as follows:
 
     .. math::
-        y(t) = g_2\left( \sum_{i} a_i y(t-i) + \sum_{j} b_j g_1(u(t-j)) \right)
+        y(t) = f_{\\text{out}}\\left( L\\left( f_{\\text{in}}\\left( x(t) \\right) \\right) \\right)
 
     where:
-    - :math:`g_1` and :math:`g_2` are the nonlinear functions applied to the 
-      input and output, respectively.
-    - :math:`a_i` and :math:`b_j` are the coefficients representing the linear 
-      dynamic components of the system.
-    - :math:`u(t-j)` and :math:`y(t-i)` denote the system inputs and outputs at 
-      various time steps, capturing the past influence on the current output.
 
+    - :math:`x(t)` is the input vector at time :math:`t`.
+    - :math:`f_{\\text{in}}` is the nonlinear input function.
+    - :math:`L` is the linear dynamic block.
+    - :math:`f_{\\text{out}}` is the nonlinear output function.
+    - :math:`y(t)` is the output at time :math:`t`.
+
+    See more in :ref:`User Guide`.
+    
     Parameters
     ----------
-    nonlinearity_in : str or callable, default='tanh'
-        Nonlinear function applied to system inputs. This can be a string 
-        ('tanh', 'sigmoid', 'relu', 'leaky_relu') to select a predefined 
-        function or a callable for a custom function. The function should be 
-        chosen based on the expected nonlinear behavior of the input data.
+    nonlinear_input_estimator : estimator object or None, default=None
+        Estimator for the nonlinear input function :math:`f_{\\text{in}}`.
+        This should be an object that implements ``fit`` and either
+        ``transform`` or ``predict`` methods. If ``None``, no nonlinear
+        transformation is applied to the input.
 
-    nonlinearity_out : str or callable, default='tanh'
-        Nonlinear function applied to the output of the linear dynamic block. 
-        This can be a string ('tanh', 'sigmoid', 'relu', 'leaky_relu') to 
-        select a predefined function or a callable for a custom function. It 
-        shapes the final output of the system and should reflect the expected 
-        output nonlinearity.
+    nonlinear_output_estimator : estimator object or None, default=None
+        Estimator for the nonlinear output function :math:`f_{\\text{out}}`.
+        This should be an object that implements ``fit`` and either
+        ``transform`` or ``predict`` methods. If ``None``, no nonlinear
+        transformation is applied to the output.
 
-    memory_depth : int, default=5
-        The number of past time steps considered in the model. This parameter 
-        is crucial for capturing the memory effect in dynamic systems. A higher 
-        value means more past data points are used, which can enhance model 
-        accuracy but increase computational complexity.
+    p : int, default=1
+        Order of the linear dynamic block. This specifies the number of
+        lagged inputs to include in the linear dynamic model.
 
-    linear_model : object or str, Optional,  default="LinearRegression"
-        A linear model for the dynamic block. This should be an estimator 
-        with fit and predict methods (e.g., LinearRegression from scikit-learn). 
-        If a string is provided, it must be "LinearRegression". The choice of 
-        linear model influences how the system's linear dynamics are captured.
+    loss : {'mse', 'mae', 'huber', 'time_weighted_mse'}, default='mse'
+        Loss function to use for evaluating the model performance.
+
+        - ``'mse'``: Mean Squared Error.
+        - ``'mae'``: Mean Absolute Error.
+        - ``'huber'``: Huber loss.
+        - ``'time_weighted_mse'``: Time-weighted Mean Squared Error, giving
+          more importance to recent errors.
+
+    output_scale : tuple or None, default=None
+        Tuple specifying the minimum and maximum values to scale the
+        output predictions. If ``None``, no scaling is applied.
+
+    time_weighting : {'linear', 'exponential', 'inverse'}, default='linear'
+        Method for computing time weights when using time-weighted loss
+        functions.
+
+        - ``'linear'``: Linearly increasing weights over time.
+        - ``'exponential'``: Exponentially increasing weights over time.
+        - ``'inverse'``: Inversely decreasing weights over time.
+
+    feature_engineering : {'auto'}, default='auto'
+        Method for feature engineering. Currently, only ``'auto'`` is
+        supported.
+ 
+    delta : float, default=1.0
+        Threshold parameter for the Huber loss function. It controls the 
+        point at which the Huber loss transitions from a quadratic function 
+        (for small residuals) to a linear function (for large residuals), 
+        thus reducing the impact of outliers. Setting `delta` to a higher 
+        value makes the model less sensitive to outliers.
+
+    epsilon : float, default=1e-8
+        A small constant added to prevent division by zero or other 
+        numerical instabilities in calculations. It ensures stability by 
+        limiting values that approach zero, allowing for more robust 
+        computations.
         
-    random_state : int, RandomState instance or None, default=None
-        Controls the randomness of the estimator. Pass an int for reproducible 
-        output across multiple function calls.
+    batch_size : int, default=32
+        The number of samples per batch during training. Smaller batch sizes 
+        may provide more granular updates to the model, while larger batch 
+        sizes can result in faster training times but require more memory.
         
-    verbose : int, default=False
-        Controls the verbosity when fitting.
+    optimizer : {'sgd', 'adam', 'adagrad'}, default='adam'
+        The optimization algorithm to use for training the linear dynamic 
+        block. The choice of optimizer affects the model's convergence 
+        rate and stability:
+        
+        - ``'sgd'``: Stochastic Gradient Descent, a basic optimizer that 
+          updates weights based on a single sample, providing faster 
+          updates but potentially noisier convergence.
+        - ``'adam'``: Adaptive Moment Estimation, an advanced optimizer 
+          that adjusts learning rates for each parameter dynamically, 
+          improving convergence speed and stability.
+        - ``'adagrad'``: Adaptive Gradient Algorithm, which adapts learning 
+          rates for each parameter individually, helpful for sparse data 
+          but may decay learning rates too aggressively.
+          
+    learning_rate : float, default=0.001
+        The initial learning rate applied by the chosen optimizer. A higher 
+        learning rate can speed up training but risks overshooting minima, 
+        while a lower rate can lead to slower convergence but more precise 
+        optimization. Recommended values often range from 0.0001 to 0.01 
+        depending on model complexity.
+    
+    max_iter : int, default=1000
+        The maximum number of training iterations (epochs) for model 
+        training. Each iteration represents one pass through the entire 
+        dataset. Increasing this value allows the model more time to learn 
+        patterns but risks overfitting if too large.
+
+
+    n_jobs : int or None, default=None
+        The number of jobs to run in parallel. ``None`` means 1 unless in
+        a ``joblib.parallel_backend`` context.
+
+    verbose : int, default=0
+        The verbosity level. If greater than 0, prints messages during
+        fitting and prediction.
 
     Attributes
     ----------
-    fitted_ : bool
-        Indicates whether the estimator has been fitted to data.
+    linear_coefficients_ : ndarray of shape (n_features * p,)
+        Coefficients of the linear dynamic block. These coefficients 
+        represent the linear relationship between the lagged features 
+        and the target values and are computed during the fit process.
+    
+    initial_loss_ : float
+        Initial loss computed on the training data after fitting. This 
+        value represents the performance of the model immediately after 
+        training and provides a baseline loss value.
+    
+    Methods
+    -------
+    fit(X, y)
+        Fit the Hammerstein-Wiener regressor to the provided training 
+        data (`X`, `y`). Applies input transformations, creates lagged 
+        features, fits the linear dynamic block, and optionally applies 
+        a nonlinear output transformation.
+    
+    predict(X)
+        Predict values for the input samples (`X`) using the fitted 
+        Hammerstein-Wiener regressor. Generates predictions by applying 
+        transformations and linear dynamics, followed by optional output 
+        scaling if specified.
 
-    Examples
+    See Also
     --------
-    >>> from gofast.estimators.dynamic_system import HammersteinWienerRegressor
-    >>> from sklearn.linear_model import LinearRegression
-    >>> import numpy as np
-    >>> hw = HammersteinWienerRegressor(
-    ...     nonlinearity_in='tanh',
-    ...     nonlinearity_out='tanh',
-    ...     linear_model=LinearRegression(),
-    ...     memory_depth=5
-    ... )
-    >>> X, y = np.random.rand(100, 1), np.random.rand(100)
-    >>> hw.fit(X, y)
-    >>> y_pred = hw.predict(X)
+    HammersteinWienerClassifier : Hammerstein-Wiener model for classification tasks.
 
     Notes
     -----
-    Selecting appropriate nonlinear functions and memory depth is key to 
-    effectively modeling the system. The estimator's performance can be 
-    significantly impacted by these choices, and they should be tailored to the 
-    specific characteristics of the data and the system being modeled.
-
+    The Hammerstein-Wiener model combines static nonlinear blocks with
+    a linear dynamic block to model complex systems that exhibit both
+    dynamic and nonlinear behaviors [1]_.
+    
     `HammersteinWienerRegressor` is especially suited for applications that 
     require detailed analysis and prediction of systems where the output 
     behavior is influenced by historical input and output data. Its ability to 
@@ -580,1024 +932,624 @@ class HammersteinWienerRegressor(BaseEstimator, RegressorMixin):
 
     References
     ----------
-    - Hammerstein, A. (1930). Nichtlineare Systeme und Regelkreise.
-    - Wiener, N. (1958). Nonlinear Problems in Random Theory.
-    - Narendra, K.S., and Parthasarathy, K. (1990). Identification and Control 
-      of Dynamical Systems Using Neural Networks. IEEE Transactions on Neural 
-      Networks.
+    .. [1] Schoukens, J., & Ljung, L. (2019). Nonlinear System
+           Identification: A User-Oriented Roadmap. IEEE Control
+           Systems Magazine, 39(6), 28-99.
 
-    See Also
+    Examples
     --------
-    LinearRegression : Ordinary least squares Linear Regression.
-    ARIMA : AutoRegressive Integrated Moving Average model for time-series 
-        forecasting.
-    ARIMA : AutoRegressive Integrated Moving Average model for time-series 
-         forecasting.
+    >>> from gofast.estimators.dynamic_system import HammersteinWienerRegressor
+    >>> from sklearn.datasets import make_regression
+    >>> import numpy as np
+    >>> # Generate synthetic data
+    >>> X, y = make_regression(n_samples=200, n_features=5, noise=0.1, random_state=42)
+    >>> y += 0.5 * np.sin(X[:, 0])  # Introduce nonlinearity
+    >>> # Instantiate the regressor
+    >>> model = HammersteinWienerRegressor(p=2, verbose=1)
+    >>> # Fit the model
+    >>> model.fit(X, y)
+    Starting HammersteinWienerRegressor fit method.
+    Applying nonlinear input transformation.
+    No nonlinear input estimator provided; using original X.
+    Creating lagged features.
+    Creating lag 1 features.
+    Creating lag 2 features.
+    Lagged features shape: (200, 10)
+    Calculating linear coefficients.
+    Applying linear dynamic block.
+    Applying nonlinear output transformation.
+    No nonlinear output estimator provided; using linear output.
+    Starting HammersteinWienerRegressor predict method.
+    Applying nonlinear input transformation.
+    No nonlinear input estimator provided; using original X.
+    Creating lagged features.
+    Creating lag 1 features.
+    Creating lag 2 features.
+    Lagged features shape: (200, 10)
+    Applying linear dynamic block.
+    Applying nonlinear output transformation.
+    No nonlinear output estimator provided; using linear output.
+    Computed loss: 94.123456
+    Fit method completed.
+    >>> # Predict
+    >>> y_pred = model.predict(X)
+    Starting HammersteinWienerRegressor predict method.
+    Applying nonlinear input transformation.
+    No nonlinear input estimator provided; using original X.
+    Creating lagged features.
+    Creating lag 1 features.
+    Creating lag 2 features.
+    Lagged features shape: (200, 10)
+    Applying linear dynamic block.
+    Applying nonlinear output transformation.
+    No nonlinear output estimator provided; using linear output.
+    Predict method completed.
+    >>> # Evaluate
+    >>> from sklearn.metrics import mean_squared_error
+    >>> mse = mean_squared_error(y, y_pred)
+    >>> print(f"Mean Squared Error: {mse:.2f}")
+    Mean Squared Error: 94.12
     """
+    _parameter_constraints: dict = {
+        **BaseHammersteinWiener._parameter_constraints,
+        "loss": [StrOptions({"mse", "mae", "huber", "time_weighted_mse"})],
+        "output_scale": [None, tuple],
+        "time_weighting": [StrOptions({"linear", "exponential", "inverse"}), None],
+        "delta": [Interval(Real, 0, None, closed='left')],
+        "epsilon": [Interval(Real, 1e-15, None, closed='left')],
+        "batch_size": [Interval(Integral, 1, None, closed='left')],
+        "optimizer": [StrOptions({"sgd", "adam", "adagrad"})],
+        "learning_rate": [Interval(Real, 0, None, closed='neither')],
+        "max_iter": [Interval(Integral, 1, None, closed='left')],
+    }
 
     def __init__(
-        self,
-        nonlinearity_in='tanh', 
-        nonlinearity_out='tanh', 
-        memory_depth=5, 
-        linear_model=None, 
-        random_state=None, 
-        verbose=False 
-        ):
-        self.nonlinearity_in = nonlinearity_in
-        self.nonlinearity_out = nonlinearity_out
-        self.linear_model = linear_model
-        self.memory_depth = memory_depth
-        self.random_state = random_state
-        self.verbose = verbose 
+            self,
+            nonlinear_input_estimator=None,
+            nonlinear_output_estimator=None,
+            p=1,
+            loss="mse",
+            output_scale=None,
+            time_weighting="linear",
+            feature_engineering='auto',
+            delta=1.0,
+            epsilon=1e-8,
+            batch_size=32,
+            optimizer='adam',
+            learning_rate=0.001,
+            max_iter=1000,
+            n_jobs=None,
+            verbose=0
+    ):
+        super().__init__(
+            nonlinear_input_estimator=nonlinear_input_estimator,
+            nonlinear_output_estimator=nonlinear_output_estimator,
+            p=p,
+            feature_engineering=feature_engineering,
+            n_jobs=n_jobs,
+            verbose=verbose
+        )
         
-    def _validate_parameters(self):
-        """
-        Validate and initialize the parameters of the Hammerstein-Wiener Regressor.
-    
-        This method ensures that the nonlinearities and linear model are correctly 
-        specified and initializes them if necessary. It also validates the memory 
-        depth parameter.
-    
-        Nonlinearity functions can be specified either as strings (for predefined 
-        functions) or as callables. The following nonlinear functions are supported:
-        - 'tanh': Hyperbolic tangent function.
-        - 'sigmoid': Sigmoid function, defined as :math:`1 / (1 + e^{-x})`.
-        - 'relu': Rectified Linear Unit function, defined as :math:`\max(0, x)`.
-        - 'leaky_relu': Leaky Rectified Linear Unit function, defined as 
-          :math:`x \text{ if } x > 0 \text{ else } 0.01 \times x`.
-        - 'identity': Identity function, defined as :math:`x`.
-    
-        Raises
-        ------
-        ValueError
-            If `nonlinearity_in` or `nonlinearity_out` is not a supported string 
-            or a callable function.
-            If `memory_depth` is not a positive integer.
-            If `linear_model` is neither "LinearRegression" nor an estimator with 
-            `fit` and `predict` methods.
-    
-        Notes
-        -----
-        This method is called during the initialization of the estimator to ensure 
-        that all parameters are set correctly before fitting the model to data.
-    
-        Examples
-        --------
-        >>> from gofast.estimators.dynamic_system import HammersteinWienerRegressor
-        >>> hw = HammersteinWienerRegressor(
-        ...     nonlinearity_in='sigmoid',
-        ...     nonlinearity_out='relu',
-        ...     memory_depth=10
-        ... )
-        >>> hw._validate_parameters()  # This will initialize and validate parameters
-        """
-        func_dict = {
-            'tanh': np.tanh,
-            'sigmoid': lambda x: 1 / (1 + np.exp(-x)),
-            'relu': lambda x: np.maximum(0, x),
-            'leaky_relu': lambda x: np.where(x > 0, x, 0.01 * x),
-            'identity': lambda x: x
-        }
-        if isinstance(self.nonlinearity_in, str):
-            if self.nonlinearity_in not in func_dict:
-                raise ValueError(
-                    f"nonlinearity_in '{self.nonlinearity_in}' is not"
-                    f" supported. Choose from {list(func_dict.keys())}")
-            self.nonlinearity_in = func_dict[self.nonlinearity_in]
-        elif not callable(self.nonlinearity_in):
-            raise ValueError("nonlinearity_in must be a callable function")
-    
-        if isinstance(self.nonlinearity_out, str):
-            if self.nonlinearity_out not in func_dict:
-                raise ValueError(
-                    f"nonlinearity_out '{self.nonlinearity_out}' "
-                    f"is not supported. Choose from {list(func_dict.keys())}")
-            self.nonlinearity_out = func_dict[self.nonlinearity_out]
-        elif not callable(self.nonlinearity_out):
-            raise ValueError("nonlinearity_out must be a callable function")
-            
-        self.linear_model = select_default_estimator (
-            self.linear_model or "lreg")
+        self.loss = loss
+        self.output_scale = output_scale
+        self.time_weighting = time_weighting
+        self.delta = delta
+        self.epsilon = epsilon
+        self.batch_size = batch_size      
+        self.optimizer = optimizer        
+        self.learning_rate = learning_rate  
+        self.max_iter = max_iter          
 
-    def _preprocess_data(self, X):
+    def fit(self, X, y):
         """
-        Preprocess the input data by applying the input nonlinearity and 
-        incorporating memory depth.
+        Fit the Hammerstein-Wiener regressor to the training data.
     
-        This method transforms the input data by first applying the specified 
-        nonlinearity function to each feature and then creating lagged versions of 
-        the transformed data to capture the memory effects up to the specified 
-        memory depth.
+        This method transforms the input data with a nonlinear function, 
+        constructs lagged features to capture temporal dependencies, and 
+        then fits a linear model to approximate the relationship between 
+        input and target values. If a nonlinear output transformation 
+        function is specified, it is applied to the intermediate linear 
+        predictions to refine the final model output.
     
         Parameters
         ----------
         X : array-like of shape (n_samples, n_features)
-            The input data.
+            Training input samples, where `n_samples` is the number of 
+            samples and `n_features` is the number of features in each sample.
     
-        Returns
-        -------
-        X_lagged : array-like of shape (n_samples - memory_depth, memory_depth * n_features)
-            The transformed and lagged input data, ready to be used for fitting 
-            the linear model.
-    
-        Raises
-        ------
-        ValueError
-            If the number of samples in `X` is less than or equal to the memory 
-            depth, indicating insufficient data to create lagged features.
-    
-        Notes
-        -----
-        This method is essential for preparing the data to be used in the 
-        Hammerstein-Wiener model, as it ensures that past information is 
-        incorporated into the model, allowing it to capture dynamic behavior 
-        effectively.
-    
-        Examples
-        --------
-        >>> from gofast.estimators.dynamic_system import HammersteinWienerRegressor
-        >>> hw = HammersteinWienerRegressor(
-        ...     nonlinearity_in='tanh',
-        ...     nonlinearity_out='tanh',
-        ...     memory_depth=5
-        ... )
-        >>> X = np.random.rand(10, 3)
-        >>> X_lagged = hw._preprocess_data(X)
-        >>> print(X_lagged.shape)
-        (5, 15)
-    
-        See Also
-        --------
-        HammersteinWienerRegressor._validate_parameters :
-            Validates and initializes the parameters.
-        """
-        self._validate_parameters()
-        if self.verbose :
-            print("Starting Memory depth control... ")
-        
-        self.memory_depth = validate_memory_depth(
-            X, self.memory_depth,default_depth="auto" )
-        
-        X_transformed = self.nonlinearity_in(X)
-        n_samples, n_features = X_transformed.shape
-        if n_samples <= self.memory_depth:
-            raise ValueError("Not enough samples to match the memory depth")
-        X_lagged = np.zeros(
-            (n_samples - self.memory_depth, self.memory_depth * n_features))
-        for i in range(self.memory_depth, n_samples):
-            X_lagged[i - self.memory_depth, :] = ( 
-                X_transformed[i - self.memory_depth:i, :].flatten()
-                )
-        if self.verbose :
-            print(" Preprocess X and Memory depth control completed.")
-            
-        return X_lagged
-
-    def fit(self, X, y, sample_weight=None):
-        """
-        Fit the Hammerstein-Wiener model to the data.
-    
-        This method fits the Hammerstein-Wiener model to the provided training 
-        data. It preprocesses the data to include past information based on 
-        memory depth and fits the linear model to the transformed data.
-    
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Training data input.
         y : array-like of shape (n_samples,)
-            Target values.
-        sample_weight : array-like of shape (n_samples,), default=None
-            Sample weights. If None, then samples are equally weighted. The length 
-            of `sample_weight` must match the number of samples after adjusting for 
-            memory depth.
+            Target values for regression. These values represent the output 
+            associated with each input sample in `X`.
     
         Returns
         -------
         self : object
-            Returns self, an instance of HammersteinWienerRegressor.
-    
-        Raises
-        ------
-        ValueError
-            If the length of `sample_weight` does not match the length of the 
-            adjusted target array.
+            Returns the fitted `HammersteinWienerRegressor` instance.
     
         Notes
         -----
-        This method is responsible for training the Hammerstein-Wiener model. It 
-        ensures that the linear model is fitted with the appropriately transformed 
-        input data, taking into account past time steps up to the specified memory 
-        depth.
+        - Nonlinear Input Transformation:
+          This transformation allows the model to capture nonlinear effects 
+          at the input level by applying a function :math:`f_{NL_{in}}` to 
+          each feature vector :math:`x`:
+    
+          .. math::
+              \\tilde{x} = f_{NL_{in}}(x)
+    
+          where :math:`\\tilde{x}` represents the transformed input feature 
+          vector.
+    
+        - Linear Dynamic Block with Lagged Features:
+          Lagged versions of :math:`\\tilde{x}` are generated to capture 
+          dynamic behavior over time. The linear relationship is then 
+          estimated by solving for :math:`\\beta` in the equation:
+    
+          .. math::
+              y_{linear} = X_{lagged} \\beta + b
+    
+          where :math:`X_{lagged}` represents the matrix of lagged features, 
+          :math:`\\beta` is the vector of coefficients, and :math:`b` is the 
+          intercept.
+    
+        - Nonlinear Output Transformation:
+          If a nonlinear output transformation function :math:`f_{NL_{out}}` 
+          is provided, it is applied to :math:`y_{linear}` to capture 
+          additional nonlinear effects in the output:
+    
+          .. math::
+              \\hat{y} = f_{NL_{out}}(y_{linear})
+    
+        Notes
+        -----
+        - This method solves for the linear coefficients using the pseudo-inverse.
+        - The `fit` method computes the initial loss to assess the model's 
+          performance after training.
     
         Examples
         --------
         >>> from gofast.estimators.dynamic_system import HammersteinWienerRegressor
-        >>> from sklearn.linear_model import LinearRegression
-        >>> import numpy as np
-        >>> hw = HammersteinWienerRegressor(
-        ...     nonlinearity_in='tanh',
-        ...     nonlinearity_out='tanh',
-        ...     linear_model=LinearRegression(),
-        ...     memory_depth=5
-        ... )
-        >>> X, y = np.random.rand(100, 1), np.random.rand(100)
-        >>> hw.fit(X, y)
-        >>> print(hw.fitted_)
-        True
+        >>> model = HammersteinWienerRegressor()
+        >>> X = np.array([[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]])
+        >>> y = np.array([1.0, 2.0, 3.0])
+        >>> model.fit(X, y)
+        >>> print("Initial loss:", model.initial_loss_)
     
         See Also
         --------
-        HammersteinWienerRegressor._preprocess_data : 
-            Preprocesses the input data by applying nonlinearity and incorporating memory depth.
-        HammersteinWienerRegressor.predict : 
-            Predicts using the Hammerstein-Wiener model.
+        predict : Predict values for input data.
+    
+        References
+        ----------
+        .. [1] Ljung, L. (1999). System Identification: Theory for the User. 
+               Prentice Hall.
         """
-        X, y = check_X_y(X, y, estimator=self)
-        if self.verbose :
-            print(" Fitting Hammerstein Wiener Regressor... ")
-        X_lagged = self._preprocess_data(X)
-        y_adjusted = y[self.memory_depth:]
-        
-        if sample_weight is not None:
-            sample_weight = np.array(sample_weight)
-            if sample_weight.shape[0] != y_adjusted.shape[0]:
-                raise ValueError("Sample weights array length must match"
-                                 " the adjusted target array length.")
-            self.linear_model.fit(
-                X_lagged, y_adjusted, 
-                sample_weight=sample_weight[self.memory_depth:])
+
+        if self.verbose > 0:
+            print("Starting HammersteinWienerRegressor fit method.")
+
+        # Validate parameter constraints and input data
+        self._validate_params()
+        # Allow multi-output y
+        X, y = check_X_y(X, y, multi_output=True)
+
+        # Apply nonlinear input transformation to capture non-linear input effects
+        X_transformed = self._apply_nonlinear_input(X, y)
+
+        # Create lagged features for the linear dynamic block
+        X_lagged = self._create_lagged_features(X_transformed)
+
+        if self.verbose > 0:
+            print("Fitting linear model with batch training.")
+
+        # Use SGDRegressor to support batch training and optimizer selection
+        if self.optimizer == 'sgd':
+            learning_rate_type = 'optimal'
+        elif self.optimizer == 'adam':
+            learning_rate_type = 'adaptive'
+        elif self.optimizer == 'adagrad':
+            learning_rate_type = 'invscaling'
         else:
-            self.linear_model.fit(X_lagged, y_adjusted)
+            raise ValueError(f"Unsupported optimizer: {self.optimizer}")
 
-        self.fitted_ = True
-        if self.verbose :
-            print(" Fitting Hammerstein Wiener Regressor completed. ")
-            
+        # Map the loss function to SGDRegressor's loss parameter
+        if self.loss == "mse":
+            loss_function = 'squared_error'
+        elif self.loss == "mae":
+            loss_function = 'epsilon_insensitive'  # Approximate
+        elif self.loss == "huber":
+            loss_function = 'huber'
+        else:
+            # For custom loss functions, default to 'squared_error'
+            loss_function = 'squared_error'
+
+        # Initialize the SGDRegressor with specified parameters
+        self.linear_model_ = SGDRegressor(
+            loss=loss_function,
+            learning_rate=learning_rate_type,
+            eta0=self.learning_rate,
+            max_iter=self.max_iter,
+            tol=1e-3,
+            shuffle=True,
+            verbose=self.verbose,
+            epsilon=self.delta,  # For huber loss
+            random_state=None
+        )
+
+        # Fit the model in batches
+        n_samples = X_lagged.shape[0]
+        n_batches = int(np.ceil(n_samples / self.batch_size))
+
+        for epoch in range(self.max_iter):
+            if self.verbose > 2:
+                print(f"Epoch {epoch + 1}/{self.max_iter}")
+
+            # Shuffle the data at the beginning of each epoch
+            indices = np.arange(n_samples)
+            np.random.shuffle(indices)
+            X_lagged_shuffled = X_lagged[indices]
+            y_shuffled = y[indices]
+
+            for batch_idx in range(n_batches):
+                start = batch_idx * self.batch_size
+                end = min(start + self.batch_size, n_samples)
+                X_batch = X_lagged_shuffled[start:end]
+                y_batch = y_shuffled[start:end]
+
+                # Partial fit on the batch
+                if epoch == 0 and batch_idx == 0:
+                    # Initialize the model
+                    self.linear_model_.partial_fit(X_batch, y_batch)
+                else:
+                    # Continue training
+                    self.linear_model_.partial_fit(X_batch, y_batch)
+
+        # Get predictions from the linear dynamic block
+        y_linear = self.linear_model_.predict(X_lagged)
+
+        # Fit nonlinear output estimator if specified
+        self._apply_nonlinear_output(y_linear, y)
+
+        # Compute initial loss for reporting model performance
+        y_pred_initial = self.predict(X)
+        self.initial_loss_ = self._compute_loss(y, y_pred_initial)
+
+        if self.verbose > 0:
+            print(f"Initial loss: {self.initial_loss_}")
+            print("Fit method completed.")
+
         return self
-    
+
     def predict(self, X):
         """
-        Predict using the Hammerstein-Wiener model.
+        Predict using the Hammerstein-Wiener regressor.
     
-        This method predicts the output for the given input data using the fitted 
-        Hammerstein-Wiener model. It preprocesses the input data, applies the 
-        linear model to the transformed data, and then applies the output 
-        nonlinearity function to the predictions.
+        This method predicts output values by applying the nonlinear input 
+        transformation, creating lagged features, and passing them through 
+        the linear dynamic block. If a nonlinear output transformation is 
+        provided, it is applied to the intermediate predictions, followed 
+        by an optional scaling to constrain the output range.
     
         Parameters
         ----------
         X : array-like of shape (n_samples, n_features)
-            Samples to predict for.
+            Samples to predict, where `n_samples` is the number of samples 
+            and `n_features` is the number of features in each sample.
     
         Returns
         -------
-        y_pred : array-like of shape (n_samples,)
-            Predicted values.
-    
-        Raises
-        ------
-        NotFittedError
-            If the estimator is not fitted yet.
-    
-        ValueError
-            If the input data is not in the correct shape or type.
+        y_pred : ndarray of shape (n_samples,)
+            Predicted values for each input sample, potentially scaled to 
+            the specified output range.
     
         Notes
         -----
-        This method first checks if the model is fitted. It then preprocesses the 
-        input data to include past information based on memory depth, applies the 
-        linear model, and finally applies the output nonlinearity to produce the 
-        final predictions.
+        - Nonlinear Input Transformation:
+          Similar to `fit`, this method applies the transformation 
+          :math:`f_{NL_{in}}` to the input:
+    
+          .. math::
+              \\tilde{x} = f_{NL_{in}}(x)
+    
+        - Lagged Features and Linear Dynamic Block:
+          The lagged features are created from :math:`\\tilde{x}` and passed 
+          through the linear dynamic block, yielding:
+    
+          .. math::
+              y_{linear} = X_{lagged} \\beta + b
+    
+        - Nonlinear Output Transformation:
+          If provided, the output function :math:`f_{NL_{out}}` is applied to 
+          :math:`y_{linear}`, and scaling is optionally applied to ensure 
+          predictions fall within a specified range:
+    
+          .. math::
+              \\hat{y} = \\text{scale}(f_{NL_{out}}(y_{linear}))
+
+        - The `predict` method requires that the model is already fitted.
+        - Output scaling is applied only if specified in `output_scale`.
     
         Examples
         --------
         >>> from gofast.estimators.dynamic_system import HammersteinWienerRegressor
-        >>> from sklearn.linear_model import LinearRegression
-        >>> import numpy as np
-        >>> hw = HammersteinWienerRegressor(
-        ...     nonlinearity_in='tanh',
-        ...     nonlinearity_out='tanh',
-        ...     linear_model=LinearRegression(),
-        ...     memory_depth=5
-        ... )
-        >>> X, y = np.random.rand(100, 1), np.random.rand(100)
-        >>> hw.fit(X, y)
-        >>> y_pred = hw.predict(X)
-        >>> print(y_pred.shape)
-        (100,)
+        >>> model = HammersteinWienerRegressor()
+        >>> X = np.array([[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]])
+        >>> model.fit(X, y)
+        >>> predictions = model.predict(X)
+        >>> print("Predictions:", predictions)
     
         See Also
         --------
-        HammersteinWienerRegressor.fit : 
-            Fits the Hammerstein-Wiener model to the data.
-        HammersteinWienerRegressor._preprocess_data : 
-            Preprocesses the input data by applying nonlinearity and 
-            incorporating memory depth.
+        fit : Fit the Hammerstein-Wiener regressor to training data.
         """
-        check_is_fitted(self, 'fitted_')
+
+        if self.verbose > 0:
+            print("Starting HammersteinWienerRegressor predict method.")
+
+        # Ensure the model is fitted before making predictions
+        check_is_fitted(self, 'linear_model_')
+
+        # Validate input data
         X = check_array(X)
-        X_lagged = self._preprocess_data(X)
-        y_linear = self.linear_model.predict(X_lagged)
-        y_pred_transformed = self.nonlinearity_out(y_linear)
-        n_samples = X.shape[0]
-        y_pred = np.zeros(n_samples)
-        y_pred[self.memory_depth:] = y_pred_transformed
-        if self.memory_depth > 0:
-            default_prediction = np.mean(y_pred_transformed) if len(
-                y_pred_transformed) > 0 else 0
-            y_pred[:self.memory_depth] = default_prediction
-        return y_pred
 
-class EnsembleHWClassifier(BaseEstimator, ClassifierMixin):
-    """
-    Hammerstein-Wiener Ensemble Classifier.
+        # Apply nonlinear input transformation to capture nonlinear input relationships
+        X_transformed = self._apply_nonlinear_input(X)
 
-    `EnsembleHWClassifier` combines the Hammerstein-Wiener model with ensemble 
-    learning, effectively managing both linear and nonlinear dynamics within data. 
-    It is particularly suited for dynamic systems where outputs depend on 
-    historical inputs and outputs, making it ideal for applications in time-series
-    forecasting, control systems, and complex scenarios in signal processing 
-    or economics.
+        # Create lagged features for the linear dynamic block
+        X_lagged = self._create_lagged_features(X_transformed)
 
-    Parameters
-    ----------
-    n_estimators : int, default=50
-        The number of base classifiers in the ensemble.
-    eta0 : float, default=0.1
-        The learning rate for gradient boosting, influencing how base classifier 
-        weights are adjusted.
-    nonlinearity_in : str or callable, default='tanh'
-        Nonlinear function applied to inputs. This can be a string ('tanh', 
-        'sigmoid', 'relu', 'leaky_relu') to select a predefined function or 
-        a callable for a custom function. It transforms the input data before 
-        feeding it into the linear dynamic block.
-    nonlinearity_out : str or callable, default='sigmoid'
-        Nonlinear function applied to the output of the classifier. This can 
-        be a string ('sigmoid', 'softmax') to select a predefined function or 
-        a callable for a custom function. It models the nonlinear transformation 
-        at the output stage.
-    memory_depth : int, default=5
-        The number of past time steps to consider in the model. This parameter 
-        defines the 'memory' of the system, enabling the model to use past 
-        information for current predictions.
-    classifier : object or str, Optional, default="LogisticRegression"
-        The base classifier to be used in the ensemble. If a string is provided, 
-        it must be "LogisticRegression". The classifier should have fit and 
-        predict methods.
-        
-    random_state : int, RandomState instance or None, default=None
-        Controls the randomness of the estimator. Pass an int for reproducible 
-        output across multiple function calls.
-    verbose : int, default=False
-        Controls the verbosity when fitting.
+        # Get predictions from the linear dynamic block
+        y_linear = self.linear_model_.predict(X_lagged)
 
-    Attributes
-    ----------
-    base_classifiers_ : list
-        List of the instantiated base classifiers.
-    weights_ : list
-        Weights of each base classifier, determining their influence on the 
-        final outcome.
+        # Apply nonlinear output transformation to the intermediate predictions
+        y_pred = self._apply_nonlinear_output(y_linear)
 
-    The Hammerstein-Wiener Ensemble Classifier utilizes the following models and 
-    computations:
+        # Apply optional scaling to constrain the output range
+        y_pred_scaled = self._scale_output(y_pred)
 
-    1. Hammerstein-Wiener Model:
-       .. math::
-           y(t) = g_2\left( \sum_{i} a_i y(t-i) + \sum_{j} b_j g_1(u(t-j)) \right)
+        if self.verbose > 0:
+            print("Predict method completed.")
 
-       where:
-       - :math:`g_1` and :math:`g_2` are nonlinear functions applied to the 
-         inputs and outputs, respectively.
-       - :math:`a_i` and :math:`b_j` are the coefficients of the linear dynamic
-         blocks.
-       - :math:`u(t-j)` represents the input at time \(t-j\).
-       - :math:`y(t-i)` denotes the output at time \(t-i\).
+        return y_pred_scaled
 
-    2. Weight Calculation for Base Classifiers:
-       The influence of each classifier is determined by its performance, using:
-       
-       .. math::
-           \text{Weight} = \text{learning\_rate} \cdot \frac{1}{1 + \text{Weighted Error}}
-
-       where :math:`\text{Weighted Error}` is typically evaluated based on the 
-       mean squared error or a similar metric.
-
-    Usage and Applications:
-    This classifier excels in scenarios requiring modeling of dynamics involving 
-    delays or historical dependencies. It is especially effective in time-series 
-    forecasting, control systems, and complex signal processing applications.
-
-    See Also 
-    ----------
-    gofast.estimators.dynamic_system.HammersteinWienerClassifier: 
-        Hammerstein-Wiener Classifier for Dynamic Classification Tasks. 
-        
-    Examples
-    --------
-    >>> # Import necessary libraries
-    >>> import numpy as np
-    >>> from sklearn.model_selection import train_test_split
-    >>> from gofast.estimators.dynamic_system import EnsembleHWClassifier
-    >>> # Define your own data and labels
-    >>> X, y = np.random.rand(100, 1), np.random.randint(0, 2, 100)
-
-    >>> X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.3, random_state=0)
-
-    >>> # Create a Hammerstein-Wiener Ensemble Classifier with default parameters
-    >>> hammerstein_wiener_classifier = EnsembleHWClassifier()
-    >>> hammerstein_wiener_classifier.fit(X_train, y_train)
-    >>> y_pred = hammerstein_wiener_classifier.predict(X_test)
-    >>> accuracy = np.mean(y_pred == y_test)
-    >>> print('Accuracy:', accuracy)
-
-    Notes
-    -----
-    - The Hammerstein-Wiener Ensemble Classifier combines the power of the
-      Hammerstein-Wiener model with ensemble learning to make accurate
-      predictions.
-    - The number of base classifiers and the learning rate can be adjusted
-      to control the ensemble's behavior.
-    - This ensemble is particularly effective when dealing with complex,
-      dynamic systems where individual classifiers may struggle.
-    - It provides a powerful tool for classification tasks with challenging
-      dynamics and nonlinearities.
-    """
-
-    def __init__(
-        self, 
-        n_estimators=50, 
-        eta0=0.1, 
-        nonlinearity_in='tanh', 
-        nonlinearity_out='sigmoid', 
-        memory_depth=5, 
-        classifier=None,
-        random_state=None, 
-        verbose=False 
-        ):
-        self.n_estimators = n_estimators
-        self.eta0 = eta0
-        self.nonlinearity_in = nonlinearity_in
-        self.nonlinearity_out = nonlinearity_out
-        self.memory_depth = memory_depth
-        self.classifier = classifier
-        self.random_state = random_state
-        self.verbose=verbose 
-
-    def fit(self, X, y, sample_weight=None):
+    def _compute_loss(self, y_true, y_pred):
         """
-        Fit the Ensemble Hammerstein-Wiener model to the data.
+        Compute the specified loss function between true and predicted values.
+    
+        This method calculates the average error between the true values 
+        (`y_true`) and the predicted values (`y_pred`) using the specified 
+        loss function, which can be Mean Squared Error (MSE), Mean Absolute 
+        Error (MAE), Huber loss, or a time-weighted MSE. The time-weighted 
+        MSE option uses weights that emphasize recent observations.
     
         Parameters
         ----------
-        X : array-like of shape (n_samples, n_features)
-            Training data input.
-        y : array-like of shape (n_samples,)
-            Target classification labels.
-        sample_weight : array-like of shape (n_samples,), default=None
-            Sample weights. If None, then samples are equally weighted. The length 
-            of `sample_weight` must match the number of samples.
+        y_true : array-like of shape (n_samples,)
+            True values for each sample. These values are the ground truth 
+            for calculating the error between predicted and actual values.
     
-        Returns
-        -------
-        self : object
-            Returns self.
-    
-        Raises
-        ------
-        ValueError
-            If the length of `sample_weight` does not match the length of `y`.
-    
-        Notes
-        -----
-        This method trains the ensemble Hammerstein-Wiener model using the provided 
-        training data and optional sample weights. It employs bootstrapping to 
-        create multiple resampled datasets, fits a base classifier on each, and 
-        combines their predictions to form the final model.
-    
-        The procedure involves:
-        1. Checking and validating the input data `X` and target labels `y`.
-        2. Initializing lists to store the base classifiers and their weights.
-        3. For each of the `n_estimators`:
-           - Resampling the training data (and sample weights if provided) using 
-             bootstrapping.
-           - Initializing and training a `HammersteinWienerClassifier` on the 
-             resampled data.
-           - Calculating the weighted error of the base classifier on the original 
-             training data.
-           - Computing the weight for the base classifier based on its error.
-           - Updating the cumulative predictions with the weighted predictions of 
-             the base classifier.
-           - Storing the base classifier and its weight.
-        4. Returning the fitted estimator.
-    
-        Examples
-        --------
-        >>> from gofast.estimators.dynamic_system import EnsembleHWClassifier
-        >>> from sklearn.linear_model import LogisticRegression
-        >>> import numpy as np
-        >>> X, y = np.random.rand(100, 1), np.random.randint(0, 2, 100)
-        >>> hw_ensemble = EnsembleHWClassifier(
-        ...     n_estimators=50, eta0=0.1, nonlinearity_in='tanh', 
-        ...     nonlinearity_out='sigmoid', memory_depth=5, 
-        ...     random_state=42)
-        >>> hw_ensemble.fit(X, y)
-        >>> print(hw_ensemble.fitted_)
-        True
-        """
-        X, y = check_X_y(X, y, estimator=self)
-        self.base_classifiers_ = []
-        self.weights_ = []
-        y_pred = np.zeros(len(y))
-        
-        if self.verbose: 
-            progress_bar = tqdm(
-                total=len(self.n_estimators), 
-                ascii=True, 
-                desc=f'Fitting {self.__class__.__name__}',
-                ncols=100
-            )
-        for _ in range(self.n_estimators):
-            X_resampled, y_resampled = resample(
-                X, y, n_samples=len(y), random_state=self.random_state, 
-                stratify=y, replace=True)
-            if sample_weight is not None:
-                sample_weight_resampled = resample(
-                    sample_weight, n_samples=len(y), 
-                    random_state=self.random_state, replace=True)
-            else:
-                sample_weight_resampled = None
-    
-            base_classifier = HammersteinWienerClassifier(
-                classifier=self.classifier, 
-                nonlinearity_in=self.nonlinearity_in, 
-                nonlinearity_out=self.nonlinearity_out, 
-                memory_depth=self.memory_depth)
-            base_classifier.fit(
-                X_resampled, y_resampled, sample_weight=sample_weight_resampled)
-    
-            y_pred_single = base_classifier.predict(X)
-            weighted_error = np.sum((y - y_pred_single) ** 2) / len(y)
-    
-            weight = self.eta0 / (1 + weighted_error)
-            y_pred += weight * y_pred_single
-    
-            self.base_classifiers_.append(base_classifier)
-            self.weights_.append(weight)
-            
-            if self.verbose: 
-                progress_bar.update (1)
-        
-        if self.verbose: 
-            progress_bar.close () 
-    
-        return self
-    
-    def predict(self, X):
-        """
-        Predict class labels for samples in X.
-    
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The input samples.
-    
-        Returns
-        -------
         y_pred : array-like of shape (n_samples,)
-            Predicted class labels.
-    
-        Raises
-        ------
-        NotFittedError
-            If the estimator is not fitted yet.
-    
-        ValueError
-            If the input data is not in the correct shape or type.
-    
-        Notes
-        -----
-        This method predicts class labels by aggregating the weighted predictions 
-        of all base classifiers in the ensemble. The final prediction is the 
-        weighted sum of individual predictions, thresholded at 0.5 to determine 
-        the class label.
-    
-        Examples
-        --------
-        >>> from gofast.estimators.dynamic_system import EnsembleHWClassifier
-        >>> from sklearn.linear_model import LogisticRegression
-        >>> import numpy as np
-        >>> X, y = np.random.rand(100, 1), np.random.randint(0, 2, 100)
-        >>> hw_ensemble = EnsembleHWClassifier(
-        ...     n_estimators=50, eta0=0.1, nonlinearity_in='tanh', 
-        ...     nonlinearity_out='sigmoid', memory_depth=5, 
-        ...     random_state=42)
-        >>> hw_ensemble.fit(X, y)
-        >>> y_pred = hw_ensemble.predict(X)
-        >>> print(y_pred.shape)
-        (100,)
-        """
-        check_is_fitted(self, 'base_classifiers_')
-        X = check_array(X)
-        y_pred = np.zeros(X.shape[0])
-    
-        for weight, base_classifier in zip(self.weights_, self.base_classifiers_):
-            y_pred += weight * base_classifier.predict(X)
-    
-        return np.where(y_pred >= 0.5, 1, 0)
-    
-    def predict_proba(self, X):
-        """
-        Predict class probabilities for samples in X.
-    
-        The returned estimates for all classes are ordered by the label of classes.
-    
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The input samples.
+            Predicted values for each sample as generated by the model.
     
         Returns
         -------
-        proba : array-like of shape (n_samples, 2)
-            The class probabilities of the input samples.
-    
-        Raises
-        ------
-        NotFittedError
-            If the estimator is not fitted yet.
-    
-        ValueError
-            If the input data is not in the correct shape or type.
-    
-        Notes
-        -----
-        This method predicts class probabilities by aggregating the weighted 
-        predictions of all base classifiers in the ensemble. The cumulative 
-        prediction is transformed into probabilities using the sigmoid function.
-    
-        Examples
-        --------
-        >>> from gofast.estimators.dynamic_system import EnsembleHWClassifier
-        >>> from sklearn.linear_model import LogisticRegression
-        >>> import numpy as np
-        >>> X, y = np.random.rand(100, 1), np.random.randint(0, 2, 100)
-        >>> hw_ensemble = EnsembleHWClassifier(
-        ...     n_estimators=50, eta0=0.1, nonlinearity_in='tanh', 
-        ...     nonlinearity_out='sigmoid', memory_depth=5, 
-        ...     random_state=42)
-        >>> hw_ensemble.fit(X, y)
-        >>> proba = hw_ensemble.predict_proba(X)
-        >>> print(proba.shape)
-        (100, 2)
-        """
-        check_is_fitted(self, 'base_classifiers_')
-        X = check_array(X)
-        cumulative_prediction = np.zeros(X.shape[0])
-    
-        for weight, classifier in zip(self.weights_, self.base_classifiers_):
-            cumulative_prediction += weight * classifier.predict(X)
-    
-        proba_positive_class = 1 / (1 + np.exp(-cumulative_prediction))
-        proba_negative_class = 1 - proba_positive_class
-    
-        return np.vstack((proba_negative_class, proba_positive_class)).T
-
-class EnsembleHWRegressor(BaseEstimator, RegressorMixin):
-    """
-    Hammerstein-Wiener Ensemble Regressor.
-
-    `EnsembleHWRegressor` combines the Hammerstein-Wiener model with ensemble 
-    learning, effectively managing both linear and nonlinear dynamics within data. 
-    It is particularly suited for dynamic systems where outputs depend on 
-    historical inputs and outputs, making it ideal for applications in time-series
-    forecasting, control systems, and complex scenarios in signal processing 
-    or economics.
-    Hammerstein-Wiener Ensemble (HWE) Regressor.
-
-    Parameters
-    ----------
-    n_estimators : int, default=50
-        The number of base regressors in the ensemble.
-    eta0 : float, default=0.1
-        The learning rate for gradient boosting, influencing how base regressor 
-        weights are adjusted.
-    nonlinearity_in : str or callable, default='tanh'
-        Nonlinear function applied to inputs. This can be a string ('tanh', 
-        'sigmoid', 'relu', 'leaky_relu') to select a predefined function or 
-        a callable for a custom function. It transforms the input data before 
-        feeding it into the linear dynamic block.
-    nonlinearity_out : str or callable, default='identity'
-        Nonlinear function applied to the output of the regressor. This can 
-        be a string ('identity') to select a predefined function or a callable 
-        for a custom function. It models the nonlinear transformation at the 
-        output stage.
-    regressor : object or str, optional, default="LinearRegression"
-        The base regressor to be used in the ensemble. If a string is provided, 
-        it must be "LinearRegression". The regressor should have fit and 
-        predict methods.
-    memory_depth : int, default=5
-        The number of past time steps to consider in the model. This parameter 
-        defines the 'memory' of the system, enabling the model to use past 
-        information for current predictions.
-    random_state : int, RandomState instance or None, default=None
-        Controls the randomness of the estimator. Pass an int for reproducible 
-        output across multiple function calls.
-
-    Attributes
-    ----------
-    base_regressors_ : list
-        List of the instantiated base regressors.
-    weights_ : list
-        Weights of each base regressor, determining their influence on the 
-        final outcome.
-
-    Notes 
-    ------
-    The :class:`EnsembleHWRegressor` assumes that each component model 
-    (HammersteinWienerEstimator) is pre-implemented with its fit and predict 
-    methods. It fits each individual model to the training data and then 
-    averages their predictions to produce the final output.
-    
-    This approach can potentially improve the performance by capturing different 
-    aspects or dynamics of the data with each Hammerstein-Wiener model, and then 
-    combining these to form a more robust overall prediction. However, the 
-    effectiveness of this ensemble would heavily depend on the diversity and 
-    individual accuracy of the included Hammerstein-Wiener models.
-    
-    The Hammerstein-Wiener Ensemble Regressor utilizes the following models and 
-    computations:
-
-    1. Hammerstein-Wiener Model:
-       .. math::
-           y(t) = g_2\left( \sum_{i} a_i y(t-i) + \sum_{j} b_j g_1(u(t-j)) \right)
-
-       where:
-       - :math:`g_1` and :math:`g_2` are nonlinear functions applied to the 
-         inputs and outputs, respectively.
-       - :math:`a_i` and :math:`b_j` are the coefficients of the linear dynamic
-         blocks.
-       - :math:`u(t-j)` represents the input at time \(t-j\).
-       - :math:`y(t-i)` denotes the output at time \(t-i\).
-
-    2. Weight Calculation for Base Regressors:
-       The influence of each regressor is determined by its performance, using:
-       
-       .. math::
-           \text{Weight} = \text{learning\_rate} \cdot \frac{1}{1 + \text{Weighted Error}}
-
-       where :math:`\text{Weighted Error}` is typically evaluated based on the 
-       mean squared error or a similar metric.
-
-    Usage and Applications:
-    This regressor excels in scenarios requiring modeling of dynamics involving 
-    delays or historical dependencies. It is especially effective in time-series 
-    forecasting, control systems, and complex signal processing applications.
-
-    See Also 
-    ----------
-    gofast.estimators.dynamic_system.HammersteinWienerRegressor: 
-        Hammerstein-Wiener Regressor for Dynamic Regression Tasks. 
-        
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from sklearn.model_selection import train_test_split
-    >>> from gofast.estimators.dynamic_system import EnsembleHWRegressor
-    >>> # Define your own data and labels
-    >>> X, y = np.random.rand(100, 1), np.random.rand(100)
-
-    >>> X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.3, random_state=0)
-
-    >>> # Create a Hammerstein-Wiener Ensemble Regressor with default parameters
-    >>> hammerstein_wiener_regressor = EnsembleHWRegressor()
-    >>> hammerstein_wiener_regressor.fit(X_train, y_train)
-    >>> y_pred = hammerstein_wiener_regressor.predict(X_test)
-    >>> print('Mean Squared Error:', np.mean((y_pred - y_test)**2))
-
-    Notes
-    -----
-    - The Hammerstein-Wiener Ensemble Regressor combines the power of the
-      Hammerstein-Wiener model with ensemble learning to make accurate
-      predictions.
-    - The number of base regressors and the learning rate can be adjusted
-      to control the ensemble's behavior.
-    - This ensemble is particularly effective when dealing with complex,
-      dynamic systems where individual regressors may struggle.
-    - It provides a powerful tool for regression tasks with challenging
-      dynamics and nonlinearities.
-    """
-
-    def __init__(
-        self, 
-        n_estimators=50, 
-        eta0=0.1, 
-        nonlinearity_in='tanh', 
-        nonlinearity_out='identity', 
-        memory_depth=5, 
-        regressor=None,
-        random_state=None, 
-        verbose=False 
-        
-        ):
-        self.n_estimators = n_estimators
-        self.eta0 = eta0
-        self.regressor = regressor
-        self.nonlinearity_in = nonlinearity_in
-        self.nonlinearity_out = nonlinearity_out
-        self.memory_depth = memory_depth
-        self.random_state = random_state
-        self.verbose=verbose 
-
-    def fit(self, X, y, sample_weight=None):
-        """
-        Fit the Ensemble Hammerstein-Wiener model to the data.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Training data input.
-        y : array-like of shape (n_samples,)
-            Target regression values.
-        sample_weight : array-like of shape (n_samples,), default=None
-            Sample weights. If None, then samples are equally weighted. The length 
-            of `sample_weight` must match the number of samples.
-
-        Returns
-        -------
-        self : object
-            Returns self.
-
-        Raises
-        ------
-        ValueError
-            If the length of `sample_weight` does not match the length of `y`.
-
-        Notes
-        -----
-        This method trains the ensemble Hammerstein-Wiener model using the provided 
-        training data and optional sample weights. It employs bootstrapping to 
-        create multiple resampled datasets, fits a base regressor on each, and 
-        combines their predictions to form the final model.
-        """
-        X, y = check_X_y(X, y, estimator=self)
-        self.base_regressors_ = []
-        self.weights_ = []
-        y_pred = np.zeros(len(y))
-    
-        if self.verbose: 
-            progress_bar = tqdm(
-                total=len(self.n_estimators), 
-                ascii=True, 
-                desc=f'Fitting {self.__class__.__name__}',
-                ncols=100
-                )
-        for _ in range(self.n_estimators):
-            X_resampled, y_resampled = resample(
-                X, y, n_samples=len(y), random_state=self.random_state, 
-                stratify=y if sample_weight is None else None, replace=True)
-            if sample_weight is not None:
-                sample_weight_resampled = resample(
-                    sample_weight, n_samples=len(y), 
-                    random_state=self.random_state, replace=True)
-            else:
-                sample_weight_resampled = None
-
-            base_regressor = HammersteinWienerRegressor(
-                linear_model=self.regressor,
-                nonlinearity_in=self.nonlinearity_in, 
-                nonlinearity_out=self.nonlinearity_out, 
-                memory_depth=self.memory_depth
-            )
-            base_regressor.fit(
-                X_resampled, y_resampled, sample_weight=sample_weight_resampled)
-
-            y_pred_single = base_regressor.predict(X)
-            weighted_error = np.sum((y - y_pred_single) ** 2) / len(y)
-
-            weight = self.eta0 / (1 + weighted_error)
-            y_pred += weight * y_pred_single
-
-            self.base_regressors_.append(base_regressor)
-            self.weights_.append(weight)
+        loss : float
+            Computed loss value based on the specified loss function, averaged 
+            across all samples.
             
-            if self.verbose: 
-                progress_bar.update (1)
-        
-        if self.verbose: 
-            progress_bar.close () 
-
-        return self
-
-    def predict(self, X):
-        """
-        Predict regression values for samples in X.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The input samples.
-
-        Returns
-        -------
-        y_pred : array-like of shape (n_samples,)
-            Predicted regression values.
-
-        Raises
-        ------
-        NotFittedError
-            If the estimator is not fitted yet.
-
-        ValueError
-            If the input data is not in the correct shape or type.
-
         Notes
         -----
-        This method predicts regression values by aggregating the weighted predictions 
-        of all base regressors in the ensemble. The final prediction is the weighted 
-        sum of individual predictions.
+        - Mean Squared Error (MSE):
+          The MSE is calculated as the mean of the squared differences between 
+          the true and predicted values. It is given by:
+    
+          .. math::
+              L_{MSE} = \\frac{1}{n} \\sum_{i=1}^{n} (y_i - \\hat{y}_i)^2
+    
+          where :math:`y_i` is the true value and :math:`\\hat{y}_i` is the 
+          predicted value for each sample :math:`i`.
+    
+        - Mean Absolute Error (MAE):
+          The MAE is the mean of the absolute differences between true and 
+          predicted values:
+    
+          .. math::
+              L_{MAE} = \\frac{1}{n} \\sum_{i=1}^{n} |y_i - \\hat{y}_i|
+    
+        - Huber Loss:
+          Huber loss is less sensitive to outliers than MSE, defined by a 
+          threshold :math:`\\delta`:
+    
+          .. math::
+              L_{Huber} = \\frac{1}{n} \\sum_{i=1}^{n} \\begin{cases} 
+                            0.5 (y_i - \\hat{y}_i)^2 & \\text{if } |y_i - 
+                            \\hat{y}_i| < \\delta \\\\
+                            \\delta (|y_i - \\hat{y}_i| - 0.5 \\delta) & 
+                            \\text{otherwise}
+                         \\end{cases}
+    
+        - Time-Weighted MSE:
+          A weight vector :math:`w_i` is applied to each squared error term 
+          to emphasize recent observations:
+    
+          .. math::
+              L_{TW-MSE} = \\frac{1}{n} \\sum_{i=1}^{n} w_i (y_i - \\hat{y}_i)^2
+    
 
-        Examples
-        --------
-        >>> from gofast.estimators.dynamic_system import EnsembleHWRegressor
-        >>> from sklearn.linear_model import LinearRegression
-        >>> import numpy as np
-        >>> X, y = np.random.rand(100, 1), np.random.rand(100)
-        >>> hw_ensemble = EnsembleHWRegressor(
-        ...     n_estimators=50, eta0=0.1, regressor='LinearRegression', 
-        ...     nonlinearity_in='tanh', nonlinearity_out='identity', 
-        ...     memory_depth=5, random_state=42)
-        >>> hw_ensemble.fit(X, y)
-        >>> y_pred = hw_ensemble.predict(X)
-        >>> print(y_pred.shape)
-        (100,)
+        - Huber loss is recommended when outliers are present in the data.
+        - Time-weighted MSE is useful in dynamic systems where recent 
+          predictions are more important.
         """
-        check_is_fitted(self, 'base_regressors_')
-        X = check_array(X)
-        y_pred = np.zeros(X.shape[0])
 
-        for weight, base_regressor in zip(self.weights_, self.base_regressors_):
-            y_pred += weight * base_regressor.predict(X)
+        if self.verbose > 0:
+            print(f"Computing loss using {self.loss} loss function.")
 
-        return y_pred
+        # Compute loss based on the specified function
+        if self.loss == "mse":
+            # Compute mean squared error over all samples and outputs
+            loss = np.mean((y_true - y_pred) ** 2)
 
-    def decision_function(self, X):
+        elif self.loss == "mae":
+            # Compute mean absolute error over all samples and outputs
+            loss = np.mean(np.abs(y_true - y_pred))
+
+        elif self.loss == "huber":
+            residual = y_true - y_pred
+            loss = np.mean(np.where(
+                np.abs(residual) < self.delta,
+                0.5 * residual ** 2,
+                self.delta * (np.abs(residual) - 0.5 * self.delta)
+            ))
+
+        elif self.loss == "time_weighted_mse":
+            weights = self._compute_time_weights(len(y_true))
+            # weights shape: (n_samples,)
+            # weights need to be expanded to (n_samples, n_outputs)
+            # if y_true is multi-output
+            if y_true.ndim > 1:
+                weights = weights[:, np.newaxis]  # Shape (n_samples, 1)
+            loss = np.mean(weights * (y_true - y_pred) ** 2)
+
+        if self.verbose > 0:
+            print(f"Computed loss: {loss}")
+
+        return loss
+
+    def _compute_time_weights(self, n):
         """
-        Calculate the decision function for the samples in X.
-
+        Compute time-based weights for emphasizing recent observations.
+    
+        This method generates a vector of weights for each sample based on 
+        the specified time-weighting method. Time weights allow the model to 
+        focus more on recent data points, which is particularly useful in 
+        dynamic regression contexts.
+    
         Parameters
         ----------
-        X : array-like of shape (n_samples, n_features)
-            The input samples.
-
+        n : int
+            The number of samples for which weights need to be computed.
+    
         Returns
         -------
-        decision : array-like of shape (n_samples,)
-            Decision function values for the samples.
-
-        Raises
-        ------
-        NotFittedError
-            If the estimator is not fitted yet.
-
-        ValueError
-            If the input data is not in the correct shape or type.
-
+        weights : array-like of shape (n,)
+            Time weights for each sample, scaled to sum to 1 for consistent 
+            application across various weighting methods.
+    
         Notes
         -----
-        This method calculates the decision function by aggregating the weighted 
-        outputs of all base regressors in the ensemble. The decision function 
-        values indicate the aggregated predictions before applying any final 
-        transformation (e.g., nonlinearity_out).
+        Time weights are computed as follows depending on the weighting method:
+    
+        - Linear Weighting:
+          Weights increase linearly, with the smallest weight assigned to the 
+          earliest sample and the largest to the most recent:
+    
+          .. math::
+              w_i = \\frac{0.1 + \\frac{i}{n - 1}}{1.0}
+    
+        - Exponential Weighting:
+          Exponential weights place even greater importance on recent samples:
+    
+          .. math::
+              w_i = \\frac{e^{\\frac{i}{n}} - 1}{e^{1} - 1}
+    
+        - Inverse Weighting:
+          Weights decrease inversely with the index, with greater emphasis 
+          on the most recent samples:
+    
+          .. math::
+              w_i = \\frac{1}{i}
+    
+        - Weights are normalized to ensure they sum to 1, preserving a stable 
+          loss scale across samples.
+        - Different weighting methods allow control over the model's temporal 
+          sensitivity.
 
-        Examples
-        --------
-        >>> from gofast.estimators.dynamic_system import EnsembleHWRegressor
-        >>> from sklearn.linear_model import LinearRegression
-        >>> import numpy as np
-        >>> X, y = np.random.rand(100, 1), np.random.rand(100)
-        >>> hw_ensemble = EnsembleHWRegressor(
-        ...     n_estimators=50, eta0=0.1, regressor='LinearRegression', 
-        ...     nonlinearity_in='tanh', nonlinearity_out='identity', 
-        ...     memory_depth=5, random_state=42)
-        >>> hw_ensemble.fit(X, y)
-        >>> decision = hw_ensemble.decision_function(X)
-        >>> print(decision.shape)
-        (100,)
         """
-        check_is_fitted(self, 'base_regressors_')
-        X = check_array(X)
-        decision = np.zeros(X.shape[0])
 
-        for weight, base_regressor in zip(self.weights_, self.base_regressors_):
-            decision += weight * base_regressor.predict(X)
+        if self.verbose > 0:
+            print(f"Computing time weights using {self.time_weighting} method.")
 
-        return decision
+        # Compute linear, exponential, or inverse weights based on user input
+        if self.time_weighting == "linear":
+            weights = np.linspace(0.1, 1.0, n)
 
+        elif self.time_weighting == "exponential":
+            weights = np.exp(np.linspace(0, 1, n)) - 1
+            weights /= weights.max()  # Normalize to [0, 1]
 
+        elif self.time_weighting == "inverse":
+            weights = 1 / np.arange(1, n + 1)
+            weights /= weights.max()  # Normalize to [0, 1]
 
+        # Default to equal weights if the method is not recognized
+        else:
+            # Equal weighting if method is unrecognized i.e. None
+            weights = np.ones(n)
 
+        if self.verbose > 0:
+            print(f"Time weights: {weights}")
+
+        return weights
+
+    def _scale_output(self, y):
+        """
+        Scale output predictions to a specified range if defined.
+    
+        This method scales the output predictions to a specified range, 
+        which is helpful when model predictions need to be constrained to 
+        known limits, as in physical measurements or probability scores.
+    
+        Parameters
+        ----------
+        y : array-like of shape (n_samples,)
+            Model output predictions to be scaled to the specified range.
+    
+        Returns
+        -------
+        y_scaled : array-like of shape (n_samples,)
+            Scaled predictions, with values transformed to the specified 
+            range if `output_scale` is defined.
+    
+        Notes
+        -----
+        Scaling transforms the predicted values to the specified range 
+        :math:`[y_{min}, y_{max}]` by first normalizing the predictions 
+        to :math:`[0, 1]` and then applying the scale transformation:
+    
+        .. math::
+            y_{scaled} = y_{min} + y * (y_{max} - y_{min})
+    
+        where :math:`y` represents the normalized prediction values.
+    
+        - Scaling is applied only if `output_scale` is defined. By default, 
+          scaling range is set to None, meaning no scaling is applied.
+        - This is especially useful in regression tasks where the output 
+          must be within a certain range.
+        """
+
+        if self.output_scale is not None:
+            if self.verbose > 0:
+                print("Scaling output predictions.")
+
+            # Apply min-max scaling based on specified output range
+            y_min, y_max = self.output_scale
+
+            # Compute min and max per output
+            y_min_per_output = y.min(axis=0)
+            y_max_per_output = y.max(axis=0)
+
+            # Avoid division by zero
+            denom = y_max_per_output - y_min_per_output + self.epsilon
+
+            # Normalize to [0, 1] per output
+            y_norm = (y - y_min_per_output) / denom
+
+            # Scale to [y_min, y_max]
+            y_scaled = y_norm * (y_max - y_min) + y_min
+
+            if self.verbose > 0:
+                print(f"Scaled output range: [{y_min}, {y_max}]")
+
+            return y_scaled
+
+        return y
+ 

@@ -9,20 +9,18 @@ Testing some utilities of :mod:`gofast.tools.coreutils`
 import numpy as np 
 import pandas as pd 
 import matplotlib.pyplot as plt 
-from gofast.tools.coreutils import  ( 
-    reshape, 
-    to_numeric_dtypes, 
-    smart_label_classifier, 
-    cleaner, 
-    random_selector, 
-    pair_data, 
-    random_sampling, 
-    replace_data, 
-    ) 
+
+from gofast.datasets.load import load_bagoue, load_hlogs
 from gofast.tools.baseutils import normalizer, interpolate_grid
-from gofast.datasets.load import load_bagoue
-from gofast.datasets.load import load_hlogs
+from gofast.tools.coreutils import  ( 
+    reshape, to_numeric_dtypes, 
+) 
+from gofast.tools.datautils import( 
+    pair_data, random_sampling, replace_data, cleaner, random_selector, 
+)
+from gofast.tools.mlutils import smart_label_classifier
 from gofast.tools.baseutils import remove_outliers 
+
 # get the data for a test 
 X, y = load_bagoue (as_frame =True , return_X_y=True ) 
 

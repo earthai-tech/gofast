@@ -1,7 +1,8 @@
 # util.py
 
-"""provides utility functions for the GOFast package, including logging setup,
+"""Provides utility functions for the GOFast package, including logging setup,
 file conversion from Python to Cython, and creation of Cython extension modules."""
+
 import os
 import sys 
 import logging

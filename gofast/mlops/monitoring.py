@@ -19,6 +19,7 @@ import numpy as np
 from scipy import stats
 from scipy.stats import ks_2samp
 from scipy.spatial.distance import jensenshannon
+
 from sklearn.utils._param_validation import StrOptions
 from sklearn.metrics import (
     accuracy_score, f1_score, log_loss, precision_score, recall_score,
@@ -28,7 +29,7 @@ from sklearn.metrics import (
 from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
 from ..api.property import BaseClass
 from ..compat.sklearn import validate_params, Interval 
-from ..tools.funcutils import ensure_pkg 
+from ..tools.depsutils import ensure_pkg 
 from .._gofastlog import gofastlog 
 
 logger=gofastlog.get_gofast_logger(__name__)

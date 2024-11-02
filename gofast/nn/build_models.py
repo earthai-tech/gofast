@@ -10,7 +10,7 @@ CNNs, and other types of models.
 
 from ..api.types import _Loss, _Regularizer, _Optimizer, _Metric, _Sequential
 from ..api.types import _Model, List, Optional, Union, Tuple
-from ..tools.funcutils import ensure_pkg
+from ..tools.depsutils import ensure_pkg
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 
 if KERAS_BACKEND:

@@ -1,55 +1,47 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
+
 """
-`coreutils` module provides a diverse set of utility functions and tools for
-data manipulation, validation, formatting, and processing. 
+Provides a diverse set of utility functions and tools for data manipulation,
+validation, formatting, and processing. 
 """
 
-from __future__ import print_function 
-import os 
-import re 
-import sys
-import csv 
-import copy  
-import json
+from __future__ import print_function
+import os
+import re
+import copy
 import uuid
-import h5py
-import yaml
-import scipy
 import string
-import joblib
-import pickle
-import shutil
-import numbers 
+import numbers
 import random
 import inspect
-import hashlib 
-import datetime  
+import hashlib
+import datetime
 import warnings
 import itertools
-import subprocess 
-import multiprocessing
-from zipfile import ZipFile
-from six.moves import urllib 
-from collections import defaultdict 
+from collections import defaultdict
 from collections.abc import Sequence
-from concurrent.futures import as_completed 
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor 
 
-import numpy as np 
-import pandas as pd 
+import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
 from .._gofastlog import gofastlog
-from ..api.types import Union, Series,Tuple,Dict,Optional,Iterable, Any, Set
-from ..api.types import _T,_Sub, _F, ArrayLike,List, DataFrame, NDArray, Text 
-from ._dependency import import_optional_dependency
-from ..compat.scipy import ensure_scipy_compatibility 
-from ..compat.scipy import check_scipy_interpolate, optimize_minimize
+from ..api.types import (
+    Any, Callable, Union, Series, Tuple, Optional, Iterable, Set,
+    _T, _Sub, _F, ArrayLike, List, DataFrame, NDArray
+)
+from ..compat.scipy import (
+    ensure_scipy_compatibility,
+    check_scipy_interpolate,
+    optimize_minimize
+)
 
+# Logger Setup
 _logger = gofastlog.get_gofast_logger(__name__)
+
 
 __all__=[
      'add_noises_to',
@@ -57,93 +49,290 @@ __all__=[
      'assert_ratio',
      'check_dimensionality',
      'check_uniform_type',
-     'cleaner',
+     'closest_color',
      'colors_to_names',
-     'cpath',
+     'contains_delimiter',
+     'convert_to_structured_format',
+     'convert_value_in',
      'decompose_colormap',
      'denormalize',
-     'display_infos',
-     'download_progress_hook',
+     'ensure_visualization_compatibility',
      'exist_features',
      'extract_coordinates',
      'features_in',
-     'fetch_json_data_from_url',
      'fill_nan_in',
      'find_by_regex',
-     'find_close_position',
+     'find_closest',
      'find_features_in',
-     'format_to_datetime',
      'generate_alpha_values',
+     'generate_id',
      'generate_mpl_styles',
-     'generic_getattr',
      'get_colors_and_alphas',
      'get_confidence_ratio',
-     'get_installation_name',
      'get_params',
-     'get_valid_key',
      'get_valid_kwargs',
-     'get_xy_coordinates',
      'hex_to_rgb',
-     'interpol_scipy',
      'is_classification_task',
      'is_depth_in',
      'is_in_if',
-     'is_installing',
      'is_iterable',
-     'is_module_installed',
      'ismissing',
-     'load_serialized_data',
+     'listing_items_format',
+     'make_arr_consistent',
      'make_ids',
-     'move_cfile',
-     'nan_to_na', 
+     'make_introspection',
+     'make_obj_consistent_if',
+     'map_specific_columns',
      'normalize_string',
-     'numstr2dms',
-     'pair_data',
-     'parallelize_jobs',
-     'parse_attrs',
-     'parse_csv',
-     'parse_json',
-     'parse_md_data',
-     'parse_yaml',
      'process_and_extract_data',
      'projection_validator',
-     'random_sampling',
-     'random_selector',
      'random_state_validator',
-     'read_from_excelsheets',
-     'read_main',
-     'read_worksheets',
-     'rename_files',
-#     'repeat_item_insertion',
-     'replace_data',
-     'resample_data',
      'reshape',
      'sanitize_frame_cols',
-     'sanitize_unicode_string',
-     'save_job',
-     'savepath_',
-     'serialize_data',
-     'smart_label_classifier',
+     'split_list',
      'split_train_test',
      'split_train_test_by_id',
      'squeeze_specific_dim',
-     'store_or_write_hdf5',
      'str2columns',
      'test_set_check_id',
-     'to_hdf5',
      'to_numeric_dtypes',
      'to_series_if',
      'type_of_target',
      'unpack_list_of_dicts',
-     'url_checker',
      'validate_feature',
+     'validate_noise',
      'validate_ratio',
-     'validate_url',
-     'validate_url_by_validators',
-     'wrap_infos',
-     'zip_extractor'
- ] 
+     ]
 
+def find_closest(arr, values):
+    """
+    Find the closest values in an array from a set of target values.
+
+    This function takes an array and a set of target values, and for each 
+    target value, finds the closest value in the array. It can handle 
+    both scalar and array-like inputs for `values`, ensuring flexibility 
+    in usage. The result is either a single closest value or an array 
+    of closest values corresponding to each target.
+
+    Parameters
+    ----------
+    arr : array-like
+        The array to search within. It can be a list, tuple, or numpy array 
+        of numeric types. If the array is multi-dimensional, it will be 
+        flattened to a 1D array.
+        
+    values : float or array-like
+        The target value(s) to find the closest match for in `arr`. This can 
+        be a single float or an array of floats.
+
+    Returns
+    -------
+    numpy.ndarray
+        An array of the closest values in `arr` for each target in `values`.
+        If `values` is a single float, the function returns a single-element
+        array.
+
+    Notes
+    -----
+    - This function operates by calculating the absolute difference between
+      each element in `arr` and each target in `values`, selecting the 
+      element with the smallest difference.
+    - The function assumes `arr` and `values` contain numeric values, and it
+      raises a `TypeError` if they contain non-numeric data.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.tools.coreutils import find_closest
+    >>> find_closest([2, 3, 4, 5], 2.6)
+    array([3.])
+
+    >>> find_closest(np.array([[2, 3], [4, 5]]), (2.6, 5.6))
+    array([3., 5.])
+
+    See Also
+    --------
+    numpy.argmin : Find the indices of the minimum values along an axis.
+    numpy.abs : Compute the absolute value element-wise.
+
+    References
+    ----------
+    .. [1] Harris, C. R., et al. "Array programming with NumPy." 
+       Nature 585.7825 (2020): 357-362.
+    """
+    from .validator import _is_numeric_dtype
+    arr = is_iterable(arr, exclude_string=True, transform=True)
+    values = is_iterable(values, exclude_string=True, transform=True)
+
+    # Validate numeric types in arr and values
+    for var, name in zip([arr, values], ['array', 'values']):
+        if not _is_numeric_dtype(var, to_array=True):
+            raise TypeError(f"Non-numeric data found in {name}.")
+
+    # Convert arr and values to numpy arrays for vectorized operations
+    arr = np.array(arr, dtype=np.float64)
+    values = np.array(values, dtype=np.float64)
+
+    # Flatten arr if it is multi-dimensional
+    arr = arr.ravel() if arr.ndim != 1 else arr
+
+    # Find the closest value for each target in values
+    closest_values = np.array([
+        arr[np.abs(arr - target).argmin()] for target in values
+    ])
+
+    return closest_values
+
+def run_return(
+    self, 
+    attribute_name: Optional[str] = None, 
+    error_policy: str = 'warn',
+    default_value: Optional[Any] = None,
+    check_callable: bool = False,
+    return_type: str = 'attribute',
+    on_callable_error: str = 'warn',
+    allow_private: bool = False,
+    msg: Optional[str] = None, 
+    config_return_type: Optional[Union[str, bool]] = None
+) -> Any:
+    """
+    Return `self`, a specified attribute of `self`, or both, with error handling
+    policies. Optionally integrates with global configuration to customize behavior.
+
+    Parameters
+    ----------
+    attribute_name : str, optional
+        The name of the attribute to return. If `None`, returns `self`.
+    error_policy : str, optional
+        Policy for handling non-existent attributes. Options:
+        - `warn` : Warn the user and return `self` or a default value.
+        - `ignore` : Silently return `self` or the default value.
+        - `raise` : Raise an `AttributeError` if the attribute does not exist.
+    default_value : Any, optional
+        The default value to return if the attribute does not exist. If `None`,
+        and the attribute does not exist, returns `self` based on the error policy.
+    check_callable : bool, optional
+        If `True`, checks if the attribute is callable and executes it if so.
+    return_type : str, optional
+        Specifies the return type. Options:
+        - `self` : Always return `self`.
+        - `attribute` : Return the attribute if it exists.
+        - `both` : Return a tuple of (`self`, attribute).
+    on_callable_error : str, optional
+        How to handle errors when calling a callable attribute. Options:
+        - `warn` : Warn the user and return `self`.
+        - `ignore` : Silently return `self`.
+        - `raise` : Raise the original error.
+    allow_private : bool, optional
+        If `True`, allows access to private attributes (those starting with '_').
+    msg : str, optional
+        Custom message for warnings or errors. If `None`, a default message will be used.
+    config_return_type : str or bool, optional
+        Global configuration to override return behavior. If set to 'self', always
+        return `self`. If 'attribute', always return the attribute. If `None`, use
+        developer-defined behavior.
+
+    Returns
+    -------
+    Any
+        Returns `self`, the attribute value, or a tuple of both, depending on
+        the specified options and the availability of the attribute.
+
+    Raises
+    ------
+    AttributeError
+        If the attribute does not exist and `error_policy` is set to 'raise', or if the
+        callable check fails and `on_callable_error` is set to 'raise'.
+
+    Notes
+    -----
+    The `run_return` function is designed to offer flexibility in determining
+    what is returned from a method, allowing developers to either return `self` for
+    chaining, return an attribute of the class, or both. By using `global_config`,
+    package-wide behavior can be customized.
+
+    Examples
+    --------
+    >>> from gofast.tools.coreutils import run_return
+    >>> class MyModel:
+    ...     def __init__(self, name):
+    ...         self.name = name
+    ...
+    >>> model = MyModel(name="example")
+    >>> run_return(model, "name")
+    'example'
+
+    See Also
+    --------
+    logging : Python's logging module.
+    warnings.warn : Function to issue warning messages.
+
+    References
+    ----------
+    .. [1] "Python Logging Module," Python Software Foundation.
+           https://docs.python.org/3/library/logging.html
+    .. [2] "Python Warnings," Python Documentation.
+           https://docs.python.org/3/library/warnings.html
+    """
+
+    # If global config specifies return behavior, override the return type
+    if config_return_type == 'self':
+        return self
+    elif config_return_type == 'attribute':
+        return getattr(self, attribute_name, default_value
+                       ) if attribute_name else self
+
+    # If config is None or not available, use developer-defined logic
+    if attribute_name:
+        # Check for private attributes if allowed
+        if not allow_private and attribute_name.startswith('_'):
+            custom_msg = msg or ( 
+                f"Access to private attribute '{attribute_name}' is not allowed.")
+            raise AttributeError(custom_msg)
+
+        # Check if the attribute exists
+        if hasattr(self, attribute_name):
+            attr_value = getattr(self, attribute_name)
+
+            # If check_callable is True, try executing the attribute if it's callable
+            if check_callable and isinstance(attr_value, Callable):
+                try:
+                    attr_value = attr_value()
+                except Exception as e:
+                    custom_msg = msg or ( 
+                        f"Callable attribute '{attribute_name}'"
+                        f" raised an error: {e}."
+                        )
+                    if on_callable_error == 'raise':
+                        raise e
+                    elif on_callable_error == 'warn':
+                        warnings.warn(custom_msg)
+                        return self
+                    elif on_callable_error == 'ignore':
+                        return self
+
+            # Return based on the return_type provided
+            if return_type == 'self':
+                return self
+            elif return_type == 'both':
+                return self, attr_value
+            else:
+                return attr_value
+        else:
+            # Handle the case where the attribute does not exist based on the error_policy
+            custom_msg = msg or ( 
+                f"'{self.__class__.__name__}' object has"
+                f"  no attribute '{attribute_name}'."
+                )
+            if error_policy == 'raise':
+                raise AttributeError(custom_msg)
+            elif error_policy == 'warn':
+                warnings.warn(f"{custom_msg} Returning default value or self.")
+            # Return the default value if provided, otherwise return self
+            return default_value if default_value is not None else self
+    else:
+        # If no attribute is provided, return self
+        return self
 
 def generate_id(
     length=12,
@@ -916,87 +1105,7 @@ def parse_attrs (attr,  regex=None ):
                         flags=re.IGNORECASE) 
     attr= list(filter (None, regex.split(attr)))
     return attr 
-    
-def url_checker (url: str , install:bool = False, 
-                 raises:str ='ignore')-> bool : 
-    """
-    check whether the URL is reachable or not. 
-    
-    function uses the requests library. If not install, set the `install`  
-    parameter to ``True`` to subprocess install it. 
-    
-    Parameters 
-    ------------
-    url: str, 
-        link to the url for checker whether it is reachable 
-    install: bool, 
-        Action to install the 'requests' module if module is not install yet.
-    raises: str 
-        raise errors when url is not recheable rather than returning ``0``.
-        if `raises` is ``ignore``, and module 'requests' is not installed, it 
-        will use the django url validator. However, the latter only assert 
-        whether url is right but not validate its reachability. 
-              
-    Returns
-    --------
-        ``True``{1} for reacheable and ``False``{0} otherwise. 
-        
-    Example
-    ----------
-    >>> from gofast.tools.coreutils import url_checker 
-    >>> url_checker ("http://www.example.com")
-    ...  0 # not reacheable 
-    >>> url_checker ("https://gofast.readthedocs.io/en/latest/api/gofast.html")
-    ... 1 
-    
-    """
-    isr =0 ; success = False 
-    
-    regex = re.compile(
-        r'^(?:http|ftp)s?://' # http:// or https://
-        #domain...
-        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'
-        r'localhost|' #localhost...
-        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})' # ...or ip
-        r'(?::\d+)?' # optional port
-        r'(?:/?|[/?]\S+)$', re.IGNORECASE
-        )
-    
-    try : 
-        import requests 
-    except ImportError: 
-        if install: 
-            success  = is_installing('requests', DEVNULL=True) 
-        if not success: 
-            if raises=='raises': 
-                raise ModuleNotFoundError(
-                    "auto-installation of 'requests' failed."
-                    " Install it mannually.")
-                
-    else : success=True  
-    
-    if success: 
-        try:
-            get = requests.get(url) #Get Url
-            if get.status_code == 200: # if the request succeeds 
-                isr =1 # (f"{url}: is reachable")
-                
-            else:
-                warnings.warn(
-                    f"{url}: is not reachable, status_code: {get.status_code}")
-                isr =0 
-        
-        except requests.exceptions.RequestException as e:
-            if raises=='raises': 
-                raise SystemExit(f"{url}: is not reachable \nErr: {e}")
-            else: isr =0 
-            
-    if not success : 
-        # use django url validation regex
-        # https://github.com/django/django/blob/stable/1.3.x/django/core/validators.py#L45
-        isr = 1 if re.match(regex, url) is not None else 0 
-        
-    return isr 
+
 
 def shrunkformat(
     text: Union[str, Iterable[Any]], 
@@ -1081,271 +1190,6 @@ def shrunkformat(
     return re.sub(r"[\[,'\]]", '', ''.join(spllst), 
                   flags=re.IGNORECASE 
                   ) 
-    
-def is_installing (
-    module: str , 
-    upgrade: bool=True , 
-    action: bool=True, 
-    DEVNULL: bool=False,
-    verbose: int=0,
-    **subpkws
-    )-> bool: 
-    """ Install or uninstall a module/package using the subprocess 
-    under the hood.
-    
-    Parameters 
-    ------------
-    module: str,
-        the module or library name to install using Python Index Package `PIP`
-    
-    upgrade: bool,
-        install the lastest version of the package. *default* is ``True``.   
-        
-    DEVNULL:bool, 
-        decline the stdoutput the message in the console 
-    
-    action: str,bool 
-        Action to perform. 'install' or 'uninstall' a package. *default* is 
-        ``True`` which means 'intall'. 
-        
-    verbose: int, Optional
-        Control the verbosity i.e output a message. High level 
-        means more messages. *default* is ``0``.
-         
-    subpkws: dict, 
-        additional subprocess keywords arguments 
-    Returns 
-    ---------
-    success: bool 
-        whether the package is sucessfully installed or not. 
-        
-    Example
-    --------
-    >>> from gofast import is_installing
-    >>> is_installing(
-        'tqdm', action ='install', DEVNULL=True, verbose =1)
-    >>> is_installing(
-        'tqdm', action ='uninstall', verbose =1)
-    """
-    #implement pip as subprocess 
-    # refer to https://pythongeeks.org/subprocess-in-python/
-    if not action: 
-        if verbose > 0 :
-            print("---> No action `install`or `uninstall`"
-                  f" of the module {module!r} performed.")
-        return action  # DO NOTHING 
-    
-    success=False 
-
-    action_msg ='uninstallation' if action =='uninstall' else 'installation' 
-
-    if action in ('install', 'uninstall', True) and verbose > 0:
-        print(f'---> Module {module!r} {action_msg} will take a while,'
-              ' please be patient...')
-        
-    cmdg =f'<pip install {module}> | <python -m pip install {module}>'\
-        if action in (True, 'install') else ''.join([
-            f'<pip uninstall {module} -y> or <pip3 uninstall {module} -y ',
-            f'or <python -m pip uninstall {module} -y>.'])
-        
-    upgrade ='--upgrade' if upgrade else '' 
-    
-    if action == 'uninstall':
-        upgrade= '-y' # Don't ask for confirmation of uninstall deletions.
-    elif action in ('install', True):
-        action = 'install'
-
-    cmd = ['-m', 'pip', f'{action}', f'{module}', f'{upgrade}']
-
-    try: 
-        STDOUT = subprocess.DEVNULL if DEVNULL else None 
-        STDERR= subprocess.STDOUT if DEVNULL else None 
-    
-        subprocess.check_call(
-            [sys.executable] + cmd, stdout= STDOUT, stderr=STDERR,
-                              **subpkws)
-        if action in (True, 'install'):
-            # freeze the dependancies
-            reqs = subprocess.check_output(
-                [sys.executable,'-m', 'pip','freeze'])
-            [r.decode().split('==')[0] for r in reqs.split()]
-
-        success=True
-        
-    except: 
-
-        if verbose > 0 : 
-            print(f'---> Module {module!r} {action_msg} failed. Please use'
-                f' the following command: {cmdg} to manually do it.')
-    else : 
-        if verbose > 0: 
-            print(f"{action_msg.capitalize()} of `{module}` "
-                      "and dependancies was successfully done!") 
-        
-    return success 
-
-def smart_strobj_recognition(
-        name: str  ,
-        container: Union [List , Tuple , Dict[Any, Any ]],
-        stripitems: Union [str , List , Tuple] = '_', 
-        deep: bool = False,  
-) -> str : 
-    """ Find the likelihood word in the whole containers and 
-    returns the value.
-    
-    :param name: str - Value of to search. I can not match the exact word in 
-    the `container`
-    :param container: list, tuple, dict- container of the many string words. 
-    :param stripitems: str - 'str' items values to sanitize the  content 
-        element of the dummy containers. if different items are provided, they 
-        can be separated by ``:``, ``,`` and ``;``. The items separators 
-        aforementioned can not  be used as a component in the `name`. For 
-        isntance:: 
-            
-            name= 'dipole_'; stripitems='_' -> means remove the '_'
-            under the ``dipole_``
-            name= '+dipole__'; stripitems ='+;__'-> means remove the '+' and
-            '__' under the value `name`. 
-        
-    :param deep: bool - Kind of research. Go deeper by looping each items 
-         for find the initials that can fit the name. Note that, if given, 
-         the first occurence should be consider as the best name... 
-         
-    :return: Likelihood object from `container`  or Nonetype if none object is
-        detected.
-        
-    :Example:
-        >>> from gofast.tools.coreutils import smart_strobj_recognition
-        >>> from gofast.methods import ResistivityProfiling 
-        >>> rObj = ResistivityProfiling(AB= 200, MN= 20,)
-        >>> smart_strobj_recognition ('dip', robj.__dict__))
-        ... None 
-        >>> smart_strobj_recognition ('dipole_', robj.__dict__))
-        ... dipole 
-        >>> smart_strobj_recognition ('dip', robj.__dict__,deep=True )
-        ... dipole 
-        >>> smart_strobj_recognition (
-            '+_dipole___', robj.__dict__,deep=True , stripitems ='+;_')
-        ... 'dipole'
-        
-    """
-
-    stripitems =_assert_all_types(stripitems , str, list, tuple) 
-    container = _assert_all_types(container, list, tuple, dict)
-    ix , rv = None , None 
-    
-    if isinstance (stripitems , str): 
-        for sep in (':', ",", ";"): # when strip ='a,b,c' seperated object
-            if sep in stripitems:
-                stripitems = stripitems.strip().split(sep) ; break
-        if isinstance(stripitems, str): 
-            stripitems =[stripitems]
-            
-    # sanitize the name. 
-    for s in stripitems :
-        name = name.strip(s)     
-        
-    if isinstance(container, dict) : 
-        #get only the key values and lower them 
-        container_ = list(map (lambda x :x.lower(), container.keys())) 
-    else :
-        # for consistency put on list if values are in tuple. 
-        container_ = list(container)
-        
-    # sanitize our dummny container item ... 
-    #container_ = [it.strip(s) for it in container_ for s in stripitems ]
-    if name.lower() in container_: 
-        try:
-            ix = container_.index (name)
-        except ValueError: 
-            raise AttributeError(f"{name!r} attribute is not defined")
-        
-    if deep and ix is None:
-        # go deeper in the search... 
-        for ii, n in enumerate (container_) : 
-            if n.find(name.lower())>=0 : 
-                ix =ii ; break 
-    
-    if ix is not None: 
-        if isinstance(container, dict): 
-            rv= list(container.keys())[ix] 
-        else : rv= container[ix] 
-
-    return  rv 
-
-def repr_callable_obj(obj: _F  , skip = None ): 
-    """ Represent callable objects. 
-    
-    Format class, function and instances objects. 
-    
-    :param obj: class, func or instances
-        object to format. 
-    :param skip: str , 
-        attribute name that is not end with '_' and whom it needs to be 
-        skipped. 
-        
-    :Raises: TypeError - If object is not a callable or instanciated. 
-    
-    :Examples: 
-        
-    >>> from gofast.tools.coreutils import repr_callable_obj
-    >>> from gofast.methods.electrical import  ResistivityProfiling
-    >>> repr_callable_obj(ResistivityProfiling)
-    ... 'ResistivityProfiling(station= None, dipole= 10.0, 
-            auto_station= False, kws= None)'
-    >>> robj= ResistivityProfiling (AB=200, MN=20, station ='S07')
-    >>> repr_callable_obj(robj)
-    ... 'ResistivityProfiling(AB= 200, MN= 20, arrangememt= schlumberger, ... ,
-        dipole= 10.0, station= S07, auto= False)'
-    >>> repr_callable_obj(robj.fit)
-    ... 'fit(data= None, kws= None)'
-    
-    """
-    regex = re.compile (r"[{'}]")
-    
-    # inspect.formatargspec(*inspect.getfullargspec(cls_or_func))
-    if not hasattr (obj, '__call__') and not hasattr(obj, '__dict__'): 
-        raise TypeError (
-            f'Format only callabe objects: Got {type (obj).__name__!r}')
-        
-    if hasattr (obj, '__call__'): 
-        cls_or_func_signature = inspect.signature(obj)
-        objname = obj.__name__
-        PARAMS_VALUES = {k: None if v.default is (inspect.Parameter.empty 
-                         or ...) else v.default 
-                    for k, v in cls_or_func_signature.parameters.items()
-                    # if v.default is not inspect.Parameter.empty
-                    }
-    elif hasattr(obj, '__dict__'): 
-        objname=obj.__class__.__name__
-        PARAMS_VALUES = {k:v  for k, v in obj.__dict__.items() 
-                         if not ((k.endswith('_') or k.startswith('_') 
-                                  # remove the dict objects
-                                  or k.endswith('_kws') or k.endswith('_props'))
-                                 )
-                         }
-    if skip is not None : 
-        # skip some inner params 
-        # remove them as the main function or class params 
-        if isinstance(skip, (tuple, list, np.ndarray)): 
-            skip = list(map(str, skip ))
-            exs = [key for key in PARAMS_VALUES.keys() if key in skip]
-        else:
-            skip =str(skip).strip() 
-            exs = [key for key in PARAMS_VALUES.keys() if key.find(skip)>=0]
- 
-        for d in exs: 
-            PARAMS_VALUES.pop(d, None) 
-            
-    # use ellipsis as internal to stdout more than seven params items 
-    if len(PARAMS_VALUES) >= 7 : 
-        f = {k:PARAMS_VALUES.get(k) for k in list(PARAMS_VALUES.keys())[:3]}
-        e = {k:PARAMS_VALUES.get(k) for k in list(PARAMS_VALUES.keys())[-3:]}
-        
-        PARAMS_VALUES= str(f) + ' ... ' + str(e )
-
-    return str(objname) + '(' + regex.sub('', str (PARAMS_VALUES)
-                                          ).replace(':', '=') +')'
 
 
 def accept_types (
@@ -1371,26 +1215,7 @@ def accept_types (
         [f'{o.__name__}' for o in objtypes]
         ) if format else [f'{o.__name__}' for o in objtypes] 
 
-def read_from_excelsheets(erp_file: str = None ) -> List[DataFrame]: 
-    
-    """ Read all Excelsheets and build a list of dataframe of all sheets.
-   
-    :param erp_file:
-        Excell workbooks containing `erp` profile data.
-        
-    :return: A list composed of the name of `erp_file` at index =0 and the 
-      datataframes.
-      
-    """
-    
-    allfls:Dict [str, Dict [_T, List[_T]] ] = pd.read_excel(
-        erp_file, sheet_name=None)
-    
-    list_of_df =[os.path.basename(os.path.splitext(erp_file)[0])]
-    for sheets , values in allfls.items(): 
-        list_of_df.append(pd.DataFrame(values))
 
-    return list_of_df 
 
 def check_dimensionality(obj, data, z, x):
     """ Check dimensionality of data and fix it.
@@ -1468,61 +1293,6 @@ def make_introspection(Obj: object , subObj: _Sub[object])->None:
         if not hasattr(Obj, key) and key  != ''.join(['__', str(key), '__']):
             setattr(Obj, key, value)
   
-def cpath(savepath: str = None, dpath: str = '_default_path_') -> str:
-    """
-    Ensure a directory exists for saving files. If the specified savepath 
-    does not exist, it will be created. If no savepath is specified, a default
-    directory is used.
-
-    Parameters:
-    - savepath (str, optional): The target directory to validate or create. 
-      If None, dpath is used.
-    - dpath (str): The default directory to use if savepath is None. Created 
-      in the current working directory.
-
-    Returns:
-    - str: The absolute path to the validated or created directory.
-
-    Example:
-    ```
-    # Using the default path
-    default_path = cpath()
-    print(f"Files will be saved to: {default_path}")
-
-    # Specifying a custom path
-    custom_path = cpath('/path/to/save')
-    print(f"Files will be saved to: {custom_path}")
-    ```
-    """
-    from pathlib import Path
-    if savepath is None:
-        savepath = Path.cwd() / dpath
-    else:
-        savepath = Path(savepath)
-
-    try:
-        savepath.mkdir(parents=True, exist_ok=True)
-    except Exception as e:
-        print(f"Error creating directory {savepath}: {e}")
-        # Optionally, handle errors more gracefully or raise for critical issues
-    return str(savepath.resolve())
-
-  
-def sPath (name_of_path:str):
-    """ Savepath func. Create a path  with `name_of_path` if path not exists.
-    
-    :param name_of_path: str, Path-like object. If path does not exist,
-        `name_of_path` should be created.
-    """
-    
-    try :
-        savepath = os.path.join(os.getcwd(), name_of_path)
-        if not os.path.isdir(savepath):
-            os.mkdir(name_of_path)#  mode =0o666)
-    except :
-        warnings.warn("The path seems to be existed!")
-        return
-    return savepath 
 
 
 def format_notes(text:str , cover_str: str ='~', inline=70, **kws): 
@@ -1723,63 +1493,6 @@ def stn_check_split_type(data_lines):
                 else : return sep 
 
 
-def round_dipole_length(value, round_value =5.): 
-    """ 
-    small function to graduate dipole length 5 to 5. Goes to be reality and 
-    simple computation .
-    
-    :param value: value of dipole length 
-    :type value: float 
-    
-    :returns: value of dipole length rounded 5 to 5 
-    :rtype: float
-    """ 
-    mm = value % round_value 
-    if mm < 3 :return np.around(value - mm)
-    elif mm >= 3 and mm < 7 :return np.around(value -mm +round_value) 
-    else:return np.around(value - mm +10.)
-    
-def display_infos(infos, **kws):
-    """ Display unique element on list of array infos
-    
-    :param infos: Iterable object to display. 
-    :param header: Change the `header` to other names. 
-    
-    :Example: 
-    >>> from gofast.tools.coreutils import display_infos
-    >>> ipts= ['river water', 'fracture zone', 'granite', 'gravel',
-         'sedimentary rocks', 'massive sulphide', 'igneous rocks', 
-         'gravel', 'sedimentary rocks']
-    >>> display_infos('infos= ipts,header='TestAutoRocks', 
-                      size =77, inline='~')
-    """
-
-    inline =kws.pop('inline', '-')
-    size =kws.pop('size', 70)
-    header =kws.pop('header', 'Automatic rocks')
-
-    if isinstance(infos, str ): 
-        infos =[infos]
-        
-    infos = list(set(infos))
-    print(inline * size )
-    mes= '{0}({1:02})'.format(header.capitalize(),
-                                  len(infos))
-    mes = '{0:^70}'.format(mes)
-    print(mes)
-    print(inline * size )
-    am=''
-    for ii in range(len(infos)): 
-        if (ii+1) %2 ==0: 
-            am = am + '{0:>4}.{1:<30}'.format(ii+1, infos[ii].capitalize())
-            print(am)
-            am=''
-        else: 
-            am ='{0:>4}.{1:<30}'.format(ii+1, infos[ii].capitalize())
-            if ii ==len(infos)-1: 
-                print(am)
-    print(inline * size )
-
 def fr_en_parser (f, delimiter =':'): 
     """ Parse the translated data file. 
     
@@ -1809,176 +1522,6 @@ def fr_en_parser (f, delimiter =':'):
             fr, en = row.strip().split(delimiter)
             yield([fr, en])
 
-def convert_csvdata_from_fr_to_en(csv_fn, pf, destfile = 'pme.en.csv',
-                                  savepath =None, delimiter =':'): 
-    """ Translate variable data from french csv data  to english with 
-    parser file. 
-    
-    :param csv_fn: data collected in csv format.
-    
-    :param pf: parser file. 
-    
-    :param destfile: str,  Destination file, outputfile.
-    
-    :param savepath: Path-Like object, save data to a path. 
-                      
-    :Example: 
-        # to execute this script, we need to import the two modules below
-        >>> import os 
-        >>> import csv 
-        >>> from gofast.tools.coreutils import convert_csvdata_from_fr_to_en
-        >>> path_pme_data = r'C:/Users\Administrator\Desktop\__elodata
-        >>> datalist=convert_csvdata_from_fr_to_en(
-            os.path.join( path_pme_data, _enuv2.csv') , 
-            os.path.join(path_pme_data, pme.parserf.md')
-                         savefile = 'pme.en.cv')
-    """
-    # read the parser file and separed english from french 
-    parser_data = list(fr_en_parser (pf,delimiter) )
-    
-    with open (csv_fn, 'r', encoding ='utf8') as csv_f : 
-        csv_reader = csv.reader(csv_f) 
-        csv_data =[ row for row in csv_reader]
-    # get the index of the last substring row 
-    ix = csv_data [0].index ('Industry_type') 
-    # separateblock from two 
-    csv_1b = [row [:ix +1] for row in csv_data] 
-    csv_2b =[row [ix+1:] for row in csv_data ]
-    # make a copy of csv_1b
-    csv_1bb= copy.deepcopy(csv_1b)
-   
-    for ii, rowline in enumerate( csv_1bb[3:]) : # skip the first two rows 
-        for jj , row in enumerate(rowline): 
-            for (fr_v, en_v) in  parser_data: 
-                # remove the space from french parser part
-                # this could reduce the mistyping error 
-                fr_v= fr_v.replace(
-                    ' ', '').replace('(', '').replace(
-                        ')', '').replace('\\', '').lower()
-                 # go  for reading the half of the sentence
-                row = row.lower().replace(
-                    ' ', '').replace('(', '').replace(
-                        ')', '').replace('\\', '')
-                if row.find(fr_v[: int(len(fr_v)/2)]) >=0: 
-                    csv_1bb[3:][ii][jj] = en_v 
-    
-    # once translation is done, concatenate list 
-    new_csv_list = [r1 + r2 for r1, r2 in zip(csv_1bb,csv_2b )]
-    # now write the new scv file 
-    if destfile is None: 
-        destfile = f'{os.path.basename(csv_fn)}_to.en'
-        
-    destfile.replace('.csv', '')
-    
-    with open(f'{destfile}.csv', 'w', newline ='',encoding ='utf8') as csvf: 
-        csv_writer = csv.writer(csvf, delimiter=',')
-        csv_writer.writerows(new_csv_list)
-        # for row in  new_csv_list: 
-        #     csv_writer.writerow(row)
-    savepath = cpath(savepath , '__pme')
-    try :
-        shutil.move (f'{destfile}.csv', savepath)
-    except:pass 
-    
-    return new_csv_list
-    
-def parse_md_data (pf , delimiter =':'): 
-    
-    if not os.path.isfile (pf): 
-        raise IOError( " Unable to detect the parser file. "
-                      "Need a Path-like object ")
-    
-    with open(pf, 'r', encoding ='utf8') as f: 
-        pdata = f.readlines () 
-    for row in pdata : 
-        if row in ('\n', ' '): 
-            continue 
-        fr, en = row.strip().split(delimiter)
-        fr = sanitize_unicode_string(fr)
-        en = en.strip()
-        # if capilize, the "I" inside the 
-        #text should be in lowercase 
-        # it is better to upper the first 
-        # character after striping the whole 
-        # string
-        en = list(en)
-        en[0] = en[0].upper() 
-        en = "".join(en)
-
-        yield fr, en 
-        
-def sanitize_unicode_string (str_) : 
-    """ Replace all spaces and remove all french accents characters.
-    
-    :Example:
-    >>> from gofast.tools.coreutils import sanitize_unicode_string 
-    >>> sentence ='Nos clients sont extrêmement satisfaits '
-        'de la qualité du service fourni. En outre Nos clients '
-            'rachètent frequemment nos "services".'
-    >>> sanitize_unicode_string  (sentence)
-    ... 'nosclientssontextrmementsatisfaitsdelaqualitduservice'
-        'fournienoutrenosclientsrachtentfrequemmentnosservices'
-    """
-    sp_re = re.compile (r"[.'()-\\/’]")
-    e_re = re.compile(r'[éèê]')
-    a_re= re.compile(r'[àâ]')
-
-    str_= re.sub('\s+', '', str_.strip().lower())
-    
-    for cobj , repl  in zip ( (sp_re, e_re, a_re), 
-                             ("", 'e', 'a')): 
-        str_ = cobj.sub(repl, str_)
-    
-    return str_             
-                  
-def read_main (csv_fn , pf , delimiter =':',
-               destfile ='pme.en.csv') : 
-    
-    parser_data = list(parse_md_data(pf, delimiter) )
-    parser_dict =dict(parser_data)
-    
-    with open (csv_fn, 'r', encoding ='utf8') as csv_f : 
-        csv_reader = csv.reader(csv_f) 
-        csv_data =[ row for row in csv_reader]
-        
-    # get the index of the last substring row 
-    # and separate block into two from "Industry_type"
-    ix = csv_data [0].index ('Industry_type') 
-    
-    csv_1b = [row [:ix +1] for row in csv_data] 
-    csv_2b =[row [ix+1:] for row in csv_data ]
-    # make a copy of csv_1b
-    csv_1bb= copy.deepcopy(csv_1b)
-    copyd = copy.deepcopy(csv_1bb); is_missing =list()
-    
-    # skip the first two rows 
-    for ii, rowline in enumerate( csv_1bb[3:]) : 
-        for jj , row in enumerate(rowline):
-            row = row.strip()
-            row = sanitize_unicode_string(row )
-            csv_1bb[3:][ii][jj] = row 
-            
-    #collect the missing values 
-    for ii, rowline in enumerate( csv_1bb[3:]) : 
-        for jj , row in enumerate(rowline): 
-            if row not in parser_dict.keys():
-                is_missing.append(copyd[3:][ii][jj])
-    is_missing = list(set(is_missing))       
-    
-    # merge the prior two blocks and build the dataframe
-    new_csv_list = [r1 + r2 for r1, r2 in zip(csv_1bb, csv_2b )]
-    df = pd.DataFrame (
-        np.array(new_csv_list [1:]),
-        columns =new_csv_list [0] 
-                       )
-    for key, value in parser_dict.items(): 
-        # perform operation in place and return None 
-        df.replace (key, value, inplace =True )
-    
-
-    df.to_csv (destfile)
-    return  df , is_missing 
-    
 
 def _isin (
         arr: Union [ArrayLike, List [float]] ,
@@ -2019,28 +1562,6 @@ def _assert_all_types (
     return obj 
 
   
-def savepath_ (nameOfPath): 
-    """
-    Shortcut to create a folder 
-    :param nameOfPath: Path name to save file
-    :type nameOfPath: str 
-    
-    :return: 
-        New folder created. If the `nameOfPath` exists, will return ``None``
-    :rtype:str 
-        
-    """
- 
-    try :
-        savepath = os.path.join(os.getcwd(), nameOfPath)
-        if not os.path.isdir(savepath):
-            os.mkdir(nameOfPath)#  mode =0o666)
-    except :
-        warnings.warn("The path seems to be existed !")
-        return
-    return savepath 
-     
-
 def drawn_boundaries(erp_data, appRes, index):
     """
     Function to drawn anomaly boundary 
@@ -2108,267 +1629,6 @@ def drawn_boundaries(erp_data, appRes, index):
         anomalyBounds = np.concatenate((left_limit, right_limit))
     
     return appRes, index, anomalyBounds 
-
-def serialize_data(
-        data, 
-        filename=None, 
-        force=True, 
-        savepath=None,
-        verbose:int =0
-     ): 
-    """ Store a data into a binary file 
-    
-    :param data: Object
-        Object to store into a binary file. 
-    :param filename: str
-        Name of file to serialize. If 'None', should create automatically. 
-    :param savepath: str, PathLike object
-         Directory to save file. If not exists should automaticallycreate.
-    :param force: bool
-        If ``True``, remove the old file if it exists, otherwise will 
-        create a new incremenmted file.
-    :param verbose: int, get more message.
-    :return: dumped or serialized filename.
-        
-    :Example:
-        
-        >>> import numpy as np
-        >>> import gofast.tools.coreutils import serialize_data
-        >>> data = np.arange(15)
-        >>> file = serialize_data(data, filename=None,  force=True, 
-        ...                          savepath =None, verbose =3)
-        >>> file
-    """
-    
-    def _cif(filename, force): 
-        """ Control the file. If `force` is ``True`` then remove the old file, 
-        Otherwise create a new file with datetime infos."""
-        f = copy.deepcopy(filename)
-        if force : 
-            os.remove(filename)
-            if verbose >2: print(f" File {os.path.basename(filename)!r} "
-                      "has been removed. ")
-            return None   
-        else :
-            # that change the name in the realpath 
-            f= os.path.basename(f).replace('.pkl','') + \
-                f'{datetime.datetime.now()}'.replace(':', '_')+'.pkl' 
-            return f
-
-    if filename is not None: 
-        file_exist =  os.path.isfile(filename)
-        if file_exist: 
-            filename = _cif (filename, force)
-    if filename is None: 
-        filename ='__mymemoryfile.{}__'.format(datetime.datetime.now())
-        filename =filename.replace(' ', '_').replace(':', '-')
-    if not isinstance(filename, str): 
-        raise TypeError(f"Filename needs to be a string not {type(filename)}")
-    if filename.endswith('.pkl'): 
-        filename = filename.replace('.pkl', '')
- 
-    _logger.info (
-        f"Save data to {'memory' if filename.find('memo')>=0 else filename}.")    
-    try : 
-        joblib.dump(data, f'{filename}.pkl')
-        filename +='.pkl'
-        if verbose > 2:
-            print(f'Data dumped in `{filename} using to `~.externals.joblib`!')
-    except : 
-        # Now try to pickle data Serializing data 
-        with open(filename, 'wb') as wfile: 
-            pickle.dump( data, wfile)
-        if verbose >2:
-            print( 'Data are well serialized using Python pickle module.`')
-    # take the real path of the filename
-    filename = os.path.realpath(filename)
-
-    if savepath is  None:
-        dirname ='_memory_'
-        try : savepath = sPath(dirname)
-        except :
-            # for consistency
-            savepath = os.getcwd() 
-    if savepath is not None: 
-        try:
-            shutil.move(filename, savepath)
-        except :
-            file = _cif (os.path.join(savepath,
-                                      os.path.basename(filename)), force)
-            if not force: 
-                os.rename(filename, os.path.join(savepath, file) )
-            if file is None: 
-                #take the file  in current word 
-                file = os.path.join(os.getcwd(), filename)
-                shutil.move(filename, savepath)
-            filename = os.path.join(savepath, file)
-                
-    if verbose > 0: 
-            print(f"Data are well stored in {savepath!r} directory.")
-            
-    return os.path.join(savepath, filename) 
-    
-def load_serialized_data (filename, verbose=0): 
-    """
-    Load data from dumped file.
-    
-    :param filename: str or path-like object 
-        Name of dumped data file.
-    :return: Data reloaded from dumped file.
-
-    :Example:
-        
-        >>> from gofast.tools.functils import load_serialized_data
-        >>> data = load_serialized_data(
-        ...    filename = '_memory_/__mymemoryfile.2021-10-29_14-49-35.647295__.pkl', 
-        ...    verbose =3)
-
-    """
-    if not isinstance(filename, str): 
-        raise TypeError(f'filename should be a <str> not <{type(filename)}>')
-        
-    if not os.path.isfile(filename): 
-        raise FileExistsError(f"File {filename!r} does not exist.")
-
-    _filename = os.path.basename(filename)
-    _logger.info(
-        f"Loading data from {'memory' if _filename.find('memo')>=0 else _filename}.")
-   
-    data =None 
-    try : 
-        data= joblib.load(filename)
-        if verbose >2:
-            (f"Data from {_filename !r} are sucessfully"
-             " reloaded using ~.externals.joblib`!")
-    except : 
-        if verbose >2:
-            print(f"Nothing to reload. It's seems data from {_filename!r}" 
-                      " are not dumped using ~external.joblib module!")
-        
-        with open(filename, 'rb') as tod: 
-            data= pickle.load (tod)
-            
-        if verbose >2: print(f"Data from `{_filename!r} are well"
-                      " deserialized using Python pickle module.`!")
-        
-    is_none = data is None
-    if verbose > 0:
-        if is_none :
-            print("Unable to deserialize data. Please check your file.")
-        else : print(f"Data from {_filename} have been sucessfully reloaded.")
-    
-    return data
-
-def save_job(
-    job , 
-    savefile ,* ,  
-    protocol =None,  
-    append_versions=True, 
-    append_date=True, 
-    fix_imports= True, 
-    buffer_callback = None,   
-    **job_kws
-    ): 
-    """ Quick save your job using 'joblib' or persistent Python pickle module.
-    
-    Parameters 
-    -----------
-    job: Any 
-        Anything to save, preferabaly a models in dict 
-        
-    savefile: str, or path-like object 
-         name of file to store the model
-         The *file* argument must have a write() method that accepts a
-         single bytes argument. It can thus be a file object opened for
-         binary writing, an io.BytesIO instance, or any other custom
-         object that meets this interface.
-         
-    append_versions: bool, default =True 
-        Append the version of Joblib module or Python Pickle module following 
-        by the scikit-learn, numpy and also pandas versions. This is useful 
-        to have idea about previous versions for loading file when system or 
-        modules have been upgraded. This could avoid bottleneck when data 
-        have been stored for long times and user has forgotten the date and 
-        versions at the time the file was saved. 
-        
-    append_date: bool, default=True, 
-       Append the date  of the day to the filename. 
-       
-    protocol: int, optional 
-        The optional *protocol* argument tells the pickler to use the
-        given protocol; supported protocols are 0, 1, 2, 3, 4 and 5.
-        The default protocol is 4. It was introduced in Python 3.4, and
-        is incompatible with previous versions.
-    
-        Specifying a negative protocol version selects the highest
-        protocol version supported.  The higher the protocol used, the
-        more recent the version of Python needed to read the pickle
-        produced.
-        
-    fix_imports: bool, default=True, 
-        If *fix_imports* is True and *protocol* is less than 3, pickle
-        will try to map the new Python 3 names to the old module names
-        used in Python 2, so that the pickle data stream is readable
-        with Python 2.
-        
-    buffer_call_back: int, optional 
-        If *buffer_callback* is None (the default), buffer views are
-        serialized into *file* as part of the pickle stream.
-    
-        If *buffer_callback* is not None, then it can be called any number
-        of times with a buffer view.  If the callback returns a false value
-        (such as None), the given buffer is out-of-band; otherwise the
-        buffer is serialized in-band, i.e. inside the pickle stream.
-    
-        It is an error if *buffer_callback* is not None and *protocol*
-        is None or smaller than 5.
-        
-    job_kws: dict, 
-        Additional keywords arguments passed to :func:`joblib.dump`. 
-        
-    Returns
-    --------
-    savefile: str, 
-        returns the filename
-    """
-    def remove_extension(fn, ex): 
-        """Remove extension either joblib or pickle """
-        return fn.replace (ex, '')
-    
-    import sklearn 
-    
-    versions = 'sklearn_v{0}.numpy_v{1}.pandas_v{2}'.format( 
-        sklearn.__version__, np.__version__, pd.__version__) 
-    date = datetime.datetime.now().strftime("%Y%M%D") 
-    
-    savefile =str(savefile) 
-    if ( 
-            '.joblib' in savefile or '.pkl' in savefile
-            ): 
-        ex = '.joblib' if savefile.find('.joblib')>=0 else '.pkl'
-        savefile = remove_extension(savefile ,  ex )
-        
-    if append_date: 
-        savefile +=".{}".format(date) 
-        
-    if append_versions : 
-        savefile += ".{}"+ versions 
-    try : 
-        if append_versions: 
-            savefile += ".joblib_v{}.".format(joblib.__version__)
-            
-        joblib.dump(job, f'{savefile}.joblib', **job_kws)
-        
-    except : 
-        if append_versions: 
-            savefile +=".pickle_v{}.pkl".format(pickle.__version__)
-            
-        with open(savefile, 'wb') as wfile: 
-            pickle.dump( job, wfile, protocol= protocol, 
-                        fix_imports=fix_imports , 
-                        buffer_callback=buffer_callback )
-
-    return savefile 
 
 def fmt_text(
         anFeatures=None, 
@@ -2669,235 +1929,7 @@ def make_arr_consistent (
     return  refarr == t  if return_index =='mask' else (
         non_zero_index if return_index else t )
 
-def find_close_position (refarr, arr): 
-    """ Get the close item from `arr` in the reference array `refarr`. 
-    
-    :param arr: array-like 1d, 
-        Array to extended with fill value. It should be  shorter than the 
-        `refarr`.
-        
-    :param refarr: array-like- 
-        the reference array. It should have a greater length than the
-        array `arr`.  
-    :return: generator of index of the closest position in  `refarr`.  
-    """
-    for item in arr : 
-        ix = np.argmin (np.abs (refarr - item)) 
-        yield ix 
-    
 
-def fit_ll(ediObjs, by ='index', method ='strict', distance='cartesian' ): 
-    """ Fit EDI by location and reorganize EDI according to the site  
-    longitude and latitude coordinates. 
-    
-    EDIs data are mostly reading in an alphabetically order, so the reoganization  
-
-    according to the location(longitude and latitude) is usefull for distance 
-    betwen site computing with a right position at each site.  
-    
-    :param ediObjs: list of EDI object, composed of a collection of 
-        gofast.edi.Edi or pycsamt.core.edi.Edi or mtpy.core.edi objects 
-    :type ediObjs: gofast.edi.Edi_Collection 
-  
-    :param by: ['name'|'ll'|'distance'|'index'|'name'|'dataid'] 
-       The kind to sorting EDI files. Default uses the position number 
-       included in the EDI-files name.
-    :type by: str 
-    
-    :param method:  ['strict|'naive']. Kind of method to sort the 
-        EDI file from longitude, latitude. Default is ``strict``. 
-    :type method: str 
-    
-    :param distance: ['cartesian'|'harvesine']. Use the distance between 
-       coordinates points to sort EDI files. Default is ``cartesian`` distance.
-    :type distance: str 
-    
-    :returns: array splitted into ediObjs and Edifiles basenames 
-    :rtyple: tuple 
-    
-    :Example: 
-        >>> import numpy as np 
-        >>> from gofast.methods.em import EM
-        >>> from gofast.tools.coreutils import fit_ll
-        >>> edipath ='data/edi_ss' 
-        >>> cediObjs = EM().fit (edipath) 
-        >>> ediObjs = np.random.permutation(cediObjs.ediObjs) # shuffle the  
-        ... # the collection of ediObjs 
-        >>> ediObjs, ediObjbname = fit_by_ll(ediObjs) 
-        ...
-
-    """
-    method= 'strict' if str(method).lower() =='strict' else "naive"
-    if method=='strict': 
-        return _fit_ll(ediObjs, by = by, distance = distance )
-    
-    #get the ediObjs+ names in ndarray(len(ediObjs), 2) 
-    objnames = np.c_[ediObjs, np.array(
-        list(map(lambda obj: os.path.basename(obj.edifile), ediObjs)))]
-    lataddlon = np.array (list(map(lambda obj: obj.lat + obj.lon , ediObjs)))
-    if len(np.unique ( lataddlon)) < len(ediObjs)//2: 
-        # then ignore reorganization and used the 
-        # station names. 
-        pass 
-    else:
-        sort_ix = np.argsort(lataddlon) 
-        objnames = objnames[sort_ix ]
-        
-    #ediObjs , objbnames = np.hsplit(objnames, 2) 
-    return objnames[:, 0], objnames[:, -1]
-   
-def _fit_ll(ediObjs, distance='cartes', by = 'index'): 
-    """ Fit ediObjs using the `strict method`. 
-    
-    An isolated part of :func:`gofast.tools.coreutils.fit_by_ll`. 
-    """
-    # get one obj randomnly and compute distance 
-    obj_init = ediObjs[0]
-    ref_lat = 34.0522  # Latitude of Los Angeles
-    ref_lon = -118.2437 # Longitude of Los Angeles
-    
-    if str(distance).find ('harves')>=0: 
-        distance='harves'
-    else: distance='cartes'
-    
-    # create stations list.
-    stations = [ 
-        {"name": os.path.basename(obj.edifile), 
-         "longitude": obj.lon, 
-         "latitude": obj.lat, 
-         "obj": obj, 
-         "dataid": obj.dataid,  
-         # compute distance using cartesian or harversine 
-         "distance": _compute_haversine_d (
-            ref_lat, ref_lon, obj.lat, obj.lon
-            ) if distance =='harves' else np.sqrt (
-                ( obj_init.lon -obj.lon)**2 + (obj_init.lat -obj.lat)**2), 
-         # check wether there is a position number in the data.
-         "index": re.search ('\d+', str(os.path.basename(obj.edifile)),
-                            flags=re.IGNORECASE).group() if bool(
-                                re.search(r'\d', os.path.basename(obj.edifile)))
-                                else float(ii) ,
-        } 
-        for ii, obj in enumerate (ediObjs) 
-        ]
-                  
-    ll=( 'longitude', 'latitude') 
-    
-    by = 'index' or str(by ).lower() 
-    if ( by.find ('ll')>=0 or by.find ('lonlat')>=0): 
-        by ='ll'
-    elif  by.find ('latlon')>=0: 
-        ll =ll[::-1] # reverse 
-    
-    # sorted from key
-    sorted_stations = sorted (
-        stations , key = lambda o: (o[ll[0]], [ll[-1]])  
-        if (by =='ll' or by=='latlon')
-        else o[by]
-             )
-
-    objnames = np.array( list(
-        map ( lambda o : o['name'], sorted_stations))) 
-    ediObjs = np.array ( list(
-        map ( lambda o: o['obj'], sorted_stations)), 
-                        dtype =object ) 
-    
-    return ediObjs, objnames 
-
-def _compute_haversine_d(lat1, lon1, lat2, lon2): 
-    """ Sort coordinates using Haversine distance calculus. 
-    An isolated part of :func:`gofast.tools.coreutils._fit_by_ll"""
-    # get reference_lat and reference lon 
-    # get one obj randomnly and compute distance 
-    # obj_init = np.random.choice (ediObjs) 
-    import math 
-    # Define a function to calculate the distance 
-    # between two points in kilometers
-    # def distance(lat1, lon1, lat2, lon2):
-        # Convert degrees to radians
-    lat1 = math.radians(lat1)
-    lon1 = math.radians(lon1)
-    lat2 = math.radians(lat2)
-    lon2 = math.radians(lon2)
-
-    # Apply the haversine formula
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-    a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(
-        lat2) * math.sin(dlon / 2)**2
-    c = 2 * math.asin(math.sqrt(a))
-    r = 6371 # Earth's radius in kilometers
-    
-    return c * r
-    
-
-def make_ids(arr, prefix =None, how ='py', skip=False): 
-    """ Generate auto Id according to the number of given sites. 
-    
-    :param arr: Iterable object to generate an id site . For instance it can be 
-        the array-like or list of EDI object that composed a collection of 
-        gofast.edi.Edi object. 
-    :type ediObjs: array-like, list or tuple 
-
-    :param prefix: string value to add as prefix of given id. Prefix can be 
-        the site name.
-    :type prefix: str 
-    
-    :param how: Mode to index the station. Default is 'Python indexing' i.e. 
-        the counting starts by 0. Any other mode will start the counting by 1.
-    :type cmode: str 
-    
-    :param skip: skip the long formatage. the formatage acccording to the 
-        number of collected file. 
-    :type skip: bool 
-    :return: ID number formated 
-    :rtype: list 
-    
-    :Example: 
-        >>> import numpy as np 
-        >>> from gofast.tools.func_utils import make_ids 
-        >>> values = ['edi1', 'edi2', 'edi3'] 
-        >>> make_ids (values, 'ix')
-        ... ['ix0', 'ix1', 'ix2']
-        >>> data = np.random.randn(20)
-        >>>  make_ids (data, prefix ='line', how=None)
-        ... ['line01','line02','line03', ... , line20] 
-        >>> make_ids (data, prefix ='line', how=None, skip =True)
-        ... ['line1','line2','line3',..., line20] 
-        
-    """ 
-    fm='{:0' + ('1' if skip else '{}'.format(int(np.log10(len(arr))) + 1)) +'}'
-    id_ =[str(prefix) + fm.format(i if how=='py'else i+ 1 ) if prefix is not 
-          None else fm.format(i if how=='py'else i+ 1) 
-          for i in range(len(arr))] 
-    return id_    
-    
-def show_stats(nedic , nedir, fmtl='~', lenl=77, obj='EDI'): 
-    """ Estimate the file successfully read reading over the unread files
-
-    :param nedic: number of input or collected files 
-    :param nedir: number of files read sucessfully 
-    :param fmt: str to format the stats line 
-    :param lenl: length of line denileation."""
-    
-    def get_obj_len (value):
-        """ Control if obj is iterable then take its length """
-        try : 
-            iter(value)
-        except :pass 
-        else : value =len(value)
-        return value 
-    nedic = get_obj_len(nedic)
-    nedir = get_obj_len(nedir)
-    
-    print(fmtl * lenl )
-    mesg ='|'.join( ['|{0:<15}{1:^2} {2:<7}',
-                     '{3:<15}{4:^2} {5:<7}',
-                     '{6:<9}{7:^2} {8:<7}%|'])
-    print(mesg.format('Data collected','=',  nedic, f'{obj} success. read',
-                      '=', nedir, 'Rate','=', round ((nedir/nedic) *100, 2),
-                      2))
-    print(fmtl * lenl ) 
     
 def concat_array_from_list (list_of_array , concat_axis = 0) :
     """ Concat array from list and set the None value in the list as NaN.
@@ -2949,102 +1981,7 @@ def concat_array_from_list (list_of_array , concat_axis = 0) :
                 
     return np.concatenate(list_of_array, axis = concat_axis)
     
-def station_id (id_, is_index= 'index', how=None, **kws): 
-    """ 
-    From id get the station  name as input  and return index `id`. 
-    Index starts at 0.
-    
-    :param id_: str, of list of the name of the station or indexes . 
-    
-    :param is_index: bool 
-        considered the given station as a index. so it remove all the letter and
-        keep digit as index of each stations. 
-        
-    :param how: Mode to index the station. Default is 
-        'Python indexing' i.e.the counting starts by 0. Any other mode will 
-        start the counting by 1. Note that if `is_index` is ``True`` and the 
-        param `how` is set to it default value ``py``, the station index should 
-        be downgraded to 1. 
-        
-    :param kws: additionnal keywords arguments from :func:`~.make_ids`.
-    
-    :return: station index. If the list `id_` is given will return the tuple.
-    
-    :Example:
-        
-    >>> from gofast.tools.coreutils import station_id 
-    >>> dat1 = ['S13', 's02', 's85', 'pk20', 'posix1256']
-    >>> station_id (dat1)
-    ... (13, 2, 85, 20, 1256)
-    >>> station_id (dat1, how='py')
-    ... (12, 1, 84, 19, 1255)
-    >>> station_id (dat1, is_index= None, prefix ='site')
-    ... ('site1', 'site2', 'site3', 'site4', 'site5')
-    >>> dat2 = 1 
-    >>> station_id (dat2) # return index like it is
-    ... 1
-    >>> station_id (dat2, how='py') # considering the index starts from 0
-    ... 0
-    
-    """
-    is_iterable =False 
-    is_index = str(is_index).lower().strip() 
-    isix=True if  is_index in ('true', 'index', 'yes', 'ix') else False 
-    
-    regex = re.compile(r'\d+', flags=re.IGNORECASE)
-    try : 
-        iter (id_)
-    except : 
-        id_= [id_]
-    else : is_iterable=True 
-    
-    #remove all the letter 
-    id_= list(map( lambda o: regex.findall(o), list(map(str, id_))))
-    # merge the sequences list and for consistency remove emty list or str 
-    id_=tuple(filter (None, list(itertools.chain(*id_)))) 
-    
-    # if considering as Python index return value -1 other wise return index 
-    
-    id_ = tuple (map(int, np.array(id_, dtype = np.int32)-1)
-                 ) if how =='py' else tuple ( map(int, id_)) 
-    
-    if (np.array(id_) < 0).any(): 
-        warnings.warn('Index contains negative values. Be aware that you are'
-                      " using a Python indexing. Otherwise turn 'how' argumennt"
-                      " to 'None'.")
-    if not isix : 
-        id_= tuple(make_ids(id_, how= how,  **kws))
-        
-    if not is_iterable : 
-        try: id_ = id_[0]
-        except : warnings.warn("The station id is given as a non iterable "
-                          "object, but can keep the same format in return.")
-        if id_==-1: id_= 0 if how=='py' else id_ + 2 
 
-    return id_
-
-def assert_doi(doi): 
-    """
-     assert the depth of investigation Depth of investigation converter 
-
-    :param doi: depth of investigation in meters.  If value is given as string 
-        following by yhe index suffix of kilometers 'km', value should be 
-        converted instead. 
-    :type doi: str|float 
-    
-    :returns doi:value in meter
-    :rtype: float
-           
-    """
-    if isinstance (doi, str):
-        if doi.find('km')>=0 : 
-            try: doi= float(doi.replace('km', '000')) 
-            except :TypeError (" Unrecognized value. Expect value in 'km' "
-                           f"or 'm' not: {doi!r}")
-    try: doi = float(doi)
-    except: TypeError ("Depth of investigation must be a float number "
-                       "not: {str(type(doi).__name__!r)}")
-    return doi
     
 def strip_item(item_to_clean, item=None, multi_space=12):
     """
@@ -3100,420 +2037,6 @@ def strip_item(item_to_clean, item=None, multi_space=12):
     
     return item_to_clean  
  
-def parse_json(json_fn =None,
-               data=None, 
-               todo='load',
-               savepath=None,
-               verbose:int =0,
-               **jsonkws):
-    """ Parse Java Script Object Notation file and collect data from JSON
-    config file. 
-    
-    :param json_fn: Json filename, URL or output JSON name if `data` is 
-        given and `todo` is set to ``dump``.Otherwise the JSON output filename 
-        should be the `data` or the given variable name.
-    :param data: Data in Python obj to serialize. 
-    :param todo: Action to perform with JSON: 
-        - load: Load data from the JSON file 
-        - dump: serialize data from the Python object and create a JSON file
-    :param savepath: If ``default``  should save the `json_fn` 
-        If path does not exist, should save to the <'_savejson_'>
-        default path .
-    :param verbose: int, control the verbosity. Output messages
-    
-    .. see also:: Read more about JSON doc
-            https://docs.python.org/3/library/json.html
-         or https://www.w3schools.com/python/python_json.asp 
-         or https://www.geeksforgeeks.org/json-load-in-python/
-         ...
- 
-    :Example: 
-        >>> PATH = 'data/model'
-        >>> k_ =['model', 'iter', 'mesh', 'data']
-        >>> try : 
-            INVERS_KWS = {
-                s +'_fn':os.path.join(PATH, file) 
-                for file in os.listdir(PATH) 
-                          for s in k_ if file.lower().find(s)>=0
-                          }
-        except :
-            INVERS=dict()
-        >>> TRES=[10, 66,  70, 100, 1000, 3000]# 7000]     
-        >>> LNS =['river water','fracture zone', 'MWG', 'LWG', 
-              'granite', 'igneous rocks', 'basement rocks']
-        >>> import gofast.tools.coreutils as FU
-        >>> geo_kws ={'oc2d': INVERS_KWS, 
-                      'TRES':TRES, 'LN':LNS}
-        # serialize json data and save to  'jsontest.json' file
-        >>> FU.parse_json(json_fn = 'jsontest.json', 
-                          data=geo_kws, todo='dump', indent=3,
-                          savepath ='data/saveJSON', sort_keys=True)
-        # Load data from 'jsontest.json' file.
-        >>> FU.parse_json(json_fn='data/saveJSON/jsontest.json', todo ='load')
-    
-    """
-    todo, domsg =return_ctask(todo)
-    # read urls by default json_fn can hold a url 
-    try :
-        if json_fn.find('http') >=0 : 
-            todo, json_fn, data = fetch_json_data_from_url(json_fn, todo)
-    except:
-        #'NoneType' object has no attribute 'find' if data is not given
-        pass 
-
-    if todo.find('dump')>=0:
-        json_fn = get_config_fname_from_varname(
-            data, config_fname= json_fn, config='.json')
-        
-    JSON = dict(load=json.load,# use loads rather than load  
-                loads=json.loads, 
-                dump= json.dump, 
-                dumps= json.dumps)
-    try :
-        if todo=='load': # read JSON files 
-            with open(json_fn) as fj: 
-                data =  JSON[todo](fj)  
-        elif todo=='loads': # can be JSON string format 
-            data = JSON[todo](json_fn) 
-        elif todo =='dump': # store data in JSON file.
-            with open(f'{json_fn}.json', 'w') as fw: 
-                data = JSON[todo](data, fw, **jsonkws)
-        elif todo=='dumps': # store data in JSON format not output file.
-            data = JSON[todo](data, **jsonkws)
-
-    except json.JSONDecodeError: 
-        raise json.JSONDecodeError(f"Unable {domsg} JSON {json_fn!r} file. "
-                              "Please check your file.", f'{json_fn!r}', 1)
-    except: 
-        msg =''.join([
-        f"{'Unrecognizable file' if todo.find('load')>=0 else'Unable to serialize'}"
-        ])
-        
-        raise TypeError(f'{msg} {json_fn!r}. Please check your'
-                        f" {'file' if todo.find('load')>=0 else 'data'}.")
-        
-    cparser_manager(f'{json_fn}.json',savepath, todo=todo, dpath='_savejson_', 
-                    verbose=verbose , config='JSON' )
-
-    return data 
- 
-def fetch_json_data_from_url (url:str , todo:str ='load'): 
-    """ Retrieve JSON data from url 
-    :param url: Universal Resource Locator .
-    :param todo:  Action to perform with JSON:
-        - load: Load data from the JSON file 
-        - dump: serialize data from the Python object and create a JSON file
-    """
-    with urllib.request.urlopen(url) as jresponse :
-        source = jresponse.read()
-    data = json.loads(source)
-    if todo .find('load')>=0:
-        todo , json_fn  ='loads', source 
-        
-    if todo.find('dump')>=0:  # then collect the data and dump it
-        # set json default filename 
-        todo, json_fn = 'dumps',  '_urlsourcejsonf.json'  
-        
-    return todo, json_fn, data 
-    
-def parse_csv(
-        csv_fn:str =None,
-        data=None, 
-        todo='reader', 
-        fieldnames=None, 
-        savepath=None,
-        header: bool=False, 
-        verbose:int=0,
-        **csvkws
-   ) : 
-    """ Parse comma separated file or collect data from CSV.
-    
-    :param csv_fn: csv filename,or output CSV name if `data` is 
-        given and `todo` is set to ``write|dictwriter``.Otherwise the CSV 
-        output filename should be the `c.data` or the given variable name.
-    :param data: Sequence Data in Python obj to write. 
-    :param todo: Action to perform with JSON: 
-        - reader|DictReader: Load data from the JSON file 
-        - writer|DictWriter: Write data from the Python object 
-        and create a CSV file
-    :param savepath: If ``default``  should save the `csv_fn` 
-        If path does not exist, should save to the <'_savecsv_'>
-        default path.
-    :param fieldnames: is a sequence of keys that identify the order
-        in which values in the dictionary passed to the `writerow()`
-            method are written `csv_fn` file.
-    :param savepath: If ``default``  should save the `csv_fn` 
-        If path does not exist, should save to the <'_savecsv_'>
-        default path .
-    :param verbose: int, control the verbosity. Output messages
-    :param csvkws: additional keywords csv class arguments 
-    
-    .. see also:: Read more about CSV module in:
-        https://docs.python.org/3/library/csv.html or find some examples
-        here https://www.programcreek.com/python/example/3190/csv.DictWriter 
-        or find some FAQS here: 
-    https://stackoverflow.com/questions/10373247/how-do-i-write-a-python-dictionary-to-a-csv-file
-        ...
-    :Example:
-        >>> import gofast.tools.coreutils as FU
-        >>> PATH = 'data/model'
-        >>> k_ =['model', 'iter', 'mesh', 'data']
-        >>> try : 
-            INVERS_KWS = {
-                s +'_fn':os.path.join(PATH, file) 
-                for file in os.listdir(PATH) 
-                          for s in k_ if file.lower().find(s)>=0
-                          }
-        except :
-            INVERS=dict()
-        >>> TRES=[10, 66,  70, 100, 1000, 3000]# 7000]     
-        >>> LNS =['river water','fracture zone', 'MWG', 'LWG', 
-              'granite', 'igneous rocks', 'basement rocks']
-        >>> geo_kws ={'oc2d': INVERS_KWS, 
-                      'TRES':TRES, 'LN':LNS}
-        >>> # write data and save to  'csvtest.csv' file 
-        >>> # here the `data` is a sequence of dictionary geo_kws
-        >>> FU.parse_csv(csv_fn = 'csvtest.csv',data = [geo_kws], 
-                         fieldnames = geo_kws.keys(),todo= 'dictwriter',
-                         savepath = 'data/saveCSV')
-        # collect csv data from the 'csvtest.csv' file 
-        >>> FU.parse_csv(csv_fn ='data/saveCSV/csvtest.csv',
-                         todo='dictreader',fieldnames = geo_kws.keys()
-                         )
-    
-    """
-    todo, domsg =return_ctask(todo) 
-    
-    if todo.find('write')>=0:
-        csv_fn = get_config_fname_from_varname(
-            data, config_fname= csv_fn, config='.csv')
-    try : 
-        if todo =='reader': 
-            with open (csv_fn, 'r') as csv_f : 
-                csv_reader = csv.reader(csv_f) # iterator 
-                data =[ row for row in csv_reader]
-                
-        elif todo=='writer': 
-            # write without a blank line, --> new_line =''
-            with open(f'{csv_fn}.csv', 'w', newline ='',
-                      encoding ='utf8') as new_csvf:
-                csv_writer = csv.writer(new_csvf, **csvkws)
-                csv_writer.writerows(data) if len(
-                    data ) > 1 else csv_writer.writerow(data)  
-                # for row in data:
-                #     csv_writer.writerow(row) 
-        elif todo=='dictreader':
-            with open (csv_fn, 'r', encoding ='utf8') as csv_f : 
-                # generate an iterator obj 
-                csv_reader= csv.DictReader (csv_f, fieldnames= fieldnames) 
-                # return csvobj as a list of dicts
-                data = list(csv_reader) 
-        
-        elif todo=='dictwriter':
-            with open(f'{csv_fn}.csv', 'w') as new_csvf:
-                csv_writer = csv.DictWriter(new_csvf, **csvkws)
-                if header:
-                    csv_writer.writeheader()
-                # DictWriter.writerows()expect a list of dicts,
-                # while DictWriter.writerow() expect a single row of dict.
-                csv_writer.writerow(data) if isinstance(
-                    data , dict) else csv_writer.writerows(data)  
-                
-    except csv.Error: 
-        raise csv.Error(f"Unable {domsg} CSV {csv_fn!r} file. "
-                      "Please check your file.")
-    except: 
-
-        msg =''.join([
-        f"{'Unrecognizable file' if todo.find('read')>=0 else'Unable to write'}"
-        ])
-        
-        raise TypeError(f'{msg} {csv_fn!r}. Please check your'
-                        f" {'file' if todo.find('read')>=0 else 'data'}.")
-    cparser_manager(f'{csv_fn}.csv',savepath, todo=todo, dpath='_savecsv_', 
-                    verbose=verbose , config='CSV' )
-    
-    return data  
-   
-def return_ctask (todo:Optional[str]=None) -> Tuple [str, str]: 
-    """ Get the convenient task to do if users misinput the `todo` action.
-    
-    :param todo: Action to perform: 
-        - load: Load data from the config [YAML|CSV|JSON] file
-        - dump: serialize data from the Python object and 
-            create a config [YAML|CSV|JSON] file."""
-            
-    def p_csv(v, cond='dict', base='reader'):
-        """ Read csv instead. 
-        :param v: str, value to do 
-        :param cond: str, condition if  found in the value `v`. 
-        :param base: str, base task to do if condition `cond` is not met. 
-        
-        :Example: 
-            
-        >>> todo = 'readingbook' 
-        >>> p_csv(todo) <=> 'dictreader' if todo.find('dict')>=0 else 'reader' 
-        """
-        return  f'{cond}{base}' if v.find(cond) >=0 else base   
-    
-    ltags = ('load', 'recover', True, 'fetch')
-    dtags = ('serialized', 'dump', 'save', 'write','serialize')
-    if todo is None: 
-        raise ValueError('NoneType action can not be perform. Please '
-                         'specify your action: `load` or `dump`?' )
-    
-    todo =str(todo).lower() 
-    ltags = list(ltags) + [todo] if  todo=='loads' else ltags
-    dtags= list(dtags) +[todo] if  todo=='dumps' else dtags 
-
-    if todo in ltags: 
-        todo = 'loads' if todo=='loads' else 'load'
-        domsg= 'to parse'
-    elif todo in dtags: 
-        todo = 'dumps' if todo=='dumps' else 'dump'
-        domsg  ='to serialize'
-    elif todo.find('read')>=0:
-        todo = p_csv(todo)
-        domsg= 'to read'
-    elif todo.find('write')>=0: 
-        todo = p_csv(todo, base ='writer')
-        domsg =' to write'
-        
-    else :
-        raise ValueError(f'Wrong action {todo!r}. Please select'
-                         f' the right action to perform: `load` or `dump`?'
-                        ' for [JSON|YAML] and `read` or `write`? '
-                        'for [CSV].')
-    return todo, domsg  
-
-def parse_yaml (yml_fn:str =None, data=None,
-                todo='load', savepath=None,
-                verbose:int =0, **ymlkws) : 
-    """ Parse yml file and collect data from YAML config file. 
-    
-    :param yml_fn: yaml filename and can be the output YAML name if `data` is 
-        given and `todo` is set to ``dump``.Otherwise the YAML output filename 
-        should be the `data` or the given variable name.
-    :param data: Data in Python obj to serialize. 
-    :param todo: Action to perform with YAML: 
-        - load: Load data from the YAML file 
-        - dump: serialize data from the Python object and create a YAML file
-    :param savepath: If ``default``  should save the `yml_fn` 
-        to the default path otherwise should store to the convenient path.
-        If path does not exist, should set to the default path.
-    :param verbose: int, control the verbosity. Output messages
-    
-    .. see also:: Read more about YAML file https://pynative.com/python-yaml/
-         or https://python.land/data-processing/python-yaml and download YAML 
-         at https://pypi.org/project/PyYAML/
-         ...
-
-    """ 
-    
-    todo, domsg =return_ctask(todo)
-    #in the case user use dumps or loads with 's'at the end 
-    if todo.find('dump')>= 0: 
-        todo='dump'
-    if todo.find('load')>=0:
-        todo='load'
-    if todo=='dump':
-        yml_fn = get_config_fname_from_varname(data, yml_fn)
-    try :
-        if todo=='load':
-            with open(yml_fn) as fy: 
-                data =  yaml.load(fy, Loader=yaml.SafeLoader)  
-                # args =yaml.safe_load(fy)
-        elif todo =='dump':
-        
-            with open(f'{yml_fn}.yml', 'w') as fw: 
-                data = yaml.dump(data, fw, **ymlkws)
-    except yaml.YAMLError: 
-        raise yaml.YAMLError(f"Unable {domsg} YAML {yml_fn!r} file. "
-                             'Please check your file.')
-    except: 
-        msg =''.join([
-        f"{'Unrecognizable file' if todo=='load'else'Unable to serialize'}"
-        ])
-        
-        raise TypeError(f'{msg} {yml_fn!r}. Please check your'
-                        f" {'file' if todo=='load' else 'data'}.")
-        
-    cparser_manager(f'{yml_fn}.yml',savepath, todo=todo, dpath='_saveyaml_', 
-                    verbose=verbose , config='YAML' )
-
-    return data 
- 
-def cparser_manager (
-    cfile,
-    savepath =None, 
-    todo:str ='load', 
-    dpath=None,
-    verbose =0, 
-    **pkws): 
-    """ Save and output message according to the action. 
-    
-    :param cfile: name of the configuration file
-    :param savepath: Path-like object 
-    :param dpath: default path 
-    :param todo: Action to perform with config file. Can ve 
-        ``load`` or ``dump``
-    :param config: Type of configuration file. Can be ['YAML|CSV|JSON]
-    :param verbose: int, control the verbosity. Output messages
-    
-    """
-    if savepath is not None:
-        if savepath =='default': 
-            savepath = None 
-        yml_fn,_= move_cfile(cfile, savepath, dpath=dpath)
-    if verbose > 0: 
-        print_cmsg(yml_fn, todo, **pkws)
-        
-    
-def get_config_fname_from_varname(data,
-                                  config_fname=None,
-                                  config='.yml') -> str: 
-    """ use the variable name given to data as the config file name.
-    
-    :param data: Given data to retrieve the variable name 
-    :param config_fname: Configurate variable filename. If ``None`` , use 
-        the name of the given varibale data 
-    :param config: Type of file for configuration. Can be ``json``, ``yml`` 
-        or ``csv`` file. default is ``yml``.
-    :return: str, the configuration data.
-    
-    """
-    try:
-        if '.' in config: 
-            config =config.replace('.','')
-    except:pass # in the case None is given
-    
-    if config_fname is None: # get the varname 
-        # try : 
-        #     from varname.helpers import Wrapper 
-        # except ImportError: 
-        #     import_varname=False 
-        #     import_varname = FU.subprocess_module_installation('varname')
-        #     if import_varname: 
-        #         from varname.helpers import Wrapper 
-        # else : import_varname=True 
-        try : 
-            for c, n in zip(['yml', 'yaml', 'json', 'csv'],
-                            ['cy.data', 'cy.data', 'cj.data',
-                             'c.data']):
-                if config ==c:
-                    config_fname= n
-                    break 
-            if config_fname is None:
-                raise # and go to except  
-        except: 
-            #using fstring 
-            config_fname= f'{data}'.split('=')[0]
-            
-    elif config_fname is not None: 
-        config_fname= config_fname.replace(
-            f'.{config}', '').replace(f'.{config}', '').replace('.yaml', '')
-    
-    return config_fname
 
 def pretty_printer(
         clfs: List[_F],  
@@ -3569,68 +2092,6 @@ def pretty_printer(
     for i in p: 
         print(i)
  
-def move_cfile(
-    cfile: str, 
-    savepath: Optional[str] = None, 
-    **ckws
-) -> Tuple[str, str]:
-    """Move file to its savepath and output message.
-
-    If the savepath does not exist, it will be created. If the file cannot
-     be moved, it will be copied then the original will be deleted.
-
-    Parameters:
-    - cfile (str): Name of the file to move.
-    - savepath (str, optional): Destination path for the file. If not provided 
-      or determined, a default provided by `cpath` is used.
-    
-    Returns:
-    Tuple[str, str]: Updated file path and success message.
-    """
-    # Assuming `cpath` function adjusts `savepath` based on `ckws`, 
-    # including default path handling
-    savepath = cpath(savepath, **ckws)
-
-    # Ensure the savepath directory exists
-    os.makedirs(savepath, exist_ok=True)
-
-    destination_file_path = os.path.join(savepath, os.path.basename(cfile))
-    
-    try:
-        shutil.move(cfile, destination_file_path)
-    except shutil.Error as e: 
-        # If the move is unsuccessful, copy then delete the original file
-        shutil.copy2(cfile, destination_file_path)
-        os.remove(cfile)
-        message = (f"Warning: Could not move '{cfile}'. It was copied and the"
-                   f" original was deleted. {e}")
-        _logger.warning(message) 
-
-    msg = (f"--> '{os.path.basename(destination_file_path)}' data was successfully"
-           f" saved to '{os.path.realpath(destination_file_path)}'.")
- 
-    return destination_file_path, msg
-
-
-def print_cmsg(cfile:str, todo:str='load', config:str='YAML') -> str: 
-    """ Output configuration message. 
-    
-    :param cfile: name of the configuration file
-    :param todo: Action to perform with config file. Can be 
-        ``load`` or ``dump``
-    :param config: Type of configuration file. Can be [YAML|CSV|JSON]
-    """
-    if todo=='load': 
-        msg = ''.join([
-        f'--> Data was successfully stored to {os.path.basename(cfile)!r}', 
-            f' and saved to {os.path.realpath(cfile)!r}.']
-            )
-    elif todo=='dump': 
-        msg =''.join([ f"--> {config.upper()} {os.path.basename(cfile)!r}", 
-                      " data was sucessfully loaded."])
-    return msg 
-
-
 def random_state_validator(seed):
     """Turn seed into a Numpy-Random-RandomState instance.
     
@@ -3854,106 +2315,6 @@ def sanitize_frame_cols(
     else : d = c 
 
     return d 
-
-def to_hdf5(d, fn, objname =None, close =True,  **hdf5_kws): 
-    """
-    Store a frame data in hierachical data format 5 (HDF5) 
-    
-    Note that is `d` is a dataframe, make sure that the dependency 'pytables'
-    is already installed, otherwise and error raises. 
-    
-    Parameters 
-    -----------
-    d: ndarray, 
-        data to store in HDF5 format 
-    fn: str, 
-        File path to HDF5 file.
-    objname: str, 
-        name of the data to store 
-    close: bool, default =True 
-        when data is given as an array, data can still be added if 
-        close is set to ``False``, otherwise, users need to open again in 
-        read mode 'r' before pursuing the process of adding. 
-    hdf5_kws: dict of :class:`pandas.pd.HDFStore`  
-        Additional keywords arguments passed to pd.HDFStore. they could be:
-        *  mode : {'a', 'w', 'r', 'r+'}, default 'a'
-    
-             ``'r'``
-                 Read-only; no data can be modified.
-             ``'w'``
-                 Write; a new file is created (an existing file with the same
-                 name would be deleted).
-             ``'a'``
-                 Append; an existing file is opened for reading and writing,
-                 and if the file does not exist it is created.
-             ``'r+'``
-                 It is similar to ``'a'``, but the file must already exist.
-         * complevel : int, 0-9, default None
-             Specifies a compression level for data.
-             A value of 0 or None disables compression.
-         * complib : {'zlib', 'lzo', 'bzip2', 'blosc'}, default 'zlib'
-             Specifies the compression library to be used.
-             As of v0.20.2 these additional compressors for Blosc are supported
-             (default if no compressor specified: 'blosc:blosclz'):
-             {'blosc:blosclz', 'blosc:lz4', 'blosc:lz4hc', 'blosc:snappy',
-              'blosc:zlib', 'blosc:zstd'}.
-             Specifying a compression library which is not available issues
-             a ValueError.
-         * fletcher32 : bool, default False
-             If applying compression use the fletcher32 checksum.
-    Returns
-    ------- 
-    store : Dict-like IO interface for storing pandas objects.
-    
-    Examples 
-    ------------
-    >>> import os 
-    >>> from gofast.tools.coreutils import sanitize_frame_cols, to_hdf5 
-    >>> from gofast.tools import read_data 
-    >>> data = read_data('data/boreholes/H502.xlsx') 
-    >>> sanitize_frame_cols (data, fill_pattern='_', inplace =True ) 
-    >>> store_path = os.path.join('gofast/datasets/data', 'h') # 'h' is the name of the data 
-    >>> store = to_hdf5 (data, fn =store_path , objname ='h502' ) 
-    >>> store 
-    ... 
-    >>> # fetch the data 
-    >>> h502 = store ['h502'] 
-    >>> h502.columns[:3] 
-    ... Index(['hole_number', 'depth_top', 'depth_bottom'], dtype='object')
-
-    """
-    store =None 
-    if ( 
-        not hasattr (d, '__array__') 
-        or not hasattr (d, 'columns')
-            ) : 
-        raise TypeError ("Expect an array or dataframe,"
-                         f" not {type (d).__name__!r}")
-        
-    if hasattr (d, '__array__') and hasattr (d, "columns"): 
-        # assert whether pytables is installed 
-        import_optional_dependency ('tables') 
-        # remove extension if exist.
-        fn = str(fn).replace ('.h5', "").replace(".hdf5", "")
-        # then store. 
-        store = pd.HDFStore(fn +'.h5' ,  **hdf5_kws)
-        objname = objname or 'data'
-        store[ str(objname) ] = d 
-
-    
-    elif not hasattr(d, '__array__'): 
-        d = np.asarray(d) 
- 
-        store= h5py.File(f"{fn}.hdf5", "w") 
-        store.create_dataset("dataset_01", store.shape, 
-                             dtype=store.dtype,
-                             data=store
-                             )
-        
-    if close : store.close () 
-
-    return store 
-    
 
 def find_by_regex (o , pattern,  func = re.match, **kws ):
     """ Find pattern in object whatever an "iterable" or not. 
@@ -4315,323 +2676,11 @@ def is_depth_in (X, name, columns = None, error= 'ignore'):
         
     return  X , depth     
     
-def smart_label_classifier (
-        arr: ArrayLike,  values: Union [float, List[float]]= None ,
-        labels: Union [int, str, List[str]] =None, 
-        order ='soft', func: _F=None, raise_warn=True): 
-    """ map smartly the numeric array into a class labels from a map function 
-    or a given fixed values. 
-    
-    New classes created from the fixed values can be renamed if `labels` 
-    are supplied. 
-    
-    Parameters 
-    -------------
-    arr: Arraylike 1d, 
-        array-like whose items are expected to be categorized. 
-        
-    values: float, list of float, 
-        The threshold item values from which the default categorization must 
-        be fixed. 
-    labels: int |str| or List of [str, int], 
-        The labels values that might be correspond to the fixed values. Note  
-        that the number of `fixed_labels` might be consistent with the fixed 
-        `values` plus one, otherwise a ValueError shall raise if `order` is 
-        set to ``strict``. 
-        
-    order: str, ['soft'|'strict'], default='soft', 
-        If order is ``strict``, the argument passed to `values` must be self 
-        contain as item in the `arr`, and raise warning otherwise. 
-        
-    func: callable, optional 
-        Function to map the given array. If given, values dont need to be  
-        supply. 
-        
-    raise_warn: bool, default='True'
-        Raise warning message if `order=soft` and the fixed `values` are not 
-        found in the `arr`. Also raise warnings, if `labels` arguments does 
-        not match the number of class from fixed `values`. 
-        
-    Returns 
-    ----------
-    arr: array-like 1d 
-        categorized array with the same length as the raw 
-        
-    Examples
-    ----------
-    >>> import numpy as np
-    >>> from gofast.tools.coreutils import smart_label_classifier
-    >>> sc = np.arange (0, 7, .5 ) 
-    >>> smart_label_classifier (sc, values = [1, 3.2 ]) 
-    array([0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2], dtype=int64)
-    >>> # rename labels <=1 : 'l1', ]1; 3.2]: 'l2' and >3.2 :'l3'
-    >>> smart_label_classifier (sc, values = [1, 3.2 ], labels =['l1', 'l2', 'l3'])
-    >>> array(['l1', 'l1', 'l1', 'l2', 'l2', 'l2', 'l2', 'l3', 'l3', 'l3', 'l3',
-           'l3', 'l3', 'l3'], dtype=object)
-    >>> def f (v): 
-            if v <=1: return 'l1'
-            elif 1< v<=3.2: return "l2" 
-            else : return "l3"
-    >>> smart_label_classifier (sc, func= f )
-    array(['l1', 'l1', 'l1', 'l2', 'l2', 'l2', 'l2', 'l3', 'l3', 'l3', 'l3',
-           'l3', 'l3', 'l3'], dtype=object)
-    >>> smart_label_classifier (sc, values = 1.)
-    array([0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], dtype=int64)
-    >>> smart_label_classifier (sc, values = 1., labels='l1')  
-    array(['l1', 'l1', 'l1', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], dtype=object)
-    
-    """
-    name =None 
-    from .validator import _is_arraylike_1d 
-    if hasattr(arr, "name") and isinstance (arr, pd.Series): 
-        name = arr.name 
-        
-    arr= np.array (arr)  
-    
-    if not _is_arraylike_1d(arr): 
-        raise TypeError ("Expects a one-dimensional array, got array with"
-                         f" shape {arr.shape }")
-    
-    if isinstance (values, str): 
-        values = str2columns(values )
-    if values is not None: 
-        values = is_iterable(values, parse_string =True, transform = True )
-    # if (values is not None 
-    #     and not is_iterable( values)): 
-    #     values =[values ]
-        
-    if values is not None:
-        approx_vs=list()
-        values_ =np.zeros ((len(values), ), dtype =float )
-        for i, v in enumerate (values ) : 
-            try : v= float (v)
-            except TypeError as type_error : 
-                raise TypeError (
-                    f"Value {v} must be a valid number." + str(type_error))
-            diff_v = np.abs (arr[~np.isnan(arr)] - v ) 
-            
-            ix_v = np.argmin (diff_v)
-            if order =='strict' and diff_v [ix_v]!=0. :
-                raise ValueError (
-                    f" Value {v} is missing the array. {v} must be an item"
-                    " existing in the array or turn order to 'soft' for"
-                    " approximate values selectors. ") 
-                
-            # skip NaN in the case array contains NaN values 
-            values_[i] = arr[~np.isnan(arr)][ix_v] 
-            
-            if diff_v [ix_v]!=0.: 
-                approx_vs.append ((v, arr[~np.isnan(arr)][ix_v]))
-          
-        if len(approx_vs) !=0 and raise_warn: 
-            vv, aa = zip (*approx_vs)
-            verb ="are" if len(vv)>1 else "is"
-            warnings.warn(f"Values {vv} are missing in the array. {aa} {verb}"
-                          f" approximatively used for substituting the {vv}.")
-    arr_ = arr.copy () 
-    
-    #### 
-    if (func is None and values is None ): 
-        raise TypeError ("'ufunc' cannot be None when the values are not given") 
-    
-    dfunc =None 
-
-    if values is not None: 
-        dfunc = lambda k : _smart_mapper (k, kr = values_ )
-    func = func or  dfunc 
-
-    # func_vectorized  =np.vectorize(func ) 
-    # arr_ = func_vectorized( arr ) 
-    arr_ = pd.Series (arr_, name ='temp').map (func).values 
-    
-    d={} 
-    if labels is not None: 
-        labels = is_iterable(labels, parse_string=True, transform =True )
-        # if isinstance (labels, str): 
-        #     labels = str2columns(labels )
-        labels, d = _assert_labels_from_values (
-            arr_, values_ , labels , d, raise_warn= raise_warn , order =order 
-            )
-
-    arr_ = arr_ if labels is None else ( 
-        pd.Series (arr_, name = name or 'tname').map(d))
-    
-    # if name is None: # for consisteny if labels is None 
-    arr_= (arr_.values if labels is not None else arr_
-           ) if name is None else pd.Series (arr_, name = name )
-
-    return arr_ 
-
-def _assert_labels_from_values (ar, values , labels , d={}, 
-                                raise_warn= True , order ='soft'): 
-    """ Isolated part of the :func:`~.smart_label_classifier`"""
-    from .validator import _check_consistency_size 
-
-    nlabels = list(np.unique (ar))
-    if not is_iterable(labels): 
-        labels =[labels]
-    if not _check_consistency_size(nlabels, labels, error ='ignore'): 
-        if order=='strict':
-            verb= "were" if len (labels) > 1 else "was"
-            raise TypeError (
-                "Expect {len(nlabels)} labels for the {len(values)} values"
-                f" renaming. {len(labels)} {verb} given.")
  
-        verb ="s are" if len(values)>1 else " is"
-        msg = (f"{len(values)} value{verb} passed. Labels for"
-                " renaming values expect to be composed of"
-                f" {len(values)+1} items i.e. 'number of values"
-                " + 1' for pure categorization.")
-        ur_classes = nlabels [len(labels):] 
-        labels = list(labels ) + ur_classes 
-        labels = labels [:len(nlabels)] 
-        msg += (f" Class{'es' if len(ur_classes)>1 else ''}"
-                f" {smart_format(ur_classes)} cannot be renamed." ) 
-        
-        if raise_warn: 
-            warnings.warn (msg )
-        
-    d = dict (zip (nlabels , labels ))
-    
-    return labels, d 
-
-def _smart_mapper (k,   kr , return_dict_map =False ) :
-    """ Default  mapping using dict to validate the continue  value 'k' 
-    :param k: float, 
-        continue value to be framed between `kr`
-    :param kr: Tuple, 
-        range of fixed values  to categorize  
-    :return: int - new categorical class 
-    
-    :Example: 
-    >>> from gofast.tools.coreutils import _smart_mapper 
-    >>> _smart_mapper (10000 , ( 500, 1500, 2000, 3500) )
-    Out[158]: 4
-    >>> _smart_mapper (10000 , ( 500, 1500, 2000, 3500) , return_dict_map=True)
-    Out[159]: {0: False, 1: False, 2: False, 3: False, 4: True}
-    
-    """
-    import math 
-    if len(kr )==1 : 
-        d = {0:  k <=kr[0], 1: k > kr[0]}
-    elif len(kr)==2: 
-        d = {0: k <=kr[0], 1: kr[0] < k <= kr[1],  2: k > kr[1]} 
-    else : 
-        d= dict()
-        for ii  in range (len(kr) + 1  ): 
-            if ii ==0: 
-                d[ii]= k <= kr[ii] 
-            elif ii == len(kr):
-                d[ii] = k > kr [-1] 
-            else : 
-                d[ii] = kr[ii-1] < k <= kr[ii]
-
-    if return_dict_map: 
-        return d 
-    
-    for v, value in d.items () :
-        if value: return v if not math.isnan (v) else np.nan 
-        
 def hex_to_rgb (c): 
     """ Convert colors Hexadecimal to RGB """
     c=c.lstrip('#')
     return tuple(int(c[i:i+2], 16) for i in (0, 2, 4)) 
-
-def zip_extractor(
-    zip_file ,
-    samples ='*', 
-    ftype=None,  
-    savepath = None,
-    pwd=None,  
-): 
-    """ Extract  ZIP archive objects. 
-    
-    Can extract all or a sample objects when the number of object is passed 
-    to the parameter ``samples``. 
-    
-    .. versionadded:: 0.1.5
-    
-    Parameters 
-    -----------
-    zip_file: str
-        Full Path to archive Zip file. 
-    samples: int, str, default ='*'
-       Number of data to retrieve from archive files. This is useful when 
-       the archive file contains many data. ``*`` means extract all. 
-    savepath: str, optional 
-       Path to store the decompressed archived files.
-    ftype: str, 
-<<<<<<< HEAD
-       Is the extension of a specific file to decompress. Indeed, if the 
-=======
-       Is the extension of a the specific file to decompress. Indeed, if the 
->>>>>>> 10707dcecd7d0da55b83bcf73ae48c1e6659f2f8
-       archived files contains many different data formats, specifying the 
-       data type would retrieve this specific files from the whole 
-       files archieved. 
-    pwd: int, optional
-      Password to pass if the zip file is encrypted.
-      
-    Return 
-    --------
-    objnames: list, 
-     List of decompressed objects. 
-     
-    Examples 
-    ----------
-    >>> from gofast.tools.coreutils import zip_extractor 
-    >>> zip_extractor ('gofast/datasets/data/edis/e.E.zip')
-    
-    """
-    def raise_msg_when ( objn, ft): 
-        """ Raise message when None file is detected when the type of 
-        of file is supplied. Otherwise return the object collected 
-        from this kind of data-types
-        """
-        objn = [ o for o  in objn if o.endswith (ft)]
-        if len(objn)  ==0:
-            get_extension = [s.split('.')[-1] for s in objn if '.'  in s ]
-            if len(get_extension)==0 : get_extension=['']
-            msg = ( "The available file types are {smart_format(get_extension)}"
-                   if len(get_extension)!=0 else ''
-                   ) 
-            raise ValueError (f"None objects in the zip collection of matches"
-                              f"the {ft!r}. Available file types are {msg}")
-        return objn 
-    
-    if not os.path.isfile (zip_file ): 
-        raise FileExistsError( f"File {os.path.basename(zip_file)!r} does"
-                              " not exist. Expect a Path-like object,"
-                              f" got {type(zip_file).__name__!r}")
-        
-    if not os.path.basename(zip_file ).lower().endswith ('.zip'): 
-        raise FileNotFoundError("Unrecognized zip-file.")
-        
-    samples = str(samples) 
-    if samples !='*': 
-        try :samples = int (samples )
-        except: 
-            raise ValueError ("samples must be an integer value"
-                              f" or '*' not {samples}")
-
-    with ZipFile (zip_file, 'r', ) as zip_obj : 
-        objnames = zip_obj.namelist() 
-        if samples =='*':
-                samples = len(objnames )
-            
-        if ftype is not None: 
-            objnames = raise_msg_when(objn=objnames, ft= ftype) 
-
-        if ( samples >= len(objnames) 
-            and ftype is None
-            ) :
-            zip_obj.extractall( path = savepath , pwd=pwd) 
-        else: 
-            for zf in objnames [:samples ]: 
-                zip_obj.extract ( zf, path = savepath, pwd = pwd)        
-    
-    return objnames 
-
 
 def _validate_name_in (name, defaults = '', expect_name= None, 
                          exception = None , deep=False ): 
@@ -4981,925 +3030,6 @@ def exist_features (df, features, error='raise', name="Feature"):
     
     return isf    
     
-
-
-def random_selector (
-        arr:ArrayLike, value: Union [float, ArrayLike], 
-        seed: int = None, shuffle =False ): 
-    """Randomly select the number of values in array. 
-    
-    Parameters
-    ------------
-    arr: ArrayLike 
-       Array of values 
-    value: float, arraylike 
-        If ``float`` value is passed, it indicates the number of values to 
-        select among the length of `arr`. If array (``value``) is passed, it
-        should be self contain in the given ``arr`. However if ``string`` is 
-        given and contain the ``%``, it calculates the ratio of 
-        number to randomly select. 
-    seed: int, Optional 
-       Allow retrieving the identical value randomly selected in the given 
-       array. 
-       
-    suffle: bool, False 
-       If  ``True`` , shuffle the selected values. 
-       
-    Returns 
-    --------
-    arr: Array containing the selected values 
-     
-    Examples 
-    ----------
-    >>> import numpy as np 
-    >>> from gofast.tools.coreutils import random_selector 
-    >>> dat= np.arange (42 ) 
-    >>> random_selector (dat , 7, seed = 42 ) 
-    array([0, 1, 2, 3, 4, 5, 6])
-    >>> random_selector ( dat, ( 23, 13 , 7))
-    array([ 7, 13, 23])
-    >>> random_selector ( dat , "7%", seed =42 )
-    array([0, 1])
-    >>> random_selector ( dat , "70%", seed =42 , shuffle =True )
-    array([ 0,  5, 20, 25, 13,  7, 22, 10, 12, 27, 23, 21, 16,  3,  1, 17,  8,
-            6,  4,  2, 19, 11, 18, 24, 14, 15,  9, 28, 26])
-    """
-    
-    msg = "Non-numerical is not allowed. Got {!r}."
-    
-    if seed: 
-        seed = _assert_all_types(seed , int, float, objname ='Seed')
-        np.random.seed (seed ) 
-       
-    v = copy.deepcopy(value )
-    
-    if not is_iterable( value, exclude_string= True ):
-        
-        value = str(value )
-        
-        if '%' in  value: 
-            try: 
-               value = float( value.replace ('%', '')) /100 
-            except : 
-                raise TypeError(msg.format(v))
-            # get the number 
-            value *= len(arr )
-                
-        
-        try : 
-            value = int(value )
-            
-        except :
-            raise TypeError (msg.format(v))
-    
-        if value > len(arr): 
-            raise ValueError(f"Number {value} is out of the range."
-                             f" Expect value less than {len(arr)}.")
-            
-        value = np.random.permutation(value ) 
-        
-    arr = np.array ( 
-        is_iterable( arr, exclude_string=True, transform =True )) 
-    
-    arr = arr.ravel() if arr.ndim !=1 else arr 
-
-    mask = _isin (arr, value , return_mask= True )
-    arr = arr [mask ] 
-    
-    if shuffle : np.random.shuffle (arr )
-
-    return arr
-
-def cleaner(
-    data: Union[DataFrame, NDArray],
-    columns: List[str] = None,
-    inplace: bool = False,
-    labels: List[Union[int, str]] = None,
-    func: _F = None,
-    mode: str = 'clean',
-    **kws
-) -> Union[DataFrame, NDArray, None]:
-    """ Sanitize data or columns by dropping specified labels 
-    from rows or columns. 
-    
-    If data is not a pandas dataframe, should be converted to 
-    dataframe and uses index to drop the labels. 
-    
-    Parameters 
-    -----------
-    data: pd.Dataframe or arraylike2D. 
-       Dataframe pandas or Numpy two dimensional arrays. If 2D array is 
-       passed, it should prior be converted to a daframe by default and 
-       drop row index from index parameters 
-       
-    columns: single label or list-like
-        Alternative to specifying axis (
-            labels, axis=1 is equivalent to columns=labels).
-
-    labels: single label or list-like
-      Index or column labels to drop. A tuple will be used as a single 
-      label and not treated as a list-like.
-
-    func: _F, callable 
-        Universal function used to clean the columns. If performs only when 
-        `mode` is on ``clean`` option. 
-        
-    inplace: bool, default False
-        If False, return a copy. Otherwise, do operation 
-        inplace and return None.
-       
-    mode: str, default='clean' 
-       Options or mode of operation to do on the data. It could 
-       be ['clean'|'drop']. If ``drop``, it behaves like ``dataframe.drop`` 
-       of pandas. 
-       
-    Returns
-    --------
-    DataFrame, array2D  or None
-            DataFrame cleaned or without the removed index or column labels 
-            or None if inplace=True or array is data is passed as an array. 
-            
-    """
-    mode = _validate_name_in(mode , defaults =("drop", 'remove' ), 
-                      expect_name ='drop')
-    if not mode: 
-        return sanitize_frame_cols(
-            data, 
-            inplace = inplace, 
-            func = func 
-            ) 
- 
-    objtype ='ar'
-    if not hasattr (data , '__array__'): 
-        data = np.array (data ) 
-        
-    if hasattr(data , "columns"): 
-        objtype = "pd" 
-    
-    if objtype =='ar': 
-        data = pd.DataFrame(data ) 
-        # block inplace to False and 
-        # return numpy ar 
-        inplace = False 
-    # if isinstance(columns , str): 
-    #     columns = str2columns(columns ) 
-    if columns is not None: 
-        columns = is_iterable(
-            columns, exclude_string=True ,
-            parse_string= True, 
-            transform =True )
-        
-    data = data.drop (labels = labels, 
-                      columns = columns, 
-                      inplace =inplace,  
-                       **kws 
-                       ) 
-    # re-verify integrity 
-    # for consistency
-    data = to_numeric_dtypes(data )
-    return np.array ( data ) if objtype =='ar' else data 
- 
-def rename_files(
-    src_files: Union[str, List[str]], 
-    dst_files: Union[str, List[str]], 
-    basename: Optional[str] = None, 
-    extension: Optional[str] = None, 
-    how: str = 'py', 
-    prefix: bool = True, 
-    keep_copy: bool = True, 
-    trailer: str = '_', 
-    sortby: Union[re.Pattern, _F] = None, 
-    **kws
-) -> None:
-    """Rename files in directory.
-
-    Parameters 
-    -----------
-    src_files: str, Path-like object 
-       Source files to rename 
-      
-    dst_files: str of PathLike object 
-       Destination files renamed. 
-       
-    extension: str, optional 
-       If a path is given in `src_files`, specifying the `extension` will just 
-       collect only files with this typical extensions. 
-       
-    basename: str, optional 
-       If `dst_files` is passed as Path-object, name should be needed 
-       for a change, otherwise, the number is incremented using the Python 
-       index counting defined by the parameter ``how=py` 
-        
-    how: str, default='py' 
-       The way to increment files when `dst_files` is given as a Path object. 
-       For instance, for a  ``name=E_survey`` and ``prefix==True``, the first 
-       file should be ``E_survey_00`` if ``how='py'`` otherwise it should be 
-       ``E_survey_01``.
-     
-    prefix: bool, default=True
-      Prefix is used to position the name before the number incrementation. 
-      If ``False`` and `name` is given, the number is positionning before the 
-      name. If ``True`` and not `prefix` for a ``name=E_survey``, it should be 
-      ``00_E_survey`` and ``01_E_survey``. 
-
-    keep_copy: bool, default=True 
-       Keep a copy of the source files. 
-       
-    trailer: str, default='_', 
-       Item used to separate the basename for counter. 
-       
-    sortby: Regex or Callable, 
-       Key to sort the collection of the items when `src_files` is passed as 
-       a path-like object.  This is usefull to keep order as the origin files 
-       especially  when files includes a specific character.  Furthermore 
-       [int| float |'num'|'digit'] sorted the files according to the
-       number included in the filename if exists. 
-
-    kws: dict 
-       keyword arguments passed to `os.rename`. 
-
-    """ 
-    dest_dir =None ; trailer = str(trailer)
-    extension = str(extension).lower()
-    
-    if os.path.isfile (src_files ): 
-        src_files = [src_files ] 
-        
-    elif os.path.isdir (src_files): 
-        src_path = src_files
-        ldir = os.listdir(src_path) 
-
-        src_files = ldir if extension =='none' else [
-             f for f in ldir  if  f.endswith (extension) ]
-    
-        if sortby: 
-            if sortby in ( int, float, 'num', 'number', 'digit'): 
-                src_files = sorted(ldir, key=lambda s:int( re.search(
-                    '\d+', s).group()) if re.search('\d+', s) else 0 )
-            else: 
-                src_files = sorted(ldir, key=sortby)
-
-        src_files = [  os.path.join(src_path, f )   for f in src_files  ] 
-        # get only the files 
-        src_files = [ f for f in src_files if os.path.isfile (f ) ]
-
-    else : raise FileNotFoundError(f"{src_files!r} not found.") 
-    
-    # Create the directory if it doesn't exist
-    if ( dst_files is not None 
-        and not os.path.exists (dst_files)
-        ): 
-        os.makedirs(dst_files)
-        
-    if os.path.isdir(dst_files): 
-        dest_dir = dst_files 
-
-    dst_files = is_iterable(dst_files , exclude_string= True, transform =True ) 
-    # get_extension of the source_files 
-    _, ex = os.path.splitext (src_files[0]) 
-    
-    if dest_dir: 
-        if basename is None: 
-            warnings.warn(
-                "Missing basename for renaming file. Should use `None` instead.")
-            basename =''; trailer =''
-            
-        basename= str(basename)
-        if prefix: 
-            dst_files =[ f"{str(basename)}{trailer}" + (
-                f"{i:03}" if how=='py' else f"{i+1:03}") + f"{ex}"
-                        for i in range (len(src_files))]
-        elif not prefix: 
-            dst_files =[ (f"{i:03}" if how=='py' else f"{i+1:03}"
-                        ) +f"{trailer}{str(basename)}" +f"{ex}"
-                        for i in range (len(src_files))]
-        
-        dst_files = [os.path.join(dest_dir , f) for f in dst_files ] 
-    
-    for f, nf in zip (src_files , dst_files): 
-        try: 
-           if keep_copy : shutil.copy (f, nf , **kws )
-           else : os.rename (f, nf , **kws )
-        except FileExistsError: 
-            os.remove(nf)
-            if keep_copy : shutil.copy (f, nf , **kws )
-            else : os.rename (f, nf , **kws )
-            
-            
-def get_xy_coordinates (d, as_frame = False, drop_xy = False, 
-                        raise_exception = True, verbose=0 ): 
-    """Check whether the coordinate values x, y exist in the data.
-    
-    Parameters 
-    ------------
-    d: Dataframe 
-       Frame that is expected to contain the longitude/latitude or 
-       easting/northing coordinates.  Note if all types of coordinates are
-       included in the data frame, the longitude/latitude takes the 
-       priority. 
-    as_frame: bool, default= False, 
-       Returns the coordinates values if included in the data as a frame rather 
-       than computing the middle points of the line 
-    drop_xy: bool, default=False, 
-       Drop the coordinates in the data and return the data transformed inplace 
-       
-    raise_exception: bool, default=True 
-       raise error message if data is not a dataframe. If set to ``False``, 
-       exception is converted to a warning instead. To mute the warning set 
-       `raise_exception` to ``mute``
-       
-    verbose: int, default=0 
-      Send message whether coordinates are detected. 
-         
-    returns 
-    --------
-    xy, d, xynames: Tuple 
-      xy : tuple of float ( longitude, latitude) or (easting/northing ) 
-         if `as_frame` is set to ``True``. 
-      d: Dataframe transformed (coordinated removed )  or not
-      xynames: str, the name of coordinates detected. 
-      
-    Examples 
-    ----------
-    >>> import gofast as gf 
-    >>> from gofast.tools.coreutils import get_xy_coordinates 
-    >>> testdata = gf.make_erp ( n_stations =7, seed =42 ).frame 
-    >>> xy, d, xynames = get_xy_coordinates ( testdata,  )
-    >>> xy , xynames 
-    ((110.48627946874444, 26.051952363176344), ('longitude', 'latitude'))
-    >>> xy, d, xynames = get_xy_coordinates ( testdata, as_frame =True  )
-    >>> xy.head(2) 
-        longitude   latitude        easting      northing
-    0  110.485833  26.051389  448565.380621  2.881476e+06
-    1  110.485982  26.051577  448580.339199  2.881497e+06
-    >>> # remove longitude and  lat in data 
-    >>> testdata = testdata.drop (columns =['longitude', 'latitude']) 
-    >>> xy, d, xynames = get_xy_coordinates ( testdata, as_frame =True  )
-    >>> xy.head(2) 
-             easting      northing
-    0  448565.380621  2.881476e+06
-    1  448580.339199  2.881497e+06
-    >>> # note testdata should be transformed inplace when drop_xy is set to True
-    >>> xy, d, xynames = get_xy_coordinates ( testdata, drop_xy =True)
-    >>> xy, xynames 
-    ((448610.25612032827, 2881538.4380570543), ('easting', 'northing'))
-    >>> d.head(2)
-       station  resistivity
-    0      0.0          1.0
-    1     20.0        167.5
-    >>> testdata.head(2) # coordinates are henceforth been dropped 
-       station  resistivity
-    0      0.0          1.0
-    1     20.0        167.5
-    >>> xy, d, xynames = get_xy_coordinates ( testdata, drop_xy =True)
-    >>> xy, xynames 
-    (None, ())
-    >>> d.head(2)
-       station  resistivity
-    0      0.0          1.0
-    1     20.0        167.5
-
-    """   
-    
-    def get_value_in ( val,  col , default): 
-        """ Get the value in the frame columns if `val` exists in """
-        x = list( filter ( lambda x: x.find (val)>=0 , col)
-                   )
-        if len(x) !=0: 
-            # now rename col  
-            d.rename (columns = {x[0]: str(default) }, inplace = True ) 
-            
-        return d
-
-    if not (
-            hasattr ( d, 'columns') and hasattr ( d, '__array__') 
-            ) : 
-        emsg = ("Expect dataframe containing coordinates longitude/latitude"
-                f" or easting/northing. Got {type (d).__name__!r}")
-        
-        raise_exception = str(raise_exception).lower().strip() 
-        if raise_exception=='true': 
-            raise TypeError ( emsg )
-        
-        if raise_exception  not in ('mute', 'silence'):  
-            warnings.warn( emsg )
-       
-        return d 
-    
-    # check whether coordinates exists in the data columns 
-    for name, tname in zip ( ('lat', 'lon', 'east', 'north'), 
-                     ( 'latitude', 'longitude', 'easting', 'northing')
-                     ) : 
-        d = get_value_in(name, col = d.columns , default = tname )
-       
-    # get the exist coodinates 
-    coord_columns  = []
-    for x, y in zip ( ( 'longitude', 'easting' ), ( 'latitude', 'northing')):
-        if ( x  in d.columns and y in d.columns ): 
-            coord_columns.extend  ( [x, y] )
-
-    xy  = d[ coord_columns] if len(coord_columns)!=0 else None 
-
-    if ( not as_frame 
-        and xy is not None ) : 
-        # take the middle of the line and if both types of 
-        # coordinates are supplied , take longitude and latitude 
-        # and drop easting and northing  
-        xy = tuple ( np.nanmean ( np.array ( xy ) , axis =0 )) [:2]
-
-    xynames = tuple ( coord_columns)[:2]
-    if ( 
-            drop_xy  and len( coord_columns) !=0
-            ): 
-        # modifie the data inplace 
-        d.drop ( columns=coord_columns, inplace = True  )
-
-    if verbose: 
-        print("###", "No" if len(xynames)==0 else ( 
-            tuple (xy.columns) if as_frame else xy), "coordinates found.")
-        
-    return  xy , d , xynames 
-       
-
-def pair_data(
-    *d: Union[DataFrame, List[DataFrame]],  
-    on: Union[str, List[str]] = None, 
-    parse_on: bool = False, 
-    mode: str = 'strict', 
-    coerce: bool = False, 
-    force: bool = False, 
-    decimals: int = 7, 
-    raise_warn: bool = True 
-) -> DataFrame:
-    """ Find indentical object in all data and concatenate them using merge 
-     intersection (`cross`) strategy.
-    
-    Parameters 
-    ---------- 
-    d: List of DataFrames 
-       List of pandas DataFrames 
-    on: str, label or list 
-       Column or index level names to join on. These must be found in 
-       all DataFrames. If `on` is ``None`` and not merging on indexes then 
-       a concatenation along columns axis is performed in all DataFrames. 
-       Note that `on` works with `parse_on` if its argument is  a list of 
-       columns names passed into single litteral string. For instance:: 
-           
-        on ='longitude latitude' --[parse_on=True]-> ['longitude' , 'latitude'] 
-        
-    parse_on: bool, default=False 
-       Parse `on` arguments if given as string and return_iterable objects. 
-       
-    mode: str, default='strict' 
-      Mode to the data. Can be ['soft'|'strict']. In ``strict`` mode, all the 
-      data passed must be a DataFrame, otherwise an error raises. in ``soft``
-      mode, ignore the non-DataFrame. Note that any other values should be 
-      in ``strict`` mode. 
-      
-    coerce: bool, default=False 
-       Truncate all DataFrame size to much the shorter one before performing 
-       the ``merge``. 
-        
-    force: bool, default=False, 
-       Force `on` items to be in the all DataFrames, This could be possible 
-       at least, `on` items should be in one DataFrame. If missing in all 
-       data, an error occurs.  
- 
-    decimals: int, default=5 
-       Decimal is used for comparison between numeric labels in `on` columns 
-       items. If set, it rounds values of `on` items in all data before 
-       performing the merge. 
-       
-     raise_warn: bool, default=False 
-        Warn user to concatenate data along column axis if `on` is ``None``. 
-
-    Returns 
-    --------
-    data: DataFrames 
-      A DataFrame of the merged objects.
-      
-    Examples 
-    ----------
-    >>> import gofast as gf 
-    >>> from gofast.tools.coreutils import pair_data 
-    >>> data = gf.make_erp (seed =42 , n_stations =12, as_frame =True ) 
-    >>> table1 = gf.DCProfiling ().fit(data).summary()
-    >>> table1 
-           dipole   longitude  latitude  ...  shape  type       sfi
-    line1      10  110.486111  26.05174  ...      C    EC  1.141844
-    >>> data_no_xy = gf.make_ves ( seed=0 , as_frame =True) 
-    >>> data_no_xy.head(2) 
-        AB   MN  resistivity
-    0  1.0  0.4   448.860148
-    1  2.0  0.4   449.060335
-    >>> data_xy = gf.make_ves ( seed =0 , as_frame =True , add_xy =True ) 
-    >>> data_xy.head(2) 
-        AB   MN  resistivity   longitude  latitude
-    0  1.0  0.4   448.860148  109.332931  28.41193
-    1  2.0  0.4   449.060335  109.332931  28.41193
-    >>> table = gf.methods.VerticalSounding (
-        xycoords = (110.486111,   26.05174)).fit(data_no_xy).summary() 
-    >>> table.table_
-             AB    MN   arrangememt  ... nareas   longitude  latitude
-    area                             ...                             
-    None  200.0  20.0  schlumberger  ...      1  110.486111  26.05174
-    >>> pair_data (table1, table.table_,  ) 
-           dipole   longitude  latitude  ...  nareas   longitude  latitude
-    line1    10.0  110.486111  26.05174  ...     NaN         NaN       NaN
-    None      NaN         NaN       NaN  ...     1.0  110.486111  26.05174
-    >>> pair_data (table1, table.table_, on =['longitude', 'latitude'] ) 
-    Empty DataFrame 
-    >>> # comments: Empty dataframe appears because, decimal is too large 
-    >>> # then it considers values longitude and latitude differents 
-    >>> pair_data (table1, table.table_, on =['longitude', 'latitude'], decimals =5 ) 
-        dipole  longitude  latitude  ...  max_depth  ohmic_area  nareas
-    0      10  110.48611  26.05174  ...      109.0  690.063003       1
-    >>> # Now is able to find existing dataframe with identical closer coordinates. 
-    
-    """
-    from .validator import _is_numeric_dtype  
-
-    if str(mode).lower()=='soft': 
-        d = [ o for  o in d if hasattr (o, '__array__') and hasattr (o, 'columns') ]
-    
-    is_same = set ( [ hasattr (o, '__array__') 
-                     and hasattr (o, 'columns') for o in d ] ) 
-    
-    if len(is_same)!=1 or not list (is_same) [0]: 
-        types = [ type(o).__name__ for o in d ]
-        raise TypeError (
-            f"Expect DataFrame. Got {smart_format(types)}")
-    
-    same_len = [len(o) for o in d] 
-    
-    if len( set(same_len)) !=1 or not list(set(same_len))[0]: 
-        if not coerce: 
-            raise ValueError(
-                f"Data must be a consistent size. Got {smart_format(same_len)}"
-                " respectively. Set ``coerce=True`` to truncate the data"
-                " to match the shorter data length.")
-        # get the shorthest len 
-        min_index = min (same_len) 
-        d = [ o.iloc [:min_index, :  ]  for o in d ] 
-
-    if on is None:
-        if raise_warn: 
-            warnings.warn("'twin_items' are missing in the data. A simple merge"
-                          " along the columns axis should be performed.") 
-        
-        return pd.concat ( d, axis = 1 )
-    
-    # parse string 
-    on= is_iterable(on, exclude_string= True , 
-                    transform =True, parse_string= parse_on  
-                    )
-    
-    feature_exist = [
-        exist_features(o, on, error = 'ignore'
-                       ) for o in d ]  
-
-    if ( len( set (feature_exist) )!=1 
-        or not list(set(feature_exist)) [0]
-            ): 
-        if not force: 
-            raise ValueError(
-                f"Unable to fit the data. Items {smart_format(on)} are"
-                f" missing in the data columns. {smart_format(on)} must"
-                 " include in the data columns. Please check your data.")
-
-        # seek the value twin_items in the data and use if for all  
-        dtems =[] ;  repl_twd= None 
-        for o in d: 
-            # select one valid data that contain the 
-            # twin items
-            try : 
-                exist_features ( o, on ) 
-            except : 
-                pass 
-            else:
-                repl_twd = o [ on ]
-                break 
-            
-        if repl_twd is None: 
-            raise ValueError("To force data that have not consistent items,"
-                             f" at least {smart_format(on)} items must"
-                             " be included in one DataFrame.")
-        # make add twin_data if 
-        for o in d : 
-            try : exist_features(o, on) 
-            except : 
-                a = o.copy()  
-                a [ on ] = repl_twd 
-            else : a = o.copy () 
-            
-            dtems.append(a)
-        # reinitialize d
-        d = dtems  
-    
-    # check whether values to merge are numerics 
-    # if True, use decimals to round values to consider 
-    # that identic 
-    # round value if value before performed merges 
-    # test single data with on 
-    is_num = _is_numeric_dtype (d[0][on] ) 
-    if is_num: 
-        decimals = int (_assert_all_types(
-            decimals, int, float, objname ='Decimals'))
-        d_ = []
-        for o in d : 
-            a = o.copy()  
-            a[on ] = np.around (o[ on ].values, decimals ) 
-            d_.append (a )
-        # not a numerick values so stop     
-        d =d_
-
-    # select both two  
-    data = pd.merge (* d[:2], on= on ) 
-    
-    if len(d[2:]) !=0: 
-        for ii, o in enumerate ( d[2:]) : 
-            data = pd.merge ( *[data, o] , on = on, suffixes= (
-                f"_x{ii+1}", f"_y{ii+1}")) 
-            
-    return data 
-
-def read_worksheets(*data): 
-    """ Read sheets and returns a list of DataFrames and sheet names. 
-    
-    Parameters 
-    -----------
-    data: list of str 
-      A collection of excel sheets files. Read only `.xlsx` files. Any other 
-      files raises an errors.  
-    
-    Return
-    ------
-    data, sheet_names: Tuple of DataFrames and sheet_names 
-       A collection of DataFrame and sheets names. 
-       
-    Examples 
-    -----------
-    >>> import os 
-    >>> from gofast.tools.coreutils import read_worksheets 
-    >>> sheet_file= r'_F:\repositories\gofast\data\erp\sheets\gbalo.xlsx'
-    >>> data, snames =  read_worksheets (sheet_file )
-    >>> snames 
-    ['l11', 'l10', 'l02'] 
-    >>> data, snames =  read_worksheets (os.path.dirname (sheet_file))
-    >>> snames 
-    ['l11', 'l10', 'l02', 'l12', 'l13']
-    
-    """
-    dtem = []
-    data = [o for o in data if isinstance ( o, str )]
-    
-    for o in data: 
-        if os.path.isdir (o): 
-            dlist = os.listdir (o)
-            # collect only the excell sheets 
-            p = [ os.path.join(o, f) for f in dlist if f.endswith ('.xlsx') ]
-            dtem .extend(p)
-        elif os.path.isfile (o):
-            _, ex = os.path.splitext( o)
-            if ex == '.xlsx': 
-                dtem.append(o)
-            
-    data = copy.deepcopy(dtem)
-    # if no excel sheets is found return None 
-    if len(data) ==0: 
-        return None, None 
-    
-    # make d dict to collect data 
-    ddict = dict() 
-    regex = re.compile (r'[$& #@%^!]', flags=re.IGNORECASE)
-    
-    for d in data : 
-        try: 
-            ddict.update ( **pd.read_excel (d , sheet_name =None))
-        except : pass 
-
-    #collect stations names
-    if len(ddict)==0 : 
-        raise TypeError("Can'find the data to read.")
-
-    sheet_names = list(map(
-        lambda o: regex.sub('_', o).lower(), ddict.keys()))
-
-    data = list(ddict.values ()) 
-
-    return data, sheet_names      
- 
-def key_checker (
-    keys: str ,   
-    valid_keys:List[str], 
-    regex:re = None, 
-    pattern:str = None , 
-    deep_search:bool =...
-    ): 
-    """check whether a give key exists in valid_keys and return a list if 
-    many keys are found.
-    
-    Parameters 
-    -----------
-    keys: str, list of str 
-       Key value to find in the valid_keys 
-       
-    valid_keys: list 
-       List of valid keys by default. 
-       
-    regex: `re` object,  
-        Regular expresion object. the default is:: 
-            
-            >>> import re 
-            >>> re.compile (r'[_#&*@!_,;\s-]\s*', flags=re.IGNORECASE)
-            
-    pattern: str, default = '[_#&*@!_,;\s-]\s*'
-        The base pattern to split the text into a columns
-        
-    deep_search: bool, default=False 
-       If deep-search, the key finder is no sensistive to lower/upper case 
-       or whether a numeric data is included. 
- 
-       
-    Returns 
-    --------
-    keys: str, list , 
-      List of keys that exists in the `valid_keys`. 
-      
-    Examples
-    --------
-    
-    >>> from gofast.tools.coreutils import key_checker
-    >>> key_checker('h502', valid_keys= ['h502', 'h253','h2601'])  
-    Out[68]: 'h502'
-    >>> key_checker('h502+h2601', valid_keys= ['h502', 'h253','h2601'])
-    Out[69]: ['h502', 'h2601']
-    >>> key_checker('h502 h2601', valid_keys= ['h502', 'h253','h2601'])
-    Out[70]: ['h502', 'h2601']
-    >>> key_checker(['h502',  'h2601'], valid_keys= ['h502', 'h253','h2601'])
-    Out[73]: ['h502', 'h2601']
-    >>> key_checker(['h502',  'h2602'], valid_keys= ['h502', 'h253','h2601'])
-    UserWarning: key 'h2602' is missing in ['h502', 'h2602']
-    Out[82]: 'h502'
-    >>> key_checker(['502',  'H2601'], valid_keys= ['h502', 'h253','h2601'], 
-                    deep_search=True )
-    Out[57]: ['h502', 'h2601']
-    
-    """
-    deep_search, =ellipsis2false(deep_search)
-
-    _keys = copy.deepcopy(keys)
-    valid_keys = is_iterable(valid_keys , exclude_string =True, transform =True )
-    if isinstance ( keys, str): 
-        pattern = pattern or '[_#&@!_+,;\s-]\s*'
-        keys = str2columns (keys, regex = regex , pattern=pattern )
-    # If iterbale object , save obj 
-    # to improve error 
-    kkeys = copy.deepcopy(keys)
-    if deep_search: 
-        keys = key_search(
-            keys, 
-            default_keys= valid_keys,
-            deep=True, 
-            raise_exception= True,
-            regex =regex, 
-            pattern=pattern 
-            )
-        return keys[0] if len(keys)==1 else keys 
-    # for consistency 
-    keys = [ k for k in keys if ''.join(
-        [ str(i) for i in valid_keys] ).find(k)>=0 ]
-    # assertion error if key does not exist. 
-    if len(keys)==0: 
-        verb1, verb2 = ('', 'es') if len(kkeys)==1 else ('s', '') 
-        msg = (f"key{verb1} {_keys!r} do{verb2} not exist."
-               f" Expect {smart_format(valid_keys, 'or')}")
-        raise KeyError ( msg )
-        
-    if len(keys) != len(kkeys):
-        miss_keys = is_in_if ( kkeys, keys , return_diff= True , error ='ignore')
-        miss_keys, verb = (miss_keys[0], 'is') if len( miss_keys) ==1 else ( 
-            miss_keys, 'are')
-        warnings.warn(f"key{'' if verb=='is' else 's'} {miss_keys!r} {verb}"
-                      f" missing in {_keys}")
-    keys = keys[0] if len(keys)==1 else keys 
-    
-    return keys 
-
-def random_sampling (
-    d,  
-    samples:int = None  , 
-    replace:bool = False , 
-    random_state:int = None, 
-    shuffle=True, 
-    ): 
-    """ Sampling data. 
-    
-    Parameters 
-    ----------
-    d: {array-like, sparse matrix} of shape (n_samples, n_features)
-      Data for sampling, where `n_samples` is the number of samples and
-      `n_features` is the number of features.
-    samples: int,optional 
-       Ratio or number of items from axis to return. 
-       Default = 1 if `samples` is ``None``.
-       
-    replace: bool, default=False
-       Allow or disallow sampling of the same row more than once. 
-       
-    random_state: int, array-like, BitGenerator, np.random.RandomState, \
-        np.random.Generator, optional
-       If int, array-like, or BitGenerator, seed for random number generator. 
-       If np.random.RandomState or np.random.Generator, use as given.
-       
-    shuffle:bool, default=True 
-       Shuffle the data before sampling 
-      
-    Returns 
-    ----------
-    d: {array-like, sparse matrix} of shape (n_samples, n_features)
-    samples data based on the given samples. 
-    
-    Examples
-    ---------
-    >>> from gofast.tools.coreutils import random_sampling 
-    >>> from gofast.datasets import load_hlogs 
-    >>> data= load_hlogs().frame
-    >>> random_sampling( data, samples = 7 ).shape 
-    (7, 27)
-    """
-
-    n= None ; is_percent = False
-    orig= copy.deepcopy(samples )
-    if not hasattr(d, "__iter__"): 
-        d = is_iterable(d, exclude_string= True, transform =True )
-    
-    if ( 
-            samples is None 
-            or str(samples) in ('1', '*')
-            ): 
-        samples =1. 
-        
-    if "%" in str(samples): 
-        samples = samples.replace ("%", '')
-        is_percent=True 
-    # assert value for consistency. 
-    try: 
-        samples = float( samples)
-    except: 
-        raise TypeError("Wrong value for 'samples'. Expect an integer."
-                        f" Got {type (orig).__name__!r}")
-
-    if samples <=1 or is_percent: 
-        samples  = assert_ratio(
-            samples , bounds = (0, 1), exclude_value= 'use lower bound', 
-            in_percent= True )
-        
-        n = int ( samples * ( d.shape[0] if scipy.sparse.issparse(d)
-                 else len(d))) 
-    else: 
-        # data frame 
-        n= int(samples)
-        
-    # reset samples and use number of samples instead    
-    samples =None  
-    # get the total length of d
-    dlen = ( d.shape[0] if scipy.sparse.issparse(d) else len(d))
-    # if number is greater than the length 
-    # block to the length so to retrieve all 
-    # value no matter the arrangement. 
-    if n > dlen: 
-        n = dlen
-    if hasattr (d, 'columns') or hasattr (d, 'name'): 
-        # data frame 
-        return d.sample ( n= n , frac=samples , replace = replace ,
-                         random_state = random_state  
-                     ) if shuffle else d.iloc [ :n , ::] 
-        
-    np.random.seed ( random_state)
-    if scipy.sparse.issparse(d) : 
-        if scipy.sparse.isspmatrix_coo(d): 
-            warnings.warn("coo_matrix does not support indexing. Conversion"
-                          " should be performed in CSR matrix")
-            d = d.tocsr() 
-            
-        return d [ np.random.choice(
-            np.arange(d.shape[0]), n, replace=replace )] if shuffle else d [
-                [ i for i in range (n)]]
-                
-        #d = d[idx ]
-        
-    # manage the data 
-    if not hasattr(d, '__array__'): 
-        d = np.array (d ) 
-        
-    idx = np.random.randint( len(d), size = n ) if shuffle else [ i for i in range(n)]
-    if len(d.shape )==1: d =d[idx ]
-    else: d = d[idx , :]
-        
-    return d 
-
-
 def make_obj_consistent_if ( 
         item= ... , default = ..., size =None, from_index: bool =True ): 
     """Combine default values to item to create default consistent iterable 
@@ -5960,113 +3090,7 @@ def make_obj_consistent_if (
         item = item [:size]
         
     return item
-    
-def replace_data(
-    X:Union [ArrayLike, DataFrame], 
-    y: Union [ArrayLike, Series] = None, 
-    n: int = 1, 
-    axis: int = 0, 
-    reset_index: bool = False,
-    include_original: bool = False,
-    random_sample: bool = False,
-    shuffle: bool = False
-) -> Union [ ArrayLike, DataFrame , Tuple[ArrayLike , DataFrame, ArrayLike, Series]]:
-    """
-    Duplicates the data `n` times along a specified axis and applies various 
-    optional transformations to augment the data suitability for further 
-    processing or analysis.
-
-    Parameters
-    ----------
-    X : Union[np.ndarray, pd.DataFrame]
-        The input data to process. Sparse matrices are not supported.
-    y : Optional[Union[np.ndarray, pd.Series]], optional
-        Additional target data to process alongside `X`. Default is None.
-    n : int, optional
-        The number of times to replicate the data. Default is 1.
-    axis : int, optional
-        The axis along which to concatenate the data. Default is 0.
-    reset_index : bool, optional
-        If True and `X` is a DataFrame, resets the index without adding
-        the old index as a column. Default is False.
-    include_original : bool, optional
-        If True, the original data is included in the output alongside
-        the replicated data. Default is False.
-    random_sample : bool, optional
-        If True, samples from `X` randomly with replacement. Default is False.
-    shuffle : bool, optional
-        If True, shuffles the concatenated data. Default is False.
-
-    Returns
-    -------
-    Union[np.ndarray, pd.DataFrame, Tuple[Union[np.ndarray, pd.DataFrame], 
-                                          Union[np.ndarray, pd.Series]]]
-        The augmented data, either as a single array or DataFrame, or as a tuple
-        of arrays/DataFrames if `y` is provided.
-
-    Notes
-    -----
-    The replacement is mathematically formulated as follows:
-    Let :math:`X` be a dataset with :math:`m` elements. The function replicates 
-    :math:`X` `n` times, resulting in a new dataset :math:`X'` of :math:`m * n` 
-    elements if `include_original` is False. If `include_original` is True,
-    :math:`X'` will have :math:`m * (n + 1)` elements.
-
-    Examples
-    --------
-    
-    >>> import numpy as np 
-    >>> from gofast.tools.coreutils import replace_data
-    >>> X, y = np.random.randn ( 7, 2 ), np.arange(7)
-    >>> X.shape, y.shape 
-    ((7, 2), (7,))
-    >>> X_new, y_new = replace_data (X, y, n=10 )
-    >>> X_new.shape , y_new.shape
-    ((70, 2), (70,))
-    >>> X = np.array([[1, 2], [3, 4]])
-    >>> replace_data(X, n=2, axis=0)
-    array([[1, 2],
-           [3, 4],
-           [1, 2],
-           [3, 4]])
-
-    >>> import pandas as pd
-    >>> df = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
-    >>> replace_data(df, n=1, include_original=True, reset_index=True)
-       A  B
-    0  1  3
-    1  2  4
-    2  1  3
-    3  2  4
-    """
-    def concat_data(ar: Union[ArrayLike, DataFrame]) -> Union[ArrayLike, DataFrame]:
-        repeated_data = [ar] * (n + 1) if include_original else [ar] * n
-        
-        if random_sample:
-            random_indices = np.random.choice(
-                ar.shape[0], size=ar.shape[0], replace=True)
-            repeated_data = [ar[random_indices] for _ in repeated_data]
-
-        concatenated = pd.concat(repeated_data, axis=axis) if isinstance(
-            ar, pd.DataFrame) else np.concatenate(repeated_data, axis=axis)
-        
-        if shuffle:
-            shuffled_indices = np.random.permutation(concatenated.shape[0])
-            concatenated = concatenated[shuffled_indices] if isinstance(
-                ar, pd.DataFrame) else concatenated.iloc[shuffled_indices]
-
-        if reset_index and isinstance(concatenated, pd.DataFrame):
-            concatenated.reset_index(drop=True, inplace=True)
-        
-        return concatenated
-
-    X = np.array(X) if not isinstance(X, (np.ndarray, pd.DataFrame)) else X
-    y = np.array(y) if y is not None and not isinstance(y, (np.ndarray, pd.Series)) else y
-
-    if y is not None:
-        return concat_data(X), concat_data(y)
-    return concat_data(X)
-
+ 
 def convert_value_in (v, unit ='m'): 
     """Convert value based on the reference unit.
     
@@ -6157,469 +3181,47 @@ def split_list(lst:List[Any],  val:int, fill_value:Optional[Any]=None ):
             *(iter(lst),)*val,fillvalue =fill_value),)
     return sl 
 
-def key_search (
-    keys: str,  
-    default_keys: Union [Text , List[str]], 
-    parse_keys: bool=True, 
-    regex :re=None, 
-    pattern :str=None, 
-    deep: bool =...,
-    raise_exception:bool=..., 
-    ): 
-    """Find key in a list of default keys and select the best match. 
+def make_ids(arr, prefix =None, how ='py', skip=False): 
+    """ Generate auto Id according to the number of given sites. 
     
-    Parameters 
-    -----------
-    keys: str or list 
-       The string or a list of key. When multiple keys is passed as a string, 
-       use the space for key separating. 
-       
-    default_keys: str or list 
-       The likehood key to find. Can be a litteral text. When a litteral text 
-       is passed, it is better to provide the regex in order to skip some 
-       character to parse the text properly. 
-       
-    parse_keys: bool, default=True 
-       Parse litteral string using default `pattern` and `regex`. 
-       
-       .. versionadded:: 0.2.7 
-        
-    regex: `re` object,  
-        Regular expresion object. Regex is important to specify the kind
-        of data to parse. the default is:: 
-            
-            >>> import re 
-            >>> re.compile (r'[_#&*@!_,;\s-]\s*', flags=re.IGNORECASE)
-            
-    pattern: str, default = '[_#&*@!_,;\s-]\s*'
-        The base pattern to split the text into a columns. Pattern is 
-        important especially when some character are considers as a part of 
-        word but they are not a separator. For example a data columns with 
-        a name `'DH_Azimuth'`, if a pattern is not explicitely provided, 
-        the default pattern will parse as two separated word which is far 
-        from the expected results. 
-        
-    deep: bool, default=False 
-       Not sensistive to uppercase. 
-       
-    raise_exception: bool, default=False 
-       raise error when key is not find. 
-       
-    Return 
-    -------
-    list: list of valid keys or None if not find ( default) 
+    :param arr: Iterable object to generate an id site . For instance it can be 
+        the array-like or list of EDI object that composed a collection of 
+        gofast.edi.Edi object. 
+    :type ediObjs: array-like, list or tuple 
 
-    Examples
-    ---------
-    >>> from gofast.tools.coreutils import key_search 
-    >>> key_search('h502-hh2601', default_keys= ['h502', 'h253','HH2601'])
-    Out[44]: ['h502']
-    >>> key_search('h502-hh2601', default_keys= ['h502', 'h253','HH2601'], 
-                   deep=True)
-    Out[46]: ['h502', 'HH2601']
-    >>> key_search('253', default_keys= ("I m here to find key among h502,
-                                             h253 and HH2601"))
-    Out[53]: ['h253'] 
-    >>> key_search ('east', default_keys= ['DH_East', 'DH_North']  , deep =True,)
-    Out[37]: ['East']
-    key_search ('east', default_keys= ['DH_East', 'DH_North'], 
-                deep =True,parse_keys= False)
-    Out[39]: ['DH_East']
-    """
-    deep, raise_exception, parse_keys = ellipsis2false(
-        deep, raise_exception, parse_keys)
-    # make a copy of original keys 
+    :param prefix: string value to add as prefix of given id. Prefix can be 
+        the site name.
+    :type prefix: str 
     
-    kinit = copy.deepcopy(keys)
-    if parse_keys: 
-        if is_iterable(keys , exclude_string= True ): 
-            keys = ' '.join ( [str(k) for k in keys ]) 
-             # for consisteny checker 
-        pattern = pattern or '[#&@!_+,;\s-]\s*'
-        keys = str2columns ( keys , regex = regex , pattern = pattern ) 
-            
-        if is_iterable ( default_keys , exclude_string=True ): 
-            default_keys = ' '. join ( [ str(k) for k in default_keys ])
-            # make a copy
-        default_keys =  str2columns(
-            default_keys, regex =regex , pattern = pattern )
-    else : 
-        keys = is_iterable(
-        keys, exclude_string = True, transform =True )
-        default_keys = is_iterable ( 
-            default_keys, exclude_string=True, transform =True )
-        
-    dk_init = copy.deepcopy(default_keys )
-    # if deep convert all keys to lower 
-    if deep: 
-        keys= [str(it).lower() for it in keys  ]
-        default_keys = [str(it).lower() for it in default_keys  ]
-
-    valid_keys =[] 
-    for key in keys : 
-        for ii, dkey in enumerate (default_keys) : 
-            vk = re.findall(rf'\w*{key}\w*', dkey)
-            # rather than rf'\b\w*{key}\w*\b'
-            # if deep take the real values in defaults keys.
-            if len(vk) !=0: 
-                if deep: valid_keys.append( dk_init[ii] )
-                else:valid_keys.extend( vk)
-                break     
-    if ( raise_exception 
-        and len(valid_keys)==0
-        ): 
-        kverb ='s' if len(kinit)> 1 else ''
-        raise KeyError (f"key{kverb} {kinit!r} not found."
-                       f" Expect {smart_format(dk_init, 'or')}")
-    return None if len(valid_keys)==0 else valid_keys 
-
-# def repeat_item_insertion(text: str, pos: Union[int, float], item: Optional[str] = None,  fill_value: Optional[Any] = None) -> str: 
-#     """ Insert character in text according to its position. 
-#     
-#     Parameters
-#     ----------
-#     text: str
-#        Text 
-#     pos: Union[int, float]
-#       Position where the item must be inserted. 
-#     item: Optional[str], default None
-#       Item to insert at each position. 
-#    fill_value: Optional[Any], default None
-#       Does nothing special; fill the last position. 
-#     Returns
-#     --------
-#     text: str
-#       New construct object. 
-#       
-#     Examples
-#     ----------
-#     >>> repeat_item_insertion('0125356.45', pos=2, item=':')
-#     '01:25:35:6.45'
-#     >>> repeat_item_insertion('Function inserts car in text.', pos=10, item='TK')
-#     'Function iTKnserts carTK in text.'
-#     """
-#     if item is None:
-#         item = ''
-#    # For consistency
-#    lst = list(str(text))
-#    # Check whether there is a decimal then remove it 
-#    dec_part = []
-#    ent_part = lst
-#    for i, it in enumerate(lst):
-#        if it == '.': 
-#            ent_part, dec_part = lst[:i], lst[i:]
-#            break
-#    # Now split list
-#    if fill_value is None:
-#        fill_value = ''
-#    
-#    value = split_list(ent_part, val=pos, fill_value=fill_value)
-#    # Join with mark
-#    join_lst = [''.join(s) for s in value]
-#    # Use empty string instead of None in the join operation
-#    result = str(item).join(join_lst) + ''.join(dec_part)
-#    return result
-
-
-def numstr2dms(
-    sdigit: str,  
-    sanitize: bool = True, 
-    func: callable = lambda x, *args, **kws: x, 
-    args: tuple = (),  
-    regex: re.Pattern = re.compile(r'[_#&@!+,;:"\'\s-]\s*', flags=re.IGNORECASE),   
-    pattern: str = '[_#&@!+,;:"\'\s-]\s*', 
-    return_values: bool = False, 
-    **kws
-) -> Union[str, Tuple[float, float, float]]: 
-    """ Convert numerical digit string to DD:MM:SS
+    :param how: Mode to index the station. Default is 'Python indexing' i.e. 
+        the counting starts by 0. Any other mode will start the counting by 1.
+    :type cmode: str 
     
-    Note that any string digit for Minutes and seconds must be composed
-    of two values i.e., the function accepts at least six digits, otherwise an 
-    error occurs. For instance, the value between [0-9] must be prefixed by 0 
-    beforehand. Here is an example for designating 1 degree-1 min-1 seconds::
-        
-        sdigit= 1'1'1" --> 01'01'01 or 010101
-        
-    where ``010101`` is the right arguments for ``111``. 
+    :param skip: skip the long formatage. the formatage acccording to the 
+        number of collected file. 
+    :type skip: bool 
+    :return: ID number formated 
+    :rtype: list 
     
-    Parameters
-    -----------
-    sdigit: str, 
-      Digit string composing of unique values. 
-    func: Callable, 
-      Function uses to parse digit. Function must return string values. 
-      Any other values should be converted to str.
-      
-    args: tuple
-      Function `func` positional arguments 
-      
-    regex: `re` object,  
-        Regular expression object. Regex is important to specify the kind
-        of data to parse. The default is:: 
-            
-            >>> import re 
-            >>> re.compile(r'[_#&@!+,;:"\'\s-]\s*', flags=re.IGNORECASE) 
-            
-    pattern: str, default = '[_#&@!+,;:"\'\s-]\s*'
-      Specific pattern for sanitizing sdigit. For instance, remove undesirable 
-      non-character. 
-      
-    sanitize: bool, default=True 
-       Remove undesirable characters using the default argument of `pattern`
-       parameter. 
-       
-    return_values: bool, default=False, 
-       Return the DD:MM:SS into a tuple of (DD, MM, SS).
-    
-    Returns 
-    -------
-    sdigit/tuple: str, tuple 
-      DD:MM:SS or tuple of (DD, MM, SS)
-      
-    Examples
-    --------
-    >>> numstr2dms("1134132.08")
-    '113:41:32.08'
-    >>> numstr2dms("13'41'32.08")
-    '13:41:32.08'
-    >>> numstr2dms("11:34:13:2.08", return_values=True)
-    (113.0, 41.0, 32.08)
-    """
-    # Remove any character from the string digit
-    sdigit = str(sdigit)
-    
-    if sanitize: 
-        sdigit = re.sub(pattern, "", sdigit, flags=re.IGNORECASE)
+    :Example: 
+        >>> import numpy as np 
+        >>> from gofast.tools.func_utils import make_ids 
+        >>> values = ['edi1', 'edi2', 'edi3'] 
+        >>> make_ids (values, 'ix')
+        ... ['ix0', 'ix1', 'ix2']
+        >>> data = np.random.randn(20)
+        >>>  make_ids (data, prefix ='line', how=None)
+        ... ['line01','line02','line03', ... , line20] 
+        >>> make_ids (data, prefix ='line', how=None, skip =True)
+        ... ['line1','line2','line3',..., line20] 
         
-    try:
-        float(sdigit)
-    except ValueError:
-        raise ValueError(f"Wrong value. Expects a string-digit or digit. Got {sdigit!r}")
+    """ 
+    fm='{:0' + ('1' if skip else '{}'.format(int(np.log10(len(arr))) + 1)) +'}'
+    id_ =[str(prefix) + fm.format(i if how=='py'else i+ 1 ) if prefix is not 
+          None else fm.format(i if how=='py'else i+ 1) 
+          for i in range(len(arr))] 
+    return id_ 
 
-    if callable(func): 
-        sdigit = func(sdigit, *args, **kws)
-        
-    # In the case there is'
-    decimal = '0'
-    # Remove decimal
-    sdigit_list = sdigit.split(".")
-    
-    if len(sdigit_list) == 2: 
-        sdigit, decimal = sdigit_list
-        
-    if len(sdigit) < 6: 
-        raise ValueError(f"DMS expects at least six digits (DD:MM:SS). Got {sdigit!r}")
-        
-    sec, sdigit = sdigit[-2:], sdigit[:-2]
-    mm, sdigit = sdigit[-2:], sdigit[:-2]
-    deg = sdigit  # The remaining part
-    # Concatenate second decimal 
-    sec += f".{decimal}" 
-    
-    return tuple(map(float, [deg, mm, sec])) if return_values \
-        else ':'.join([deg, mm, sec])
-
-
-def store_or_write_hdf5 (
-    d,  
-    key:str= None, 
-    mode:str='a',  
-    kind: str=None, 
-    path_or_buf:str= None, 
-    encoding:str="utf8", 
-    csv_sep: str=",",
-    index: bool=..., 
-    columns:Union [str, List[Any]]=None, 
-    sanitize_columns:bool=...,  
-    func: _F= None, 
-    args: tuple=(), 
-    applyto: Union [str, List[Any]]=None, 
-    **func_kwds, 
-    )->Union [None, DataFrame]: 
-    """ Store data to hdf5 or write data to csv file. 
-    
-    Note that by default, the data is not store nor write and 
-    return data if frame or transform the Path-Like object to data frame. 
-
-    Parameters 
-    -----------
-    d: Dataframe, shape (m_samples, n_features)
-        data to store or write or sanitize.
-    key:str
-       Identifier for the group in the store.
-       
-    mode: {'a', 'w', 'r+'}, default 'a'
-       Mode to open file:
-    
-       - 'w': write, a new file is created (an existing file with the 
-                                          same name would be deleted).
-       - 'a': append, an existing file is opened for reading and writing, 
-         and if the file does not exist it is created.
-       - 'r+': similar to 'a', but the file must already exist.
-       
-    kind: str, {'store', 'write', None} , default=None 
-       Type of task to perform: 
-           
-       - 'store': Store data to hdf5
-       - 'write': export data to csv file.
-       - None: construct a dataframe if array is passed or sanitize it. 
-
-    path_or_buf: str or pandas.HDFStore, or str, path object, file-like \
-        object, or None, default=None 
-       File path or HDFStore object. String, path object
-       (implementing os.PathLike[str]), or file-like object implementing 
-       a write() function. If ``write=True`` and  None, the result is returned 
-       as a string. If a non-binary file object is passed, it should be 
-       opened with newline=" ", disabling universal newlines. If a binary 
-       file object is passed, mode might need to contain a 'b'.
-      
-    encoding: str, default='utf8'
-       A string representing the encoding to use in the output file, 
-       Encoding is not supported if path_or_buf is a non-binary file object. 
-
-    csv_sep: str, default=',', 
-       String of length 1. Field delimiter for the output file.
-       
-    index: bool, index =False, 
-       Write data to csv with index or not. 
-       
-    columns: list of str, optional 
-        Usefull to create a dataframe when array is passed. Be aware to fit 
-        the number of array columns (shape[1])
-        
-    sanitize_columns: bool, default=False, 
-       remove undesirable character in the data columns using the default
-       argument of `regex` parameters and fill pattern to underscore '_'. 
-       The default regex implementation is:: 
-           
-           >>> import re 
-           >>> re.compile (r'[_#&.)(*@!,;\s-]\s*', flags=re.IGNORECASE)
-           
-    func: callable, Optional 
-       A custom sanitizing function and apply to each columns of the dataframe.
-       If provide, the expected columns must be listed to `applyto` parameter.
-       
-    args: tuple, optional 
-       Positional arguments of the sanitizing columns 
-       
-    applyto: str or list of str, Optional 
-       The list of columns to apply the function ``func``. To apply the 
-       function to all columns, use the ``*`` instead. 
-       
-    func_kwds: dict, 
-       Keywords arguments of the sanitizing function ``func``. 
-       
-    Return 
-    -------
-    None or d: None of dataframe. 
-      returns None if `kind` is set to ``write`` or ``store`` otherwise 
-      return the dataframe. 
-  
-    Examples
-    --------
-    >>> from gofast.tools.coreutils import store_or_write_hdf5
-    >>> from gofast.datasets import load_bagoue 
-    >>> data = load_bagoue().frame 
-    >>> data.geol[:5]
-    0    VOLCANO-SEDIM. SCHISTS
-    1                  GRANITES
-    2                  GRANITES
-    3                  GRANITES
-    4          GEOSYN. GRANITES
-    Name: geol, dtype: object
-    >>> data = store_or_write_hdf5 ( data, sanitize_columns = True)
-    >>> data[['type', 'geol', 'shape']] # put all to lowercase
-      type                    geol shape
-    0   cp  volcano-sedim. schists     w
-    1   ec                granites     v
-    2   ec                granites     v
-    >>> # compute using func 
-    >>> def test_func ( a, times  , to_percent=False ): 
-            return ( a * times / 100)   if to_percent else ( a *times )
-    >>> data.sfi[:5]
-    0    0.388909
-    1    1.340127
-    2    0.446594
-    3    0.763676
-    4    0.068501
-    Name: sfi, dtype: float64
-    >>> d = store_or_write_hdf5 ( data,  func = test_func, args =(7,), applyto='sfi')
-    >>> d.sfi[:5] 
-    0    2.722360
-    1    9.380889
-    2    3.126156
-    3    5.345733
-    4    0.479507
-    Name: sfi, dtype: float64
-    >>> store_or_write_hdf5 ( data,  func = test_func, args =(7,),
-                          applyto='sfi', to_percent=True).sfi[:5]
-    0    0.027224
-    1    0.093809
-    2    0.031262
-    3    0.053457
-    4    0.004795
-    Name: sfi, dtype: float64
-    >>> # write data to hdf5 and outputs to current directory 
-    >>> store_or_write_hdf5 ( d, key='test0', path_or_buf= 'test_data.h5', 
-                          kind ='store')
-    >>> # export data to csv 
-    >>> store_or_write_hdf5 ( d, key='test0', path_or_buf= 'test_data', 
-                          kind ='export')
-    """
-    kind= key_search (str(kind), default_keys=(
-        "none", "store", "write", "export", "tocsv"), 
-        raise_exception=True , deep=True)[0]
-    
-    kind = "export" if kind in ('write', 'tocsv') else kind 
-    
-    if sanitize_columns is ...: 
-        sanitize_columns=False 
-    d = to_numeric_dtypes(d, columns=columns,sanitize_columns=sanitize_columns, 
-                          fill_pattern='_')
-   
-    # get categorical variables 
-    if ( sanitize_columns 
-        or func is not None
-        ): 
-        d, _, cf = to_numeric_dtypes(d, return_feature_types= True )
-        #( strip then pass to lower case all non-numerical data) 
-        # for minimum sanitization  
-        for cat in cf : 
-            d[cat]= d[cat].str.lower()
-            d[cat]= d[cat].str.strip()
-            
-    if func is not None: 
-        if not callable(func): 
-            raise TypeError(
-                f"Expect a callable for `func`. Got {type(func).__name__!r}")
-
-        if applyto is None:
-            raise ValueError("Need to specify the data column to apply"
-                             f"{func.__name__!r} to.")
-        
-        applyto = is_iterable( applyto, exclude_string=True,
-                               transform =True ) if applyto !="*" else d.columns 
-        # check whether the applyto columns are in data columns 
-        exist_features(d, applyto)
-        
-        # map each colum 
-        for col in applyto: 
-            d [col]=d[col].apply( func, args=args, **func_kwds )
-
-    # store in h5 file. 
-    if kind=='store':
-        if path_or_buf is None: 
-            print("Destination file is missing. Use 'data.h5' instead outputs"
-                  f" in the current directory {os.getcwd()}")
-            path_or_buf= 'data.h5'
- 
-        d.to_hdf ( path_or_buf , key =key, mode =mode )
-    # export to csv file
-    if kind=="export": 
-        d.to_csv(path_or_buf, encoding = encoding  , sep=csv_sep , 
-                 index =False if index is ... else index   )
-        
-    return d if kind not in ("store", "export") else None 
 
 def ellipsis2false( *parameters , default_value: Any=False ): 
     """ Turn all parameter arguments to False if ellipsis.
@@ -6897,101 +3499,6 @@ def _parse_gaussian_noise(noise):
     return noise, gaussian_noise
 
 
-def nan_to_na(
-    data, 
-    cat_missing_value=pd.NA, 
-    nan_spec=np.nan
-    ):
-    """
-    Converts specified NaN values in categorical columns of a pandas 
-    DataFrame or Series to `pd.NA` or another specified missing value.
-
-    Parameters
-    ----------
-    data : pandas.DataFrame or pandas.Series
-        The input DataFrame or Series in which specified NaN values in 
-        categorical columns will be converted.
-        
-    cat_missing_value : scalar, default=pd.NA
-        The value to use for missing data in categorical columns. By 
-        default, `pd.NA` is used. This ensures that categorical columns 
-        do not contain `np.nan` values, which can cause type 
-        inconsistencies.
-
-    nan_spec : scalar, default=np.nan
-        The value that is treated as NaN in the input data. By default, 
-        `np.nan` is used. This allows flexibility in specifying what is 
-        considered as NaN.
-
-    Returns
-    -------
-    pandas.DataFrame or pandas.Series
-        The DataFrame or Series with specified NaN values in categorical 
-        columns converted to the specified missing value.
-
-    Notes
-    -----
-    This function ensures consistency in the representation of missing 
-    values in categorical columns, avoiding issues that arise from the 
-    presence of specified NaN values in such columns.
-
-    The conversion follows the logic:
-    
-    .. math:: 
-        \text{If column is categorical and contains `nan_spec`} 
-        \rightarrow \text{Replace `nan_spec` with `cat_missing_value`}
-
-    Examples
-    --------
-    >>> from gofast.tools.coreutils import nan_to_na
-    >>> import pandas as pd
-    >>> import numpy as np
-    >>> df = pd.DataFrame({'A': [1.0, 2.0, np.nan], 'B': ['x', np.nan, 'z']})
-    >>> df['B'] = df['B'].astype('category')
-    >>> df = nan_to_na(df)
-    >>> df
-         A     B
-    0  1.0     x
-    1  2.0  <NA>
-    2  NaN     z
-
-    See Also
-    --------
-    pandas.DataFrame : Two-dimensional, size-mutable, potentially 
-        heterogeneous tabular data.
-    pandas.Series : One-dimensional ndarray with axis labels.
-    numpy.nan : IEEE 754 floating point representation of Not a Number 
-        (NaN).
-
-    References
-    ----------
-    .. [1] Harris, C. R., Millman, K. J., van der Walt, S. J., et al. 
-           (2020). Array programming with NumPy. Nature, 585(7825), 
-           357-362.
-
-    """
-    if not isinstance (data, (pd.Series, pd.DataFrame)): 
-        raise ValueError("Input must be a pandas DataFrame or Series."
-                         f" Got {type(data).__name__!r} instead.")
-        
-    def has_nan_values(series, nan_spec):
-        """Check if nan_spec exists in the series."""
-        return series.isin([nan_spec]).any()
-    
-    if isinstance(data, pd.Series):
-        if has_nan_values(data, nan_spec):
-            if pd.api.types.is_categorical_dtype(data):
-                return data.replace({nan_spec: cat_missing_value})
-        return data
-    
-    elif isinstance(data, pd.DataFrame):
-        df_copy = data.copy()
-        for column in df_copy.columns:
-            if has_nan_values(df_copy[column], nan_spec):
-                if pd.api.types.is_categorical_dtype(df_copy[column]):
-                    df_copy[column] = df_copy[column].replace({nan_spec: cat_missing_value})
-        return df_copy
-
 def validate_noise(noise):
     """
     Validates the `noise` parameter and returns either the noise value
@@ -7085,310 +3592,6 @@ def fancier_repr_formatter(obj, max_attrs=7):
 
     return f'{obj.__class__.__name__}({attr_str})'
 
-def generic_getattr(obj, name, default_value=None):
-    """
-    A generic attribute accessor for any class instance.
-
-    This function attempts to retrieve an attribute from the given object.
-    If the attribute is not found, it provides a meaningful error message.
-
-    Parameters:
-    ----------
-    obj : object
-        The object from which to retrieve the attribute.
-
-    name : str
-        The name of the attribute to retrieve.
-
-    default_value : any, optional
-        A default value to return if the attribute is not found. If None,
-        an AttributeError will be raised.
-
-    Returns:
-    -------
-    any
-        The value of the retrieved attribute or the default value.
-
-    Raises:
-    ------
-    AttributeError
-        If the attribute is not found and no default value is provided.
-
-    Examples:
-    --------
-    >>> from gofast.tools.coreutils import generic_getattr
-    >>> class MyClass:
-    >>>     def __init__(self, a, b):
-    >>>         self.a = a
-    >>>         self.b = b
-    >>> obj = MyClass(1, 2)
-    >>> print(generic_getattr(obj, 'a'))  # Prints: 1
-    >>> print(generic_getattr(obj, 'c', 'default'))  # Prints: 'default'
-    """
-    if hasattr(obj, name):
-        return getattr(obj, name)
-    
-    if default_value is not None:
-        return default_value
-
-    # Attempt to find a similar attribute name for a more informative error
-    similar_attr = _find_similar_attribute(obj, name)
-    suggestion = f". Did you mean '{similar_attr}'?" if similar_attr else ""
-
-    raise AttributeError(f"'{obj.__class__.__name__}' object has no "
-                         f"attribute '{name}'{suggestion}")
-
-def _find_similar_attribute(obj, name):
-    """
-    Attempts to find a similar attribute name in the object's dictionary.
-
-    Parameters
-    ----------
-    obj : object
-        The object whose attributes are being checked.
-    name : str
-        The name of the attribute to find a similar match for.
-
-    Returns
-    -------
-    str or None
-        A similar attribute name if found, otherwise None.
-    """
-    rv = smart_strobj_recognition(name, obj.__dict__, deep =True)
-    return rv 
- 
-
-def validate_url(url: str) -> bool:
-    """
-    Check if the provided string is a valid URL.
-
-    Parameters
-    ----------
-    url : str
-        The string to be checked as a URL.
-
-    Raises
-    ------
-    ValueError
-        If the provided string is not a valid URL.
-
-    Returns
-    -------
-    bool
-        True if the URL is valid, False otherwise.
-
-    Examples
-    --------
-    >>> validate_url("https://www.example.com")
-    True
-    >>> validate_url("not_a_url")
-    ValueError: The provided string is not a valid URL.
-    """
-    from urllib.parse import urlparse
-    
-    if is_module_installed("validators"): 
-        return validate_url_by_validators (url)
-    parsed_url = urlparse(url)
-    if not parsed_url.scheme or not parsed_url.netloc:
-        raise ValueError("The provided string is not a valid URL.")
-    return True
-
-def validate_url_by_validators(url: str):
-    """
-    Check if the provided string is a valid URL using `validators` packages.
-
-    Parameters
-    ----------
-    url : str
-        The string to be checked as a URL.
-
-    Raises
-    ------
-    ValueError
-        If the provided string is not a valid URL.
-
-    Returns
-    -------
-    bool
-        True if the URL is valid, False otherwise.
-
-    Examples
-    --------
-    >>> validate_url("https://www.example.com")
-    True
-    >>> validate_url("not_a_url")
-    ValueError: The provided string is not a valid URL.
-    """
-    import validators
-    if not validators.url(url):
-        raise ValueError("The provided string is not a valid URL.")
-    return True
-
-def is_module_installed(module_name: str, distribution_name: str = None) -> bool:
-    """
-    Check if a Python module is installed by attempting to import it.
-    Optionally, a distribution name can be provided if it differs from the module name.
-
-    Parameters
-    ----------
-    module_name : str
-        The import name of the module to check.
-    distribution_name : str, optional
-        The distribution name of the package as known by package managers (e.g., pip).
-        If provided and the module import fails, an additional check based on the
-        distribution name is performed. This parameter is useful for packages where
-        the distribution name differs from the importable module name.
-
-    Returns
-    -------
-    bool
-        True if the module can be imported or the distribution package is installed,
-        False otherwise.
-
-    Examples
-    --------
-    >>> is_module_installed("sklearn")
-    True
-    >>> is_module_installed("scikit-learn", "scikit-learn")
-    True
-    >>> is_module_installed("some_nonexistent_module")
-    False
-    """
-    if _try_import_module(module_name):
-        return True
-    if distribution_name and _check_distribution_installed(distribution_name):
-        return True
-    return False
-
-def _try_import_module(module_name: str) -> bool:
-    """
-    Attempt to import a module by its name.
-
-    Parameters
-    ----------
-    module_name : str
-        The import name of the module.
-
-    Returns
-    -------
-    bool
-        True if the module can be imported, False otherwise.
-    """
-    # import importlib.util
-    # module_spec = importlib.util.find_spec(module_name)
-    # return module_spec is not None
-    import importlib
-    try:
-        importlib.import_module(module_name)
-        return True
-    except ImportError:
-        return False 
-    
-def _check_distribution_installed(distribution_name: str) -> bool:
-    """
-    Check if a distribution package is installed by its name.
-
-    Parameters
-    ----------
-    distribution_name : str
-        The distribution name of the package.
-
-    Returns
-    -------
-    bool
-        True if the distribution package is installed, False otherwise.
-    """
-    try:
-        # Prefer importlib.metadata for Python 3.8 and newer
-        from importlib.metadata import distribution
-        distribution(distribution_name)
-        return True
-    except ImportError:
-        # Fallback to pkg_resources for older Python versions
-        try:
-            from pkg_resources import get_distribution, DistributionNotFound
-            get_distribution(distribution_name)
-            return True
-        except DistributionNotFound:
-            return False
-    except Exception:
-        return False
-    
-def get_installation_name(
-        module_name: str, distribution_name: Optional[str] = None, 
-        return_bool: bool = False) -> Union[str, bool]:
-    """
-    Determines the appropriate name for installing a package, considering potential
-    discrepancies between the distribution name and the module import name. Optionally,
-    returns a boolean indicating if the distribution name matches the import name.
-
-    Parameters
-    ----------
-    module_name : str
-        The import name of the module.
-    distribution_name : str, optional
-        The distribution name of the package. If None, the function attempts to infer
-        the distribution name from the module name.
-    return_bool : bool, optional
-        If True, returns a boolean indicating whether the distribution name matches
-        the module import name. Otherwise, returns the name recommended for installation.
-
-    Returns
-    -------
-    Union[str, bool]
-        Depending on `return_bool`, returns either a boolean indicating if the distribution
-        name matches the module name, or the name (distribution or module) recommended for
-        installation.
-    """
-    inferred_name = _infer_distribution_name(module_name)
-
-    # If a distribution name is provided, check if it matches the inferred name
-    if distribution_name:
-        if return_bool:
-            return distribution_name.lower() == inferred_name.lower()
-        return distribution_name
-
-    # If no distribution name is provided, return the inferred name or module name
-    if return_bool:
-        return inferred_name.lower() == module_name.lower()
-
-    return inferred_name or module_name
-
-def _infer_distribution_name(module_name: str) -> str:
-    """
-    Attempts to infer the distribution name of a package from its module name
-    by querying the metadata of installed packages.
-
-    Parameters
-    ----------
-    module_name : str
-        The import name of the module.
-
-    Returns
-    -------
-    str
-        The inferred distribution name. If no specific inference is made, returns
-        the module name.
-    """
-    try:
-        # Use importlib.metadata for Python 3.8+; use importlib_metadata for older versions
-        from importlib.metadata import distributions
-    except ImportError:
-        from importlib_metadata import distributions
-    #  Loop through all installed distributions
-    for distribution in distributions():
-        # Check if the module name matches the distribution name directly
-        if module_name == distribution.metadata.get('Name').replace('-', '_'):
-            return distribution.metadata['Name']
-
-        # Safely attempt to read and split 'top_level.txt'
-        top_level_txt = distribution.read_text('top_level.txt')
-        if top_level_txt:
-            top_level_packages = top_level_txt.split()
-            if any(module_name == pkg.split('.')[0] for pkg in top_level_packages):
-                return distribution.metadata['Name']
-
-    return module_name
 
 def normalize_string(
     input_str: str, 
@@ -8375,81 +4578,6 @@ def split_train_test_by_id(
 
     return train_set, test_set
 
-def parallelize_jobs(
-    function: _F,
-    tasks: Sequence[Dict[str, Any]] = (),
-    n_jobs: Optional[int] = None,
-    executor_type: str = 'process') -> list:
-    """
-    Parallelize the execution of a callable across multiple processors, 
-    supporting both positional and keyword arguments.
-
-    Parameters
-    ----------
-    function : Callable[..., Any]
-        The function to execute in parallel. This function must be picklable 
-        if using `executor_type='process'`.
-    tasks : Sequence[Dict[str, Any]], optional
-        A sequence of dictionaries, where each dictionary contains 
-        two keys: 'args' (a tuple) for positional arguments,
-        and 'kwargs' (a dict) for keyword arguments, for one execution of
-        `function`. Defaults to an empty sequence.
-    n_jobs : Optional[int], optional
-        The number of jobs to run in parallel. `None` or `1` uses a single 
-        processor, any positive integer specifies the
-        exact number of processors to use, `-1` uses all available processors. 
-        Default is None (1 processor).
-    executor_type : str, optional
-        The type of executor to use. Can be 'process' for CPU-bound tasks or
-        'thread' for I/O-bound tasks. Default is 'process'.
-
-    Returns
-    -------
-    list
-        A list of results from the function executions.
-
-    Raises
-    ------
-    ValueError
-        If `function` is not picklable when using 'process' as `executor_type`.
-
-    Examples
-    --------
-    >>> from gofast.tools.coreutils import parallelize_jobs
-    >>> def greet(name, greeting='Hello'):
-    ...     return f"{greeting}, {name}!"
-    >>> tasks = [
-    ...     {'args': ('John',), 'kwargs': {'greeting': 'Hi'}},
-    ...     {'args': ('Jane',), 'kwargs': {}}
-    ... ]
-    >>> results = parallelize_jobs(greet, tasks, n_jobs=2)
-    >>> print(results)
-    ['Hi, John!', 'Hello, Jane!']
-    """
-    if executor_type == 'process':
-        import_optional_dependency("cloudpickle")
-        import cloudpickle
-        try:
-            cloudpickle.dumps(function)
-        except cloudpickle.PicklingError:
-            raise ValueError("The function to be parallelized must be "
-                             "picklable when using 'process' executor.")
-
-    num_workers = multiprocessing.cpu_count() if n_jobs == -1 else (
-        1 if n_jobs is None else n_jobs)
-    
-    ExecutorClass = ProcessPoolExecutor if executor_type == 'process' \
-        else ThreadPoolExecutor
-    
-    results = []
-    with ExecutorClass(max_workers=num_workers) as executor:
-        futures = [executor.submit(function, *task.get('args', ()),
-                                   **task.get('kwargs', {})) for task in tasks]
-        
-        for future in as_completed(futures):
-            results.append(future.result())
-    
-    return results
  
 def denormalize(
     data: ArrayLike, min_value: float, max_value: float
@@ -8498,36 +4626,6 @@ def denormalize(
         
     return data * (max_value - min_value) + min_value
    
-def download_progress_hook(t):
-    """
-    Hook to update the tqdm progress bar during a download.
-
-    Parameters
-    ----------
-    t : tqdm
-        An instance of tqdm to update as the download progresses.
-    """
-    last_b = [0]
-
-    def update_to(b=1, bsize=1, tsize=None):
-        """
-        Updates the progress bar.
-
-        Parameters
-        ----------
-        b : int
-            Number of blocks transferred so far [default: 1].
-        bsize : int
-            Size of each block (in tqdm-compatible units) [default: 1].
-        tsize : int, optional
-            Total size (in tqdm-compatible units). If None, remains unchanged.
-        """
-        if tsize is not None:
-            t.total = tsize
-        t.update((b - last_b[0]) * bsize)
-        last_b[0] = b
-
-    return update_to 
 
 def squeeze_specific_dim(
     arr: np.ndarray, axis: Optional[int] = -1
@@ -8745,174 +4843,6 @@ def convert_to_structured_format(
         # Try to convert everything to numpy arrays, return as is if it fails
         return [attempt_conversion_to_numpy(attempt_conversion_to_pandas(arr)
                                             ) for arr in arrays]
-
-def resample_data(*data: Any, samples: Union[int, float, str] = 1,
-                  replace: bool = False, random_state: int = None,
-                  shuffle: bool = True) -> List[Any]:
-    """
-    Resample multiple data structures (arrays, sparse matrices, Series, DataFrames)
-    based on specified sample size or ratio.
-
-    Parameters
-    ----------
-    *data_structures : Any
-        Variable number of array-like, sparse matrix, pandas Series, or DataFrame
-        objects to be resampled.
-    samples : int, float, or str, optional
-        Number of items to sample or a ratio of items to sample (if < 1 or
-        expressed as a percentage string, e.g., "50%"). Defaults to 1, meaning
-        no resampling unless specified.
-    replace : bool, default=False
-        Whether sampling of the same row more than once is allowed.
-    random_state : int, optional
-        Seed for the random number generator for reproducibility.
-    shuffle : bool, default=True
-        Whether to shuffle data before sampling.
-
-    Returns
-    -------
-    List[Any]
-        A list of resampled data structures, matching the input order. Each
-        structure is resampled according to the `samples` parameter.
-
-    Examples
-    --------
-    >>> from gofast.tools.coreutils import resample_data
-    >>> from sklearn.datasets import load_iris
-    >>> iris = load_iris(as_frame=True)
-    >>> data, target = iris.data, iris.target
-    >>> resampled_data, resampled_target = resample_data(data, target, samples=0.5,
-    ...                                                  random_state=42)
-    >>> print(resampled_data.shape, resampled_target.shape)
-    """
-    resampled_structures = []
-    
-    for d in data:
-        # Correct way to access the shape of the sparse matrix 
-        # encapsulated in a numpy array
-        try: 
-            if d.dtype == object and scipy.sparse.issparse(d.item()):
-                d = d.item()  # Access the sparse matrix
-            # Now you can safely access the number of rows
-        except:
-            # Fallback for regular numpy arrays/data or 
-            # directly accessible sparse matrices
-           pass 
-        n_samples = _determine_sample_size(d, samples, is_percent="%" in str(samples))
-        sampled_d = _perform_sampling(d, n_samples, replace, random_state, shuffle)
-        resampled_structures.append(sampled_d)
-
-    return resampled_structures
-
-def _determine_sample_size(d: Any, samples: Union[int, float, str], 
-                           is_percent: bool) -> int:
-    """
-    Determine the number of samples to draw based on the input size or ratio.
-    """
-    if isinstance(samples, str) and is_percent:
-        samples = samples.replace("%", "")
-    try:
-        samples = float(samples)
-    except ValueError:
-        raise TypeError(f"Invalid type for 'samples': {type(samples).__name__}."
-                        " Expected int, float, or percentage string.")
-   
-    d_length = d.shape[0] if hasattr(d, 'shape') else len(d)
-    if samples < 1 or is_percent:
-        return max(1, int(samples * d_length))
-    return int(samples)
-
-def _perform_sampling(d: Any, n_samples: int, replace: bool, 
-                      random_state: int, shuffle: bool) -> Any:
-    """
-    Perform the actual sampling operation on the data structure.
-    """
-    if isinstance(d, pd.DataFrame) or isinstance(d, pd.Series):
-        return d.sample(n=n_samples, replace=replace, random_state=random_state
-                        ) if shuffle else d.iloc[:n_samples]
-    elif scipy.sparse.issparse(d):
-        if scipy.sparse.isspmatrix_coo(d):
-            warnings.warn("coo_matrix does not support indexing. Conversion"
-                          " to CSR matrix is recommended.")
-            d = d.tocsr()
-        indices = np.random.choice(d.shape[0], n_samples, replace=replace
-                                   ) if shuffle else np.arange(n_samples)
-        return d[indices]
-    else:
-        d_array = np.array(d) if not hasattr(d, '__array__') else d
-        indices = np.random.choice(len(d_array), n_samples, replace=replace
-                                   ) if shuffle else np.arange(n_samples)
-        return d_array[indices] if d_array.ndim == 1 else d_array[indices, :]
-
-
-def get_valid_key(input_key, default_key, substitute_key_dict=None,
-                  regex_pattern = "[#&*@!,;\s]\s*", deep_search=True):
-    """
-    Validates an input key and substitutes it with a valid key if necessary,
-    based on a mapping of valid keys to their possible substitutes. If the input
-    key is not provided or is invalid, a default key is used.
-
-    Parameters
-    ----------
-    input_key : str
-        The key to validate and possibly substitute.
-    default_key : str
-        The default key to use if input_key is None, empty, or not found in 
-        the substitute mapping.
-    substitute_key_dict : dict, optional
-        A mapping of valid keys to lists of their possible substitutes. This
-        allows for flexible key substitution and validation.
-    regex_pattern: str, default = '[#&*@!,;\s-]\s*'
-        The base pattern to split the text into a columns
-    deep_search: bool, default=False 
-       If deep-search, the key finder is no sensistive to lower/upper case 
-       or whether a numeric data is included. 
-    Returns
-    -------
-    str
-        A valid key, which is either the original input_key if valid, a substituted
-        key if the original was found in the substitute mappings, or the default_key.
-
-    Notes
-    -----
-    This function also leverages an external validation through `key_checker` for
-    a deep search validation, ensuring the returned key is within the set of valid keys.
-    
-    Example
-    -------
-    >>> from gofast.tools.coreutils import get_valid_key
-    >>> substitute_key_dict = {'valid_key1': ['vk1', 'key1'], 'valid_key2': ['vk2', 'key2']}
-    >>> get_valid_key('vk1', 'default_key', substitute_key_dict)
-    'valid_key1'
-    >>> get_valid_key('unknown_key', 'default_key', substitute_key_dict)
-    'KeyError...'
-  
-    """
-    # Ensure substitute_mapping is a dictionary if not provided
-    substitute_key_dict = substitute_key_dict or {}
-
-    # Fallback to default_key if input_key is None or empty
-    input_key = input_key or default_key
-
-    # Attempt to find a valid substitute for the input_key
-    for valid_key, substitutes in substitute_key_dict.items():
-        # Case-insensitive comparison for substitutes
-        normalized_substitutes = [str(sub).lower() for sub in substitutes]
-        
-        if str(input_key).lower() in normalized_substitutes:
-            input_key = valid_key
-            break
-    
-    regex = re.compile (fr'{regex_pattern}', flags=re.IGNORECASE)
-    # use valid keys  only if substitute_key_dict not provided. 
-    valid_keys = substitute_key_dict.keys() if substitute_key_dict else is_iterable(
-            default_key, exclude_string=True, transform=True)
-    valid_keys = set (list(valid_keys) + [default_key])
-    # Further validate the (possibly substituted) input_key
-    input_key = key_checker(input_key, valid_keys=valid_keys,
-                            deep_search=deep_search,regex = regex  )
-    
-    return input_key
 
 def process_and_extract_data(
     *args: ArrayLike, 

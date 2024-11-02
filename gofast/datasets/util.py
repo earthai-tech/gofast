@@ -6,51 +6,58 @@ Provides utility functions for data management, simulation adjustments,
 distribution checks, and extraction of geographical data.
 """
 
-import re
 import copy
-import random
-import warnings 
 import itertools
+import random
+import re
+import warnings
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Tuple, Optional, Union
-import numpy as np 
-import pandas as pd 
+from typing import Optional, Tuple, Union
+
+import numpy as np
+import pandas as pd
 
 from ..api.formatter import DescriptionFormatter
 from ..api.structures import Boxspace
-from ..compat.sklearn import  train_test_split 
-from ..tools.coreutils import is_in_if, add_noises_to, generate_id 
-from ..tools.coreutils import smart_format, is_iterable, validate_ratio 
+from ..compat.sklearn import train_test_split
+from ..tools.coreutils import (
+    add_noises_to,
+    generate_id,
+    is_in_if,
+    is_iterable,
+    smart_format,
+    validate_ratio
+)
 from .metadata import SimulationMetadata
 
-__all__= [
-     'apply_scaling',
-     'build_continent_country_dict',
-     'build_dataset_description',
-     'build_distributions_from',
-     'build_reserve_details_by_country',
-     'check_distributions',
-     'extract_minerals_from_countries',
-     'extract_minerals_from_regions',
-     'fetch_simulation_metadata',
-     'find_countries_and_minerals_by_region',
-     'find_countries_by_distributions',
-     'find_countries_by_minerals',
-     'find_countries_by_region',
-     'find_mineral_by_country',
-     'find_mineral_distributions',
-     'find_mineral_location',
-     'generate_regression_output',
-     'generate_synthetic_values',
-     'get_country_by', 
-     'is_structure_nested',
-     'manage_data',
-     'manage_nested_lists',
-     'rename_data_columns',
-     'select_location_for_mineral',
-     'validate_noise_level',
-  ]
+__all__ = [
+    'apply_scaling',
+    'build_continent_country_dict',
+    'build_dataset_description',
+    'build_distributions_from',
+    'build_reserve_details_by_country',
+    'check_distributions',
+    'extract_minerals_from_countries',
+    'extract_minerals_from_regions',
+    'fetch_simulation_metadata',
+    'find_countries_and_minerals_by_region',
+    'find_countries_by_distributions',
+    'find_countries_by_minerals',
+    'find_countries_by_region',
+    'find_mineral_by_country',
+    'find_mineral_distributions',
+    'find_mineral_location',
+    'generate_regression_output',
+    'generate_synthetic_values',
+    'get_country_by',
+    'is_structure_nested',
+    'manage_data',
+    'manage_nested_lists',
+    'rename_data_columns',
+    'select_location_for_mineral',
+    'validate_noise_level',
+]
 
 
 def generate_custom_id(

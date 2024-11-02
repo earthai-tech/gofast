@@ -11,8 +11,8 @@ from sklearn.datasets import fetch_california_housing
 # from sklearn.datasets import load_boston # `load_boston` has been removed 
 # from scikit-learn since version 1.2.
 from gofast.datasets.io import get_data, remove_data 
-from gofast.tools.coreutils import is_module_installed 
-from gofast.tools.funcutils import install_package 
+from gofast.tools.depsutils import is_module_installed 
+from gofast.tools.depsutils import install_package 
 from gofast.tools.baseutils import remove_target_from_array
 
 from gofast.dataops.enrichment import enrich_data_spectrum

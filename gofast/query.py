@@ -12,13 +12,15 @@ import re
 import pandas as pd
 
 from .api.types import Optional, DataFrame
+from .api.property import BaseClass
 from .exceptions import NotFittedError 
-from .tools._dependency import import_optional_dependency
 from .tools.coreutils import normalize_string
+from .tools.depsutils import import_optional_dependency
+
  
 __all__= ['DBAnalysis']
 
-class DBAnalysis:
+class DBAnalysis(BaseClass):
     """
     A class for performing various data analysis tasks using SQL.
     

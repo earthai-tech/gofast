@@ -13,7 +13,7 @@ from gofast.api.summary import ReportFactory, assemble_reports
 from gofast.api.util import remove_extra_spaces, get_table_size 
 TW = get_table_size() 
 
-__all__=["assist_me", "gofast_explorer"]
+__all__=["assist_me", "explore"]
 
 TASK_MAPPING = {
     'data_preprocessing': [
@@ -90,7 +90,6 @@ TASK_MAPPING = {
         'drop_correlated_features',
     ],
     'statistics_and_math': [
-        'adaptive_moving_average',
         'calculate_adjusted_lr',
         'calculate_optimal_bins',
         'calculate_binary_iv',
@@ -239,7 +238,7 @@ def _manage_task (tasks):
         return [random.choice(sorted (TASK_MAPPING.keys()))]
     return tasks 
         
-def gofast_explorer(package_path, /,  exclude_names=None):
+def explore(package_path, /,  exclude_names=None):
     """
     Provides a guided exploration of the 'gofast' package, returning descriptions
     for modules or functions, excluding any specified by the user or those 

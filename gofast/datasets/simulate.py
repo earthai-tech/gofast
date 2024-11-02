@@ -6,46 +6,304 @@ Provides functions for simulating synthetic datasets across various domains,
 including environment, energy, customer behavior, and more.
 """
 
-import inspect 
 import datetime
-import pandas as pd
+import inspect
+import warnings 
 import numpy as np
+import pandas as pd
 
-from ..tools.coreutils import is_iterable, unpack_list_of_dicts  
-from ..tools.validator import validate_dates, validate_positive_integer 
-from ..tools.validator import validate_distribution, validate_length_range
-from .util import validate_region, adjust_parameters_to_fit_samples 
-from .util import find_mineral_distributions, find_countries_by_minerals
-from .util import extract_minerals_from_regions, build_distributions_from
-from .util import check_distributions, select_location_for_mineral, manage_data
-from .util import generate_ore_infos, build_reserve_details_by_country
-from .util import get_last_day_of_current_month, adjust_households_and_days
-from .util import validate_noise_level, validate_loan_parameters 
-from .util import select_diagnostic_options, fetch_simulation_metadata 
-from .util import get_country_by, generate_custom_id 
+from ..tools.coreutils import is_iterable, unpack_list_of_dicts
+from ..tools.validator import (
+    validate_dates,
+    validate_distribution,
+    validate_length_range,
+    validate_positive_integer
+)
+from .util import (
+    adjust_households_and_days,
+    adjust_parameters_to_fit_samples,
+    build_distributions_from,
+    build_reserve_details_by_country,
+    check_distributions,
+    extract_minerals_from_regions,
+    fetch_simulation_metadata,
+    find_countries_by_minerals,
+    find_mineral_distributions,
+    generate_custom_id,
+    generate_ore_infos,
+    get_country_by,
+    get_last_day_of_current_month,
+    manage_data,
+    select_diagnostic_options,
+    select_location_for_mineral,
+    validate_loan_parameters,
+    validate_noise_level,
+    validate_region
+)
 
-__all__= [
+__all__ = [
     "simulate_landfill_capacity",
-    "simulate_water_reserves", 
-    "simulate_world_mineral_reserves", 
+    "simulate_water_reserves",
+    "simulate_world_mineral_reserves",
     "simulate_energy_consumption",
-    "simulate_customer_churn", 
+    "simulate_customer_churn",
     "simulate_predictive_maintenance",
-    "simulate_real_estate_price", 
-    "simulate_sentiment_analysis", 
-    "simulate_weather_forecasting", 
+    "simulate_real_estate_price",
+    "simulate_sentiment_analysis",
+    "simulate_weather_forecasting",
     "simulate_default_loan",
     "simulate_traffic_flow",
     "simulate_medical_diagnosis",
     "simulate_retail_sales",
-    "simulate_transactions", 
+    "simulate_transactions",
     "simulate_stock_prices",
     "simulate_patient_data",
     "simulate_weather_data",
     "simulate_climate_data",
-    "simulate_clinical_trials", 
+    "simulate_clinical_trials",
+]
 
-    ]
+def simulate_telecom_data(
+    *, n_timepoints=1000, 
+    end_time=10,  
+    noise_level=0.1, 
+    nonlinear_distortion=True, 
+    interference_level=0.05, 
+    attenuation=0.8,  
+    amplitude_base=2.0,  
+    amplitude_variation=0.5,  
+    frequency_base=5.0,  
+    frequency_variation=0.5,  
+    phase_shift_base=np.pi / 4,  
+    n_samples=None,  
+    as_frame=False, 
+    return_X_y=False, 
+    target_name=None, 
+    seed=None, 
+):
+    """
+    Generate a synthetic telecommunications dataset with realistic linear and 
+    nonlinear distortions and features commonly observed in real-world 
+    telecommunications for dynamic system modeling.
+
+    Parameters
+    ----------
+    n_timepoints : int, default=1000
+        Number of time points (or observations) in the dataset, representing 
+        discrete points along the time axis within the duration specified by 
+        `end_time`.
+
+    end_time : float, default=10
+        The total duration of the simulation in seconds. Defines the range of 
+        the time variable from 0 to `end_time`, with `n_timepoints` samples.
+
+    noise_level : float, default=0.1
+        Standard deviation of the Gaussian noise added to the signal, simulating 
+        transmission noise. Must be a non-negative value.
+
+    nonlinear_distortion : bool, default=True
+        Whether to apply a nonlinear distortion (tanh) to the signal after 
+        linear attenuation. Set to `True` for more realistic signal saturation 
+        effects.
+
+    interference_level : float, default=0.05
+        Level of interference added to the signal, simulating external 
+        disturbances, such as cross-channel interference.
+
+    attenuation : float, default=0.8
+        Linear attenuation factor applied to the input signal before adding 
+        nonlinear distortions or noise. Higher values preserve signal strength.
+
+    amplitude_base : float, default=2.0
+        Base amplitude of the signal, representing the mean level of signal 
+        strength across the simulation period.
+
+    amplitude_variation : float, default=0.5
+        Variation factor applied to the amplitude, creating a sinusoidal 
+        fluctuation over time, simulating real-world changes in signal strength.
+
+    frequency_base : float, default=5.0
+        Base frequency of the signal in Hertz (Hz), representing the average 
+        frequency during the transmission period.
+
+    frequency_variation : float, default=0.5
+        Variation factor applied to the frequency, creating a sinusoidal 
+        fluctuation over time and simulating real-world frequency modulation.
+
+    phase_shift_base : float, default=np.pi / 4
+        Base phase shift applied to the signal, representing a fixed offset in 
+        the phase to simulate signal alignment or initial phase differences.
+
+    n_samples : int, optional
+        For API consistency only. If provided, a warning is issued indicating 
+        that `n_samples` should equal `n_timepoints`.
+
+    as_frame : bool, default=False
+        If `True`, returns the dataset as a DataFrame; if `False`, returns as a 
+        dictionary or other format, based on additional arguments.
+
+    return_X_y : bool, default=False
+        If `True`, returns feature data `X` and target `y` separately.
+
+    target_name : str, optional
+        Names of target variables. Defaults to `["received_quality"]`.
+
+    seed : int, optional
+        Random seed for reproducibility. Ensures consistent noise generation.
+
+    Returns
+    -------
+    dataset : pd.DataFrame or tuple of (X, y)
+        The telecommunications dataset with columns representing features and 
+        target variables, structured based on specified return type.
+
+    Concept
+    -------
+    This simulation models telecommunications signal transmission by applying 
+    both linear and nonlinear transformations to an input signal. It captures 
+    the dynamic behavior of signals over time through several key transformations:
+    
+    - **Amplitude and Frequency Modulation**:
+      The amplitude and frequency of the signal are modulated over time:
+
+      .. math::
+          \\text{Amplitude} = A_{\\text{base}} + A_{\\text{var}} \\cdot \\sin(0.5t)
+
+      .. math::
+          \\text{Frequency} = f_{\\text{base}} + f_{\\text{var}} \\cdot \\cos(0.3t)
+
+    - **Linear Attenuation and Nonlinear Distortion**:
+      Linear attenuation is applied, followed by optional nonlinear distortion:
+
+      .. math::
+          \\text{Output} = \\text{attenuation} \\times \\text{input\_signal}
+
+      .. math::
+          \\text{Distorted Output} = \\tanh(\\text{Output})
+
+    - **Noise and Interference Addition**:
+      Gaussian noise and high-frequency interference simulate transmission 
+      disturbances.
+
+    - **Signal-to-Noise Ratio (SNR)**:
+      SNR is calculated to represent the signal clarity in dB:
+
+      .. math::
+          \\text{SNR} = 10 \\cdot \\log_{10} \\left( \\frac{\\text{Amplitude}^2}{\\text{noise\_level + interference\_level}} \\right)
+
+    Notes
+    -----
+    This dataset is suitable for tasks like predicting received signal quality, 
+    analyzing distortion effects, and testing models designed for dynamic and 
+    time-series systems in telecommunications.
+
+    Examples
+    --------
+    >>> from gofast.datasets.simulate import simulate_telecom_data
+    >>> data = simulate_telecom_data(n_timepoints=1500, end_time=20)
+    >>> data.head()
+
+    See Also
+    --------
+    manage_data : Organizes data for return based on provided options.
+
+    References
+    ----------
+    .. [1] Proakis, J. G., & Salehi, M. (2007). Digital Communications. 
+           McGraw-Hill.
+    .. [2] Haykin, S., & Van Veen, B. (2002). Signals and Systems. Wiley.
+    """
+
+    np.random.seed(seed)
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr = fetch_simulation_metadata(func_name)
+    
+    if n_samples is not None:
+        warnings.warn(
+            "`n_samples` is provided for API consistency only and should equal "
+            "`n_timepoints`. Please use `n_timepoints` directly to specify the "
+            "number of time points in the dataset. Setting `n_timepoints`"
+            " to match `n_samples`."
+        )
+        n_timepoints = n_samples
+
+    # validate the parameters  
+    end_time = validate_positive_integer(end_time, "end_time")
+    n_timepoints = validate_positive_integer(n_timepoints, "n_timepoints")
+    
+    # Time variable in seconds based on specified end_time
+    time = np.linspace(0, end_time, n_timepoints)  
+    
+    # Core signal properties with adjustable amplitude and frequency
+    amplitude = amplitude_base + amplitude_variation * np.sin(0.5 * time)
+    frequency = frequency_base + frequency_variation * np.cos(0.3 * time)
+    # Phase incorporating frequency shifts
+    phase = np.cumsum(frequency * (2 * np.pi / n_timepoints)) 
+    # Modulated input signal with amplitude and phase
+    input_signal = amplitude * np.sin(phase)  
+
+    # Linear transmission component with adjustable attenuation
+    linear_output = attenuation * input_signal  # Apply specified linear attenuation
+
+    # Optional nonlinear distortion (e.g., saturation effect)
+    if nonlinear_distortion:
+        distorted_output = np.tanh(linear_output)  # Nonlinear distortion using tanh
+    else:
+        distorted_output = linear_output
+
+    # validate noise level 
+    noise_level = validate_noise_level(noise_level, default_value= 0.1) 
+    # Gaussian noise to simulate transmission noise
+    noise = np.random.normal(0, noise_level, n_timepoints)
+    noisy_output = distorted_output + noise
+
+    # Additional realistic telecommunications features
+    #   SNR including interference
+    snr = 10 * np.log10(amplitude ** 2 / (noise_level + interference_level)) 
+    bandwidth = 0.5 + 0.2 * np.sin(0.1 * time)  # Bandwidth variation over time
+    # Phase shift based on base shift
+    phase_shift = np.unwrap(np.angle(np.sin(phase + phase_shift_base)))  
+
+    # Simulate interference, e.g., from neighboring channels
+    # High-frequency interference
+    interference = interference_level * np.sin(5 * time)  
+    noisy_output += interference
+
+    # Data rate (simulated as varying rate due to network congestion)
+    # Varying data rate
+    data_rate = 100 + 10 * np.sin(0.2 * time) - 5 * np.cos(0.1 * time) 
+    
+    # Target variable: Received Quality
+    # Combines all distortions to simulate received quality degradation
+    received_quality = noisy_output * (
+        1 - 0.03 * np.sin(0.3 * time) - 0.01 * interference)
+
+    # Create a DataFrame for the dataset
+    dataset = pd.DataFrame({
+        "time": time,
+        "amplitude": amplitude,
+        "frequency": frequency,
+        "snr": snr,
+        "bandwidth": bandwidth,
+        "phase_shift": phase_shift,
+        "interference": interference,
+        "data_rate": data_rate,
+        "input_signal": input_signal,
+        "output_signal": noisy_output,
+        "received_quality": received_quality
+    })
+
+    target_name = target_name or ["received_quality"]
+
+    return manage_data(
+        data=dataset, 
+        as_frame=as_frame, 
+        return_X_y=return_X_y,
+        target_names=target_name,
+        DESCR=dataset_descr, 
+        FDESCR=features_descr, 
+        noise=noise_level,
+    )
 
 def simulate_stock_prices(
     *, n_companies=10, 

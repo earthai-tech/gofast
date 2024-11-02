@@ -144,6 +144,80 @@ class SimulationMetadata:
 
 
 DESCR_METADATA={
+    "simulate_telecom_data": 
+    {
+    "overview": (
+        "The dataset simulates telecommunications signal transmission over a "
+        "specified duration, capturing various signal distortions and dynamic "
+        "behavior. Each record represents a specific time point in the "
+        "transmission, including features that influence signal quality, such as "
+        "amplitude, frequency, phase shift, interference, and signal-to-noise "
+        "ratio (SNR). The dataset also includes a target variable, 'received_quality', "
+        "which reflects the combined effects of distortions and noise, providing "
+        "a measure of the signal's clarity at the receiver. Designed for tasks "
+        "like signal classification, noise reduction, and distortion correction, "
+        "this dataset serves as a useful tool for modeling dynamic telecommunications "
+        "systems in both educational and research contexts. The detailed simulation "
+        "captures complexities inherent in signal transmission, making it suitable "
+        "for testing and developing advanced telecommunications models, particularly "
+        "those based on dynamic systems and time-series analysis."
+    ), 
+    "features": {
+        "time": (
+            "The time at each observation point, in seconds, representing the "
+            "progression of the signal over the specified duration."
+        ),
+        "amplitude": (
+            "The amplitude of the signal at each time point, reflecting the "
+            "strength of the signal, which varies over time due to dynamic "
+            "modulation and attenuation."
+        ),
+        "frequency": (
+            "The frequency of the signal at each time point in Hz, simulating "
+            "frequency modulation and shifts during transmission."
+        ),
+        "snr": (
+            "Signal-to-noise ratio (SNR) in decibels (dB), which measures the "
+            "clarity of the signal relative to noise. Higher values indicate "
+            "better signal quality."
+        ),
+        "bandwidth": (
+            "The bandwidth of the transmission at each time point, in Hz, "
+            "indicating the range of frequencies occupied by the signal, which "
+            "can fluctuate due to transmission conditions."
+        ),
+        "phase_shift": (
+            "Phase shift at each time point in radians, showing how the phase of "
+            "the signal changes dynamically, influenced by both linear and "
+            "nonlinear factors in transmission."
+        ),
+        "interference": (
+            "Simulated interference from external sources at each time point, "
+            "measured as a high-frequency component affecting signal quality."
+        ),
+        "data_rate": (
+            "Data rate in Mbps, representing the simulated rate of data "
+            "transmission at each time point, which can vary due to network "
+            "conditions like congestion and signal strength."
+        ),
+        "input_signal": (
+            "The original input signal, calculated based on varying amplitude "
+            "and frequency, before applying transmission effects like attenuation "
+            "and distortion."
+        ),
+        "output_signal": (
+            "The signal after linear attenuation, nonlinear distortion, and noise "
+            "addition, representing the received signal with potential distortions "
+            "and reduced clarity."
+        ),
+        "received_quality": (
+            "The target variable, representing the quality of the received signal "
+            "after accounting for all factors, including noise, interference, "
+            "and other distortions. Higher values indicate clearer signal reception."
+        )
+    }
+},
+
     "simulate_landfill_capacity": {
         "overview": (
             "This dataset simulates daily landfill capacity measurements across "
@@ -2502,7 +2576,160 @@ DESCR_METADATA={
             " available in the account."
         )
     }
-  }
+  }, 
+   "make_control_system_dynamics": 
+{
+    "overview": (
+        "The dataset simulates the dynamic behavior of a control system over a "
+        "specified period, modeling how the system responds to input signals and "
+        "external disturbances. Each record represents the system's response at "
+        "a specific time point, including features that describe the input, output, "
+        "control effort, stability, and error. The dataset is designed to help "
+        "analyze and optimize control systems, such as automated vehicles or "
+        "industrial processes, by capturing both linear and nonlinear responses. "
+        "It is ideal for tasks like response prediction, stability analysis, and "
+        "system tuning, serving as a valuable resource for research and development "
+        "in control systems engineering. The dataset's detailed simulation allows "
+        "for a comprehensive study of control system dynamics, making it suitable "
+        "for developing advanced models focused on system identification, dynamics, "
+        "and time-series behavior in control systems."
+    ), 
+    "features": {
+        "time": (
+            "The time at each observation point, in seconds, representing the "
+            "progression of the control system response over the specified period."
+        ),
+        "input_signal": (
+            "The input signal applied to the control system at each time point, "
+            "modeled as a sinusoidal function with added noise to simulate real-world "
+            "input variability."
+        ),
+        "linear_output": (
+            "The system's response after applying linear gain to the input signal, "
+            "capturing the linear transformation before any additional effects."
+        ),
+        "response_output": (
+            "The final output of the control system after applying nonlinear "
+            "distortions and adding control noise, representing the system's "
+            "actual behavior at each time point."
+        ),
+        "control_effort": (
+            "The level of control effort exerted on the system to achieve the "
+            "desired response, calculated as the product of system gain and the "
+            "absolute value of the input signal."
+        ),
+        "error_signal": (
+            "The difference between the input signal and the response output, "
+            "indicating the error at each time point, which can be used for "
+            "feedback analysis and tuning purposes."
+        ),
+        "power_consumption": (
+            "The estimated power consumption of the control system, calculated as "
+            "the square of the control effort, providing insight into the energy "
+            "required to maintain system performance."
+        ),
+        "response_rate": (
+            "The rate of change in the system's response output over time, capturing "
+            "the speed at which the system reacts to input changes, which is valuable "
+            "for analyzing system agility and responsiveness."
+        ),
+        "stability_metric": (
+            "A measure of system stability, calculated as one minus the absolute "
+            "difference between the nonlinear response and the linear output, helping "
+            "to identify periods of instability or oscillations in the system."
+        ),
+        "output": (
+            "The target variable representing the final observed output of the "
+            "control system, after accounting for input, control noise, and response "
+            "characteristics. This target is useful for supervised learning models "
+            "designed to predict system behavior."
+        )
+    }
+}, 
+    "make_financial_market_trends": 
+    {
+        "overview": (
+            "The dataset simulates dynamic behaviors in financial markets over a "
+            "specified period, capturing the impact of market trends, volatility, "
+            "and other financial indicators on stock prices. Each record represents "
+            "the market's state at a specific time point, including features that "
+            "reflect price trends, returns, volatility, stability, and momentum. "
+            "The dataset is designed to help analyze and forecast stock market "
+            "movements by modeling both linear and nonlinear relationships that "
+            "influence future prices or trends. It is ideal for tasks such as "
+            "price prediction, volatility analysis, and financial risk management, "
+            "providing a comprehensive tool for research and development in "
+            "financial modeling. The detailed simulation captures complexities "
+            "inherent in stock market behaviors, making it suitable for developing "
+            "advanced models for financial forecasting and time-series analysis."
+        ), 
+        "features": {
+            "time": (
+                "The time at each observation point, in trading days or specific dates, "
+                "representing the progression of the stock market dynamics over the "
+                "specified period."
+            ),
+            "price_trend": (
+                "The base price trend influenced by general market factors, modeled as "
+                "a sinusoidal function with added noise to simulate real-world market "
+                "fluctuations."
+            ),
+            "market_trend": (
+                "The linear market trend component representing market sensitivity, "
+                "reflecting general upward or downward movement in prices over time."
+            ),
+            "price_response": (
+                "The final stock price after applying both linear market trends and "
+                "nonlinear economic shifts, incorporating market sensitivity and "
+                "volatility factors at each time point."
+            ),
+            "daily_return": (
+                "The daily return rate, representing the percentage change in price "
+                "from one time point to the next. It is a critical indicator in "
+                "financial modeling, used to analyze profitability and trends."
+            ),
+            "moving_average": (
+                "The 20-day moving average of the stock price, used to smooth out "
+                "short-term fluctuations and highlight longer-term trends, which is "
+                "valuable in identifying buy and sell signals."
+            ),
+            "price_volatility": (
+                "The 20-day rolling standard deviation of the stock price, representing "
+                "market volatility over time, used to assess risk and market stability."
+            ),
+            "stability_metric": (
+                "A measure of price stability, calculated as one minus the relative "
+                "difference between the nonlinear response and the market trend. This "
+                "metric helps to identify periods of high stability or volatility."
+            ),
+            "relative_strength_index": (
+                "The 14-day relative strength index (RSI), a momentum indicator that "
+                "measures the speed and change of price movements, often used to identify "
+                "overbought or oversold conditions in the market."
+            ),
+            "exponential_moving_average": (
+                "The 20-day exponential moving average (EMA) of the stock price, giving "
+                "more weight to recent prices and providing a more responsive trend line "
+                "compared to the simple moving average."
+            ),
+            "upper_band": (
+                "The upper Bollinger Band, set at two standard deviations above the "
+                "20-day moving average, indicating potential overbought conditions "
+                "when the price approaches this level."
+            ),
+            "lower_band": (
+                "The lower Bollinger Band, set at two standard deviations below the "
+                "20-day moving average, indicating potential oversold conditions "
+                "when the price approaches this level."
+            ),
+            "price_output": (
+                "The target variable representing the final observed stock price, "
+                "incorporating all market trends, economic shifts, and volatility "
+                "factors. This target is useful for supervised learning models designed "
+                "to predict stock prices or market behavior."
+            )
+        }
+    }
 
 
 }

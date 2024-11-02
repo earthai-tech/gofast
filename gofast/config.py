@@ -90,6 +90,7 @@ import resource  # For Unix-like systems (Linux/macOS)
 from numbers import Integral 
 from typing import Optional, Union 
 
+from .api.property import BaseClass
 from .backends.numpy import NumpyBackend
 from .backends.scipy import ScipyBackend 
 from .backends.dask import DaskBackend 
@@ -114,7 +115,7 @@ _backend_classes = {
 __all__ =["Configure", "set_backend", "get_backend"]
 
 
-class Configure:
+class Configure(BaseClass):
     """
     A class for managing and customizing the behavior of the `gofast` package.
     Provides flexibility to control features like dependency installation,

@@ -18,6 +18,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+from .api.property import BaseClass
 from .api.docstring import DocstringComponents, _core_docs
 from ._gofastlog import gofastlog
 from .api.types import List, Optional, DataFrame, Tuple
@@ -25,11 +26,9 @@ from .api.types import List, Optional, DataFrame, Tuple
 from .exceptions import NotFittedError
 from .tools.baseutils import is_readable
 from .tools.coreutils import sanitize_frame_cols, exist_features
-from .tools.coreutils import repr_callable_obj, reshape 
-from .tools.coreutils import smart_strobj_recognition, is_iterable
-from .tools.coreutils import format_to_datetime, fancier_repr_formatter
+from .tools.coreutils import reshape, is_iterable, format_to_datetime
 from .tools.coreutils import to_numeric_dtypes
-from .tools.funcutils import ensure_pkg
+from .tools.depsutils import ensure_pkg
 from .tools.validator import array_to_frame, check_array, build_data_if
 from .tools.validator import is_time_series, is_frame, _is_arraylike_1d  
 
@@ -46,7 +45,7 @@ __all__ = [
     "TargetProcessor"
    ]
 
-class TargetProcessor:
+class TargetProcessor(BaseClass):
     """
     A comprehensive class for processing and transforming target variables 
     in datasets.
@@ -1199,12 +1198,7 @@ class TargetProcessor:
                 dobj=self)
             )
         return 1
-    
-    # def __getattr__(self, name ): 
-    #     return generic_getattr(self, name) 
-        
-    def __repr__(self): 
-        return fancier_repr_formatter(self, max_attrs= 7 )
+
     
 class FeatureProcessor:
     """
@@ -2307,7 +2301,7 @@ _param_docs = DocstringComponents.from_nested_components(
 )
 # +++ end base documentations +++
 
-class Data:
+class Data(BaseClass):
     def __init__(self, verbose: int = 0):
         self._logging = gofastlog().get_gofast_logger(self.__class__.__name__)
         self.verbose = verbose
@@ -2549,26 +2543,6 @@ class Data:
         data = self.data.drop(labels=labels,  inplace=inplace,
                               columns=columns, axis=axis, **kws)
         return data
-
-    def __repr__(self):
-        """ Pretty format for programmer guidance following the API... """
-        return repr_callable_obj(self, skip='y')
-
-    def __getattr__(self, name):
-        if name.endswith('_'):
-            if name not in self.__dict__.keys():
-                if name in ('data_', 'X_'):
-                    raise NotFittedError(
-                        f'Fit the {self.__class__.__name__!r} object first'
-                    )
-
-        rv = smart_strobj_recognition(name, self.__dict__, deep=True)
-        appender = "" if rv is None else f'. Do you mean {rv!r}'
-
-        raise AttributeError(
-            f'{self.__class__.__name__!r} object has no attribute {name!r}'
-            f'{appender}{"" if rv is None else "?"}'
-        )
 
 
 Data.__doc__ = """\
@@ -2987,7 +2961,7 @@ def select_features(
     # use coerce to no raise error and return data frame instead.
     return df if coerce else df.select_dtypes(include, exclude)
 
-class MergeableSeries:
+class MergeableSeries(BaseClass):
     """
     A class that wraps a pandas Series to enable logical AND operations
     using the & operator, even for non-numeric data types.
@@ -3044,7 +3018,7 @@ class MergeableSeries:
         return series1 & series2
 
 
-class FrameOperations:
+class FrameOperations(BaseClass):
     """
     A class for performing various operations on pandas DataFrames.
 
@@ -3052,9 +3026,6 @@ class FrameOperations:
     perform arithmetic operations on two or more pandas DataFrames.
 
     """
-
-    def __init__(self, ):
-        ...
 
     def fit(self, *frames, **kws):
         """ Inspect frames 
@@ -3239,7 +3210,7 @@ class FrameOperations:
             )
         return 1
 
-class MergeableFrames:
+class MergeableFrames(BaseClass):
     """
     A class that wraps pandas DataFrames to enable logical operations
     (like AND, OR) using bitwise operators on DataFrames.
@@ -3281,7 +3252,6 @@ class MergeableFrames:
     """
 
     def __init__(self, frame, **kws ):
-
         self.frame = build_data_if(frame, force=True , **kws )
 
     def __and__(self, other):

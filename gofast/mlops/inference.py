@@ -23,7 +23,7 @@ from .._gofastlog import gofastlog
 from ..api.property import BaseClass
 from ..compat.sklearn import validate_params, Interval, StrOptions
 from ..decorators import RunReturn, smartFitRun
-from ..tools.funcutils import ensure_pkg
+from ..tools.depsutils import ensure_pkg
 from ..tools.validator import check_is_runned 
 
 from ._base import BaseInference
@@ -89,7 +89,7 @@ class BatchInference(BaseInference):
     >>> batch_inference = BatchInference(
     ...     model, batch_size=64, gpu_enabled=True
     ... )
-    >>> results = batch_inference.run_batch_inference(data)
+    >>> results = batch_inference.run(data)
     >>> print(results)
 
     See Also
