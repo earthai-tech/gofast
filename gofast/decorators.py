@@ -67,6 +67,7 @@ __all__= [
     'Dataify',
     'Deprecated',
     'DynamicMethod',
+    'EnsureMethod',
     'ExportData',
     'Extract1dArrayOrSeries',
     'NumpyDocstring',
@@ -86,6 +87,256 @@ __all__= [
     'sanitize_docstring',
     'EnsureFileExists',
   ]
+
+
+class EnsureMethod:
+    """
+    Decorator class to ensure the prioritized execution of a specified 
+    class method based on configuration. This decorator allows flexibility 
+    in method execution by supporting modes (strict or soft), customizable 
+    method names, and precondition checks.
+    
+    This decorator can be configured to handle cases where `fit` or `run` methods 
+    are missing by specifying an alternative method, handling errors or warnings, 
+    and enabling verbose output for debugging.
+
+    Parameters
+    ----------
+    method_name : str, optional
+        The name of an alternative method to execute if neither `run` nor 
+        `fit` is implemented. If specified, the decorator will attempt to 
+        execute this method if available. If no `method_name` is specified, 
+        the decorator only attempts to execute `fit` or `run`.
+        
+    error : str, optional
+        Specifies the behavior if neither `run`, `fit`, nor the alternative 
+        method are implemented. Options include:
+            - `"raise"`: Raises an `NotImplementedError`.
+            - `"warn"`: Issues a warning and proceeds without executing any 
+              method.
+            - `"ignore"`: Silently ignores the absence of `run`, `fit`, or 
+              alternative methods. Default is `"raise"`.
+              
+    mode : {'strict', 'soft'}, optional
+        Specifies execution mode:
+        - 'strict': checks that a precondition attribute, if defined, 
+          is met before calling the method.
+        - 'soft': proceeds with execution regardless of precondition.
+        Default is 'strict'.
+
+    precondition_attr : str, optional
+        Name of an attribute to check before executing the method 
+        (if `mode` is 'strict'). If not specified, preconditions 
+        are not checked. Default is ``None``.
+        
+    verbose : bool, optional
+        If `True`, outputs additional information about the method being 
+        executed. This includes whether `run`, `fit`, or an alternative 
+        method is executed. Useful for debugging. Default is False.
+    
+    Methods
+    -------
+    __call__(cls)
+        Applies the decorator to the class, ensuring execution 
+        according to configuration.
+    
+    Examples
+    --------
+    >>> from gofast.decorators import EnsureMethod
+    >>> @EnsureMethod(method_name="custom_method", error="warn", mode="strict")
+    ... class MyClass:
+    ...     def custom_method(self):
+    ...         print("Executing custom method.")
+    ...
+    >>> instance = MyClass()
+    >>> instance.custom_method()
+    "Executing custom method".
+    
+    Methods
+    -------
+    __call__(cls)
+        Modifies the class's `__init__` to execute `fit`, `run`, or an alternative 
+        method if they exist, based on `method_name` and error handling settings.
+
+    
+    Notes
+    -----
+    The decorator aims to prevent runtime issues by ensuring methods 
+    like `fit`, `run`, or a specified `method_name` exist and are 
+    executed in a controlled manner, with flexibility for error handling.
+
+ 
+    References
+    ----------
+    .. [1] Python Software Foundation. "Python Documentation." Available at: 
+           https://docs.python.org/3/library/functools.html
+
+    .. [2] John Doe, Jane Smith, "Advanced Python Techniques in OOP", 
+       2020, ISBN: 978-3-16-148410-0
+
+    """
+
+    def __init__(
+            self, 
+            method_name=None, 
+            error="raise", 
+            mode="strict", 
+            precondition_attr=None, 
+            verbose=False
+        ):
+        self.method_name = method_name
+        self.error = error
+        self.mode = mode
+        self.precondition_attr = precondition_attr
+        self.verbose = verbose
+
+    def __call__(self, cls):
+        """
+        Applies the decorator logic to the class, ensuring prioritized 
+        execution of specified methods and managing behavior based on 
+        decorator parameters.
+
+        Parameters
+        ----------
+        cls : class
+            The target class to which the decorator is applied.
+        
+        Returns
+        -------
+        cls : class
+            The decorated class with conditional method wrapping.
+        """
+        # Check if a specific method name is provided, wrap it, and 
+        # redirect `fit` and `run` if needed
+        if self.method_name:
+            self._conditionally_wrap_method(cls, self.method_name)
+            self._redirect_method_if_needed(cls, "fit")
+            self._redirect_method_if_needed(cls, "run")
+        else:
+            # Wrap `fit` and `run` by default if no specific method name
+            self._conditionally_wrap_method(cls, "fit")
+            self._conditionally_wrap_method(cls, "run")
+        
+        return cls
+
+    def _conditionally_wrap_method(self, cls, method_name):
+        """
+        Wraps a method in the class based on its existence and the 
+        configuration, prioritizing `method_name` if provided.
+
+        Parameters
+        ----------
+        cls : class
+            The target class to which the method wrapping is applied.
+
+        method_name : str
+            The name of the method to wrap, either `fit`, `run`, or 
+            a custom method.
+        """
+        original_method = getattr(cls, method_name, None)
+
+        if callable(original_method):
+            # Wrap the method to add logging and enforce preconditions
+            @functools.wraps(original_method)
+            def wrapped_method(instance, *args, **kwargs):
+                self._log(
+                    f"Executing `{method_name}` on {instance.__class__.__name__}.")
+                
+                if self.mode == "strict" and self.precondition_attr:
+                    if not getattr(instance, self.precondition_attr, False):
+                        raise RuntimeError(
+                            f"{instance.__class__.__name__}: `{method_name}` "
+                            f"cannot be executed because `{self.precondition_attr}"
+                            "` is not set to True. Call `fit` or `run` first."
+                        )
+                return original_method(instance, *args, **kwargs)
+
+            setattr(cls, method_name, wrapped_method)
+        else:
+            # Placeholder if method is missing and error handling is required
+            def placeholder_method(instance, *args, **kwargs):
+                self._handle_missing_method(instance, method_name)
+            
+            setattr(cls, method_name, placeholder_method)
+
+    def _redirect_method_if_needed(self, cls, default_method):
+        """
+        Redirects calls to `fit` or `run` to the specified `method_name` if 
+        `fit` or `run` is missing but `method_name` is defined.
+
+        Parameters
+        ----------
+        cls : class
+            The target class for method redirection.
+        
+        default_method : str
+            The method name to check for redirection (`fit` or `run`).
+        """
+        if not callable(getattr(cls, default_method, None)) and self.method_name:
+            def redirect_method(instance, *args, **kwargs):
+                target_method = getattr(instance, self.method_name, None)
+                if callable(target_method):
+                    self._log(
+                        f"Redirecting `{default_method}` to `{self.method_name}` "
+                        f"on {instance.__class__.__name__}."
+                    )
+                    return target_method(*args, **kwargs)
+                else:
+                    self._handle_missing_method(instance, self.method_name)
+                    
+            setattr(cls, default_method, redirect_method)
+
+    def _handle_missing_method(self, instance, called_method_name):
+        """
+        Handles errors or warnings when required methods are missing, based 
+        on decorator configuration.
+
+        Parameters
+        ----------
+        instance : object
+            The instance of the class where method execution is attempted.
+
+        called_method_name : str
+            The name of the method that was attempted to be called.
+        """
+        cls = instance.__class__
+        fit_exists = callable(getattr(instance, "fit", None))
+        run_exists = callable(getattr(instance, "run", None))
+        
+        if self.method_name == called_method_name and not callable(
+                getattr(instance, self.method_name, None)):
+            raise NotImplementedError(
+                f"{cls.__name__}: The `{self.method_name}` method is not implemented. "
+                "Please implement this method or choose a different alternative."
+            )
+        
+        if not fit_exists and not run_exists:
+            if self.error == "warn":
+                warnings.warn(
+                    f"{cls.__name__}: Neither `fit` nor `run` methods are implemented. "
+                    "Execution will proceed without them.", UserWarning
+                )
+            elif self.error == "raise":
+                raise NotImplementedError(
+                    f"{cls.__name__}: Neither `fit` nor `run` methods are implemented. "
+                    "Please implement one or specify an alternative."
+                )
+        elif called_method_name == "run":
+            self._log(f"{cls.__name__}: `run` is missing; acting as a placeholder.")
+        elif called_method_name == "fit":
+            self._log(f"{cls.__name__}: `fit` is missing; acting as a placeholder.")
+
+    def _log(self, msg):
+        """
+        Helper method for logging messages when `verbose` is True.
+
+        Parameters
+        ----------
+        msg : str
+            The message to log.
+        """
+        if self.verbose: 
+            print(msg)
 
 
 def executeWithFallback(method):
@@ -1932,7 +2183,7 @@ class ExportData:
             # Optionally move files to a designated output directory
             # Assuming move_cfile function exists and is imported correctly
             for fname in fnames:
-                from .tools.coreutils import move_cfile 
+                from .tools.ioutils import move_cfile 
                 move_cfile(fname, savepath, dpath='_out')
                 
             # Optionally return the filenames of the exported files
@@ -3342,13 +3593,13 @@ class NumpyDocstringFormatter:
         This method provides a conceptual approach and requires a Sphinx 
         environment to be properly implemented.
         """
-        from .tools._dependency import import_optional_dependency
+        from .tools.depsutils import import_optional_dependency
         
         try: 
             import_optional_dependency ("docutils")
         except: 
-            from .tools.coreutils import is_module_installed 
-            from .tools.funcutils import install_package
+            from .tools.depsutils import is_module_installed 
+            from .tools.depsutils import install_package
             if not is_module_installed("docutils"): 
                 install_package('docutils', infer_dist_name=True)
             

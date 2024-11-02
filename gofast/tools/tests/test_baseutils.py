@@ -10,7 +10,8 @@ from unittest.mock import patch, mock_open
 import numpy as np 
 import pandas as pd 
 
-from gofast.tools.coreutils import cleaner, smart_label_classifier
+from gofast.tools.datautils import cleaner
+from gofast.tools.mlutils import smart_label_classifier
 from gofast.datasets.load import load_bagoue
 from gofast.tools.baseutils import download_file
 from gofast.tools.baseutils import lowertify

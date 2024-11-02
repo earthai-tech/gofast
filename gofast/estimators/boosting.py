@@ -8,8 +8,10 @@ for hybrid boosting approaches in classification and regression tasks.
 
 from __future__ import annotations 
 from numbers import Real
+
 import numpy as np
 from tqdm import tqdm 
+
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.ensemble import GradientBoostingRegressor, GradientBoostingClassifier
 from sklearn.metrics  import  mean_squared_error

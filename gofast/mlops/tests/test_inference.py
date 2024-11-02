@@ -48,7 +48,7 @@ def test_batch_inference():
     )
 
     # Run batch inference
-    results = batch_inference.run_batch_inference(data)
+    results = batch_inference.run(data)
 
     # Verify results
     expected_results = [item['feature1'] + item['feature2'] for item in data]
@@ -85,7 +85,7 @@ def test_batch_inference_with_preprocessing():
     )
 
     # Run batch inference
-    results = batch_inference.run_batch_inference(
+    results = batch_inference.run(
         data,
         preprocess_fn=preprocess_fn,
         postprocess_fn=postprocess_fn
@@ -112,15 +112,14 @@ def test_batch_inference_error_handling():
         model=model,
         batch_size=2,
         max_workers=1,
-        handle_errors=True
     )
-    results = batch_inference.run_batch_inference(data)
+    results = batch_inference.run(data)
     assert results == []
 
     # Test with error handling disabled
     batch_inference.handle_errors = False
     with pytest.raises(ValueError):
-        batch_inference.run_batch_inference(data)
+        batch_inference.run(data)
 
 
 def test_batch_inference_gpu():
@@ -159,7 +158,7 @@ def test_batch_inference_gpu():
     )
 
     # Run batch inference
-    results = batch_inference.run_batch_inference(data)
+    results = batch_inference.run(data)
 
     # Verify results length
     assert len(results) == len(data)
@@ -191,16 +190,16 @@ def test_multi_model_serving_predict():
     data = {'input': [1, 2, 3]}
 
     # Predict without specifying model
-    prediction = multi_model_serving.predict(data)
+    prediction = multi_model_serving.run(data)
     assert prediction in ["Prediction from Model V1", "Prediction from Model V2"]
 
     # Predict specifying model
-    prediction = multi_model_serving.predict(data, model_name='model_v1')
+    prediction = multi_model_serving.run(data, model_name='model_v1')
     assert prediction == "Prediction from Model V1"
 
     # Predict specifying a non-existent model
     with pytest.raises(ValueError):
-        multi_model_serving.predict(data, model_name='model_x')
+        multi_model_serving.run(data, model_name='model_x')
 
 
 def test_multi_model_serving_fallback():
@@ -229,7 +228,7 @@ def test_multi_model_serving_fallback():
     data = {'input': [1, 2, 3]}
 
     # Predict with a model that fails and should fallback
-    prediction = multi_model_serving.predict(data, model_name='model_v1')
+    prediction = multi_model_serving.run(data, model_name='model_v1')
     assert prediction == "Prediction from Model V2"
 
 
@@ -263,7 +262,7 @@ def test_multi_model_serving_latency():
     data = {'input': [1, 2, 3]}
 
     # Predict without specifying model
-    prediction = multi_model_serving.predict(data)
+    prediction = multi_model_serving.run(data)
     assert prediction == "Fast Model Prediction"
 
 
@@ -282,12 +281,12 @@ def test_inference_parallelizer_threads():
     parallelizer = InferenceParallelizer(
         model=model,
         parallel_type='threads',
-        num_workers=2,
+        max_workers=2,
         batch_size=2
     )
 
     # Run parallel inference
-    results = parallelizer.run_parallel_inference(data)
+    results = parallelizer.run(data)
 
     # Verify results
     expected_results = [item['input1'] + item['input2'] for item in data]
@@ -309,12 +308,12 @@ def test_inference_parallelizer_processes():
     parallelizer = InferenceParallelizer(
         model=model,
         parallel_type='processes',
-        num_workers=2,
+        max_workers=2,
         batch_size=2
     )
 
     # Run parallel inference
-    results = parallelizer.run_parallel_inference(data)
+    results = parallelizer.run(data)
 
     # Verify results
     expected_results = [item['input1'] + item['input2'] for item in data]
@@ -339,7 +338,7 @@ def test_inference_parallelizer_error_handling():
     )
 
     # Run parallel inference
-    results = parallelizer.run_parallel_inference(data)
+    results = parallelizer.run(data)
 
     # Verify that results are empty due to error handling
     assert results == []
@@ -367,12 +366,12 @@ def test_inference_cache_manager():
     data = {'input1': 1.0, 'input2': 2.0}
 
     # First prediction, should increase call_count
-    result1 = cache_manager.predict(data)
+    result1 = cache_manager.run(data)
     assert result1 == 3.0
     assert model.call_count == 1
 
     # Second prediction with same data, should use cache
-    result2 = cache_manager.predict(data)
+    result2 = cache_manager.run(data)
     assert result2 == 3.0
     assert model.call_count == 1  # call_count unchanged
 
@@ -403,7 +402,7 @@ def test_inference_cache_manager_persistent():
         data = {'input1': 1.0, 'input2': 2.0}
 
         # First prediction
-        result1 = cache_manager.predict(data)
+        result1 = cache_manager.run(data)
         assert result1 == 3.0
         assert model.call_count == 1
 
@@ -421,7 +420,7 @@ def test_inference_cache_manager_persistent():
         cache_manager2._load_persistent_cache()
 
         # Predict with same data, should use cached result
-        result2 = cache_manager2.predict(data)
+        result2 = cache_manager2.run(data)
         assert result2 == 3.0
         assert model2.call_count == 0  # call_count unchanged
 
@@ -455,7 +454,7 @@ def test_inference_cache_manager_custom_hash():
     data2 = {'input1': 2.0, 'input2': 1.0}
 
     # First prediction
-    result1 = cache_manager.predict(data1)
+    result1 = cache_manager.run(data1)
     assert result1 == 3.0
     assert model.call_count == 1
 
@@ -467,6 +466,9 @@ def test_inference_cache_manager_custom_hash():
 
 # Re-enable logging after tests
 logging.disable(logging.NOTSET)
+
+if __name__=='__main__': 
+    pytest.main([__file__])
 
 if __name__=='__main__': 
     pytest.main([__file__])

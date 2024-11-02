@@ -39,7 +39,7 @@ from sklearn.datasets import make_moons
 from sklearn.cluster import KMeans
 from sklearn.linear_model import LinearRegression
 
-from gofast.tools.funcutils import install_package 
+from gofast.tools.depsutils import install_package 
 try:from lifelines import KaplanMeierFitter
 except: 
     install_package("lifelines")

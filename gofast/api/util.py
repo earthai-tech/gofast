@@ -14,10 +14,10 @@ import warnings
 from collections.abc import Iterable
 import numpy as np 
 import pandas as pd
-from .property import GofastConfig 
+from .property import Property 
 
 # Attempting to modify the property will raise an error
-GOFAST_ESCAPE= GofastConfig().WHITESPACE_ESCAPE 
+GOFAST_ESCAPE= Property().WHITESPACE_ESCAPE 
 
 __all__=[ 
      'TerminalSize',

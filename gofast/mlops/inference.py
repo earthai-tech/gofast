@@ -7,7 +7,7 @@ Streamline the inference process, ensuring that models perform efficiently
 and reliably in real-time or batch inference scenarios.
 """
 import os
-from numbers import Integral
+from numbers import Integral, Real
 import random
 import time
 import multiprocessing
@@ -17,13 +17,16 @@ import pickle
 import concurrent.futures
 
 from typing import Any, List, Dict, Callable, Optional
-from sklearn.utils._param_validation import Interval, HasMethods, StrOptions
 
 from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
-from ..api.property import BaseClass
-from ..compat.sklearn import validate_params
-from ..tools.funcutils import ensure_pkg
 from .._gofastlog import gofastlog 
+from ..api.property import BaseClass
+from ..compat.sklearn import validate_params, Interval, StrOptions
+from ..decorators import RunReturn, smartFitRun
+from ..tools.depsutils import ensure_pkg
+from ..tools.validator import check_is_runned 
+
+from ._base import BaseInference
 
 logger=gofastlog.get_gofast_logger(__name__)
 
@@ -32,7 +35,8 @@ __all__= [
     "InferenceParallelizer", "InferenceCacheManager"
     ]
 
-class BatchInference(BaseClass):
+@smartFitRun 
+class BatchInference(BaseInference):
     """
     Optimizes batch inference for large datasets by managing batch sizes,
     parallelism, memory usage, and GPU acceleration.
@@ -85,7 +89,7 @@ class BatchInference(BaseClass):
     >>> batch_inference = BatchInference(
     ...     model, batch_size=64, gpu_enabled=True
     ... )
-    >>> results = batch_inference.run_batch_inference(data)
+    >>> results = batch_inference.run(data)
     >>> print(results)
 
     See Also
@@ -101,16 +105,6 @@ class BatchInference(BaseClass):
 
     """
 
-    @validate_params({
-        'model': [HasMethods(['predict']), callable],
-        'batch_size': [Interval(Integral, 1, None, closed='left')],
-        'max_workers': [Interval(Integral, 1, None, closed='left')],
-        'timeout': [Interval(Integral, 0, None, closed='left'), None],
-        'optimize_memory': [bool],
-        'gpu_enabled': [bool],
-        'enable_padding': [bool],
-        'log_level': [StrOptions({'INFO', 'DEBUG', 'WARNING', 'ERROR', 'CRITICAL'})]
-    })
     def __init__(
         self,
         model: Any,
@@ -122,16 +116,19 @@ class BatchInference(BaseClass):
         enable_padding: bool = False,
         log_level: str = 'INFO'
     ):
-        self.model = model
-        self.batch_size = batch_size
-        self.max_workers = max_workers
-        self.timeout = timeout
-        self.optimize_memory = optimize_memory
-        self.gpu_enabled = gpu_enabled
-        self.enable_padding = enable_padding
-        logger.setLevel(log_level.upper())
-
-    def run_batch_inference(
+        super().__init__(
+            model=model,
+            batch_size=batch_size,
+            max_workers=max_workers,
+            timeout=timeout,
+            optimize_memory=optimize_memory,
+            gpu_enabled=gpu_enabled,
+            enable_padding=enable_padding,
+            log_level=log_level
+        )
+        
+    @RunReturn( attribute_name='results_') 
+    def run(
         self,
         data: List[Dict],
         preprocess_fn: Optional[Callable] = None,
@@ -154,7 +151,7 @@ class BatchInference(BaseClass):
 
         Returns
         -------
-        results : list
+        results_ : list
             The model's predictions for each batch.
 
         Notes
@@ -165,7 +162,7 @@ class BatchInference(BaseClass):
 
         Examples
         --------
-        >>> results = batch_inference.run_batch_inference(
+        >>> results_ = batch_inference.run_batch_inference(
         ...     data,
         ...     preprocess_fn=preprocess,
         ...     postprocess_fn=postprocess
@@ -186,7 +183,7 @@ class BatchInference(BaseClass):
             )
             batches = self._pad_batches(batches)
 
-        results = []
+        self.results_ = []
 
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=self.max_workers
@@ -199,7 +196,7 @@ class BatchInference(BaseClass):
             for future in concurrent.futures.as_completed(future_to_batch):
                 try:
                     batch_result = future.result(timeout=self.timeout)
-                    results.extend(batch_result)
+                    self.results_.extend(batch_result)
                 except Exception as e:
                     if handle_errors:
                         logger.error(
@@ -208,8 +205,6 @@ class BatchInference(BaseClass):
                         )
                     else:
                         raise e
-
-        return results
 
     def _infer_batch(
         self,
@@ -415,8 +410,10 @@ class BatchInference(BaseClass):
                 f"Last batch padded with {padding_size} additional items."
             )
         return batches
-
-class StreamingInference(BaseClass):
+    
+    
+@smartFitRun 
+class StreamingInference(BaseInference):
     """
     Manages real-time streaming inference with support for Kafka integration.
 
@@ -433,14 +430,14 @@ class StreamingInference(BaseClass):
     kafka_servers : list of str
         List of Kafka servers in the format ``host:port``.
     group_id : str
-        Group ID for Kafka consumers.
+        Group ID for Kafka consumer_s.
     result_topic : str or None, default=None
         Kafka topic to send inference results to. If ``None``, defaults to
         ``kafka_topic + "_results"``.
     batch_size : int, default=1
         Number of messages to process in each batch.
-    consumer_timeout_ms : int, default=1000
-        Kafka consumer timeout in milliseconds.
+    consumer__timeout_ms : int, default=1000
+        Kafka consumer_ timeout in milliseconds.
     max_retries : int, default=3
         Maximum number of retries for sending results to Kafka.
 
@@ -469,7 +466,7 @@ class StreamingInference(BaseClass):
     ...     kafka_servers=['localhost:9092'],
     ...     group_id='my_group'
     ... )
-    >>> streaming_inference.start_streaming(
+    >>> streaming_inference.run(
     ...     preprocess_fn=preprocess,
     ...     postprocess_fn=postprocess
     ... )
@@ -479,7 +476,7 @@ class StreamingInference(BaseClass):
 
     See Also
     --------
-    kafka.KafkaConsumer : Kafka consumer class.
+    kafka.KafkaConsumer : Kafka consumer_ class.
     kafka.KafkaProducer : Kafka producer class.
 
     References
@@ -488,14 +485,8 @@ class StreamingInference(BaseClass):
 
     """
 
-    @ensure_pkg(
-        "kafka",
-        extra="The 'kafka' package is required for Kafka integration.",
-        auto_install=INSTALL_DEPENDENCIES,  
-        use_conda=USE_CONDA  
-    )
+    
     @validate_params({
-        'model': [HasMethods(['predict']), callable],
         'kafka_topic': [str],
         'kafka_servers': [list],
         'group_id': [str],
@@ -515,33 +506,12 @@ class StreamingInference(BaseClass):
         consumer_timeout_ms: int = 1000,
         max_retries: int = 3
     ):
-        """
-        Initializes the StreamingInference class.
-
-        Parameters
-        ----------
-        model : object
-            The machine learning model to perform real-time inference. The model
-            should implement a ``predict`` method or be callable.
-        kafka_topic : str
-            Kafka topic to consume data from.
-        kafka_servers : list of str
-            List of Kafka servers in the format ``host:port``.
-        group_id : str
-            Group ID for Kafka consumers.
-        result_topic : str or None, default=None
-            Kafka topic to send inference results to. If ``None``, defaults to
-            ``kafka_topic + "_results"``.
-        batch_size : int, default=1
-            Number of messages to process in each batch.
-        consumer_timeout_ms : int, default=1000
-            Kafka consumer timeout in milliseconds.
-        max_retries : int, default=3
-            Maximum number of retries for sending results to Kafka.
-
-        """
-        from kafka import KafkaConsumer, KafkaProducer
-
+        super().__init__(
+            model=model,
+            batch_size=batch_size,
+            max_workers=1,
+        )
+        
         self.model = model
         self.kafka_topic = kafka_topic
         self.kafka_servers = kafka_servers
@@ -551,27 +521,15 @@ class StreamingInference(BaseClass):
         self.consumer_timeout_ms = consumer_timeout_ms
         self.max_retries = max_retries
 
-        # Kafka consumer and producer
-        self.consumer = KafkaConsumer(
-            self.kafka_topic,
-            bootstrap_servers=self.kafka_servers,
-            group_id=self.group_id,
-            consumer_timeout_ms=self.consumer_timeout_ms,
-            auto_offset_reset='earliest',
-            value_deserializer=lambda m: json.loads(m.decode('utf-8'))
-        )
 
-        self.producer = KafkaProducer(
-            bootstrap_servers=self.kafka_servers,
-            value_serializer=lambda v: json.dumps(v).encode('utf-8')
-        )
-
-        # For thread control
-        self._running = threading.Event()
-        self._running.set()
-        self._consumer_thread = None
-
-    def start_streaming(
+    @RunReturn 
+    @ensure_pkg(
+        "kafka",
+        extra="The 'kafka' package is required for Kafka integration.",
+        auto_install=INSTALL_DEPENDENCIES,  
+        use_conda=USE_CONDA  
+    )
+    def run(
         self,
         preprocess_fn: Optional[Callable] = None,
         postprocess_fn: Optional[Callable] = None
@@ -592,16 +550,38 @@ class StreamingInference(BaseClass):
         topic and process them in real-time.
 
         """
+        from kafka import KafkaConsumer, KafkaProducer
+        
+        # Kafka consumer_ and producer
+        self.consumer_ = KafkaConsumer(
+            self.kafka_topic,
+            bootstrap_servers=self.kafka_servers,
+            group_id=self.group_id,
+            consumer_timeout_ms=self.consumer__timeout_ms,
+            auto_offset_reset='earliest',
+            value_deserializer=lambda m: json.loads(m.decode('utf-8'))
+        )
+
+        self.producer_ = KafkaProducer(
+            bootstrap_servers=self.kafka_servers,
+            value_serializer=lambda v: json.dumps(v).encode('utf-8')
+        )
+
+        # For thread control
+        self._running = threading.Event()
+        self._running.set()
+        self._consumer_thread = None
+        
         logger.info(
             f"Starting streaming inference on Kafka topic: {self.kafka_topic}."
         )
-        # Start the consumer thread for consuming and processing messages
+        # Start the consumer_ thread for consuming and processing messages
         self._consumer_thread = threading.Thread(
             target=self._consume_and_infer,
             args=(preprocess_fn, postprocess_fn)
         )
         self._consumer_thread.start()
-
+        
     def _consume_and_infer(
         self,
         preprocess_fn: Optional[Callable],
@@ -624,7 +604,7 @@ class StreamingInference(BaseClass):
         # Continue processing while the thread is running
         while self._running.is_set():
             try:
-                for message in self.consumer:
+                for message in self.consumer_:
                     if not self._running.is_set():
                         break
 
@@ -679,8 +659,8 @@ class StreamingInference(BaseClass):
             sent = False
             while not sent and retries < self.max_retries:
                 try:
-                    self.producer.send(self.result_topic, value=result)
-                    self.producer.flush()
+                    self.producer_.send(self.result_topic, value=result)
+                    self.producer_.flush()
                     logger.info(f"Sent result to Kafka: {result}")
                     sent = True
                 except Exception as e:
@@ -695,7 +675,7 @@ class StreamingInference(BaseClass):
 
     def stop_streaming(self):
         """
-        Stops the streaming inference process by signaling the consumer thread
+        Stops the streaming inference process by signaling the consumer_ thread
         to stop.
 
         Notes
@@ -706,8 +686,8 @@ class StreamingInference(BaseClass):
         """
         logger.info("Stopping the streaming inference process.")
         self._running.clear()
-        if self._consumer_thread:
-            self._consumer_thread.join()
+        if self._consumer__thread:
+            self._consumer__thread.join()
 
     def shutdown(self):
         """
@@ -716,16 +696,30 @@ class StreamingInference(BaseClass):
 
         Notes
         -----
-        This method stops the streaming process and closes the Kafka consumer
+        This method stops the streaming process and closes the Kafka consumer_
         and producer.
 
         """
         logger.info("Shutting down Kafka consumer and producer.")
         self.stop_streaming()
-        self.consumer.close()
-        self.producer.close()
+        self.consumer_.close()
+        self.producer_.close()
+        
+    def __gofast_is_runned__(self) -> bool:
+        """
+        Determines if the StreamingInference instance has been "runned" by
+        checking the state of the `_running` event.
 
-
+        Returns
+        -------
+        bool
+            True if the streaming process has started (i.e., `_running` is
+            set), otherwise False.
+        """
+        return self._running.is_set()
+    
+    
+@smartFitRun 
 class MultiModelServing(BaseClass):
     """
     Manages inference for multiple models, supporting dynamic routing,
@@ -813,7 +807,7 @@ class MultiModelServing(BaseClass):
         'traffic_split': [dict, None],
         'performance_metrics': [dict, None],
         'fallback_models': [dict, None],
-        'latency_threshold': [Interval(Integral, 0, None, closed='left'), None],
+        'latency_threshold': [Interval(Real, 0, None, closed='left'), None],
         'error_handling': [bool],
         'retry_attempts': [Interval(Integral, 1, None, closed='left')],
         'traffic_algorithm': [callable, None],
@@ -829,33 +823,7 @@ class MultiModelServing(BaseClass):
         retry_attempts: int = 3,
         traffic_algorithm: Optional[Callable] = None,
     ):
-        """
-        Initializes the MultiModelServing class with optional traffic
-        balancing and performance monitoring.
-
-        Parameters
-        ----------
-        models : dict of str to object
-            Dictionary mapping model names to model objects. Each model must
-            implement a ``predict`` method or be callable.
-        traffic_split : dict of str to float, optional
-            Traffic split ratios for each model. The values should sum to
-            1.0. If ``None``, traffic is split equally among models.
-        performance_metrics : dict of str to dict of str to float, optional
-            Dictionary to monitor performance of each model.
-        fallback_models : dict of str to list of str, optional
-            Dictionary specifying fallback models for each primary model.
-        latency_threshold : float or None, optional
-            Maximum acceptable latency (in seconds) before selecting another
-            model based on performance.
-        error_handling : bool, default=True
-            Enables error handling and retries when a model fails.
-        retry_attempts : int, default=3
-            Number of times to retry with backup models in case of failure.
-        traffic_algorithm : callable or None, optional
-            Custom function for traffic routing.
-
-        """
+        
         self.models = models
         self.traffic_split = traffic_split or {
             model: 1 / len(models) for model in models
@@ -869,7 +837,8 @@ class MultiModelServing(BaseClass):
         self.retry_attempts = retry_attempts
         self.traffic_algorithm = traffic_algorithm
 
-    def predict(self, data: Dict, model_name: Optional[str] = None) -> Any:
+    @RunReturn( attribute_name ="results_") 
+    def run(self, data: Dict, model_name: Optional[str] = None) -> Any:
         """
         Routes the inference request to the appropriate model based on
         traffic split or specified model, with error handling, retry
@@ -919,7 +888,7 @@ class MultiModelServing(BaseClass):
                 else:
                     model = self._select_model_by_traffic()
 
-            return self._run_inference(model, data)
+            self.results_= self._run_inference(model, data)
 
         except Exception as e:
             logger.error(
@@ -927,7 +896,7 @@ class MultiModelServing(BaseClass):
                 f"'{model_name or 'auto-selected'}': {e}"
             )
             if self.error_handling:
-                return self._retry_inference(data, model_name or 'auto-selected')
+                self.results_= self._retry_inference(data, model_name or 'auto-selected')
             else:
                 raise
 
@@ -1151,7 +1120,9 @@ class MultiModelServing(BaseClass):
         )
         return self.models[selected_model_name]
 
-class InferenceParallelizer(BaseClass):
+
+@smartFitRun 
+class InferenceParallelizer(BaseInference):
     """
     Parallelizes model inference across multiple threads or processes for
     high-throughput inference, with options for batch processing, error
@@ -1204,7 +1175,7 @@ class InferenceParallelizer(BaseClass):
     >>> parallelizer = InferenceParallelizer(
     ...     model=model,
     ...     parallel_type='processes',
-    ...     num_workers=4,
+    ...     max_workers=4,
     ...     batch_size=10,
     ...     gpu_enabled=False
     ... )
@@ -1225,45 +1196,37 @@ class InferenceParallelizer(BaseClass):
     """
 
     @validate_params({
-        'model': [HasMethods(['predict']), callable],
         'parallel_type': [StrOptions({'threads', 'processes'})],
-        'num_workers': [Interval(Integral, 1, None, closed='left')],
-        'timeout': [Interval(Integral, 0, None, closed='left'), None],
-        'batch_size': [Interval(Integral, 1, None, closed='left')],
         'handle_errors': [bool],
         'cpu_affinity': [list, None],
-        'gpu_enabled': [bool],
     })
     def __init__(
         self,
         model: Any,
         parallel_type: str = 'threads',
-        num_workers: int = 4,
+        max_workers: int = 4,
         timeout: Optional[float] = None,
         batch_size: int = 1,
         handle_errors: bool = True,
         cpu_affinity: Optional[List[int]] = None,
         gpu_enabled: bool = False
     ):
-        self.model = model
+        super().__init__(
+            model=model,
+            batch_size=batch_size,
+            max_workers=max_workers,
+            timeout=timeout,
+            gpu_enabled=gpu_enabled,
+        )
+        
         self.parallel_type = parallel_type
-        self.num_workers = num_workers
-        self.timeout = timeout
-        self.batch_size = batch_size
         self.handle_errors = handle_errors
         self.cpu_affinity = cpu_affinity
-        self.gpu_enabled = gpu_enabled
 
-        if self.cpu_affinity:
-            logger.info(f"Setting CPU affinity to cores: {self.cpu_affinity}")
-            try:
-                os.sched_setaffinity(0, self.cpu_affinity)
-            except AttributeError:
-                logger.warning("CPU affinity setting is not supported on this platform.")
-            except Exception as e:
-                logger.error(f"Error setting CPU affinity: {e}")
-
-    def run_parallel_inference(self, data: List[Dict]) -> List[Any]:
+    
+    @RunReturn(attribute_name="results_")
+    @validate_params ({"data": [list]})
+    def run(self, data: List[Dict]) -> List[Any]:
         """
         Runs inference in parallel on the provided data with batch processing
         and error handling.
@@ -1289,17 +1252,27 @@ class InferenceParallelizer(BaseClass):
 
         Examples
         --------
-        >>> results = parallelizer.run_parallel_inference(data)
+        >>> results = parallelizer.run(data)
 
         """
+        
+        if self.cpu_affinity:
+            logger.info(f"Setting CPU affinity to cores: {self.cpu_affinity}")
+            try:
+                os.sched_setaffinity(0, self.cpu_affinity)
+            except AttributeError:
+                logger.warning("CPU affinity setting is not supported on this platform.")
+            except Exception as e:
+                logger.error(f"Error setting CPU affinity: {e}")
+                
         # Split data into batches
         batches = [data[i:i + self.batch_size]
                    for i in range(0, len(data), self.batch_size)]
 
         if self.parallel_type == "threads":
-            return self._run_threaded_inference(batches)
+            self.results_= self._run_threaded_inference(batches)
         elif self.parallel_type == "processes":
-            return self._run_multiprocess_inference(batches)
+            self.results_= self._run_multiprocess_inference(batches)
         else:
             raise ValueError(
                 "Unsupported parallelization type. Choose 'threads' or 'processes'."
@@ -1348,7 +1321,7 @@ class InferenceParallelizer(BaseClass):
                     raise
 
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=self.num_workers
+            max_workers=self.max_workers
         ) as executor:
             futures = {
                 executor.submit(thread_task, batch): batch for batch in batches
@@ -1407,7 +1380,7 @@ class InferenceParallelizer(BaseClass):
                 else:
                     raise
 
-        with multiprocessing.Pool(processes=self.num_workers) as pool:
+        with multiprocessing.Pool(processes=self.max_workers) as pool:
             future_results = [
                 pool.apply_async(process_task, (batch,)) for batch in batches
             ]
@@ -1553,7 +1526,8 @@ class InferenceParallelizer(BaseClass):
             logger.error(f"Error while converting batch to tensor: {e}")
             raise
 
-class InferenceCacheManager:
+@smartFitRun 
+class InferenceCacheManager(BaseInference):
     """
     Adds caching support for model inference to reduce redundant predictions.
 
@@ -1616,7 +1590,6 @@ class InferenceCacheManager:
     """
 
     @validate_params({
-        'model': [HasMethods(['predict']), callable ],
         'cache_size': [Interval(Integral, 1, None, closed='left')],
         'eviction_policy': [StrOptions({'LRU', 'LFU', 'TTL'})],
         'ttl': [Interval(Integral, 1, None, closed='left'), None],
@@ -1632,65 +1605,17 @@ class InferenceCacheManager:
         custom_hash_fn: Optional[Callable] = None,
         persistent_cache_path: Optional[str] = None,
     ):
-        """
-        Initializes the InferenceCacheManager with flexible caching policies
-        and persistence options.
-
-        Parameters
-        ----------
-        model : object
-            The model to perform inference with. The model should implement a
-            ``predict`` method or be callable.
-        cache_size : int, default=1000
-            Size of the cache, i.e., the maximum number of entries to store.
-        eviction_policy : {'LRU', 'LFU', 'TTL'}, default='LRU'
-            Cache eviction policy to use:
-                - 'LRU': Least Recently Used
-                - 'LFU': Least Frequently Used
-                - 'TTL': Time-To-Live based eviction
-        ttl : int or None, default=None
-            Time-to-live for cache entries in seconds. Only applicable when
-            ``eviction_policy`` is 'TTL'.
-        custom_hash_fn : callable or None, default=None
-            Custom hash function to generate cache keys from input data.
-        persistent_cache_path : str or None, default=None
-            Path to save/load persistent cache. If ``None``, the cache is not
-            saved or loaded from disk.
-
-        Raises
-        ------
-        ValueError
-            If `ttl` is not provided when `eviction_policy` is 'TTL'.
-
-        Notes
-        -----
-        The cache is initialized based on the specified eviction policy.
-        If `persistent_cache_path` is provided, the cache is loaded from disk
-        if available.
-
-        """
+        super().__init__( model=model )
+ 
         self.model = model
+        self.ttl= ttl
+        self.cache_size=cache_size
         self.custom_hash_fn = custom_hash_fn
         self.persistent_cache_path = persistent_cache_path
+        self.eviction_policy= eviction_policy
+        
 
-        # Initialize the cache based on the chosen eviction policy
-        if eviction_policy == 'LRU':
-            self.cache = self._init_lru_cache(cache_size)
-        elif eviction_policy == 'LFU':
-            self.cache = self._init_lfu_cache(cache_size)
-        elif eviction_policy == 'TTL':
-            if ttl is None:
-                raise ValueError(
-                    "TTL (Time-to-live) must be specified for TTL cache."
-                )
-            self.cache = self._init_ttl_cache(cache_size, ttl)
-        else:
-            raise ValueError(f"Unsupported eviction policy: {eviction_policy}")
-
-        # Load persistent cache if path is provided
-        if self.persistent_cache_path:
-            self._load_persistent_cache()
-
+        
     @ensure_pkg(
         "cachetools",
         extra="The 'cachetools' package is required for caching functionality.",
@@ -1765,7 +1690,8 @@ class InferenceCacheManager:
         from cachetools import TTLCache
         return TTLCache(maxsize=cache_size, ttl=ttl)
 
-    def predict(self, data: Dict) -> Any:
+    @RunReturn 
+    def run(self, data: Dict) -> Any:
         """
         Performs inference with caching. If the input data has been seen
         before, retrieves the cached result.
@@ -1789,30 +1715,48 @@ class InferenceCacheManager:
 
         Examples
         --------
-        >>> result = cache_manager.predict(data)
+        >>> result = cache_manager.run(data)
 
         """
+        # Initialize the cache based on the chosen eviction policy
+        if self.eviction_policy == 'LRU':
+            self.cache_ = self._init_lru_cache(self.cache_size)
+        elif self.eviction_policy == 'LFU':
+            self.cache_ = self._init_lfu_cache(self.cache_size)
+        elif self.eviction_policy == 'TTL':
+            if self.ttl is None:
+                raise ValueError(
+                    "TTL (Time-to-live) must be specified for TTL cache."
+                )
+            self.cache_ = self._init_ttl_cache(self.cache_size, self.ttl)
+        else:
+            raise ValueError(f"Unsupported eviction policy: {self.eviction_policy}")
+
+        # Load persistent cache if path is provided
+        if self.persistent_cache_path:
+            self._load_persistent_cache()
+            
         data_hash = self._hash_data(data)
-        if data_hash in self.cache:
+        if data_hash in self.cache_:
             logger.info("Returning cached result.")
-            return self.cache[data_hash]
+            self.result_= self.cache_[data_hash]
+            return 
 
         if hasattr(self.model, 'predict'):
-            result = self.model.predict(data)
+            self.result_ = self.model.predict(data)
         elif callable(self.model):
-            result = self.model(data)
+            self.result_ = self.model(data)
         else:
             raise ValueError(
                 "Model must implement a 'predict' method or be callable."
             )
 
-        self.cache[data_hash] = result
+        self.cache_[data_hash] = self.result_
 
         # Save cache if persistence is enabled
         if self.persistent_cache_path:
             self._save_persistent_cache()
 
-        return result
 
     def _hash_data(self, data: Dict) -> int:
         """
@@ -1856,7 +1800,7 @@ class InferenceCacheManager:
         """
         try:
             with open(self.persistent_cache_path, 'wb') as cache_file:
-                pickle.dump(self.cache, cache_file)
+                pickle.dump(self.cache_, cache_file)
             logger.info(f"Cache saved to '{self.persistent_cache_path}'.")
         except Exception as e:
             logger.error(f"Failed to save cache to disk: {e}")
@@ -1873,11 +1817,11 @@ class InferenceCacheManager:
         """
         try:
             with open(self.persistent_cache_path, 'rb') as cache_file:
-                self.cache = pickle.load(cache_file)
+                self.cache_ = pickle.load(cache_file)
             logger.info(f"Cache loaded from '{self.persistent_cache_path}'.")
         except Exception as e:
             logger.error(f"Failed to load cache from disk: {e}")
-            self.cache = {}
+            self.cache_ = {}
 
     def clear_cache(self):
         """
@@ -1893,7 +1837,8 @@ class InferenceCacheManager:
         >>> cache_manager.clear_cache()
 
         """
-        self.cache.clear()
+        check_is_runned(self, attributes=['cache_'])
+        self.cache_.clear()
         logger.info("Cache cleared.")
         if self.persistent_cache_path and os.path.exists(self.persistent_cache_path):
             try:
@@ -1924,12 +1869,16 @@ class InferenceCacheManager:
         >>> print(info)
 
         """
+        check_is_runned(self, attributes=['cache_'])
         info = {
-            'cache_size': len(self.cache),
-            'max_cache_size': self.cache.maxsize,
-            'hits': getattr(self.cache, 'hits', None),
-            'misses': getattr(self.cache, 'misses', None),
+            'cache_size': len(self.cache_),
+            'max_cache_size': self.cache_.maxsize,
+            'hits': getattr(self.cache_, 'hits', None),
+            'misses': getattr(self.cache_, 'misses', None),
         }
         logger.info(f"Cache info: {info}")
         return info
 
+
+    
+    

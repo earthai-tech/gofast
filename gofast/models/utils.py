@@ -32,7 +32,8 @@ from ..api.types import  List, Optional, Type, DataFrame, Series
 from ..api.summary import ModelSummary 
 from ..tools.coreutils import smart_format
 from ..tools.validator import get_estimator_name, check_X_y 
-from ..tools._dependency import import_optional_dependency 
+from ..tools.depsutils import import_optional_dependency 
+
 from .._gofastlog import gofastlog
 
 _logger = gofastlog().get_gofast_logger(__name__)

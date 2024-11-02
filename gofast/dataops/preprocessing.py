@@ -17,7 +17,7 @@ from ..api.types import Dict, Union, Tuple, ArrayLike
 from ..api.util import get_table_size 
 from ..decorators import Dataify, DynamicMethod, DataTransformer
 from ..tools.coreutils import is_iterable, assert_ratio
-from ..tools.funcutils import ensure_pkg
+from ..tools.depsutils import ensure_pkg
 from ..tools.validator import is_frame, parameter_validator, check_consistent_length 
 
 TW = get_table_size() 

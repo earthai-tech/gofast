@@ -3,11 +3,7 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """
-`gofast`_ Logger 
-================
-
-Module to track bugs and issues, and also deal with all exceptions in 
-:mod:`~.exceptions`.
+Track bugs and issues, and also deal with all GOFast exceptions.
  
 """
  
@@ -16,6 +12,8 @@ import yaml
 import logging
 import logging.config
 from string import Template
+
+__all__= ["gofastlog"]
 
 class gofastlog:
     """

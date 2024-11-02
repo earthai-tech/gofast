@@ -3,7 +3,7 @@
 import pytest
 from gofast.experimental import enable_geo_intel_system # noqa 
 from gofast.geo.system import GeoIntelligentSystem
-from gofast.tools.funcutils import ensure_pkg, install_package 
+from gofast.tools.depsutils import ensure_pkg, install_package 
 import pandas as pd
 try:import geopandas as gpd
 except: 

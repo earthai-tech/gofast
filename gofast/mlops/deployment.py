@@ -17,9 +17,9 @@ from sklearn.utils._param_validation import Interval, StrOptions
 
 from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
 from .._gofastlog import gofastlog 
-from ..api.property import BaseClass 
+from ..api.property import BaseLearner 
 from ..compat.sklearn import validate_params 
-from ..tools.funcutils import ensure_pkgs
+from ..tools.depsutils import ensure_pkgs
 from ..tools.validator import parameter_validator 
 
 logger=gofastlog.get_gofast_logger(__name__)
@@ -40,7 +40,7 @@ EXTRA_MSG= (
     auto_install=INSTALL_DEPENDENCIES,
     use_conda=USE_CONDA
 )
-class ModelExporter(BaseClass):
+class ModelExporter(BaseLearner):
     """
     Manages model export and serialization to various formats such as
     ONNX, TensorFlow, and PyTorch. Supports compression techniques like
@@ -653,7 +653,7 @@ class ModelExporter(BaseClass):
     auto_install=INSTALL_DEPENDENCIES,
     use_conda=USE_CONDA
 )
-class APIDeployment(BaseClass):
+class APIDeployment(BaseLearner):
     """
     Manages deployment of models as APIs using FastAPI or Flask. Supports
     versioning, scaling, monitoring, rate limiting, and graceful shutdown.
@@ -1051,7 +1051,7 @@ class APIDeployment(BaseClass):
         logger.info("Synchronous resource cleanup complete.")
 
 
-class CloudDeployment(BaseClass):
+class CloudDeployment(BaseLearner):
     """
     Manages cloud deployment for models across AWS SageMaker, GCP AI Platform,
     and Azure Machine Learning. Supports multi-cloud deployment and continuous
@@ -1488,7 +1488,7 @@ class CloudDeployment(BaseClass):
             logger.error(f"Failed to set up continuous deployment for '{self.model_name}': {e}")
             raise
 
-class ABTesting(BaseClass):
+class ABTesting(BaseLearner):
     """
     Manages A/B testing for models in production, enabling traffic routing
     between different versions. Supports dynamic traffic split adjustments,

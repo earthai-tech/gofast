@@ -187,14 +187,71 @@ class NotFittedError(Exception):
     """
     pass
 
-class ScikitLearnImportError(Exception):
+class NotRunnedError(Exception):
     """
-    Exception raised when importing scikit-learn fails.
+    Exception raised when an operation requiring a 'runned' state 
+    is called on an object that has not completed the 'run' method.
 
-    Refer to `gofast` documentation for more information on scikit-learn
-    dependencies.
+    This exception is particularly relevant in `gofast` classes that 
+    implement a 'run' method for initialization or execution before 
+    further operations are performed.
+
+    Parameters
+    ----------
+    message : str, optional
+        A custom error message to be displayed. If not provided, a default
+        message is used, informing the user that the required 'run' method 
+        has not been executed.
+
+    Attributes
+    ----------
+    message : str
+        The error message provided during instantiation, or the default 
+        message if none was provided.
+
+    Notes
+    -----
+    This exception can be raised by utility functions like `check_is_runned`, 
+    which validates whether a class object has been properly "runned" before 
+    executing dependent operations. If an object lacks the `_is_runned` 
+    attribute or the `__gofast_is_runned__` method, `NotRunnedError` is 
+    triggered to ensure correct usage patterns.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import check_is_runned, NotRunnedError
+    >>> class ExampleClass:
+    ...     def __init__(self):
+    ...         self._is_runned = False
+    ...
+    ...     def run(self):
+    ...         self._is_runned = True
+    ...         print("Run completed.")
+    ...
+    ...     def process_data(self):
+    ...         if not self._is_runned:
+    ...             raise NotRunnedError("Object has not been runned.")
+    ...         print("Processing data...")
+    >>> model = ExampleClass()
+    >>> try:
+    ...     model.process_data()
+    ... except NotRunnedError as e:
+    ...     print(e)
+    Object has not been runned.
+
+    See Also
+    --------
+    NotFittedError : Exception raised when a 'fit' method is called on an 
+                     unfitted object.
+    check_is_runned : Function to validate if an object has been "runned".
+
+    References
+    ----------
+    .. [1] Scikit-learn's `NotFittedError` for comparison:
+           https://scikit-learn.org/stable/modules/generated/sklearn.exceptions.NotFittedError.html
     """
-    pass
+
+    pass 
 
 class GISError(Exception):
     """
