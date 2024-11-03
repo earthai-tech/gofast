@@ -302,7 +302,7 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
         )
         # Initialize the SGDClassifier with specified parameters
         self.linear_model_ = SGDClassifier(
-            loss='log',                    # Logistic regression
+            loss='log_loss',                    # Logistic regression
             learning_rate=learning_rate_type,
             eta0=self.learning_rate,       # Initial learning rate
             max_iter=self.max_iter,
@@ -337,11 +337,11 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
             batch_accuracy = accuracy_score(y_batch, y_pred) # 
             batch_twa_accuracy = twa_score(y_batch, y_pred) # 
     
-            metrics['loss'] = (metrics['loss'] * batch_idx + batch_loss) / (batch_idx + 1)
-            metrics['accuracy'] = (metrics['accuracy'] * batch_idx + batch_accuracy) / (batch_idx + 1)
-            metrics['time-weighted-accuracy'] = (
-                metrics['time-weighted-accuracy'] * batch_idx + batch_twa_accuracy
-                ) / (batch_idx + 1)
+            metrics['loss'] =  batch_loss # (metrics['loss'] * batch_idx + batch_loss) / (batch_idx + 1)
+            metrics['accuracy'] = batch_accuracy # (metrics['accuracy'] * batch_idx + batch_accuracy) / (batch_idx + 1)
+            metrics['time-weighted-accuracy'] =batch_twa_accuracy# (
+                # metrics['time-weighted-accuracy'] * batch_idx + batch_twa_accuracy
+                # ) / (batch_idx + 1)
             
         except ValueError:
             pass
@@ -460,7 +460,12 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
         n_batches = int(np.ceil(n_samples / self.batch_size))
         
         # Set up initial metrics dictionary
-        metrics = {'loss': 1.0, 'accuracy': 0.5, 'time-weighted-accuracy': 0.5, 'val_loss': 1.0, 'val_accuracy': 0.5}
+        metrics = {
+            'loss': 1.0, 'accuracy': 0.5, 
+            'time-weighted-accuracy': 0.5, 
+            'val_loss': 1.0, 
+            'val_accuracy': 0.5
+            }
         if self.early_stopping: 
             self._no_improvement_count = 0
 
@@ -490,43 +495,48 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
                     X_train_shuffled = X_train[indices]
                     y_train_shuffled = y_train[indices]
         
-                    epoch_loss, epoch_correct, epoch_twa_correct = 0, 0, 0
-        
                     for batch_idx in range(n_batches):
                         start = batch_idx * self.batch_size
                         end = min(start + self.batch_size, n_samples)
                         X_batch = X_train_shuffled[start:end]
                         y_batch = y_train_shuffled[start:end]
         
-                        # Partial fit on the batch
                         if epoch == 0 and batch_idx == 0:
                             self.linear_model_.partial_fit(X_batch, y_batch, classes=np.unique(y))
                         else:
                             self.linear_model_.partial_fit(X_batch, y_batch)
         
                         # Predict on the batch for accuracy
-                        y_pred = self.linear_model_.predict(X_batch)
-                        y_pred_proba = self.linear_model_.predict_proba(X_batch)
-        
-                        # Compute batch loss and accuracy and update metrics 
-                        self._update_metrics(y_batch, y_pred, y_pred_proba, metrics, batch_idx)
-             
-     
-                    if X_val is not None:
-                        y_val_pred_proba = self.linear_model_.predict_proba(X_val)
-                        y_val_pred = self.linear_model_.predict(X_val)
-                        val_loss = log_loss(y_val, y_val_pred_proba)
-                        val_accuracy = accuracy_score(y_val, y_val_pred)
-                        
-                        # Update validation metrics for the progress bar
-                        metrics['val_loss'] = val_loss
-                        metrics['val_accuracy'] = val_accuracy
-                        # Early stopping
-                        if val_loss < best_val_loss - self.tol:
-                            best_val_loss = val_loss
-                            self._no_improvement_count = 0
-                        else:
-                            self._no_improvement_count += 1
+                        # Print metrics without progress bar
+                        if batch_idx == n_batches - 1:
+                            y_pred = self.linear_model_.predict(X_batch)
+                            y_pred_proba = self.linear_model_.predict_proba(X_batch)
+                            try: 
+                                # Compute batch loss and accuracy and update metrics 
+                                self._update_metrics(y_batch, y_pred, y_pred_proba, metrics, batch_idx)
+                                
+                                if X_val is not None:
+                                    
+                                    y_val_pred_proba = self.linear_model_.predict_proba(X_val)
+                                    y_val_pred = self.linear_model_.predict(X_val)
+                                    val_loss = log_loss(y_val, y_val_pred_proba)
+                                    val_accuracy = accuracy_score(y_val, y_val_pred)
+                                    
+                                    # Update validation metrics for the progress bar
+                                    metrics['val_loss'] = val_loss
+                                    metrics['val_accuracy'] = val_accuracy
+                                    # Early stopping
+                                    if val_loss < best_val_loss -self.tol:
+                                        self._no_improvement_count = 0
+                                        best_val_loss = val_loss
+                                    else:
+                                        self._no_improvement_count += 1
+                            except: 
+                                
+                                pass 
+                            if self.early_stopping and self._no_improvement_count >= self.n_iter_no_change:
+                                print(f"Early stopping triggered after {epoch + 1} epochs.")
+                                break
         
                     if self.early_stopping and self._no_improvement_count >= self.n_iter_no_change:
                         print(f"Early stopping triggered after {epoch + 1} epochs.")
@@ -540,8 +550,7 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
                 X_train_shuffled = X_train[indices]
                 y_train_shuffled = y_train[indices]
         
-                epoch_loss, epoch_correct, epoch_twa_correct = 0, 0, 0
-        
+                #epoch_loss, epoch_correct, epoch_twa_correct = 0, 0, 0
                 for batch_idx in range(n_batches):
                     start = batch_idx * self.batch_size
                     end = min(start + self.batch_size, n_samples)
@@ -582,9 +591,9 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
                                 else:
                                     self._no_improvement_count += 1
         
-                                if self.early_stopping and self._no_improvement_count >= self.early_stopping:
-                                    print(f"Early stopping triggered after {epoch + 1} epochs.")
-                                    break
+                            if self.early_stopping and self._no_improvement_count >= self.n_iter_no_change:
+                                print(f"Early stopping triggered after {epoch + 1} epochs.")
+                                break
                         except ValueError:
                             pass
 
@@ -604,35 +613,6 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
 
         return self
     
-    def _update_no_improvement_count(self, early_stopping, X_val, y_val):
-        if early_stopping:
-            # compute validation score, use that for stopping
-            self.validation_scores_.append(self._score(X_val, y_val))
-
-            if self.verbose:
-                print("Validation score: %f" % self.validation_scores_[-1])
-            # update best parameters
-            # use validation_scores_, not loss_curve_
-            # let's hope no-one overloads .score with mse
-            last_valid_score = self.validation_scores_[-1]
-
-            if last_valid_score < (self.best_validation_score_ + self.tol):
-                self._no_improvement_count += 1
-            else:
-                self._no_improvement_count = 0
-
-            if last_valid_score > self.best_validation_score_:
-                self.best_validation_score_ = last_valid_score
-                self._best_coefs = [c.copy() for c in self.coefs_]
-                self._best_intercepts = [i.copy() for i in self.intercepts_]
-        else:
-            if self.loss_curve_[-1] > self.best_loss_ - self.tol:
-                self._no_improvement_count += 1
-            else:
-                self._no_improvement_count = 0
-            if self.loss_curve_[-1] < self.best_loss_:
-                self.best_loss_ = self.loss_curve_[-1]
-                
 
 
     def predict_proba(self, X):
@@ -868,10 +848,10 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
 
         # Compute loss using sklearn's log_loss
         if self.loss == "cross_entropy":
-            loss = log_loss(y_true, y_pred_proba, eps=self.epsilon)
+            loss = log_loss(y_true, y_pred_proba)
         elif self.loss == "time_weighted_cross_entropy":
             weights = self._compute_time_weights(len(y_true))
-            loss = log_loss(y_true, y_pred_proba, sample_weight=weights, eps=self.epsilon)
+            loss = log_loss(y_true, y_pred_proba, sample_weight=weights)
         else:
             raise ValueError("Unsupported loss function.")
 
